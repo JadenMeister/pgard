@@ -27,6 +27,7 @@ import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import {
   MAX_PROGRESS_EVENTS,
+  PORT_ACCESS_WINDOW_MS,
   PROBE_CONFIRM_WINDOW_MS,
   type SessionState,
 } from "../session/session-state.js";
@@ -116,14 +117,19 @@ const getSession: ApiHandler = async (context) => {
 const startVerify: ApiHandler = async (context) => {
   const { state } = context;
   if (state.auth.status === "running") return authStatus(state);
-  const run: SessionState["auth"] = { status: "running", outcome: null, message: null };
+  const run: SessionState["auth"] = {
+    status: "running",
+    outcome: null,
+    finishedAt: null,
+    message: null,
+  };
   state.auth = run;
   void context.deps
     .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
-      state.auth = { status: "done", outcome, message: null };
+      state.auth = { status: "done", outcome, finishedAt: context.deps.now(), message: null };
     })
     .catch(() => {
       if (state.auth !== run) return;
@@ -131,6 +137,7 @@ const startVerify: ApiHandler = async (context) => {
       state.auth = {
         status: "failed",
         outcome: null,
+        finishedAt: context.deps.now(),
         message: "The authorization check could not complete.",
       };
     });
@@ -143,7 +150,7 @@ const getAuth: ApiHandler = async (context) => authStatus(context.state);
 const signOut: ApiHandler = async (context) => {
   context.github.signOut();
   context.state.deviceCode = null;
-  context.state.auth = { status: "idle", outcome: null, message: null };
+  context.state.auth = { status: "idle", outcome: null, finishedAt: null, message: null };
   return authStatus(context.state);
 };
 
@@ -153,14 +160,23 @@ const signOut: ApiHandler = async (context) => {
  * same order the CLI uses). "Allowed" means `isAuthorizationAllowed`: the decision is allowed and all
  * five checks are present, in order, and passed. The outcome is read from server state only;
  * nothing the browser sends can open this gate. A new check, sign-out or a blocked/failed result
- * closes it again. Returns the authorization record that passed, for `requireSameAuthorization`.
+ * closes it again, and an allowed result expires after `PORT_ACCESS_WINDOW_MS`. Returns the
+ * authorization record that passed, for `requireSameAuthorization`.
  */
-export function requirePortAccessAuthorized(state: SessionState): SessionState["auth"] {
+export function requirePortAccessAuthorized(
+  state: SessionState,
+  now: number,
+): SessionState["auth"] {
   const auth = state.auth;
-  const { status, outcome, message } = auth;
-  if (status === "done" && outcome !== null && isAuthorizationAllowed(outcome)) return auth;
+  const { status, outcome, finishedAt, message } = auth;
+  const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
+  const isFresh = finishedAt !== null && now - finishedAt <= PORT_ACCESS_WINDOW_MS;
+  if (isAllowed && isFresh) return auth;
   let reason: string;
-  if (status === "running") {
+  if (isAllowed) {
+    reason =
+      "The authorization check is more than 30 minutes old. Check again before PGARD contacts local services.";
+  } else if (status === "running") {
     reason = "The authorization check is still running. Local services are not contacted yet.";
   } else if (status === "done") {
     reason =
@@ -178,8 +194,8 @@ export function requirePortAccessAuthorized(state: SessionState): SessionState["
  * record that opened the request. Signing out or starting a new check while lsof or a probe was
  * running replaces `state.auth`, so the request stops before contacting anything else.
  */
-function requireSameAuthorization(state: SessionState, authAtStart: SessionState["auth"]): void {
-  if (requirePortAccessAuthorized(state) !== authAtStart) {
+function requireSameAuthorization(context: ApiContext, authAtStart: SessionState["auth"]): void {
+  if (requirePortAccessAuthorized(context.state, context.deps.now()) !== authAtStart) {
     throw new ApiError(
       403,
       "authorization_required",
@@ -189,16 +205,16 @@ function requireSameAuthorization(state: SessionState, authAtStart: SessionState
 }
 
 const listPorts: ApiHandler = async (context) => {
-  const authAtStart = requirePortAccessAuthorized(context.state);
+  const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const discovery = await context.deps.discoverListeningPorts();
-  requireSameAuthorization(context.state, authAtStart);
+  requireSameAuthorization(context, authAtStart);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
       ...toIdentityDto(await context.deps.probeLocalService(entry.port)),
       processName: entry.processName,
     })),
   );
-  requireSameAuthorization(context.state, authAtStart);
+  requireSameAuthorization(context, authAtStart);
   const response: PortListResponse = {
     services: services.filter((service) => service.isHttp),
     isDiscoveryAvailable: discovery.isAvailable,
@@ -212,9 +228,9 @@ const listPorts: ApiHandler = async (context) => {
  * it ran under so a later sign-out or re-check makes it unconfirmable.
  */
 const probePort: ApiHandler = async (context, body) => {
-  const authAtStart = requirePortAccessAuthorized(context.state);
+  const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const identity = await context.deps.probeLocalService(readPort(body));
-  requireSameAuthorization(context.state, authAtStart);
+  requireSameAuthorization(context, authAtStart);
   context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
   return toIdentityDto(identity);
 };
@@ -224,7 +240,7 @@ const probePort: ApiHandler = async (context, body) => {
  * and only if it answered HTTP. The browser never supplies the target object itself.
  */
 const confirmTarget: ApiHandler = async (context, body) => {
-  const auth = requirePortAccessAuthorized(context.state);
+  const auth = requirePortAccessAuthorized(context.state, context.deps.now());
   const port = readPort(body);
   if (asRecord(body).isConfirmed !== true) {
     throw new ApiError(400, "not_confirmed", "Explicit confirmation is required.");

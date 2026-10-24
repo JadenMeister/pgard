@@ -6,6 +6,11 @@ import type { DeviceCodeInfo, JobStatus, ScanProgressDto } from "../../shared/ap
 /** A probe is only confirmable for a short time after the user saw it. */
 export const PROBE_CONFIRM_WINDOW_MS = 10 * 60 * 1000;
 export const MAX_PROGRESS_EVENTS = 200;
+/**
+ * How long an allowed authorization check keeps port discovery and probes open. Scans re-check
+ * on every run; this keeps the dashboard from contacting local services hours after a check.
+ */
+export const PORT_ACCESS_WINDOW_MS = 30 * 60 * 1000;
 
 /**
  * Everything the dashboard knows, held in memory for the server's lifetime only. Nothing here is
@@ -20,6 +25,8 @@ export interface SessionState {
     status: JobStatus;
     /** The full outcome (all five checks) once the check finished, otherwise null. */
     outcome: AuthorizationOutcome | null;
+    /** When the check finished (`deps.now()`), or null while none has finished. */
+    finishedAt: number | null;
     message: string | null;
   };
   /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
@@ -39,7 +46,7 @@ export interface SessionState {
 
 export function createSessionState(): SessionState {
   return {
-    auth: { status: "idle", outcome: null, message: null },
+    auth: { status: "idle", outcome: null, finishedAt: null, message: null },
     deviceCode: null,
     lastProbe: null,
     confirmedTarget: null,

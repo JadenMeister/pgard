@@ -496,6 +496,23 @@ describe("local web port access authorization gate", () => {
     expect(JSON.parse(confirm.body).error.code).toBe("probe_required");
   });
 
+  it("expires an allowed authorization after 30 minutes", async () => {
+    let clock = 1_000_000;
+    const { deps, discoverListeningPorts } = spiedDeps(ALLOWED_VERIFY);
+    deps.now = () => clock;
+    const running = await start(deps);
+    await authorize(running);
+    clock += 30 * 60 * 1000;
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    clock += 1;
+    await expectRefused(running);
+    const body = JSON.parse((await apiGet(running, "/api/ports")).body);
+    expect(body.error.message).toContain("30 minutes");
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    expect(discoverListeningPorts).toHaveBeenCalledTimes(2);
+  });
+
   it("ignores anything the client sends about authorization", async () => {
     const { deps, discoverListeningPorts, probeLocalService } = spiedDeps();
     const running = await start(deps);
