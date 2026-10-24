@@ -45,8 +45,11 @@ const REFERENCE_ROOTS =
   "process\\.env|import\\.meta\\.env|os\\.environ|req|request|res|ctx|context|this|self|config|configuration|settings|options|opts|env|params|props|args|body|input|form|values|state";
 // Calls are exempt only with no argument, a plain identifier, or an env-var-style string
 // (`getSecret()`, `load(name)`, `os.getenv("DB_PASSWORD")`); `Secret(123)` is masked.
+// Only well-known environment/config getters may take a string argument.
+const ENV_GETTERS =
+  "os\\.getenv|getenv|os\\.environ\\.get|process\\.env\\.get|Deno\\.env\\.get|env\\.get|config\\.get|configService\\.get|settings\\.get|System\\.getenv|ENV\\.fetch";
 const CODE_REFERENCE = new RegExp(
-  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\((?:[A-Za-z_$][\\w$]{0,64}|"[A-Z_][A-Z0-9_]{0,64}"|'[A-Z_][A-Z0-9_]{0,64}')?\\))$`,
+  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\((?:[A-Za-z_$][\\w$]{0,64})?\\)|(?:${ENV_GETTERS})\\((?:"[A-Z_][A-Z0-9_]{0,64}"|'[A-Z_][A-Z0-9_]{0,64}')\\))$`,
 );
 /**
  * Unquoted words that follow `password:` in prose or type annotations rather than being values
@@ -234,7 +237,7 @@ export function capText(text: string, limit: number): string {
   // Cut after the last character that cannot be part of a token (whitespace or punctuation such
   // as `;` in a minified line), so the dropped tail holds the whole token that straddled the
   // limit and useful evidence before it is kept.
-  const lastBreak = cut.search(/[^A-Za-z0-9_\-+/=.~%][A-Za-z0-9_\-+/=.~%]*$/);
+  const lastBreak = cut.search(/[\s;,(){}[\]<>"'`|][^\s;,(){}[\]<>"'`|]*$/);
   return lastBreak >= 0 ? `${cut.slice(0, lastBreak + 1).trimEnd()} …` : " …";
 }
 

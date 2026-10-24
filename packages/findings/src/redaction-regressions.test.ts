@@ -122,6 +122,17 @@ describe("redaction regressions", () => {
     expect(redactEvidence(text)).toBe(text);
   });
 
+  it("#96 cutting never keeps a URL password prefix", () => {
+    expect(capText("https://user:pa$$w0rd@host/x", 18)).not.toContain("pa$");
+  });
+
+  it("#96 only environment getters may take a string argument", () => {
+    expect(redactSecrets('password=decode("HUNTER2PROD")')).not.toContain("HUNTER2PROD");
+    expect(redactSecrets('password = os.getenv("DB_PASSWORD")')).toBe(
+      'password = os.getenv("DB_PASSWORD")',
+    );
+  });
+
   it("#60 cut points never leave a partial token", () => {
     const token = join("ghp", "_", "w".repeat(36));
     expect(capText(`${"a;".repeat(2047)}x=${token};`, 4100)).not.toContain("ghp_w");
