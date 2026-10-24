@@ -307,6 +307,34 @@ describe("runScan", () => {
     expect(result.findings[0]?.sources).toEqual(["code", "web"]);
   });
 
+  it("redacts coverage notes (#53)", async () => {
+    authorizeProject.mockResolvedValue(ALLOWED);
+    const fakeToken = ["ghp", "_", "n".repeat(36)].join("");
+    const result = await runScan(
+      request({ scopes: ["code"] }),
+      deps({
+        analyzers: {
+          code: async () => ({
+            findings: [],
+            coverage: [
+              {
+                area: "source:typescript",
+                scope: "code" as const,
+                status: "partial" as const,
+                ruleIds: [],
+                note: `failed on ${ROOT}/src/x.ts with ${fakeToken} under /opt/cache/y`,
+              },
+            ],
+          }),
+        },
+      }),
+    );
+    const json = JSON.stringify(result.coverage);
+    expect(json).not.toContain(fakeToken);
+    expect(json).not.toContain(ROOT);
+    expect(json).not.toContain("/opt/cache");
+  });
+
   it("drops paths that escape the project root", async () => {
     authorizeProject.mockResolvedValue(ALLOWED);
     const outside = finding({

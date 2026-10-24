@@ -5,6 +5,7 @@ import {
   SCHEMA_VERSION,
   deriveOverallStatus,
   mergeFindings,
+  redactEvidence,
   type AdvisoryDbInfo,
   type AnalyzerOutput,
   type AuthorizationSummary,
@@ -172,8 +173,22 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       revision: fields.outcome?.revision ?? null,
       webOrigin: isWebTargetValid && request.webTarget ? request.webTarget.origin : null,
     },
-    authorization: fields.authorization,
-    coverage: fields.coverage,
+    authorization: {
+      ...fields.authorization,
+      checks: fields.authorization.checks.map((check) => ({
+        ...check,
+        reason: redactEvidence(check.reason, { projectRoot: request.projectRoot }),
+      })),
+    },
+    // Notes can come from any analyzer (including the injected web scanner): redact them
+    // exactly like evidence.
+    coverage: fields.coverage.map((entry) => ({
+      ...entry,
+      note:
+        entry.note === null
+          ? null
+          : redactEvidence(entry.note, { projectRoot: request.projectRoot }),
+    })),
     findings: sortFindings(mergeFindings(fields.findings)),
     advisoryDb: fields.advisoryDb,
   });
