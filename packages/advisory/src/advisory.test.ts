@@ -10,7 +10,7 @@ import {
   parsePnpmLock,
   parseYarnLock,
 } from "./lockfiles.js";
-import { isVersionAffected, loadAdvisoryDb } from "./osv-db.js";
+import { isVersionAffected, loadAdvisoryDb, peekAdvisoryDb } from "./osv-db.js";
 import { scanDependencies } from "./scan-dependencies.js";
 import { compareVersions } from "./version.js";
 
@@ -570,5 +570,48 @@ describe("package.json lockfile coverage (#114)", () => {
     );
     expect(npm?.status).toBe("not_tested");
     expect(npm?.note).toMatch(/p4\/package\.json and 2 more/);
+  });
+});
+
+describe("advisory database peek (#115)", () => {
+  const peekCoverage = async (location: string) => {
+    const root = tempDir({ "README.md": "x" });
+    const result = await scanDependencies(root, { env: { PGARD_ADVISORY_DB: location }, now });
+    return result.coverage.find((entry) => entry.area === "dependencies:advisory-db");
+  };
+
+  it("reports an empty database directory as not tested", async () => {
+    const dir = tempDir({ "notes.txt": "not a database" });
+    const entry = await peekCoverage(dir);
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/no OSV \.json files/);
+  });
+
+  it("reports a directory of non-OSV JSON as not tested", async () => {
+    const dir = tempDir({ "a/junk.json": JSON.stringify({ hello: "world" }) });
+    const entry = await peekCoverage(dir);
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/not valid OSV/);
+  });
+
+  it("reports a directory that was only sampled as partial, never completed", async () => {
+    const dir = tempDir({ "npm/GHSA-test-lodash.json": JSON.stringify(LODASH_ADVISORY) });
+    const status = await peekAdvisoryDb({ PGARD_ADVISORY_DB: dir }, now);
+    expect(status).toMatchObject({ status: "ok", validated: false, version: null });
+    const entry = await peekCoverage(dir);
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toMatch(/not verified/);
+  });
+
+  it("reports a large database file that was not loaded as partial", async () => {
+    const dir = tempDir({ "big.json": " ".repeat(8 * 1024 * 1024 + 1) });
+    const entry = await peekCoverage(path.join(dir, "big.json"));
+    expect(entry?.status).toBe("partial");
+  });
+
+  it("still reports a small, fully loaded database as completed", async () => {
+    const status = await peekAdvisoryDb({ PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) }, now);
+    expect(status.status).toBe("ok");
+    expect(status.validated).not.toBe(false);
   });
 });

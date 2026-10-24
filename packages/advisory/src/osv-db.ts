@@ -48,6 +48,12 @@ export interface AdvisoryDbStatus {
   advisoryCount: number;
   /** English explanation safe to display (never includes the DB path). */
   note: string;
+  /**
+   * `false` when the database was only checked cheaply (see `peekAdvisoryDb`) and its contents,
+   * version and freshness were not verified; such a status must not be reported as completed.
+   * Absent (or `true`) when the status comes from a full load.
+   */
+  validated?: boolean;
 }
 
 export interface LoadedAdvisoryDb {
@@ -336,10 +342,53 @@ export async function loadAdvisoryDb(
 
 const PEEK_MAX_BYTES = 8 * 1024 * 1024;
 
+/** Depth-first search for the first `.json` file in a directory tree (sorted, stops early). */
+async function findFirstJsonFile(directory: string, depth = 0): Promise<string | null> {
+  if (depth > 16) return null;
+  const entries = await readdir(directory, { withFileTypes: true });
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(".json")) return path.join(directory, entry.name);
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const found = await findFirstJsonFile(path.join(directory, entry.name), depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * Cheap check of a database directory: at least one `.json` file (≤ 8 MiB) must parse as an OSV
+ * record. Returns a note explaining the failure, or null when the sample is valid.
+ */
+async function checkDirectorySample(directory: string): Promise<string | null> {
+  let file: string | null;
+  try {
+    file = await findFirstJsonFile(directory);
+  } catch {
+    return "The advisory database directory could not be read.";
+  }
+  if (!file) return "The advisory database directory contains no OSV .json files.";
+  try {
+    if ((await stat(file)).size > PEEK_MAX_BYTES) {
+      return "The advisory database directory could not be checked: its first record file is too large.";
+    }
+    if (!parseOsvRecord(JSON.parse(await readFile(file, "utf8")))) {
+      return "The advisory database directory contains records that are not valid OSV entries.";
+    }
+  } catch {
+    return "The advisory database directory contains files that could not be read or are not valid JSON.";
+  }
+  return null;
+}
+
 /**
  * Cheap status for when no comparison is needed: reports a missing/unset database, fully reads a
- * small database (≤ 8 MiB) for its metadata, and otherwise only confirms the configured path
- * exists (version/updatedAt then stay null).
+ * small database file (≤ 8 MiB) for its metadata, checks that a directory holds at least one
+ * valid OSV record, and otherwise only confirms the configured path exists. Anything not fully
+ * loaded is returned with `validated: false` (version/updatedAt stay null) so callers do not
+ * report it as completed.
  */
 export async function peekAdvisoryDb(
   env: Readonly<Record<string, string | undefined>>,
@@ -360,12 +409,20 @@ export async function peekAdvisoryDb(
   if (info.isFile() && info.size <= PEEK_MAX_BYTES) {
     return (await loadAdvisoryDb(env, now, signal)).status;
   }
+  if (info.isDirectory()) {
+    const problem = await checkDirectorySample(location);
+    if (problem) return emptyDb("invalid", problem).status;
+  } else if (!info.isFile()) {
+    return emptyDb("invalid", "The advisory database path is neither a file nor a directory.")
+      .status;
+  }
   return {
     status: "ok",
     version: null,
     updatedAt: null,
     advisoryCount: 0,
-    note: "An advisory database is configured; it was not loaded because nothing needed comparing.",
+    note: `An advisory database is configured; it was not fully loaded because nothing needed comparing, so its contents, version and freshness were not verified.${info.isDirectory() ? " A sample record is valid OSV." : ""}`,
+    validated: false,
   };
 }
 

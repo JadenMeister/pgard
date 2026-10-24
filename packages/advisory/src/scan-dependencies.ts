@@ -349,10 +349,11 @@ export async function scanDependencies(
       ? {
           area: "dependencies:advisory-db",
           scope: "code",
+          // A database that was only checked cheaply (not fully loaded) is never "completed".
           status:
-            peek === null || peek.status === "ok"
+            peek?.status === "ok" && peek.validated !== false
               ? "completed"
-              : peek.status === "stale"
+              : peek?.status === "ok" || peek?.status === "stale"
                 ? "partial"
                 : "not_tested",
           ruleIds: [],
