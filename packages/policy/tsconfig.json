@@ -5,10 +5,16 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts"],
+  "exclude": ["src/**/*.test.ts", "src/test-support/**"],
   "references": [
     {
       "path": "../findings"
+    },
+    {
+      "path": "../github-auth"
+    },
+    {
+      "path": "../git-history"
     }
   ]
 }
