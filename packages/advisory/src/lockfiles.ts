@@ -138,9 +138,28 @@ export function parsePnpmLock(text: string): LockfileParseResult {
 }
 
 /**
+ * Package name behind a Yarn Berry built-in patch (`resolve@patch:resolve@npm%3A^1.20.0#~builtin<compat/resolve>`,
+ * or `#optional!builtin<...>` in Yarn 4). Yarn applies these compatibility patches to registry
+ * packages itself, so the entry is that registry release. User patches (`#./patches/x.patch`)
+ * may change the code (including fixing a vulnerability) and non-registry sources cannot be
+ * compared; both return null.
+ */
+function builtinPatchTarget(source: string, patch: string): string | null {
+  if (!/^(~|optional!)builtin</.test(patch)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(source);
+  } catch {
+    return null;
+  }
+  const match = /^((?:@[^/@]+\/)?[^/@]+)@(?:npm:)?([^@:]+)$/.exec(decoded);
+  return match?.[1] && /^[\^~<>=*\dv]/.test(match[2] ?? "") ? match[1] : null;
+}
+
+/**
  * yarn.lock v1 (`version "1.0.0"`) and Berry (`version: 1.0.0`). Aliases
- * (`alias@npm:real@^1`) resolve to the real package; git/file/link/workspace/patch entries are
- * counted as not comparable.
+ * (`alias@npm:real@^1`) and Berry built-in patches resolve to the real package;
+ * git/file/link/workspace and user-patch entries are counted as not comparable.
  */
 export function parseYarnLock(text: string): LockfileParseResult {
   const packages: ResolvedPackage[] = [];
@@ -154,6 +173,12 @@ export function parseYarnLock(text: string): LockfileParseResult {
       const firstSpec = line.replace(/:\s*$/, "").split(",")[0]?.trim().replace(/^"|"$/g, "") ?? "";
       currentName = null;
       if (firstSpec.startsWith("__metadata")) continue;
+      const patch = /^(?:@[^/@]+\/)?[^/@]+@patch:([^#]+)#(.*)$/.exec(firstSpec);
+      if (patch?.[1] && patch[2] !== undefined) {
+        currentName = builtinPatchTarget(patch[1], patch[2]);
+        if (currentName === null) uncomparable += 1;
+        continue;
+      }
       if (/@(workspace|patch|link|portal|file|git|github|exec):|#|\.git\b/.test(firstSpec)) {
         uncomparable += 1;
         continue;

@@ -702,3 +702,55 @@ describe("go.mod before Go 1.17 (#115)", () => {
     expect(parseGoMod("module x\n\ngo 1.22.3\n").incomplete).toBeUndefined();
   });
 });
+
+describe("Yarn Berry patches (#115)", () => {
+  const berry = [
+    "__metadata:",
+    "  version: 8",
+    "",
+    '"lodash@npm:^4.17.0":',
+    "  version: 4.17.20",
+    '  resolution: "lodash@npm:4.17.20"',
+    "",
+    '"lodash@patch:lodash@npm%3A^4.17.0#~builtin<compat/lodash>":',
+    "  version: 4.17.20",
+    '  resolution: "lodash@patch:lodash@npm%3A4.17.20#~builtin<compat/lodash>::version=4.17.20&hash=1"',
+    "",
+    '"@types/x@patch:@types/x@npm%3A1.2.3#optional!builtin<compat/x>":',
+    "  version: 1.2.3",
+    '  resolution: "@types/x@patch:@types/x@npm%3A1.2.3#optional!builtin<compat/x>::version=1.2.3&hash=2"',
+    "",
+    '"left-pad@patch:left-pad@npm%3A1.0.0#./patches/left-pad.patch::locator=app%40workspace%3A.":',
+    "  version: 1.0.0",
+    '  resolution: "left-pad@patch:left-pad@npm%3A1.0.0#./patches/left-pad.patch::version=1.0.0&hash=3"',
+    "",
+  ].join("\n");
+
+  it("resolves built-in patches to the underlying package and keeps user patches uncomparable", () => {
+    const result = parseYarnLock(berry);
+    expect(result.packages.map((p) => `${p.name}@${p.version}`)).toEqual([
+      "lodash@4.17.20",
+      "@types/x@1.2.3",
+    ]);
+    expect(result.uncomparable).toBe(1);
+  });
+
+  it("matches advisories through a built-in patch without making coverage partial", async () => {
+    const root = tempDir({
+      "yarn.lock": [
+        "__metadata:",
+        "  version: 8",
+        "",
+        '"lodash@patch:lodash@npm%3A^4.17.0#~builtin<compat/lodash>":',
+        "  version: 4.17.20",
+        "",
+      ].join("\n"),
+    });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    expect(result.findings.map((finding) => finding.ruleId)).toEqual(["PG-DEP-001"]);
+    expect(result.coverage.find((e) => e.area === "dependencies:npm")?.status).toBe("completed");
+  });
+});
