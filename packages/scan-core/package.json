@@ -18,6 +18,7 @@
     "@pgard/findings": "0.1.0",
     "@pgard/git-history": "0.1.0",
     "@pgard/github-auth": "0.1.0",
-    "@pgard/policy": "0.1.0"
+    "@pgard/policy": "0.1.0",
+    "@pgard/source-analysis": "0.1.0"
   }
 }

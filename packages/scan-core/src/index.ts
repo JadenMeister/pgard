@@ -2,6 +2,7 @@ export { runScan, ScanRequestError, isValidConfirmedWebTarget } from "./run-scan
 export { toRepositoryRelativePath } from "./paths.js";
 export { PGARD_VERSION } from "./version.js";
 export { verifyProject } from "./verify-project.js";
+export { listSupportedRules, type RuleDescriptor, type RuleLanguage } from "./rules.js";
 export {
   ScanCancelledError,
   type AnalyzerContext,
