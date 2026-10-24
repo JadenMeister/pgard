@@ -471,6 +471,50 @@ describe("local web port access authorization gate", () => {
     expect(probeLocalService).not.toHaveBeenCalled();
   });
 
+  it("returns no port list when the user signs out while the probes run", async () => {
+    const probe = deferred(IDENTITY);
+    const running = await start(
+      fakeDeps({ verifyProject: ALLOWED_VERIFY, probeLocalService: probe.fn }),
+    );
+    await authorize(running);
+    const pending = apiGet(running, "/api/ports");
+    await probe.called;
+    await apiPost(running, "/api/auth/sign-out");
+    probe.release();
+    const response = await pending;
+    expect(response.status).toBe(403);
+    expect(JSON.parse(response.body).error.code).toBe("authorization_required");
+    expect(response.body).not.toContain("Shop dev");
+  });
+
+  it.each([
+    ["signs out", (running: LocalWebServer) => apiPost(running, "/api/auth/sign-out")],
+    ["re-verifies", (running: LocalWebServer) => authorize(running)],
+  ])("aborts probes in flight when the user %s", async (_label, interrupt) => {
+    const signals: AbortSignal[] = [];
+    let markCalled: () => void = () => undefined;
+    const called = new Promise<void>((resolve) => (markCalled = resolve));
+    // Like the real probe: it answers only when the service does, or "Cancelled." on abort.
+    const probeLocalService = vi.fn(
+      (_port: number, { signal }: { signal: AbortSignal }) =>
+        new Promise<ServiceIdentity>((resolve) => {
+          signals.push(signal);
+          signal.addEventListener("abort", () =>
+            resolve({ ...IDENTITY, status: null, isHttp: false, error: "Cancelled." }),
+          );
+          markCalled();
+        }),
+    );
+    const running = await start(fakeDeps({ verifyProject: ALLOWED_VERIFY, probeLocalService }));
+    await authorize(running);
+    const pending = apiPost(running, "/api/ports/probe", { port: 3000 });
+    await called;
+    expect(signals[0]?.aborted).toBe(false);
+    await interrupt(running);
+    expect(signals[0]?.aborted).toBe(true);
+    expect((await pending).status).toBe(403);
+  });
+
   it("does not keep a probe that finished after sign-out", async () => {
     const probe = deferred(IDENTITY);
     const running = await start(
@@ -520,6 +564,33 @@ describe("local web port access authorization gate", () => {
     await authorize(running);
     expect((await apiGet(running, "/api/ports")).status).toBe(200);
     expect(discoverListeningPorts).toHaveBeenCalledTimes(2);
+  });
+
+  it("tells the browser when port access expires", async () => {
+    let failing: AuthorizationCheckId | null = null;
+    const { deps } = spiedDeps(async () => outcome(failing));
+    const running = await start(deps);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).expiresAt).toBeNull();
+    await authorize(running);
+    const allowed = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(allowed.expiresAt).toBe(1_000_000 + 30 * 60 * 1000);
+    failing = "owner_approval";
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).expiresAt).toBeNull();
+  });
+
+  it("closes the gate when the clock moves back before the check finished", async () => {
+    let clock = 1_000_000;
+    const { deps, discoverListeningPorts } = spiedDeps(ALLOWED_VERIFY);
+    deps.now = () => clock;
+    const running = await start(deps);
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    clock -= 60 * 60 * 1000;
+    await expectRefused(running);
+    const body = JSON.parse((await apiGet(running, "/api/ports")).body);
+    expect(body.error.message).toContain("clock moved back");
+    expect(discoverListeningPorts).toHaveBeenCalledTimes(1);
   });
 
   it("ignores anything the client sends about authorization", async () => {

@@ -29,9 +29,11 @@ import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import { readStoredSignInDto } from "../session/stored-sign-in.js";
 import {
+  isWithinWindow,
   MAX_PROGRESS_EVENTS,
   PORT_ACCESS_WINDOW_MS,
   PROBE_CONFIRM_WINDOW_MS,
+  setAuth,
   type SessionState,
 } from "../session/session-state.js";
 
@@ -96,7 +98,8 @@ function scanStatus(state: SessionState): ScanStatus {
 }
 
 function authStatus(state: SessionState): AuthStatus {
-  const { status, outcome, message } = state.auth;
+  const { status, outcome, finishedAt, message } = state.auth;
+  const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
   return {
     status,
     deviceCode: state.deviceCode,
@@ -105,6 +108,8 @@ function authStatus(state: SessionState): AuthStatus {
     message,
     storedSignIn: state.storedSignIn,
     signInNotice: state.signInNotice,
+    // Same window `requirePortAccessAuthorized` enforces; only shown, never trusted back.
+    expiresAt: isAllowed && finishedAt !== null ? finishedAt + PORT_ACCESS_WINDOW_MS : null,
   };
 }
 
@@ -130,24 +135,24 @@ const startVerify: ApiHandler = async (context) => {
     finishedAt: null,
     message: null,
   };
-  state.auth = run;
+  setAuth(state, run);
   state.signInNotice = null;
   void context.deps
     .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
-      state.auth = { status: "done", outcome, finishedAt: context.deps.now(), message: null };
+      setAuth(state, { status: "done", outcome, finishedAt: context.deps.now(), message: null });
     })
     .catch(() => {
       if (state.auth !== run) return;
       state.deviceCode = null;
-      state.auth = {
+      setAuth(state, {
         status: "failed",
         outcome: null,
         finishedAt: context.deps.now(),
         message: "The authorization check could not complete.",
-      };
+      });
     });
   return authStatus(state);
 };
@@ -168,7 +173,7 @@ const signOut: ApiHandler = async (context, body) => {
   const { state } = context;
   context.github.signOut();
   state.deviceCode = null;
-  state.auth = { status: "idle", outcome: null, finishedAt: null, message: null };
+  setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
   const clientId = readGitHubAppClientId(context.env);
   if (removeStored !== true || clientId === null) {
     state.signInNotice =
@@ -208,10 +213,12 @@ export function requirePortAccessAuthorized(
   const auth = state.auth;
   const { status, outcome, finishedAt, message } = auth;
   const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
-  const isFresh = finishedAt !== null && now - finishedAt <= PORT_ACCESS_WINDOW_MS;
-  if (isAllowed && isFresh) return auth;
+  if (isAllowed && isWithinWindow(now, finishedAt, PORT_ACCESS_WINDOW_MS)) return auth;
   let reason: string;
-  if (isAllowed) {
+  if (isAllowed && finishedAt !== null && now < finishedAt) {
+    reason =
+      "The system clock moved back since the authorization check. Check again before PGARD contacts local services.";
+  } else if (isAllowed) {
     reason =
       "The authorization check is more than 30 minutes old. Check again before PGARD contacts local services.";
   } else if (status === "running") {
@@ -244,11 +251,13 @@ function requireSameAuthorization(context: ApiContext, authAtStart: SessionState
 
 const listPorts: ApiHandler = async (context) => {
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
+  // Taken together with `authAtStart`: it aborts as soon as that authorization is replaced.
+  const { signal } = context.state.portAccessController;
   const discovery = await context.deps.discoverListeningPorts();
   requireSameAuthorization(context, authAtStart);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
-      ...toIdentityDto(await context.deps.probeLocalService(entry.port)),
+      ...toIdentityDto(await context.deps.probeLocalService(entry.port, { signal })),
       processName: entry.processName,
     })),
   );
@@ -267,7 +276,8 @@ const listPorts: ApiHandler = async (context) => {
  */
 const probePort: ApiHandler = async (context, body) => {
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
-  const identity = await context.deps.probeLocalService(readPort(body));
+  const { signal } = context.state.portAccessController;
+  const identity = await context.deps.probeLocalService(readPort(body), { signal });
   requireSameAuthorization(context, authAtStart);
   context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
   return toIdentityDto(identity);
@@ -288,7 +298,7 @@ const confirmTarget: ApiHandler = async (context, body) => {
     probe === null ||
     probe.auth !== auth ||
     probe.identity.port !== port ||
-    context.deps.now() - probe.probedAt > PROBE_CONFIRM_WINDOW_MS
+    !isWithinWindow(context.deps.now(), probe.probedAt, PROBE_CONFIRM_WINDOW_MS)
   ) {
     throw new ApiError(
       409,

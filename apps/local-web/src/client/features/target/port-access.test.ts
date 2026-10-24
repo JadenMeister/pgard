@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { AuthStatus } from "../../../shared/api-types";
 import {
+  isAuthorizationRequiredError,
   isPortAccessAllowed,
+  isPortAccessExpired,
+  msUntilPortAccessExpires,
+  PORT_ACCESS_EXPIRED_MESSAGE,
   PortAccessController,
   portAccessMessage,
   startPortRequests,
@@ -131,5 +135,37 @@ describe("target panel port access controller", () => {
     expect(access.isCurrent(first)).toBe(false);
     expect(access.isCurrent(access.currentToken())).toBe(true);
     expect(access.isCurrent(null)).toBe(false);
+  });
+});
+
+describe("target panel port access expiry", () => {
+  const EXPIRES_AT = 5_000_000;
+  const EXPIRING: AuthStatus = { ...ALLOWED, expiresAt: EXPIRES_AT };
+
+  it("asks to check again once the allowed check has expired", () => {
+    expect(portAccessMessage(EXPIRING, EXPIRES_AT)).toBeNull();
+    expect(isPortAccessExpired(EXPIRING, EXPIRES_AT)).toBe(false);
+    expect(portAccessMessage(EXPIRING, EXPIRES_AT + 1)).toBe(PORT_ACCESS_EXPIRED_MESSAGE);
+    expect(isPortAccessExpired(EXPIRING, EXPIRES_AT + 1)).toBe(true);
+    expect(PORT_ACCESS_EXPIRED_MESSAGE).toContain("Check again");
+  });
+
+  it("reports how long until access expires, only for an allowed check", () => {
+    expect(msUntilPortAccessExpires(EXPIRING, EXPIRES_AT - 1000)).toBe(1000);
+    expect(msUntilPortAccessExpires(EXPIRING, EXPIRES_AT + 1000)).toBe(0);
+    expect(msUntilPortAccessExpires(ALLOWED, EXPIRES_AT)).toBeNull();
+    expect(msUntilPortAccessExpires(auth({ status: "idle" }), EXPIRES_AT)).toBeNull();
+  });
+
+  it("turns a 403 authorization_required into the check-again prompt, not a raw error", () => {
+    expect(isAuthorizationRequiredError({ status: 403, code: "authorization_required" })).toBe(
+      true,
+    );
+    expect(isAuthorizationRequiredError({ status: 403, code: "forbidden" })).toBe(false);
+    expect(isAuthorizationRequiredError({ status: 409, code: "authorization_required" })).toBe(
+      false,
+    );
+    expect(isAuthorizationRequiredError(new Error("x"))).toBe(false);
+    expect(isAuthorizationRequiredError(null)).toBe(false);
   });
 });

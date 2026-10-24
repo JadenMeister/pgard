@@ -18,6 +18,15 @@ export const MAX_PROGRESS_EVENTS = 200;
 export const PORT_ACCESS_WINDOW_MS = 30 * 60 * 1000;
 
 /**
+ * True while `now` lies in `[since, since + windowMs]`. `deps.now()` is wall-clock time, so a
+ * clock that moved back before `since` counts as outside the window (fail closed) instead of
+ * stretching it.
+ */
+export function isWithinWindow(now: number, since: number | null, windowMs: number): boolean {
+  return since !== null && now >= since && now - since <= windowMs;
+}
+
+/**
  * Everything the dashboard knows, held in memory for the server's lifetime only. Nothing here is
  * written to disk; `clear()` runs on shutdown.
  */
@@ -34,6 +43,12 @@ export interface SessionState {
     finishedAt: number | null;
     message: string | null;
   };
+  /**
+   * Aborts the port probes started under the current `auth`. Replace `auth` only through
+   * `setAuth`, which aborts this and creates a new one, so sign-out or a new check stops probes
+   * that are still in flight (their results would be discarded anyway).
+   */
+  portAccessController: AbortController;
   /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
   deviceCode: DeviceCodeInfo | null;
   /** What the keychain holds for this App (login only, never the token). */
@@ -56,6 +71,7 @@ export interface SessionState {
 export function createSessionState(): SessionState {
   return {
     auth: { status: "idle", outcome: null, finishedAt: null, message: null },
+    portAccessController: new AbortController(),
     deviceCode: null,
     storedSignIn: { status: "unknown" },
     signInNotice: null,
@@ -72,7 +88,15 @@ export function createSessionState(): SessionState {
   };
 }
 
+/** Stores a new authorization record and aborts probes started under the previous one. */
+export function setAuth(state: SessionState, auth: SessionState["auth"]): void {
+  state.portAccessController.abort();
+  state.portAccessController = new AbortController();
+  state.auth = auth;
+}
+
 export function clearSessionState(state: SessionState): void {
   state.scan.controller?.abort();
+  state.portAccessController.abort();
   Object.assign(state, createSessionState());
 }

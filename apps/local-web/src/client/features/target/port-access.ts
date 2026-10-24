@@ -9,9 +9,42 @@ export function isPortAccessAllowed(auth: AuthStatus | null): boolean {
   return auth?.status === "done" && auth.summary?.decision === "allowed";
 }
 
+export const PORT_ACCESS_EXPIRED_MESSAGE =
+  "Port access has expired: PGARD contacts local services only within 30 minutes of a passing authorization check. Use Check again above to continue.";
+
+/** True once the allowed check's `expiresAt` has passed (the server refuses from then on). */
+export function isPortAccessExpired(auth: AuthStatus | null, now: number): boolean {
+  return typeof auth?.expiresAt === "number" && now > auth.expiresAt;
+}
+
+/** Milliseconds until port access expires, or null when there is no allowed check to expire. */
+export function msUntilPortAccessExpires(auth: AuthStatus | null, now: number): number | null {
+  if (!isPortAccessAllowed(auth) || typeof auth?.expiresAt !== "number") return null;
+  return Math.max(0, auth.expiresAt - now);
+}
+
+/**
+ * True for the server's 403 `authorization_required`: the check expired or changed while the
+ * panel still showed it as allowed. The panel then asks the user to check again instead of
+ * showing the raw error.
+ */
+export function isAuthorizationRequiredError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { status?: unknown }).status === 403 &&
+    (error as { code?: unknown }).code === "authorization_required"
+  );
+}
+
 /** Why the service list is not shown yet, or null when port access is allowed. */
-export function portAccessMessage(auth: AuthStatus | null): string | null {
-  if (isPortAccessAllowed(auth)) return null;
+export function portAccessMessage(
+  auth: AuthStatus | null,
+  now: number = Date.now(),
+): string | null {
+  if (isPortAccessAllowed(auth)) {
+    return isPortAccessExpired(auth, now) ? PORT_ACCESS_EXPIRED_MESSAGE : null;
+  }
   if (auth?.status === "running") {
     return "Waiting for the authorization check. PGARD does not contact local services until it passes.";
   }
