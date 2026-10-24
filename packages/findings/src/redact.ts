@@ -35,13 +35,19 @@ const SENSITIVE_KEY =
   "[\\w.-]{0,64}(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|credential|session[_-]?id|auth[_-]?key)[\\w.-]{0,64}";
 
 /**
- * Unquoted values exempt from masking: member access or calls (`req.body.password`,
- * `getSecret()`, `process.env.DB_PASSWORD`). Anything else after `password=` / `token:` —
- * including identifier-like words such as `hunter2` — is treated as a secret.
+ * Unquoted values exempt from masking: references through well-known objects
+ * (`process.env.X`, `import.meta.env.X`, `req.body.password`, `this.secret`, `config.db.pwd`,
+ * `os.environ["X"]`) and well-formed calls (`getSecret()`, `os.getenv("X")`). Anything else after
+ * `password=` / `token:` (including `hunter2`, `foo.bar.baz123`, `abc(def`) is treated as a
+ * secret.
  */
-const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$|^[A-Za-z_$][\w$.]*\(/;
+const REFERENCE_ROOTS =
+  "process\\.env|import\\.meta\\.env|os\\.environ|req|request|res|ctx|context|this|self|config|configuration|settings|options|opts|env|params|props|args|body|input|form|values|state";
+const CODE_REFERENCE = new RegExp(
+  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\([^()\\s]{0,128}\\))$`,
+);
 const ALREADY_REDACTED = /^\[REDACTED:/;
-const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 /**
  * Index of the `@` that ends URL userinfo in `rest` (the text after `scheme://`), or -1.
@@ -132,7 +138,7 @@ const RULES: Rule[] = [
     // key = "double quoted" | 'single quoted' | `backtick` (a missing closing quote still
     // masks to end of line) | unquoted run up to whitespace or , ; ) } &
     pattern: new RegExp(
-      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;)}&]{1,4096}))`,
+      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;}&][^\\s,;}&]{0,4095}))`,
       "gim",
     ),
     replace: (match, prefix, dq, dqEnd, sq, sqEnd, bq, bqEnd, bare) => {

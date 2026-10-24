@@ -100,7 +100,7 @@ describe("redactSecrets", () => {
       `authorization: bearer ${join("sk-", "proj-", "e".repeat(30))}`,
       join("sk-", "proj-"),
     ],
-    ["zero-width split", join("AKIA", "​", "IOSFODNN7", "EXAMPLE"), "IOSFODNN7"],
+    ["zero-width split", join("AKIA", "\u200b", "IOSFODNN7", "EXAMPLE"), "IOSFODNN7"],
   ])("masks token variant: %s (#57)", (_label, input, secret) => {
     expect(redactSecrets(input)).not.toContain(secret);
   });
@@ -110,6 +110,25 @@ describe("redactSecrets", () => {
     "Basic authentication is enabled",
     "Use a Bearer header",
   ])("leaves prose untouched: %s (#58)", (text) => {
+    expect(redactSecrets(text)).toBe(text);
+  });
+
+  it.each([
+    ["SESSION_SECRET=foo.bar.baz123", "foo.bar.baz123"],
+    ["DB_PASSWORD=hunter2.prod", "hunter2.prod"],
+    ["password=abc(def", "abc(def"],
+  ])("masks values that only look like code: %s (#51)", (input, secret) => {
+    expect(redactSecrets(input)).not.toContain(secret);
+  });
+
+  it.each([
+    "password = process.env.DB_PASSWORD",
+    "secret: import.meta.env.VITE_SECRET",
+    "token = this.token",
+    "pwd = config.db.pwd",
+    'password = os.environ["DB_PASSWORD"]',
+    'password = os.getenv("DB_PASSWORD")',
+  ])("keeps references through known objects and calls: %s", (text) => {
     expect(redactSecrets(text)).toBe(text);
   });
 
