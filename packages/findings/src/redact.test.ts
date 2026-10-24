@@ -140,3 +140,32 @@ describe("createSessionSecretLabeler", () => {
     expect(createSessionSecretLabeler()(FAKE.password)).toBe("secret-1");
   });
 });
+
+describe("redaction performance (#55)", () => {
+  const timed = (fn: () => void) => {
+    const start = performance.now();
+    fn();
+    return performance.now() - start;
+  };
+
+  it.each([
+    ["long word", "a".repeat(200_000)],
+    ["dotted run", "a.".repeat(100_000)],
+    ["scheme-like run", `${"a".repeat(100_000)}://`],
+    ["sensitive key run", "password".repeat(25_000)],
+    ["key with separators", "x_password_".repeat(20_000)],
+    ["begin headers", "-----BEGIN PRIVATE KEY-----\n".repeat(5_000)],
+    ["cookie lines", "cookie: a\n".repeat(20_000)],
+  ])("redacts adversarial input (%s) quickly", (_label, input) => {
+    expect(timed(() => redactEvidence(input))).toBeLessThan(250);
+    expect(timed(() => redactSecrets(input))).toBeLessThan(1500);
+  });
+
+  it("caps very long input without leaving a partial secret at the cut", () => {
+    const token = ["ghp", "_", "k".repeat(36)].join("");
+    const input = `${"word ".repeat(13_105)}${token} tail`;
+    const output = redactSecrets(input);
+    expect(output.length).toBeLessThanOrEqual(64 * 1024 + 2);
+    expect(output).not.toContain("ghp_k");
+  });
+});

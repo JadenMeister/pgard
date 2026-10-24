@@ -29,8 +29,9 @@ interface Rule {
   replace: (match: string, ...groups: string[]) => string;
 }
 
+// All quantifiers are bounded so matching stays linear in the input length (no ReDoS).
 const SENSITIVE_KEY =
-  "[\\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|credential|session[_-]?id|auth[_-]?key)[\\w.-]*";
+  "[\\w.-]{0,64}(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|credential|session[_-]?id|auth[_-]?key)[\\w.-]{0,64}";
 
 /**
  * Unquoted values exempt from masking: member access or calls (`req.body.password`,
@@ -42,16 +43,17 @@ const ALREADY_REDACTED = /^\[REDACTED:/;
 
 const RULES: Rule[] = [
   {
+    // Complete block, or (without an END line) the base64 body that follows the header.
     pattern:
-      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g,
+      /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]{0,8192}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----|[A-Za-z0-9+/=\s]{0,8192})/g,
     replace: () => maskSecret("private_key"),
   },
   {
-    pattern: /([a-z][a-z0-9+.-]*:\/\/)([^\s:@/]+):([^\s@/]+)@/gi,
+    pattern: /([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s:@/]{1,256}):([^\s@/]{1,256})@/gi,
     replace: (_m, scheme) => `${scheme}${maskSecret("credentials")}@`,
   },
   {
-    pattern: /\b(set-cookie|cookie)(\s*:\s*)[^\n]+/gi,
+    pattern: /\b(set-cookie|cookie)([ \t]{0,8}:[ \t]{0,8})[^\n]{1,4096}/gi,
     replace: (_m, name, sep) => `${name}${sep}${maskSecret("cookie")}`,
   },
   {
@@ -63,11 +65,11 @@ const RULES: Rule[] = [
     replace: () => maskSecret("github_token"),
   },
   {
-    pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/g,
+    pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,256}/g,
     replace: () => maskSecret("slack_token"),
   },
   {
-    pattern: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,}\b/g,
+    pattern: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,256}\b/g,
     replace: () => maskSecret("stripe_key"),
   },
   {
@@ -75,24 +77,28 @@ const RULES: Rule[] = [
     replace: () => maskSecret("google_api_key"),
   },
   {
-    pattern: /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g,
+    pattern: /\beyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}/g,
     replace: () => maskSecret("jwt"),
   },
   {
-    pattern: /\b(Bearer|Basic|token)(\s+)(?!\[REDACTED)[A-Za-z0-9._~+/=-]{8,}/g,
+    pattern: /\b(Bearer|Basic|token)([ \t]{1,8})(?!\[REDACTED)[A-Za-z0-9._~+/=-]{8,4096}/g,
     replace: (_m, scheme, space) => `${scheme}${space}${maskSecret("token")}`,
   },
   {
     // key = "double quoted" | 'single quoted' | `backtick` (a missing closing quote still
     // masks to end of line) | unquoted run up to whitespace or , ; ) } &
     pattern: new RegExp(
-      `(\\b${SENSITIVE_KEY}["']?\\s*[:=]\\s*)(?:"([^"\\n]*)("|$)|'([^'\\n]*)('|$)|\`([^\`\\n]*)(\`|$)|([^\\s"'\`,;)}&]+))`,
+      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;)}&]{1,4096}))`,
       "gim",
     ),
     replace: (match, prefix, dq, dqEnd, sq, sqEnd, bq, bqEnd, bare) => {
-      if (dq !== undefined) return dq === "" ? match : `${prefix}"${maskSecret("value")}${dqEnd}`;
-      if (sq !== undefined) return sq === "" ? match : `${prefix}'${maskSecret("value")}${sqEnd}`;
-      if (bq !== undefined) return bq === "" ? match : `${prefix}\`${maskSecret("value")}${bqEnd}`;
+      const end = (value: string | undefined) => value ?? "";
+      if (dq !== undefined)
+        return dq === "" ? match : `${prefix}"${maskSecret("value")}${end(dqEnd)}`;
+      if (sq !== undefined)
+        return sq === "" ? match : `${prefix}'${maskSecret("value")}${end(sqEnd)}`;
+      if (bq !== undefined)
+        return bq === "" ? match : `${prefix}\`${maskSecret("value")}${end(bqEnd)}`;
       if (bare === undefined || ALREADY_REDACTED.test(bare) || CODE_REFERENCE.test(bare)) {
         return match;
       }
@@ -101,9 +107,23 @@ const RULES: Rule[] = [
   },
 ];
 
+/** Upper bound for text handed to the redaction rules. */
+export const MAX_REDACTION_INPUT = 64 * 1024;
+
+/**
+ * Cuts `text` to at most `limit` characters. When cut, the trailing partial word is dropped as
+ * well, so a secret straddling the cut can never leave an unmatched fragment behind.
+ */
+export function capText(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const cut = text.slice(0, limit);
+  const lastSpace = cut.search(/\s\S*$/);
+  return `${lastSpace > 0 ? cut.slice(0, lastSpace) : ""} …`;
+}
+
 /** Replaces recognizable secret values in free text with `[REDACTED:<kind>]`. */
 export function redactSecrets(text: string): string {
-  let output = text;
+  let output = capText(text, MAX_REDACTION_INPUT);
   for (const rule of RULES) {
     output = output.replace(rule.pattern, rule.replace as (substring: string) => string);
   }
@@ -126,13 +146,14 @@ const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
  * directories, strips control characters, collapses whitespace and truncates.
  */
 export function redactEvidence(evidence: string, options: RedactEvidenceOptions = {}): string {
-  let output = redactSecrets(evidence);
+  const maxLength = options.maxLength ?? 500;
+  // Cap before redacting: redaction cost is bounded by the output size, not the input size.
+  let output = redactSecrets(capText(evidence, Math.max(maxLength * 4, 4096)));
   if (options.projectRoot && options.projectRoot.length > 1) {
     output = output.split(options.projectRoot).join(".");
   }
   output = output.replace(HOME_PATH_PATTERN, "~");
   output = output.replace(CONTROL_CHARS, "").replace(/\s+/g, " ").trim();
-  const maxLength = options.maxLength ?? 500;
   if (output.length > maxLength) {
     output = `${output.slice(0, Math.max(0, maxLength - 1))}…`;
   }
