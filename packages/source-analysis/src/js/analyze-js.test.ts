@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { analyzeVueSource } from "../vue/analyze-vue.js";
 import { analyzeJsSource } from "./analyze-js.js";
 
 const rulesIn = (code: string, path = "src/app.ts") =>
@@ -184,8 +185,30 @@ describe("PG-XSS-001/002 HTML sinks", () => {
       "export let h = DOMPurify.sanitize(a);\nexport function setH(v) { h = v; }\nel.innerHTML = h;",
     ],
     ["let h = DOMPurify.sanitize(a);\neval('h = req.body.x');\nel.innerHTML = h;"],
+    // Writes through type assertions and non-null assertions.
+    ["let h = DOMPurify.sanitize(a);\n(h as any) = req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh! = req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n(h satisfies string) = req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n((h as any)!) ||= req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n[(h as any)] = req.body.list;\nel.innerHTML = h;"],
   ])("still flags a variable not sanitized on every write (#109): %s", (code) => {
     expect(rulesIn(code, "src/a.tsx").some((rule) => rule.startsWith("PG-XSS-"))).toBe(true);
+  });
+
+  it("flags a write through an angle-bracket type assertion in a .ts file (#109)", () => {
+    expect(
+      rulesIn(
+        "export {};\nlet h = DOMPurify.sanitize(a);\n(<any>h) = req.body.x;\nel.innerHTML = h;",
+      ),
+    ).toContain("PG-XSS-001");
+  });
+
+  it("flags a write through a type assertion in a .vue script (#109)", () => {
+    const vue = analyzeVueSource(
+      '<script lang="ts">\nexport {};\nlet h = DOMPurify.sanitize(a);\n(h as any) = req.body.x;\nel.innerHTML = h;\n</script>\n',
+      "A.vue",
+    );
+    expect(vue.findings.map((finding) => finding.ruleId)).toContain("PG-XSS-001");
   });
 
   it("resolves bindings in a file with a non-JS extension (#109)", () => {

@@ -22,9 +22,21 @@ function isAssignmentOperator(kind: ts.SyntaxKind): boolean {
   return kind >= ts.SyntaxKind.FirstAssignment && kind <= ts.SyntaxKind.LastAssignment;
 }
 
-function skipParentheses(node: ts.Node): ts.Node {
+/** True for wrappers that leave the assignment target the same: `(h)`, `h as T`, `h!`, `<T>h`. */
+function isTransparentWrapper(node: ts.Node): boolean {
+  return (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isNonNullExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node)
+  );
+}
+
+/** The outermost wrapper of `node` that is still the same assignment target. */
+function skipTransparentWrappers(node: ts.Node): ts.Node {
   let current = node;
-  while (ts.isParenthesizedExpression(current.parent)) current = current.parent;
+  while (isTransparentWrapper(current.parent)) current = current.parent;
   return current;
 }
 
@@ -37,7 +49,7 @@ function isInDestructuringTarget(reference: ts.Identifier): boolean {
   let isInPattern = false;
   for (;;) {
     const parent = current.parent;
-    if (ts.isParenthesizedExpression(parent)) {
+    if (isTransparentWrapper(parent)) {
       current = parent;
       continue;
     }
@@ -214,7 +226,7 @@ export function createSanitizedBindingCheck(
   /** `null` for a read, `true` for a sanitized write, `false` for any other write. */
   const writeKind = (reference: ts.Identifier): boolean | null => {
     if (isInDestructuringTarget(reference)) return false;
-    const outer = skipParentheses(reference);
+    const outer = skipTransparentWrappers(reference);
     const parent = outer.parent;
     if (
       (ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
