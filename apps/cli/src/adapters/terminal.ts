@@ -27,6 +27,12 @@ export interface CliIo {
 /** Reads single key presses from a TTY in raw mode. */
 export interface KeyReader {
   readKey: () => Promise<Key>;
+  /**
+   * Leaves raw mode and detaches from stdin until the next `readKey`, so Ctrl+C during
+   * long-running work (scan, device-flow wait) reaches the process as SIGINT again. Keys typed
+   * meanwhile are not queued into the next prompt.
+   */
+  suspend: () => void;
   close: () => void;
 }
 
@@ -60,6 +66,14 @@ export function createKeyReader(stdin: InputStream): KeyReader {
     stdin.on("keypress", onKeypress);
     stdin.resume();
   };
+  const deactivate = (): void => {
+    if (!isActive) return;
+    isActive = false;
+    stdin.off("keypress", onKeypress);
+    stdin.setRawMode?.(false);
+    stdin.pause();
+    queue.length = 0;
+  };
   return {
     readKey: () => {
       activate();
@@ -67,12 +81,7 @@ export function createKeyReader(stdin: InputStream): KeyReader {
       if (queued !== undefined) return Promise.resolve(queued);
       return new Promise((resolve) => waiters.push(resolve));
     },
-    close: () => {
-      if (!isActive) return;
-      isActive = false;
-      stdin.off("keypress", onKeypress);
-      stdin.setRawMode?.(false);
-      stdin.pause();
-    },
+    suspend: deactivate,
+    close: deactivate,
   };
 }

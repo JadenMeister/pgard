@@ -154,6 +154,7 @@ export async function main(
     keys,
     signal: cancel.signal,
     isMenu: command.kind === "menu",
+    releaseInterrupts: cancel.dispose,
   };
   try {
     return command.kind === "menu" ? await runMenu(context) : await runCommand(context, command);

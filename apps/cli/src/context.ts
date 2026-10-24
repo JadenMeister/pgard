@@ -17,6 +17,16 @@ export interface CommandContext {
   signal: AbortSignal;
   /** True inside the arrow-key menu (enables follow-up prompts such as report export). */
   isMenu: boolean;
+  /** Stops listening for SIGINT (e.g. before handing the terminal to the dashboard process). */
+  releaseInterrupts: () => void;
+}
+
+/**
+ * Call before long-running work: leaves raw mode so Ctrl+C arrives as SIGINT and reaches the
+ * cancel controller instead of being queued for the next prompt.
+ */
+export function suspendKeys(context: CommandContext): void {
+  context.keys?.suspend();
 }
 
 export function out(context: CommandContext, text: string): void {

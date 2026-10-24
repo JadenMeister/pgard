@@ -65,6 +65,7 @@ export function scriptedKeys(sequence: readonly (string | Key)[]): KeyReader {
       if (next === undefined) throw new Error("scriptedKeys: no more keys");
       return next;
     },
+    suspend: () => undefined,
     close: () => undefined,
   };
 }
@@ -191,5 +192,6 @@ export function createTestContext(
     keys,
     signal: new AbortController().signal,
     isMenu,
+    releaseInterrupts: () => undefined,
   };
 }

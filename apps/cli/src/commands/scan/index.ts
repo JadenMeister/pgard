@@ -1,6 +1,6 @@
 import type { ConfirmedWebTarget, ScanScope } from "@pgard/findings";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
-import { err, out, type CommandContext } from "../../context.js";
+import { err, out, suspendKeys, type CommandContext } from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
 import { createSessionProvider, printMissingClientIdHint } from "../../flows/authenticate.js";
 import {
@@ -70,6 +70,7 @@ export async function runScanCommand(
   let webTarget: ConfirmedWebTarget | null = null;
   if (scopes.includes("web")) {
     // Confirm authorization before probing any local port; the scan re-checks it anyway.
+    suspendKeys(context);
     const outcome = await context.deps.verifyProject(projectRoot, { getGitHubSession });
     if (outcome.summary.decision !== "allowed") {
       out(context, formatAuthorization(outcome.summary, context.style));
@@ -94,6 +95,7 @@ export async function runScanCommand(
     context,
     context.errStyle.dim(`Scanning (${scopes.join(", ")})... Press Ctrl+C twice to cancel.`),
   );
+  suspendKeys(context);
   let result;
   try {
     result = await context.deps.runScan(

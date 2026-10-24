@@ -1,3 +1,4 @@
+import { ScanCancelledError } from "@pgard/scan-core";
 import { describe, expect, it, vi } from "vitest";
 import { main } from "./app.js";
 import { createTestDeps, createTestIo, noInterrupts } from "./test-support.js";
@@ -75,5 +76,40 @@ describe("main", () => {
     expect(code).toBe(0);
     expect(captured.stdout()).toContain("PG-WEB-001");
     expect(captured.stdout()).toContain("Authenticated (logged-in) web browsing");
+  });
+
+  it("lets Ctrl+C (SIGINT) cancel a running scan after a prompt was used", async () => {
+    const captured = createTestIo({ isTTY: true });
+    const stdin = captured.io.stdin as typeof captured.io.stdin & {
+      setRawMode?: (mode: boolean) => void;
+    };
+    const rawModes: boolean[] = [];
+    stdin.setRawMode = (mode) => {
+      rawModes.push(mode);
+    };
+    let interrupt: (() => void) | null = null;
+    const interrupts = {
+      on: (_event: "SIGINT", listener: () => void) => {
+        interrupt = listener;
+      },
+      off: () => {
+        interrupt = null;
+      },
+    };
+    const deps = createTestDeps({
+      createSessionProvider: () => (async () => ({})) as never,
+      runScan: async (_request, scanDeps) => {
+        // The prompt has been answered; raw mode must be off so Ctrl+C is a SIGINT again.
+        expect(rawModes.at(-1)).toBe(false);
+        interrupt?.();
+        interrupt?.();
+        if (scanDeps.signal?.aborted === true) throw new ScanCancelledError();
+        throw new Error("signal was not aborted");
+      },
+    });
+    const running = main(["scan", "web", "--port", "3000"], captured.io, { deps, interrupts });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    stdin.write("y");
+    expect(await running).toBe(130);
   });
 });
