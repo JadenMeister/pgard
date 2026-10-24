@@ -11,20 +11,38 @@ const TEST_DIRECTORIES: ReadonlySet<string> = new Set([
   "testdata",
 ]);
 
+/**
+ * Directory names that may also hold a deployed "test" environment (`deploy/test/values.yaml`,
+ * `environments/test/.env`); config files under them are not treated as test code.
+ */
+const ENVIRONMENT_DIRECTORIES: ReadonlySet<string> = new Set(["test", "tests"]);
+
 /** `name.test.ts`, `name.spec.jsx`, ... and Go's `name_test.go`. */
 const TEST_FILE_NAME = /\.(?:test|spec)\.[^./]+$|_test\.go$/i;
 
+/** Environment, config and infrastructure files: `.env*`, YAML, Terraform, properties, ... */
+const CONFIG_FILE_NAME = /^\.env(?:\..*)?$|\.(?:ya?ml|tf|tfvars|properties|ini|toml|json)$/i;
+
 /**
- * Whether a repository-relative POSIX path is test or fixture code: a `*.test.*`, `*.spec.*` or
- * `*_test.go` file, or any file under a `__tests__/`, `__mocks__/`, `__fixtures__/`, `test/`,
- * `tests/`, `fixtures/` or `testdata/` directory.
+ * Whether a repository-relative POSIX path is test or fixture code. Classification is by path
+ * only, never by content:
+ * - a `*.test.*`, `*.spec.*` or `*_test.go` file, or
+ * - any file under a `__tests__/`, `__mocks__/`, `__fixtures__/`, `fixtures/` or `testdata/`
+ *   directory, or
+ * - a file under `test/` or `tests/`, except config files there (`.env*`, `.yml`/`.yaml`, `.tf`,
+ *   `.tfvars`, `.properties`, `.ini`, `.toml`, `.json`), which may configure a real deployed
+ *   test environment.
  */
 export function isTestOrFixturePath(filePath: string | null): boolean {
   if (filePath === null || filePath === "") return false;
   const segments = filePath.split("/");
   const name = segments.pop() ?? "";
   if (TEST_FILE_NAME.test(name)) return true;
-  return segments.some((segment) => TEST_DIRECTORIES.has(segment.toLowerCase()));
+  const isConfig = CONFIG_FILE_NAME.test(name);
+  return segments.some((segment) => {
+    const directory = segment.toLowerCase();
+    return TEST_DIRECTORIES.has(directory) && !(isConfig && ENVIRONMENT_DIRECTORIES.has(directory));
+  });
 }
 
 export function isTestContextFinding(finding: Pick<Finding, "context">): boolean {

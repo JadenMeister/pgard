@@ -173,8 +173,9 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
         <section className="test-findings" aria-label="Findings in test or fixture code">
           <h3>In test or fixture code ({groups.test.length})</h3>
           <p className="muted small">
-            Matches in test or fixture files, with confidence capped at low. They are not counted
-            above, but review them: a real value committed in a test is still exposed.
+            Matches in files classified as test or fixture code by their path only, with confidence
+            capped at low. They are not counted above, but review them: a real value committed in a
+            test is still exposed.
           </p>
           {visibleTest.length === 0 ? (
             <p className="muted">No findings match the filters.</p>

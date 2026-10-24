@@ -39,6 +39,11 @@ describe("isTestOrFixturePath", () => {
     "spec/fixtures/key.pem",
     "internal/parser/testdata/input.txt",
     "Tests/Unit/AppTests.swift",
+    "test/config.test.json",
+    "fixtures/app.yaml",
+    "spec/fixtures/.env",
+    "internal/testdata/config.toml",
+    "src/__tests__/settings.json",
   ])("classifies %s as test or fixture code", (path) => {
     expect(isTestOrFixturePath(path)).toBe(true);
   });
@@ -55,6 +60,16 @@ describe("isTestOrFixturePath", () => {
     "package-lock.json",
     ".env",
     "",
+    // Config for a deployed "test" environment is real configuration.
+    "deploy/test/values.yaml",
+    "environments/test/.env",
+    "environments/tests/.env.local",
+    "infra/test/main.tf",
+    "infra/test/prod.tfvars",
+    "config/test/app.properties",
+    "config/test/app.ini",
+    "config/tests/app.toml",
+    "config/test/secrets.json",
   ])("keeps %s as regular code", (path) => {
     expect(isTestOrFixturePath(path)).toBe(false);
   });

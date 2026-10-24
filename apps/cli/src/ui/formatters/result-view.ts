@@ -55,7 +55,7 @@ const STATUS_GROUPS: ReadonlyArray<{ status: FindingStatus; title: string }> = [
 
 const TEST_GROUP_TITLE = "In test or fixture code";
 const TEST_GROUP_NOTE =
-  "Matches in test or fixture files (confidence capped at low). Review them: a real value committed in a test is still exposed.";
+  "Matches in files classified as test or fixture code by their path only (confidence capped at low). Review them: a real value committed in a test is still exposed.";
 
 const COVERAGE_MARKS: Record<string, string> = {
   completed: "[ok]",

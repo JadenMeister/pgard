@@ -198,7 +198,7 @@ export function summarizeStatusSplit(findings: readonly Finding[]): {
 
 export const TEST_FINDINGS_TITLE = "In test or fixture code";
 export const TEST_FINDINGS_NOTE =
-  "Matches in test or fixture files (*.test.*, *.spec.*, *_test.go, test/, tests/, __tests__/, __mocks__/, fixtures/, __fixtures__/, testdata/). Their confidence is capped at low and they are not counted above, but they are not dropped: a real value committed in a test is still exposed.";
+  "Matches in files classified as test or fixture code by their path only: *.test.*, *.spec.*, *_test.go, and files under __tests__/, __mocks__/, fixtures/, __fixtures__/, testdata/, test/ or tests/ (config files such as .env, YAML, .tf, .properties, .ini, .toml and .json under test/ or tests/ are treated as real configuration). Their confidence is capped at low and they are not counted above, but they are not dropped: a real value committed in a test is still exposed.";
 
 /** Sorted findings split into regular code (headline counts) and test or fixture code. */
 export function groupReportFindings(findings: readonly Finding[]): {
