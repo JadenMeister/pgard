@@ -1,6 +1,6 @@
 import type { CliIo, KeyReader } from "./adapters/terminal.js";
 import type { CliDeps } from "./deps.js";
-import type { PromptContext } from "./ui/components/prompts.js";
+import { UserCancelledError, type PromptContext } from "./ui/components/prompts.js";
 import type { Style } from "./ui/formatters/style.js";
 
 /** Per-invocation state. Lives in memory only; nothing is persisted between commands. */
@@ -40,4 +40,12 @@ export function err(context: CommandContext, text: string): void {
 export function promptContextOf(context: CommandContext, helpText: string): PromptContext | null {
   if (context.keys === null) return null;
   return { keys: context.keys, out: context.io.stdout, style: context.style, helpText };
+}
+
+/**
+ * After work that honours `context.signal` (e.g. the device-flow wait inside verifyProject),
+ * a confirmed Ctrl+C must end as a cancellation (exit 130), not as a blocked gate (exit 3).
+ */
+export function throwIfCancelled(context: CommandContext): void {
+  if (context.signal.aborted) throw new UserCancelledError();
 }

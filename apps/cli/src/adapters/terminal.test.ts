@@ -33,8 +33,44 @@ describe("createKeyReader", () => {
     const next = keys.readKey();
     expect(stdin.rawModes).toEqual([true, false, true]);
     expect(stdin.listenerCount("keypress")).toBe(listenersAfterSuspend + 1);
+    await new Promise((resolve) => setTimeout(resolve, 60));
     stdin.write("n");
     expect((await next).name).toBe("n");
+    keys.close();
+  });
+
+  it("discards input typed ahead while work was running", async () => {
+    const stdin = fakeTty();
+    let clock = 0;
+    const keys = createKeyReader(stdin, () => clock);
+    const first = keys.readKey();
+    clock = 100;
+    stdin.write("a");
+    expect((await first).name).toBe("a");
+    keys.suspend();
+    // Typed while suspended (stdin paused): buffered and flushed right after re-activation.
+    stdin.write("y");
+    clock = 1000;
+    const next = keys.readKey();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock = 1100;
+    stdin.write("n");
+    expect((await next).name).toBe("n");
+    keys.close();
+  });
+
+  it("discards type-ahead even when suspend() ran before the first prompt", async () => {
+    const stdin = fakeTty();
+    let clock = 0;
+    const keys = createKeyReader(stdin, () => clock);
+    keys.suspend(); // long-running work starts before any prompt was shown
+    clock = 500;
+    const pending = keys.readKey();
+    stdin.write("y"); // typed during the work, delivered on activation
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock = 600;
+    stdin.write("n");
+    expect((await pending).name).toBe("n");
     keys.close();
   });
 });
