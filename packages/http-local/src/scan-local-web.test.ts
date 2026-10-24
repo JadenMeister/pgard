@@ -218,6 +218,17 @@ describe("scanLocalWeb", () => {
     expect(output.findings).toEqual([]);
   });
 
+  it("keeps slow redirect chains within the total time budget", async () => {
+    const server = await start((request, response) => {
+      const hop = Number(request.url?.replace(/\D/g, "") || "0");
+      setTimeout(() => response.writeHead(302, { location: `/r${hop + 1}` }).end(), 150);
+    });
+    const startedAt = Date.now();
+    const output = await scanLocalWeb(targetFor(server.port), { limits: { totalBudgetMs: 500 } });
+    expect(Date.now() - startedAt).toBeLessThan(900);
+    expect(output.coverage[0]?.status).not.toBe("completed");
+  });
+
   it("stops when the total time budget is exhausted", async () => {
     const server = await start((_request, response) => {
       response.writeHead(200, { "content-type": "text/html" }).end('<a href="/a">a</a>');

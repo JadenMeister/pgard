@@ -160,7 +160,7 @@ export function requestLoopbackOnce(
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
 /**
- * GET/HEAD with manual redirect handling. Every `Location` is re-validated: it must stay on
+ * GET/HEAD with manual redirect handling. `timeoutMs` bounds the whole redirect chain. Every `Location` is re-validated: it must stay on
  * `http://127.0.0.1:<same port>`. Anything else stops the chain without contacting the new host.
  */
 export async function fetchLoopback(
@@ -170,8 +170,18 @@ export async function fetchLoopback(
 ): Promise<LoopbackFetchResult> {
   let currentPath = pathWithQuery;
   const origin = buildLoopbackOrigin(port);
+  // One deadline for the whole chain: every hop only gets the time that is left.
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
+  const deadline = Date.now() + timeoutMs;
   for (let hop = 0; ; hop += 1) {
-    const response = await requestLoopbackOnce(port, currentPath, options);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw new LoopbackRequestError("timeout", `Timed out after ${timeoutMs} ms.`);
+    }
+    const response = await requestLoopbackOnce(port, currentPath, {
+      ...options,
+      timeoutMs: remainingMs,
+    });
     const location = response.headers.location;
     if (!REDIRECT_STATUSES.has(response.status) || location === undefined) {
       return { response, redirectStop: null };

@@ -82,6 +82,21 @@ describe("fetchLoopback redirects", () => {
   });
 });
 
+describe("fetchLoopback timeouts", () => {
+  it("applies one timeout to the whole redirect chain", async () => {
+    const server = await start((request, response) => {
+      const hop = Number(request.url?.slice(1) || "0");
+      setTimeout(() => response.writeHead(302, { location: `/${hop + 1}` }).end(), 150);
+    });
+    const startedAt = Date.now();
+    await expect(fetchLoopback(server.port, "/", { timeoutMs: 400 })).rejects.toMatchObject({
+      code: "timeout",
+    });
+    expect(Date.now() - startedAt).toBeLessThan(700);
+    expect(server.requests.length).toBeLessThanOrEqual(3);
+  });
+});
+
 describe("requestLoopbackOnce", () => {
   it("only sends GET or HEAD", async () => {
     const server = await start((_request, response) => response.end());
