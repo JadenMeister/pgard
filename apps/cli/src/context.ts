@@ -1,0 +1,33 @@
+import type { CliIo, KeyReader } from "./adapters/terminal.js";
+import type { CliDeps } from "./deps.js";
+import type { PromptContext } from "./ui/components/prompts.js";
+import type { Style } from "./ui/formatters/style.js";
+
+/** Per-invocation state. Lives in memory only; nothing is persisted between commands. */
+export interface CommandContext {
+  io: CliIo;
+  deps: CliDeps;
+  /** Style for stdout (results, prompts). */
+  style: Style;
+  /** Style for stderr (progress, warnings). */
+  errStyle: Style;
+  /** `null` when stdin/stdout are not a TTY: no prompts, no confirmations. */
+  keys: KeyReader | null;
+  /** Aborted when the user confirms cancellation during a running scan. */
+  signal: AbortSignal;
+  /** True inside the arrow-key menu (enables follow-up prompts such as report export). */
+  isMenu: boolean;
+}
+
+export function out(context: CommandContext, text: string): void {
+  context.io.stdout.write(`${text}\n`);
+}
+
+export function err(context: CommandContext, text: string): void {
+  context.io.stderr.write(`${text}\n`);
+}
+
+export function promptContextOf(context: CommandContext, helpText: string): PromptContext | null {
+  if (context.keys === null) return null;
+  return { keys: context.keys, out: context.io.stdout, style: context.style, helpText };
+}
