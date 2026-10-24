@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import {
   CommandTimeoutError,
@@ -100,5 +101,60 @@ describe("runCommandWithDeadline", () => {
     await expect(
       runCommandWithDeadline(process.execPath, ["-e", "process.stdout.write('ok')"], 5000),
     ).resolves.toBe("ok");
+  });
+});
+
+describe("runCommandWithDeadline exit handling", () => {
+  const node = process.execPath;
+
+  it("settles when the child never exits and never calls back", async () => {
+    const neverExits = (() => {
+      const child = Object.assign(new EventEmitter(), {
+        kill: () => true,
+        unref: () => undefined,
+        stdout: null,
+        stderr: null,
+      });
+      return child;
+    }) as never;
+    const startedAt = Date.now();
+    await expect(
+      runCommandWithDeadline("lsof", [], 200, { execFileImpl: neverExits }),
+    ).rejects.toBeInstanceOf(CommandTimeoutError);
+    expect(Date.now() - startedAt).toBeLessThan(1000);
+  });
+
+  it("accepts exit code 1 (nothing matched) with its output", async () => {
+    await expect(
+      runCommandWithDeadline(node, ["-e", "process.stdout.write('x'); process.exit(1)"], 5000),
+    ).resolves.toBe("x");
+  });
+
+  it("rejects partial output from other exit codes", async () => {
+    await expect(
+      runCommandWithDeadline(
+        node,
+        ["-e", "process.stdout.write('partial'); process.exit(2)"],
+        5000,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects output from a child killed by a signal", async () => {
+    await expect(
+      runCommandWithDeadline(
+        node,
+        ["-e", "process.stdout.write('partial'); process.kill(process.pid, 'SIGTERM')"],
+        5000,
+      ),
+    ).rejects.toThrow();
+  });
+
+  it("rejects instead of truncating when output exceeds maxBuffer", async () => {
+    await expect(
+      runCommandWithDeadline(node, ["-e", "process.stdout.write('y'.repeat(5000))"], 5000, {
+        maxBufferBytes: 100,
+      }),
+    ).rejects.toThrow();
   });
 });

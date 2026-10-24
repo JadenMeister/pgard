@@ -45,27 +45,61 @@ export class CommandTimeoutError extends Error {
  * takes effect, and `execFile`'s own timeout only reports after the child has exited. So we
  * reject on our own timer, send SIGKILL, and unref the child so PGARD can still exit.
  */
+export interface RunCommandOptions {
+  /** Defaults to 4 MiB. Exceeding it rejects instead of returning truncated output. */
+  maxBufferBytes?: number;
+  /** Test hook; defaults to `child_process.execFile`. */
+  execFileImpl?: typeof execFile;
+}
+
+/**
+ * Only a clean exit, or exit code 1 without a signal (lsof's "nothing matched"), yields output.
+ * Anything else (other exit codes, signals, maxBuffer overflow) would mean partial output, which
+ * must not be presented as a complete port list.
+ */
+function isAcceptableExit(error: ExecFileError | null): boolean {
+  if (error === null) return true;
+  return (
+    error.code === 1 &&
+    (error.signal === null || error.signal === undefined) &&
+    error.killed !== true
+  );
+}
+
+interface ExecFileError extends Error {
+  code?: number | string | null;
+  signal?: NodeJS.Signals | null;
+  killed?: boolean;
+}
+
+/**
+ * Runs a fixed command (no shell) and settles by the deadline even if the child never exits.
+ * On macOS `lsof` can hang in an uninterruptible kernel wait where neither SIGTERM nor SIGKILL
+ * takes effect, and `execFile`'s own timeout only reports after the child has exited. So we
+ * reject on our own timer, send SIGKILL, and unref the child so PGARD can still exit.
+ */
 export function runCommandWithDeadline(
   file: string,
   args: readonly string[],
   timeoutMs: number,
+  options: RunCommandOptions = {},
 ): Promise<string> {
+  const run = options.execFileImpl ?? execFile;
   return new Promise((resolve, reject) => {
     let isSettled = false;
-    const child = execFile(
+    const child = run(
       file,
       [...args],
-      { maxBuffer: 4 * 1024 * 1024, windowsHide: true, shell: false },
-      (error, stdout) => {
+      { maxBuffer: options.maxBufferBytes ?? 4 * 1024 * 1024, windowsHide: true, shell: false },
+      (error: ExecFileError | null, stdout: string | Buffer) => {
         if (isSettled) return;
         isSettled = true;
         clearTimeout(timer);
-        // lsof exits 1 when nothing matches; treat output as authoritative when present.
-        if (error !== null && stdout.length === 0) {
-          reject(error);
+        if (!isAcceptableExit(error)) {
+          reject(error ?? new Error(`${file} failed.`));
           return;
         }
-        resolve(stdout);
+        resolve(String(stdout));
       },
     );
     const timer = setTimeout(() => {
