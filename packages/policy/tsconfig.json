@@ -9,6 +9,12 @@
   "references": [
     {
       "path": "../findings"
+    },
+    {
+      "path": "../github-auth"
+    },
+    {
+      "path": "../git-history"
     }
   ]
 }

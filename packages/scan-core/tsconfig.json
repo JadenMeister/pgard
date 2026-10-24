@@ -12,6 +12,12 @@
     },
     {
       "path": "../policy"
+    },
+    {
+      "path": "../github-auth"
+    },
+    {
+      "path": "../git-history"
     }
   ]
 }
