@@ -3,7 +3,7 @@ import type { CliDeps } from "./deps.js";
 import { UserCancelledError, type PromptContext } from "./ui/components/prompts.js";
 import type { Style } from "./ui/formatters/style.js";
 
-/** Per-invocation state. Lives in memory only; nothing is persisted between commands. */
+/** Per-invocation state, in memory only. (The GitHub sign-in is kept in the OS keychain by the session provider.) */
 export interface CommandContext {
   io: CliIo;
   deps: CliDeps;
