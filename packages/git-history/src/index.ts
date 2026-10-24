@@ -17,3 +17,11 @@ export {
 } from "./remote.js";
 export { listCommitCandidates, readHeadRevision, type CommitCandidate } from "./commits.js";
 export { readRepositoryIsolation, type RepositoryIsolation } from "./isolation.js";
+export { scanGitHistory, type HistoryScanOptions } from "./scan-history.js";
+export { HISTORY_RULES, listHistoryRules, type HistoryRuleId } from "./history-rules.js";
+export {
+  detectSecrets,
+  isEnvironmentFile,
+  type DetectedSecret,
+  type DetectedSecretKind,
+} from "./secret-patterns.js";

@@ -7,6 +7,8 @@ export interface GitRunOptions {
   maxBuffer?: number;
   /** Data written to stdin (e.g. object ids for `cat-file --batch`). */
   input?: string;
+  /** `latin1` maps every byte to one character, so byte offsets (e.g. `cat-file --batch` sizes) stay exact. */
+  encoding?: "utf8" | "latin1";
 }
 
 /**
@@ -280,7 +282,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       } else if (code !== 0) {
         reject(new GitCommandError("git command failed", code));
       } else {
-        resolve(Buffer.concat(chunks).toString("utf8"));
+        resolve(Buffer.concat(chunks).toString(options.encoding ?? "utf8"));
       }
     });
     child.stdin.on("error", () => {
