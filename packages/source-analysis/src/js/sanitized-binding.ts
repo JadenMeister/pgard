@@ -77,6 +77,23 @@ function isInDestructuringTarget(reference: ts.Identifier): boolean {
   }
 }
 
+/** True for an identifier that names a property, never a variable (`o.h`, `{ h: 1 }`). */
+function isPropertyName(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  return (
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    ((ts.isPropertyAssignment(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent)) &&
+      parent.name === node) ||
+    (ts.isQualifiedName(parent) && parent.right === node)
+  );
+}
+
 /**
  * Decides whether an identifier at an HTML sink holds only sanitized values. The identifier is
  * resolved to its declaration with the TypeScript checker of a one-file program (no lib, no
@@ -97,6 +114,10 @@ export function createSanitizedBindingCheck(
   let checker: ts.TypeChecker | null = null;
   const cache = new Map<ts.Symbol, boolean>();
   let identifiersByText: Map<string, ts.Identifier[]> | null = null;
+  // References of each symbol. Each name's identifiers are resolved once, on first use, so the
+  // total work stays linear in the file size however many symbols share a name.
+  const referencesBySymbol = new Map<ts.Symbol, ts.Identifier[]>();
+  const resolvedNames = new Set<string>();
   // Direct `eval(...)` or `with` can write any variable without a visible assignment.
   let hasDynamicScope = false;
 
@@ -142,7 +163,7 @@ export function createSanitizedBindingCheck(
         ) {
           hasDynamicScope = true;
         }
-        if (ts.isIdentifier(node)) {
+        if (ts.isIdentifier(node) && !isPropertyName(node)) {
           const list = index.get(node.text) ?? [];
           list.push(node);
           index.set(node.text, list);
@@ -153,6 +174,20 @@ export function createSanitizedBindingCheck(
       identifiersByText = index;
     }
     return identifiersByText.get(text) ?? [];
+  };
+
+  const referencesOf = (symbol: ts.Symbol, name: string): ts.Identifier[] => {
+    if (!resolvedNames.has(name)) {
+      resolvedNames.add(name);
+      for (const identifier of identifiersNamed(name)) {
+        const resolved = symbolOf(identifier);
+        if (!resolved) continue;
+        const list = referencesBySymbol.get(resolved) ?? [];
+        list.push(identifier);
+        referencesBySymbol.set(resolved, list);
+      }
+    }
+    return referencesBySymbol.get(symbol) ?? [];
   };
 
   const symbolOf = (identifier: ts.Identifier): ts.Symbol | undefined => {
@@ -207,7 +242,7 @@ export function createSanitizedBindingCheck(
   };
 
   const evaluate = (symbol: ts.Symbol, name: string): boolean => {
-    const references = identifiersNamed(name);
+    identifiersNamed(name); // also detects dynamic scope
     if (hasDynamicScope) return false;
     const declarations = symbol.getDeclarations() ?? [];
     if (declarations.length === 0 || (symbol.flags & ts.SymbolFlags.Alias) !== 0) return false;
@@ -216,8 +251,7 @@ export function createSanitizedBindingCheck(
       (declaration) =>
         ts.isVariableDeclaration(declaration) && declaration.initializer !== undefined,
     );
-    for (const reference of references) {
-      if (symbolOf(reference) !== symbol) continue;
+    for (const reference of referencesOf(symbol, name)) {
       const kind = writeKind(reference);
       if (kind === false) return false;
       if (kind === true) hasSanitizedValue = true;

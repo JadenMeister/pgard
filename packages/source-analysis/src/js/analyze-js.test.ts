@@ -496,6 +496,27 @@ describe("linear cost and caps (#87)", () => {
     expect(performance.now() - start).toBeLessThan(5000);
     expect(analysis.cappedRules).toContain("PG-XSS-001");
   });
+
+  it("resolves sanitized variables in linear time when many scopes share a name (#109)", () => {
+    const build = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          `function f${index}() { const h = DOMPurify.sanitize(a${index}); el.innerHTML = h; }`,
+      ).join("\n");
+    const time = (code: string) => {
+      const start = performance.now();
+      expect(analyzeJsSource(code, "big.js").findings).toEqual([]);
+      return performance.now() - start;
+    };
+    time(build(500)); // warm up
+    const small = time(build(4000));
+    const large = time(build(16000));
+    // Quadratic resolution took ~20 s at 8,000 scopes; linear stays well under the budget and
+    // grows roughly 4x for 4x the input (16x if quadratic).
+    expect(large).toBeLessThan(5000);
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
+  });
 });
 
 describe("precision (#88)", () => {
