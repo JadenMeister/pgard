@@ -64,7 +64,7 @@ pgard scan            # code + history
 
 The target is always the **Git root of the current directory**. There is no option to choose another path, host or URL, and no option to skip authorization. Every scan runs the authorization checks again; an earlier `project verify` is never reused.
 
-`pgard --help` prints:
+`pgard --help` prints (excerpt):
 
 ```text
 Usage:
@@ -85,41 +85,41 @@ Usage:
   pgard --version
 ```
 
-| Command                | What it does                                                                                                                                                                                                   |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pgard`                | Interactive menu: verify, scans, dashboard, rules, doctor, quit.                                                                                                                                               |
-| `pgard project verify` | Runs the authorization checks and shows each one (repository, GitHub identity, owner approval, current access, contribution) as passed, failed or unverifiable, with a reason. The result is not stored.       |
-| `pgard scan`           | `code` + `history`.                                                                                                                                                                                            |
-| `pgard scan code`      | Current source code, configuration and dependency advisories.                                                                                                                                                  |
-| `pgard scan history`   | Committed `.env` files and secrets in tracked files and Git history.                                                                                                                                           |
-| `pgard scan web`       | Anonymous, read-only checks of a local HTTP service on `127.0.0.1` that you confirm.                                                                                                                           |
-| `pgard scan all`       | `code` + `history` + `web`. If no web target is confirmed, the result is `partial`.                                                                                                                            |
-| `pgard dashboard`      | Starts the local web dashboard. See [Dashboard](#dashboard).                                                                                                                                                   |
-| `pgard rules list`     | Lists the supported rules, the detection criteria and advisory data versions, and the areas PGARD does not cover. Works outside a project and makes no network requests.                                       |
-| `pgard doctor`         | Checks Node.js, Git, GitHub reachability, local port discovery, whether `PGARD_GITHUB_APP_CLIENT_ID` is set, and the advisory database. It is a diagnosis only, not an authorization. Works outside a project. |
+| Command                | What it does                                                                                                                                                                                                                                                              |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgard`                | Interactive menu: verify, scans, dashboard, rules, doctor, quit.                                                                                                                                                                                                          |
+| `pgard project verify` | Runs the authorization checks and shows each one (repository, GitHub identity, owner approval, current access, contribution) as passed, failed or unverifiable, with a reason. The result is not stored.                                                                  |
+| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                                                                       |
+| `pgard scan code`      | Current source code, configuration and dependency advisories.                                                                                                                                                                                                             |
+| `pgard scan history`   | Committed `.env` files and secrets in tracked files and Git history.                                                                                                                                                                                                      |
+| `pgard scan web`       | Anonymous, read-only checks of a local HTTP service on `127.0.0.1` that you confirm.                                                                                                                                                                                      |
+| `pgard scan all`       | `code` + `history` + `web`. If no web target is confirmed, the result is `partial`.                                                                                                                                                                                       |
+| `pgard dashboard`      | Starts the local web dashboard. See [Dashboard](#dashboard).                                                                                                                                                                                                              |
+| `pgard rules list`     | Lists the rule catalog grouped by scope (code, Git history, local HTTP) with each rule's severity and languages, the detection criteria version, the advisory database status, and the areas PGARD does not cover. Works outside a project and makes no network requests. |
+| `pgard doctor`         | Checks Node.js, Git, GitHub reachability, local port discovery, whether `PGARD_GITHUB_APP_CLIENT_ID` is set, and the advisory database status. It is a diagnosis only, not an authorization. Works outside a project.                                                     |
 
-The exact output of `pgard rules list` and `pgard doctor` is still changing (#112), so it is not copied here.
+`pgard rules list --language <lang>` shows only the rules for that language; rules that apply to any language (Git history and local HTTP rules) are always included. Both `rules list` and `doctor` report the advisory database status as `missing`, `invalid`, `stale` or `ok`, with its version and update date. The path in `PGARD_ADVISORY_DB` is never printed. In `doctor`, any status other than `ok` is a `[warn]` row.
 
 ### Options
 
 - `--port N` (`scan web` and `scan all` only): the local service port, an integer from 1 to 65535. You still have to confirm the service.
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
-- `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language.
+- `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included.
 - `--help` / `-h`, and `pgard --version` / `-V`.
 
 Unknown commands and options, invalid values and invalid combinations are rejected before any Git, GitHub or network activity.
 
 ### Exit codes
 
-| Code | Meaning                                                                                                                         |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | The requested scope completed (findings may exist). For `doctor`: the diagnosis completed.                                      |
-| 2    | Invalid command, option, value or combination.                                                                                  |
-| 3    | The repository, authorization or contribution check failed (the scan was blocked).                                              |
-| 4    | Part of the scan did not run (for example, no web target was confirmed, so the result is partial), or the report export failed. |
-| 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                             |
-| 130  | Cancelled by the user.                                                                                                          |
+| Code | Meaning                                                                                                                                                                                |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The requested scope completed (findings may exist). For `doctor`: the diagnosis completed.                                                                                             |
+| 2    | Invalid command, option, value or combination.                                                                                                                                         |
+| 3    | The repository, authorization or contribution check failed (the scan was blocked).                                                                                                     |
+| 4    | Part of the scan did not run, so the result is partial (for example, no web target was confirmed, or the advisory database is missing, invalid or stale), or the report export failed. |
+| 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                    |
+| 130  | Cancelled by the user.                                                                                                                                                                 |
 
 ### Interactive keys
 
@@ -127,15 +127,15 @@ Arrow keys (or `j`/`k`) move, Enter selects, Esc goes back, and `?` shows help. 
 
 ## Authorization model
 
-PGARD scans a repository only when it has evidence that you are allowed to. Before every scan it checks, in order:
+PGARD scans a repository only when it has evidence that you are allowed to. Before every scan it reports these checks (in this order):
 
 1. **Repository.** The current directory is the root of a Git repository with valid history. The repository uses only its own objects and history (no alternates, grafts or replace refs), and it has exactly one unambiguous `github.com` remote.
 2. **GitHub identity.** You sign in to GitHub with the device flow (see below).
 3. **Owner approval.** The PGARD GitHub App is installed on the repository owner's **personal account**, and that installation includes this repository. Only the owner of a personal account can install an app on it.
 4. **Current access.** GitHub reports that you currently have at least read access to the repository.
-5. **Contribution.** Your contribution is in the default-branch history. A commit counts only if GitHub shows it in the default branch, and either it belongs to a pull request you authored that was merged into the default branch, or GitHub verified its signature and attributes the committer to you. Author names or emails, co-author trailers, unmerged pull requests, pull requests merged into other branches or forks, unsigned direct pushes and local-only commits are never accepted as proof.
+5. **Contribution.** Your contribution is in the default-branch history. A commit counts only if GitHub shows it in the default branch, and either it belongs to a pull request you authored that was merged into the default branch, or GitHub verified its signature and attributes the committer to you. Author names or emails, co-author trailers, unmerged pull requests, pull requests merged into other branches or forks, unsigned direct pushes and local-only commits are never accepted as proof. PGARD examines up to 30 local commits (the ancestry of `HEAD`). If none of them qualifies and more local commits exist, contribution is `unverifiable`.
 
-Each check is `passed`, `failed` or `unverifiable`, with a reason. The scan runs only if every check passed. If any evidence is missing or unclear, the scan is **blocked** (exit code 3) and PGARD reports which check failed and why.
+Each check is `passed`, `failed` or `unverifiable`, with a reason. The checks are reported in this order, but they are not evaluated strictly in this order: for example, PGARD reads the repository from GitHub (current access) before it checks owner approval. The scan runs only if every check passed. If any evidence is missing or unclear, the scan is **blocked** (exit code 3) and PGARD reports which check failed and why.
 
 ### Organization repositories
 
@@ -170,7 +170,7 @@ Every result reports coverage for each area, so you can see what was and was not
 | `not_tested`   | You selected the area, but it could not run.            |
 | `not_selected` | You did not request the area.                           |
 
-`scan all` (and `scan web`) report `partial` with exit code 4 when no web target is confirmed, for example when you answer no or when there is no interactive terminal. The `web` scope is then `not_tested`.
+`scan all` (and `scan web`) report `partial` with exit code 4 when no web target is confirmed: when you choose **Continue without web checks**, or when there is no interactive terminal. Answering no to the confirmation question returns you to port selection. The `web` scope is then `not_tested`.
 
 ## Analyzers and rules
 
@@ -193,7 +193,7 @@ export PGARD_ADVISORY_DB=/path/to/osv-data   # a JSON file or a directory of OSV
 
 - Supported inputs: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `go.mod` and `go.sum`.
 - The file can hold an array of OSV records, or `{ "version", "updatedAt", "vulnerabilities": [...] }`.
-- If the variable is not set, or the data is missing or invalid, dependency advisories are reported as `not_tested`. Data older than 30 days is reported as stale.
+- If the variable is not set, or the data is missing or invalid, the advisory database area is `not_tested`. Data older than 30 days is stale and the area is `partial`. In both cases the `code` scope is incomplete, so `scan`, `scan code` and `scan all` report `partial` with exit code 4.
 - A version match does not show that the vulnerable code is reachable.
 
 How the advisory database is distributed and updated has not been decided yet (#46). There is no update command.
@@ -202,8 +202,8 @@ How the advisory database is distributed and updated has not been decided yet (#
 
 `scan web`, `scan all` and the dashboard check a web service only after you confirm it:
 
-1. PGARD checks authorization before it touches any port.
-2. It lists listening ports that answer HTTP on `127.0.0.1`. The list can be incomplete, so **Other port** is always offered. A port number alone says nothing about which project it belongs to.
+1. Authorization must pass before PGARD touches any port, in both the CLI and the dashboard.
+2. To show each service's identity, PGARD sends one `GET /` to each discovered listening port on `127.0.0.1` (after authorization passes). It lists the ports that answer HTTP. The list can be incomplete, so **Other port** is always offered. A port number alone says nothing about which project it belongs to.
 3. It shows the service's URL, HTTP status, page title and guessed technology.
 4. You answer `Is this the current project's service? [y/N]`. Only an explicit `y` confirms. `--port` still requires this confirmation.
 5. Without an interactive terminal the target cannot be confirmed, so `web` is `not_tested` and the scan is `partial` (exit code 4).
@@ -220,7 +220,7 @@ HTML and PDF reports are rendered from the same redacted result. The HTML report
 
 ## Dashboard
 
-`pgard dashboard` checks the project in the terminal, starts the local web app and prints a private session URL:
+`pgard dashboard` finds the Git root of the current directory, shows it and asks `Start the dashboard for this project? [y/N]`. It needs an interactive terminal; without one it exits with code 2. After you confirm, it starts the local web app and prints a private session URL:
 
 ```text
 PGARD dashboard is running on 127.0.0.1 only.
@@ -235,13 +235,13 @@ How the dashboard protects itself:
 - A random 32-byte session token is passed in the URL **fragment**, so the browser never sends it in requests or `Referer` headers. The page removes it from the address bar and keeps it in memory. Do not share the URL.
 - Every API call must carry the token in the `x-pgard-token` header. The `Host` header must be exactly `127.0.0.1:<port>` (DNS rebinding protection). Requests from another `Origin` and cross-site requests are refused, and no CORS headers are sent.
 - Every response has `Cache-Control: no-store`, a strict Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` and `Referrer-Policy: no-referrer`.
-- The browser cannot choose files or folders. The project root is fixed when the dashboard starts, and the browser receives only redacted findings, never source code or the GitHub token.
+- The browser cannot choose or read project files. The project root is fixed when the dashboard starts. The only path the browser supplies is an existing directory for report export: files are never overwritten there, and a directory inside the repository needs confirmation. The browser receives only redacted findings (with short redacted snippets), never full source files or the GitHub token.
 
 ## Privacy and network traffic
 
 - Your code, Git history and scan results are processed on your computer and are not uploaded anywhere. Results are kept in memory and discarded when the process or dashboard stops; only reports you export are saved.
-- The only external network traffic is to GitHub: the device-flow sign-in and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your access and your contributions). `pgard doctor` also checks whether `api.github.com` is reachable.
-- Web checks send HTTP requests only to the service you confirmed on `127.0.0.1`.
+- The only external network traffic is to GitHub: the device-flow sign-in and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. `pgard doctor` also checks whether `api.github.com` is reachable.
+- After authorization passes, PGARD sends one `GET /` to each discovered listening port on `127.0.0.1` to show its identity. The web checks then send requests only to the service you confirmed.
 - Advisory data is read from the local path in `PGARD_ADVISORY_DB`.
 
 ## Out of scope for the MVP
@@ -264,6 +264,8 @@ How the dashboard protects itself:
 - [#108](https://github.com/JadenMeister/pgard/issues/108) In very large histories, a `.env` file whose current state is unknown, or a secret moved to another file, can be reported as removed.
 - [#115](https://github.com/JadenMeister/pgard/issues/115) Some dependency inputs are reported as `completed` too optimistically (unvalidated advisory directories, non-registry pnpm entries, Go modules with both `go.mod` and `go.sum`), and Yarn Berry patch entries make many projects `partial`.
 - [#117](https://github.com/JadenMeister/pgard/issues/117) Test files are not type-checked yet.
+- [#120](https://github.com/JadenMeister/pgard/issues/120) The dashboard's privacy notice mentions advisory updates, but there is no update command.
+- [#121](https://github.com/JadenMeister/pgard/issues/121) `rules list` and `doctor` load the whole advisory database to report its status, which can be slow and use a lot of memory for a very large database. `--language react` or `vue` does not list the JavaScript/TypeScript rules that also apply to those projects.
 - Detection is not complete. Missing findings do not mean the project is secure.
 - Port discovery can be incomplete or unavailable. Type the port by hand in that case.
 
