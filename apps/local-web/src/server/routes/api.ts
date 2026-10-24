@@ -97,7 +97,8 @@ function scanStatus(state: SessionState): ScanStatus {
 }
 
 function authStatus(state: SessionState): AuthStatus {
-  const { status, outcome, message } = state.auth;
+  const { status, outcome, finishedAt, message } = state.auth;
+  const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
   return {
     status,
     deviceCode: state.deviceCode,
@@ -106,6 +107,8 @@ function authStatus(state: SessionState): AuthStatus {
     message,
     storedSignIn: state.storedSignIn,
     signInNotice: state.signInNotice,
+    // Same window `requirePortAccessAuthorized` enforces; only shown, never trusted back.
+    expiresAt: isAllowed && finishedAt !== null ? finishedAt + PORT_ACCESS_WINDOW_MS : null,
   };
 }
 

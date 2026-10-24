@@ -538,6 +538,19 @@ describe("local web port access authorization gate", () => {
     expect(discoverListeningPorts).toHaveBeenCalledTimes(2);
   });
 
+  it("tells the browser when port access expires", async () => {
+    let failing: AuthorizationCheckId | null = null;
+    const { deps } = spiedDeps(async () => outcome(failing));
+    const running = await start(deps);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).expiresAt).toBeNull();
+    await authorize(running);
+    const allowed = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(allowed.expiresAt).toBe(1_000_000 + 30 * 60 * 1000);
+    failing = "owner_approval";
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).expiresAt).toBeNull();
+  });
+
   it("closes the gate when the clock moves back before the check finished", async () => {
     let clock = 1_000_000;
     const { deps, discoverListeningPorts } = spiedDeps(ALLOWED_VERIFY);

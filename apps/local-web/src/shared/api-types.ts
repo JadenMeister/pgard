@@ -47,6 +47,11 @@ export interface AuthStatus {
   storedSignIn: StoredSignInDto;
   /** Short, secret-free text about the sign-in (reused, saved, removed, signed out). */
   signInNotice: string | null;
+  /**
+   * Epoch ms after which an allowed check no longer opens port discovery and probes (the server
+   * enforces it; this lets the panel say so). `null` unless the latest check is allowed.
+   */
+  expiresAt: number | null;
 }
 
 export interface SignOutRequestDto {

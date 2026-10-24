@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   AuthStatus,
   PortListResponse,
@@ -7,7 +7,13 @@ import type {
 } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
-import { portAccessMessage } from "./port-access";
+import {
+  isAuthorizationRequiredError,
+  isPortAccessExpired,
+  msUntilPortAccessExpires,
+  PORT_ACCESS_EXPIRED_MESSAGE,
+  portAccessMessage,
+} from "./port-access";
 import { usePortAccess } from "./use-port-access";
 
 interface TargetPanelProps {
@@ -34,7 +40,25 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
   const [identity, setIdentity] = useState<ServiceIdentityDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const blockedMessage = portAccessMessage(auth);
+  // Set when the allowed check reaches `expiresAt`, or when the server refuses a request with
+  // `authorization_required`; a new authorization status clears it.
+  const [isExpired, setIsExpired] = useState(false);
+  useEffect(() => {
+    setIsExpired(isPortAccessExpired(auth, Date.now()));
+    const delay = msUntilPortAccessExpires(auth, Date.now());
+    if (delay === null) return undefined;
+    const timer = setTimeout(() => setIsExpired(true), delay + 1);
+    return () => clearTimeout(timer);
+  }, [auth]);
+  const blockedMessage =
+    portAccessMessage(auth) ?? (isExpired ? PORT_ACCESS_EXPIRED_MESSAGE : null);
+  const showError = (caught: unknown): void => {
+    if (isAuthorizationRequiredError(caught)) {
+      setIsExpired(true);
+      return;
+    }
+    setError(caught instanceof Error ? caught.message : "Request failed.");
+  };
   // Requests start once per allowed authorization; the preset port still needs explicit
   // confirmation. Each response is kept only if that authorization is still the current one.
   const access = usePortAccess(auth, presetPort, {
@@ -57,7 +81,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
       if (access.isCurrent(token)) setServices(response);
     } catch (caught) {
       if (access.isCurrent(token)) {
-        setError(caught instanceof Error ? caught.message : "Request failed.");
+        showError(caught);
       }
     } finally {
       setIsBusy(false);
@@ -74,7 +98,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
       if (access.isCurrent(token)) setIdentity(response);
     } catch (caught) {
       if (access.isCurrent(token)) {
-        setError(caught instanceof Error ? caught.message : "Request failed.");
+        showError(caught);
       }
     } finally {
       setIsBusy(false);
@@ -92,7 +116,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
       );
       setIdentity(null);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      showError(caught);
     }
   };
 

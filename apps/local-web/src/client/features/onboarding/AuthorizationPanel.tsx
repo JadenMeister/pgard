@@ -154,6 +154,12 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
             </tbody>
           </table>
           <p className="muted">This result is not stored; every scan checks again.</p>
+          {typeof status.expiresAt === "number" && (
+            <p className="muted">
+              Local service discovery and probes stay open until{" "}
+              {new Date(status.expiresAt).toLocaleTimeString()}; check again after that.
+            </p>
+          )}
         </>
       )}
       {status?.message && <Notice tone="error">{status.message}</Notice>}
