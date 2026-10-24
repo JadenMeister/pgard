@@ -81,9 +81,41 @@ describe("detectSecrets", () => {
     ],
     ["constant reference", "        access_token: ACCESS_TOKEN,"],
     ["constant reference (camel key)", "    accessToken: GITHUB_ACCESS_TOKEN,"],
-  ])("ignores %s", (_label, text) => {
+  ])("ignores %s in source code", (_label, text) => {
     expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
-    expect(detectSecrets(text)).toEqual([]);
+    expect(detectSecrets(text, { path: "internal/scan/module.go" })).toEqual([]);
+  });
+
+  // Review of #142: config values may contain any character, so the code-shape rules apply only
+  // to code in source files, never to config files or to string literals inside source files.
+  it.each([
+    ["properties value with )", "db.password=Tr0ub4dor)xK9!qZ", "config/app.properties"],
+    ["env value with ]", "DB_PASSWORD=hunter2]Zq9xLmWv", ".env"],
+    ["env value with <", "DB_PASSWORD=Pass<word9xLmWv", ".env"],
+    ["env value with >", "API_KEY=K9x>mQ2vLp8Wz4Rt", ".env"],
+    ["YAML value with brackets", "password: K9x[mQ2]vLp8Wz4Rt", "config/app.yaml"],
+    ["YAML value ending in :", "password: K9xmQ2vLp8Wz4Rt:", "config/app.yml"],
+    ["properties value starting with /", "secret=/K9x|mQ2vLp8Wz4Rt", "app.properties"],
+    ["all-caps env value", "PASSWORD=PROD_DB_PASSWORDX", ".env"],
+    ["all-caps env passphrase", "SECRET_KEY=CORRECT_HORSE_BATTERY_STAPLE", ".env.production"],
+    [
+      "C# connection string",
+      'var c = "Server=db;User Id=sa;Password=QwErTyUiOpAsDfGh;";',
+      "src/Db.cs",
+    ],
+    ["Python DSN", 'DSN = "host=db user=app password=QwErTyUiOpAsDfGh"', "app/db.py"],
+    [
+      "URL query in TypeScript",
+      'const u = "mysql://u@h/db?password=QwErTyUiOpAsDfGh";',
+      "src/db.ts",
+    ],
+    ["PHP DSN", '$dsn = "pgsql:host=db;password=QwErTyUiOpAsDfGh";', "src/db.php"],
+    ["template literal", "const c = `Password=QwErTyUiOpAsDfGh;`;", "src/db.ts"],
+    ["code-shaped value in a string", 'const c = "password=Tr0ub4dor)xK9!qZ";', "src/db.ts"],
+  ])("detects %s", (_label, text, path) => {
+    expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
+      "generic_credential",
+    );
   });
 
   it("ignores bare identifiers in source code but not in config files", () => {

@@ -36,7 +36,8 @@ export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
 export interface DetectSecretsOptions {
   /**
    * Repository path of the text. In source code files a string literal is always quoted, so an
-   * unquoted bare identifier there is a reference, not a credential value.
+   * unquoted value written as code there (an identifier, constant, type or regex) is not a
+   * credential value. Without a path, the text is treated like a config file.
    */
   path?: string;
 }
@@ -125,11 +126,33 @@ const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
 
 /**
+ * Whether `index` sits inside a string literal on its line (`"…;Password=abc"`), judged by the
+ * unescaped quotes before it on that line. A stray apostrophe errs towards "inside", which keeps
+ * the match.
+ */
+function isInsideStringLiteral(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+  let open: string | null = null;
+  for (let cursor = lineStart; cursor < index; cursor += 1) {
+    const char = text[cursor];
+    if (char === "\\") {
+      cursor += 1;
+    } else if (open === null) {
+      if (char === '"' || char === "'" || char === "`") open = char;
+    } else if (char === open) {
+      open = null;
+    }
+  }
+  return open !== null;
+}
+
+/**
  * Whether a generic `key = value` match is an assignment of a literal value, judged by what
- * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`) and
- * unquoted values that are code: code-shaped, an all-caps constant name, or (in source code
- * files, where a literal must be quoted) a bare identifier. Unquoted values elsewhere (`.env`,
- * YAML, connection strings inside a string) still count.
+ * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). In
+ * source code files, where a literal must be quoted, an unquoted value written as code (outside
+ * a string literal) is rejected when it is code-shaped, an all-caps constant name or a bare
+ * identifier. Unquoted values in config files (`.env`, YAML, `.properties`) and inside string
+ * literals (connection strings) always count, whatever characters they contain.
  */
 function isLiteralAssignment(
   text: string,
@@ -146,12 +169,16 @@ function isLiteralAssignment(
     return false; // `cond ? "PG-SECRET-003" : "PG-SECRET-002"` is a ternary, not a key
   }
   if (valueQuote !== "") return true;
-  if (CODE_SHAPED_VALUE.some((shape) => shape.test(value))) return false;
-  if (CONSTANT_NAME.test(value)) return false;
-  if (options.path && SOURCE_CODE_FILE.test(options.path) && BARE_IDENTIFIER.test(value)) {
-    return false;
-  }
-  return true;
+  const isCode =
+    options.path !== undefined &&
+    SOURCE_CODE_FILE.test(options.path) &&
+    !isInsideStringLiteral(text, start);
+  if (!isCode) return true;
+  return (
+    !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&
+    !CONSTANT_NAME.test(value) &&
+    !BARE_IDENTIFIER.test(value)
+  );
 }
 
 /** A private key block with fewer base64 body characters than this is only a header. */
