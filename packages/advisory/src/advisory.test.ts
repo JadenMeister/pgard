@@ -322,7 +322,7 @@ describe("scanDependencies", () => {
     );
   });
 
-  it("records package.json without a lockfile as partial", async () => {
+  it("never reports a root package.json without a lockfile as completed", async () => {
     const root = tempDir({
       "package.json": JSON.stringify({ dependencies: { lodash: "^4.0.0" } }),
     });
@@ -330,9 +330,9 @@ describe("scanDependencies", () => {
       env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
       now,
     });
-    expect(result.coverage.find((entry) => entry.area === "dependencies:npm")).toMatchObject({
-      status: "partial",
-    });
+    const npm = result.coverage.find((entry) => entry.area === "dependencies:npm");
+    expect(npm?.status).toBe("not_tested");
+    expect(npm?.note).toMatch(/without a covering lockfile \(package\.json\)/);
   });
 });
 
@@ -513,5 +513,62 @@ describe("cost (#93)", () => {
         signal: controller.signal,
       }),
     ).rejects.toBeDefined();
+  });
+});
+
+describe("package.json lockfile coverage (#114)", () => {
+  const npmCoverage = async (files: Record<string, string>) => {
+    const result = await scanDependencies(tempDir(files), {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    return result.coverage.find((entry) => entry.area === "dependencies:npm");
+  };
+  const manifest = JSON.stringify({ dependencies: { lodash: "^4.0.0" } });
+
+  it("reports a nested package.json without any lockfile as not tested", async () => {
+    const npm = await npmCoverage({ "web/package.json": manifest });
+    expect(npm?.status).toBe("not_tested");
+    expect(npm?.note).toMatch(/web\/package\.json/);
+  });
+
+  it("reports a nested package.json beside another directory's lockfile as partial", async () => {
+    const npm = await npmCoverage({
+      "api/package.json": manifest,
+      "api/package-lock.json": lodashLock("4.17.21"),
+      "web/package.json": manifest,
+    });
+    expect(npm?.status).toBe("partial");
+    expect(npm?.note).toMatch(/without a covering lockfile \(web\/package\.json\)/);
+    expect(npm?.note).not.toMatch(/api\/package\.json/);
+  });
+
+  it("treats workspace packages under a root lockfile as covered", async () => {
+    const npm = await npmCoverage({
+      "package.json": JSON.stringify({ workspaces: ["packages/*"] }),
+      "package-lock.json": lodashLock("4.17.21"),
+      "packages/a/package.json": manifest,
+      "packages/b/nested/package.json": manifest,
+    });
+    expect(npm?.status).toBe("completed");
+  });
+
+  it("does not treat a sibling directory with a shared prefix as an ancestor", async () => {
+    const npm = await npmCoverage({
+      "app/yarn.lock": '# yarn lockfile v1\n\nlodash@^4.17.0:\n  version "4.17.21"\n',
+      "app2/package.json": manifest,
+    });
+    expect(npm?.status).toBe("partial");
+    expect(npm?.note).toMatch(/app2\/package\.json/);
+  });
+
+  it("caps the number of listed paths", async () => {
+    const npm = await npmCoverage(
+      Object.fromEntries(
+        Array.from({ length: 7 }, (_, index) => [`p${index}/package.json`, manifest]),
+      ),
+    );
+    expect(npm?.status).toBe("not_tested");
+    expect(npm?.note).toMatch(/p4\/package\.json and 2 more/);
   });
 });

@@ -104,6 +104,15 @@ async function readManifest(root: string, relative: string): Promise<string | nu
   }
 }
 
+const MAX_LISTED_PATHS = 5;
+
+/** Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. */
+function listPaths(paths: string[]): string {
+  const listed = paths.slice(0, MAX_LISTED_PATHS).join(", ");
+  const rest = paths.length - MAX_LISTED_PATHS;
+  return rest > 0 ? `${listed} and ${rest} more` : listed;
+}
+
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
 }
@@ -286,24 +295,45 @@ export async function scanDependencies(
     });
   };
 
-  const lockDirectories = new Set(manifests.npmLockfiles.map((file) => path.posix.dirname(file)));
-  const unlockedPackages = manifests.packageJsons.filter(
-    (file) => !lockDirectories.has(path.posix.dirname(file)) && path.posix.dirname(file) === ".",
-  );
-  ecosystemCoverage(
-    "dependencies:npm",
-    "npm",
-    manifests.npmLockfiles,
-    npm.resolved,
-    npm.errors,
-    unlockedPackages.length > 0 && manifests.npmLockfiles.length === 0
-      ? [
-          "package.json without a lockfile: resolved versions are unknown, so npm dependencies were not checked",
-        ]
-      : [],
-    "npm",
-    npm.uncomparable,
-  );
+  // A package.json is covered when an npm-family lockfile sits in its directory or an ancestor
+  // directory (workspace packages resolve through the root lockfile). Without one, its resolved
+  // versions are unknown, so coverage must not be reported as completed (#114).
+  const lockDirectories = [
+    ...new Set(manifests.npmLockfiles.map((file) => path.posix.dirname(file))),
+  ];
+  const uncoveredPackages = manifests.packageJsons.filter((file) => {
+    const directory = path.posix.dirname(file);
+    return !lockDirectories.some(
+      (lockDirectory) =>
+        lockDirectory === "." ||
+        directory === lockDirectory ||
+        directory.startsWith(`${lockDirectory}/`),
+    );
+  });
+  const uncoveredNote =
+    uncoveredPackages.length > 0
+      ? `package.json without a covering lockfile (${listPaths(uncoveredPackages)}): resolved versions are unknown, so those npm dependencies were not checked`
+      : null;
+  if (uncoveredNote !== null && manifests.npmLockfiles.length === 0) {
+    coverage.push({
+      area: "dependencies:npm",
+      scope: "code",
+      status: "not_tested",
+      ruleIds: [DEPENDENCY_RULE.id],
+      note: `No npm lockfiles found. ${uncoveredNote}.`,
+    });
+  } else {
+    ecosystemCoverage(
+      "dependencies:npm",
+      "npm",
+      manifests.npmLockfiles,
+      npm.resolved,
+      npm.errors,
+      uncoveredNote !== null ? [uncoveredNote] : [],
+      "npm",
+      npm.uncomparable,
+    );
+  }
   ecosystemCoverage(
     "dependencies:go",
     "Go",
