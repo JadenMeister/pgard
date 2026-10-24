@@ -439,7 +439,9 @@ export async function peekAdvisoryDb(
     version: null,
     updatedAt: null,
     advisoryCount: 0,
-    note: `An advisory database is configured${info.isDirectory() ? " and a sample record is valid OSV" : ""}; it was not fully loaded because nothing needed comparing, so its version and freshness were not verified.`,
+    note: info.isDirectory()
+      ? "An advisory database is configured and a sample record is valid OSV; it was not fully loaded because nothing needed comparing, so its version and freshness were not verified."
+      : "An advisory database file is configured; it was not loaded because nothing needed comparing. Only its first bytes were checked; contents, version and freshness were not verified.",
     validated: false,
   };
 }

@@ -614,6 +614,8 @@ describe("advisory database peek (#115)", () => {
     });
     const entry = await peekCoverage(path.join(dir, "big.json"));
     expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(/Only its first bytes were checked; contents, version and/);
+    expect(entry?.note).not.toMatch(/valid OSV/);
   });
 
   it("reports a large junk database file as not tested", async () => {
@@ -709,13 +711,12 @@ describe("go.mod before Go 1.17 (#115)", () => {
     expect(go?.note).toMatch(/no go directive/);
   });
 
-  it("ignores testdata, _ and . directories like the Go tool", async () => {
+  it("ignores fixture modules under testdata", async () => {
     const result = await scanDependencies(
       tempDir({
         "go.mod": "module x\n\ngo 1.21\n\nrequire example.com/a v1.0.0\n",
         "internal/testdata/fixture/go.mod": "module fixture\n\nrequire golang.org/x/text v0.3.7\n",
-        "_examples/go.mod": "module ex\n\nrequire golang.org/x/text v0.3.7\n",
-        ".tools/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+        "testdata/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
       }),
       { env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) }, now },
     );
@@ -723,6 +724,21 @@ describe("go.mod before Go 1.17 (#115)", () => {
     const go = result.coverage.find((entry) => entry.area === "dependencies:go");
     expect(go?.status).toBe("completed");
     expect(go?.note).toContain("from go.mod compared");
+  });
+
+  it("still scans real nested modules under _ and . directories", async () => {
+    const vulnerable = "go 1.21\n\nrequire golang.org/x/text v0.3.0\n";
+    const result = await scanDependencies(
+      tempDir({
+        "_tools/go.mod": `module tools\n\n${vulnerable}`,
+        ".tools/go.mod": `module dottools\n\n${vulnerable}`,
+      }),
+      { env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) }, now },
+    );
+    expect(result.findings.map((finding) => finding.location.path).sort()).toEqual([
+      ".tools/go.mod",
+      "_tools/go.mod",
+    ]);
   });
 
   it("keeps Go 1.17+ modules completed", async () => {

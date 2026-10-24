@@ -67,10 +67,10 @@ interface Manifests {
 
 async function findManifests(root: string): Promise<Manifests> {
   const result: Manifests = { npmLockfiles: [], packageJsons: [], goMods: [], goSums: [] };
-  // The Go tool ignores `testdata` and directories starting with `_` or `.`; modules there are
-  // fixtures, not part of the build, so they are skipped for Go (npm discovery is unchanged).
-  const isGoIgnoredDirectory = (name: string) =>
-    name === "testdata" || name.startsWith("_") || name.startsWith(".");
+  // Modules under `testdata` are test fixtures, never built, so they are skipped for Go (npm
+  // discovery is unchanged). `_`/`.` directories are still scanned: although package patterns
+  // skip them, they often hold real nested modules (e.g. `_tools/go.mod`) that can be built.
+  const isGoIgnoredDirectory = (name: string) => name === "testdata";
   const visit = async (directory: string, depth: number, isGoIgnored: boolean) => {
     let entries;
     try {
