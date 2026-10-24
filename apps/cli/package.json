@@ -1,0 +1,26 @@
+{
+  "name": "@pgard/cli",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "pgard": "./dist/bin/pgard.js"
+  },
+  "exports": {
+    ".": {
+      "source": "./src/app.ts",
+      "types": "./dist/app.d.ts",
+      "default": "./dist/app.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@pgard/findings": "0.1.0",
+    "@pgard/http-local": "0.1.0",
+    "@pgard/report": "0.1.0",
+    "@pgard/scan-core": "0.1.0"
+  }
+}
