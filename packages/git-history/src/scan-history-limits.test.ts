@@ -339,3 +339,61 @@ describe("oversized commits and unknown revisions (#103)", () => {
     expect(result.coverage[0]?.note).toMatch(/was not found/);
   });
 });
+
+describe("overflow-path classification (#108)", () => {
+  const noTree =
+    (inner: GitRunner): GitRunner =>
+    (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : inner(invocation, options);
+  const isLookup = (invocation: { subcommand: string }, input: string | undefined) =>
+    invocation.subcommand === "cat-file" && (input?.includes(":") ?? false);
+
+  it("does not call a .env removed when the lookup fails", async () => {
+    const repo = fixture();
+    repo.commit({ files: { ".env": "A=1\n", "a.txt": "x" } });
+    const failing: GitRunner = (invocation, options) =>
+      isLookup(invocation, options.input)
+        ? Promise.reject(new GitCommandError("slow", null, "timeout"))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: noTree(failing) });
+    const env = result.findings.find((finding) => finding.location.path === ".env");
+    expect(env?.evidence).toMatch(/could not be checked/);
+    expect(env?.evidence).not.toMatch(/later removed/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/1 environment file\(s\) it could not be checked/);
+  });
+
+  it("does not call a .env removed when the time budget skips the lookup", async () => {
+    const repo = fixture();
+    repo.commit({ files: { ".env": "A=1\n", "a.txt": "x" } });
+    let clock = 0;
+    const result = await scanGitHistory(repo.root, {
+      runner: noTree(runGit),
+      timeBudgetMs: 1_000_000,
+      now: () => {
+        clock += 600_000;
+        return clock;
+      },
+    });
+    const env = result.findings.find((finding) => finding.location.path === ".env");
+    expect(env?.evidence).not.toMatch(/later removed/);
+    expect(result.coverage.find((entry) => entry.area === "history:commits")?.note).toMatch(
+      /environment file\(s\) it could not be checked/,
+    );
+  });
+
+  it("still calls a .env removed when the lookup answers missing", async () => {
+    const repo = fixture();
+    repo.commit({ files: { ".env": "A=1\n", "a.txt": "x" } });
+    repo.commit({ remove: [".env"] });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit) });
+    const env = result.findings.find((finding) => finding.location.path === ".env");
+    expect(env?.evidence).toMatch(/later removed/);
+    expect(result.coverage.find((entry) => entry.area === "history:commits")?.note).not.toMatch(
+      /environment file\(s\) it could not be checked/,
+    );
+  });
+});

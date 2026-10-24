@@ -582,6 +582,7 @@ export async function scanGitHistory(
   const isBoundary = (commit: string) => shallowBoundary?.has(commit) ?? false;
   const reported = new Set<string>();
   let unknownCurrentState = 0;
+  let unknownEnvState = 0;
   const historyShas = [...new Set(oldestFirst.map((entry) => entry.sha))].filter(
     (sha) => !headShas.has(sha),
   );
@@ -659,6 +660,10 @@ export async function scanGitHistory(
     ) {
       reported.add(`env:${entry.path}`);
       const boundary = isBoundary(entry.commit);
+      // On the overflow path only a lookup that answered "missing" proves the file was removed;
+      // a skipped, failed or unanswerable lookup leaves its current state unknown.
+      const isStateUnknown = currentByPath !== null && currentSha === undefined;
+      if (isStateUnknown) unknownEnvState += 1;
       findings.push(
         createFinding({
           ruleId: "PG-SECRET-001",
@@ -668,7 +673,7 @@ export async function scanGitHistory(
           severity: "high",
           status: "confirmed",
           confidence: "high",
-          evidence: `environment file was ${boundary ? "present in" : "committed in"} ${entry.commit.slice(0, 12)}${boundary ? " (shallow clone boundary)" : ""} and later removed; its values remain in history (values not shown)`,
+          evidence: `environment file was ${boundary ? "present in" : "committed in"} ${entry.commit.slice(0, 12)}${boundary ? " (shallow clone boundary)" : ""}${isStateUnknown ? "; whether it is still tracked in the current commit could not be checked" : " and later removed"}; its values remain in history (values not shown)`,
           cause: "env-file-history",
         }),
       );
@@ -708,6 +713,11 @@ export async function scanGitHistory(
     ...(unknownCurrentState > 0
       ? [
           `for ${unknownCurrentState} finding(s) it could not be checked whether the value is still in the current files`,
+        ]
+      : []),
+    ...(unknownEnvState > 0
+      ? [
+          `for ${unknownEnvState} environment file(s) it could not be checked whether they are still tracked in the current commit`,
         ]
       : []),
     ...(shallowBoundary
