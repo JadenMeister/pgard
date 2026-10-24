@@ -1,17 +1,29 @@
-import { PGARD_VERSION, listSupportedRules } from "@pgard/scan-core";
+import { PGARD_VERSION, listSupportedRules, type AdvisoryDbStatus } from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
+import type { CliDeps } from "../../deps.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
 import { RULE_CRITERIA_VERSION, filterRulesByLanguage, runRulesList } from "./list.js";
 
-function runList(language: Parameters<typeof runRulesList>[1]): string {
-  const captured = createTestIo();
-  expect(runRulesList(createTestContext(captured, createTestDeps()), language)).toBe(0);
+const DB_PATH = "/home/user/secret-place/osv.json";
+
+async function runList(
+  language: Parameters<typeof runRulesList>[1],
+  overrides: Partial<CliDeps> = {},
+): Promise<string> {
+  const captured = createTestIo({ env: { PGARD_ADVISORY_DB: DB_PATH } });
+  expect(await runRulesList(createTestContext(captured, createTestDeps(overrides)), language)).toBe(
+    0,
+  );
   return captured.stdout();
 }
 
+function advisoryDeps(status: AdvisoryDbStatus): Partial<CliDeps> {
+  return { readAdvisoryDbStatus: async () => status };
+}
+
 describe("runRulesList", () => {
-  it("shows the version header, web rules, advisory status and unsupported areas", () => {
-    const stdout = runList(null);
+  it("shows the version header, web rules, advisory status and unsupported areas", async () => {
+    const stdout = await runList(null);
     expect(stdout).toContain(
       `pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`,
     );
@@ -20,8 +32,8 @@ describe("runRulesList", () => {
     expect(stdout).toContain("Direct database connections");
   });
 
-  it("lists every engine rule grouped by scope", () => {
-    const stdout = runList(null);
+  it("lists every engine rule grouped by scope", async () => {
+    const stdout = await runList(null);
     for (const rule of listSupportedRules()) expect(stdout).toContain(rule.id);
     const codeHeading = stdout.indexOf("Code rules (current files)");
     const historyHeading = stdout.indexOf("Git history rules");
@@ -34,8 +46,8 @@ describe("runRulesList", () => {
     expect(stdout).toMatch(/PG-SQL-001\s+high\s+.+\[javascript, typescript\]/);
   });
 
-  it("filters by language and keeps rules for any language", () => {
-    const stdout = runList("go");
+  it("filters by language and keeps rules for any language", async () => {
+    const stdout = await runList("go");
     expect(stdout).toContain("Language filter: go");
     expect(stdout).toContain("PG-SQL-003");
     expect(stdout).not.toContain("PG-SQL-001");
@@ -44,8 +56,67 @@ describe("runRulesList", () => {
     expect(stdout).toContain("PG-WEB-001");
   });
 
-  it("is deterministic", () => {
-    expect(runList("ts")).toBe(runList("ts"));
+  it("is deterministic", async () => {
+    expect(await runList("ts")).toBe(await runList("ts"));
+  });
+});
+
+describe("runRulesList advisory status", () => {
+  it("shows an ok database with version, update time and note", async () => {
+    const stdout = await runList(
+      null,
+      advisoryDeps({
+        status: "ok",
+        version: "osv-2026-10-20",
+        updatedAt: "2026-10-20T00:00:00.000Z",
+        advisoryCount: 12,
+        note: "12 advisories, updated 2026-10-20.",
+      }),
+    );
+    expect(stdout).toContain(
+      "Advisory database status: ok - version osv-2026-10-20, updated 2026-10-20T00:00:00.000Z - 12 advisories, updated 2026-10-20.",
+    );
+  });
+
+  it("shows stale and invalid databases without the configured path", async () => {
+    const stale = await runList(
+      null,
+      advisoryDeps({
+        status: "stale",
+        version: "v1",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        advisoryCount: 3,
+        note: "Advisory data is stale: last updated 2026-01-01 (more than 30 days ago). Newer advisories are not checked.",
+      }),
+    );
+    expect(stale).toContain("Advisory database status: stale - version v1");
+    expect(stale).toContain("Newer advisories are not checked.");
+    const invalid = await runList(
+      null,
+      advisoryDeps({
+        status: "invalid",
+        version: null,
+        updatedAt: null,
+        advisoryCount: 0,
+        note: "The advisory database contains no advisories.",
+      }),
+    );
+    expect(invalid).toContain(
+      "Advisory database status: invalid - version none, updated never - The advisory database contains no advisories.",
+    );
+    expect(stale).not.toContain(DB_PATH);
+    expect(invalid).not.toContain(DB_PATH);
+  });
+
+  it("reports a failing status read as invalid without echoing the error", async () => {
+    const stdout = await runList(null, {
+      readAdvisoryDbStatus: async () => {
+        throw new Error(`EACCES: permission denied, open '${DB_PATH}'`);
+      },
+    });
+    expect(stdout).toContain("Advisory database status: invalid - version none, updated never");
+    expect(stdout).not.toContain(DB_PATH);
+    expect(stdout).not.toContain("EACCES");
   });
 });
 

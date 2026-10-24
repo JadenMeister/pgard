@@ -8,6 +8,7 @@ import {
 import { out, type CommandContext } from "../../context.js";
 import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
 import type { RuleLanguage } from "../../options.js";
+import { formatAdvisoryStatus, readAdvisoryStatusSafely } from "../../ui/formatters/advisory.js";
 
 export const UNSUPPORTED_AREAS = [
   "Direct database connections",
@@ -23,10 +24,6 @@ export const UNSUPPORTED_AREAS = [
  * change.
  */
 export const RULE_CRITERIA_VERSION = "2026.10-mvp";
-
-/** Advisory DB status line. Placeholder until the advisory package exposes its status. */
-export const ADVISORY_STATUS_TEXT =
-  "status: missing - no local advisory database is configured; dependency advisories are reported as not tested";
 
 /** `--language` value -> catalog language. Rules tagged "any" always match. */
 export const LANGUAGE_FILTER: Readonly<Record<RuleLanguage, CatalogLanguage>> = {
@@ -56,8 +53,12 @@ function formatRule(rule: RuleDescriptor): string {
 }
 
 /** `pgard rules list`: works outside a project; never touches GitHub or the network. */
-export function runRulesList(context: CommandContext, language: RuleLanguage | null): ExitCode {
-  const { style } = context;
+export async function runRulesList(
+  context: CommandContext,
+  language: RuleLanguage | null,
+): Promise<ExitCode> {
+  const { deps, io, style } = context;
+  const advisory = await readAdvisoryStatusSafely(deps, io.env);
   out(context, style.bold(`pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`));
   if (language !== null) {
     out(context, style.dim(`Language filter: ${language} (rules for any language are included)`));
@@ -79,10 +80,8 @@ export function runRulesList(context: CommandContext, language: RuleLanguage | n
   }
   out(context, "");
   out(context, style.bold("Advisory data"));
-  out(
-    context,
-    style.dim(`  Advisory database ${ADVISORY_STATUS_TEXT} (version: none, updated: never).`),
-  );
+  const advisoryLine = `  Advisory database status: ${formatAdvisoryStatus(advisory)}`;
+  out(context, advisory.status === "ok" ? advisoryLine : style.yellow(advisoryLine));
   out(context, "");
   out(context, style.bold("Not covered in this version"));
   for (const area of UNSUPPORTED_AREAS) out(context, `  - ${area}`);

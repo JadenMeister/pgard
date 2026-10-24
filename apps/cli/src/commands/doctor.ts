@@ -1,6 +1,7 @@
 import { GITHUB_APP_CLIENT_ID_ENV, readGitHubAppClientId } from "@pgard/scan-core";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
+import { formatAdvisoryStatus, readAdvisoryStatusSafely } from "../ui/formatters/advisory.js";
 import { safeText } from "../ui/formatters/style.js";
 
 const MIN_NODE_VERSION = [22, 12] as const;
@@ -26,11 +27,12 @@ interface DoctorCheck {
  */
 export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const { deps, io, style } = context;
-  const [gitVersion, gitRoot, isGitHubReachable, discovery] = await Promise.all([
+  const [gitVersion, gitRoot, isGitHubReachable, discovery, advisory] = await Promise.all([
     deps.readGitVersion(),
     deps.findGitRoot(io.cwd).catch(() => null),
     deps.checkGitHubReachable(),
     deps.discoverListeningPorts(),
+    readAdvisoryStatusSafely(deps, io.env),
   ]);
   const isClientIdSet = readGitHubAppClientId(io.env) !== null;
   const checks: DoctorCheck[] = [
@@ -79,8 +81,8 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     },
     {
       label: "Advisory database",
-      isOk: false,
-      detail: "not bundled in this build (dependency advisories reported as not tested)",
+      isOk: advisory.status === "ok",
+      detail: formatAdvisoryStatus(advisory),
       isRequired: false,
     },
   ];
