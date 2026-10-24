@@ -615,3 +615,41 @@ describe("advisory database peek (#115)", () => {
     expect(status.validated).not.toBe(false);
   });
 });
+
+describe("pnpm entries that cannot be compared (#115)", () => {
+  const lock = [
+    "lockfileVersion: '9.0'",
+    "",
+    "packages:",
+    "",
+    "  lodash@4.17.21:",
+    "    resolution: {integrity: x}",
+    "",
+    "  tarball@https://example.com/tarball-1.0.0.tgz:",
+    "    resolution: {tarball: https://example.com/tarball-1.0.0.tgz}",
+    "",
+    "  fromgit@git+https://github.com/o/r.git#abc:",
+    "    resolution: {type: git}",
+    "",
+    "  local@file:../local:",
+    "    resolution: {directory: ../local, type: directory}",
+    "",
+  ].join("\n");
+
+  it("counts tarball, git and file: entries as uncomparable", () => {
+    const result = parsePnpmLock(lock);
+    expect(result.packages.map((p) => `${p.name}@${p.version}`)).toEqual(["lodash@4.17.21"]);
+    expect(result.uncomparable).toBe(3);
+  });
+
+  it("reports npm coverage as partial instead of completed", async () => {
+    const root = tempDir({ "pnpm-lock.yaml": lock });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    const npm = result.coverage.find((entry) => entry.area === "dependencies:npm");
+    expect(npm?.status).toBe("partial");
+    expect(npm?.note).toMatch(/3 dependency entries .* could not be compared/);
+  });
+});

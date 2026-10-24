@@ -99,6 +99,7 @@ export function parsePackageLock(text: string): LockfileParseResult {
 /** pnpm-lock.yaml (v5 `/name/1.0.0`, v6 `/name@1.0.0`, v9 `name@1.0.0`), read line by line. */
 export function parsePnpmLock(text: string): LockfileParseResult {
   const packages: ResolvedPackage[] = [];
+  let uncomparable = 0;
   let inPackages = false;
   let sawPackagesSection = false;
   for (const line of text.split(/\r?\n/)) {
@@ -120,12 +121,15 @@ export function parsePnpmLock(text: string): LockfileParseResult {
         name: parsed.name,
         version: parsed.version.replace(/_.*$/, ""),
       });
+    } else {
+      // Tarball, git and file: entries (and keys that cannot be read) have no registry version.
+      uncomparable += 1;
     }
   }
   if (!sawPackagesSection && text.trim().length > 0 && !/^lockfileVersion:/m.test(text)) {
-    return { packages: [], error: "pnpm-lock.yaml was not recognized" };
+    return { packages: [], error: "pnpm-lock.yaml was not recognized", uncomparable: 0 };
   }
-  return { packages: unique(packages), error: null };
+  return { packages: unique(packages), error: null, uncomparable };
 }
 
 /**
