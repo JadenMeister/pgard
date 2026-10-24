@@ -30,6 +30,7 @@ const analyzeCode: LocalAnalyzer = async (context) => {
 /** `history` scope: committed .env files and secrets in tracked files and recent history. */
 const analyzeHistory: LocalAnalyzer = (context) =>
   scanGitHistory(context.projectRoot, {
+    revision: context.revision,
     ...(context.signal ? { signal: context.signal } : {}),
   });
 
