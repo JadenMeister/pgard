@@ -8,7 +8,12 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isReportFormat, ReportWriteError } from "@pgard/report";
-import { PGARD_VERSION, readGitHubAppClientId, ScanCancelledError } from "@pgard/scan-core";
+import {
+  isAuthorizationAllowed,
+  PGARD_VERSION,
+  readGitHubAppClientId,
+  ScanCancelledError,
+} from "@pgard/scan-core";
 import type {
   AuthStatus,
   PortListResponse,
@@ -87,8 +92,14 @@ function scanStatus(state: SessionState): ScanStatus {
 }
 
 function authStatus(state: SessionState): AuthStatus {
-  const { status, summary, repo, message } = state.auth;
-  return { status, deviceCode: state.deviceCode, summary, repo, message };
+  const { status, outcome, message } = state.auth;
+  return {
+    status,
+    deviceCode: state.deviceCode,
+    summary: outcome?.summary ?? null,
+    repo: outcome?.repo ?? null,
+    message,
+  };
 }
 
 const getSession: ApiHandler = async (context) => {
@@ -105,22 +116,21 @@ const getSession: ApiHandler = async (context) => {
 const startVerify: ApiHandler = async (context) => {
   const { state } = context;
   if (state.auth.status === "running") return authStatus(state);
-  const run: SessionState["auth"] = { status: "running", summary: null, repo: null, message: null };
+  const run: SessionState["auth"] = { status: "running", outcome: null, message: null };
   state.auth = run;
   void context.deps
     .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
-      state.auth = { status: "done", summary: outcome.summary, repo: outcome.repo, message: null };
+      state.auth = { status: "done", outcome, message: null };
     })
     .catch(() => {
       if (state.auth !== run) return;
       state.deviceCode = null;
       state.auth = {
         status: "failed",
-        summary: null,
-        repo: null,
+        outcome: null,
         message: "The authorization check could not complete.",
       };
     });
@@ -133,19 +143,21 @@ const getAuth: ApiHandler = async (context) => authStatus(context.state);
 const signOut: ApiHandler = async (context) => {
   context.github.signOut();
   context.state.deviceCode = null;
-  context.state.auth = { status: "idle", summary: null, repo: null, message: null };
+  context.state.auth = { status: "idle", outcome: null, message: null };
   return authStatus(context.state);
 };
 
 /**
  * Port discovery and identity probes touch local services, so they run only after this server
  * session's most recent authorization check for the fixed project root came back "allowed" (the
- * same order the CLI uses). The decision is read from server state only; nothing the browser
- * sends can open this gate. A new check, sign-out or a blocked/failed result closes it again.
+ * same order the CLI uses). "Allowed" means `isAuthorizationAllowed`: the decision is allowed and all
+ * five checks are present, in order, and passed. The outcome is read from server state only;
+ * nothing the browser sends can open this gate. A new check, sign-out or a blocked/failed result
+ * closes it again.
  */
 export function requirePortAccessAuthorized(state: SessionState): void {
-  const { status, summary, message } = state.auth;
-  if (status === "done" && summary?.decision === "allowed") return;
+  const { status, outcome, message } = state.auth;
+  if (status === "done" && outcome !== null && isAuthorizationAllowed(outcome)) return;
   let reason: string;
   if (status === "running") {
     reason = "The authorization check is still running. Local services are not contacted yet.";

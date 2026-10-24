@@ -2,8 +2,9 @@ import http from "node:http";
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ScanRequest, ScanResult } from "@pgard/findings";
+import type { AuthorizationCheckId, ScanRequest, ScanResult } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
+import { AUTHORIZATION_CHECK_ORDER, type AuthorizationOutcome } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerDeps } from "./deps.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
@@ -21,6 +22,30 @@ const IDENTITY: ServiceIdentity = {
   error: null,
 };
 
+/**
+ * A five-check outcome shaped like the one `authorizeProject` returns: every check passed, or the
+ * named check failed (and the decision is blocked).
+ */
+function outcome(
+  failing: AuthorizationCheckId | null = null,
+  target: { repo: string | null; revision: string | null } = {
+    repo: "owner/name",
+    revision: "abc",
+  },
+): AuthorizationOutcome {
+  return {
+    summary: {
+      decision: failing === null ? "allowed" : "blocked",
+      checks: AUTHORIZATION_CHECK_ORDER.map((id) => ({
+        id,
+        status: id === failing ? "failed" : "passed",
+        reason: id === failing ? "Check failed." : "Check passed.",
+      })),
+    },
+    ...target,
+  };
+}
+
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
     schemaVersion: "1.0",
@@ -31,7 +56,7 @@ function result(overrides: Partial<ScanResult> = {}): ScanResult {
     requestedScopes: ["code"],
     overallStatus: "completed",
     target: { repo: "owner/name", revision: "abc", webOrigin: null },
-    authorization: { decision: "allowed", checks: [] },
+    authorization: outcome().summary,
     coverage: [],
     findings: [],
     advisoryDb: { version: null, updatedAt: null },
@@ -45,11 +70,7 @@ function fakeDeps(
   const signOut = vi.fn();
   const provider = Object.assign(async () => ({}) as never, { invalidate: vi.fn(), signOut });
   return {
-    verifyProject: async () => ({
-      summary: { decision: "blocked", checks: [] },
-      repo: "owner/name",
-      revision: "abc",
-    }),
+    verifyProject: async () => outcome("owner_approval"),
     runScan: async () => result(),
     createSessionProvider: () => provider as never,
     webScanner: async () => ({ findings: [], coverage: [] }),
@@ -257,11 +278,7 @@ describe("local web server security", () => {
   });
 });
 
-const ALLOWED_VERIFY: ServerDeps["verifyProject"] = async () => ({
-  summary: { decision: "allowed", checks: [] },
-  repo: "owner/name",
-  revision: "abc",
-});
+const ALLOWED_VERIFY: ServerDeps["verifyProject"] = async () => outcome();
 
 /** Runs the authorization check through the API and waits until it finishes. */
 async function authorize(running: LocalWebServer): Promise<void> {
@@ -323,11 +340,7 @@ describe("local web port access authorization gate", () => {
         new Promise((resolve, rejectVerify) => {
           finish = (allowed) =>
             allowed
-              ? resolve({
-                  summary: { decision: "allowed", checks: [] },
-                  repo: null,
-                  revision: null,
-                })
+              ? resolve(outcome(null, { repo: null, revision: null }))
               : rejectVerify(new Error("network"));
         }),
     );
@@ -357,12 +370,10 @@ describe("local web port access authorization gate", () => {
   });
 
   it("closes the gate again on sign-out or a new check that is blocked", async () => {
-    let decision: "allowed" | "blocked" = "allowed";
-    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(async () => ({
-      summary: { decision, checks: [] },
-      repo: "owner/name",
-      revision: "abc",
-    }));
+    let failing: AuthorizationCheckId | null = null;
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(async () =>
+      outcome(failing),
+    );
     const running = await start(deps);
     await authorize(running);
     expect((await apiGet(running, "/api/ports")).status).toBe(200);
@@ -370,11 +381,37 @@ describe("local web port access authorization gate", () => {
     await expectRefused(running);
     await authorize(running);
     expect((await apiGet(running, "/api/ports")).status).toBe(200);
-    decision = "blocked";
+    failing = "current_access";
     await authorize(running);
     await expectRefused(running);
     expect(discoverListeningPorts).toHaveBeenCalledTimes(2);
     expect(probeLocalService).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires all five checks passed, not just an allowed decision", async () => {
+    const allowed = outcome();
+    const malformed: AuthorizationOutcome[] = [
+      { ...allowed, summary: { decision: "allowed", checks: [] } },
+      { ...allowed, summary: { decision: "allowed", checks: allowed.summary.checks.slice(1) } },
+      {
+        ...allowed,
+        summary: { decision: "allowed", checks: [...allowed.summary.checks].reverse() },
+      },
+      {
+        ...allowed,
+        summary: { decision: "allowed", checks: outcome("contribution").summary.checks },
+      },
+    ];
+    let next = malformed[0]!;
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(async () => next);
+    const running = await start(deps);
+    for (const candidate of malformed) {
+      next = candidate;
+      await authorize(running);
+      await expectRefused(running);
+    }
+    expect(discoverListeningPorts).not.toHaveBeenCalled();
+    expect(probeLocalService).not.toHaveBeenCalled();
   });
 
   it("ignores anything the client sends about authorization", async () => {
@@ -511,8 +548,7 @@ describe("local web scans", () => {
           verificationUri: "https://github.com/login/device",
           expiresIn: 900,
         });
-        finish = () =>
-          resolve({ summary: { decision: "blocked", checks: [] }, repo: null, revision: null });
+        finish = () => resolve(outcome("repository", { repo: null, revision: null }));
       });
     const running = await start(deps);
     await apiPost(running, "/api/auth/verify");
@@ -656,7 +692,7 @@ describe("local web device flow lifecycle", () => {
     const { deps, signals } = pendingDeviceFlowDeps();
     deps.verifyProject = async (_root, authorization) => {
       await authorization.getGitHubSession();
-      return { summary: { decision: "allowed", checks: [] }, repo: "owner/name", revision: "abc" };
+      return outcome();
     };
     const running = await start(deps);
     await apiPost(running, "/api/auth/verify");

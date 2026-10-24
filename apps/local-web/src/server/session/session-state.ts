@@ -1,10 +1,6 @@
-import type {
-  AuthorizationSummary,
-  ConfirmedWebTarget,
-  ScanResult,
-  ScanScope,
-} from "@pgard/findings";
+import type { ConfirmedWebTarget, ScanResult, ScanScope } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
+import type { AuthorizationOutcome } from "@pgard/scan-core";
 import type { DeviceCodeInfo, JobStatus, ScanProgressDto } from "../../shared/api-types.js";
 
 /** A probe is only confirmable for a short time after the user saw it. */
@@ -16,10 +12,14 @@ export const MAX_PROGRESS_EVENTS = 200;
  * written to disk; `clear()` runs on shutdown.
  */
 export interface SessionState {
+  /**
+   * The latest authorization check. A new object is stored whenever the check starts, finishes or
+   * is reset, so comparing references tells whether it changed across an await.
+   */
   auth: {
     status: JobStatus;
-    summary: AuthorizationSummary | null;
-    repo: string | null;
+    /** The full outcome (all five checks) once the check finished, otherwise null. */
+    outcome: AuthorizationOutcome | null;
     message: string | null;
   };
   /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
@@ -38,7 +38,7 @@ export interface SessionState {
 
 export function createSessionState(): SessionState {
   return {
-    auth: { status: "idle", summary: null, repo: null, message: null },
+    auth: { status: "idle", outcome: null, message: null },
     deviceCode: null,
     lastProbe: null,
     confirmedTarget: null,
