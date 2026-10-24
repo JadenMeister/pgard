@@ -1,9 +1,17 @@
-import { useEffect, useState } from "react";
-import type { PortListResponse, ServiceIdentityDto, TargetInfo } from "../../../shared/api-types";
+import { useEffect, useRef, useState } from "react";
+import type {
+  AuthStatus,
+  PortListResponse,
+  ServiceIdentityDto,
+  TargetInfo,
+} from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
+import { isPortAccessAllowed, portAccessMessage, startPortRequests } from "./port-access";
 
 interface TargetPanelProps {
+  /** Latest authorization status; nothing is discovered or probed until it reports allowed. */
+  auth: AuthStatus | null;
   presetPort: number | null;
   target: TargetInfo | null;
   onTarget: (target: TargetInfo | null) => void;
@@ -19,17 +27,24 @@ function parsePortInput(value: string): number | null {
  * Local service selection. The server probes the port and shows its identity; only then can the
  * user confirm it. The browser never builds the target itself.
  */
-export function TargetPanel({ presetPort, target, onTarget }: TargetPanelProps) {
+export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelProps) {
   const [services, setServices] = useState<PortListResponse | null>(null);
   const [otherPort, setOtherPort] = useState(presetPort === null ? "" : String(presetPort));
   const [identity, setIdentity] = useState<ServiceIdentityDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const isAllowed = isPortAccessAllowed(auth);
+  const blockedMessage = portAccessMessage(auth);
+  // Read after each await so a response that arrives after access closed is dropped.
+  const isAllowedRef = useRef(isAllowed);
+  isAllowedRef.current = isAllowed;
 
   const refresh = async (): Promise<void> => {
+    if (!isAllowedRef.current) return;
     setIsBusy(true);
     try {
-      setServices(await apiGet<PortListResponse>("/api/ports"));
+      const response = await apiGet<PortListResponse>("/api/ports");
+      if (isAllowedRef.current) setServices(response);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Request failed.");
     } finally {
@@ -38,10 +53,12 @@ export function TargetPanel({ presetPort, target, onTarget }: TargetPanelProps) 
   };
 
   const probe = async (port: number): Promise<void> => {
+    if (!isAllowedRef.current) return;
     setError(null);
     setIsBusy(true);
     try {
-      setIdentity(await apiPost<ServiceIdentityDto>("/api/ports/probe", { port }));
+      const response = await apiPost<ServiceIdentityDto>("/api/ports/probe", { port });
+      if (isAllowedRef.current) setIdentity(response);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Request failed.");
     } finally {
@@ -50,10 +67,19 @@ export function TargetPanel({ presetPort, target, onTarget }: TargetPanelProps) 
   };
 
   useEffect(() => {
-    void refresh();
-    if (presetPort !== null) void probe(presetPort);
-    // Runs once on mount; the preset port still needs explicit confirmation.
-  }, []);
+    if (!isAllowed) {
+      // Authorization is missing, running again, blocked or signed out: forget what was found.
+      setServices(null);
+      setIdentity(null);
+      setError(null);
+      return;
+    }
+    // Once per allowed authorization; the preset port still needs explicit confirmation.
+    startPortRequests(auth, presetPort, {
+      listPorts: () => void refresh(),
+      probe: (port) => void probe(port),
+    });
+  }, [isAllowed]);
 
   const confirm = async (): Promise<void> => {
     if (identity === null) return;
@@ -89,6 +115,10 @@ export function TargetPanel({ presetPort, target, onTarget }: TargetPanelProps) 
             Choose another service
           </button>
         </div>
+      ) : blockedMessage !== null ? (
+        <Notice tone={auth?.status === "running" || auth === null ? "info" : "warning"}>
+          {blockedMessage}
+        </Notice>
       ) : (
         <>
           <p className="muted">
