@@ -245,6 +245,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   const analyzers = { ...createDefaultAnalyzers(), ...deps.analyzers };
   const context: AnalyzerContext = {
     projectRoot: request.projectRoot,
+    revision: outcome.revision,
     env,
     now,
     ...(deps.signal ? { signal: deps.signal } : {}),

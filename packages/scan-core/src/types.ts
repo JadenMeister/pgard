@@ -35,6 +35,12 @@ export interface ScanProgressEvent {
 export interface AnalyzerContext {
   /** Absolute project root; analyzers must report repository-relative paths. */
   projectRoot: string;
+  /**
+   * The commit the authorization gate verified. Analyzers that read Git objects must scan this
+   * revision rather than re-resolving HEAD, so the analyzed history cannot change after
+   * authorization. (Source analysis reads the working tree, which is what the user runs.)
+   */
+  revision: string | null;
   signal?: AbortSignal;
   env: Readonly<Record<string, string | undefined>>;
   now: () => Date;
