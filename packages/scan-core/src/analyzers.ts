@@ -11,6 +11,7 @@ const analyzeCode: LocalAnalyzer = async (context) => {
   const dependencies = await scanDependencies(context.projectRoot, {
     env: context.env,
     now: context.now,
+    ...(context.signal ? { signal: context.signal } : {}),
   });
   return {
     findings: [...source.findings, ...dependencies.findings],
