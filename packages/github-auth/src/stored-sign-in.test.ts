@@ -360,6 +360,40 @@ describe("stored sign-in reuse", () => {
     expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
   });
 
+  it("stops reusing a cached keychain session after pgard logout in another process", async () => {
+    const store = await storeWith(storedRecord());
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider, userCodes } = makeProvider(github, store);
+    const first = await provider();
+    expect(await provider()).toBe(first);
+    expect(userCodes).toEqual([]);
+
+    await store.delete(KEY); // `pgard logout` elsewhere
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual(["ABCD-1234"]);
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+  });
+
+  it("switches to the sign-in that pgard login saved in another process", async () => {
+    const store = await storeWith(storedRecord());
+    const github = fakeGitHub();
+    const { provider, notices, userCodes } = makeProvider(github, store);
+    const first = await provider();
+    await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual([]);
+    expect(notices).toEqual([
+      { kind: "reused", login: "octo", isRefreshed: false },
+      { kind: "reused", login: "octo", isRefreshed: false },
+    ]);
+    const lastUserCall = github.calls.filter((call) => call.url.endsWith("/user")).at(-1);
+    expect(lastUserCall?.init.headers.Authorization).toBe(`Bearer ${NEW_TOKEN}`);
+  });
+
   it("never reuses a sign-in stored for another App client id", async () => {
     const store = await storeWith(storedRecord());
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });

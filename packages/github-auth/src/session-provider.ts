@@ -190,7 +190,9 @@ function deviceFlowOptions(
  * memory, exactly like the provider without a store.
  *
  * The cached session is dropped when sign-in fails, when the token is about to expire, when
- * GitHub answers 401 (which also deletes the stored entry), or on `invalidate()`/`signOut()`.
+ * GitHub answers 401 (which also deletes the stored entry while it still holds that token), on
+ * `invalidate()`/`signOut()`, and when the keychain entry it came from was removed or replaced by
+ * another process (checked each time the cached session would be handed out again).
  */
 export function createDeviceFlowSessionProvider(
   options: DeviceFlowSessionProviderOptions,
@@ -202,10 +204,33 @@ export function createDeviceFlowSessionProvider(
   let store: CredentialStore | null = options.credentialStore ?? null;
   let pending: Promise<GitHubSession> | null = null;
   let generation = 0;
+  /**
+   * The access token of the cached session when it is also the one in the keychain (reused or
+   * saved there). Before that session is handed out again, the keychain is re-read so that
+   * `pgard logout` (or `pgard login`) in another process ends this provider's session too.
+   */
+  let storedToken: { generation: number; accessToken: string } | null = null;
 
   const forget = () => {
     pending = null;
     generation += 1;
+  };
+
+  const markStored = (myGeneration: number, accessToken: string): void => {
+    if (store !== null && generation === myGeneration) {
+      storedToken = { generation: myGeneration, accessToken };
+    }
+  };
+
+  /** `false` when the keychain entry behind the cached session was removed or replaced. */
+  const isStillStored = async (clientId: string): Promise<boolean> => {
+    const mark = storedToken;
+    const current = store;
+    if (mark === null || mark.generation !== generation || current === null) return true;
+    const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
+    // A keychain that cannot be read right now says nothing about a sign-out; keep the session.
+    if (loaded.kind === "unavailable") return true;
+    return loaded.kind === "found" && loaded.record.accessToken === mark.accessToken;
   };
 
   const isFresh = (expiresAt: number | null): boolean =>
@@ -336,6 +361,7 @@ export function createDeviceFlowSessionProvider(
       }
     }
     notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
+    markStored(myGeneration, reused.tokens.accessToken);
     return finish(session, reused.tokens.accessToken, myGeneration);
   };
 
@@ -370,6 +396,7 @@ export function createDeviceFlowSessionProvider(
         );
         if (failure === null) {
           notify({ kind: "saved", login: user.login });
+          markStored(myGeneration, tokens.accessToken);
         } else {
           fallBackToMemory(failure);
         }
@@ -415,7 +442,13 @@ export function createDeviceFlowSessionProvider(
     if (pending !== null) {
       const current = pending;
       const session = await current.catch(() => null);
-      if (session !== null && pending === current && isFresh(session.expiresAt)) {
+      if (
+        session !== null &&
+        pending === current &&
+        isFresh(session.expiresAt) &&
+        (await isStillStored(clientId)) &&
+        pending === current
+      ) {
         return session;
       }
       if (pending === current) {
