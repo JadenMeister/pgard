@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { discoverListeningPorts, parseLsofOutput, parseProcNetTcp } from "./discover-ports.js";
+import {
+  CommandTimeoutError,
+  discoverListeningPorts,
+  parseLsofOutput,
+  parseProcNetTcp,
+  runCommandWithDeadline,
+} from "./discover-ports.js";
 
 const LSOF_SAMPLE = `COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
 node      12345 me     23u  IPv4 0x1234567890abcdef      0t0  TCP 127.0.0.1:3000 (LISTEN)
@@ -74,5 +80,25 @@ describe("discoverListeningPorts", () => {
     const result = await discoverListeningPorts({ platform: "win32" });
     expect(result.method).toBe("unsupported");
     expect(result.isAvailable).toBe(false);
+  });
+});
+
+describe("runCommandWithDeadline", () => {
+  it("settles at the deadline even if the child ignores termination", async () => {
+    const startedAt = Date.now();
+    await expect(
+      runCommandWithDeadline(
+        process.execPath,
+        ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000);"],
+        300,
+      ),
+    ).rejects.toBeInstanceOf(CommandTimeoutError);
+    expect(Date.now() - startedAt).toBeLessThan(2000);
+  });
+
+  it("returns stdout of a command that finishes", async () => {
+    await expect(
+      runCommandWithDeadline(process.execPath, ["-e", "process.stdout.write('ok')"], 5000),
+    ).resolves.toBe("ok");
   });
 });

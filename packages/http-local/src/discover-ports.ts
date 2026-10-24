@@ -31,14 +31,35 @@ export interface PortDiscoveryDeps {
   readProcFile?: (path: "/proc/net/tcp" | "/proc/net/tcp6") => Promise<string>;
 }
 
-function runLsofDefault(): Promise<string> {
+export class CommandTimeoutError extends Error {
+  readonly code = "timeout";
+  constructor(file: string, timeoutMs: number) {
+    super(`${file} did not finish within ${timeoutMs} ms.`);
+    this.name = "CommandTimeoutError";
+  }
+}
+
+/**
+ * Runs a fixed command (no shell) and settles by the deadline even if the child never exits.
+ * On macOS `lsof` can hang in an uninterruptible kernel wait where neither SIGTERM nor SIGKILL
+ * takes effect, and `execFile`'s own timeout only reports after the child has exited. So we
+ * reject on our own timer, send SIGKILL, and unref the child so PGARD can still exit.
+ */
+export function runCommandWithDeadline(
+  file: string,
+  args: readonly string[],
+  timeoutMs: number,
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    // Fixed argument vector; no shell is involved.
-    execFile(
-      "lsof",
-      ["-nP", "-iTCP", "-sTCP:LISTEN"],
-      { timeout: PORT_DISCOVERY_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+    let isSettled = false;
+    const child = execFile(
+      file,
+      [...args],
+      { maxBuffer: 4 * 1024 * 1024, windowsHide: true, shell: false },
       (error, stdout) => {
+        if (isSettled) return;
+        isSettled = true;
+        clearTimeout(timer);
         // lsof exits 1 when nothing matches; treat output as authoritative when present.
         if (error !== null && stdout.length === 0) {
           reject(error);
@@ -47,7 +68,25 @@ function runLsofDefault(): Promise<string> {
         resolve(stdout);
       },
     );
+    const timer = setTimeout(() => {
+      if (isSettled) return;
+      isSettled = true;
+      child.kill("SIGKILL");
+      child.unref();
+      child.stdout?.destroy();
+      child.stderr?.destroy();
+      reject(new CommandTimeoutError(file, timeoutMs));
+    }, timeoutMs);
   });
+}
+
+function runLsofDefault(): Promise<string> {
+  // -b avoids kernel calls that can block (e.g. on network mounts); -w silences warnings.
+  return runCommandWithDeadline(
+    "lsof",
+    ["-b", "-w", "-nP", "-iTCP", "-sTCP:LISTEN"],
+    PORT_DISCOVERY_TIMEOUT_MS,
+  );
 }
 
 /** Listener addresses reachable through 127.0.0.1. `[::1]`-only listeners are not. */
