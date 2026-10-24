@@ -1,10 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GitCommandError, runGit, type GitRunner } from "./run-git.js";
-import { decodeGitPath, scanGitHistory } from "./scan-history.js";
+import {
+  decodeGitPath,
+  formatByteLimit,
+  MIN_SEARCH_LENGTH,
+  scanGitHistory,
+  searchStringFor,
+} from "./scan-history.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
 const join = (...parts: string[]) => parts.join("");
@@ -534,5 +540,294 @@ describe("unread current files (#132)", () => {
       }),
     ]);
     expect(JSON.stringify(result)).not.toContain(TOKEN_A);
+  });
+});
+
+describe("binary and skipped current files (#136)", () => {
+  const recording = () => {
+    const calls: { invocation: Parameters<GitRunner>[0]; input: string }[] = [];
+    const runner: GitRunner = (invocation, options) => {
+      calls.push({ invocation, input: options.input ?? "" });
+      return runGit(invocation, options);
+    };
+    return { calls, runner };
+  };
+  const removedSecret = (result: Awaited<ReturnType<typeof scanGitHistory>>) =>
+    result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+  const commitsArea = (result: Awaited<ReturnType<typeof scanGitHistory>>) =>
+    result.coverage.find((entry) => entry.area === "history:commits");
+
+  it("does not claim removal when the secret moved into a binary current file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "bin.dat": `\u0000${TOKEN_A}\u0000` } });
+    const { calls, runner } = recording();
+    const result = await scanGitHistory(repo.root, { runner });
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(removedSecret(result)?.evidence).not.toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("partial");
+    expect(JSON.stringify(result)).not.toContain(TOKEN_A);
+    // The value is searched for on stdin only, never in argv.
+    const grep = calls.filter((call) => call.invocation.subcommand === "grep");
+    expect(grep).toHaveLength(1);
+    expect(grep[0]?.input).toContain(TOKEN_A);
+    for (const { invocation } of calls) {
+      expect(JSON.stringify(invocation)).not.toContain(TOKEN_A);
+    }
+  });
+
+  it("does not claim removal when a key moved into a binary current file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "prod.pem": KEY_ONE, "a.txt": "x" } });
+    repo.commit({ remove: ["prod.pem"], files: { "keys.bin": `\u0000${KEY_ONE}` } });
+    const result = await scanGitHistory(repo.root);
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(JSON.stringify(result)).not.toContain("oneoneone");
+  });
+
+  it("still claims removal when the binary current files do not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+    const result = await scanGitHistory(repo.root);
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("completed");
+  });
+
+  it("claims removal when the skipped large current files do not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "big.txt": `${"#".repeat(500)}\n` } });
+    const result = await scanGitHistory(repo.root, { maxBlobBytes: 200 });
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("completed");
+    // The skipped file is still reported as not scanned, with a limit that is not "0 KiB".
+    const tracked = result.coverage.find((entry) => entry.area === "history:tracked-files");
+    expect(tracked?.status).toBe("partial");
+    expect(tracked?.note).toContain("1 file(s) over 200 bytes skipped");
+  });
+
+  it("formats size limits without rounding small ones to 0 KiB", () => {
+    expect(formatByteLimit(200)).toBe("200 bytes");
+    expect(formatByteLimit(1023)).toBe("1023 bytes");
+    expect(formatByteLimit(1024)).toBe("1 KiB");
+    expect(formatByteLimit(1536)).toBe("1.5 KiB");
+    expect(formatByteLimit(1024 * 1024)).toBe("1024 KiB");
+  });
+
+  it("claims removal when files skipped after the read budget do not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "z.txt": `${"#".repeat(300)}\n` } });
+    const result = await scanGitHistory(repo.root, { maxTotalBytes: 120 });
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+  });
+
+  it("does not search the current files when nothing looks removed", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "img.bin": "\u0000\u0001\u0002", "a.txt": "x" } });
+    const { calls, runner } = recording();
+    await scanGitHistory(repo.root, { runner });
+    expect(calls.some((call) => call.invocation.subcommand === "grep")).toBe(false);
+  });
+
+  it("leaves the state unknown when the search fails", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+    const failing: GitRunner = (invocation, options) =>
+      invocation.subcommand === "grep"
+        ? Promise.reject(new GitCommandError("git command failed", 128))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: failing });
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(commitsArea(result)?.status).toBe("partial");
+  });
+
+  // Review of #144.
+  const writeRaw = (root: string, file: string, bytes: Buffer) =>
+    writeFileSync(path.join(root, file), bytes);
+  const expectUnknown = (result: Awaited<ReturnType<typeof scanGitHistory>>) => {
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(removedSecret(result)?.evidence).not.toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("partial");
+  };
+
+  it("does not claim removal for a value with invalid UTF-8 bytes moved into a large file", async () => {
+    const repo = fixture();
+    const line = Buffer.from("password=Xq7\xe9Zr9pLm2Kw\n", "latin1");
+    writeRaw(repo.root, "old.cfg", line);
+    repo.commit({ files: { "a.txt": "x" } });
+    writeRaw(repo.root, "big.cfg", Buffer.concat([line, Buffer.from(`${"#".repeat(500)}\n`)]));
+    repo.commit({ remove: ["old.cfg"], files: {} });
+    expectUnknown(await scanGitHistory(repo.root, { maxBlobBytes: 200 }));
+  });
+
+  it("does not claim removal on the overflow path when the value moved into a binary file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "bin.dat": `\u0000${TOKEN_A}\u0000` } });
+    const noTree: GitRunner = (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : runGit(invocation, options);
+    expectUnknown(await scanGitHistory(repo.root, { runner: noTree }));
+  });
+
+  const utf16le = (text: string) =>
+    Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]);
+  const utf16be = (text: string) =>
+    Buffer.concat([Buffer.from([0xfe, 0xff]), Buffer.from(text, "utf16le").swap16()]);
+
+  it.each([
+    ["UTF-16LE", utf16le],
+    ["UTF-16BE", utf16be],
+  ])("does not claim removal when the value moved into a %s file", async (_label, encode) => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    writeRaw(repo.root, "notes.txt", encode(`GH=${TOKEN_A}\r\n`));
+    repo.commit({ remove: ["old.sh"], files: {} });
+    expectUnknown(await scanGitHistory(repo.root));
+  });
+
+  it("does not claim removal when a skipped large file is UTF-16", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    writeRaw(repo.root, "big.txt", utf16le(`GH=${TOKEN_A}\r\n${"#".repeat(300)}`));
+    repo.commit({ remove: ["old.sh"], files: {} });
+    expectUnknown(await scanGitHistory(repo.root, { maxBlobBytes: 200 }));
+  });
+
+  it("still claims removal when a UTF-16 current file does not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    writeRaw(repo.root, "notes.txt", utf16le("hello\r\n"));
+    repo.commit({ remove: ["old.sh"], files: {} });
+    const result = await scanGitHistory(repo.root);
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+  });
+
+  it("does not crash on an odd-length UTF-16BE file anywhere in history", async () => {
+    const repo = fixture();
+    writeRaw(repo.root, "odd.bin", Buffer.from([0xfe, 0xff, 0x00]));
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n` } });
+    writeRaw(repo.root, "odd2.bin", Buffer.from([0xfe, 0xff, 0x00, 0x41, 0x00]));
+    repo.commit({ remove: ["old.sh", "odd.bin"], files: {} });
+    const result = await scanGitHistory(repo.root);
+    expect(result.coverage.map((entry) => entry.status)).toEqual(["completed", "completed"]);
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+  });
+
+  it("does not claim removal when a key moved into a UTF-16LE CRLF file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "prod.pem": KEY_ONE, "a.txt": "x" } });
+    writeRaw(repo.root, "keys.txt", utf16le(KEY_ONE.replace(/\n/g, "\r\n")));
+    repo.commit({ remove: ["prod.pem"], files: {} });
+    expectUnknown(await scanGitHistory(repo.root));
+  });
+
+  it("does not check more than 100 skipped files for a UTF-16 mark", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    const big = Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [
+        `big/${index}.txt`,
+        `${index}${"#".repeat(300)}\n`,
+      ]),
+    );
+    repo.commit({ remove: ["old.sh"], files: big });
+    let prefixReads = 0;
+    const runner: GitRunner = (invocation, options) => {
+      if (options.truncate) prefixReads += 1;
+      return runGit(invocation, options);
+    };
+    expectUnknown(await scanGitHistory(repo.root, { runner, maxBlobBytes: 200 }));
+    expect(prefixReads).toBe(0);
+  });
+
+  it("stops checking skipped files for a UTF-16 mark when the time budget runs out", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({
+      remove: ["old.sh"],
+      files: { "a.big": `${"#".repeat(300)}\n`, "b.big": `${"=".repeat(300)}\n` },
+    });
+    let clock = 0;
+    let prefixReads = 0;
+    const runner: GitRunner = async (invocation, options) => {
+      if (options.truncate) {
+        prefixReads += 1;
+        clock = 10_000; // the first prefix read uses up the budget
+      }
+      return runGit(invocation, options);
+    };
+    const result = await scanGitHistory(repo.root, {
+      runner,
+      maxBlobBytes: 200,
+      now: () => clock,
+      timeBudgetMs: 5_000,
+    });
+    expect(prefixReads).toBe(1);
+    expectUnknown(result);
+  });
+
+  it("does not search once the time budget is used up", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+    let clock = 0;
+    const calls: string[] = [];
+    const runner: GitRunner = async (invocation, options) => {
+      calls.push(invocation.subcommand);
+      const output = await runGit(invocation, options);
+      if (invocation.subcommand === "diff-tree") clock = 10_000; // history listed in time
+      return output;
+    };
+    const result = await scanGitHistory(repo.root, {
+      runner,
+      now: () => clock,
+      timeBudgetMs: 5_000,
+    });
+    expect(calls).not.toContain("grep");
+    expectUnknown(result);
+  });
+
+  it("stops the search when the remaining time budget runs out", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+    let grepSignal: AbortSignal | undefined;
+    const runner: GitRunner = (invocation, options) => {
+      if (invocation.subcommand !== "grep") return runGit(invocation, options);
+      grepSignal = options.signal;
+      // A search that never finishes on its own.
+      return new Promise((_resolve, reject) =>
+        options.signal?.addEventListener("abort", () =>
+          reject(new GitCommandError("git command was cancelled", null, "cancelled")),
+        ),
+      );
+    };
+    const started = Date.now();
+    const result = await scanGitHistory(repo.root, { runner, now: () => 0, timeBudgetMs: 300 });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(grepSignal?.aborted).toBe(true);
+    expectUnknown(result);
+  });
+});
+
+describe("searchStringFor (#144)", () => {
+  it("searches the value, or the longest line of a multi-line value", () => {
+    expect(searchStringFor("Xq9vR2mT7pLw4")).toBe("Xq9vR2mT7pLw4");
+    expect(searchStringFor("-----BEGIN X-----\n  MIIEowIBAAKCAQEAlongerline \n-----END-----")).toBe(
+      "MIIEowIBAAKCAQEAlongerline",
+    );
+  });
+
+  it("refuses values that cannot be searched reliably", () => {
+    expect(searchStringFor("a".repeat(MIN_SEARCH_LENGTH - 1))).toBeNull();
+    expect(searchStringFor("a".repeat(MIN_SEARCH_LENGTH))).toBe("a".repeat(MIN_SEARCH_LENGTH));
+    expect(searchStringFor("short\nlines\nonly")).toBeNull();
+    expect(searchStringFor("Xq7�Zr9pLm2Kw")).toBeNull();
+    expect(searchStringFor("Xq7\u0000Zr9pLm2Kw")).toBeNull();
   });
 });
