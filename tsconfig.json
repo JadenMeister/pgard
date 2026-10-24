@@ -1,0 +1,32 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "packages/findings"
+    },
+    {
+      "path": "packages/scan-core"
+    },
+    {
+      "path": "packages/policy"
+    },
+    {
+      "path": "packages/github-auth"
+    },
+    {
+      "path": "packages/git-history"
+    },
+    {
+      "path": "packages/source-analysis"
+    },
+    {
+      "path": "packages/advisory"
+    },
+    {
+      "path": "packages/http-local"
+    },
+    {
+      "path": "packages/report"
+    }
+  ]
+}
