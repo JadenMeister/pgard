@@ -210,6 +210,30 @@ describe("runScanCommand", () => {
   });
 });
 
+describe("runScanCommand Esc on the port list", () => {
+  it("returns to the menu instead of exiting", async () => {
+    const captured = createTestIo();
+    const runScan = vi.fn();
+    const code = await runScanCommand(
+      createTestContext(captured, createTestDeps({ runScan }), scriptedKeys(["escape"]), true),
+      { variant: "web", port: null, report: null },
+    );
+    expect(code).toBe(130);
+    expect(runScan).not.toHaveBeenCalled();
+  });
+
+  it("cancels a direct subcommand", async () => {
+    const captured = createTestIo();
+    await expect(
+      runScanCommand(createTestContext(captured, createTestDeps(), scriptedKeys(["escape"])), {
+        variant: "web",
+        port: null,
+        report: null,
+      }),
+    ).rejects.toBeInstanceOf(UserCancelledError);
+  });
+});
+
 describe("runScanCommand reports", () => {
   let directory: string;
   beforeEach(async () => {

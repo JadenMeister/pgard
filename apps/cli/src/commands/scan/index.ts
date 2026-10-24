@@ -86,7 +86,11 @@ export async function runScanCommand(
       );
     } else {
       const selection = await selectLocalPort(context, command.port);
-      if (selection.kind === "back") throw new UserCancelledError();
+      if (selection.kind === "back") {
+        // Esc: in the menu go back to it; a direct subcommand has no previous step.
+        if (context.isMenu) return EXIT_CODES.cancelled;
+        throw new UserCancelledError();
+      }
       if (selection.kind === "confirmed") webTarget = selection.target;
     }
   }
