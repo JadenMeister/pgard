@@ -39,6 +39,31 @@ const SCOPE_HEADINGS: ReadonlyArray<{ scope: RuleDescriptor["scope"]; heading: s
   { scope: "history", heading: "Git history rules" },
 ];
 
+/** Heading for catalog rules whose scope has no heading above, so no rule is ever hidden. */
+export const OTHER_RULES_HEADING = "Other rules";
+
+export interface RuleGroup {
+  heading: string;
+  rules: RuleDescriptor[];
+}
+
+/**
+ * Groups rules under the scope headings, sorted by id. Rules of any other scope (for example a
+ * future catalog rule with scope "web") go into a final "Other rules" group, shown only when it
+ * has rules. The output does not depend on the input order.
+ */
+export function groupRulesByScope(rules: readonly RuleDescriptor[]): RuleGroup[] {
+  const byId = (a: RuleDescriptor, b: RuleDescriptor): number => a.id.localeCompare(b.id, "en");
+  const known = new Set(SCOPE_HEADINGS.map(({ scope }) => scope));
+  const groups: RuleGroup[] = SCOPE_HEADINGS.map(({ scope, heading }) => ({
+    heading,
+    rules: rules.filter((rule) => rule.scope === scope).sort(byId),
+  }));
+  const other = rules.filter((rule) => !known.has(rule.scope)).sort(byId);
+  if (other.length > 0) groups.push({ heading: OTHER_RULES_HEADING, rules: other });
+  return groups;
+}
+
 export function filterRulesByLanguage(
   rules: readonly RuleDescriptor[],
   language: RuleLanguage | null,
@@ -64,14 +89,11 @@ export async function runRulesList(
     out(context, style.dim(`Language filter: ${language} (rules for any language are included)`));
   }
   const rules = filterRulesByLanguage(listSupportedRules(), language);
-  for (const { scope, heading } of SCOPE_HEADINGS) {
+  for (const group of groupRulesByScope(rules)) {
     out(context, "");
-    out(context, style.bold(heading));
-    const scoped = rules
-      .filter((rule) => rule.scope === scope)
-      .sort((a, b) => a.id.localeCompare(b.id, "en"));
-    if (scoped.length === 0) out(context, style.dim("  No rules for this language."));
-    for (const rule of scoped) out(context, formatRule(rule));
+    out(context, style.bold(group.heading));
+    if (group.rules.length === 0) out(context, style.dim("  No rules for this language."));
+    for (const rule of group.rules) out(context, formatRule(rule));
   }
   out(context, "");
   out(context, style.bold("Local HTTP rules (anonymous GET, any language)"));

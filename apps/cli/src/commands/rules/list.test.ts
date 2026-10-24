@@ -1,8 +1,19 @@
-import { PGARD_VERSION, listSupportedRules, type AdvisoryDbStatus } from "@pgard/scan-core";
+import {
+  PGARD_VERSION,
+  listSupportedRules,
+  type AdvisoryDbStatus,
+  type RuleDescriptor,
+} from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 import type { CliDeps } from "../../deps.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
-import { RULE_CRITERIA_VERSION, filterRulesByLanguage, runRulesList } from "./list.js";
+import {
+  OTHER_RULES_HEADING,
+  RULE_CRITERIA_VERSION,
+  filterRulesByLanguage,
+  groupRulesByScope,
+  runRulesList,
+} from "./list.js";
 
 const DB_PATH = "/home/user/secret-place/osv.json";
 
@@ -161,5 +172,44 @@ describe("filterRulesByLanguage", () => {
 
   it("returns every rule without a filter", () => {
     expect(filterRulesByLanguage(rules, null)).toHaveLength(rules.length);
+  });
+});
+
+describe("groupRulesByScope", () => {
+  const rules = listSupportedRules();
+
+  it("puts rules of a scope without a heading into a fallback group", () => {
+    const webRule: RuleDescriptor = { ...rules[0]!, id: "PG-WEB-900", scope: "web" };
+    const unknownRule = {
+      ...rules[0]!,
+      id: "PG-NEW-001",
+      scope: "deps",
+    } as unknown as RuleDescriptor;
+    const groups = groupRulesByScope([...rules, unknownRule, webRule]);
+    const other = groups.at(-1)!;
+    expect(other.heading).toBe(OTHER_RULES_HEADING);
+    expect(other.rules.map((rule) => rule.id)).toEqual(["PG-NEW-001", "PG-WEB-900"]);
+    const listed = groups.flatMap((group) => group.rules.map((rule) => rule.id)).sort();
+    expect(listed).toEqual([...rules.map((rule) => rule.id), "PG-NEW-001", "PG-WEB-900"].sort());
+  });
+
+  it("shows no fallback group when every scope has a heading", () => {
+    const headings = groupRulesByScope(rules).map((group) => group.heading);
+    expect(headings).not.toContain(OTHER_RULES_HEADING);
+  });
+
+  it("does not depend on the catalog order", () => {
+    const expected = groupRulesByScope(rules);
+    let seed = 7;
+    for (let round = 0; round < 5; round += 1) {
+      const shuffled = [...rules];
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        const swap = seed % (index + 1);
+        [shuffled[index], shuffled[swap]] = [shuffled[swap]!, shuffled[index]!];
+      }
+      expect(groupRulesByScope(shuffled)).toEqual(expected);
+    }
+    expect(groupRulesByScope([...rules].reverse())).toEqual(expected);
   });
 });
