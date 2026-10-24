@@ -29,6 +29,7 @@ import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import { readStoredSignInDto } from "../session/stored-sign-in.js";
 import {
+  isWithinWindow,
   MAX_PROGRESS_EVENTS,
   PORT_ACCESS_WINDOW_MS,
   PROBE_CONFIRM_WINDOW_MS,
@@ -208,10 +209,12 @@ export function requirePortAccessAuthorized(
   const auth = state.auth;
   const { status, outcome, finishedAt, message } = auth;
   const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
-  const isFresh = finishedAt !== null && now - finishedAt <= PORT_ACCESS_WINDOW_MS;
-  if (isAllowed && isFresh) return auth;
+  if (isAllowed && isWithinWindow(now, finishedAt, PORT_ACCESS_WINDOW_MS)) return auth;
   let reason: string;
-  if (isAllowed) {
+  if (isAllowed && finishedAt !== null && now < finishedAt) {
+    reason =
+      "The system clock moved back since the authorization check. Check again before PGARD contacts local services.";
+  } else if (isAllowed) {
     reason =
       "The authorization check is more than 30 minutes old. Check again before PGARD contacts local services.";
   } else if (status === "running") {
@@ -288,7 +291,7 @@ const confirmTarget: ApiHandler = async (context, body) => {
     probe === null ||
     probe.auth !== auth ||
     probe.identity.port !== port ||
-    context.deps.now() - probe.probedAt > PROBE_CONFIRM_WINDOW_MS
+    !isWithinWindow(context.deps.now(), probe.probedAt, PROBE_CONFIRM_WINDOW_MS)
   ) {
     throw new ApiError(
       409,

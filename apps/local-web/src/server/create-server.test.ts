@@ -538,6 +538,20 @@ describe("local web port access authorization gate", () => {
     expect(discoverListeningPorts).toHaveBeenCalledTimes(2);
   });
 
+  it("closes the gate when the clock moves back before the check finished", async () => {
+    let clock = 1_000_000;
+    const { deps, discoverListeningPorts } = spiedDeps(ALLOWED_VERIFY);
+    deps.now = () => clock;
+    const running = await start(deps);
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    clock -= 60 * 60 * 1000;
+    await expectRefused(running);
+    const body = JSON.parse((await apiGet(running, "/api/ports")).body);
+    expect(body.error.message).toContain("clock moved back");
+    expect(discoverListeningPorts).toHaveBeenCalledTimes(1);
+  });
+
   it("ignores anything the client sends about authorization", async () => {
     const { deps, discoverListeningPorts, probeLocalService } = spiedDeps();
     const running = await start(deps);

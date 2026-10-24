@@ -18,6 +18,15 @@ export const MAX_PROGRESS_EVENTS = 200;
 export const PORT_ACCESS_WINDOW_MS = 30 * 60 * 1000;
 
 /**
+ * True while `now` lies in `[since, since + windowMs]`. `deps.now()` is wall-clock time, so a
+ * clock that moved back before `since` counts as outside the window (fail closed) instead of
+ * stretching it.
+ */
+export function isWithinWindow(now: number, since: number | null, windowMs: number): boolean {
+  return since !== null && now >= since && now - since <= windowMs;
+}
+
+/**
  * Everything the dashboard knows, held in memory for the server's lifetime only. Nothing here is
  * written to disk; `clear()` runs on shutdown.
  */
