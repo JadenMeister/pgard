@@ -26,14 +26,25 @@ export async function readAdvisoryStatusSafely(
 }
 
 /**
+ * True only for a fully validated `ok` status. A cheap check (`validated: false`) cannot tell
+ * whether the data is stale or would be rejected by a full load, so it is not shown as ok.
+ */
+export function isAdvisoryStatusOk(status: AdvisoryDbStatus): boolean {
+  return status.status === "ok" && status.validated !== false;
+}
+
+/**
  * One-line summary: `<status> - version <v>, updated <date> - <note>`. When the status comes from
  * a cheap check (`validated: false`), the version and date were not read, so they are left out and
- * the line says it was not fully validated: `<status> - not fully validated - <note>`.
+ * an `ok` is shown as `unverified`: `unverified - not fully validated - <note>`.
  * Never includes the path.
  */
 export function formatAdvisoryStatus(status: AdvisoryDbStatus): string {
   const note = safeText(status.note, 300);
-  if (status.validated === false) return `${status.status} - not fully validated - ${note}`;
+  if (status.validated === false) {
+    const label = status.status === "ok" ? "unverified" : status.status;
+    return `${label} - not fully validated - ${note}`;
+  }
   const version = status.version === null ? "none" : safeText(status.version, 80);
   const updated = status.updatedAt === null ? "never" : safeText(status.updatedAt, 40);
   return `${status.status} - version ${version}, updated ${updated} - ${note}`;

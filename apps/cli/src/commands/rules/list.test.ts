@@ -163,7 +163,7 @@ describe("runRulesList advisory status", () => {
       }),
     );
     expect(stdout).toContain(
-      "Advisory database status: ok - not fully validated - Only a sample was checked.",
+      "Advisory database status: unverified - not fully validated - Only a sample was checked.",
     );
     expect(stdout).not.toContain("unread-version");
     expect(stdout).not.toContain("2026-01-01");

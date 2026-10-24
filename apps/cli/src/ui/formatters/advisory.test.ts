@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,6 +8,7 @@ import type { CommandContext } from "../../context.js";
 import { createDefaultDeps } from "../../deps.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
 import { formatAdvisoryStatus, readAdvisoryStatusSafely } from "./advisory.js";
+import { createStyle } from "./style.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -61,25 +62,63 @@ describe("default advisory DB status (peek)", () => {
   it("marks a directory DB as not fully validated and never prints its path", async () => {
     const dir = tempDir({ "npm/GHSA-test-lodash.json": JSON.stringify(ADVISORY) });
     const line = await statusLine(dir);
-    expect(line).toMatch(/^ok - not fully validated - An advisory database is configured/);
+    expect(line).toMatch(/^unverified - not fully validated - An advisory database is configured/);
     expect(line).toContain("version and freshness were not verified");
     expect(line).not.toContain("version none");
     expect(line).not.toContain(dir);
 
     const list = await runWithDefaultStatus((context) => runRulesList(context, null), dir);
-    expect(list).toContain("Advisory database status: ok - not fully validated - ");
+    expect(list).toContain("Advisory database status: unverified - not fully validated - ");
     expect(list).not.toContain(dir);
     const doctor = await runWithDefaultStatus(runDoctor, dir);
-    expect(doctor).toContain("[ok]   Advisory database: ok - not fully validated - ");
+    expect(doctor).toContain("[warn] Advisory database: unverified - not fully validated - ");
     expect(doctor).not.toContain(dir);
   });
 
   it("marks a large DB file as not fully validated without loading it", async () => {
     const file = dbFile(`{"vulnerabilities": [${" ".repeat(8 * 1024 * 1024 + 1)}]}`);
     const line = await statusLine(file);
-    expect(line).toMatch(/^ok - not fully validated - An advisory database file is configured/);
+    expect(line).toMatch(
+      /^unverified - not fully validated - An advisory database file is configured/,
+    );
     expect(line).toContain("Only its first bytes were checked");
     expect(line).not.toContain(file);
+  });
+
+  it("shows a large, stale but unvalidated DB as [warn] in doctor and yellow in rules list", async () => {
+    const file = dbFile(
+      JSON.stringify({
+        version: "osv-2020",
+        updatedAt: "2020-01-01T00:00:00Z",
+        vulnerabilities: [ADVISORY],
+        padding: " ".repeat(8 * 1024 * 1024 + 1),
+      }),
+    );
+    const doctor = await runWithDefaultStatus(runDoctor, file);
+    expect(doctor).toContain("[warn] Advisory database: unverified - not fully validated - ");
+    expect(doctor).not.toContain("[ok]   Advisory database");
+    expect(doctor).not.toContain("osv-2020");
+    expect(doctor).not.toContain(file);
+
+    const captured = createTestIo({ env: { PGARD_ADVISORY_DB: file } });
+    const deps = createTestDeps({ readAdvisoryDbStatus: createDefaultDeps().readAdvisoryDbStatus });
+    await runRulesList({ ...createTestContext(captured, deps), style: createStyle(true) }, null);
+    expect(captured.stdout()).toContain(
+      "\u001b[33m  Advisory database status: unverified - not fully validated - ",
+    );
+  });
+
+  it("shows a DB file over the load limit as invalid [warn], as a scan would refuse it", async () => {
+    const file = dbFile('{"vulnerabilities": [');
+    truncateSync(file, 512 * 1024 * 1024 + 1); // sparse: no real disk use
+    expect(await statusLine(file)).toBe(
+      "invalid - version none, updated never - The advisory database file is too large to load.",
+    );
+    const doctor = await runWithDefaultStatus(runDoctor, file);
+    expect(doctor).toContain(
+      "[warn] Advisory database: invalid - version none, updated never - The advisory database file is too large to load.",
+    );
+    expect(doctor).not.toContain(file);
   });
 
   it("still fully reads a small DB file for its version and date", async () => {

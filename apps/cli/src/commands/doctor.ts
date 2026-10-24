@@ -1,7 +1,11 @@
 import { GITHUB_APP_CLIENT_ID_ENV, readGitHubAppClientId } from "@pgard/scan-core";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import { formatAdvisoryStatus, readAdvisoryStatusSafely } from "../ui/formatters/advisory.js";
+import {
+  formatAdvisoryStatus,
+  isAdvisoryStatusOk,
+  readAdvisoryStatusSafely,
+} from "../ui/formatters/advisory.js";
 import { safeText } from "../ui/formatters/style.js";
 
 const MIN_NODE_VERSION = [22, 12] as const;
@@ -81,7 +85,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     },
     {
       label: "Advisory database",
-      isOk: advisory.status === "ok",
+      isOk: isAdvisoryStatusOk(advisory),
       detail: formatAdvisoryStatus(advisory),
       isRequired: false,
     },

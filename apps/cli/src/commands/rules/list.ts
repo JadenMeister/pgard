@@ -8,7 +8,11 @@ import {
 import { out, type CommandContext } from "../../context.js";
 import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
 import type { RuleLanguage } from "../../options.js";
-import { formatAdvisoryStatus, readAdvisoryStatusSafely } from "../../ui/formatters/advisory.js";
+import {
+  formatAdvisoryStatus,
+  isAdvisoryStatusOk,
+  readAdvisoryStatusSafely,
+} from "../../ui/formatters/advisory.js";
 
 export const UNSUPPORTED_AREAS = [
   "Direct database connections",
@@ -116,7 +120,7 @@ export async function runRulesList(
   out(context, "");
   out(context, style.bold("Advisory data"));
   const advisoryLine = `  Advisory database status: ${formatAdvisoryStatus(advisory)}`;
-  out(context, advisory.status === "ok" ? advisoryLine : style.yellow(advisoryLine));
+  out(context, isAdvisoryStatusOk(advisory) ? advisoryLine : style.yellow(advisoryLine));
   out(context, "");
   out(context, style.bold("Not covered in this version"));
   for (const area of UNSUPPORTED_AREAS) out(context, `  - ${area}`);
