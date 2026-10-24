@@ -339,3 +339,151 @@ describe("oversized commits and unknown revisions (#103)", () => {
     expect(result.coverage[0]?.note).toMatch(/was not found/);
   });
 });
+
+describe("overflow-path classification (#108)", () => {
+  const noTree =
+    (inner: GitRunner): GitRunner =>
+    (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : inner(invocation, options);
+  const isLookup = (invocation: { subcommand: string }, input: string | undefined) =>
+    invocation.subcommand === "cat-file" && (input?.includes(":") ?? false);
+
+  it("does not call a .env removed when the lookup fails", async () => {
+    const repo = fixture();
+    repo.commit({ files: { ".env": "A=1\n", "a.txt": "x" } });
+    const failing: GitRunner = (invocation, options) =>
+      isLookup(invocation, options.input)
+        ? Promise.reject(new GitCommandError("slow", null, "timeout"))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: noTree(failing) });
+    const env = result.findings.find((finding) => finding.location.path === ".env");
+    expect(env?.evidence).toMatch(/could not be checked/);
+    expect(env?.evidence).not.toMatch(/later removed/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/1 environment file\(s\) it could not be checked/);
+  });
+
+  it("does not call a .env removed when the time budget skips the lookup", async () => {
+    const repo = fixture();
+    repo.commit({ files: { ".env": "A=1\n", "a.txt": "x" } });
+    let clock = 0;
+    const result = await scanGitHistory(repo.root, {
+      runner: noTree(runGit),
+      timeBudgetMs: 1_000_000,
+      now: () => {
+        clock += 600_000;
+        return clock;
+      },
+    });
+    const env = result.findings.find((finding) => finding.location.path === ".env");
+    expect(env?.evidence).not.toMatch(/later removed/);
+    expect(result.coverage.find((entry) => entry.area === "history:commits")?.note).toMatch(
+      /environment file\(s\) it could not be checked/,
+    );
+  });
+
+  it("still calls a .env removed when the lookup answers missing", async () => {
+    const repo = fixture();
+    repo.commit({ files: { ".env": "A=1\n", "a.txt": "x" } });
+    repo.commit({ remove: [".env"] });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit) });
+    const env = result.findings.find((finding) => finding.location.path === ".env");
+    expect(env?.evidence).toMatch(/later removed/);
+    expect(result.coverage.find((entry) => entry.area === "history:commits")?.note).not.toMatch(
+      /environment file\(s\) it could not be checked/,
+    );
+  });
+
+  it("reports a secret moved to another file as current, not removed", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "scripts/new.sh": `\nexport GH="${TOKEN_A}"\n` } });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit) });
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        ruleId: "PG-SECRET-002",
+        location: expect.objectContaining({ path: "scripts/new.sh", line: 2, commit: null }),
+      }),
+    ]);
+  });
+
+  it("does not claim removal when a looked-up current file could not be read", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "new.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ files: { "new.sh": `export GH="${TOKEN_A}"\n${"#".repeat(500)}\n` } });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit), maxBlobBytes: 200 });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+  });
+});
+
+describe("overflow-path unqueryable current paths (#108 review)", () => {
+  const noTree =
+    (inner: GitRunner): GitRunner =>
+    (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : inner(invocation, options);
+  const expectUnknown = (result: Awaited<ReturnType<typeof scanGitHistory>>) => {
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/could not be checked whether the value is still/);
+  };
+
+  it("does not claim removal when the secret moved to a path with a newline", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "a\nb.sh": `export GH="${TOKEN_A}"\n` } });
+    expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
+  });
+
+  it("does not claim removal when the secret moved to a non-UTF-8 path", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    git(repo.root, ["rm", "-q", "old.sh"]);
+    const blob = git(repo.root, ["hash-object", "-w", "--stdin"], Buffer.from(`GH="${TOKEN_A}"\n`))
+      .toString()
+      .trim();
+    git(
+      repo.root,
+      ["update-index", "--add", "-z", "--index-info"],
+      Buffer.concat([
+        Buffer.from(`100644 ${blob}\t`),
+        Buffer.from("n\xff.sh", "latin1"),
+        Buffer.from([0]),
+      ]),
+    );
+    git(repo.root, ["-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-qm", "mv"]);
+    expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
+  });
+
+  it("does not claim removal when the current copy predates the commit window", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "keep.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ files: { "a.txt": "x" } });
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ remove: ["old.sh"] });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit), maxCommits: 2 });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.location.path).toBe("old.sh");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+  });
+
+  it("still claims removal on the overflow path when history is complete", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"] });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit) });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/no longer present/);
+  });
+});
