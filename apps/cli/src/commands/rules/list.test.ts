@@ -108,6 +108,25 @@ describe("runRulesList advisory status", () => {
     expect(invalid).not.toContain(DB_PATH);
   });
 
+  it("strips terminal escapes, line breaks and bidi controls from version, date and note", async () => {
+    const stdout = await runList(
+      null,
+      advisoryDeps({
+        status: "ok",
+        version: "v1\u001b[2J\u001b]0;owned\u0007",
+        updatedAt: "2026-10-20\r\nFAKE: ok",
+        advisoryCount: 1,
+        note: "1 advisory.‮TXT.exe⁦⁩‏\u0000\u009b31m",
+      }),
+    );
+    const line = stdout.split("\n").find((entry) => entry.includes("Advisory database status"));
+    expect(line).toContain("version v1");
+    expect(line).toContain("FAKE: ok");
+    expect(stdout).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    expect(stdout).not.toMatch(/[‎‏‪-‮⁦-⁩]/);
+    expect(stdout).not.toMatch(/^FAKE: ok/m);
+  });
+
   it("reports a failing status read as invalid without echoing the error", async () => {
     const stdout = await runList(null, {
       readAdvisoryDbStatus: async () => {
