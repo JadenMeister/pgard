@@ -123,6 +123,55 @@ describe("runScan", () => {
     expect(code).not.toHaveBeenCalled();
   });
 
+  it("marks code, dependency and history findings in test or fixture code", async () => {
+    authorizeProject.mockResolvedValue(ALLOWED);
+    const file = (path: string) => ({
+      kind: "file" as const,
+      path,
+      line: 1,
+      url: null,
+      commit: null,
+    });
+    const code: AnalyzerOutput = {
+      ...codeOutput,
+      findings: [
+        finding({ id: "c1", location: file(`${ROOT}/src/db.ts`) }),
+        finding({ id: "c2", confidence: "high", location: file(`${ROOT}/src/db.test.ts`) }),
+        finding({
+          id: "d1",
+          ruleId: "PG-DEP-001",
+          location: { ...file("testdata/package-lock.json"), kind: "dependency" },
+        }),
+      ],
+    };
+    const history: AnalyzerOutput = {
+      ...historyOutput,
+      findings: [
+        finding({
+          id: "h1",
+          ruleId: "PG-SECRET-003",
+          severity: "critical",
+          confidence: "high",
+          location: { ...file("fixtures/key.pem"), kind: "commit", commit: "b".repeat(40) },
+          sources: ["history"],
+        }),
+      ],
+    };
+    const result = await runScan(
+      request(),
+      deps({ analyzers: { code: async () => code, history: async () => history } }),
+    );
+    const byId = new Map(result.findings.map((entry) => [entry.id, entry]));
+    expect(result.findings).toHaveLength(4);
+    expect(byId.get("c1")?.context).toBeUndefined();
+    expect(byId.get("c1")?.confidence).toBe("medium");
+    for (const id of ["c2", "d1", "h1"]) {
+      expect(byId.get(id)).toMatchObject({ context: "test", confidence: "low" });
+    }
+    // Rule, severity and evidence are kept.
+    expect(byId.get("h1")).toMatchObject({ ruleId: "PG-SECRET-003", severity: "critical" });
+  });
+
   it("re-runs authorization on every scan", async () => {
     authorizeProject.mockResolvedValue(ALLOWED);
     await runScan(request(), deps());

@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   SCAN_SCOPES,
   SCHEMA_VERSION,
+  applyFindingContext,
   deriveOverallStatus,
   mergeFindings,
   redactEvidence,
@@ -104,7 +105,11 @@ function unverifiedSummary(reason: string): AuthorizationSummary {
   };
 }
 
-/** Forces analyzer output into the stage's scope so a scanner cannot report for another area. */
+/**
+ * Forces analyzer output into the stage's scope so a scanner cannot report for another area, and
+ * marks findings in test or fixture code (every source: code, dependencies, history, web) so all
+ * frontends group them the same way.
+ */
 function normalizeAnalyzerOutput(
   scope: ScanScope,
   output: AnalyzerOutput,
@@ -116,7 +121,7 @@ function normalizeAnalyzerOutput(
     if (!sources.includes(scope)) {
       sources.push(scope);
     }
-    return normalizeFindingPaths({ ...finding, sources }, projectRoot);
+    return applyFindingContext(normalizeFindingPaths({ ...finding, sources }, projectRoot));
   });
   return {
     findings,
