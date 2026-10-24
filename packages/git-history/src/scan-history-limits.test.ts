@@ -536,3 +536,76 @@ describe("unread current files (#132)", () => {
     expect(JSON.stringify(result)).not.toContain(TOKEN_A);
   });
 });
+
+describe("binary and skipped current files (#136)", () => {
+  const recording = () => {
+    const calls: { invocation: Parameters<GitRunner>[0]; input: string }[] = [];
+    const runner: GitRunner = (invocation, options) => {
+      calls.push({ invocation, input: options.input ?? "" });
+      return runGit(invocation, options);
+    };
+    return { calls, runner };
+  };
+  const removedSecret = (result: Awaited<ReturnType<typeof scanGitHistory>>) =>
+    result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+  const commitsArea = (result: Awaited<ReturnType<typeof scanGitHistory>>) =>
+    result.coverage.find((entry) => entry.area === "history:commits");
+
+  it("does not claim removal when the secret moved into a binary current file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "bin.dat": `\u0000${TOKEN_A}\u0000` } });
+    const { calls, runner } = recording();
+    const result = await scanGitHistory(repo.root, { runner });
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(removedSecret(result)?.evidence).not.toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("partial");
+    expect(JSON.stringify(result)).not.toContain(TOKEN_A);
+    // The value is searched for on stdin only, never in argv.
+    const grep = calls.filter((call) => call.invocation.subcommand === "grep");
+    expect(grep).toHaveLength(1);
+    expect(grep[0]?.input).toContain(TOKEN_A);
+    for (const { invocation } of calls) {
+      expect(JSON.stringify(invocation)).not.toContain(TOKEN_A);
+    }
+  });
+
+  it("does not claim removal when a key moved into a binary current file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "prod.pem": KEY_ONE, "a.txt": "x" } });
+    repo.commit({ remove: ["prod.pem"], files: { "keys.bin": `\u0000${KEY_ONE}` } });
+    const result = await scanGitHistory(repo.root);
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(JSON.stringify(result)).not.toContain("oneoneone");
+  });
+
+  it("still claims removal when the binary current files do not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+    const result = await scanGitHistory(repo.root);
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("completed");
+  });
+
+  it("does not search the current files when nothing looks removed", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "img.bin": "\u0000\u0001\u0002", "a.txt": "x" } });
+    const { calls, runner } = recording();
+    await scanGitHistory(repo.root, { runner });
+    expect(calls.some((call) => call.invocation.subcommand === "grep")).toBe(false);
+  });
+
+  it("leaves the state unknown when the search fails", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+    const failing: GitRunner = (invocation, options) =>
+      invocation.subcommand === "grep"
+        ? Promise.reject(new GitCommandError("git command failed", 128))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: failing });
+    expect(removedSecret(result)?.evidence).toMatch(/could not be checked/);
+    expect(commitsArea(result)?.status).toBe("partial");
+  });
+});

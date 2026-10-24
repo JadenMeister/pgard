@@ -326,6 +326,65 @@ async function readCurrentBlobs(
   return { shas, contents };
 }
 
+/** Shortest search string that still identifies a value (shorter values are not checked). */
+const MIN_SEARCH_LENGTH = 8;
+
+/**
+ * The fixed string to search for a value: the value itself, or the longest line of a multi-line
+ * value (such as a key body line), since `git grep` matches line by line. `null` when no line is
+ * long enough to identify the value.
+ */
+function searchStringFor(value: string): string | null {
+  const longest = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .reduce((best, line) => (line.length > best.length ? line : best), "");
+  return longest.length >= MIN_SEARCH_LENGTH && !longest.includes("\0") ? longest : null;
+}
+
+/**
+ * Asks Git whether any file at the revision contains any of `values`, with one fixed-string
+ * `git grep` over the whole tree (binary files included). The values go to git on stdin, never
+ * in argv. Resolves `true` only when Git confirms that none is present; a match, a value that
+ * cannot be searched, or a failed search resolves `false`.
+ */
+async function isAbsentFromRevision(
+  cwd: string,
+  runner: GitRunner,
+  revision: string,
+  values: readonly string[],
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  const patterns = new Set<string>();
+  for (const value of values) {
+    const pattern = searchStringFor(value);
+    if (pattern === null) return false;
+    patterns.add(pattern);
+  }
+  if (patterns.size === 0) return true;
+  try {
+    await runner(
+      {
+        subcommand: "grep",
+        flags: ["-F", "-l", "-z", "--no-textconv", "-f-"],
+        operands: [revision],
+      },
+      {
+        cwd,
+        input: `${[...patterns].join("\n")}\n`,
+        maxBuffer: 1024 * 1024,
+        ...(signal ? { signal } : {}),
+      },
+    );
+    return false; // exit code 0: at least one file matches
+  } catch (error) {
+    if (error instanceof GitCommandError && error.kind === "cancelled") throw error;
+    if (signal?.aborted) throw error;
+    // Exit code 1 is git grep's "no match"; anything else leaves the answer unknown.
+    return error instanceof GitCommandError && error.kind === "failed" && error.exitCode === 1;
+  }
+}
+
 function createFinding(fields: {
   ruleId: HistoryRuleId;
   path: string;
@@ -709,14 +768,43 @@ export async function scanGitHistory(
   // the value may still live in a file not seen here, so "removed" cannot be claimed.
   const isHistoryIncomplete =
     isTruncated || listed.problems.length > 0 || historySkips.problems.length > 0;
+  // Detection depends on the path (source code vs config files), so results are kept per pair.
+  const historySecrets = new Map<string, DetectedSecret[]>();
+  const secretsOf = (entry: TreeEntry, content: string): DetectedSecret[] => {
+    const key = `${entry.sha}\0${entry.path}`;
+    let found = historySecrets.get(key);
+    if (found === undefined) {
+      found = detectSecrets(content, { path: entry.path });
+      historySecrets.set(key, found);
+    }
+    return found;
+  };
   // A tracked file at the revision that was skipped for size or the read budget may hold the
   // value, so "removed" cannot be claimed for a value not found in the files that were read.
-  const hasUnreadHead = headRead.skippedLarge > 0 || headRead.skippedBudget > 0;
+  let hasUnreadHead = headRead.skippedLarge > 0 || headRead.skippedBudget > 0;
+  // A binary tracked file may hold it too. One fixed-string `git grep` of the revision (values on
+  // stdin) settles it: "removed" is claimed only when Git confirms that no current file contains
+  // any of those values; otherwise the current state is unknown.
+  if (currentByPath === null && !hasUnreadHead && headRead.skippedBinary > 0) {
+    const removedValues = new Set<string>();
+    for (const entry of oldestFirst) {
+      const content = historyRead.contents.get(entry.sha);
+      if (content === undefined) continue;
+      for (const secret of secretsOf(entry, content)) {
+        if (!currentValues.has(secret.value)) removedValues.add(secret.value);
+      }
+    }
+    if (removedValues.size > 0) {
+      hasUnreadHead =
+        isOverBudget() ||
+        !(await isAbsentFromRevision(projectRoot, runner, revision, [...removedValues], signal));
+    }
+  }
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
     if (content === undefined) continue;
-    for (const secret of detectSecrets(content, { path: entry.path })) {
+    for (const secret of secretsOf(entry, content)) {
       if (currentValues.has(secret.value)) continue; // already reported in current files
       const key = `${secret.kind}\0${secret.value}`;
       if (reported.has(key)) continue; // report each removed value once (where it first appeared)

@@ -14,10 +14,11 @@ export interface GitRunOptions {
 }
 
 /**
- * Subcommands PGARD may run. Only plumbing plus two metadata-only remote lookups: porcelain
- * commands such as `log`/`show` are deliberately absent because they carry the most
- * config-driven hooks (pager, signature verification, textconv, mailmap). Commit metadata and
- * diffs are parsed from plumbing output instead. Nothing here can modify the repository.
+ * Subcommands PGARD may run. Only plumbing, two metadata-only remote lookups and a fixed-string
+ * `grep` of a tree (patterns on stdin, see the flag allowlist): porcelain commands such as
+ * `log`/`show` are deliberately absent because they carry the most config-driven hooks (pager,
+ * signature verification, textconv, mailmap). Commit metadata and diffs are parsed from plumbing
+ * output instead. Nothing here can modify the repository.
  */
 export type GitSubcommand =
   | "rev-parse"
@@ -28,7 +29,8 @@ export type GitSubcommand =
   | "ls-tree"
   | "ls-files"
   | "diff-tree"
-  | "for-each-ref";
+  | "for-each-ref"
+  | "grep";
 
 export interface GitInvocation {
   subcommand: GitSubcommand;
@@ -77,6 +79,7 @@ const SUBCOMMAND_ARGS: Record<GitSubcommand, readonly string[]> = {
   "ls-files": ["ls-files"],
   "diff-tree": ["diff-tree"],
   "for-each-ref": ["for-each-ref"],
+  grep: ["grep"],
 };
 
 /** Subcommands that never read file contents, so no filter/diff driver can be involved. */
@@ -141,6 +144,9 @@ const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
     /^--diff-filter=[ACDMRTUXB]+$/i,
   ],
   "for-each-ref": [/^--count=\d{1,7}$/, /^--format=[^\n]*$/, /^--sort=-?[a-z:]+$/],
+  // Fixed-string search of a tree object. `-f-` reads the patterns from stdin only (never a
+  // file), so searched values never appear in argv; no pager (`-O`) or textconv.
+  grep: ["-F", "-l", "-z", "--no-textconv", "--no-color", "-f-"],
 };
 
 /** Format placeholders that trigger signature verification (`%G?`, `%GS`, `%(signature)`...). */

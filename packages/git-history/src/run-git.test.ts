@@ -61,6 +61,12 @@ describe("buildGitArgs", () => {
     ["diff-tree", "--textconv"],
     ["ls-files", "--with-tree=HEAD"],
     ["rev-parse", "--git-path"],
+    ["grep", "--textconv"],
+    ["grep", "-O"],
+    ["grep", "--open-files-in-pager=sh"],
+    ["grep", "-f/etc/passwd"],
+    ["grep", "-e"],
+    ["grep", "--untracked"],
   ] as const)("refuses %s %s (exact allowlist, no abbreviations)", (subcommand, flag) => {
     expect(() => buildGitArgs({ subcommand, flags: [flag] })).toThrow(GitCommandError);
   });
@@ -188,6 +194,11 @@ describe("runGit against a malicious repository", () => {
     await runGit({ subcommand: "ls-files", flags: ["-s"] }, { cwd: root });
     await runGit({ subcommand: "ls-tree", flags: ["-r"], operands: ["HEAD"] }, { cwd: root });
     await runGit({ subcommand: "for-each-ref" }, { cwd: root });
+    const grep = await runGit(
+      { subcommand: "grep", flags: ["-F", "-l", "-z", "--no-textconv", "-f-"], operands: ["HEAD"] },
+      { cwd: root, input: "two\n" },
+    );
+    expect(grep).toContain("a.txt");
     await runGit(
       { subcommand: "rev-parse", flags: ["--verify"], operands: ["HEAD"] },
       { cwd: root },
