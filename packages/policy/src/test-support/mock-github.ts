@@ -9,6 +9,7 @@ import {
   type GitHubPullRequestSummary,
   type GitHubRepository,
   type GitHubSession,
+  type GitHubSessionProvider,
   type GitHubUser,
 } from "@pgard/github-auth";
 
@@ -22,6 +23,14 @@ export interface MockGitHubState {
   /** Comparison of `sha...defaultBranch`; missing ⇒ `null` (unknown to GitHub). */
   compare: Record<string, GitHubCompareStatus>;
   failWith?: GitHubAuthError;
+}
+
+/**
+ * Wraps a session function as a `GitHubSessionProvider`, with no-op `invalidate()` and
+ * `signOut()`, for tests that only need the call itself.
+ */
+export function sessionProvider(get: () => Promise<GitHubSession>): GitHubSessionProvider {
+  return Object.assign(get, { invalidate: () => {}, signOut: () => {} });
 }
 
 export const ME: GitHubUser = { id: 1001, login: "me", name: "Me Person", email: "me@example.com" };

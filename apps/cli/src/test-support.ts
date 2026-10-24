@@ -8,8 +8,16 @@ import type { CommandContext } from "./context.js";
 import type { CliDeps } from "./deps.js";
 import { createStyle } from "./ui/formatters/style.js";
 
+/** The test stdin: writable, so a test can type keys, and with an optional raw-mode switch. */
+export type TestStdin = PassThrough & {
+  isTTY?: boolean;
+  setRawMode?: (mode: boolean) => void;
+};
+
 export interface CapturedIo {
   io: CliIo;
+  /** The same stream as `io.stdin`, with its writable side typed. */
+  stdin: TestStdin;
   stdout: () => string;
   stderr: () => string;
 }
@@ -33,7 +41,7 @@ export function createTestIo(
   const isTTY = options.isTTY ?? false;
   const stdout = capture(isTTY);
   const stderr = capture(isTTY);
-  const stdin = new PassThrough() as PassThrough & { isTTY?: boolean };
+  const stdin: TestStdin = new PassThrough();
   stdin.isTTY = isTTY;
   return {
     io: {
@@ -43,6 +51,7 @@ export function createTestIo(
       env: options.env ?? {},
       cwd: options.cwd ?? "/work/repo",
     },
+    stdin,
     stdout: stdout.read,
     stderr: stderr.read,
   };

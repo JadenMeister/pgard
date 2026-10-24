@@ -12,6 +12,7 @@ import {
   ME,
   createMockGitHub,
   ownerInstallation,
+  sessionProvider,
   userRepository,
   type MockGitHubState,
 } from "./test-support/mock-github.js";
@@ -54,7 +55,7 @@ async function authorize(root: string, state: MockGitHubState, maxCandidates?: n
   const { session, calls } = createMockGitHub(state);
   const getGitHubSession = vi.fn(async () => session);
   const outcome = await authorizeProject(root, {
-    getGitHubSession,
+    getGitHubSession: sessionProvider(getGitHubSession),
     ...(maxCandidates ? { maxContributionCandidates: maxCandidates } : {}),
   });
   return { outcome, calls, getGitHubSession };
@@ -242,7 +243,7 @@ describe("authorizeProject: blocked paths", () => {
     const { session } = createMockGitHub(baseState());
     const truncated = new GitHubAuthError("result_truncated", "too many installations");
     const outcome = await authorizeProject(root, {
-      getGitHubSession: async () => ({
+      getGitHubSession: sessionProvider(async () => ({
         ...session,
         client: {
           ...session.client,
@@ -253,7 +254,7 @@ describe("authorizeProject: blocked paths", () => {
             throw truncated;
           },
         },
-      }),
+      })),
     });
     expectBlocked(outcome);
     expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
@@ -430,10 +431,10 @@ describe("authorizeProject: blocked paths", () => {
       }),
     );
     const outcome = await authorizeProject(root, {
-      getGitHubSession: async () => ({
+      getGitHubSession: sessionProvider(async () => ({
         ...session,
         client: { ...failing.client, getAuthenticatedUser: session.client.getAuthenticatedUser },
-      }),
+      })),
     });
     expectBlocked(outcome);
     expect(statusOf(outcome, "current_access")).toBe("unverifiable");
@@ -516,9 +517,9 @@ describe("authorizeProject: repository and identity", () => {
   it("blocks when sign-in is denied", async () => {
     const { root } = repoWithCommits();
     const outcome = await authorizeProject(root, {
-      getGitHubSession: async () => {
+      getGitHubSession: sessionProvider(async () => {
         throw new GitHubAuthError("access_denied", "denied");
-      },
+      }),
     });
     expectBlocked(outcome);
     expect(statusOf(outcome, "github_identity")).toBe("failed");

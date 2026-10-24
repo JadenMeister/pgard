@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AuthorizationOutcome } from "@pgard/policy";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionProvider } from "../../policy/src/test-support/mock-github.js";
 
 const authorizeProject = vi.fn<(root: string) => Promise<AuthorizationOutcome>>();
 vi.mock("@pgard/policy", async (importOriginal) => {
@@ -43,7 +44,9 @@ describe("code scope wiring", () => {
     const result = await runScan(
       { projectRoot: root, scopes: ["code"], webTarget: null },
       {
-        authorization: { getGitHubSession: async () => Promise.reject(new Error("unused")) },
+        authorization: {
+          getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+        },
         env: {},
       },
     );
@@ -112,7 +115,9 @@ describe("code scope wiring", () => {
       const result = await runScan(
         { projectRoot: root, scopes: ["code"], webTarget: null },
         {
-          authorization: { getGitHubSession: async () => Promise.reject(new Error("unused")) },
+          authorization: {
+            getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+          },
           env: { PGARD_ADVISORY_DB: dbPath },
           now: () => new Date("2026-10-24T00:00:00Z"),
         },
