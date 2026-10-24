@@ -47,4 +47,46 @@ describe("isAuthorizationAllowed", () => {
       }),
     ).toBe(false);
   });
+
+  it("rejects duplicate or reordered check ids even when all are passed", () => {
+    const duplicates = AUTHORIZATION_CHECK_ORDER.map(() => ({
+      id: "repository" as const,
+      status: "passed" as const,
+      reason: "",
+    }));
+    expect(
+      isAuthorizationAllowed({
+        summary: { decision: "allowed", checks: duplicates },
+        repo: "o/r",
+        revision: null,
+      }),
+    ).toBe(false);
+    const reordered = [...AUTHORIZATION_CHECK_ORDER].reverse().map((id) => ({
+      id,
+      status: "passed" as const,
+      reason: "",
+    }));
+    expect(
+      isAuthorizationAllowed({
+        summary: { decision: "allowed", checks: reordered },
+        repo: "o/r",
+        revision: null,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a blocked decision even when all checks passed", () => {
+    const passed = AUTHORIZATION_CHECK_ORDER.map((id) => ({
+      id,
+      status: "passed" as const,
+      reason: "",
+    }));
+    expect(
+      isAuthorizationAllowed({
+        summary: { decision: "blocked", checks: passed },
+        repo: "o/r",
+        revision: null,
+      }),
+    ).toBe(false);
+  });
 });

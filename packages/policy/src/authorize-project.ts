@@ -23,10 +23,17 @@ export async function authorizeProject(
   return { summary: { decision: "blocked", checks }, repo: null, revision: null };
 }
 
+/**
+ * True only when the decision is `allowed` and the summary lists exactly the five checks in
+ * `AUTHORIZATION_CHECK_ORDER`, each `passed`. Duplicate, missing or reordered ids fail.
+ */
 export function isAuthorizationAllowed(outcome: AuthorizationOutcome): boolean {
+  const { checks } = outcome.summary;
   return (
     outcome.summary.decision === "allowed" &&
-    outcome.summary.checks.length === AUTHORIZATION_CHECK_ORDER.length &&
-    outcome.summary.checks.every((check) => check.status === "passed")
+    checks.length === AUTHORIZATION_CHECK_ORDER.length &&
+    AUTHORIZATION_CHECK_ORDER.every(
+      (id, index) => checks[index]?.id === id && checks[index]?.status === "passed",
+    )
   );
 }
