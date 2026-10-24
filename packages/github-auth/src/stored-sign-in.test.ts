@@ -394,6 +394,12 @@ describe("login, logout and status helpers", () => {
     expect(store.size()).toBe(0);
   });
 
+  it("reads the status of a malformed entry without deleting it", async () => {
+    const store = await storeWith("not json");
+    expect(await readStoredSignInStatus(store, CLIENT_ID)).toEqual({ status: "none" });
+    expect(await store.get(KEY)).toBe("not json");
+  });
+
   it("reports an unavailable keychain without throwing", async () => {
     const store = createUnavailableCredentialStore("no keychain here");
     expect(await readStoredSignInStatus(store, CLIENT_ID)).toEqual({
