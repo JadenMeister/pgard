@@ -158,8 +158,16 @@ describe("coverage notes (#109)", () => {
     const result = await scanSourceCode(root);
     const note = result.coverage.find((entry) => entry.area === "source:javascript")?.note;
     expect(note).toMatch(
-      /2 file\(s\) hit the per-file finding cap \(public\/a\.js, public\/b\.js\)/,
+      /2 file\(s\) hit the per-file finding cap \("public\/a\.js", "public\/b\.js"\)/,
     );
+  });
+
+  it("quotes capped paths so a name containing a comma stays unambiguous", async () => {
+    const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
+    const root = project({ "public/a, b.js": bundle, "src/ok.js": "1;" });
+    const result = await scanSourceCode(root);
+    const note = result.coverage.find((entry) => entry.area === "source:javascript")?.note;
+    expect(note).toContain('per-file finding cap ("public/a, b.js")');
   });
 
   it("starts the problem list with a capital letter", async () => {

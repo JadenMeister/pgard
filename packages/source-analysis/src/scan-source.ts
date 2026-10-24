@@ -71,9 +71,15 @@ interface LanguageStats {
 
 const MAX_LISTED_PATHS = 5;
 
-/** Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. */
+/**
+ * Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. Each path is quoted
+ * (JSON string syntax) so names containing ", ", quotes or newlines stay unambiguous.
+ */
 function listPaths(paths: string[]): string {
-  const listed = paths.slice(0, MAX_LISTED_PATHS).join(", ");
+  const listed = paths
+    .slice(0, MAX_LISTED_PATHS)
+    .map((item) => JSON.stringify(item))
+    .join(", ");
   const rest = paths.length - MAX_LISTED_PATHS;
   return rest > 0 ? `${listed} and ${rest} more` : listed;
 }
