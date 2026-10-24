@@ -582,19 +582,56 @@ export async function scanGitHistory(
   const isBoundary = (commit: string) => shallowBoundary?.has(commit) ?? false;
   const reported = new Set<string>();
   let unknownCurrentState = 0;
-  // When the current file list could not be read, ask Git directly whether each history path
-  // still exists at the revision, so current secrets are not reported as "removed".
-  const currentByPath = isHeadListComplete
-    ? null
-    : await readCurrentBlobs(
-        projectRoot,
-        runner,
-        revision,
-        oldestFirst.map((entry) => entry.path),
-        maxBlobBytes,
-        budget,
-        signal,
-      );
+  const historyShas = [...new Set(oldestFirst.map((entry) => entry.sha))].filter(
+    (sha) => !headShas.has(sha),
+  );
+  const historyRead = await readBlobs(
+    projectRoot,
+    runner,
+    historyShas,
+    maxBlobBytes,
+    budget,
+    signal,
+  );
+  // When the current file list could not be read, ask Git directly whether the paths that
+  // matter (environment files and paths whose history holds a secret not seen in current
+  // files) still exist at the revision, so current secrets are not reported as "removed".
+  // Lookup failures or an exhausted time budget leave the state unknown (neutral wording,
+  // partial coverage) instead of failing the whole history area.
+  let currentByPath: { shas: Map<string, string | null>; contents: Map<string, string> } | null =
+    null;
+  if (!isHeadListComplete) {
+    const candidatePaths = new Set<string>();
+    for (const entry of oldestFirst) {
+      if (isEnvironmentFile(entry.path)) {
+        candidatePaths.add(entry.path);
+        continue;
+      }
+      const content = historyRead.contents.get(entry.sha);
+      if (
+        content !== undefined &&
+        detectSecrets(content).some((secret) => !currentValues.has(secret.value))
+      ) {
+        candidatePaths.add(entry.path);
+      }
+    }
+    currentByPath = { shas: new Map(), contents: new Map() };
+    if (!isOverBudget() && candidatePaths.size > 0) {
+      try {
+        currentByPath = await readCurrentBlobs(
+          projectRoot,
+          runner,
+          revision,
+          [...candidatePaths],
+          maxBlobBytes,
+          budget,
+          signal,
+        );
+      } catch (error) {
+        if (!(error instanceof GitCommandError) || error.kind === "cancelled") throw error;
+      }
+    }
+  }
   for (const entry of oldestFirst) {
     const currentSha = currentByPath?.shas.get(entry.path);
     if (isEnvironmentFile(entry.path) && currentSha && !reported.has(`env:${entry.path}`)) {
@@ -637,17 +674,6 @@ export async function scanGitHistory(
       );
     }
   }
-  const historyShas = [...new Set(oldestFirst.map((entry) => entry.sha))].filter(
-    (sha) => !headShas.has(sha),
-  );
-  const historyRead = await readBlobs(
-    projectRoot,
-    runner,
-    historyShas,
-    maxBlobBytes,
-    budget,
-    signal,
-  );
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);

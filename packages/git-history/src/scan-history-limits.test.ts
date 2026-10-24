@@ -248,6 +248,72 @@ describe("incomplete current file list (#102)", () => {
   });
 });
 
+describe("current-file lookups on the overflow path (#107)", () => {
+  const noTree =
+    (inner: GitRunner): GitRunner =>
+    (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : inner(invocation, options);
+
+  function repoWithManyFiles() {
+    const repo = fixture();
+    const files: Record<string, string> = {};
+    for (let index = 0; index < 60; index += 1) files[`f${index}.txt`] = `${index}`;
+    repo.commit({ files: { ...files, "deploy.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ remove: ["deploy.sh"] });
+    return repo;
+  }
+
+  it("looks up only paths that produced history findings", async () => {
+    const repo = repoWithManyFiles();
+    const lookups: string[] = [];
+    const spy: GitRunner = (invocation, options) => {
+      if (invocation.subcommand === "cat-file" && options.input?.includes(":")) {
+        lookups.push(...options.input.trim().split("\n"));
+      }
+      return runGit(invocation, options);
+    };
+    const result = await scanGitHistory(repo.root, { runner: noTree(spy) });
+    expect(lookups.map((line) => line.split(":")[1])).toEqual(["deploy.sh"]);
+    expect(result.findings.map((finding) => finding.ruleId)).toEqual(["PG-SECRET-003"]);
+  });
+
+  it("degrades to neutral wording and partial coverage when the lookup fails", async () => {
+    const repo = repoWithManyFiles();
+    const failing: GitRunner = (invocation, options) =>
+      invocation.subcommand === "cat-file" && options.input?.includes(":")
+        ? Promise.reject(new GitCommandError("slow", null, "timeout"))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: noTree(failing) });
+    expect(result.findings[0]?.evidence).toMatch(/could not be checked/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+  });
+
+  it("skips the lookup once the time budget is used", async () => {
+    const repo = repoWithManyFiles();
+    let lookedUp = false;
+    const spy: GitRunner = (invocation, options) => {
+      if (invocation.subcommand === "cat-file" && options.input?.includes(":")) lookedUp = true;
+      return runGit(invocation, options);
+    };
+    let clock = 0;
+    const result = await scanGitHistory(repo.root, {
+      runner: noTree(spy),
+      timeBudgetMs: 1_000_000,
+      now: () => {
+        clock += 600_000;
+        return clock;
+      },
+    });
+    expect(lookedUp).toBe(false);
+    expect(result.coverage.find((entry) => entry.area === "history:commits")?.status).toBe(
+      "partial",
+    );
+  });
+});
+
 describe("oversized commits and unknown revisions (#103)", () => {
   it("retries a too-large batch commit by commit and skips only the oversized one", async () => {
     const repo = fixture();
