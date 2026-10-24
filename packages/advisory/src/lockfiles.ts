@@ -12,6 +12,11 @@ export interface LockfileParseResult {
   error: string | null;
   /** Entries that cannot be compared with advisories (git/file/link/workspace, local replaces). */
   uncomparable?: number;
+  /**
+   * Set when the file was understood but is known not to list every resolved dependency (for
+   * example a go.mod before Go 1.17, which omits indirect dependencies).
+   */
+  incomplete?: string;
 }
 
 /** Version specifiers that do not name a registry release. */
@@ -193,9 +198,14 @@ export function parseGoMod(text: string): LockfileParseResult {
   }[] = [];
   let block: "require" | "replace" | null = null;
   let hasModuleLine = false;
+  let goDirective: { major: number; minor: number; text: string } | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\/\/.*$/, "").trim();
     if (/^module\s+\S+/.test(line)) hasModuleLine = true;
+    const go = /^go\s+((\d+)\.(\d+)\S*)$/.exec(line);
+    if (go?.[1] && go[2] && go[3] && !block) {
+      goDirective = { major: Number(go[2]), minor: Number(go[3]), text: go[1] };
+    }
     const opening = /^(require|replace)\s*\($/.exec(line);
     if (opening) {
       block = opening[1] as "require" | "replace";
@@ -244,7 +254,21 @@ export function parseGoMod(text: string): LockfileParseResult {
       packages.push({ ecosystem: "Go", name: replacement.to, version: replacement.toVersion });
     }
   }
-  return { packages: unique(packages), error: null, uncomparable };
+  // Since Go 1.17 a go.mod lists every module the build needs; before that (and without a go
+  // directive, which Go treats as 1.16) indirect dependencies are left out.
+  const isPre117 =
+    goDirective === null ||
+    goDirective.major < 1 ||
+    (goDirective.major === 1 && goDirective.minor < 17);
+  const incomplete = isPre117
+    ? `${goDirective === null ? "no go directive (Go assumes 1.16)" : `go ${goDirective.text} is before 1.17`}, so indirect dependencies are not listed and were not checked`
+    : undefined;
+  return {
+    packages: unique(packages),
+    error: null,
+    uncomparable,
+    ...(incomplete ? { incomplete } : {}),
+  };
 }
 
 /** go.sum entries (used when no go.mod is present). `/go.mod` hash lines are ignored. */

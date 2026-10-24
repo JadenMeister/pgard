@@ -255,7 +255,7 @@ describe("scanDependencies", () => {
           "node_modules/safe": { version: "1.0.0" },
         },
       }),
-      "services/api/go.mod": "module api\n\nrequire golang.org/x/text v0.3.7\n",
+      "services/api/go.mod": "module api\n\ngo 1.21\n\nrequire golang.org/x/text v0.3.7\n",
       "node_modules/lodash/package-lock.json": JSON.stringify({
         lockfileVersion: 3,
         packages: { "node_modules/lodash": { version: "1.0.0" } },
@@ -671,5 +671,34 @@ describe("Go manifests per directory (#115)", () => {
     const go = result.coverage.find((entry) => entry.area === "dependencies:go");
     expect(go?.note).toContain("api/go.mod, tool/go.sum");
     expect(go?.note).not.toContain("api/go.sum");
+  });
+});
+
+describe("go.mod before Go 1.17 (#115)", () => {
+  const goCoverage = async (goMod: string) => {
+    const result = await scanDependencies(tempDir({ "go.mod": goMod }), {
+      env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) },
+      now,
+    });
+    return result.coverage.find((entry) => entry.area === "dependencies:go");
+  };
+
+  it("marks Go coverage partial for a go 1.16 module", async () => {
+    const go = await goCoverage("module x\n\ngo 1.16\n\nrequire example.com/a v1.0.0\n");
+    expect(go?.status).toBe("partial");
+    expect(go?.note).toMatch(/go\.mod: go 1\.16 is before 1\.17, so indirect dependencies/);
+  });
+
+  it("marks Go coverage partial when the go directive is missing", async () => {
+    const go = await goCoverage("module x\n\nrequire example.com/a v1.0.0\n");
+    expect(go?.status).toBe("partial");
+    expect(go?.note).toMatch(/no go directive/);
+  });
+
+  it("keeps Go 1.17+ modules completed", async () => {
+    expect(
+      (await goCoverage("module x\n\ngo 1.17\n\nrequire example.com/a v1.0.0\n"))?.status,
+    ).toBe("completed");
+    expect(parseGoMod("module x\n\ngo 1.22.3\n").incomplete).toBeUndefined();
   });
 });

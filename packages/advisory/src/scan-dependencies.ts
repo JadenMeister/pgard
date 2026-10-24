@@ -211,6 +211,7 @@ export async function scanDependencies(
       }
       const result = parse(file)(text);
       if (result.error) errors.push(`${file}: ${result.error}`);
+      if (result.incomplete) errors.push(`${file}: ${result.incomplete}`);
       uncomparable += result.uncomparable ?? 0;
       resolved.push({ file, packages: result.packages });
     }
