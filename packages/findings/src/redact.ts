@@ -268,7 +268,10 @@ const FILE_URL_PATTERN = /\bfile:\/\/[^\s'"`<>?#]{0,2048}/gi;
  */
 // A root path is masked when it has at least two segments below the root or one file-like
 // segment (`/tmp/x.log`), so short routes such as `/data/export` or `/run/jobs` stay readable.
-const PATH_CHARS = "[^\\s'\"`<>|,;)\\]}]";
+// Punctuation such as , ; ) ] } may appear inside a path (`/opt/acme,inc/key.pem`) but is not
+// taken as the last character, so a path followed by punctuation stays readable around it.
+const PATH_TAIL = "(?:[^\\s'\"`<>|]{0,1023}[^\\s'\"`<>|,;)\\]}])?";
+const PATH_SEGMENT = "[^\\s'\"`<>|/]{0,254}[^\\s'\"`<>|/,;)\\]}]";
 const FS_ROOTS =
   "Users|home|opt|private|tmp|var|etc|usr|root|mnt|media|srv|Volumes|nix|snap|Library|System|Applications|workspaces?|builds|runner|code";
 const ROUTE_LIKE_ROOTS = "data|run|dev|sys|proc|app";
@@ -281,10 +284,10 @@ const FILE_END = "(?=[\\s'\"`<>|,;)\\]}:]|$)";
  */
 const ABSOLUTE_PATH_PATTERN = new RegExp(
   [
-    `(?<![\\w.~/:\\\\-])\\/(?:${FS_ROOTS})\\/${PATH_CHARS}{0,1024}`,
-    `(?<![\\w.~/:\\\\-])\\/(?:${ROUTE_LIKE_ROOTS})(?:(?:\\/[^\\s'"\`<>|/,;)\\]}]{1,255}){2,64}|\\/[^\\s'"\`<>|/,;)\\]}]{1,255}\\.[A-Za-z0-9]{1,10}${FILE_END})`,
-    `(?<![A-Za-z0-9])[A-Za-z]:[\\\\/](?![\\\\/])${PATH_CHARS}{0,1024}`,
-    `(?<![\\w\\\\])\\\\\\\\[A-Za-z0-9._$-]{1,255}\\\\${PATH_CHARS}{1,1024}`,
+    `(?<![\\w.~/:\\\\-])\\/(?:${FS_ROOTS})\\/${PATH_TAIL}`,
+    `(?<![\\w.~/:\\\\-])\\/(?:${ROUTE_LIKE_ROOTS})(?:(?:\\/${PATH_SEGMENT}){2,64}|\\/[^\\s'"\`<>|/]{0,254}\\.[A-Za-z0-9]{1,10}${FILE_END})`,
+    `(?<![A-Za-z0-9])[A-Za-z]:[\\\\/](?![\\\\/])${PATH_TAIL}`,
+    `(?<![\\w\\\\])\\\\\\\\[A-Za-z0-9._$-]{1,255}\\\\${PATH_TAIL}`,
   ].join("|"),
   "g",
 );

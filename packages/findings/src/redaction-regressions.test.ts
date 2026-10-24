@@ -45,6 +45,31 @@ const SECRET_LEAKS: [string, string, string][] = [
   ["#94 parens inside", "password=p(a)ssw0rd", "ssw0rd"],
   ["#94 leading paren", "DB_PASSWORD=)s3cr3tValue", "s3cr3tValue"],
   ["#94 paren in middle", "api_key=k3y)tail", "tail"],
+  [
+    "pin: plain JWT",
+    `auth ${join("eyJhbGciOiJIUzI1NiJ9", ".", "eyJzdWIiOiIxMjM0NTY3ODkwIn0", ".", "SflKxwRJSMeKKF2QT4fwpM")}`,
+    "SflKxwRJSMeKKF2QT4fwpM",
+  ],
+  [
+    "pin: github_pat_",
+    `token ${join("github", "_pat_", "11ABCDEFG", "0".repeat(20))}`,
+    "11ABCDEFG",
+  ],
+  [
+    "pin: multiline PEM with END",
+    join(
+      "-----BEGIN ",
+      "PRIVATE KEY-----\n",
+      "MIIEvQIBADANBgkqhkiG9w0",
+      "\nabcDEF\n-----END ",
+      "PRIVATE KEY-----",
+    ),
+    "MIIEvQIBADANBgkqhkiG9w0",
+  ],
+  ["pin: Cookie header", "Cookie: sid=s3ssionValue; theme=dark", "s3ssionValue"],
+  ["pin: Set-Cookie header", "Set-Cookie: sid=s3ssionValue; HttpOnly", "s3ssionValue"],
+  ["pin: single-quoted value", "secret='two words here'", "two words"],
+  ["pin: backtick value", "password = `tick value 9`", "tick value"],
 ];
 
 describe("redaction regressions", () => {
@@ -105,6 +130,11 @@ describe("redaction regressions", () => {
     ["/opt/secretproduct", "secretproduct"],
     ["/var/log/", "/var/log"],
     ["/code/x", "/code/x"],
+    ["/opt/acme,inc/secrets/key.pem", "inc/secrets"],
+    ["/srv/app;v2/config.yml", "v2/config"],
+    ["/data/exports/a)b/report.csv", "report.csv"],
+    ["C:\\acme,inc\\keys\\id.pem", "inc"],
+    ["\\\\fileserver\\share,x\\secrets.txt", "secrets"],
     ["at /app/server.js:10:5", "server.js"],
   ])("#95 masks the filesystem path %s", (input, fragment) => {
     const output = redactEvidence(`see ${input} here`);
