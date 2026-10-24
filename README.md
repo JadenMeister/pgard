@@ -168,6 +168,7 @@ After a device-flow sign-in (from `pgard login`, a scan or the dashboard), PGARD
 - If no keychain is available (for example a Linux server without a Secret Service), PGARD says why and keeps the sign-in in memory only, for the current CLI process or dashboard session, as before.
 - `pgard logout` deletes the entry. PGARD cannot revoke the token at GitHub, because that needs the App's client secret. The token stays valid until it expires; revoke it at <https://github.com/settings/apps/authorizations> if needed.
 - `pgard doctor` shows whether a sign-in is saved and for which account, never the token.
+- On macOS the keychain item trusts the `node` binary, so any other Node.js script run by the same user can read it without a prompt.
 
 GitHub App owners can turn token expiry on or off under the App's settings (**Optional features → User-to-server token expiration**). PGARD works either way: with expiry it refreshes, without it the saved token is used until it is revoked.
 

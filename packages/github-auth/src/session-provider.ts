@@ -2,6 +2,7 @@ import { isCredentialStoreError, type CredentialStore } from "./credential-store
 import {
   createGitHubSession,
   createSessionFromToken,
+  defaultSleep,
   refreshUserToken,
   requestDeviceFlowTokens,
   type DeviceFlowOptions,
@@ -67,6 +68,11 @@ export interface DeviceFlowSessionProviderOptions {
 
 /** A session is renewed this long before its token expires. */
 const EXPIRY_MARGIN_MS = 60_000;
+/**
+ * After GitHub rejects a refresh token, how long to wait for another PGARD process that may
+ * have just refreshed (and rotated) it to save the new tokens, before deleting the entry.
+ */
+const REFRESH_RACE_WAIT_MS = 1_500;
 
 /**
  * Wraps every client method so an `unauthorized` response clears the cached session, and so a
@@ -184,21 +190,62 @@ function deviceFlowOptions(
  * memory, exactly like the provider without a store.
  *
  * The cached session is dropped when sign-in fails, when the token is about to expire, when
- * GitHub answers 401 (which also deletes the stored entry), or on `invalidate()`/`signOut()`.
+ * GitHub answers 401 (which also deletes the stored entry while it still holds that token), on
+ * `invalidate()`/`signOut()`, and when the keychain entry it came from was removed or replaced by
+ * another process (checked each time the cached session would be handed out again).
  */
 export function createDeviceFlowSessionProvider(
   options: DeviceFlowSessionProviderOptions,
 ): GitHubSessionProvider {
   const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? defaultSleep;
   const host = githubHostOf();
   const notify = (notice: SignInNotice): void => options.onNotice?.(notice);
   let store: CredentialStore | null = options.credentialStore ?? null;
   let pending: Promise<GitHubSession> | null = null;
   let generation = 0;
+  /**
+   * The access token of the cached session when it is also the one in the keychain (reused or
+   * saved there). Before that session is handed out again, the keychain is re-read so that
+   * `pgard logout` (or `pgard login`) in another process ends this provider's session too.
+   */
+  let storedToken: { generation: number; accessToken: string } | null = null;
 
   const forget = () => {
     pending = null;
     generation += 1;
+  };
+
+  /** The sign-in that `myGeneration` started was signed out, invalidated or aborted. */
+  const isStale = (myGeneration: number): boolean =>
+    generation !== myGeneration || options.signal?.aborted === true;
+
+  const entryStillHolds = async (
+    current: CredentialStore,
+    record: StoredSignInRecord,
+    field: "accessToken" | "refreshToken",
+  ): Promise<boolean> => {
+    const loaded = await loadStoredSignIn(current, host, record.clientId, {
+      deleteMalformed: false,
+    });
+    return loaded.kind === "found" && loaded.record[field] === record[field];
+  };
+
+  const markStored = (myGeneration: number, accessToken: string): void => {
+    if (store !== null && generation === myGeneration) {
+      storedToken = { generation: myGeneration, accessToken };
+    }
+  };
+
+  /** `false` when the keychain entry behind the cached session was removed or replaced. */
+  const isStillStored = async (clientId: string): Promise<boolean> => {
+    const mark = storedToken;
+    const current = store;
+    if (mark === null || mark.generation !== generation || current === null) return true;
+    const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
+    // A keychain that cannot be read right now says nothing about a sign-out; keep the session.
+    if (loaded.kind === "unavailable") return true;
+    return loaded.kind === "found" && loaded.record.accessToken === mark.accessToken;
   };
 
   const isFresh = (expiresAt: number | null): boolean =>
@@ -216,6 +263,20 @@ export function createDeviceFlowSessionProvider(
     await current.delete(signInKey(host, clientId)).catch((error: unknown) => {
       if (isCredentialStoreError(error)) fallBackToMemory(error.message);
     });
+  };
+
+  /**
+   * Deletes the entry only while it still holds `accessToken`. Another process (`pgard login`,
+   * or a refresh in a second PGARD process) may have replaced it since this provider read it; a
+   * failure of the old token must not delete the newer sign-in.
+   */
+  const deleteIfStillHolds = async (clientId: string, accessToken: string): Promise<boolean> => {
+    const current = store;
+    if (current === null) return false;
+    const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
+    if (loaded.kind !== "found" || loaded.record.accessToken !== accessToken) return false;
+    await deleteEntry(clientId);
+    return true;
   };
 
   const drop = async (
@@ -250,19 +311,78 @@ export function createDeviceFlowSessionProvider(
         isRefreshed = true;
       } catch (error) {
         if (!isRejectedRefresh(error)) throw error;
-        // Another PGARD process may have refreshed first (GitHub rotates refresh tokens);
+        // Another PGARD process may have refreshed first (GitHub rotates refresh tokens) and
+        // not have saved the new tokens yet. Reload now and once more after a short wait, and
         // reuse what it stored instead of deleting a valid entry.
-        if (!isRetry) {
-          const reloaded = await loadStoredSignIn(current, host, record.clientId);
-          if (reloaded.kind === "found" && reloaded.record.refreshToken !== record.refreshToken) {
-            return tryStored(current, reloaded.record, true);
+        const waits = isRetry ? [0] : [0, REFRESH_RACE_WAIT_MS];
+        let latest: StoredSignInRecord | null = null;
+        for (const wait of waits) {
+          if (wait > 0) await sleep(wait, options.signal);
+          const reloaded = await loadStoredSignIn(current, host, record.clientId, {
+            deleteMalformed: false,
+          });
+          // Gone (or unreadable): someone else removed it, so there is nothing to delete.
+          if (reloaded.kind !== "found") return null;
+          latest = reloaded.record;
+          if (latest.refreshToken !== record.refreshToken) {
+            return isRetry ? null : tryStored(current, latest, true);
           }
         }
-        await drop(record.clientId, "refresh_failed");
+        if (latest !== null) await drop(record.clientId, "refresh_failed");
         return null;
       }
     }
     return { tokens, isRefreshed };
+  };
+
+  /** Reuses a stored sign-in after checking it with `GET /user`; `null` means use the device flow. */
+  const reuseStored = async (
+    current: CredentialStore,
+    record: StoredSignInRecord,
+    myGeneration: number,
+    canRetry: boolean,
+  ): Promise<GitHubSession | null> => {
+    const reused = await tryStored(current, record, false);
+    if (reused === null) return null;
+    const session = createSessionFromToken(
+      reused.tokens.accessToken,
+      reused.tokens.expiresAt,
+      options,
+    );
+    let user: GitHubUser;
+    try {
+      user = await session.client.getAuthenticatedUser();
+    } catch (error) {
+      if (!isUnauthorized(error)) throw error;
+      // Delete only the entry that was rejected; `pgard login` elsewhere may have replaced it.
+      const reloaded = await loadStoredSignIn(current, host, record.clientId, {
+        deleteMalformed: false,
+      });
+      if (reloaded.kind === "found" && reloaded.record.accessToken !== record.accessToken) {
+        return canRetry ? reuseStored(current, reloaded.record, myGeneration, false) : null;
+      }
+      if (reloaded.kind === "found") await drop(record.clientId, "revoked");
+      return null;
+    }
+    // Signed out (or aborted) meanwhile: write the rotated tokens back only over the entry whose
+    // refresh token was just spent. If the user removed the entry, it stays removed.
+    if (
+      reused.isRefreshed &&
+      (!isStale(myGeneration) || (await entryStillHolds(current, record, "refreshToken")))
+    ) {
+      const failure = await saveStoredSignIn(
+        current,
+        toRecord(reused.tokens, user, host, record.clientId, now()),
+      );
+      if (failure !== null) {
+        // The old refresh token is spent; do not leave it behind.
+        await deleteEntry(record.clientId);
+        fallBackToMemory(failure);
+      }
+    }
+    notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
+    markStored(myGeneration, reused.tokens.accessToken);
+    return finish(session, reused.tokens.accessToken, myGeneration);
   };
 
   const acquire = async (clientId: string, myGeneration: number): Promise<GitHubSession> => {
@@ -274,70 +394,51 @@ export function createDeviceFlowSessionProvider(
       } else if (loaded.kind === "none" && loaded.wasMalformed) {
         notify({ kind: "removed", reason: "malformed" });
       } else if (loaded.kind === "found") {
-        const reused = await tryStored(current, loaded.record, false);
-        if (reused !== null) {
-          const session = createSessionFromToken(
-            reused.tokens.accessToken,
-            reused.tokens.expiresAt,
-            options,
-          );
-          let user: GitHubUser | null = null;
-          try {
-            user = await session.client.getAuthenticatedUser();
-          } catch (error) {
-            if (!isUnauthorized(error)) throw error;
-            await drop(clientId, "revoked");
-          }
-          if (user !== null) {
-            if (reused.isRefreshed) {
-              const failure = await saveStoredSignIn(
-                current,
-                toRecord(reused.tokens, user, host, clientId, now()),
-              );
-              if (failure !== null) {
-                // The old refresh token is spent; do not leave it behind.
-                await deleteEntry(clientId);
-                fallBackToMemory(failure);
-              }
-            }
-            notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
-            return finish(session, myGeneration);
-          }
-        }
+        const session = await reuseStored(current, loaded.record, myGeneration, true);
+        if (session !== null) return session;
       }
     }
 
     const tokens = await requestDeviceFlowTokens(deviceFlowOptions(options, clientId));
     const session = createSessionFromToken(tokens.accessToken, tokens.expiresAt, options);
     current = store;
-    if (current !== null) {
+    // A sign-out ("Sign out and remove from OS keychain") while the device flow finished must
+    // not be undone by saving this sign-in afterwards; the check is repeated right before saving.
+    if (current !== null && !isStale(myGeneration)) {
       let user: GitHubUser | null = null;
       try {
         user = await session.client.getAuthenticatedUser();
       } catch {
         // The gate looks the user up again and reports the error; nothing is saved.
       }
-      if (user !== null) {
+      if (user !== null && !isStale(myGeneration)) {
         const failure = await saveStoredSignIn(
           current,
           toRecord(tokens, user, host, clientId, now()),
         );
         if (failure === null) {
           notify({ kind: "saved", login: user.login });
+          markStored(myGeneration, tokens.accessToken);
         } else {
           fallBackToMemory(failure);
         }
       }
     }
-    return finish(session, myGeneration);
+    return finish(session, tokens.accessToken, myGeneration);
   };
 
-  const finish = (session: GitHubSession, myGeneration: number): GitHubSession => {
+  const finish = (
+    session: GitHubSession,
+    accessToken: string,
+    myGeneration: number,
+  ): GitHubSession => {
     const clientId = options.clientId;
     const onUnauthorized = () => {
       if (generation === myGeneration) forget();
       if (clientId !== null && store !== null) {
-        void deleteEntry(clientId).then(() => notify({ kind: "removed", reason: "revoked" }));
+        void deleteIfStillHolds(clientId, accessToken).then((wasDeleted) => {
+          if (wasDeleted) notify({ kind: "removed", reason: "revoked" });
+        });
       }
     };
     return createGitHubSession(
@@ -363,7 +464,13 @@ export function createDeviceFlowSessionProvider(
     if (pending !== null) {
       const current = pending;
       const session = await current.catch(() => null);
-      if (session !== null && pending === current && isFresh(session.expiresAt)) {
+      if (
+        session !== null &&
+        pending === current &&
+        isFresh(session.expiresAt) &&
+        (await isStillStored(clientId)) &&
+        pending === current
+      ) {
         return session;
       }
       if (pending === current) {

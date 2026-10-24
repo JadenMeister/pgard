@@ -125,7 +125,7 @@ async function storeWith(
 function makeProvider(
   github: ReturnType<typeof fakeGitHub>,
   store: CredentialStore | null,
-  extra: { clientId?: string; now?: () => number } = {},
+  extra: { clientId?: string; now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
 ) {
   const notices: SignInNotice[] = [];
   const userCodes: string[] = [];
@@ -137,7 +137,7 @@ function makeProvider(
     credentialStore: store,
     onNotice: (notice) => notices.push(notice),
     fetch: github.fetch,
-    sleep: async () => {},
+    sleep: extra.sleep ?? (async () => {}),
     now: extra.now ?? (() => START),
   });
   return { provider, notices, userCodes };
@@ -249,6 +249,27 @@ describe("stored sign-in reuse", () => {
     expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
   });
 
+  it("waits briefly for a racing refresh to be saved before deleting the entry", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const waits: number[] = [];
+    // The other process refreshed first but saves its rotated tokens only a moment later.
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+      await store.set(
+        KEY,
+        storedRecord({ accessToken: REFRESHED_TOKEN, refreshToken: REFRESHED_REFRESH }),
+      );
+    };
+    const github = fakeGitHub();
+    const { provider, notices, userCodes } = makeProvider(github, store, { sleep });
+    await provider();
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThan(0);
+    expect(userCodes).toEqual([]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(REFRESHED_TOKEN);
+  });
+
   it("deletes a revoked (401) entry and runs the device flow in the same call", async () => {
     const store = await storeWith(storedRecord({ accessToken: REVOKED_TOKEN }));
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
@@ -289,6 +310,154 @@ describe("stored sign-in reuse", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(store.size()).toBe(0);
     expect(notices).toContainEqual({ kind: "removed", reason: "revoked" });
+  });
+
+  it("keeps a newer sign-in when the old session's token gets a 401", async () => {
+    // The dashboard holds the stored token; `pgard login` elsewhere then saves a new one.
+    const store = await storeWith(storedRecord());
+    let isRevoked = false;
+    const github = fakeGitHub();
+    const fetch: FetchLike = (url, init) =>
+      isRevoked && init.headers.Authorization === `Bearer ${STORED_TOKEN}`
+        ? Promise.resolve(jsonResponse(401, {}))
+        : github.fetch(url, init);
+    const notices: SignInNotice[] = [];
+    const provider = createDeviceFlowSessionProvider({
+      clientId: CLIENT_ID,
+      onUserCode: () => {},
+      credentialStore: store,
+      onNotice: (notice) => notices.push(notice),
+      fetch,
+      sleep: async () => {},
+      now: () => START,
+    });
+    const session = await provider();
+    await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+    isRevoked = true;
+    await expect(session.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+  });
+
+  it("keeps a sign-in saved meanwhile when the token it read was revoked", async () => {
+    const store = await storeWith(storedRecord({ accessToken: REVOKED_TOKEN }));
+    const github = fakeGitHub();
+    const fetch: FetchLike = async (url, init) => {
+      const response = await github.fetch(url, init);
+      if (url.endsWith("/user") && response.status === 401) {
+        // `pgard login` in another process saved a new sign-in while we checked the old one.
+        await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN }));
+      }
+      return response;
+    };
+    const { provider, notices, userCodes } = makeProvider({ ...github, fetch }, store);
+    await provider();
+    expect(userCodes).toEqual([]);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  it("stops reusing a cached keychain session after pgard logout in another process", async () => {
+    const store = await storeWith(storedRecord());
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider, userCodes } = makeProvider(github, store);
+    const first = await provider();
+    expect(await provider()).toBe(first);
+    expect(userCodes).toEqual([]);
+
+    await store.delete(KEY); // `pgard logout` elsewhere
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual(["ABCD-1234"]);
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+  });
+
+  it("switches to the sign-in that pgard login saved in another process", async () => {
+    const store = await storeWith(storedRecord());
+    const github = fakeGitHub();
+    const { provider, notices, userCodes } = makeProvider(github, store);
+    const first = await provider();
+    await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual([]);
+    expect(notices).toEqual([
+      { kind: "reused", login: "octo", isRefreshed: false },
+      { kind: "reused", login: "octo", isRefreshed: false },
+    ]);
+    const lastUserCall = github.calls.filter((call) => call.url.endsWith("/user")).at(-1);
+    expect(lastUserCall?.init.headers.Authorization).toBe(`Bearer ${NEW_TOKEN}`);
+  });
+
+  it("does not save a device-flow sign-in that finished after sign-out and removal", async () => {
+    const store = await storeWith(null);
+    const controller = new AbortController();
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    let signOutAndRemove = async () => {};
+    const fetch: FetchLike = async (url, init) => {
+      // The user clicks "Sign out and remove from OS keychain" while GET /user is in flight.
+      if (url.endsWith("/user")) await signOutAndRemove();
+      return github.fetch(url, init);
+    };
+    const notices: SignInNotice[] = [];
+    const provider = createDeviceFlowSessionProvider({
+      clientId: CLIENT_ID,
+      onUserCode: () => {},
+      credentialStore: store,
+      onNotice: (notice) => notices.push(notice),
+      fetch,
+      signal: controller.signal,
+      sleep: async () => {},
+      now: () => START,
+    });
+    signOutAndRemove = async () => {
+      controller.abort();
+      provider.signOut();
+      await removeStoredSignIn(store, CLIENT_ID);
+    };
+    await provider().catch(() => null);
+    expect(store.size()).toBe(0);
+    expect(notices).not.toContainEqual({ kind: "saved", login: "octo" });
+  });
+
+  it("does not write refreshed tokens back after the entry was removed by sign-out", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    let signOutAndRemove = async () => {};
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/user")) await signOutAndRemove();
+      return github.fetch(url, init);
+    };
+    const { provider } = makeProvider({ ...github, fetch }, store);
+    signOutAndRemove = async () => {
+      provider.signOut();
+      await removeStoredSignIn(store, CLIENT_ID);
+    };
+    await provider().catch(() => null);
+    expect(store.size()).toBe(0);
+  });
+
+  it("still saves refreshed tokens over the spent entry after a session-only sign-out", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    let signOut = () => {};
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/user")) signOut();
+      return github.fetch(url, init);
+    };
+    const { provider } = makeProvider({ ...github, fetch }, store);
+    signOut = () => provider.signOut();
+    await provider().catch(() => null);
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").refreshToken).toBe(REFRESHED_REFRESH);
   });
 
   it("never reuses a sign-in stored for another App client id", async () => {
@@ -392,6 +561,12 @@ describe("login, logout and status helpers", () => {
     });
     expect(await removeStoredSignIn(store, CLIENT_ID)).toEqual({ status: "none" });
     expect(store.size()).toBe(0);
+  });
+
+  it("reads the status of a malformed entry without deleting it", async () => {
+    const store = await storeWith("not json");
+    expect(await readStoredSignInStatus(store, CLIENT_ID)).toEqual({ status: "none" });
+    expect(await store.get(KEY)).toBe("not json");
   });
 
   it("reports an unavailable keychain without throwing", async () => {

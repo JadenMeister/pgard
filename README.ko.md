@@ -168,6 +168,7 @@ device flow 로그인(`pgard login`, 검사, 대시보드 어디서든)이 끝�
 - 사용할 수 있는 키체인이 없으면(예: Secret Service가 없는 Linux 서버) PGARD는 이유를 알리고, 이전처럼 현재 CLI 프로세스나 대시보드 세션 동안 메모리에만 보관합니다.
 - `pgard logout`은 항목을 지웁니다. GitHub에서 토큰을 취소하려면 App의 client secret이 필요하므로 PGARD는 취소할 수 없습니다. 토큰은 만료될 때까지 유효하며, 필요하면 <https://github.com/settings/apps/authorizations>에서 취소하세요.
 - `pgard doctor`는 저장된 로그인이 있는지와 어느 계정인지를 보여 주며, 토큰은 보여 주지 않습니다.
+- macOS에서는 키체인 항목이 `node` 실행 파일을 신뢰하므로, 같은 사용자가 실행하는 다른 Node.js 스크립트도 확인 창 없이 이 항목을 읽을 수 있습니다.
 
 GitHub App 소유자는 App 설정(**Optional features → User-to-server token expiration**)에서 토큰 만료를 켜거나 끌 수 있습니다. PGARD는 어느 쪽이든 동작합니다. 만료가 켜져 있으면 갱신하고, 꺼져 있으면 취소될 때까지 저장된 토큰을 사용합니다.
 

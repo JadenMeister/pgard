@@ -81,7 +81,7 @@ function parseRecord(text: string, host: string, clientId: string): StoredSignIn
 
 export type LoadResult =
   | { kind: "found"; record: StoredSignInRecord }
-  /** No entry, or a malformed one (which is deleted). */
+  /** No entry, or a malformed one (deleted unless `deleteMalformed` is false). */
   | { kind: "none"; wasMalformed: boolean }
   | { kind: "unavailable"; reason: string };
 
@@ -89,10 +89,20 @@ function unavailableReason(error: unknown): string {
   return isCredentialStoreError(error) ? error.message : "the OS keychain could not be used";
 }
 
+export interface LoadStoredSignInOptions {
+  /**
+   * Delete an entry that cannot be parsed (default `true`). Read-only status paths (`doctor`,
+   * the dashboard's session status, the `login` pre-check) pass `false` so that looking at the
+   * keychain never changes it.
+   */
+  deleteMalformed?: boolean;
+}
+
 export async function loadStoredSignIn(
   store: CredentialStore,
   host: string,
   clientId: string,
+  options: LoadStoredSignInOptions = {},
 ): Promise<LoadResult> {
   const key = signInKey(host, clientId);
   let text: string | null;
@@ -104,7 +114,7 @@ export async function loadStoredSignIn(
   if (text === null) return { kind: "none", wasMalformed: false };
   const record = parseRecord(text, host, clientId);
   if (record === null) {
-    await store.delete(key).catch(() => false);
+    if (options.deleteMalformed !== false) await store.delete(key).catch(() => false);
     return { kind: "none", wasMalformed: true };
   }
   return { kind: "found", record };
@@ -160,13 +170,16 @@ export async function removeStoredSignIn(
   }
 }
 
-/** Reads the stored sign-in without contacting GitHub and returns only secret-free fields. */
+/**
+ * Reads the stored sign-in without contacting GitHub and returns only secret-free fields. It is
+ * read-only: a malformed entry is reported as `none` but left in place.
+ */
 export async function readStoredSignInStatus(
   store: CredentialStore,
   clientId: string,
   host: string = githubHostOf(),
 ): Promise<StoredSignInStatus> {
-  const loaded = await loadStoredSignIn(store, host, clientId);
+  const loaded = await loadStoredSignIn(store, host, clientId, { deleteMalformed: false });
   if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
   if (loaded.kind === "none") return { status: "none" };
   const { login, expiresAt, refreshToken, refreshTokenExpiresAt } = loaded.record;
