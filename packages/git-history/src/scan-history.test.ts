@@ -118,6 +118,15 @@ describe("detectSecrets", () => {
       "stripe_key",
     );
   });
+
+  it("treats a private key header without a body as a header, not a key", () => {
+    const header = join("-----BEGIN ", "PRIVATE KEY-----");
+    const repeated = `["begin headers", "${header}\\n".repeat(5_000)],`;
+    expect(detectSecrets(repeated).map((secret) => secret.kind)).toEqual(["private_key_header"]);
+    const emptyBlock = `${header}\n${join("-----END ", "PRIVATE KEY-----")}\n`;
+    expect(detectSecrets(emptyBlock).map((secret) => secret.kind)).toEqual(["private_key_header"]);
+    expect(detectSecrets(FAKE.pem).map((secret) => secret.kind)).toEqual(["private_key"]);
+  });
 });
 
 describe("isEnvironmentFile", () => {
@@ -133,6 +142,26 @@ describe("isEnvironmentFile", () => {
 });
 
 describe("scanGitHistory", () => {
+  it("reports a key header without a body as suspected with low confidence, a key as critical", async () => {
+    fixture = createGitFixture();
+    const header = join("-----BEGIN ", "PRIVATE KEY-----");
+    fixture.commit({
+      files: { "src/pem.ts": `export const HEADER = "${header}\\n";\n`, "key.pem": FAKE.pem },
+    });
+    const tracked = byRule(await scanGitHistory(fixture.root), "PG-SECRET-002");
+    expect(tracked.find((finding) => finding.location.path === "src/pem.ts")).toMatchObject({
+      severity: "high",
+      status: "suspected",
+      confidence: "low",
+      evidence: "private key header without a key body in a tracked file (value redacted)",
+    });
+    expect(tracked.find((finding) => finding.location.path === "key.pem")).toMatchObject({
+      severity: "critical",
+      status: "confirmed",
+      confidence: "high",
+    });
+  });
+
   it("reports committed .env files and tracked secrets at HEAD without values", async () => {
     fixture = createGitFixture();
     fixture.commit({

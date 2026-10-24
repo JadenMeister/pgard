@@ -4,6 +4,7 @@
  */
 export type DetectedSecretKind =
   | "private_key"
+  | "private_key_header"
   | "aws_access_key_id"
   | "aws_secret_access_key"
   | "github_token"
@@ -22,6 +23,7 @@ export interface DetectedSecret {
 
 export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
   private_key: "private key",
+  private_key_header: "private key header without a key body",
   aws_access_key_id: "AWS access key id",
   aws_secret_access_key: "AWS secret access key",
   github_token: "GitHub token",
@@ -88,6 +90,11 @@ const PATTERNS: Pattern[] = [
   },
 ];
 
+/** A key block needs at least this many base64 characters of body to count as a key. */
+const MIN_PRIVATE_KEY_BODY = 16;
+const PRIVATE_KEY_HEADER = /^-----BEGIN [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----/;
+const PRIVATE_KEY_FOOTER = /-----END [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----$/;
+
 /** Extensions of languages where a string value must be quoted. */
 const SOURCE_CODE_FILE =
   /\.(?:[cm]?[jt]sx?|vue|svelte|go|py|rb|java|kts?|scala|groovy|cs|php|rs|swift|dart|c|cc|cpp|h|hpp|m|mm)$/i;
@@ -147,6 +154,12 @@ function isLiteralAssignment(
   return true;
 }
 
+/** A private key block with fewer base64 body characters than this is only a header. */
+function hasPrivateKeyBody(block: string): boolean {
+  const body = block.replace(PRIVATE_KEY_HEADER, "").replace(PRIVATE_KEY_FOOTER, "");
+  return (body.match(/[A-Za-z0-9+/]/g)?.length ?? 0) >= MIN_PRIVATE_KEY_BODY;
+}
+
 /** Generic assignments must look random enough and not be a code reference or placeholder. */
 function isLikelySecretValue(value: string): boolean {
   if (PLACEHOLDER.test(value)) return false;
@@ -174,18 +187,26 @@ function createLineLookup(text: string): (index: number) => number {
 }
 
 /**
- * Finds secrets in a file's text. Generic credential assignments count only when the value is a
- * literal that looks like a secret (see `isLiteralAssignment`).
+ * Finds secrets in a file's text. A private key header without a key body is reported as
+ * `private_key_header` (never as a confirmed key). Generic credential assignments count only
+ * when the value is a literal that looks like a secret (see `isLiteralAssignment`).
  */
 export function detectSecrets(text: string, options: DetectSecretsOptions = {}): DetectedSecret[] {
   const lineOfIndex = createLineLookup(text);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
-  for (const { kind, pattern, group } of PATTERNS) {
+  for (const { kind: patternKind, pattern, group } of PATTERNS) {
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
-      const value = match[group] ?? "";
+      let kind = patternKind;
+      let value = match[group] ?? "";
       if (value.length === 0) continue;
+      if (kind === "private_key" && !hasPrivateKeyBody(value)) {
+        kind = "private_key_header";
+        // No key material to compare: keep nearby text so distinct headers stay distinct.
+        const start = match.index ?? 0;
+        value = text.slice(start, start + value.length + 256);
+      }
       if (
         kind === "generic_credential" &&
         (!isLikelySecretValue(value) || !isLiteralAssignment(text, match, options))

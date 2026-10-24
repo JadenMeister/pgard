@@ -367,6 +367,10 @@ function assessment(kind: DetectedSecretKind): {
   status: FindingStatus;
   confidence: Confidence;
 } {
+  // A header with no key body may be a sample or a key split across string pieces: review it.
+  if (kind === "private_key_header") {
+    return { severity: "high", status: "suspected", confidence: "low" };
+  }
   return STRONG_KINDS.has(kind)
     ? {
         severity: kind === "private_key" ? "critical" : "high",
