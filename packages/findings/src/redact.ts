@@ -15,6 +15,7 @@ export type SecretKind =
   | "stripe_key"
   | "google_api_key"
   | "jwt"
+  | "api_key"
   | "token"
   | "credentials"
   | "cookie"
@@ -40,6 +41,26 @@ const SENSITIVE_KEY =
  */
 const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$|^[A-Za-z_$][\w$.]*\(/;
 const ALREADY_REDACTED = /^\[REDACTED:/;
+const ZERO_WIDTH = /[​-‍⁠﻿]/g;
+
+/**
+ * Index of the `@` that ends URL userinfo in `rest` (the text after `scheme://`), or -1.
+ * `user:pa@ss/word@host` -> last `@`; `TOKEN@host` -> first `@` before any `/?#`;
+ * `host:8080/x?mail=a@b` and `host/path?mail=a@b` -> -1 (no userinfo).
+ */
+function findUserinfoEnd(rest: string): number {
+  const firstDelimiter = rest.search(/[/?#]/);
+  const colon = rest.indexOf(":");
+  if (colon > 0 && (firstDelimiter < 0 || colon < firstDelimiter)) {
+    const at = rest.lastIndexOf("@");
+    if (at <= colon) return -1;
+    const password = rest.slice(colon + 1, at);
+    if (/^\d{1,5}(?:[/?#]|$)/.test(password) || /[?#]/.test(password)) return -1;
+    return at;
+  }
+  const at = rest.indexOf("@");
+  return at > 0 && (firstDelimiter < 0 || at < firstDelimiter) ? at : -1;
+}
 
 const RULES: Rule[] = [
   {
@@ -49,40 +70,63 @@ const RULES: Rule[] = [
     replace: () => maskSecret("private_key"),
   },
   {
-    pattern: /([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s:@/]{1,256}):([^\s@/]{1,256})@/gi,
-    replace: (_m, scheme) => `${scheme}${maskSecret("credentials")}@`,
+    // URL userinfo: everything up to the last `@` of the authority (passwords may contain
+    // `@` or `/`), or a user-only token (`https://TOKEN@host`).
+    pattern: /([a-z][a-z0-9+.-]{0,31}:\/\/)([^\s"'<>]{1,2048})/gi,
+    replace: (match, scheme, rest) => {
+      const at = findUserinfoEnd(rest);
+      return at > 0 ? `${scheme}${maskSecret("credentials")}${rest.slice(at)}` : match;
+    },
   },
   {
-    pattern: /\b(set-cookie|cookie)([ \t]{0,8}:[ \t]{0,8})[^\n]{1,4096}/gi,
-    replace: (_m, name, sep) => `${name}${sep}${maskSecret("cookie")}`,
+    // `Cookie: ...`, `Set-Cookie: ...`, `{"cookie": "..."}`, `cookie='...'`
+    pattern:
+      /(["']?)\b(set-cookie|cookie)\1([ \t]{0,8}[:=][ \t]{0,8})(?:"[^"\n]{0,4096}"?|'[^'\n]{0,4096}'?|[^\n]{1,4096})/gi,
+    replace: (match, quote, name, sep) => {
+      const valueStart = match.slice(
+        quote.length * 2 + name.length + sep.length,
+        quote.length * 2 + name.length + sep.length + 1,
+      );
+      const wrap = valueStart === '"' || valueStart === "'" ? valueStart : "";
+      return `${quote}${name}${quote}${sep}${wrap}${maskSecret("cookie")}${wrap}`;
+    },
   },
   {
-    pattern: /\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b/g,
+    pattern: /(?<![A-Za-z0-9])(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}(?![A-Za-z0-9])/g,
     replace: () => maskSecret("aws_access_key_id"),
   },
   {
-    pattern: /\b(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})\b/g,
+    pattern: /(?<![A-Za-z0-9])(?:gh[pousr]_[A-Za-z0-9]{20,255}|github_pat_[A-Za-z0-9_]{20,255})/g,
     replace: () => maskSecret("github_token"),
   },
   {
-    pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,256}/g,
+    pattern: /(?<![A-Za-z0-9])xox[abposr]-[A-Za-z0-9-]{10,256}/g,
     replace: () => maskSecret("slack_token"),
   },
   {
-    pattern: /\b[sr]k_(?:live|test)_[A-Za-z0-9]{16,256}\b/g,
+    pattern: /(?<![A-Za-z0-9])[sr]k_(?:live|test)_[A-Za-z0-9]{16,256}/g,
     replace: () => maskSecret("stripe_key"),
   },
   {
-    pattern: /\bAIza[0-9A-Za-z_-]{35}\b/g,
+    pattern: /(?<![A-Za-z0-9])sk-(?:proj-|ant-|live-|test-)?[A-Za-z0-9_-]{20,256}/g,
+    replace: () => maskSecret("api_key"),
+  },
+  {
+    pattern: /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{35}/g,
     replace: () => maskSecret("google_api_key"),
   },
   {
-    pattern: /\beyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}/g,
+    pattern:
+      /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}\.[A-Za-z0-9_-]{8,4096}/g,
     replace: () => maskSecret("jwt"),
   },
   {
-    pattern: /\b(Bearer|Basic|token)([ \t]{1,8})(?!\[REDACTED)[A-Za-z0-9._~+/=-]{8,4096}/g,
-    replace: (_m, scheme, space) => `${scheme}${space}${maskSecret("token")}`,
+    // Only token-shaped values (digits or token punctuation), so prose such as
+    // "Basic authentication" stays readable.
+    pattern:
+      /(?<![A-Za-z0-9])(bearer|basic)([ \t]{1,8})(?!\[REDACTED)([A-Za-z0-9._~+/=-]{8,4096})/gi,
+    replace: (match, scheme, space, value) =>
+      /\d|[._~+/=-]/.test(value) ? `${scheme}${space}${maskSecret("token")}` : match,
   },
   {
     // key = "double quoted" | 'single quoted' | `backtick` (a missing closing quote still
@@ -123,7 +167,8 @@ export function capText(text: string, limit: number): string {
 
 /** Replaces recognizable secret values in free text with `[REDACTED:<kind>]`. */
 export function redactSecrets(text: string): string {
-  let output = capText(text, MAX_REDACTION_INPUT);
+  // Zero-width characters could otherwise split a token so no pattern matches it.
+  let output = capText(text, MAX_REDACTION_INPUT).replace(ZERO_WIDTH, "");
   for (const rule of RULES) {
     output = output.replace(rule.pattern, rule.replace as (substring: string) => string);
   }

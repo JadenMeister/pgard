@@ -72,6 +72,47 @@ describe("redactSecrets", () => {
     expect(output).toContain("[REDACTED:value]");
   });
 
+  it.each([
+    ["password with @", "https://user:p@ss@host.example/x", "p@ss", "credentials"],
+    ["password with /", "https://user:pa/ss@host.example", "pa/ss", "credentials"],
+    ["token as user", "https://tok3nvalue@github.com/o/r.git", "tok3nvalue", "credentials"],
+    ["json cookie", '{"cookie":"sid=abc123secret"}', "abc123secret", "cookie"],
+    ["single-quoted cookie", "cookie='sid=abc123secret'", "abc123secret", "cookie"],
+  ])("masks %s (#56)", (_label, input, secret, kind) => {
+    const output = redactSecrets(input);
+    expect(output).not.toContain(secret);
+    expect(output).toContain(`[REDACTED:${kind}]`);
+  });
+
+  it.each([
+    "http://127.0.0.1:3000/login?next=a@b",
+    "https://example.com/path?email=a@b.example",
+    "https://example.com:8443/x",
+  ])("leaves URLs without userinfo intact: %s", (url) => {
+    expect(redactSecrets(url)).toBe(url);
+  });
+
+  it.each([
+    ["underscore suffix", `${FAKE.github}_backup`, FAKE.github],
+    ["underscore prefix", `x_${FAKE.github}`, FAKE.github],
+    [
+      "lowercase bearer sk-",
+      `authorization: bearer ${join("sk-", "proj-", "e".repeat(30))}`,
+      join("sk-", "proj-"),
+    ],
+    ["zero-width split", join("AKIA", "​", "IOSFODNN7", "EXAMPLE"), "IOSFODNN7"],
+  ])("masks token variant: %s (#57)", (_label, input, secret) => {
+    expect(redactSecrets(input)).not.toContain(secret);
+  });
+
+  it.each([
+    "Rotate the token immediately",
+    "Basic authentication is enabled",
+    "Use a Bearer header",
+  ])("leaves prose untouched: %s (#58)", (text) => {
+    expect(redactSecrets(text)).toBe(text);
+  });
+
   it("keeps code references that merely mention sensitive names", () => {
     expect(redactSecrets("password = req.body.password")).toBe("password = req.body.password");
     expect(redactSecrets("const token = getToken()")).toBe("const token = getToken()");
