@@ -37,12 +37,25 @@ export interface DeviceFlowSessionProviderOptions {
 /** A session is renewed this long before its token expires. */
 const EXPIRY_MARGIN_MS = 60_000;
 
-/** Wraps every client method so an `unauthorized` response clears the cached session. */
-function wrapClient(client: GitHubClient, onUnauthorized: () => void): GitHubClient {
+/**
+ * Wraps every client method so an `unauthorized` response clears the cached session, and so a
+ * session that was invalidated or signed out refuses further calls even if a caller kept it.
+ */
+function wrapClient(
+  client: GitHubClient,
+  onUnauthorized: () => void,
+  isRevoked: () => boolean,
+): GitHubClient {
   const wrapped = {} as Record<string, unknown>;
   for (const key of Object.keys(client) as (keyof GitHubClient)[]) {
     const method = client[key] as (...args: unknown[]) => Promise<unknown>;
     wrapped[key] = async (...args: unknown[]) => {
+      if (isRevoked()) {
+        throw new GitHubAuthError(
+          "unauthorized",
+          "This GitHub session was signed out or replaced; sign in again.",
+        );
+      }
       try {
         return await method(...args);
       } catch (error) {
@@ -89,7 +102,10 @@ export function createDeviceFlowSessionProvider(
       ...(options.sleep ? { sleep: options.sleep } : {}),
       now,
     }).then((session) =>
-      createGitHubSession(wrapClient(session.client, clearIfCurrent), session.expiresAt),
+      createGitHubSession(
+        wrapClient(session.client, clearIfCurrent, () => generation !== myGeneration),
+        session.expiresAt,
+      ),
     );
     promise.catch(clearIfCurrent);
     return promise;

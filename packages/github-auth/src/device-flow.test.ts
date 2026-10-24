@@ -222,8 +222,31 @@ describe("createDeviceFlowSessionProvider", () => {
     });
     const first = await provider();
     provider.signOut();
-    expect(await provider()).not.toBe(first);
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    const userCallsAfterSignOut = calls.filter((call) => call.url.endsWith("/user")).length;
+    expect(userCallsAfterSignOut).toBe(0);
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect((await second.client.getAuthenticatedUser()).id).toBe(7);
     expect(deviceCodeRequests(calls)).toBe(2);
+  });
+
+  it("invalidate() also revokes sessions already handed out", async () => {
+    const { fetch } = createFetch([{ access_token: FAKE_TOKEN }]);
+    const provider = createDeviceFlowSessionProvider({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+    });
+    const first = await provider();
+    expect((await first.client.getAuthenticatedUser()).id).toBe(7);
+    provider.invalidate();
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
   });
 
   it("does not remember a failed sign-in", async () => {
