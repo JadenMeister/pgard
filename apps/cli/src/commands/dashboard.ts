@@ -39,5 +39,7 @@ export async function runDashboard(
   const args = ["--project-root", projectRoot];
   if (targetPort !== null) args.push("--target-port", String(targetPort));
   context.keys?.close();
+  // The dashboard process handles Ctrl+C itself; stop our scan-cancel prompt from printing.
+  context.releaseInterrupts();
   return toKnownExitCode(await context.deps.startDashboardProcess(entry, args));
 }

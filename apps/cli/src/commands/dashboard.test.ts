@@ -19,9 +19,13 @@ describe("runDashboard", () => {
       130,
     );
     expect(startDashboardProcess).not.toHaveBeenCalled();
-    expect(await runDashboard(createTestContext(captured, deps, scriptedKeys(["y"])), 3000)).toBe(
-      0,
-    );
+    const released = vi.fn();
+    const context = {
+      ...createTestContext(captured, deps, scriptedKeys(["y"])),
+      releaseInterrupts: released,
+    };
+    expect(await runDashboard(context, 3000)).toBe(0);
+    expect(released).toHaveBeenCalledOnce();
     expect(startDashboardProcess).toHaveBeenCalledWith("/install/local-web/dist/server/index.js", [
       "--project-root",
       "/work/repo",
