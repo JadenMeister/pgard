@@ -59,7 +59,71 @@ describe("code scope wiring", () => {
 
   it("lists the source rules", () => {
     expect(listSupportedRules().map((rule) => rule.id)).toEqual(
-      expect.arrayContaining(["PG-SQL-001", "PG-XSS-003", "PG-CMD-002"]),
+      expect.arrayContaining(["PG-SQL-001", "PG-XSS-003", "PG-CMD-002", "PG-DEP-001"]),
     );
+  });
+
+  it("checks dependency advisories and reports the advisory database (#93)", async () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-dep-")));
+    writeFileSync(
+      path.join(root, "package-lock.json"),
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: { "node_modules/lodash": { version: "4.17.20" } },
+      }),
+    );
+    const dbPath = path.join(root, "..", `${path.basename(root)}-osv.json`);
+    writeFileSync(
+      dbPath,
+      JSON.stringify({
+        version: "wiring-1",
+        updatedAt: "2026-10-20T00:00:00Z",
+        vulnerabilities: [
+          {
+            id: "GHSA-wiring",
+            modified: "2026-10-20T00:00:00Z",
+            affected: [
+              {
+                package: { ecosystem: "npm", name: "lodash" },
+                ranges: [{ type: "SEMVER", events: [{ introduced: "0" }, { fixed: "4.17.21" }] }],
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    try {
+      authorizeProject.mockResolvedValue({
+        summary: {
+          decision: "allowed",
+          checks: (
+            [
+              "repository",
+              "github_identity",
+              "owner_approval",
+              "current_access",
+              "contribution",
+            ] as const
+          ).map((id) => ({ id, status: "passed" as const, reason: "ok" })),
+        },
+        repo: "me/app",
+        revision: null,
+      });
+      const result = await runScan(
+        { projectRoot: root, scopes: ["code"], webTarget: null },
+        {
+          authorization: { getGitHubSession: async () => Promise.reject(new Error("unused")) },
+          env: { PGARD_ADVISORY_DB: dbPath },
+          now: () => new Date("2026-10-24T00:00:00Z"),
+        },
+      );
+      expect(result.findings.map((finding) => finding.ruleId)).toEqual(["PG-DEP-001"]);
+      expect(result.advisoryDb).toEqual({
+        version: "wiring-1",
+        updatedAt: "2026-10-20T00:00:00.000Z",
+      });
+    } finally {
+      rmSync(dbPath, { force: true });
+    }
   });
 });
