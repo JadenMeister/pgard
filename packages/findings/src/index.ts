@@ -3,3 +3,4 @@ export * from "./summary.js";
 export * from "./redact.js";
 export * from "./fingerprint.js";
 export * from "./rule-descriptor.js";
+export * from "./finding-context.js";

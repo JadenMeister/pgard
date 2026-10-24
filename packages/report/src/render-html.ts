@@ -3,15 +3,17 @@ import { escapeHtml } from "./escape-html.js";
 import {
   countFindingsBySeverity,
   formatAdvisoryDb,
+  formatFindingSummary,
   formatLocation,
+  groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
   prepareReportResult,
   REPORT_DISCLAIMER,
   severityColor,
-  sortFindings,
-  summarizeStatusSplit,
+  TEST_FINDINGS_NOTE,
+  TEST_FINDINGS_TITLE,
   type SeverityCounts,
 } from "./format.js";
 
@@ -125,14 +127,18 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); 
  */
 export function renderHtmlReport(input: ScanResult): string {
   const result = prepareReportResult(input);
-  const counts = countFindingsBySeverity(result.findings);
-  const split = summarizeStatusSplit(result.findings);
-  const findings = sortFindings(result.findings);
+  // Headline counts cover regular code; test and fixture findings get their own section.
+  const { primary, test } = groupReportFindings(result.findings);
+  const counts = countFindingsBySeverity(primary);
   const target = result.target;
   const findingsHtml =
-    findings.length === 0
-      ? `<p>No findings in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
-      : findings.map(renderFinding).join("\n");
+    primary.length === 0
+      ? `<p>No findings${test.length === 0 ? "" : " outside test or fixture code"} in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
+      : primary.map(renderFinding).join("\n");
+  const testFindingsHtml =
+    test.length === 0
+      ? ""
+      : `\n<h2>${escapeHtml(TEST_FINDINGS_TITLE)} (${test.length})</h2>\n<p class="meta">${escapeHtml(TEST_FINDINGS_NOTE)}</p>\n${test.map(renderFinding).join("\n")}\n`;
 
   return `<!doctype html>
 <html lang="en">
@@ -153,7 +159,7 @@ export function renderHtmlReport(input: ScanResult): string {
 <div class="status-banner status-${escapeHtml(result.overallStatus)}"><strong>Overall status:</strong> ${escapeHtml(labelOverallStatus(result.overallStatus))}</div>
 
 <h2>Summary</h2>
-<p>${result.findings.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.</p>
+<p>${escapeHtml(formatFindingSummary(result.findings))}</p>
 <div class="chart">${renderSeverityBarChartSvg(counts)}</div>
 
 <h2>Coverage</h2>
@@ -166,7 +172,7 @@ ${renderCoverageRows(result.coverage)}
 
 <h2>Findings</h2>
 ${findingsHtml}
-
+${testFindingsHtml}
 <h2>Authorization</h2>
 <p>Decision: ${escapeHtml(result.authorization.decision)}</p>
 ${renderAuthorization(result)}

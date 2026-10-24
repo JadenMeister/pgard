@@ -77,8 +77,9 @@ afterEach(async () => {
 });
 
 /**
- * Repository `me/app` with a SQL-injection pattern in the working tree, a lockfile, and a GitHub
- * token that was committed and then removed (only the history scan can still see it).
+ * Repository `me/app` with a SQL-injection pattern in the working tree (also in a test file), a
+ * lockfile, and a GitHub token that was committed and then removed (only the history scan can
+ * still see it).
  */
 function createProject(): { root: string; head: string } {
   fixture = createGitFixture({ remotes: { origin: "git@github.com:me/app.git" } });
@@ -87,6 +88,8 @@ function createProject(): { root: string; head: string } {
     ...me,
     files: {
       "src/db.ts": SQL_VULN,
+      // The same pattern in a test file: reported in the separate test or fixture group.
+      "src/db.test.ts": SQL_VULN,
       "package.json": '{ "name": "app", "version": "1.0.0", "dependencies": { "pg": "8.11.0" } }\n',
       "package-lock.json": `${LOCKFILE}\n`,
       "deploy.sh": `export GH="${REMOVED_TOKEN}"\n`,
@@ -259,6 +262,14 @@ describe("CLI and local web parity", () => {
     const ruleIds = cli.result.findings.map((finding) => finding.ruleId);
     expect(ruleIds.some((id) => id.startsWith("PG-SQL"))).toBe(true);
     expect(ruleIds).toContain("PG-SECRET-003");
+    // Findings in test files are kept, marked and grouped separately by both frontends.
+    const sql = cli.result.findings.filter((finding) => finding.ruleId.startsWith("PG-SQL"));
+    expect(sql.find((finding) => finding.location.path === "src/db.ts")?.context).toBeUndefined();
+    expect(sql.find((finding) => finding.location.path === "src/db.test.ts")).toMatchObject({
+      context: "test",
+      confidence: "low",
+    });
+    expect(cli.stdout).toContain("In test or fixture code (1)");
     expect(JSON.stringify(cli.result)).not.toContain(REMOVED_TOKEN);
     expect(JSON.stringify(cli.result)).not.toContain(root);
     // Dependency advisories are not available in every build, which makes the scan "partial".

@@ -23,6 +23,20 @@ export function countBySeverity(findings: readonly Finding[]): Record<Severity, 
   return counts;
 }
 
+/**
+ * Splits findings into regular code and test or fixture code (`context: "test"`, set by the scan
+ * engine). Mirrors `splitFindingsByContext` from @pgard/findings without bundling it.
+ */
+export function splitByContext(findings: readonly Finding[]): {
+  primary: Finding[];
+  test: Finding[];
+} {
+  const primary: Finding[] = [];
+  const test: Finding[] = [];
+  for (const finding of findings) (finding.context === "test" ? test : primary).push(finding);
+  return { primary, test };
+}
+
 export function formatLocation(location: FindingLocation): string {
   if (location.kind === "url") return location.url ?? "(unknown URL)";
   const fileAndLine =

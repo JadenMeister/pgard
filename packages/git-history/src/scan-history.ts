@@ -367,6 +367,10 @@ function assessment(kind: DetectedSecretKind): {
   status: FindingStatus;
   confidence: Confidence;
 } {
+  // A header with no key body may be a sample or a key split across string pieces: review it.
+  if (kind === "private_key_header") {
+    return { severity: "high", status: "suspected", confidence: "low" };
+  }
   return STRONG_KINDS.has(kind)
     ? {
         severity: kind === "private_key" ? "critical" : "high",
@@ -537,7 +541,7 @@ export async function scanGitHistory(
     }
     const content = headRead.contents.get(entry.sha);
     if (content === undefined) continue;
-    for (const secret of detectSecrets(content)) {
+    for (const secret of detectSecrets(content, { path: entry.path })) {
       currentValues.add(secret.value);
       report(entry, secret, null, false);
     }
@@ -611,7 +615,9 @@ export async function scanGitHistory(
       const content = historyRead.contents.get(entry.sha);
       if (
         content !== undefined &&
-        detectSecrets(content).some((secret) => !currentValues.has(secret.value))
+        detectSecrets(content, { path: entry.path }).some(
+          (secret) => !currentValues.has(secret.value),
+        )
       ) {
         candidatePaths.add(entry.path);
       }
@@ -685,7 +691,7 @@ export async function scanGitHistory(
   // exists but its contents could not be read, "removed" cannot be claimed for any value.
   const currentLocations = new Map<string, { path: string; line: number }>();
   for (const [currentPath, current] of currentByPath?.contents ?? []) {
-    for (const found of detectSecrets(current)) {
+    for (const found of detectSecrets(current, { path: currentPath })) {
       if (!currentLocations.has(found.value)) {
         currentLocations.set(found.value, { path: currentPath, line: found.line });
       }
@@ -710,7 +716,7 @@ export async function scanGitHistory(
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
     if (content === undefined) continue;
-    for (const secret of detectSecrets(content)) {
+    for (const secret of detectSecrets(content, { path: entry.path })) {
       if (currentValues.has(secret.value)) continue; // already reported in current files
       const key = `${secret.kind}\0${secret.value}`;
       if (reported.has(key)) continue; // report each removed value once (where it first appeared)

@@ -1,5 +1,6 @@
 import {
   SEVERITIES,
+  splitFindingsByContext,
   type CoverageStatus,
   type Finding,
   type FindingLocation,
@@ -193,4 +194,26 @@ export function summarizeStatusSplit(findings: readonly Finding[]): {
     if (Object.hasOwn(split, finding.status)) split[finding.status] += 1;
   }
   return split;
+}
+
+export const TEST_FINDINGS_TITLE = "In test or fixture code";
+export const TEST_FINDINGS_NOTE =
+  "Matches in files classified as test or fixture code by their path only: *.test.*, *.spec.*, *_test.go, and files under __tests__/, __mocks__/, fixtures/, __fixtures__/, testdata/, test/ or tests/ (config files such as .env, YAML, .tf, .properties, .ini, .toml and .json under test/ or tests/ are treated as real configuration). Their confidence is capped at low and they are not counted above, but they are not dropped: a real value committed in a test is still exposed.";
+
+/** Sorted findings split into regular code (headline counts) and test or fixture code. */
+export function groupReportFindings(findings: readonly Finding[]): {
+  primary: Finding[];
+  test: Finding[];
+} {
+  return splitFindingsByContext(sortFindings(findings));
+}
+
+/** One-line summary: regular findings by status, plus the separate test count when present. */
+export function formatFindingSummary(findings: readonly Finding[]): string {
+  const { primary, test } = groupReportFindings(findings);
+  const split = summarizeStatusSplit(primary);
+  return (
+    `${primary.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.` +
+    (test.length === 0 ? "" : ` ${test.length} more in test or fixture code, listed separately.`)
+  );
 }

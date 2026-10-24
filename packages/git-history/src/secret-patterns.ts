@@ -4,6 +4,7 @@
  */
 export type DetectedSecretKind =
   | "private_key"
+  | "private_key_header"
   | "aws_access_key_id"
   | "aws_secret_access_key"
   | "github_token"
@@ -22,6 +23,7 @@ export interface DetectedSecret {
 
 export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
   private_key: "private key",
+  private_key_header: "private key header without a key body",
   aws_access_key_id: "AWS access key id",
   aws_secret_access_key: "AWS secret access key",
   github_token: "GitHub token",
@@ -30,6 +32,15 @@ export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
   google_api_key: "Google API key",
   generic_credential: "credential assignment",
 };
+
+export interface DetectSecretsOptions {
+  /**
+   * Repository path of the text. In source code files a string literal is always quoted, so an
+   * unquoted value written as code there (an identifier, constant, type or regex) is not a
+   * credential value. Without a path, the text is treated like a config file.
+   */
+  path?: string;
+}
 
 interface Pattern {
   kind: DetectedSecretKind;
@@ -73,11 +84,21 @@ const PATTERNS: Pattern[] = [
   },
   {
     kind: "generic_credential",
+    // Groups: 1 quote closing the key, 2 separator, 3 quote opening the value, 4 value.
     pattern:
-      /(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}["']?[ \t]{0,8}[:=][ \t]{0,8}(["']?)([^\s"'`,;]{8,256})\1/gi,
-    group: 2,
+      /(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}(["']?)[ \t]{0,8}([:=])[ \t]{0,8}(["']?)([^\s"'`,;]{8,256})\3/gi,
+    group: 4,
   },
 ];
+
+/** A key block needs at least this many base64 characters of body to count as a key. */
+const MIN_PRIVATE_KEY_BODY = 16;
+const PRIVATE_KEY_HEADER = /^-----BEGIN [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----/;
+const PRIVATE_KEY_FOOTER = /-----END [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----$/;
+
+/** Extensions of languages where a string value must be quoted. */
+const SOURCE_CODE_FILE =
+  /\.(?:[cm]?[jt]sx?|vue|svelte|go|py|rb|java|kts?|scala|groovy|cs|php|rs|swift|dart|c|cc|cpp|h|hpp|m|mm)$/i;
 
 /** Values that are clearly not real secrets. */
 const PLACEHOLDER =
@@ -92,6 +113,101 @@ export function shannonEntropy(value: string): number {
     entropy -= probability * Math.log2(probability);
   }
   return entropy;
+}
+
+/**
+ * Unquoted values that are code, not data: a parameter type (`password: string)`), an arrow
+ * function's parameter list (`= (object:`), a generic type (`Record<SecretKind`), or a regex
+ * literal (`/pass(word)?|pwd/i`).
+ */
+const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]|]/];
+/** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
+const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
+const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
+
+/**
+ * Whether `index` sits inside a string literal on its line (`"…;Password=abc"`), judged by the
+ * unescaped quotes before it on that line. A stray apostrophe errs towards "inside", which keeps
+ * the match.
+ */
+function isInsideStringLiteral(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+  let open: string | null = null;
+  for (let cursor = lineStart; cursor < index; cursor += 1) {
+    const char = text[cursor];
+    if (char === "\\") {
+      cursor += 1;
+    } else if (open === null) {
+      if (char === '"' || char === "'" || char === "`") open = char;
+    } else if (char === open) {
+      open = null;
+    }
+  }
+  return open !== null;
+}
+
+/** Code right before a key: a declaration keyword, or an opening `(`/`{` or `,` separator. */
+const CODE_BEFORE_KEY =
+  /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({,]\s*$/;
+/** Code right after a value: `)`, `,`, `;`, `{` or `=>`. */
+const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
+
+/**
+ * Whether the match positively looks like code: the key follows a code token on its line
+ * (`const password = …`, `f(secret: …`, `{ apiKey: …`), or the key starts the line as an
+ * object property or type member (`key: value`) and the value is followed by code
+ * (an object property set to a constant and a trailing comma, or a `string;` type member). Anything else, including lines inside
+ * multi-line strings (`Password=abc;`) and anything ambiguous, is not treated as code.
+ */
+function looksLikeCode(text: string, start: number, end: number, separator: string): boolean {
+  if (isInsideStringLiteral(text, start)) return false;
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  const before = text.slice(lineStart, start);
+  if (CODE_BEFORE_KEY.test(before)) return true;
+  const lineEnd = text.indexOf("\n", end);
+  const after = text.slice(end, lineEnd === -1 ? text.length : lineEnd);
+  return separator === ":" && before.trim() === "" && CODE_AFTER_VALUE.test(after);
+}
+
+/**
+ * Whether a generic `key = value` match is an assignment of a literal value, judged by what
+ * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). In
+ * source code files, an unquoted value is rejected only when the line positively looks like code
+ * at the match (see `looksLikeCode`) and the value is code-shaped, an all-caps constant name or
+ * a bare identifier. Everything else is kept: config files, string literals (also multi-line
+ * ones), and ambiguous lines. Erring towards reporting is deliberate.
+ */
+function isLiteralAssignment(
+  text: string,
+  match: RegExpMatchArray,
+  options: DetectSecretsOptions,
+): boolean {
+  const [whole, keyQuote = "", separator = "", valueQuote = "", value = ""] = match;
+  const start = match.index ?? 0;
+  if (
+    separator === ":" &&
+    keyQuote !== "" &&
+    /\?[ \t]*["']$/.test(text.slice(Math.max(0, start - 16), start))
+  ) {
+    return false; // `cond ? "PG-SECRET-003" : "PG-SECRET-002"` is a ternary, not a key
+  }
+  if (valueQuote !== "") return true;
+  const isCode =
+    options.path !== undefined &&
+    SOURCE_CODE_FILE.test(options.path) &&
+    looksLikeCode(text, start, start + whole.length, separator);
+  if (!isCode) return true;
+  return (
+    !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&
+    !CONSTANT_NAME.test(value) &&
+    !BARE_IDENTIFIER.test(value)
+  );
+}
+
+/** A private key block with fewer base64 body characters than this is only a header. */
+function hasPrivateKeyBody(block: string): boolean {
+  const body = block.replace(PRIVATE_KEY_HEADER, "").replace(PRIVATE_KEY_FOOTER, "");
+  return (body.match(/[A-Za-z0-9+/]/g)?.length ?? 0) >= MIN_PRIVATE_KEY_BODY;
 }
 
 /** Generic assignments must look random enough and not be a code reference or placeholder. */
@@ -120,16 +236,32 @@ function createLineLookup(text: string): (index: number) => number {
   };
 }
 
-export function detectSecrets(text: string): DetectedSecret[] {
+/**
+ * Finds secrets in a file's text. A private key header without a key body is reported as
+ * `private_key_header` (never as a confirmed key). Generic credential assignments count only
+ * when the value is a literal that looks like a secret (see `isLiteralAssignment`).
+ */
+export function detectSecrets(text: string, options: DetectSecretsOptions = {}): DetectedSecret[] {
   const lineOfIndex = createLineLookup(text);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
-  for (const { kind, pattern, group } of PATTERNS) {
+  for (const { kind: patternKind, pattern, group } of PATTERNS) {
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
-      const value = match[group] ?? "";
+      let kind = patternKind;
+      let value = match[group] ?? "";
       if (value.length === 0) continue;
-      if (kind === "generic_credential" && !isLikelySecretValue(value)) continue;
+      if (kind === "private_key" && !hasPrivateKeyBody(value)) {
+        kind = "private_key_header";
+        // No key material to compare: keep nearby text so distinct headers stay distinct.
+        const start = match.index ?? 0;
+        value = text.slice(start, start + value.length + 256);
+      }
+      if (
+        kind === "generic_credential" &&
+        (!isLikelySecretValue(value) || !isLiteralAssignment(text, match, options))
+      )
+        continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
         continue;
       const line = lineOfIndex(match.index ?? 0);

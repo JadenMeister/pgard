@@ -73,6 +73,33 @@ describe("renderHtmlReport", () => {
     expect(blocked).toContain("Blocked by the authorization gate");
   });
 
+  it("lists test or fixture findings in their own section, outside the headline counts", () => {
+    const testFinding = finding({
+      id: "t1",
+      severity: "medium",
+      confidence: "low",
+      context: "test",
+      title: "Secret in a test",
+      location: { kind: "file", path: "src/a.test.ts", line: 3, url: null, commit: null },
+    });
+    const withTest = renderHtmlReport(
+      scanResult({ findings: [testFinding, ...scanResult().findings] }),
+    );
+    expect(withTest).toContain(
+      "3 finding(s): 1 confirmed, 1 suspected, 1 informational. 1 more in test or fixture code, listed separately.",
+    );
+    expect(withTest).toContain("Medium 0");
+    const section = withTest.indexOf("<h2>In test or fixture code (1)</h2>");
+    expect(section).toBeGreaterThan(withTest.indexOf("src/api/users.ts:42"));
+    expect(withTest.indexOf("src/a.test.ts:3")).toBeGreaterThan(section);
+    expect(withTest.indexOf("<h2>Authorization</h2>")).toBeGreaterThan(section);
+
+    const onlyTest = renderHtmlReport(scanResult({ findings: [testFinding] }));
+    expect(onlyTest).toContain("No findings outside test or fixture code");
+    expect(onlyTest).toContain("src/a.test.ts:3");
+    expect(html).not.toContain("In test or fixture code");
+  });
+
   it("draws one bar per severity", () => {
     const svg = renderSeverityBarChartSvg({ critical: 1, high: 2, medium: 0, low: 0, info: 5 });
     expect(svg.match(/<rect/g)).toHaveLength(5);

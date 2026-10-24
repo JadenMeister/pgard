@@ -3,15 +3,17 @@ import PDFDocument from "pdfkit";
 import {
   countFindingsBySeverity,
   formatAdvisoryDb,
+  formatFindingSummary,
   formatLocation,
+  groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
   prepareReportResult,
   REPORT_DISCLAIMER,
   severityColor,
-  sortFindings,
-  summarizeStatusSplit,
+  TEST_FINDINGS_NOTE,
+  TEST_FINDINGS_TITLE,
 } from "./format.js";
 
 const MUTED = "#475569";
@@ -47,8 +49,8 @@ function line(doc: PDFKit.PDFDocument, text: string, color = "#0f172a"): void {
   doc.font("Helvetica").fontSize(10).fillColor(color).text(toPdfText(text));
 }
 
-function drawSeverityBars(doc: PDFKit.PDFDocument, result: ScanResult): void {
-  const counts = countFindingsBySeverity(result.findings);
+function drawSeverityBars(doc: PDFKit.PDFDocument, findings: readonly Finding[]): void {
+  const counts = countFindingsBySeverity(findings);
   const maxCount = Math.max(1, ...Object.values(counts));
   for (const severity of SEVERITIES) {
     const y = doc.y;
@@ -134,14 +136,12 @@ export function renderPdfReport(input: ScanResult): Promise<Buffer> {
       .fillColor("#0f172a")
       .text(`Overall status: ${toPdfText(labelOverallStatus(result.overallStatus))}`);
 
+    // Headline counts cover regular code; test and fixture findings get their own section.
+    const { primary, test } = groupReportFindings(result.findings);
     heading(doc, "Summary");
-    const split = summarizeStatusSplit(result.findings);
-    line(
-      doc,
-      `${result.findings.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.`,
-    );
+    line(doc, formatFindingSummary(result.findings));
     doc.moveDown(0.5);
-    drawSeverityBars(doc, result);
+    drawSeverityBars(doc, primary);
 
     heading(doc, "Coverage");
     if (result.coverage.length === 0) line(doc, "No coverage was recorded.");
@@ -153,13 +153,18 @@ export function renderPdfReport(input: ScanResult): Promise<Buffer> {
     }
 
     heading(doc, "Findings");
-    if (result.findings.length === 0) {
+    if (primary.length === 0) {
       line(
         doc,
-        "No findings in the areas that ran. This is not a statement that the project is secure; check coverage above.",
+        `No findings${test.length === 0 ? "" : " outside test or fixture code"} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
       );
     }
-    for (const finding of sortFindings(result.findings)) writeFinding(doc, finding);
+    for (const finding of primary) writeFinding(doc, finding);
+    if (test.length > 0) {
+      heading(doc, `${TEST_FINDINGS_TITLE} (${test.length})`);
+      line(doc, TEST_FINDINGS_NOTE, MUTED);
+      for (const finding of test) writeFinding(doc, finding);
+    }
 
     heading(doc, "Authorization");
     line(doc, `Decision: ${result.authorization.decision}`);

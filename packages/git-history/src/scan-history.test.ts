@@ -65,6 +65,128 @@ describe("detectSecrets", () => {
   it("reports line numbers", () => {
     expect(detectSecrets(`a\nb\nx = "${FAKE.github}"`)[0]?.line).toBe(3);
   });
+
+  // Regressions from scanning PGARD itself: code that names credentials is not an assignment.
+  it.each([
+    ["ternary between string literals", 'ruleId: commit ? "PG-SECRET-003" : "PG-SECRET-002",'],
+    ["generic type annotation", "export const SECRET_KIND_LABEL: Record<SecretKind, string> = {"],
+    ["parameter type", "  set(key: CredentialKey, secret: string): Promise<void>;"],
+    ["parameter type (password)", "  setPassword(password: string): Promise<void>;"],
+    ["regex literal", "const PASSWORD_TEXT = /pass(word)?|pwd/i;"],
+    ["anchored regex literal", "const PASSWORD_NAME = /^(password|passwd|pwd|newPassword)$/i;"],
+    ["regex in an object", "updatesPassword: /\\.update\\([^)]{0,200}(pass(word)?|pwd)/i.test(t),"],
+    [
+      "arrow function parameters",
+      "const checkPassword = (object: ts.ObjectLiteralExpression) => {",
+    ],
+    ["constant reference", "        access_token: ACCESS_TOKEN,"],
+    ["constant reference (camel key)", "    accessToken: GITHUB_ACCESS_TOKEN,"],
+  ])("ignores %s in source code", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+    expect(detectSecrets(text, { path: "internal/scan/module.go" })).toEqual([]);
+  });
+
+  // Review of #142: config values may contain any character, so the code-shape rules apply only
+  // to code in source files, never to config files or to string literals inside source files.
+  it.each([
+    ["properties value with )", "db.password=Tr0ub4dor)xK9!qZ", "config/app.properties"],
+    ["env value with ]", "DB_PASSWORD=hunter2]Zq9xLmWv", ".env"],
+    ["env value with <", "DB_PASSWORD=Pass<word9xLmWv", ".env"],
+    ["env value with >", "API_KEY=K9x>mQ2vLp8Wz4Rt", ".env"],
+    ["YAML value with brackets", "password: K9x[mQ2]vLp8Wz4Rt", "config/app.yaml"],
+    ["YAML value ending in :", "password: K9xmQ2vLp8Wz4Rt:", "config/app.yml"],
+    ["properties value starting with /", "secret=/K9x|mQ2vLp8Wz4Rt", "app.properties"],
+    ["all-caps env value", "PASSWORD=PROD_DB_PASSWORDX", ".env"],
+    ["all-caps env passphrase", "SECRET_KEY=CORRECT_HORSE_BATTERY_STAPLE", ".env.production"],
+    [
+      "C# connection string",
+      'var c = "Server=db;User Id=sa;Password=QwErTyUiOpAsDfGh;";',
+      "src/Db.cs",
+    ],
+    ["Python DSN", 'DSN = "host=db user=app password=QwErTyUiOpAsDfGh"', "app/db.py"],
+    [
+      "URL query in TypeScript",
+      'const u = "mysql://u@h/db?password=QwErTyUiOpAsDfGh";',
+      "src/db.ts",
+    ],
+    ["PHP DSN", '$dsn = "pgsql:host=db;password=QwErTyUiOpAsDfGh";', "src/db.php"],
+    ["template literal", "const c = `Password=QwErTyUiOpAsDfGh;`;", "src/db.ts"],
+    ["code-shaped value in a string", 'const c = "password=Tr0ub4dor)xK9!qZ";', "src/db.ts"],
+    // Re-review of #142: later lines of multi-line strings are not code.
+    [
+      "multi-line template literal",
+      "const c = `\nServer=db;Password=QwErTyUiOpAsDfGh;\n`;",
+      "src/db.ts",
+    ],
+    [
+      "multi-line template literal with brackets",
+      "const c = `\nPassword=K9x[mQ2]vLp8Wz4Rt;\n`;",
+      "src/db.ts",
+    ],
+    ["Python triple-quoted block", 'CFG = """\npassword=QwErTyUiOpAsDfGh\n"""', "app.py"],
+    ["Python triple-quoted brackets", 'CFG = """\npassword=K9x[mQ2]vLp8Wz4Rt\n"""', "app.py"],
+    ["Ruby heredoc", "cfg = <<~EOS\n  password: K9x[mQ2]vLp8Wz4Rt\nEOS", "app.rb"],
+    ["Go raw string", "cfg := `\npassword=K9x[mQ2]vLp8Wz4Rt\n`", "main.go"],
+    ["Go raw string with all caps", "cfg := `\nPASSWORD=PROD_DB_PASSWORDX\n`", "main.go"],
+    [
+      "string after a regex literal holding a quote",
+      'const re = /"/; const c = "Password=QwErTyUiOpAsDfGh";',
+      "src/db.ts",
+    ],
+  ])("detects %s", (_label, text, path) => {
+    expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
+      "generic_credential",
+    );
+  });
+
+  it("ignores bare identifiers only where the line clearly is code", () => {
+    expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);
+    expect(detectSecrets("const x = { password: passwordFromVault };", { path: "a.ts" })).toEqual(
+      [],
+    );
+    // Ambiguous (could be a line inside a multi-line string): reported.
+    const line = "password = userSuppliedValue";
+    expect(detectSecrets(line, { path: "app/settings.py" }).map((s) => s.kind)).toEqual([
+      "generic_credential",
+    ]);
+    expect(detectSecrets(line, { path: "config/app.ini" }).map((s) => s.kind)).toEqual([
+      "generic_credential",
+    ]);
+    expect(detectSecrets("PASSWORD=abcdefghXYZ", { path: ".env" }).map((s) => s.kind)).toEqual([
+      "generic_credential",
+    ]);
+  });
+
+  it.each([
+    ["quoted password", 'password = "hunter2xyzQ7"', "src/db.ts"],
+    ["quoted password in Go", 'const password = "hunter2xyzQ7"', "main.go"],
+    ["JSON key", '{ "client_secret": "Zx81kQp0Lm2N" }', "config.json"],
+    ["env line", `DB_PASSWORD=${FAKE.dbPassword}`, ".env"],
+    ["env line with export", "export API_KEY=abcdef123456XYZ", "deploy.sh"],
+    ["unquoted YAML", "api_key: abcdef123456XYZ", "config.yml"],
+    ["connection string in code", 'const url = "Server=db;Password=Abc123xyz9;";', "src/db.ts"],
+    ["password with symbols", "password=(hunter2)xyz", ".env"],
+  ])("still detects %s", (_label, text, path) => {
+    expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
+      "generic_credential",
+    );
+  });
+
+  it("still detects a quoted Stripe key assignment", () => {
+    const text = `api_key: "${FAKE.stripe}"`;
+    expect(detectSecrets(text, { path: "src/pay.ts" }).map((secret) => secret.kind)).toContain(
+      "stripe_key",
+    );
+  });
+
+  it("treats a private key header without a body as a header, not a key", () => {
+    const header = join("-----BEGIN ", "PRIVATE KEY-----");
+    const repeated = `["begin headers", "${header}\\n".repeat(5_000)],`;
+    expect(detectSecrets(repeated).map((secret) => secret.kind)).toEqual(["private_key_header"]);
+    const emptyBlock = `${header}\n${join("-----END ", "PRIVATE KEY-----")}\n`;
+    expect(detectSecrets(emptyBlock).map((secret) => secret.kind)).toEqual(["private_key_header"]);
+    expect(detectSecrets(FAKE.pem).map((secret) => secret.kind)).toEqual(["private_key"]);
+  });
 });
 
 describe("isEnvironmentFile", () => {
@@ -80,6 +202,26 @@ describe("isEnvironmentFile", () => {
 });
 
 describe("scanGitHistory", () => {
+  it("reports a key header without a body as suspected with low confidence, a key as critical", async () => {
+    fixture = createGitFixture();
+    const header = join("-----BEGIN ", "PRIVATE KEY-----");
+    fixture.commit({
+      files: { "src/pem.ts": `export const HEADER = "${header}\\n";\n`, "key.pem": FAKE.pem },
+    });
+    const tracked = byRule(await scanGitHistory(fixture.root), "PG-SECRET-002");
+    expect(tracked.find((finding) => finding.location.path === "src/pem.ts")).toMatchObject({
+      severity: "high",
+      status: "suspected",
+      confidence: "low",
+      evidence: "private key header without a key body in a tracked file (value redacted)",
+    });
+    expect(tracked.find((finding) => finding.location.path === "key.pem")).toMatchObject({
+      severity: "critical",
+      status: "confirmed",
+      confidence: "high",
+    });
+  });
+
   it("reports committed .env files and tracked secrets at HEAD without values", async () => {
     fixture = createGitFixture();
     fixture.commit({

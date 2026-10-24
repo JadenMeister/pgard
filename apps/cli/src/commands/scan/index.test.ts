@@ -83,6 +83,80 @@ describe("runScanCommand", () => {
     expect(stdout).toContain("Coverage");
   });
 
+  it("lists test or fixture findings in their own group after the headline counts", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          runScan: async () =>
+            testResult({
+              findings: [
+                testFinding({
+                  id: "t1",
+                  ruleId: "PG-SECRET-002",
+                  title: "Secret in a tracked file",
+                  severity: "critical",
+                  confidence: "low",
+                  context: "test",
+                  location: {
+                    kind: "file",
+                    path: "src/redact.test.ts",
+                    line: 7,
+                    url: null,
+                    commit: null,
+                  },
+                }),
+                testFinding(),
+              ],
+            }),
+        }),
+      ),
+      DEFAULT_SCAN,
+    );
+    expect(code).toBe(0);
+    const stdout = captured.stdout();
+    expect(stdout).toContain("Findings by severity (1 total) - plus 1 in test or fixture code");
+    expect(stdout).toMatch(/Critical\s+0\n/);
+    expect(stdout).toContain("Suspected (needs review) (1)");
+    const testGroup = stdout.indexOf("In test or fixture code (1)");
+    expect(testGroup).toBeGreaterThan(stdout.indexOf("src/api/users.ts:42"));
+    expect(stdout.indexOf("src/redact.test.ts:7")).toBeGreaterThan(testGroup);
+    expect(stdout.indexOf("Coverage")).toBeGreaterThan(testGroup);
+  });
+
+  it("does not call a scan with only test findings empty", async () => {
+    const captured = createTestIo();
+    await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          runScan: async () =>
+            testResult({
+              findings: [
+                testFinding({
+                  context: "test",
+                  confidence: "low",
+                  location: {
+                    kind: "file",
+                    path: "test/db.js",
+                    line: 1,
+                    url: null,
+                    commit: null,
+                  },
+                }),
+              ],
+            }),
+        }),
+      ),
+      DEFAULT_SCAN,
+    );
+    const stdout = captured.stdout();
+    expect(stdout).toContain("No findings outside test or fixture code");
+    expect(stdout).toContain("In test or fixture code (1)");
+    expect(stdout).toContain("test/db.js:1");
+  });
+
   it("exits 4 for a partial scan and records web as not tested without a terminal", async () => {
     const captured = createTestIo();
     let request: ScanRequest | null = null;

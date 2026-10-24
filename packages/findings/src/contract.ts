@@ -63,6 +63,14 @@ export interface FindingLocation {
   commit: string | null;
 }
 
+/**
+ * Where the finding sits. `test`: test or fixture code (see `isTestOrFixturePath`). Such
+ * findings are kept and shown in their own group, never dropped; headline counts use the other
+ * findings. Absent means regular project code. Optional, so JSON v1 consumers that do not know
+ * it keep working.
+ */
+export type FindingContext = "test";
+
 export interface FindingReferences {
   cwe: string[];
   owasp: string[];
@@ -86,6 +94,8 @@ export interface Finding {
   references: FindingReferences;
   /** Scopes that produced this finding (kept when code and HTTP evidence are merged). */
   sources: ScanScope[];
+  /** Present only for findings in test or fixture code; their confidence is capped at `low`. */
+  context?: FindingContext;
 }
 
 export interface AnalyzerOutput {
