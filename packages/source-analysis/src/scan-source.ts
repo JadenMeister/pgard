@@ -64,8 +64,29 @@ interface LanguageStats {
   unparsable: number;
   unreadable: number;
   overran: number;
-  capped: number;
+  /** Files that hit the per-file finding cap (relative paths). */
+  cappedFiles: string[];
   skippedForTime: number;
+}
+
+const MAX_LISTED_PATHS = 5;
+
+/**
+ * Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. Each path is quoted
+ * (JSON string syntax) so names containing ", ", quotes or newlines stay unambiguous.
+ */
+function listPaths(paths: string[]): string {
+  const listed = paths
+    .slice(0, MAX_LISTED_PATHS)
+    .map((item) => JSON.stringify(item))
+    .join(", ");
+  const rest = paths.length - MAX_LISTED_PATHS;
+  return rest > 0 ? `${listed} and ${rest} more` : listed;
+}
+
+/** Capitalizes the first letter so a clause can start a sentence in a note. */
+function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -96,7 +117,7 @@ export async function scanSourceCode(
       unparsable: 0,
       unreadable: 0,
       overran: 0,
-      capped: 0,
+      cappedFiles: [],
       skippedForTime: 0,
     },
     typescript: {
@@ -104,11 +125,11 @@ export async function scanSourceCode(
       unparsable: 0,
       unreadable: 0,
       overran: 0,
-      capped: 0,
+      cappedFiles: [],
       skippedForTime: 0,
     },
-    vue: { files: 0, unparsable: 0, unreadable: 0, overran: 0, capped: 0, skippedForTime: 0 },
-    go: { files: 0, unparsable: 0, unreadable: 0, overran: 0, capped: 0, skippedForTime: 0 },
+    vue: { files: 0, unparsable: 0, unreadable: 0, overran: 0, cappedFiles: [], skippedForTime: 0 },
+    go: { files: 0, unparsable: 0, unreadable: 0, overran: 0, cappedFiles: [], skippedForTime: 0 },
   };
   const jsFacts: { path: string; facts: JsFileFacts }[] = [];
   const goImports = new Set<string>();
@@ -152,7 +173,7 @@ export async function scanSourceCode(
         if (analysis.hasParseErrors) languageStats.unparsable += 1;
         capped = analysis.cappedRules;
       }
-      if (capped.length > 0) languageStats.capped += 1;
+      if (capped.length > 0) languageStats.cappedFiles.push(file.relativePath);
     } catch {
       languageStats.unparsable += 1;
     }
@@ -244,9 +265,9 @@ export async function scanSourceCode(
       problems.push(`${languageStats.unreadable} file(s) were binary or unreadable`);
     if (languageStats.overran > 0)
       problems.push(`the time budget was exceeded while analyzing; results may be incomplete`);
-    if (languageStats.capped > 0)
+    if (languageStats.cappedFiles.length > 0)
       problems.push(
-        `${languageStats.capped} file(s) hit the per-file finding cap; further findings there are not listed`,
+        `${languageStats.cappedFiles.length} file(s) hit the per-file finding cap (${listPaths(languageStats.cappedFiles)}); further findings there are not listed`,
       );
     if (languageStats.skippedForTime > 0)
       problems.push(
@@ -262,7 +283,7 @@ export async function scanSourceCode(
       note:
         languageStats.files === 0
           ? `No ${label} files found.`
-          : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${problems.join("; ")}.` : ""}`,
+          : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}`,
     });
   };
   const jsMethod = "TypeScript compiler AST with intra-file, flow-insensitive taint tracking";

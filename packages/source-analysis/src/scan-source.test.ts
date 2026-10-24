@@ -150,3 +150,58 @@ describe("hand-written files with long strings (#105)", () => {
     expect(ts?.status).toBe("partial");
   });
 });
+
+describe("coverage notes (#109)", () => {
+  it("names the files that hit the per-file finding cap", async () => {
+    const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
+    const root = project({ "public/a.js": bundle, "public/b.js": bundle, "src/ok.js": "1;" });
+    const result = await scanSourceCode(root);
+    const note = result.coverage.find((entry) => entry.area === "source:javascript")?.note;
+    expect(note).toMatch(
+      /2 file\(s\) hit the per-file finding cap \("public\/a\.js", "public\/b\.js"\)/,
+    );
+  });
+
+  it("quotes capped paths so a name containing a comma stays unambiguous", async () => {
+    const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
+    const root = project({ "public/a, b.js": bundle, "src/ok.js": "1;" });
+    const result = await scanSourceCode(root);
+    const note = result.coverage.find((entry) => entry.area === "source:javascript")?.note;
+    expect(note).toContain('per-file finding cap ("public/a, b.js")');
+  });
+
+  it("starts the problem list with a capital letter", async () => {
+    const root = project({ "only.ts": "export const a = 1;" });
+    let clock = 0;
+    const result = await scanSourceCode(root, { timeBudgetMs: 150, now: () => (clock += 100) });
+    const note = result.coverage.find((entry) => entry.area === "source:typescript")?.note;
+    expect(note).toMatch(/taint tracking\. The time budget was exceeded/);
+  });
+});
+
+describe("time budget, parse errors and caps (#87, #89)", () => {
+  it("stops at the time budget with partial coverage", async () => {
+    const root = project({ "a.ts": "export const a = 1;", "b.ts": "export const b = 2;" });
+    let clock = 0;
+    const result = await scanSourceCode(root, { timeBudgetMs: 50, now: () => (clock += 100) });
+    const ts = result.coverage.find((entry) => entry.area === "source:typescript");
+    expect(ts?.status).toBe("partial");
+    expect(ts?.note).toMatch(/time budget/);
+  });
+
+  it("marks unparsable Go as partial coverage", async () => {
+    const root = project({ "bad.go": "package main\nfunc f( {\n" });
+    const result = await scanSourceCode(root);
+    expect(result.coverage.find((entry) => entry.area === "source:go")?.status).toBe("partial");
+  });
+
+  it("bounds findings from minified bundles with the per-file cap", async () => {
+    const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
+    const root = project({ "public/bundle.js": bundle });
+    const result = await scanSourceCode(root);
+    expect(result.findings.length).toBeLessThanOrEqual(25);
+    expect(result.coverage.find((entry) => entry.area === "source:javascript")?.note).toMatch(
+      /finding cap/,
+    );
+  });
+});

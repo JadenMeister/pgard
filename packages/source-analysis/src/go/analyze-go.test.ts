@@ -204,3 +204,62 @@ describe("crypto and cookies", () => {
     ).toEqual(["PG-COOKIE-001"]);
   });
 });
+
+describe("GORM with request input (#85)", () => {
+  it("flags GORM Order/Where with request input", () => {
+    expect(
+      rulesIn(
+        go(
+          ["gorm.io/gorm"],
+          `func f(c *gin.Context) {
+	db.Order(c.Query("sort")).Find(&u)
+	s := c.Query("filter")
+	db.Where(s).Find(&u)
+}`,
+        ),
+      ),
+    ).toEqual(["PG-SQL-004", "PG-SQL-004"]);
+  });
+
+  it("does not flag literal GORM arguments", () => {
+    expect(
+      rulesIn(go(["gorm.io/gorm"], 'func f() { db.Order("created_at desc").Find(&u) }')),
+    ).toEqual([]);
+  });
+});
+
+describe("linear cost and caps (#87)", () => {
+  it("analyzes a large Go file quickly", () => {
+    const body = Array.from(
+      { length: 6000 },
+      (_, index) =>
+        `\tv${index} := r.FormValue("k${index}")\n\tdb.Query(fmt.Sprintf("SELECT %s", v${index}))`,
+    ).join("\n");
+    const source = go(
+      ["database/sql", "fmt", "net/http"],
+      `func h(w http.ResponseWriter, r *http.Request) {\n${body}\n}`,
+    );
+    expect(source.length).toBeGreaterThan(300_000);
+    const start = performance.now();
+    const analysis = analyzeGoSource(source, "big.go");
+    expect(performance.now() - start).toBeLessThan(3000);
+    expect(analysis.findings.length).toBeLessThanOrEqual(25);
+    expect(analysis.cappedRules).toEqual(["PG-SQL-003"]);
+  });
+});
+
+describe("precision (#88)", () => {
+  it("tracks Go `var q = ...` assignments", () => {
+    expect(
+      rulesIn(
+        go(
+          ["database/sql"],
+          `func f(name string) {
+	var q = "SELECT * FROM t WHERE n = '" + name + "'"
+	db.Query(q)
+}`,
+        ),
+      ),
+    ).toEqual(["PG-SQL-003"]);
+  });
+});

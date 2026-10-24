@@ -49,6 +49,7 @@ const SANITIZERS = new Set([
   "uuid",
   "xss",
 ]);
+const MAX_ASSIGNMENTS = 8;
 const BROWSER_SOURCE_CALLS = new Set(["useSearchParams", "useParams", "useRoute", "useLocation"]);
 
 export function unwrap(node: ts.Expression): ts.Expression {
@@ -167,7 +168,7 @@ export class TaintTracker {
   ): void {
     if (isFirstPass && ts.isIdentifier(name)) {
       const list = this.assignedExpressions.get(name.text) ?? [];
-      if (list.length < 8) list.push(initializer);
+      if (list.length < MAX_ASSIGNMENTS) list.push(initializer);
       this.assignedExpressions.set(name.text, list);
     }
     const kind = this.taintOf(initializer);

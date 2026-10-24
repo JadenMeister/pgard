@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { analyzeVueSource } from "../vue/analyze-vue.js";
 import { analyzeJsSource } from "./analyze-js.js";
 
 const rulesIn = (code: string, path = "src/app.ts") =>
@@ -119,6 +120,132 @@ describe("PG-XSS-001/002 HTML sinks", () => {
         "src/A.jsx",
       ),
     ).toEqual([]);
+  });
+
+  it.each([
+    ["const clean = DOMPurify.sanitize(req.body.html);\nel.innerHTML = clean;"],
+    ["export {};\nlet html;\nhtml = DOMPurify.sanitize(input);\nel.innerHTML = html;"],
+    ["function f() {\n  var h = DOMPurify.sanitize(a);\n  el.innerHTML = h;\n}"],
+    [
+      "const safe = sanitizeHtml(data);\nconst A = () => <i dangerouslySetInnerHTML={{ __html: safe }} />;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nif (c) { h = DOMPurify.sanitize(b); }\nel.innerHTML = h;",
+    ],
+    ["export {};\nlet h = DOMPurify.sanitize(a);\nh ||= DOMPurify.sanitize(b);\nel.innerHTML = h;"],
+    ["const h = DOMPurify.sanitize(a);\nfunction f() { var h = req.body.x; }\nel.innerHTML = h;"],
+    ["export {};\nfunction f() { el.innerHTML = h; }\nvar h;\nh = DOMPurify.sanitize(a);"],
+    ["export let h = DOMPurify.sanitize(a);\nel.innerHTML = h;"],
+    ["const h = DOMPurify.sanitize(a);\nel.outerHTML = h;\nel.insertAdjacentHTML('beforeend', h);"],
+  ])("does not flag a value sanitized through a variable (#109): %s", (code) => {
+    expect(rulesIn(code, "src/a.tsx")).toEqual([]);
+  });
+
+  it.each([
+    // Plain, branch and closure reassignment.
+    ["let html = DOMPurify.sanitize(a);\nhtml = req.body.html;\nel.innerHTML = html;"],
+    ["let h = DOMPurify.sanitize(a);\nif (c) { h = req.body.x; }\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nconst set = (v) => { h = v; };\nel.innerHTML = h;"],
+    // Compound and logical assignment operators.
+    ["let h = DOMPurify.sanitize(a);\nh += req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ||= req.body.html;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ??= req.query.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh &&= req.body.html;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ||= location.hash;\nel.outerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ??= req.body.x;\nel.insertAdjacentHTML('beforeend', h);"],
+    // for-in / for-of targets without a declaration, and a classic for initializer.
+    ["let h = DOMPurify.sanitize(a);\nfor (h of req.body.items) el.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nfor (h in req.body) el.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nfor (h = req.body.x; ;) break;\nel.innerHTML = h;"],
+    ["const html = DOMPurify.sanitize(a);\nfor (const html of items) el.innerHTML = html;"],
+    // Scope: globals, imports, functions, classes, parameters, inner shadowing, catch.
+    ["function g(a) { const name = DOMPurify.sanitize(a); use(name); }\nel.innerHTML = name;"],
+    [
+      "import { h } from './x';\nfunction g(a) { const h = DOMPurify.sanitize(a); use(h); }\nel.innerHTML = h;",
+    ],
+    ["function g() { const h = DOMPurify.sanitize(a); }\nfunction h() {}\nel.innerHTML = h;"],
+    ["function g() { const h = DOMPurify.sanitize(a); }\nclass h {}\nel.innerHTML = h;"],
+    ["const html = DOMPurify.sanitize(a);\nfunction f(html) { el.innerHTML = html; }"],
+    ["const h = DOMPurify.sanitize(a);\nfunction f() { let h; el.innerHTML = h; }"],
+    ["const e = DOMPurify.sanitize(a);\ntry {} catch (e) { el.innerHTML = e; }"],
+    [
+      "const safe = DOMPurify.sanitize(a);\nconst A = ({ safe }) => <i dangerouslySetInnerHTML={{ __html: safe }} />;",
+    ],
+    // Destructuring declarations and assignments.
+    [
+      "const html = DOMPurify.sanitize(a);\nfunction f() { const { html } = data; el.innerHTML = html; }",
+    ],
+    ["let h = DOMPurify.sanitize(a);\n({ h } = req.body);\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n[h] = req.body.list;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n({ x: { y: h } } = req.body);\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n[...h] = req.body.list;\nel.innerHTML = h;"],
+    [
+      "let h = DOMPurify.sanitize(a);\n[h = DOMPurify.sanitize(b)] = req.body.list;\nel.innerHTML = h;",
+    ],
+    // Object properties, exported bindings and dynamic scope.
+    ["const o = {};\no.h = DOMPurify.sanitize(a);\no.h = req.body.x;\nel.innerHTML = o.h;"],
+    [
+      "export let h = DOMPurify.sanitize(a);\nexport function setH(v) { h = v; }\nel.innerHTML = h;",
+    ],
+    ["let h = DOMPurify.sanitize(a);\neval('h = req.body.x');\nel.innerHTML = h;"],
+    // Writes through type assertions and non-null assertions.
+    ["let h = DOMPurify.sanitize(a);\n(h as any) = req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh! = req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n(h satisfies string) = req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n((h as any)!) ||= req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n[(h as any)] = req.body.list;\nel.innerHTML = h;"],
+    // Top-level var/let of a classic script: other scripts and the global object can write it.
+    ["var h = DOMPurify.sanitize(a);\nwindow.h = req.body.x;\nel.innerHTML = h;"],
+    ["var h = DOMPurify.sanitize(a);\nglobalThis['h'] = req.body.x;\nel.innerHTML = h;"],
+    ["var h = DOMPurify.sanitize(a);\nthis.h = req.body.x;\nel.innerHTML = h;"],
+    [
+      "var h = DOMPurify.sanitize(a);\nObject.defineProperty(window, 'h', { get() { return location.hash; } });\nel.innerHTML = h;",
+    ],
+    ["if (c) { var h = DOMPurify.sanitize(a); }\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nel.innerHTML = h;"],
+    // Indirect eval, Function and string timers.
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\n(0, eval)('h = location.hash');\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nwindow.eval('h = location.hash');\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nnew Function('h = location.hash')();\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nFunction('h = location.hash')();\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nsetTimeout('h = location.hash');\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nwindow.setInterval(code, 10);\nel.innerHTML = h;",
+    ],
+  ])("still flags a variable not sanitized on every write (#109): %s", (code) => {
+    expect(rulesIn(code, "src/a.tsx").some((rule) => rule.startsWith("PG-XSS-"))).toBe(true);
+  });
+
+  it("flags a write through an angle-bracket type assertion in a .ts file (#109)", () => {
+    expect(
+      rulesIn(
+        "export {};\nlet h = DOMPurify.sanitize(a);\n(<any>h) = req.body.x;\nel.innerHTML = h;",
+      ),
+    ).toContain("PG-XSS-001");
+  });
+
+  it("flags a write through a type assertion in a .vue script (#109)", () => {
+    const vue = analyzeVueSource(
+      '<script lang="ts">\nexport {};\nlet h = DOMPurify.sanitize(a);\n(h as any) = req.body.x;\nel.innerHTML = h;\n</script>\n',
+      "A.vue",
+    );
+    expect(vue.findings.map((finding) => finding.ruleId)).toContain("PG-XSS-001");
+  });
+
+  it("resolves bindings in a file with a non-JS extension (#109)", () => {
+    expect(
+      rulesIn("let h = DOMPurify.sanitize(a);\nh ||= req.body.html;\nel.innerHTML = h;", "A.vue"),
+    ).toContain("PG-XSS-001");
   });
 });
 
@@ -353,5 +480,113 @@ describe("per-function facts stay linear (#104)", () => {
       "a.js",
     ).findings.map((f) => f.ruleId);
     expect(rules).toEqual(["PG-CRYPTO-001"]);
+  });
+});
+
+describe("SQL through local db modules, identifier args and multi-line SQL (#84)", () => {
+  it("flags a query string assigned to a variable and run through a local db module", () => {
+    expect(
+      rulesIn(
+        "import db from './db';\nconst q = `SELECT * FROM users WHERE id = ${req.query.id}`;\ndb.query(q);",
+      ),
+    ).toEqual(["PG-SQL-001"]);
+  });
+
+  it("flags multi-line SQL templates", () => {
+    expect(
+      rulesIn(
+        "import db from './db';\ndb.query(`\n  SELECT *\n  FROM users\n  WHERE id = ${id}\n`);",
+      ),
+    ).toEqual(["PG-SQL-001"]);
+  });
+
+  it("still ignores non-SQL query() calls on unknown receivers", () => {
+    expect(rulesIn("search.query(`${term} near ${place}`);")).toEqual([]);
+  });
+});
+
+describe("request input passed straight to raw SQL sinks (#85)", () => {
+  it.each([
+    ["import { Pool } from 'pg'; pool.query(req.body.sql);"],
+    ["import db from './db'; db.query(req.body.sql);"],
+    ["await prisma.$queryRawUnsafe(req.body.q);"],
+    ["const q = req.body.q; await prisma.$executeRawUnsafe(q);"],
+  ])("flags %s", (code) => {
+    expect(rulesIn(code).some((id) => id.startsWith("PG-SQL"))).toBe(true);
+  });
+});
+
+describe("shells via spawn/execFile and promisified exec (#86)", () => {
+  it.each([
+    ["import { spawn } from 'child_process'; spawn('sh', ['-c', req.query.cmd]);"],
+    ["import { execFile } from 'node:child_process'; execFile('bash', ['-c', 'ls ' + dir]);"],
+    [
+      "import util from 'util'; import { exec } from 'child_process'; const run = util.promisify(exec); run(req.body.cmd);",
+    ],
+    [
+      "import { promisify } from 'util'; import cp from 'child_process'; const run = promisify(cp.exec); await run(`tar ${f}`);",
+    ],
+  ])("flags %s", (code) => {
+    expect(rulesIn(code)).toContain("PG-CMD-001");
+  });
+
+  it("does not flag a constant script", () => {
+    expect(
+      rulesIn("import { spawn } from 'child_process'; spawn('sh', ['-c', 'echo ok']);"),
+    ).toEqual([]);
+  });
+});
+
+describe("linear cost and caps (#87)", () => {
+  it("analyzes a large JS file quickly", () => {
+    const code = Array.from(
+      { length: 8000 },
+      (_, index) =>
+        `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
+    ).join("\n");
+    expect(code.length).toBeGreaterThan(500_000);
+    const start = performance.now();
+    const analysis = analyzeJsSource(code, "big.js");
+    expect(performance.now() - start).toBeLessThan(5000);
+    expect(analysis.cappedRules).toContain("PG-XSS-001");
+  });
+
+  it("resolves sanitized variables in linear time when many scopes share a name (#109)", () => {
+    const build = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          `function f${index}() { const h = DOMPurify.sanitize(a${index}); el.innerHTML = h; }`,
+      ).join("\n");
+    const time = (code: string) => {
+      const start = performance.now();
+      expect(analyzeJsSource(code, "big.js").findings).toEqual([]);
+      return performance.now() - start;
+    };
+    time(build(500)); // warm up
+    const small = time(build(2000));
+    const large = time(build(8000));
+    // Quadratic resolution took ~20 s at 8,000 scopes. Linear time grows roughly 4x for 4x the
+    // input (16x if quadratic). Only the ratio is checked: CI runners are much slower than
+    // local machines, so absolute bounds are flaky.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
+  }, 60_000);
+});
+
+describe("precision (#88)", () => {
+  it("treats new URLSearchParams(location.search) as browser input", () => {
+    const [finding] = findingsIn(
+      "const p = new URLSearchParams(location.search); el.innerHTML = p.get('m');",
+      "a.ts",
+    );
+    expect(finding).toMatchObject({ ruleId: "PG-XSS-001", severity: "high" });
+  });
+
+  it("does not treat constant += concatenation as dynamic SQL", () => {
+    expect(
+      rulesIn(
+        "import { Pool } from 'pg'; let sql = 'SELECT * FROM t'; sql += ' WHERE a = $1'; pool.query(sql, [a]);",
+      ),
+    ).toEqual([]);
   });
 });
