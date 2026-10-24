@@ -16,3 +16,4 @@ export {
   type GitHubRepositoryRef,
 } from "./remote.js";
 export { listCommitCandidates, readHeadRevision, type CommitCandidate } from "./commits.js";
+export { readRepositoryIsolation, type RepositoryIsolation } from "./isolation.js";

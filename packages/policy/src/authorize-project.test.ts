@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { AuthorizationCheckId } from "@pgard/findings";
 import { GitHubAuthError, createDeviceFlowSessionProvider } from "@pgard/github-auth";
@@ -300,6 +300,21 @@ describe("authorizeProject: repository and identity", () => {
     mkdirSync(nested);
     const { outcome, getGitHubSession } = await authorize(nested, baseState());
     expectBlocked(outcome);
+    expect(getGitHubSession).not.toHaveBeenCalled();
+  });
+
+  it("blocks a repository that borrows objects through alternates", async () => {
+    const { root, mine } = repoWithCommits();
+    writeFileSync(path.join(root, ".git", "objects", "info", "alternates"), "/elsewhere/objects\n");
+    const { outcome, getGitHubSession } = await authorize(
+      root,
+      baseState({
+        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        compare: { [mine]: "ahead" },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "repository")).toBe("failed");
     expect(getGitHubSession).not.toHaveBeenCalled();
   });
 

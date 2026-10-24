@@ -5,6 +5,7 @@ import {
   listCommitCandidates,
   readGitHubRemote,
   readHeadRevision,
+  readRepositoryIsolation,
   type CommitCandidate,
   type GitHubRepositoryRef,
   type GitRunner,
@@ -36,7 +37,10 @@ async function resolveRealPath(target: string): Promise<string | null> {
   }
 }
 
-/** Local-only: valid Git history at the project root and one unambiguous github.com remote. */
+/**
+ * Local-only: valid Git history at the project root, only the repository's own objects and
+ * history (no alternates, grafts or replace refs), and one unambiguous github.com remote.
+ */
 export async function verifyRepository(
   projectRoot: string,
   runner: GitRunner,
@@ -67,6 +71,10 @@ export async function verifyRepository(
       repo: null,
       revision: null,
     };
+  }
+  const isolation = await readRepositoryIsolation(projectRoot, runner);
+  if (!isolation.isIsolated) {
+    return { check: failed(isolation.reason), repo: null, revision };
   }
   const remote = await readGitHubRemote(projectRoot, runner);
   if (!remote.isResolved) {
