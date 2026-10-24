@@ -98,6 +98,18 @@ const NON_VALUE_WORDS = new Set([
   "e.g.",
 ]);
 const ALREADY_REDACTED = /^\[REDACTED:/;
+
+/** Splits trailing `)` characters that have no matching `(` inside the value. */
+function peelUnmatchedParens(raw: string): { value: string; rest: string } {
+  let value = raw;
+  let rest = "";
+  const count = (text: string, char: string) => text.split(char).length - 1;
+  while (value.endsWith(")") && count(value, ")") > count(value, "(")) {
+    value = value.slice(0, -1);
+    rest = `)${rest}`;
+  }
+  return { value, rest };
+}
 const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 /**
@@ -189,7 +201,7 @@ const RULES: Rule[] = [
     // key = "double quoted" | 'single quoted' | `backtick` (a missing closing quote still
     // masks to end of line) | unquoted run up to whitespace or , ; ) } &
     pattern: new RegExp(
-      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;()}&][^\\s,;()}&]{0,4095}(?:\\([^()\\s]{0,128}\\)|\\([^\\s,;)}&]{0,128})?))`,
+      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;}&][^\\s,;}&]{0,4095}))`,
       "gim",
     ),
     replace: (match, prefix, dq, dqEnd, sq, sqEnd, bq, bqEnd, bare) => {
@@ -200,15 +212,11 @@ const RULES: Rule[] = [
         return sq === "" ? match : `${prefix}'${maskSecret("value")}${end(sqEnd)}`;
       if (bq !== undefined)
         return bq === "" ? match : `${prefix}\`${maskSecret("value")}${end(bqEnd)}`;
-      if (
-        bare === undefined ||
-        ALREADY_REDACTED.test(bare) ||
-        CODE_REFERENCE.test(bare) ||
-        NON_VALUE_WORDS.has(bare.toLowerCase())
-      ) {
-        return match;
-      }
-      return `${prefix}${maskSecret("value")}`;
+      if (bare === undefined || ALREADY_REDACTED.test(bare)) return match;
+      // A trailing ")" that closes an outer call (`f(token: number)`) is not part of the value.
+      const { value, rest } = peelUnmatchedParens(bare);
+      if (CODE_REFERENCE.test(value) || NON_VALUE_WORDS.has(value.toLowerCase())) return match;
+      return `${prefix}${maskSecret("value")}${rest}`;
     },
   },
 ];
