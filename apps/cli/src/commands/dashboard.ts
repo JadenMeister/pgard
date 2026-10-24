@@ -1,5 +1,5 @@
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
-import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
+import { EXIT_CODES, toKnownExitCode, type ExitCode } from "../exit-codes.js";
 import { promptConfirm } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "./project/verify.js";
@@ -39,5 +39,5 @@ export async function runDashboard(
   const args = ["--project-root", projectRoot];
   if (targetPort !== null) args.push("--target-port", String(targetPort));
   context.keys?.close();
-  return (await context.deps.startDashboardProcess(entry, args)) as ExitCode;
+  return toKnownExitCode(await context.deps.startDashboardProcess(entry, args));
 }

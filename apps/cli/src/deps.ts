@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   discoverListeningPorts,
   probeLocalService,
@@ -53,7 +53,8 @@ const DOCTOR_TIMEOUT_MS = 5000;
 function resolveDashboardEntryDefault(): string | null {
   try {
     const url = import.meta.resolve(DASHBOARD_LAUNCHER_SPECIFIER);
-    return url.startsWith("file:") ? new URL(url).pathname : null;
+    // fileURLToPath decodes percent-escapes (spaces, non-ASCII) that URL.pathname keeps.
+    return url.startsWith("file:") ? fileURLToPath(url) : null;
   } catch {
     return null;
   }

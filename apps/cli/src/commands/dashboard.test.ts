@@ -36,4 +36,15 @@ describe("runDashboard", () => {
       await runDashboard(createTestContext(captured, createTestDeps(), scriptedKeys([])), null),
     ).toBe(5);
   });
+
+  it("maps unknown exit codes of the dashboard process to 5", async () => {
+    const captured = createTestIo();
+    const deps = createTestDeps({
+      resolveDashboardEntry: () => "/install/local-web/dist/server/index.js",
+      startDashboardProcess: async () => 1,
+    });
+    expect(await runDashboard(createTestContext(captured, deps, scriptedKeys(["y"])), null)).toBe(
+      5,
+    );
+  });
 });
