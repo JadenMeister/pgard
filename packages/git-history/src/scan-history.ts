@@ -112,7 +112,10 @@ async function listTreeBlobs(
 
 /**
  * Blobs added or modified by each commit, from one `diff-tree --stdin` process per batch of
- * commits (first-parent changes; root and shallow-boundary commits list every file).
+ * commits. Every commit reachable from the revision is listed (side branches included); merge
+ * commits show their changes against the first parent. Root and shallow-boundary commits list
+ * every file. A batch whose output is too large is split in half and retried, down to single
+ * commits, so one huge commit cannot hide its neighbours.
  */
 async function listHistoryBlobs(
   cwd: string,
@@ -122,15 +125,20 @@ async function listHistoryBlobs(
   isOverBudget: () => boolean,
 ): Promise<{ entries: HistoryEntry[]; processedCommits: number; problems: string[] }> {
   const entries: HistoryEntry[] = [];
-  const problems: string[] = [];
   let processedCommits = 0;
+  let skippedCommits = 0;
+  let isOutOfTime = false;
+  const queue: string[][] = [];
   for (let start = 0; start < commits.length; start += COMMITS_PER_DIFF_BATCH) {
+    queue.push(commits.slice(start, start + COMMITS_PER_DIFF_BATCH));
+  }
+  while (queue.length > 0) {
     throwIfAborted(signal);
     if (isOverBudget()) {
-      problems.push(`time budget reached after ${processedCommits} of ${commits.length} commits`);
+      isOutOfTime = true;
       break;
     }
-    const batch = commits.slice(start, start + COMMITS_PER_DIFF_BATCH);
+    const batch = queue.shift() as string[];
     let output: string;
     try {
       output = await runner(
@@ -147,14 +155,15 @@ async function listHistoryBlobs(
         },
       );
     } catch (error) {
-      if (isOutputLimit(error)) {
-        problems.push(
-          `changes of ${batch.length} commit(s) were too large to list and were skipped`,
-        );
-        processedCommits += batch.length;
-        continue;
+      if (!isOutputLimit(error)) throw error;
+      if (batch.length > 1) {
+        const middle = Math.ceil(batch.length / 2);
+        queue.unshift(batch.slice(0, middle), batch.slice(middle));
+      } else {
+        skippedCommits += 1;
+        processedCommits += 1;
       }
-      throw error;
+      continue;
     }
     let commit: string | null = null;
     const parts = output.split("\0");
@@ -173,6 +182,14 @@ async function listHistoryBlobs(
     }
     processedCommits += batch.length;
   }
+  const problems = [
+    ...(skippedCommits > 0
+      ? [`changes of ${skippedCommits} commit(s) were too large to list and were skipped`]
+      : []),
+    ...(isOutOfTime
+      ? [`time budget reached after ${processedCommits} of ${commits.length} commits`]
+      : []),
+  ];
   return { entries, processedCommits, problems };
 }
 
@@ -256,6 +273,57 @@ async function readBlobs(
     start = end;
   }
   return { contents, skippedLarge, skippedBudget, skippedBinary };
+}
+
+/**
+ * Resolves `<revision>:<path>` for each path with `cat-file --batch-check` and reads the current
+ * contents of those that exist. `shas` maps path -> blob id, `null` when the path is absent, or
+ * no entry when it could not be checked (paths with escaped bytes or newlines).
+ */
+async function readCurrentBlobs(
+  cwd: string,
+  runner: GitRunner,
+  revision: string,
+  paths: string[],
+  maxBlobBytes: number,
+  budget: { remaining: number },
+  signal: AbortSignal | undefined,
+): Promise<{ shas: Map<string, string | null>; contents: Map<string, string> }> {
+  const shas = new Map<string, string | null>();
+  const contents = new Map<string, string>();
+  const queryable = [...new Set(paths)].filter((item) => !/[\n\r]|\\x[0-9a-f]{2}/.test(item));
+  if (queryable.length === 0) return { shas, contents };
+  const output = await runner(
+    { subcommand: "cat-file", flags: ["--batch-check"] },
+    {
+      cwd,
+      input: `${queryable.map((item) => `${revision}:${item}`).join("\n")}\n`,
+      maxBuffer: queryable.length * 200 + 1024,
+      ...(signal ? { signal } : {}),
+    },
+  );
+  const lines = output.split("\n");
+  queryable.forEach((item, index) => {
+    const match = /^([0-9a-f]{40}) blob \d+$/.exec(lines[index] ?? "");
+    if (match?.[1]) shas.set(item, match[1]);
+    else if ((lines[index] ?? "").endsWith(" missing")) shas.set(item, null);
+  });
+  const present = [...shas.entries()].filter(
+    (entry): entry is [string, string] => entry[1] !== null,
+  );
+  const read = await readBlobs(
+    cwd,
+    runner,
+    [...new Set(present.map(([, sha]) => sha))],
+    maxBlobBytes,
+    budget,
+    signal,
+  );
+  for (const [item, sha] of present) {
+    const content = read.contents.get(sha);
+    if (content !== undefined) contents.set(item, content);
+  }
+  return { shas, contents };
 }
 
 function createFinding(fields: {
@@ -353,7 +421,7 @@ async function readShallowBoundary(cwd: string, runner: GitRunner): Promise<Set<
 /**
  * Scans what Git stores — never the working tree — for committed environment files and
  * secrets: tracked files at the scanned revision and blobs added or modified in recent commits
- * of its first-parent history. Untracked or ignored local files (such as a local `.env`) are
+ * reachable from it. Untracked or ignored local files (such as a local `.env`) are
  * never read. Secret values are kept in memory only to tell current secrets from removed ones;
  * findings name the kind, never the value. Limits (commits, blob size, total bytes, time,
  * output size, shallow clones) degrade coverage to `partial` with a note.
@@ -387,7 +455,10 @@ export async function scanGitHistory(
     ).catch(() => "")
   ).trim();
   if (!SHA.test(revision)) {
-    const note = "The repository has no commit to scan.";
+    const note =
+      options.revision && options.revision !== "HEAD"
+        ? `The revision to scan (${options.revision.slice(0, 12)}) was not found in the repository.`
+        : "The repository has no commit to scan.";
     return {
       findings: [],
       coverage: [
@@ -406,10 +477,12 @@ export async function scanGitHistory(
   // 1. Tracked files at the scanned revision.
   let headBlobs: TreeEntry[] = [];
   const headProblems: string[] = [];
+  let isHeadListComplete = true;
   try {
     headBlobs = await listTreeBlobs(projectRoot, runner, revision, signal);
   } catch (error) {
     if (!isOutputLimit(error)) throw error;
+    isHeadListComplete = false;
     headProblems.push("the tracked file list was too large to read");
   }
   const headRead = await readBlobs(
@@ -426,8 +499,10 @@ export async function scanGitHistory(
     secret: DetectedSecret,
     commit: string | null,
     isBoundary: boolean,
+    isCurrentStateUnknown = false,
   ) => {
     const label = SECRET_KIND_LABEL[secret.kind];
+    const where = `${isBoundary ? "present in" : "added in"} commit ${commit?.slice(0, 12) ?? ""}${isBoundary ? " (shallow clone boundary; it may have been added earlier)" : ""}`;
     findings.push(
       createFinding({
         ruleId: commit ? "PG-SECRET-003" : "PG-SECRET-002",
@@ -436,7 +511,9 @@ export async function scanGitHistory(
         commit,
         ...assessment(secret.kind),
         evidence: commit
-          ? `${label} ${isBoundary ? "present in" : "added in"} commit ${commit.slice(0, 12)}${isBoundary ? " (shallow clone boundary; it may have been added earlier)" : ""} and no longer present in current files (value redacted)`
+          ? isCurrentStateUnknown
+            ? `${label} ${where}; whether it is still in the current files could not be checked (value redacted)`
+            : `${label} ${where} and no longer present in current files (value redacted)`
           : `${label} in a tracked file (value redacted)`,
         cause: `${secret.kind}:${secret.line}`,
       }),
@@ -479,13 +556,15 @@ export async function scanGitHistory(
     ),
   });
 
-  // 2. Recent first-parent history of the scanned revision.
+  // 2. Recent history (all commits reachable from the scanned revision).
   throwIfAborted(signal);
   const shallowBoundary = await readShallowBoundary(projectRoot, runner);
   const revList = await runner(
     {
       subcommand: "rev-list",
-      flags: ["--first-parent", `--max-count=${maxCommits + 1}`],
+      // All reachable commits, not only first-parent: a secret added and removed on a merged
+      // side branch must still be found.
+      flags: [`--max-count=${maxCommits + 1}`],
       operands: [revision],
     },
     { cwd: projectRoot, ...(signal ? { signal } : {}) },
@@ -502,10 +581,43 @@ export async function scanGitHistory(
   const oldestFirst = [...introducedBy.values()].reverse();
   const isBoundary = (commit: string) => shallowBoundary?.has(commit) ?? false;
   const reported = new Set<string>();
+  let unknownCurrentState = 0;
+  // When the current file list could not be read, ask Git directly whether each history path
+  // still exists at the revision, so current secrets are not reported as "removed".
+  const currentByPath = isHeadListComplete
+    ? null
+    : await readCurrentBlobs(
+        projectRoot,
+        runner,
+        revision,
+        oldestFirst.map((entry) => entry.path),
+        maxBlobBytes,
+        budget,
+        signal,
+      );
   for (const entry of oldestFirst) {
+    const currentSha = currentByPath?.shas.get(entry.path);
+    if (isEnvironmentFile(entry.path) && currentSha && !reported.has(`env:${entry.path}`)) {
+      reported.add(`env:${entry.path}`);
+      findings.push(
+        createFinding({
+          ruleId: "PG-SECRET-001",
+          path: entry.path,
+          line: null,
+          commit: null,
+          severity: "high",
+          status: "confirmed",
+          confidence: "high",
+          evidence: "environment file is tracked in the current commit (values not shown)",
+          cause: "env-file-head",
+        }),
+      );
+      continue;
+    }
     if (
       isEnvironmentFile(entry.path) &&
-      !headPaths.has(entry.path) &&
+      // Present files were handled above; otherwise use the full current list when we have it.
+      (currentByPath !== null || !headPaths.has(entry.path)) &&
       !reported.has(`env:${entry.path}`)
     ) {
       reported.add(`env:${entry.path}`);
@@ -545,11 +657,33 @@ export async function scanGitHistory(
       const key = `${secret.kind}\0${secret.value}`;
       if (reported.has(key)) continue; // report each removed value once (where it first appeared)
       reported.add(key);
+      if (currentByPath) {
+        const current = currentByPath.contents.get(entry.path);
+        if (current !== undefined && current.includes(secret.value)) {
+          const line = detectSecrets(current).find((found) => found.value === secret.value)?.line;
+          report(
+            { sha: entry.sha, path: entry.path },
+            { ...secret, line: line ?? secret.line },
+            null,
+            false,
+          );
+          continue;
+        }
+        const isKnownAbsent = currentByPath.shas.get(entry.path) === null || current !== undefined;
+        report(entry, secret, entry.commit, isBoundary(entry.commit), !isKnownAbsent);
+        if (!isKnownAbsent) unknownCurrentState += 1;
+        continue;
+      }
       report(entry, secret, entry.commit, isBoundary(entry.commit));
     }
   }
   const historySkips = skipNotes(historyRead, maxBlobBytes, "blob");
   const historyProblems = [
+    ...(unknownCurrentState > 0
+      ? [
+          `for ${unknownCurrentState} finding(s) it could not be checked whether the value is still in the current files`,
+        ]
+      : []),
     ...(shallowBoundary
       ? [
           "shallow clone: history before the clone boundary is not available, so older secrets cannot be checked",
@@ -565,7 +699,7 @@ export async function scanGitHistory(
     status: historyProblems.length > 0 ? "partial" : "completed",
     ruleIds: ["PG-SECRET-001", "PG-SECRET-003"],
     note: formatNote(
-      `${listed.processedCommits} commit(s) in the first-parent history of ${revision.slice(0, 12)}; other branches are not scanned.`,
+      `${listed.processedCommits} commit(s) reachable from ${revision.slice(0, 12)}; branches not merged into it are not scanned.`,
       historyProblems,
       historySkips.info,
     ),

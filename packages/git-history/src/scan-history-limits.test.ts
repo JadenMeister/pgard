@@ -196,3 +196,80 @@ describe("paths, revisions and edge cases (#81)", () => {
     expect(result.coverage[0]?.note).toMatch(/1 binary file\(s\) not scanned/);
   });
 });
+
+describe("merged side branches (#101)", () => {
+  it("finds a secret added and removed on a --no-ff merged branch", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "a.txt": "base" } });
+    repo.git("checkout", "-q", "-b", "side");
+    const added = repo.commit({ files: { "deploy.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ remove: ["deploy.sh"], files: { "b.txt": "side" } });
+    repo.git("checkout", "-q", "main");
+    repo.commit({ files: { "a.txt": "main" } });
+    repo.git(
+      "-c",
+      "user.name=a",
+      "-c",
+      "user.email=a@example.com",
+      "merge",
+      "-q",
+      "--no-ff",
+      "side",
+      "-m",
+      "merge",
+    );
+    const result = await scanGitHistory(repo.root);
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        ruleId: "PG-SECRET-003",
+        location: expect.objectContaining({ path: "deploy.sh", commit: added }),
+      }),
+    ]);
+  });
+});
+
+describe("incomplete current file list (#102)", () => {
+  it("does not report secrets still at the revision as removed", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "current.ts": `const t = "${TOKEN_A}";\n`, "old.pem": KEY_ONE } });
+    repo.commit({ remove: ["old.pem"], files: { "README.md": "x" } });
+    const noTree: GitRunner = (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: noTree });
+    const byPath = Object.fromEntries(
+      result.findings.map((finding) => [finding.location.path, finding.ruleId]),
+    );
+    expect(byPath).toEqual({ "current.ts": "PG-SECRET-002", "old.pem": "PG-SECRET-003" });
+    expect(result.coverage.find((entry) => entry.area === "history:tracked-files")?.status).toBe(
+      "partial",
+    );
+  });
+});
+
+describe("oversized commits and unknown revisions (#103)", () => {
+  it("retries a too-large batch commit by commit and skips only the oversized one", async () => {
+    const repo = fixture();
+    const huge = repo.commit({ files: { "big.txt": "x" } });
+    repo.commit({ files: { "deploy.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ remove: ["deploy.sh"] });
+    const limited: GitRunner = (invocation, options) =>
+      invocation.subcommand === "diff-tree" && options.input?.includes(huge)
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: limited });
+    expect(result.findings.map((finding) => finding.ruleId)).toEqual(["PG-SECRET-003"]);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/changes of 1 commit\(s\) were too large/);
+  });
+
+  it("explains an unknown revision", async () => {
+    const repo = fixture();
+    repo.commit({});
+    const result = await scanGitHistory(repo.root, { revision: "f".repeat(40) });
+    expect(result.coverage[0]).toMatchObject({ status: "not_tested" });
+    expect(result.coverage[0]?.note).toMatch(/was not found/);
+  });
+});
