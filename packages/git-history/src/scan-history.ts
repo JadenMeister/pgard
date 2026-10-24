@@ -601,8 +601,8 @@ export async function scanGitHistory(
   // partial coverage) instead of failing the whole history area.
   let currentByPath: { shas: Map<string, string | null>; contents: Map<string, string> } | null =
     null;
+  const candidatePaths = new Set<string>();
   if (!isHeadListComplete) {
-    const candidatePaths = new Set<string>();
     for (const entry of oldestFirst) {
       if (isEnvironmentFile(entry.path)) {
         candidatePaths.add(entry.path);
@@ -691,9 +691,12 @@ export async function scanGitHistory(
       }
     }
   }
-  const hasUnreadCurrent = [...(currentByPath?.shas ?? [])].some(
-    ([currentPath, sha]) => sha !== null && !currentByPath?.contents.has(currentPath),
-  );
+  // A candidate path Git gave no answer for (unqueryable name, failed or skipped lookup) or whose
+  // contents could not be read may hold the value, so it counts as unread too.
+  const hasUnreadCurrent = [...candidatePaths].some((candidate) => {
+    const sha = currentByPath?.shas.get(candidate);
+    return sha === undefined || (sha !== null && !currentByPath?.contents.has(candidate));
+  });
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);

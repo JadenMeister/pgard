@@ -421,3 +421,47 @@ describe("overflow-path classification (#108)", () => {
     expect(secret?.evidence).not.toMatch(/no longer present/);
   });
 });
+
+describe("overflow-path unqueryable current paths (#108 review)", () => {
+  const noTree =
+    (inner: GitRunner): GitRunner =>
+    (invocation, options) =>
+      invocation.subcommand === "ls-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : inner(invocation, options);
+  const expectUnknown = (result: Awaited<ReturnType<typeof scanGitHistory>>) => {
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/could not be checked whether the value is still/);
+  };
+
+  it("does not claim removal when the secret moved to a path with a newline", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "a\nb.sh": `export GH="${TOKEN_A}"\n` } });
+    expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
+  });
+
+  it("does not claim removal when the secret moved to a non-UTF-8 path", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    git(repo.root, ["rm", "-q", "old.sh"]);
+    const blob = git(repo.root, ["hash-object", "-w", "--stdin"], Buffer.from(`GH="${TOKEN_A}"\n`))
+      .toString()
+      .trim();
+    git(
+      repo.root,
+      ["update-index", "--add", "-z", "--index-info"],
+      Buffer.concat([
+        Buffer.from(`100644 ${blob}\t`),
+        Buffer.from("n\xff.sh", "latin1"),
+        Buffer.from([0]),
+      ]),
+    );
+    git(repo.root, ["-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-qm", "mv"]);
+    expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
+  });
+});
