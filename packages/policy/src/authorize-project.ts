@@ -101,12 +101,15 @@ export async function authorizeProject(
     return build(repoName, revision);
   }
 
+  // From here on, report GitHub's canonical name (the remote may use an old or differently
+  // cased name that GitHub redirects).
+  const canonicalName = repository.fullName;
   const access = verifyCurrentAccess(repository);
   results.set("current_access", access);
   results.set("owner_approval", await verifyOwnerApproval(client, repository));
   if (access.status !== "passed") {
     results.set("contribution", notEvaluated("current_access"));
-    return build(repoName, revision);
+    return build(canonicalName, revision);
   }
   results.set(
     "contribution",
@@ -114,13 +117,12 @@ export async function authorizeProject(
       client,
       user,
       repository,
-      repo,
       projectRoot,
       runner,
       maxCandidates,
     }),
   );
-  return build(repoName, revision);
+  return build(canonicalName, revision);
 }
 
 /**

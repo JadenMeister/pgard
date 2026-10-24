@@ -218,20 +218,34 @@ export interface ContributionInput {
   client: GitHubClient;
   user: GitHubUser;
   repository: GitHubRepository;
-  repo: GitHubRepositoryRef;
   projectRoot: string;
   runner: GitRunner;
   maxCandidates: number;
 }
 
+/** Splits GitHub's canonical `owner/name`; `null` if it is not in that form. */
+export function parseCanonicalRepository(fullName: string): GitHubRepositoryRef | null {
+  const parts = fullName.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return null;
+  }
+  return { owner: parts[0], name: parts[1] };
+}
+
 /**
- * A local commit counts only when (1) GitHub reports it in the default branch history and
- * (2) a merged pull request authored by the user is associated with it, or GitHub verified its
- * signature and attributes the committer to the user. Author name/email, co-author trailers,
- * unmerged PRs, unsigned direct pushes and local-only commits are never proof.
+ * A local commit (from HEAD's ancestry) counts only when (1) GitHub reports it in the default
+ * branch history and (2) a pull request authored by the user and merged into this repository's
+ * default branch is associated with it, or GitHub verified its signature and attributes the
+ * committer to the user. Author name/email, co-author trailers, unmerged PRs, PRs merged into
+ * other branches or forks, unsigned direct pushes and local-only commits are never proof.
+ * All API calls use GitHub's canonical repository name.
  */
 export async function verifyContribution(input: ContributionInput): Promise<CheckResult> {
-  const { client, user, repository, repo } = input;
+  const { client, user, repository } = input;
+  const repo = parseCanonicalRepository(repository.fullName);
+  if (repo === null) {
+    return unverifiable("GitHub returned an unexpected repository name.");
+  }
   let candidates: CommitCandidate[];
   try {
     candidates = await listCommitCandidates(input.projectRoot, input.runner);
@@ -247,9 +261,15 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
     for (const candidate of examined) {
       let evidence: string | null = null;
       const pulls = await client.listPullRequestsForCommit(repo.owner, repo.name, candidate.sha);
-      const mergedPull = pulls.find((pull) => pull.userId === user.id && pull.mergedAt !== null);
+      const mergedPull = pulls.find(
+        (pull) =>
+          pull.userId === user.id &&
+          pull.mergedAt !== null &&
+          pull.baseRef === repository.defaultBranch &&
+          pull.baseRepositoryId === repository.id,
+      );
       if (mergedPull) {
-        evidence = `merged pull request #${mergedPull.number} authored by ${user.login}`;
+        evidence = `pull request #${mergedPull.number} by ${user.login} merged into "${repository.defaultBranch}"`;
       } else {
         const commit = await client.getCommit(repo.owner, repo.name, candidate.sha);
         if (commit !== null && commit.isVerified && commit.committerId === user.id) {
@@ -276,10 +296,10 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
   }
   if (ordered.length > examined.length) {
     return unverifiable(
-      `No qualifying contribution among the ${examined.length} commits examined (of ${ordered.length} local commits). A merged pull request by the signed-in user, or a signature-verified commit by them, in the default branch is required.`,
+      `No qualifying contribution among the ${examined.length} commits examined (of ${ordered.length} local commits). A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required.`,
     );
   }
   return failed(
-    `No qualifying contribution found among ${examined.length} local commits. A merged pull request by the signed-in user, or a signature-verified commit by them, in the default branch is required; author name/email, unmerged PRs and local-only commits do not count.`,
+    `No qualifying contribution found among ${examined.length} local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count.`,
   );
 }

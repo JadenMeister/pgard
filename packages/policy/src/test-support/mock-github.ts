@@ -73,16 +73,16 @@ export function createMockGitHub(state: MockGitHubState): {
       }
       return state.repository;
     },
-    async compareCommits(_o, _r, base) {
-      guard(`compare:${base}`);
+    async compareCommits(o, r, base) {
+      guard(`compare:${o}/${r}:${base}`);
       return state.compare[base] ?? null;
     },
-    async listPullRequestsForCommit(_o, _r, sha) {
-      guard(`pulls:${sha}`);
+    async listPullRequestsForCommit(o, r, sha) {
+      guard(`pulls:${o}/${r}:${sha}`);
       return state.pulls[sha] ?? [];
     },
-    async getCommit(_o, _r, sha) {
-      guard(`commit:${sha}`);
+    async getCommit(o, r, sha) {
+      guard(`commit:${o}/${r}:${sha}`);
       return state.commits[sha] ?? null;
     },
   };

@@ -72,7 +72,17 @@ describe("authorizeProject: allowed paths", () => {
     const { outcome } = await authorize(
       root,
       baseState({
-        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         compare: { [mine]: "ahead" },
       }),
     );
@@ -102,7 +112,17 @@ describe("authorizeProject: blocked paths", () => {
       root,
       baseState({
         installations: [],
-        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         compare: { [mine]: "ahead" },
       }),
     );
@@ -117,7 +137,17 @@ describe("authorizeProject: blocked paths", () => {
       baseState({
         installations: [ownerInstallation(9999)],
         installationRepositories: { 77: [555] },
-        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         compare: { [mine]: "ahead" },
       }),
     );
@@ -139,7 +169,17 @@ describe("authorizeProject: blocked paths", () => {
       baseState({
         repository: userRepository({ owner: { id: 42, login: "org", type: "Organization" } }),
         installations: [{ id: 77, targetType: "Organization", account: { id: 42, login: "org" } }],
-        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         compare: { [mine]: "ahead" },
       }),
     );
@@ -178,12 +218,83 @@ describe("authorizeProject: blocked paths", () => {
     expect(statusOf(outcome, "contribution")).toBe("failed");
   });
 
+  it.each([
+    ["merged into a release branch", { baseRef: "release-1.x", baseRepositoryId: 555 }],
+    ["merged into a fork", { baseRef: "main", baseRepositoryId: 999 }],
+    ["missing base information", { baseRef: null, baseRepositoryId: null }],
+  ])("blocks a PR %s even if its commit reaches the default branch", async (_label, base) => {
+    const { root, mine } = repoWithCommits();
+    const { outcome } = await authorize(
+      root,
+      baseState({
+        pulls: {
+          [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z", ...base }],
+        },
+        compare: { [mine]: "ahead" },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "contribution")).toBe("failed");
+  });
+
+  it("reports truncated GitHub listings as unverifiable, not failed", async () => {
+    const { root } = repoWithCommits();
+    const { session } = createMockGitHub(baseState());
+    const truncated = new GitHubAuthError("result_truncated", "too many installations");
+    const outcome = await authorizeProject(root, {
+      getGitHubSession: async () => ({
+        ...session,
+        client: {
+          ...session.client,
+          listUserInstallations: async () => {
+            throw truncated;
+          },
+          listPullRequestsForCommit: async () => {
+            throw truncated;
+          },
+        },
+      }),
+    });
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+    expect(statusOf(outcome, "contribution")).toBe("unverifiable");
+  });
+
+  it("uses GitHub's canonical repository name for API calls and the result", async () => {
+    const { root, mine } = repoWithCommits();
+    const { outcome, calls } = await authorize(
+      root,
+      baseState({
+        repository: userRepository({ fullName: "me/app-renamed" }),
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
+        compare: { [mine]: "ahead" },
+      }),
+    );
+    expect(outcome.summary.decision).toBe("allowed");
+    expect(outcome.repo).toBe("me/app-renamed");
+    expect(calls).toContain(`pulls:me/app-renamed:${mine}`);
+  });
+
   it("blocks when the user's PR was never merged", async () => {
     const { root, mine } = repoWithCommits();
     const { outcome } = await authorize(
       root,
       baseState({
-        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: null }] },
+        pulls: {
+          [mine]: [
+            { number: 4, userId: ME.id, mergedAt: null, baseRef: "main", baseRepositoryId: 555 },
+          ],
+        },
         compare: { [mine]: "ahead" },
       }),
     );
@@ -197,7 +308,17 @@ describe("authorizeProject: blocked paths", () => {
       root,
       baseState({
         // The commit claims me@example.com, is in main, but GitHub attributes nothing to me.
-        pulls: { [mine]: [{ number: 9, userId: 4242, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [mine]: [
+            {
+              number: 9,
+              userId: 4242,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         commits: { [mine]: { sha: mine, authorId: ME.id, committerId: ME.id, isVerified: false } },
         compare: { [mine]: "ahead" },
       }),
@@ -218,6 +339,31 @@ describe("authorizeProject: blocked paths", () => {
     expectBlocked(outcome);
   });
 
+  it("ignores qualifying commits outside HEAD's history (orphan checkout)", async () => {
+    const { mine } = repoWithCommits();
+    fixture?.git("checkout", "-q", "--orphan", "unrelated");
+    fixture?.commit({ files: { "other.txt": "x" } });
+    const { outcome, calls } = await authorize(
+      fixture?.root ?? "",
+      baseState({
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
+        compare: { [mine]: "ahead" },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(calls.some((call) => call.endsWith(mine))).toBe(false);
+  });
+
   it("blocks a local-only commit even with a matching identity", async () => {
     const { root } = repoWithCommits();
     const { outcome } = await authorize(root, baseState({ compare: {} }));
@@ -231,7 +377,17 @@ describe("authorizeProject: blocked paths", () => {
       const { outcome } = await authorize(
         root,
         baseState({
-          pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+          pulls: {
+            [mine]: [
+              {
+                number: 4,
+                userId: ME.id,
+                mergedAt: "2026-10-01T00:00:00Z",
+                baseRef: "main",
+                baseRepositoryId: 555,
+              },
+            ],
+          },
           compare: comparison ? { [mine]: comparison } : {},
         }),
       );
@@ -245,7 +401,17 @@ describe("authorizeProject: blocked paths", () => {
     const { outcome, calls } = await authorize(
       root,
       baseState({
-        pulls: { [other]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [other]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         compare: { [other]: "ahead" },
       }),
       1,
@@ -283,6 +449,7 @@ describe("authorizeProject: repository and identity", () => {
     ["non-GitHub remote", { origin: "https://gitlab.com/me/app.git" }],
     ["unparsable remote", { origin: "not a url" }],
     ["no remote", {}],
+    ["malformed percent-encoded remote", { origin: "https://github.com/me/app%E0" }],
   ])("blocks %s before any sign-in", async (_label, remotes) => {
     const { root } = repoWithCommits(remotes);
     const { outcome, getGitHubSession } = await authorize(root, baseState());
@@ -309,7 +476,17 @@ describe("authorizeProject: repository and identity", () => {
     const { outcome, getGitHubSession } = await authorize(
       root,
       baseState({
-        pulls: { [mine]: [{ number: 4, userId: ME.id, mergedAt: "2026-10-01T00:00:00Z" }] },
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
         compare: { [mine]: "ahead" },
       }),
     );
