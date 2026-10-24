@@ -130,8 +130,8 @@ describe("main", () => {
     // Menu: 5th entry "Scan local web service".
     for (let index = 0; index < 4; index += 1) await press("\u001b[B");
     await press("\r");
-    // Port list: Esc returns to the menu with status 130.
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Port list (re-activated after the authorization check): Esc returns with status 130.
+    await new Promise((resolve) => setTimeout(resolve, 100));
     // A lone ESC is only recognised after readline's escape timeout (~500 ms).
     await press("\u001b");
     await new Promise((resolve) => setTimeout(resolve, 700));
