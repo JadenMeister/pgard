@@ -43,10 +43,76 @@ const SENSITIVE_KEY =
  */
 const REFERENCE_ROOTS =
   "process\\.env|import\\.meta\\.env|os\\.environ|req|request|res|ctx|context|this|self|config|configuration|settings|options|opts|env|params|props|args|body|input|form|values|state";
+// Calls are exempt only with no argument, a plain identifier, or an env-var-style string
+// (`getSecret()`, `load(name)`, `os.getenv("DB_PASSWORD")`); `Secret(123)` is masked.
+// Only well-known environment/config getters may take a string argument.
+const ENV_GETTERS =
+  "os\\.getenv|getenv|os\\.environ\\.get|process\\.env\\.get|Deno\\.env\\.get|env\\.get|config\\.get|configService\\.get|settings\\.get|System\\.getenv|ENV\\.fetch";
 const CODE_REFERENCE = new RegExp(
-  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\([^()\\s]{0,128}\\))$`,
+  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\((?:[A-Za-z_$][\\w$]{0,64})?\\)|(?:${ENV_GETTERS})\\((?:"[A-Z_][A-Z0-9_]{0,64}"|'[A-Z_][A-Z0-9_]{0,64}')\\))$`,
 );
+/**
+ * Unquoted words that follow `password:` in prose or type annotations rather than being values
+ * (`login(password: string)`, "Use a strong password: at least 16 characters").
+ */
+const NON_VALUE_WORDS = new Set([
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "symbol",
+  "any",
+  "unknown",
+  "object",
+  "never",
+  "void",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "str",
+  "int",
+  "bool",
+  "bytes",
+  "buffer",
+  "uint8array",
+  "date",
+  "required",
+  "optional",
+  "none",
+  "a",
+  "an",
+  "the",
+  "at",
+  "is",
+  "are",
+  "must",
+  "should",
+  "use",
+  "set",
+  "minimum",
+  "maximum",
+  "min",
+  "max",
+  "not",
+  "no",
+  "yes",
+  "see",
+  "e.g.",
+]);
 const ALREADY_REDACTED = /^\[REDACTED:/;
+
+/** Splits trailing `)` characters that have no matching `(` inside the value. */
+function peelUnmatchedParens(raw: string): { value: string; rest: string } {
+  let value = raw;
+  let rest = "";
+  const count = (text: string, char: string) => text.split(char).length - 1;
+  while (value.endsWith(")") && count(value, ")") > count(value, "(")) {
+    value = value.slice(0, -1);
+    rest = `)${rest}`;
+  }
+  return { value, rest };
+}
 const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
 
 /**
@@ -149,10 +215,11 @@ const RULES: Rule[] = [
         return sq === "" ? match : `${prefix}'${maskSecret("value")}${end(sqEnd)}`;
       if (bq !== undefined)
         return bq === "" ? match : `${prefix}\`${maskSecret("value")}${end(bqEnd)}`;
-      if (bare === undefined || ALREADY_REDACTED.test(bare) || CODE_REFERENCE.test(bare)) {
-        return match;
-      }
-      return `${prefix}${maskSecret("value")}`;
+      if (bare === undefined || ALREADY_REDACTED.test(bare)) return match;
+      // A trailing ")" that closes an outer call (`f(token: number)`) is not part of the value.
+      const { value, rest } = peelUnmatchedParens(bare);
+      if (CODE_REFERENCE.test(value) || NON_VALUE_WORDS.has(value.toLowerCase())) return match;
+      return `${prefix}${maskSecret("value")}${rest}`;
     },
   },
 ];
@@ -167,8 +234,11 @@ export const MAX_REDACTION_INPUT = 64 * 1024;
 export function capText(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const cut = text.slice(0, limit);
-  const lastSpace = cut.search(/\s\S*$/);
-  return `${lastSpace > 0 ? cut.slice(0, lastSpace) : ""} …`;
+  // Cut after the last character that cannot be part of a token (whitespace or punctuation such
+  // as `;` in a minified line), so the dropped tail holds the whole token that straddled the
+  // limit and useful evidence before it is kept.
+  const lastBreak = cut.search(/[\s;,(){}[\]<>"'`|][^\s;,(){}[\]<>"'`|]*$/);
+  return lastBreak >= 0 ? `${cut.slice(0, lastBreak + 1).trimEnd()} …` : " …";
 }
 
 /** Replaces recognizable secret values in free text with `[REDACTED:<kind>]`. */
@@ -196,8 +266,31 @@ const FILE_URL_PATTERN = /\bfile:\/\/[^\s'"`<>?#]{0,2048}/gi;
  * Filesystem-looking absolute paths: POSIX paths under well-known roots (route paths such as
  * `/api/login` are not filesystem paths and stay readable) and Windows drive paths.
  */
-const ABSOLUTE_PATH_PATTERN =
-  /(?<![\w.~/:\\-])\/(?:Users|home|opt|private|tmp|var|etc|usr|root|mnt|srv|Volumes|nix|proc|sys|dev|run|snap|Library|System|Applications|workspaces?|builds|runner|data)(?=[/\s'"`<>|]|$)[^\s'"`<>|]{0,1024}|(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])[^\s'"`<>|]{0,1024}/g;
+// A root path is masked when it has at least two segments below the root or one file-like
+// segment (`/tmp/x.log`), so short routes such as `/data/export` or `/run/jobs` stay readable.
+// Punctuation such as , ; ) ] } may appear inside a path (`/opt/acme,inc/key.pem`) but is not
+// taken as the last character, so a path followed by punctuation stays readable around it.
+const PATH_TAIL = "(?:[^\\s'\"`<>|]{0,1023}[^\\s'\"`<>|,;)\\]}])?";
+const PATH_SEGMENT = "[^\\s'\"`<>|/]{0,254}[^\\s'\"`<>|/,;)\\]}]";
+const FS_ROOTS =
+  "Users|home|opt|private|tmp|var|etc|usr|root|mnt|media|srv|Volumes|nix|snap|Library|System|Applications|workspaces?|builds|runner|code";
+const ROUTE_LIKE_ROOTS = "data|run|dev|sys|proc|app";
+const FILE_END = "(?=[\\s'\"`<>|,;)\\]}:]|$)";
+/**
+ * - Filesystem roots (`/etc/shadow`, `/root/.ssh`, `/var/log/`) are masked with any path below.
+ * - Roots that are also common routes (`/data`, `/run`, `/dev`, `/sys`, `/proc`, `/app`) are
+ *   masked only with two or more segments or a file-like segment (`/app/server.js:10:5`).
+ * - Windows drive and UNC paths are masked. Trailing punctuation stays outside the mask.
+ */
+const ABSOLUTE_PATH_PATTERN = new RegExp(
+  [
+    `(?<![\\w.~/:\\\\-])\\/(?:${FS_ROOTS})\\/${PATH_TAIL}`,
+    `(?<![\\w.~/:\\\\-])\\/(?:${ROUTE_LIKE_ROOTS})(?:(?:\\/${PATH_SEGMENT}){2,64}|\\/[^\\s'"\`<>|/]{0,254}\\.[A-Za-z0-9]{1,10}${FILE_END})`,
+    `(?<![A-Za-z0-9])[A-Za-z]:[\\\\/](?![\\\\/])${PATH_TAIL}`,
+    `(?<![\\w\\\\])\\\\\\\\[A-Za-z0-9._$-]{1,255}\\\\${PATH_TAIL}`,
+  ].join("|"),
+  "g",
+);
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 

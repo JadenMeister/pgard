@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "./contract.js";
 import {
+  capText,
   createSessionSecretLabeler,
   redactEvidence,
   redactFinding,
@@ -141,6 +142,23 @@ describe("redactSecrets", () => {
     expect(output).toContain("[REDACTED:private_key]");
   });
 
+  it.each([
+    ["Use a strong password: at least 16 characters"],
+    ["function login(password: string, token: number) {}"],
+    ["f(token: number)"],
+    ["type User = { password: string | null }"],
+  ])("leaves prose and type annotations readable: %s (#70)", (text) => {
+    expect(redactSecrets(text)).toBe(text);
+  });
+
+  it.each([
+    ["password=Secret(123)", "Secret(123)"],
+    ["password=abc(def", "abc(def"],
+    ["secret: unclosed(xyz9", "xyz9"],
+  ])("masks call-shaped values with literal arguments: %s (#70)", (input, secret) => {
+    expect(redactSecrets(input)).not.toContain(secret);
+  });
+
   it("keeps code references that merely mention sensitive names", () => {
     expect(redactSecrets("password = req.body.password")).toBe("password = req.body.password");
     expect(redactSecrets("const token = getToken()")).toBe("const token = getToken()");
@@ -175,6 +193,11 @@ describe("absolute paths (#59)", () => {
     ["C:\\proj\\src\\a.ts", "C:\\proj"],
     ["D:/work/app/config.yml", "D:/work"],
     ["file:///srv/app/x.txt", "/srv/app"],
+    ["/app/src/db.ts", "/app/src"],
+    ["/code/project/main.go", "/code/project"],
+    ["/media/usb/backup/keys", "/media/usb"],
+    ["/tmp/dump.sql", "dump.sql"],
+    ["\\\\fileserver\\share\\secrets.txt", "fileserver"],
   ])("removes %s", (input, fragment) => {
     const output = redactEvidence(`read ${input} done`);
     expect(output).not.toContain(fragment);
@@ -186,6 +209,9 @@ describe("absolute paths (#59)", () => {
     "GET /v1/users/:id",
     "see src/db.ts:10",
     "http://127.0.0.1:3000/tmp",
+    "POST /data/export returns 200",
+    "GET /run/jobs and /dev/tools",
+    "probe /sys/health",
   ])("keeps route paths and relative paths: %s", (text) => {
     expect(redactEvidence(text)).toBe(text);
   });
@@ -296,6 +322,21 @@ describe("redaction performance (#55)", () => {
   ])("redacts adversarial input (%s) quickly", (_label, input) => {
     expect(timed(() => redactEvidence(input))).toBeLessThan(250);
     expect(timed(() => redactSecrets(input))).toBeLessThan(1500);
+  });
+
+  it("keeps useful evidence from long input without whitespace (#72)", () => {
+    const minified = `var a=1;${"f(x);".repeat(3000)}`;
+    const output = redactEvidence(minified, { maxLength: 200 });
+    expect(output.startsWith("var a=1;f(x);")).toBe(true);
+    expect(output.length).toBeLessThanOrEqual(200);
+  });
+
+  it("drops a token that straddles the cut in text without whitespace (#72)", () => {
+    const token = ["ghp", "_", "w".repeat(36)].join("");
+    const input = `${"a;".repeat(2047)}x=${token};`;
+    const output = capText(input, 4100);
+    expect(output).not.toContain("ghp_w");
+    expect(output.endsWith(" …")).toBe(true);
   });
 
   it("caps very long input without leaving a partial secret at the cut", () => {
