@@ -18,6 +18,8 @@ import {
 } from "./session/session-state.js";
 import type { StaticAsset } from "./static-files.js";
 
+export { createDefaultServerDeps, type ServerDeps } from "./deps.js";
+
 export const MAX_BODY_BYTES = 16 * 1024;
 export const LOOPBACK_HOST = "127.0.0.1";
 
