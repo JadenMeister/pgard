@@ -564,13 +564,13 @@ describe("linear cost and caps (#87)", () => {
       return performance.now() - start;
     };
     time(build(500)); // warm up
-    const small = time(build(4000));
-    const large = time(build(16000));
-    // Quadratic resolution took ~20 s at 8,000 scopes; linear stays well under the budget and
-    // grows roughly 4x for 4x the input (16x if quadratic).
-    expect(large).toBeLessThan(5000);
+    const small = time(build(2000));
+    const large = time(build(8000));
+    // Quadratic resolution took ~20 s at 8,000 scopes. Linear time grows roughly 4x for 4x the
+    // input (16x if quadratic). Only the ratio is checked: CI runners are much slower than
+    // local machines, so absolute bounds are flaky.
     expect(large / Math.max(small, 1)).toBeLessThan(10);
-  });
+  }, 60_000);
 });
 
 describe("precision (#88)", () => {
