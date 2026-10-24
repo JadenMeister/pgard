@@ -487,3 +487,52 @@ describe("overflow-path unqueryable current paths (#108 review)", () => {
     expect(secret?.evidence).toMatch(/no longer present/);
   });
 });
+
+describe("unread current files (#132)", () => {
+  it("does not claim removal when the secret moved into a file over maxBlobBytes", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({
+      remove: ["old.sh"],
+      files: { "big.sh": `export GH="${TOKEN_A}"\n${"#".repeat(500)}\n` },
+    });
+    const result = await scanGitHistory(repo.root, { maxBlobBytes: 200 });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.location.path).toBe("old.sh");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/could not be checked whether the value is still/);
+    expect(JSON.stringify(result)).not.toContain(TOKEN_A);
+  });
+
+  it("still claims removal when no current file was skipped", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "small.sh": "echo ok\n" } });
+    const result = await scanGitHistory(repo.root, { maxBlobBytes: 200 });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/no longer present/);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("completed");
+    expect(JSON.stringify(result)).not.toContain(TOKEN_A);
+  });
+
+  it("still reports a value found in a read current file as current", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({
+      remove: ["old.sh"],
+      files: { "new.sh": `export GH="${TOKEN_A}"\n`, "big.txt": `${"#".repeat(500)}\n` },
+    });
+    const result = await scanGitHistory(repo.root, { maxBlobBytes: 200 });
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        ruleId: "PG-SECRET-002",
+        location: expect.objectContaining({ path: "new.sh", commit: null }),
+      }),
+    ]);
+    expect(JSON.stringify(result)).not.toContain(TOKEN_A);
+  });
+});
