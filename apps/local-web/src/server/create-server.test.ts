@@ -257,10 +257,145 @@ describe("local web server security", () => {
   });
 });
 
+const ALLOWED_VERIFY: ServerDeps["verifyProject"] = async () => ({
+  summary: { decision: "allowed", checks: [] },
+  repo: "owner/name",
+  revision: "abc",
+});
+
+/** Runs the authorization check through the API and waits until it finishes. */
+async function authorize(running: LocalWebServer): Promise<void> {
+  await apiPost(running, "/api/auth/verify");
+  await waitFor(
+    () => apiGet(running, "/api/auth"),
+    (response) => JSON.parse(response.body).status === "done",
+  );
+}
+
+describe("local web port access authorization gate", () => {
+  function spiedDeps(verifyProject?: ServerDeps["verifyProject"]) {
+    const discoverListeningPorts = vi.fn(fakeDeps().discoverListeningPorts);
+    const probeLocalService = vi.fn(async () => IDENTITY);
+    const deps = fakeDeps({
+      discoverListeningPorts,
+      probeLocalService,
+      ...(verifyProject ? { verifyProject } : {}),
+    });
+    return { deps, discoverListeningPorts, probeLocalService };
+  }
+
+  async function expectRefused(running: LocalWebServer): Promise<void> {
+    for (const response of [
+      await apiGet(running, "/api/ports"),
+      await apiPost(running, "/api/ports/probe", { port: 3000 }),
+      await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true }),
+    ]) {
+      expect(response.status).toBe(403);
+      const body = JSON.parse(response.body);
+      expect(body.error.code).toBe("authorization_required");
+      expect(body.error.message).toMatch(/authoriz/i);
+    }
+  }
+
+  it("refuses discovery and probes before any authorization check", async () => {
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(ALLOWED_VERIFY);
+    const running = await start(deps, 3000);
+    await expectRefused(running);
+    expect(discoverListeningPorts).not.toHaveBeenCalled();
+    expect(probeLocalService).not.toHaveBeenCalled();
+  });
+
+  it("refuses discovery and probes after a blocked authorization", async () => {
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps();
+    const running = await start(deps);
+    await authorize(running);
+    await expectRefused(running);
+    const body = JSON.parse((await apiGet(running, "/api/ports")).body);
+    expect(body.error.message).toContain("blocked");
+    expect(discoverListeningPorts).not.toHaveBeenCalled();
+    expect(probeLocalService).not.toHaveBeenCalled();
+  });
+
+  it("refuses while the check runs and after it fails", async () => {
+    let finish: (allowed: boolean) => void = () => undefined;
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(
+      () =>
+        new Promise((resolve, rejectVerify) => {
+          finish = (allowed) =>
+            allowed
+              ? resolve({
+                  summary: { decision: "allowed", checks: [] },
+                  repo: null,
+                  revision: null,
+                })
+              : rejectVerify(new Error("network"));
+        }),
+    );
+    const running = await start(deps);
+    await apiPost(running, "/api/auth/verify");
+    await expectRefused(running);
+    finish(false);
+    await waitFor(
+      () => apiGet(running, "/api/auth"),
+      (response) => JSON.parse(response.body).status === "failed",
+    );
+    await expectRefused(running);
+    expect(discoverListeningPorts).not.toHaveBeenCalled();
+    expect(probeLocalService).not.toHaveBeenCalled();
+  });
+
+  it("allows discovery and probes after a passing authorization", async () => {
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(ALLOWED_VERIFY);
+    const running = await start(deps);
+    await authorize(running);
+    const ports = await apiGet(running, "/api/ports");
+    expect(ports.status).toBe(200);
+    expect(JSON.parse(ports.body).services).toHaveLength(1);
+    expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(200);
+    expect(discoverListeningPorts).toHaveBeenCalledTimes(1);
+    expect(probeLocalService).toHaveBeenCalledTimes(2);
+  });
+
+  it("closes the gate again on sign-out or a new check that is blocked", async () => {
+    let decision: "allowed" | "blocked" = "allowed";
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps(async () => ({
+      summary: { decision, checks: [] },
+      repo: "owner/name",
+      revision: "abc",
+    }));
+    const running = await start(deps);
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    await apiPost(running, "/api/auth/sign-out");
+    await expectRefused(running);
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    decision = "blocked";
+    await authorize(running);
+    await expectRefused(running);
+    expect(discoverListeningPorts).toHaveBeenCalledTimes(2);
+    expect(probeLocalService).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores anything the client sends about authorization", async () => {
+    const { deps, discoverListeningPorts, probeLocalService } = spiedDeps();
+    const running = await start(deps);
+    const response = await apiPost(running, "/api/ports/probe", {
+      port: 3000,
+      authorization: { decision: "allowed" },
+      isAuthorized: true,
+    });
+    expect(response.status).toBe(403);
+    expect(discoverListeningPorts).not.toHaveBeenCalled();
+    expect(probeLocalService).not.toHaveBeenCalled();
+  });
+});
+
 describe("local web target confirmation", () => {
   it("only confirms the port whose identity was just probed", async () => {
     let clock = 1_000_000;
-    const running = await start(fakeDeps({ now: () => clock }));
+    const running = await start(fakeDeps({ now: () => clock, verifyProject: ALLOWED_VERIFY }));
+    await authorize(running);
     expect(
       (await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true })).status,
     ).toBe(409);
@@ -287,8 +422,12 @@ describe("local web target confirmation", () => {
 
   it("refuses ports that did not answer HTTP and invalid ports", async () => {
     const running = await start(
-      fakeDeps({ probeLocalService: async () => ({ ...IDENTITY, isHttp: false, status: null }) }),
+      fakeDeps({
+        probeLocalService: async () => ({ ...IDENTITY, isHttp: false, status: null }),
+        verifyProject: ALLOWED_VERIFY,
+      }),
     );
+    await authorize(running);
     await apiPost(running, "/api/ports/probe", { port: 3000 });
     expect(
       (await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true })).status,
@@ -303,6 +442,7 @@ describe("local web scans", () => {
     const requests: ScanRequest[] = [];
     const running = await start(
       fakeDeps({
+        verifyProject: ALLOWED_VERIFY,
         runScan: async (request) => {
           requests.push(request);
           return result({ requestedScopes: request.scopes });
@@ -323,6 +463,7 @@ describe("local web scans", () => {
       webTarget: null,
     });
 
+    await authorize(running);
     await apiPost(running, "/api/ports/probe", { port: 3000 });
     await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true });
     await apiPost(running, "/api/scan", { scopes: ["web"] });
