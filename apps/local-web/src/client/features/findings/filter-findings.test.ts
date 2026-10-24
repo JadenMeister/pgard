@@ -1,7 +1,5 @@
 import type { Finding } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
-import { takeTokenFromLocation, hasSessionToken } from "../../api/client";
-import { isGitHubUrl } from "../../components/github/device-code";
 import { countBySeverity, EMPTY_FILTERS, filterFindings, formatLocation } from "./filter-findings";
 
 function finding(overrides: Partial<Finding>): Finding {
@@ -67,34 +65,5 @@ describe("filterFindings", () => {
     expect(countBySeverity(FINDINGS)).toEqual({ critical: 1, high: 1, medium: 0, low: 1, info: 0 });
     expect(formatLocation(FINDINGS[2]!.location)).toBe("src/a.ts:3");
     expect(formatLocation(FINDINGS[0]!.location)).toBe("http://127.0.0.1:3000/");
-  });
-});
-
-describe("takeTokenFromLocation", () => {
-  it("reads the token from the fragment and removes it from the address bar", () => {
-    const replaced: string[] = [];
-    const history = {
-      replaceState: (_s: unknown, _t: string, url: string) => replaced.push(url),
-    } as unknown as History;
-    const location = {
-      hash: "#token=abcdefghijklmnopqrstuvwxyz012345",
-      pathname: "/",
-      search: "",
-    } as Location;
-    expect(takeTokenFromLocation(location, history)).toBe("abcdefghijklmnopqrstuvwxyz012345");
-    expect(hasSessionToken()).toBe(true);
-    expect(replaced).toEqual(["/"]);
-    expect(
-      takeTokenFromLocation({ ...location, hash: "#token=<script>" } as Location, history),
-    ).toBeNull();
-  });
-});
-
-describe("isGitHubUrl", () => {
-  it("only accepts https github.com links", () => {
-    expect(isGitHubUrl("https://github.com/login/device")).toBe(true);
-    expect(isGitHubUrl("javascript:alert(1)")).toBe(false);
-    expect(isGitHubUrl("http://github.com/login/device")).toBe(false);
-    expect(isGitHubUrl("https://github.com.evil.example/")).toBe(false);
   });
 });

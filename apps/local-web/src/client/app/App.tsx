@@ -20,7 +20,7 @@ export function App() {
   useEffect(() => {
     if (!hasSessionToken()) {
       setError(
-        "This page needs the one-time URL printed by `pgard dashboard`. Open that URL again.",
+        "This page needs the private session URL printed by `pgard dashboard`. Open that URL again.",
       );
       return;
     }

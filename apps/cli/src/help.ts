@@ -75,7 +75,7 @@ ${EXIT_CODE_HELP}`,
   dashboard: `Usage:
   pgard dashboard [--target-port N]
 
-Starts the local web dashboard on a free 127.0.0.1 port and prints its one-time
+Starts the local web dashboard on a free 127.0.0.1 port and prints its private
 URL. --target-port pre-selects the local service to check (you still confirm it
 in the browser). Results and the session end when you stop the dashboard.
 

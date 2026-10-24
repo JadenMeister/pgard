@@ -6,7 +6,7 @@ import { loadStaticAssets } from "./static-files.js";
 
 /**
  * Dashboard process entry, started by `pgard dashboard` with this Node binary. Prints the
- * one-time URL (token in the URL fragment, so it is not sent in requests or Referer headers).
+ * private session URL (token in the URL fragment, so it is not sent in requests or Referer headers).
  */
 async function runLauncher(): Promise<number> {
   let options;
@@ -33,7 +33,7 @@ async function runLauncher(): Promise<number> {
   process.stdout.write(
     [
       "PGARD dashboard is running on 127.0.0.1 only.",
-      `Open this one-time URL in your browser: ${server.url}`,
+      `Open this private session URL in your browser (valid until you stop the dashboard): ${server.url}`,
       "Do not share this URL. Press Ctrl+C to stop; results and sign-in are discarded on exit.",
       "",
     ].join("\n"),
