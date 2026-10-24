@@ -173,7 +173,13 @@ export async function scanDependencies(
   throwIfAborted(options.signal);
   const findings: Finding[] = [];
   const coverage: Coverage[] = [];
-  const goFiles = manifests.goMods.length > 0 ? manifests.goMods : manifests.goSums;
+  // go.mod vs go.sum is chosen per directory: a module's go.mod lists its selected versions,
+  // and a go.sum is only used where no go.mod sits beside it.
+  const goModDirectories = new Set(manifests.goMods.map((file) => path.posix.dirname(file)));
+  const goFiles = [
+    ...manifests.goMods,
+    ...manifests.goSums.filter((file) => !goModDirectories.has(path.posix.dirname(file))),
+  ];
   // The database is only loaded when there is something to compare (it can be large).
   const hasManifests =
     manifests.npmLockfiles.length > 0 || goFiles.length > 0 || manifests.packageJsons.length > 0;

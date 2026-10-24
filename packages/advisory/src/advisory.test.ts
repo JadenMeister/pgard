@@ -653,3 +653,23 @@ describe("pnpm entries that cannot be compared (#115)", () => {
     expect(npm?.note).toMatch(/3 dependency entries .* could not be compared/);
   });
 });
+
+describe("Go manifests per directory (#115)", () => {
+  const goScan = (files: Record<string, string>) =>
+    scanDependencies(tempDir(files), {
+      env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) },
+      now,
+    });
+
+  it("uses a go.sum in a directory without go.mod even when another go.mod exists", async () => {
+    const result = await goScan({
+      "api/go.mod": "module api\n\ngo 1.21\n\nrequire example.com/safe v1.0.0\n",
+      "api/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+      "tool/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+    });
+    expect(result.findings.map((finding) => finding.location.path)).toEqual(["tool/go.sum"]);
+    const go = result.coverage.find((entry) => entry.area === "dependencies:go");
+    expect(go?.note).toContain("api/go.mod, tool/go.sum");
+    expect(go?.note).not.toContain("api/go.sum");
+  });
+});
