@@ -11,8 +11,8 @@
     "apps/*"
   ],
   "scripts": {
-    "build": "tsc -b && npm run build:client -w @pgard/local-web",
-    "typecheck": "tsc -b",
+    "build": "node ./node_modules/typescript/bin/tsc -b && npm run build:client -w @pgard/local-web",
+    "typecheck": "node ./node_modules/typescript/bin/tsc -b",
     "test": "vitest run --passWithNoTests",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
