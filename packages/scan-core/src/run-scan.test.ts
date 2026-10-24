@@ -1,6 +1,7 @@
 import type { AnalyzerOutput, Finding, ScanRequest } from "@pgard/findings";
 import type { AuthorizationOutcome } from "@pgard/policy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { sessionProvider } from "../../policy/src/test-support/mock-github.js";
 
 const authorizeProject = vi.fn<(root: string) => Promise<AuthorizationOutcome>>();
 
@@ -76,7 +77,9 @@ const historyOutput: AnalyzerOutput = {
 };
 
 const deps = (overrides: Record<string, unknown> = {}) => ({
-  authorization: { getGitHubSession: async () => Promise.reject(new Error("unused")) },
+  authorization: {
+    getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+  },
   analyzers: { code: async () => codeOutput, history: async () => historyOutput },
   createScanId: () => "scan-1",
   now: () => new Date("2026-10-24T00:00:00Z"),

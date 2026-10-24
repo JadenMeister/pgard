@@ -1,5 +1,6 @@
 import type { AuthorizationOutcome } from "@pgard/policy";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { sessionProvider } from "../../policy/src/test-support/mock-github.js";
 import {
   createGitFixture,
   type GitFixture,
@@ -40,7 +41,9 @@ describe("default analyzers wiring", () => {
     const result = await runScan(
       { projectRoot: fixture.root, scopes: ["history"], webTarget: null },
       {
-        authorization: { getGitHubSession: async () => Promise.reject(new Error("unused")) },
+        authorization: {
+          getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+        },
         env: {},
       },
     );

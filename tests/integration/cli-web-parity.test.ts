@@ -201,6 +201,11 @@ function request(
   });
 }
 
+/** How long the web side may poll for a finished scan before failing with its own message. */
+const WEB_SCAN_DEADLINE_MS = 20_000;
+/** Above the polling deadline, so a hung scan reports the deadline, not Vitest's timeout. */
+const PARITY_TEST_TIMEOUT_MS = 30_000;
+
 async function scanWithWeb(
   root: string,
   createSessionProvider: SessionFactory,
@@ -223,7 +228,7 @@ async function scanWithWeb(
   const started = await request(server.port, "POST", "/api/scan", { scopes: ["code", "history"] });
   expect(started.status).toBe(200);
 
-  const deadline = Date.now() + 20_000;
+  const deadline = Date.now() + WEB_SCAN_DEADLINE_MS;
   for (;;) {
     const polled = await request(server.port, "GET", "/api/scan");
     expect(polled.status).toBe(200);
@@ -246,7 +251,7 @@ function comparable(result: ScanResult): unknown {
   return JSON.parse(JSON.stringify(rest)) as unknown;
 }
 
-describe("CLI and local web parity", () => {
+describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => {
   it("produce the same ScanResult for an allowed code + history scan", async () => {
     const { root, head } = createProject();
     const cliGitHub = mockSessionProvider(allowedState(head));

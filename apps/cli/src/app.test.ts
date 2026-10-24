@@ -80,9 +80,7 @@ describe("main", () => {
 
   it("lets Ctrl+C (SIGINT) cancel a running scan after a prompt was used", async () => {
     const captured = createTestIo({ isTTY: true });
-    const stdin = captured.io.stdin as typeof captured.io.stdin & {
-      setRawMode?: (mode: boolean) => void;
-    };
+    const { stdin } = captured;
     const rawModes: boolean[] = [];
     stdin.setRawMode = (mode) => {
       rawModes.push(mode);
@@ -115,9 +113,7 @@ describe("main", () => {
 
   it("exits 0 when the menu is left after a command ended with Esc (130)", async () => {
     const captured = createTestIo({ isTTY: true });
-    const stdin = captured.io.stdin as typeof captured.io.stdin & {
-      setRawMode?: (mode: boolean) => void;
-    };
+    const { stdin } = captured;
     stdin.setRawMode = () => undefined;
     const running = main([], captured.io, {
       deps: createTestDeps({ createSessionProvider: () => (async () => ({})) as never }),
