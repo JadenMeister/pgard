@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { FindingStatus, ScanResult, ScanScope, Severity } from "@pgard/findings";
+import type { Finding, FindingStatus, ScanResult, ScanScope, Severity } from "@pgard/findings";
 import { SeverityBarChart } from "../../components/charts/SeverityBarChart";
 import { SeverityDonutChart } from "../../components/charts/SeverityDonutChart";
 import { SEVERITY_LABELS, SEVERITY_ORDER } from "../../components/charts/severity-scale";
@@ -9,6 +9,7 @@ import {
   EMPTY_FILTERS,
   filterFindings,
   formatLocation,
+  splitByContext,
   type FindingFilters,
 } from "./filter-findings";
 
@@ -19,19 +20,48 @@ const OVERALL_LABELS: Record<string, string> = {
   failed: "Failed - an internal error stopped the scan",
 };
 
+function FindingItem({ finding }: { finding: Finding }) {
+  return (
+    <li className={`finding sev-${finding.severity}`}>
+      <div className="finding-head">
+        <span className={`badge sev-badge sev-${finding.severity}`}>
+          {SEVERITY_LABELS[finding.severity]}
+        </span>
+        <span className="badge">{finding.status}</span>
+        <span className="muted">confidence {finding.confidence}</span>
+      </div>
+      <h3>{finding.title}</h3>
+      <p className="location">
+        <code>{formatLocation(finding.location)}</code>{" "}
+        <span className="muted">{finding.ruleId}</span>
+      </p>
+      <dl>
+        <dt>Evidence (redacted)</dt>
+        <dd>
+          <pre>{finding.evidence}</pre>
+        </dd>
+        <dt>Impact</dt>
+        <dd>{finding.impact}</dd>
+        <dt>Recommendation</dt>
+        <dd>{finding.recommendation}</dd>
+      </dl>
+    </li>
+  );
+}
+
 /** Charts, filters and the finding list for the current session's result (already redacted). */
 export function FindingsDashboard({ result }: { result: ScanResult }) {
   const [filters, setFilters] = useState<FindingFilters>(EMPTY_FILTERS);
-  const counts = useMemo(() => countBySeverity(result.findings), [result.findings]);
-  const visible = useMemo(
-    () => filterFindings(result.findings, filters),
-    [result.findings, filters],
-  );
+  // Headline counts and charts cover regular code; test and fixture findings are listed after.
+  const groups = useMemo(() => splitByContext(result.findings), [result.findings]);
+  const counts = useMemo(() => countBySeverity(groups.primary), [groups]);
+  const visible = useMemo(() => filterFindings(groups.primary, filters), [groups, filters]);
+  const visibleTest = useMemo(() => filterFindings(groups.test, filters), [groups, filters]);
   const statusCounts = useMemo(() => {
     const split = { confirmed: 0, suspected: 0, informational: 0 };
-    for (const finding of result.findings) if (finding.status in split) split[finding.status] += 1;
+    for (const finding of groups.primary) if (finding.status in split) split[finding.status] += 1;
     return split;
-  }, [result.findings]);
+  }, [groups]);
 
   if (result.overallStatus === "blocked") {
     return (
@@ -46,9 +76,10 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
   return (
     <Card title="Results" step={4}>
       <p className={`overall overall-${result.overallStatus}`}>
-        {OVERALL_LABELS[result.overallStatus] ?? "Unknown"} - {result.findings.length} finding(s):{" "}
+        {OVERALL_LABELS[result.overallStatus] ?? "Unknown"} - {groups.primary.length} finding(s):{" "}
         {statusCounts.confirmed} confirmed, {statusCounts.suspected} suspected,{" "}
         {statusCounts.informational} informational
+        {groups.test.length > 0 ? ` - plus ${groups.test.length} in test or fixture code` : ""}
       </p>
       <div className="charts">
         <SeverityBarChart
@@ -125,40 +156,37 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
       </div>
       {visible.length === 0 ? (
         <p className="muted">
-          {result.findings.length === 0
-            ? "No findings in the areas that ran. This does not mean the project is secure; check coverage."
+          {groups.primary.length === 0
+            ? groups.test.length === 0
+              ? "No findings in the areas that ran. This does not mean the project is secure; check coverage."
+              : "No findings outside test or fixture code in the areas that ran. This does not mean the project is secure; check coverage."
             : "No findings match the filters."}
         </p>
       ) : (
         <ul className="findings">
           {visible.map((finding) => (
-            <li key={finding.id} className={`finding sev-${finding.severity}`}>
-              <div className="finding-head">
-                <span className={`badge sev-badge sev-${finding.severity}`}>
-                  {SEVERITY_LABELS[finding.severity]}
-                </span>
-                <span className="badge">{finding.status}</span>
-                <span className="muted">confidence {finding.confidence}</span>
-              </div>
-              <h3>{finding.title}</h3>
-              <p className="location">
-                <code>{formatLocation(finding.location)}</code>{" "}
-                <span className="muted">{finding.ruleId}</span>
-              </p>
-              <dl>
-                <dt>Evidence (redacted)</dt>
-                <dd>
-                  <pre>{finding.evidence}</pre>
-                </dd>
-                <dt>Impact</dt>
-                <dd>{finding.impact}</dd>
-                <dt>Recommendation</dt>
-                <dd>{finding.recommendation}</dd>
-              </dl>
-            </li>
+            <FindingItem key={finding.id} finding={finding} />
           ))}
         </ul>
       )}
+      {groups.test.length > 0 ? (
+        <section className="test-findings" aria-label="Findings in test or fixture code">
+          <h3>In test or fixture code ({groups.test.length})</h3>
+          <p className="muted small">
+            Matches in test or fixture files, with confidence capped at low. They are not counted
+            above, but review them: a real value committed in a test is still exposed.
+          </p>
+          {visibleTest.length === 0 ? (
+            <p className="muted">No findings match the filters.</p>
+          ) : (
+            <ul className="findings">
+              {visibleTest.map((finding) => (
+                <FindingItem key={finding.id} finding={finding} />
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
       <p className="muted small">
         Advisory data: {result.advisoryDb.version ?? "none"}
         {result.advisoryDb.updatedAt ? `, updated ${result.advisoryDb.updatedAt}` : ""}

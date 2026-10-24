@@ -1,6 +1,12 @@
 import type { Finding } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
-import { countBySeverity, EMPTY_FILTERS, filterFindings, formatLocation } from "./filter-findings";
+import {
+  countBySeverity,
+  EMPTY_FILTERS,
+  filterFindings,
+  formatLocation,
+  splitByContext,
+} from "./filter-findings";
 
 function finding(overrides: Partial<Finding>): Finding {
   return {
@@ -65,5 +71,12 @@ describe("filterFindings", () => {
     expect(countBySeverity(FINDINGS)).toEqual({ critical: 1, high: 1, medium: 0, low: 1, info: 0 });
     expect(formatLocation(FINDINGS[2]!.location)).toBe("src/a.ts:3");
     expect(formatLocation(FINDINGS[0]!.location)).toBe("http://127.0.0.1:3000/");
+  });
+
+  it("splits test or fixture findings from regular ones without dropping any", () => {
+    const test = finding({ id: "t", context: "test", confidence: "low" });
+    const { primary, test: tests } = splitByContext([...FINDINGS, test]);
+    expect(primary.map((entry) => entry.id)).toEqual(FINDINGS.map((entry) => entry.id));
+    expect(tests).toEqual([test]);
   });
 });
