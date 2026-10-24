@@ -709,6 +709,22 @@ describe("go.mod before Go 1.17 (#115)", () => {
     expect(go?.note).toMatch(/no go directive/);
   });
 
+  it("ignores testdata, _ and . directories like the Go tool", async () => {
+    const result = await scanDependencies(
+      tempDir({
+        "go.mod": "module x\n\ngo 1.21\n\nrequire example.com/a v1.0.0\n",
+        "internal/testdata/fixture/go.mod": "module fixture\n\nrequire golang.org/x/text v0.3.7\n",
+        "_examples/go.mod": "module ex\n\nrequire golang.org/x/text v0.3.7\n",
+        ".tools/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+      }),
+      { env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) }, now },
+    );
+    expect(result.findings).toEqual([]);
+    const go = result.coverage.find((entry) => entry.area === "dependencies:go");
+    expect(go?.status).toBe("completed");
+    expect(go?.note).toContain("from go.mod compared");
+  });
+
   it("keeps Go 1.17+ modules completed", async () => {
     expect(
       (await goCoverage("module x\n\ngo 1.17\n\nrequire example.com/a v1.0.0\n"))?.status,

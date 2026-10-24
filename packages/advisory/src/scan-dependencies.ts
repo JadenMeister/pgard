@@ -67,7 +67,11 @@ interface Manifests {
 
 async function findManifests(root: string): Promise<Manifests> {
   const result: Manifests = { npmLockfiles: [], packageJsons: [], goMods: [], goSums: [] };
-  const visit = async (directory: string, depth: number) => {
+  // The Go tool ignores `testdata` and directories starting with `_` or `.`; modules there are
+  // fixtures, not part of the build, so they are skipped for Go (npm discovery is unchanged).
+  const isGoIgnoredDirectory = (name: string) =>
+    name === "testdata" || name.startsWith("_") || name.startsWith(".");
+  const visit = async (directory: string, depth: number, isGoIgnored: boolean) => {
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -80,16 +84,18 @@ async function findManifests(root: string): Promise<Manifests> {
       const full = path.join(directory, entry.name);
       const relative = path.relative(root, full).split(path.sep).join("/");
       if (entry.isDirectory()) {
-        if (!SKIPPED.has(entry.name) && depth < MAX_DEPTH) await visit(full, depth + 1);
+        if (!SKIPPED.has(entry.name) && depth < MAX_DEPTH) {
+          await visit(full, depth + 1, isGoIgnored || isGoIgnoredDirectory(entry.name));
+        }
       } else if (entry.isFile()) {
         if (NPM_LOCKFILES[entry.name]) result.npmLockfiles.push(relative);
         else if (entry.name === "package.json") result.packageJsons.push(relative);
-        else if (entry.name === "go.mod") result.goMods.push(relative);
-        else if (entry.name === "go.sum") result.goSums.push(relative);
+        else if (entry.name === "go.mod" && !isGoIgnored) result.goMods.push(relative);
+        else if (entry.name === "go.sum" && !isGoIgnored) result.goSums.push(relative);
       }
     }
   };
-  await visit(root, 0);
+  await visit(root, 0, false);
   return result;
 }
 
