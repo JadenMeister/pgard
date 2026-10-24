@@ -146,20 +146,43 @@ function isInsideStringLiteral(text: string, index: number): boolean {
   return open !== null;
 }
 
+/** Code right before a key: a declaration keyword, or an opening `(`/`{` or `,` separator. */
+const CODE_BEFORE_KEY =
+  /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({,]\s*$/;
+/** Code right after a value: `)`, `,`, `;`, `{` or `=>`. */
+const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
+
+/**
+ * Whether the match positively looks like code: the key follows a code token on its line
+ * (`const password = …`, `f(secret: …`, `{ apiKey: …`), or the key starts the line as an
+ * object property or type member (`key: value`) and the value is followed by code
+ * (an object property set to a constant and a trailing comma, or a `string;` type member). Anything else, including lines inside
+ * multi-line strings (`Password=abc;`) and anything ambiguous, is not treated as code.
+ */
+function looksLikeCode(text: string, start: number, end: number, separator: string): boolean {
+  if (isInsideStringLiteral(text, start)) return false;
+  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+  const before = text.slice(lineStart, start);
+  if (CODE_BEFORE_KEY.test(before)) return true;
+  const lineEnd = text.indexOf("\n", end);
+  const after = text.slice(end, lineEnd === -1 ? text.length : lineEnd);
+  return separator === ":" && before.trim() === "" && CODE_AFTER_VALUE.test(after);
+}
+
 /**
  * Whether a generic `key = value` match is an assignment of a literal value, judged by what
  * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). In
- * source code files, where a literal must be quoted, an unquoted value written as code (outside
- * a string literal) is rejected when it is code-shaped, an all-caps constant name or a bare
- * identifier. Unquoted values in config files (`.env`, YAML, `.properties`) and inside string
- * literals (connection strings) always count, whatever characters they contain.
+ * source code files, an unquoted value is rejected only when the line positively looks like code
+ * at the match (see `looksLikeCode`) and the value is code-shaped, an all-caps constant name or
+ * a bare identifier. Everything else is kept: config files, string literals (also multi-line
+ * ones), and ambiguous lines. Erring towards reporting is deliberate.
  */
 function isLiteralAssignment(
   text: string,
   match: RegExpMatchArray,
   options: DetectSecretsOptions,
 ): boolean {
-  const [, keyQuote = "", separator = "", valueQuote = "", value = ""] = match;
+  const [whole, keyQuote = "", separator = "", valueQuote = "", value = ""] = match;
   const start = match.index ?? 0;
   if (
     separator === ":" &&
@@ -172,7 +195,7 @@ function isLiteralAssignment(
   const isCode =
     options.path !== undefined &&
     SOURCE_CODE_FILE.test(options.path) &&
-    !isInsideStringLiteral(text, start);
+    looksLikeCode(text, start, start + whole.length, separator);
   if (!isCode) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&

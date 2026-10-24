@@ -112,15 +112,43 @@ describe("detectSecrets", () => {
     ["PHP DSN", '$dsn = "pgsql:host=db;password=QwErTyUiOpAsDfGh";', "src/db.php"],
     ["template literal", "const c = `Password=QwErTyUiOpAsDfGh;`;", "src/db.ts"],
     ["code-shaped value in a string", 'const c = "password=Tr0ub4dor)xK9!qZ";', "src/db.ts"],
+    // Re-review of #142: later lines of multi-line strings are not code.
+    [
+      "multi-line template literal",
+      "const c = `\nServer=db;Password=QwErTyUiOpAsDfGh;\n`;",
+      "src/db.ts",
+    ],
+    [
+      "multi-line template literal with brackets",
+      "const c = `\nPassword=K9x[mQ2]vLp8Wz4Rt;\n`;",
+      "src/db.ts",
+    ],
+    ["Python triple-quoted block", 'CFG = """\npassword=QwErTyUiOpAsDfGh\n"""', "app.py"],
+    ["Python triple-quoted brackets", 'CFG = """\npassword=K9x[mQ2]vLp8Wz4Rt\n"""', "app.py"],
+    ["Ruby heredoc", "cfg = <<~EOS\n  password: K9x[mQ2]vLp8Wz4Rt\nEOS", "app.rb"],
+    ["Go raw string", "cfg := `\npassword=K9x[mQ2]vLp8Wz4Rt\n`", "main.go"],
+    ["Go raw string with all caps", "cfg := `\nPASSWORD=PROD_DB_PASSWORDX\n`", "main.go"],
+    [
+      "string after a regex literal holding a quote",
+      'const re = /"/; const c = "Password=QwErTyUiOpAsDfGh";',
+      "src/db.ts",
+    ],
   ])("detects %s", (_label, text, path) => {
     expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
       "generic_credential",
     );
   });
 
-  it("ignores bare identifiers in source code but not in config files", () => {
+  it("ignores bare identifiers only where the line clearly is code", () => {
+    expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);
+    expect(detectSecrets("const x = { password: passwordFromVault };", { path: "a.ts" })).toEqual(
+      [],
+    );
+    // Ambiguous (could be a line inside a multi-line string): reported.
     const line = "password = userSuppliedValue";
-    expect(detectSecrets(line, { path: "app/settings.py" })).toEqual([]);
+    expect(detectSecrets(line, { path: "app/settings.py" }).map((s) => s.kind)).toEqual([
+      "generic_credential",
+    ]);
     expect(detectSecrets(line, { path: "config/app.ini" }).map((s) => s.kind)).toEqual([
       "generic_credential",
     ]);
