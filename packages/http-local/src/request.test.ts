@@ -59,6 +59,19 @@ describe("fetchLoopback redirects", () => {
     expect(result.response.body.toString()).toBe("home");
   });
 
+  it("follows redirects with their query but reports the path only", async () => {
+    const server = await start((request, response) => {
+      if (request.url === "/") {
+        response.writeHead(302, { location: "/next?token=abc" }).end();
+        return;
+      }
+      response.end("ok");
+    });
+    const result = await fetchLoopback(server.port, "/");
+    expect(server.requests.map((request) => request.url)).toEqual(["/", "/next?token=abc"]);
+    expect(result.response.url).toBe(`http://127.0.0.1:${server.port}/next`);
+  });
+
   it("stops redirect loops", async () => {
     const server = await start((_request, response) => {
       response.writeHead(302, { location: "/" }).end();

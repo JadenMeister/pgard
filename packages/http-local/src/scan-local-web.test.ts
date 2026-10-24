@@ -112,6 +112,26 @@ describe("scanLocalWeb", () => {
     ]);
   });
 
+  it("never reports query strings picked up from redirects", async () => {
+    const server = await start((request, response) => {
+      if (request.url === "/") {
+        response.writeHead(302, { location: "/login?session=SECRET123" }).end();
+        return;
+      }
+      response
+        .writeHead(200, { "content-type": "text/html", "set-cookie": ["sid=x"] })
+        .end("<title>Login</title>");
+    });
+    const progressUrls: string[] = [];
+    const output = await scanLocalWeb(targetFor(server.port), {
+      onProgress: (progress) => progressUrls.push(progress.url),
+    });
+    expect(output.findings.length).toBeGreaterThan(0);
+    expect(JSON.stringify(output)).not.toContain("SECRET123");
+    expect(progressUrls.join(" ")).not.toContain("SECRET123");
+    expect(output.findings[0]?.location.url).toBe(`http://127.0.0.1:${server.port}/login`);
+  });
+
   it("reports nothing for a hardened app whose SPA fallback serves HTML for every path", async () => {
     const server = await start((_request, response) => {
       response.writeHead(200, {

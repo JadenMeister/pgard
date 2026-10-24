@@ -12,7 +12,10 @@ import { buildLoopbackOrigin, InvalidTargetError, parseAllowedLoopbackUrl } from
 export type ReadOnlyMethod = "GET" | "HEAD";
 
 export interface LoopbackResponse {
-  /** Final URL that produced this response (loopback, same port). */
+  /**
+   * Origin + path of the request that produced this response (loopback, same port). The query
+   * string is never included, so tokens in URLs cannot reach findings, fingerprints or progress.
+   */
   url: string;
   status: number;
   headers: http.IncomingHttpHeaders;
@@ -71,7 +74,7 @@ export function requestLoopbackOnce(
   }
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const maxBodyBytes = options.maxBodyBytes ?? MAX_BODY_BYTES;
-  const url = `${origin}${pathWithQuery}`;
+  const url = `${origin}${pathWithQuery.split(/[?#]/, 1)[0] ?? "/"}`;
 
   return new Promise<LoopbackResponse>((resolve, reject) => {
     if (options.signal?.aborted === true) {
@@ -166,6 +169,7 @@ export async function fetchLoopback(
   options: LoopbackRequestOptions = {},
 ): Promise<LoopbackFetchResult> {
   let currentPath = pathWithQuery;
+  const origin = buildLoopbackOrigin(port);
   for (let hop = 0; ; hop += 1) {
     const response = await requestLoopbackOnce(port, currentPath, options);
     const location = response.headers.location;
@@ -178,7 +182,8 @@ export async function fetchLoopback(
     if (typeof location !== "string" || location.trim() === "") {
       return { response, redirectStop: { reason: "invalid_location", fromUrl: response.url } };
     }
-    const next = parseAllowedLoopbackUrl(location, response.url, { port });
+    // Resolve against the full current URL (with query) but never report it.
+    const next = parseAllowedLoopbackUrl(location, `${origin}${currentPath}`, { port });
     if (next === null) {
       return { response, redirectStop: { reason: "off_target", fromUrl: response.url } };
     }
