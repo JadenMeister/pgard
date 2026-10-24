@@ -150,3 +150,23 @@ describe("hand-written files with long strings (#105)", () => {
     expect(ts?.status).toBe("partial");
   });
 });
+
+describe("coverage notes (#109)", () => {
+  it("names the files that hit the per-file finding cap", async () => {
+    const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
+    const root = project({ "public/a.js": bundle, "public/b.js": bundle, "src/ok.js": "1;" });
+    const result = await scanSourceCode(root);
+    const note = result.coverage.find((entry) => entry.area === "source:javascript")?.note;
+    expect(note).toMatch(
+      /2 file\(s\) hit the per-file finding cap \(public\/a\.js, public\/b\.js\)/,
+    );
+  });
+
+  it("starts the problem list with a capital letter", async () => {
+    const root = project({ "only.ts": "export const a = 1;" });
+    let clock = 0;
+    const result = await scanSourceCode(root, { timeBudgetMs: 150, now: () => (clock += 100) });
+    const note = result.coverage.find((entry) => entry.area === "source:typescript")?.note;
+    expect(note).toMatch(/taint tracking\. The time budget was exceeded/);
+  });
+});
