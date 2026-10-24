@@ -471,6 +471,22 @@ describe("local web port access authorization gate", () => {
     expect(probeLocalService).not.toHaveBeenCalled();
   });
 
+  it("returns no port list when the user signs out while the probes run", async () => {
+    const probe = deferred(IDENTITY);
+    const running = await start(
+      fakeDeps({ verifyProject: ALLOWED_VERIFY, probeLocalService: probe.fn }),
+    );
+    await authorize(running);
+    const pending = apiGet(running, "/api/ports");
+    await probe.called;
+    await apiPost(running, "/api/auth/sign-out");
+    probe.release();
+    const response = await pending;
+    expect(response.status).toBe(403);
+    expect(JSON.parse(response.body).error.code).toBe("authorization_required");
+    expect(response.body).not.toContain("Shop dev");
+  });
+
   it("does not keep a probe that finished after sign-out", async () => {
     const probe = deferred(IDENTITY);
     const running = await start(
