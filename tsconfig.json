@@ -27,6 +27,9 @@
     },
     {
       "path": "packages/report"
+    },
+    {
+      "path": "apps/cli"
     }
   ]
 }
