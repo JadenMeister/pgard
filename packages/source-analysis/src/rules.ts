@@ -1,20 +1,6 @@
-import type { FindingCategory, ScanScope, Severity } from "@pgard/findings";
+import type { RuleDescriptor, RuleLanguage } from "@pgard/findings";
 
-export type RuleLanguage = "javascript" | "typescript" | "react" | "vue" | "go" | "any";
-
-export interface RuleDescriptor {
-  id: string;
-  title: string;
-  category: FindingCategory;
-  /** Severity when the strongest evidence is present; weaker evidence lowers it. */
-  defaultSeverity: Severity;
-  scope: ScanScope;
-  languages: RuleLanguage[];
-  cwe: string[];
-  owasp: string[];
-  impact: string;
-  recommendation: string;
-}
+export type { RuleDescriptor, RuleLanguage } from "@pgard/findings";
 
 const JS_TS: RuleLanguage[] = ["javascript", "typescript"];
 
