@@ -1,6 +1,6 @@
 import { ScanCancelledError } from "@pgard/scan-core";
 import { describe, expect, it, vi } from "vitest";
-import { main } from "./app.js";
+import { createDefaultDeps, main } from "./app.js";
 import { createTestDeps, createTestIo, noInterrupts } from "./test-support.js";
 
 describe("main", () => {
@@ -108,7 +108,7 @@ describe("main", () => {
       },
     });
     const running = main(["scan", "web", "--port", "3000"], captured.io, { deps, interrupts });
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await new Promise((resolve) => setTimeout(resolve, 120)); // after the type-ahead window
     stdin.write("y");
     expect(await running).toBe(130);
   });
@@ -140,4 +140,12 @@ describe("main", () => {
     expect(await running).toBe(0);
     expect(captured.stdout()).toContain("(exit status 130)");
   }, 10_000);
+
+  it("exports the default dependencies for integration tests", () => {
+    const deps = createDefaultDeps();
+    expect(typeof deps.runScan).toBe("function");
+    expect(typeof deps.verifyProject).toBe("function");
+    expect(typeof deps.webScanner).toBe("function");
+    expect(deps.nodeVersion).toBe(process.versions.node);
+  });
 });

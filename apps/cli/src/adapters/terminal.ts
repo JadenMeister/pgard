@@ -79,9 +79,11 @@ export function createKeyReader(stdin: InputStream, now: () => number = Date.now
     stdin.resume();
   };
   const deactivate = (): void => {
+    // Mark first: suspend() before the first prompt (e.g. the `scan web --port` pre-check)
+    // must also discard keys typed during that work.
+    wasSuspended = true;
     if (!isActive) return;
     isActive = false;
-    wasSuspended = true;
     stdin.off("keypress", onKeypress);
     stdin.setRawMode?.(false);
     stdin.pause();

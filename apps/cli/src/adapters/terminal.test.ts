@@ -58,4 +58,19 @@ describe("createKeyReader", () => {
     expect((await next).name).toBe("n");
     keys.close();
   });
+
+  it("discards type-ahead even when suspend() ran before the first prompt", async () => {
+    const stdin = fakeTty();
+    let clock = 0;
+    const keys = createKeyReader(stdin, () => clock);
+    keys.suspend(); // long-running work starts before any prompt was shown
+    clock = 500;
+    const pending = keys.readKey();
+    stdin.write("y"); // typed during the work, delivered on activation
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    clock = 600;
+    stdin.write("n");
+    expect((await pending).name).toBe("n");
+    keys.close();
+  });
 });
