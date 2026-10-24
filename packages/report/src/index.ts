@@ -18,3 +18,9 @@ export {
   type SeverityCounts,
 } from "./format.js";
 export { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";
+export {
+  hasUnsupportedPdfCharacters,
+  PDF_REPLACEMENT_NOTICE,
+  renderPdfReport,
+  toPdfText,
+} from "./render-pdf.js";
