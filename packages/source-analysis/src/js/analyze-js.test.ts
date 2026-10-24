@@ -376,3 +376,90 @@ describe("per-function facts stay linear (#104)", () => {
     expect(rules).toEqual(["PG-CRYPTO-001"]);
   });
 });
+
+describe("SQL through local db modules, identifier args and multi-line SQL (#84)", () => {
+  it("flags a query string assigned to a variable and run through a local db module", () => {
+    expect(
+      rulesIn(
+        "import db from './db';\nconst q = `SELECT * FROM users WHERE id = ${req.query.id}`;\ndb.query(q);",
+      ),
+    ).toEqual(["PG-SQL-001"]);
+  });
+
+  it("flags multi-line SQL templates", () => {
+    expect(
+      rulesIn(
+        "import db from './db';\ndb.query(`\n  SELECT *\n  FROM users\n  WHERE id = ${id}\n`);",
+      ),
+    ).toEqual(["PG-SQL-001"]);
+  });
+
+  it("still ignores non-SQL query() calls on unknown receivers", () => {
+    expect(rulesIn("search.query(`${term} near ${place}`);")).toEqual([]);
+  });
+});
+
+describe("request input passed straight to raw SQL sinks (#85)", () => {
+  it.each([
+    ["import { Pool } from 'pg'; pool.query(req.body.sql);"],
+    ["import db from './db'; db.query(req.body.sql);"],
+    ["await prisma.$queryRawUnsafe(req.body.q);"],
+    ["const q = req.body.q; await prisma.$executeRawUnsafe(q);"],
+  ])("flags %s", (code) => {
+    expect(rulesIn(code).some((id) => id.startsWith("PG-SQL"))).toBe(true);
+  });
+});
+
+describe("shells via spawn/execFile and promisified exec (#86)", () => {
+  it.each([
+    ["import { spawn } from 'child_process'; spawn('sh', ['-c', req.query.cmd]);"],
+    ["import { execFile } from 'node:child_process'; execFile('bash', ['-c', 'ls ' + dir]);"],
+    [
+      "import util from 'util'; import { exec } from 'child_process'; const run = util.promisify(exec); run(req.body.cmd);",
+    ],
+    [
+      "import { promisify } from 'util'; import cp from 'child_process'; const run = promisify(cp.exec); await run(`tar ${f}`);",
+    ],
+  ])("flags %s", (code) => {
+    expect(rulesIn(code)).toContain("PG-CMD-001");
+  });
+
+  it("does not flag a constant script", () => {
+    expect(
+      rulesIn("import { spawn } from 'child_process'; spawn('sh', ['-c', 'echo ok']);"),
+    ).toEqual([]);
+  });
+});
+
+describe("linear cost and caps (#87)", () => {
+  it("analyzes a large JS file quickly", () => {
+    const code = Array.from(
+      { length: 8000 },
+      (_, index) =>
+        `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
+    ).join("\n");
+    expect(code.length).toBeGreaterThan(500_000);
+    const start = performance.now();
+    const analysis = analyzeJsSource(code, "big.js");
+    expect(performance.now() - start).toBeLessThan(5000);
+    expect(analysis.cappedRules).toContain("PG-XSS-001");
+  });
+});
+
+describe("precision (#88)", () => {
+  it("treats new URLSearchParams(location.search) as browser input", () => {
+    const [finding] = findingsIn(
+      "const p = new URLSearchParams(location.search); el.innerHTML = p.get('m');",
+      "a.ts",
+    );
+    expect(finding).toMatchObject({ ruleId: "PG-XSS-001", severity: "high" });
+  });
+
+  it("does not treat constant += concatenation as dynamic SQL", () => {
+    expect(
+      rulesIn(
+        "import { Pool } from 'pg'; let sql = 'SELECT * FROM t'; sql += ' WHERE a = $1'; pool.query(sql, [a]);",
+      ),
+    ).toEqual([]);
+  });
+});

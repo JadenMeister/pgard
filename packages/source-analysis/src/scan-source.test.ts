@@ -170,3 +170,30 @@ describe("coverage notes (#109)", () => {
     expect(note).toMatch(/taint tracking\. The time budget was exceeded/);
   });
 });
+
+describe("time budget, parse errors and caps (#87, #89)", () => {
+  it("stops at the time budget with partial coverage", async () => {
+    const root = project({ "a.ts": "export const a = 1;", "b.ts": "export const b = 2;" });
+    let clock = 0;
+    const result = await scanSourceCode(root, { timeBudgetMs: 50, now: () => (clock += 100) });
+    const ts = result.coverage.find((entry) => entry.area === "source:typescript");
+    expect(ts?.status).toBe("partial");
+    expect(ts?.note).toMatch(/time budget/);
+  });
+
+  it("marks unparsable Go as partial coverage", async () => {
+    const root = project({ "bad.go": "package main\nfunc f( {\n" });
+    const result = await scanSourceCode(root);
+    expect(result.coverage.find((entry) => entry.area === "source:go")?.status).toBe("partial");
+  });
+
+  it("bounds findings from minified bundles with the per-file cap", async () => {
+    const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
+    const root = project({ "public/bundle.js": bundle });
+    const result = await scanSourceCode(root);
+    expect(result.findings.length).toBeLessThanOrEqual(25);
+    expect(result.coverage.find((entry) => entry.area === "source:javascript")?.note).toMatch(
+      /finding cap/,
+    );
+  });
+});
