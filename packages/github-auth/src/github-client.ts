@@ -57,6 +57,10 @@ export interface GitHubPullRequestSummary {
   number: number;
   userId: number | null;
   mergedAt: string | null;
+  /** Branch the PR targets (`base.ref`). */
+  baseRef: string | null;
+  /** Repository the PR targets (`base.repo.id`). */
+  baseRepositoryId: number | null;
 }
 
 export interface GitHubCommitSummary {
@@ -229,10 +233,14 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       }
       items.push(...pageItems);
       if (pageItems.length < PAGE_SIZE) {
-        break;
+        return items;
       }
     }
-    return items;
+    // Never return a silently truncated listing: callers would treat "not found" as proof.
+    throw new GitHubAuthError(
+      "result_truncated",
+      `GitHub returned more ${key} than PGARD examines (${MAX_PAGES * PAGE_SIZE}).`,
+    );
   }
 
   return {
@@ -327,16 +335,25 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       if (!Array.isArray(body)) {
         throw malformed("pull request listing");
       }
+      if (body.length >= PAGE_SIZE) {
+        throw new GitHubAuthError(
+          "result_truncated",
+          `GitHub returned more pull requests for a commit than PGARD examines (${PAGE_SIZE}).`,
+        );
+      }
       return body.map((item) => {
         const record = asRecord(item);
         const number = asInteger(record?.number);
         if (number === null) {
           throw malformed("pull request");
         }
+        const base = asRecord(record?.base);
         return {
           number,
           userId: asInteger(asRecord(record?.user)?.id),
           mergedAt: asString(record?.merged_at),
+          baseRef: asString(base?.ref),
+          baseRepositoryId: asInteger(asRecord(base?.repo)?.id),
         };
       });
     },

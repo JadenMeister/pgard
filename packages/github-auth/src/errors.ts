@@ -13,6 +13,7 @@ export type GitHubAuthErrorCode =
   | "http_error"
   | "unauthorized"
   | "not_found"
+  | "result_truncated"
   | "unexpected_response";
 
 export class GitHubAuthError extends Error {

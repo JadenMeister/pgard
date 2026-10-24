@@ -30,8 +30,8 @@ export interface GitInvocation {
   subcommand: GitSubcommand;
   /**
    * Fixed option flags written in PGARD source (never derived from repository or user data).
-   * Each must start with `-`; flags that write files, run programs, verify signatures or
-   * re-enable drivers are refused.
+   * Only exact spellings from the per-subcommand allowlist are accepted (no abbreviations);
+   * formats that would verify signatures are refused.
    */
   flags?: readonly string[];
   /** Refs, object ids or remote names. Passed after `--end-of-options`; must not start with `-`. */
@@ -82,11 +82,62 @@ const METADATA_ONLY: ReadonlySet<GitSubcommand> = new Set([
 /** Subcommands that can render diffs; external diff and textconv are always disabled. */
 const DIFF_CAPABLE: ReadonlySet<GitSubcommand> = new Set(["diff-tree"]);
 
-/** Flags that write files, run programs, verify signatures or re-enable drivers. */
-const FORBIDDEN_FLAG_PATTERN =
-  /^(--output|--ext-diff|--textconv|--filters|--exec|--upload-pack|--receive-pack|--config|-c$|--git-dir|--work-tree|--namespace|--open-files-in-pager|-O|--show-signature|--use-mailmap|--mailmap)/;
+type FlagRule = string | RegExp;
+
+/**
+ * Exact per-subcommand flag allowlist. Git accepts unambiguous abbreviations of long options
+ * (`--textc` for `--textconv`), so a denylist cannot be complete; only these exact spellings
+ * are accepted. Regexes are anchored and only admit value-carrying flags PGARD needs.
+ */
+const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
+  "rev-parse": ["--show-toplevel", "--verify", "--quiet", "--git-common-dir", "--absolute-git-dir"],
+  remote: [],
+  "remote get-url": ["--all", "--push"],
+  "rev-list": [
+    "--all",
+    "--reverse",
+    "--no-merges",
+    "--parents",
+    "--topo-order",
+    "--date-order",
+    /^--max-count=\d{1,7}$/,
+    /^--format=[^\n]*$/,
+  ],
+  "cat-file": ["-p", "-t", "-s", "-e", "--batch", "--batch-check", /^--batch(?:-check)?=[^\n]*$/],
+  "ls-tree": ["-r", "-z", "-l", "-t", "--name-only", "--full-tree"],
+  "ls-files": ["-s", "-z", "--cached", "--stage", "--full-name"],
+  "diff-tree": [
+    "-p",
+    "-r",
+    "-z",
+    "-m",
+    "--root",
+    "--raw",
+    "--stdin",
+    "--numstat",
+    "--no-renames",
+    "--name-only",
+    "--name-status",
+    "--no-commit-id",
+    "--first-parent",
+    "--full-index",
+    /^-U\d{1,3}$/,
+    /^--diff-filter=[ACDMRTUXB]+$/i,
+  ],
+  "for-each-ref": [/^--count=\d{1,7}$/, /^--format=[^\n]*$/, /^--sort=-?[a-z:]+$/],
+};
+
 /** Format placeholders that trigger signature verification (`%G?`, `%GS`, `%(signature)`...). */
 const FORBIDDEN_FORMAT_PATTERN = /%G|%\(signature/;
+
+function isFlagAllowed(subcommand: GitSubcommand, flag: string): boolean {
+  if (flag.includes("\0") || FORBIDDEN_FORMAT_PATTERN.test(flag)) {
+    return false;
+  }
+  return (ALLOWED_FLAGS[subcommand] ?? []).some((rule) =>
+    typeof rule === "string" ? rule === flag : rule.test(flag),
+  );
+}
 
 /**
  * Config overrides that stop a scanned repository's own config from making read-only commands
@@ -163,12 +214,7 @@ export function buildGitArgs(
   }
   const flags = invocation.flags ?? [];
   for (const flag of flags) {
-    if (
-      !flag.startsWith("-") ||
-      FORBIDDEN_FLAG_PATTERN.test(flag) ||
-      FORBIDDEN_FORMAT_PATTERN.test(flag) ||
-      flag.includes("\0")
-    ) {
+    if (!isFlagAllowed(invocation.subcommand, flag)) {
       throw new GitCommandError("git flag is not allowed", null);
     }
   }

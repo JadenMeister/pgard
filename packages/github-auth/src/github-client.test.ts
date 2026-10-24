@@ -100,7 +100,14 @@ describe("createGitHubClient", () => {
       ],
       [`/repos/o/r/commits/${SHA}/pulls?per_page=100`]: [
         200,
-        [{ number: 3, user: { id: 7 }, merged_at: "2026-01-01T00:00:00Z" }],
+        [
+          {
+            number: 3,
+            user: { id: 7 },
+            merged_at: "2026-01-01T00:00:00Z",
+            base: { ref: "main", repo: { id: 55 } },
+          },
+        ],
       ],
     });
     const client = createGitHubClient({ token: "t", fetch });
@@ -111,8 +118,42 @@ describe("createGitHubClient", () => {
       isVerified: true,
     });
     expect(await client.listPullRequestsForCommit("o", "r", SHA)).toEqual([
-      { number: 3, userId: 7, mergedAt: "2026-01-01T00:00:00Z" },
+      {
+        number: 3,
+        userId: 7,
+        mergedAt: "2026-01-01T00:00:00Z",
+        baseRef: "main",
+        baseRepositoryId: 55,
+      },
     ]);
+  });
+
+  it("refuses to return truncated listings", async () => {
+    const full = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }));
+    const routes: Record<string, [number, unknown]> = {};
+    for (let page = 1; page <= 10; page += 1) {
+      routes[`/user/installations/5/repositories?per_page=100&page=${page}`] = [
+        200,
+        { repositories: full },
+      ];
+    }
+    routes[`/repos/o/r/commits/${SHA}/pulls?per_page=100`] = [
+      200,
+      Array.from({ length: 100 }, (_, index) => ({ number: index + 1 })),
+    ];
+    const client = createGitHubClient({ token: "t", fetch: routeFetch(routes).fetch });
+    await expect(client.listInstallationRepositoryIds(5)).rejects.toMatchObject({
+      code: "result_truncated",
+    });
+    await expect(client.listPullRequestsForCommit("o", "r", SHA)).rejects.toMatchObject({
+      code: "result_truncated",
+    });
+  });
+
+  it("maps 401 to unauthorized", async () => {
+    const { fetch } = routeFetch({ "/user": [401, { message: "Bad credentials" }] });
+    const client = createGitHubClient({ token: "t", fetch });
+    await expect(client.getAuthenticatedUser()).rejects.toMatchObject({ code: "unauthorized" });
   });
 
   it("reports HTTP failures without echoing response bodies", async () => {

@@ -44,8 +44,25 @@ describe("buildGitArgs", () => {
     "--format=%H %G?",
     "--pretty=format:%GS",
     "--format=%(signature)",
+    "--textc",
+    "--filt",
+    "--ext-d",
+    "--max-count=1 --output=x",
   ])("refuses forbidden flag %s", (flag) => {
     expect(() => buildGitArgs({ subcommand: "rev-list", flags: [flag] })).toThrow(GitCommandError);
+  });
+
+  it.each([
+    ["cat-file", "--textc"],
+    ["cat-file", "--filt"],
+    ["cat-file", "--textconv"],
+    ["cat-file", "--filters"],
+    ["diff-tree", "--ext-d"],
+    ["diff-tree", "--textconv"],
+    ["ls-files", "--with-tree=HEAD"],
+    ["rev-parse", "--git-path"],
+  ] as const)("refuses %s %s (exact allowlist, no abbreviations)", (subcommand, flag) => {
+    expect(() => buildGitArgs({ subcommand, flags: [flag] })).toThrow(GitCommandError);
   });
 
   it("refuses operands that look like options", () => {
