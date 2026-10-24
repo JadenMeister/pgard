@@ -396,4 +396,28 @@ describe("overflow-path classification (#108)", () => {
       /environment file\(s\) it could not be checked/,
     );
   });
+
+  it("reports a secret moved to another file as current, not removed", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "scripts/new.sh": `\nexport GH="${TOKEN_A}"\n` } });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit) });
+    expect(result.findings).toEqual([
+      expect.objectContaining({
+        ruleId: "PG-SECRET-002",
+        location: expect.objectContaining({ path: "scripts/new.sh", line: 2, commit: null }),
+      }),
+    ]);
+  });
+
+  it("does not claim removal when a looked-up current file could not be read", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "new.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ files: { "new.sh": `export GH="${TOKEN_A}"\n${"#".repeat(500)}\n` } });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit), maxBlobBytes: 200 });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+  });
 });

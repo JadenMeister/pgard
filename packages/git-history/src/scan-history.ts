@@ -679,6 +679,21 @@ export async function scanGitHistory(
       );
     }
   }
+  // On the overflow path, compare each history value with every current blob that was looked
+  // up (not only the same path), so a secret moved to another file is reported as current, not
+  // as removed. Every path whose history holds the value is looked up. If a looked-up file
+  // exists but its contents could not be read, "removed" cannot be claimed for any value.
+  const currentLocations = new Map<string, { path: string; line: number }>();
+  for (const [currentPath, current] of currentByPath?.contents ?? []) {
+    for (const found of detectSecrets(current)) {
+      if (!currentLocations.has(found.value)) {
+        currentLocations.set(found.value, { path: currentPath, line: found.line });
+      }
+    }
+  }
+  const hasUnreadCurrent = [...(currentByPath?.shas ?? [])].some(
+    ([currentPath, sha]) => sha !== null && !currentByPath?.contents.has(currentPath),
+  );
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
@@ -690,17 +705,19 @@ export async function scanGitHistory(
       reported.add(key);
       if (currentByPath) {
         const current = currentByPath.contents.get(entry.path);
-        if (current !== undefined && current.includes(secret.value)) {
-          const line = detectSecrets(current).find((found) => found.value === secret.value)?.line;
+        const location = currentLocations.get(secret.value);
+        if (location) {
           report(
-            { sha: entry.sha, path: entry.path },
-            { ...secret, line: line ?? secret.line },
+            { sha: entry.sha, path: location.path },
+            { ...secret, line: location.line },
             null,
             false,
           );
           continue;
         }
-        const isKnownAbsent = currentByPath.shas.get(entry.path) === null || current !== undefined;
+        const isKnownAbsent =
+          (currentByPath.shas.get(entry.path) === null || current !== undefined) &&
+          !hasUnreadCurrent;
         report(entry, secret, entry.commit, isBoundary(entry.commit), !isKnownAbsent);
         if (!isKnownAbsent) unknownCurrentState += 1;
         continue;
