@@ -703,6 +703,9 @@ export async function scanGitHistory(
   // the value may still live in a file not seen here, so "removed" cannot be claimed.
   const isHistoryIncomplete =
     isTruncated || listed.problems.length > 0 || historySkips.problems.length > 0;
+  // A tracked file at the revision that was skipped for size or the read budget may hold the
+  // value, so "removed" cannot be claimed for a value not found in the files that were read.
+  const hasUnreadHead = headRead.skippedLarge > 0 || headRead.skippedBudget > 0;
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
@@ -727,12 +730,14 @@ export async function scanGitHistory(
         const isKnownAbsent =
           (currentByPath.shas.get(entry.path) === null || current !== undefined) &&
           !hasUnreadCurrent &&
+          !hasUnreadHead &&
           !isHistoryIncomplete;
         report(entry, secret, entry.commit, isBoundary(entry.commit), !isKnownAbsent);
         if (!isKnownAbsent) unknownCurrentState += 1;
         continue;
       }
-      report(entry, secret, entry.commit, isBoundary(entry.commit));
+      report(entry, secret, entry.commit, isBoundary(entry.commit), hasUnreadHead);
+      if (hasUnreadHead) unknownCurrentState += 1;
     }
   }
   const historyProblems = [
