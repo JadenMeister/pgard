@@ -40,6 +40,51 @@ function skipTransparentWrappers(node: ts.Node): ts.Node {
   return current;
 }
 
+const TIMER_CALLS = new Set(["setTimeout", "setInterval"]);
+
+/** Name of a call's or `new`'s callee: `f(...)` and `a.b.f(...)` give `f`. */
+function calleeText(expression: ts.Expression): string | undefined {
+  if (ts.isIdentifier(expression)) return expression.text;
+  if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+  return undefined;
+}
+
+/**
+ * True for code that can write any variable without a visible assignment: `with`, any reference
+ * to `eval` (direct, `(0, eval)`, `window.eval`), `Function(...)`/`new Function(...)`, and
+ * `setTimeout`/`setInterval` with something other than an inline function.
+ */
+function isDynamicScope(node: ts.Node): boolean {
+  if (ts.isWithStatement(node)) return true;
+  if (ts.isIdentifier(node) && node.text === "eval") return true;
+  if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+    const name = calleeText(node.expression);
+    if (name === "Function") return true;
+    if (name && TIMER_CALLS.has(name)) {
+      const first = node.arguments?.[0];
+      return first !== undefined && !ts.isArrowFunction(first) && !ts.isFunctionExpression(first);
+    }
+  }
+  return false;
+}
+
+/** True for an identifier that names a property, never a variable (`o.h`, `{ h: 1 }`). */
+function isPropertyName(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  return (
+    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+    ((ts.isPropertyAssignment(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent)) &&
+      parent.name === node) ||
+    (ts.isQualifiedName(parent) && parent.right === node)
+  );
+}
+
 /**
  * True when `reference` sits inside a destructuring target (`[h] = a`, `({ h } = o)`,
  * `for ([h] of a)`), so its value comes from elsewhere.
@@ -89,21 +134,25 @@ function isInDestructuringTarget(reference: ts.Identifier): boolean {
   }
 }
 
-/** True for an identifier that names a property, never a variable (`o.h`, `{ h: 1 }`). */
-function isPropertyName(node: ts.Identifier): boolean {
-  const parent = node.parent;
-  return (
-    (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
-    ((ts.isPropertyAssignment(parent) ||
-      ts.isPropertyDeclaration(parent) ||
-      ts.isMethodDeclaration(parent) ||
-      ts.isPropertySignature(parent) ||
-      ts.isMethodSignature(parent) ||
-      ts.isGetAccessorDeclaration(parent) ||
-      ts.isSetAccessorDeclaration(parent)) &&
-      parent.name === node) ||
-    (ts.isQualifiedName(parent) && parent.right === node)
-  );
+/**
+ * True when a declaration lives in the script's top-level scope: directly in the file for
+ * `let`, or (for function-scoped `var`) anywhere outside a function, class or namespace.
+ */
+function isScriptTopLevel(declaration: ts.VariableDeclaration, isFunctionScoped: boolean): boolean {
+  let current: ts.Node = declaration.parent.parent; // the statement
+  for (;;) {
+    const parent = current.parent;
+    if (ts.isSourceFile(parent)) return true;
+    if (!isFunctionScoped) return false;
+    if (
+      ts.isFunctionLike(parent) ||
+      ts.isClassStaticBlockDeclaration(parent) ||
+      ts.isModuleDeclaration(parent)
+    ) {
+      return false;
+    }
+    current = parent;
+  }
 }
 
 /**
@@ -116,8 +165,9 @@ function isPropertyName(node: ts.Identifier): boolean {
  * file (`=`, `||=`/`&&=`/`??=` with a sanitizer call; anything else disqualifies, including
  * compound operators, `++`/`--`, for-in/for-of targets and destructuring targets) is a sanitizer
  * call. Imports, parameters, catch and loop variables, functions, classes, globals and
- * unresolved names are never sanitized, and nothing is when the file uses direct `eval` or
- * `with`. Any doubt keeps the finding: a missed XSS is worse than a low-confidence report.
+ * unresolved names are never sanitized; neither is a top-level `var`/`let` of a classic script
+ * (shared with other scripts and, for `var`, the global object), and nothing is when the file
+ * uses `eval` (direct or indirect), `with`, `Function` or string timers. Any doubt keeps the finding: a missed XSS is worse than a low-confidence report.
  */
 export function createSanitizedBindingCheck(
   sourceFile: ts.SourceFile,
@@ -130,7 +180,7 @@ export function createSanitizedBindingCheck(
   // total work stays linear in the file size however many symbols share a name.
   const referencesBySymbol = new Map<ts.Symbol, ts.Identifier[]>();
   const resolvedNames = new Set<string>();
-  // Direct `eval(...)` or `with` can write any variable without a visible assignment.
+  // `eval`, `with`, `Function` and string timers can write any variable invisibly.
   let hasDynamicScope = false;
 
   const getChecker = (): ts.TypeChecker => {
@@ -167,14 +217,7 @@ export function createSanitizedBindingCheck(
     if (!identifiersByText) {
       const index = new Map<string, ts.Identifier[]>();
       const visit = (node: ts.Node): void => {
-        if (
-          ts.isWithStatement(node) ||
-          (ts.isCallExpression(node) &&
-            ts.isIdentifier(node.expression) &&
-            node.expression.text === "eval")
-        ) {
-          hasDynamicScope = true;
-        }
+        if (!hasDynamicScope && isDynamicScope(node)) hasDynamicScope = true;
         if (ts.isIdentifier(node) && !isPropertyName(node)) {
           const list = index.get(node.text) ?? [];
           list.push(node);
@@ -220,6 +263,15 @@ export function createSanitizedBindingCheck(
     const owner = list.parent;
     if (ts.isForOfStatement(owner) || ts.isForInStatement(owner)) return false;
     if (!ts.isVariableStatement(owner) && !ts.isForStatement(owner)) return false;
+    // A top-level `var`/`let` of a classic script is shared with every other script on the page
+    // (a `var` is even a `window` property), so writes outside this file cannot be ruled out.
+    if (
+      !ts.isExternalModule(sourceFile) &&
+      (list.flags & ts.NodeFlags.Const) === 0 &&
+      isScriptTopLevel(declaration, (list.flags & ts.NodeFlags.BlockScoped) === 0)
+    ) {
+      return false;
+    }
     return declaration.initializer === undefined || isSanitizerCall(declaration.initializer);
   };
 

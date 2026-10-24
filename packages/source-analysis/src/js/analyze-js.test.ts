@@ -124,14 +124,17 @@ describe("PG-XSS-001/002 HTML sinks", () => {
 
   it.each([
     ["const clean = DOMPurify.sanitize(req.body.html);\nel.innerHTML = clean;"],
-    ["let html;\nhtml = DOMPurify.sanitize(input);\nel.innerHTML = html;"],
+    ["export {};\nlet html;\nhtml = DOMPurify.sanitize(input);\nel.innerHTML = html;"],
+    ["function f() {\n  var h = DOMPurify.sanitize(a);\n  el.innerHTML = h;\n}"],
     [
       "const safe = sanitizeHtml(data);\nconst A = () => <i dangerouslySetInnerHTML={{ __html: safe }} />;",
     ],
-    ["let h = DOMPurify.sanitize(a);\nif (c) { h = DOMPurify.sanitize(b); }\nel.innerHTML = h;"],
-    ["let h = DOMPurify.sanitize(a);\nh ||= DOMPurify.sanitize(b);\nel.innerHTML = h;"],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nif (c) { h = DOMPurify.sanitize(b); }\nel.innerHTML = h;",
+    ],
+    ["export {};\nlet h = DOMPurify.sanitize(a);\nh ||= DOMPurify.sanitize(b);\nel.innerHTML = h;"],
     ["const h = DOMPurify.sanitize(a);\nfunction f() { var h = req.body.x; }\nel.innerHTML = h;"],
-    ["function f() { el.innerHTML = h; }\nvar h;\nh = DOMPurify.sanitize(a);"],
+    ["export {};\nfunction f() { el.innerHTML = h; }\nvar h;\nh = DOMPurify.sanitize(a);"],
     ["export let h = DOMPurify.sanitize(a);\nel.innerHTML = h;"],
     ["const h = DOMPurify.sanitize(a);\nel.outerHTML = h;\nel.insertAdjacentHTML('beforeend', h);"],
   ])("does not flag a value sanitized through a variable (#109): %s", (code) => {
@@ -191,6 +194,34 @@ describe("PG-XSS-001/002 HTML sinks", () => {
     ["let h = DOMPurify.sanitize(a);\n(h satisfies string) = req.body.x;\nel.innerHTML = h;"],
     ["let h = DOMPurify.sanitize(a);\n((h as any)!) ||= req.body.x;\nel.innerHTML = h;"],
     ["let h = DOMPurify.sanitize(a);\n[(h as any)] = req.body.list;\nel.innerHTML = h;"],
+    // Top-level var/let of a classic script: other scripts and the global object can write it.
+    ["var h = DOMPurify.sanitize(a);\nwindow.h = req.body.x;\nel.innerHTML = h;"],
+    ["var h = DOMPurify.sanitize(a);\nglobalThis['h'] = req.body.x;\nel.innerHTML = h;"],
+    ["var h = DOMPurify.sanitize(a);\nthis.h = req.body.x;\nel.innerHTML = h;"],
+    [
+      "var h = DOMPurify.sanitize(a);\nObject.defineProperty(window, 'h', { get() { return location.hash; } });\nel.innerHTML = h;",
+    ],
+    ["if (c) { var h = DOMPurify.sanitize(a); }\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nel.innerHTML = h;"],
+    // Indirect eval, Function and string timers.
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\n(0, eval)('h = location.hash');\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nwindow.eval('h = location.hash');\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nnew Function('h = location.hash')();\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nFunction('h = location.hash')();\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nsetTimeout('h = location.hash');\nel.innerHTML = h;",
+    ],
+    [
+      "export {};\nlet h = DOMPurify.sanitize(a);\nwindow.setInterval(code, 10);\nel.innerHTML = h;",
+    ],
   ])("still flags a variable not sanitized on every write (#109): %s", (code) => {
     expect(rulesIn(code, "src/a.tsx").some((rule) => rule.startsWith("PG-XSS-"))).toBe(true);
   });
