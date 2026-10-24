@@ -402,7 +402,8 @@ async function checkDirectorySample(directory: string): Promise<string | null> {
 /**
  * Cheap status for when no comparison is needed: reports a missing/unset database, fully reads a
  * small database file (≤ 8 MiB) for its metadata, checks that a directory holds at least one
- * valid OSV record, and checks that a larger file starts like JSON. Empty or junk data is
+ * valid OSV record, and checks that a larger file starts like JSON. A file over the full-load
+ * size limit is `invalid`, as a full load would report it. Empty or junk data is
  * `invalid`; a database that passed only the cheap check is `ok` with `validated: false`
  * (version/updatedAt stay null).
  */
@@ -425,6 +426,10 @@ export async function peekAdvisoryDb(
   if (info.isFile() && info.size <= PEEK_MAX_BYTES) {
     return (await loadAdvisoryDb(env, now, signal)).status;
   }
+  // Same limit (and note) as a full load, so the peek never calls ok a file a scan would refuse.
+  if (info.isFile() && info.size > MAX_DB_BYTES) {
+    return emptyDb("invalid", "The advisory database file is too large to load.").status;
+  }
   if (info.isDirectory()) {
     const problem = await checkDirectorySample(location);
     if (problem) return emptyDb("invalid", problem).status;
@@ -440,8 +445,8 @@ export async function peekAdvisoryDb(
     updatedAt: null,
     advisoryCount: 0,
     note: info.isDirectory()
-      ? "An advisory database is configured and a sample record is valid OSV; it was not fully loaded because nothing needed comparing, so its version and freshness were not verified."
-      : "An advisory database file is configured; it was not loaded because nothing needed comparing. Only its first bytes were checked; contents, version and freshness were not verified.",
+      ? "An advisory database is configured and a sample record is valid OSV; it was not fully loaded, so its version and freshness were not verified."
+      : "An advisory database file is configured; it was not fully loaded. Only its first bytes were checked; contents, version and freshness were not verified.",
     validated: false,
   };
 }
