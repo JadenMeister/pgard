@@ -13,7 +13,7 @@ export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hasAcceptedNotice, setHasAcceptedNotice] = useState(false);
-  const [, setAuth] = useState<AuthStatus | null>(null);
+  const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [target, setTarget] = useState<TargetInfo | null>(null);
   const [scan, setScan] = useState<ScanStatus | null>(null);
 
@@ -47,6 +47,7 @@ export function App() {
           <>
             <AuthorizationPanel session={session} onStatus={setAuth} />
             <TargetPanel
+              auth={auth}
               presetPort={session.presetTargetPort}
               target={target}
               onTarget={setTarget}

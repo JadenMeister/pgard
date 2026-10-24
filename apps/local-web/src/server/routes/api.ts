@@ -137,7 +137,31 @@ const signOut: ApiHandler = async (context) => {
   return authStatus(context.state);
 };
 
+/**
+ * Port discovery and identity probes touch local services, so they run only after this server
+ * session's most recent authorization check for the fixed project root came back "allowed" (the
+ * same order the CLI uses). The decision is read from server state only; nothing the browser
+ * sends can open this gate. A new check, sign-out or a blocked/failed result closes it again.
+ */
+export function requirePortAccessAuthorized(state: SessionState): void {
+  const { status, summary, message } = state.auth;
+  if (status === "done" && summary?.decision === "allowed") return;
+  let reason: string;
+  if (status === "running") {
+    reason = "The authorization check is still running. Local services are not contacted yet.";
+  } else if (status === "done") {
+    reason =
+      "Authorization was blocked for this project, so PGARD will not discover or probe local services.";
+  } else if (status === "failed") {
+    reason = `The authorization check did not complete${message ? ` (${message})` : ""}. Local services are not contacted.`;
+  } else {
+    reason = "Verify project authorization before PGARD discovers or probes local services.";
+  }
+  throw new ApiError(403, "authorization_required", reason);
+}
+
 const listPorts: ApiHandler = async (context) => {
+  requirePortAccessAuthorized(context.state);
   const discovery = await context.deps.discoverListeningPorts();
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
@@ -155,6 +179,7 @@ const listPorts: ApiHandler = async (context) => {
 
 /** Probes one port and remembers the identity the user is about to see. */
 const probePort: ApiHandler = async (context, body) => {
+  requirePortAccessAuthorized(context.state);
   const identity = await context.deps.probeLocalService(readPort(body));
   context.state.lastProbe = { identity, probedAt: context.deps.now() };
   return toIdentityDto(identity);
@@ -165,6 +190,7 @@ const probePort: ApiHandler = async (context, body) => {
  * and only if it answered HTTP. The browser never supplies the target object itself.
  */
 const confirmTarget: ApiHandler = async (context, body) => {
+  requirePortAccessAuthorized(context.state);
   const port = readPort(body);
   if (asRecord(body).isConfirmed !== true) {
     throw new ApiError(400, "not_confirmed", "Explicit confirmation is required.");
