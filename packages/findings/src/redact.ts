@@ -252,8 +252,10 @@ const FILE_URL_PATTERN = /\bfile:\/\/[^\s'"`<>?#]{0,2048}/gi;
  * Filesystem-looking absolute paths: POSIX paths under well-known roots (route paths such as
  * `/api/login` are not filesystem paths and stay readable) and Windows drive paths.
  */
+// A root path is masked when it has at least two segments below the root or one file-like
+// segment (`/tmp/x.log`), so short routes such as `/data/export` or `/run/jobs` stay readable.
 const ABSOLUTE_PATH_PATTERN =
-  /(?<![\w.~/:\\-])\/(?:Users|home|opt|private|tmp|var|etc|usr|root|mnt|srv|Volumes|nix|proc|sys|dev|run|snap|Library|System|Applications|workspaces?|builds|runner|data)(?=[/\s'"`<>|]|$)[^\s'"`<>|]{0,1024}|(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])[^\s'"`<>|]{0,1024}/g;
+  /(?<![\w.~/:\\-])\/(?:Users|home|opt|private|tmp|var|etc|usr|root|mnt|media|srv|Volumes|nix|proc|sys|dev|run|snap|Library|System|Applications|workspaces?|builds|runner|data|app|code)(?:(?:\/[^\s'"`<>|/]{1,255}){2,64}|\/[^\s'"`<>|/]{1,255}\.[A-Za-z0-9]{1,10}(?![^\s'"`<>|]))|(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])[^\s'"`<>|]{0,1024}|(?<![\w\\])\\\\[A-Za-z0-9._$-]{1,255}\\[^\s'"`<>|]{1,1024}/g;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 

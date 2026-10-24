@@ -192,6 +192,11 @@ describe("absolute paths (#59)", () => {
     ["C:\\proj\\src\\a.ts", "C:\\proj"],
     ["D:/work/app/config.yml", "D:/work"],
     ["file:///srv/app/x.txt", "/srv/app"],
+    ["/app/src/db.ts", "/app/src"],
+    ["/code/project/main.go", "/code/project"],
+    ["/media/usb/backup/keys", "/media/usb"],
+    ["/tmp/dump.sql", "dump.sql"],
+    ["\\\\fileserver\\share\\secrets.txt", "fileserver"],
   ])("removes %s", (input, fragment) => {
     const output = redactEvidence(`read ${input} done`);
     expect(output).not.toContain(fragment);
@@ -203,6 +208,9 @@ describe("absolute paths (#59)", () => {
     "GET /v1/users/:id",
     "see src/db.ts:10",
     "http://127.0.0.1:3000/tmp",
+    "POST /data/export returns 200",
+    "GET /run/jobs and /dev/tools",
+    "probe /sys/health",
   ])("keeps route paths and relative paths: %s", (text) => {
     expect(redactEvidence(text)).toBe(text);
   });
