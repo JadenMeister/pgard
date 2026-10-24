@@ -1,0 +1,39 @@
+import { describe, expect, it, vi } from "vitest";
+import { createTestContext, createTestDeps, createTestIo, scriptedKeys } from "../test-support.js";
+import { runDashboard } from "./dashboard.js";
+
+describe("runDashboard", () => {
+  it("needs a terminal to confirm the project", async () => {
+    const captured = createTestIo();
+    expect(await runDashboard(createTestContext(captured, createTestDeps()), null)).toBe(2);
+  });
+
+  it("starts the installed launcher with the confirmed project root only after y", async () => {
+    const captured = createTestIo();
+    const startDashboardProcess = vi.fn(async () => 0);
+    const deps = createTestDeps({
+      resolveDashboardEntry: () => "/install/local-web/dist/server/index.js",
+      startDashboardProcess,
+    });
+    expect(await runDashboard(createTestContext(captured, deps, scriptedKeys(["n"])), 3000)).toBe(
+      130,
+    );
+    expect(startDashboardProcess).not.toHaveBeenCalled();
+    expect(await runDashboard(createTestContext(captured, deps, scriptedKeys(["y"])), 3000)).toBe(
+      0,
+    );
+    expect(startDashboardProcess).toHaveBeenCalledWith("/install/local-web/dist/server/index.js", [
+      "--project-root",
+      "/work/repo",
+      "--target-port",
+      "3000",
+    ]);
+  });
+
+  it("exits 5 when the dashboard is not installed", async () => {
+    const captured = createTestIo();
+    expect(
+      await runDashboard(createTestContext(captured, createTestDeps(), scriptedKeys([])), null),
+    ).toBe(5);
+  });
+});
