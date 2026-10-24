@@ -72,7 +72,7 @@ const RULES: Rule[] = [
   {
     // Complete block, or (without an END line) the base64 body that follows the header.
     pattern:
-      /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]{0,8192}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----|[A-Za-z0-9+/=\s]{0,8192})/g,
+      /-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]{0,8192}?-----END [A-Z0-9 ]{0,40}PRIVATE KEY(?: BLOCK)?-----|(?:[A-Za-z0-9+/=\s]|\\[nr]){0,8192})/g,
     replace: () => maskSecret("private_key"),
   },
   {

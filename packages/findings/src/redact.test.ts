@@ -132,6 +132,15 @@ describe("redactSecrets", () => {
     expect(redactSecrets(text)).toBe(text);
   });
 
+  it("masks a JSON-escaped PEM body without an END line (#69)", () => {
+    const body = join("MIIEowIBAAKCAQEA", "x".repeat(40));
+    const header = join("-----BEGIN RSA ", "PRIVATE KEY-----");
+    const input = `{"key": "${header}\\n${body}\\r\\n${body}"}`;
+    const output = redactSecrets(input);
+    expect(output).not.toContain(body);
+    expect(output).toContain("[REDACTED:private_key]");
+  });
+
   it("keeps code references that merely mention sensitive names", () => {
     expect(redactSecrets("password = req.body.password")).toBe("password = req.body.password");
     expect(redactSecrets("const token = getToken()")).toBe("const token = getToken()");
