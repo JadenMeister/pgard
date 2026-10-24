@@ -20,6 +20,7 @@
   "dependencies": {
     "@pgard/findings": "0.1.0",
     "@pgard/http-local": "0.1.0",
+    "@pgard/local-web": "0.1.0",
     "@pgard/report": "0.1.0",
     "@pgard/scan-core": "0.1.0"
   }

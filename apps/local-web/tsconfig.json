@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src/server", "src/shared"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    {
+      "path": "../../packages/findings"
+    },
+    {
+      "path": "../../packages/http-local"
+    },
+    {
+      "path": "../../packages/report"
+    },
+    {
+      "path": "../../packages/scan-core"
+    }
+  ]
+}
