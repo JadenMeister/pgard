@@ -4,6 +4,7 @@ import {
   SCAN_SCOPES,
   SCHEMA_VERSION,
   deriveOverallStatus,
+  mergeFindings,
   type AdvisoryDbInfo,
   type AnalyzerOutput,
   type AuthorizationSummary,
@@ -173,7 +174,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     },
     authorization: fields.authorization,
     coverage: fields.coverage,
-    findings: sortFindings(fields.findings),
+    findings: sortFindings(mergeFindings(fields.findings)),
     advisoryDb: fields.advisoryDb,
   });
 
