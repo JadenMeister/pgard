@@ -25,8 +25,10 @@ export {
 } from "./device-flow.js";
 export {
   createDeviceFlowSessionProvider,
+  signInAndStore,
   type DeviceFlowSessionProviderOptions,
   type GitHubSessionProvider,
+  type SignInNotice,
 } from "./session-provider.js";
 export {
   CredentialStoreError,
@@ -37,3 +39,10 @@ export {
   type CredentialStore,
 } from "./credential-store.js";
 export { createOsCredentialStore } from "./os-keychain.js";
+export {
+  GITHUB_APP_AUTHORIZATIONS_URL,
+  readStoredSignInStatus,
+  removeStoredSignIn,
+  type RemoveStoredSignInResult,
+  type StoredSignInStatus,
+} from "./stored-sign-in.js";

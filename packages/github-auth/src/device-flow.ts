@@ -162,12 +162,90 @@ async function requestDeviceCode(
 }
 
 /**
- * Runs the GitHub App device flow: requests a user code, reports it through `onUserCode`, and
- * polls until the user approves, denies, or the code expires. Resolves with an in-memory session.
+ * Tokens from GitHub's token endpoint. Held only by this package: never logged, never part of an
+ * error, never sent anywhere but GitHub.
  */
+export interface UserTokenSet {
+  accessToken: string;
+  /** Epoch ms when the access token expires; `null` when the App does not expire tokens. */
+  expiresAt: number | null;
+  /** Present only when the App expires user tokens. */
+  refreshToken: string | null;
+  /** Epoch ms when the refresh token expires; `null` if unknown. */
+  refreshTokenExpiresAt: number | null;
+}
+
+function parseTokenResponse(body: Record<string, unknown>, now: number): UserTokenSet {
+  const accessToken = asString(body.access_token);
+  if (!accessToken) {
+    throw new GitHubAuthError("unexpected_response", "GitHub did not return an access token.");
+  }
+  const expiresIn = asInteger(body.expires_in);
+  const refreshToken = asString(body.refresh_token);
+  const refreshExpiresIn = asInteger(body.refresh_token_expires_in);
+  return {
+    accessToken,
+    expiresAt: expiresIn !== null && expiresIn > 0 ? now + expiresIn * 1000 : null,
+    refreshToken: refreshToken || null,
+    refreshTokenExpiresAt:
+      refreshToken && refreshExpiresIn !== null && refreshExpiresIn > 0
+        ? now + refreshExpiresIn * 1000
+        : null,
+  };
+}
+
+export interface RefreshTokenOptions {
+  clientId: string;
+  refreshToken: string;
+  fetch?: FetchLike;
+  signal?: AbortSignal;
+  oauthBaseUrl?: string;
+  now?: () => number;
+}
+
+/**
+ * Exchanges a refresh token for a new token set. GitHub documents `client_secret` as required
+ * "unless the user access token was generated using the device flow", so PGARD refreshes with the
+ * client id alone. GitHub rotates the refresh token: the old one stops working once this returns.
+ * Rejects with `refresh_failed` when GitHub rejects the refresh token.
+ */
+export async function refreshUserToken(options: RefreshTokenOptions): Promise<UserTokenSet> {
+  const fetchImpl = options.fetch ?? defaultFetch;
+  const now = options.now ?? Date.now;
+  const base = options.oauthBaseUrl ?? GITHUB_OAUTH_BASE_URL;
+  const body = await postForm(
+    fetchImpl,
+    `${base}/login/oauth/access_token`,
+    {
+      client_id: options.clientId,
+      grant_type: "refresh_token",
+      refresh_token: options.refreshToken,
+    },
+    options.signal,
+  );
+  const error = asString(body.error);
+  if (error === "incorrect_client_credentials") {
+    throw mapDeviceFlowError(error);
+  }
+  if (error !== null) {
+    throw new GitHubAuthError("refresh_failed", "GitHub did not accept the stored refresh token.");
+  }
+  return parseTokenResponse(body, now());
+}
+
+/** Runs the device flow (see `requestDeviceFlowTokens`) and resolves with an in-memory session. */
 export async function authenticateWithDeviceFlow(
   options: DeviceFlowOptions,
 ): Promise<GitHubSession> {
+  const tokens = await requestDeviceFlowTokens(options);
+  return createSessionFromToken(tokens.accessToken, tokens.expiresAt, options);
+}
+
+/**
+ * Runs the GitHub App device flow: requests a user code, reports it through `onUserCode`, and
+ * polls until the user approves, denies, or the code expires. Resolves with the token set.
+ */
+export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promise<UserTokenSet> {
   const fetchImpl = options.fetch ?? defaultFetch;
   const sleep = options.sleep ?? defaultSleep;
   const now = options.now ?? Date.now;
@@ -210,27 +288,20 @@ export async function authenticateWithDeviceFlow(
     if (error !== null) {
       throw mapDeviceFlowError(error);
     }
-    const accessToken = asString(body.access_token);
-    if (!accessToken) {
-      throw new GitHubAuthError("unexpected_response", "GitHub did not return an access token.");
-    }
-    const tokenExpiresIn = asInteger(body.expires_in);
-    const expiresAt =
-      tokenExpiresIn !== null && tokenExpiresIn > 0 ? now() + tokenExpiresIn * 1000 : null;
-    return createSession(accessToken, expiresAt, fetchImpl, options);
+    return parseTokenResponse(body, now());
   }
   throw new GitHubAuthError("expired_token", "The GitHub sign-in code expired.");
 }
 
-function createSession(
+/** Builds a session around an access token; the token stays inside the client's closure. */
+export function createSessionFromToken(
   token: string,
   expiresAt: number | null,
-  fetchImpl: FetchLike,
-  options: DeviceFlowOptions,
+  options: { fetch?: FetchLike; apiBaseUrl?: string; signal?: AbortSignal },
 ): GitHubSession {
   const client = createGitHubClient({
     token,
-    fetch: fetchImpl,
+    fetch: options.fetch ?? defaultFetch,
     ...(options.apiBaseUrl ? { baseUrl: options.apiBaseUrl } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });
