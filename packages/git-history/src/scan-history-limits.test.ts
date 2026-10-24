@@ -588,6 +588,26 @@ describe("binary and skipped current files (#136)", () => {
     expect(commitsArea(result)?.status).toBe("completed");
   });
 
+  it("claims removal when the skipped large current files do not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "big.txt": `${"#".repeat(500)}\n` } });
+    const result = await scanGitHistory(repo.root, { maxBlobBytes: 200 });
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+    expect(commitsArea(result)?.status).toBe("completed");
+    // The skipped file is still reported as not scanned.
+    const tracked = result.coverage.find((entry) => entry.area === "history:tracked-files");
+    expect(tracked?.status).toBe("partial");
+  });
+
+  it("claims removal when files skipped after the read budget do not hold the value", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"], files: { "z.txt": `${"#".repeat(300)}\n` } });
+    const result = await scanGitHistory(repo.root, { maxTotalBytes: 120 });
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+  });
+
   it("does not search the current files when nothing looks removed", async () => {
     const repo = fixture();
     repo.commit({ files: { "img.bin": "\u0000\u0001\u0002", "a.txt": "x" } });

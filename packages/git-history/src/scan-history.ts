@@ -779,13 +779,13 @@ export async function scanGitHistory(
     }
     return found;
   };
-  // A tracked file at the revision that was skipped for size or the read budget may hold the
-  // value, so "removed" cannot be claimed for a value not found in the files that were read.
-  let hasUnreadHead = headRead.skippedLarge > 0 || headRead.skippedBudget > 0;
-  // A binary tracked file may hold it too. One fixed-string `git grep` of the revision (values on
-  // stdin) settles it: "removed" is claimed only when Git confirms that no current file contains
-  // any of those values; otherwise the current state is unknown.
-  if (currentByPath === null && !hasUnreadHead && headRead.skippedBinary > 0) {
+  // A tracked file at the revision that was not read as text (over the size limit, after the
+  // read budget, or binary) may hold a value that looks removed. One fixed-string `git grep` of
+  // the revision (values on stdin) settles it: "removed" is claimed only when Git confirms that
+  // no current file contains any of those values; otherwise the current state is unknown.
+  let hasUnreadHead = false;
+  const unreadHeadFiles = headRead.skippedLarge + headRead.skippedBudget + headRead.skippedBinary;
+  if (currentByPath === null && unreadHeadFiles > 0) {
     const removedValues = new Set<string>();
     for (const entry of oldestFirst) {
       const content = historyRead.contents.get(entry.sha);
