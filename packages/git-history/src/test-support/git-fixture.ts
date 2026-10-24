@@ -20,6 +20,7 @@ export interface GitFixture {
   root: string;
   shas: string[];
   git(...args: string[]): string;
+  gitWithInput(input: string, ...args: string[]): string;
   commit(commit: FixtureCommit): string;
   writeFile(relativePath: string, content: string): void;
   cleanup(): void;
@@ -27,10 +28,11 @@ export interface GitFixture {
 
 export function createGitFixture(options: { remotes?: Record<string, string> } = {}): GitFixture {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-fixture-")));
-  const git = (...args: string[]) =>
+  const gitWithInput = (input: string | undefined, args: string[]) =>
     execFileSync("git", args, {
       cwd: root,
       encoding: "utf8",
+      ...(input !== undefined ? { input } : {}),
       env: {
         PATH: process.env.PATH ?? "",
         HOME: root,
@@ -38,6 +40,7 @@ export function createGitFixture(options: { remotes?: Record<string, string> } =
         GIT_TERMINAL_PROMPT: "0",
       },
     });
+  const git = (...args: string[]) => gitWithInput(undefined, args);
   git("init", "-q", "-b", "main");
   git("config", "commit.gpgsign", "false");
   for (const [name, url] of Object.entries(options.remotes ?? {})) {
@@ -78,6 +81,7 @@ export function createGitFixture(options: { remotes?: Record<string, string> } =
     root,
     shas,
     git,
+    gitWithInput: (input: string, ...args: string[]) => gitWithInput(input, args),
     commit,
     writeFile,
     cleanup: () => rmSync(root, { recursive: true, force: true }),

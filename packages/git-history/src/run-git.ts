@@ -1,28 +1,37 @@
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
+import { devNull } from "node:os";
 
 export interface GitRunOptions {
   cwd: string;
   /** Maximum stdout bytes; larger output fails instead of being buffered without bound. */
   maxBuffer?: number;
+  /** Data written to stdin (e.g. object ids for `cat-file --batch`). */
+  input?: string;
 }
 
-/** Read-only subcommands PGARD may run. Working-tree-mutating commands are not representable. */
+/**
+ * Subcommands PGARD may run. Only plumbing plus two metadata-only remote lookups: porcelain
+ * commands such as `log`/`show` are deliberately absent because they carry the most
+ * config-driven hooks (pager, signature verification, textconv, mailmap). Commit metadata and
+ * diffs are parsed from plumbing output instead. Nothing here can modify the repository.
+ */
 export type GitSubcommand =
   | "rev-parse"
   | "remote"
   | "remote get-url"
-  | "log"
   | "rev-list"
-  | "show"
   | "cat-file"
   | "ls-tree"
-  | "ls-files";
+  | "ls-files"
+  | "diff-tree"
+  | "for-each-ref";
 
 export interface GitInvocation {
   subcommand: GitSubcommand;
   /**
    * Fixed option flags written in PGARD source (never derived from repository or user data).
-   * Each must start with `-`; flags that write files or run external programs are refused.
+   * Each must start with `-`; flags that write files, run programs, verify signatures or
+   * re-enable drivers are refused.
    */
   flags?: readonly string[];
   /** Refs, object ids or remote names. Passed after `--end-of-options`; must not start with `-`. */
@@ -54,12 +63,12 @@ const SUBCOMMAND_ARGS: Record<GitSubcommand, readonly string[]> = {
   "rev-parse": ["rev-parse"],
   remote: ["remote"],
   "remote get-url": ["remote", "get-url"],
-  log: ["log"],
   "rev-list": ["rev-list"],
-  show: ["show"],
   "cat-file": ["cat-file"],
   "ls-tree": ["ls-tree"],
   "ls-files": ["ls-files"],
+  "diff-tree": ["diff-tree"],
+  "for-each-ref": ["for-each-ref"],
 };
 
 /** Subcommands that never read file contents, so no filter/diff driver can be involved. */
@@ -67,18 +76,22 @@ const METADATA_ONLY: ReadonlySet<GitSubcommand> = new Set([
   "rev-parse",
   "remote",
   "remote get-url",
+  "for-each-ref",
 ]);
 
 /** Subcommands that can render diffs; external diff and textconv are always disabled. */
-const DIFF_CAPABLE: ReadonlySet<GitSubcommand> = new Set(["log", "show"]);
+const DIFF_CAPABLE: ReadonlySet<GitSubcommand> = new Set(["diff-tree"]);
 
-/** Flags that write files, run programs or re-enable drivers. */
+/** Flags that write files, run programs, verify signatures or re-enable drivers. */
 const FORBIDDEN_FLAG_PATTERN =
-  /^(--output|--ext-diff|--textconv|--filters|--exec|--upload-pack|--receive-pack|--config|-c$|--git-dir|--work-tree|--namespace|--open-files-in-pager|-O)/;
+  /^(--output|--ext-diff|--textconv|--filters|--exec|--upload-pack|--receive-pack|--config|-c$|--git-dir|--work-tree|--namespace|--open-files-in-pager|-O|--show-signature|--use-mailmap|--mailmap)/;
+/** Format placeholders that trigger signature verification (`%G?`, `%GS`, `%(signature)`...). */
+const FORBIDDEN_FORMAT_PATTERN = /%G|%\(signature/;
 
 /**
- * Config overrides that stop a scanned repository's own `.git/config` from making read-only
- * commands execute programs (fsmonitor hooks, pagers, external diff, network helpers).
+ * Config overrides that stop a scanned repository's own config from making read-only commands
+ * execute programs: fsmonitor hooks, pagers, external diff, signature verification programs,
+ * and network helpers.
  */
 const BASE_HARDENING_ARGS: readonly string[] = [
   "-c",
@@ -92,6 +105,18 @@ const BASE_HARDENING_ARGS: readonly string[] = [
   "-c",
   "diff.external=",
   "-c",
+  "log.showSignature=false",
+  "-c",
+  "gpg.program=",
+  "-c",
+  "gpg.openpgp.program=",
+  "-c",
+  "gpg.ssh.program=",
+  "-c",
+  "gpg.x509.program=",
+  "-c",
+  "gpg.ssh.allowedSignersFile=",
+  "-c",
   "protocol.allow=never",
   "--no-pager",
 ];
@@ -104,7 +129,11 @@ const DRIVER_PROGRAM_KEYS: Record<string, readonly string[]> = {
   merge: ["driver"],
 };
 
-/** Environment for git: allowlisted variables only, so GIT_DIR/GIT_CONFIG_* never leak in. */
+/**
+ * Environment for git: allowlisted variables only, so GIT_DIR/GIT_CONFIG_* never leak in.
+ * System and global config are ignored; only the scanned repository's config is read, and its
+ * program-running keys are neutralized above.
+ */
 export function buildGitEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const key of ["PATH", "HOME", "SystemRoot", "TMPDIR", "TEMP", "TMP"]) {
@@ -117,6 +146,8 @@ export function buildGitEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   env.GIT_OPTIONAL_LOCKS = "0";
   env.GIT_PAGER = "cat";
   env.GIT_CONFIG_NOSYSTEM = "1";
+  env.GIT_CONFIG_GLOBAL = devNull;
+  env.GIT_NO_REPLACE_OBJECTS = "1";
   env.LC_ALL = "C";
   return env;
 }
@@ -132,7 +163,12 @@ export function buildGitArgs(
   }
   const flags = invocation.flags ?? [];
   for (const flag of flags) {
-    if (!flag.startsWith("-") || FORBIDDEN_FLAG_PATTERN.test(flag) || flag.includes("\0")) {
+    if (
+      !flag.startsWith("-") ||
+      FORBIDDEN_FLAG_PATTERN.test(flag) ||
+      FORBIDDEN_FORMAT_PATTERN.test(flag) ||
+      flag.includes("\0")
+    ) {
       throw new GitCommandError("git flag is not allowed", null);
     }
   }
@@ -163,34 +199,55 @@ export function buildGitArgs(
 }
 
 function execGit(args: readonly string[], options: GitRunOptions): Promise<string> {
+  const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
-    execFile(
-      "git",
-      [...args],
-      {
-        cwd: options.cwd,
-        env: buildGitEnv(),
-        maxBuffer: options.maxBuffer ?? DEFAULT_MAX_BUFFER,
-        timeout: DEFAULT_TIMEOUT_MS,
-        windowsHide: true,
-        encoding: "utf8",
-      },
-      (error, stdout) => {
-        if (error) {
-          const code = typeof error.code === "number" ? error.code : null;
-          reject(new GitCommandError("git command failed", code));
-          return;
-        }
-        resolve(stdout);
-      },
-    );
+    const child = spawn("git", [...args], {
+      cwd: options.cwd,
+      env: buildGitEnv(),
+      shell: false,
+      windowsHide: true,
+      stdio: ["pipe", "pipe", "ignore"],
+    });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    let failure: GitCommandError | null = null;
+    const timer = setTimeout(() => {
+      failure = new GitCommandError("git command timed out", null);
+      child.kill("SIGKILL");
+    }, DEFAULT_TIMEOUT_MS);
+    child.stdout.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > maxBuffer) {
+        failure ??= new GitCommandError("git output exceeded the size limit", null);
+        child.kill("SIGKILL");
+        return;
+      }
+      chunks.push(chunk);
+    });
+    child.on("error", () => {
+      failure ??= new GitCommandError("git could not be started", null);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (failure) {
+        reject(failure);
+      } else if (code !== 0) {
+        reject(new GitCommandError("git command failed", code));
+      } else {
+        resolve(Buffer.concat(chunks).toString("utf8"));
+      }
+    });
+    child.stdin.on("error", () => {
+      // The child may exit before reading all input; the exit code reports the failure.
+    });
+    child.stdin.end(options.input ?? "");
   });
 }
 
 /**
- * Reads every filter/diff/merge driver configured for the repository (any config level) and
- * returns `-c` overrides that blank out their programs, so `.gitattributes` cannot route
- * content through a repository-defined command.
+ * Reads every filter/diff/merge driver configured for the repository and returns `-c`
+ * overrides that blank out their programs, so `.gitattributes` cannot route content through
+ * a repository-defined command.
  */
 export async function readDriverOverrides(cwd: string): Promise<string[]> {
   let output: string;
@@ -233,7 +290,7 @@ export async function readDriverOverrides(cwd: string): Promise<string[]> {
   return [...overrides].flatMap((override) => ["-c", override]);
 }
 
-/** Default runner backed by `child_process.execFile("git", [...])`. */
+/** Default runner backed by `child_process.spawn("git", [...], { shell: false })`. */
 export const runGit: GitRunner = async (invocation, options) => {
   const overrides = METADATA_ONLY.has(invocation.subcommand)
     ? []

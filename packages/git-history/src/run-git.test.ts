@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,20 +9,22 @@ import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js
 describe("buildGitArgs", () => {
   it("prepends hardening config and separates operands and paths", () => {
     const args = buildGitArgs({
-      subcommand: "log",
-      flags: ["-p", "-2"],
+      subcommand: "diff-tree",
+      flags: ["-p", "-r"],
       operands: ["HEAD"],
       paths: ["src"],
     });
     expect(args.slice(0, 2)).toEqual(["-c", "core.fsmonitor=false"]);
     expect(args).toContain("protocol.allow=never");
-    const logIndex = args.indexOf("log");
-    expect(args.slice(logIndex)).toEqual([
-      "log",
+    expect(args).toContain("log.showSignature=false");
+    expect(args).toContain("gpg.program=");
+    const index = args.indexOf("diff-tree");
+    expect(args.slice(index)).toEqual([
+      "diff-tree",
       "--no-ext-diff",
       "--no-textconv",
       "-p",
-      "-2",
+      "-r",
       "--end-of-options",
       "HEAD",
       "--",
@@ -30,33 +32,47 @@ describe("buildGitArgs", () => {
     ]);
   });
 
-  it.each(["--output=/tmp/x", "-O/tmp/order", "--ext-diff", "--textconv", "--exec=sh", "-c"])(
-    "refuses forbidden flag %s",
-    (flag) => {
-      expect(() => buildGitArgs({ subcommand: "log", flags: [flag] })).toThrow(GitCommandError);
-    },
-  );
+  it.each([
+    "--output=/tmp/x",
+    "-O/tmp/order",
+    "--ext-diff",
+    "--textconv",
+    "--exec=sh",
+    "-c",
+    "--show-signature",
+    "--use-mailmap",
+    "--format=%H %G?",
+    "--pretty=format:%GS",
+    "--format=%(signature)",
+  ])("refuses forbidden flag %s", (flag) => {
+    expect(() => buildGitArgs({ subcommand: "rev-list", flags: [flag] })).toThrow(GitCommandError);
+  });
 
   it("refuses operands that look like options", () => {
-    expect(() => buildGitArgs({ subcommand: "log", operands: ["--output=/tmp/pwn"] })).toThrow(
+    expect(() => buildGitArgs({ subcommand: "rev-list", operands: ["--output=/tmp/pwn"] })).toThrow(
       GitCommandError,
     );
-    expect(() => buildGitArgs({ subcommand: "show", operands: [""] })).toThrow(GitCommandError);
+    expect(() => buildGitArgs({ subcommand: "cat-file", operands: [""] })).toThrow(GitCommandError);
   });
 
   it("refuses flags that do not start with a dash", () => {
-    expect(() => buildGitArgs({ subcommand: "log", flags: ["HEAD"] })).toThrow(GitCommandError);
-  });
-
-  it("refuses subcommands outside the allowlist", () => {
-    expect(() => buildGitArgs({ subcommand: "checkout" as unknown as "log", flags: [] })).toThrow(
+    expect(() => buildGitArgs({ subcommand: "rev-list", flags: ["HEAD"] })).toThrow(
       GitCommandError,
     );
   });
+
+  it.each(["log", "show", "checkout", "config", "status"])(
+    "refuses subcommand %s outside the allowlist",
+    (subcommand) => {
+      expect(() =>
+        buildGitArgs({ subcommand: subcommand as unknown as "rev-list", flags: [] }),
+      ).toThrow(GitCommandError);
+    },
+  );
 });
 
 describe("buildGitEnv", () => {
-  it("does not pass GIT_* variables or secrets through", () => {
+  it("does not pass GIT_* variables or secrets through and ignores global config", () => {
     const env = buildGitEnv({
       PATH: "/usr/bin",
       GIT_DIR: "/elsewhere/.git",
@@ -68,6 +84,10 @@ describe("buildGitEnv", () => {
     expect(env.GIT_CONFIG_PARAMETERS).toBeUndefined();
     expect(env.GITHUB_TOKEN).toBeUndefined();
     expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+    expect(env.GIT_PAGER).toBe("cat");
+    expect(env.GIT_CONFIG_NOSYSTEM).toBe("1");
+    expect(env.GIT_CONFIG_GLOBAL).toBeTruthy();
+    expect(env.GIT_NO_REPLACE_OBJECTS).toBe("1");
   });
 });
 
@@ -83,20 +103,40 @@ describe("runGit against a malicious repository", () => {
     markerDir = null;
   });
 
+  const MARKERS = ["clean", "smudge", "textconv", "command", "fsmonitor", "pager", "gpg"];
+
   function createMaliciousRepo() {
     markerDir = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-marker-")));
+    const marker = (name: string) => path.join(markerDir as string, name);
     fixture = createGitFixture();
     fixture.commit({
       files: { "a.txt": "one\n", ".gitattributes": "*.txt filter=pwn diff=pwn\n" },
     });
     fixture.commit({ files: { "a.txt": "two\n" } });
-    const marker = (name: string) => path.join(markerDir as string, name);
+
+    // Rewrite HEAD with a (bogus) gpgsig header so signature display would invoke gpg.program.
+    const raw = fixture.git("cat-file", "commit", "HEAD");
+    const signed = raw.replace(
+      /^(committer .*\n)/m,
+      "$1gpgsig -----BEGIN PGP SIGNATURE-----\n \n iQEzBAABCAAdFiEEfakefakefake\n -----END PGP SIGNATURE-----\n",
+    );
+    const signedSha = fixture
+      .gitWithInput(signed, "hash-object", "-t", "commit", "-w", "--stdin")
+      .trim();
+    fixture.git("update-ref", "HEAD", signedSha);
+
+    const gpgScript = path.join(markerDir, "fake-gpg.sh");
+    writeFileSync(gpgScript, `#!/bin/sh\ntouch ${marker("gpg")}\nexit 1\n`);
+    chmodSync(gpgScript, 0o755);
+
     fixture.git("config", "filter.pwn.clean", `touch ${marker("clean")}; cat`);
     fixture.git("config", "filter.pwn.smudge", `touch ${marker("smudge")}; cat`);
     fixture.git("config", "diff.pwn.textconv", `touch ${marker("textconv")}; cat`);
     fixture.git("config", "diff.pwn.command", `touch ${marker("command")}`);
     fixture.git("config", "core.fsmonitor", `touch ${marker("fsmonitor")}`);
     fixture.git("config", "core.pager", `touch ${marker("pager")}; cat`);
+    fixture.git("config", "log.showSignature", "true");
+    fixture.git("config", "gpg.program", gpgScript);
     return { root: fixture.root, marker };
   }
 
@@ -104,20 +144,38 @@ describe("runGit against a malicious repository", () => {
     const { marker } = createMaliciousRepo();
     fixture?.git("log", "-p", "-2");
     expect(existsSync(marker("textconv"))).toBe(true);
+    expect(existsSync(marker("gpg"))).toBe(true);
   });
 
-  it("runs no repository-defined program for log/show/cat-file/ls-files/ls-tree", async () => {
+  it("runs no repository-defined program for any allowlisted subcommand", async () => {
     const { root, marker } = createMaliciousRepo();
-    const patch = await runGit({ subcommand: "log", flags: ["-p", "-2"] }, { cwd: root });
+    const patch = await runGit(
+      { subcommand: "diff-tree", flags: ["-p", "-r", "--root"], operands: ["HEAD"] },
+      { cwd: root },
+    );
     expect(patch).toContain("+two");
-    await runGit({ subcommand: "show", operands: ["HEAD"] }, { cwd: root });
+    await runGit(
+      { subcommand: "rev-list", flags: ["--all", "--format=%H%x1f%an%x1f%ae"] },
+      { cwd: root },
+    );
+    await runGit({ subcommand: "cat-file", flags: ["-p"], operands: ["HEAD"] }, { cwd: root });
     await runGit(
       { subcommand: "cat-file", flags: ["-p"], operands: ["HEAD:a.txt"] },
       { cwd: root },
     );
+    const batch = await runGit(
+      { subcommand: "cat-file", flags: ["--batch"] },
+      { cwd: root, input: "HEAD:a.txt\n" },
+    );
+    expect(batch).toContain("two");
     await runGit({ subcommand: "ls-files", flags: ["-s"] }, { cwd: root });
     await runGit({ subcommand: "ls-tree", flags: ["-r"], operands: ["HEAD"] }, { cwd: root });
-    for (const name of ["clean", "smudge", "textconv", "command", "fsmonitor", "pager"]) {
+    await runGit({ subcommand: "for-each-ref" }, { cwd: root });
+    await runGit(
+      { subcommand: "rev-parse", flags: ["--verify"], operands: ["HEAD"] },
+      { cwd: root },
+    );
+    for (const name of MARKERS) {
       expect(existsSync(marker(name)), name).toBe(false);
     }
   });
@@ -126,7 +184,7 @@ describe("runGit against a malicious repository", () => {
     const { root } = createMaliciousRepo();
     const target = path.join(markerDir as string, "written");
     await expect(
-      runGit({ subcommand: "log", operands: [`--output=${target}`] }, { cwd: root }),
+      runGit({ subcommand: "rev-list", operands: [`--output=${target}`] }, { cwd: root }),
     ).rejects.toBeInstanceOf(GitCommandError);
     expect(existsSync(target)).toBe(false);
   });
