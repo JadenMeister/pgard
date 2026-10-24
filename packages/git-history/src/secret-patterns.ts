@@ -31,6 +31,14 @@ export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
   generic_credential: "credential assignment",
 };
 
+export interface DetectSecretsOptions {
+  /**
+   * Repository path of the text. In source code files a string literal is always quoted, so an
+   * unquoted bare identifier there is a reference, not a credential value.
+   */
+  path?: string;
+}
+
 interface Pattern {
   kind: DetectedSecretKind;
   pattern: RegExp;
@@ -73,11 +81,16 @@ const PATTERNS: Pattern[] = [
   },
   {
     kind: "generic_credential",
+    // Groups: 1 quote closing the key, 2 separator, 3 quote opening the value, 4 value.
     pattern:
-      /(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}["']?[ \t]{0,8}[:=][ \t]{0,8}(["']?)([^\s"'`,;]{8,256})\1/gi,
-    group: 2,
+      /(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}(["']?)[ \t]{0,8}([:=])[ \t]{0,8}(["']?)([^\s"'`,;]{8,256})\3/gi,
+    group: 4,
   },
 ];
+
+/** Extensions of languages where a string value must be quoted. */
+const SOURCE_CODE_FILE =
+  /\.(?:[cm]?[jt]sx?|vue|svelte|go|py|rb|java|kts?|scala|groovy|cs|php|rs|swift|dart|c|cc|cpp|h|hpp|m|mm)$/i;
 
 /** Values that are clearly not real secrets. */
 const PLACEHOLDER =
@@ -92,6 +105,46 @@ export function shannonEntropy(value: string): number {
     entropy -= probability * Math.log2(probability);
   }
   return entropy;
+}
+
+/**
+ * Unquoted values that are code, not data: a parameter type (`password: string)`), an arrow
+ * function's parameter list (`= (object:`), a generic type (`Record<SecretKind`), or a regex
+ * literal (`/pass(word)?|pwd/i`).
+ */
+const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]|]/];
+/** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
+const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
+const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
+
+/**
+ * Whether a generic `key = value` match is an assignment of a literal value, judged by what
+ * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`) and
+ * unquoted values that are code: code-shaped, an all-caps constant name, or (in source code
+ * files, where a literal must be quoted) a bare identifier. Unquoted values elsewhere (`.env`,
+ * YAML, connection strings inside a string) still count.
+ */
+function isLiteralAssignment(
+  text: string,
+  match: RegExpMatchArray,
+  options: DetectSecretsOptions,
+): boolean {
+  const [, keyQuote = "", separator = "", valueQuote = "", value = ""] = match;
+  const start = match.index ?? 0;
+  if (
+    separator === ":" &&
+    keyQuote !== "" &&
+    /\?[ \t]*["']$/.test(text.slice(Math.max(0, start - 16), start))
+  ) {
+    return false; // `cond ? "PG-SECRET-003" : "PG-SECRET-002"` is a ternary, not a key
+  }
+  if (valueQuote !== "") return true;
+  if (CODE_SHAPED_VALUE.some((shape) => shape.test(value))) return false;
+  if (CONSTANT_NAME.test(value)) return false;
+  if (options.path && SOURCE_CODE_FILE.test(options.path) && BARE_IDENTIFIER.test(value)) {
+    return false;
+  }
+  return true;
 }
 
 /** Generic assignments must look random enough and not be a code reference or placeholder. */
@@ -120,7 +173,11 @@ function createLineLookup(text: string): (index: number) => number {
   };
 }
 
-export function detectSecrets(text: string): DetectedSecret[] {
+/**
+ * Finds secrets in a file's text. Generic credential assignments count only when the value is a
+ * literal that looks like a secret (see `isLiteralAssignment`).
+ */
+export function detectSecrets(text: string, options: DetectSecretsOptions = {}): DetectedSecret[] {
   const lineOfIndex = createLineLookup(text);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
@@ -129,7 +186,11 @@ export function detectSecrets(text: string): DetectedSecret[] {
     for (const match of text.matchAll(pattern)) {
       const value = match[group] ?? "";
       if (value.length === 0) continue;
-      if (kind === "generic_credential" && !isLikelySecretValue(value)) continue;
+      if (
+        kind === "generic_credential" &&
+        (!isLikelySecretValue(value) || !isLiteralAssignment(text, match, options))
+      )
+        continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
         continue;
       const line = lineOfIndex(match.index ?? 0);

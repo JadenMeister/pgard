@@ -65,6 +65,59 @@ describe("detectSecrets", () => {
   it("reports line numbers", () => {
     expect(detectSecrets(`a\nb\nx = "${FAKE.github}"`)[0]?.line).toBe(3);
   });
+
+  // Regressions from scanning PGARD itself: code that names credentials is not an assignment.
+  it.each([
+    ["ternary between string literals", 'ruleId: commit ? "PG-SECRET-003" : "PG-SECRET-002",'],
+    ["generic type annotation", "export const SECRET_KIND_LABEL: Record<SecretKind, string> = {"],
+    ["parameter type", "  set(key: CredentialKey, secret: string): Promise<void>;"],
+    ["parameter type (password)", "  setPassword(password: string): Promise<void>;"],
+    ["regex literal", "const PASSWORD_TEXT = /pass(word)?|pwd/i;"],
+    ["anchored regex literal", "const PASSWORD_NAME = /^(password|passwd|pwd|newPassword)$/i;"],
+    ["regex in an object", "updatesPassword: /\\.update\\([^)]{0,200}(pass(word)?|pwd)/i.test(t),"],
+    [
+      "arrow function parameters",
+      "const checkPassword = (object: ts.ObjectLiteralExpression) => {",
+    ],
+    ["constant reference", "        access_token: ACCESS_TOKEN,"],
+    ["constant reference (camel key)", "    accessToken: GITHUB_ACCESS_TOKEN,"],
+  ])("ignores %s", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+    expect(detectSecrets(text)).toEqual([]);
+  });
+
+  it("ignores bare identifiers in source code but not in config files", () => {
+    const line = "password = userSuppliedValue";
+    expect(detectSecrets(line, { path: "app/settings.py" })).toEqual([]);
+    expect(detectSecrets(line, { path: "config/app.ini" }).map((s) => s.kind)).toEqual([
+      "generic_credential",
+    ]);
+    expect(detectSecrets("PASSWORD=abcdefghXYZ", { path: ".env" }).map((s) => s.kind)).toEqual([
+      "generic_credential",
+    ]);
+  });
+
+  it.each([
+    ["quoted password", 'password = "hunter2xyzQ7"', "src/db.ts"],
+    ["quoted password in Go", 'const password = "hunter2xyzQ7"', "main.go"],
+    ["JSON key", '{ "client_secret": "Zx81kQp0Lm2N" }', "config.json"],
+    ["env line", `DB_PASSWORD=${FAKE.dbPassword}`, ".env"],
+    ["env line with export", "export API_KEY=abcdef123456XYZ", "deploy.sh"],
+    ["unquoted YAML", "api_key: abcdef123456XYZ", "config.yml"],
+    ["connection string in code", 'const url = "Server=db;Password=Abc123xyz9;";', "src/db.ts"],
+    ["password with symbols", "password=(hunter2)xyz", ".env"],
+  ])("still detects %s", (_label, text, path) => {
+    expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
+      "generic_credential",
+    );
+  });
+
+  it("still detects a quoted Stripe key assignment", () => {
+    const text = `api_key: "${FAKE.stripe}"`;
+    expect(detectSecrets(text, { path: "src/pay.ts" }).map((secret) => secret.kind)).toContain(
+      "stripe_key",
+    );
+  });
 });
 
 describe("isEnvironmentFile", () => {
