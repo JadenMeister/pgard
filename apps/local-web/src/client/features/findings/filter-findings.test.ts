@@ -1,7 +1,7 @@
 import type { Finding } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
 import { takeTokenFromLocation, hasSessionToken } from "../../api/client";
-import { isGitHubUrl } from "../onboarding/AuthorizationPanel";
+import { isGitHubUrl } from "../../components/github/device-code";
 import { countBySeverity, EMPTY_FILTERS, filterFindings, formatLocation } from "./filter-findings";
 
 function finding(overrides: Partial<Finding>): Finding {

@@ -458,3 +458,88 @@ describe("local web shutdown", () => {
     expect(running.state.confirmedTarget).toBeNull();
   });
 });
+
+/**
+ * Provider that behaves like a pending device flow: announces a code, then waits until its
+ * signal is aborted. Records every signal it was created with.
+ */
+function pendingDeviceFlowDeps(overrides: Partial<ServerDeps> = {}) {
+  const signals: AbortSignal[] = [];
+  const deps = fakeDeps(overrides);
+  deps.createSessionProvider = (options) => {
+    signals.push(options.signal);
+    const provider = () =>
+      new Promise<never>((_resolve, rejectSignIn) => {
+        options.onUserCode({
+          userCode: "WXYZ-9876",
+          verificationUri: "https://github.com/login/device",
+          expiresIn: 900,
+        });
+        options.signal.addEventListener("abort", () => rejectSignIn(new Error("aborted")), {
+          once: true,
+        });
+      });
+    return Object.assign(provider, { invalidate: vi.fn(), signOut: deps.signOut }) as never;
+  };
+  deps.runScan = async (_request, scanDeps) => {
+    await scanDeps.authorization.getGitHubSession();
+    return result();
+  };
+  return { deps, signals };
+}
+
+describe("local web device flow lifecycle", () => {
+  it("shows the device code of a sign-in started by a scan and clears it afterwards", async () => {
+    const { deps, signals } = pendingDeviceFlowDeps();
+    const running = await start(deps);
+    await apiPost(running, "/api/scan", { scopes: ["code"] });
+    const waiting = await waitFor(
+      () => apiGet(running, "/api/scan"),
+      (response) => JSON.parse(response.body).deviceCode !== null,
+    );
+    expect(JSON.parse(waiting.body)).toMatchObject({
+      status: "running",
+      deviceCode: { userCode: "WXYZ-9876" },
+    });
+    // Cancel while the sign-in waits: cancelled at once, sign-in aborted, code cleared.
+    const cancelled = JSON.parse((await apiPost(running, "/api/scan/cancel")).body);
+    expect(cancelled).toMatchObject({ status: "cancelled", deviceCode: null });
+    expect(signals[0]?.aborted).toBe(true);
+    // A new scan can start right away (no 409) with a fresh, unaborted sign-in.
+    expect((await apiPost(running, "/api/scan", { scopes: ["code"] })).status).toBe(200);
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.aborted).toBe(false);
+  });
+
+  it("stops a pending sign-in on sign-out and ignores the abandoned verify", async () => {
+    const { deps, signals } = pendingDeviceFlowDeps();
+    deps.verifyProject = async (_root, authorization) => {
+      await authorization.getGitHubSession();
+      return { summary: { decision: "allowed", checks: [] }, repo: "owner/name", revision: "abc" };
+    };
+    const running = await start(deps);
+    await apiPost(running, "/api/auth/verify");
+    await waitFor(
+      () => apiGet(running, "/api/auth"),
+      (response) => JSON.parse(response.body).deviceCode !== null,
+    );
+    const signedOut = JSON.parse((await apiPost(running, "/api/auth/sign-out")).body);
+    expect(signedOut).toMatchObject({ status: "idle", deviceCode: null });
+    expect(signals[0]?.aborted).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).status).toBe("idle");
+  });
+
+  it("aborts a pending sign-in when the server closes", async () => {
+    const { deps, signals } = pendingDeviceFlowDeps();
+    const running = await start(deps);
+    await apiPost(running, "/api/scan", { scopes: ["code"] });
+    await waitFor(
+      () => apiGet(running, "/api/scan"),
+      (response) => JSON.parse(response.body).deviceCode !== null,
+    );
+    await running.close();
+    server = null;
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+});

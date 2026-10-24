@@ -11,6 +11,7 @@ import {
   type RequestCheck,
 } from "./middleware/security.js";
 import { API_ROUTES, ApiError, type ApiContext } from "./routes/api.js";
+import { createGitHubSessionManager } from "./session/github-session.js";
 import {
   clearSessionState,
   createSessionState,
@@ -92,15 +93,12 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
   const deps = options.deps ?? createDefaultServerDeps();
   const token = options.token ?? randomBytes(32).toString("base64url");
   const state = createSessionState();
-  const getGitHubSession = deps.createSessionProvider({
-    env: options.env,
-    onUserCode: (code) => {
-      state.auth.deviceCode = {
-        userCode: sanitizeDisplayText(code.userCode, 40),
-        verificationUri: sanitizeDisplayText(code.verificationUri, 200),
-        expiresIn: code.expiresIn,
-      };
-    },
+  const github = createGitHubSessionManager(deps, options.env, (code) => {
+    state.deviceCode = {
+      userCode: sanitizeDisplayText(code.userCode, 40),
+      verificationUri: sanitizeDisplayText(code.verificationUri, 200),
+      expiresIn: code.expiresIn,
+    };
   });
   let port = 0;
   const context: ApiContext = {
@@ -109,7 +107,7 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     env: options.env,
     state,
     deps,
-    getGitHubSession,
+    github,
   };
 
   const server = http.createServer((request, response) => {
@@ -164,7 +162,8 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     token,
     state,
     close: async () => {
-      getGitHubSession.signOut();
+      // Stops a pending device flow too, so the process can exit right away.
+      github.dispose();
       clearSessionState(state);
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));

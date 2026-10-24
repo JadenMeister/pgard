@@ -8,12 +8,7 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isReportFormat, ReportWriteError } from "@pgard/report";
-import {
-  PGARD_VERSION,
-  readGitHubAppClientId,
-  ScanCancelledError,
-  type GitHubSessionProvider,
-} from "@pgard/scan-core";
+import { PGARD_VERSION, readGitHubAppClientId, ScanCancelledError } from "@pgard/scan-core";
 import type {
   AuthStatus,
   PortListResponse,
@@ -24,6 +19,7 @@ import type {
   TargetInfo,
 } from "../../shared/api-types.js";
 import type { ServerDeps } from "../deps.js";
+import type { GitHubSessionManager } from "../session/github-session.js";
 import {
   MAX_PROGRESS_EVENTS,
   PROBE_CONFIRM_WINDOW_MS,
@@ -47,7 +43,7 @@ export interface ApiContext {
   env: Readonly<Record<string, string | undefined>>;
   state: SessionState;
   deps: ServerDeps;
-  getGitHubSession: GitHubSessionProvider;
+  github: GitHubSessionManager;
 }
 
 export type ApiHandler = (context: ApiContext, body: unknown) => Promise<unknown>;
@@ -86,12 +82,13 @@ function toTargetInfo(state: SessionState): TargetInfo | null {
 
 function scanStatus(state: SessionState): ScanStatus {
   const { status, scopes, progress, result, message } = state.scan;
-  return { status, scopes, progress, result, message };
+  // A scan can start the GitHub sign-in itself; the browser shows this code while it waits.
+  return { status, scopes, progress, result, message, deviceCode: state.deviceCode };
 }
 
 function authStatus(state: SessionState): AuthStatus {
-  const { status, deviceCode, summary, repo, message } = state.auth;
-  return { status, deviceCode, summary, repo, message };
+  const { status, summary, repo, message } = state.auth;
+  return { status, deviceCode: state.deviceCode, summary, repo, message };
 }
 
 const getSession: ApiHandler = async (context) => {
@@ -108,22 +105,20 @@ const getSession: ApiHandler = async (context) => {
 const startVerify: ApiHandler = async (context) => {
   const { state } = context;
   if (state.auth.status === "running") return authStatus(state);
-  state.auth = { status: "running", deviceCode: null, summary: null, repo: null, message: null };
+  const run: SessionState["auth"] = { status: "running", summary: null, repo: null, message: null };
+  state.auth = run;
   void context.deps
-    .verifyProject(context.projectRoot, { getGitHubSession: context.getGitHubSession })
+    .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
-      state.auth = {
-        status: "done",
-        deviceCode: null,
-        summary: outcome.summary,
-        repo: outcome.repo,
-        message: null,
-      };
+      if (state.auth !== run) return; // signed out or restarted meanwhile
+      state.deviceCode = null;
+      state.auth = { status: "done", summary: outcome.summary, repo: outcome.repo, message: null };
     })
     .catch(() => {
+      if (state.auth !== run) return;
+      state.deviceCode = null;
       state.auth = {
         status: "failed",
-        deviceCode: null,
         summary: null,
         repo: null,
         message: "The authorization check could not complete.",
@@ -134,15 +129,11 @@ const startVerify: ApiHandler = async (context) => {
 
 const getAuth: ApiHandler = async (context) => authStatus(context.state);
 
+/** Drops the GitHub session and stops a pending sign-in (verify or scan). */
 const signOut: ApiHandler = async (context) => {
-  context.getGitHubSession.signOut();
-  context.state.auth = {
-    status: "idle",
-    deviceCode: null,
-    summary: null,
-    repo: null,
-    message: null,
-  };
+  context.github.signOut();
+  context.state.deviceCode = null;
+  context.state.auth = { status: "idle", summary: null, repo: null, message: null };
   return authStatus(context.state);
 };
 
@@ -231,7 +222,7 @@ const startScan: ApiHandler = async (context, body) => {
     .runScan(
       { projectRoot: context.projectRoot, scopes, webTarget },
       {
-        authorization: { getGitHubSession: context.getGitHubSession },
+        authorization: { getGitHubSession: context.github.getGitHubSession },
         webScanner: context.deps.webScanner,
         signal: controller.signal,
         env: context.env,
@@ -251,10 +242,12 @@ const startScan: ApiHandler = async (context, body) => {
     )
     .then((result) => {
       if (state.scan.controller !== controller) return;
+      state.deviceCode = null;
       state.scan = { ...state.scan, status: "done", result, controller: null };
     })
     .catch((error: unknown) => {
       if (state.scan.controller !== controller) return;
+      state.deviceCode = null;
       const isCancelled = error instanceof ScanCancelledError;
       state.scan = {
         ...state.scan,
@@ -270,9 +263,25 @@ const startScan: ApiHandler = async (context, body) => {
 
 const getScan: ApiHandler = async (context) => scanStatus(context.state);
 
+/**
+ * Cancels immediately: the scan is marked cancelled right away (a scan stuck waiting for the
+ * GitHub sign-in would otherwise never notice the abort), and a pending device flow is stopped.
+ * The late result of the abandoned run is ignored.
+ */
 const cancelScan: ApiHandler = async (context) => {
-  context.state.scan.controller?.abort();
-  return scanStatus(context.state);
+  const { state } = context;
+  const controller = state.scan.controller;
+  if (controller === null) return scanStatus(state);
+  controller.abort();
+  context.github.abortPendingSignIn();
+  state.deviceCode = null;
+  state.scan = {
+    ...state.scan,
+    status: "cancelled",
+    message: "The scan was cancelled.",
+    controller: null,
+  };
+  return scanStatus(state);
 };
 
 const INSIDE_REPO_WARNING =

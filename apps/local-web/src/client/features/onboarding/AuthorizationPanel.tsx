@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import type { AuthStatus, SessionInfo } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
+import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
 
@@ -11,16 +12,6 @@ const CHECK_LABELS: Record<string, string> = {
   current_access: "Current access",
   contribution: "Merged contribution",
 };
-
-/** Only https links to github.com become clickable; anything else is shown as text. */
-export function isGitHubUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    return url.protocol === "https:" && url.hostname === "github.com";
-  } catch {
-    return false;
-  }
-}
 
 interface AuthorizationPanelProps {
   session: SessionInfo;
@@ -81,25 +72,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
           your GitHub identity; until then every scan is blocked.
         </Notice>
       )}
-      {status?.deviceCode && (
-        <div className="device-code" role="status">
-          <p>
-            Open{" "}
-            {isGitHubUrl(status.deviceCode.verificationUri) ? (
-              <a href={status.deviceCode.verificationUri} target="_blank" rel="noreferrer noopener">
-                {status.deviceCode.verificationUri}
-              </a>
-            ) : (
-              <code>{status.deviceCode.verificationUri}</code>
-            )}{" "}
-            and enter this code:
-          </p>
-          <p className="code">{status.deviceCode.userCode}</p>
-          <p className="muted">
-            Expires in about {Math.max(1, Math.round(status.deviceCode.expiresIn / 60))} min.
-          </p>
-        </div>
-      )}
+      {status?.deviceCode && <DeviceCodeNotice deviceCode={status.deviceCode} />}
       {status?.status === "running" && !status.deviceCode && <p className="muted">Checking...</p>}
       {status?.summary && (
         <>

@@ -23,6 +23,8 @@ export interface ServerDeps {
   createSessionProvider: (options: {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
+    /** Aborts a pending device flow (scan cancel, sign-out, shutdown). */
+    signal: AbortSignal;
   }) => GitHubSessionProvider;
   webScanner: WebScanner;
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
@@ -36,8 +38,8 @@ export function createDefaultServerDeps(): ServerDeps {
   return {
     verifyProject,
     runScan,
-    createSessionProvider: ({ env, onUserCode }) =>
-      createDeviceFlowSessionProvider({ clientId: readGitHubAppClientId(env), onUserCode }),
+    createSessionProvider: ({ env, onUserCode, signal }) =>
+      createDeviceFlowSessionProvider({ clientId: readGitHubAppClientId(env), onUserCode, signal }),
     webScanner: scanLocalWeb,
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),

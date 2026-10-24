@@ -70,6 +70,8 @@ export interface ScanStatus {
   progress: ScanProgressDto[];
   result: ScanResult | null;
   message: string | null;
+  /** Set while the GitHub sign-in started by this scan waits for the user. */
+  deviceCode: DeviceCodeInfo | null;
 }
 
 export type ReportFormatDto = "html" | "pdf" | "both";

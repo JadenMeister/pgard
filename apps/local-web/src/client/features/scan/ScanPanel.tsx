@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ScanScope } from "@pgard/findings";
 import type { ScanStatus, TargetInfo } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
+import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
 import { CoverageTable } from "./CoverageTable";
@@ -91,6 +92,7 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
           </button>
         )}
       </div>
+      {isRunning && scan?.deviceCode && <DeviceCodeNotice deviceCode={scan.deviceCode} />}
       {scan !== null && scan.progress.length > 0 && (
         <ol className="progress" aria-live="polite">
           {scan.progress.slice(-8).map((event, index) => (

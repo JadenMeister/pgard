@@ -18,11 +18,12 @@ export const MAX_PROGRESS_EVENTS = 200;
 export interface SessionState {
   auth: {
     status: JobStatus;
-    deviceCode: DeviceCodeInfo | null;
     summary: AuthorizationSummary | null;
     repo: string | null;
     message: string | null;
   };
+  /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
+  deviceCode: DeviceCodeInfo | null;
   lastProbe: { identity: ServiceIdentity; probedAt: number } | null;
   confirmedTarget: ConfirmedWebTarget | null;
   scan: {
@@ -37,7 +38,8 @@ export interface SessionState {
 
 export function createSessionState(): SessionState {
   return {
-    auth: { status: "idle", deviceCode: null, summary: null, repo: null, message: null },
+    auth: { status: "idle", summary: null, repo: null, message: null },
+    deviceCode: null,
     lastProbe: null,
     confirmedTarget: null,
     scan: {
