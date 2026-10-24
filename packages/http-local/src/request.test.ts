@@ -72,6 +72,19 @@ describe("fetchLoopback redirects", () => {
     expect(result.response.url).toBe(`http://127.0.0.1:${server.port}/next`);
   });
 
+  it("does not follow redirects to logout/delete-like paths", async () => {
+    const server = await start((request, response) => {
+      if (request.url === "/go") {
+        response.writeHead(302, { location: "/logout" }).end();
+        return;
+      }
+      response.end("should not be reached");
+    });
+    const result = await fetchLoopback(server.port, "/go");
+    expect(result.redirectStop?.reason).toBe("unsafe_path");
+    expect(server.requests.map((request) => request.url)).toEqual(["/go"]);
+  });
+
   it("stops redirect loops", async () => {
     const server = await start((_request, response) => {
       response.writeHead(302, { location: "/" }).end();

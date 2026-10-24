@@ -145,7 +145,9 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
         gaps.add(
           result.redirectStop.reason === "off_target"
             ? "a redirect leaving 127.0.0.1 on this port was not followed"
-            : "a redirect chain was stopped",
+            : result.redirectStop.reason === "unsafe_path"
+              ? "a redirect to a logout/delete-like path was not followed"
+              : "a redirect chain was stopped",
         );
       }
       cookies.addResponse(result.response.url, result.response.headers);

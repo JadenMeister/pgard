@@ -6,6 +6,7 @@ import {
   REQUEST_TIMEOUT_MS,
   USER_AGENT,
 } from "./constants.js";
+import { isUnsafeLinkPath } from "./html.js";
 import { buildLoopbackOrigin, InvalidTargetError, parseAllowedLoopbackUrl } from "./target.js";
 
 /** Only read-only methods exist in this module. There is deliberately no way to send a body. */
@@ -23,7 +24,8 @@ export interface LoopbackResponse {
   isBodyTruncated: boolean;
 }
 
-export type RedirectStopReason = "off_target" | "too_many_redirects" | "invalid_location";
+export type RedirectStopReason =
+  "off_target" | "unsafe_path" | "too_many_redirects" | "invalid_location";
 
 export interface RedirectStop {
   reason: RedirectStopReason;
@@ -196,6 +198,9 @@ export async function fetchLoopback(
     const next = parseAllowedLoopbackUrl(location, `${origin}${currentPath}`, { port });
     if (next === null) {
       return { response, redirectStop: { reason: "off_target", fromUrl: response.url } };
+    }
+    if (isUnsafeLinkPath(next.pathname)) {
+      return { response, redirectStop: { reason: "unsafe_path", fromUrl: response.url } };
     }
     currentPath = `${next.pathname}${next.search}`;
   }
