@@ -112,4 +112,32 @@ describe("main", () => {
     stdin.write("y");
     expect(await running).toBe(130);
   });
+
+  it("exits 0 when the menu is left after a command ended with Esc (130)", async () => {
+    const captured = createTestIo({ isTTY: true });
+    const stdin = captured.io.stdin as typeof captured.io.stdin & {
+      setRawMode?: (mode: boolean) => void;
+    };
+    stdin.setRawMode = () => undefined;
+    const running = main([], captured.io, {
+      deps: createTestDeps({ createSessionProvider: () => (async () => ({})) as never }),
+      interrupts: noInterrupts,
+    });
+    const press = async (sequence: string): Promise<void> => {
+      await new Promise((resolve) => setTimeout(resolve, 15));
+      stdin.write(sequence);
+    };
+    // Menu: 5th entry "Scan local web service".
+    for (let index = 0; index < 4; index += 1) await press("\u001b[B");
+    await press("\r");
+    // Port list: Esc returns to the menu with status 130.
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    // A lone ESC is only recognised after readline's escape timeout (~500 ms).
+    await press("\u001b");
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    await press("x"); // "Press any key to return to the menu"
+    await press("\u001b"); // Esc on the menu = quit
+    expect(await running).toBe(0);
+    expect(captured.stdout()).toContain("(exit status 130)");
+  }, 10_000);
 });

@@ -102,7 +102,8 @@ async function runMenu(context: CommandContext): Promise<ExitCode> {
   for (;;) {
     out(context, "");
     const picked = await promptChoice(prompts, `pgard ${PGARD_VERSION}`, MENU_CHOICES);
-    if (picked === BACK || picked === "quit") return lastExitCode;
+    // Leaving the menu is a normal end, whatever the last command returned.
+    if (picked === BACK || picked === "quit") return EXIT_CODES.ok;
     lastExitCode = await runCommand(context, picked);
     if (picked.kind === "dashboard") return lastExitCode;
     out(
