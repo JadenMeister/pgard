@@ -1,0 +1,136 @@
+import { describe, expect, it } from "vitest";
+import { readGitHubAppClientId } from "./env.js";
+import type { FetchLike } from "./fetch.js";
+import { createGitHubClient } from "./github-client.js";
+
+function jsonResponse(status: number, body: unknown) {
+  return { status, ok: status >= 200 && status < 300, json: async () => body };
+}
+
+function routeFetch(routes: Record<string, [number, unknown]>): {
+  fetch: FetchLike;
+  urls: string[];
+} {
+  const urls: string[] = [];
+  const fetch: FetchLike = async (url) => {
+    urls.push(url);
+    const path = url.replace("https://api.github.com", "");
+    const route = routes[path];
+    return route ? jsonResponse(route[0], route[1]) : jsonResponse(404, {});
+  };
+  return { fetch, urls };
+}
+
+const SHA = "a".repeat(40);
+
+describe("createGitHubClient", () => {
+  it("parses repository permissions and owner type", async () => {
+    const { fetch } = routeFetch({
+      "/repos/octo/app": [
+        200,
+        {
+          id: 1,
+          full_name: "octo/app",
+          owner: { id: 7, login: "octo", type: "User" },
+          default_branch: "main",
+          permissions: { pull: true, push: false },
+        },
+      ],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    const repo = await client.getRepository("octo", "app");
+    expect(repo.owner).toEqual({ id: 7, login: "octo", type: "User" });
+    expect(repo.permissions?.pull).toBe(true);
+    expect(repo.permissions?.admin).toBe(false);
+  });
+
+  it("throws not_found for invisible repositories", async () => {
+    const client = createGitHubClient({ token: "t", fetch: routeFetch({}).fetch });
+    await expect(client.getRepository("octo", "secret")).rejects.toMatchObject({
+      code: "not_found",
+    });
+  });
+
+  it("rejects path-injection in owner/repo before any request", async () => {
+    const { fetch, urls } = routeFetch({});
+    const client = createGitHubClient({ token: "t", fetch });
+    await expect(client.getRepository("..", "x")).rejects.toThrow();
+    await expect(client.getRepository("a/b", "x")).rejects.toThrow();
+    await expect(client.getCommit("o", "r", "HEAD")).rejects.toThrow();
+    expect(urls).toEqual([]);
+  });
+
+  it("returns null comparison for unknown SHAs and parses status", async () => {
+    const { fetch } = routeFetch({
+      [`/repos/o/r/compare/${SHA}...main?per_page=1`]: [200, { status: "ahead" }],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    expect(await client.compareCommits("o", "r", SHA, "main")).toBe("ahead");
+    expect(await client.compareCommits("o", "r", "b".repeat(40), "main")).toBeNull();
+  });
+
+  it("paginates installations and repositories with a bound", async () => {
+    const page = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }));
+    const { fetch, urls } = routeFetch({
+      "/user/installations/5/repositories?per_page=100&page=1": [
+        200,
+        { total_count: 101, repositories: page },
+      ],
+      "/user/installations/5/repositories?per_page=100&page=2": [
+        200,
+        { total_count: 101, repositories: [{ id: 999 }] },
+      ],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    const ids = await client.listInstallationRepositoryIds(5);
+    expect(ids).toHaveLength(101);
+    expect(urls).toHaveLength(2);
+  });
+
+  it("reads commit verification and pull request authors", async () => {
+    const { fetch } = routeFetch({
+      [`/repos/o/r/commits/${SHA}`]: [
+        200,
+        {
+          sha: SHA,
+          author: { id: 7 },
+          committer: { id: 7 },
+          commit: { verification: { verified: true } },
+        },
+      ],
+      [`/repos/o/r/commits/${SHA}/pulls?per_page=100`]: [
+        200,
+        [{ number: 3, user: { id: 7 }, merged_at: "2026-01-01T00:00:00Z" }],
+      ],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    expect(await client.getCommit("o", "r", SHA)).toEqual({
+      sha: SHA,
+      authorId: 7,
+      committerId: 7,
+      isVerified: true,
+    });
+    expect(await client.listPullRequestsForCommit("o", "r", SHA)).toEqual([
+      { number: 3, userId: 7, mergedAt: "2026-01-01T00:00:00Z" },
+    ]);
+  });
+
+  it("reports HTTP failures without echoing response bodies", async () => {
+    const { fetch } = routeFetch({ "/user": [500, { message: "internal secret detail" }] });
+    const client = createGitHubClient({ token: "t", fetch });
+    const error = await client.getAuthenticatedUser().catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: "http_error", status: 500 });
+    expect((error as Error).message).not.toContain("secret detail");
+  });
+});
+
+describe("readGitHubAppClientId", () => {
+  it("returns null when unset or malformed", () => {
+    expect(readGitHubAppClientId({})).toBeNull();
+    expect(readGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "  " })).toBeNull();
+    expect(readGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "a b" })).toBeNull();
+    expect(readGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liExample" })).toBe(
+      "Iv23liExample",
+    );
+  });
+});
