@@ -63,17 +63,9 @@ interface LanguageStats {
   files: number;
   unparsable: number;
   unreadable: number;
-  minified: number;
+  overran: number;
   capped: number;
   skippedForTime: number;
-}
-
-/** Generated/minified bundles (very long lines) would only add noise; they are skipped. */
-function isMinified(content: string): boolean {
-  if (content.length < 5000) return false;
-  const lines = content.split("\n");
-  const longest = lines.reduce((max, line) => Math.max(max, line.length), 0);
-  return longest > 2000 && content.length / lines.length > 300;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -103,7 +95,7 @@ export async function scanSourceCode(
       files: 0,
       unparsable: 0,
       unreadable: 0,
-      minified: 0,
+      overran: 0,
       capped: 0,
       skippedForTime: 0,
     },
@@ -111,12 +103,12 @@ export async function scanSourceCode(
       files: 0,
       unparsable: 0,
       unreadable: 0,
-      minified: 0,
+      overran: 0,
       capped: 0,
       skippedForTime: 0,
     },
-    vue: { files: 0, unparsable: 0, unreadable: 0, minified: 0, capped: 0, skippedForTime: 0 },
-    go: { files: 0, unparsable: 0, unreadable: 0, minified: 0, capped: 0, skippedForTime: 0 },
+    vue: { files: 0, unparsable: 0, unreadable: 0, overran: 0, capped: 0, skippedForTime: 0 },
+    go: { files: 0, unparsable: 0, unreadable: 0, overran: 0, capped: 0, skippedForTime: 0 },
   };
   const jsFacts: { path: string; facts: JsFileFacts }[] = [];
   const goImports = new Set<string>();
@@ -136,10 +128,6 @@ export async function scanSourceCode(
     const content = await readTextFile(file.absolutePath);
     if (content === null) {
       languageStats.unreadable += 1;
-      continue;
-    }
-    if (file.language !== "go" && isMinified(content)) {
-      languageStats.minified += 1;
       continue;
     }
     try {
@@ -168,6 +156,9 @@ export async function scanSourceCode(
     } catch {
       languageStats.unparsable += 1;
     }
+    // Checked after every file (including the last), so a slow file is always visible.
+    throwIfAborted(options.signal);
+    if (now() - startedAt > timeBudgetMs) languageStats.overran += 1;
   }
 
   // Dependency manifests for ORM detection (read-only, never executed).
@@ -251,8 +242,8 @@ export async function scanSourceCode(
       );
     if (languageStats.unreadable > 0)
       problems.push(`${languageStats.unreadable} file(s) were binary or unreadable`);
-    if (languageStats.minified > 0)
-      problems.push(`${languageStats.minified} minified/generated file(s) skipped`);
+    if (languageStats.overran > 0)
+      problems.push(`the time budget was exceeded while analyzing; results may be incomplete`);
     if (languageStats.capped > 0)
       problems.push(
         `${languageStats.capped} file(s) hit the per-file finding cap; further findings there are not listed`,

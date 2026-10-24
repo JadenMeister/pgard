@@ -180,13 +180,13 @@ describe("#89 hygiene", () => {
     expect(result.coverage.find((entry) => entry.area === "source:go")?.status).toBe("partial");
   });
 
-  it("skips minified bundles instead of flooding findings", async () => {
+  it("bounds findings from minified bundles with the per-file cap", async () => {
     const bundle = `${"var a=document;a.body.innerHTML=x;".repeat(400)}\n`;
     const root = project({ "public/bundle.js": bundle });
     const result = await scanSourceCode(root);
-    expect(result.findings).toEqual([]);
+    expect(result.findings.length).toBeLessThanOrEqual(25);
     expect(result.coverage.find((entry) => entry.area === "source:javascript")?.note).toMatch(
-      /minified/,
+      /finding cap/,
     );
   });
 });

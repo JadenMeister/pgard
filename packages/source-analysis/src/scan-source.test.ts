@@ -121,3 +121,32 @@ describe("scanSourceCode", () => {
     expect(first.findings.map((f) => f.id)).toEqual(second.findings.map((f) => f.id));
   });
 });
+
+describe("hand-written files with long strings (#105)", () => {
+  const longDataUri = `const logo = "data:image/svg+xml;base64,${"A".repeat(6000)}";`;
+
+  it("analyzes a server file that embeds a long data URI", async () => {
+    const root = project({
+      "server.js": `${longDataUri}\nimport { exec } from "child_process";\napp.get("/ls", (req, res) => exec(\`ls \${req.query.dir}\`));\n`,
+    });
+    const result = await scanSourceCode(root);
+    expect(result.findings.map((finding) => finding.ruleId)).toContain("PG-CMD-001");
+  });
+
+  it("analyzes a Vue component with a long inline SVG", async () => {
+    const svg = `<svg>${"<path d='M0 0'/>".repeat(800)}</svg>`;
+    const root = project({
+      "src/Icon.vue": `<template><div>${svg}<p v-html="$route.query.m"></p></div></template>\n`,
+    });
+    const result = await scanSourceCode(root);
+    expect(result.findings.map((finding) => finding.ruleId)).toContain("PG-XSS-003");
+  });
+
+  it("checks the time budget after the last file", async () => {
+    const root = project({ "only.ts": "export const a = 1;" });
+    let clock = 0;
+    const result = await scanSourceCode(root, { timeBudgetMs: 150, now: () => (clock += 100) });
+    const ts = result.coverage.find((entry) => entry.area === "source:typescript");
+    expect(ts?.status).toBe("partial");
+  });
+});
