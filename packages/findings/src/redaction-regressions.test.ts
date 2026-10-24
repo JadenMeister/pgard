@@ -96,6 +96,32 @@ describe("redaction regressions", () => {
     }
   });
 
+  it.each([
+    ["/tmp/dump.sql,", "dump.sql"],
+    ["(/tmp/dump.sql)", "dump.sql"],
+    ["/etc/shadow", "shadow"],
+    ["/root/.ssh", ".ssh"],
+    ["/srv/app", "/srv/app"],
+    ["/opt/secretproduct", "secretproduct"],
+    ["/var/log/", "/var/log"],
+    ["/code/x", "/code/x"],
+    ["at /app/server.js:10:5", "server.js"],
+  ])("#95 masks the filesystem path %s", (input, fragment) => {
+    const output = redactEvidence(`see ${input} here`);
+    expect(output).not.toContain(fragment);
+    expect(output).toContain("<absolute-path>");
+  });
+
+  it.each([
+    "POST /data/export",
+    "GET /run/jobs",
+    "/dev/tools",
+    "probe /sys/health",
+    "GET /app/settings",
+  ])("#71/#95 keeps the short route %s", (text) => {
+    expect(redactEvidence(text)).toBe(text);
+  });
+
   it("#60 cut points never leave a partial token", () => {
     const token = join("ghp", "_", "w".repeat(36));
     expect(capText(`${"a;".repeat(2047)}x=${token};`, 4100)).not.toContain("ghp_w");

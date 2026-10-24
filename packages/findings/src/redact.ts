@@ -265,8 +265,26 @@ const FILE_URL_PATTERN = /\bfile:\/\/[^\s'"`<>?#]{0,2048}/gi;
  */
 // A root path is masked when it has at least two segments below the root or one file-like
 // segment (`/tmp/x.log`), so short routes such as `/data/export` or `/run/jobs` stay readable.
-const ABSOLUTE_PATH_PATTERN =
-  /(?<![\w.~/:\\-])\/(?:Users|home|opt|private|tmp|var|etc|usr|root|mnt|media|srv|Volumes|nix|proc|sys|dev|run|snap|Library|System|Applications|workspaces?|builds|runner|data|app|code)(?:(?:\/[^\s'"`<>|/]{1,255}){2,64}|\/[^\s'"`<>|/]{1,255}\.[A-Za-z0-9]{1,10}(?![^\s'"`<>|]))|(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])[^\s'"`<>|]{0,1024}|(?<![\w\\])\\\\[A-Za-z0-9._$-]{1,255}\\[^\s'"`<>|]{1,1024}/g;
+const PATH_CHARS = "[^\\s'\"`<>|,;)\\]}]";
+const FS_ROOTS =
+  "Users|home|opt|private|tmp|var|etc|usr|root|mnt|media|srv|Volumes|nix|snap|Library|System|Applications|workspaces?|builds|runner|code";
+const ROUTE_LIKE_ROOTS = "data|run|dev|sys|proc|app";
+const FILE_END = "(?=[\\s'\"`<>|,;)\\]}:]|$)";
+/**
+ * - Filesystem roots (`/etc/shadow`, `/root/.ssh`, `/var/log/`) are masked with any path below.
+ * - Roots that are also common routes (`/data`, `/run`, `/dev`, `/sys`, `/proc`, `/app`) are
+ *   masked only with two or more segments or a file-like segment (`/app/server.js:10:5`).
+ * - Windows drive and UNC paths are masked. Trailing punctuation stays outside the mask.
+ */
+const ABSOLUTE_PATH_PATTERN = new RegExp(
+  [
+    `(?<![\\w.~/:\\\\-])\\/(?:${FS_ROOTS})\\/${PATH_CHARS}{0,1024}`,
+    `(?<![\\w.~/:\\\\-])\\/(?:${ROUTE_LIKE_ROOTS})(?:(?:\\/[^\\s'"\`<>|/,;)\\]}]{1,255}){2,64}|\\/[^\\s'"\`<>|/,;)\\]}]{1,255}\\.[A-Za-z0-9]{1,10}${FILE_END})`,
+    `(?<![A-Za-z0-9])[A-Za-z]:[\\\\/](?![\\\\/])${PATH_CHARS}{0,1024}`,
+    `(?<![\\w\\\\])\\\\\\\\[A-Za-z0-9._$-]{1,255}\\\\${PATH_CHARS}{1,1024}`,
+  ].join("|"),
+  "g",
+);
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
