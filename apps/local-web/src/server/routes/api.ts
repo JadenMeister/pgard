@@ -153,11 +153,12 @@ const signOut: ApiHandler = async (context) => {
  * same order the CLI uses). "Allowed" means `isAuthorizationAllowed`: the decision is allowed and all
  * five checks are present, in order, and passed. The outcome is read from server state only;
  * nothing the browser sends can open this gate. A new check, sign-out or a blocked/failed result
- * closes it again.
+ * closes it again. Returns the authorization record that passed, for `requireSameAuthorization`.
  */
-export function requirePortAccessAuthorized(state: SessionState): void {
-  const { status, outcome, message } = state.auth;
-  if (status === "done" && outcome !== null && isAuthorizationAllowed(outcome)) return;
+export function requirePortAccessAuthorized(state: SessionState): SessionState["auth"] {
+  const auth = state.auth;
+  const { status, outcome, message } = auth;
+  if (status === "done" && outcome !== null && isAuthorizationAllowed(outcome)) return auth;
   let reason: string;
   if (status === "running") {
     reason = "The authorization check is still running. Local services are not contacted yet.";
@@ -172,15 +173,32 @@ export function requirePortAccessAuthorized(state: SessionState): void {
   throw new ApiError(403, "authorization_required", reason);
 }
 
+/**
+ * Runs the gate again after an await and requires that the authorization it passes is the same
+ * record that opened the request. Signing out or starting a new check while lsof or a probe was
+ * running replaces `state.auth`, so the request stops before contacting anything else.
+ */
+function requireSameAuthorization(state: SessionState, authAtStart: SessionState["auth"]): void {
+  if (requirePortAccessAuthorized(state) !== authAtStart) {
+    throw new ApiError(
+      403,
+      "authorization_required",
+      "Authorization was checked again while this request ran. Local services are not contacted.",
+    );
+  }
+}
+
 const listPorts: ApiHandler = async (context) => {
-  requirePortAccessAuthorized(context.state);
+  const authAtStart = requirePortAccessAuthorized(context.state);
   const discovery = await context.deps.discoverListeningPorts();
+  requireSameAuthorization(context.state, authAtStart);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
       ...toIdentityDto(await context.deps.probeLocalService(entry.port)),
       processName: entry.processName,
     })),
   );
+  requireSameAuthorization(context.state, authAtStart);
   const response: PortListResponse = {
     services: services.filter((service) => service.isHttp),
     isDiscoveryAvailable: discovery.isAvailable,
@@ -189,11 +207,15 @@ const listPorts: ApiHandler = async (context) => {
   return response;
 };
 
-/** Probes one port and remembers the identity the user is about to see. */
+/**
+ * Probes one port and remembers the identity the user is about to see, tied to the authorization
+ * it ran under so a later sign-out or re-check makes it unconfirmable.
+ */
 const probePort: ApiHandler = async (context, body) => {
-  requirePortAccessAuthorized(context.state);
+  const authAtStart = requirePortAccessAuthorized(context.state);
   const identity = await context.deps.probeLocalService(readPort(body));
-  context.state.lastProbe = { identity, probedAt: context.deps.now() };
+  requireSameAuthorization(context.state, authAtStart);
+  context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
   return toIdentityDto(identity);
 };
 
@@ -202,7 +224,7 @@ const probePort: ApiHandler = async (context, body) => {
  * and only if it answered HTTP. The browser never supplies the target object itself.
  */
 const confirmTarget: ApiHandler = async (context, body) => {
-  requirePortAccessAuthorized(context.state);
+  const auth = requirePortAccessAuthorized(context.state);
   const port = readPort(body);
   if (asRecord(body).isConfirmed !== true) {
     throw new ApiError(400, "not_confirmed", "Explicit confirmation is required.");
@@ -210,6 +232,7 @@ const confirmTarget: ApiHandler = async (context, body) => {
   const probe = context.state.lastProbe;
   if (
     probe === null ||
+    probe.auth !== auth ||
     probe.identity.port !== port ||
     context.deps.now() - probe.probedAt > PROBE_CONFIRM_WINDOW_MS
   ) {

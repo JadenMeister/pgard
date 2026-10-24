@@ -24,7 +24,8 @@ export interface SessionState {
   };
   /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
   deviceCode: DeviceCodeInfo | null;
-  lastProbe: { identity: ServiceIdentity; probedAt: number } | null;
+  /** The last probe, with the authorization record it ran under. */
+  lastProbe: { identity: ServiceIdentity; probedAt: number; auth: SessionState["auth"] } | null;
   confirmedTarget: ConfirmedWebTarget | null;
   scan: {
     status: JobStatus | "cancelled";

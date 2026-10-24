@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { AuthorizationCheckId, ScanRequest, ScanResult } from "@pgard/findings";
-import type { ServiceIdentity } from "@pgard/http-local";
+import type { PortDiscoveryResult, ServiceIdentity } from "@pgard/http-local";
 import { AUTHORIZATION_CHECK_ORDER, type AuthorizationOutcome } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerDeps } from "./deps.js";
@@ -412,6 +412,88 @@ describe("local web port access authorization gate", () => {
     }
     expect(discoverListeningPorts).not.toHaveBeenCalled();
     expect(probeLocalService).not.toHaveBeenCalled();
+  });
+
+  /** A dependency call that waits until the test releases it; `called` settles when it starts. */
+  function deferred<T>(value: T) {
+    let release: () => void = () => undefined;
+    let markCalled: () => void = () => undefined;
+    const called = new Promise<void>((resolve) => (markCalled = resolve));
+    const fn = vi.fn(
+      () =>
+        new Promise<T>((resolve) => {
+          markCalled();
+          release = () => resolve(value);
+        }),
+    );
+    return { fn, called, release: () => release() };
+  }
+
+  const DISCOVERY: PortDiscoveryResult = {
+    ports: [{ port: 3000, processName: "node" }],
+    method: "lsof",
+    isComplete: false,
+    isAvailable: true,
+    note: null,
+  };
+
+  it.each([
+    ["signs out", (running: LocalWebServer) => apiPost(running, "/api/auth/sign-out")],
+    ["re-verifies", (running: LocalWebServer) => authorize(running)],
+  ])("sends no probe when the user %s while lsof runs", async (_label, interrupt) => {
+    const lsof = deferred(DISCOVERY);
+    const probeLocalService = vi.fn(async () => IDENTITY);
+    const running = await start(
+      fakeDeps({
+        verifyProject: ALLOWED_VERIFY,
+        discoverListeningPorts: lsof.fn,
+        probeLocalService,
+      }),
+    );
+    await authorize(running);
+    const pending = apiGet(running, "/api/ports");
+    await lsof.called;
+    await interrupt(running);
+    lsof.release();
+    const response = await pending;
+    expect(response.status).toBe(403);
+    expect(JSON.parse(response.body).error.code).toBe("authorization_required");
+    expect(lsof.fn).toHaveBeenCalledTimes(1);
+    expect(probeLocalService).not.toHaveBeenCalled();
+  });
+
+  it("does not keep a probe that finished after sign-out", async () => {
+    const probe = deferred(IDENTITY);
+    const running = await start(
+      fakeDeps({ verifyProject: ALLOWED_VERIFY, probeLocalService: probe.fn }),
+    );
+    await authorize(running);
+    const pending = apiPost(running, "/api/ports/probe", { port: 3000 });
+    await probe.called;
+    await apiPost(running, "/api/auth/sign-out");
+    probe.release();
+    expect((await pending).status).toBe(403);
+    // Authorized again: the probe from the signed-out session cannot be confirmed.
+    await authorize(running);
+    const confirm = await apiPost(running, "/api/target/confirm", {
+      port: 3000,
+      isConfirmed: true,
+    });
+    expect(confirm.status).toBe(409);
+    expect(JSON.parse(confirm.body).error.code).toBe("probe_required");
+  });
+
+  it("does not confirm a probe made under an earlier authorization", async () => {
+    const running = await start(fakeDeps({ verifyProject: ALLOWED_VERIFY }));
+    await authorize(running);
+    expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(200);
+    await authorize(running);
+    const confirm = await apiPost(running, "/api/target/confirm", {
+      port: 3000,
+      isConfirmed: true,
+    });
+    expect(confirm.status).toBe(409);
+    expect(JSON.parse(confirm.body).error.code).toBe("probe_required");
   });
 
   it("ignores anything the client sends about authorization", async () => {
