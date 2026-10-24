@@ -1,6 +1,7 @@
 import { PassThrough } from "node:stream";
 import type { AuthorizationSummary, Finding, ScanResult } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
+import { createInMemoryCredentialStore } from "@pgard/scan-core";
 import type { InterruptSource } from "./adapters/cancel.js";
 import type { CliIo, Key, KeyReader } from "./adapters/terminal.js";
 import type { CommandContext } from "./context.js";
@@ -158,6 +159,9 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     runScan: async () => testResult(),
     createSessionProvider: () =>
       Object.assign(async () => unexpected("getGitHubSession")(), {}) as never,
+    // A fake keychain: tests never touch the real OS keychain.
+    credentialStore: createInMemoryCredentialStore(),
+    signInAndStore: unexpected("signInAndStore") as never,
     webScanner: unexpected("webScanner") as never,
     probeLocalService: async () => HTTP_IDENTITY,
     discoverListeningPorts: async () => ({

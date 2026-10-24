@@ -31,11 +31,23 @@ export {
   type AuthorizationOutcome,
 } from "@pgard/policy";
 export {
+  GITHUB_APP_AUTHORIZATIONS_URL,
   GITHUB_APP_CLIENT_ID_ENV,
   GitHubAuthError,
   createDeviceFlowSessionProvider,
+  createInMemoryCredentialStore,
+  createOsCredentialStore,
+  createUnavailableCredentialStore,
+  isGitHubAuthError,
   readGitHubAppClientId,
+  readStoredSignInStatus,
+  removeStoredSignIn,
+  signInAndStore,
+  type CredentialStore,
   type DeviceUserCode,
   type GitHubSessionProvider,
+  type RemoveStoredSignInResult,
+  type SignInNotice,
+  type StoredSignInStatus,
 } from "@pgard/github-auth";
 export { findGitRoot } from "@pgard/git-history";
