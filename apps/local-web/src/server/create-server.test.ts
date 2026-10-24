@@ -4,7 +4,13 @@ import os from "node:os";
 import path from "node:path";
 import type { AuthorizationCheckId, ScanRequest, ScanResult } from "@pgard/findings";
 import type { PortDiscoveryResult, ServiceIdentity } from "@pgard/http-local";
-import { AUTHORIZATION_CHECK_ORDER, type AuthorizationOutcome } from "@pgard/scan-core";
+import {
+  AUTHORIZATION_CHECK_ORDER,
+  createDeviceFlowSessionProvider,
+  createInMemoryCredentialStore,
+  type AuthorizationOutcome,
+  type CredentialStore,
+} from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerDeps } from "./deps.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
@@ -73,6 +79,8 @@ function fakeDeps(
     verifyProject: async () => outcome("owner_approval"),
     runScan: async () => result(),
     createSessionProvider: () => provider as never,
+    // A fake keychain: tests never touch the real OS keychain.
+    credentialStore: createInMemoryCredentialStore(),
     webScanner: async () => ({ findings: [], coverage: [] }),
     probeLocalService: async () => IDENTITY,
     discoverListeningPorts: async () => ({
@@ -148,11 +156,12 @@ let server: LocalWebServer | null = null;
 async function start(
   deps: ServerDeps,
   presetTargetPort: number | null = null,
+  env: Record<string, string> = {},
 ): Promise<LocalWebServer> {
   server = await startLocalWebServer({
     projectRoot: "/work/my-project",
     presetTargetPort,
-    env: {},
+    env,
     assets: new Map([
       ["/", { body: Buffer.from("<html></html>"), contentType: "text/html; charset=utf-8" }],
     ]),
@@ -817,5 +826,163 @@ describe("local web device flow lifecycle", () => {
     await running.close();
     server = null;
     expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+});
+
+const KEYCHAIN_CLIENT_ID = "Iv23liWebTest";
+const KEYCHAIN_ENV = { PGARD_GITHUB_APP_CLIENT_ID: KEYCHAIN_CLIENT_ID };
+const GITHUB_ACCESS_TOKEN = ["ghu", "webSecretAccessTokenForTests00"].join("_");
+const GITHUB_REFRESH_TOKEN = ["ghr", "webSecretRefreshTokenForTests0"].join("_");
+const KEYCHAIN_KEY = { service: "pgard", account: `github:github.com:${KEYCHAIN_CLIENT_ID}` };
+
+function keychainEntry(): string {
+  return JSON.stringify({
+    version: 1,
+    host: "github.com",
+    clientId: KEYCHAIN_CLIENT_ID,
+    accessToken: GITHUB_ACCESS_TOKEN,
+    expiresAt: Date.UTC(2099, 0, 1),
+    refreshToken: GITHUB_REFRESH_TOKEN,
+    refreshTokenExpiresAt: Date.UTC(2099, 0, 1),
+    login: "octo",
+    userId: 7,
+    savedAt: 0,
+  });
+}
+
+/**
+ * Server deps with the real session provider over a fake keychain and a fake GitHub, and a
+ * verifyProject that signs in and reads the user the way the gate does.
+ */
+function keychainDeps(store: CredentialStore) {
+  let deviceCodeRequests = 0;
+  const githubFetch = async (url: string) => {
+    const json = (body: unknown) => ({ status: 200, ok: true, json: async () => body });
+    if (url.endsWith("/login/device/code")) {
+      deviceCodeRequests += 1;
+      return json({
+        device_code: "device-code-internal",
+        user_code: "WEB1-2345",
+        verification_uri: "https://github.com/login/device",
+        expires_in: 900,
+        interval: 5,
+      });
+    }
+    if (url.endsWith("/login/oauth/access_token")) {
+      return json({ access_token: GITHUB_ACCESS_TOKEN, refresh_token: GITHUB_REFRESH_TOKEN });
+    }
+    return json({ id: 7, login: "octo", name: null, email: null });
+  };
+  const deps = fakeDeps({
+    credentialStore: store,
+    createSessionProvider: (options) =>
+      createDeviceFlowSessionProvider({
+        ...options,
+        clientId: KEYCHAIN_CLIENT_ID,
+        credentialStore: store,
+        fetch: githubFetch,
+        sleep: async () => {},
+      }),
+    verifyProject: async (_root, authorization) => {
+      const session = await authorization.getGitHubSession();
+      await session.client.getAuthenticatedUser();
+      return outcome();
+    },
+  });
+  return { deps, deviceCodeRequests: () => deviceCodeRequests };
+}
+
+function expectNoGitHubToken(body: string): void {
+  expect(body).not.toContain(GITHUB_ACCESS_TOKEN);
+  expect(body).not.toContain(GITHUB_REFRESH_TOKEN);
+  expect(body).not.toContain("device-code-internal");
+}
+
+describe("local web keychain sign-in", () => {
+  it("reuses the keychain sign-in on the server without a device code or sending the token", async () => {
+    const store = createInMemoryCredentialStore();
+    await store.set(KEYCHAIN_KEY, keychainEntry());
+    const { deps, deviceCodeRequests } = keychainDeps(store);
+    const running = await start(deps, null, KEYCHAIN_ENV);
+    const bodies: string[] = [];
+    const record = async (response: Promise<RawResponse>) => {
+      const value = await response;
+      bodies.push(value.body);
+      return value;
+    };
+
+    await record(apiGet(running, "/api/session"));
+    const before = JSON.parse((await record(apiGet(running, "/api/auth"))).body);
+    expect(before.storedSignIn).toEqual({ status: "stored", login: "octo" });
+
+    await record(apiPost(running, "/api/auth/verify"));
+    const done = await waitFor(
+      () => record(apiGet(running, "/api/auth")),
+      (response) => JSON.parse(response.body).status === "done",
+    );
+    const auth = JSON.parse(done.body);
+    expect(auth.deviceCode).toBeNull();
+    expect(auth.summary.decision).toBe("allowed");
+    expect(auth.signInNotice).toContain(
+      "Using the GitHub sign-in for octo saved in the OS keychain",
+    );
+    expect(deviceCodeRequests()).toBe(0);
+
+    await record(apiPost(running, "/api/scan", { scopes: ["code"] }));
+    await record(apiGet(running, "/api/scan"));
+    await record(apiPost(running, "/api/auth/sign-out", { removeStored: true }));
+    for (const body of bodies) expectNoGitHubToken(body);
+  });
+
+  it("saves a dashboard device-flow sign-in to the keychain for the CLI to reuse", async () => {
+    const store = createInMemoryCredentialStore();
+    const { deps, deviceCodeRequests } = keychainDeps(store);
+    const running = await start(deps, null, KEYCHAIN_ENV);
+    await apiPost(running, "/api/auth/verify");
+    const done = await waitFor(
+      () => apiGet(running, "/api/auth"),
+      (response) => JSON.parse(response.body).status === "done",
+    );
+    expectNoGitHubToken(done.body);
+    expect(JSON.parse(done.body).storedSignIn).toEqual({ status: "stored", login: "octo" });
+    expect(deviceCodeRequests()).toBe(1);
+    expect(JSON.parse((await store.get(KEYCHAIN_KEY)) ?? "{}").login).toBe("octo");
+  });
+
+  it("ends only the dashboard session by default and keeps the keychain entry", async () => {
+    const store = createInMemoryCredentialStore();
+    await store.set(KEYCHAIN_KEY, keychainEntry());
+    const { deps, deviceCodeRequests } = keychainDeps(store);
+    const running = await start(deps, null, KEYCHAIN_ENV);
+    await apiGet(running, "/api/session");
+    const signedOut = JSON.parse((await apiPost(running, "/api/auth/sign-out")).body);
+    expect(signedOut.signInNotice).toContain("Signed out of this dashboard session only");
+    expect(signedOut.storedSignIn).toEqual({ status: "stored", login: "octo" });
+    expect(store.size()).toBe(1);
+    // The next check reuses the keychain sign-in, still without a device code.
+    await apiPost(running, "/api/auth/verify");
+    await waitFor(
+      () => apiGet(running, "/api/auth"),
+      (response) => JSON.parse(response.body).status === "done",
+    );
+    expect(deviceCodeRequests()).toBe(0);
+  });
+
+  it("removes the keychain entry only when asked explicitly", async () => {
+    const store = createInMemoryCredentialStore();
+    await store.set(KEYCHAIN_KEY, keychainEntry());
+    const { deps } = keychainDeps(store);
+    const running = await start(deps, null, KEYCHAIN_ENV);
+    expect((await apiPost(running, "/api/auth/sign-out", { removeStored: "yes" })).status).toBe(
+      400,
+    );
+    expect(store.size()).toBe(1);
+    const removed = JSON.parse(
+      (await apiPost(running, "/api/auth/sign-out", { removeStored: true })).body,
+    );
+    expect(removed.signInNotice).toContain("removed the saved GitHub sign-in from the OS keychain");
+    expect(removed.signInNotice).toContain("https://github.com/settings/apps/authorizations");
+    expect(removed.storedSignIn).toEqual({ status: "none" });
+    expect(store.size()).toBe(0);
   });
 });

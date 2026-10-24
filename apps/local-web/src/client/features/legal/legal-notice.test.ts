@@ -10,6 +10,14 @@ describe("dashboard privacy notice", () => {
     expect(text).toMatch(/no advisory update command/i);
   });
 
+  it("says the GitHub sign-in is kept in the OS keychain, not memory only and not in a file", () => {
+    expect(text).toContain("saved in the OS keychain");
+    expect(text).toMatch(/never in a file/);
+    expect(text).toMatch(/never sent to the browser/);
+    expect(text).toContain("pgard logout");
+    expect(text).not.toMatch(/GitHub sign-in live only in memory/);
+  });
+
   it("lists the network traffic described in the README", () => {
     expect(text).toContain("device-flow sign-in on github.com");
     expect(text).toContain("GitHub API calls");

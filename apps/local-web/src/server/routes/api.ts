@@ -9,9 +9,11 @@ import {
 } from "@pgard/http-local";
 import { isReportFormat, ReportWriteError } from "@pgard/report";
 import {
+  GITHUB_APP_AUTHORIZATIONS_URL,
   isAuthorizationAllowed,
   PGARD_VERSION,
   readGitHubAppClientId,
+  removeStoredSignIn,
   ScanCancelledError,
 } from "@pgard/scan-core";
 import type {
@@ -25,6 +27,7 @@ import type {
 } from "../../shared/api-types.js";
 import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
+import { readStoredSignInDto } from "../session/stored-sign-in.js";
 import {
   MAX_PROGRESS_EVENTS,
   PORT_ACCESS_WINDOW_MS,
@@ -100,10 +103,14 @@ function authStatus(state: SessionState): AuthStatus {
     summary: outcome?.summary ?? null,
     repo: outcome?.repo ?? null,
     message,
+    storedSignIn: state.storedSignIn,
+    signInNotice: state.signInNotice,
   };
 }
 
 const getSession: ApiHandler = async (context) => {
+  // Show whether a keychain sign-in will be reused before the first check (login only).
+  context.state.storedSignIn = await readStoredSignInDto(context.deps.credentialStore, context.env);
   const info: SessionInfo = {
     version: PGARD_VERSION,
     projectName: sanitizeDisplayText(path.basename(context.projectRoot), 120),
@@ -124,6 +131,7 @@ const startVerify: ApiHandler = async (context) => {
     message: null,
   };
   state.auth = run;
+  state.signInNotice = null;
   void context.deps
     .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
@@ -146,12 +154,42 @@ const startVerify: ApiHandler = async (context) => {
 
 const getAuth: ApiHandler = async (context) => authStatus(context.state);
 
-/** Drops the GitHub session and stops a pending sign-in (verify or scan). */
-const signOut: ApiHandler = async (context) => {
+/**
+ * Ends this dashboard's GitHub session and stops a pending sign-in (verify or scan). With
+ * `{ removeStored: true }` it also deletes the sign-in from the OS keychain; without it the
+ * keychain entry is kept and the next check reuses it. The token is never revoked at GitHub
+ * (that needs the App's client secret), and the response says so.
+ */
+const signOut: ApiHandler = async (context, body) => {
+  const removeStored = asRecord(body ?? {}).removeStored;
+  if (removeStored !== undefined && typeof removeStored !== "boolean") {
+    throw new ApiError(400, "bad_request", "removeStored must be true or false.");
+  }
+  const { state } = context;
   context.github.signOut();
-  context.state.deviceCode = null;
-  context.state.auth = { status: "idle", outcome: null, finishedAt: null, message: null };
-  return authStatus(context.state);
+  state.deviceCode = null;
+  state.auth = { status: "idle", outcome: null, finishedAt: null, message: null };
+  const clientId = readGitHubAppClientId(context.env);
+  if (removeStored !== true || clientId === null) {
+    state.signInNotice =
+      state.storedSignIn.status === "stored"
+        ? `Signed out of this dashboard session only. The sign-in for ${state.storedSignIn.login} is still saved in the OS keychain and the next check reuses it.`
+        : "Signed out of this dashboard session.";
+    return authStatus(state);
+  }
+  const removed = await removeStoredSignIn(context.deps.credentialStore, clientId);
+  if (removed.status === "unavailable") {
+    const reason = sanitizeDisplayText(removed.reason, 200);
+    state.storedSignIn = { status: "unavailable", reason };
+    state.signInNotice = `Signed out of this dashboard session. Nothing was removed from the OS keychain: ${reason}.`;
+  } else {
+    state.storedSignIn = { status: "none" };
+    state.signInNotice =
+      removed.status === "removed"
+        ? `Signed out and removed the saved GitHub sign-in from the OS keychain. The token stays valid at GitHub until it expires; revoke it at ${GITHUB_APP_AUTHORIZATIONS_URL} if needed.`
+        : "Signed out of this dashboard session. No sign-in was saved in the OS keychain.";
+  }
+  return authStatus(state);
 };
 
 /**

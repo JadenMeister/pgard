@@ -27,12 +27,31 @@ export interface DeviceCodeInfo {
 
 export type JobStatus = "idle" | "running" | "done" | "failed";
 
+/**
+ * The GitHub sign-in saved in the OS keychain, as the browser may see it: the account login at
+ * most. The token itself stays in the local server process.
+ */
+export type StoredSignInDto =
+  | { status: "stored"; login: string }
+  | { status: "none" }
+  | { status: "unavailable"; reason: string }
+  /** No client id configured, or not read yet. */
+  | { status: "unknown" };
+
 export interface AuthStatus {
   status: JobStatus;
   deviceCode: DeviceCodeInfo | null;
   summary: AuthorizationSummary | null;
   repo: string | null;
   message: string | null;
+  storedSignIn: StoredSignInDto;
+  /** Short, secret-free text about the sign-in (reused, saved, removed, signed out). */
+  signInNotice: string | null;
+}
+
+export interface SignOutRequestDto {
+  /** `true` also deletes the sign-in from the OS keychain; otherwise only this dashboard's session ends. */
+  removeStored?: boolean;
 }
 
 export interface ServiceIdentityDto {

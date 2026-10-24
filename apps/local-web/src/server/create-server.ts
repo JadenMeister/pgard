@@ -12,6 +12,7 @@ import {
 } from "./middleware/security.js";
 import { API_ROUTES, ApiError, type ApiContext } from "./routes/api.js";
 import { createGitHubSessionManager } from "./session/github-session.js";
+import { applySignInNotice } from "./session/stored-sign-in.js";
 import {
   clearSessionState,
   createSessionState,
@@ -93,13 +94,18 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
   const deps = options.deps ?? createDefaultServerDeps();
   const token = options.token ?? randomBytes(32).toString("base64url");
   const state = createSessionState();
-  const github = createGitHubSessionManager(deps, options.env, (code) => {
-    state.deviceCode = {
-      userCode: sanitizeDisplayText(code.userCode, 40),
-      verificationUri: sanitizeDisplayText(code.verificationUri, 200),
-      expiresIn: code.expiresIn,
-    };
-  });
+  const github = createGitHubSessionManager(
+    deps,
+    options.env,
+    (code) => {
+      state.deviceCode = {
+        userCode: sanitizeDisplayText(code.userCode, 40),
+        verificationUri: sanitizeDisplayText(code.verificationUri, 200),
+        expiresIn: code.expiresIn,
+      };
+    },
+    (notice) => applySignInNotice(state, notice),
+  );
   let port = 0;
   const context: ApiContext = {
     projectRoot: options.projectRoot,
