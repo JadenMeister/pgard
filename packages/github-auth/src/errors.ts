@@ -11,6 +11,7 @@ export type GitHubAuthErrorCode =
   | "cancelled"
   | "network_error"
   | "http_error"
+  | "unauthorized"
   | "not_found"
   | "unexpected_response";
 

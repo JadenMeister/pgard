@@ -33,6 +33,8 @@ export interface DeviceFlowOptions {
  */
 export interface GitHubSession {
   readonly client: GitHubClient;
+  /** Epoch ms when the access token expires, from the token response's `expires_in`; `null` if unknown. */
+  readonly expiresAt: number | null;
 }
 
 interface DeviceCodeGrant {
@@ -197,7 +199,12 @@ export async function authenticateWithDeviceFlow(
       continue;
     }
     if (error === "slow_down") {
-      intervalSeconds = (asInteger(body.interval) ?? intervalSeconds) + SLOW_DOWN_INCREMENT_SECONDS;
+      // GitHub returns the new interval with slow_down; only fall back to +5 when it is absent.
+      const suggested = asInteger(body.interval);
+      intervalSeconds =
+        suggested !== null && suggested > 0
+          ? suggested
+          : intervalSeconds + SLOW_DOWN_INCREMENT_SECONDS;
       continue;
     }
     if (error !== null) {
@@ -207,13 +214,17 @@ export async function authenticateWithDeviceFlow(
     if (!accessToken) {
       throw new GitHubAuthError("unexpected_response", "GitHub did not return an access token.");
     }
-    return createSession(accessToken, fetchImpl, options);
+    const tokenExpiresIn = asInteger(body.expires_in);
+    const expiresAt =
+      tokenExpiresIn !== null && tokenExpiresIn > 0 ? now() + tokenExpiresIn * 1000 : null;
+    return createSession(accessToken, expiresAt, fetchImpl, options);
   }
   throw new GitHubAuthError("expired_token", "The GitHub sign-in code expired.");
 }
 
 function createSession(
   token: string,
+  expiresAt: number | null,
   fetchImpl: FetchLike,
   options: DeviceFlowOptions,
 ): GitHubSession {
@@ -223,12 +234,15 @@ function createSession(
     ...(options.apiBaseUrl ? { baseUrl: options.apiBaseUrl } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });
-  return createGitHubSession(client);
+  return createGitHubSession(client, expiresAt);
 }
 
 /** Wraps a client as a session whose JSON/string forms reveal nothing. */
-export function createGitHubSession(client: GitHubClient): GitHubSession {
-  const session: GitHubSession = { client };
+export function createGitHubSession(
+  client: GitHubClient,
+  expiresAt: number | null = null,
+): GitHubSession {
+  const session: GitHubSession = { client, expiresAt };
   Object.defineProperty(session, "toJSON", { value: () => ({ type: "github-session" }) });
   Object.defineProperty(session, "toString", { value: () => "[GitHubSession]" });
   return Object.freeze(session);

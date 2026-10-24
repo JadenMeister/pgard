@@ -33,7 +33,9 @@ function createFetch(tokenResponses: unknown[]): { fetch: FetchLike; calls: Call
       return jsonResponse(200, queue.shift() ?? { error: "expired_token" });
     }
     if (url.endsWith("/user")) {
-      return jsonResponse(200, { id: 7, login: "octo", name: null, email: null });
+      return init.headers.Authorization?.endsWith("revoked")
+        ? jsonResponse(401, { message: "Bad credentials" })
+        : jsonResponse(200, { id: 7, login: "octo", name: null, email: null });
     }
     return jsonResponse(404, {});
   };
@@ -46,7 +48,7 @@ describe("authenticateWithDeviceFlow", () => {
   it("reports the user code, polls through pending/slow_down and returns a session", async () => {
     const { fetch, calls } = createFetch([
       { error: "authorization_pending" },
-      { error: "slow_down", interval: 5 },
+      { error: "slow_down", interval: 10 },
       { access_token: FAKE_TOKEN, token_type: "bearer" },
     ]);
     const sleeps: number[] = [];
@@ -161,5 +163,98 @@ describe("createDeviceFlowSessionProvider", () => {
     const second = await provider();
     expect(first).toBe(second);
     expect(calls.filter((call) => call.url.endsWith("/login/device/code"))).toHaveLength(1);
+  });
+
+  const deviceCodeRequests = (calls: Call[]) =>
+    calls.filter((call) => call.url.endsWith("/login/device/code")).length;
+
+  it("drops the session after a 401 so the next call signs in again", async () => {
+    const revoked = ["ghu", "revoked"].join("_");
+    const { fetch, calls } = createFetch([{ access_token: revoked }, { access_token: FAKE_TOKEN }]);
+    const provider = createDeviceFlowSessionProvider({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+    });
+    const first = await provider();
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect((await second.client.getAuthenticatedUser()).id).toBe(7);
+    expect(deviceCodeRequests(calls)).toBe(2);
+  });
+
+  it("renews the session before the token's expires_in elapses", async () => {
+    let clock = 1_000_000;
+    const { fetch, calls } = createFetch([
+      { access_token: FAKE_TOKEN, expires_in: 28800 },
+      { access_token: FAKE_TOKEN, expires_in: 28800 },
+    ]);
+    const provider = createDeviceFlowSessionProvider({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+      now: () => clock,
+    });
+    const first = await provider();
+    expect(first.expiresAt).toBe(1_000_000 + 28800 * 1000);
+    clock += 1000;
+    expect(await provider()).toBe(first);
+    clock += 28800 * 1000;
+    expect(await provider()).not.toBe(first);
+    expect(deviceCodeRequests(calls)).toBe(2);
+  });
+
+  it("signOut forgets the session", async () => {
+    const { fetch, calls } = createFetch([
+      { access_token: FAKE_TOKEN },
+      { access_token: FAKE_TOKEN },
+    ]);
+    const provider = createDeviceFlowSessionProvider({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+    });
+    const first = await provider();
+    provider.signOut();
+    expect(await provider()).not.toBe(first);
+    expect(deviceCodeRequests(calls)).toBe(2);
+  });
+
+  it("does not remember a failed sign-in", async () => {
+    const { fetch, calls } = createFetch([
+      { error: "access_denied" },
+      { access_token: FAKE_TOKEN },
+    ]);
+    const provider = createDeviceFlowSessionProvider({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+    });
+    await expect(provider()).rejects.toMatchObject({ code: "access_denied" });
+    await expect(provider()).resolves.toBeDefined();
+    expect(deviceCodeRequests(calls)).toBe(2);
+  });
+});
+
+describe("slow_down handling", () => {
+  it("falls back to +5 seconds only when GitHub sends no interval", async () => {
+    const { fetch } = createFetch([{ error: "slow_down" }, { access_token: FAKE_TOKEN }]);
+    const sleeps: number[] = [];
+    await authenticateWithDeviceFlow({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      },
+    });
+    expect(sleeps).toEqual([5000, 10000]);
   });
 });

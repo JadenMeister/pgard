@@ -192,6 +192,13 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     if (allowNotFound && (response.status === 404 || response.status === 422)) {
       return null;
     }
+    if (response.status === 401) {
+      throw new GitHubAuthError(
+        "unauthorized",
+        "The GitHub sign-in is no longer valid (expired or revoked).",
+        401,
+      );
+    }
     if (response.status === 404) {
       throw new GitHubAuthError("not_found", "GitHub resource not found or not visible.", 404);
     }
