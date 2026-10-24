@@ -27,7 +27,8 @@ export function checkSecurityHeaders(url: string, headers: http.IncomingHttpHead
       ),
     );
   }
-  const hasFrameAncestors = csp !== null && /(^|;)\s*frame-ancestors\s/i.test(csp);
+  // Node joins repeated CSP headers with ", ", so a directive may follow either ";" or ",".
+  const hasFrameAncestors = csp !== null && /(^|[;,])\s*frame-ancestors\s/i.test(csp);
   const frameOptions = readHeader(headers, "x-frame-options");
   const hasFrameOptions = frameOptions !== null && /^\s*(deny|sameorigin)\s*$/i.test(frameOptions);
   if (!hasFrameAncestors && !hasFrameOptions) {
