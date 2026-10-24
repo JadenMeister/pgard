@@ -33,6 +33,7 @@ import {
   MAX_PROGRESS_EVENTS,
   PORT_ACCESS_WINDOW_MS,
   PROBE_CONFIRM_WINDOW_MS,
+  setAuth,
   type SessionState,
 } from "../session/session-state.js";
 
@@ -134,24 +135,24 @@ const startVerify: ApiHandler = async (context) => {
     finishedAt: null,
     message: null,
   };
-  state.auth = run;
+  setAuth(state, run);
   state.signInNotice = null;
   void context.deps
     .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
-      state.auth = { status: "done", outcome, finishedAt: context.deps.now(), message: null };
+      setAuth(state, { status: "done", outcome, finishedAt: context.deps.now(), message: null });
     })
     .catch(() => {
       if (state.auth !== run) return;
       state.deviceCode = null;
-      state.auth = {
+      setAuth(state, {
         status: "failed",
         outcome: null,
         finishedAt: context.deps.now(),
         message: "The authorization check could not complete.",
-      };
+      });
     });
   return authStatus(state);
 };
@@ -172,7 +173,7 @@ const signOut: ApiHandler = async (context, body) => {
   const { state } = context;
   context.github.signOut();
   state.deviceCode = null;
-  state.auth = { status: "idle", outcome: null, finishedAt: null, message: null };
+  setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
   const clientId = readGitHubAppClientId(context.env);
   if (removeStored !== true || clientId === null) {
     state.signInNotice =
@@ -250,11 +251,13 @@ function requireSameAuthorization(context: ApiContext, authAtStart: SessionState
 
 const listPorts: ApiHandler = async (context) => {
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
+  // Taken together with `authAtStart`: it aborts as soon as that authorization is replaced.
+  const { signal } = context.state.portAccessController;
   const discovery = await context.deps.discoverListeningPorts();
   requireSameAuthorization(context, authAtStart);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
-      ...toIdentityDto(await context.deps.probeLocalService(entry.port)),
+      ...toIdentityDto(await context.deps.probeLocalService(entry.port, { signal })),
       processName: entry.processName,
     })),
   );
@@ -273,7 +276,8 @@ const listPorts: ApiHandler = async (context) => {
  */
 const probePort: ApiHandler = async (context, body) => {
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
-  const identity = await context.deps.probeLocalService(readPort(body));
+  const { signal } = context.state.portAccessController;
+  const identity = await context.deps.probeLocalService(readPort(body), { signal });
   requireSameAuthorization(context, authAtStart);
   context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
   return toIdentityDto(identity);

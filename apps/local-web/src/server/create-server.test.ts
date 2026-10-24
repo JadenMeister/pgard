@@ -487,6 +487,34 @@ describe("local web port access authorization gate", () => {
     expect(response.body).not.toContain("Shop dev");
   });
 
+  it.each([
+    ["signs out", (running: LocalWebServer) => apiPost(running, "/api/auth/sign-out")],
+    ["re-verifies", (running: LocalWebServer) => authorize(running)],
+  ])("aborts probes in flight when the user %s", async (_label, interrupt) => {
+    const signals: AbortSignal[] = [];
+    let markCalled: () => void = () => undefined;
+    const called = new Promise<void>((resolve) => (markCalled = resolve));
+    // Like the real probe: it answers only when the service does, or "Cancelled." on abort.
+    const probeLocalService = vi.fn(
+      (_port: number, { signal }: { signal: AbortSignal }) =>
+        new Promise<ServiceIdentity>((resolve) => {
+          signals.push(signal);
+          signal.addEventListener("abort", () =>
+            resolve({ ...IDENTITY, status: null, isHttp: false, error: "Cancelled." }),
+          );
+          markCalled();
+        }),
+    );
+    const running = await start(fakeDeps({ verifyProject: ALLOWED_VERIFY, probeLocalService }));
+    await authorize(running);
+    const pending = apiPost(running, "/api/ports/probe", { port: 3000 });
+    await called;
+    expect(signals[0]?.aborted).toBe(false);
+    await interrupt(running);
+    expect(signals[0]?.aborted).toBe(true);
+    expect((await pending).status).toBe(403);
+  });
+
   it("does not keep a probe that finished after sign-out", async () => {
     const probe = deferred(IDENTITY);
     const running = await start(

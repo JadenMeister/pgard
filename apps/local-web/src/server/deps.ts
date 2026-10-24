@@ -36,7 +36,8 @@ export interface ServerDeps {
    */
   credentialStore: CredentialStore;
   webScanner: WebScanner;
-  probeLocalService: (port: number) => Promise<ServiceIdentity>;
+  /** `signal` aborts when sign-out or a new check replaces the authorization it ran under. */
+  probeLocalService: (port: number, options: { signal: AbortSignal }) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
   writeReports: typeof writeReports;
   isPathInsideDirectory: typeof isPathInsideDirectory;
@@ -59,7 +60,7 @@ export function createDefaultServerDeps(): ServerDeps {
       }),
     credentialStore,
     webScanner: scanLocalWeb,
-    probeLocalService: (port) => probeLocalService(port),
+    probeLocalService: (port, { signal }) => probeLocalService(port, { signal }),
     discoverListeningPorts: () => discoverListeningPorts(),
     writeReports,
     isPathInsideDirectory,
