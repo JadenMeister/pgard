@@ -218,6 +218,20 @@ export function createDeviceFlowSessionProvider(
     });
   };
 
+  /**
+   * Deletes the entry only while it still holds `accessToken`. Another process (`pgard login`,
+   * or a refresh in a second PGARD process) may have replaced it since this provider read it; a
+   * failure of the old token must not delete the newer sign-in.
+   */
+  const deleteIfStillHolds = async (clientId: string, accessToken: string): Promise<boolean> => {
+    const current = store;
+    if (current === null) return false;
+    const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
+    if (loaded.kind !== "found" || loaded.record.accessToken !== accessToken) return false;
+    await deleteEntry(clientId);
+    return true;
+  };
+
   const drop = async (
     clientId: string,
     reason: Extract<SignInNotice, { kind: "removed" }>["reason"],
@@ -265,6 +279,50 @@ export function createDeviceFlowSessionProvider(
     return { tokens, isRefreshed };
   };
 
+  /** Reuses a stored sign-in after checking it with `GET /user`; `null` means use the device flow. */
+  const reuseStored = async (
+    current: CredentialStore,
+    record: StoredSignInRecord,
+    myGeneration: number,
+    canRetry: boolean,
+  ): Promise<GitHubSession | null> => {
+    const reused = await tryStored(current, record, false);
+    if (reused === null) return null;
+    const session = createSessionFromToken(
+      reused.tokens.accessToken,
+      reused.tokens.expiresAt,
+      options,
+    );
+    let user: GitHubUser;
+    try {
+      user = await session.client.getAuthenticatedUser();
+    } catch (error) {
+      if (!isUnauthorized(error)) throw error;
+      // Delete only the entry that was rejected; `pgard login` elsewhere may have replaced it.
+      const reloaded = await loadStoredSignIn(current, host, record.clientId, {
+        deleteMalformed: false,
+      });
+      if (reloaded.kind === "found" && reloaded.record.accessToken !== record.accessToken) {
+        return canRetry ? reuseStored(current, reloaded.record, myGeneration, false) : null;
+      }
+      if (reloaded.kind === "found") await drop(record.clientId, "revoked");
+      return null;
+    }
+    if (reused.isRefreshed) {
+      const failure = await saveStoredSignIn(
+        current,
+        toRecord(reused.tokens, user, host, record.clientId, now()),
+      );
+      if (failure !== null) {
+        // The old refresh token is spent; do not leave it behind.
+        await deleteEntry(record.clientId);
+        fallBackToMemory(failure);
+      }
+    }
+    notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
+    return finish(session, reused.tokens.accessToken, myGeneration);
+  };
+
   const acquire = async (clientId: string, myGeneration: number): Promise<GitHubSession> => {
     let current = store;
     if (current !== null) {
@@ -274,36 +332,8 @@ export function createDeviceFlowSessionProvider(
       } else if (loaded.kind === "none" && loaded.wasMalformed) {
         notify({ kind: "removed", reason: "malformed" });
       } else if (loaded.kind === "found") {
-        const reused = await tryStored(current, loaded.record, false);
-        if (reused !== null) {
-          const session = createSessionFromToken(
-            reused.tokens.accessToken,
-            reused.tokens.expiresAt,
-            options,
-          );
-          let user: GitHubUser | null = null;
-          try {
-            user = await session.client.getAuthenticatedUser();
-          } catch (error) {
-            if (!isUnauthorized(error)) throw error;
-            await drop(clientId, "revoked");
-          }
-          if (user !== null) {
-            if (reused.isRefreshed) {
-              const failure = await saveStoredSignIn(
-                current,
-                toRecord(reused.tokens, user, host, clientId, now()),
-              );
-              if (failure !== null) {
-                // The old refresh token is spent; do not leave it behind.
-                await deleteEntry(clientId);
-                fallBackToMemory(failure);
-              }
-            }
-            notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
-            return finish(session, myGeneration);
-          }
-        }
+        const session = await reuseStored(current, loaded.record, myGeneration, true);
+        if (session !== null) return session;
       }
     }
 
@@ -329,15 +359,21 @@ export function createDeviceFlowSessionProvider(
         }
       }
     }
-    return finish(session, myGeneration);
+    return finish(session, tokens.accessToken, myGeneration);
   };
 
-  const finish = (session: GitHubSession, myGeneration: number): GitHubSession => {
+  const finish = (
+    session: GitHubSession,
+    accessToken: string,
+    myGeneration: number,
+  ): GitHubSession => {
     const clientId = options.clientId;
     const onUnauthorized = () => {
       if (generation === myGeneration) forget();
       if (clientId !== null && store !== null) {
-        void deleteEntry(clientId).then(() => notify({ kind: "removed", reason: "revoked" }));
+        void deleteIfStillHolds(clientId, accessToken).then((wasDeleted) => {
+          if (wasDeleted) notify({ kind: "removed", reason: "revoked" });
+        });
       }
     };
     return createGitHubSession(

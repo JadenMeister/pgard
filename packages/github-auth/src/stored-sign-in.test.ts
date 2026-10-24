@@ -291,6 +291,54 @@ describe("stored sign-in reuse", () => {
     expect(notices).toContainEqual({ kind: "removed", reason: "revoked" });
   });
 
+  it("keeps a newer sign-in when the old session's token gets a 401", async () => {
+    // The dashboard holds the stored token; `pgard login` elsewhere then saves a new one.
+    const store = await storeWith(storedRecord());
+    let isRevoked = false;
+    const github = fakeGitHub();
+    const fetch: FetchLike = (url, init) =>
+      isRevoked && init.headers.Authorization === `Bearer ${STORED_TOKEN}`
+        ? Promise.resolve(jsonResponse(401, {}))
+        : github.fetch(url, init);
+    const notices: SignInNotice[] = [];
+    const provider = createDeviceFlowSessionProvider({
+      clientId: CLIENT_ID,
+      onUserCode: () => {},
+      credentialStore: store,
+      onNotice: (notice) => notices.push(notice),
+      fetch,
+      sleep: async () => {},
+      now: () => START,
+    });
+    const session = await provider();
+    await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+    isRevoked = true;
+    await expect(session.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+  });
+
+  it("keeps a sign-in saved meanwhile when the token it read was revoked", async () => {
+    const store = await storeWith(storedRecord({ accessToken: REVOKED_TOKEN }));
+    const github = fakeGitHub();
+    const fetch: FetchLike = async (url, init) => {
+      const response = await github.fetch(url, init);
+      if (url.endsWith("/user") && response.status === 401) {
+        // `pgard login` in another process saved a new sign-in while we checked the old one.
+        await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN }));
+      }
+      return response;
+    };
+    const { provider, notices, userCodes } = makeProvider({ ...github, fetch }, store);
+    await provider();
+    expect(userCodes).toEqual([]);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
   it("never reuses a sign-in stored for another App client id", async () => {
     const store = await storeWith(storedRecord());
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
