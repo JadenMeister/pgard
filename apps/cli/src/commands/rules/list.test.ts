@@ -150,6 +150,26 @@ describe("runRulesList advisory status", () => {
     expect(stdout).not.toMatch(/^FAKE: ok/m);
   });
 
+  it("shows a not fully validated status with its note and no version or date", async () => {
+    const stdout = await runList(
+      null,
+      advisoryDeps({
+        status: "ok",
+        version: "unread-version",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        advisoryCount: 0,
+        note: "Only a sample was checked.",
+        validated: false,
+      }),
+    );
+    expect(stdout).toContain(
+      "Advisory database status: ok - not fully validated - Only a sample was checked.",
+    );
+    expect(stdout).not.toContain("unread-version");
+    expect(stdout).not.toContain("2026-01-01");
+    expect(stdout).not.toContain("updated never");
+  });
+
   it("reports a failing status read as invalid without echoing the error", async () => {
     const stdout = await runList(null, {
       readAdvisoryDbStatus: async () => {

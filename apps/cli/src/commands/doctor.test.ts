@@ -55,6 +55,27 @@ describe("runDoctor", () => {
     expect(stale).not.toContain(dbPath);
   });
 
+  it("keeps a not fully validated ok database as [ok] and shows its note instead of a version", async () => {
+    const captured = createTestIo({ env: { PGARD_ADVISORY_DB: "/home/user/private/osv" } });
+    const deps = createTestDeps({
+      readAdvisoryDbStatus: async () => ({
+        status: "ok",
+        version: null,
+        updatedAt: null,
+        advisoryCount: 0,
+        note: "A sample record is valid OSV; version and freshness were not verified.",
+        validated: false,
+      }),
+    });
+    await runDoctor(createTestContext(captured, deps));
+    const stdout = captured.stdout();
+    expect(stdout).toContain(
+      "[ok]   Advisory database: ok - not fully validated - A sample record is valid OSV; version and freshness were not verified.",
+    );
+    expect(stdout).not.toContain("version none");
+    expect(stdout).not.toContain("/home/user/private/osv");
+  });
+
   it("uses the advisory package for the default advisory status (missing when unset)", async () => {
     const status = await createDefaultDeps().readAdvisoryDbStatus({});
     expect(status.status).toBe("missing");

@@ -25,9 +25,16 @@ export async function readAdvisoryStatusSafely(
   }
 }
 
-/** One-line summary: `<status> - version <v>, updated <date> - <note>`. Never includes the path. */
+/**
+ * One-line summary: `<status> - version <v>, updated <date> - <note>`. When the status comes from
+ * a cheap check (`validated: false`), the version and date were not read, so they are left out and
+ * the line says it was not fully validated: `<status> - not fully validated - <note>`.
+ * Never includes the path.
+ */
 export function formatAdvisoryStatus(status: AdvisoryDbStatus): string {
+  const note = safeText(status.note, 300);
+  if (status.validated === false) return `${status.status} - not fully validated - ${note}`;
   const version = status.version === null ? "none" : safeText(status.version, 80);
   const updated = status.updatedAt === null ? "never" : safeText(status.updatedAt, 40);
-  return `${status.status} - version ${version}, updated ${updated} - ${safeText(status.note, 300)}`;
+  return `${status.status} - version ${version}, updated ${updated} - ${note}`;
 }
