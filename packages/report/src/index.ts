@@ -24,3 +24,15 @@ export {
   renderPdfReport,
   toPdfText,
 } from "./render-pdf.js";
+export {
+  buildReportBaseName,
+  isPathInsideDirectory,
+  isReportFormat,
+  REPORT_FORMATS,
+  ReportWriteError,
+  writeReports,
+  type ReportFormat,
+  type ReportWriteErrorCode,
+  type WriteReportsOptions,
+  type WrittenReport,
+} from "./write-report.js";
