@@ -356,11 +356,12 @@ export async function scanDependencies(
       ? {
           area: "dependencies:advisory-db",
           scope: "code",
-          // A database that was only checked cheaply (not fully loaded) is never "completed".
+          // Nothing needed comparing, so a database that passed the cheap check is enough here;
+          // only missing/invalid (or stale) data downgrades this area.
           status:
-            peek?.status === "ok" && peek.validated !== false
+            peek?.status === "ok"
               ? "completed"
-              : peek?.status === "ok" || peek?.status === "stale"
+              : peek?.status === "stale"
                 ? "partial"
                 : "not_tested",
           ruleIds: [],

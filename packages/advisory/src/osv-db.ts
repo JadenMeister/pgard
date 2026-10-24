@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from "node:fs/promises";
+import { open, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { compareVersions, isComparableVersion } from "./version.js";
 
@@ -49,9 +49,9 @@ export interface AdvisoryDbStatus {
   /** English explanation safe to display (never includes the DB path). */
   note: string;
   /**
-   * `false` when the database was only checked cheaply (see `peekAdvisoryDb`) and its contents,
-   * version and freshness were not verified; such a status must not be reported as completed.
-   * Absent (or `true`) when the status comes from a full load.
+   * `false` when the database was only checked cheaply (see `peekAdvisoryDb`): the sample check
+   * passed, but the full contents, version and freshness were not verified. Absent (or `true`)
+   * when the status comes from a full load.
    */
   validated?: boolean;
 }
@@ -358,6 +358,22 @@ async function findFirstJsonFile(directory: string, depth = 0): Promise<string |
   return null;
 }
 
+/** Cheap check of a large database file: its first non-blank byte opens a JSON array/object. */
+async function startsLikeJson(file: string): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(file, "r");
+    const buffer = Buffer.alloc(4096);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    const first = buffer.subarray(0, bytesRead).toString("utf8").trimStart()[0];
+    return first === "[" || first === "{";
+  } catch {
+    return false;
+  } finally {
+    await handle?.close();
+  }
+}
+
 /**
  * Cheap check of a database directory: at least one `.json` file (≤ 8 MiB) must parse as an OSV
  * record. Returns a note explaining the failure, or null when the sample is valid.
@@ -386,9 +402,9 @@ async function checkDirectorySample(directory: string): Promise<string | null> {
 /**
  * Cheap status for when no comparison is needed: reports a missing/unset database, fully reads a
  * small database file (≤ 8 MiB) for its metadata, checks that a directory holds at least one
- * valid OSV record, and otherwise only confirms the configured path exists. Anything not fully
- * loaded is returned with `validated: false` (version/updatedAt stay null) so callers do not
- * report it as completed.
+ * valid OSV record, and checks that a larger file starts like JSON. Empty or junk data is
+ * `invalid`; a database that passed only the cheap check is `ok` with `validated: false`
+ * (version/updatedAt stay null).
  */
 export async function peekAdvisoryDb(
   env: Readonly<Record<string, string | undefined>>,
@@ -415,13 +431,15 @@ export async function peekAdvisoryDb(
   } else if (!info.isFile()) {
     return emptyDb("invalid", "The advisory database path is neither a file nor a directory.")
       .status;
+  } else if (!(await startsLikeJson(location))) {
+    return emptyDb("invalid", "The advisory database file is not a JSON array or object.").status;
   }
   return {
     status: "ok",
     version: null,
     updatedAt: null,
     advisoryCount: 0,
-    note: `An advisory database is configured; it was not fully loaded because nothing needed comparing, so its contents, version and freshness were not verified.${info.isDirectory() ? " A sample record is valid OSV." : ""}`,
+    note: `An advisory database is configured${info.isDirectory() ? " and a sample record is valid OSV" : ""}; it was not fully loaded because nothing needed comparing, so its version and freshness were not verified.`,
     validated: false,
   };
 }
