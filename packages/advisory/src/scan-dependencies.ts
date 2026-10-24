@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   createFindingFingerprint,
@@ -25,10 +25,13 @@ import {
   type Advisory,
   type Ecosystem,
 } from "./osv-db.js";
+import { isComparableVersion } from "./version.js";
 
 export interface DependencyScanOptions {
   env?: Readonly<Record<string, string | undefined>>;
   now?: () => Date;
+  /** Aborting stops between files and while loading the database. */
+  signal?: AbortSignal;
 }
 
 export interface DependencyScanOutput extends AnalyzerOutput {
@@ -89,13 +92,19 @@ async function findManifests(root: string): Promise<Manifests> {
   return result;
 }
 
+/** Reads a manifest after checking its size in bytes (never loads an oversized file). */
 async function readManifest(root: string, relative: string): Promise<string | null> {
   try {
-    const text = await readFile(path.join(root, relative), "utf8");
-    return text.length > MAX_LOCKFILE_BYTES ? null : text;
+    const file = path.join(root, relative);
+    if ((await stat(file)).size > MAX_LOCKFILE_BYTES) return null;
+    return await readFile(file, "utf8");
   } catch {
     return null;
   }
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
 }
 
 function severityOf(advisory: Advisory): Severity {
@@ -150,12 +159,22 @@ export async function scanDependencies(
   projectRoot: string,
   options: DependencyScanOptions = {},
 ): Promise<DependencyScanOutput> {
-  const db = await loadAdvisoryDb(options.env ?? process.env, options.now);
   const manifests = await findManifests(projectRoot);
+  throwIfAborted(options.signal);
   const findings: Finding[] = [];
   const coverage: Coverage[] = [];
-  const advisoryDb: AdvisoryDbInfo = { version: db.status.version, updatedAt: db.status.updatedAt };
-  const isDbUsable = db.status.status === "ok" || db.status.status === "stale";
+  const goFiles = manifests.goMods.length > 0 ? manifests.goMods : manifests.goSums;
+  // The database is only loaded when there is something to compare (it can be large).
+  const hasManifests =
+    manifests.npmLockfiles.length > 0 || goFiles.length > 0 || manifests.packageJsons.length > 0;
+  const db = hasManifests
+    ? await loadAdvisoryDb(options.env ?? process.env, options.now, options.signal)
+    : null;
+  const advisoryDb: AdvisoryDbInfo = {
+    version: db?.status.version ?? null,
+    updatedAt: db?.status.updatedAt ?? null,
+  };
+  const isDbUsable = db !== null && (db.status.status === "ok" || db.status.status === "stale");
 
   const collect = async (
     files: string[],
@@ -163,7 +182,9 @@ export async function scanDependencies(
   ) => {
     const resolved: { file: string; packages: ResolvedPackage[] }[] = [];
     const errors: string[] = [];
+    let uncomparable = 0;
     for (const file of files) {
+      throwIfAborted(options.signal);
       const text = await readManifest(projectRoot, file);
       if (text === null) {
         errors.push(`${file} could not be read`);
@@ -171,16 +192,16 @@ export async function scanDependencies(
       }
       const result = parse(file)(text);
       if (result.error) errors.push(`${file}: ${result.error}`);
+      uncomparable += result.uncomparable ?? 0;
       resolved.push({ file, packages: result.packages });
     }
-    return { resolved, errors };
+    return { resolved, errors, uncomparable };
   };
 
   const npm = await collect(
     manifests.npmLockfiles,
     (file) => NPM_LOCKFILES[path.posix.basename(file)] ?? parsePackageLock,
   );
-  const goFiles = manifests.goMods.length > 0 ? manifests.goMods : manifests.goSums;
   const go = await collect(goFiles, (file) => (file.endsWith("go.sum") ? parseGoSum : parseGoMod));
 
   const match = (
@@ -188,10 +209,15 @@ export async function scanDependencies(
     resolved: { file: string; packages: ResolvedPackage[] }[],
   ) => {
     let checked = 0;
+    let notComparable = 0;
     for (const { file, packages } of resolved) {
       for (const pkg of packages) {
+        if (!isComparableVersion(pkg.version)) {
+          notComparable += 1;
+          continue;
+        }
         checked += 1;
-        for (const advisory of db.index.get(`${ecosystem}\0${pkg.name}`) ?? []) {
+        for (const advisory of db?.index.get(`${ecosystem}\0${pkg.name}`) ?? []) {
           const affected = advisory.affected.find(
             (entry) =>
               entry.ecosystem === ecosystem &&
@@ -202,7 +228,7 @@ export async function scanDependencies(
         }
       }
     }
-    return checked;
+    return { checked, notComparable };
   };
 
   const ecosystemCoverage = (
@@ -213,6 +239,7 @@ export async function scanDependencies(
     errors: string[],
     extraProblems: string[],
     ecosystem: Ecosystem,
+    uncomparable: number,
   ) => {
     if (files.length === 0 && extraProblems.length === 0) {
       coverage.push({
@@ -230,22 +257,28 @@ export async function scanDependencies(
         scope: "code",
         status: "not_tested",
         ruleIds: [DEPENDENCY_RULE.id],
-        note: `${label} dependencies were not checked: ${db.status.note}`,
+        note: `${label} dependencies were not checked: ${db?.status.note ?? "no advisory data"}`,
       });
       return;
     }
-    const checked = match(ecosystem, resolved);
+    const { checked, notComparable } = match(ecosystem, resolved);
+    const skipped = uncomparable + notComparable;
     const problems = [
       ...errors,
       ...extraProblems,
-      ...(db.status.status === "stale" ? [db.status.note] : []),
+      ...(skipped > 0
+        ? [
+            `${skipped} dependency entr${skipped === 1 ? "y" : "ies"} (git, file, link, workspace, local replace or non-registry versions) could not be compared`,
+          ]
+        : []),
+      ...(db?.status.status === "stale" ? [db.status.note] : []),
     ];
     coverage.push({
       area,
       scope: "code",
       status: problems.length > 0 ? "partial" : "completed",
       ruleIds: [DEPENDENCY_RULE.id],
-      note: `${checked} resolved ${label} package version(s) from ${files.join(", ") || "no lockfile"} compared with advisory data ${db.status.version ?? ""}.${problems.length > 0 ? ` ${problems.join("; ")}.` : ""} A version match does not show the vulnerable code is reachable.`,
+      note: `${checked} resolved ${label} package version(s) from ${files.join(", ") || "no lockfile"} compared with advisory data ${db?.status.version ?? ""}.${problems.length > 0 ? ` ${problems.join("; ")}.` : ""} A version match does not show the vulnerable code is reachable.`,
     });
   };
 
@@ -265,19 +298,39 @@ export async function scanDependencies(
         ]
       : [],
     "npm",
+    npm.uncomparable,
   );
-  ecosystemCoverage("dependencies:go", "Go", goFiles, go.resolved, go.errors, [], "Go");
-  coverage.push({
-    area: "dependencies:advisory-db",
-    scope: "code",
-    status:
-      db.status.status === "ok"
-        ? "completed"
-        : db.status.status === "stale"
-          ? "partial"
-          : "not_tested",
-    ruleIds: [DEPENDENCY_RULE.id],
-    note: db.status.note,
-  });
+  ecosystemCoverage(
+    "dependencies:go",
+    "Go",
+    goFiles,
+    go.resolved,
+    go.errors,
+    [],
+    "Go",
+    go.uncomparable,
+  );
+  coverage.push(
+    db === null
+      ? {
+          area: "dependencies:advisory-db",
+          scope: "code",
+          status: "completed",
+          ruleIds: [],
+          note: "No dependency manifests found; advisory data was not needed.",
+        }
+      : {
+          area: "dependencies:advisory-db",
+          scope: "code",
+          status:
+            db.status.status === "ok"
+              ? "completed"
+              : db.status.status === "stale"
+                ? "partial"
+                : "not_tested",
+          ruleIds: [DEPENDENCY_RULE.id],
+          note: db.status.note,
+        },
+  );
   return { findings, coverage, advisoryDb };
 }

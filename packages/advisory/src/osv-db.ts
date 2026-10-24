@@ -7,6 +7,12 @@ export const MAX_ADVISORY_AGE_DAYS = 30;
 const MAX_DB_BYTES = 512 * 1024 * 1024;
 const MAX_DB_FILES = 500_000;
 
+export interface AdvisoryDbLimits {
+  maxFiles: number;
+  maxBytes: number;
+}
+const DEFAULT_LIMITS: AdvisoryDbLimits = { maxFiles: MAX_DB_FILES, maxBytes: MAX_DB_BYTES };
+
 export type Ecosystem = "npm" | "Go";
 
 export interface OsvEvent {
@@ -18,6 +24,8 @@ export interface OsvEvent {
 
 export interface Advisory {
   id: string;
+  /** Set when the advisory was withdrawn; withdrawn advisories are never matched. */
+  withdrawn: string | null;
   aliases: string[];
   summary: string | null;
   /** Normalized severity from `database_specific.severity` (GHSA style), if any. */
@@ -72,7 +80,9 @@ export function parseOsvRecord(raw: unknown): Advisory | null {
     const pkg = item.package as Record<string, unknown> | undefined;
     const ecosystem = asString(pkg?.ecosystem);
     const name = asString(pkg?.name);
-    if (!ecosystem || !name) return null;
+    // OSV allows affected entries without a package (e.g. GIT-only ranges); they cannot match a
+    // lockfile entry, so they are skipped rather than invalidating the database.
+    if (!ecosystem || !name) continue;
     const ranges = Array.isArray(item.ranges)
       ? item.ranges.flatMap((range) => {
           if (typeof range !== "object" || range === null) return [];
@@ -93,6 +103,7 @@ export function parseOsvRecord(raw: unknown): Advisory | null {
   const databaseSpecific = record.database_specific as Record<string, unknown> | undefined;
   return {
     id,
+    withdrawn: asString(record.withdrawn),
     aliases: Array.isArray(record.aliases)
       ? record.aliases.filter((a): a is string => typeof a === "string")
       : [],
@@ -106,8 +117,9 @@ export function parseOsvRecord(raw: unknown): Advisory | null {
 /**
  * True when `version` falls in an affected range. Events are sorted by version and evaluated in
  * order (OSV semantics): introduced opens, fixed closes at that version, last_affected closes
- * after it. Unparsable range versions make the range unknown (not affected) — callers record
- * that as reduced coverage, never as safe.
+ * after it. Callers must check `isComparableVersion(version)` first: a package version that is
+ * not SemVer-like (git refs, aliases) returns false here and has to be counted as "not compared"
+ * in coverage, never as safe.
  */
 export function isVersionAffected(
   version: string,
@@ -160,13 +172,26 @@ export function firstFixedVersion(
   return fixes[0] ?? null;
 }
 
-async function collectJsonFiles(directory: string, files: string[]): Promise<void> {
+class AdvisoryDbLimitError extends Error {}
+
+/** Lists OSV files; throws when the file-count or total-size limit is exceeded (never truncates). */
+async function collectJsonFiles(
+  directory: string,
+  files: string[],
+  totals: { bytes: number },
+  limits: AdvisoryDbLimits,
+): Promise<void> {
   const entries = await readdir(directory, { withFileTypes: true });
   for (const entry of entries) {
-    if (files.length >= MAX_DB_FILES) return;
     const full = path.join(directory, entry.name);
-    if (entry.isDirectory()) await collectJsonFiles(full, files);
-    else if (entry.isFile() && entry.name.endsWith(".json")) files.push(full);
+    if (entry.isDirectory()) {
+      await collectJsonFiles(full, files, totals, limits);
+    } else if (entry.isFile() && entry.name.endsWith(".json")) {
+      if (files.length >= limits.maxFiles) throw new AdvisoryDbLimitError("file count");
+      totals.bytes += (await stat(full)).size;
+      if (totals.bytes > limits.maxBytes) throw new AdvisoryDbLimitError("total size");
+      files.push(full);
+    }
   }
 }
 
@@ -187,6 +212,8 @@ const MISSING_NOTE = `No advisory database is configured. Set ${ADVISORY_DB_ENV}
 export async function loadAdvisoryDb(
   env: Readonly<Record<string, string | undefined>>,
   now: () => Date = () => new Date(),
+  signal?: AbortSignal,
+  limits: AdvisoryDbLimits = DEFAULT_LIMITS,
 ): Promise<LoadedAdvisoryDb> {
   const location = env[ADVISORY_DB_ENV]?.trim();
   if (!location) return emptyDb("missing", MISSING_NOTE);
@@ -206,10 +233,14 @@ export async function loadAdvisoryDb(
   try {
     if (info.isDirectory()) {
       const files: string[] = [];
-      await collectJsonFiles(location, files);
-      for (const file of files) rawRecords.push(JSON.parse(await readFile(file, "utf8")));
+      await collectJsonFiles(location, files, { bytes: 0 }, limits);
+      for (const file of files) {
+        if (signal?.aborted)
+          throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
+        rawRecords.push(JSON.parse(await readFile(file, "utf8")));
+      }
     } else {
-      if (info.size > MAX_DB_BYTES) {
+      if (info.size > limits.maxBytes) {
         return emptyDb("invalid", "The advisory database file is too large to load.");
       }
       const parsed: unknown = JSON.parse(await readFile(location, "utf8"));
@@ -231,12 +262,20 @@ export async function loadAdvisoryDb(
         );
       }
     }
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    if (error instanceof AdvisoryDbLimitError) {
+      return emptyDb(
+        "invalid",
+        `The advisory database directory exceeds PGARD's ${error.message} limit, so it was not loaded (a partial database could hide advisories).`,
+      );
+    }
     return emptyDb("invalid", "The advisory database could not be read or is not valid JSON.");
   }
 
   const index = new Map<string, Advisory[]>();
   let count = 0;
+  let withdrawnCount = 0;
   let latestModified: string | null = null;
   for (const raw of rawRecords) {
     const advisory = parseOsvRecord(raw);
@@ -245,6 +284,10 @@ export async function loadAdvisoryDb(
         "invalid",
         "The advisory database contains records that are not valid OSV entries.",
       );
+    }
+    if (advisory.withdrawn) {
+      withdrawnCount += 1;
+      continue;
     }
     count += 1;
     if (advisory.modified && (!latestModified || advisory.modified > latestModified))
@@ -266,6 +309,12 @@ export async function loadAdvisoryDb(
       "The advisory database has no valid update time (updatedAt or record modified dates).",
     );
   }
+  if (updatedTime > now().getTime() + 86_400_000) {
+    return emptyDb(
+      "invalid",
+      "The advisory database update time is in the future, so its freshness cannot be trusted.",
+    );
+  }
   const version =
     declaredVersion ?? `osv-${count}-${new Date(updatedTime).toISOString().slice(0, 10)}`;
   const ageDays = (now().getTime() - updatedTime) / 86_400_000;
@@ -279,7 +328,7 @@ export async function loadAdvisoryDb(
       advisoryCount: count,
       note: isStale
         ? `Advisory data is stale: last updated ${updatedIso.slice(0, 10)} (more than ${MAX_ADVISORY_AGE_DAYS} days ago). Newer advisories are not checked.`
-        : `${count} advisories, updated ${updatedIso.slice(0, 10)}.`,
+        : `${count} advisories, updated ${updatedIso.slice(0, 10)}.${withdrawnCount > 0 ? ` ${withdrawnCount} withdrawn advisories ignored.` : ""}`,
     },
     index,
   };

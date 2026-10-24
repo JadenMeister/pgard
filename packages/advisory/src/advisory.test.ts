@@ -1,4 +1,5 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+// Review-fix tests (#90-#93) live at the end of this file.
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -332,5 +333,141 @@ describe("scanDependencies", () => {
     expect(result.coverage.find((entry) => entry.area === "dependencies:npm")).toMatchObject({
       status: "partial",
     });
+  });
+});
+
+const lodashLock = (version: string) =>
+  JSON.stringify({ lockfileVersion: 3, packages: { "node_modules/lodash": { version } } });
+
+describe("withdrawn advisories (#90)", () => {
+  it("never reports a withdrawn advisory", async () => {
+    const withdrawn = { ...LODASH_ADVISORY, withdrawn: "2026-10-21T00:00:00Z" };
+    const root = tempDir({ "package-lock.json": lodashLock("4.17.20") });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([withdrawn, GO_ADVISORY]) },
+      now,
+    });
+    expect(result.findings).toEqual([]);
+    expect(result.coverage.find((e) => e.area === "dependencies:advisory-db")?.note).toMatch(
+      /1 withdrawn/,
+    );
+  });
+});
+
+describe("database limits (#91)", () => {
+  it("refuses a directory over the file limit instead of using a truncated database", async () => {
+    const dir = tempDir({
+      "a.json": JSON.stringify(GO_ADVISORY),
+      "b.json": JSON.stringify({ ...GO_ADVISORY, id: "GO-2" }),
+      "c.json": JSON.stringify(LODASH_ADVISORY),
+    });
+    const db = await loadAdvisoryDb({ PGARD_ADVISORY_DB: dir }, now, undefined, {
+      maxFiles: 2,
+      maxBytes: 1e9,
+    });
+    expect(db.status.status).toBe("invalid");
+    expect(db.status.note).toMatch(/file count limit/);
+  });
+
+  it("refuses a directory over the total size limit", async () => {
+    const dir = tempDir({ "a.json": JSON.stringify(LODASH_ADVISORY) });
+    const db = await loadAdvisoryDb({ PGARD_ADVISORY_DB: dir }, now, undefined, {
+      maxFiles: 10,
+      maxBytes: 10,
+    });
+    expect(db.status.status).toBe("invalid");
+  });
+});
+
+describe("completeness (#92)", () => {
+  it("skips package-less affected entries instead of rejecting the database", async () => {
+    const gitOnly = {
+      id: "OSV-GIT-1",
+      modified: "2026-10-19T00:00:00Z",
+      affected: [{ ranges: [{ type: "GIT", events: [{ introduced: "abc" }] }] }],
+    };
+    const db = await loadAdvisoryDb({ PGARD_ADVISORY_DB: dbFile([gitOnly, LODASH_ADVISORY]) }, now);
+    expect(db.status.status).toBe("ok");
+  });
+
+  it("rejects an update time in the future", async () => {
+    const db = await loadAdvisoryDb(
+      { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY], { updatedAt: "2027-01-01T00:00:00Z" }) },
+      now,
+    );
+    expect(db.status.status).toBe("invalid");
+  });
+
+  it("counts git/file/alias entries as not compared and reports partial", async () => {
+    const root = tempDir({
+      "package-lock.json": JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          "node_modules/lodash": { version: "4.17.21" },
+          "node_modules/fromgit": {
+            version: "1.0.0",
+            resolved: "git+ssh://git@github.com/o/r.git#abc",
+          },
+          "node_modules/local": { version: "file:../local" },
+        },
+      }),
+    });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    const npm = result.coverage.find((entry) => entry.area === "dependencies:npm");
+    expect(npm?.status).toBe("partial");
+    expect(npm?.note).toMatch(/2 dependency entries .* could not be compared/);
+  });
+
+  it("resolves yarn aliases to the real package", () => {
+    const text = '# yarn lockfile v1\n\n"my-lodash@npm:lodash@^4.17.0":\n  version "4.17.20"\n';
+    expect(parseYarnLock(text).packages).toEqual([
+      { ecosystem: "npm", name: "lodash", version: "4.17.20" },
+    ]);
+  });
+
+  it("applies go.mod replace directives", () => {
+    const mod =
+      "module x\n\nrequire (\n\tgolang.org/x/text v0.3.7\n\texample.com/a v1.0.0\n)\n\nreplace golang.org/x/text => golang.org/x/text v0.3.8\nreplace example.com/a => ../a\n";
+    const result = parseGoMod(mod);
+    expect(result.packages).toEqual([
+      { ecosystem: "Go", name: "golang.org/x/text", version: "v0.3.8" },
+    ]);
+    expect(result.uncomparable).toBe(1);
+  });
+
+  it("reports unrecognized yarn.lock, go.mod and go.sum as errors", () => {
+    expect(parseYarnLock("garbage text\nmore").error).toMatch(/not recognized/);
+    expect(parseGoMod("garbage").error).toMatch(/not recognized/);
+    expect(parseGoSum("garbage").error).toMatch(/not recognized/);
+  });
+});
+
+describe("cost (#93)", () => {
+  it("does not load the database when there is nothing to compare", async () => {
+    const root = tempDir({ "README.md": "x" });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: "/nonexistent/db.json" },
+      now,
+    });
+    expect(result.advisoryDb).toEqual({ version: null, updatedAt: null });
+    expect(result.coverage.find((e) => e.area === "dependencies:advisory-db")?.status).toBe(
+      "completed",
+    );
+  });
+
+  it("rejects promptly when aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const root = tempDir({ "package-lock.json": lodashLock("4.17.20") });
+    await expect(
+      scanDependencies(root, {
+        env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+        now,
+        signal: controller.signal,
+      }),
+    ).rejects.toBeDefined();
   });
 });
