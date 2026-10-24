@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type {
   AuthStatus,
   PortListResponse,
@@ -7,7 +7,8 @@ import type {
 } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
-import { isPortAccessAllowed, portAccessMessage, startPortRequests } from "./port-access";
+import { portAccessMessage } from "./port-access";
+import { usePortAccess } from "./use-port-access";
 
 interface TargetPanelProps {
   /** Latest authorization status; nothing is discovered or probed until it reports allowed. */
@@ -33,53 +34,52 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
   const [identity, setIdentity] = useState<ServiceIdentityDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
-  const isAllowed = isPortAccessAllowed(auth);
   const blockedMessage = portAccessMessage(auth);
-  // Read after each await so a response that arrives after access closed is dropped.
-  const isAllowedRef = useRef(isAllowed);
-  isAllowedRef.current = isAllowed;
+  // Requests start once per allowed authorization; the preset port still needs explicit
+  // confirmation. Each response is kept only if that authorization is still the current one.
+  const access = usePortAccess(auth, presetPort, {
+    listPorts: () => void refresh(),
+    probe: (port) => void probe(port),
+    reset: () => {
+      // Authorization is missing, running again, blocked or signed out: forget what was found.
+      setServices(null);
+      setIdentity(null);
+      setError(null);
+    },
+  });
 
   const refresh = async (): Promise<void> => {
-    if (!isAllowedRef.current) return;
+    const token = access.currentToken();
+    if (token === null) return;
     setIsBusy(true);
     try {
       const response = await apiGet<PortListResponse>("/api/ports");
-      if (isAllowedRef.current) setServices(response);
+      if (access.isCurrent(token)) setServices(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      if (access.isCurrent(token)) {
+        setError(caught instanceof Error ? caught.message : "Request failed.");
+      }
     } finally {
       setIsBusy(false);
     }
   };
 
   const probe = async (port: number): Promise<void> => {
-    if (!isAllowedRef.current) return;
+    const token = access.currentToken();
+    if (token === null) return;
     setError(null);
     setIsBusy(true);
     try {
       const response = await apiPost<ServiceIdentityDto>("/api/ports/probe", { port });
-      if (isAllowedRef.current) setIdentity(response);
+      if (access.isCurrent(token)) setIdentity(response);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      if (access.isCurrent(token)) {
+        setError(caught instanceof Error ? caught.message : "Request failed.");
+      }
     } finally {
       setIsBusy(false);
     }
   };
-
-  useEffect(() => {
-    if (!isAllowed) {
-      // Authorization is missing, running again, blocked or signed out: forget what was found.
-      setServices(null);
-      setIdentity(null);
-      setError(null);
-      return;
-    }
-    // Once per allowed authorization; the preset port still needs explicit confirmation.
-    startPortRequests(auth, presetPort, {
-      listPorts: () => void refresh(),
-      probe: (port) => void probe(port),
-    });
-  }, [isAllowed]);
 
   const confirm = async (): Promise<void> => {
     if (identity === null) return;

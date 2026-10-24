@@ -8,7 +8,12 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isReportFormat, ReportWriteError } from "@pgard/report";
-import { PGARD_VERSION, readGitHubAppClientId, ScanCancelledError } from "@pgard/scan-core";
+import {
+  isAuthorizationAllowed,
+  PGARD_VERSION,
+  readGitHubAppClientId,
+  ScanCancelledError,
+} from "@pgard/scan-core";
 import type {
   AuthStatus,
   PortListResponse,
@@ -22,6 +27,7 @@ import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import {
   MAX_PROGRESS_EVENTS,
+  PORT_ACCESS_WINDOW_MS,
   PROBE_CONFIRM_WINDOW_MS,
   type SessionState,
 } from "../session/session-state.js";
@@ -87,8 +93,14 @@ function scanStatus(state: SessionState): ScanStatus {
 }
 
 function authStatus(state: SessionState): AuthStatus {
-  const { status, summary, repo, message } = state.auth;
-  return { status, deviceCode: state.deviceCode, summary, repo, message };
+  const { status, outcome, message } = state.auth;
+  return {
+    status,
+    deviceCode: state.deviceCode,
+    summary: outcome?.summary ?? null,
+    repo: outcome?.repo ?? null,
+    message,
+  };
 }
 
 const getSession: ApiHandler = async (context) => {
@@ -105,22 +117,27 @@ const getSession: ApiHandler = async (context) => {
 const startVerify: ApiHandler = async (context) => {
   const { state } = context;
   if (state.auth.status === "running") return authStatus(state);
-  const run: SessionState["auth"] = { status: "running", summary: null, repo: null, message: null };
+  const run: SessionState["auth"] = {
+    status: "running",
+    outcome: null,
+    finishedAt: null,
+    message: null,
+  };
   state.auth = run;
   void context.deps
     .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
-      state.auth = { status: "done", summary: outcome.summary, repo: outcome.repo, message: null };
+      state.auth = { status: "done", outcome, finishedAt: context.deps.now(), message: null };
     })
     .catch(() => {
       if (state.auth !== run) return;
       state.deviceCode = null;
       state.auth = {
         status: "failed",
-        summary: null,
-        repo: null,
+        outcome: null,
+        finishedAt: context.deps.now(),
         message: "The authorization check could not complete.",
       };
     });
@@ -133,21 +150,33 @@ const getAuth: ApiHandler = async (context) => authStatus(context.state);
 const signOut: ApiHandler = async (context) => {
   context.github.signOut();
   context.state.deviceCode = null;
-  context.state.auth = { status: "idle", summary: null, repo: null, message: null };
+  context.state.auth = { status: "idle", outcome: null, finishedAt: null, message: null };
   return authStatus(context.state);
 };
 
 /**
  * Port discovery and identity probes touch local services, so they run only after this server
  * session's most recent authorization check for the fixed project root came back "allowed" (the
- * same order the CLI uses). The decision is read from server state only; nothing the browser
- * sends can open this gate. A new check, sign-out or a blocked/failed result closes it again.
+ * same order the CLI uses). "Allowed" means `isAuthorizationAllowed`: the decision is allowed and all
+ * five checks are present, in order, and passed. The outcome is read from server state only;
+ * nothing the browser sends can open this gate. A new check, sign-out or a blocked/failed result
+ * closes it again, and an allowed result expires after `PORT_ACCESS_WINDOW_MS`. Returns the
+ * authorization record that passed, for `requireSameAuthorization`.
  */
-export function requirePortAccessAuthorized(state: SessionState): void {
-  const { status, summary, message } = state.auth;
-  if (status === "done" && summary?.decision === "allowed") return;
+export function requirePortAccessAuthorized(
+  state: SessionState,
+  now: number,
+): SessionState["auth"] {
+  const auth = state.auth;
+  const { status, outcome, finishedAt, message } = auth;
+  const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
+  const isFresh = finishedAt !== null && now - finishedAt <= PORT_ACCESS_WINDOW_MS;
+  if (isAllowed && isFresh) return auth;
   let reason: string;
-  if (status === "running") {
+  if (isAllowed) {
+    reason =
+      "The authorization check is more than 30 minutes old. Check again before PGARD contacts local services.";
+  } else if (status === "running") {
     reason = "The authorization check is still running. Local services are not contacted yet.";
   } else if (status === "done") {
     reason =
@@ -160,15 +189,32 @@ export function requirePortAccessAuthorized(state: SessionState): void {
   throw new ApiError(403, "authorization_required", reason);
 }
 
+/**
+ * Runs the gate again after an await and requires that the authorization it passes is the same
+ * record that opened the request. Signing out or starting a new check while lsof or a probe was
+ * running replaces `state.auth`, so the request stops before contacting anything else.
+ */
+function requireSameAuthorization(context: ApiContext, authAtStart: SessionState["auth"]): void {
+  if (requirePortAccessAuthorized(context.state, context.deps.now()) !== authAtStart) {
+    throw new ApiError(
+      403,
+      "authorization_required",
+      "Authorization was checked again while this request ran. Local services are not contacted.",
+    );
+  }
+}
+
 const listPorts: ApiHandler = async (context) => {
-  requirePortAccessAuthorized(context.state);
+  const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const discovery = await context.deps.discoverListeningPorts();
+  requireSameAuthorization(context, authAtStart);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
       ...toIdentityDto(await context.deps.probeLocalService(entry.port)),
       processName: entry.processName,
     })),
   );
+  requireSameAuthorization(context, authAtStart);
   const response: PortListResponse = {
     services: services.filter((service) => service.isHttp),
     isDiscoveryAvailable: discovery.isAvailable,
@@ -177,11 +223,15 @@ const listPorts: ApiHandler = async (context) => {
   return response;
 };
 
-/** Probes one port and remembers the identity the user is about to see. */
+/**
+ * Probes one port and remembers the identity the user is about to see, tied to the authorization
+ * it ran under so a later sign-out or re-check makes it unconfirmable.
+ */
 const probePort: ApiHandler = async (context, body) => {
-  requirePortAccessAuthorized(context.state);
+  const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const identity = await context.deps.probeLocalService(readPort(body));
-  context.state.lastProbe = { identity, probedAt: context.deps.now() };
+  requireSameAuthorization(context, authAtStart);
+  context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
   return toIdentityDto(identity);
 };
 
@@ -190,7 +240,7 @@ const probePort: ApiHandler = async (context, body) => {
  * and only if it answered HTTP. The browser never supplies the target object itself.
  */
 const confirmTarget: ApiHandler = async (context, body) => {
-  requirePortAccessAuthorized(context.state);
+  const auth = requirePortAccessAuthorized(context.state, context.deps.now());
   const port = readPort(body);
   if (asRecord(body).isConfirmed !== true) {
     throw new ApiError(400, "not_confirmed", "Explicit confirmation is required.");
@@ -198,6 +248,7 @@ const confirmTarget: ApiHandler = async (context, body) => {
   const probe = context.state.lastProbe;
   if (
     probe === null ||
+    probe.auth !== auth ||
     probe.identity.port !== port ||
     context.deps.now() - probe.probedAt > PROBE_CONFIRM_WINDOW_MS
   ) {

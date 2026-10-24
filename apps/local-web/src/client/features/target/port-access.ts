@@ -44,3 +44,51 @@ export function startPortRequests(
   if (presetPort !== null) requests.probe(presetPort);
   return true;
 }
+
+export interface PortAccessHandlers extends PortRequests {
+  /** Forget the services, identity and error shown for an earlier access period. */
+  reset: () => void;
+}
+
+/**
+ * Decides when the target panel contacts local services. Feed it every new authorization status
+ * with `update`. It starts the port requests once when access opens, resets the panel once when
+ * it closes, and ignores repeated statuses in between (polling, re-renders, React StrictMode's
+ * double effects). Each open period gets a new token; a response is shown only if the token it
+ * started with is still current, so a reply that arrives after sign-out or a new check is dropped
+ * even when access has opened again since.
+ */
+export class PortAccessController {
+  private token: number | null = null;
+  private nextToken = 1;
+  private readonly presetPort: number | null;
+  private readonly handlers: PortAccessHandlers;
+
+  constructor(presetPort: number | null, handlers: PortAccessHandlers) {
+    this.presetPort = presetPort;
+    this.handlers = handlers;
+  }
+
+  update(auth: AuthStatus | null): void {
+    const isAllowed = isPortAccessAllowed(auth);
+    if (isAllowed === (this.token !== null)) return;
+    if (!isAllowed) {
+      this.token = null;
+      this.handlers.reset();
+      return;
+    }
+    this.token = this.nextToken;
+    this.nextToken += 1;
+    startPortRequests(auth, this.presetPort, this.handlers);
+  }
+
+  /** Token of the current access period, or null while access is closed. */
+  currentToken(): number | null {
+    return this.token;
+  }
+
+  /** True while the access period that `token` came from is still open. */
+  isCurrent(token: number | null): boolean {
+    return token !== null && token === this.token;
+  }
+}

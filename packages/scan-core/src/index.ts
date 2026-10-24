@@ -25,6 +25,7 @@ export {
 // Launcher-facing re-exports so apps depend on scan-core (and findings) only.
 export {
   AUTHORIZATION_CHECK_ORDER,
+  isAuthorizationAllowed,
   type AuthorizationDependencies,
   type AuthorizationOutcome,
 } from "@pgard/policy";
