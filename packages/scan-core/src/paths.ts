@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Finding } from "@pgard/findings";
+import { redactFinding, type Finding } from "@pgard/findings";
 
 /**
  * Converts a finding location path to a repository-relative POSIX path. Absolute paths inside
@@ -28,25 +28,15 @@ export function toRepositoryRelativePath(projectRoot: string, filePath: string):
   return posix;
 }
 
-function scrubProjectRoot(text: string, projectRoot: string): string {
-  if (projectRoot.length < 2) {
-    return text;
-  }
-  return text.split(projectRoot).join(".");
-}
-
-/** Normalizes paths and strips the absolute project root from free-text fields. */
+/**
+ * Normalizes the location path and redacts every free-text field (secrets, project root, home
+ * directories). Applied to all analyzer output, including the injected web scanner, as a final
+ * defense even when analyzers already redact.
+ */
 export function normalizeFindingPaths(finding: Finding, projectRoot: string): Finding {
   const location = { ...finding.location };
   if (location.path !== null) {
     location.path = toRepositoryRelativePath(projectRoot, location.path);
   }
-  return {
-    ...finding,
-    location,
-    title: scrubProjectRoot(finding.title, projectRoot),
-    evidence: scrubProjectRoot(finding.evidence, projectRoot),
-    impact: scrubProjectRoot(finding.impact, projectRoot),
-    recommendation: scrubProjectRoot(finding.recommendation, projectRoot),
-  };
+  return redactFinding({ ...finding, location }, { projectRoot });
 }
