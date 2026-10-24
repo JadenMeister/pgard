@@ -11,6 +11,7 @@ import {
   unwrap,
   type TaintKind,
 } from "./taint.js";
+import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-binding.js";
 
 /** Project-level facts used by cross-file heuristics (CSRF, brute force, ORM detection). */
 export interface JsFileFacts {
@@ -120,12 +121,15 @@ export function analyzeJsSource(
   path: string,
   options: JsAnalysisOptions = {},
 ): JsAnalysis {
+  const scriptKind = options.scriptKind ?? scriptKindFor(path);
+  // Parsed under a fixed name (findings use `path`) so the sanitizer check can build a one-file
+  // program from it whatever the real extension is (`.vue`, `.mjs`, ...).
   const sourceFile = ts.createSourceFile(
-    path,
+    syntheticFileName(scriptKind),
     code,
     ts.ScriptTarget.Latest,
     true,
-    options.scriptKind ?? scriptKindFor(path),
+    scriptKind,
   );
   const parseDiagnostics = (sourceFile as unknown as { parseDiagnostics?: unknown[] })
     .parseDiagnostics;
@@ -336,16 +340,16 @@ export function analyzeJsSource(
     return ts.isCallExpression(node) && SANITIZER_CALLS.test(calleeName(node) ?? "");
   };
 
+  const isSanitizedBinding = createSanitizedBindingCheck(sourceFile, isSanitizerCall);
+
   /**
-   * A sanitizer call, or a variable whose every assignment in the file is a sanitizer call
-   * (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
+   * A sanitizer call, or a variable resolved to its own declaration whose initializer and every
+   * write are sanitizer calls (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
    */
   const isSanitized = (expression: ts.Expression): boolean => {
     if (isSanitizerCall(expression)) return true;
     const node = unwrap(expression);
-    if (!ts.isIdentifier(node)) return false;
-    const assignments = taint.assignmentsOf(node.text);
-    return assignments !== null && assignments.length > 0 && assignments.every(isSanitizerCall);
+    return ts.isIdentifier(node) && isSanitizedBinding(node);
   };
 
   const sqlArgument = (call: ts.CallExpression): ts.Expression | null => {

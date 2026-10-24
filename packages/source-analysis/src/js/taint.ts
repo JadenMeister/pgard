@@ -126,14 +126,11 @@ export class TaintTracker {
   private readonly dynamicStringVariables = new Set<string>();
   /** Expressions assigned to each identifier (bounded), used to judge identifier arguments. */
   private readonly assignedExpressions = new Map<string, ts.Expression[]>();
-  /** Names also bound without an explicit value (parameters, loop and catch variables). */
-  private readonly implicitlyBound = new Set<string>();
 
   constructor(sourceFile: ts.SourceFile) {
     // Two passes so `const a = req.body; const b = a.x;` propagates regardless of order.
     for (let pass = 0; pass < 2; pass += 1) {
       const visit = (node: ts.Node): void => {
-        if (pass === 0) this.recordImplicitBinding(node);
         if (ts.isVariableDeclaration(node) && node.initializer) {
           this.recordBinding(node.name, node.initializer, pass === 0);
         } else if (
@@ -155,56 +152,6 @@ export class TaintTracker {
       };
       visit(sourceFile);
     }
-  }
-
-  /**
-   * Every expression assigned to `name` anywhere in the file, or `null` when that set is not
-   * known exactly (more assignments than are kept, or the name is also a parameter, loop or catch
-   * variable whose value comes from elsewhere).
-   */
-  assignmentsOf(name: string): readonly ts.Expression[] | null {
-    const list = this.assignedExpressions.get(name);
-    if (!list || list.length >= MAX_ASSIGNMENTS || this.implicitlyBound.has(name)) return null;
-    return list;
-  }
-
-  private recordImplicitBinding(node: ts.Node): void {
-    let name: ts.BindingName | undefined;
-    if (ts.isParameter(node)) {
-      name = node.name;
-    } else if (ts.isCatchClause(node)) {
-      name = node.variableDeclaration?.name;
-    } else if (
-      (ts.isForOfStatement(node) || ts.isForInStatement(node)) &&
-      ts.isVariableDeclarationList(node.initializer)
-    ) {
-      name = node.initializer.declarations[0]?.name;
-    } else if (ts.isVariableDeclaration(node) && !ts.isIdentifier(node.name)) {
-      name = node.name; // destructured: the value of each name is not a whole assignment
-    } else if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      (ts.isObjectLiteralExpression(node.left) || ts.isArrayLiteralExpression(node.left))
-    ) {
-      // Destructuring assignment (`({ a } = obj)`): every identifier in the pattern.
-      const visit = (child: ts.Node): void => {
-        if (ts.isIdentifier(child)) this.implicitlyBound.add(child.text);
-        ts.forEachChild(child, visit);
-      };
-      visit(node.left);
-      return;
-    }
-    if (!name) return;
-    const collect = (item: ts.BindingName) => {
-      if (ts.isIdentifier(item)) {
-        this.implicitlyBound.add(item.text);
-        return;
-      }
-      for (const element of item.elements) {
-        if (ts.isBindingElement(element)) collect(element.name);
-      }
-    };
-    collect(name);
   }
 
   /** Source text of what was assigned to `name` (first few assignments, bounded). */

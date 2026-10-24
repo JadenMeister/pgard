@@ -127,19 +127,71 @@ describe("PG-XSS-001/002 HTML sinks", () => {
     [
       "const safe = sanitizeHtml(data);\nconst A = () => <i dangerouslySetInnerHTML={{ __html: safe }} />;",
     ],
+    ["let h = DOMPurify.sanitize(a);\nif (c) { h = DOMPurify.sanitize(b); }\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ||= DOMPurify.sanitize(b);\nel.innerHTML = h;"],
+    ["const h = DOMPurify.sanitize(a);\nfunction f() { var h = req.body.x; }\nel.innerHTML = h;"],
+    ["function f() { el.innerHTML = h; }\nvar h;\nh = DOMPurify.sanitize(a);"],
+    ["export let h = DOMPurify.sanitize(a);\nel.innerHTML = h;"],
+    ["const h = DOMPurify.sanitize(a);\nel.outerHTML = h;\nel.insertAdjacentHTML('beforeend', h);"],
   ])("does not flag a value sanitized through a variable (#109): %s", (code) => {
     expect(rulesIn(code, "src/a.tsx")).toEqual([]);
   });
 
   it.each([
+    // Plain, branch and closure reassignment.
     ["let html = DOMPurify.sanitize(a);\nhtml = req.body.html;\nel.innerHTML = html;"],
-    ["const html = DOMPurify.sanitize(a);\nfunction f(html) { el.innerHTML = html; }"],
+    ["let h = DOMPurify.sanitize(a);\nif (c) { h = req.body.x; }\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nconst set = (v) => { h = v; };\nel.innerHTML = h;"],
+    // Compound and logical assignment operators.
+    ["let h = DOMPurify.sanitize(a);\nh += req.body.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ||= req.body.html;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ??= req.query.x;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh &&= req.body.html;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ||= location.hash;\nel.outerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nh ??= req.body.x;\nel.insertAdjacentHTML('beforeend', h);"],
+    // for-in / for-of targets without a declaration, and a classic for initializer.
+    ["let h = DOMPurify.sanitize(a);\nfor (h of req.body.items) el.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nfor (h in req.body) el.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\nfor (h = req.body.x; ;) break;\nel.innerHTML = h;"],
     ["const html = DOMPurify.sanitize(a);\nfor (const html of items) el.innerHTML = html;"],
+    // Scope: globals, imports, functions, classes, parameters, inner shadowing, catch.
+    ["function g(a) { const name = DOMPurify.sanitize(a); use(name); }\nel.innerHTML = name;"],
+    [
+      "import { h } from './x';\nfunction g(a) { const h = DOMPurify.sanitize(a); use(h); }\nel.innerHTML = h;",
+    ],
+    ["function g() { const h = DOMPurify.sanitize(a); }\nfunction h() {}\nel.innerHTML = h;"],
+    ["function g() { const h = DOMPurify.sanitize(a); }\nclass h {}\nel.innerHTML = h;"],
+    ["const html = DOMPurify.sanitize(a);\nfunction f(html) { el.innerHTML = html; }"],
+    ["const h = DOMPurify.sanitize(a);\nfunction f() { let h; el.innerHTML = h; }"],
+    ["const e = DOMPurify.sanitize(a);\ntry {} catch (e) { el.innerHTML = e; }"],
+    [
+      "const safe = DOMPurify.sanitize(a);\nconst A = ({ safe }) => <i dangerouslySetInnerHTML={{ __html: safe }} />;",
+    ],
+    // Destructuring declarations and assignments.
     [
       "const html = DOMPurify.sanitize(a);\nfunction f() { const { html } = data; el.innerHTML = html; }",
     ],
-  ])("still flags a variable not sanitized on every assignment (#109): %s", (code) => {
-    expect(rulesIn(code)).toContain("PG-XSS-001");
+    ["let h = DOMPurify.sanitize(a);\n({ h } = req.body);\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n[h] = req.body.list;\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n({ x: { y: h } } = req.body);\nel.innerHTML = h;"],
+    ["let h = DOMPurify.sanitize(a);\n[...h] = req.body.list;\nel.innerHTML = h;"],
+    [
+      "let h = DOMPurify.sanitize(a);\n[h = DOMPurify.sanitize(b)] = req.body.list;\nel.innerHTML = h;",
+    ],
+    // Object properties, exported bindings and dynamic scope.
+    ["const o = {};\no.h = DOMPurify.sanitize(a);\no.h = req.body.x;\nel.innerHTML = o.h;"],
+    [
+      "export let h = DOMPurify.sanitize(a);\nexport function setH(v) { h = v; }\nel.innerHTML = h;",
+    ],
+    ["let h = DOMPurify.sanitize(a);\neval('h = req.body.x');\nel.innerHTML = h;"],
+  ])("still flags a variable not sanitized on every write (#109): %s", (code) => {
+    expect(rulesIn(code, "src/a.tsx").some((rule) => rule.startsWith("PG-XSS-"))).toBe(true);
+  });
+
+  it("resolves bindings in a file with a non-JS extension (#109)", () => {
+    expect(
+      rulesIn("let h = DOMPurify.sanitize(a);\nh ||= req.body.html;\nel.innerHTML = h;", "A.vue"),
+    ).toContain("PG-XSS-001");
   });
 });
 
