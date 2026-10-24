@@ -34,7 +34,11 @@ export interface CommitCandidate {
   committerEmail: string;
 }
 
-/** Lists recent local commits (all refs), newest first, bounded. */
+/**
+ * Lists recent commits in HEAD's ancestry, newest first, bounded. Only HEAD's history is used
+ * so a contribution found later is guaranteed to share history with the checked-out code
+ * (other local branches or an unrelated orphan history cannot vouch for it).
+ */
 export async function listCommitCandidates(
   projectRoot: string,
   runner: GitRunner = defaultRunGit,
@@ -47,10 +51,10 @@ export async function listCommitCandidates(
       // header lines contain no field separator and are skipped below.
       subcommand: "rev-list",
       flags: [
-        "--all",
         `--max-count=${limit}`,
         `--format=%H${FIELD_SEPARATOR}%an${FIELD_SEPARATOR}%ae${FIELD_SEPARATOR}%cn${FIELD_SEPARATOR}%ce`,
       ],
+      operands: ["HEAD"],
     },
     { cwd: projectRoot },
   );

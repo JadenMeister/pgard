@@ -27,6 +27,8 @@ describe("parseGitHubRemoteUrl", () => {
     "https://github.com/octo/app/extra",
     "https://github.com/octo",
     "https://github.com/octo/app.git?x=1",
+    "https://github.com/me/app%E0",
+    "https://github.com/me/%61pp",
     "http://github.com/octo/app.git",
     "file:///tmp/repo",
     "/tmp/local/repo",
@@ -116,6 +118,16 @@ describe("history helpers", () => {
     const candidates = await listCommitCandidates(fixture.root);
     expect(candidates.map((candidate) => candidate.sha)).toEqual([second, first]);
     expect(candidates[0]).toMatchObject({ authorName: "B", authorEmail: "b@example.com" });
+  });
+
+  it("lists only HEAD's ancestry, not other branches or an orphan history", async () => {
+    fixture = createGitFixture();
+    const onMain = fixture.commit({ authorName: "A", authorEmail: "a@example.com" });
+    fixture.git("checkout", "-q", "--orphan", "unrelated");
+    const orphan = fixture.commit({ authorName: "B", authorEmail: "b@example.com" });
+    const candidates = await listCommitCandidates(fixture.root);
+    expect(candidates.map((candidate) => candidate.sha)).toEqual([orphan]);
+    expect(candidates.map((candidate) => candidate.sha)).not.toContain(onMain);
   });
 
   it("returns null HEAD for an empty repository", async () => {

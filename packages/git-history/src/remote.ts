@@ -67,7 +67,12 @@ export function parseGitHubRemoteUrl(url: string): GitHubRepositoryRef | null {
   if (parsed.protocol === "ssh:" && parsed.username !== "git") {
     return null;
   }
-  return splitRepoPath(decodeURIComponent(parsed.pathname));
+  // GitHub owner/repository names never contain percent-encoding; refuse it instead of decoding
+  // (decoding can also throw on malformed sequences).
+  if (parsed.pathname.includes("%")) {
+    return null;
+  }
+  return splitRepoPath(parsed.pathname);
 }
 
 function sameRepo(a: GitHubRepositoryRef, b: GitHubRepositoryRef): boolean {
