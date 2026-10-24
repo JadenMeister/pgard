@@ -1,0 +1,182 @@
+import { SEVERITIES, type Coverage, type Finding, type ScanResult } from "@pgard/findings";
+import { escapeHtml } from "./escape-html.js";
+import {
+  countFindingsBySeverity,
+  formatAdvisoryDb,
+  formatLocation,
+  labelCoverageStatus,
+  labelOverallStatus,
+  labelSeverity,
+  prepareReportResult,
+  REPORT_DISCLAIMER,
+  severityColor,
+  sortFindings,
+  summarizeStatusSplit,
+  type SeverityCounts,
+} from "./format.js";
+
+const BAR_CHART_WIDTH = 520;
+const BAR_ROW_HEIGHT = 28;
+const BAR_LABEL_WIDTH = 80;
+const BAR_VALUE_WIDTH = 40;
+
+/** Horizontal bar chart of findings per severity as inline SVG (no scripts, no external assets). */
+export function renderSeverityBarChartSvg(counts: SeverityCounts): string {
+  const maxCount = Math.max(1, ...Object.values(counts));
+  const barSpace = BAR_CHART_WIDTH - BAR_LABEL_WIDTH - BAR_VALUE_WIDTH;
+  const height = SEVERITIES.length * BAR_ROW_HEIGHT;
+  const rows = SEVERITIES.map((severity, index) => {
+    const y = index * BAR_ROW_HEIGHT;
+    const width = Math.round((counts[severity] / maxCount) * barSpace);
+    return [
+      `<text x="0" y="${y + 18}" class="bar-label">${escapeHtml(labelSeverity(severity))}</text>`,
+      `<rect x="${BAR_LABEL_WIDTH}" y="${y + 6}" width="${width}" height="16" rx="2" fill="${severityColor(severity)}"></rect>`,
+      `<text x="${BAR_LABEL_WIDTH + width + 6}" y="${y + 18}" class="bar-value">${counts[severity]}</text>`,
+    ].join("");
+  }).join("");
+  const summary = SEVERITIES.map(
+    (severity) => `${labelSeverity(severity)} ${counts[severity]}`,
+  ).join(", ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Findings by severity: ${escapeHtml(summary)}" width="${BAR_CHART_WIDTH}" height="${height}" viewBox="0 0 ${BAR_CHART_WIDTH} ${height}">${rows}</svg>`;
+}
+
+function renderCoverageRows(coverage: readonly Coverage[]): string {
+  if (coverage.length === 0) {
+    return `<tr><td colspan="4">No coverage was recorded.</td></tr>`;
+  }
+  return coverage
+    .map(
+      (entry) => `<tr class="coverage-${escapeHtml(entry.status)}">
+  <td>${escapeHtml(entry.area)}</td>
+  <td>${escapeHtml(entry.scope)}</td>
+  <td><span class="pill pill-${escapeHtml(entry.status)}">${escapeHtml(labelCoverageStatus(entry.status))}</span></td>
+  <td>${escapeHtml(entry.note ?? "")}</td>
+</tr>`,
+    )
+    .join("\n");
+}
+
+function renderReferences(finding: Finding): string {
+  const parts = [...finding.references.cwe, ...finding.references.owasp, ...finding.references.cve];
+  return parts.length === 0
+    ? ""
+    : `<p class="refs">References: ${escapeHtml(parts.join(", "))}</p>`;
+}
+
+function renderFinding(finding: Finding): string {
+  return `<article class="finding sev-${escapeHtml(finding.severity)}">
+  <header>
+    <span class="sev" style="background:${severityColor(finding.severity)}">${escapeHtml(labelSeverity(finding.severity))}</span>
+    <span class="status">${escapeHtml(finding.status)}</span>
+    <span class="confidence">confidence: ${escapeHtml(finding.confidence)}</span>
+    <h3>${escapeHtml(finding.title)}</h3>
+  </header>
+  <p class="location"><code>${escapeHtml(formatLocation(finding.location))}</code> &middot; ${escapeHtml(finding.ruleId)} &middot; ${escapeHtml(finding.category)} &middot; source: ${escapeHtml(finding.sources.join(", "))}</p>
+  <dl>
+    <dt>Evidence (redacted)</dt><dd><pre>${escapeHtml(finding.evidence)}</pre></dd>
+    <dt>Impact</dt><dd>${escapeHtml(finding.impact)}</dd>
+    <dt>Recommendation</dt><dd>${escapeHtml(finding.recommendation)}</dd>
+  </dl>
+  ${renderReferences(finding)}
+</article>`;
+}
+
+function renderAuthorization(result: ScanResult): string {
+  const rows = result.authorization.checks
+    .map(
+      (check) =>
+        `<tr><td>${escapeHtml(check.id)}</td><td>${escapeHtml(check.status)}</td><td>${escapeHtml(check.reason)}</td></tr>`,
+    )
+    .join("\n");
+  return `<table><thead><tr><th>Check</th><th>Status</th><th>Reason</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+
+const STYLES = `
+:root { color-scheme: light; --fg:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#ffffff; --panel:#f8fafc; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 32px 16px; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--fg); background: var(--bg); }
+main { max-width: 960px; margin: 0 auto; }
+h1 { font-size: 24px; margin: 0 0 4px; }
+h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+h3 { font-size: 15px; margin: 6px 0 0; }
+.meta { color: var(--muted); margin: 0; }
+.status-banner { padding: 10px 14px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); margin: 16px 0; }
+.status-blocked, .status-failed { border-color: #b91c1c; }
+.status-partial { border-color: #b7791f; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+.pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); }
+.pill-not_tested, .pill-partial { border-color: #b7791f; }
+.finding { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; margin: 12px 0; break-inside: avoid; }
+.finding header span { margin-right: 8px; font-size: 12px; }
+.sev { color: #fff; padding: 1px 8px; border-radius: 4px; }
+.location code { overflow-wrap: anywhere; }
+dl { margin: 8px 0 0; } dt { font-weight: 600; margin-top: 6px; } dd { margin: 0; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); padding: 6px 8px; border-radius: 4px; margin: 2px 0; }
+.refs { color: var(--muted); font-size: 12px; }
+.bar-label, .bar-value { font: 12px system-ui, sans-serif; fill: var(--fg); }
+.chart { overflow-x: auto; }
+.disclaimer { color: var(--muted); font-size: 12px; margin-top: 32px; }
+`;
+
+/**
+ * Renders a self-contained HTML report from a (redacted) ScanResult. Every dynamic value is
+ * escaped; the page has no scripts and a CSP that forbids loading anything.
+ */
+export function renderHtmlReport(input: ScanResult): string {
+  const result = prepareReportResult(input);
+  const counts = countFindingsBySeverity(result.findings);
+  const split = summarizeStatusSplit(result.findings);
+  const findings = sortFindings(result.findings);
+  const target = result.target;
+  const findingsHtml =
+    findings.length === 0
+      ? `<p>No findings in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
+      : findings.map(renderFinding).join("\n");
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
+<meta name="referrer" content="no-referrer">
+<title>PGARD Report</title>
+<style>${STYLES}</style>
+</head>
+<body>
+<main>
+<h1>PGARD security report</h1>
+<p class="meta">Repository: ${escapeHtml(target.repo ?? "unknown")} &middot; Revision: ${escapeHtml(target.revision ?? "unknown")}${target.webOrigin === null ? "" : ` &middot; Web target: ${escapeHtml(target.webOrigin)}`}</p>
+<p class="meta">Scan ${escapeHtml(result.scanId)} &middot; ${escapeHtml(result.startedAt)} to ${escapeHtml(result.finishedAt)} &middot; ${escapeHtml(result.tool.name)} ${escapeHtml(result.tool.version)} &middot; schema ${escapeHtml(result.schemaVersion)}</p>
+<p class="meta">Requested scopes: ${escapeHtml(result.requestedScopes.join(", ") || "none")}</p>
+<div class="status-banner status-${escapeHtml(result.overallStatus)}"><strong>Overall status:</strong> ${escapeHtml(labelOverallStatus(result.overallStatus))}</div>
+
+<h2>Summary</h2>
+<p>${result.findings.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.</p>
+<div class="chart">${renderSeverityBarChartSvg(counts)}</div>
+
+<h2>Coverage</h2>
+<table>
+<thead><tr><th>Area</th><th>Scope</th><th>Status</th><th>Note</th></tr></thead>
+<tbody>
+${renderCoverageRows(result.coverage)}
+</tbody>
+</table>
+
+<h2>Findings</h2>
+${findingsHtml}
+
+<h2>Authorization</h2>
+<p>Decision: ${escapeHtml(result.authorization.decision)}</p>
+${renderAuthorization(result)}
+
+<h2>Data sources</h2>
+<p>${escapeHtml(formatAdvisoryDb(result))}</p>
+
+<p class="disclaimer">${escapeHtml(REPORT_DISCLAIMER)}</p>
+</main>
+</body>
+</html>
+`;
+}
