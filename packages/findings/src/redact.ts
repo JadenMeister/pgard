@@ -32,8 +32,12 @@ interface Rule {
 const SENSITIVE_KEY =
   "[\\w.-]*(?:password|passwd|pwd|secret|token|api[_-]?key|apikey|access[_-]?key|private[_-]?key|client[_-]?secret|credential|session[_-]?id|auth[_-]?key)[\\w.-]*";
 
-/** Unquoted values that are clearly code references (`req.body.password`, `getSecret()`). */
-const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*(?:\(.*)?$/;
+/**
+ * Unquoted values exempt from masking: member access or calls (`req.body.password`,
+ * `getSecret()`, `process.env.DB_PASSWORD`). Anything else after `password=` / `token:` —
+ * including identifier-like words such as `hunter2` — is treated as a secret.
+ */
+const CODE_REFERENCE = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$|^[A-Za-z_$][\w$.]*\(/;
 const ALREADY_REDACTED = /^\[REDACTED:/;
 
 const RULES: Rule[] = [
@@ -79,15 +83,20 @@ const RULES: Rule[] = [
     replace: (_m, scheme, space) => `${scheme}${space}${maskSecret("token")}`,
   },
   {
+    // key = "double quoted" | 'single quoted' | `backtick` (a missing closing quote still
+    // masks to end of line) | unquoted run up to whitespace or , ; ) } &
     pattern: new RegExp(
-      `(\\b${SENSITIVE_KEY}["']?\\s*[:=]\\s*)(["'\`]?)([^"'\`\\s,;)}]+)\\2`,
-      "gi",
+      `(\\b${SENSITIVE_KEY}["']?\\s*[:=]\\s*)(?:"([^"\\n]*)("|$)|'([^'\\n]*)('|$)|\`([^\`\\n]*)(\`|$)|([^\\s"'\`,;)}&]+))`,
+      "gim",
     ),
-    replace: (match, prefix, quote, value) => {
-      if (ALREADY_REDACTED.test(value) || (quote === "" && CODE_REFERENCE.test(value))) {
+    replace: (match, prefix, dq, dqEnd, sq, sqEnd, bq, bqEnd, bare) => {
+      if (dq !== undefined) return dq === "" ? match : `${prefix}"${maskSecret("value")}${dqEnd}`;
+      if (sq !== undefined) return sq === "" ? match : `${prefix}'${maskSecret("value")}${sqEnd}`;
+      if (bq !== undefined) return bq === "" ? match : `${prefix}\`${maskSecret("value")}${bqEnd}`;
+      if (bare === undefined || ALREADY_REDACTED.test(bare) || CODE_REFERENCE.test(bare)) {
         return match;
       }
-      return `${prefix}${quote}${maskSecret("value")}${quote}`;
+      return `${prefix}${maskSecret("value")}`;
     },
   },
 ];

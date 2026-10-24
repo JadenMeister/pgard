@@ -55,6 +55,23 @@ describe("redactSecrets", () => {
     expect(output).toContain("after");
   });
 
+  it.each([
+    [".env", "DB_PASSWORD=SuperSecret123", "SuperSecret123"],
+    ["yaml", "password: hunter2", "hunter2"],
+    ["yaml api key", "api_key: abcdef123456XYZ", "abcdef123456XYZ"],
+    ["query string", "GET /cb?code=1&access_token=abc123def456", "abc123def456"],
+    ["query string middle", "/cb?access_token=abc123def456&x=1", "abc123def456"],
+    ["quoted with spaces", 'password: "correct horse battery"', "correct horse battery"],
+    ["quoted with separators", 'password = "abc,def;ghi"', "abc,def;ghi"],
+    ["single quoted with spaces", "secret='two words here'", "two words"],
+    ["unterminated quote", 'password = "half open value', "half open value"],
+    ["json", '{"client_secret": "x y z", "id": 1}', "x y z"],
+  ])("masks %s assignments (#51/#52)", (_label, input, secret) => {
+    const output = redactSecrets(input);
+    expect(output).not.toContain(secret);
+    expect(output).toContain("[REDACTED:value]");
+  });
+
   it("keeps code references that merely mention sensitive names", () => {
     expect(redactSecrets("password = req.body.password")).toBe("password = req.body.password");
     expect(redactSecrets("const token = getToken()")).toBe("const token = getToken()");
