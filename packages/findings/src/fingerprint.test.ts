@@ -94,4 +94,33 @@ describe("mergeFindings", () => {
     expect(merged[0]?.sources).toEqual(["code", "history", "web"]);
     expect(merged[0]?.evidence).toBe("code evidence");
   });
+
+  it("caps merged evidence and counts omitted parts (#60)", () => {
+    const merged = mergeFindings([
+      finding({ evidence: "a".repeat(400) }),
+      finding({ evidence: "b".repeat(400) }),
+      finding({ evidence: "c".repeat(10) }),
+    ]);
+    const evidence = merged[0]?.evidence ?? "";
+    expect(evidence.length).toBeLessThanOrEqual(500);
+    expect(evidence).toContain("(+2 more)");
+  });
+
+  it("keeps distinct evidence even when one is a substring of another (#60)", () => {
+    const merged = mergeFindings([finding({ evidence: "abc" }), finding({ evidence: "b" })]);
+    expect(merged[0]?.evidence).toBe("abc | b");
+  });
+
+  it("takes the verdict from the single strongest finding (#60)", () => {
+    const merged = mergeFindings([
+      finding({ severity: "low", status: "confirmed", confidence: "low" }),
+      finding({ severity: "high", status: "suspected", confidence: "high", sources: ["web"] }),
+    ]);
+    expect(merged[0]).toMatchObject({
+      severity: "high",
+      status: "suspected",
+      confidence: "high",
+      sources: ["code", "web"],
+    });
+  });
 });

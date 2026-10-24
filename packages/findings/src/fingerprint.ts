@@ -64,51 +64,84 @@ const STATUS_RANK: Record<FindingStatus, number> = {
   informational: 0,
 };
 
-/**
- * Merges findings that share an id (same rule, location and cause). Sources are unioned in
- * canonical order so code+HTTP evidence is preserved; the strongest severity, status and
- * confidence win; distinct evidence strings are joined. First-seen order is kept.
- */
-export function mergeFindings(findings: readonly Finding[]): Finding[] {
-  const merged = new Map<string, Finding>();
-  for (const finding of findings) {
-    const existing = merged.get(finding.id);
-    if (!existing) {
-      merged.set(finding.id, { ...finding, sources: canonicalSources(finding.sources) });
-      continue;
-    }
-    const evidence =
-      existing.evidence === finding.evidence || existing.evidence.includes(finding.evidence)
-        ? existing.evidence
-        : `${existing.evidence} | ${finding.evidence}`;
-    merged.set(finding.id, {
-      ...existing,
-      severity:
-        SEVERITY_RANK[finding.severity] > SEVERITY_RANK[existing.severity]
-          ? finding.severity
-          : existing.severity,
-      status:
-        STATUS_RANK[finding.status] > STATUS_RANK[existing.status]
-          ? finding.status
-          : existing.status,
-      confidence:
-        CONFIDENCE_RANK[finding.confidence] > CONFIDENCE_RANK[existing.confidence]
-          ? finding.confidence
-          : existing.confidence,
-      evidence,
-      references: {
-        cwe: union(existing.references.cwe, finding.references.cwe),
-        owasp: union(existing.references.owasp, finding.references.owasp),
-        cve: union(existing.references.cve, finding.references.cve),
-      },
-      sources: canonicalSources([...existing.sources, ...finding.sources]),
-    });
-  }
-  return [...merged.values()];
+/** Maximum length of merged evidence (same as the default evidence cap). */
+export const MERGED_EVIDENCE_MAX = 500;
+
+function verdictRank(finding: Finding): number {
+  return (
+    SEVERITY_RANK[finding.severity] * 100 +
+    STATUS_RANK[finding.status] * 10 +
+    CONFIDENCE_RANK[finding.confidence]
+  );
 }
 
-function union(a: readonly string[], b: readonly string[]): string[] {
-  return [...new Set([...a, ...b])];
+/**
+ * Joins distinct evidence strings (exact duplicates removed) within `MERGED_EVIDENCE_MAX`.
+ * Parts that do not fit are counted, never silently dropped: `… (+2 more)`.
+ */
+function joinEvidence(parts: string[]): string {
+  const distinct = [...new Set(parts)];
+  let output = "";
+  for (let index = 0; index < distinct.length; index += 1) {
+    const part = distinct[index] as string;
+    const candidate = output === "" ? part : `${output} | ${part}`;
+    const remaining = distinct.length - index - 1;
+    const suffix = remaining > 0 ? ` | … (+${remaining} more)` : "";
+    if (candidate.length + suffix.length > MERGED_EVIDENCE_MAX) {
+      const omitted = distinct.length - index;
+      const note = ` | … (+${omitted} more)`;
+      if (output === "") {
+        return `${part.slice(0, Math.max(0, MERGED_EVIDENCE_MAX - note.length - 1))}…${omitted > 1 ? ` (+${omitted - 1} more)` : ""}`;
+      }
+      return `${output}${note}`;
+    }
+    output = candidate;
+  }
+  return output;
+}
+
+/**
+ * Merges findings that share an id (same rule, location and cause).
+ * - severity/status/confidence come together from the single strongest finding (ranked by
+ *   severity, then status, then confidence); they are never combined across findings.
+ * - sources and references are unioned (canonical source order), so code+HTTP evidence for one
+ *   issue keeps both sources.
+ * - distinct evidence strings are joined and capped; omitted parts are counted.
+ * First-seen order of ids is kept.
+ */
+export function mergeFindings(findings: readonly Finding[]): Finding[] {
+  const groups = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    const group = groups.get(finding.id);
+    if (group) group.push(finding);
+    else groups.set(finding.id, [finding]);
+  }
+  return [...groups.values()].map((group) => {
+    const first = group[0] as Finding;
+    if (group.length === 1) {
+      return { ...first, sources: canonicalSources(first.sources) };
+    }
+    const strongest = group.reduce((best, candidate) =>
+      verdictRank(candidate) > verdictRank(best) ? candidate : best,
+    );
+    return {
+      ...first,
+      severity: strongest.severity,
+      status: strongest.status,
+      confidence: strongest.confidence,
+      evidence: joinEvidence(group.map((finding) => finding.evidence)),
+      references: {
+        cwe: union(...group.map((finding) => finding.references.cwe)),
+        owasp: union(...group.map((finding) => finding.references.owasp)),
+        cve: union(...group.map((finding) => finding.references.cve)),
+      },
+      sources: canonicalSources(group.flatMap((finding) => finding.sources)),
+    };
+  });
+}
+
+function union(...lists: (readonly string[])[]): string[] {
+  return [...new Set(lists.flat())];
 }
 
 function canonicalSources(sources: readonly ScanScope[]): ScanScope[] {
