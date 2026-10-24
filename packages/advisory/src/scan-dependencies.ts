@@ -22,6 +22,7 @@ import {
   firstFixedVersion,
   isVersionAffected,
   loadAdvisoryDb,
+  peekAdvisoryDb,
   type Advisory,
   type Ecosystem,
 } from "./osv-db.js";
@@ -167,12 +168,15 @@ export async function scanDependencies(
   // The database is only loaded when there is something to compare (it can be large).
   const hasManifests =
     manifests.npmLockfiles.length > 0 || goFiles.length > 0 || manifests.packageJsons.length > 0;
-  const db = hasManifests
-    ? await loadAdvisoryDb(options.env ?? process.env, options.now, options.signal)
-    : null;
+  const env = options.env ?? process.env;
+  const db = hasManifests ? await loadAdvisoryDb(env, options.now, options.signal) : null;
+  // Without manifests the database is not needed for matching, but its state is still reported:
+  // small databases are read for their metadata; large ones are only checked for presence.
+  const peek = db === null ? await peekAdvisoryDb(env, options.now, options.signal) : null;
+  const reportedStatus = db?.status ?? peek;
   const advisoryDb: AdvisoryDbInfo = {
-    version: db?.status.version ?? null,
-    updatedAt: db?.status.updatedAt ?? null,
+    version: reportedStatus?.version ?? null,
+    updatedAt: reportedStatus?.updatedAt ?? null,
   };
   const isDbUsable = db !== null && (db.status.status === "ok" || db.status.status === "stale");
 
@@ -315,9 +319,14 @@ export async function scanDependencies(
       ? {
           area: "dependencies:advisory-db",
           scope: "code",
-          status: "completed",
+          status:
+            peek === null || peek.status === "ok"
+              ? "completed"
+              : peek.status === "stale"
+                ? "partial"
+                : "not_tested",
           ruleIds: [],
-          note: "No dependency manifests found; advisory data was not needed.",
+          note: `No dependency manifests found, so no versions were compared. ${peek?.note ?? ""}`.trim(),
         }
       : {
           area: "dependencies:advisory-db",

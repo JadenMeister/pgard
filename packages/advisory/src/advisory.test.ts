@@ -446,16 +446,60 @@ describe("completeness (#92)", () => {
 });
 
 describe("cost (#93)", () => {
-  it("does not load the database when there is nothing to compare", async () => {
+  it("still reports a missing database when there is nothing to compare (#111)", async () => {
     const root = tempDir({ "README.md": "x" });
     const result = await scanDependencies(root, {
       env: { PGARD_ADVISORY_DB: "/nonexistent/db.json" },
       now,
     });
     expect(result.advisoryDb).toEqual({ version: null, updatedAt: null });
+    const entry = result.coverage.find((e) => e.area === "dependencies:advisory-db");
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/not found/);
+  });
+
+  it("reports small database metadata even without manifests (#111)", async () => {
+    const root = tempDir({ "README.md": "x" });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    expect(result.advisoryDb).toEqual({ version: "test-1", updatedAt: "2026-10-20T00:00:00.000Z" });
     expect(result.coverage.find((e) => e.area === "dependencies:advisory-db")?.status).toBe(
       "completed",
     );
+  });
+
+  it("accepts a go.sum with only /go.mod lines (#111)", () => {
+    expect(parseGoSum("golang.org/x/text v0.3.7/go.mod h1:def=\n")).toEqual({
+      packages: [],
+      error: null,
+    });
+  });
+
+  it("compares npm >= 7 lockfiles with registry tarball URLs (#110)", async () => {
+    const root = tempDir({
+      "package-lock.json": JSON.stringify({
+        name: "app",
+        lockfileVersion: 3,
+        requires: true,
+        packages: {
+          "": { name: "app", dependencies: { lodash: "^4.17.20" } },
+          "node_modules/lodash": {
+            version: "4.17.20",
+            resolved: "https://registry.npmjs.org/lodash/-/lodash-4.17.20.tgz",
+            integrity:
+              "sha512-PlhdFcillOINfeV7Ni6oF1TAEayyZBoZ8bcshTHqOYJYlrqzRK5hagpagky5o4HfCzzd1TRkXPMFq6cKk9rGmA==",
+          },
+        },
+      }),
+    });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    expect(result.findings.map((finding) => finding.ruleId)).toEqual(["PG-DEP-001"]);
+    expect(result.coverage.find((e) => e.area === "dependencies:npm")?.status).toBe("completed");
   });
 
   it("rejects promptly when aborted", async () => {

@@ -9,6 +9,7 @@ export {
   isVersionAffected,
   loadAdvisoryDb,
   parseOsvRecord,
+  peekAdvisoryDb,
   readAdvisoryDbStatus,
   type Advisory,
   type AdvisoryDbState,

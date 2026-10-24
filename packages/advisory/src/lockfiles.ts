@@ -14,7 +14,13 @@ export interface LockfileParseResult {
   uncomparable?: number;
 }
 
+/** Version specifiers that do not name a registry release. */
 const NON_REGISTRY = /^(git\+|git:|github:|gitlab:|bitbucket:|file:|link:|workspace:|https?:)/;
+/**
+ * `resolved` values that point away from a registry. Registry tarball URLs (https://...) are the
+ * normal npm >= 7 format and stay comparable; only git/file/link sources are excluded.
+ */
+const NON_REGISTRY_RESOLVED = /^(git\+|git:|github:|gitlab:|bitbucket:|file:|link:)/;
 
 function unique(packages: ResolvedPackage[]): ResolvedPackage[] {
   const seen = new Set<string>();
@@ -53,7 +59,7 @@ export function parsePackageLock(text: string): LockfileParseResult {
       if (
         typeof entry.version !== "string" ||
         NON_REGISTRY.test(entry.version) ||
-        NON_REGISTRY.test(resolved)
+        NON_REGISTRY_RESOLVED.test(resolved)
       ) {
         uncomparable += 1;
         continue;
@@ -245,7 +251,9 @@ export function parseGoSum(text: string): LockfileParseResult {
     if (match?.[1] && match[2])
       packages.push({ ecosystem: "Go", name: match[1], version: match[2] });
   }
-  if (packages.length === 0 && text.trim().length > 0) {
+  // A go.sum holding only `/go.mod` hash lines is still valid.
+  const isGoSumFormat = /^\S+\s+v\S+\s+h1:/m.test(text);
+  if (packages.length === 0 && text.trim().length > 0 && !isGoSumFormat) {
     return { packages: [], error: "go.sum was not recognized" };
   }
   return { packages: unique(packages), error: null };

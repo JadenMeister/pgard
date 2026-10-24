@@ -334,6 +334,41 @@ export async function loadAdvisoryDb(
   };
 }
 
+const PEEK_MAX_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Cheap status for when no comparison is needed: reports a missing/unset database, fully reads a
+ * small database (≤ 8 MiB) for its metadata, and otherwise only confirms the configured path
+ * exists (version/updatedAt then stay null).
+ */
+export async function peekAdvisoryDb(
+  env: Readonly<Record<string, string | undefined>>,
+  now?: () => Date,
+  signal?: AbortSignal,
+): Promise<AdvisoryDbStatus> {
+  const location = env[ADVISORY_DB_ENV]?.trim();
+  if (!location) return emptyDb("missing", MISSING_NOTE).status;
+  let info;
+  try {
+    info = await stat(location);
+  } catch {
+    return emptyDb(
+      "missing",
+      `The advisory database configured in ${ADVISORY_DB_ENV} was not found.`,
+    ).status;
+  }
+  if (info.isFile() && info.size <= PEEK_MAX_BYTES) {
+    return (await loadAdvisoryDb(env, now, signal)).status;
+  }
+  return {
+    status: "ok",
+    version: null,
+    updatedAt: null,
+    advisoryCount: 0,
+    note: "An advisory database is configured; it was not loaded because nothing needed comparing.",
+  };
+}
+
 /** Status only (for `pgard doctor` / `rules list`). */
 export async function readAdvisoryDbStatus(
   env: Readonly<Record<string, string | undefined>>,
