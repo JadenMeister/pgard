@@ -1,4 +1,9 @@
-import { GITHUB_APP_CLIENT_ID_ENV, readGitHubAppClientId } from "@pgard/scan-core";
+import {
+  GITHUB_APP_CLIENT_ID_ENV,
+  readGitHubAppClientId,
+  readStoredSignInStatus,
+  type StoredSignInStatus,
+} from "@pgard/scan-core";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import {
@@ -25,6 +30,62 @@ interface DoctorCheck {
   isRequired: boolean;
 }
 
+function formatTime(epochMs: number): string {
+  return new Date(epochMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Reads the keychain entry for this App without contacting GitHub. Shows the account login and
+ * expiry only; never the token.
+ */
+async function describeStoredSignIn(
+  context: CommandContext,
+  clientId: string | null,
+): Promise<{ isOk: boolean; detail: string }> {
+  if (clientId === null) {
+    return { isOk: false, detail: `not checked (${GITHUB_APP_CLIENT_ID_ENV} is not set)` };
+  }
+  let status: StoredSignInStatus;
+  try {
+    status = await readStoredSignInStatus(context.deps.credentialStore, clientId);
+  } catch {
+    status = { status: "unavailable", reason: "the OS keychain could not be read" };
+  }
+  if (status.status === "unavailable") {
+    return {
+      isOk: false,
+      detail: `OS keychain unavailable (${safeText(status.reason, 200)}); each run asks for a device code`,
+    };
+  }
+  if (status.status === "none") {
+    return {
+      isOk: false,
+      detail: "none - run `pgard login` once; until then each run asks for a device code",
+    };
+  }
+  const login = safeText(status.login, 40);
+  const now = Date.now();
+  if (status.refreshExpiresAt !== null && status.refreshExpiresAt > now) {
+    return {
+      isOk: true,
+      detail: `${login} (OS keychain; refreshed automatically until ${formatTime(status.refreshExpiresAt)})`,
+    };
+  }
+  if (status.expiresAt === null) {
+    return { isOk: true, detail: `${login} (OS keychain; the token does not expire)` };
+  }
+  if (status.expiresAt > now) {
+    return {
+      isOk: true,
+      detail: `${login} (OS keychain; expires ${formatTime(status.expiresAt)}, then pgard signs in again)`,
+    };
+  }
+  return {
+    isOk: false,
+    detail: `${login} (OS keychain; expired - the next scan removes it and asks for a device code)`,
+  };
+}
+
 /**
  * `pgard doctor`: environment diagnosis only. It never authorizes a scan, never prints the
  * client id value, and works outside a project.
@@ -38,7 +99,9 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     deps.discoverListeningPorts(),
     readAdvisoryStatusSafely(deps, io.env),
   ]);
-  const isClientIdSet = readGitHubAppClientId(io.env) !== null;
+  const clientId = readGitHubAppClientId(io.env);
+  const isClientIdSet = clientId !== null;
+  const signIn = await describeStoredSignIn(context, clientId);
   const checks: DoctorCheck[] = [
     {
       label: "Node.js",
@@ -75,6 +138,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
         : "not set or invalid - set it to the client id of a registered PGARD GitHub App; until then GitHub identity is unverifiable and every scan is blocked",
       isRequired: true,
     },
+    { label: "Saved GitHub sign-in", ...signIn, isRequired: false },
     {
       label: "Local port discovery",
       isOk: discovery.isAvailable,

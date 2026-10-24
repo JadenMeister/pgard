@@ -6,6 +6,7 @@ export type GitHubAuthErrorCode =
   | "missing_client_id"
   | "access_denied"
   | "expired_token"
+  | "refresh_failed"
   | "device_flow_disabled"
   | "incorrect_client_credentials"
   | "cancelled"

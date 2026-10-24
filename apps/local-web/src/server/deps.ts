@@ -8,11 +8,14 @@ import {
 import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
+  createOsCredentialStore,
   readGitHubAppClientId,
   runScan,
   verifyProject,
+  type CredentialStore,
   type DeviceUserCode,
   type GitHubSessionProvider,
+  type SignInNotice,
   type WebScanner,
 } from "@pgard/scan-core";
 
@@ -23,9 +26,15 @@ export interface ServerDeps {
   createSessionProvider: (options: {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
+    onNotice: (notice: SignInNotice) => void;
     /** Aborts a pending device flow (scan cancel, sign-out, shutdown). */
     signal: AbortSignal;
   }) => GitHubSessionProvider;
+  /**
+   * The OS keychain the sign-in is reused from (server side only; the token never reaches the
+   * browser). An unavailable keychain means memory only for this dashboard.
+   */
+  credentialStore: CredentialStore;
   webScanner: WebScanner;
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
@@ -35,11 +44,20 @@ export interface ServerDeps {
 }
 
 export function createDefaultServerDeps(): ServerDeps {
+  // Lazy: the native keychain binding is loaded on first use, not here.
+  const credentialStore = createOsCredentialStore();
   return {
     verifyProject,
     runScan,
-    createSessionProvider: ({ env, onUserCode, signal }) =>
-      createDeviceFlowSessionProvider({ clientId: readGitHubAppClientId(env), onUserCode, signal }),
+    createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
+      createDeviceFlowSessionProvider({
+        clientId: readGitHubAppClientId(env),
+        onUserCode,
+        onNotice,
+        credentialStore,
+        signal,
+      }),
+    credentialStore,
     webScanner: scanLocalWeb,
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),

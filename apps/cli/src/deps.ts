@@ -10,14 +10,18 @@ import {
 import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
+  createOsCredentialStore,
   findGitRoot,
   peekAdvisoryDb,
   readGitHubAppClientId,
   runScan,
+  signInAndStore,
   verifyProject,
   type AdvisoryDbStatus,
+  type CredentialStore,
   type DeviceUserCode,
   type GitHubSessionProvider,
+  type SignInNotice,
   type WebScanner,
 } from "@pgard/scan-core";
 
@@ -32,8 +36,16 @@ export interface CliDeps {
   createSessionProvider: (options: {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
+    onNotice: (notice: SignInNotice) => void;
     signal?: AbortSignal;
   }) => GitHubSessionProvider;
+  /**
+   * Where the GitHub sign-in is kept between runs: the OS keychain by default. There is no
+   * file-based fallback; an unavailable keychain means memory only.
+   */
+  credentialStore: CredentialStore;
+  /** `pgard login`: device flow, then save to `credentialStore`. */
+  signInAndStore: typeof signInAndStore;
   webScanner: WebScanner;
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
@@ -116,16 +128,22 @@ async function checkGitHubReachableDefault(): Promise<boolean> {
 }
 
 export function createDefaultDeps(): CliDeps {
+  // Lazy: the native keychain binding is loaded on first use, not here.
+  const credentialStore = createOsCredentialStore();
   return {
     findGitRoot,
     verifyProject,
     runScan,
-    createSessionProvider: ({ env, onUserCode, signal }) =>
+    createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
         clientId: readGitHubAppClientId(env),
         onUserCode,
+        onNotice,
+        credentialStore,
         ...(signal === undefined ? {} : { signal }),
       }),
+    credentialStore,
+    signInAndStore,
     webScanner: scanLocalWeb,
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),

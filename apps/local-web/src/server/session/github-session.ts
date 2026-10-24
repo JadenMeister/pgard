@@ -1,4 +1,4 @@
-import type { DeviceUserCode, GitHubSessionProvider } from "@pgard/scan-core";
+import type { DeviceUserCode, GitHubSessionProvider, SignInNotice } from "@pgard/scan-core";
 import type { ServerDeps } from "../deps.js";
 
 /**
@@ -11,7 +11,10 @@ export interface GitHubSessionManager {
   getGitHubSession: GitHubSessionProvider;
   /** Stops a device flow that is still waiting for the user; a signed-in session is kept. */
   abortPendingSignIn: () => void;
-  /** Explicit sign-out: drops the session and stops any pending sign-in. */
+  /**
+   * Ends this dashboard's GitHub session and stops any pending sign-in. A sign-in saved in the
+   * OS keychain is kept (the next check reuses it); removing it is a separate, explicit action.
+   */
   signOut: () => void;
   /** Shutdown: like signOut, and no new provider is created. */
   dispose: () => void;
@@ -21,9 +24,15 @@ export function createGitHubSessionManager(
   deps: Pick<ServerDeps, "createSessionProvider">,
   env: Readonly<Record<string, string | undefined>>,
   onUserCode: (code: DeviceUserCode) => void,
+  onNotice: (notice: SignInNotice) => void,
 ): GitHubSessionManager {
   let controller = new AbortController();
-  let provider = deps.createSessionProvider({ env, onUserCode, signal: controller.signal });
+  let provider = deps.createSessionProvider({
+    env,
+    onUserCode,
+    onNotice,
+    signal: controller.signal,
+  });
   let pendingSignIns = 0;
   let isDisposed = false;
 
@@ -33,7 +42,7 @@ export function createGitHubSessionManager(
     pendingSignIns = 0;
     if (isDisposed) return;
     controller = new AbortController();
-    provider = deps.createSessionProvider({ env, onUserCode, signal: controller.signal });
+    provider = deps.createSessionProvider({ env, onUserCode, onNotice, signal: controller.signal });
   };
 
   const call = async (): ReturnType<GitHubSessionProvider> => {

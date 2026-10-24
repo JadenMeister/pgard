@@ -18,10 +18,21 @@ export type ParsedCommand =
   | { kind: "scan"; variant: ScanVariant; port: number | null; report: ReportRequest | null }
   | { kind: "dashboard"; targetPort: number | null }
   | { kind: "rules-list"; language: RuleLanguage | null }
-  | { kind: "doctor" };
+  | { kind: "doctor" }
+  | { kind: "login" }
+  | { kind: "logout" };
 
 export type HelpTopic =
-  "main" | "project" | "project verify" | "scan" | "dashboard" | "rules" | "rules list" | "doctor";
+  | "main"
+  | "project"
+  | "project verify"
+  | "scan"
+  | "dashboard"
+  | "rules"
+  | "rules list"
+  | "doctor"
+  | "login"
+  | "logout";
 
 export class UsageError extends Error {
   readonly helpTopic: HelpTopic;
@@ -240,6 +251,14 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
       rejectOptions(split, [], topic, "pgard doctor");
       return { kind: "doctor" };
+    }
+    case "login":
+    case "logout": {
+      topic = command;
+      if (split.isHelp) return { kind: "help", topic };
+      rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
+      rejectOptions(split, [], topic, `pgard ${command}`);
+      return { kind: command };
     }
     default:
       throw new UsageError(`Unknown command: ${command.slice(0, 40)}`, "main");

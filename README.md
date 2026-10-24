@@ -56,6 +56,7 @@ Then run PGARD from the root of the project you want to scan:
 ```sh
 cd /path/to/your/project
 pgard doctor          # check the environment
+pgard login           # sign in to GitHub once (saved in the OS keychain)
 pgard project verify  # check authorization only
 pgard scan            # code + history
 ```
@@ -81,22 +82,26 @@ Usage:
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and data versions
   pgard doctor                  diagnose the environment (not an authorization)
+  pgard login                   sign in to GitHub once and save it in the OS keychain
+  pgard logout                  remove the saved GitHub sign-in from the OS keychain
   pgard --help | <command> --help
   pgard --version
 ```
 
-| Command                | What it does                                                                                                                                                                                                                                                              |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pgard`                | Interactive menu: verify, scans, dashboard, rules, doctor, quit.                                                                                                                                                                                                          |
-| `pgard project verify` | Runs the authorization checks and shows each one (repository, GitHub identity, owner approval, current access, contribution) as passed, failed or unverifiable, with a reason. The result is not stored.                                                                  |
-| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                                                                       |
-| `pgard scan code`      | Current source code, configuration and dependency advisories.                                                                                                                                                                                                             |
-| `pgard scan history`   | Committed `.env` files and secrets in tracked files and Git history.                                                                                                                                                                                                      |
-| `pgard scan web`       | Anonymous, read-only checks of a local HTTP service on `127.0.0.1` that you confirm.                                                                                                                                                                                      |
-| `pgard scan all`       | `code` + `history` + `web`. If no web target is confirmed, the result is `partial`.                                                                                                                                                                                       |
-| `pgard dashboard`      | Starts the local web dashboard. See [Dashboard](#dashboard).                                                                                                                                                                                                              |
-| `pgard rules list`     | Lists the rule catalog grouped by scope (code, Git history, local HTTP) with each rule's severity and languages, the detection criteria version, the advisory database status, and the areas PGARD does not cover. Works outside a project and makes no network requests. |
-| `pgard doctor`         | Checks Node.js, Git, GitHub reachability, local port discovery, whether `PGARD_GITHUB_APP_CLIENT_ID` is set, and the advisory database status. It is a diagnosis only, not an authorization. Works outside a project.                                                     |
+| Command                | What it does                                                                                                                                                                                                                                                                                                         |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgard`                | Interactive menu: verify, scans, dashboard, rules, doctor, quit.                                                                                                                                                                                                                                                     |
+| `pgard project verify` | Runs the authorization checks and shows each one (repository, GitHub identity, owner approval, current access, contribution) as passed, failed or unverifiable, with a reason. The result is not stored.                                                                                                             |
+| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                                                                                                                  |
+| `pgard scan code`      | Current source code, configuration and dependency advisories.                                                                                                                                                                                                                                                        |
+| `pgard scan history`   | Committed `.env` files and secrets in tracked files and Git history.                                                                                                                                                                                                                                                 |
+| `pgard scan web`       | Anonymous, read-only checks of a local HTTP service on `127.0.0.1` that you confirm.                                                                                                                                                                                                                                 |
+| `pgard scan all`       | `code` + `history` + `web`. If no web target is confirmed, the result is `partial`.                                                                                                                                                                                                                                  |
+| `pgard dashboard`      | Starts the local web dashboard. See [Dashboard](#dashboard).                                                                                                                                                                                                                                                         |
+| `pgard rules list`     | Lists the rule catalog grouped by scope (code, Git history, local HTTP) with each rule's severity and languages, the detection criteria version, the advisory database status, and the areas PGARD does not cover. Works outside a project and makes no network requests.                                            |
+| `pgard doctor`         | Checks Node.js, Git, GitHub reachability, local port discovery, whether `PGARD_GITHUB_APP_CLIENT_ID` is set, whether a GitHub sign-in is saved in the OS keychain (and for which account; never the token), and the advisory database status. It is a diagnosis only, not an authorization. Works outside a project. |
+| `pgard login`          | Signs in to GitHub with the device flow and saves the sign-in in the OS keychain, so later scans and the dashboard reuse it. Running it again replaces the saved sign-in. See [Saved sign-in](#saved-sign-in-os-keychain).                                                                                           |
+| `pgard logout`         | Removes the saved GitHub sign-in from the OS keychain. See [Saved sign-in](#saved-sign-in-os-keychain).                                                                                                                                                                                                              |
 
 `pgard rules list --language <lang>` shows only the rules for that language; rules that apply to any language (Git history and local HTTP rules) are always included. Both `rules list` and `doctor` report the advisory database status as `missing`, `invalid`, `stale` or `ok`, with its version and update date. The path in `PGARD_ADVISORY_DB` is never printed. In `doctor`, any status other than `ok` is a `[warn]` row.
 
@@ -121,6 +126,8 @@ Unknown commands and options, invalid values and invalid combinations are reject
 | 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                    |
 | 130  | Cancelled by the user.                                                                                                                                                                 |
 
+`pgard login` and `pgard logout` use the same codes: 0 done, 3 GitHub sign-in failed or `PGARD_GITHUB_APP_CLIENT_ID` is not set, 4 no OS keychain is available (nothing was saved or removed).
+
 ### Interactive keys
 
 Arrow keys (or `j`/`k`) move, Enter selects, Esc goes back, and `?` shows help. Ctrl+C asks `Cancel and exit? [y/N]`. While a scan or GitHub sign-in is running, press Ctrl+C twice within 5 seconds to cancel (exit code 130).
@@ -130,7 +137,7 @@ Arrow keys (or `j`/`k`) move, Enter selects, Esc goes back, and `?` shows help. 
 PGARD scans a repository only when it has evidence that you are allowed to. Before every scan it reports these checks (in this order):
 
 1. **Repository.** The current directory is the root of a Git repository with valid history. The repository uses only its own objects and history (no alternates, grafts or replace refs), and it has exactly one unambiguous `github.com` remote.
-2. **GitHub identity.** You sign in to GitHub with the device flow (see below).
+2. **GitHub identity.** You sign in to GitHub with the device flow, or PGARD reuses the sign-in saved in the OS keychain (see below). Only the sign-in is reused: checks 3 to 5 always run against GitHub again.
 3. **Owner approval.** The PGARD GitHub App is installed on the repository owner's **personal account**, and that installation includes this repository. Only the owner of a personal account can install an app on it.
 4. **Current access.** GitHub reports that you currently have at least read access to the repository.
 5. **Contribution.** Your contribution is in the default-branch history. A commit counts only if GitHub shows it in the default branch, and either it belongs to a pull request you authored that was merged into the default branch, or GitHub verified its signature and attributes the committer to you. Author names or emails, co-author trailers, unmerged pull requests, pull requests merged into other branches or forks, unsigned direct pushes and local-only commits are never accepted as proof. PGARD examines up to 30 local commits (the ancestry of `HEAD`). If none of them qualifies and more local commits exist, contribution is `unverifiable`.
@@ -149,7 +156,20 @@ PGARD signs you in through a GitHub App using the OAuth device flow. It needs th
 export PGARD_GITHUB_APP_CLIENT_ID=<client id of the PGARD GitHub App>
 ```
 
-When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code. You open the URL, enter the code and approve. PGARD keeps the access token **in memory only**, for the current CLI process or dashboard session. It is never printed, logged or written to disk, and it is dropped on exit or sign-out.
+When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code. You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
+
+#### Saved sign-in (OS keychain)
+
+After a device-flow sign-in (from `pgard login`, a scan or the dashboard), PGARD saves it in the **OS keychain**: macOS Keychain, Windows Credential Manager or the Linux Secret Service. Later CLI runs and dashboard sessions reuse it, so you do not enter a code on every scan. The owner-approval, access and contribution checks still run against GitHub before every scan.
+
+- The entry is keyed by GitHub host and App client id. Changing `PGARD_GITHUB_APP_CLIENT_ID` never reuses another App's token.
+- If the App issues expiring tokens (8 hours, with a 6-month refresh token), PGARD refreshes the access token automatically. GitHub does not require a client secret to refresh tokens that came from the device flow, so PGARD has none.
+- If the saved token is expired, revoked (GitHub answers 401) or cannot be refreshed, PGARD deletes the entry, says so, and runs the device flow again.
+- If no keychain is available (for example a Linux server without a Secret Service), PGARD says why and keeps the sign-in in memory only, for the current CLI process or dashboard session, as before.
+- `pgard logout` deletes the entry. PGARD cannot revoke the token at GitHub, because that needs the App's client secret. The token stays valid until it expires; revoke it at <https://github.com/settings/apps/authorizations> if needed.
+- `pgard doctor` shows whether a sign-in is saved and for which account, never the token.
+
+GitHub App owners can turn token expiry on or off under the App's settings (**Optional features → User-to-server token expiration**). PGARD works either way: with expiry it refreshes, without it the saved token is used until it is revoked.
 
 > **No PGARD GitHub App is registered yet (#42).** Until a client id is configured, GitHub identity is `unverifiable` and every real scan is blocked (exit code 3). `pgard doctor` reports whether the variable is set.
 
@@ -227,7 +247,7 @@ PGARD dashboard is running on 127.0.0.1 only.
 Open this private session URL in your browser (valid until you stop the dashboard): http://127.0.0.1:<port>/#token=<random>
 ```
 
-The dashboard runs its own scans (it never reads CLI results). It shows the authorization checks and the GitHub device code, lets you pick and confirm a local service, select scopes, follow progress, filter findings and export HTML/PDF reports. Stop it with Ctrl+C: the GitHub session is signed out and all results are discarded.
+The dashboard runs its own scans (it never reads CLI results). It shows the authorization checks and the GitHub device code, lets you pick and confirm a local service, select scopes, follow progress, filter findings and export HTML/PDF reports. It reuses the GitHub sign-in saved in the OS keychain on the server side; the token never reaches the browser. There are two sign-out buttons: **End dashboard session (keep keychain sign-in)** forgets the session in this dashboard only, and the next check reuses the keychain sign-in; **Sign out and remove from OS keychain** also deletes the saved sign-in (for the CLI too). Stop the dashboard with Ctrl+C: its GitHub session ends (the keychain sign-in is kept) and all results are discarded.
 
 How the dashboard protects itself:
 
@@ -240,7 +260,8 @@ How the dashboard protects itself:
 ## Privacy and network traffic
 
 - Your code, Git history and scan results are processed on your computer and are not uploaded anywhere. Results are kept in memory and discarded when the process or dashboard stops; only reports you export are saved.
-- The only external network traffic is to GitHub: the device-flow sign-in and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. `pgard doctor` also checks whether `api.github.com` is reachable.
+- The GitHub sign-in is saved in the OS keychain, never in a file, and never sent to the browser. Without a keychain it is kept in memory only. See [Saved sign-in](#saved-sign-in-os-keychain).
+- The only external network traffic is to GitHub: the device-flow sign-in (and refreshing a saved sign-in) and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. `pgard doctor` also checks whether `api.github.com` is reachable.
 - After authorization passes, PGARD sends one `GET /` to each discovered listening port on `127.0.0.1` to show its identity. The web checks then send requests only to the service you confirmed.
 - Advisory data is read from the local path in `PGARD_ADVISORY_DB`.
 
@@ -273,20 +294,20 @@ How the dashboard protects itself:
 
 This is an npm workspaces monorepo written in TypeScript.
 
-| Path                       | Contents                                      |
-| -------------------------- | --------------------------------------------- |
-| `apps/cli`                 | The `pgard` command-line tool                 |
-| `apps/local-web`           | The local web dashboard (server and React UI) |
-| `packages/policy`          | Authorization checks                          |
-| `packages/github-auth`     | GitHub device flow and API client             |
-| `packages/scan-core`       | Scan orchestration, scopes and coverage       |
-| `packages/source-analysis` | Source code rules                             |
-| `packages/advisory`        | Dependency advisories from local OSV data     |
-| `packages/git-history`     | Git history and secret scanning               |
-| `packages/http-local`      | Local HTTP checks and port discovery          |
-| `packages/findings`        | Shared finding and coverage types, redaction  |
-| `packages/report`          | HTML and PDF reports                          |
-| `tests/integration`        | Cross-package integration tests               |
+| Path                       | Contents                                            |
+| -------------------------- | --------------------------------------------------- |
+| `apps/cli`                 | The `pgard` command-line tool                       |
+| `apps/local-web`           | The local web dashboard (server and React UI)       |
+| `packages/policy`          | Authorization checks                                |
+| `packages/github-auth`     | GitHub device flow, API client, OS keychain sign-in |
+| `packages/scan-core`       | Scan orchestration, scopes and coverage             |
+| `packages/source-analysis` | Source code rules                                   |
+| `packages/advisory`        | Dependency advisories from local OSV data           |
+| `packages/git-history`     | Git history and secret scanning                     |
+| `packages/http-local`      | Local HTTP checks and port discovery                |
+| `packages/findings`        | Shared finding and coverage types, redaction        |
+| `packages/report`          | HTML and PDF reports                                |
+| `tests/integration`        | Cross-package integration tests                     |
 
 ```sh
 npm ci

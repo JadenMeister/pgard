@@ -56,6 +56,7 @@ npm link -w @pgard/cli # 선택: PATH에 `pgard` 등록
 ```sh
 cd /path/to/your/project
 pgard doctor          # 환경 진단
+pgard login           # GitHub에 한 번 로그인(OS 키체인에 저장)
 pgard project verify  # 권한만 확인
 pgard scan            # code + history
 ```
@@ -81,22 +82,26 @@ Usage:
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and data versions
   pgard doctor                  diagnose the environment (not an authorization)
+  pgard login                   sign in to GitHub once and save it in the OS keychain
+  pgard logout                  remove the saved GitHub sign-in from the OS keychain
   pgard --help | <command> --help
   pgard --version
 ```
 
-| 명령                   | 역할                                                                                                                                                                                                                      |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pgard`                | 대화형 메뉴: 확인, 검사, 대시보드, 규칙, 진단, 종료.                                                                                                                                                                      |
-| `pgard project verify` | 권한 확인을 실행하고 항목별(저장소, GitHub 신원, owner 승인, 현재 접근 권한, 기여)로 통과·실패·확인 불가와 이유를 보여 줍니다. 결과는 저장하지 않습니다.                                                                  |
-| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                       |
-| `pgard scan code`      | 현재 소스 코드, 설정, 의존성 취약점.                                                                                                                                                                                      |
-| `pgard scan history`   | 커밋된 `.env` 파일, 추적 파일과 Git 이력 속 비밀정보.                                                                                                                                                                     |
-| `pgard scan web`       | 사용자가 확인한 `127.0.0.1` 로컬 HTTP 서비스의 비로그인·읽기 전용 검사.                                                                                                                                                   |
-| `pgard scan all`       | `code` + `history` + `web`. 웹 대상을 확인하지 못하면 결과는 `partial`입니다.                                                                                                                                             |
-| `pgard dashboard`      | 로컬 웹 대시보드를 시작합니다. [대시보드](#대시보드) 참고.                                                                                                                                                                |
-| `pgard rules list`     | 범위별(코드, Git 이력, 로컬 HTTP)로 묶은 규칙 목록과 각 규칙의 심각도·언어, 판정 기준 버전, 취약점 데이터베이스 상태, PGARD가 다루지 않는 영역을 보여 줍니다. 프로젝트 밖에서도 실행되며 네트워크 요청을 보내지 않습니다. |
-| `pgard doctor`         | Node.js, Git, GitHub 연결, 로컬 포트 탐지, `PGARD_GITHUB_APP_CLIENT_ID` 설정 여부, 취약점 데이터베이스 상태를 진단합니다. 진단일 뿐 권한 승인이 아닙니다. 프로젝트 밖에서도 실행됩니다.                                   |
+| 명령                   | 역할                                                                                                                                                                                                                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pgard`                | 대화형 메뉴: 확인, 검사, 대시보드, 규칙, 진단, 종료.                                                                                                                                                                                                                     |
+| `pgard project verify` | 권한 확인을 실행하고 항목별(저장소, GitHub 신원, owner 승인, 현재 접근 권한, 기여)로 통과·실패·확인 불가와 이유를 보여 줍니다. 결과는 저장하지 않습니다.                                                                                                                 |
+| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                                                                      |
+| `pgard scan code`      | 현재 소스 코드, 설정, 의존성 취약점.                                                                                                                                                                                                                                     |
+| `pgard scan history`   | 커밋된 `.env` 파일, 추적 파일과 Git 이력 속 비밀정보.                                                                                                                                                                                                                    |
+| `pgard scan web`       | 사용자가 확인한 `127.0.0.1` 로컬 HTTP 서비스의 비로그인·읽기 전용 검사.                                                                                                                                                                                                  |
+| `pgard scan all`       | `code` + `history` + `web`. 웹 대상을 확인하지 못하면 결과는 `partial`입니다.                                                                                                                                                                                            |
+| `pgard dashboard`      | 로컬 웹 대시보드를 시작합니다. [대시보드](#대시보드) 참고.                                                                                                                                                                                                               |
+| `pgard rules list`     | 범위별(코드, Git 이력, 로컬 HTTP)로 묶은 규칙 목록과 각 규칙의 심각도·언어, 판정 기준 버전, 취약점 데이터베이스 상태, PGARD가 다루지 않는 영역을 보여 줍니다. 프로젝트 밖에서도 실행되며 네트워크 요청을 보내지 않습니다.                                                |
+| `pgard doctor`         | Node.js, Git, GitHub 연결, 로컬 포트 탐지, `PGARD_GITHUB_APP_CLIENT_ID` 설정 여부, OS 키체인에 저장된 GitHub 로그인이 있는지(어느 계정인지, 토큰은 보여 주지 않음), 취약점 데이터베이스 상태를 진단합니다. 진단일 뿐 권한 승인이 아닙니다. 프로젝트 밖에서도 실행됩니다. |
+| `pgard login`          | device flow로 GitHub에 로그인하고 OS 키체인에 저장하여 이후 검사와 대시보드가 다시 사용하게 합니다. 다시 실행하면 저장된 로그인을 바꿉니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.                                                                               |
+| `pgard logout`         | OS 키체인에 저장된 GitHub 로그인을 지웁니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.                                                                                                                                                                              |
 
 `pgard rules list --language <lang>`은 해당 언어의 규칙만 보여 주며, 언어와 무관한 규칙(Git 이력, 로컬 HTTP 규칙)은 항상 포함됩니다. `rules list`와 `doctor`는 모두 취약점 데이터베이스 상태를 `missing`, `invalid`, `stale`, `ok` 중 하나로, 버전·갱신일과 함께 보고합니다. `PGARD_ADVISORY_DB`의 경로는 출력하지 않습니다. `doctor`에서 `ok`가 아닌 상태는 `[warn]` 행으로 표시됩니다.
 
@@ -121,6 +126,8 @@ Usage:
 | 5    | 내부 오류. 세부 내용은 숨기며, `PGARD_DEBUG=1`을 설정하면 정리된 메시지를 보여 줍니다.                                                             |
 | 130  | 사용자가 취소했습니다.                                                                                                                             |
 
+`pgard login`과 `pgard logout`도 같은 코드를 씁니다. 0 완료, 3 GitHub 로그인 실패 또는 `PGARD_GITHUB_APP_CLIENT_ID` 미설정, 4 사용할 수 있는 OS 키체인 없음(아무것도 저장·삭제하지 않음).
+
 ### 대화형 키
 
 방향키(또는 `j`/`k`)로 이동, Enter로 선택, Esc로 이전 단계, `?`로 도움말을 봅니다. Ctrl+C는 `Cancel and exit? [y/N]`을 묻습니다. 검사나 GitHub 로그인이 진행 중일 때는 5초 안에 Ctrl+C를 두 번 누르면 취소됩니다(종료 코드 130).
@@ -130,7 +137,7 @@ Usage:
 PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저장소를 검사합니다. 검사할 때마다 다음 항목을 (이 순서로) 보고합니다.
 
 1. **저장소.** 현재 디렉터리가 유효한 이력을 가진 Git 저장소의 루트여야 합니다. 저장소 자신의 객체와 이력만 사용해야 하고(alternates, grafts, replace ref 없음), 모호하지 않은 `github.com` remote가 정확히 하나 있어야 합니다.
-2. **GitHub 신원.** device flow로 GitHub에 로그인합니다(아래 참고).
+2. **GitHub 신원.** device flow로 GitHub에 로그인하거나, OS 키체인에 저장된 로그인을 다시 사용합니다(아래 참고). 다시 쓰는 것은 로그인뿐이며, 3~5번 확인은 매번 GitHub에서 다시 실행합니다.
 3. **Owner 승인.** PGARD GitHub App이 저장소 owner의 **개인 계정**에 설치되어 있고, 그 설치에 이 저장소가 포함되어야 합니다. 개인 계정에 App을 설치할 수 있는 사람은 그 계정의 owner뿐입니다.
 4. **현재 접근 권한.** GitHub가 사용자에게 현재 저장소 읽기 이상의 권한이 있다고 응답해야 합니다.
 5. **기여.** 사용자의 기여가 기본 브랜치 이력에 있어야 합니다. GitHub가 기본 브랜치에 있다고 보여 주는 커밋이어야 하고, 사용자가 작성해 기본 브랜치에 merge된 pull request에 속하거나, GitHub가 서명을 검증하고 committer를 사용자로 인정한 커밋이어야 합니다. 작성자 이름·이메일, co-author trailer, merge되지 않은 pull request, 다른 브랜치나 fork에 merge된 pull request, 서명 없는 직접 push, 로컬에만 있는 커밋은 근거로 인정하지 않습니다. PGARD는 로컬 커밋(`HEAD`의 조상)을 최대 30개까지 살펴봅니다. 그중 조건을 충족하는 커밋이 없고 로컬 커밋이 더 있으면 기여는 `unverifiable`입니다.
@@ -149,7 +156,20 @@ PGARD는 GitHub App을 통해 OAuth device flow로 로그인합니다. App의 �
 export PGARD_GITHUB_APP_CLIENT_ID=<PGARD GitHub App의 client id>
 ```
 
-로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 줍니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 액세스 토큰은 현재 CLI 프로세스나 대시보드 세션 동안 **메모리에만** 보관합니다. 화면·로그·디스크에 남기지 않으며, 종료하거나 로그아웃하면 버립니다.
+로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 줍니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
+
+#### 저장된 로그인(OS 키체인)
+
+device flow 로그인(`pgard login`, 검사, 대시보드 어디서든)이 끝나면 PGARD는 로그인을 **OS 키체인**(macOS 키체인, Windows 자격 증명 관리자, Linux Secret Service)에 저장합니다. 이후 CLI 실행과 대시보드 세션이 이를 다시 사용하므로 검사할 때마다 코드를 입력하지 않아도 됩니다. owner 승인, 접근 권한, 기여 확인은 여전히 검사 전마다 GitHub에서 실행합니다.
+
+- 항목은 GitHub 호스트와 App client id로 구분합니다. `PGARD_GITHUB_APP_CLIENT_ID`를 바꾸면 다른 App의 토큰을 다시 쓰지 않습니다.
+- App이 만료되는 토큰(8시간, 6개월짜리 refresh token)을 발급하면 PGARD가 액세스 토큰을 자동으로 갱신합니다. device flow로 받은 토큰은 client secret 없이 갱신할 수 있으므로 PGARD에는 client secret이 없습니다.
+- 저장된 토큰이 만료되었거나, 취소되었거나(GitHub가 401 응답), 갱신할 수 없으면 PGARD는 항목을 지우고 그 사실을 알린 뒤 device flow를 다시 실행합니다.
+- 사용할 수 있는 키체인이 없으면(예: Secret Service가 없는 Linux 서버) PGARD는 이유를 알리고, 이전처럼 현재 CLI 프로세스나 대시보드 세션 동안 메모리에만 보관합니다.
+- `pgard logout`은 항목을 지웁니다. GitHub에서 토큰을 취소하려면 App의 client secret이 필요하므로 PGARD는 취소할 수 없습니다. 토큰은 만료될 때까지 유효하며, 필요하면 <https://github.com/settings/apps/authorizations>에서 취소하세요.
+- `pgard doctor`는 저장된 로그인이 있는지와 어느 계정인지를 보여 주며, 토큰은 보여 주지 않습니다.
+
+GitHub App 소유자는 App 설정(**Optional features → User-to-server token expiration**)에서 토큰 만료를 켜거나 끌 수 있습니다. PGARD는 어느 쪽이든 동작합니다. 만료가 켜져 있으면 갱신하고, 꺼져 있으면 취소될 때까지 저장된 토큰을 사용합니다.
 
 > **아직 PGARD GitHub App이 등록되지 않았습니다(#42).** client id가 설정되기 전까지 GitHub 신원은 `unverifiable`이고 실제 검사는 모두 차단됩니다(종료 코드 3). 변수 설정 여부는 `pgard doctor`가 알려 줍니다.
 
@@ -227,7 +247,7 @@ PGARD dashboard is running on 127.0.0.1 only.
 Open this private session URL in your browser (valid until you stop the dashboard): http://127.0.0.1:<port>/#token=<random>
 ```
 
-대시보드는 CLI 결과를 읽지 않고 직접 검사합니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터, HTML/PDF 보고서 내보내기를 제공합니다. Ctrl+C로 종료하면 GitHub 세션을 로그아웃하고 모든 결과를 버립니다.
+대시보드는 CLI 결과를 읽지 않고 직접 검사합니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터, HTML/PDF 보고서 내보내기를 제공합니다. OS 키체인에 저장된 GitHub 로그인은 서버 쪽에서 다시 사용하며, 토큰은 브라우저로 보내지 않습니다. 로그아웃 버튼은 두 가지입니다. **End dashboard session (keep keychain sign-in)**은 이 대시보드의 세션만 끝내고 다음 확인 때 키체인 로그인을 다시 사용합니다. **Sign out and remove from OS keychain**은 저장된 로그인도 지웁니다(CLI에서도 지워짐). Ctrl+C로 종료하면 대시보드의 GitHub 세션이 끝나고(키체인 로그인은 유지) 모든 결과를 버립니다.
 
 대시보드 보호 방식:
 
@@ -240,7 +260,8 @@ Open this private session URL in your browser (valid until you stop the dashboar
 ## 개인정보와 네트워크 통신
 
 - 코드, Git 이력, 검사 결과는 사용자 컴퓨터에서 처리되며 어디에도 업로드되지 않습니다. 결과는 메모리에만 있고 프로세스나 대시보드가 끝나면 버려지며, 사용자가 내보낸 보고서만 저장됩니다.
-- 외부 네트워크 통신은 GitHub뿐입니다. device flow 로그인과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다. `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
+- GitHub 로그인은 파일이 아닌 OS 키체인에 저장되며 브라우저로 보내지 않습니다. 키체인이 없으면 메모리에만 보관합니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.
+- 외부 네트워크 통신은 GitHub뿐입니다. device flow 로그인(및 저장된 로그인 갱신)과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다. `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
 - 권한 확인을 통과한 뒤, PGARD는 서비스의 정체를 보여 주기 위해 `127.0.0.1`에서 발견한 각 열린 포트에 `GET /`를 한 번 보냅니다. 이후 웹 검사는 사용자가 확인한 서비스에만 요청을 보냅니다.
 - 취약점 데이터는 `PGARD_ADVISORY_DB`의 로컬 경로에서 읽습니다.
 
@@ -273,20 +294,20 @@ Open this private session URL in your browser (valid until you stop the dashboar
 
 TypeScript로 작성된 npm workspaces 모노레포입니다.
 
-| 경로                       | 내용                                        |
-| -------------------------- | ------------------------------------------- |
-| `apps/cli`                 | `pgard` 명령줄 도구                         |
-| `apps/local-web`           | 로컬 웹 대시보드(서버와 React UI)           |
-| `packages/policy`          | 권한 확인                                   |
-| `packages/github-auth`     | GitHub device flow와 API 클라이언트         |
-| `packages/scan-core`       | 검사 실행, 범위, coverage                   |
-| `packages/source-analysis` | 소스 코드 규칙                              |
-| `packages/advisory`        | 로컬 OSV 데이터 기반 의존성 취약점 검사     |
-| `packages/git-history`     | Git 이력과 비밀정보 검사                    |
-| `packages/http-local`      | 로컬 HTTP 검사와 포트 탐지                  |
-| `packages/findings`        | 공통 발견 항목·coverage 타입, 민감정보 가림 |
-| `packages/report`          | HTML·PDF 보고서                             |
-| `tests/integration`        | 패키지 간 통합 테스트                       |
+| 경로                       | 내용                                                      |
+| -------------------------- | --------------------------------------------------------- |
+| `apps/cli`                 | `pgard` 명령줄 도구                                       |
+| `apps/local-web`           | 로컬 웹 대시보드(서버와 React UI)                         |
+| `packages/policy`          | 권한 확인                                                 |
+| `packages/github-auth`     | GitHub device flow, API 클라이언트, OS 키체인 로그인 저장 |
+| `packages/scan-core`       | 검사 실행, 범위, coverage                                 |
+| `packages/source-analysis` | 소스 코드 규칙                                            |
+| `packages/advisory`        | 로컬 OSV 데이터 기반 의존성 취약점 검사                   |
+| `packages/git-history`     | Git 이력과 비밀정보 검사                                  |
+| `packages/http-local`      | 로컬 HTTP 검사와 포트 탐지                                |
+| `packages/findings`        | 공통 발견 항목·coverage 타입, 민감정보 가림               |
+| `packages/report`          | HTML·PDF 보고서                                           |
+| `tests/integration`        | 패키지 간 통합 테스트                                     |
 
 ```sh
 npm ci

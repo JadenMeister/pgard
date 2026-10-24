@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
-import type { AuthStatus, SessionInfo } from "../../../shared/api-types";
+import { useCallback, useEffect, useState } from "react";
+import type { AuthStatus, SessionInfo, SignOutRequestDto } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
+import { describeStoredSignIn, SIGN_OUT_HINTS, SIGN_OUT_LABELS } from "./sign-in-text";
 
 const CHECK_LABELS: Record<string, string> = {
   repository: "Repository",
@@ -46,19 +47,55 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
     }
   };
 
-  const signOut = async (): Promise<void> => {
-    update(await apiPost<AuthStatus>("/api/auth/sign-out"));
+  // Load the current sign-in state once, so a keychain sign-in is visible before the first check.
+  useEffect(() => {
+    void apiGet<AuthStatus>("/api/auth")
+      .then(update)
+      .catch(() => undefined);
+  }, [update]);
+
+  const signOut = async (removeStored: boolean): Promise<void> => {
+    setError(null);
+    try {
+      const body: SignOutRequestDto = { removeStored };
+      update(await apiPost<AuthStatus>("/api/auth/sign-out", body));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Request failed.");
+    }
   };
+
+  const signInLine = status ? describeStoredSignIn(status.storedSignIn) : null;
+  const canEndSession = status?.status === "done" || status?.storedSignIn.status === "stored";
+  const canRemoveStored = status?.storedSignIn.status === "stored";
 
   return (
     <Card
       title="Authorization"
       step={1}
       actions={
-        status?.status === "done" ? (
-          <button type="button" className="button" onClick={() => void signOut()}>
-            Sign out of GitHub
-          </button>
+        canEndSession || canRemoveStored ? (
+          <span className="button-row">
+            {canEndSession && (
+              <button
+                type="button"
+                className="button"
+                title={SIGN_OUT_HINTS.sessionOnly}
+                onClick={() => void signOut(false)}
+              >
+                {SIGN_OUT_LABELS.sessionOnly}
+              </button>
+            )}
+            {canRemoveStored && (
+              <button
+                type="button"
+                className="button"
+                title={SIGN_OUT_HINTS.removeStored}
+                onClick={() => void signOut(true)}
+              >
+                {SIGN_OUT_LABELS.removeStored}
+              </button>
+            )}
+          </span>
         ) : null
       }
     >
@@ -72,6 +109,18 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
           your GitHub identity; until then every scan is blocked.
         </Notice>
       )}
+      {signInLine && <p className="muted">{signInLine}</p>}
+      {(canEndSession || canRemoveStored) && (
+        <p className="muted">
+          {SIGN_OUT_LABELS.sessionOnly}: {SIGN_OUT_HINTS.sessionOnly}{" "}
+          {canRemoveStored && (
+            <>
+              {SIGN_OUT_LABELS.removeStored}: {SIGN_OUT_HINTS.removeStored}
+            </>
+          )}
+        </p>
+      )}
+      {status?.signInNotice && <Notice tone="info">{status.signInNotice}</Notice>}
       {status?.deviceCode && <DeviceCodeNotice deviceCode={status.deviceCode} />}
       {status?.status === "running" && !status.deviceCode && <p className="muted">Checking...</p>}
       {status?.summary && (

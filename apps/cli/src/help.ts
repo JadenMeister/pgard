@@ -30,12 +30,14 @@ Usage:
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and data versions
   pgard doctor                  diagnose the environment (not an authorization)
+  pgard login                   sign in to GitHub once and save it in the OS keychain
+  pgard logout                  remove the saved GitHub sign-in from the OS keychain
   pgard --help | <command> --help
   pgard --version
 
 The target is always the Git root of the current directory. Every scan re-runs the
-authorization gate. Code and results are processed locally; PGARD contacts GitHub
-for sign-in and repository metadata only.
+authorization gate; only the GitHub sign-in is reused. Code and results are
+processed locally; PGARD contacts GitHub for sign-in and repository metadata only.
 
 ${EXIT_CODE_HELP}`,
   project: `Usage:
@@ -46,7 +48,8 @@ Subcommands:
   "project verify": `Usage:
   pgard project verify
 
-Checks the Git repository, GitHub remote, your GitHub identity (device sign-in),
+Checks the Git repository, GitHub remote, your GitHub identity (the sign-in saved
+by pgard login, or a device sign-in),
 owner approval, your current access and a merged contribution, and shows
 passed / failed / unverifiable with a reason for each. The result is not stored;
 every scan checks again.
@@ -77,7 +80,9 @@ ${EXIT_CODE_HELP}`,
 
 Starts the local web dashboard on a free 127.0.0.1 port and prints its private
 URL. --target-port pre-selects the local service to check (you still confirm it
-in the browser). Results and the session end when you stop the dashboard.
+in the browser). The dashboard reuses the GitHub sign-in saved in the OS
+keychain; the token stays in the dashboard server and never reaches the
+browser. Results and the session end when you stop the dashboard.
 
 ${EXIT_CODE_HELP}`,
   rules: `Usage:
@@ -92,11 +97,44 @@ Works outside a project.`,
   pgard doctor
 
 Checks Node.js, Git, GitHub reachability, local port discovery, whether
-PGARD_GITHUB_APP_CLIENT_ID is set and the advisory database. This is a
-diagnosis only; it does not authorize scans. Works outside a project.
+PGARD_GITHUB_APP_CLIENT_ID is set, whether a GitHub sign-in is saved in the OS
+keychain (and for which account; the token is never shown) and the advisory
+database. This is a diagnosis only; it does not authorize scans. Works outside
+a project.
 
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,
+  login: `Usage:
+  pgard login
+
+Signs in to GitHub with the device flow (you enter a code on github.com) and
+saves the sign-in in the OS keychain: macOS Keychain, Windows Credential Manager
+or the Linux Secret Service. It is never written to a file. pgard scan,
+pgard project verify and pgard dashboard then reuse it without a device code;
+an expired token is refreshed automatically when the GitHub App issues refresh
+tokens. Every scan still runs all five authorization checks against GitHub.
+Running login again replaces the saved sign-in (e.g. to switch accounts).
+Works outside a project.
+
+Exit codes:
+  0    signed in and saved
+  3    GitHub sign-in failed, or PGARD_GITHUB_APP_CLIENT_ID is not set
+  4    no OS keychain is available, or it did not save; nothing was saved
+  5    internal error
+  130  cancelled`,
+  logout: `Usage:
+  pgard logout
+
+Removes the GitHub sign-in saved for this GitHub App from the OS keychain. PGARD
+cannot revoke the token at GitHub (that needs the App's client secret); revoke
+it at https://github.com/settings/apps/authorizations if needed. Works outside a
+project.
+
+Exit codes:
+  0    removed, or nothing was saved
+  3    PGARD_GITHUB_APP_CLIENT_ID is not set
+  4    no OS keychain is available; nothing was removed
+  5    internal error`,
 };
 
 export function getHelpText(topic: HelpTopic): string {

@@ -1,7 +1,12 @@
 import type { ConfirmedWebTarget, ScanResult, ScanScope } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
-import type { DeviceCodeInfo, JobStatus, ScanProgressDto } from "../../shared/api-types.js";
+import type {
+  DeviceCodeInfo,
+  JobStatus,
+  ScanProgressDto,
+  StoredSignInDto,
+} from "../../shared/api-types.js";
 
 /** A probe is only confirmable for a short time after the user saw it. */
 export const PROBE_CONFIRM_WINDOW_MS = 10 * 60 * 1000;
@@ -31,6 +36,10 @@ export interface SessionState {
   };
   /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
   deviceCode: DeviceCodeInfo | null;
+  /** What the keychain holds for this App (login only, never the token). */
+  storedSignIn: StoredSignInDto;
+  /** Last secret-free sign-in message for the browser. */
+  signInNotice: string | null;
   /** The last probe, with the authorization record it ran under. */
   lastProbe: { identity: ServiceIdentity; probedAt: number; auth: SessionState["auth"] } | null;
   confirmedTarget: ConfirmedWebTarget | null;
@@ -48,6 +57,8 @@ export function createSessionState(): SessionState {
   return {
     auth: { status: "idle", outcome: null, finishedAt: null, message: null },
     deviceCode: null,
+    storedSignIn: { status: "unknown" },
+    signInNotice: null,
     lastProbe: null,
     confirmedTarget: null,
     scan: {

@@ -3,6 +3,7 @@ import { createCancelController, type InterruptSource } from "./adapters/cancel.
 import { createKeyReader, isInteractive, type CliIo } from "./adapters/terminal.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
+import { runLogin, runLogout } from "./commands/login.js";
 import { runProjectVerify } from "./commands/project/verify.js";
 import { runRulesList } from "./commands/rules/list.js";
 import { runScanCommand } from "./commands/scan/index.js";
@@ -40,11 +41,16 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runRulesList(context, command.language);
     case "doctor":
       return runDoctor(context);
+    case "login":
+      return runLogin(context);
+    case "logout":
+      return runLogout(context);
   }
 }
 
 const MENU_HELP = `Arrow keys move, Enter selects, Esc goes back, ? shows help, Ctrl+C asks to cancel.
-Every scan checks repository authorization again; nothing is stored between runs.`;
+Every scan checks repository authorization again; only the GitHub sign-in is reused
+(from the OS keychain). Results are not stored between runs.`;
 
 const MENU_CHOICES: ReadonlyArray<{
   label: string;
