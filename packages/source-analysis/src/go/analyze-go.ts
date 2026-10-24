@@ -1,7 +1,13 @@
 import type { Confidence, FindingStatus, Severity } from "@pgard/findings";
 import type { RawSourceFinding } from "../finding-factory.js";
 import type { SourceRuleId } from "../rules.js";
-import { LITERAL_PATTERN, lineAt, literalValue, maskGoSource, readCallArguments } from "./lexer.js";
+import {
+  LITERAL_PATTERN,
+  createLineLookup,
+  literalValue,
+  maskGoSource,
+  readCallArguments,
+} from "./lexer.js";
 
 /**
  * Syntax-level Go analysis (lexer + patterns, no type checking). Request input, string building
@@ -10,6 +16,28 @@ import { LITERAL_PATTERN, lineAt, literalValue, maskGoSource, readCallArguments 
 export interface GoAnalysis {
   findings: RawSourceFinding[];
   imports: string[];
+  /** Unbalanced braces/parens after masking: the file is likely not valid Go. */
+  hasParseErrors: boolean;
+  /** Rules whose per-file finding cap was reached. */
+  cappedRules: string[];
+}
+
+const MAX_FINDINGS_PER_RULE_PER_FILE = 25;
+const MAX_CALL_ARGUMENT_CHARS = 4000;
+const IDENTIFIER_TOKENS = /(?<![\w.])[A-Za-z_]\w*/g;
+
+function hasBalancedDelimiters(code: string): boolean {
+  let braces = 0;
+  let parens = 0;
+  for (let index = 0; index < code.length; index += 1) {
+    const char = code.charCodeAt(index);
+    if (char === 123) braces += 1;
+    else if (char === 125) braces -= 1;
+    else if (char === 40) parens += 1;
+    else if (char === 41) parens -= 1;
+    if (braces < 0 || parens < 0) return false;
+  }
+  return braces === 0 && parens === 0;
 }
 
 const SOURCE_PATTERN =
@@ -61,12 +89,21 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     has("database/sql") || has("github.com/jmoiron/sqlx") || has("github.com/jackc/pgx");
   const usesGorm = has("gorm.io/gorm") || has("github.com/jinzhu/gorm");
   const findings: RawSourceFinding[] = [];
+  const cappedRules = new Set<string>();
+  const perRuleCount = new Map<string, number>();
+  const lineOf = createLineLookup(code);
 
-  // Flow-insensitive, file-level variable facts.
+  // Flow-insensitive, file-level variable facts. Identifiers are looked up in a Set (one pass
+  // over the expression), so cost stays linear in the file size.
   const tainted = new Set<string>();
   const dynamic = new Set<string>();
-  const referencesAny = (expression: string, names: Set<string>) =>
-    [...names].some((name) => new RegExp(`(^|[^\\w.])${name}\\b`).test(expression));
+  const referencesAny = (expression: string, names: Set<string>) => {
+    if (names.size === 0) return false;
+    for (const match of expression.matchAll(IDENTIFIER_TOKENS)) {
+      if (names.has(match[0])) return true;
+    }
+    return false;
+  };
   const isTaintedExpr = (expression: string): boolean =>
     !SANITIZER_PATTERN.test(expression) &&
     (SOURCE_PATTERN.test(expression) || referencesAny(expression, tainted));
@@ -78,7 +115,9 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     return IDENTIFIER.test(trimmed) && dynamic.has(trimmed);
   };
   for (let pass = 0; pass < 2; pass += 1) {
-    for (const match of code.matchAll(/(^|\n)\s*([\w, ]+?)\s*(:=|=|\+=)\s*([^\n]+)/g)) {
+    for (const match of code.matchAll(
+      /(^|\n)[ \t]*(?:var[ \t]+)?([\w, ]{1,200}?)(?:[ \t]+[\w.*[\]]{1,100})?[ \t]*(:=|=|\+=)[ \t]*([^\n]+)/g,
+    )) {
       const names = (match[2] ?? "")
         .split(",")
         .map((name) => name.trim())
@@ -86,16 +125,25 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       const value = match[4] ?? "";
       for (const name of names) {
         if (isTaintedExpr(value)) tainted.add(name);
-        if (match[3] === "+=" || isDynamicExpr(value)) dynamic.add(name);
+        // A constant `q += " AND x"` keeps the string static.
+        if ((match[3] === "+=" && !LITERAL_PATTERN.test(value.trim())) || isDynamicExpr(value)) {
+          dynamic.add(name);
+        }
       }
     }
   }
 
   const report = (ruleId: SourceRuleId, offset: number, evidence: Evidence, cause: string) => {
+    const count = (perRuleCount.get(ruleId) ?? 0) + 1;
+    perRuleCount.set(ruleId, count);
+    if (count > MAX_FINDINGS_PER_RULE_PER_FILE) {
+      cappedRules.add(ruleId);
+      return;
+    }
     findings.push({
       ruleId,
       path,
-      line: lineAt(code, offset),
+      line: lineOf(offset),
       severity: evidence.severity,
       status: evidence.status,
       confidence: evidence.confidence,
@@ -118,12 +166,27 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     for (const match of code.matchAll(pattern)) {
       const offset = match.index ?? 0;
       const open = offset + match[0].length - 1;
-      handler(readCallArguments(code, open).args, offset, match[1] ?? match[0]);
+      handler(
+        readCallArguments(code, open, MAX_CALL_ARGUMENT_CHARS).args,
+        offset,
+        match[1] ?? match[0],
+      );
     }
   };
 
   const sqlEvidence = (expression: string, sink: string): Evidence | null => {
-    if (!isDynamicExpr(expression)) return null;
+    if (LITERAL_PATTERN.test(expression.trim())) return null;
+    if (!isDynamicExpr(expression)) {
+      // Request input passed straight in as SQL (e.g. db.Order(c.Query("sort"))).
+      if (!isTaintedExpr(expression)) return null;
+      const isDirect = SOURCE_PATTERN.test(expression);
+      return {
+        severity: "high",
+        status: isDirect ? "confirmed" : "suspected",
+        confidence: "high",
+        flow: `request input ${isDirect ? "" : "(via variable) "}used directly as SQL -> ${sink}`,
+      };
+    }
     if (isTaintedExpr(expression)) {
       const isDirect = SOURCE_PATTERN.test(expression);
       return {
@@ -359,5 +422,10 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     );
   }
 
-  return { findings, imports };
+  return {
+    findings,
+    imports,
+    hasParseErrors: !hasBalancedDelimiters(code),
+    cappedRules: [...cappedRules],
+  };
 }

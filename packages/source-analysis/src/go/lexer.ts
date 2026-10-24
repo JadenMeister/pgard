@@ -58,23 +58,35 @@ export function maskGoSource(source: string): MaskedGoSource {
   return { code: output, literals };
 }
 
-export function lineAt(code: string, offset: number): number {
-  let line = 1;
-  for (let index = 0; index < offset && index < code.length; index += 1) {
-    if (code.charCodeAt(index) === 10) line += 1;
+/** Offset -> 1-based line, using precomputed line starts (binary search per lookup). */
+export function createLineLookup(code: string): (offset: number) => number {
+  const newlines: number[] = [];
+  for (let index = code.indexOf("\n"); index !== -1; index = code.indexOf("\n", index + 1)) {
+    newlines.push(index);
   }
-  return line;
+  return (offset) => {
+    let low = 0;
+    let high = newlines.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((newlines[middle] as number) < offset) low = middle + 1;
+      else high = middle;
+    }
+    return low + 1;
+  };
 }
 
 /** Splits the argument list of a call whose `(` is at `openIndex`, at top-level commas. */
 export function readCallArguments(
   code: string,
   openIndex: number,
+  maxChars = 4000,
 ): { args: string[]; end: number } {
   const args: string[] = [];
   let depth = 0;
   let current = "";
-  for (let index = openIndex; index < code.length; index += 1) {
+  const limit = Math.min(code.length, openIndex + maxChars);
+  for (let index = openIndex; index < limit; index += 1) {
     const char = code[index] as string;
     if (char === "(" || char === "[" || char === "{") {
       depth += 1;

@@ -27,7 +27,12 @@ export interface JsAnalysis {
   findings: RawSourceFinding[];
   facts: JsFileFacts;
   hasParseErrors: boolean;
+  /** Rules whose per-file finding cap was reached (extra findings were dropped). */
+  cappedRules: string[];
 }
+
+/** Per rule and file; more findings than this are counted as reduced coverage instead. */
+export const MAX_FINDINGS_PER_RULE_PER_FILE = 25;
 
 export interface JsAnalysisOptions {
   /** Added to reported line numbers (for script blocks inside .vue files). */
@@ -37,8 +42,22 @@ export interface JsAnalysisOptions {
 }
 
 const SQL_DRIVER_MODULES = new Set(["pg", "pg-pool", "mysql", "mysql2", "mysql2/promise"]);
-const SQL_TEXT_PATTERN = /\b(select\s.+\sfrom|insert\s+into|update\s+\S+\s+set|delete\s+from)\b/i;
+// Bounded and newline-tolerant so multi-line SQL templates match without backtracking blowups.
+const SQL_TEXT_PATTERN =
+  /\b(select\s[\s\S]{0,2000}?\sfrom|insert\s+into|update\s+\S{1,200}\s+set|delete\s+from)\b/i;
+const SQL_RECEIVER = /(^|\.)(db|pool|client|conn|connection|sql|database|pg|mysql|knex|tx|trx)$/i;
 const CHILD_PROCESS_MODULES = new Set(["child_process", "node:child_process"]);
+const SHELL_PROGRAMS = new Set([
+  "sh",
+  "bash",
+  "zsh",
+  "/bin/sh",
+  "/bin/bash",
+  "cmd",
+  "cmd.exe",
+  "powershell",
+  "pwsh",
+]);
 const FS_MODULES = new Set(["fs", "node:fs", "fs/promises", "node:fs/promises", "fs-extra"]);
 const HTTP_CLIENT_MODULES = new Set([
   "axios",
@@ -114,6 +133,7 @@ export function analyzeJsSource(
   const lineOffset = options.lineOffset ?? 0;
   const taint = new TaintTracker(sourceFile);
   const findings: RawSourceFinding[] = [];
+  const cappedRules = new Set<string>();
   const facts: JsFileFacts = {
     imports: [],
     stateChangingRoutes: [],
@@ -129,7 +149,15 @@ export function analyzeJsSource(
   const lineOf = (node: ts.Node) =>
     sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1 + lineOffset;
 
+  const perRuleCount = new Map<string, number>();
   const report = (ruleId: SourceRuleId, node: ts.Node, evidence: Evidence, cause: string) => {
+    // Cap per rule and file so generated/minified code cannot flood the result.
+    const count = (perRuleCount.get(ruleId) ?? 0) + 1;
+    perRuleCount.set(ruleId, count);
+    if (count > MAX_FINDINGS_PER_RULE_PER_FILE) {
+      cappedRules.add(ruleId);
+      return;
+    }
     findings.push({
       ruleId,
       path,
@@ -210,6 +238,30 @@ export function analyzeJsSource(
     ts.forEachChild(node, collectImports);
   };
   collectImports(sourceFile);
+  // `const run = util.promisify(exec)` / `promisify(cp.exec)` make `run` an alias of exec.
+  const collectPromisified = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const call = unwrap(node.initializer);
+      const target =
+        ts.isCallExpression(call) && calleeName(call) === "promisify"
+          ? call.arguments[0]
+          : undefined;
+      if (target) {
+        const inner = unwrap(target);
+        let bound: string | undefined;
+        if (ts.isIdentifier(inner)) {
+          bound = namedImports.get(inner.text);
+        } else if (ts.isPropertyAccessExpression(inner)) {
+          const root = accessPath(inner.expression);
+          const module = root ? namespaceImports.get(root) : undefined;
+          if (module) bound = `${module}:${inner.name.text}`;
+        }
+        if (bound) namedImports.set(node.name.text, bound);
+      }
+    }
+    ts.forEachChild(node, collectPromisified);
+  };
+  collectPromisified(sourceFile);
   const importSet = new Set(facts.imports);
   const hasSqlDriver = [...importSet].some((name) => SQL_DRIVER_MODULES.has(name));
 
@@ -303,6 +355,12 @@ export function analyzeJsSource(
     return first;
   };
 
+  const sqlTextOf = (argument: ts.Expression): string => {
+    const node = unwrap(argument);
+    const own = node.getText(sourceFile);
+    return ts.isIdentifier(node) ? `${own} ${taint.assignedText(node.text, sourceFile)}` : own;
+  };
+
   const checkSql = (call: ts.CallExpression, name: string) => {
     if (
       name === "$queryRawUnsafe" ||
@@ -310,7 +368,8 @@ export function analyzeJsSource(
       (name === "raw" && accessPath(calleeReceiver(call) ?? call.expression) === "Prisma")
     ) {
       const argument = call.arguments[0];
-      if (argument && taint.isDynamicString(argument)) {
+      // Request input passed straight in is as dangerous as a string built from it.
+      if (argument && (taint.isDynamicString(argument) || taint.taintOf(argument) === "request")) {
         const evidence = classify(
           argument,
           false,
@@ -324,11 +383,19 @@ export function analyzeJsSource(
     }
     if (name !== "query" && name !== "execute") return;
     const argument = sqlArgument(call);
-    if (!argument || !taint.isDynamicString(argument)) return;
-    const text = argument.getText(sourceFile);
-    if (!hasSqlDriver && !SQL_TEXT_PATTERN.test(text)) return;
+    if (!argument) return;
+    const isTaintedInput = taint.taintOf(argument) === "request";
+    if (!taint.isDynamicString(argument) && !isTaintedInput) return;
     const receiver = calleeReceiver(call);
-    const label = `${receiver ? (accessPath(receiver) ?? "client") : ""}.${name}`;
+    const receiverText = receiver ? (accessPath(receiver) ?? "") : "";
+    // Identifier arguments are judged by the text they were assigned (`const q = \`SELECT...\``).
+    const text = sqlTextOf(argument);
+    const isSqlContext =
+      hasSqlDriver ||
+      SQL_TEXT_PATTERN.test(text) ||
+      (isTaintedInput && SQL_RECEIVER.test(receiverText));
+    if (!isSqlContext) return;
+    const label = `${receiver ? receiverText || "client" : ""}.${name}`;
     const evidence = classify(
       argument,
       false,
@@ -405,6 +472,34 @@ export function analyzeJsSource(
           : []),
       ];
       const taintedPart = dynamicParts.find((part) => taint.taintOf(part) === "request");
+      // spawn("sh", ["-c", script]) runs a shell even without `shell: true`.
+      const arrayArgs =
+        args && ts.isArrayLiteralExpression(unwrap(args))
+          ? (unwrap(args) as ts.ArrayLiteralExpression).elements
+          : null;
+      const program = unwrap(first);
+      const flag = arrayArgs?.[0] ? unwrap(arrayArgs[0] as ts.Expression) : null;
+      const script = arrayArgs?.[1];
+      if (
+        ts.isStringLiteralLike(program) &&
+        SHELL_PROGRAMS.has(program.text) &&
+        flag &&
+        ts.isStringLiteralLike(flag) &&
+        /^[-/]c$/i.test(flag.text) &&
+        script &&
+        !ts.isSpreadElement(script) &&
+        !isStaticString(script)
+      ) {
+        const evidence = classify(
+          script,
+          false,
+          { severity: "critical", status: "confirmed", confidence: "high" },
+          { severity: "high", status: "suspected", confidence: "medium" },
+          `child_process.${member}("${program.text}", ["${flag.text}", ...])`,
+        );
+        if (evidence) report("PG-CMD-001", call, evidence, `${member}-shell-c`);
+        return;
+      }
       if (usesShell && (taintedPart || dynamicParts.some((part) => taint.isDynamicString(part)))) {
         const target = taintedPart ?? first;
         const evidence = classify(
@@ -516,11 +611,19 @@ export function analyzeJsSource(
     if (evidence) report("PG-PATH-001", call, evidence, name);
   };
 
+  // Function text is computed once per function (not once per call site) to keep large files linear.
+  const functionTextCache = new Map<ts.Node, string>();
   const enclosingFunctionText = (node: ts.Node): string => {
     let current: ts.Node | undefined = node.parent;
     while (current && !ts.isFunctionLike(current) && !ts.isSourceFile(current))
       current = current.parent;
-    return (current ?? sourceFile).getText(sourceFile);
+    const owner = current ?? sourceFile;
+    let text = functionTextCache.get(owner);
+    if (text === undefined) {
+      text = owner.getText(sourceFile);
+      functionTextCache.set(owner, text);
+    }
+    return text;
   };
 
   const literalValue = (expression: ts.Expression | undefined): "literal" | "fallback" | null => {
@@ -869,5 +972,5 @@ export function analyzeJsSource(
   visit(sourceFile);
 
   facts.imports = [...new Set(facts.imports)];
-  return { findings, facts, hasParseErrors };
+  return { findings, facts, hasParseErrors, cappedRules: [...cappedRules] };
 }

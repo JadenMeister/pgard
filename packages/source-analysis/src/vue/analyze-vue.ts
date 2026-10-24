@@ -7,6 +7,7 @@ export interface VueAnalysis {
   findings: RawSourceFinding[];
   facts: JsFileFacts | null;
   hasParseErrors: boolean;
+  cappedRules: string[];
 }
 
 interface TemplateNode {
@@ -62,6 +63,7 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
   const findings: RawSourceFinding[] = [];
   let facts: JsFileFacts | null = null;
   let hasParseErrors = errors.length > 0;
+  const cappedRules = new Set<string>();
 
   for (const block of [descriptor.script, descriptor.scriptSetup]) {
     if (!block) continue;
@@ -72,6 +74,7 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
     });
     findings.push(...analysis.findings);
     hasParseErrors ||= analysis.hasParseErrors;
+    for (const rule of analysis.cappedRules) cappedRules.add(rule);
     facts = facts
       ? {
           imports: [...new Set([...facts.imports, ...analysis.facts.imports])],
@@ -108,5 +111,5 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
   const ast = descriptor.template?.ast as TemplateNode | undefined | null;
   if (ast) visit(ast);
 
-  return { findings, facts, hasParseErrors };
+  return { findings, facts, hasParseErrors, cappedRules: [...cappedRules] };
 }

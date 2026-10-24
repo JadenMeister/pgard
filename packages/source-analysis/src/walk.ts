@@ -1,3 +1,4 @@
+import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 
@@ -113,7 +114,8 @@ export async function readTextFile(
 ): Promise<string | null> {
   let handle;
   try {
-    handle = await open(absolutePath, "r");
+    // O_NOFOLLOW: a file swapped for a symlink after the directory walk is not followed.
+    handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
     const buffer = Buffer.alloc(maxBytes + 1);
     const { bytesRead } = await handle.read(buffer, 0, maxBytes + 1, 0);
     if (bytesRead > maxBytes) return null;

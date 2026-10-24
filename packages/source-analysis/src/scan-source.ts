@@ -9,6 +9,10 @@ import { readTextFile, walkSourceTree, type SourceLanguage } from "./walk.js";
 
 export interface SourceScanOptions {
   signal?: AbortSignal;
+  /** Wall-clock budget for the whole source scan; remaining files make coverage partial. */
+  timeBudgetMs?: number;
+  /** Injectable clock (ms) for tests. */
+  now?: () => number;
 }
 
 const CSRF_MODULES = [
@@ -59,6 +63,17 @@ interface LanguageStats {
   files: number;
   unparsable: number;
   unreadable: number;
+  minified: number;
+  capped: number;
+  skippedForTime: number;
+}
+
+/** Generated/minified bundles (very long lines) would only add noise; they are skipped. */
+function isMinified(content: string): boolean {
+  if (content.length < 5000) return false;
+  const lines = content.split("\n");
+  const longest = lines.reduce((max, line) => Math.max(max, line.length), 0);
+  return longest > 2000 && content.length / lines.length > 300;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -84,41 +99,72 @@ export async function scanSourceCode(
   const walk = await walkSourceTree(projectRoot);
   const raw: RawSourceFinding[] = [];
   const stats: Record<SourceLanguage, LanguageStats> = {
-    javascript: { files: 0, unparsable: 0, unreadable: 0 },
-    typescript: { files: 0, unparsable: 0, unreadable: 0 },
-    vue: { files: 0, unparsable: 0, unreadable: 0 },
-    go: { files: 0, unparsable: 0, unreadable: 0 },
+    javascript: {
+      files: 0,
+      unparsable: 0,
+      unreadable: 0,
+      minified: 0,
+      capped: 0,
+      skippedForTime: 0,
+    },
+    typescript: {
+      files: 0,
+      unparsable: 0,
+      unreadable: 0,
+      minified: 0,
+      capped: 0,
+      skippedForTime: 0,
+    },
+    vue: { files: 0, unparsable: 0, unreadable: 0, minified: 0, capped: 0, skippedForTime: 0 },
+    go: { files: 0, unparsable: 0, unreadable: 0, minified: 0, capped: 0, skippedForTime: 0 },
   };
   const jsFacts: { path: string; facts: JsFileFacts }[] = [];
   const goImports = new Set<string>();
   let jsxFiles = 0;
 
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const timeBudgetMs = options.timeBudgetMs ?? 120_000;
   for (const file of walk.files) {
     throwIfAborted(options.signal);
     const languageStats = stats[file.language];
     languageStats.files += 1;
+    if (now() - startedAt > timeBudgetMs) {
+      languageStats.skippedForTime += 1;
+      continue;
+    }
     const content = await readTextFile(file.absolutePath);
     if (content === null) {
       languageStats.unreadable += 1;
       continue;
     }
+    if (file.language !== "go" && isMinified(content)) {
+      languageStats.minified += 1;
+      continue;
+    }
     try {
+      let capped: string[] = [];
       if (file.language === "go") {
         const analysis = analyzeGoSource(content, file.relativePath);
         raw.push(...analysis.findings);
         for (const name of analysis.imports) goImports.add(name);
+        if (analysis.hasParseErrors) languageStats.unparsable += 1;
+        capped = analysis.cappedRules;
       } else if (file.language === "vue") {
         const analysis = analyzeVueSource(content, file.relativePath);
         raw.push(...analysis.findings);
         if (analysis.facts) jsFacts.push({ path: file.relativePath, facts: analysis.facts });
         if (analysis.hasParseErrors) languageStats.unparsable += 1;
+        capped = analysis.cappedRules;
       } else {
         const analysis = analyzeJsSource(content, file.relativePath);
         raw.push(...analysis.findings);
         jsFacts.push({ path: file.relativePath, facts: analysis.facts });
         if (analysis.facts.hasJsx) jsxFiles += 1;
         if (analysis.hasParseErrors) languageStats.unparsable += 1;
+        capped = analysis.cappedRules;
       }
+      if (capped.length > 0) languageStats.capped += 1;
     } catch {
       languageStats.unparsable += 1;
     }
@@ -205,6 +251,16 @@ export async function scanSourceCode(
       );
     if (languageStats.unreadable > 0)
       problems.push(`${languageStats.unreadable} file(s) were binary or unreadable`);
+    if (languageStats.minified > 0)
+      problems.push(`${languageStats.minified} minified/generated file(s) skipped`);
+    if (languageStats.capped > 0)
+      problems.push(
+        `${languageStats.capped} file(s) hit the per-file finding cap; further findings there are not listed`,
+      );
+    if (languageStats.skippedForTime > 0)
+      problems.push(
+        `${languageStats.skippedForTime} file(s) not analyzed because the time budget was used`,
+      );
     if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
     const isPartial = problems.length > 0;
     coverage.push({

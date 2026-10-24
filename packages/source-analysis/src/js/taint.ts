@@ -123,23 +123,29 @@ function requestPathKind(path: string): TaintKind | null {
 export class TaintTracker {
   private readonly taintedVariables = new Map<string, TaintKind>();
   private readonly dynamicStringVariables = new Set<string>();
+  /** Expressions assigned to each identifier (bounded), used to judge identifier arguments. */
+  private readonly assignedExpressions = new Map<string, ts.Expression[]>();
 
   constructor(sourceFile: ts.SourceFile) {
     // Two passes so `const a = req.body; const b = a.x;` propagates regardless of order.
     for (let pass = 0; pass < 2; pass += 1) {
       const visit = (node: ts.Node): void => {
         if (ts.isVariableDeclaration(node) && node.initializer) {
-          this.recordBinding(node.name, node.initializer);
+          this.recordBinding(node.name, node.initializer, pass === 0);
         } else if (
           ts.isBinaryExpression(node) &&
           (node.operatorToken.kind === ts.SyntaxKind.EqualsToken ||
             node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) &&
           ts.isIdentifier(node.left)
         ) {
-          if (node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) {
+          // `sql += " AND x"` with a constant keeps the string static.
+          if (
+            node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken &&
+            !isStaticString(node.right)
+          ) {
             this.dynamicStringVariables.add(node.left.text);
           }
-          this.recordBinding(node.left, node.right);
+          this.recordBinding(node.left, node.right, pass === 0);
         }
         ts.forEachChild(node, visit);
       };
@@ -147,7 +153,23 @@ export class TaintTracker {
     }
   }
 
-  private recordBinding(name: ts.BindingName | ts.Identifier, initializer: ts.Expression): void {
+  /** Source text of what was assigned to `name` (first few assignments, bounded). */
+  assignedText(name: string, sourceFile: ts.SourceFile): string {
+    return (this.assignedExpressions.get(name) ?? [])
+      .map((expression) => expression.getText(sourceFile).slice(0, 4000))
+      .join(" ");
+  }
+
+  private recordBinding(
+    name: ts.BindingName | ts.Identifier,
+    initializer: ts.Expression,
+    isFirstPass: boolean,
+  ): void {
+    if (isFirstPass && ts.isIdentifier(name)) {
+      const list = this.assignedExpressions.get(name.text) ?? [];
+      if (list.length < 8) list.push(initializer);
+      this.assignedExpressions.set(name.text, list);
+    }
     const kind = this.taintOf(initializer);
     const isDynamic = this.isDynamicString(initializer);
     const names: string[] = [];
@@ -229,6 +251,14 @@ export class TaintTracker {
           ts.isSpreadElement(argument) ? null : this.taintOf(argument),
         ),
       );
+    }
+    // `new URLSearchParams(location.search)`, `new URL(req.url)` carry their input's taint.
+    if (ts.isNewExpression(expression)) {
+      const name = calleeName(expression);
+      const first = expression.arguments?.[0];
+      if ((name === "URLSearchParams" || name === "URL") && first && !ts.isSpreadElement(first)) {
+        return this.taintOf(first);
+      }
     }
     return null;
   }
