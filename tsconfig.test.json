@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "sourceMap": false
+  },
+  "include": [
+    "tests/**/*.ts",
+    "vitest.config.ts",
+    "packages/*/src/**/*.test.ts",
+    "packages/*/src/**/test-support.ts",
+    "packages/*/src/test-support/**/*.ts",
+    "apps/*/src/**/test-support.ts",
+    "apps/cli/src/**/*.test.ts",
+    "apps/local-web/src/server/**/*.test.ts"
+  ]
+}
