@@ -697,6 +697,12 @@ export async function scanGitHistory(
     const sha = currentByPath?.shas.get(candidate);
     return sha === undefined || (sha !== null && !currentByPath?.contents.has(candidate));
   });
+  const historySkips = skipNotes(historyRead, maxBlobBytes, "blob");
+  // On the overflow path a value's current location is only known if it appears in the scanned
+  // history. If commits were cut off (commit window, time budget) or history blobs were skipped,
+  // the value may still live in a file not seen here, so "removed" cannot be claimed.
+  const isHistoryIncomplete =
+    isTruncated || listed.problems.length > 0 || historySkips.problems.length > 0;
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
@@ -720,7 +726,8 @@ export async function scanGitHistory(
         }
         const isKnownAbsent =
           (currentByPath.shas.get(entry.path) === null || current !== undefined) &&
-          !hasUnreadCurrent;
+          !hasUnreadCurrent &&
+          !isHistoryIncomplete;
         report(entry, secret, entry.commit, isBoundary(entry.commit), !isKnownAbsent);
         if (!isKnownAbsent) unknownCurrentState += 1;
         continue;
@@ -728,7 +735,6 @@ export async function scanGitHistory(
       report(entry, secret, entry.commit, isBoundary(entry.commit));
     }
   }
-  const historySkips = skipNotes(historyRead, maxBlobBytes, "blob");
   const historyProblems = [
     ...(unknownCurrentState > 0
       ? [

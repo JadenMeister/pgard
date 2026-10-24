@@ -464,4 +464,26 @@ describe("overflow-path unqueryable current paths (#108 review)", () => {
     git(repo.root, ["-c", "user.name=a", "-c", "user.email=a@example.com", "commit", "-qm", "mv"]);
     expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
   });
+
+  it("does not claim removal when the current copy predates the commit window", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "keep.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ files: { "a.txt": "x" } });
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n` } });
+    repo.commit({ remove: ["old.sh"] });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit), maxCommits: 2 });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.location.path).toBe("old.sh");
+    expect(secret?.evidence).toMatch(/could not be checked/);
+    expect(secret?.evidence).not.toMatch(/no longer present/);
+  });
+
+  it("still claims removal on the overflow path when history is complete", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({ remove: ["old.sh"] });
+    const result = await scanGitHistory(repo.root, { runner: noTree(runGit) });
+    const secret = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(secret?.evidence).toMatch(/no longer present/);
+  });
 });
