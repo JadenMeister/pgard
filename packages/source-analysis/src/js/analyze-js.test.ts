@@ -120,6 +120,27 @@ describe("PG-XSS-001/002 HTML sinks", () => {
       ),
     ).toEqual([]);
   });
+
+  it.each([
+    ["const clean = DOMPurify.sanitize(req.body.html);\nel.innerHTML = clean;"],
+    ["let html;\nhtml = DOMPurify.sanitize(input);\nel.innerHTML = html;"],
+    [
+      "const safe = sanitizeHtml(data);\nconst A = () => <i dangerouslySetInnerHTML={{ __html: safe }} />;",
+    ],
+  ])("does not flag a value sanitized through a variable (#109): %s", (code) => {
+    expect(rulesIn(code, "src/a.tsx")).toEqual([]);
+  });
+
+  it.each([
+    ["let html = DOMPurify.sanitize(a);\nhtml = req.body.html;\nel.innerHTML = html;"],
+    ["const html = DOMPurify.sanitize(a);\nfunction f(html) { el.innerHTML = html; }"],
+    ["const html = DOMPurify.sanitize(a);\nfor (const html of items) el.innerHTML = html;"],
+    [
+      "const html = DOMPurify.sanitize(a);\nfunction f() { const { html } = data; el.innerHTML = html; }",
+    ],
+  ])("still flags a variable not sanitized on every assignment (#109): %s", (code) => {
+    expect(rulesIn(code)).toContain("PG-XSS-001");
+  });
 });
 
 describe("PG-SSRF-001", () => {

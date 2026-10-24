@@ -331,9 +331,21 @@ export function analyzeJsSource(
     return "expression";
   };
 
-  const isSanitized = (expression: ts.Expression): boolean => {
+  const isSanitizerCall = (expression: ts.Expression): boolean => {
     const node = unwrap(expression);
     return ts.isCallExpression(node) && SANITIZER_CALLS.test(calleeName(node) ?? "");
+  };
+
+  /**
+   * A sanitizer call, or a variable whose every assignment in the file is a sanitizer call
+   * (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
+   */
+  const isSanitized = (expression: ts.Expression): boolean => {
+    if (isSanitizerCall(expression)) return true;
+    const node = unwrap(expression);
+    if (!ts.isIdentifier(node)) return false;
+    const assignments = taint.assignmentsOf(node.text);
+    return assignments !== null && assignments.length > 0 && assignments.every(isSanitizerCall);
   };
 
   const sqlArgument = (call: ts.CallExpression): ts.Expression | null => {
