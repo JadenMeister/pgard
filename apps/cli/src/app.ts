@@ -16,7 +16,7 @@ import { createStyle, safeText, shouldUseColor } from "./ui/formatters/style.js"
 
 export { EXIT_CODES, type ExitCode } from "./exit-codes.js";
 export type { CliIo } from "./adapters/terminal.js";
-export type { CliDeps } from "./deps.js";
+export { createDefaultDeps, type CliDeps } from "./deps.js";
 
 export interface MainOptions {
   deps?: CliDeps;
