@@ -141,6 +141,23 @@ describe("redactSecrets", () => {
     expect(output).toContain("[REDACTED:private_key]");
   });
 
+  it.each([
+    ["Use a strong password: at least 16 characters"],
+    ["function login(password: string, token: number) {}"],
+    ["f(token: number)"],
+    ["type User = { password: string | null }"],
+  ])("leaves prose and type annotations readable: %s (#70)", (text) => {
+    expect(redactSecrets(text)).toBe(text);
+  });
+
+  it.each([
+    ["password=Secret(123)", "Secret(123)"],
+    ["password=abc(def", "abc(def"],
+    ["secret: unclosed(xyz9", "xyz9"],
+  ])("masks call-shaped values with literal arguments: %s (#70)", (input, secret) => {
+    expect(redactSecrets(input)).not.toContain(secret);
+  });
+
   it("keeps code references that merely mention sensitive names", () => {
     expect(redactSecrets("password = req.body.password")).toBe("password = req.body.password");
     expect(redactSecrets("const token = getToken()")).toBe("const token = getToken()");

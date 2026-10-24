@@ -43,9 +43,60 @@ const SENSITIVE_KEY =
  */
 const REFERENCE_ROOTS =
   "process\\.env|import\\.meta\\.env|os\\.environ|req|request|res|ctx|context|this|self|config|configuration|settings|options|opts|env|params|props|args|body|input|form|values|state";
+// Calls are exempt only with no argument, a plain identifier, or an env-var-style string
+// (`getSecret()`, `load(name)`, `os.getenv("DB_PASSWORD")`); `Secret(123)` is masked.
 const CODE_REFERENCE = new RegExp(
-  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\([^()\\s]{0,128}\\))$`,
+  `^(?:(?:${REFERENCE_ROOTS})(?:\\.[A-Za-z_$][\\w$]*|\\[[^\\]\\s]{1,64}\\])+|[A-Za-z_$][\\w$.]{0,128}\\((?:[A-Za-z_$][\\w$]{0,64}|"[A-Z_][A-Z0-9_]{0,64}"|'[A-Z_][A-Z0-9_]{0,64}')?\\))$`,
 );
+/**
+ * Unquoted words that follow `password:` in prose or type annotations rather than being values
+ * (`login(password: string)`, "Use a strong password: at least 16 characters").
+ */
+const NON_VALUE_WORDS = new Set([
+  "string",
+  "number",
+  "boolean",
+  "bigint",
+  "symbol",
+  "any",
+  "unknown",
+  "object",
+  "never",
+  "void",
+  "null",
+  "undefined",
+  "true",
+  "false",
+  "str",
+  "int",
+  "bool",
+  "bytes",
+  "buffer",
+  "uint8array",
+  "date",
+  "required",
+  "optional",
+  "none",
+  "a",
+  "an",
+  "the",
+  "at",
+  "is",
+  "are",
+  "must",
+  "should",
+  "use",
+  "set",
+  "minimum",
+  "maximum",
+  "min",
+  "max",
+  "not",
+  "no",
+  "yes",
+  "see",
+  "e.g.",
+]);
 const ALREADY_REDACTED = /^\[REDACTED:/;
 const ZERO_WIDTH = /[\u200B-\u200D\u2060\uFEFF]/g;
 
@@ -138,7 +189,7 @@ const RULES: Rule[] = [
     // key = "double quoted" | 'single quoted' | `backtick` (a missing closing quote still
     // masks to end of line) | unquoted run up to whitespace or , ; ) } &
     pattern: new RegExp(
-      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;}&][^\\s,;}&]{0,4095}))`,
+      `(\\b${SENSITIVE_KEY}["']?[ \\t]{0,8}[:=][ \\t]{0,8})(?:"([^"\\n]{0,4096})("|$)?|'([^'\\n]{0,4096})('|$)?|\`([^\`\\n]{0,4096})(\`|$)?|([^\\s"'\`,;()}&][^\\s,;()}&]{0,4095}(?:\\([^()\\s]{0,128}\\)|\\([^\\s,;)}&]{0,128})?))`,
       "gim",
     ),
     replace: (match, prefix, dq, dqEnd, sq, sqEnd, bq, bqEnd, bare) => {
@@ -149,7 +200,12 @@ const RULES: Rule[] = [
         return sq === "" ? match : `${prefix}'${maskSecret("value")}${end(sqEnd)}`;
       if (bq !== undefined)
         return bq === "" ? match : `${prefix}\`${maskSecret("value")}${end(bqEnd)}`;
-      if (bare === undefined || ALREADY_REDACTED.test(bare) || CODE_REFERENCE.test(bare)) {
+      if (
+        bare === undefined ||
+        ALREADY_REDACTED.test(bare) ||
+        CODE_REFERENCE.test(bare) ||
+        NON_VALUE_WORDS.has(bare.toLowerCase())
+      ) {
         return match;
       }
       return `${prefix}${maskSecret("value")}`;
