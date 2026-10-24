@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { escapeHtml } from "./escape-html.js";
-import { formatLocation, labelSeverity, prepareReportResult, sortFindings } from "./format.js";
+import {
+  formatLocation,
+  labelSeverity,
+  prepareReportResult,
+  sortFindings,
+  truncateField,
+} from "./format.js";
 import { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";
 import { finding, scanResult, XSS } from "./test-fixtures.js";
 
@@ -109,5 +115,33 @@ describe("field length caps", () => {
     expect(renderHtmlReport(scanResult({ findings: [finding({ evidence: long })] }))).toContain(
       "(truncated)",
     );
+  });
+});
+
+describe("prepareReportResult caps every string", () => {
+  it("caps target, references, ids and advisory fields", () => {
+    const long = "R".repeat(100_000);
+    const prepared = prepareReportResult(
+      scanResult({
+        scanId: long,
+        target: { repo: long, revision: long, webOrigin: long },
+        advisoryDb: { version: long, updatedAt: long },
+        findings: [finding({ ruleId: long, references: { cwe: [long], owasp: [], cve: [long] } })],
+      }),
+    );
+    const limit = 500 + " (truncated)".length;
+    expect(prepared.scanId.length).toBe(limit);
+    expect(prepared.target.repo?.length).toBe(limit);
+    expect(prepared.target.webOrigin?.length).toBe(limit);
+    expect(prepared.advisoryDb.version?.length).toBe(limit);
+    expect(prepared.findings[0]?.ruleId.length).toBe(limit);
+    expect(prepared.findings[0]?.references.cve[0]?.length).toBe(limit);
+    expect(prepared.findings[0]?.references.cwe[0]?.length).toBe(limit);
+  });
+
+  it("does not split a surrogate pair at the cut", () => {
+    const value = "a".repeat(499) + "\uD83D\uDE00" + "b";
+    const truncated = truncateField(value, 500);
+    expect(truncated).toBe("a".repeat(499) + " (truncated)");
   });
 });

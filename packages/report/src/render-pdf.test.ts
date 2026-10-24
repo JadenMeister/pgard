@@ -40,3 +40,17 @@ describe("PDF performance", () => {
     expect(Date.now() - startedAt).toBeLessThan(3000);
   });
 });
+
+describe("PDF performance on long metadata", () => {
+  it("renders a 100k-character repository and reference quickly", async () => {
+    const long = "R".repeat(100_000);
+    const startedAt = Date.now();
+    await renderPdfReport(
+      scanResult({
+        target: { repo: long, revision: long, webOrigin: null },
+        findings: [finding({ references: { cwe: [long], owasp: [], cve: [] } })],
+      }),
+    );
+    expect(Date.now() - startedAt).toBeLessThan(3000);
+  });
+});

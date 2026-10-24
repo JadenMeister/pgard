@@ -1,6 +1,5 @@
 import {
   SEVERITIES,
-  type Coverage,
   type CoverageStatus,
   type Finding,
   type FindingLocation,
@@ -16,51 +15,44 @@ export const MAX_EVIDENCE_CHARS = 2000;
 export const MAX_FIELD_CHARS = 500;
 export const TRUNCATION_MARKER = " (truncated)";
 
+function isHighSurrogate(code: number): boolean {
+  return code >= 0xd800 && code <= 0xdbff;
+}
+
 export function truncateField(value: string, maxLength: number): string {
-  return value.length > maxLength ? `${value.slice(0, maxLength)}${TRUNCATION_MARKER}` : value;
+  if (value.length <= maxLength) return value;
+  let cut = value.slice(0, maxLength);
+  // Never leave half of a surrogate pair at the cut.
+  if (cut.length > 0 && isHighSurrogate(cut.charCodeAt(cut.length - 1))) cut = cut.slice(0, -1);
+  return `${cut}${TRUNCATION_MARKER}`;
 }
 
-function truncateNullable(value: string | null, maxLength: number): string | null {
-  return value === null ? null : truncateField(value, maxLength);
-}
+/** Keys whose string values may be longer than `MAX_FIELD_CHARS`. */
+const LONG_FIELD_LIMITS: Readonly<Record<string, number>> = { evidence: MAX_EVIDENCE_CHARS };
 
-function truncateLocation(location: FindingLocation): FindingLocation {
-  return {
-    ...location,
-    path: truncateNullable(location.path, MAX_FIELD_CHARS),
-    url: truncateNullable(location.url, MAX_FIELD_CHARS),
-    commit: truncateNullable(location.commit, MAX_FIELD_CHARS),
-  };
+function capStrings(value: unknown, key: string | null): unknown {
+  if (typeof value === "string") {
+    return truncateField(
+      value,
+      (key === null ? undefined : LONG_FIELD_LIMITS[key]) ?? MAX_FIELD_CHARS,
+    );
+  }
+  if (Array.isArray(value)) return value.map((entry) => capStrings(entry, key));
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([entryKey, entry]) => [entryKey, capStrings(entry, entryKey)]),
+    );
+  }
+  return value;
 }
 
 /**
- * Copy of the result with every free-text field length-capped. Both renderers start from this
- * so HTML and PDF always show the same text.
+ * Copy of the result with every string length-capped (evidence 2000, everything else 500
+ * characters). Both renderers start from this so HTML and PDF always show the same text and
+ * stay fast on hostile input.
  */
 export function prepareReportResult(result: ScanResult): ScanResult {
-  return {
-    ...result,
-    coverage: result.coverage.map((entry): Coverage => ({
-      ...entry,
-      area: truncateField(entry.area, MAX_FIELD_CHARS),
-      note: truncateNullable(entry.note, MAX_FIELD_CHARS),
-    })),
-    findings: result.findings.map((finding): Finding => ({
-      ...finding,
-      title: truncateField(finding.title, MAX_FIELD_CHARS),
-      evidence: truncateField(finding.evidence, MAX_EVIDENCE_CHARS),
-      impact: truncateField(finding.impact, MAX_FIELD_CHARS),
-      recommendation: truncateField(finding.recommendation, MAX_FIELD_CHARS),
-      location: truncateLocation(finding.location),
-    })),
-    authorization: {
-      ...result.authorization,
-      checks: result.authorization.checks.map((check) => ({
-        ...check,
-        reason: truncateField(check.reason, MAX_FIELD_CHARS),
-      })),
-    },
-  };
+  return capStrings(result, null) as ScanResult;
 }
 
 function isSeverity(value: unknown): value is Severity {
