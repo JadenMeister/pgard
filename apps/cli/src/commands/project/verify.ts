@@ -1,4 +1,4 @@
-import { err, out, suspendKeys, type CommandContext } from "../../context.js";
+import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../../context.js";
 import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
 import { createSessionProvider, printMissingClientIdHint } from "../../flows/authenticate.js";
 import { formatAuthorization } from "../../ui/formatters/result-view.js";
@@ -21,6 +21,7 @@ export async function runProjectVerify(context: CommandContext): Promise<ExitCod
   const outcome = await context.deps.verifyProject(projectRoot, {
     getGitHubSession: createSessionProvider(context),
   });
+  throwIfCancelled(context);
   out(
     context,
     context.style.dim(

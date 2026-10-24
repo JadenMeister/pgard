@@ -210,6 +210,29 @@ describe("runScanCommand", () => {
   });
 });
 
+describe("runScanCommand cancellation during the web pre-check", () => {
+  it("ends as a cancellation, not a blocked gate", async () => {
+    const captured = createTestIo();
+    const controller = new AbortController();
+    const context = {
+      ...createTestContext(
+        captured,
+        createTestDeps({
+          verifyProject: async () => {
+            controller.abort();
+            return { summary: BLOCKED, repo: null, revision: null };
+          },
+        }),
+        scriptedKeys([]),
+      ),
+      signal: controller.signal,
+    };
+    await expect(
+      runScanCommand(context, { variant: "web", port: 3000, report: null }),
+    ).rejects.toBeInstanceOf(UserCancelledError);
+  });
+});
+
 describe("runScanCommand Esc on the port list", () => {
   it("returns to the menu instead of exiting", async () => {
     const captured = createTestIo();
