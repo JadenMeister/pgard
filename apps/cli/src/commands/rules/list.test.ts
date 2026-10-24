@@ -1,8 +1,19 @@
-import { PGARD_VERSION, listSupportedRules, type AdvisoryDbStatus } from "@pgard/scan-core";
+import {
+  PGARD_VERSION,
+  listSupportedRules,
+  type AdvisoryDbStatus,
+  type RuleDescriptor,
+} from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 import type { CliDeps } from "../../deps.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
-import { RULE_CRITERIA_VERSION, filterRulesByLanguage, runRulesList } from "./list.js";
+import {
+  OTHER_RULES_HEADING,
+  RULE_CRITERIA_VERSION,
+  filterRulesByLanguage,
+  groupRulesByScope,
+  runRulesList,
+} from "./list.js";
 
 const DB_PATH = "/home/user/secret-place/osv.json";
 
@@ -54,6 +65,18 @@ describe("runRulesList", () => {
     expect(stdout).not.toContain("PG-XSS-002");
     expect(stdout).toContain("PG-SECRET-001");
     expect(stdout).toContain("PG-WEB-001");
+  });
+
+  it("says that react and vue include the JavaScript/TypeScript rules", async () => {
+    const react = await runList("react");
+    expect(react).toContain(
+      "Language filter: react (javascript/typescript rules and rules for any language are included)",
+    );
+    expect(react).toContain("PG-SQL-001");
+    expect(react).toContain("PG-XSS-002");
+    expect(await runList("go")).toContain(
+      "Language filter: go (rules for any language are included)",
+    );
   });
 
   it("is deterministic", async () => {
@@ -108,6 +131,25 @@ describe("runRulesList advisory status", () => {
     expect(invalid).not.toContain(DB_PATH);
   });
 
+  it("strips terminal escapes, line breaks and bidi controls from version, date and note", async () => {
+    const stdout = await runList(
+      null,
+      advisoryDeps({
+        status: "ok",
+        version: "v1\u001b[2J\u001b]0;owned\u0007",
+        updatedAt: "2026-10-20\r\nFAKE: ok",
+        advisoryCount: 1,
+        note: "1 advisory.‮TXT.exe⁦⁩‏\u0000\u009b31m",
+      }),
+    );
+    const line = stdout.split("\n").find((entry) => entry.includes("Advisory database status"));
+    expect(line).toContain("version v1");
+    expect(line).toContain("FAKE: ok");
+    expect(stdout).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+    expect(stdout).not.toMatch(/[‎‏‪-‮⁦-⁩]/);
+    expect(stdout).not.toMatch(/^FAKE: ok/m);
+  });
+
   it("reports a failing status read as invalid without echoing the error", async () => {
     const stdout = await runList(null, {
       readAdvisoryDbStatus: async () => {
@@ -137,10 +179,63 @@ describe("filterRulesByLanguage", () => {
     expect(react).toContain("PG-XSS-002");
     expect(react).not.toContain("PG-XSS-003");
     expect(vue).toContain("PG-XSS-003");
+    expect(vue).not.toContain("PG-XSS-002");
     expect(vue).toContain("PG-SECRET-002");
+  });
+
+  it("includes the JavaScript/TypeScript rules for react and vue, but not Go rules", () => {
+    const jsTs = new Set([
+      ...filterRulesByLanguage(rules, "js").map((rule) => rule.id),
+      ...filterRulesByLanguage(rules, "ts").map((rule) => rule.id),
+    ]);
+    for (const language of ["react", "vue"] as const) {
+      const ids = filterRulesByLanguage(rules, language).map((rule) => rule.id);
+      for (const id of jsTs) expect(ids).toContain(id);
+      expect(ids).toContain("PG-SQL-001");
+      expect(ids).not.toContain("PG-SQL-003");
+    }
   });
 
   it("returns every rule without a filter", () => {
     expect(filterRulesByLanguage(rules, null)).toHaveLength(rules.length);
+  });
+});
+
+describe("groupRulesByScope", () => {
+  const rules = listSupportedRules();
+
+  it("puts rules of a scope without a heading into a fallback group", () => {
+    const webRule: RuleDescriptor = { ...rules[0]!, id: "PG-WEB-900", scope: "web" };
+    const unknownRule = {
+      ...rules[0]!,
+      id: "PG-NEW-001",
+      scope: "deps",
+    } as unknown as RuleDescriptor;
+    const groups = groupRulesByScope([...rules, unknownRule, webRule]);
+    const other = groups.at(-1)!;
+    expect(other.heading).toBe(OTHER_RULES_HEADING);
+    expect(other.rules.map((rule) => rule.id)).toEqual(["PG-NEW-001", "PG-WEB-900"]);
+    const listed = groups.flatMap((group) => group.rules.map((rule) => rule.id)).sort();
+    expect(listed).toEqual([...rules.map((rule) => rule.id), "PG-NEW-001", "PG-WEB-900"].sort());
+  });
+
+  it("shows no fallback group when every scope has a heading", () => {
+    const headings = groupRulesByScope(rules).map((group) => group.heading);
+    expect(headings).not.toContain(OTHER_RULES_HEADING);
+  });
+
+  it("does not depend on the catalog order", () => {
+    const expected = groupRulesByScope(rules);
+    let seed = 7;
+    for (let round = 0; round < 5; round += 1) {
+      const shuffled = [...rules];
+      for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        const swap = seed % (index + 1);
+        [shuffled[index], shuffled[swap]] = [shuffled[swap]!, shuffled[index]!];
+      }
+      expect(groupRulesByScope(shuffled)).toEqual(expected);
+    }
+    expect(groupRulesByScope([...rules].reverse())).toEqual(expected);
   });
 });
