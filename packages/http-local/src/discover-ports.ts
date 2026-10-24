@@ -39,12 +39,6 @@ export class CommandTimeoutError extends Error {
   }
 }
 
-/**
- * Runs a fixed command (no shell) and settles by the deadline even if the child never exits.
- * On macOS `lsof` can hang in an uninterruptible kernel wait where neither SIGTERM nor SIGKILL
- * takes effect, and `execFile`'s own timeout only reports after the child has exited. So we
- * reject on our own timer, send SIGKILL, and unref the child so PGARD can still exit.
- */
 export interface RunCommandOptions {
   /** Defaults to 4 MiB. Exceeding it rejects instead of returning truncated output. */
   maxBufferBytes?: number;
