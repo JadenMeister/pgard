@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 // Review-fix tests (#90-#93) live at the end of this file.
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -623,6 +623,19 @@ describe("advisory database peek (#115)", () => {
     const entry = await peekCoverage(path.join(dir, "big.json"));
     expect(entry?.status).toBe("not_tested");
     expect(entry?.note).toMatch(/not a JSON array or object/);
+  });
+
+  it("reports a file over the full-load size limit as invalid, like a full load", async () => {
+    const file = path.join(tempDir({ "huge.json": '{"vulnerabilities": [' }), "huge.json");
+    truncateSync(file, 512 * 1024 * 1024 + 1); // sparse: no real disk use
+    const status = await peekAdvisoryDb({ PGARD_ADVISORY_DB: file }, now);
+    expect(status).toMatchObject({ status: "invalid", version: null });
+    expect(status.validated).toBeUndefined();
+    expect(status.note).toBe("The advisory database file is too large to load.");
+    expect((await loadAdvisoryDb({ PGARD_ADVISORY_DB: file }, now)).status.note).toBe(status.note);
+    const entry = await peekCoverage(file);
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/too large to load/);
   });
 
   it("still reports a small, fully loaded database as completed", async () => {

@@ -11,7 +11,7 @@ import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
   findGitRoot,
-  readAdvisoryDbStatus,
+  peekAdvisoryDb,
   readGitHubAppClientId,
   runScan,
   verifyProject,
@@ -45,7 +45,11 @@ export interface CliDeps {
   startDashboardProcess: (entry: string, args: readonly string[]) => Promise<number>;
   readGitVersion: () => Promise<string | null>;
   checkGitHubReachable: () => Promise<boolean>;
-  /** Local advisory DB status (ok/missing/invalid/stale); its note never contains the DB path. */
+  /**
+   * Local advisory DB status (ok/missing/invalid/stale); its note never contains the DB path.
+   * The default is a cheap peek: large files and directories are not fully loaded and come back
+   * with `validated: false`.
+   */
   readAdvisoryDbStatus: (
     env: Readonly<Record<string, string | undefined>>,
   ) => Promise<AdvisoryDbStatus>;
@@ -131,7 +135,7 @@ export function createDefaultDeps(): CliDeps {
     startDashboardProcess: startDashboardProcessDefault,
     readGitVersion: readGitVersionDefault,
     checkGitHubReachable: checkGitHubReachableDefault,
-    readAdvisoryDbStatus: (env) => readAdvisoryDbStatus(env),
+    readAdvisoryDbStatus: (env) => peekAdvisoryDb(env),
     nodeVersion: process.versions.node,
   };
 }

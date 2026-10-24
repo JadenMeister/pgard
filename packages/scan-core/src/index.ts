@@ -6,6 +6,7 @@ export { listSupportedRules, type RuleDescriptor, type RuleLanguage } from "./ru
 export {
   ADVISORY_DB_ENV,
   MAX_ADVISORY_AGE_DAYS,
+  peekAdvisoryDb,
   readAdvisoryDbStatus,
   type AdvisoryDbState,
   type AdvisoryDbStatus,
