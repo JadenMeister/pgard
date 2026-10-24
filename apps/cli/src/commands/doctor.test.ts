@@ -3,10 +3,11 @@ import { createTestContext, createTestDeps, createTestIo } from "../test-support
 import { isSupportedNodeVersion, runDoctor } from "./doctor.js";
 
 describe("runDoctor", () => {
-  it("reports missing client id without printing values and exits 4", async () => {
+  it("reports a missing client id and still exits 0 because the diagnosis completed", async () => {
     const captured = createTestIo();
     const code = await runDoctor(createTestContext(captured, createTestDeps()));
-    expect(code).toBe(4);
+    expect(code).toBe(0);
+    expect(captured.stdout()).toContain("1 required check(s) need attention");
     expect(captured.stdout()).toContain("[fail] PGARD_GITHUB_APP_CLIENT_ID: not set");
     expect(captured.stdout()).toContain("not an authorization");
   });

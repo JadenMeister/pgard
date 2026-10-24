@@ -92,7 +92,10 @@ Works outside a project.`,
 
 Checks Node.js, Git, GitHub reachability, local port discovery, whether
 PGARD_GITHUB_APP_CLIENT_ID is set and the advisory database. This is a
-diagnosis only; it does not authorize scans. Works outside a project.`,
+diagnosis only; it does not authorize scans. Works outside a project.
+
+Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
+[warn]), 5 on an internal error.`,
 };
 
 export function getHelpText(topic: HelpTopic): string {

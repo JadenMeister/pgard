@@ -16,7 +16,7 @@ interface DoctorCheck {
   label: string;
   isOk: boolean;
   detail: string;
-  /** Required checks make `doctor` exit 4 when they fail. */
+  /** Required checks are marked [fail] (others [warn]) when they do not pass. */
   isRequired: boolean;
 }
 
@@ -93,6 +93,13 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
         : style.yellow("[warn]");
     out(context, `  ${mark} ${check.label}: ${check.detail}`);
   }
-  const hasRequiredFailure = checks.some((check) => check.isRequired && !check.isOk);
-  return hasRequiredFailure ? EXIT_CODES.partial : EXIT_CODES.ok;
+  const failedCount = checks.filter((check) => check.isRequired && !check.isOk).length;
+  out(
+    context,
+    failedCount === 0
+      ? style.green("All required checks passed.")
+      : style.yellow(`${failedCount} required check(s) need attention (see [fail] above).`),
+  );
+  // The diagnosis itself completed; problems are reported above, not via the exit code.
+  return EXIT_CODES.ok;
 }
