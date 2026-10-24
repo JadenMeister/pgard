@@ -201,6 +201,8 @@ async function readBlobs(
   maxBlobBytes: number,
   budget: { remaining: number },
   signal: AbortSignal | undefined,
+  /** Decode binary UTF-16 blobs (only needed for the files at the scanned revision). */
+  decodeUtf16Blobs = false,
 ): Promise<{
   contents: Map<string, string>;
   skippedLarge: number;
@@ -276,7 +278,7 @@ async function readBlobs(
       offset = headerEnd + 1 + size + 1;
       if (body.includes("\0")) {
         skippedBinary += 1;
-        const text = decodeUtf16(body);
+        const text = decodeUtf16Blobs ? decodeUtf16(body) : null;
         if (text !== null) utf16.set(header[1], text);
         continue;
       }
@@ -401,13 +403,18 @@ async function isAbsentFromRevision(
 
 const UTF16_BOMS = ["\xff\xfe", "\xfe\xff"];
 
-/** UTF-16 text (by its byte order mark) decoded from a latin1 body, or `null`. */
+const UTF16LE = new TextDecoder("utf-16le");
+const UTF16BE = new TextDecoder("utf-16be");
+
+/**
+ * UTF-16 text (by its byte order mark) decoded from a latin1 body, or `null`. Never throws: an
+ * odd trailing byte or an invalid sequence decodes to U+FFFD.
+ */
 function decodeUtf16(latin1: string): string | null {
   const bom = latin1.slice(0, 2);
   if (!UTF16_BOMS.includes(bom)) return null;
   const bytes = Buffer.from(latin1.slice(2), "latin1");
-  if (bom === "\xfe\xff") bytes.swap16();
-  return bytes.subarray(0, bytes.length - (bytes.length % 2)).toString("utf16le");
+  return (bom === "\xfe\xff" ? UTF16BE : UTF16LE).decode(bytes);
 }
 
 /** Most size- or budget-skipped files whose first bytes are checked for a UTF-16 mark. */
@@ -417,17 +424,19 @@ const MAX_PREFIX_CHECKS = 100;
  * Whether any of these blobs (not read because of size or the read budget) starts with a UTF-16
  * byte order mark. `git grep` cannot search UTF-16 text, so such a file leaves "removed"
  * unknown. Reads only the first bytes of each blob. Resolves `true` (unknown) when there are too
- * many blobs to check or a read fails.
+ * many blobs to check, the time budget runs out, or a read fails.
  */
 async function hasUtf16Blob(
   cwd: string,
   runner: GitRunner,
   shas: readonly string[],
   signal: AbortSignal | undefined,
+  isOverBudget: () => boolean,
 ): Promise<boolean> {
   if (shas.length > MAX_PREFIX_CHECKS) return true;
   for (const sha of shas) {
     throwIfAborted(signal);
+    if (isOverBudget()) return true;
     try {
       const raw = await runner(
         { subcommand: "cat-file", flags: ["--batch"] },
@@ -627,6 +636,7 @@ export async function scanGitHistory(
     maxBlobBytes,
     budget,
     signal,
+    true,
   );
   const currentValues = new Set<string>();
   const report = (
@@ -877,7 +887,11 @@ export async function scanGitHistory(
     const utf16Texts = [...headRead.utf16.values()];
     isRemovalConfirmed =
       !isOverBudget() &&
-      !values.some((value) => utf16Texts.some((text) => text.includes(value))) &&
+      values.every((value) => {
+        // Same search string as git grep (longest line); one that cannot be searched is unknown.
+        const search = searchStringFor(value);
+        return search !== null && !utf16Texts.some((text) => text.includes(search));
+      }) &&
       (await isAbsentFromRevision(
         projectRoot,
         runner,
@@ -886,7 +900,7 @@ export async function scanGitHistory(
         signal,
         timeBudgetMs - (now() - startedAt),
       )) &&
-      !(await hasUtf16Blob(projectRoot, runner, headRead.unreadShas, signal));
+      !(await hasUtf16Blob(projectRoot, runner, headRead.unreadShas, signal, isOverBudget));
   }
   const hasUnreadHead = !isRemovalConfirmed;
   for (const entry of oldestFirst) {

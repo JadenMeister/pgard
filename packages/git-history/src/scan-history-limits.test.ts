@@ -707,6 +707,70 @@ describe("binary and skipped current files (#136)", () => {
     expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
   });
 
+  it("does not crash on an odd-length UTF-16BE file anywhere in history", async () => {
+    const repo = fixture();
+    writeRaw(repo.root, "odd.bin", Buffer.from([0xfe, 0xff, 0x00]));
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n` } });
+    writeRaw(repo.root, "odd2.bin", Buffer.from([0xfe, 0xff, 0x00, 0x41, 0x00]));
+    repo.commit({ remove: ["old.sh", "odd.bin"], files: {} });
+    const result = await scanGitHistory(repo.root);
+    expect(result.coverage.map((entry) => entry.status)).toEqual(["completed", "completed"]);
+    expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
+  });
+
+  it("does not claim removal when a key moved into a UTF-16LE CRLF file", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "prod.pem": KEY_ONE, "a.txt": "x" } });
+    writeRaw(repo.root, "keys.txt", utf16le(KEY_ONE.replace(/\n/g, "\r\n")));
+    repo.commit({ remove: ["prod.pem"], files: {} });
+    expectUnknown(await scanGitHistory(repo.root));
+  });
+
+  it("does not check more than 100 skipped files for a UTF-16 mark", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    const big = Object.fromEntries(
+      Array.from({ length: 101 }, (_, index) => [
+        `big/${index}.txt`,
+        `${index}${"#".repeat(300)}\n`,
+      ]),
+    );
+    repo.commit({ remove: ["old.sh"], files: big });
+    let prefixReads = 0;
+    const runner: GitRunner = (invocation, options) => {
+      if (options.truncate) prefixReads += 1;
+      return runGit(invocation, options);
+    };
+    expectUnknown(await scanGitHistory(repo.root, { runner, maxBlobBytes: 200 }));
+    expect(prefixReads).toBe(0);
+  });
+
+  it("stops checking skipped files for a UTF-16 mark when the time budget runs out", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+    repo.commit({
+      remove: ["old.sh"],
+      files: { "a.big": `${"#".repeat(300)}\n`, "b.big": `${"=".repeat(300)}\n` },
+    });
+    let clock = 0;
+    let prefixReads = 0;
+    const runner: GitRunner = async (invocation, options) => {
+      if (options.truncate) {
+        prefixReads += 1;
+        clock = 10_000; // the first prefix read uses up the budget
+      }
+      return runGit(invocation, options);
+    };
+    const result = await scanGitHistory(repo.root, {
+      runner,
+      maxBlobBytes: 200,
+      now: () => clock,
+      timeBudgetMs: 5_000,
+    });
+    expect(prefixReads).toBe(1);
+    expectUnknown(result);
+  });
+
   it("does not search once the time budget is used up", async () => {
     const repo = fixture();
     repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
