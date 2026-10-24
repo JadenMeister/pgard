@@ -325,7 +325,6 @@ Open this private session URL in your browser (valid until you stop the dashboar
 - [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다.
 - [#46](https://github.com/JadenMeister/pgard/issues/46) 취약점 데이터베이스의 배포·갱신 방식이 정해지지 않았습니다.
 - [#47](https://github.com/JadenMeister/pgard/issues/47) squash merge와 공동 작성 기여는 보수적으로 처리합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않습니다.
-- [#117](https://github.com/JadenMeister/pgard/issues/117) PGARD 자체의 테스트 파일은 아직 타입 검사를 하지 않으며, 한 테스트의 timeout이 동작하지 않습니다.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) 키체인 로그인 리뷰의 후속 작업: 키체인 저장과 삭제 사이의 짧은 경쟁 상태, 토큰 갱신 중 대시보드 세션만 끝내는 로그아웃을 하면 다음 사용 때 새 device 코드를 요구할 수 있는 문제, `pgard login`으로 계정을 바꾼 뒤에도 대시보드가 이전 계정의 포트 접근을 최대 30분 유지하는 문제(검사는 권한을 다시 확인함).
 - [#145](https://github.com/JadenMeister/pgard/issues/145) 비밀정보 탐지가 일부 형태를 놓칩니다. 예: 템플릿 리터럴, TypeScript 타입 표기가 붙은 선언, Go `:=` 선언, `postgres://` URL 속 자격 증명, `headers["x-api-key"] = "..."` 같은 인덱스 대입.
 - 탐지는 완전하지 않습니다. 발견 항목이 없다고 프로젝트가 안전한 것은 아닙니다.

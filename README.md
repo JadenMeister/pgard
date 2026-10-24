@@ -325,7 +325,6 @@ How the dashboard protects itself:
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available.
 - [#46](https://github.com/JadenMeister/pgard/issues/46) How the advisory database is distributed and updated is undecided.
 - [#47](https://github.com/JadenMeister/pgard/issues/47) Squash-merged and co-authored contributions are handled conservatively: co-author trailers and unsigned direct pushes do not count as contribution.
-- [#117](https://github.com/JadenMeister/pgard/issues/117) PGARD's own test files are not type-checked yet, and one test's timeout never fires.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) Follow-ups from the keychain sign-in review: narrow races between a keychain save and a removal; a session-only dashboard sign-out during a token refresh can make the next use ask for a new device code; and after `pgard login` switches accounts, the dashboard keeps the previous account's port access for up to 30 minutes (scans still re-check authorization).
 - [#145](https://github.com/JadenMeister/pgard/issues/145) Secret detection misses some forms, for example template literals, TypeScript type-annotated declarations, Go `:=` declarations, credentials in `postgres://` URLs and index assignments such as `headers["x-api-key"] = "..."`.
 - Detection is not complete. Missing findings do not mean the project is secure.
