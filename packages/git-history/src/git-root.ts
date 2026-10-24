@@ -9,7 +9,9 @@ export async function findGitRoot(
   runner: GitRunner = defaultRunGit,
 ): Promise<string | null> {
   try {
-    const output = (await runner(["rev-parse", "--show-toplevel"], { cwd })).trim();
+    const output = (
+      await runner({ subcommand: "rev-parse", flags: ["--show-toplevel"] }, { cwd })
+    ).trim();
     return output.length > 0 ? output : null;
   } catch {
     return null;
