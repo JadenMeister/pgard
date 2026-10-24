@@ -611,19 +611,24 @@ export function analyzeJsSource(
     if (evidence) report("PG-PATH-001", call, evidence, name);
   };
 
-  // Function text is computed once per function (not once per call site) to keep large files linear.
-  const functionTextCache = new Map<ts.Node, string>();
-  const enclosingFunctionText = (node: ts.Node): string => {
+  // Per-function facts are computed once per function (not once per call site), so files with
+  // many call sites stay linear.
+  const functionFactCache = new Map<ts.Node, { hasHashing: boolean; updatesPassword: boolean }>();
+  const enclosingFunctionFacts = (node: ts.Node) => {
     let current: ts.Node | undefined = node.parent;
     while (current && !ts.isFunctionLike(current) && !ts.isSourceFile(current))
       current = current.parent;
     const owner = current ?? sourceFile;
-    let text = functionTextCache.get(owner);
-    if (text === undefined) {
-      text = owner.getText(sourceFile);
-      functionTextCache.set(owner, text);
+    let facts = functionFactCache.get(owner);
+    if (facts === undefined) {
+      const text = owner.getText(sourceFile);
+      facts = {
+        hasHashing: HASHING_TEXT.test(text),
+        updatesPassword: /\.update\([^)]{0,200}(pass(word)?|pwd)/i.test(text),
+      };
+      functionFactCache.set(owner, facts);
     }
-    return text;
+    return facts;
   };
 
   const literalValue = (expression: ts.Expression | undefined): "literal" | "fallback" | null => {
@@ -684,9 +689,10 @@ export function analyzeJsSource(
         ts.isStringLiteralLike(unwrap(algorithm)) &&
         /^(md5|sha1)$/i.test((unwrap(algorithm) as ts.StringLiteral).text)
       ) {
-        const chain = call.parent?.parent?.parent?.getText(sourceFile) ?? "";
-        const functionText = enclosingFunctionText(call);
-        if (PASSWORD_TEXT.test(chain) || /\.update\([^)]*(pass(word)?|pwd)/i.test(functionText)) {
+        const chainNode = call.parent?.parent?.parent;
+        const chain =
+          chainNode && chainNode.getWidth(sourceFile) < 2000 ? chainNode.getText(sourceFile) : "";
+        if (PASSWORD_TEXT.test(chain) || enclosingFunctionFacts(call).updatesPassword) {
           report(
             "PG-CRYPTO-001",
             call,
@@ -903,7 +909,7 @@ export function analyzeJsSource(
         }
       }
       if (!call || !PERSIST_METHODS.has(calleeName(call) ?? "")) continue;
-      if (HASHING_TEXT.test(enclosingFunctionText(call))) continue;
+      if (enclosingFunctionFacts(call).hasHashing) continue;
       report(
         "PG-AUTH-001",
         property,

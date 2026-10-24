@@ -332,3 +332,26 @@ describe("facts and robustness", () => {
     expect(findings[0]?.line).toBe(13);
   });
 });
+
+describe("per-function facts stay linear (#104)", () => {
+  it("analyzes many crypto and persistence call sites in one large function quickly", () => {
+    const body = Array.from(
+      { length: 6000 },
+      (_, index) =>
+        `  crypto.createHash("md5").update(x${index}); await User.create({ password: req.body.p${index} });`,
+    ).join("\n");
+    const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
+    expect(code.length).toBeGreaterThan(400_000);
+    const start = performance.now();
+    analyzeJsSource(code, "big.js");
+    expect(performance.now() - start).toBeLessThan(5000);
+  });
+
+  it("still detects MD5 of passwords via update() in the same function", () => {
+    const rules = analyzeJsSource(
+      "import crypto from 'crypto'; function f(password) { const h = crypto.createHash('md5'); h.update(password); }",
+      "a.js",
+    ).findings.map((f) => f.ruleId);
+    expect(rules).toEqual(["PG-CRYPTO-001"]);
+  });
+});
