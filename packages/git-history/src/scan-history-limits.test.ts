@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GitCommandError, runGit, type GitRunner } from "./run-git.js";
-import { decodeGitPath, scanGitHistory } from "./scan-history.js";
+import { decodeGitPath, formatByteLimit, scanGitHistory } from "./scan-history.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
 const join = (...parts: string[]) => parts.join("");
@@ -595,9 +595,18 @@ describe("binary and skipped current files (#136)", () => {
     const result = await scanGitHistory(repo.root, { maxBlobBytes: 200 });
     expect(removedSecret(result)?.evidence).toMatch(/no longer present/);
     expect(commitsArea(result)?.status).toBe("completed");
-    // The skipped file is still reported as not scanned.
+    // The skipped file is still reported as not scanned, with a limit that is not "0 KiB".
     const tracked = result.coverage.find((entry) => entry.area === "history:tracked-files");
     expect(tracked?.status).toBe("partial");
+    expect(tracked?.note).toContain("1 file(s) over 200 bytes skipped");
+  });
+
+  it("formats size limits without rounding small ones to 0 KiB", () => {
+    expect(formatByteLimit(200)).toBe("200 bytes");
+    expect(formatByteLimit(1023)).toBe("1023 bytes");
+    expect(formatByteLimit(1024)).toBe("1 KiB");
+    expect(formatByteLimit(1536)).toBe("1.5 KiB");
+    expect(formatByteLimit(1024 * 1024)).toBe("1024 KiB");
   });
 
   it("claims removal when files skipped after the read budget do not hold the value", async () => {

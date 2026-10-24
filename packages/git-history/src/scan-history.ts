@@ -439,6 +439,12 @@ function assessment(kind: DetectedSecretKind): {
     : { severity: "high", status: "suspected", confidence: "medium" };
 }
 
+/** `200 bytes`, `1.5 KiB`, `1024 KiB`: never rounds a small limit down to "0 KiB". */
+export function formatByteLimit(bytes: number): string {
+  if (bytes < 1024) return `${bytes} bytes`;
+  return `${Number((bytes / 1024).toFixed(1))} KiB`;
+}
+
 function skipNotes(
   read: { skippedLarge: number; skippedBudget: number; skippedBinary: number },
   maxBlobBytes: number,
@@ -447,7 +453,7 @@ function skipNotes(
   return {
     problems: [
       ...(read.skippedLarge > 0
-        ? [`${read.skippedLarge} ${noun}(s) over ${Math.round(maxBlobBytes / 1024)} KiB skipped`]
+        ? [`${read.skippedLarge} ${noun}(s) over ${formatByteLimit(maxBlobBytes)} skipped`]
         : []),
       ...(read.skippedBudget > 0
         ? [`${read.skippedBudget} ${noun}(s) skipped after the read budget was used`]
