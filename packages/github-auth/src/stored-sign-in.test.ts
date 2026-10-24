@@ -125,7 +125,7 @@ async function storeWith(
 function makeProvider(
   github: ReturnType<typeof fakeGitHub>,
   store: CredentialStore | null,
-  extra: { clientId?: string; now?: () => number } = {},
+  extra: { clientId?: string; now?: () => number; sleep?: (ms: number) => Promise<void> } = {},
 ) {
   const notices: SignInNotice[] = [];
   const userCodes: string[] = [];
@@ -137,7 +137,7 @@ function makeProvider(
     credentialStore: store,
     onNotice: (notice) => notices.push(notice),
     fetch: github.fetch,
-    sleep: async () => {},
+    sleep: extra.sleep ?? (async () => {}),
     now: extra.now ?? (() => START),
   });
   return { provider, notices, userCodes };
@@ -247,6 +247,27 @@ describe("stored sign-in reuse", () => {
     await provider();
     expect(userCodes).toEqual([]);
     expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+  });
+
+  it("waits briefly for a racing refresh to be saved before deleting the entry", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const waits: number[] = [];
+    // The other process refreshed first but saves its rotated tokens only a moment later.
+    const sleep = async (ms: number) => {
+      waits.push(ms);
+      await store.set(
+        KEY,
+        storedRecord({ accessToken: REFRESHED_TOKEN, refreshToken: REFRESHED_REFRESH }),
+      );
+    };
+    const github = fakeGitHub();
+    const { provider, notices, userCodes } = makeProvider(github, store, { sleep });
+    await provider();
+    expect(waits).toHaveLength(1);
+    expect(waits[0]).toBeGreaterThan(0);
+    expect(userCodes).toEqual([]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(REFRESHED_TOKEN);
   });
 
   it("deletes a revoked (401) entry and runs the device flow in the same call", async () => {

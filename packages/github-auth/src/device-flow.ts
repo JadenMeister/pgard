@@ -45,7 +45,8 @@ interface DeviceCodeGrant {
   interval: number;
 }
 
-function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+/** Waits `ms`; rejects with `cancelled` when `signal` aborts. Not exported from the package. */
+export function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     if (signal?.aborted) {
       reject(new GitHubAuthError("cancelled", "GitHub sign-in was cancelled."));

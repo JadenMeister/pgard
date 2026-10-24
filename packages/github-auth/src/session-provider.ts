@@ -2,6 +2,7 @@ import { isCredentialStoreError, type CredentialStore } from "./credential-store
 import {
   createGitHubSession,
   createSessionFromToken,
+  defaultSleep,
   refreshUserToken,
   requestDeviceFlowTokens,
   type DeviceFlowOptions,
@@ -67,6 +68,11 @@ export interface DeviceFlowSessionProviderOptions {
 
 /** A session is renewed this long before its token expires. */
 const EXPIRY_MARGIN_MS = 60_000;
+/**
+ * After GitHub rejects a refresh token, how long to wait for another PGARD process that may
+ * have just refreshed (and rotated) it to save the new tokens, before deleting the entry.
+ */
+const REFRESH_RACE_WAIT_MS = 1_500;
 
 /**
  * Wraps every client method so an `unauthorized` response clears the cached session, and so a
@@ -190,6 +196,7 @@ export function createDeviceFlowSessionProvider(
   options: DeviceFlowSessionProviderOptions,
 ): GitHubSessionProvider {
   const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? defaultSleep;
   const host = githubHostOf();
   const notify = (notice: SignInNotice): void => options.onNotice?.(notice);
   let store: CredentialStore | null = options.credentialStore ?? null;
@@ -264,15 +271,24 @@ export function createDeviceFlowSessionProvider(
         isRefreshed = true;
       } catch (error) {
         if (!isRejectedRefresh(error)) throw error;
-        // Another PGARD process may have refreshed first (GitHub rotates refresh tokens);
+        // Another PGARD process may have refreshed first (GitHub rotates refresh tokens) and
+        // not have saved the new tokens yet. Reload now and once more after a short wait, and
         // reuse what it stored instead of deleting a valid entry.
-        if (!isRetry) {
-          const reloaded = await loadStoredSignIn(current, host, record.clientId);
-          if (reloaded.kind === "found" && reloaded.record.refreshToken !== record.refreshToken) {
-            return tryStored(current, reloaded.record, true);
+        const waits = isRetry ? [0] : [0, REFRESH_RACE_WAIT_MS];
+        let latest: StoredSignInRecord | null = null;
+        for (const wait of waits) {
+          if (wait > 0) await sleep(wait, options.signal);
+          const reloaded = await loadStoredSignIn(current, host, record.clientId, {
+            deleteMalformed: false,
+          });
+          // Gone (or unreadable): someone else removed it, so there is nothing to delete.
+          if (reloaded.kind !== "found") return null;
+          latest = reloaded.record;
+          if (latest.refreshToken !== record.refreshToken) {
+            return isRetry ? null : tryStored(current, latest, true);
           }
         }
-        await drop(record.clientId, "refresh_failed");
+        if (latest !== null) await drop(record.clientId, "refresh_failed");
         return null;
       }
     }
