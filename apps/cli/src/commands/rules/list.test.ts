@@ -67,6 +67,18 @@ describe("runRulesList", () => {
     expect(stdout).toContain("PG-WEB-001");
   });
 
+  it("says that react and vue include the JavaScript/TypeScript rules", async () => {
+    const react = await runList("react");
+    expect(react).toContain(
+      "Language filter: react (javascript/typescript rules and rules for any language are included)",
+    );
+    expect(react).toContain("PG-SQL-001");
+    expect(react).toContain("PG-XSS-002");
+    expect(await runList("go")).toContain(
+      "Language filter: go (rules for any language are included)",
+    );
+  });
+
   it("is deterministic", async () => {
     expect(await runList("ts")).toBe(await runList("ts"));
   });
@@ -167,7 +179,21 @@ describe("filterRulesByLanguage", () => {
     expect(react).toContain("PG-XSS-002");
     expect(react).not.toContain("PG-XSS-003");
     expect(vue).toContain("PG-XSS-003");
+    expect(vue).not.toContain("PG-XSS-002");
     expect(vue).toContain("PG-SECRET-002");
+  });
+
+  it("includes the JavaScript/TypeScript rules for react and vue, but not Go rules", () => {
+    const jsTs = new Set([
+      ...filterRulesByLanguage(rules, "js").map((rule) => rule.id),
+      ...filterRulesByLanguage(rules, "ts").map((rule) => rule.id),
+    ]);
+    for (const language of ["react", "vue"] as const) {
+      const ids = filterRulesByLanguage(rules, language).map((rule) => rule.id);
+      for (const id of jsTs) expect(ids).toContain(id);
+      expect(ids).toContain("PG-SQL-001");
+      expect(ids).not.toContain("PG-SQL-003");
+    }
   });
 
   it("returns every rule without a filter", () => {

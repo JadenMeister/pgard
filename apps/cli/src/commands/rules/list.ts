@@ -25,14 +25,24 @@ export const UNSUPPORTED_AREAS = [
  */
 export const RULE_CRITERIA_VERSION = "2026.10-mvp";
 
-/** `--language` value -> catalog language. Rules tagged "any" always match. */
-export const LANGUAGE_FILTER: Readonly<Record<RuleLanguage, CatalogLanguage>> = {
-  js: "javascript",
-  ts: "typescript",
-  react: "react",
-  vue: "vue",
-  go: "go",
+/**
+ * `--language` value -> catalog languages it selects. Rules tagged "any" always match. React and
+ * Vue projects are JavaScript/TypeScript projects too, so they also get the JS/TS rules.
+ */
+export const LANGUAGE_FILTER: Readonly<Record<RuleLanguage, readonly CatalogLanguage[]>> = {
+  js: ["javascript"],
+  ts: ["typescript"],
+  react: ["react", "javascript", "typescript"],
+  vue: ["vue", "javascript", "typescript"],
+  go: ["go"],
 };
+
+/** The filter line under the header, naming every catalog language the filter includes. */
+export function describeLanguageFilter(language: RuleLanguage): string {
+  const extra = LANGUAGE_FILTER[language].slice(1);
+  const included = extra.length > 0 ? `${extra.join("/")} rules and ` : "";
+  return `Language filter: ${language} (${included}rules for any language are included)`;
+}
 
 const SCOPE_HEADINGS: ReadonlyArray<{ scope: RuleDescriptor["scope"]; heading: string }> = [
   { scope: "code", heading: "Code rules (current files)" },
@@ -70,7 +80,10 @@ export function filterRulesByLanguage(
 ): RuleDescriptor[] {
   if (language === null) return [...rules];
   const wanted = LANGUAGE_FILTER[language];
-  return rules.filter((rule) => rule.languages.includes(wanted) || rule.languages.includes("any"));
+  return rules.filter(
+    (rule) =>
+      rule.languages.includes("any") || rule.languages.some((entry) => wanted.includes(entry)),
+  );
 }
 
 function formatRule(rule: RuleDescriptor): string {
@@ -86,7 +99,7 @@ export async function runRulesList(
   const advisory = await readAdvisoryStatusSafely(deps, io.env);
   out(context, style.bold(`pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`));
   if (language !== null) {
-    out(context, style.dim(`Language filter: ${language} (rules for any language are included)`));
+    out(context, style.dim(describeLanguageFilter(language)));
   }
   const rules = filterRulesByLanguage(listSupportedRules(), language);
   for (const group of groupRulesByScope(rules)) {

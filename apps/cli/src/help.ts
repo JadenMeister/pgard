@@ -86,6 +86,7 @@ ${EXIT_CODE_HELP}`,
   pgard rules list [--language js|ts|react|vue|go]
 
 Lists supported rules, the advisory data version and unsupported areas.
+--language react and vue also include the JavaScript/TypeScript rules.
 Works outside a project.`,
   doctor: `Usage:
   pgard doctor
