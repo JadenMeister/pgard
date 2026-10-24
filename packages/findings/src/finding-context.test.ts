@@ -44,6 +44,9 @@ describe("isTestOrFixturePath", () => {
     "spec/fixtures/.env",
     "internal/testdata/config.toml",
     "src/__tests__/settings.json",
+    "tests/test_settings_loader.py",
+    "tests/test_settings.py",
+    "fixtures/Dockerfile",
   ])("classifies %s as test or fixture code", (path) => {
     expect(isTestOrFixturePath(path)).toBe(true);
   });
@@ -70,6 +73,15 @@ describe("isTestOrFixturePath", () => {
     "config/test/app.ini",
     "config/tests/app.toml",
     "config/test/secrets.json",
+    "deploy/test/Dockerfile",
+    "deploy/test/Dockerfile.api",
+    "deploy/test/.npmrc",
+    "deploy/test/nginx.conf",
+    "deploy/test/app.cfg",
+    "deploy/test/web.xml",
+    "deploy/test/settings.py",
+    "deploy/test/local_settings.py",
+    "deploy/test/config.py",
   ])("keeps %s as regular code", (path) => {
     expect(isTestOrFixturePath(path)).toBe(false);
   });

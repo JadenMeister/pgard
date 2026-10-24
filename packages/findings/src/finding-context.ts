@@ -21,7 +21,8 @@ const ENVIRONMENT_DIRECTORIES: ReadonlySet<string> = new Set(["test", "tests"]);
 const TEST_FILE_NAME = /\.(?:test|spec)\.[^./]+$|_test\.go$/i;
 
 /** Environment, config and infrastructure files: `.env*`, YAML, Terraform, properties, ... */
-const CONFIG_FILE_NAME = /^\.env(?:\..*)?$|\.(?:ya?ml|tf|tfvars|properties|ini|toml|json)$/i;
+const CONFIG_FILE_NAME =
+  /^\.env(?:\..*)?$|^\.npmrc$|^Dockerfile(?:\..*)?$|^(?!test_)(?:\w+_)?settings\.py$|^config\.py$|\.(?:ya?ml|tf|tfvars|properties|ini|toml|json|conf|cfg|xml)$/i;
 
 /**
  * Whether a repository-relative POSIX path is test or fixture code. Classification is by path
@@ -29,9 +30,10 @@ const CONFIG_FILE_NAME = /^\.env(?:\..*)?$|\.(?:ya?ml|tf|tfvars|properties|ini|t
  * - a `*.test.*`, `*.spec.*` or `*_test.go` file, or
  * - any file under a `__tests__/`, `__mocks__/`, `__fixtures__/`, `fixtures/` or `testdata/`
  *   directory, or
- * - a file under `test/` or `tests/`, except config files there (`.env*`, `.yml`/`.yaml`, `.tf`,
- *   `.tfvars`, `.properties`, `.ini`, `.toml`, `.json`), which may configure a real deployed
- *   test environment.
+ * - a file under `test/` or `tests/`, except config files there (`.env*`, `.npmrc`,
+ *   `Dockerfile*`, `settings.py`/`*_settings.py`/`config.py`, `.yml`/`.yaml`, `.tf`, `.tfvars`,
+ *   `.properties`, `.ini`, `.toml`, `.json`, `.conf`, `.cfg`, `.xml`), which may configure a real
+ *   deployed test environment.
  */
 export function isTestOrFixturePath(filePath: string | null): boolean {
   if (filePath === null || filePath === "") return false;
