@@ -12,6 +12,11 @@ export interface LockfileParseResult {
   error: string | null;
   /** Entries that cannot be compared with advisories (git/file/link/workspace, local replaces). */
   uncomparable?: number;
+  /**
+   * Set when the file was understood but is known not to list every resolved dependency (for
+   * example a go.mod before Go 1.17, which omits indirect dependencies).
+   */
+  incomplete?: string;
 }
 
 /** Version specifiers that do not name a registry release. */
@@ -99,6 +104,7 @@ export function parsePackageLock(text: string): LockfileParseResult {
 /** pnpm-lock.yaml (v5 `/name/1.0.0`, v6 `/name@1.0.0`, v9 `name@1.0.0`), read line by line. */
 export function parsePnpmLock(text: string): LockfileParseResult {
   const packages: ResolvedPackage[] = [];
+  let uncomparable = 0;
   let inPackages = false;
   let sawPackagesSection = false;
   for (const line of text.split(/\r?\n/)) {
@@ -120,18 +126,40 @@ export function parsePnpmLock(text: string): LockfileParseResult {
         name: parsed.name,
         version: parsed.version.replace(/_.*$/, ""),
       });
+    } else {
+      // Tarball, git and file: entries (and keys that cannot be read) have no registry version.
+      uncomparable += 1;
     }
   }
   if (!sawPackagesSection && text.trim().length > 0 && !/^lockfileVersion:/m.test(text)) {
-    return { packages: [], error: "pnpm-lock.yaml was not recognized" };
+    return { packages: [], error: "pnpm-lock.yaml was not recognized", uncomparable: 0 };
   }
-  return { packages: unique(packages), error: null };
+  return { packages: unique(packages), error: null, uncomparable };
+}
+
+/**
+ * Package name behind a Yarn Berry built-in patch (`resolve@patch:resolve@npm%3A^1.20.0#~builtin<compat/resolve>`,
+ * or `#optional!builtin<...>` in Yarn 4). Yarn applies these compatibility patches to registry
+ * packages itself, so the entry is that registry release. User patches (`#./patches/x.patch`)
+ * may change the code (including fixing a vulnerability) and non-registry sources cannot be
+ * compared; both return null.
+ */
+function builtinPatchTarget(source: string, patch: string): string | null {
+  if (!/^(~|optional!)builtin</.test(patch)) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(source);
+  } catch {
+    return null;
+  }
+  const match = /^((?:@[^/@]+\/)?[^/@]+)@(?:npm:)?([^@:]+)$/.exec(decoded);
+  return match?.[1] && /^[\^~<>=*\dv]/.test(match[2] ?? "") ? match[1] : null;
 }
 
 /**
  * yarn.lock v1 (`version "1.0.0"`) and Berry (`version: 1.0.0`). Aliases
- * (`alias@npm:real@^1`) resolve to the real package; git/file/link/workspace/patch entries are
- * counted as not comparable.
+ * (`alias@npm:real@^1`) and Berry built-in patches resolve to the real package;
+ * git/file/link/workspace and user-patch entries are counted as not comparable.
  */
 export function parseYarnLock(text: string): LockfileParseResult {
   const packages: ResolvedPackage[] = [];
@@ -145,6 +173,12 @@ export function parseYarnLock(text: string): LockfileParseResult {
       const firstSpec = line.replace(/:\s*$/, "").split(",")[0]?.trim().replace(/^"|"$/g, "") ?? "";
       currentName = null;
       if (firstSpec.startsWith("__metadata")) continue;
+      const patch = /^(?:@[^/@]+\/)?[^/@]+@patch:([^#]+)#(.*)$/.exec(firstSpec);
+      if (patch?.[1] && patch[2] !== undefined) {
+        currentName = builtinPatchTarget(patch[1], patch[2]);
+        if (currentName === null) uncomparable += 1;
+        continue;
+      }
       if (/@(workspace|patch|link|portal|file|git|github|exec):|#|\.git\b/.test(firstSpec)) {
         uncomparable += 1;
         continue;
@@ -189,9 +223,14 @@ export function parseGoMod(text: string): LockfileParseResult {
   }[] = [];
   let block: "require" | "replace" | null = null;
   let hasModuleLine = false;
+  let goDirective: { major: number; minor: number; text: string } | null = null;
   for (const raw of text.split(/\r?\n/)) {
     const line = raw.replace(/\/\/.*$/, "").trim();
     if (/^module\s+\S+/.test(line)) hasModuleLine = true;
+    const go = /^go\s+((\d+)\.(\d+)\S*)$/.exec(line);
+    if (go?.[1] && go[2] && go[3] && !block) {
+      goDirective = { major: Number(go[2]), minor: Number(go[3]), text: go[1] };
+    }
     const opening = /^(require|replace)\s*\($/.exec(line);
     if (opening) {
       block = opening[1] as "require" | "replace";
@@ -240,7 +279,21 @@ export function parseGoMod(text: string): LockfileParseResult {
       packages.push({ ecosystem: "Go", name: replacement.to, version: replacement.toVersion });
     }
   }
-  return { packages: unique(packages), error: null, uncomparable };
+  // Since Go 1.17 a go.mod lists every module the build needs; before that (and without a go
+  // directive, which Go treats as 1.16) indirect dependencies are left out.
+  const isPre117 =
+    goDirective === null ||
+    goDirective.major < 1 ||
+    (goDirective.major === 1 && goDirective.minor < 17);
+  const incomplete = isPre117
+    ? `${goDirective === null ? "no go directive (Go assumes 1.16)" : `go ${goDirective.text} is before 1.17`}, so indirect dependencies are not listed and were not checked`
+    : undefined;
+  return {
+    packages: unique(packages),
+    error: null,
+    uncomparable,
+    ...(incomplete ? { incomplete } : {}),
+  };
 }
 
 /** go.sum entries (used when no go.mod is present). `/go.mod` hash lines are ignored. */

@@ -10,7 +10,7 @@ import {
   parsePnpmLock,
   parseYarnLock,
 } from "./lockfiles.js";
-import { isVersionAffected, loadAdvisoryDb } from "./osv-db.js";
+import { isVersionAffected, loadAdvisoryDb, peekAdvisoryDb } from "./osv-db.js";
 import { scanDependencies } from "./scan-dependencies.js";
 import { compareVersions } from "./version.js";
 
@@ -255,7 +255,7 @@ describe("scanDependencies", () => {
           "node_modules/safe": { version: "1.0.0" },
         },
       }),
-      "services/api/go.mod": "module api\n\nrequire golang.org/x/text v0.3.7\n",
+      "services/api/go.mod": "module api\n\ngo 1.21\n\nrequire golang.org/x/text v0.3.7\n",
       "node_modules/lodash/package-lock.json": JSON.stringify({
         lockfileVersion: 3,
         packages: { "node_modules/lodash": { version: "1.0.0" } },
@@ -570,5 +570,233 @@ describe("package.json lockfile coverage (#114)", () => {
     );
     expect(npm?.status).toBe("not_tested");
     expect(npm?.note).toMatch(/p4\/package\.json and 2 more/);
+  });
+});
+
+describe("advisory database peek (#115)", () => {
+  const peekCoverage = async (location: string) => {
+    const root = tempDir({ "README.md": "x" });
+    const result = await scanDependencies(root, { env: { PGARD_ADVISORY_DB: location }, now });
+    return result.coverage.find((entry) => entry.area === "dependencies:advisory-db");
+  };
+
+  it("reports an empty database directory as not tested", async () => {
+    const dir = tempDir({ "notes.txt": "not a database" });
+    const entry = await peekCoverage(dir);
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/no OSV \.json files/);
+  });
+
+  it("reports a directory of non-OSV JSON as not tested", async () => {
+    const dir = tempDir({ "a/junk.json": JSON.stringify({ hello: "world" }) });
+    const entry = await peekCoverage(dir);
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/not valid OSV/);
+  });
+
+  it("marks a sampled directory as not fully validated", async () => {
+    const dir = tempDir({ "npm/GHSA-test-lodash.json": JSON.stringify(LODASH_ADVISORY) });
+    const status = await peekAdvisoryDb({ PGARD_ADVISORY_DB: dir }, now);
+    expect(status).toMatchObject({ status: "ok", validated: false, version: null });
+    expect(status.note).toMatch(/version and freshness were not verified/);
+  });
+
+  it("reports a valid directory DB as completed when there are no manifests", async () => {
+    const dir = tempDir({ "npm/GHSA-test-lodash.json": JSON.stringify(LODASH_ADVISORY) });
+    const entry = await peekCoverage(dir);
+    expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(/sample record is valid OSV/);
+  });
+
+  it("reports a large database file that starts like JSON as completed", async () => {
+    const dir = tempDir({
+      "big.json": `{"vulnerabilities": [${" ".repeat(8 * 1024 * 1024 + 1)}]}`,
+    });
+    const entry = await peekCoverage(path.join(dir, "big.json"));
+    expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(/Only its first bytes were checked; contents, version and/);
+    expect(entry?.note).not.toMatch(/valid OSV/);
+  });
+
+  it("reports a large junk database file as not tested", async () => {
+    const dir = tempDir({ "big.json": `${" ".repeat(10)}junk${"x".repeat(8 * 1024 * 1024)}` });
+    const entry = await peekCoverage(path.join(dir, "big.json"));
+    expect(entry?.status).toBe("not_tested");
+    expect(entry?.note).toMatch(/not a JSON array or object/);
+  });
+
+  it("still reports a small, fully loaded database as completed", async () => {
+    const status = await peekAdvisoryDb({ PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) }, now);
+    expect(status.status).toBe("ok");
+    expect(status.validated).not.toBe(false);
+  });
+});
+
+describe("pnpm entries that cannot be compared (#115)", () => {
+  const lock = [
+    "lockfileVersion: '9.0'",
+    "",
+    "packages:",
+    "",
+    "  lodash@4.17.21:",
+    "    resolution: {integrity: x}",
+    "",
+    "  tarball@https://example.com/tarball-1.0.0.tgz:",
+    "    resolution: {tarball: https://example.com/tarball-1.0.0.tgz}",
+    "",
+    "  fromgit@git+https://github.com/o/r.git#abc:",
+    "    resolution: {type: git}",
+    "",
+    "  local@file:../local:",
+    "    resolution: {directory: ../local, type: directory}",
+    "",
+  ].join("\n");
+
+  it("counts tarball, git and file: entries as uncomparable", () => {
+    const result = parsePnpmLock(lock);
+    expect(result.packages.map((p) => `${p.name}@${p.version}`)).toEqual(["lodash@4.17.21"]);
+    expect(result.uncomparable).toBe(3);
+  });
+
+  it("reports npm coverage as partial instead of completed", async () => {
+    const root = tempDir({ "pnpm-lock.yaml": lock });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    const npm = result.coverage.find((entry) => entry.area === "dependencies:npm");
+    expect(npm?.status).toBe("partial");
+    expect(npm?.note).toMatch(/3 dependency entries .* could not be compared/);
+  });
+});
+
+describe("Go manifests per directory (#115)", () => {
+  const goScan = (files: Record<string, string>) =>
+    scanDependencies(tempDir(files), {
+      env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) },
+      now,
+    });
+
+  it("uses a go.sum in a directory without go.mod even when another go.mod exists", async () => {
+    const result = await goScan({
+      "api/go.mod": "module api\n\ngo 1.21\n\nrequire example.com/safe v1.0.0\n",
+      "api/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+      "tool/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+    });
+    expect(result.findings.map((finding) => finding.location.path)).toEqual(["tool/go.sum"]);
+    const go = result.coverage.find((entry) => entry.area === "dependencies:go");
+    expect(go?.note).toContain("api/go.mod, tool/go.sum");
+    expect(go?.note).not.toContain("api/go.sum");
+  });
+});
+
+describe("go.mod before Go 1.17 (#115)", () => {
+  const goCoverage = async (goMod: string) => {
+    const result = await scanDependencies(tempDir({ "go.mod": goMod }), {
+      env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) },
+      now,
+    });
+    return result.coverage.find((entry) => entry.area === "dependencies:go");
+  };
+
+  it("marks Go coverage partial for a go 1.16 module", async () => {
+    const go = await goCoverage("module x\n\ngo 1.16\n\nrequire example.com/a v1.0.0\n");
+    expect(go?.status).toBe("partial");
+    expect(go?.note).toMatch(/go\.mod: go 1\.16 is before 1\.17, so indirect dependencies/);
+  });
+
+  it("marks Go coverage partial when the go directive is missing", async () => {
+    const go = await goCoverage("module x\n\nrequire example.com/a v1.0.0\n");
+    expect(go?.status).toBe("partial");
+    expect(go?.note).toMatch(/no go directive/);
+  });
+
+  it("ignores fixture modules under testdata", async () => {
+    const result = await scanDependencies(
+      tempDir({
+        "go.mod": "module x\n\ngo 1.21\n\nrequire example.com/a v1.0.0\n",
+        "internal/testdata/fixture/go.mod": "module fixture\n\nrequire golang.org/x/text v0.3.7\n",
+        "testdata/go.sum": "golang.org/x/text v0.3.7 h1:abc=\n",
+      }),
+      { env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) }, now },
+    );
+    expect(result.findings).toEqual([]);
+    const go = result.coverage.find((entry) => entry.area === "dependencies:go");
+    expect(go?.status).toBe("completed");
+    expect(go?.note).toContain("from go.mod compared");
+  });
+
+  it("still scans real nested modules under _ and . directories", async () => {
+    const vulnerable = "go 1.21\n\nrequire golang.org/x/text v0.3.0\n";
+    const result = await scanDependencies(
+      tempDir({
+        "_tools/go.mod": `module tools\n\n${vulnerable}`,
+        ".tools/go.mod": `module dottools\n\n${vulnerable}`,
+      }),
+      { env: { PGARD_ADVISORY_DB: dbFile([GO_ADVISORY]) }, now },
+    );
+    expect(result.findings.map((finding) => finding.location.path).sort()).toEqual([
+      ".tools/go.mod",
+      "_tools/go.mod",
+    ]);
+  });
+
+  it("keeps Go 1.17+ modules completed", async () => {
+    expect(
+      (await goCoverage("module x\n\ngo 1.17\n\nrequire example.com/a v1.0.0\n"))?.status,
+    ).toBe("completed");
+    expect(parseGoMod("module x\n\ngo 1.22.3\n").incomplete).toBeUndefined();
+  });
+});
+
+describe("Yarn Berry patches (#115)", () => {
+  const berry = [
+    "__metadata:",
+    "  version: 8",
+    "",
+    '"lodash@npm:^4.17.0":',
+    "  version: 4.17.20",
+    '  resolution: "lodash@npm:4.17.20"',
+    "",
+    '"lodash@patch:lodash@npm%3A^4.17.0#~builtin<compat/lodash>":',
+    "  version: 4.17.20",
+    '  resolution: "lodash@patch:lodash@npm%3A4.17.20#~builtin<compat/lodash>::version=4.17.20&hash=1"',
+    "",
+    '"@types/x@patch:@types/x@npm%3A1.2.3#optional!builtin<compat/x>":',
+    "  version: 1.2.3",
+    '  resolution: "@types/x@patch:@types/x@npm%3A1.2.3#optional!builtin<compat/x>::version=1.2.3&hash=2"',
+    "",
+    '"left-pad@patch:left-pad@npm%3A1.0.0#./patches/left-pad.patch::locator=app%40workspace%3A.":',
+    "  version: 1.0.0",
+    '  resolution: "left-pad@patch:left-pad@npm%3A1.0.0#./patches/left-pad.patch::version=1.0.0&hash=3"',
+    "",
+  ].join("\n");
+
+  it("resolves built-in patches to the underlying package and keeps user patches uncomparable", () => {
+    const result = parseYarnLock(berry);
+    expect(result.packages.map((p) => `${p.name}@${p.version}`)).toEqual([
+      "lodash@4.17.20",
+      "@types/x@1.2.3",
+    ]);
+    expect(result.uncomparable).toBe(1);
+  });
+
+  it("matches advisories through a built-in patch without making coverage partial", async () => {
+    const root = tempDir({
+      "yarn.lock": [
+        "__metadata:",
+        "  version: 8",
+        "",
+        '"lodash@patch:lodash@npm%3A^4.17.0#~builtin<compat/lodash>":',
+        "  version: 4.17.20",
+        "",
+      ].join("\n"),
+    });
+    const result = await scanDependencies(root, {
+      env: { PGARD_ADVISORY_DB: dbFile([LODASH_ADVISORY]) },
+      now,
+    });
+    expect(result.findings.map((finding) => finding.ruleId)).toEqual(["PG-DEP-001"]);
+    expect(result.coverage.find((e) => e.area === "dependencies:npm")?.status).toBe("completed");
   });
 });

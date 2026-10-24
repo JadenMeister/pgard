@@ -67,7 +67,11 @@ interface Manifests {
 
 async function findManifests(root: string): Promise<Manifests> {
   const result: Manifests = { npmLockfiles: [], packageJsons: [], goMods: [], goSums: [] };
-  const visit = async (directory: string, depth: number) => {
+  // Modules under `testdata` are test fixtures, never built, so they are skipped for Go (npm
+  // discovery is unchanged). `_`/`.` directories are still scanned: although package patterns
+  // skip them, they often hold real nested modules (e.g. `_tools/go.mod`) that can be built.
+  const isGoIgnoredDirectory = (name: string) => name === "testdata";
+  const visit = async (directory: string, depth: number, isGoIgnored: boolean) => {
     let entries;
     try {
       entries = await readdir(directory, { withFileTypes: true });
@@ -80,16 +84,18 @@ async function findManifests(root: string): Promise<Manifests> {
       const full = path.join(directory, entry.name);
       const relative = path.relative(root, full).split(path.sep).join("/");
       if (entry.isDirectory()) {
-        if (!SKIPPED.has(entry.name) && depth < MAX_DEPTH) await visit(full, depth + 1);
+        if (!SKIPPED.has(entry.name) && depth < MAX_DEPTH) {
+          await visit(full, depth + 1, isGoIgnored || isGoIgnoredDirectory(entry.name));
+        }
       } else if (entry.isFile()) {
         if (NPM_LOCKFILES[entry.name]) result.npmLockfiles.push(relative);
         else if (entry.name === "package.json") result.packageJsons.push(relative);
-        else if (entry.name === "go.mod") result.goMods.push(relative);
-        else if (entry.name === "go.sum") result.goSums.push(relative);
+        else if (entry.name === "go.mod" && !isGoIgnored) result.goMods.push(relative);
+        else if (entry.name === "go.sum" && !isGoIgnored) result.goSums.push(relative);
       }
     }
   };
-  await visit(root, 0);
+  await visit(root, 0, false);
   return result;
 }
 
@@ -173,7 +179,13 @@ export async function scanDependencies(
   throwIfAborted(options.signal);
   const findings: Finding[] = [];
   const coverage: Coverage[] = [];
-  const goFiles = manifests.goMods.length > 0 ? manifests.goMods : manifests.goSums;
+  // go.mod vs go.sum is chosen per directory: a module's go.mod lists its selected versions,
+  // and a go.sum is only used where no go.mod sits beside it.
+  const goModDirectories = new Set(manifests.goMods.map((file) => path.posix.dirname(file)));
+  const goFiles = [
+    ...manifests.goMods,
+    ...manifests.goSums.filter((file) => !goModDirectories.has(path.posix.dirname(file))),
+  ];
   // The database is only loaded when there is something to compare (it can be large).
   const hasManifests =
     manifests.npmLockfiles.length > 0 || goFiles.length > 0 || manifests.packageJsons.length > 0;
@@ -205,6 +217,7 @@ export async function scanDependencies(
       }
       const result = parse(file)(text);
       if (result.error) errors.push(`${file}: ${result.error}`);
+      if (result.incomplete) errors.push(`${file}: ${result.incomplete}`);
       uncomparable += result.uncomparable ?? 0;
       resolved.push({ file, packages: result.packages });
     }
@@ -349,10 +362,12 @@ export async function scanDependencies(
       ? {
           area: "dependencies:advisory-db",
           scope: "code",
+          // Nothing needed comparing, so a database that passed the cheap check is enough here;
+          // only missing/invalid (or stale) data downgrades this area.
           status:
-            peek === null || peek.status === "ok"
+            peek?.status === "ok"
               ? "completed"
-              : peek.status === "stale"
+              : peek?.status === "stale"
                 ? "partial"
                 : "not_tested",
           ruleIds: [],
