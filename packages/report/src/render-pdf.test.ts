@@ -9,6 +9,18 @@ describe("renderPdfReport", () => {
     expect(pdf.length).toBeGreaterThan(1000);
   });
 
+  it("renders a result with test or fixture findings", async () => {
+    const pdf = await renderPdfReport(
+      scanResult({
+        findings: [
+          finding({ id: "t1", context: "test", confidence: "low" }),
+          ...scanResult().findings,
+        ],
+      }),
+    );
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
   it("replaces characters the built-in fonts cannot encode", () => {
     expect(toPdfText("ok \u001b[31m \u4e2d")).toBe("ok ?[31m ?");
   });

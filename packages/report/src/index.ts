@@ -2,7 +2,9 @@ export { escapeHtml, markInvisibleCharacters } from "./escape-html.js";
 export {
   countFindingsBySeverity,
   formatAdvisoryDb,
+  formatFindingSummary,
   formatLocation,
+  groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
@@ -13,6 +15,8 @@ export {
   severityColor,
   sortFindings,
   summarizeStatusSplit,
+  TEST_FINDINGS_NOTE,
+  TEST_FINDINGS_TITLE,
   truncateField,
   TRUNCATION_MARKER,
   type SeverityCounts,
