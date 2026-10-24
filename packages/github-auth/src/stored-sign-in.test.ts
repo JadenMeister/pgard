@@ -394,6 +394,72 @@ describe("stored sign-in reuse", () => {
     expect(lastUserCall?.init.headers.Authorization).toBe(`Bearer ${NEW_TOKEN}`);
   });
 
+  it("does not save a device-flow sign-in that finished after sign-out and removal", async () => {
+    const store = await storeWith(null);
+    const controller = new AbortController();
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    let signOutAndRemove = async () => {};
+    const fetch: FetchLike = async (url, init) => {
+      // The user clicks "Sign out and remove from OS keychain" while GET /user is in flight.
+      if (url.endsWith("/user")) await signOutAndRemove();
+      return github.fetch(url, init);
+    };
+    const notices: SignInNotice[] = [];
+    const provider = createDeviceFlowSessionProvider({
+      clientId: CLIENT_ID,
+      onUserCode: () => {},
+      credentialStore: store,
+      onNotice: (notice) => notices.push(notice),
+      fetch,
+      signal: controller.signal,
+      sleep: async () => {},
+      now: () => START,
+    });
+    signOutAndRemove = async () => {
+      controller.abort();
+      provider.signOut();
+      await removeStoredSignIn(store, CLIENT_ID);
+    };
+    await provider().catch(() => null);
+    expect(store.size()).toBe(0);
+    expect(notices).not.toContainEqual({ kind: "saved", login: "octo" });
+  });
+
+  it("does not write refreshed tokens back after the entry was removed by sign-out", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    let signOutAndRemove = async () => {};
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/user")) await signOutAndRemove();
+      return github.fetch(url, init);
+    };
+    const { provider } = makeProvider({ ...github, fetch }, store);
+    signOutAndRemove = async () => {
+      provider.signOut();
+      await removeStoredSignIn(store, CLIENT_ID);
+    };
+    await provider().catch(() => null);
+    expect(store.size()).toBe(0);
+  });
+
+  it("still saves refreshed tokens over the spent entry after a session-only sign-out", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    let signOut = () => {};
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/user")) signOut();
+      return github.fetch(url, init);
+    };
+    const { provider } = makeProvider({ ...github, fetch }, store);
+    signOut = () => provider.signOut();
+    await provider().catch(() => null);
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").refreshToken).toBe(REFRESHED_REFRESH);
+  });
+
   it("never reuses a sign-in stored for another App client id", async () => {
     const store = await storeWith(storedRecord());
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });

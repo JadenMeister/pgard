@@ -216,6 +216,21 @@ export function createDeviceFlowSessionProvider(
     generation += 1;
   };
 
+  /** The sign-in that `myGeneration` started was signed out, invalidated or aborted. */
+  const isStale = (myGeneration: number): boolean =>
+    generation !== myGeneration || options.signal?.aborted === true;
+
+  const entryStillHolds = async (
+    current: CredentialStore,
+    record: StoredSignInRecord,
+    field: "accessToken" | "refreshToken",
+  ): Promise<boolean> => {
+    const loaded = await loadStoredSignIn(current, host, record.clientId, {
+      deleteMalformed: false,
+    });
+    return loaded.kind === "found" && loaded.record[field] === record[field];
+  };
+
   const markStored = (myGeneration: number, accessToken: string): void => {
     if (store !== null && generation === myGeneration) {
       storedToken = { generation: myGeneration, accessToken };
@@ -349,7 +364,12 @@ export function createDeviceFlowSessionProvider(
       if (reloaded.kind === "found") await drop(record.clientId, "revoked");
       return null;
     }
-    if (reused.isRefreshed) {
+    // Signed out (or aborted) meanwhile: write the rotated tokens back only over the entry whose
+    // refresh token was just spent. If the user removed the entry, it stays removed.
+    if (
+      reused.isRefreshed &&
+      (!isStale(myGeneration) || (await entryStillHolds(current, record, "refreshToken")))
+    ) {
       const failure = await saveStoredSignIn(
         current,
         toRecord(reused.tokens, user, host, record.clientId, now()),
@@ -382,14 +402,16 @@ export function createDeviceFlowSessionProvider(
     const tokens = await requestDeviceFlowTokens(deviceFlowOptions(options, clientId));
     const session = createSessionFromToken(tokens.accessToken, tokens.expiresAt, options);
     current = store;
-    if (current !== null) {
+    // A sign-out ("Sign out and remove from OS keychain") while the device flow finished must
+    // not be undone by saving this sign-in afterwards; the check is repeated right before saving.
+    if (current !== null && !isStale(myGeneration)) {
       let user: GitHubUser | null = null;
       try {
         user = await session.client.getAuthenticatedUser();
       } catch {
         // The gate looks the user up again and reports the error; nothing is saved.
       }
-      if (user !== null) {
+      if (user !== null && !isStale(myGeneration)) {
         const failure = await saveStoredSignIn(
           current,
           toRecord(tokens, user, host, clientId, now()),
