@@ -223,8 +223,11 @@ export const MAX_REDACTION_INPUT = 64 * 1024;
 export function capText(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const cut = text.slice(0, limit);
-  const lastSpace = cut.search(/\s\S*$/);
-  return `${lastSpace > 0 ? cut.slice(0, lastSpace) : ""} …`;
+  // Cut after the last character that cannot be part of a token (whitespace or punctuation such
+  // as `;` in a minified line), so the dropped tail holds the whole token that straddled the
+  // limit and useful evidence before it is kept.
+  const lastBreak = cut.search(/[^A-Za-z0-9_\-+/=.~%][A-Za-z0-9_\-+/=.~%]*$/);
+  return lastBreak >= 0 ? `${cut.slice(0, lastBreak + 1).trimEnd()} …` : " …";
 }
 
 /** Replaces recognizable secret values in free text with `[REDACTED:<kind>]`. */

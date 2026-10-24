@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "./contract.js";
 import {
+  capText,
   createSessionSecretLabeler,
   redactEvidence,
   redactFinding,
@@ -321,6 +322,21 @@ describe("redaction performance (#55)", () => {
   ])("redacts adversarial input (%s) quickly", (_label, input) => {
     expect(timed(() => redactEvidence(input))).toBeLessThan(250);
     expect(timed(() => redactSecrets(input))).toBeLessThan(1500);
+  });
+
+  it("keeps useful evidence from long input without whitespace (#72)", () => {
+    const minified = `var a=1;${"f(x);".repeat(3000)}`;
+    const output = redactEvidence(minified, { maxLength: 200 });
+    expect(output.startsWith("var a=1;f(x);")).toBe(true);
+    expect(output.length).toBeLessThanOrEqual(200);
+  });
+
+  it("drops a token that straddles the cut in text without whitespace (#72)", () => {
+    const token = ["ghp", "_", "w".repeat(36)].join("");
+    const input = `${"a;".repeat(2047)}x=${token};`;
+    const output = capText(input, 4100);
+    expect(output).not.toContain("ghp_w");
+    expect(output.endsWith(" …")).toBe(true);
   });
 
   it("caps very long input without leaving a partial secret at the cut", () => {
