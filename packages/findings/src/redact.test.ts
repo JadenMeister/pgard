@@ -140,6 +140,74 @@ describe("redactEvidence", () => {
   });
 });
 
+describe("absolute paths (#59)", () => {
+  it.each([
+    ["/opt/app/secrets/key.pem", "/opt/app"],
+    ["/private/tmp/build/x.log", "/private/tmp"],
+    ["C:\\proj\\src\\a.ts", "C:\\proj"],
+    ["D:/work/app/config.yml", "D:/work"],
+    ["file:///srv/app/x.txt", "/srv/app"],
+  ])("removes %s", (input, fragment) => {
+    const output = redactEvidence(`read ${input} done`);
+    expect(output).not.toContain(fragment);
+    expect(output).toContain("<absolute-path>");
+  });
+
+  it.each([
+    "POST /api/login",
+    "GET /v1/users/:id",
+    "see src/db.ts:10",
+    "http://127.0.0.1:3000/tmp",
+  ])("keeps route paths and relative paths: %s", (text) => {
+    expect(redactEvidence(text)).toBe(text);
+  });
+});
+
+describe("redactFinding locations (#54)", () => {
+  const base: Finding = {
+    id: "x",
+    ruleId: "PG-SECRET-001",
+    title: "t",
+    category: "secret_exposure",
+    severity: "high",
+    status: "confirmed",
+    confidence: "high",
+    location: { kind: "file", path: null, line: null, url: null, commit: null },
+    evidence: "e",
+    impact: "i",
+    recommendation: "r",
+    references: { cwe: [], owasp: [], cve: [] },
+    sources: ["code"],
+  };
+
+  it("masks secrets in relative paths and drops absolute ones", () => {
+    const withToken = redactFinding({
+      ...base,
+      location: { ...base.location, path: `keys/${FAKE.github}.pem` },
+    });
+    expect(withToken.location.path).not.toContain(FAKE.github);
+    expect(withToken.location.path).toContain("keys/");
+    const absolute = redactFinding({
+      ...base,
+      location: { ...base.location, path: "/opt/app/key.pem" },
+    });
+    expect(absolute.location.path).toBeNull();
+  });
+
+  it("scrubs home paths and secrets from URLs", () => {
+    const result = redactFinding({
+      ...base,
+      location: {
+        ...base.location,
+        kind: "url",
+        url: `file:///Users/jaden/app/x?password=${FAKE.password}`,
+      },
+    });
+    expect(result.location.url).not.toContain("jaden");
+    expect(result.location.url).not.toContain(FAKE.password);
+  });
+});
+
 describe("redactFinding", () => {
   it("never leaves secrets in any field, including the JSON serialization", () => {
     const finding: Finding = {

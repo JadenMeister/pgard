@@ -182,22 +182,43 @@ export interface RedactEvidenceOptions {
   maxLength?: number;
 }
 
-const HOME_PATH_PATTERN = /(?:\/(?:Users|home)\/[^\s/'"`]+|[A-Za-z]:\\Users\\[^\s\\'"`]+)/g;
+export const ABSOLUTE_PATH_MASK = "<absolute-path>";
+const HOME_PATH_PATTERN =
+  /(?:\/(?:Users|home)\/[^\s/'"`]{1,256}|[A-Za-z]:\\Users\\[^\s\\'"`]{1,256})/g;
+const FILE_URL_PATTERN = /\bfile:\/\/[^\s'"`<>?#]{0,2048}/gi;
+/**
+ * Filesystem-looking absolute paths: POSIX paths under well-known roots (route paths such as
+ * `/api/login` are not filesystem paths and stay readable) and Windows drive paths.
+ */
+const ABSOLUTE_PATH_PATTERN =
+  /(?<![\w.~/:\\-])\/(?:Users|home|opt|private|tmp|var|etc|usr|root|mnt|srv|Volumes|nix|proc|sys|dev|run|snap|Library|System|Applications|workspaces?|builds|runner|data)(?=[/\s'"`<>|]|$)[^\s'"`<>|]{0,1024}|(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![\\/])[^\s'"`<>|]{0,1024}/g;
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
 /**
- * Prepares analyzer evidence for output: masks secrets, removes the project root and home
- * directories, strips control characters, collapses whitespace and truncates.
+ * Removes the project root (-> `.`), home directories (-> `~`) and any other absolute
+ * filesystem path (-> `<absolute-path>`), including the path in `file://` URLs.
+ */
+export function scrubAbsolutePaths(text: string, projectRoot?: string): string {
+  let output = text;
+  if (projectRoot && projectRoot.length > 1) {
+    output = output.split(projectRoot).join(".");
+  }
+  output = output.replace(FILE_URL_PATTERN, `file://${ABSOLUTE_PATH_MASK}`);
+  output = output.replace(HOME_PATH_PATTERN, "~");
+  return output.replace(ABSOLUTE_PATH_PATTERN, ABSOLUTE_PATH_MASK);
+}
+
+/**
+ * Prepares analyzer evidence for output: masks secrets, removes the project root, home
+ * directories and other absolute paths, strips control characters, collapses whitespace and
+ * truncates.
  */
 export function redactEvidence(evidence: string, options: RedactEvidenceOptions = {}): string {
   const maxLength = options.maxLength ?? 500;
   // Cap before redacting: redaction cost is bounded by the output size, not the input size.
   let output = redactSecrets(capText(evidence, Math.max(maxLength * 4, 4096)));
-  if (options.projectRoot && options.projectRoot.length > 1) {
-    output = output.split(options.projectRoot).join(".");
-  }
-  output = output.replace(HOME_PATH_PATTERN, "~");
+  output = scrubAbsolutePaths(output, options.projectRoot);
   output = output.replace(CONTROL_CHARS, "").replace(/\s+/g, " ").trim();
   if (output.length > maxLength) {
     output = `${output.slice(0, Math.max(0, maxLength - 1))}…`;
@@ -205,7 +226,27 @@ export function redactEvidence(evidence: string, options: RedactEvidenceOptions 
   return output;
 }
 
-/** Applies `redactEvidence` to every free-text field and masks credentials in URLs. */
+/**
+ * Location paths are repository-relative: secrets in file names are masked and an absolute
+ * path is dropped (`null`) rather than reported.
+ */
+function redactLocationPath(locationPath: string | null, projectRoot?: string): string | null {
+  if (locationPath === null) return null;
+  const masked = scrubAbsolutePaths(redactSecrets(locationPath), projectRoot);
+  if (
+    masked.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(masked) ||
+    masked.includes(ABSOLUTE_PATH_MASK)
+  ) {
+    return null;
+  }
+  return masked;
+}
+
+/**
+ * Applies `redactEvidence` to every free-text field, and secret/path redaction to
+ * `location.path` and `location.url`.
+ */
 export function redactFinding(finding: Finding, options: RedactEvidenceOptions = {}): Finding {
   const withRoot = options.projectRoot ? { projectRoot: options.projectRoot } : {};
   return {
@@ -219,7 +260,11 @@ export function redactFinding(finding: Finding, options: RedactEvidenceOptions =
     recommendation: redactEvidence(finding.recommendation, { ...withRoot, maxLength: 1000 }),
     location: {
       ...finding.location,
-      url: finding.location.url === null ? null : redactSecrets(finding.location.url),
+      path: redactLocationPath(finding.location.path, options.projectRoot),
+      url:
+        finding.location.url === null
+          ? null
+          : scrubAbsolutePaths(redactSecrets(finding.location.url), options.projectRoot),
     },
   };
 }
