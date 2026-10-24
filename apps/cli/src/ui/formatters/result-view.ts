@@ -1,5 +1,6 @@
 import {
   SEVERITIES,
+  splitFindingsByContext,
   summarizeBySeverity,
   type AuthorizationSummary,
   type Coverage,
@@ -51,6 +52,10 @@ const STATUS_GROUPS: ReadonlyArray<{ status: FindingStatus; title: string }> = [
   { status: "suspected", title: "Suspected (needs review)" },
   { status: "informational", title: "Informational" },
 ];
+
+const TEST_GROUP_TITLE = "In test or fixture code";
+const TEST_GROUP_NOTE =
+  "Matches in test or fixture files (confidence capped at low). Review them: a real value committed in a test is still exposed.";
 
 const COVERAGE_MARKS: Record<string, string> = {
   completed: "[ok]",
@@ -115,22 +120,34 @@ export function formatScanResult(result: ScanResult, style: Style): string {
     sections.push("", formatAuthorization(result.authorization, style));
     return sections.join("\n");
   }
-  const findings = sortFindings(result.findings);
+  // Headline counts cover regular code; test and fixture findings follow in their own group.
+  const { primary, test } = splitFindingsByContext(sortFindings(result.findings));
   sections.push(
     "",
-    style.bold(`Findings by severity (${findings.length} total)`),
-    formatSeverityBars(findings, style),
+    style.bold(`Findings by severity (${primary.length} total)`) +
+      (test.length === 0 ? "" : style.dim(` - plus ${test.length} in test or fixture code`)),
+    formatSeverityBars(primary, style),
   );
   for (const group of STATUS_GROUPS) {
-    const groupFindings = findings.filter((finding) => finding.status === group.status);
+    const groupFindings = primary.filter((finding) => finding.status === group.status);
     if (groupFindings.length === 0) continue;
     sections.push("", style.bold(`${group.title} (${groupFindings.length})`));
     sections.push(groupFindings.map((finding) => formatFinding(finding, style)).join("\n\n"));
   }
-  if (findings.length === 0) {
+  if (primary.length === 0) {
     sections.push(
       "",
-      "No findings in the areas that ran. This does not mean the project is secure; see coverage.",
+      test.length === 0
+        ? "No findings in the areas that ran. This does not mean the project is secure; see coverage."
+        : "No findings outside test or fixture code in the areas that ran. This does not mean the project is secure; see coverage.",
+    );
+  }
+  if (test.length > 0) {
+    sections.push(
+      "",
+      style.bold(`${TEST_GROUP_TITLE} (${test.length})`),
+      style.dim(`  ${TEST_GROUP_NOTE}`),
+      test.map((finding) => formatFinding(finding, style)).join("\n\n"),
     );
   }
   sections.push("", style.bold("Coverage"), formatCoverage(result.coverage, style));
