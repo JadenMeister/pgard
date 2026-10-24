@@ -9,6 +9,8 @@ export interface GitRunOptions {
   input?: string;
   /** `latin1` maps every byte to one character, so byte offsets (e.g. `cat-file --batch` sizes) stay exact. */
   encoding?: "utf8" | "latin1";
+  /** Aborting kills the git process and rejects with kind `cancelled`. */
+  signal?: AbortSignal;
 }
 
 /**
@@ -48,13 +50,17 @@ export interface GitInvocation {
  */
 export type GitRunner = (invocation: GitInvocation, options: GitRunOptions) => Promise<string>;
 
+export type GitCommandFailure = "failed" | "timeout" | "output_limit" | "cancelled";
+
 export class GitCommandError extends Error {
   readonly exitCode: number | null;
+  readonly kind: GitCommandFailure;
 
-  constructor(message: string, exitCode: number | null) {
+  constructor(message: string, exitCode: number | null, kind: GitCommandFailure = "failed") {
     super(message);
     this.name = "GitCommandError";
     this.exitCode = exitCode;
+    this.kind = kind;
   }
 }
 
@@ -92,11 +98,19 @@ type FlagRule = string | RegExp;
  * are accepted. Regexes are anchored and only admit value-carrying flags PGARD needs.
  */
 const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
-  "rev-parse": ["--show-toplevel", "--verify", "--quiet", "--git-common-dir", "--absolute-git-dir"],
+  "rev-parse": [
+    "--show-toplevel",
+    "--verify",
+    "--quiet",
+    "--git-common-dir",
+    "--absolute-git-dir",
+    "--is-shallow-repository",
+  ],
   remote: [],
   "remote get-url": ["--all", "--push"],
   "rev-list": [
     "--all",
+    "--first-parent",
     "--reverse",
     "--no-merges",
     "--parents",
@@ -260,13 +274,19 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     let size = 0;
     let failure: GitCommandError | null = null;
     const timer = setTimeout(() => {
-      failure = new GitCommandError("git command timed out", null);
+      failure = new GitCommandError("git command timed out", null, "timeout");
       child.kill("SIGKILL");
     }, DEFAULT_TIMEOUT_MS);
+    const onAbort = () => {
+      failure ??= new GitCommandError("git command was cancelled", null, "cancelled");
+      child.kill("SIGKILL");
+    };
+    if (options.signal?.aborted) onAbort();
+    options.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
       size += chunk.length;
       if (size > maxBuffer) {
-        failure ??= new GitCommandError("git output exceeded the size limit", null);
+        failure ??= new GitCommandError("git output exceeded the size limit", null, "output_limit");
         child.kill("SIGKILL");
         return;
       }
@@ -277,6 +297,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     });
     child.on("close", (code) => {
       clearTimeout(timer);
+      options.signal?.removeEventListener("abort", onAbort);
       if (failure) {
         reject(failure);
       } else if (code !== 0) {

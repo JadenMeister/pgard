@@ -1,0 +1,198 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { GitCommandError, runGit, type GitRunner } from "./run-git.js";
+import { decodeGitPath, scanGitHistory } from "./scan-history.js";
+import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
+
+const join = (...parts: string[]) => parts.join("");
+const TOKEN_A = join("ghp", "_", "AaBbCcDdEeFfGgHhIiJj", "KkLlMmNnOoPpQqRr");
+const pem = (body: string) =>
+  join("-----BEGIN ", "RSA PRIVATE KEY-----\n", body, "\n-----END ", "RSA PRIVATE KEY-----\n");
+const KEY_ONE = pem(join("MIIEowIBAAKCAQEA", "oneoneone1111", "QQQQ"));
+const KEY_TWO = pem(join("MIIEowIBAAKCAQEA", "twotwotwo2222", "WWWW"));
+const KEY_FIXTURE = pem(join("MIIEowIBAAKCAQEA", "fixturefix333", "EEEE"));
+
+const cleanups: (() => void)[] = [];
+afterEach(() => {
+  for (const cleanup of cleanups.splice(0)) cleanup();
+});
+function fixture(): GitFixture {
+  const created = createGitFixture();
+  cleanups.push(created.cleanup);
+  return created;
+}
+function tempDir(): string {
+  const dir = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-shallow-")));
+  cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+const git = (cwd: string, args: string[], input?: Buffer) =>
+  execFileSync("git", args, {
+    cwd,
+    ...(input ? { input } : {}),
+    env: { PATH: process.env.PATH ?? "", HOME: cwd, GIT_CONFIG_NOSYSTEM: "1" },
+  });
+
+describe("shallow clones (#77)", () => {
+  it("marks history partial and words boundary findings as 'present in'", async () => {
+    const source = fixture();
+    source.commit({ files: { "a.txt": "a" } });
+    source.commit({ files: { "deploy.sh": `export GH="${TOKEN_A}"\n` } });
+    source.commit({ remove: ["deploy.sh"], files: { "a.txt": "b" } });
+    const target = path.join(tempDir(), "clone");
+    git(source.root, ["clone", "-q", "--depth", "2", `file://${source.root}`, target]);
+
+    const result = await scanGitHistory(target);
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/shallow clone/);
+    const removed = result.findings.find((finding) => finding.ruleId === "PG-SECRET-003");
+    expect(removed?.evidence).toMatch(/present in commit/);
+    expect(removed?.evidence).not.toMatch(/added in/);
+  });
+});
+
+describe("private keys (#78)", () => {
+  it("does not let a tracked key hide a different removed key", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "prod.pem": KEY_ONE, "fixture.pem": KEY_FIXTURE } });
+    repo.commit({ remove: ["prod.pem"] });
+    const result = await scanGitHistory(repo.root);
+    expect(
+      result.findings.filter((f) => f.ruleId === "PG-SECRET-003").map((f) => f.location.path),
+    ).toEqual(["prod.pem"]);
+    expect(JSON.stringify(result)).not.toContain("oneoneone");
+  });
+
+  it("reports two distinct removed keys separately", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "a.pem": KEY_ONE, "b.pem": KEY_TWO, "README.md": "x" } });
+    repo.commit({ remove: ["a.pem", "b.pem"] });
+    const result = await scanGitHistory(repo.root);
+    expect(result.findings.filter((f) => f.ruleId === "PG-SECRET-003")).toHaveLength(2);
+  });
+});
+
+describe("cost and cancellation (#79)", () => {
+  it("lists all commits' changes with one diff-tree process per batch", async () => {
+    const repo = fixture();
+    for (let index = 0; index < 30; index += 1) repo.commit({ files: { "n.txt": `${index}` } });
+    const calls: string[] = [];
+    const counting: GitRunner = (invocation, options) => {
+      calls.push(invocation.subcommand);
+      return runGit(invocation, options);
+    };
+    await scanGitHistory(repo.root, { runner: counting });
+    expect(calls.filter((name) => name === "diff-tree")).toHaveLength(1);
+  });
+
+  it("stops at the time budget and reports partial coverage", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "n.txt": "1" } });
+    let clock = 0;
+    const result = await scanGitHistory(repo.root, {
+      timeBudgetMs: 10,
+      now: () => {
+        clock += 100;
+        return clock;
+      },
+    });
+    const commits = result.coverage.find((entry) => entry.area === "history:commits");
+    expect(commits?.status).toBe("partial");
+    expect(commits?.note).toMatch(/time budget/);
+  });
+
+  it("rejects promptly when aborted", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "n.txt": "1" } });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(scanGitHistory(repo.root, { signal: controller.signal })).rejects.toBeDefined();
+  });
+});
+
+describe("oversized git output (#80)", () => {
+  it("degrades to partial instead of failing the whole area", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "a.txt": "x" } });
+    const limited: GitRunner = (invocation, options) =>
+      invocation.subcommand === "ls-tree" || invocation.subcommand === "diff-tree"
+        ? Promise.reject(new GitCommandError("too big", null, "output_limit"))
+        : runGit(invocation, options);
+    const result = await scanGitHistory(repo.root, { runner: limited });
+    const coverage = Object.fromEntries(result.coverage.map((entry) => [entry.area, entry]));
+    expect(coverage["history:tracked-files"]?.status).toBe("partial");
+    expect(coverage["history:tracked-files"]?.note).toMatch(/too large/);
+    expect(coverage["history:commits"]?.status).toBe("partial");
+    expect(coverage["history:commits"]?.note).toMatch(/too large/);
+  });
+});
+
+describe("paths, revisions and edge cases (#81)", () => {
+  it("decodes non-UTF-8 paths exactly", () => {
+    expect(decodeGitPath(Buffer.from("lat\xe9.txt", "latin1").toString("latin1"))).toBe(
+      "lat\\xe9.txt",
+    );
+    expect(decodeGitPath(Buffer.from("한글.txt", "utf8").toString("latin1"))).toBe("한글.txt");
+  });
+
+  it("reports a non-UTF-8 tracked path with escapes", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "README.md": "x" } });
+    const blob = git(repo.root, ["hash-object", "-w", "--stdin"], Buffer.from(`t = "${TOKEN_A}"\n`))
+      .toString()
+      .trim();
+    const tree = git(
+      repo.root,
+      ["mktree"],
+      Buffer.concat([
+        Buffer.from(`100644 blob ${blob}\t`),
+        Buffer.from("lat\xe9.env", "latin1"),
+        Buffer.from("\n"),
+      ]),
+    )
+      .toString()
+      .trim();
+    const commit = git(repo.root, [
+      "-c",
+      "user.name=a",
+      "-c",
+      "user.email=a@example.com",
+      "commit-tree",
+      tree,
+      "-m",
+      "x",
+    ])
+      .toString()
+      .trim();
+    git(repo.root, ["update-ref", "HEAD", commit]);
+    const result = await scanGitHistory(repo.root);
+    expect(result.findings.map((finding) => finding.location.path)).toContain("lat\\xe9.env");
+  });
+
+  it("scans the authorized revision, not a later HEAD", async () => {
+    const repo = fixture();
+    const authorized = repo.commit({ files: { "a.ts": "safe" } });
+    repo.commit({ files: { "a.ts": `const t = "${TOKEN_A}";` } });
+    const result = await scanGitHistory(repo.root, { revision: authorized });
+    expect(result.findings).toEqual([]);
+    expect(result.coverage[0]?.note).toContain(authorized.slice(0, 12));
+  });
+
+  it("returns not_tested for a repository without commits", async () => {
+    const repo = fixture();
+    const result = await scanGitHistory(repo.root);
+    expect(result.findings).toEqual([]);
+    expect(result.coverage.every((entry) => entry.status === "not_tested")).toBe(true);
+  });
+
+  it("counts skipped binary files in the notes", async () => {
+    const repo = fixture();
+    repo.commit({ files: { "img.bin": "\u0000\u0001\u0002", "a.txt": "x" } });
+    const result = await scanGitHistory(repo.root);
+    expect(result.coverage[0]?.note).toMatch(/1 binary file\(s\) not scanned/);
+  });
+});

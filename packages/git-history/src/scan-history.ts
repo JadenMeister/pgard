@@ -1,3 +1,5 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import {
   createFindingFingerprint,
   type AnalyzerOutput,
@@ -8,7 +10,7 @@ import {
   type Severity,
 } from "@pgard/findings";
 import { HISTORY_RULES, type HistoryRuleId } from "./history-rules.js";
-import { runGit as defaultRunGit, type GitRunner } from "./run-git.js";
+import { GitCommandError, runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 import {
   SECRET_KIND_LABEL,
   detectSecrets,
@@ -20,16 +22,27 @@ import {
 export interface HistoryScanOptions {
   runner?: GitRunner;
   signal?: AbortSignal;
-  /** Most recent commits (HEAD ancestry) whose changes are scanned. Default 1000. */
+  /**
+   * The commit to scan — normally the revision the authorization gate verified, so the scan
+   * cannot drift to a different HEAD. Defaults to `HEAD`.
+   */
+  revision?: string | null;
+  /** Most recent commits in the revision's history whose changes are scanned. Default 1000. */
   maxCommits?: number;
   /** Blobs larger than this are skipped. Default 1 MiB. */
   maxBlobBytes?: number;
-  /** Total bytes of blob content read from history. Default 64 MiB. */
+  /** Total bytes of blob content read. Default 64 MiB. */
   maxTotalBytes?: number;
+  /** Wall-clock budget for the history part; when exceeded, coverage is partial. Default 60 s. */
+  timeBudgetMs?: number;
+  /** Injectable clock (ms) for tests. */
+  now?: () => number;
 }
 
 const SHA = /^[0-9a-f]{40}$/;
 const BATCH_BYTES = 8 * 1024 * 1024;
+const LIST_MAX_BUFFER = 64 * 1024 * 1024;
+const COMMITS_PER_DIFF_BATCH = 200;
 const STRONG_KINDS: ReadonlySet<DetectedSecretKind> = new Set([
   "private_key",
   "aws_access_key_id",
@@ -49,52 +62,118 @@ interface HistoryEntry extends TreeEntry {
   commit: string;
 }
 
+const UTF8 = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * Decodes a path read as latin1 (one char per byte). Valid UTF-8 is decoded; otherwise
+ * non-ASCII bytes are shown as `\xNN` so the reported path stays exact and unambiguous.
+ */
+export function decodeGitPath(latin1: string): string {
+  const bytes = Buffer.from(latin1, "latin1");
+  try {
+    return UTF8.decode(bytes);
+  } catch {
+    return [...bytes]
+      .map((byte) =>
+        byte >= 0x20 && byte < 0x7f
+          ? String.fromCharCode(byte)
+          : `\\x${byte.toString(16).padStart(2, "0")}`,
+      )
+      .join("");
+  }
+}
+
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("aborted");
 }
 
-/** `ls-tree -r -z HEAD`: "<mode> blob <sha>\t<path>\0" */
-async function listHeadBlobs(cwd: string, runner: GitRunner): Promise<TreeEntry[]> {
+function isOutputLimit(error: unknown): boolean {
+  return error instanceof GitCommandError && error.kind === "output_limit";
+}
+
+/** `ls-tree -r -z <rev>`: "<mode> blob <sha>\t<path>\0" (paths decoded from raw bytes). */
+async function listTreeBlobs(
+  cwd: string,
+  runner: GitRunner,
+  revision: string,
+  signal?: AbortSignal,
+): Promise<TreeEntry[]> {
   const output = await runner(
-    { subcommand: "ls-tree", flags: ["-r", "-z", "--full-tree"], operands: ["HEAD"] },
-    { cwd },
+    { subcommand: "ls-tree", flags: ["-r", "-z", "--full-tree"], operands: [revision] },
+    { cwd, encoding: "latin1", maxBuffer: LIST_MAX_BUFFER, ...(signal ? { signal } : {}) },
   );
   const entries: TreeEntry[] = [];
   for (const record of output.split("\0")) {
     const match = /^\d{6} blob ([0-9a-f]{40})\t([\s\S]+)$/.exec(record);
-    if (match?.[1] && match[2]) entries.push({ sha: match[1], path: match[2] });
+    if (match?.[1] && match[2]) entries.push({ sha: match[1], path: decodeGitPath(match[2]) });
   }
   return entries;
 }
 
 /**
- * Blobs added or modified by each commit (newest first), via
- * `diff-tree -r -z --root --no-commit-id --stdin` fed with commit ids (plumbing only).
+ * Blobs added or modified by each commit, from one `diff-tree --stdin` process per batch of
+ * commits (first-parent changes; root and shallow-boundary commits list every file).
  */
 async function listHistoryBlobs(
   cwd: string,
   runner: GitRunner,
   commits: string[],
-): Promise<HistoryEntry[]> {
+  signal: AbortSignal | undefined,
+  isOverBudget: () => boolean,
+): Promise<{ entries: HistoryEntry[]; processedCommits: number; problems: string[] }> {
   const entries: HistoryEntry[] = [];
-  for (const commit of commits) {
-    const output = await runner(
-      {
-        subcommand: "diff-tree",
-        flags: ["-r", "-z", "--root", "--no-commit-id", "--no-renames", "-m", "--first-parent"],
-        operands: [commit],
-      },
-      { cwd },
-    );
-    const parts = output.split("\0");
-    for (let index = 0; index + 1 < parts.length; index += 2) {
-      const header = parts[index] ?? "";
-      const filePath = parts[index + 1] ?? "";
-      const match = /^:\d{6} \d{6} [0-9a-f]{40} ([0-9a-f]{40}) ([AM])/.exec(header);
-      if (match?.[1] && filePath) entries.push({ commit, sha: match[1], path: filePath });
+  const problems: string[] = [];
+  let processedCommits = 0;
+  for (let start = 0; start < commits.length; start += COMMITS_PER_DIFF_BATCH) {
+    throwIfAborted(signal);
+    if (isOverBudget()) {
+      problems.push(`time budget reached after ${processedCommits} of ${commits.length} commits`);
+      break;
     }
+    const batch = commits.slice(start, start + COMMITS_PER_DIFF_BATCH);
+    let output: string;
+    try {
+      output = await runner(
+        {
+          subcommand: "diff-tree",
+          flags: ["--stdin", "-r", "-z", "--root", "--no-renames", "-m", "--first-parent"],
+        },
+        {
+          cwd,
+          input: `${batch.join("\n")}\n`,
+          encoding: "latin1",
+          maxBuffer: LIST_MAX_BUFFER,
+          ...(signal ? { signal } : {}),
+        },
+      );
+    } catch (error) {
+      if (isOutputLimit(error)) {
+        problems.push(
+          `changes of ${batch.length} commit(s) were too large to list and were skipped`,
+        );
+        processedCommits += batch.length;
+        continue;
+      }
+      throw error;
+    }
+    let commit: string | null = null;
+    const parts = output.split("\0");
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index] ?? "";
+      if (SHA.test(part)) {
+        commit = part;
+        continue;
+      }
+      const match = /^:\d{6} \d{6} [0-9a-f]{40} ([0-9a-f]{40}) ([AM])$/.exec(part);
+      const filePath = parts[index + 1];
+      if (part.startsWith(":")) index += 1; // the path record follows every header
+      if (match?.[1] && commit && filePath) {
+        entries.push({ commit, sha: match[1], path: decodeGitPath(filePath) });
+      }
+    }
+    processedCommits += batch.length;
   }
-  return entries;
+  return { entries, processedCommits, problems };
 }
 
 /** Reads blob contents with `cat-file --batch-check` / `--batch`, bounded by size. */
@@ -104,14 +183,22 @@ async function readBlobs(
   shas: string[],
   maxBlobBytes: number,
   budget: { remaining: number },
-): Promise<{ contents: Map<string, string>; skippedLarge: number; skippedBudget: number }> {
+  signal: AbortSignal | undefined,
+): Promise<{
+  contents: Map<string, string>;
+  skippedLarge: number;
+  skippedBudget: number;
+  skippedBinary: number;
+}> {
   const contents = new Map<string, string>();
   let skippedLarge = 0;
   let skippedBudget = 0;
-  if (shas.length === 0) return { contents, skippedLarge, skippedBudget };
+  let skippedBinary = 0;
+  if (shas.length === 0) return { contents, skippedLarge, skippedBudget, skippedBinary };
+  const withSignal = signal ? { signal } : {};
   const check = await runner(
     { subcommand: "cat-file", flags: ["--batch-check"] },
-    { cwd, input: `${shas.join("\n")}\n`, maxBuffer: shas.length * 80 + 1024 },
+    { cwd, input: `${shas.join("\n")}\n`, maxBuffer: shas.length * 80 + 1024, ...withSignal },
   );
   const sizes: { sha: string; size: number }[] = [];
   for (const line of check.split("\n")) {
@@ -130,6 +217,7 @@ async function readBlobs(
     sizes.push({ sha: match[1], size });
   }
   for (let start = 0; start < sizes.length;) {
+    throwIfAborted(signal);
     let bytes = 0;
     let end = start;
     while (
@@ -147,6 +235,7 @@ async function readBlobs(
         input: `${batch.map((entry) => entry.sha).join("\n")}\n`,
         encoding: "latin1",
         maxBuffer: bytes + batch.length * 80 + 1024,
+        ...withSignal,
       },
     );
     let offset = 0;
@@ -158,12 +247,15 @@ async function readBlobs(
       const size = Number(header[2]);
       const body = raw.slice(headerEnd + 1, headerEnd + 1 + size);
       offset = headerEnd + 1 + size + 1;
-      if (body.includes("\0")) continue; // binary
+      if (body.includes("\0")) {
+        skippedBinary += 1;
+        continue;
+      }
       contents.set(header[1], Buffer.from(body, "latin1").toString("utf8"));
     }
     start = end;
   }
-  return { contents, skippedLarge, skippedBudget };
+  return { contents, skippedLarge, skippedBudget, skippedBinary };
 }
 
 function createFinding(fields: {
@@ -216,35 +308,125 @@ function assessment(kind: DetectedSecretKind): {
     : { severity: "high", status: "suspected", confidence: "medium" };
 }
 
+function skipNotes(
+  read: { skippedLarge: number; skippedBudget: number; skippedBinary: number },
+  maxBlobBytes: number,
+  noun: string,
+): { problems: string[]; info: string[] } {
+  return {
+    problems: [
+      ...(read.skippedLarge > 0
+        ? [`${read.skippedLarge} ${noun}(s) over ${Math.round(maxBlobBytes / 1024)} KiB skipped`]
+        : []),
+      ...(read.skippedBudget > 0
+        ? [`${read.skippedBudget} ${noun}(s) skipped after the read budget was used`]
+        : []),
+    ],
+    info: read.skippedBinary > 0 ? [`${read.skippedBinary} binary ${noun}(s) not scanned`] : [],
+  };
+}
+
+function formatNote(base: string, problems: string[], info: string[]): string {
+  const extra = [...problems, ...info];
+  return extra.length > 0 ? `${base} ${extra.join("; ")}.` : base;
+}
+
+/** Commit ids at the edge of a shallow clone (their parents are missing). */
+async function readShallowBoundary(cwd: string, runner: GitRunner): Promise<Set<string> | null> {
+  const isShallow = (
+    await runner({ subcommand: "rev-parse", flags: ["--is-shallow-repository"] }, { cwd }).catch(
+      () => "false",
+    )
+  ).trim();
+  if (isShallow !== "true") return null;
+  try {
+    const commonDir = (
+      await runner({ subcommand: "rev-parse", flags: ["--git-common-dir"] }, { cwd })
+    ).trim();
+    const text = await readFile(path.resolve(cwd, commonDir, "shallow"), "utf8");
+    return new Set(text.split("\n").filter((line) => SHA.test(line)));
+  } catch {
+    return new Set();
+  }
+}
+
 /**
  * Scans what Git stores — never the working tree — for committed environment files and
- * secrets: tracked files at HEAD and blobs added or modified in recent commits. Untracked or
- * ignored local files (such as a local `.env`) are never read. Secret values are kept in memory
- * only to tell current secrets from removed ones; findings name the kind, never the value.
+ * secrets: tracked files at the scanned revision and blobs added or modified in recent commits
+ * of its first-parent history. Untracked or ignored local files (such as a local `.env`) are
+ * never read. Secret values are kept in memory only to tell current secrets from removed ones;
+ * findings name the kind, never the value. Limits (commits, blob size, total bytes, time,
+ * output size, shallow clones) degrade coverage to `partial` with a note.
  */
 export async function scanGitHistory(
   projectRoot: string,
   options: HistoryScanOptions = {},
 ): Promise<AnalyzerOutput> {
   const runner = options.runner ?? defaultRunGit;
+  const signal = options.signal;
+  const now = options.now ?? Date.now;
+  const startedAt = now();
+  const timeBudgetMs = options.timeBudgetMs ?? 60_000;
+  const isOverBudget = () => now() - startedAt > timeBudgetMs;
   const maxCommits = Math.max(1, Math.min(options.maxCommits ?? 1000, 100_000));
   const maxBlobBytes = options.maxBlobBytes ?? 1024 * 1024;
   const budget = { remaining: options.maxTotalBytes ?? 64 * 1024 * 1024 };
   const findings: Finding[] = [];
   const coverage: Coverage[] = [];
 
-  // 1. Tracked files at HEAD.
-  throwIfAborted(options.signal);
-  const headBlobs = await listHeadBlobs(projectRoot, runner);
+  throwIfAborted(signal);
+  const requested = options.revision ?? "HEAD";
+  const revision = (
+    await runner(
+      {
+        subcommand: "rev-parse",
+        flags: ["--verify", "--quiet"],
+        operands: [`${requested}^{commit}`],
+      },
+      { cwd: projectRoot },
+    ).catch(() => "")
+  ).trim();
+  if (!SHA.test(revision)) {
+    const note = "The repository has no commit to scan.";
+    return {
+      findings: [],
+      coverage: [
+        {
+          area: "history:tracked-files",
+          scope: "history",
+          status: "not_tested",
+          ruleIds: [],
+          note,
+        },
+        { area: "history:commits", scope: "history", status: "not_tested", ruleIds: [], note },
+      ],
+    };
+  }
+
+  // 1. Tracked files at the scanned revision.
+  let headBlobs: TreeEntry[] = [];
+  const headProblems: string[] = [];
+  try {
+    headBlobs = await listTreeBlobs(projectRoot, runner, revision, signal);
+  } catch (error) {
+    if (!isOutputLimit(error)) throw error;
+    headProblems.push("the tracked file list was too large to read");
+  }
   const headRead = await readBlobs(
     projectRoot,
     runner,
     [...new Set(headBlobs.map((entry) => entry.sha))],
     maxBlobBytes,
     budget,
+    signal,
   );
   const currentValues = new Set<string>();
-  const report = (entry: TreeEntry, secret: DetectedSecret, commit: string | null) => {
+  const report = (
+    entry: TreeEntry,
+    secret: DetectedSecret,
+    commit: string | null,
+    isBoundary: boolean,
+  ) => {
     const label = SECRET_KIND_LABEL[secret.kind];
     findings.push(
       createFinding({
@@ -254,7 +436,7 @@ export async function scanGitHistory(
         commit,
         ...assessment(secret.kind),
         evidence: commit
-          ? `${label} added in commit ${commit.slice(0, 12)} and no longer present in current files (value redacted)`
+          ? `${label} ${isBoundary ? "present in" : "added in"} commit ${commit.slice(0, 12)}${isBoundary ? " (shallow clone boundary; it may have been added earlier)" : ""} and no longer present in current files (value redacted)`
           : `${label} in a tracked file (value redacted)`,
         cause: `${secret.kind}:${secret.line}`,
       }),
@@ -271,7 +453,7 @@ export async function scanGitHistory(
           severity: "high",
           status: "confirmed",
           confidence: "high",
-          evidence: "environment file is tracked at HEAD (values not shown)",
+          evidence: "environment file is tracked in the current commit (values not shown)",
           cause: "env-file-head",
         }),
       );
@@ -280,48 +462,54 @@ export async function scanGitHistory(
     if (content === undefined) continue;
     for (const secret of detectSecrets(content)) {
       currentValues.add(secret.value);
-      report(entry, secret, null);
+      report(entry, secret, null, false);
     }
   }
-  const headProblems = [
-    ...(headRead.skippedLarge > 0
-      ? [`${headRead.skippedLarge} file(s) over ${Math.round(maxBlobBytes / 1024)} KiB skipped`]
-      : []),
-    ...(headRead.skippedBudget > 0
-      ? [`${headRead.skippedBudget} file(s) skipped after the read budget was used`]
-      : []),
-  ];
+  const headSkips = skipNotes(headRead, maxBlobBytes, "file");
+  headProblems.push(...headSkips.problems);
   coverage.push({
     area: "history:tracked-files",
     scope: "history",
     status: headProblems.length > 0 ? "partial" : "completed",
     ruleIds: ["PG-SECRET-001", "PG-SECRET-002"],
-    note: `${headBlobs.length} tracked file(s) at HEAD; Git objects only (untracked/ignored files are not read).${headProblems.length > 0 ? ` ${headProblems.join("; ")}.` : ""}`,
+    note: formatNote(
+      `${headBlobs.length} tracked file(s) in commit ${revision.slice(0, 12)}; Git objects only (untracked/ignored files are not read).`,
+      headProblems,
+      headSkips.info,
+    ),
   });
 
-  // 2. Recent history (HEAD ancestry).
-  throwIfAborted(options.signal);
+  // 2. Recent first-parent history of the scanned revision.
+  throwIfAborted(signal);
+  const shallowBoundary = await readShallowBoundary(projectRoot, runner);
   const revList = await runner(
-    { subcommand: "rev-list", flags: [`--max-count=${maxCommits + 1}`], operands: ["HEAD"] },
-    { cwd: projectRoot },
+    {
+      subcommand: "rev-list",
+      flags: ["--first-parent", `--max-count=${maxCommits + 1}`],
+      operands: [revision],
+    },
+    { cwd: projectRoot, ...(signal ? { signal } : {}) },
   );
   const allCommits = revList.split("\n").filter((line) => SHA.test(line));
   const isTruncated = allCommits.length > maxCommits;
   const commits = allCommits.slice(0, maxCommits);
-  const historyEntries = await listHistoryBlobs(projectRoot, runner, commits);
-  throwIfAborted(options.signal);
+  const listed = await listHistoryBlobs(projectRoot, runner, commits, signal, isOverBudget);
   const headShas = new Set(headBlobs.map((entry) => entry.sha));
-  // Oldest commit that introduced each blob, so a finding points where the value appeared.
+  const headPaths = new Set(headBlobs.map((entry) => entry.path));
+  // Oldest commit that introduced each blob/path pair, so a finding points where it appeared.
   const introducedBy = new Map<string, HistoryEntry>();
-  for (const entry of historyEntries) introducedBy.set(`${entry.sha}\0${entry.path}`, entry);
+  for (const entry of listed.entries) introducedBy.set(`${entry.sha}\0${entry.path}`, entry);
+  const oldestFirst = [...introducedBy.values()].reverse();
+  const isBoundary = (commit: string) => shallowBoundary?.has(commit) ?? false;
   const reported = new Set<string>();
-  for (const entry of [...introducedBy.values()].reverse()) {
+  for (const entry of oldestFirst) {
     if (
       isEnvironmentFile(entry.path) &&
-      !headBlobs.some((head) => head.path === entry.path) &&
+      !headPaths.has(entry.path) &&
       !reported.has(`env:${entry.path}`)
     ) {
       reported.add(`env:${entry.path}`);
+      const boundary = isBoundary(entry.commit);
       findings.push(
         createFinding({
           ruleId: "PG-SECRET-001",
@@ -331,42 +519,56 @@ export async function scanGitHistory(
           severity: "high",
           status: "confirmed",
           confidence: "high",
-          evidence: `environment file was committed in ${entry.commit.slice(0, 12)} and later removed; its values remain in history (values not shown)`,
+          evidence: `environment file was ${boundary ? "present in" : "committed in"} ${entry.commit.slice(0, 12)}${boundary ? " (shallow clone boundary)" : ""} and later removed; its values remain in history (values not shown)`,
           cause: "env-file-history",
         }),
       );
     }
   }
-  const historyShas = [...new Set([...introducedBy.values()].map((entry) => entry.sha))].filter(
+  const historyShas = [...new Set(oldestFirst.map((entry) => entry.sha))].filter(
     (sha) => !headShas.has(sha),
   );
-  const historyRead = await readBlobs(projectRoot, runner, historyShas, maxBlobBytes, budget);
-  for (const entry of [...introducedBy.values()].reverse()) {
+  const historyRead = await readBlobs(
+    projectRoot,
+    runner,
+    historyShas,
+    maxBlobBytes,
+    budget,
+    signal,
+  );
+  for (const entry of oldestFirst) {
+    throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
     if (content === undefined) continue;
     for (const secret of detectSecrets(content)) {
-      if (currentValues.has(secret.value)) continue; // already reported at HEAD
+      if (currentValues.has(secret.value)) continue; // already reported in current files
       const key = `${secret.kind}\0${secret.value}`;
       if (reported.has(key)) continue; // report each removed value once (where it first appeared)
       reported.add(key);
-      report(entry, secret, entry.commit);
+      report(entry, secret, entry.commit, isBoundary(entry.commit));
     }
   }
+  const historySkips = skipNotes(historyRead, maxBlobBytes, "blob");
   const historyProblems = [
+    ...(shallowBoundary
+      ? [
+          "shallow clone: history before the clone boundary is not available, so older secrets cannot be checked",
+        ]
+      : []),
     ...(isTruncated ? [`only the most recent ${maxCommits} commits were scanned`] : []),
-    ...(historyRead.skippedLarge > 0
-      ? [`${historyRead.skippedLarge} blob(s) over ${Math.round(maxBlobBytes / 1024)} KiB skipped`]
-      : []),
-    ...(historyRead.skippedBudget > 0
-      ? [`${historyRead.skippedBudget} blob(s) skipped after the read budget was used`]
-      : []),
+    ...listed.problems,
+    ...historySkips.problems,
   ];
   coverage.push({
     area: "history:commits",
     scope: "history",
     status: historyProblems.length > 0 ? "partial" : "completed",
     ruleIds: ["PG-SECRET-001", "PG-SECRET-003"],
-    note: `${commits.length} commit(s) in HEAD's history (first-parent changes); other branches are not scanned.${historyProblems.length > 0 ? ` ${historyProblems.join("; ")}.` : ""}`,
+    note: formatNote(
+      `${listed.processedCommits} commit(s) in the first-parent history of ${revision.slice(0, 12)}; other branches are not scanned.`,
+      historyProblems,
+      historySkips.info,
+    ),
   });
 
   return { findings, coverage };

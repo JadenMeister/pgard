@@ -42,7 +42,10 @@ interface Pattern {
 const PATTERNS: Pattern[] = [
   {
     kind: "private_key",
-    pattern: /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----/g,
+    // The whole (bounded) block is the value, so distinct keys never compare equal just because
+    // they share a header line. The value stays in memory only.
+    pattern:
+      /-----BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]{0,8192}?-----END [A-Z ]{0,40}PRIVATE KEY(?: BLOCK)?-----|[A-Za-z0-9+/=\s]{0,8192})/g,
     group: 0,
   },
   {
