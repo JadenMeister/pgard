@@ -28,3 +28,12 @@ export {
   type DeviceFlowSessionProviderOptions,
   type GitHubSessionProvider,
 } from "./session-provider.js";
+export {
+  CredentialStoreError,
+  createInMemoryCredentialStore,
+  createUnavailableCredentialStore,
+  isCredentialStoreError,
+  type CredentialKey,
+  type CredentialStore,
+} from "./credential-store.js";
+export { createOsCredentialStore } from "./os-keychain.js";

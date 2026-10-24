@@ -15,6 +15,7 @@
     "dist"
   ],
   "dependencies": {
+    "@napi-rs/keyring": "2.1.1",
     "@pgard/findings": "0.1.0"
   }
 }
