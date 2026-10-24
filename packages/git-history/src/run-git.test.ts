@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { findGitRoot } from "./git-root.js";
-import { buildGitArgs, buildGitEnv, GitCommandError, runGit } from "./run-git.js";
+import { buildGitArgs, buildGitEnv, GitCommandError, GREP_FLAGS, runGit } from "./run-git.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
 describe("buildGitArgs", () => {
@@ -69,6 +69,23 @@ describe("buildGitArgs", () => {
     ["grep", "--untracked"],
   ] as const)("refuses %s %s (exact allowlist, no abbreviations)", (subcommand, flag) => {
     expect(() => buildGitArgs({ subcommand, flags: [flag] })).toThrow(GitCommandError);
+  });
+
+  it("accepts grep only with the fixed flag set, in order", () => {
+    expect(
+      buildGitArgs({ subcommand: "grep", flags: [...GREP_FLAGS], operands: ["HEAD"] }),
+    ).toEqual(expect.arrayContaining([...GREP_FLAGS, "--end-of-options", "HEAD"]));
+    for (const flags of [
+      [],
+      GREP_FLAGS.slice(1),
+      [...GREP_FLAGS].reverse(),
+      [...GREP_FLAGS, "-F"],
+      ["-F", "-l", "-z", "--no-textconv", "--no-color", "-f-"],
+    ]) {
+      expect(() => buildGitArgs({ subcommand: "grep", flags, operands: ["HEAD"] })).toThrow(
+        GitCommandError,
+      );
+    }
   });
 
   it("refuses operands that look like options", () => {
@@ -194,11 +211,22 @@ describe("runGit against a malicious repository", () => {
     await runGit({ subcommand: "ls-files", flags: ["-s"] }, { cwd: root });
     await runGit({ subcommand: "ls-tree", flags: ["-r"], operands: ["HEAD"] }, { cwd: root });
     await runGit({ subcommand: "for-each-ref" }, { cwd: root });
-    const grep = await runGit(
-      { subcommand: "grep", flags: ["-F", "-l", "-z", "--no-textconv", "-f-"], operands: ["HEAD"] },
+    // Exit code 0 (resolves) means a match; no match rejects with exit code 1.
+    await runGit(
+      { subcommand: "grep", flags: [...GREP_FLAGS], operands: ["HEAD"] },
       { cwd: root, input: "two\n" },
     );
-    expect(grep).toContain("a.txt");
+    await expect(
+      runGit(
+        { subcommand: "grep", flags: [...GREP_FLAGS], operands: ["HEAD"] },
+        { cwd: root, input: "absent-value-123\n" },
+      ),
+    ).rejects.toMatchObject({ exitCode: 1 });
+    const prefix = await runGit(
+      { subcommand: "cat-file", flags: ["--batch"] },
+      { cwd: root, input: "HEAD:a.txt\n", maxBuffer: 45, truncate: true },
+    );
+    expect(prefix).toHaveLength(45);
     await runGit(
       { subcommand: "rev-parse", flags: ["--verify"], operands: ["HEAD"] },
       { cwd: root },

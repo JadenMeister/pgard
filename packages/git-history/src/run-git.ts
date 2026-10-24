@@ -11,6 +11,11 @@ export interface GitRunOptions {
   encoding?: "utf8" | "latin1";
   /** Aborting kills the git process and rejects with kind `cancelled`. */
   signal?: AbortSignal;
+  /**
+   * Resolve with the first `maxBuffer` bytes and stop git, instead of failing with
+   * `output_limit` (e.g. to read only the start of a large blob).
+   */
+  truncate?: boolean;
 }
 
 /**
@@ -96,6 +101,13 @@ const DIFF_CAPABLE: ReadonlySet<GitSubcommand> = new Set(["diff-tree"]);
 type FlagRule = string | RegExp;
 
 /**
+ * The only accepted `grep` invocation, in this exact order: fixed strings read from stdin
+ * (`-f-`, never a file) so searched values never appear in argv, exit status only (`-q`), no
+ * textconv, color or pager.
+ */
+export const GREP_FLAGS: readonly string[] = ["-F", "-q", "--no-textconv", "--no-color", "-f-"];
+
+/**
  * Exact per-subcommand flag allowlist. Git accepts unambiguous abbreviations of long options
  * (`--textc` for `--textconv`), so a denylist cannot be complete; only these exact spellings
  * are accepted. Regexes are anchored and only admit value-carrying flags PGARD needs.
@@ -144,9 +156,8 @@ const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
     /^--diff-filter=[ACDMRTUXB]+$/i,
   ],
   "for-each-ref": [/^--count=\d{1,7}$/, /^--format=[^\n]*$/, /^--sort=-?[a-z:]+$/],
-  // Fixed-string search of a tree object. `-f-` reads the patterns from stdin only (never a
-  // file), so searched values never appear in argv; no pager (`-O`) or textconv.
-  grep: ["-F", "-l", "-z", "--no-textconv", "--no-color", "-f-"],
+  // Fixed-string search of a tree object; the whole flag set is enforced in `buildGitArgs`.
+  grep: GREP_FLAGS,
 };
 
 /** Format placeholders that trigger signature verification (`%G?`, `%GS`, `%(signature)`...). */
@@ -235,6 +246,12 @@ export function buildGitArgs(
     throw new GitCommandError("git subcommand is not allowed", null);
   }
   const flags = invocation.flags ?? [];
+  if (
+    invocation.subcommand === "grep" &&
+    (flags.length !== GREP_FLAGS.length || flags.some((flag, index) => flag !== GREP_FLAGS[index]))
+  ) {
+    throw new GitCommandError("git grep must use the fixed flag set", null);
+  }
   for (const flag of flags) {
     if (!isFlagAllowed(invocation.subcommand, flag)) {
       throw new GitCommandError("git flag is not allowed", null);
@@ -279,6 +296,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     const chunks: Buffer[] = [];
     let size = 0;
     let failure: GitCommandError | null = null;
+    let truncated = false;
     const timer = setTimeout(() => {
       failure = new GitCommandError("git command timed out", null, "timeout");
       child.kill("SIGKILL");
@@ -290,7 +308,14 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     if (options.signal?.aborted) onAbort();
     options.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
+      if (truncated) return;
       size += chunk.length;
+      if (size > maxBuffer && options.truncate) {
+        chunks.push(chunk.subarray(0, chunk.length - (size - maxBuffer)));
+        truncated = true;
+        child.kill("SIGKILL");
+        return;
+      }
       if (size > maxBuffer) {
         failure ??= new GitCommandError("git output exceeded the size limit", null, "output_limit");
         child.kill("SIGKILL");
@@ -306,6 +331,9 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       options.signal?.removeEventListener("abort", onAbort);
       if (failure) {
         reject(failure);
+      } else if (truncated) {
+        // Stopped on purpose after `maxBuffer` bytes (`truncate`), so the exit code is moot.
+        resolve(Buffer.concat(chunks).toString(options.encoding ?? "utf8"));
       } else if (code !== 0) {
         reject(new GitCommandError("git command failed", code));
       } else {

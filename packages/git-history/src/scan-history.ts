@@ -10,7 +10,7 @@ import {
   type Severity,
 } from "@pgard/findings";
 import { HISTORY_RULES, type HistoryRuleId } from "./history-rules.js";
-import { GitCommandError, runGit as defaultRunGit, type GitRunner } from "./run-git.js";
+import { GitCommandError, GREP_FLAGS, runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 import {
   SECRET_KIND_LABEL,
   detectSecrets,
@@ -206,12 +206,20 @@ async function readBlobs(
   skippedLarge: number;
   skippedBudget: number;
   skippedBinary: number;
+  /** Blobs not read because of size or the read budget. */
+  unreadShas: string[];
+  /** Binary blobs that are UTF-16 text (byte order mark), decoded. */
+  utf16: Map<string, string>;
 }> {
   const contents = new Map<string, string>();
+  const unreadShas: string[] = [];
+  const utf16 = new Map<string, string>();
   let skippedLarge = 0;
   let skippedBudget = 0;
   let skippedBinary = 0;
-  if (shas.length === 0) return { contents, skippedLarge, skippedBudget, skippedBinary };
+  if (shas.length === 0) {
+    return { contents, skippedLarge, skippedBudget, skippedBinary, unreadShas, utf16 };
+  }
   const withSignal = signal ? { signal } : {};
   const check = await runner(
     { subcommand: "cat-file", flags: ["--batch-check"] },
@@ -224,10 +232,12 @@ async function readBlobs(
     const size = Number(match[2]);
     if (size > maxBlobBytes) {
       skippedLarge += 1;
+      unreadShas.push(match[1]);
       continue;
     }
     if (size > budget.remaining) {
       skippedBudget += 1;
+      unreadShas.push(match[1]);
       continue;
     }
     budget.remaining -= size;
@@ -266,13 +276,15 @@ async function readBlobs(
       offset = headerEnd + 1 + size + 1;
       if (body.includes("\0")) {
         skippedBinary += 1;
+        const text = decodeUtf16(body);
+        if (text !== null) utf16.set(header[1], text);
         continue;
       }
       contents.set(header[1], Buffer.from(body, "latin1").toString("utf8"));
     }
     start = end;
   }
-  return { contents, skippedLarge, skippedBudget, skippedBinary };
+  return { contents, skippedLarge, skippedBudget, skippedBinary, unreadShas, utf16 };
 }
 
 /**
@@ -327,26 +339,29 @@ async function readCurrentBlobs(
 }
 
 /** Shortest search string that still identifies a value (shorter values are not checked). */
-const MIN_SEARCH_LENGTH = 8;
+export const MIN_SEARCH_LENGTH = 8;
 
 /**
  * The fixed string to search for a value: the value itself, or the longest line of a multi-line
- * value (such as a key body line), since `git grep` matches line by line. `null` when no line is
- * long enough to identify the value.
+ * value (such as a key body line), since `git grep` matches line by line. `null` when it cannot
+ * be searched reliably: no line is long enough, or the text holds U+FFFD (bytes that were not
+ * valid UTF-8 were replaced while decoding, so the original bytes are not known).
  */
-function searchStringFor(value: string): string | null {
+export function searchStringFor(value: string): string | null {
   const longest = value
     .split(/\r?\n/)
     .map((line) => line.trim())
     .reduce((best, line) => (line.length > best.length ? line : best), "");
-  return longest.length >= MIN_SEARCH_LENGTH && !longest.includes("\0") ? longest : null;
+  if (longest.length < MIN_SEARCH_LENGTH) return null;
+  if (longest.includes("\0") || longest.includes("\uFFFD")) return null;
+  return longest;
 }
 
 /**
  * Asks Git whether any file at the revision contains any of `values`, with one fixed-string
- * `git grep` over the whole tree (binary files included). The values go to git on stdin, never
- * in argv. Resolves `true` only when Git confirms that none is present; a match, a value that
- * cannot be searched, or a failed search resolves `false`.
+ * `git grep -q` over the whole tree (binary files included). The values go to git on stdin,
+ * never in argv. Resolves `true` only when Git confirms that none is present; a match, a value
+ * that cannot be searched, a failed search or running out of `timeoutMs` resolves `false`.
  */
 async function isAbsentFromRevision(
   cwd: string,
@@ -354,6 +369,7 @@ async function isAbsentFromRevision(
   revision: string,
   values: readonly string[],
   signal: AbortSignal | undefined,
+  timeoutMs: number,
 ): Promise<boolean> {
   const patterns = new Set<string>();
   for (const value of values) {
@@ -362,27 +378,77 @@ async function isAbsentFromRevision(
     patterns.add(pattern);
   }
   if (patterns.size === 0) return true;
+  if (timeoutMs <= 0) return false;
+  const deadline = AbortSignal.timeout(timeoutMs);
   try {
     await runner(
-      {
-        subcommand: "grep",
-        flags: ["-F", "-l", "-z", "--no-textconv", "-f-"],
-        operands: [revision],
-      },
+      { subcommand: "grep", flags: [...GREP_FLAGS], operands: [revision] },
       {
         cwd,
         input: `${[...patterns].join("\n")}\n`,
-        maxBuffer: 1024 * 1024,
-        ...(signal ? { signal } : {}),
+        maxBuffer: 64 * 1024,
+        signal: signal ? AbortSignal.any([signal, deadline]) : deadline,
       },
     );
     return false; // exit code 0: at least one file matches
   } catch (error) {
-    if (error instanceof GitCommandError && error.kind === "cancelled") throw error;
     if (signal?.aborted) throw error;
-    // Exit code 1 is git grep's "no match"; anything else leaves the answer unknown.
+    // Out of time budget, git grep's "no match" (exit code 1), or a failure: only exit code 1
+    // proves absence.
     return error instanceof GitCommandError && error.kind === "failed" && error.exitCode === 1;
   }
+}
+
+const UTF16_BOMS = ["\xff\xfe", "\xfe\xff"];
+
+/** UTF-16 text (by its byte order mark) decoded from a latin1 body, or `null`. */
+function decodeUtf16(latin1: string): string | null {
+  const bom = latin1.slice(0, 2);
+  if (!UTF16_BOMS.includes(bom)) return null;
+  const bytes = Buffer.from(latin1.slice(2), "latin1");
+  if (bom === "\xfe\xff") bytes.swap16();
+  return bytes.subarray(0, bytes.length - (bytes.length % 2)).toString("utf16le");
+}
+
+/** Most size- or budget-skipped files whose first bytes are checked for a UTF-16 mark. */
+const MAX_PREFIX_CHECKS = 100;
+
+/**
+ * Whether any of these blobs (not read because of size or the read budget) starts with a UTF-16
+ * byte order mark. `git grep` cannot search UTF-16 text, so such a file leaves "removed"
+ * unknown. Reads only the first bytes of each blob. Resolves `true` (unknown) when there are too
+ * many blobs to check or a read fails.
+ */
+async function hasUtf16Blob(
+  cwd: string,
+  runner: GitRunner,
+  shas: readonly string[],
+  signal: AbortSignal | undefined,
+): Promise<boolean> {
+  if (shas.length > MAX_PREFIX_CHECKS) return true;
+  for (const sha of shas) {
+    throwIfAborted(signal);
+    try {
+      const raw = await runner(
+        { subcommand: "cat-file", flags: ["--batch"] },
+        {
+          cwd,
+          input: `${sha}\n`,
+          encoding: "latin1",
+          maxBuffer: 128,
+          truncate: true,
+          ...(signal ? { signal } : {}),
+        },
+      );
+      const headerEnd = raw.indexOf("\n");
+      if (headerEnd === -1) return true;
+      if (UTF16_BOMS.includes(raw.slice(headerEnd + 1, headerEnd + 3))) return true;
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return true;
+    }
+  }
+  return false;
 }
 
 function createFinding(fields: {
@@ -785,27 +851,44 @@ export async function scanGitHistory(
     }
     return found;
   };
-  // A tracked file at the revision that was not read as text (over the size limit, after the
-  // read budget, or binary) may hold a value that looks removed. One fixed-string `git grep` of
-  // the revision (values on stdin) settles it: "removed" is claimed only when Git confirms that
-  // no current file contains any of those values; otherwise the current state is unknown.
-  let hasUnreadHead = false;
-  const unreadHeadFiles = headRead.skippedLarge + headRead.skippedBudget + headRead.skippedBinary;
-  if (currentByPath === null && unreadHeadFiles > 0) {
-    const removedValues = new Set<string>();
-    for (const entry of oldestFirst) {
-      const content = historyRead.contents.get(entry.sha);
-      if (content === undefined) continue;
-      for (const secret of secretsOf(entry, content)) {
-        if (!currentValues.has(secret.value)) removedValues.add(secret.value);
+  // Before any value is called "removed", make sure no current file holds it:
+  // - Normal path: tracked files that were not read as text (over the size limit, after the read
+  //   budget, or binary) may hold it. Only needed when such files exist.
+  // - Overflow path: the tracked file list is missing, so files never looked up may hold it.
+  // One fixed-string `git grep` of the revision (values on stdin, bounded by the remaining time
+  // budget) settles it, plus the UTF-16 files git grep cannot search: decoded binary files are
+  // searched in memory, and skipped files with a UTF-16 mark leave the state unknown. "Removed"
+  // is claimed only when all of this confirms absence; otherwise the current state is unknown.
+  // (On the overflow path UTF-16 files outside the looked-up paths cannot be checked.)
+  const removedValues = new Set<string>();
+  for (const entry of oldestFirst) {
+    const content = historyRead.contents.get(entry.sha);
+    if (content === undefined) continue;
+    for (const secret of secretsOf(entry, content)) {
+      if (!currentValues.has(secret.value) && !currentLocations.has(secret.value)) {
+        removedValues.add(secret.value);
       }
     }
-    if (removedValues.size > 0) {
-      hasUnreadHead =
-        isOverBudget() ||
-        !(await isAbsentFromRevision(projectRoot, runner, revision, [...removedValues], signal));
-    }
   }
+  const unreadHeadFiles = headRead.skippedLarge + headRead.skippedBudget + headRead.skippedBinary;
+  let isRemovalConfirmed = true;
+  if (removedValues.size > 0 && (currentByPath !== null || unreadHeadFiles > 0)) {
+    const values = [...removedValues];
+    const utf16Texts = [...headRead.utf16.values()];
+    isRemovalConfirmed =
+      !isOverBudget() &&
+      !values.some((value) => utf16Texts.some((text) => text.includes(value))) &&
+      (await isAbsentFromRevision(
+        projectRoot,
+        runner,
+        revision,
+        values,
+        signal,
+        timeBudgetMs - (now() - startedAt),
+      )) &&
+      !(await hasUtf16Blob(projectRoot, runner, headRead.unreadShas, signal));
+  }
+  const hasUnreadHead = !isRemovalConfirmed;
   for (const entry of oldestFirst) {
     throwIfAborted(signal);
     const content = historyRead.contents.get(entry.sha);
