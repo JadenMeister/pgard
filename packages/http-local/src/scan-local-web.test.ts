@@ -183,6 +183,10 @@ describe("scanLocalWeb", () => {
     const output = await scanLocalWeb(targetFor(server.port), {});
     expect(output.coverage[0]?.status).toBe("partial");
     expect(output.coverage[0]?.note).toContain("redirect leaving 127.0.0.1");
+    expect(output.coverage[0]?.note).toContain("security headers were not checked");
+    // Headers of the bare 3xx are not judged.
+    expect(output.findings.map((finding) => finding.ruleId)).not.toContain("PG-WEB-001");
+    expect(output.findings).toEqual([]);
   });
 
   it("does not follow a redirect to another loopback port", async () => {

@@ -186,7 +186,17 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
       const html = isHtmlResponse(response.headers) ? response.body.toString("utf8") : null;
       if (path === "/") {
         hasRootResponse = true;
-        findings.push(...checkSecurityHeaders(response.url, response.headers));
+        // A 3xx that was not followed is not the page users see; judging its headers would
+        // produce misleading findings, so record the gap instead.
+        const isUnfollowedRedirect =
+          result.redirectStop !== null || (response.status >= 300 && response.status < 400);
+        if (isUnfollowedRedirect) {
+          gaps.add(
+            "security headers were not checked because / redirected to a target PGARD does not follow",
+          );
+        } else {
+          findings.push(...checkSecurityHeaders(response.url, response.headers));
+        }
         findings.push(...checkVersionDisclosure(response.url, response.headers));
       }
       if (html !== null) {
