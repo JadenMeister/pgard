@@ -11,9 +11,11 @@ import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
   findGitRoot,
+  readAdvisoryDbStatus,
   readGitHubAppClientId,
   runScan,
   verifyProject,
+  type AdvisoryDbStatus,
   type DeviceUserCode,
   type GitHubSessionProvider,
   type WebScanner,
@@ -43,6 +45,10 @@ export interface CliDeps {
   startDashboardProcess: (entry: string, args: readonly string[]) => Promise<number>;
   readGitVersion: () => Promise<string | null>;
   checkGitHubReachable: () => Promise<boolean>;
+  /** Local advisory DB status (ok/missing/invalid/stale); its note never contains the DB path. */
+  readAdvisoryDbStatus: (
+    env: Readonly<Record<string, string | undefined>>,
+  ) => Promise<AdvisoryDbStatus>;
   nodeVersion: string;
 }
 
@@ -125,6 +131,7 @@ export function createDefaultDeps(): CliDeps {
     startDashboardProcess: startDashboardProcessDefault,
     readGitVersion: readGitVersionDefault,
     checkGitHubReachable: checkGitHubReachableDefault,
+    readAdvisoryDbStatus: (env) => readAdvisoryDbStatus(env),
     nodeVersion: process.versions.node,
   };
 }
