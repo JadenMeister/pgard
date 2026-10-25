@@ -162,11 +162,11 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 - PGARD GitHub App이 조직 계정에 설치되어 있고, 그 설치에 이 저장소가 포함되어 있습니다.
 - 사용자가 그 조직의 owner입니다. GitHub의 `GET /user/memberships/orgs/{org}`가 사용자의 멤버십을 `state: active`, `role: admin`으로 응답해야 합니다.
 
-설치만으로는 근거가 되지 않습니다. 조직 설정에 따라 저장소 관리자도 App을 설치할 수 있고, GitHub는 누가 설치했는지 알려 주지 않기 때문입니다. 일반 멤버, 외부 협력자(outside collaborator), billing manager, 대기 중(pending)인 멤버십은 "`<user>` is not an owner of `<org>`; an organization owner must run the scan"(또는 멤버십이 대기 중이라는) 이유로 차단됩니다. 기여와 현재 접근 권한은 개인 저장소와 똑같이 확인합니다.
+설치만으로는 근거가 되지 않습니다. 조직 설정에 따라 저장소 관리자도 App을 설치할 수 있고, GitHub는 누가 설치했는지 알려 주지 않기 때문입니다. 역할이 `admin`이 아닌 활성 멤버(예: 일반 멤버, billing manager)는 "`<user>` is not an owner of `<org>` (role: `<role>`); an organization owner must run the scan." 이유로 차단됩니다(`failed`). 대기 중(pending)인 멤버십은 "`<user>`'s membership in `<org>` is pending, not active; an organization owner with an active membership must run the scan." 이유로 차단됩니다(`failed`). 외부 협력자(outside collaborator)는 멤버가 아니어서 GitHub가 404로 응답하므로, owner 승인은 아래의 404 이유와 함께 `unverifiable`이 됩니다. 기여와 현재 접근 권한은 개인 저장소와 똑같이 확인합니다.
 
-근거가 불분명하면 검사는 차단되고 owner 승인은 이유와 함께 `unverifiable`이 됩니다. 멤버십 조회에 GitHub가 403이나 404로 응답한 경우, rate limit, 네트워크 오류, 예상하지 못한 응답, 그리고 Git remote의 조직 이름이 GitHub의 이름과 다른 경우(대소문자만 달라도 해당하며, remote를 GitHub에 표시되는 정확한 이름으로 바꾸면 됩니다)가 여기에 포함됩니다.
+근거가 불분명하면 검사는 차단되고 owner 승인은 이유와 함께 `unverifiable`이 됩니다. 멤버십 조회에 GitHub가 403이나 404로 응답한 경우, rate limit, 네트워크 오류, 예상하지 못한 응답, 그리고 Git remote의 조직 이름이 GitHub의 이름과 다른 경우(대소문자만 달라도 해당하며, remote를 GitHub에 표시되는 정확한 이름으로 바꾸면 됩니다)가 여기에 포함됩니다. 외부 협력자나 멤버가 아닌 사용자가 받는 멤버십 404는 "GitHub did not return `<user>`'s membership in `<org>` (404): `<user>` may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of `<org>` must run the scan, with the App's Members: Read-only permission approved."로 보고됩니다.
 
-**필요한 App 권한.** 멤버십을 읽으려면 PGARD GitHub App에 조직 권한 **Members: Read-only**가 있어야 합니다(**Organization permissions → Members → Read-only**). App owner가 App 설정에서 이 권한을 추가해야 하고, 기존의 모든 조직 설치가 새 권한을 수락해야 합니다(조직 owner가 조직의 **Settings → GitHub Apps**에서 승인). 그 전까지 GitHub는 403으로 응답하고, PGARD는 "the PGARD GitHub App needs the organization permission Members: read, approved by an owner of `<org>`"라고 보고합니다.
+**필요한 App 권한.** 멤버십을 읽으려면 PGARD GitHub App에 조직 권한 **Members: Read-only**가 있어야 합니다(**Organization permissions → Members → Read-only**). App owner가 App 설정에서 이 권한을 추가해야 하고, 기존의 모든 조직 설치가 새 권한을 수락해야 합니다(조직 owner가 조직의 **Settings → GitHub Apps**에서 승인). 그 전까지 GitHub는 403으로 응답하고, PGARD는 "GitHub refused to show `<user>`'s membership in `<org>` (403): the PGARD GitHub App needs the organization permission Members: Read-only, approved by an owner of `<org>`."라고 보고합니다.
 
 ### GitHub App과 로그인
 
@@ -302,7 +302,7 @@ Open this private session URL in your browser (valid until you stop the dashboar
 
 - 코드, Git 이력, 검사 결과는 사용자 컴퓨터에서 처리되며 어디에도 업로드되지 않습니다. 결과는 메모리에만 있고 프로세스나 대시보드가 끝나면 버려지며, 사용자가 내보낸 보고서만 저장됩니다.
 - GitHub 로그인은 파일이 아닌 OS 키체인에 저장되며 브라우저로 보내지 않습니다. 키체인이 없으면 메모리에만 보관합니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.
-- 외부 네트워크 통신은 GitHub뿐입니다. device flow 로그인(및 저장된 로그인 갱신)과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다. `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
+- 외부 네트워크 통신은 GitHub뿐입니다. device flow 로그인(및 저장된 로그인 갱신)과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 조직 멤버십(조직 저장소인 경우), 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다. `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
 - 권한 확인을 통과한 뒤, PGARD는 서비스의 정체를 보여 주기 위해 `127.0.0.1`에서 발견한 각 열린 포트에 `GET /`를 한 번 보냅니다. 이후 웹 검사는 사용자가 확인한 서비스에만 요청을 보냅니다.
 - PGARD는 취약점 데이터베이스를 포함하거나 내려받거나 조회하지 않습니다.
 
