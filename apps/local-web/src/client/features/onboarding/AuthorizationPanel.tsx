@@ -4,7 +4,12 @@ import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
-import { describeStoredSignIn, SIGN_OUT_HINTS, SIGN_OUT_LABELS } from "./sign-in-text";
+import {
+  describeGitHubApp,
+  describeStoredSignIn,
+  SIGN_OUT_HINTS,
+  SIGN_OUT_LABELS,
+} from "./sign-in-text";
 
 const CHECK_LABELS: Record<string, string> = {
   repository: "Repository",
@@ -65,6 +70,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
   };
 
   const signInLine = status ? describeStoredSignIn(status.storedSignIn) : null;
+  const githubAppLine = describeGitHubApp(session.githubApp);
   const canEndSession = status?.status === "done" || status?.storedSignIn.status === "stored";
   const canRemoveStored = status?.storedSignIn.status === "stored";
 
@@ -103,12 +109,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
         Project <strong>{session.projectName}</strong>. PGARD checks owner approval, your current
         access and a merged contribution before every scan.
       </p>
-      {!session.isClientIdConfigured && (
-        <Notice tone="warning">
-          PGARD_GITHUB_APP_CLIENT_ID is not set. A registered PGARD GitHub App is required to verify
-          your GitHub identity; until then every scan is blocked.
-        </Notice>
-      )}
+      {githubAppLine && <p className="muted">{githubAppLine}</p>}
       {signInLine && <p className="muted">{signInLine}</p>}
       {(canEndSession || canRemoveStored) && (
         <p className="muted">

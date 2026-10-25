@@ -1,4 +1,4 @@
-import type { StoredSignInDto } from "../../../shared/api-types";
+import type { SessionInfo, StoredSignInDto } from "../../../shared/api-types";
 
 /** Two sign-out actions, labelled so it is clear which one touches the OS keychain. */
 export const SIGN_OUT_LABELS = {
@@ -12,6 +12,16 @@ export const SIGN_OUT_HINTS = {
   removeStored:
     "Also deletes the saved sign-in from the OS keychain, for the CLI too. The next check asks for a new device code.",
 } as const;
+
+/**
+ * One line about a GitHub App override; `null` for the built-in PGARD App, which needs no setup
+ * and no mention.
+ */
+export function describeGitHubApp(app: SessionInfo["githubApp"]): string | null {
+  return app.source === "env"
+    ? `GitHub App: ${app.clientId} from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).`
+    : null;
+}
 
 /** One line about the GitHub sign-in the server holds. Shows the account login at most. */
 export function describeStoredSignIn(storedSignIn: StoredSignInDto): string | null {

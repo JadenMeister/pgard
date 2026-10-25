@@ -113,6 +113,13 @@ function authStatus(state: SessionState): AuthStatus {
   };
 }
 
+function githubAppInfo(
+  env: Readonly<Record<string, string | undefined>>,
+): SessionInfo["githubApp"] {
+  const { clientId, source } = resolveGitHubAppClientId(env);
+  return { clientId, source };
+}
+
 const getSession: ApiHandler = async (context) => {
   // Show whether a keychain sign-in will be reused before the first check (login only).
   context.state.storedSignIn = await readStoredSignInDto(context.deps.credentialStore, context.env);
@@ -120,7 +127,7 @@ const getSession: ApiHandler = async (context) => {
     version: PGARD_VERSION,
     projectName: sanitizeDisplayText(path.basename(context.projectRoot), 120),
     presetTargetPort: context.presetTargetPort,
-    isClientIdConfigured: true,
+    githubApp: githubAppInfo(context.env),
   };
   return info;
 };

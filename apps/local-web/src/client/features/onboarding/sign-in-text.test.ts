@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeStoredSignIn, SIGN_OUT_HINTS, SIGN_OUT_LABELS } from "./sign-in-text";
+import {
+  describeGitHubApp,
+  describeStoredSignIn,
+  SIGN_OUT_HINTS,
+  SIGN_OUT_LABELS,
+} from "./sign-in-text";
 
 describe("dashboard sign-in texts", () => {
   it("labels both sign-out actions by what they do to the OS keychain", () => {
@@ -18,5 +23,12 @@ describe("dashboard sign-in texts", () => {
       "kept in memory until the dashboard stops",
     );
     expect(describeStoredSignIn({ status: "unknown" })).toBeNull();
+  });
+
+  it("mentions only a GitHub App override, never a missing client id", () => {
+    expect(describeGitHubApp({ clientId: "Iv23liKDf0mhnPl2c7zj", source: "default" })).toBeNull();
+    expect(describeGitHubApp({ clientId: "Iv23liForkApp", source: "env" })).toBe(
+      "GitHub App: Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).",
+    );
   });
 });

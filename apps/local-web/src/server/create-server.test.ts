@@ -282,9 +282,27 @@ describe("local web server security", () => {
     const body = (await apiGet(running, "/api/session")).body;
     expect(JSON.parse(body)).toMatchObject({
       projectName: "my-project",
-      isClientIdConfigured: true,
+      githubApp: { clientId: DEFAULT_GITHUB_APP_CLIENT_ID, source: "default" },
     });
     expect(body).not.toContain("/work/");
+  });
+
+  it("reports an env override as the GitHub App, and treats a blank one as unset", async () => {
+    const session = async (env: Record<string, string>) => {
+      const running = await start(fakeDeps(), null, env);
+      const info = JSON.parse((await apiGet(running, "/api/session")).body).githubApp;
+      await running.close();
+      server = null;
+      return info;
+    };
+    expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liForkApp" })).toEqual({
+      clientId: "Iv23liForkApp",
+      source: "env",
+    });
+    expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "  " })).toEqual({
+      clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+      source: "default",
+    });
   });
 });
 
