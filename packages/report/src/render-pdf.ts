@@ -102,11 +102,16 @@ function writeFinding(doc: PDFKit.PDFDocument, finding: Finding): void {
 }
 
 /** Renders the same content as the HTML report into a PDF buffer (pure JS, no browser). */
-export function renderPdfReport(input: ScanResult): Promise<Buffer> {
+export function renderPdfReport(
+  input: ScanResult,
+  /** `compress: false` keeps the content streams readable, so tests can extract the text. */
+  options: { compress?: boolean } = {},
+): Promise<Buffer> {
   const result = prepareReportResult(input);
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
+      compress: options.compress ?? true,
       margin: PAGE_MARGIN,
       info: { Title: "PGARD Report", Creator: "pgard", Producer: "pgard" },
     });
