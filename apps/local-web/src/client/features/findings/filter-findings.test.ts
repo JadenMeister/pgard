@@ -5,6 +5,8 @@ import {
   EMPTY_FILTERS,
   filterFindings,
   formatLocation,
+  formatContextCounts,
+  formatOutsideContexts,
   splitByContext,
 } from "./filter-findings";
 
@@ -78,5 +80,44 @@ describe("filterFindings", () => {
     const { primary, test: tests } = splitByContext([...FINDINGS, test]);
     expect(primary.map((entry) => entry.id)).toEqual(FINDINGS.map((entry) => entry.id));
     expect(tests).toEqual([test]);
+  });
+
+  it("splits vendored suggestions from test and regular findings without dropping any", () => {
+    const test = finding({ id: "t", context: "test", confidence: "low" });
+    const vendored = finding({
+      id: "v",
+      context: "vendored",
+      confidence: "low",
+      location: {
+        kind: "file",
+        path: "node_modules/pkg/index.js",
+        line: 1,
+        url: null,
+        commit: null,
+      },
+    });
+    const groups = splitByContext([vendored, ...FINDINGS, test]);
+    expect(groups.primary.map((entry) => entry.id)).toEqual(FINDINGS.map((entry) => entry.id));
+    expect(groups.test).toEqual([test]);
+    expect(groups.vendored).toEqual([vendored]);
+    // Headline counts use regular code only.
+    expect(countBySeverity(groups.primary)).toEqual(countBySeverity(FINDINGS));
+  });
+
+  it("words the headline addition like the CLI and reports", () => {
+    expect(formatContextCounts({ test: 0, vendored: 0 })).toBe("");
+    expect(formatContextCounts({ test: 2, vendored: 0 })).toBe("plus 2 in test or fixture code");
+    expect(formatContextCounts({ test: 0, vendored: 1 })).toBe(
+      "plus 1 suggestion in vendored code",
+    );
+    expect(formatContextCounts({ test: 1, vendored: 3 })).toBe(
+      "plus 1 in test or fixture code, 3 suggestions in vendored code",
+    );
+    expect(formatOutsideContexts({ test: 0, vendored: 0 })).toBe("");
+    expect(formatOutsideContexts({ test: 1, vendored: 0 })).toBe(" outside test or fixture code");
+    expect(formatOutsideContexts({ test: 0, vendored: 1 })).toBe(" outside vendored code");
+    expect(formatOutsideContexts({ test: 1, vendored: 1 })).toBe(
+      " outside test, fixture or vendored code",
+    );
   });
 });

@@ -8,7 +8,9 @@ import {
   countBySeverity,
   EMPTY_FILTERS,
   filterFindings,
+  formatContextCounts,
   formatLocation,
+  formatOutsideContexts,
   splitByContext,
   type FindingFilters,
 } from "./filter-findings";
@@ -52,11 +54,18 @@ function FindingItem({ finding }: { finding: Finding }) {
 /** Charts, filters and the finding list for the current session's result (already redacted). */
 export function FindingsDashboard({ result }: { result: ScanResult }) {
   const [filters, setFilters] = useState<FindingFilters>(EMPTY_FILTERS);
-  // Headline counts and charts cover regular code; test and fixture findings are listed after.
+  // Headline counts and charts cover regular code; test and fixture findings are listed after,
+  // and suggestions in vendored code come last.
   const groups = useMemo(() => splitByContext(result.findings), [result.findings]);
   const counts = useMemo(() => countBySeverity(groups.primary), [groups]);
   const visible = useMemo(() => filterFindings(groups.primary, filters), [groups, filters]);
   const visibleTest = useMemo(() => filterFindings(groups.test, filters), [groups, filters]);
+  const visibleVendored = useMemo(
+    () => filterFindings(groups.vendored, filters),
+    [groups, filters],
+  );
+  const contextCounts = { test: groups.test.length, vendored: groups.vendored.length };
+  const contextNote = formatContextCounts(contextCounts);
   const statusCounts = useMemo(() => {
     const split = { confirmed: 0, suspected: 0, informational: 0 };
     for (const finding of groups.primary) if (finding.status in split) split[finding.status] += 1;
@@ -79,7 +88,7 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
         {OVERALL_LABELS[result.overallStatus] ?? "Unknown"} - {groups.primary.length} finding(s):{" "}
         {statusCounts.confirmed} confirmed, {statusCounts.suspected} suspected,{" "}
         {statusCounts.informational} informational
-        {groups.test.length > 0 ? ` - plus ${groups.test.length} in test or fixture code` : ""}
+        {contextNote === "" ? "" : ` - ${contextNote}`}
       </p>
       <div className="charts">
         <SeverityBarChart
@@ -157,9 +166,7 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
       {visible.length === 0 ? (
         <p className="muted">
           {groups.primary.length === 0
-            ? groups.test.length === 0
-              ? "No findings in the areas that ran. This does not mean the project is secure; check coverage."
-              : "No findings outside test or fixture code in the areas that ran. This does not mean the project is secure; check coverage."
+            ? `No findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; check coverage.`
             : "No findings match the filters."}
         </p>
       ) : (
@@ -182,6 +189,34 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
           ) : (
             <ul className="findings">
               {visibleTest.map((finding) => (
+                <FindingItem key={finding.id} finding={finding} />
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
+      {groups.vendored.length > 0 ? (
+        <section
+          className="test-findings vendored-findings"
+          aria-label="Suggestions in third-party or vendored code"
+        >
+          <h3>Suggestions: in third-party/vendored code ({groups.vendored.length})</h3>
+          <p>
+            This code is a committed dependency, not your code. Review it if it&apos;s unexpected;
+            otherwise consider removing it from Git (
+            <code>git rm -r --cached &lt;directory&gt;</code>, then add the directory to{" "}
+            <code>.gitignore</code>).
+          </p>
+          <p className="muted small">
+            Classified by path only: files under a node_modules/, bower_components/, jspm_packages/,
+            vendor/, third_party/ or Pods/ directory. Confidence is capped at low and they are not
+            counted above, but they are not dropped: a real secret committed there is still exposed.
+          </p>
+          {visibleVendored.length === 0 ? (
+            <p className="muted">No findings match the filters.</p>
+          ) : (
+            <ul className="findings">
+              {visibleVendored.map((finding) => (
                 <FindingItem key={finding.id} finding={finding} />
               ))}
             </ul>

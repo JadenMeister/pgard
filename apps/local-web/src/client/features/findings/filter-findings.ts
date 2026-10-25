@@ -24,17 +24,46 @@ export function countBySeverity(findings: readonly Finding[]): Record<Severity, 
 }
 
 /**
- * Splits findings into regular code and test or fixture code (`context: "test"`, set by the scan
- * engine). Mirrors `splitFindingsByContext` from @pgard/findings without bundling it.
+ * Splits findings into regular code, test or fixture code (`context: "test"`) and suggestions in
+ * committed third-party code (`context: "vendored"`), both set by the scan engine. Mirrors
+ * `splitFindingsByContext` from @pgard/findings without bundling it.
  */
 export function splitByContext(findings: readonly Finding[]): {
   primary: Finding[];
   test: Finding[];
+  vendored: Finding[];
 } {
   const primary: Finding[] = [];
   const test: Finding[] = [];
-  for (const finding of findings) (finding.context === "test" ? test : primary).push(finding);
-  return { primary, test };
+  const vendored: Finding[] = [];
+  for (const finding of findings) {
+    if (finding.context === "vendored") vendored.push(finding);
+    else if (finding.context === "test") test.push(finding);
+    else primary.push(finding);
+  }
+  return { primary, test, vendored };
+}
+
+/**
+ * Headline addition, e.g. "plus 2 in test or fixture code, 3 suggestions in vendored code"; empty
+ * when every finding is regular code. Same wording as `formatContextCounts` in @pgard/report.
+ */
+export function formatContextCounts(counts: { test: number; vendored: number }): string {
+  const parts = [
+    ...(counts.test === 0 ? [] : [`${counts.test} in test or fixture code`]),
+    ...(counts.vendored === 0
+      ? []
+      : [`${counts.vendored} suggestion${counts.vendored === 1 ? "" : "s"} in vendored code`]),
+  ];
+  return parts.length === 0 ? "" : `plus ${parts.join(", ")}`;
+}
+
+/** Same wording as `formatOutsideContexts` in @pgard/report. */
+export function formatOutsideContexts(counts: { test: number; vendored: number }): string {
+  if (counts.test > 0 && counts.vendored > 0) return " outside test, fixture or vendored code";
+  if (counts.test > 0) return " outside test or fixture code";
+  if (counts.vendored > 0) return " outside vendored code";
+  return "";
 }
 
 export function formatLocation(location: FindingLocation): string {
