@@ -5,7 +5,12 @@ import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
-import { readTextFile, walkSourceTree, type SourceLanguage } from "./walk.js";
+import {
+  readTextFile,
+  walkSourceTree,
+  type SkippedDependencyDirectory,
+  type SourceLanguage,
+} from "./walk.js";
 
 export interface SourceScanOptions {
   signal?: AbortSignal;
@@ -82,6 +87,32 @@ function listPaths(paths: string[]): string {
     .join(", ");
   const rest = paths.length - MAX_LISTED_PATHS;
   return rest > 0 ? `${listed} and ${rest} more` : listed;
+}
+
+/**
+ * Coverage note for the dependency directories the walk did not enter, listing at most
+ * MAX_LISTED_PATHS of them: `vendor/ (composer.json), node_modules/`. Unusual names are quoted.
+ */
+export function describeSkippedDependencyDirectories(
+  directories: readonly SkippedDependencyDirectory[],
+): string {
+  const label = (entry: SkippedDependencyDirectory) => {
+    const name = /^[\w./@+-]+$/.test(entry.path)
+      ? `${entry.path}/`
+      : JSON.stringify(`${entry.path}/`);
+    return entry.reason === null ? name : `${name} (${entry.reason})`;
+  };
+  const listed = [...directories]
+    .sort((a, b) => a.path.localeCompare(b.path, "en"))
+    .slice(0, MAX_LISTED_PATHS)
+    .map(label)
+    .join(", ");
+  const rest = directories.length - MAX_LISTED_PATHS;
+  const count = directories.length;
+  return (
+    `Skipped ${count} dependency director${count === 1 ? "y" : "ies"} (third-party code, not analyzed): ` +
+    `${listed}${rest > 0 ? ` and ${rest} more` : ""}.`
+  );
 }
 
 /** Capitalizes the first letter so a clause can start a sentence in a note. */
@@ -316,6 +347,15 @@ export async function scanSourceCode(
       status: "partial",
       ruleIds: [],
       note: `${walk.skippedLarge} source file(s) over 1 MiB were skipped.`,
+    });
+  }
+  if (walk.skippedDependencyDirectories.length > 0) {
+    coverage.push({
+      area: "source:dependency-directories",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: describeSkippedDependencyDirectories(walk.skippedDependencyDirectories),
     });
   }
   for (const [module, label] of Object.entries(JS_UNSUPPORTED_ORMS)) {

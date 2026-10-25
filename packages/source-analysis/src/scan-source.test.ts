@@ -74,6 +74,76 @@ describe("scanSourceCode", () => {
     expect(coverage["source:orm:typeorm"]?.note).toMatch(/not supported/);
   });
 
+  it("analyzes first-party vendor/ modules under src/, app/ or lib/ in any letter case", async () => {
+    const root = project({
+      "package.json": "{}",
+      "src/vendor/a.ts": SQL_VULN,
+      "packages/web/Src/vendor/x.ts": SQL_VULN,
+      "packages/api/lib/vendor/b.ts": SQL_VULN,
+    });
+    const result = await scanSourceCode(root);
+    const paths = result.findings.map((finding) => finding.location.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "src/vendor/a.ts",
+        "packages/web/Src/vendor/x.ts",
+        "packages/api/lib/vendor/b.ts",
+      ]),
+    );
+    expect(result.coverage.find((entry) => entry.area === "source:typescript")?.note).toMatch(
+      /^3 TypeScript file\(s\)/,
+    );
+    expect(result.coverage.map((entry) => entry.area)).not.toContain(
+      "source:dependency-directories",
+    );
+  });
+
+  it("skips dependency vendor/ directories and node_modules anywhere, and lists them", async () => {
+    const root = project({
+      "composer.json": "{}",
+      "vendor/acme/lib.ts": SQL_VULN,
+      "svc/go.mod": "module example.com/svc\n",
+      "svc/vendor/x/y.ts": SQL_VULN,
+      "src/composer.json": "{}",
+      "src/vendor/own.ts": SQL_VULN,
+      "tools/vendor/script.ts": SQL_VULN,
+      "packages/web/node_modules/pkg/index.js": SQL_VULN,
+      "src/node_modules/pkg/index.js": SQL_VULN,
+    });
+    const result = await scanSourceCode(root);
+    const paths = result.findings.map((finding) => finding.location.path);
+    // A vendor/ under src/ or without a manifest next to it is analyzed (its findings are later
+    // grouped as vendored suggestions when the path is vendored).
+    expect(paths).toEqual(expect.arrayContaining(["src/vendor/own.ts", "tools/vendor/script.ts"]));
+    for (const skipped of [
+      "vendor/acme/lib.ts",
+      "svc/vendor/x/y.ts",
+      "packages/web/node_modules/pkg/index.js",
+      "src/node_modules/pkg/index.js",
+    ]) {
+      expect(paths).not.toContain(skipped);
+    }
+    const coverage = result.coverage.find(
+      (entry) => entry.area === "source:dependency-directories",
+    );
+    expect(coverage).toMatchObject({ status: "completed", scope: "code", ruleIds: [] });
+    expect(coverage?.note).toBe(
+      "Skipped 4 dependency directories (third-party code, not analyzed): packages/web/node_modules/, src/node_modules/, svc/vendor/ (go.mod), vendor/ (composer.json).",
+    );
+    expect(result.coverage.find((entry) => entry.area === "source:typescript")?.note).toMatch(
+      /^2 TypeScript file\(s\)/,
+    );
+  });
+
+  it("skips a root vendor/ without a manifest", async () => {
+    const root = project({ "vendor/a.ts": SQL_VULN, "src/b.ts": SQL_VULN });
+    const result = await scanSourceCode(root);
+    expect(result.findings.map((finding) => finding.location.path)).not.toContain("vendor/a.ts");
+    expect(
+      result.coverage.find((entry) => entry.area === "source:dependency-directories")?.note,
+    ).toContain("vendor/ (repository root)");
+  });
+
   it("reports languages without files as completed with a note, never as findings", async () => {
     const root = project({ "README.md": "# x" });
     const result = await scanSourceCode(root);
