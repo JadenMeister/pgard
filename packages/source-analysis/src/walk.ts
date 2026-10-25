@@ -92,6 +92,8 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       continue;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
+    // Regular files only: a symlinked composer.json/go.mod/Gemfile is deliberately not trusted, so
+    // it cannot hide a first-party vendor/ from analysis.
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
       const absolutePath = path.join(directory, entry.name);
