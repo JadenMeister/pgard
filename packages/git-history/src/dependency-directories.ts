@@ -1,4 +1,4 @@
-import { VENDORED_DIRECTORIES } from "@pgard/findings";
+import { findVendoredDirectoryIndexes } from "@pgard/findings";
 
 /**
  * Vendored directory names that a package manager restores, so committing them is a hygiene
@@ -12,7 +12,6 @@ const RESTORABLE_DIRECTORIES: ReadonlySet<string> = new Set([
   "vendor",
   "Pods",
 ]);
-const VENDORED: ReadonlySet<string> = new Set(VENDORED_DIRECTORIES);
 
 /** Directories named in the PG-HYGIENE-001 evidence; the rest are counted. */
 export const MAX_LISTED_DEPENDENCY_DIRECTORIES = 5;
@@ -24,36 +23,59 @@ export interface CommittedDependencyDirectory {
   fileCount: number;
 }
 
+/** Manifests whose package manager fills a `vendor/` directory next to them. */
+const VENDOR_MANIFESTS: readonly string[] = ["composer.json", "go.mod", "Gemfile"];
+
 /**
  * Dependency directories among the tracked file paths at a revision, one entry per root: the
- * outermost vendored directory of each path (`node_modules/a/node_modules/b.js` belongs to
- * `node_modules`). Sorted by file count, largest first. Go's sanctioned vendoring is skipped: a
- * `vendor/` with a tracked `vendor/modules.txt` next to a tracked `go.mod`.
+ * outermost flagged vendored directory of each path (`node_modules/a/node_modules/b.js` belongs
+ * to `node_modules`). Sorted by file count, largest first. Vendored directories follow
+ * `findVendoredDirectoryIndexes` (so `src/vendor/` is first-party code), and of those:
+ * - `node_modules/`, `bower_components/`, `jspm_packages/` and `Pods/` are always flagged;
+ * - `vendor/` only at the repository root or next to a tracked `composer.json`, `go.mod` or
+ *   `Gemfile`, and never for Go module vendoring (a tracked `vendor/modules.txt` next to a
+ *   tracked `go.mod`);
+ * - `third_party/` never.
+ * When an outer directory is not flagged, a flagged one nested inside it still is
+ * (`vendor/node_modules/` under Go module vendoring).
  */
 export function findCommittedDependencyDirectories(
   trackedPaths: readonly string[],
 ): CommittedDependencyDirectory[] {
   const tracked = new Set(trackedPaths);
+  const isFlaggedCache = new Map<string, boolean>();
+  const isFlagged = (root: string): boolean => {
+    let flagged = isFlaggedCache.get(root);
+    if (flagged === undefined) {
+      flagged = isFlaggedRoot(root, tracked);
+      isFlaggedCache.set(root, flagged);
+    }
+    return flagged;
+  };
   const counts = new Map<string, number>();
   for (const filePath of trackedPaths) {
     const directories = filePath.split("/").slice(0, -1);
-    const index = directories.findIndex((segment) => VENDORED.has(segment));
-    if (index === -1 || !RESTORABLE_DIRECTORIES.has(directories[index] ?? "")) continue;
-    const root = directories.slice(0, index + 1).join("/");
-    counts.set(root, (counts.get(root) ?? 0) + 1);
+    for (const index of findVendoredDirectoryIndexes(directories)) {
+      const root = directories.slice(0, index + 1).join("/");
+      if (!isFlagged(root)) continue;
+      counts.set(root, (counts.get(root) ?? 0) + 1);
+      break;
+    }
   }
   return [...counts.entries()]
-    .filter(([root]) => !isGoModuleVendor(root, tracked))
     .map(([root, fileCount]) => ({ root, fileCount }))
     .sort((a, b) => b.fileCount - a.fileCount || a.root.localeCompare(b.root, "en"));
 }
 
-function isGoModuleVendor(root: string, tracked: ReadonlySet<string>): boolean {
+function isFlaggedRoot(root: string, tracked: ReadonlySet<string>): boolean {
   const segments = root.split("/");
-  if (segments[segments.length - 1] !== "vendor") return false;
+  const name = segments[segments.length - 1] ?? "";
+  if (!RESTORABLE_DIRECTORIES.has(name)) return false;
+  if (name !== "vendor") return true;
   const parent = segments.slice(0, -1).join("/");
-  const goMod = parent === "" ? "go.mod" : `${parent}/go.mod`;
-  return tracked.has(goMod) && tracked.has(`${root}/modules.txt`);
+  const sibling = (file: string) => tracked.has(parent === "" ? file : `${parent}/${file}`);
+  if (sibling("go.mod") && tracked.has(`${root}/modules.txt`)) return false;
+  return parent === "" || VENDOR_MANIFESTS.some(sibling);
 }
 
 /** Evidence and fix text for the single PG-HYGIENE-001 finding. */

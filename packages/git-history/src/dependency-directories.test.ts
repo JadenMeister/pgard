@@ -43,13 +43,82 @@ describe("findCommittedDependencyDirectories", () => {
     ).toEqual([]);
   });
 
-  it("does not flag third_party/, even with a dependency directory inside it", () => {
+  it("does not flag third_party/ itself, but flags a dependency directory nested in it", () => {
+    expect(findCommittedDependencyDirectories(["third_party/zlib/zlib.h"])).toEqual([]);
     expect(
       findCommittedDependencyDirectories([
         "third_party/zlib/zlib.h",
         "third_party/x/node_modules/a.js",
+        "third_party/x/node_modules/b/c.js",
+      ]),
+    ).toEqual([{ root: "third_party/x/node_modules", fileCount: 2 }]);
+  });
+
+  it("flags a dependency directory nested in Go module vendoring", () => {
+    expect(
+      findCommittedDependencyDirectories([
+        "go.mod",
+        "vendor/modules.txt",
+        "vendor/github.com/pkg/errors/errors.go",
+        "vendor/node_modules/x/index.js",
+        "vendor/github.com/acme/ui/bower_components/y.js",
+      ]),
+    ).toEqual([
+      { root: "vendor/github.com/acme/ui/bower_components", fileCount: 1 },
+      { root: "vendor/node_modules", fileCount: 1 },
+    ]);
+  });
+
+  it("counts a dependency directory nested in a flagged vendor/ toward that root", () => {
+    expect(
+      findCommittedDependencyDirectories([
+        "composer.json",
+        "vendor/autoload.php",
+        "vendor/acme/assets/node_modules/a.js",
+      ]),
+    ).toEqual([{ root: "vendor", fileCount: 2 }]);
+  });
+
+  it("never flags first-party vendor/ modules under src/, app/ or lib/", () => {
+    expect(
+      findCommittedDependencyDirectories([
+        "package.json",
+        "src/vendor/vendor.module.ts",
+        "src/vendor/vendor.service.ts",
+        "app/vendor/client.rb",
+        "lib/vendor/a.js",
+        "src/integrations/third_party/x.ts",
       ]),
     ).toEqual([]);
+    // Even next to a manifest, a vendor/ inside src/ is not dependency code.
+    expect(findCommittedDependencyDirectories(["src/composer.json", "src/vendor/a.php"])).toEqual(
+      [],
+    );
+  });
+
+  it("flags vendor/ only at the repository root or next to composer.json, go.mod or Gemfile", () => {
+    expect(findCommittedDependencyDirectories(["composer.json", "vendor/autoload.php"])).toEqual([
+      { root: "vendor", fileCount: 1 },
+    ]);
+    // At the root even without a manifest.
+    expect(findCommittedDependencyDirectories(["vendor/a.js"])).toEqual([
+      { root: "vendor", fileCount: 1 },
+    ]);
+    expect(
+      findCommittedDependencyDirectories([
+        "api/composer.json",
+        "api/vendor/autoload.php",
+        "web/Gemfile",
+        "web/vendor/bundle/x.rb",
+        "svc/go.mod",
+        "svc/vendor/a.go",
+        "tools/vendor/script.sh",
+      ]),
+    ).toEqual([
+      { root: "api/vendor", fileCount: 1 },
+      { root: "svc/vendor", fileCount: 1 },
+      { root: "web/vendor", fileCount: 1 },
+    ]);
   });
 
   it("skips Go module vendoring (go.mod and vendor/modules.txt) but flags other vendor/ copies", () => {
@@ -73,10 +142,10 @@ describe("findCommittedDependencyDirectories", () => {
         "vendor/modules.txt",
       ]),
     ).toEqual([{ root: "vendor", fileCount: 2 }]);
-    // go.mod must sit next to the vendor/ directory.
+    // A nested vendor/ with no manifest next to it (go.mod is in the parent) is not flagged.
     expect(
       findCommittedDependencyDirectories(["go.mod", "web/vendor/modules.txt", "web/vendor/a.go"]),
-    ).toEqual([{ root: "web/vendor", fileCount: 2 }]);
+    ).toEqual([]);
   });
 });
 
