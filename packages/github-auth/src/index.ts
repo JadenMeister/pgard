@@ -17,6 +17,7 @@ export {
   type GitHubCommitSummary,
   type GitHubCompareStatus,
   type GitHubInstallation,
+  type GitHubOrganizationMembership,
   type GitHubPullRequestSummary,
   type GitHubRepository,
   type GitHubRepositoryPermissions,

@@ -10,6 +10,8 @@ export interface FetchRequestInit {
 export interface FetchResponseLike {
   readonly status: number;
   readonly ok: boolean;
+  /** Response headers; optional so minimal test doubles need not provide them. */
+  readonly headers?: { get(name: string): string | null };
   json(): Promise<unknown>;
 }
 

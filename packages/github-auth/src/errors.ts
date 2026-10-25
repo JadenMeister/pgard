@@ -15,6 +15,10 @@ export type GitHubAuthErrorCode =
   | "http_error"
   | "unauthorized"
   | "not_found"
+  /** GitHub answered 403 (not a rate limit): the token or App lacks a required permission. */
+  | "forbidden"
+  /** GitHub's API rate limit was reached (429, or 403 with no remaining requests). */
+  | "rate_limited"
   | "result_truncated"
   | "unexpected_response";
 

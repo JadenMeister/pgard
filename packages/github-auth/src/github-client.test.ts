@@ -169,6 +169,96 @@ describe("createGitHubClient", () => {
   });
 });
 
+describe("createGitHubClient: getOrganizationMembership", () => {
+  const MEMBERSHIP_PATH = "/user/memberships/orgs/acme";
+  const MEMBERSHIP = {
+    state: "active",
+    role: "admin",
+    organization: { id: 42, login: "acme" },
+    user: { id: 7, login: "octo" },
+  };
+
+  function membershipFetch(
+    status: number,
+    body: unknown,
+    headers: Record<string, string> = {},
+  ): { fetch: FetchLike; urls: string[]; auth: string[] } {
+    const urls: string[] = [];
+    const auth: string[] = [];
+    const fetch: FetchLike = async (url, init) => {
+      urls.push(url);
+      auth.push(init.headers.Authorization ?? "");
+      return {
+        ...jsonResponse(status, body),
+        headers: { get: (name: string) => headers[name.toLowerCase()] ?? null },
+      };
+    };
+    return { fetch, urls, auth };
+  }
+
+  it("reads state, role, organization and user with the same bearer token", async () => {
+    const { fetch, urls, auth } = membershipFetch(200, MEMBERSHIP);
+    const client = createGitHubClient({ token: "tok", fetch });
+    expect(await client.getOrganizationMembership("acme")).toEqual({
+      state: "active",
+      role: "admin",
+      organization: { id: 42, login: "acme" },
+      user: { id: 7, login: "octo" },
+    });
+    expect(urls).toEqual([`https://api.github.com${MEMBERSHIP_PATH}`]);
+    expect(auth).toEqual(["Bearer tok"]);
+  });
+
+  it.each([
+    ["403 without a rate limit", 403, {}, "forbidden"],
+    ["403 with no remaining requests", 403, { "x-ratelimit-remaining": "0" }, "rate_limited"],
+    ["429", 429, {}, "rate_limited"],
+    ["404", 404, {}, "not_found"],
+    ["401", 401, {}, "unauthorized"],
+    ["502", 502, {}, "http_error"],
+  ] as const)("maps %s to %s", async (_label, status, headers, code) => {
+    const client = createGitHubClient({
+      token: "tok",
+      fetch: membershipFetch(status, { message: "secret detail" }, headers).fetch,
+    });
+    const error = await client.getOrganizationMembership("acme").catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code, status });
+    expect((error as Error).message).not.toContain("secret detail");
+    expect((error as Error).message).not.toContain("tok");
+  });
+
+  it.each([
+    ["no role", { ...MEMBERSHIP, role: undefined }],
+    ["no state", { ...MEMBERSHIP, state: 1 }],
+    ["no organization", { ...MEMBERSHIP, organization: null }],
+    ["no user", { ...MEMBERSHIP, user: { login: "octo" } }],
+    ["an array", [MEMBERSHIP]],
+  ])("rejects a membership with %s as malformed", async (_label, body) => {
+    const client = createGitHubClient({ token: "tok", fetch: membershipFetch(200, body).fetch });
+    await expect(client.getOrganizationMembership("acme")).rejects.toMatchObject({
+      code: "unexpected_response",
+    });
+  });
+
+  it("reports a network failure without contacting anything else", async () => {
+    const fetch: FetchLike = async () => {
+      throw new Error("ECONNRESET");
+    };
+    const client = createGitHubClient({ token: "tok", fetch });
+    await expect(client.getOrganizationMembership("acme")).rejects.toMatchObject({
+      code: "network_error",
+    });
+  });
+
+  it("rejects an organization name that is not a single path segment", async () => {
+    const { fetch, urls } = membershipFetch(200, MEMBERSHIP);
+    const client = createGitHubClient({ token: "tok", fetch });
+    await expect(client.getOrganizationMembership("../acme")).rejects.toThrow();
+    await expect(client.getOrganizationMembership("a/b")).rejects.toThrow();
+    expect(urls).toEqual([]);
+  });
+});
+
 describe("resolveGitHubAppClientId", () => {
   const builtIn = { clientId: DEFAULT_GITHUB_APP_CLIENT_ID, source: "default" };
 

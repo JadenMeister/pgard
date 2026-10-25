@@ -6,6 +6,7 @@ import {
   type GitHubCommitSummary,
   type GitHubCompareStatus,
   type GitHubInstallation,
+  type GitHubOrganizationMembership,
   type GitHubPullRequestSummary,
   type GitHubRepository,
   type GitHubSession,
@@ -22,6 +23,8 @@ export interface MockGitHubState {
   commits: Record<string, GitHubCommitSummary>;
   /** Comparison of `sha...defaultBranch`; missing ⇒ `null` (unknown to GitHub). */
   compare: Record<string, GitHubCompareStatus>;
+  /** Membership by organization login; an error is thrown; missing ⇒ 404 `not_found`. */
+  memberships?: Record<string, GitHubOrganizationMembership | GitHubAuthError>;
   failWith?: GitHubAuthError;
 }
 
@@ -74,6 +77,17 @@ export function createMockGitHub(state: MockGitHubState): {
     async listInstallationRepositoryIds(id) {
       guard(`installation-repos:${id}`);
       return state.installationRepositories[id] ?? [];
+    },
+    async getOrganizationMembership(org) {
+      guard(`membership:${org}`);
+      const membership = state.memberships?.[org];
+      if (membership === undefined) {
+        throw new GitHubAuthError("not_found", "not found", 404);
+      }
+      if (membership instanceof GitHubAuthError) {
+        throw membership;
+      }
+      return membership;
     },
     async getRepository() {
       guard("repo");
