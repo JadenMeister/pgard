@@ -4,7 +4,7 @@
 
 PGARD(`pgard`)는 검사 권한이 있는 GitHub 프로젝트를 위한 로컬 보안 검사 도구입니다. 사용자 컴퓨터에서 명령줄 도구와 로컬 웹 대시보드로 동작합니다. 현재 코드·설정, Git 이력, 그리고 (선택 시) `127.0.0.1`에서 실행 중인 웹 서비스를 검사합니다. 발견 항목은 코드 자체로 판정하며, PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다([코드 기반 분석](#코드-기반-분석) 참고).
 
-PGARD는 검사할 때마다 저장소 owner가 PGARD를 승인했는지, 사용자가 지금 저장소에 접근할 수 있는지, 실제로 기여했는지를 확인합니다. 코드와 결과는 사용자 컴퓨터를 벗어나지 않습니다.
+PGARD는 검사할 때마다 저장소 owner가 PGARD를 승인했는지, 사용자가 지금 저장소에 접근할 수 있는지, 사용자가 저장소의 owner이거나 실제로 기여했는지를 확인합니다. 코드와 결과는 사용자 컴퓨터를 벗어나지 않습니다.
 
 PGARD는 MVP입니다. 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
 
@@ -170,7 +170,7 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 2. **GitHub 신원.** device flow로 GitHub에 로그인하거나, OS 키체인에 저장된 로그인을 다시 사용합니다(아래 참고). 다시 쓰는 것은 로그인뿐이며, 3~5번 확인은 매번 GitHub에서 다시 실행합니다.
 3. **Owner 승인.** **개인 계정** 소유 저장소는 PGARD GitHub App이 그 계정에 설치되어 있고, 그 설치에 이 저장소가 포함되어야 합니다. 개인 계정에 App을 설치할 수 있는 사람은 그 계정의 owner뿐입니다. **조직** 소유 저장소는 [조직 저장소](#조직-저장소)를 참고하세요.
 4. **현재 접근 권한.** GitHub가 사용자에게 현재 저장소 읽기 이상의 권한이 있다고 응답해야 합니다.
-5. **기여.** 사용자의 기여가 기본 브랜치 이력에 있어야 합니다. GitHub가 기본 브랜치에 있다고 보여 주는 커밋이어야 하고, 사용자가 작성해 기본 브랜치에 merge된 pull request에 속하거나, GitHub가 서명을 검증하고 committer를 사용자로 인정한 커밋이어야 합니다. 작성자 이름·이메일, co-author trailer, merge되지 않은 pull request, 다른 브랜치나 fork에 merge된 pull request, 서명 없는 직접 push, 로컬에만 있는 커밋은 근거로 인정하지 않습니다. PGARD는 로컬 커밋(`HEAD`의 조상)을 최대 30개까지 살펴봅니다. 그중 조건을 충족하는 커밋이 없고 로컬 커밋이 더 있으면 기여는 `unverifiable`입니다.
+5. **기여.** 사용자가 **검증된 owner**이면 별도의 기여는 필요하지 않습니다. 개인 저장소에서는 사용자의 GitHub 계정 id가 저장소 owner 계정 id와 같아야 합니다(둘 다 remote 문자열이 아니라 GitHub API에서 읽음). 이때 이유는 "`<user>` owns `<owner>/<repo>` (verified by GitHub account id); a separate contribution is not required."입니다. 조직 저장소에서는 사용자가 조직의 활성 owner여야 하며, 같은 실행에서 owner 승인이 얻은 멤버십 근거를 그대로 사용합니다(다시 조회하지 않음). 이때 이유는 "`<user>` is an owner of the organization "`<org>`"; a separate contribution is not required."입니다. 이 예외는 같은 실행에서 owner 승인이 통과했을 때만 적용됩니다. 오류, 불일치, 알 수 없는 상태가 하나라도 있으면 예외는 없고 아래의 일반 규칙을 적용합니다. owner 승인과 현재 접근 권한을 대신하지 않으며, 두 확인은 각자 통과해야 합니다. 그 밖의 사용자는 기여가 기본 브랜치 이력에 있어야 합니다. GitHub가 기본 브랜치에 있다고 보여 주는 커밋이어야 하고, 사용자가 작성해 기본 브랜치에 merge된 pull request에 속하거나, GitHub가 서명을 검증하고 committer를 사용자로 인정한 커밋이어야 합니다. 작성자 이름·이메일, co-author trailer, merge되지 않은 pull request, 다른 브랜치나 fork에 merge된 pull request, 서명 없는 직접 push, 로컬에만 있는 커밋은 근거로 인정하지 않습니다. PGARD는 로컬 커밋(`HEAD`의 조상)을 최대 30개까지 살펴봅니다. 그중 조건을 충족하는 커밋이 없고 로컬 커밋이 더 있으면 기여는 `unverifiable`입니다. 기여가 통과하지 못하면 이유 끝에 자격을 얻는 방법을 덧붙입니다: "To qualify, get a pull request merged into "`<default branch>`", or sign your commits (GitHub shows them as Verified) and push them to "`<default branch>`"."
 
 각 항목은 `passed`, `failed`, `unverifiable` 중 하나이며 이유가 함께 표시됩니다. 항목은 이 순서로 보고하지만 반드시 이 순서로 평가하지는 않습니다. 예를 들어 owner 승인을 확인하기 전에 GitHub에서 저장소를 읽습니다(현재 접근 권한). 모든 항목이 통과해야만 검사합니다. 근거가 없거나 불분명하면 검사는 **차단**되고(종료 코드 3) 어떤 항목이 왜 실패했는지 보고합니다.
 
@@ -204,7 +204,7 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 - PGARD GitHub App이 조직 계정에 설치되어 있고, 그 설치에 이 저장소가 포함되어 있습니다.
 - 사용자가 그 조직의 owner입니다. GitHub의 `GET /user/memberships/orgs/{org}`가 사용자의 멤버십을 `state: active`, `role: admin`으로 응답해야 합니다.
 
-설치만으로는 근거가 되지 않습니다. 조직 설정에 따라 저장소 관리자도 App을 설치할 수 있고, GitHub는 누가 설치했는지 알려 주지 않기 때문입니다. 역할이 `admin`이 아닌 활성 멤버(예: 일반 멤버, billing manager)는 "`<user>` is not an owner of `<org>` (role: `<role>`); an organization owner must run the scan." 이유로 차단됩니다(`failed`). 대기 중(pending)인 멤버십은 "`<user>`'s membership in `<org>` is pending, not active; an organization owner with an active membership must run the scan." 이유로 차단됩니다(`failed`). 외부 협력자(outside collaborator)는 멤버가 아니어서 GitHub가 404로 응답하므로, owner 승인은 아래의 404 이유와 함께 `unverifiable`이 됩니다. 기여와 현재 접근 권한은 개인 저장소와 똑같이 확인합니다.
+설치만으로는 근거가 되지 않습니다. 조직 설정에 따라 저장소 관리자도 App을 설치할 수 있고, GitHub는 누가 설치했는지 알려 주지 않기 때문입니다. 역할이 `admin`이 아닌 활성 멤버(예: 일반 멤버, billing manager)는 "`<user>` is not an owner of `<org>` (role: `<role>`); an organization owner must run the scan." 이유로 차단됩니다(`failed`). 대기 중(pending)인 멤버십은 "`<user>`'s membership in `<org>` is pending, not active; an organization owner with an active membership must run the scan." 이유로 차단됩니다(`failed`). 외부 협력자(outside collaborator)는 멤버가 아니어서 GitHub가 404로 응답하므로, owner 승인은 아래의 404 이유와 함께 `unverifiable`이 됩니다. 현재 접근 권한은 개인 저장소와 똑같이 확인합니다. 조직 owner만 owner 승인을 통과하므로, 그 owner는 별도의 기여도 면제됩니다(5번 확인 참고). owner가 아닌 멤버는 owner 승인에서 차단되며, 기여는 여전히 일반 규칙으로 확인합니다.
 
 근거가 불분명하면 검사는 차단되고 owner 승인은 이유와 함께 `unverifiable`이 됩니다. 멤버십 조회에 GitHub가 403이나 404로 응답한 경우, rate limit, 네트워크 오류, 예상하지 못한 응답, 그리고 Git remote의 조직 이름이 GitHub의 이름과 다른 경우(대소문자만 달라도 해당하며, remote를 GitHub에 표시되는 정확한 이름으로 바꾸면 됩니다)가 여기에 포함됩니다. 외부 협력자나 멤버가 아닌 사용자가 받는 멤버십 404는 "GitHub did not return `<user>`'s membership in `<org>` (404): `<user>` may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of `<org>` must run the scan, with the App's Members: Read-only permission approved."로 보고됩니다.
 
@@ -373,7 +373,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 - 코드, Git 이력, 검사 결과는 사용자 컴퓨터에서 처리되며 어디에도 업로드되지 않습니다. 결과는 메모리에만 있고 프로세스나 대시보드가 끝나면 버려지며, 사용자가 내보낸 보고서만 저장됩니다.
 - GitHub 로그인은 파일이 아닌 OS 키체인에 저장되며 브라우저로 보내지 않습니다. 키체인이 없으면 메모리에만 보관합니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.
-- 외부 네트워크 통신은 GitHub뿐입니다. device flow 로그인(및 저장된 로그인 갱신)과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 조직 멤버십(조직 저장소인 경우), 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다. `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
+- 외부 네트워크 통신은 GitHub뿐입니다. device flow 로그인(및 저장된 로그인 갱신)과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 조직 멤버십(조직 저장소인 경우), 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 검증된 owner가 아닌 사용자의 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다. 검증된 owner일 때는 보내지 않습니다. `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
 - 권한 확인을 통과한 뒤, PGARD는 서비스의 정체를 보여 주기 위해 `127.0.0.1`에서 발견한 각 열린 포트에 `GET /`를 한 번 보냅니다. 이후 웹 검사는 사용자가 확인한 서비스에만 요청을 보냅니다.
 - PGARD는 취약점 데이터베이스를 포함하거나 내려받거나 조회하지 않습니다.
 
@@ -390,8 +390,8 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 ## 알려진 제한 사항
 
 - [#44](https://github.com/JadenMeister/pgard/issues/44) PDF 보고서는 Latin-1 밖의 문자(예: 한국어)를 `?`로 바꿉니다. 전체 텍스트는 HTML 보고서를 사용하세요.
-- [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다.
-- [#47](https://github.com/JadenMeister/pgard/issues/47) squash merge와 공동 작성 기여는 보수적으로 처리합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않습니다.
+- [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. MVP 범위 밖입니다([MVP 범위 밖](#mvp-범위-밖) 참고).
+- 검증된 owner가 아닌 사용자의 기여는 보수적으로 확인합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않으므로, 커밋을 공동 작성만 했거나 서명 없이 push한 협력자는 본인의 pull request가 merge되거나 서명된 커밋을 push할 때까지 기여에서 차단됩니다.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) 키체인 로그인 리뷰의 후속 작업: 키체인 저장과 삭제 사이의 짧은 경쟁 상태, 토큰 갱신 중 대시보드 세션만 끝내는 로그아웃을 하면 다음 사용 때 새 device 코드를 요구할 수 있는 문제, `pgard login`으로 계정을 바꾼 뒤에도 대시보드가 이전 계정의 포트 접근을 최대 30분 유지하는 문제(검사는 권한을 다시 확인함).
 - [#145](https://github.com/JadenMeister/pgard/issues/145) 비밀정보 탐지가 일부 형태를 놓칩니다. 예: 템플릿 리터럴, TypeScript 타입 표기가 붙은 선언, Go `:=` 선언, `postgres://` URL 속 자격 증명, `headers["x-api-key"] = "..."` 같은 인덱스 대입.
 - 탐지는 완전하지 않습니다. 발견 항목이 없다고 프로젝트가 안전한 것은 아닙니다.
