@@ -19,6 +19,7 @@ import {
 } from "@pgard/findings";
 import {
   AUTHORIZATION_CHECK_ORDER,
+  AUTHORIZATION_REASON_MAX_LENGTH,
   authorizeProject,
   isAuthorizationAllowed,
   type AuthorizationOutcome,
@@ -185,7 +186,10 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       ...fields.authorization,
       checks: fields.authorization.checks.map((check) => ({
         ...check,
-        reason: redactEvidence(check.reason, { projectRoot: request.projectRoot }),
+        reason: redactEvidence(check.reason, {
+          projectRoot: request.projectRoot,
+          maxLength: AUTHORIZATION_REASON_MAX_LENGTH,
+        }),
       })),
     },
     // Notes can come from any analyzer (including the injected web scanner): redact them

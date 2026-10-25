@@ -18,6 +18,7 @@ export {
 // Launcher-facing re-exports so apps depend on scan-core (and findings) only.
 export {
   AUTHORIZATION_CHECK_ORDER,
+  AUTHORIZATION_REASON_MAX_LENGTH,
   GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE,
   guidedInstallRemedy,
   isAuthorizationAllowed,

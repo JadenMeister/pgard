@@ -20,7 +20,7 @@ import {
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
 } from "@pgard/report";
-import { AUTHORIZATION_CHECK_ORDER } from "@pgard/scan-core";
+import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
 import { safeText, type Style } from "./style.js";
 
 const BAR_WIDTH = 30;
@@ -99,7 +99,7 @@ export function formatAuthorization(summary: AuthorizationSummary, style: Style)
   const lines = ordered.map((check) => {
     const mark = CHECK_STATUS_MARKS[check.status] ?? "[?]";
     const colored = check.status === "passed" ? style.green(mark) : style.red(mark);
-    return `  ${colored} ${check.id.replace(/_/g, " ")}: ${safeText(check.reason, 400)}`;
+    return `  ${colored} ${check.id.replace(/_/g, " ")}: ${safeText(check.reason, AUTHORIZATION_REASON_MAX_LENGTH)}`;
   });
   const decision =
     summary.decision === "allowed"
