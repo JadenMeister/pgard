@@ -63,17 +63,49 @@ export const VENDORED_DIRECTORIES: readonly string[] = [
 const VENDORED_DIRECTORY_SET: ReadonlySet<string> = new Set(VENDORED_DIRECTORIES);
 
 /**
+ * Generic names that are also common first-party module names (`nest g module vendor` creates
+ * `src/vendor/`). They count only outside the source directories below.
+ */
+const AMBIGUOUS_VENDORED_DIRECTORIES: ReadonlySet<string> = new Set(["vendor", "third_party"]);
+
+/** Source directories: an ambiguous name under one of them is first-party code. */
+export const FIRST_PARTY_SOURCE_DIRECTORIES: readonly string[] = ["src", "app", "lib"];
+const FIRST_PARTY_SOURCE_SET: ReadonlySet<string> = new Set(FIRST_PARTY_SOURCE_DIRECTORIES);
+
+/**
+ * Indexes of the directory names (a path's segments without the file name) that make the path
+ * vendored, outermost first. `node_modules`, `bower_components`, `jspm_packages` and `Pods`
+ * count anywhere; `vendor` and `third_party` count only when no earlier segment is `src`, `app`
+ * or `lib` (so `src/vendor/` and `packages/web/src/third_party/` are first-party code).
+ */
+export function findVendoredDirectoryIndexes(directories: readonly string[]): number[] {
+  const indexes: number[] = [];
+  let isUnderSource = false;
+  directories.forEach((segment, index) => {
+    if (
+      VENDORED_DIRECTORY_SET.has(segment) &&
+      !(isUnderSource && AMBIGUOUS_VENDORED_DIRECTORIES.has(segment))
+    ) {
+      indexes.push(index);
+    }
+    if (FIRST_PARTY_SOURCE_SET.has(segment)) isUnderSource = true;
+  });
+  return indexes;
+}
+
+/**
  * Whether a repository-relative POSIX path is committed third-party dependency code. By path
- * only, never by content: any directory segment is exactly `node_modules`, `bower_components`,
- * `jspm_packages`, `vendor`, `third_party` or `Pods`. Whole segments only, so `src/vendored.ts`
- * or `my_node_modules_x/` is not vendored. A path ending in `/` names a directory, so its last
- * segment counts too (`node_modules/`).
+ * only, never by content: a directory segment is exactly `node_modules`, `bower_components`,
+ * `jspm_packages` or `Pods` (anywhere), or `vendor` or `third_party` with no `src`, `app` or
+ * `lib` segment before it (see `findVendoredDirectoryIndexes`). Whole segments only, so
+ * `src/vendored.ts` or `my_node_modules_x/` is not vendored. A path ending in `/` names a
+ * directory, so its last segment counts too (`node_modules/`).
  */
 export function isVendoredPath(filePath: string | null): boolean {
   if (filePath === null || filePath === "") return false;
   const segments = filePath.split("/");
   segments.pop(); // the file name (empty for a path ending in `/`)
-  return segments.some((segment) => VENDORED_DIRECTORY_SET.has(segment));
+  return findVendoredDirectoryIndexes(segments).length > 0;
 }
 
 export function isTestContextFinding(finding: Pick<Finding, "context">): boolean {

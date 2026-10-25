@@ -155,6 +155,10 @@ describe("isVendoredPath", () => {
     "third_party/zlib/zlib.h",
     "ios/Pods/Alamofire/Source/Session.swift",
     "node_modules/",
+    "src/node_modules/pkg/index.js",
+    "app/assets/bower_components/x.js",
+    "packages/web/vendor/acme/lib.php",
+    "vendor/github.com/acme/lib/src/a.go",
   ])("treats %s as vendored", (filePath) => {
     expect(isVendoredPath(filePath)).toBe(true);
   });
@@ -169,6 +173,12 @@ describe("isVendoredPath", () => {
     "dist/bundle.js",
     "build/app.js",
     "Vendor/a.js",
+    "src/vendor/vendor.service.ts",
+    "src/vendor/x.ts",
+    "src/integrations/third_party/x.ts",
+    "packages/web/src/third_party/a.ts",
+    "app/vendor/client.rb",
+    "lib/vendor/a.js",
   ])("does not treat %s as vendored", (filePath) => {
     expect(isVendoredPath(filePath)).toBe(false);
   });
