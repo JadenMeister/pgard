@@ -271,7 +271,7 @@ GitHub App 소유자는 App 설정(**Optional features → User-to-server token 
 | Git 이력  | `history` | `PG-SECRET-001`(커밋된 환경 파일), `PG-SECRET-002`(추적 파일 속 비밀정보), `PG-SECRET-003`(이력에만 남은 비밀정보), `PG-HYGIENE-001`(커밋된 의존성 디렉터리, 제안) |
 | 로컬 HTTP | `web`     | `PG-WEB-001` ~ `PG-WEB-013`                                                                                                                                        |
 
-소스 분석은 JavaScript, TypeScript, React(JSX/TSX), Vue, Go 파일을 다룹니다. 규칙과 심각도의 최신 목록은 이 README의 사본 대신 `pgard rules list`(필요하면 `--language` 사용)로 확인하세요.
+소스 분석은 JavaScript, TypeScript, React(JSX/TSX), Vue, Go 파일을 다룹니다. 작업 트리를 탐색하며 빌드 결과물·캐시(`dist/`, `build/`, `out/`, `.next/`, `coverage/` 등)와 의존성 디렉터리에는 들어가지 않습니다. 의존성 디렉터리는 위치와 상관없이 `node_modules/`, `bower_components/`이고, `vendor/`는 저장소 루트에 있거나 같은 디렉터리에 `composer.json`, `go.mod`, `Gemfile`이 있을 때만입니다(`src/`, `app/`, `lib/` 아래는 제외하므로 직접 만든 `src/vendor/` 모듈은 분석합니다). 건너뛴 의존성 디렉터리는 `source:dependency-directories` coverage 설명에 표시됩니다(예: `Skipped 2 dependency directories (third-party code, not analyzed): node_modules/, vendor/ (composer.json).`, 최대 5개까지 이름을 보여 주고 나머지는 개수로 표시). 규칙과 심각도의 최신 목록은 이 README의 사본 대신 `pgard rules list`(필요하면 `--language` 사용)로 확인하세요.
 
 HTML sink(`innerHTML`, `outerHTML`, `document.write`, `dangerouslySetInnerHTML`, `v-html`)에 sanitizer 호출(예: `DOMPurify.sanitize(...)`)을 바로 거친 값을 넣으면 보고하지 않습니다. JavaScript와 TypeScript에서는 PGARD가 (파일 안에서 TypeScript의 심볼 해석으로) 변수를 그 변수 자신의 `var`/`let`/`const` 선언으로 해석할 수 있고 그 변수에 대한 모든 대입이 sanitizer 호출일 때도 sanitize된 것으로 봅니다. import, 매개변수, 전역 변수, 클래식 스크립트의 최상위 `var`/`let`, 그리고 `eval`, `with`, `Function`, 문자열 타이머를 쓰는 파일의 변수는 sanitize된 것으로 보지 않습니다. sanitizer는 함수 이름으로만 인식하며, sanitizer 설정은 확인하지 않습니다.
 
@@ -305,6 +305,8 @@ PGARD는 취약점 데이터베이스를 포함하거나 내려받거나 조회�
 - `PG-HYGIENE-001`(info, 제안으로 표시): `HEAD`에서 의존성 디렉터리를 추적 중인 경우. 검사마다 발견 항목 하나가 루트 디렉터리와 추적 파일 수를 최대 5개까지 보여 줍니다. 해결 방법: 로컬 사본은 지우지 않고 인덱스에서만 제거하고(`git rm -r --cached node_modules`), `.gitignore`에 추가한 뒤 패키지 관리자로 복원합니다. 추적 중인 경로만 보고 판단하며 작업 트리는 읽지 않습니다. 루트는 vendored 경로([서드파티·vendored 코드의 제안](#서드파티vendored-코드의-제안) 참고)에서 대상이 되는 가장 바깥쪽 디렉터리이며, 중첩된 `node_modules/`는 그 루트에 포함됩니다.
   - `node_modules/`, `bower_components/`, `jspm_packages/`, `Pods/`는 항상 대상입니다.
   - `vendor/`는 저장소 루트에 있거나, 같은 디렉터리에 추적 중인 `composer.json`, `go.mod`, `Gemfile`이 있을 때만 대상입니다. Go 모듈 vendoring(추적 중인 `go.mod` 옆에 있고 `vendor/modules.txt`도 추적 중인 경우)은 Go가 지원하는 방식이므로 대상이 아닙니다. 직접 만든 `src/vendor/` 모듈은 vendored가 아니므로 대상이 되지 않습니다.
+  - Rails importmap 고정 패키지는 대상이 아닙니다. `vendor/` 옆에 `config/importmap.rb`가 추적 중이면 `vendor/javascript/`의 파일은 `bin/importmap pin`이 일부러 커밋한 것이므로 세지 않습니다. 이때 나머지 하위 디렉터리는 하나씩 보고하므로, 커밋된 `vendor/bundle/`(설치된 gem)은 `vendor/bundle/`로 그대로 대상이 되고 제안하는 `git rm`은 고정 패키지를 건드리지 않습니다.
+  - 디렉터리를 Git에 남기기 위한 placeholder 파일(`.keep`, `.gitkeep`. 예: `rails new`가 만드는 `vendor/.keep`)은 세지 않습니다.
   - `third_party/`는 의도적으로 복사해 둔 코드가 대부분이므로 대상이 아닙니다.
   - 바깥 디렉터리가 대상이 아닐 때(Go 모듈 `vendor/`, `third_party/`)도 그 안의 `node_modules/`, `bower_components/`, `jspm_packages/`, `Pods/`는 대상입니다(예: `vendor/node_modules/`). 대상이 아닌 디렉터리 안의 발견 항목도 그대로 vendored 제안으로 표시됩니다.
 
@@ -335,11 +337,11 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 분류는 파일 내용이 아니라 경로로만 합니다. 경로의 디렉터리가 다음에 해당하면 vendored 코드입니다.
 
 - 경로 어디에 있든 정확히 `node_modules`, `bower_components`, `jspm_packages`, `Pods`인 경우, 또는
-- 정확히 `vendor` 또는 `third_party`인 경우. **단** 그 앞의 디렉터리 중에 `src`, `app`, `lib`가 있으면 제외합니다. 이 이름들은 직접 만든 모듈 이름으로도 흔하므로(`nest g module vendor`는 `src/vendor/`를 만듦) `src/vendor/vendor.service.ts`, `packages/web/src/third_party/a.ts`, `app/vendor/client.rb`는 사용자의 코드로 봅니다.
+- 정확히 `vendor` 또는 `third_party`인 경우. **단** 그 앞의 디렉터리 중에 `src`, `app`, `lib`가 있으면(대소문자 무관, 따라서 `Src/vendor/`도 사용자의 코드) 제외합니다. 이 이름들은 직접 만든 모듈 이름으로도 흔하므로(`nest g module vendor`는 `src/vendor/`를 만듦) `src/vendor/vendor.service.ts`, `packages/web/src/third_party/a.ts`, `app/vendor/client.rb`는 사용자의 코드로 봅니다.
 
 그 밖에:
 
-- 디렉터리 이름 전체가 일치해야 하며 대소문자를 구분합니다. `src/vendored.ts`, `my_node_modules_x/index.js`, `k8s/pods/`는 vendored가 아닙니다.
+- 디렉터리 이름 전체가 일치해야 합니다. vendored 이름은 대소문자를 구분합니다. 패키지 관리자는 정확히 그 이름으로 만들고, 소문자 `pods/`는 Kubernetes 설정인 경우가 많기 때문입니다. `src/vendored.ts`, `my_node_modules_x/index.js`, `Vendor/`, `k8s/pods/`는 vendored가 아닙니다.
 - 프로젝트나 패키지 최상위에 있는 Go와 PHP(Composer)의 `vendor/` 디렉터리(`vendor/`, `api/vendor/`)는 둘 다 의존성 사본이므로 모두 해당합니다.
 - `dist/`, `build/` 같은 빌드 결과물은 사용자 자신의 산출물이므로 vendored가 아닙니다.
 - vendored이면서 테스트 코드이기도 한 경로(`node_modules/pkg/test/a.js`)는 vendored로 봅니다.

@@ -271,7 +271,7 @@ Every result reports coverage for each area, so you can see what was and was not
 | Git history     | `history` | `PG-SECRET-001` (committed environment file), `PG-SECRET-002` (secret in a tracked file), `PG-SECRET-003` (secret only in history), `PG-HYGIENE-001` (dependency directory committed, a suggestion) |
 | Local HTTP      | `web`     | `PG-WEB-001` to `PG-WEB-013`                                                                                                                                                                        |
 
-Source analysis covers JavaScript, TypeScript, React (JSX/TSX), Vue and Go files. Run `pgard rules list` (optionally with `--language`) for the current list of rules and their severities, instead of relying on a copy in this README.
+Source analysis covers JavaScript, TypeScript, React (JSX/TSX), Vue and Go files. It walks the working tree and does not enter build output and caches (`dist/`, `build/`, `out/`, `.next/`, `coverage/` and similar) or dependency directories: `node_modules/` and `bower_components/` anywhere, and a `vendor/` only at the repository root or next to a `composer.json`, `go.mod` or `Gemfile` in the same directory (never under `src/`, `app/` or `lib/`, so a first-party `src/vendor/` module is analyzed). The skipped dependency directories are listed in the `source:dependency-directories` coverage note, for example `Skipped 2 dependency directories (third-party code, not analyzed): node_modules/, vendor/ (composer.json).` (up to 5 are named, the rest counted). Run `pgard rules list` (optionally with `--language`) for the current list of rules and their severities, instead of relying on a copy in this README.
 
 For the HTML sinks (`innerHTML`, `outerHTML`, `document.write`, `dangerouslySetInnerHTML`, `v-html`), a value passed straight through a sanitizer call (such as `DOMPurify.sanitize(...)`) is not reported. In JavaScript and TypeScript, a variable also counts as sanitized when PGARD resolves it (with TypeScript's symbol resolution, within the file) to its own `var`/`let`/`const` declaration and every assignment to it is a sanitizer call. Imports, parameters, globals, top-level `var`/`let` of a classic script, and any variable in a file that uses `eval`, `with`, `Function` or string timers are never treated as sanitized. Sanitizers are recognized by function name only; PGARD does not check how the sanitizer is configured.
 
@@ -305,6 +305,8 @@ A badly built application can still change state on a `GET` request. PGARD canno
 - `PG-HYGIENE-001` (info, shown as a suggestion): a dependency directory is tracked at `HEAD`. One finding per scan names each root directory with its tracked file count, listing up to 5 directories. The fix: remove it from the index without deleting your local copy (`git rm -r --cached node_modules`), add it to `.gitignore` and let the package manager restore it. It is decided from the tracked paths only; the working tree is not read. A root is the outermost flagged directory of a vendored path (see [Suggestions in third-party or vendored code](#suggestions-in-third-party-or-vendored-code)), so nested `node_modules/` count toward their root:
   - `node_modules/`, `bower_components/`, `jspm_packages/` and `Pods/` are always flagged.
   - `vendor/` is flagged only at the repository root or next to a tracked `composer.json`, `go.mod` or `Gemfile` in the same directory. It is not flagged for Go module vendoring (a tracked `vendor/modules.txt` next to a tracked `go.mod`), which is the workflow Go supports. A first-party `src/vendor/` module is never vendored, so it is never flagged.
+  - Rails importmap pins are not flagged: when `config/importmap.rb` is tracked next to the `vendor/`, the files in `vendor/javascript/` are committed on purpose by `bin/importmap pin` and are not counted. The other subdirectories are then reported one by one, so a committed `vendor/bundle/` (installed gems) is still flagged as `vendor/bundle/` and the suggested `git rm` leaves the pins alone.
+  - Placeholder files that only keep a directory in Git (`.keep`, `.gitkeep`, such as the `vendor/.keep` that `rails new` creates) are not counted.
   - `third_party/` is never flagged: it usually holds code copied in on purpose.
   - When an outer directory is not flagged (Go module `vendor/`, `third_party/`), a `node_modules/`, `bower_components/`, `jspm_packages/` or `Pods/` inside it still is, for example `vendor/node_modules/`. Findings inside unflagged directories are still vendored suggestions.
 
@@ -335,11 +337,11 @@ Findings in third-party dependency code committed to the repository are shown as
 The classification is by path only, never by file content. A file is vendored when a directory in its path is:
 
 - exactly `node_modules`, `bower_components`, `jspm_packages` or `Pods`, anywhere in the path, or
-- exactly `vendor` or `third_party`, **unless** a directory before it is `src`, `app` or `lib`. Those names are also common first-party module names (`nest g module vendor` creates `src/vendor/`), so `src/vendor/vendor.service.ts`, `packages/web/src/third_party/a.ts` and `app/vendor/client.rb` are your own code.
+- exactly `vendor` or `third_party`, **unless** a directory before it is `src`, `app` or `lib` (in any letter case, so `Src/vendor/` is also your own code). Those names are also common first-party module names (`nest g module vendor` creates `src/vendor/`), so `src/vendor/vendor.service.ts`, `packages/web/src/third_party/a.ts` and `app/vendor/client.rb` are your own code.
 
 Also:
 
-- Whole directory names only, matched case-sensitively: `src/vendored.ts`, `my_node_modules_x/index.js` and `k8s/pods/` are not vendored.
+- Whole directory names only. The vendored names are matched case-sensitively, because package managers create them exactly so and a lowercase `pods/` is often Kubernetes configuration: `src/vendored.ts`, `my_node_modules_x/index.js`, `Vendor/` and `k8s/pods/` are not vendored.
 - Go and PHP (Composer) `vendor/` directories at the top of a project or package (`vendor/`, `api/vendor/`) are both dependency copies, so both count.
 - Build output such as `dist/` or `build/` is your own output and is not vendored.
 - A path that is both vendored and test code (`node_modules/pkg/test/a.js`) is vendored.
