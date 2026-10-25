@@ -9,6 +9,7 @@ import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
+  recheckOwnerApproval,
   resolveGitHubAppClientId,
   runScan,
   verifyProject,
@@ -23,6 +24,8 @@ import {
 export interface ServerDeps {
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
+  /** Owner approval alone, while waiting for an App install; never an authorization. */
+  recheckOwnerApproval: typeof recheckOwnerApproval;
   createSessionProvider: (options: {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
@@ -61,6 +64,7 @@ export function createDefaultServerDeps(): ServerDeps {
   return {
     verifyProject,
     runScan,
+    recheckOwnerApproval,
     createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
         ...deviceFlowApp(env),

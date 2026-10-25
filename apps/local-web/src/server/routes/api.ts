@@ -10,14 +10,20 @@ import {
 import { isReportFormat, ReportWriteError } from "@pgard/report";
 import {
   GITHUB_APP_AUTHORIZATIONS_URL,
+  guidedInstallRemedy,
   isAuthorizationAllowed,
+  isOpenableGitHubUrl,
   PGARD_VERSION,
   resolveGitHubAppClientId,
   removeStoredSignIn,
   ScanCancelledError,
+  type AuthorizationDependencies,
+  type OwnerApprovalRemedy,
 } from "@pgard/scan-core";
 import type {
   AuthStatus,
+  InstallRemedyDto,
+  OwnerApprovalRecheckDto,
   PortListResponse,
   ReportResponse,
   ScanStatus,
@@ -97,6 +103,24 @@ function scanStatus(state: SessionState): ScanStatus {
   return { status, scopes, progress, result, message, deviceCode: state.deviceCode };
 }
 
+/** The remedy as the browser may see it; a link is passed only if it is an github.com URL. */
+function toRemedyDto(remedy: OwnerApprovalRemedy | null): InstallRemedyDto | null {
+  if (remedy === null) return null;
+  const url = remedy.url !== null && isOpenableGitHubUrl(remedy.url) ? remedy.url : null;
+  return {
+    kind: "install_app",
+    missing: remedy.missing,
+    account: {
+      login: sanitizeDisplayText(remedy.account.login, 100),
+      type: remedy.account.type,
+    },
+    url,
+    canApprove: remedy.canApprove && url !== null,
+    unavailableReason:
+      remedy.unavailableReason === null ? null : sanitizeDisplayText(remedy.unavailableReason, 200),
+  };
+}
+
 function authStatus(state: SessionState): AuthStatus {
   const { status, outcome, finishedAt, message } = state.auth;
   const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
@@ -107,6 +131,8 @@ function authStatus(state: SessionState): AuthStatus {
     repo: outcome?.repo ?? null,
     message,
     storedSignIn: state.storedSignIn,
+    remedy:
+      status === "done" && outcome !== null ? toRemedyDto(guidedInstallRemedy(outcome)) : null,
     signInNotice: state.signInNotice,
     // Same window `requirePortAccessAuthorized` enforces; only shown, never trusted back.
     expiresAt: isAllowed && finishedAt !== null ? finishedAt + PORT_ACCESS_WINDOW_MS : null,
@@ -117,6 +143,14 @@ function githubAppInfo(
   env: Readonly<Record<string, string | undefined>>,
 ): SessionInfo["githubApp"] {
   return resolveGitHubAppClientId(env);
+}
+
+/** Authorization deps for this dashboard: its session provider and the configured App slug. */
+function authorizationDeps(context: ApiContext): AuthorizationDependencies {
+  return {
+    getGitHubSession: context.github.getGitHubSession,
+    appSlug: resolveGitHubAppClientId(context.env).slug,
+  };
 }
 
 const getSession: ApiHandler = async (context) => {
@@ -144,7 +178,7 @@ const startVerify: ApiHandler = async (context) => {
   setAuth(state, run);
   state.signInNotice = null;
   void context.deps
-    .verifyProject(context.projectRoot, { getGitHubSession: context.github.getGitHubSession })
+    .verifyProject(context.projectRoot, authorizationDeps(context))
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
@@ -164,6 +198,46 @@ const startVerify: ApiHandler = async (context) => {
 };
 
 const getAuth: ApiHandler = async (context) => authStatus(context.state);
+
+/**
+ * Checks owner approval alone again while the user installs the PGARD GitHub App, so the panel
+ * can start the full check (`POST /api/auth/verify`) as soon as the installation exists. Only
+ * available while the latest check offers the guided install to this user, one at a time. The
+ * result is never an authorization and changes no server state: port access still requires a
+ * new, allowed full check.
+ */
+const recheckOwnerApproval: ApiHandler = async (context) => {
+  const { state } = context;
+  const remedy =
+    state.auth.status === "done" && state.auth.outcome !== null
+      ? toRemedyDto(guidedInstallRemedy(state.auth.outcome))
+      : null;
+  if (remedy === null || !remedy.canApprove) {
+    throw new ApiError(
+      409,
+      "no_install_pending",
+      "There is no PGARD GitHub App installation to wait for. Check again.",
+    );
+  }
+  if (state.ownerApprovalRecheck) {
+    throw new ApiError(409, "recheck_running", "Owner approval is already being checked.");
+  }
+  state.ownerApprovalRecheck = true;
+  try {
+    const recheck = await context.deps.recheckOwnerApproval(
+      context.projectRoot,
+      authorizationDeps(context),
+    );
+    const response: OwnerApprovalRecheckDto = {
+      status: recheck.status,
+      reason: sanitizeDisplayText(recheck.reason, 500),
+      remedy: toRemedyDto(recheck.remedy),
+    };
+    return response;
+  } finally {
+    state.ownerApprovalRecheck = false;
+  }
+};
 
 /**
  * Ends this dashboard's GitHub session and stops a pending sign-in (verify or scan). With
@@ -362,7 +436,7 @@ const startScan: ApiHandler = async (context, body) => {
     .runScan(
       { projectRoot: context.projectRoot, scopes, webTarget },
       {
-        authorization: { getGitHubSession: context.github.getGitHubSession },
+        authorization: authorizationDeps(context),
         webScanner: context.deps.webScanner,
         signal: controller.signal,
         env: context.env,
@@ -471,6 +545,7 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "GET /api/session": getSession,
   "GET /api/auth": getAuth,
   "POST /api/auth/verify": startVerify,
+  "POST /api/auth/owner-approval": recheckOwnerApproval,
   "POST /api/auth/sign-out": signOut,
   "GET /api/ports": listPorts,
   "POST /api/ports/probe": probePort,
