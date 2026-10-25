@@ -159,6 +159,9 @@ describe("isVendoredPath", () => {
     "app/assets/bower_components/x.js",
     "packages/web/vendor/acme/lib.php",
     "vendor/github.com/acme/lib/src/a.go",
+    "vendor/x",
+    "Src/node_modules/pkg/index.js",
+    "Source/vendor/a.js",
   ])("treats %s as vendored", (filePath) => {
     expect(isVendoredPath(filePath)).toBe(true);
   });
@@ -179,6 +182,11 @@ describe("isVendoredPath", () => {
     "packages/web/src/third_party/a.ts",
     "app/vendor/client.rb",
     "lib/vendor/a.js",
+    "Src/vendor/x.ts",
+    "App/vendor/client.rb",
+    "packages/web/LIB/third_party/a.js",
+    "src/Vendor/a.ts",
+    "pods/secret.yaml",
   ])("does not treat %s as vendored", (filePath) => {
     expect(isVendoredPath(filePath)).toBe(false);
   });

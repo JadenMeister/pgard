@@ -68,7 +68,11 @@ const VENDORED_DIRECTORY_SET: ReadonlySet<string> = new Set(VENDORED_DIRECTORIES
  */
 const AMBIGUOUS_VENDORED_DIRECTORIES: ReadonlySet<string> = new Set(["vendor", "third_party"]);
 
-/** Source directories: an ambiguous name under one of them is first-party code. */
+/**
+ * Source directories: an ambiguous name under one of them is first-party code. Matched
+ * case-insensitively (`Src/`, `App/`, `LIB/`), since no package manager creates these names and
+ * case-insensitive file systems treat them as the same directory.
+ */
 export const FIRST_PARTY_SOURCE_DIRECTORIES: readonly string[] = ["src", "app", "lib"];
 const FIRST_PARTY_SOURCE_SET: ReadonlySet<string> = new Set(FIRST_PARTY_SOURCE_DIRECTORIES);
 
@@ -76,7 +80,10 @@ const FIRST_PARTY_SOURCE_SET: ReadonlySet<string> = new Set(FIRST_PARTY_SOURCE_D
  * Indexes of the directory names (a path's segments without the file name) that make the path
  * vendored, outermost first. `node_modules`, `bower_components`, `jspm_packages` and `Pods`
  * count anywhere; `vendor` and `third_party` count only when no earlier segment is `src`, `app`
- * or `lib` (so `src/vendor/` and `packages/web/src/third_party/` are first-party code).
+ * or `lib` in any letter case (so `src/vendor/`, `Src/vendor/` and
+ * `packages/web/src/third_party/` are first-party code). The vendored names themselves match
+ * exactly: package managers create them in lowercase (and `Pods` capitalized), while a lowercase
+ * `pods/` is often Kubernetes configuration and a capitalized `Vendor/` is usually your own.
  */
 export function findVendoredDirectoryIndexes(directories: readonly string[]): number[] {
   const indexes: number[] = [];
@@ -88,7 +95,7 @@ export function findVendoredDirectoryIndexes(directories: readonly string[]): nu
     ) {
       indexes.push(index);
     }
-    if (FIRST_PARTY_SOURCE_SET.has(segment)) isUnderSource = true;
+    if (FIRST_PARTY_SOURCE_SET.has(segment.toLowerCase())) isUnderSource = true;
   });
   return indexes;
 }
@@ -97,7 +104,7 @@ export function findVendoredDirectoryIndexes(directories: readonly string[]): nu
  * Whether a repository-relative POSIX path is committed third-party dependency code. By path
  * only, never by content: a directory segment is exactly `node_modules`, `bower_components`,
  * `jspm_packages` or `Pods` (anywhere), or `vendor` or `third_party` with no `src`, `app` or
- * `lib` segment before it (see `findVendoredDirectoryIndexes`). Whole segments only, so
+ * `lib` segment (any letter case) before it (see `findVendoredDirectoryIndexes`). Whole segments only, so
  * `src/vendored.ts` or `my_node_modules_x/` is not vendored. A path ending in `/` names a
  * directory, so its last segment counts too (`node_modules/`).
  */

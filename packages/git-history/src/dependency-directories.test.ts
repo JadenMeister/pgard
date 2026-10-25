@@ -94,6 +94,10 @@ describe("findCommittedDependencyDirectories", () => {
     expect(findCommittedDependencyDirectories(["src/composer.json", "src/vendor/a.php"])).toEqual(
       [],
     );
+    // The source directory name matches in any letter case.
+    expect(findCommittedDependencyDirectories(["Src/composer.json", "Src/vendor/a.php"])).toEqual(
+      [],
+    );
   });
 
   it("flags vendor/ only at the repository root or next to composer.json, go.mod or Gemfile", () => {
