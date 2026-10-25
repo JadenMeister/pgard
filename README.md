@@ -2,7 +2,7 @@
 
 English | [한국어](README.ko.md)
 
-PGARD (`pgard`) is a local security scanner for GitHub projects you are authorized to scan. It runs on your own computer as a command-line tool and a local web dashboard. It checks the current code, configuration and dependencies, the Git history, and (optionally) a web service you run on `127.0.0.1`.
+PGARD (`pgard`) is a local security scanner for GitHub projects you are authorized to scan. It runs on your own computer as a command-line tool and a local web dashboard. It checks the current code and configuration, the Git history, and (optionally) a web service you run on `127.0.0.1`. Findings are decided from the code itself; PGARD does not ship or query a vulnerability database (see [Code-based analysis](#code-based-analysis)).
 
 Before every scan, PGARD checks that the repository owner approved PGARD, that you currently have access to the repository, and that you really contributed to it. Your code and the results stay on your computer.
 
@@ -20,7 +20,7 @@ PGARD is released under the [MIT License](LICENSE).
 - [Authorization model](#authorization-model)
 - [Scan scopes and coverage](#scan-scopes-and-coverage)
 - [Analyzers and rules](#analyzers-and-rules)
-- [Dependency advisories](#dependency-advisories)
+- [Code-based analysis](#code-based-analysis)
 - [Local web checks](#local-web-checks)
 - [Git history checks](#git-history-checks)
 - [Results and reports](#results-and-reports)
@@ -73,15 +73,15 @@ Usage:
   pgard                         interactive menu (arrow keys, Enter, Esc, ?)
   pgard project verify          check repository, GitHub identity, owner approval,
                                 current access and merged contribution
-  pgard scan                    code, configuration, dependencies + Git history
-  pgard scan code               current code, configuration and dependencies
+  pgard scan                    code and configuration + Git history
+  pgard scan code               current code and configuration
   pgard scan history            Git history and tracked files (secrets, risky files)
   pgard scan web [--port N]     anonymous read-only checks of a local HTTP service
   pgard scan all [--port N]     code + history + local HTTP service
   pgard dashboard [--target-port N]
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go]
-                                supported rules and data versions
+                                supported rules and unsupported areas
   pgard doctor                  diagnose the environment (not an authorization)
   pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard logout                  remove the saved GitHub sign-in from the OS keychain
@@ -89,22 +89,22 @@ Usage:
   pgard --version
 ```
 
-| Command                | What it does                                                                                                                                                                                                                                                                                                                                                                           |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pgard`                | Interactive menu: verify, scans, dashboard, rules, doctor, quit.                                                                                                                                                                                                                                                                                                                       |
-| `pgard project verify` | Runs the authorization checks and shows each one (repository, GitHub identity, owner approval, current access, contribution) as passed, failed or unverifiable, with a reason. The result is not stored.                                                                                                                                                                               |
-| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                                                                                                                                                                                    |
-| `pgard scan code`      | Current source code, configuration and dependency advisories.                                                                                                                                                                                                                                                                                                                          |
-| `pgard scan history`   | Committed `.env` files and secrets in tracked files and Git history.                                                                                                                                                                                                                                                                                                                   |
-| `pgard scan web`       | Anonymous, read-only checks of a local HTTP service on `127.0.0.1` that you confirm.                                                                                                                                                                                                                                                                                                   |
-| `pgard scan all`       | `code` + `history` + `web`. If no web target is confirmed, the result is `partial`.                                                                                                                                                                                                                                                                                                    |
-| `pgard dashboard`      | Starts the local web dashboard. See [Dashboard](#dashboard).                                                                                                                                                                                                                                                                                                                           |
-| `pgard rules list`     | Lists the rule catalog grouped by scope (code, Git history, local HTTP; a rule with an unknown scope goes under "Other rules") with each rule's severity and languages, the detection criteria version, the advisory database status, and the areas PGARD does not cover. Works outside a project and makes no network requests.                                                       |
-| `pgard doctor`         | Checks Node.js, Git, GitHub reachability, local port discovery, which GitHub App PGARD signs in with (the built-in PGARD App, or `PGARD_GITHUB_APP_CLIENT_ID` as an override), whether a GitHub sign-in is saved in the OS keychain (and for which account; never the token), and the advisory database status. It is a diagnosis only, not an authorization. Works outside a project. |
-| `pgard login`          | Signs in to GitHub with the device flow and saves the sign-in in the OS keychain, so later scans and the dashboard reuse it. Running it again replaces the saved sign-in. See [Saved sign-in](#saved-sign-in-os-keychain).                                                                                                                                                             |
-| `pgard logout`         | Removes the saved GitHub sign-in from the OS keychain. See [Saved sign-in](#saved-sign-in-os-keychain).                                                                                                                                                                                                                                                                                |
+| Command                | What it does                                                                                                                                                                                                                                                                                                                                                                                 |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgard`                | Interactive menu: verify, scans, dashboard, rules, doctor, quit.                                                                                                                                                                                                                                                                                                                             |
+| `pgard project verify` | Runs the authorization checks and shows each one (repository, GitHub identity, owner approval, current access, contribution) as passed, failed or unverifiable, with a reason. The result is not stored.                                                                                                                                                                                     |
+| `pgard scan`           | `code` + `history`.                                                                                                                                                                                                                                                                                                                                                                          |
+| `pgard scan code`      | Current source code and configuration.                                                                                                                                                                                                                                                                                                                                                       |
+| `pgard scan history`   | Committed `.env` files and secrets in tracked files and Git history.                                                                                                                                                                                                                                                                                                                         |
+| `pgard scan web`       | Anonymous, read-only checks of a local HTTP service on `127.0.0.1` that you confirm.                                                                                                                                                                                                                                                                                                         |
+| `pgard scan all`       | `code` + `history` + `web`. If no web target is confirmed, the result is `partial`.                                                                                                                                                                                                                                                                                                          |
+| `pgard dashboard`      | Starts the local web dashboard. See [Dashboard](#dashboard).                                                                                                                                                                                                                                                                                                                                 |
+| `pgard rules list`     | Lists the rule catalog grouped by scope (code, Git history, local HTTP; a rule with an unknown scope goes under "Other rules") with each rule's severity and languages, the detection criteria version, and the areas PGARD does not cover (including dependency vulnerability lookups, since PGARD ships no vulnerability database). Works outside a project and makes no network requests. |
+| `pgard doctor`         | Checks Node.js, Git, GitHub reachability, local port discovery, which GitHub App PGARD signs in with (the built-in PGARD App, or `PGARD_GITHUB_APP_CLIENT_ID` as an override), and whether a GitHub sign-in is saved in the OS keychain (and for which account; never the token). It is a diagnosis only, not an authorization. Works outside a project.                                     |
+| `pgard login`          | Signs in to GitHub with the device flow and saves the sign-in in the OS keychain, so later scans and the dashboard reuse it. Running it again replaces the saved sign-in. See [Saved sign-in](#saved-sign-in-os-keychain).                                                                                                                                                                   |
+| `pgard logout`         | Removes the saved GitHub sign-in from the OS keychain. See [Saved sign-in](#saved-sign-in-os-keychain).                                                                                                                                                                                                                                                                                      |
 
-`pgard rules list --language <lang>` shows only the rules for that language; rules that apply to any language (Git history and local HTTP rules) are always included, and `--language react` or `vue` also includes the JavaScript/TypeScript rules. Both `rules list` and `doctor` report the advisory database status without loading a large database in full (see [Dependency advisories](#dependency-advisories)): `missing`, `invalid`, `stale` or `ok` with its version and update date, or `unverified - not fully validated` when only a quick check was possible. The path in `PGARD_ADVISORY_DB` is never printed. In `doctor`, any status other than a fully validated `ok` is a `[warn]` row.
+`pgard rules list --language <lang>` shows only the rules for that language; rules that apply to any language (Git history and local HTTP rules) are always included, and `--language react` or `vue` also includes the JavaScript/TypeScript rules.
 
 Every command also has its own help, for example `pgard scan --help` or `pgard login --help`.
 
@@ -116,18 +116,18 @@ Every command also has its own help, for example `pgard scan --help` or `pgard l
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
 - `--help` / `-h`, and `pgard --version` / `-V`.
 
-Unknown commands and options, invalid values and invalid combinations are rejected before any Git, GitHub or network activity.
+Unknown commands and options, invalid values and invalid combinations are rejected before any Git, GitHub or network activity. An unknown scan type such as `dependencies` exits with code 2 and names the valid ones: `code`, `history`, `web`, `all`.
 
 ### Exit codes
 
-| Code | Meaning                                                                                                                                                                                |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | The requested scope completed (findings may exist). For `doctor`: the diagnosis completed.                                                                                             |
-| 2    | Invalid command, option, value or combination.                                                                                                                                         |
-| 3    | The repository, authorization or contribution check failed (the scan was blocked).                                                                                                     |
-| 4    | Part of the scan did not run, so the result is partial (for example, no web target was confirmed, or the advisory database is missing, invalid or stale), or the report export failed. |
-| 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                    |
-| 130  | Cancelled by the user.                                                                                                                                                                 |
+| Code | Meaning                                                                                                                                                                             |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | The requested scope completed (findings may exist). For `doctor`: the diagnosis completed.                                                                                          |
+| 2    | Invalid command, option, value or combination.                                                                                                                                      |
+| 3    | The repository, authorization or contribution check failed (the scan was blocked).                                                                                                  |
+| 4    | Part of the scan did not run, so the result is partial (for example, no web target was confirmed, or the Git history scan stopped at its time budget), or the report export failed. |
+| 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                 |
+| 130  | Cancelled by the user.                                                                                                                                                              |
 
 `doctor` exits with 0 when the diagnosis completed (problems are listed as `[fail]` or `[warn]` rows) and 5 on an internal error. `pgard login` and `pgard logout` use these codes:
 
@@ -191,7 +191,7 @@ GitHub App owners can turn token expiry on or off under the App's settings (**Op
 
 | Scope     | What it covers                                                        | Selected by                        |
 | --------- | --------------------------------------------------------------------- | ---------------------------------- |
-| `code`    | Current source code, configuration and dependency advisories          | `scan`, `scan code`, `scan all`    |
+| `code`    | Current source code and configuration                                 | `scan`, `scan code`, `scan all`    |
 | `history` | Committed `.env` files and secrets in tracked files and Git history   | `scan`, `scan history`, `scan all` |
 | `web`     | Anonymous read-only HTTP checks of a confirmed service on `127.0.0.1` | `scan web`, `scan all`             |
 
@@ -208,34 +208,21 @@ Every result reports coverage for each area, so you can see what was and was not
 
 ## Analyzers and rules
 
-| Analyzer              | Scope     | Rule ids                                                                                                                           |
-| --------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Source analysis       | `code`    | `PG-SQL-*`, `PG-XSS-*`, `PG-SSRF-*`, `PG-CMD-*`, `PG-PATH-*`, `PG-CRYPTO-*`, `PG-AUTH-*`, `PG-COOKIE-*`, `PG-CSRF-*`, `PG-BRUTE-*` |
-| Dependency advisories | `code`    | `PG-DEP-001`                                                                                                                       |
-| Git history           | `history` | `PG-SECRET-001` (committed environment file), `PG-SECRET-002` (secret in a tracked file), `PG-SECRET-003` (secret only in history) |
-| Local HTTP            | `web`     | `PG-WEB-001` to `PG-WEB-013`                                                                                                       |
+| Analyzer        | Scope     | Rule ids                                                                                                                           |
+| --------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Source analysis | `code`    | `PG-SQL-*`, `PG-XSS-*`, `PG-SSRF-*`, `PG-CMD-*`, `PG-PATH-*`, `PG-CRYPTO-*`, `PG-AUTH-*`, `PG-COOKIE-*`, `PG-CSRF-*`, `PG-BRUTE-*` |
+| Git history     | `history` | `PG-SECRET-001` (committed environment file), `PG-SECRET-002` (secret in a tracked file), `PG-SECRET-003` (secret only in history) |
+| Local HTTP      | `web`     | `PG-WEB-001` to `PG-WEB-013`                                                                                                       |
 
 Source analysis covers JavaScript, TypeScript, React (JSX/TSX), Vue and Go files. Run `pgard rules list` (optionally with `--language`) for the current list of rules and their severities, instead of relying on a copy in this README.
 
 For the HTML sinks (`innerHTML`, `outerHTML`, `document.write`, `dangerouslySetInnerHTML`, `v-html`), a value passed straight through a sanitizer call (such as `DOMPurify.sanitize(...)`) is not reported. In JavaScript and TypeScript, a variable also counts as sanitized when PGARD resolves it (with TypeScript's symbol resolution, within the file) to its own `var`/`let`/`const` declaration and every assignment to it is a sanitizer call. Imports, parameters, globals, top-level `var`/`let` of a classic script, and any variable in a file that uses `eval`, `with`, `Function` or string timers are never treated as sanitized. Sanitizers are recognized by function name only; PGARD does not check how the sanitizer is configured.
 
-## Dependency advisories
+## Code-based analysis
 
-The `code` scope compares resolved dependency versions with a **local** advisory database in [OSV](https://osv.dev/) format. PGARD never downloads advisory data itself.
+PGARD does not ship, download or query a vulnerability database, and it does not compare dependency versions with known advisories (CVE, OSV or similar). Findings are decided from the code itself: query statements, server code and configuration in the current files, secrets in the Git history, and the responses of the local HTTP service you confirm. Lockfiles are not checked for known vulnerable versions.
 
-```sh
-export PGARD_ADVISORY_DB=/path/to/osv-data   # a JSON file or a directory of OSV .json files
-```
-
-- Supported inputs: `package-lock.json`, `npm-shrinkwrap.json`, `pnpm-lock.yaml`, `yarn.lock`, `go.mod` and `go.sum`.
-- Go modules under a `testdata` directory are skipped (they are test fixtures that Go never builds). npm lockfiles there are still checked.
-- The file can hold an array of OSV records, or `{ "version", "updatedAt", "vulnerabilities": [...] }`.
-- A database larger than 512 MiB (a single file, or the total of a directory) or with more than 500,000 files is `invalid`.
-- If the variable is not set, or the data is missing or invalid, the advisory database area is `not_tested`. Data older than 30 days is stale and the area is `partial`. In both cases the `code` scope is incomplete, so `scan`, `scan code` and `scan all` report `partial` with exit code 4.
-- Scans always load the database in full. `rules list` and `doctor` only peek: they fully read a file of up to 8 MiB, report a file over 512 MiB as `invalid`, and otherwise check only a sample record (directory) or the first bytes (file). A database that passes only this quick check is shown as `unverified - not fully validated`, without version or freshness, and is a `[warn]` row in `doctor`. A scan can still find it invalid or stale.
-- A version match does not show that the vulnerable code is reachable.
-
-How the advisory database is distributed and updated has not been decided yet (#46). There is no update command.
+A scan in which every selected area completed reports `completed` and exits with code 0. Exit code 4 means that part of the selected coverage really is missing, for example an unconfirmed web target or a history scan that hit its limits.
 
 ## Local web checks
 
@@ -308,7 +295,7 @@ How the dashboard protects itself:
 - The GitHub sign-in is saved in the OS keychain, never in a file, and never sent to the browser. Without a keychain it is kept in memory only. See [Saved sign-in](#saved-sign-in-os-keychain).
 - The only external network traffic is to GitHub: the device-flow sign-in (and refreshing a saved sign-in) and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. `pgard doctor` also checks whether `api.github.com` is reachable.
 - After authorization passes, PGARD sends one `GET /` to each discovered listening port on `127.0.0.1` to show its identity. The web checks then send requests only to the service you confirmed.
-- Advisory data is read from the local path in `PGARD_ADVISORY_DB`.
+- PGARD does not ship, download or query a vulnerability database.
 
 ## Out of scope for the MVP
 
@@ -324,7 +311,6 @@ How the dashboard protects itself:
 - [#43](https://github.com/JadenMeister/pgard/issues/43) Organization repositories are blocked because owner approval cannot be proven.
 - [#44](https://github.com/JadenMeister/pgard/issues/44) PDF reports replace text outside Latin-1 (for example Korean) with `?`. Use the HTML report for the full text.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available.
-- [#46](https://github.com/JadenMeister/pgard/issues/46) How the advisory database is distributed and updated is undecided.
 - [#47](https://github.com/JadenMeister/pgard/issues/47) Squash-merged and co-authored contributions are handled conservatively: co-author trailers and unsigned direct pushes do not count as contribution.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) Follow-ups from the keychain sign-in review: narrow races between a keychain save and a removal; a session-only dashboard sign-out during a token refresh can make the next use ask for a new device code; and after `pgard login` switches accounts, the dashboard keeps the previous account's port access for up to 30 minutes (scans still re-check authorization).
 - [#145](https://github.com/JadenMeister/pgard/issues/145) Secret detection misses some forms, for example template literals, TypeScript type-annotated declarations, Go `:=` declarations, credentials in `postgres://` URLs and index assignments such as `headers["x-api-key"] = "..."`.
@@ -343,7 +329,6 @@ This is an npm workspaces monorepo written in TypeScript.
 | `packages/github-auth`     | GitHub device flow, API client, OS keychain sign-in |
 | `packages/scan-core`       | Scan orchestration, scopes and coverage             |
 | `packages/source-analysis` | Source code rules                                   |
-| `packages/advisory`        | Dependency advisories from local OSV data           |
 | `packages/git-history`     | Git history and secret scanning                     |
 | `packages/http-local`      | Local HTTP checks and port discovery                |
 | `packages/findings`        | Shared finding and coverage types, redaction        |
