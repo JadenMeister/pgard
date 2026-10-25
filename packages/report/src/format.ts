@@ -197,20 +197,58 @@ export const TEST_FINDINGS_TITLE = "In test or fixture code";
 export const TEST_FINDINGS_NOTE =
   "Matches in files classified as test or fixture code by their path only: *.test.*, *.spec.*, *_test.go, and files under __tests__/, __mocks__/, fixtures/, __fixtures__/, testdata/, test/ or tests/ (config files such as .env, YAML, .tf, .properties, .ini, .toml and .json under test/ or tests/ are treated as real configuration). Their confidence is capped at low and they are not counted above, but they are not dropped: a real value committed in a test is still exposed.";
 
-/** Sorted findings split into regular code (headline counts) and test or fixture code. */
+export const VENDORED_FINDINGS_TITLE = "Suggestions: in third-party/vendored code";
+export const VENDORED_FINDINGS_NOTE =
+  "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git (git rm -r --cached <directory>, then add the directory to .gitignore).";
+export const VENDORED_FINDINGS_DETAIL =
+  "Classified by path only: files under a node_modules/, bower_components/, jspm_packages/, vendor/, third_party/ or Pods/ directory. Their confidence is capped at low and they are not counted above, but they are not dropped: a real secret committed there is still exposed.";
+
+/**
+ * Sorted findings split into regular code (headline counts), test or fixture code, and
+ * suggestions in committed third-party (vendored) code.
+ */
 export function groupReportFindings(findings: readonly Finding[]): {
   primary: Finding[];
   test: Finding[];
+  vendored: Finding[];
 } {
   return splitFindingsByContext(sortFindings(findings));
 }
 
-/** One-line summary: regular findings by status, plus the separate test count when present. */
+function pluralSuggestions(count: number): string {
+  return `${count} suggestion${count === 1 ? "" : "s"} in vendored code`;
+}
+
+/**
+ * The part after the headline count, e.g. "plus 2 in test or fixture code, 3 suggestions in
+ * vendored code"; empty when every finding is regular code.
+ */
+export function formatContextCounts(counts: { test: number; vendored: number }): string {
+  const parts = [
+    ...(counts.test === 0 ? [] : [`${counts.test} in test or fixture code`]),
+    ...(counts.vendored === 0 ? [] : [pluralSuggestions(counts.vendored)]),
+  ];
+  return parts.length === 0 ? "" : `plus ${parts.join(", ")}`;
+}
+
+/**
+ * The "No findings ... in the areas that ran" qualifier: empty, or " outside test or fixture
+ * code", " outside vendored code", " outside test, fixture or vendored code".
+ */
+export function formatOutsideContexts(counts: { test: number; vendored: number }): string {
+  if (counts.test > 0 && counts.vendored > 0) return " outside test, fixture or vendored code";
+  if (counts.test > 0) return " outside test or fixture code";
+  if (counts.vendored > 0) return " outside vendored code";
+  return "";
+}
+
+/** One-line summary: regular findings by status, plus the separate test and vendored counts. */
 export function formatFindingSummary(findings: readonly Finding[]): string {
-  const { primary, test } = groupReportFindings(findings);
+  const { primary, test, vendored } = groupReportFindings(findings);
   const split = summarizeStatusSplit(primary);
   return (
     `${primary.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.` +
-    (test.length === 0 ? "" : ` ${test.length} more in test or fixture code, listed separately.`)
+    (test.length === 0 ? "" : ` ${test.length} more in test or fixture code, listed separately.`) +
+    (vendored.length === 0 ? "" : ` ${pluralSuggestions(vendored.length)}, listed last.`)
   );
 }

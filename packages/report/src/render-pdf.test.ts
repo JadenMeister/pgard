@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { hasUnsupportedPdfCharacters, renderPdfReport, toPdfText } from "./render-pdf.js";
+import {
+  VENDORED_FINDINGS_DETAIL,
+  VENDORED_FINDINGS_NOTE,
+  VENDORED_FINDINGS_TITLE,
+} from "./format.js";
 import { finding, scanResult } from "./test-fixtures.js";
 
 describe("renderPdfReport", () => {
@@ -19,6 +24,35 @@ describe("renderPdfReport", () => {
       }),
     );
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("renders a result with vendored suggestions using only text the PDF fonts can show", async () => {
+    const result = scanResult({
+      findings: [
+        finding({
+          id: "v1",
+          context: "vendored",
+          confidence: "low",
+          location: {
+            kind: "file",
+            path: "node_modules/pkg/index.js",
+            line: 1,
+            url: null,
+            commit: null,
+          },
+        }),
+        ...scanResult().findings,
+      ],
+    });
+    const pdf = await renderPdfReport(result);
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    for (const text of [
+      VENDORED_FINDINGS_TITLE,
+      VENDORED_FINDINGS_NOTE,
+      VENDORED_FINDINGS_DETAIL,
+    ]) {
+      expect(text).toMatch(/^[\x20-\x7e]+$/);
+    }
   });
 
   it("replaces characters the built-in fonts cannot encode", () => {

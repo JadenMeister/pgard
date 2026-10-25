@@ -104,6 +104,53 @@ describe("renderHtmlReport", () => {
     expect(html).not.toContain("In test or fixture code");
   });
 
+  it("lists vendored findings last as suggestions, outside the headline counts", () => {
+    const vendoredSecret = finding({
+      id: "v1",
+      ruleId: "PG-SECRET-002",
+      title: "Secret in a tracked file",
+      severity: "high",
+      confidence: "low",
+      context: "vendored",
+      location: {
+        kind: "file",
+        path: "node_modules/@babel/parser/lib/index.js",
+        line: 11694,
+        url: null,
+        commit: null,
+      },
+    });
+    const testFinding = finding({
+      id: "t1",
+      confidence: "low",
+      context: "test",
+      location: { kind: "file", path: "src/a.test.ts", line: 3, url: null, commit: null },
+    });
+    const all = renderHtmlReport(
+      scanResult({ findings: [vendoredSecret, testFinding, ...scanResult().findings] }),
+    );
+    expect(all).toContain(
+      "3 finding(s): 1 confirmed, 1 suspected, 1 informational. 1 more in test or fixture code, listed separately. 1 suggestion in vendored code, listed last.",
+    );
+    // The vendored high finding is not in the headline chart.
+    expect(all).toContain("High 1");
+    const testSection = all.indexOf("<h2>In test or fixture code (1)</h2>");
+    const suggestions = all.indexOf("<h2>Suggestions: in third-party/vendored code (1)</h2>");
+    expect(suggestions).toBeGreaterThan(testSection);
+    expect(testSection).toBeGreaterThan(all.indexOf("src/api/users.ts:42"));
+    expect(all.indexOf("node_modules/@babel/parser/lib/index.js:11694")).toBeGreaterThan(
+      suggestions,
+    );
+    expect(all).toContain("This code is a committed dependency, not your code.");
+    expect(all.indexOf("<h2>Authorization</h2>")).toBeGreaterThan(suggestions);
+
+    const onlyVendored = renderHtmlReport(scanResult({ findings: [vendoredSecret] }));
+    expect(onlyVendored).toContain("No findings outside vendored code");
+    expect(onlyVendored).toContain("node_modules/@babel/parser/lib/index.js:11694");
+    expect(onlyVendored).toContain("PG-SECRET-002");
+    expect(html).not.toContain("Suggestions: in third-party/vendored code");
+  });
+
   it("draws one bar per severity", () => {
     const svg = renderSeverityBarChartSvg({ critical: 1, high: 2, medium: 0, low: 0, info: 5 });
     expect(svg.match(/<rect/g)).toHaveLength(5);

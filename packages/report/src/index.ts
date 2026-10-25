@@ -2,8 +2,10 @@ export { escapeHtml, markInvisibleCharacters } from "./escape-html.js";
 export {
   countFindingsBySeverity,
   ANALYSIS_BASIS_NOTE,
+  formatContextCounts,
   formatFindingSummary,
   formatLocation,
+  formatOutsideContexts,
   groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
@@ -19,6 +21,9 @@ export {
   TEST_FINDINGS_TITLE,
   truncateField,
   TRUNCATION_MARKER,
+  VENDORED_FINDINGS_DETAIL,
+  VENDORED_FINDINGS_NOTE,
+  VENDORED_FINDINGS_TITLE,
   type SeverityCounts,
 } from "./format.js";
 export { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";
