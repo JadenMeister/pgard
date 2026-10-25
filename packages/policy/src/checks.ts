@@ -11,12 +11,15 @@ import {
   type GitRunner,
 } from "@pgard/git-history";
 import {
+  GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
+  buildAppInstallUrl,
   isGitHubAuthError,
   type GitHubClient,
   type GitHubRepository,
   type GitHubUser,
 } from "@pgard/github-auth";
+import type { OwnerApprovalRemedy } from "./types.js";
 
 export type CheckResult = Omit<AuthorizationCheck, "id">;
 
@@ -141,6 +144,54 @@ export interface OwnerApprovalContext {
   user: GitHubUser;
   /** Owner segment of the verified Git remote, exactly as written there. */
   remoteOwner: string;
+  /** Configured App slug for the install link in `remedy`; `null`/omitted: no link. */
+  appSlug?: string | null;
+}
+
+/** The owner_approval check, plus guidance when the App is not installed for this repository. */
+export interface OwnerApprovalResult {
+  check: CheckResult;
+  remedy: OwnerApprovalRemedy | null;
+}
+
+/** Shown in `remedy.unavailableReason` when a link could not be built for another reason. */
+export const GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE =
+  "The guided install is only available for repositories on github.com.";
+
+/**
+ * Builds the install remedy from API data only: the numeric ids GitHub reported for the owner
+ * account and the repository, and the configured slug. Never changes the check result.
+ */
+function installRemedy(
+  repository: GitHubRepository,
+  missing: OwnerApprovalRemedy["missing"],
+  canApprove: boolean,
+  appSlug: string | null | undefined,
+): OwnerApprovalRemedy {
+  const url =
+    typeof appSlug === "string"
+      ? buildAppInstallUrl({
+          slug: appSlug,
+          targetId: repository.owner.id,
+          repositoryId: repository.id,
+        })
+      : null;
+  return {
+    kind: "install_app",
+    missing,
+    account: {
+      login: repository.owner.login,
+      type: repository.owner.type === "Organization" ? "Organization" : "User",
+    },
+    url,
+    canApprove,
+    unavailableReason:
+      url !== null
+        ? null
+        : typeof appSlug === "string"
+          ? GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE
+          : GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
+  };
 }
 
 /**
@@ -159,17 +210,30 @@ export async function verifyOwnerApproval(
   repository: GitHubRepository,
   context: OwnerApprovalContext,
 ): Promise<CheckResult> {
+  return (await evaluateOwnerApproval(client, repository, context)).check;
+}
+
+/**
+ * `verifyOwnerApproval` plus a `remedy` when it failed only because the App is not installed on
+ * the owner account or the installation does not include the repository. The check result is
+ * exactly the same with or without a remedy.
+ */
+export async function evaluateOwnerApproval(
+  client: GitHubClient,
+  repository: GitHubRepository,
+  context: OwnerApprovalContext,
+): Promise<OwnerApprovalResult> {
   if (repository.owner.type === "Organization") {
     return verifyOrganizationOwnerApproval(client, repository, context);
   }
   if (repository.owner.type !== "User") {
-    return unverifiable("The repository owner type could not be determined.");
+    return noRemedy(unverifiable("The repository owner type could not be determined."));
   }
   let installations;
   try {
     installations = await client.listUserInstallations();
   } catch (error) {
-    return describeApiError(error, "list GitHub App installations");
+    return noRemedy(describeApiError(error, "list GitHub App installations"));
   }
   const ownerInstallations = installations.filter(
     (installation) =>
@@ -180,36 +244,76 @@ export async function verifyOwnerApproval(
     try {
       repositoryIds = await client.listInstallationRepositoryIds(installation.id);
     } catch (error) {
-      return describeApiError(error, "list repositories of the GitHub App installation");
+      return noRemedy(describeApiError(error, "list repositories of the GitHub App installation"));
     }
     if (repositoryIds.includes(repository.id)) {
-      return passed(
-        `The PGARD GitHub App is installed by the owner account "${repository.owner.login}" and includes ${repository.fullName}.`,
+      return noRemedy(
+        passed(
+          `The PGARD GitHub App is installed by the owner account "${repository.owner.login}" and includes ${repository.fullName}.`,
+        ),
       );
     }
   }
+  // Only the owner account itself can install an App on a personal account.
+  const canApprove = context.user.id === repository.owner.id;
   if (ownerInstallations.length > 0) {
-    return failed(
-      `The owner's PGARD GitHub App installation does not include ${repository.fullName}.`,
-    );
+    return {
+      check: failed(
+        `The owner's PGARD GitHub App installation does not include ${repository.fullName}.`,
+      ),
+      remedy: installRemedy(repository, "repository", canApprove, context.appSlug),
+    };
   }
-  return failed(
-    `No PGARD GitHub App installation on the owner account "${repository.owner.login}" was found for ${repository.fullName}.`,
-  );
+  return {
+    check: failed(
+      `No PGARD GitHub App installation on the owner account "${repository.owner.login}" was found for ${repository.fullName}.`,
+    ),
+    remedy: installRemedy(repository, "installation", canApprove, context.appSlug),
+  };
+}
+
+function noRemedy(check: CheckResult): OwnerApprovalResult {
+  return { check, remedy: null };
+}
+
+/**
+ * Whether GitHub reports the signed-in user as an active owner of the organization. Used only to
+ * decide how to guide the user (install it yourself, or ask an owner); any error or mismatch is
+ * `false`. The owner_approval check itself reads the membership again on every run.
+ */
+async function isConfirmedOrganizationOwner(
+  client: GitHubClient,
+  repository: GitHubRepository,
+  user: GitHubUser,
+): Promise<boolean> {
+  try {
+    const membership = await client.getOrganizationMembership(repository.owner.login);
+    return (
+      membership.organization.id === repository.owner.id &&
+      membership.organization.login === repository.owner.login &&
+      membership.user.id === user.id &&
+      membership.state === "active" &&
+      membership.role === "admin"
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function verifyOrganizationOwnerApproval(
   client: GitHubClient,
   repository: GitHubRepository,
-  { user, remoteOwner }: OwnerApprovalContext,
-): Promise<CheckResult> {
+  { user, remoteOwner, appSlug }: OwnerApprovalContext,
+): Promise<OwnerApprovalResult> {
   const org = repository.owner.login;
   // The organization named in the remote must be exactly the account GitHub reports (no
   // redirect from a renamed organization, no case difference), so every lookup below is about
   // the organization the user pointed PGARD at.
   if (remoteOwner !== org) {
-    return unverifiable(
-      `The Git remote names the organization "${remoteOwner}", but GitHub reports the owner as "${org}". Update the remote to github.com/${repository.fullName} so the organization can be verified.`,
+    return noRemedy(
+      unverifiable(
+        `The Git remote names the organization "${remoteOwner}", but GitHub reports the owner as "${org}". Update the remote to github.com/${repository.fullName} so the organization can be verified.`,
+      ),
     );
   }
 
@@ -218,7 +322,7 @@ async function verifyOrganizationOwnerApproval(
   try {
     installations = await client.listUserInstallations();
   } catch (error) {
-    return describeApiError(error, "list GitHub App installations");
+    return noRemedy(describeApiError(error, "list GitHub App installations"));
   }
   const orgInstallations = installations.filter(
     (installation) =>
@@ -226,8 +330,10 @@ async function verifyOrganizationOwnerApproval(
   );
   const mismatched = orgInstallations.find((installation) => installation.account.login !== org);
   if (mismatched) {
-    return unverifiable(
-      `The PGARD GitHub App installation for the organization "${org}" reports the account "${mismatched.account.login}". Owner approval cannot be verified.`,
+    return noRemedy(
+      unverifiable(
+        `The PGARD GitHub App installation for the organization "${org}" reports the account "${mismatched.account.login}". Owner approval cannot be verified.`,
+      ),
     );
   }
   let isIncluded = false;
@@ -236,7 +342,7 @@ async function verifyOrganizationOwnerApproval(
     try {
       repositoryIds = await client.listInstallationRepositoryIds(installation.id);
     } catch (error) {
-      return describeApiError(error, "list repositories of the GitHub App installation");
+      return noRemedy(describeApiError(error, "list repositories of the GitHub App installation"));
     }
     if (repositoryIds.includes(repository.id)) {
       isIncluded = true;
@@ -244,13 +350,20 @@ async function verifyOrganizationOwnerApproval(
     }
   }
   if (!isIncluded) {
+    const canApprove = await isConfirmedOrganizationOwner(client, repository, user);
     return orgInstallations.length > 0
-      ? failed(
-          `The PGARD GitHub App installation on the organization "${org}" does not include ${repository.fullName}. An owner of ${org} must add the repository to the installation.`,
-        )
-      : failed(
-          `No PGARD GitHub App installation on the organization "${org}" was found for ${repository.fullName}. An owner of ${org} must install the App on the organization and include the repository.`,
-        );
+      ? {
+          check: failed(
+            `The PGARD GitHub App installation on the organization "${org}" does not include ${repository.fullName}. An owner of ${org} must add the repository to the installation.`,
+          ),
+          remedy: installRemedy(repository, "repository", canApprove, appSlug),
+        }
+      : {
+          check: failed(
+            `No PGARD GitHub App installation on the organization "${org}" was found for ${repository.fullName}. An owner of ${org} must install the App on the organization and include the repository.`,
+          ),
+          remedy: installRemedy(repository, "installation", canApprove, appSlug),
+        };
   }
 
   // (b) The signed-in user is an owner of the organization.
@@ -258,35 +371,47 @@ async function verifyOrganizationOwnerApproval(
   try {
     membership = await client.getOrganizationMembership(org);
   } catch (error) {
-    return describeMembershipError(error, user, org);
+    return noRemedy(describeMembershipError(error, user, org));
   }
   if (membership.organization.id !== repository.owner.id || membership.organization.login !== org) {
-    return unverifiable(
-      `GitHub returned a membership for the organization "${membership.organization.login}" instead of "${org}". Owner approval cannot be verified.`,
+    return noRemedy(
+      unverifiable(
+        `GitHub returned a membership for the organization "${membership.organization.login}" instead of "${org}". Owner approval cannot be verified.`,
+      ),
     );
   }
   if (membership.user.id !== user.id) {
-    return unverifiable(
-      `GitHub returned the ${org} membership of "${membership.user.login}" instead of the signed-in user ${user.login}. Owner approval cannot be verified.`,
+    return noRemedy(
+      unverifiable(
+        `GitHub returned the ${org} membership of "${membership.user.login}" instead of the signed-in user ${user.login}. Owner approval cannot be verified.`,
+      ),
     );
   }
   if (membership.state === "active" && membership.role === "admin") {
-    return passed(
-      `${user.login} is an owner of the organization "${org}", and the organization's PGARD GitHub App installation includes ${repository.fullName}.`,
+    return noRemedy(
+      passed(
+        `${user.login} is an owner of the organization "${org}", and the organization's PGARD GitHub App installation includes ${repository.fullName}.`,
+      ),
     );
   }
   if (membership.state === "pending") {
-    return failed(
-      `${user.login}'s membership in ${org} is pending, not active; an organization owner with an active membership must run the scan.`,
+    return noRemedy(
+      failed(
+        `${user.login}'s membership in ${org} is pending, not active; an organization owner with an active membership must run the scan.`,
+      ),
     );
   }
   if (membership.state === "active") {
-    return failed(
-      `${user.login} is not an owner of ${org} (role: ${membership.role}); an organization owner must run the scan.`,
+    return noRemedy(
+      failed(
+        `${user.login} is not an owner of ${org} (role: ${membership.role}); an organization owner must run the scan.`,
+      ),
     );
   }
-  return unverifiable(
-    `GitHub reported an unexpected membership state for ${user.login} in ${org}; an organization owner with an active membership must run the scan.`,
+  return noRemedy(
+    unverifiable(
+      `GitHub reported an unexpected membership state for ${user.login} in ${org}; an organization owner with an active membership must run the scan.`,
+    ),
   );
 }
 
