@@ -31,7 +31,7 @@ export function describeGitHubApp(
     case "invalid":
       return {
         tone: "warning",
-        text: "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App. Until then GitHub identity is unverifiable and every scan is blocked.",
+        text: `${app.message} Until then GitHub identity is unverifiable and every scan is blocked.`,
       };
   }
 }

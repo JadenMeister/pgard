@@ -1,4 +1,8 @@
-import type { AuthorizationCheckId, AuthorizationSummary } from "@pgard/findings";
+import type {
+  AuthorizationCheckId,
+  AuthorizationCheckStatus,
+  AuthorizationSummary,
+} from "@pgard/findings";
 import type { GitRunner } from "@pgard/git-history";
 import type { GitHubSessionProvider } from "@pgard/github-auth";
 
@@ -21,6 +25,48 @@ export interface AuthorizationDependencies {
   runGit?: GitRunner;
   /** Upper bound on local commits examined against GitHub (default 30). */
   maxContributionCandidates?: number;
+  /**
+   * Slug of the configured GitHub App (`resolveGitHubAppClientId(env).slug`), used only to build
+   * the install link in `remedy`. Omitted or `null`: no link. It never affects any check.
+   */
+  appSlug?: string | null;
+}
+
+/**
+ * Whether the signed-in user can install the App, as far as GitHub's data shows:
+ * - `yes`: personal repository owned by the user, or GitHub returned an active owner (admin)
+ *   membership of the organization;
+ * - `no`: someone else's personal account, or GitHub returned a membership that is not an
+ *   active owner (non-admin role or pending);
+ * - `unknown`: the organization membership could not be read (GitHub answers 403/404 before the
+ *   App is installed on the organization).
+ * Guidance only: it never makes any check pass. The install itself needs a real owner, and the
+ * full authorization (including the owner membership check) runs again afterwards.
+ */
+export type InstallApproval = "yes" | "no" | "unknown";
+
+/**
+ * What the user can do when owner approval failed only because the PGARD GitHub App is not
+ * installed on the owner account, or its installation does not include this repository.
+ * Computed from GitHub API data only. It is guidance, never evidence: installing the App is the
+ * owner's approval, and the full authorization runs again afterwards.
+ */
+export interface OwnerApprovalRemedy {
+  kind: "install_app";
+  /** No installation on the owner account, or an installation without this repository. */
+  missing: "installation" | "repository";
+  /** The account that owns the repository, as GitHub reports it. */
+  account: { login: string; type: "User" | "Organization" };
+  /**
+   * The App install page preselected for the owner account and this repository, built from
+   * numeric GitHub ids; always an `https://github.com/apps/...` URL. `null` when no link can be
+   * built (see `unavailableReason`).
+   */
+  url: string | null;
+  /** Whether the signed-in user can install it; see `InstallApproval`. */
+  canApprove: InstallApproval;
+  /** Fixed text explaining why `url` is `null`; otherwise `null`. */
+  unavailableReason: string | null;
 }
 
 export interface AuthorizationOutcome {
@@ -30,4 +76,16 @@ export interface AuthorizationOutcome {
   repo: string | null;
   /** Local `HEAD` SHA, or `null` if unknown. */
   revision: string | null;
+  /**
+   * Set when owner approval failed because the App is not installed for this repository (see
+   * `guidedInstallRemedy` for when frontends offer it). Absent or `null` otherwise.
+   */
+  remedy?: OwnerApprovalRemedy | null;
+}
+
+/** Result of `recheckOwnerApproval`: the owner_approval check alone, evaluated again. */
+export interface OwnerApprovalRecheck {
+  status: AuthorizationCheckStatus;
+  reason: string;
+  remedy: OwnerApprovalRemedy | null;
 }

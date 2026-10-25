@@ -14,12 +14,18 @@ export type ParsedCommand =
   | { kind: "menu" }
   | { kind: "help"; topic: HelpTopic }
   | { kind: "version" }
-  | { kind: "project-verify" }
-  | { kind: "scan"; variant: ScanVariant; port: number | null; report: ReportRequest | null }
-  | { kind: "dashboard"; targetPort: number | null }
+  | { kind: "project-verify"; noBrowser: boolean }
+  | {
+      kind: "scan";
+      variant: ScanVariant;
+      port: number | null;
+      report: ReportRequest | null;
+      noBrowser: boolean;
+    }
+  | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
   | { kind: "rules-list"; language: RuleLanguage | null }
   | { kind: "doctor" }
-  | { kind: "login" }
+  | { kind: "login"; noBrowser: boolean }
   | { kind: "logout" };
 
 export type HelpTopic =
@@ -52,11 +58,15 @@ const VALUE_OPTIONS: readonly OptionName[] = [
   "--language",
 ];
 
+/** Flag (no value): do not open GitHub pages in the browser automatically; links are printed. */
+const NO_BROWSER_FLAG = "--no-browser";
+
 interface SplitArgs {
   positionals: string[];
   options: Map<OptionName, string>;
   isHelp: boolean;
   isVersion: boolean;
+  noBrowser: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -65,6 +75,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   const options = new Map<OptionName, string>();
   let isHelp = false;
   let isVersion = false;
+  let noBrowser = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -73,6 +84,12 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     }
     if (arg === "--version" || arg === "-V") {
       isVersion = true;
+      continue;
+    }
+    if (arg === NO_BROWSER_FLAG) {
+      if (noBrowser)
+        throw new UsageError(`Option ${NO_BROWSER_FLAG} was given more than once.`, topic());
+      noBrowser = true;
       continue;
     }
     if (arg === "--") {
@@ -102,7 +119,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     }
     positionals.push(arg);
   }
-  return { positionals, options, isHelp, isVersion };
+  return { positionals, options, isHelp, isVersion, noBrowser };
 }
 
 function parsePortOption(name: string, value: string, topic: HelpTopic): number {
@@ -121,7 +138,11 @@ function rejectOptions(
   allowed: readonly OptionName[],
   topic: HelpTopic,
   where: string,
+  allowNoBrowser = false,
 ): void {
+  if (split.noBrowser && !allowNoBrowser) {
+    throw new UsageError(`Option ${NO_BROWSER_FLAG} is not available for ${where}.`, topic);
+  }
   for (const name of split.options.keys()) {
     if (!allowed.includes(name)) {
       throw new UsageError(`Option ${name} is not available for ${where}.`, topic);
@@ -190,8 +211,8 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         );
       }
       rejectExtraPositionals(rest, topic);
-      rejectOptions(split, [], topic, "project verify");
-      return { kind: "project-verify" };
+      rejectOptions(split, [], topic, "project verify", true);
+      return { kind: "project-verify", noBrowser: split.noBrowser };
     }
     case "scan": {
       topic = "scan";
@@ -214,19 +235,27 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         isWeb ? ["--port", "--report", "--output-dir"] : ["--report", "--output-dir"],
         topic,
         variant === "default" ? "pgard scan" : `pgard scan ${variant}`,
+        true,
       );
       const portValue = split.options.get("--port");
       const port = portValue === undefined ? null : parsePortOption("--port", portValue, topic);
-      return { kind: "scan", variant, port, report: parseReport(split) };
+      return {
+        kind: "scan",
+        variant,
+        port,
+        report: parseReport(split),
+        noBrowser: split.noBrowser,
+      };
     }
     case "dashboard": {
       topic = "dashboard";
       if (split.isHelp) return { kind: "help", topic };
       rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
-      rejectOptions(split, ["--target-port"], topic, "pgard dashboard");
+      rejectOptions(split, ["--target-port"], topic, "pgard dashboard", true);
       const value = split.options.get("--target-port");
       return {
         kind: "dashboard",
+        noBrowser: split.noBrowser,
         targetPort: value === undefined ? null : parsePortOption("--target-port", value, topic),
       };
     }
@@ -261,8 +290,10 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       topic = command;
       if (split.isHelp) return { kind: "help", topic };
       rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
-      rejectOptions(split, [], topic, `pgard ${command}`);
-      return { kind: command };
+      rejectOptions(split, [], topic, `pgard ${command}`, command === "login");
+      return command === "login"
+        ? { kind: "login", noBrowser: split.noBrowser }
+        : { kind: "logout" };
     }
     default:
       throw new UsageError(`Unknown command: ${command.slice(0, 40)}`, "main");

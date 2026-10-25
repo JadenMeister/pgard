@@ -106,7 +106,25 @@ Usage:
 
 `pgard rules list --language <lang>`은 해당 언어의 규칙만 보여 주며, 언어와 무관한 규칙(Git 이력, 로컬 HTTP 규칙)은 항상 포함되고, `--language react`나 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 
-각 명령에는 자체 도움말도 있습니다. 예: `pgard scan --help`, `pgard login --help`.
+각 명령에는 자체 도움말도 있습니다. 예: `pgard scan --help`, `pgard login --help`. `pgard scan --help` 출력(발췌):
+
+```text
+Options:
+  --port N                 local service port 1-65535 (web and all only). You
+                           still confirm the service identity with y/N.
+  --report html|pdf|both   save a report (requires --output-dir)
+  --output-dir <dir>       existing directory for the report (requires --report);
+                           files are never overwritten; a directory inside the
+                           Git repository needs explicit confirmation
+  --no-browser             do not open GitHub pages (device sign-in, App
+                           install) in the browser; the links are printed.
+                           Pages open automatically only when stdout is a
+                           terminal
+
+If owner approval is the only failed check and the PGARD GitHub App just needs to
+be installed, PGARD opens the install page, waits for it, re-runs the full
+authorization and continues the scan.
+```
 
 ### 옵션
 
@@ -114,6 +132,7 @@ Usage:
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
+- `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 stdout이 터미널일 때만 자동으로 엽니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
 - `--help` / `-h`, `pgard --version` / `-V`.
 
 알 수 없는 명령·옵션, 잘못된 값과 조합은 Git·GitHub·네트워크 작업 전에 거부됩니다. 알 수 없는 검사 종류(예: `dependencies`)는 종료 코드 2로 끝나며 올바른 값 `code`, `history`, `web`, `all`을 알려 줍니다.
@@ -131,13 +150,13 @@ Usage:
 
 `doctor`는 진단을 마치면 0(문제는 `[fail]`·`[warn]` 행으로 표시), 내부 오류면 5로 끝납니다. `pgard login`과 `pgard logout`의 종료 코드는 다음과 같습니다.
 
-| 코드 | `pgard login`                                                                   | `pgard logout`                                                                |
-| ---- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 0    | 로그인하고 저장했습니다.                                                        | 지웠거나, 저장된 것이 없었습니다.                                             |
-| 3    | GitHub 로그인 실패 또는 `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. | `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. 아무것도 지우지 않음. |
-| 4    | 사용할 수 있는 OS 키체인이 없거나 저장에 실패. 아무것도 저장하지 않음.          | 사용할 수 있는 OS 키체인이 없음. 아무것도 지우지 않음.                        |
-| 5    | 내부 오류.                                                                      | 내부 오류.                                                                    |
-| 130  | 취소.                                                                           |                                                                               |
+| 코드 | `pgard login`                                                                                                                      | `pgard logout`                                                                |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 0    | 로그인하고 저장했습니다.                                                                                                           | 지웠거나, 저장된 것이 없었습니다.                                             |
+| 3    | GitHub 로그인 실패 또는 `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님(또는 `PGARD_GITHUB_APP_SLUG`가 올바른 slug가 아님). | `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. 아무것도 지우지 않음. |
+| 4    | 사용할 수 있는 OS 키체인이 없거나 저장에 실패. 아무것도 저장하지 않음.                                                             | 사용할 수 있는 OS 키체인이 없음. 아무것도 지우지 않음.                        |
+| 5    | 내부 오류.                                                                                                                         | 내부 오류.                                                                    |
+| 130  | 취소.                                                                                                                              |                                                                               |
 
 ### 대화형 키
 
@@ -154,6 +173,29 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 5. **기여.** 사용자의 기여가 기본 브랜치 이력에 있어야 합니다. GitHub가 기본 브랜치에 있다고 보여 주는 커밋이어야 하고, 사용자가 작성해 기본 브랜치에 merge된 pull request에 속하거나, GitHub가 서명을 검증하고 committer를 사용자로 인정한 커밋이어야 합니다. 작성자 이름·이메일, co-author trailer, merge되지 않은 pull request, 다른 브랜치나 fork에 merge된 pull request, 서명 없는 직접 push, 로컬에만 있는 커밋은 근거로 인정하지 않습니다. PGARD는 로컬 커밋(`HEAD`의 조상)을 최대 30개까지 살펴봅니다. 그중 조건을 충족하는 커밋이 없고 로컬 커밋이 더 있으면 기여는 `unverifiable`입니다.
 
 각 항목은 `passed`, `failed`, `unverifiable` 중 하나이며 이유가 함께 표시됩니다. 항목은 이 순서로 보고하지만 반드시 이 순서로 평가하지는 않습니다. 예를 들어 owner 승인을 확인하기 전에 GitHub에서 저장소를 읽습니다(현재 접근 권한). 모든 항목이 통과해야만 검사합니다. 근거가 없거나 불분명하면 검사는 **차단**되고(종료 코드 3) 어떤 항목이 왜 실패했는지 보고합니다.
+
+### 처음 실행: 로그인, App 설치, 계속 진행
+
+저장소에서 처음 `pgard scan`(또는 `pgard project verify`, 대시보드)을 실행하면 다음과 같이 진행됩니다.
+
+1. **로그인.** PGARD가 코드를 출력하고 브라우저에서 `https://github.com/login/device`를 엽니다(`--no-browser` 참고). 코드를 입력하고 PGARD GitHub App을 승인합니다.
+2. **빠진 것이 App 설치뿐이면 설치.** owner 승인만 실패했고, 그 이유가 PGARD GitHub App이 owner 계정에 설치되어 있지 않거나 설치에 이 저장소가 포함되지 않았기 때문이며, 본인이 승인할 수 있는 사람일 수 있으면(개인 저장소는 본인이 owner, 조직은 GitHub가 본인을 활성 owner로 보여 주거나 아직 역할을 보여 주지 못하는 경우), PGARD가 owner 계정과 이 저장소가 미리 선택된 App 설치 페이지를 출력하고 엽니다.
+
+   ```text
+   https://github.com/apps/<slug>/installations/new/permissions?suggested_target_id=<owner account id>&repository_ids[]=<repository id>
+   ```
+
+   GitHub에서 **Only select repositories**(이 저장소) 또는 **All repositories**를 고르고 **Install**을 누릅니다. 그동안 PGARD는 `Waiting for the PGARD GitHub App to be installed... (Ctrl+C to cancel)`을 출력하고 최대 10분 동안 5초마다 owner 승인을 다시 확인합니다.
+
+3. **계속 진행.** 설치가 확인되면 PGARD는 **다섯 항목 전체를 처음부터 다시** 확인하고, 그 뒤에만 계속 진행합니다. `scan`은 검사하고, `project verify`는 결과를 출력합니다.
+
+**App 설치가 곧 owner의 승인이며, PGARD가 대신 설치할 수는 없습니다.** PGARD는 App을 직접 설치하지 않고, 어떤 항목도 건너뛰지 않으며, 승인을 캐시하지 않습니다. 설치를 확인한 것만으로는 통과가 아닙니다. 그사이 접근 권한이 사라졌다면 새 확인에서 차단됩니다.
+
+- 10분 안에 설치되지 않거나 stdout이 터미널이 아니면(링크만 출력하고 기다리지 않음) 평소 사유와 함께 차단됩니다(종료 코드 3). 기다리는 중 Ctrl+C로 취소를 확정하면 취소됩니다(종료 코드 130).
+- App이 조직에 설치되기 전에는 GitHub가 보통 App에 본인의 멤버십을 보여 주지 않습니다(403/404). 이때도 PGARD는 안내를 진행하고 `If you are an owner of <org>, install the App on the page that opened; otherwise ask an owner: <link>`를 출력합니다. 안내는 어떤 항목도 통과시키지 않으므로 안전합니다. 설치는 조직의 실제 owner만 완료할 수 있고, 설치가 확인되면 활성 owner 멤버십 확인을 포함한 전체 확인을 처음부터 다시 실행합니다.
+- GitHub가 본인이 승인할 수 없다고 보여 주면(owner가 아니거나 대기 중인 조직 멤버십, 다른 사람의 개인 저장소 협업자) PGARD는 기다리거나 아무것도 열지 않습니다. 사유와 함께 `Ask an owner of <account> to install the PGARD GitHub App: <link>`를 출력합니다. 링크에는 GitHub의 숫자 id만 들어 있어 공유해도 안전합니다.
+- 다른 항목도 실패했다면 App 설치만으로는 부족하므로 설치 링크를 보여 주지 않습니다.
+- `PGARD_GITHUB_APP_SLUG` 없이 `PGARD_GITHUB_APP_CLIENT_ID`만 설정하면 어느 App 페이지를 열지 알 수 없으므로, 사유는 그대로 두고 `Set PGARD_GITHUB_APP_SLUG to enable the guided install.`을 덧붙입니다. 링크는 `github.com` 링크만 보여 주고 엽니다.
 
 ### 조직 저장소
 
@@ -180,7 +222,13 @@ export PGARD_GITHUB_APP_CLIENT_ID=<직접 등록한 GitHub App의 client id>
 
 비어 있거나 공백뿐인 값은 설정하지 않은 것으로 봅니다. 올바른 client id가 아닌 값은 **차단**됩니다. 내장 App으로 대신 진행하면 설정한 App이 아닌 다른 App으로 owner 승인을 증명하게 되므로, PGARD는 내장 App으로 넘어가지 않습니다. GitHub 신원은 "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App." 사유와 함께 `unverifiable`이 되고, 검사와 `project verify`는 차단되며(종료 코드 3), `pgard login`과 `pgard logout`은 3으로 끝나고(logout은 아무것도 지우지 않음), `pgard doctor`는 `[fail]` 행을 보여 주며, 대시보드도 같은 사유를 보여 주고 키체인에서 아무것도 지우지 않습니다. 잘못된 값 자체는 출력하지 않습니다. 어떤 App을 쓰는지는 `pgard doctor`가 보여 줍니다. 예: `[ok] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)` 또는 `[ok] GitHub App: <id> from PGARD_GITHUB_APP_CLIENT_ID (override)`. 재정의 값을 쓰는 동안에는 `login`, `scan`, `project verify`도 `Using GitHub App <id> from PGARD_GITHUB_APP_CLIENT_ID (override).`를 출력합니다. 바꿀 수 있는 것은 client id의 출처뿐이며, owner 승인, 현재 접근 권한, 기여 확인은 어느 App이든 똑같이 검사합니다.
 
-로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 줍니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
+`PGARD_GITHUB_APP_SLUG`는 그 App 페이지(`https://github.com/apps/<slug>`)의 slug를 지정하는 선택적 값이며, [안내형 설치](#처음-실행-로그인-app-설치-계속-진행)의 설치 링크에만 쓰입니다. 내장 App의 slug는 `pgard-jadenmeister`입니다. 값은 소문자, 숫자, `-`로만 이루어져야 하며(최대 100자), 그 밖의 값은 잘못된 client id와 똑같이 **차단**되고 사유는 "PGARD_GITHUB_APP_SLUG is set but is not a valid GitHub App slug (lowercase letters, digits and "-"); fix or unset it."입니다. client id를 재정의하고 slug를 지정하지 않으면 설치 링크가 없습니다.
+
+```sh
+export PGARD_GITHUB_APP_SLUG=<직접 등록한 GitHub App의 slug>
+```
+
+로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 주고, stdout이 터미널이면(`--no-browser`가 없을 때) 브라우저에서 주소를 엽니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
 
 #### 저장된 로그인(OS 키체인)
 
@@ -287,6 +335,8 @@ Open this private session URL in your browser (valid until you stop the dashboar
 ```
 
 대시보드는 CLI 결과를 읽지 않고 직접 검사합니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터(테스트·fixture 항목은 별도 그룹), HTML/PDF 보고서 내보내기를 제공합니다. OS 키체인에 저장된 GitHub 로그인은 서버 쪽에서 다시 사용하며, 토큰은 브라우저로 보내지 않습니다. 로그아웃 버튼은 두 가지입니다. **End dashboard session (keep keychain sign-in)** 버튼은 이 대시보드의 세션만 끝내고 다음 확인 때 키체인 로그인을 다시 사용합니다. **Sign out and remove from OS keychain**은 저장된 로그인도 지웁니다(CLI에서도 지워짐). Ctrl+C로 종료하면 대시보드의 GitHub 세션이 끝나고(키체인 로그인은 유지) 모든 결과를 버립니다.
+
+device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** 버튼을 보여 주고, `pgard dashboard --no-browser`가 아니면 페이지를 직접 엽니다. 권한 확인 패널이 이 저장소에 PGARD GitHub App이 설치되지 않았다는 이유로만 차단되었고 본인이 승인할 수 있으면(또는 GitHub가 아직 조직 역할을 보여 주지 못하면. 문구는 CLI와 같음) **Install the PGARD GitHub App** 버튼(새 탭에서 열림)을 보여 주고, 최대 10분 동안 5초마다 owner 승인을 다시 확인한 뒤 전체 확인을 자동으로 다시 실행합니다. 그렇지 않으면 CLI와 같은 `Ask an owner of <account> ...` 링크를 보여 줍니다.
 
 포트 탐지, 서비스 정체 확인 요청, 대상 확인은 이 프로젝트에 대한 대시보드의 가장 최근 권한 확인이 통과한 뒤에만, 그리고 그 확인이 끝난 뒤 30분 동안만 허용됩니다. 대시보드는 이 시간이 언제 끝나는지 보여 주며, 그 뒤에는(또는 시스템 시계가 뒤로 가면) 다시 확인해야 로컬 서비스에 접근합니다. 새 확인이나 로그아웃은 즉시 이 시간을 끝내고 진행 중인 요청을 중단하며, 페이지는 이전 확인 때의 포트 목록과 확인 결과를 버립니다. 이 시간과 관계없이 모든 검사는 권한 확인 전체를 다시 실행합니다.
 

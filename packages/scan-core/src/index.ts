@@ -18,15 +18,28 @@ export {
 // Launcher-facing re-exports so apps depend on scan-core (and findings) only.
 export {
   AUTHORIZATION_CHECK_ORDER,
+  GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE,
+  guidedInstallRemedy,
   isAuthorizationAllowed,
+  recheckOwnerApproval,
   type AuthorizationDependencies,
   type AuthorizationOutcome,
+  type OwnerApprovalRecheck,
+  type InstallApproval,
+  type OwnerApprovalRemedy,
 } from "@pgard/policy";
 export {
   GITHUB_APP_AUTHORIZATIONS_URL,
   DEFAULT_GITHUB_APP_CLIENT_ID,
+  DEFAULT_GITHUB_APP_SLUG,
   GITHUB_APP_CLIENT_ID_ENV,
+  GITHUB_APP_SLUG_ENV,
+  GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
+  INVALID_APP_SLUG_OVERRIDE_MESSAGE,
   GitHubAuthError,
+  buildAppInstallUrl,
+  isOpenableGitHubUrl,
+  openGitHubUrl,
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,

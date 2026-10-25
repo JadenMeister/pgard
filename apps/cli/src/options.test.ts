@@ -6,12 +6,16 @@ describe("parseCommandLine", () => {
     expect(parseCommandLine([])).toEqual({ kind: "menu" });
     expect(parseCommandLine(["--help"])).toEqual({ kind: "help", topic: "main" });
     expect(parseCommandLine(["--version"])).toEqual({ kind: "version" });
-    expect(parseCommandLine(["project", "verify"])).toEqual({ kind: "project-verify" });
+    expect(parseCommandLine(["project", "verify"])).toEqual({
+      kind: "project-verify",
+      noBrowser: false,
+    });
     expect(parseCommandLine(["scan"])).toEqual({
       kind: "scan",
       variant: "default",
       port: null,
       report: null,
+      noBrowser: false,
     });
     expect(parseCommandLine(["scan", "code"])).toMatchObject({ variant: "code" });
     expect(parseCommandLine(["scan", "history"])).toMatchObject({ variant: "history" });
@@ -26,12 +30,44 @@ describe("parseCommandLine", () => {
     expect(parseCommandLine(["dashboard", "--target-port", "5173"])).toEqual({
       kind: "dashboard",
       targetPort: 5173,
+      noBrowser: false,
     });
     expect(parseCommandLine(["rules", "list", "--language", "go"])).toEqual({
       kind: "rules-list",
       language: "go",
     });
     expect(parseCommandLine(["doctor"])).toEqual({ kind: "doctor" });
+  });
+
+  it("accepts --no-browser for scan, project verify, login and dashboard only", () => {
+    expect(parseCommandLine(["scan", "--no-browser"])).toMatchObject({ noBrowser: true });
+    expect(parseCommandLine(["scan", "web", "--port", "3000", "--no-browser"])).toMatchObject({
+      variant: "web",
+      port: 3000,
+      noBrowser: true,
+    });
+    expect(parseCommandLine(["project", "verify", "--no-browser"])).toEqual({
+      kind: "project-verify",
+      noBrowser: true,
+    });
+    expect(parseCommandLine(["login", "--no-browser"])).toEqual({ kind: "login", noBrowser: true });
+    expect(parseCommandLine(["dashboard", "--no-browser"])).toEqual({
+      kind: "dashboard",
+      targetPort: null,
+      noBrowser: true,
+    });
+    for (const argv of [
+      ["--no-browser"],
+      ["doctor", "--no-browser"],
+      ["logout", "--no-browser"],
+      ["rules", "list", "--no-browser"],
+    ]) {
+      expect(() => parseCommandLine(argv)).toThrow("--no-browser is not available");
+    }
+    expect(() => parseCommandLine(["scan", "--no-browser", "--no-browser"])).toThrow(
+      "more than once",
+    );
+    expect(() => parseCommandLine(["scan", "--no-browser=1"])).toThrow("Unknown option");
   });
 
   it("shows command help", () => {

@@ -114,6 +114,28 @@ describe("runScan", () => {
     expect(result.coverage.every((entry) => entry.status === "not_tested")).toBe(true);
   });
 
+  it("hands the authorization outcome to onAuthorization, which cannot change the result", async () => {
+    authorizeProject.mockResolvedValue(BLOCKED);
+    const seen: AuthorizationOutcome[] = [];
+    const blocked = await runScan(
+      request(),
+      deps({ onAuthorization: (outcome: AuthorizationOutcome) => seen.push(outcome) }),
+    );
+    expect(seen).toEqual([BLOCKED]);
+    expect(blocked.overallStatus).toBe("blocked");
+
+    authorizeProject.mockResolvedValue(ALLOWED);
+    const allowed = await runScan(
+      request(),
+      deps({
+        onAuthorization: () => {
+          throw new Error("display failure");
+        },
+      }),
+    );
+    expect(allowed.overallStatus).toBe("completed");
+  });
+
   it("treats a forged 'allowed' decision with failing checks as blocked", async () => {
     authorizeProject.mockResolvedValue({
       ...BLOCKED,

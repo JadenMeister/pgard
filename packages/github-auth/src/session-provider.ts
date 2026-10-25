@@ -56,6 +56,11 @@ export interface DeviceFlowSessionProviderOptions {
    * `invalid_client_id_override` and nothing is read from or written to the keychain.
    */
   clientId: string | null;
+  /**
+   * Fixed reason used when `clientId` is `null`: `resolveGitHubAppClientId(env).message` (a
+   * malformed client id or slug override). Defaults to the client id message.
+   */
+  invalidClientIdMessage?: string;
   onUserCode: (code: DeviceUserCode) => void | Promise<void>;
   /**
    * Where the sign-in is reused from and saved to (the OS keychain in production). Omitted or
@@ -456,7 +461,10 @@ export function createDeviceFlowSessionProvider(
   const provider = async (): Promise<GitHubSession> => {
     const { clientId } = options;
     if (clientId === null) {
-      throw new GitHubAuthError("invalid_client_id_override", INVALID_CLIENT_ID_OVERRIDE_MESSAGE);
+      throw new GitHubAuthError(
+        "invalid_client_id_override",
+        options.invalidClientIdMessage ?? INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
+      );
     }
     if (pending !== null) {
       const current = pending;

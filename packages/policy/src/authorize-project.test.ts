@@ -533,6 +533,31 @@ describe("authorizeProject: repository and identity", () => {
     expect(JSON.stringify(outcome)).not.toContain("bad id");
   });
 
+  it("blocks with github_identity unverifiable when the slug override is malformed", async () => {
+    const { root } = repoWithCommits();
+    const fetch = vi.fn(async () => {
+      throw new Error("must not be called");
+    });
+    const app = resolveGitHubAppClientId({ PGARD_GITHUB_APP_SLUG: "Bad Slug" });
+    expect(app.source).toBe("invalid");
+    const provider = createDeviceFlowSessionProvider({
+      clientId: app.clientId,
+      ...(app.source === "invalid" ? { invalidClientIdMessage: app.message } : {}),
+      onUserCode: () => {},
+      fetch,
+    });
+    const outcome = await authorizeProject(root, { getGitHubSession: provider });
+    expectBlocked(outcome);
+    expect(outcome.summary.checks.find((check) => check.id === "github_identity")).toEqual({
+      id: "github_identity",
+      status: "unverifiable",
+      reason:
+        'PGARD_GITHUB_APP_SLUG is set but is not a valid GitHub App slug (lowercase letters, digits and "-"); fix or unset it.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(outcome)).not.toContain("Bad Slug");
+  });
+
   it("blocks when sign-in is denied", async () => {
     const { root } = repoWithCommits();
     const outcome = await authorizeProject(root, {
@@ -751,7 +776,7 @@ describe("authorizeProject: organization repositories", () => {
     expect(approval(outcome)?.reason).toMatch(reason);
   });
 
-  it("blocks when the org installation does not include the repository, without asking for membership", async () => {
+  it("blocks when the org installation does not include the repository, whatever the membership", async () => {
     const { root, mine } = repoWithCommits(ORG_REMOTE);
     const { outcome, calls } = await authorize(
       root,
@@ -763,7 +788,10 @@ describe("authorizeProject: organization repositories", () => {
       reason:
         'The PGARD GitHub App installation on the organization "acme" does not include acme/app. An owner of acme must add the repository to the installation.',
     });
-    expect(calls).not.toContain("membership:acme");
+    // The membership is read only to guide the user (install it yourself or ask an owner); an
+    // owner membership never turns the missing repository into a pass.
+    expect(calls).toContain("membership:acme");
+    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: "yes" });
   });
 
   it("blocks when the only installation is on a different account", async () => {

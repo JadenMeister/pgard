@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
+import { openGitHubUrl } from "@pgard/scan-core";
 import { startLocalWebServer } from "./create-server.js";
 import { LauncherUsageError, parseLauncherArgs } from "./launcher.js";
 import { loadStaticAssets } from "./static-files.js";
@@ -29,6 +30,11 @@ async function runLauncher(): Promise<number> {
     presetTargetPort: options.presetTargetPort,
     env: process.env,
     assets,
+    // Like the CLI: open the GitHub sign-in page automatically only for a person at a terminal
+    // who did not pass --no-browser. The page is also linked in the dashboard.
+    ...(options.noBrowser || process.stdout.isTTY !== true
+      ? {}
+      : { openGitHubPage: (url: string) => void openGitHubUrl(url) }),
   });
   process.stdout.write(
     [

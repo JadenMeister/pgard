@@ -17,6 +17,18 @@ export function DeviceCodeNotice({ deviceCode }: { deviceCode: DeviceCodeInfo })
         and enter this code:
       </p>
       <p className="code">{deviceCode.userCode}</p>
+      {isGitHubUrl(deviceCode.verificationUri) && (
+        <p>
+          <a
+            className="button primary"
+            href={deviceCode.verificationUri}
+            target="_blank"
+            rel="noreferrer noopener"
+          >
+            Open the GitHub sign-in page
+          </a>
+        </p>
+      )}
       <p className="muted">{formatExpiry(deviceCode.expiresIn)}</p>
     </div>
   );

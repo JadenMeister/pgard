@@ -21,9 +21,17 @@ export interface SessionInfo {
    * `PGARD_GITHUB_APP_CLIENT_ID` override. The client id is public (device flow, no secret).
    */
   githubApp:
-    | { clientId: string; source: "default" | "env" }
-    /** The override is set but malformed: identity is unverifiable and every scan is blocked. */
-    | { clientId: null; source: "invalid" };
+    | {
+        clientId: string;
+        /** Install-page slug; `null` when the client id is overridden without a slug. */
+        slug: string | null;
+        source: "default" | "env";
+      }
+    /**
+     * An override (client id or slug) is set but malformed: identity is unverifiable and every
+     * scan is blocked. `message` is fixed text naming the override, never its value.
+     */
+    | { clientId: null; slug: null; source: "invalid"; message: string };
 }
 
 export interface DeviceCodeInfo {
@@ -33,6 +41,33 @@ export interface DeviceCodeInfo {
 }
 
 export type JobStatus = "idle" | "running" | "done" | "failed";
+
+/**
+ * Same shape as `OwnerApprovalRemedy` from `@pgard/policy` (the CLI shows the same data): owner
+ * approval failed only because the PGARD GitHub App is not installed for this repository.
+ * Guidance only; installing the App is the owner's approval and the full check runs again.
+ */
+export interface InstallRemedyDto {
+  kind: "install_app";
+  missing: "installation" | "repository";
+  account: { login: string; type: "User" | "Organization" };
+  /** Always an `https://github.com/apps/...` URL, or `null` (see `unavailableReason`). */
+  url: string | null;
+  /**
+   * `yes`: personal owner or active organization owner; `no`: GitHub shows they are not;
+   * `unknown`: the organization membership could not be read yet (guided like `yes`).
+   */
+  canApprove: "yes" | "no" | "unknown";
+  unavailableReason: string | null;
+}
+
+/** `POST /api/auth/owner-approval`: owner approval alone, checked again. Never an authorization. */
+export interface OwnerApprovalRecheckDto {
+  status: "passed" | "failed" | "unverifiable";
+  reason: string;
+  /** Still the install remedy while the App is missing; `null` once something changed. */
+  remedy: InstallRemedyDto | null;
+}
 
 /**
  * The GitHub sign-in saved in the OS keychain, as the browser may see it: the account login at
@@ -52,6 +87,11 @@ export interface AuthStatus {
   repo: string | null;
   message: string | null;
   storedSignIn: StoredSignInDto;
+  /**
+   * Set when the latest check is blocked only because the PGARD GitHub App is not installed for
+   * this repository (`guidedInstallRemedy`); the panel offers the install link. `null` otherwise.
+   */
+  remedy: InstallRemedyDto | null;
   /** Short, secret-free text about the sign-in (reused, saved, removed, signed out). */
   signInNotice: string | null;
   /**

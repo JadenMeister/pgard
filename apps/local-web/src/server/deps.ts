@@ -9,6 +9,7 @@ import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
+  recheckOwnerApproval,
   resolveGitHubAppClientId,
   runScan,
   verifyProject,
@@ -23,6 +24,8 @@ import {
 export interface ServerDeps {
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
+  /** Owner approval alone, while waiting for an App install; never an authorization. */
+  recheckOwnerApproval: typeof recheckOwnerApproval;
   createSessionProvider: (options: {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
@@ -44,15 +47,27 @@ export interface ServerDeps {
   now: () => number;
 }
 
+/** Client id (or the fixed reason a malformed override blocks) for the session provider. */
+function deviceFlowApp(env: Readonly<Record<string, string | undefined>>): {
+  clientId: string | null;
+  invalidClientIdMessage?: string;
+} {
+  const app = resolveGitHubAppClientId(env);
+  return app.source === "invalid"
+    ? { clientId: null, invalidClientIdMessage: app.message }
+    : { clientId: app.clientId };
+}
+
 export function createDefaultServerDeps(): ServerDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
   return {
     verifyProject,
     runScan,
+    recheckOwnerApproval,
     createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
-        clientId: resolveGitHubAppClientId(env).clientId,
+        ...deviceFlowApp(env),
         onUserCode,
         onNotice,
         credentialStore,

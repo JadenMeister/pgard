@@ -58,6 +58,8 @@ export interface SessionState {
   /** The last probe, with the authorization record it ran under. */
   lastProbe: { identity: ServiceIdentity; probedAt: number; auth: SessionState["auth"] } | null;
   confirmedTarget: ConfirmedWebTarget | null;
+  /** True while an owner-approval re-check (waiting for an App install) is in flight. */
+  ownerApprovalRecheck: boolean;
   scan: {
     status: JobStatus | "cancelled";
     scopes: ScanScope[];
@@ -77,6 +79,7 @@ export function createSessionState(): SessionState {
     signInNotice: null,
     lastProbe: null,
     confirmedTarget: null,
+    ownerApprovalRecheck: false,
     scan: {
       status: "idle",
       scopes: [],

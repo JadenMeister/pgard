@@ -10,6 +10,7 @@ import {
   createInMemoryCredentialStore,
   DEFAULT_GITHUB_APP_CLIENT_ID,
   type AuthorizationOutcome,
+  type OwnerApprovalRemedy,
   type CredentialStore,
 } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -79,6 +80,9 @@ function fakeDeps(
   return {
     verifyProject: async () => outcome("owner_approval"),
     runScan: async () => result(),
+    recheckOwnerApproval: async () => {
+      throw new Error("unexpected owner approval re-check");
+    },
     createSessionProvider: () => provider as never,
     // A fake keychain: tests never touch the real OS keychain.
     credentialStore: createInMemoryCredentialStore(),
@@ -297,10 +301,12 @@ describe("local web server security", () => {
     };
     expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liForkApp" })).toEqual({
       clientId: "Iv23liForkApp",
+      slug: null,
       source: "env",
     });
     expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "  " })).toEqual({
       clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+      slug: "pgard-jadenmeister",
       source: "default",
     });
   });
@@ -762,6 +768,35 @@ describe("local web scans", () => {
     );
     expect(JSON.parse(done.body).deviceCode).toBeNull();
   });
+
+  it("opens only a github.com device page through openGitHubPage, when one is given", async () => {
+    let onUserCode:
+      ((code: { userCode: string; verificationUri: string; expiresIn: number }) => void) | null =
+      null;
+    const deps = fakeDeps();
+    deps.createSessionProvider = (options) => {
+      onUserCode = options.onUserCode;
+      return Object.assign(async () => ({}) as never, {
+        invalidate: vi.fn(),
+        signOut: deps.signOut,
+      }) as never;
+    };
+    const openGitHubPage = vi.fn();
+    server = await startLocalWebServer({
+      projectRoot: "/work/my-project",
+      presetTargetPort: null,
+      env: {},
+      assets: new Map(),
+      deps,
+      token: TOKEN,
+      openGitHubPage,
+    });
+    const show = (verificationUri: string) =>
+      onUserCode?.({ userCode: "ABCD-1234", verificationUri, expiresIn: 900 });
+    show("https://github.com/login/device");
+    show("https://evil.test/login/device");
+    expect(openGitHubPage).toHaveBeenCalledExactlyOnceWith("https://github.com/login/device");
+  });
 });
 
 describe("local web reports", () => {
@@ -1117,7 +1152,13 @@ describe("local web keychain sign-in", () => {
       PGARD_GITHUB_APP_CLIENT_ID: '"bad id"',
     });
     const sessionBody = (await apiGet(running, "/api/session")).body;
-    expect(JSON.parse(sessionBody).githubApp).toEqual({ clientId: null, source: "invalid" });
+    expect(JSON.parse(sessionBody).githubApp).toEqual({
+      clientId: null,
+      slug: null,
+      source: "invalid",
+      message:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
     expect(sessionBody).not.toContain("bad id");
     // The built-in App's entry is not shown as this App's sign-in...
     const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
@@ -1130,5 +1171,123 @@ describe("local web keychain sign-in", () => {
       "Signed out of this dashboard session. Nothing was removed from the OS keychain: PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
     );
     expect(await store.get(builtInKey)).not.toBeNull();
+  });
+});
+
+const INSTALL_URL =
+  "https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555";
+
+/** Blocked only by owner approval, with the install remedy the policy package produces. */
+function needsInstall(remedy: Partial<OwnerApprovalRemedy> = {}): AuthorizationOutcome {
+  return {
+    ...outcome("owner_approval"),
+    remedy: {
+      kind: "install_app",
+      missing: "installation",
+      account: { login: "me", type: "User" },
+      url: INSTALL_URL,
+      canApprove: "yes",
+      unavailableReason: null,
+      ...remedy,
+    },
+  };
+}
+
+describe("local web guided App install", () => {
+  it("exposes the remedy on /api/auth only when owner approval is the only failed check", async () => {
+    const appSlugs: (string | null | undefined)[] = [];
+    let next = needsInstall();
+    const running = await start(
+      fakeDeps({
+        verifyProject: async (_root, deps) => {
+          appSlugs.push(deps.appSlug);
+          return next;
+        },
+      }),
+    );
+    await authorize(running);
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.remedy).toEqual({
+      kind: "install_app",
+      missing: "installation",
+      account: { login: "me", type: "User" },
+      url: INSTALL_URL,
+      canApprove: "yes",
+      unavailableReason: null,
+    });
+    // The configured slug reaches the gate, which builds the link from GitHub ids.
+    expect(appSlugs).toEqual(["pgard-jadenmeister"]);
+
+    next = { ...needsInstall(), summary: outcome("contribution").summary };
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).remedy).toBeNull();
+
+    next = outcome();
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).remedy).toBeNull();
+  });
+
+  it("never passes a link that is not https://github.com/ to the browser", async () => {
+    const running = await start(
+      fakeDeps({ verifyProject: async () => needsInstall({ url: "https://evil.test/install" }) }),
+    );
+    await authorize(running);
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.remedy).toMatchObject({ url: null, canApprove: "no" });
+  });
+
+  it("re-checks owner approval only while an install is pending for this user", async () => {
+    const recheck = vi.fn<ServerDeps["recheckOwnerApproval"]>(async () => ({
+      status: "passed",
+      reason: "The PGARD GitHub App is installed.",
+      remedy: null,
+    }));
+    let next = needsInstall({ canApprove: "no" });
+    const running = await start(
+      fakeDeps({ verifyProject: async () => next, recheckOwnerApproval: recheck }),
+    );
+    // Nothing checked yet, then an "ask an owner" remedy: nothing to wait for.
+    expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(409);
+    await authorize(running);
+    expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(409);
+    expect(recheck).not.toHaveBeenCalled();
+
+    // An unreadable organization membership is guided like "yes".
+    next = needsInstall({ canApprove: "unknown" });
+    await authorize(running);
+    const response = await apiPost(running, "/api/auth/owner-approval");
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      status: "passed",
+      reason: "The PGARD GitHub App is installed.",
+      remedy: null,
+    });
+    expect(recheck).toHaveBeenCalledTimes(1);
+    expect(recheck.mock.calls[0]?.[1].appSlug).toBe("pgard-jadenmeister");
+    // A passed re-check is not an authorization: port access still needs a new, allowed check.
+    expect((await apiGet(running, "/api/ports")).status).toBe(403);
+  });
+
+  it("protects the re-check route like every other state-changing route", async () => {
+    const recheck = vi.fn<ServerDeps["recheckOwnerApproval"]>();
+    const running = await start(
+      fakeDeps({ verifyProject: async () => needsInstall(), recheckOwnerApproval: recheck }),
+    );
+    await authorize(running);
+    const noOrigin = await send(running, "POST", "/api/auth/owner-approval", {
+      headers: { "x-pgard-token": TOKEN, "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(noOrigin.status).toBe(403);
+    const noToken = await send(running, "POST", "/api/auth/owner-approval", {
+      headers: {
+        origin: `http://127.0.0.1:${running.port}`,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    });
+    expect(noToken.status).toBe(401);
+    expect((await apiGet(running, "/api/auth/owner-approval")).status).toBe(404);
+    expect(recheck).not.toHaveBeenCalled();
   });
 });

@@ -106,7 +106,25 @@ Usage:
 
 `pgard rules list --language <lang>` shows only the rules for that language; rules that apply to any language (Git history and local HTTP rules) are always included, and `--language react` or `vue` also includes the JavaScript/TypeScript rules.
 
-Every command also has its own help, for example `pgard scan --help` or `pgard login --help`.
+Every command also has its own help, for example `pgard scan --help` or `pgard login --help`. `pgard scan --help` prints (excerpt):
+
+```text
+Options:
+  --port N                 local service port 1-65535 (web and all only). You
+                           still confirm the service identity with y/N.
+  --report html|pdf|both   save a report (requires --output-dir)
+  --output-dir <dir>       existing directory for the report (requires --report);
+                           files are never overwritten; a directory inside the
+                           Git repository needs explicit confirmation
+  --no-browser             do not open GitHub pages (device sign-in, App
+                           install) in the browser; the links are printed.
+                           Pages open automatically only when stdout is a
+                           terminal
+
+If owner approval is the only failed check and the PGARD GitHub App just needs to
+be installed, PGARD opens the install page, waits for it, re-runs the full
+authorization and continues the scan.
+```
 
 ### Options
 
@@ -114,6 +132,7 @@ Every command also has its own help, for example `pgard scan --help` or `pgard l
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
+- `--no-browser` (`scan`, `project verify`, `login`, `dashboard`): do not open GitHub pages (the device sign-in page, the App install page) in the browser; the links are only printed. Without it, PGARD opens them automatically only when stdout is a terminal. The links are always printed too, and a browser that fails to open is not an error.
 - `--help` / `-h`, and `pgard --version` / `-V`.
 
 Unknown commands and options, invalid values and invalid combinations are rejected before any Git, GitHub or network activity. An unknown scan type such as `dependencies` exits with code 2 and names the valid ones: `code`, `history`, `web`, `all`.
@@ -131,13 +150,13 @@ Unknown commands and options, invalid values and invalid combinations are reject
 
 `doctor` exits with 0 when the diagnosis completed (problems are listed as `[fail]` or `[warn]` rows) and 5 on an internal error. `pgard login` and `pgard logout` use these codes:
 
-| Code | `pgard login`                                                                    | `pgard logout`                                                              |
-| ---- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| 0    | Signed in and saved.                                                             | Removed, or nothing was saved.                                              |
-| 3    | GitHub sign-in failed, or `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id. | `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id; nothing was removed. |
-| 4    | No OS keychain is available, or saving failed; nothing was saved.                | No OS keychain is available; nothing was removed.                           |
-| 5    | Internal error.                                                                  | Internal error.                                                             |
-| 130  | Cancelled.                                                                       |                                                                             |
+| Code | `pgard login`                                                                                                                     | `pgard logout`                                                              |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 0    | Signed in and saved.                                                                                                              | Removed, or nothing was saved.                                              |
+| 3    | GitHub sign-in failed, or `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id (or `PGARD_GITHUB_APP_SLUG` is not a valid slug). | `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id; nothing was removed. |
+| 4    | No OS keychain is available, or saving failed; nothing was saved.                                                                 | No OS keychain is available; nothing was removed.                           |
+| 5    | Internal error.                                                                                                                   | Internal error.                                                             |
+| 130  | Cancelled.                                                                                                                        |                                                                             |
 
 ### Interactive keys
 
@@ -154,6 +173,29 @@ PGARD scans a repository only when it has evidence that you are allowed to. Befo
 5. **Contribution.** Your contribution is in the default-branch history. A commit counts only if GitHub shows it in the default branch, and either it belongs to a pull request you authored that was merged into the default branch, or GitHub verified its signature and attributes the committer to you. Author names or emails, co-author trailers, unmerged pull requests, pull requests merged into other branches or forks, unsigned direct pushes and local-only commits are never accepted as proof. PGARD examines up to 30 local commits (the ancestry of `HEAD`). If none of them qualifies and more local commits exist, contribution is `unverifiable`.
 
 Each check is `passed`, `failed` or `unverifiable`, with a reason. The checks are reported in this order, but they are not evaluated strictly in this order: for example, PGARD reads the repository from GitHub (current access) before it checks owner approval. The scan runs only if every check passed. If any evidence is missing or unclear, the scan is **blocked** (exit code 3) and PGARD reports which check failed and why.
+
+### First run: sign-in, App install, continue
+
+The first `pgard scan` (or `pgard project verify`, or the dashboard) in a repository goes like this:
+
+1. **Sign in.** PGARD prints the code and opens `https://github.com/login/device` in your browser (see `--no-browser`). You enter the code and authorize the PGARD GitHub App.
+2. **Install the App, if that is all that is missing.** When owner approval is the only failed check, and it failed only because the PGARD GitHub App is not installed on the owner account or its installation does not include this repository, and you may be the one who can approve (for a personal repository you are the owner; for an organization GitHub shows you as an active owner, or cannot show your role yet), PGARD prints and opens the App's install page, preselected for the owner account and this repository:
+
+   ```text
+   https://github.com/apps/<slug>/installations/new/permissions?suggested_target_id=<owner account id>&repository_ids[]=<repository id>
+   ```
+
+   On GitHub you choose **Only select repositories** (this repository) or **All repositories** and click **Install**. Meanwhile PGARD prints `Waiting for the PGARD GitHub App to be installed... (Ctrl+C to cancel)` and checks owner approval again every 5 seconds, for up to 10 minutes.
+
+3. **Continue.** As soon as the installation is visible, PGARD runs **all five checks again from scratch**, and only then continues: `scan` scans, `project verify` prints the result.
+
+**Installing the App is the owner's approval, and PGARD cannot do it for you.** PGARD never installs the App, never skips a check and never caches an approval; seeing the installation is not a pass on its own. If access was revoked in the meantime, the new check blocks.
+
+- After 10 minutes without an installation, or when stdout is not a terminal (the link is printed, nothing is awaited), the command is blocked with the usual reason (exit code 3). A confirmed Ctrl+C while waiting cancels (exit code 130).
+- Before the App is installed on an organization, GitHub usually does not show your membership to the App (403/404). PGARD then guides you anyway and prints `If you are an owner of <org>, install the App on the page that opened; otherwise ask an owner: <link>`. This is safe because the guidance never passes anything: only a real owner of the organization can complete the install, and after it appears the full check, including the active-owner membership check, runs again from scratch.
+- If GitHub shows that you cannot approve (an organization membership that is not an owner or is pending, or a collaborator on someone else's personal repository), PGARD does not wait or open anything. It prints the reason and `Ask an owner of <account> to install the PGARD GitHub App: <link>`. The link contains only GitHub's numeric ids and is safe to share.
+- If any other check also failed, installing the App would not be enough, so no install link is offered.
+- If `PGARD_GITHUB_APP_CLIENT_ID` is set without `PGARD_GITHUB_APP_SLUG`, PGARD cannot know which App page to open: the reason is kept and `Set PGARD_GITHUB_APP_SLUG to enable the guided install.` is added. Only `github.com` links are ever offered or opened.
 
 ### Organization repositories
 
@@ -180,7 +222,13 @@ export PGARD_GITHUB_APP_CLIENT_ID=<client id of your own GitHub App>
 
 An empty or whitespace-only value counts as unset. A value that is not a valid client id **blocks**: PGARD never falls back to the built-in App, because owner approval would then be proven against a different App than the one you set. GitHub identity is `unverifiable` with the reason "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.", scans and `project verify` are blocked (exit code 3), `pgard login` and `pgard logout` exit with 3 (logout removes nothing), `pgard doctor` shows a `[fail]` row, and the dashboard shows the same reason and will not remove anything from the keychain. The invalid value itself is never printed. `pgard doctor` shows which App is used, for example `[ok] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)` or `[ok] GitHub App: <id> from PGARD_GITHUB_APP_CLIENT_ID (override)`. When an override is in use, `login`, `scan` and `project verify` also print `Using GitHub App <id> from PGARD_GITHUB_APP_CLIENT_ID (override).` Only where the client id comes from is configurable: owner approval, current access and contribution are checked the same way for every App.
 
-When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code. You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
+`PGARD_GITHUB_APP_SLUG` is the optional slug of that App's page (`https://github.com/apps/<slug>`), used only for the install link of the [guided install](#first-run-sign-in-app-install-continue). The built-in App's slug is `pgard-jadenmeister`. A value must consist of lowercase letters, digits and `-` (up to 100 characters); anything else **blocks** exactly like a malformed client id, with the reason "PGARD_GITHUB_APP_SLUG is set but is not a valid GitHub App slug (lowercase letters, digits and "-"); fix or unset it.". When the client id is overridden without a slug, there is no install link.
+
+```sh
+export PGARD_GITHUB_APP_SLUG=<slug of your own GitHub App>
+```
+
+When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code, and opens the URL in your browser when stdout is a terminal (unless `--no-browser`). You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
 
 #### Saved sign-in (OS keychain)
 
@@ -287,6 +335,8 @@ Open this private session URL in your browser (valid until you stop the dashboar
 ```
 
 The dashboard runs its own scans (it never reads CLI results). It shows the authorization checks and the GitHub device code, lets you pick and confirm a local service, select scopes, follow progress, filter findings (test or fixture findings are shown in their own group) and export HTML/PDF reports. It reuses the GitHub sign-in saved in the OS keychain on the server side; the token never reaches the browser. There are two sign-out buttons: **End dashboard session (keep keychain sign-in)** forgets the session in this dashboard only, and the next check reuses the keychain sign-in; **Sign out and remove from OS keychain** also deletes the saved sign-in (for the CLI too). Stop the dashboard with Ctrl+C: its GitHub session ends (the keychain sign-in is kept) and all results are discarded.
+
+When a device code is needed, the dashboard shows an **Open the GitHub sign-in page** button and, unless `pgard dashboard --no-browser`, opens the page itself. When the authorization panel is blocked only because the PGARD GitHub App is not installed for this repository and you can approve (or GitHub cannot show your organization role yet; the CLI's wording is used), it shows an **Install the PGARD GitHub App** button (opens a new tab), checks owner approval again every 5 seconds for up to 10 minutes, and then runs the full check again automatically. Otherwise it shows the same `Ask an owner of <account> ...` link as the CLI.
 
 Port discovery, identity probes and target confirmation are allowed only after the dashboard's latest authorization check for this project passed, and only for 30 minutes after that check finished. The dashboard shows when this window ends; after that (or if the system clock moves back), you must check again before it contacts local services. A new check or a sign-out closes the window at once and aborts probes that are still running, and the page drops port lists and probe results from an earlier check. Each scan runs the full authorization check again regardless of this window.
 

@@ -166,6 +166,11 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     findGitRoot: async () => "/work/repo",
     verifyProject: async () => ({ summary: ALLOWED, repo: "owner/name", revision: "abc" }),
     runScan: async () => testResult(),
+    recheckOwnerApproval: unexpected("recheckOwnerApproval") as never,
+    // Never opens a real browser; a test that expects a call overrides it.
+    openBrowser: unexpected("openBrowser") as never,
+    sleep: async () => undefined,
+    now: () => 0,
     createSessionProvider: () =>
       Object.assign(async () => unexpected("getGitHubSession")(), {}) as never,
     // A fake keychain: tests never touch the real OS keychain.
@@ -203,6 +208,7 @@ export function createTestContext(
     style: createStyle(false),
     errStyle: createStyle(false),
     keys,
+    canOpenBrowser: false,
     signal: new AbortController().signal,
     isMenu,
     releaseInterrupts: () => undefined,

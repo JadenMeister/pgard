@@ -1,7 +1,25 @@
+export {
+  GITHUB_WEB_ORIGIN,
+  buildAppInstallUrl,
+  isOpenableGitHubUrl,
+  type AppInstallUrlInput,
+} from "./app-install.js";
+export {
+  openGitHubUrl,
+  openerCommandFor,
+  spawnOpener,
+  type OpenerCommand,
+  type SpawnOpener,
+} from "./open-url.js";
 export { GitHubAuthError, isGitHubAuthError, type GitHubAuthErrorCode } from "./errors.js";
 export {
+  APP_SLUG_PATTERN,
   DEFAULT_GITHUB_APP_CLIENT_ID,
+  DEFAULT_GITHUB_APP_SLUG,
   GITHUB_APP_CLIENT_ID_ENV,
+  GITHUB_APP_SLUG_ENV,
+  GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
+  INVALID_APP_SLUG_OVERRIDE_MESSAGE,
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   type GitHubAppClientIdSource,

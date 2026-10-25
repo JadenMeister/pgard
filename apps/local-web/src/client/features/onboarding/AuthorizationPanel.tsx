@@ -4,6 +4,7 @@ import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
+import { InstallAppNotice } from "./InstallAppNotice";
 import {
   describeGitHubApp,
   describeStoredSignIn,
@@ -155,6 +156,9 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
               ))}
             </tbody>
           </table>
+          {status.status === "done" && status.remedy && (
+            <InstallAppNotice remedy={status.remedy} onInstalled={() => void verify()} />
+          )}
           <p className="muted">This result is not stored; every scan checks again.</p>
           {typeof status.expiresAt === "number" && (
             <p className="muted">

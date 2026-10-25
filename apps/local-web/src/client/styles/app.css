@@ -99,6 +99,11 @@ pre {
   color: var(--accent-text);
 }
 
+a.button {
+  display: inline-block;
+  text-decoration: none;
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: not-allowed;

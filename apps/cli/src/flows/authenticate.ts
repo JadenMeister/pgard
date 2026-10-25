@@ -6,6 +6,7 @@ import {
   type SignInNotice,
 } from "@pgard/scan-core";
 import { err, type CommandContext } from "../context.js";
+import { openInBrowser } from "./browser.js";
 import { safeText } from "../ui/formatters/style.js";
 
 /**
@@ -49,6 +50,15 @@ export function formatGitHubAppOverride(clientId: string): string {
 }
 
 /**
+ * Prints the device-flow instructions (always) and opens the verification page in the browser
+ * when allowed. The code itself is typed by the user; it is never passed to the browser.
+ */
+export function showDeviceCode(context: CommandContext, code: DeviceUserCode): void {
+  err(context, context.errStyle.bold(formatDeviceCode(code)));
+  void openInBrowser(context, code.verificationUri);
+}
+
+/**
  * One provider per CLI process. It reuses the sign-in saved in the OS keychain (or saves a new
  * one); without a keychain the token stays in memory and is dropped on exit.
  */
@@ -58,7 +68,7 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
     err(context, context.errStyle.dim(formatGitHubAppOverride(app.clientId)));
   return context.deps.createSessionProvider({
     env: context.io.env,
-    onUserCode: (code) => err(context, context.errStyle.bold(formatDeviceCode(code))),
+    onUserCode: (code) => showDeviceCode(context, code),
     onNotice: (notice) => {
       const text = formatSignInNotice(notice);
       err(
