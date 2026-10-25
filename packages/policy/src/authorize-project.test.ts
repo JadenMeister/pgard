@@ -696,7 +696,7 @@ describe("authorizeProject: organization repositories", () => {
     expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
   });
 
-  it("reports a membership 403 as unverifiable with the Members: read permission reason", async () => {
+  it("reports a membership 403 as unverifiable with the Members: Read-only permission reason", async () => {
     const { root, mine } = repoWithCommits(ORG_REMOTE);
     const { outcome } = await authorize(
       root,
@@ -708,12 +708,12 @@ describe("authorizeProject: organization repositories", () => {
     expect(approval(outcome)).toMatchObject({
       status: "unverifiable",
       reason:
-        "GitHub refused to show me\'s membership in acme (403): the PGARD GitHub App needs the organization permission Members: read, approved by an owner of acme.",
+        "GitHub refused to show me\'s membership in acme (403): the PGARD GitHub App needs the organization permission Members: Read-only, approved by an owner of acme.",
     });
   });
 
   it.each([
-    ["404", undefined, /\(404\).*Members: read/],
+    ["404", undefined, /\(404\).*Members: Read-only/],
     [
       "5xx",
       new GitHubAuthError("http_error", "GitHub API request failed with status 502.", 502),

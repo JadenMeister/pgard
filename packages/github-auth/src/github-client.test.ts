@@ -212,6 +212,12 @@ describe("createGitHubClient: getOrganizationMembership", () => {
   it.each([
     ["403 without a rate limit", 403, {}, "forbidden"],
     ["403 with no remaining requests", 403, { "x-ratelimit-remaining": "0" }, "rate_limited"],
+    [
+      "403 with retry-after (secondary rate limit)",
+      403,
+      { "x-ratelimit-remaining": "4999", "retry-after": "60" },
+      "rate_limited",
+    ],
     ["429", 429, {}, "rate_limited"],
     ["404", 404, {}, "not_found"],
     ["401", 401, {}, "unauthorized"],

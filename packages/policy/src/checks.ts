@@ -294,11 +294,11 @@ function describeMembershipError(error: unknown, user: GitHubUser, org: string):
     switch (error.code) {
       case "forbidden":
         return unverifiable(
-          `GitHub refused to show ${user.login}'s membership in ${org} (403): the PGARD GitHub App needs the organization permission Members: read, approved by an owner of ${org}.`,
+          `GitHub refused to show ${user.login}'s membership in ${org} (403): the PGARD GitHub App needs the organization permission Members: Read-only, approved by an owner of ${org}.`,
         );
       case "not_found":
         return unverifiable(
-          `GitHub did not return ${user.login}'s membership in ${org} (404): ${user.login} may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of ${org} must run the scan, with the App's Members: read permission approved.`,
+          `GitHub did not return ${user.login}'s membership in ${org} (404): ${user.login} may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of ${org} must run the scan, with the App's Members: Read-only permission approved.`,
         );
       case "rate_limited":
         return unverifiable(

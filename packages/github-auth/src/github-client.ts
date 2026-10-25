@@ -242,7 +242,10 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   async function getJsonDistinguishingForbidden(path: string): Promise<unknown> {
     const response = await request(path);
     const remaining = response.headers?.get("x-ratelimit-remaining") ?? null;
-    if (response.status === 429 || (response.status === 403 && remaining === "0")) {
+    // A secondary rate limit is a 403 with `retry-after` (and possibly requests remaining).
+    const retryAfter = response.headers?.get("retry-after") ?? null;
+    const isRateLimited403 = response.status === 403 && (remaining === "0" || retryAfter !== null);
+    if (response.status === 429 || isRateLimited403) {
       throw new GitHubAuthError(
         "rate_limited",
         "GitHub API rate limit reached; try again later.",
