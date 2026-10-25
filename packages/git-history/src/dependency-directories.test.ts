@@ -94,6 +94,10 @@ describe("findCommittedDependencyDirectories", () => {
     expect(findCommittedDependencyDirectories(["src/composer.json", "src/vendor/a.php"])).toEqual(
       [],
     );
+    // The source directory name matches in any letter case.
+    expect(findCommittedDependencyDirectories(["Src/composer.json", "Src/vendor/a.php"])).toEqual(
+      [],
+    );
   });
 
   it("flags vendor/ only at the repository root or next to composer.json, go.mod or Gemfile", () => {
@@ -119,6 +123,112 @@ describe("findCommittedDependencyDirectories", () => {
       { root: "svc/vendor", fileCount: 1 },
       { root: "web/vendor", fileCount: 1 },
     ]);
+  });
+
+  it("spares Rails importmap pins in vendor/javascript/ but still flags vendor/bundle/", () => {
+    const rails = [
+      "Gemfile",
+      "config/importmap.rb",
+      "vendor/.keep",
+      "vendor/javascript/.keep",
+      "vendor/javascript/stimulus.min.js",
+      "vendor/javascript/@hotwired--turbo.js",
+    ];
+    expect(findCommittedDependencyDirectories(rails)).toEqual([]);
+    expect(
+      findCommittedDependencyDirectories([
+        ...rails,
+        "vendor/bundle/ruby/3.3.0/gems/rack-3.0.0/lib/rack.rb",
+        "vendor/bundle/ruby/3.3.0/gems/rack-3.0.0/README.md",
+      ]),
+    ).toEqual([{ root: "vendor/bundle", fileCount: 2 }]);
+    // A Rails app in a subdirectory.
+    expect(
+      findCommittedDependencyDirectories([
+        "web/Gemfile",
+        "web/config/importmap.rb",
+        "web/vendor/javascript/a.js",
+        "web/vendor/bundle/x.rb",
+      ]),
+    ).toEqual([{ root: "web/vendor/bundle", fileCount: 1 }]);
+    // Without config/importmap.rb, vendor/javascript/ is an ordinary committed vendor/.
+    expect(
+      findCommittedDependencyDirectories(["Gemfile", "vendor/javascript/stimulus.min.js"]),
+    ).toEqual([{ root: "vendor", fileCount: 1 }]);
+    const description = describeCommittedDependencyDirectories(
+      findCommittedDependencyDirectories([...rails, "vendor/bundle/x.rb"]),
+      REVISION,
+    );
+    expect(description.recommendation).toContain("(git rm -r --cached vendor/bundle)");
+  });
+
+  const importmapRails = ["Gemfile", "config/importmap.rb", "vendor/javascript/stimulus.min.js"];
+
+  it("still counts loose files directly in vendor/ of an importmap Rails app", () => {
+    expect(
+      findCommittedDependencyDirectories([
+        ...importmapRails,
+        "vendor/jquery.min.js",
+        "vendor/legacy.js",
+      ]),
+    ).toEqual([
+      { root: "vendor", fileCount: 2, looseFiles: ["vendor/jquery.min.js", "vendor/legacy.js"] },
+    ]);
+  });
+
+  it("names loose importmap vendor/ files in the fix, never vendor/ or vendor/javascript/", () => {
+    const text = describeCommittedDependencyDirectories(
+      findCommittedDependencyDirectories([
+        ...importmapRails,
+        "vendor/jquery.min.js",
+        "vendor/javascript/pin.js",
+      ]),
+      REVISION,
+    );
+    expect(text.recommendation).toContain("git rm --cached vendor/jquery.min.js)");
+    expect(text.recommendation).not.toMatch(/--cached[^;)]* vendor(\/javascript)?\/?[\s;)]/);
+    expect(text.recommendation).toContain("keeping the importmap pins in vendor/javascript/");
+    expect(text.evidence).toContain(
+      "vendor/ (1 tracked file directly in it; the importmap pins in vendor/javascript/ are kept on purpose)",
+    );
+  });
+
+  it("caps the named loose files and keeps nested dependency directories by path", () => {
+    const loose = Array.from({ length: 7 }, (_, index) => `vendor/lib${index}.js`);
+    const text = describeCommittedDependencyDirectories(
+      findCommittedDependencyDirectories([
+        ...importmapRails,
+        ...loose,
+        "vendor/bundle/x.rb",
+        "vendor/javascript/node_modules/react/index.js",
+      ]),
+      REVISION,
+    );
+    expect(text.recommendation).toContain(
+      "git rm -r --cached vendor/bundle vendor/javascript/node_modules; git rm --cached vendor/lib0.js vendor/lib1.js vendor/lib2.js vendor/lib3.js vendor/lib4.js (and 2 more loose files)",
+    );
+  });
+
+  it("still flags a dependency directory nested in importmap pins", () => {
+    const rails = importmapRails;
+    expect(
+      findCommittedDependencyDirectories([
+        ...rails,
+        "vendor/javascript/node_modules/react/index.js",
+        "vendor/javascript/node_modules/react/package.json",
+        "vendor/javascript/x/bower_components/y.js",
+      ]),
+    ).toEqual([
+      { root: "vendor/javascript/node_modules", fileCount: 2 },
+      { root: "vendor/javascript/x/bower_components", fileCount: 1 },
+    ]);
+  });
+
+  it("does not count placeholder files such as vendor/.keep", () => {
+    expect(findCommittedDependencyDirectories(["Gemfile", "vendor/.keep"])).toEqual([]);
+    expect(
+      findCommittedDependencyDirectories(["node_modules/.gitkeep", "node_modules/a/index.js"]),
+    ).toEqual([{ root: "node_modules", fileCount: 1 }]);
   });
 
   it("skips Go module vendoring (go.mod and vendor/modules.txt) but flags other vendor/ copies", () => {

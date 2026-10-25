@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { scanSourceCode } from "./scan-source.js";
+import {
+  MAX_DEPENDENCY_NOTE_LENGTH,
+  describeSkippedDependencyDirectories,
+  scanSourceCode,
+} from "./scan-source.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -72,6 +76,76 @@ describe("scanSourceCode", () => {
     expect(coverage["source:large-files"]).toMatchObject({ status: "partial" });
     expect(coverage["source:orm:typeorm"]).toMatchObject({ status: "partial" });
     expect(coverage["source:orm:typeorm"]?.note).toMatch(/not supported/);
+  });
+
+  it("analyzes first-party vendor/ modules under src/, app/ or lib/ in any letter case", async () => {
+    const root = project({
+      "package.json": "{}",
+      "src/vendor/a.ts": SQL_VULN,
+      "packages/web/Src/vendor/x.ts": SQL_VULN,
+      "packages/api/lib/vendor/b.ts": SQL_VULN,
+    });
+    const result = await scanSourceCode(root);
+    const paths = result.findings.map((finding) => finding.location.path);
+    expect(paths).toEqual(
+      expect.arrayContaining([
+        "src/vendor/a.ts",
+        "packages/web/Src/vendor/x.ts",
+        "packages/api/lib/vendor/b.ts",
+      ]),
+    );
+    expect(result.coverage.find((entry) => entry.area === "source:typescript")?.note).toMatch(
+      /^3 TypeScript file\(s\)/,
+    );
+    expect(result.coverage.map((entry) => entry.area)).not.toContain(
+      "source:dependency-directories",
+    );
+  });
+
+  it("skips dependency vendor/ directories and node_modules anywhere, and lists them", async () => {
+    const root = project({
+      "composer.json": "{}",
+      "vendor/acme/lib.ts": SQL_VULN,
+      "svc/go.mod": "module example.com/svc\n",
+      "svc/vendor/x/y.ts": SQL_VULN,
+      "src/composer.json": "{}",
+      "src/vendor/own.ts": SQL_VULN,
+      "tools/vendor/script.ts": SQL_VULN,
+      "packages/web/node_modules/pkg/index.js": SQL_VULN,
+      "src/node_modules/pkg/index.js": SQL_VULN,
+    });
+    const result = await scanSourceCode(root);
+    const paths = result.findings.map((finding) => finding.location.path);
+    // A vendor/ under src/ or without a manifest next to it is analyzed (its findings are later
+    // grouped as vendored suggestions when the path is vendored).
+    expect(paths).toEqual(expect.arrayContaining(["src/vendor/own.ts", "tools/vendor/script.ts"]));
+    for (const skipped of [
+      "vendor/acme/lib.ts",
+      "svc/vendor/x/y.ts",
+      "packages/web/node_modules/pkg/index.js",
+      "src/node_modules/pkg/index.js",
+    ]) {
+      expect(paths).not.toContain(skipped);
+    }
+    const coverage = result.coverage.find(
+      (entry) => entry.area === "source:dependency-directories",
+    );
+    expect(coverage).toMatchObject({ status: "completed", scope: "code", ruleIds: [] });
+    expect(coverage?.note).toBe(
+      "Skipped 4 dependency directories (third-party code, not analyzed): packages/web/node_modules/, src/node_modules/, svc/vendor/ (go.mod), vendor/ (composer.json).",
+    );
+    expect(result.coverage.find((entry) => entry.area === "source:typescript")?.note).toMatch(
+      /^2 TypeScript file\(s\)/,
+    );
+  });
+
+  it("skips a root vendor/ without a manifest", async () => {
+    const root = project({ "vendor/a.ts": SQL_VULN, "src/b.ts": SQL_VULN });
+    const result = await scanSourceCode(root);
+    expect(result.findings.map((finding) => finding.location.path)).not.toContain("vendor/a.ts");
+    expect(
+      result.coverage.find((entry) => entry.area === "source:dependency-directories")?.note,
+    ).toContain("vendor/ (repository root, no manifest; assumed third-party)");
   });
 
   it("reports languages without files as completed with a note, never as findings", async () => {
@@ -203,5 +277,43 @@ describe("time budget, parse errors and caps (#87, #89)", () => {
     expect(result.coverage.find((entry) => entry.area === "source:javascript")?.note).toMatch(
       /finding cap/,
     );
+  });
+});
+
+describe("describeSkippedDependencyDirectories", () => {
+  it("lists at most five directories, sorted, and counts the rest", () => {
+    const directories = Array.from({ length: 7 }, (_, index) => ({
+      path: `packages/p${6 - index}/node_modules`,
+      reason: null,
+    }));
+    const note = describeSkippedDependencyDirectories(directories);
+    expect(note).toBe(
+      "Skipped 7 dependency directories (third-party code, not analyzed): packages/p0/node_modules/, packages/p1/node_modules/, packages/p2/node_modules/, packages/p3/node_modules/, packages/p4/node_modules/ and 2 more.",
+    );
+  });
+
+  it("quotes unusual names and marks a root vendor/ without a manifest as an assumption", () => {
+    expect(
+      describeSkippedDependencyDirectories([
+        { path: "my app/vendor", reason: "Gemfile" },
+        { path: "vendor", reason: "repository root" },
+      ]),
+    ).toBe(
+      'Skipped 2 dependency directories (third-party code, not analyzed): "my app/vendor/" (Gemfile), vendor/ (repository root, no manifest; assumed third-party).',
+    );
+  });
+
+  it("lists fewer names when paths are long so the count is never cut off", () => {
+    const directories = Array.from({ length: 6 }, (_, index) => ({
+      path: `${"deeply/nested/workspace/".repeat(4)}p${index}/node_modules`,
+      reason: null,
+    }));
+    const note = describeSkippedDependencyDirectories(directories);
+    expect(note.length).toBeLessThanOrEqual(MAX_DEPENDENCY_NOTE_LENGTH);
+    expect(note).toMatch(/^Skipped 6 dependency directories/);
+    expect(note).toMatch(/ and \d more\.$/);
+    // Long paths keep their last characters.
+    expect(note).toContain("…");
+    expect(note).toContain("p0/node_modules/");
   });
 });

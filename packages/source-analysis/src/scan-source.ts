@@ -5,7 +5,12 @@ import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
-import { readTextFile, walkSourceTree, type SourceLanguage } from "./walk.js";
+import {
+  readTextFile,
+  walkSourceTree,
+  type SkippedDependencyDirectory,
+  type SourceLanguage,
+} from "./walk.js";
 
 export interface SourceScanOptions {
   signal?: AbortSignal;
@@ -70,6 +75,10 @@ interface LanguageStats {
 }
 
 const MAX_LISTED_PATHS = 5;
+/** The CLI shows at most 300 characters of a coverage note; the dependency note stays within. */
+export const MAX_DEPENDENCY_NOTE_LENGTH = 300;
+/** Longer directory paths in the dependency note keep their last characters. */
+const MAX_LABEL_PATH_LENGTH = 60;
 
 /**
  * Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. Each path is quoted
@@ -82,6 +91,43 @@ function listPaths(paths: string[]): string {
     .join(", ");
   const rest = paths.length - MAX_LISTED_PATHS;
   return rest > 0 ? `${listed} and ${rest} more` : listed;
+}
+
+/**
+ * Coverage note for the dependency directories the walk did not enter, listing at most
+ * MAX_LISTED_PATHS of them: `vendor/ (composer.json), node_modules/`. Unusual names are quoted.
+ */
+export function describeSkippedDependencyDirectories(
+  directories: readonly SkippedDependencyDirectory[],
+): string {
+  const label = (entry: SkippedDependencyDirectory) => {
+    const directory =
+      entry.path.length > MAX_LABEL_PATH_LENGTH
+        ? `…${entry.path.slice(-(MAX_LABEL_PATH_LENGTH - 1))}`
+        : entry.path;
+    const name = /^[\w./@+-]+$/.test(directory) ? `${directory}/` : JSON.stringify(`${directory}/`);
+    if (entry.reason === null) return name;
+    if (entry.reason === "repository root") {
+      return `${name} (repository root, no manifest; assumed third-party)`;
+    }
+    return `${name} (${entry.reason})`;
+  };
+  const count = directories.length;
+  const heading = `Skipped ${count} dependency director${count === 1 ? "y" : "ies"} (third-party code, not analyzed): `;
+  const compose = (labels: string[]) => {
+    const rest = count - labels.length;
+    if (labels.length === 0) return `${heading}${count} not listed.`;
+    return `${heading}${labels.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  };
+  // List fewer names rather than let a display limit cut off the "and N more" count.
+  const labels: string[] = [];
+  for (const entry of [...directories].sort((a, b) => a.path.localeCompare(b.path, "en"))) {
+    if (labels.length === MAX_LISTED_PATHS) break;
+    const next = [...labels, label(entry)];
+    if (compose(next).length > MAX_DEPENDENCY_NOTE_LENGTH) break;
+    labels.push(next[next.length - 1] as string);
+  }
+  return compose(labels);
 }
 
 /** Capitalizes the first letter so a clause can start a sentence in a note. */
@@ -316,6 +362,15 @@ export async function scanSourceCode(
       status: "partial",
       ruleIds: [],
       note: `${walk.skippedLarge} source file(s) over 1 MiB were skipped.`,
+    });
+  }
+  if (walk.skippedDependencyDirectories.length > 0) {
+    coverage.push({
+      area: "source:dependency-directories",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: describeSkippedDependencyDirectories(walk.skippedDependencyDirectories),
     });
   }
   for (const [module, label] of Object.entries(JS_UNSUPPORTED_ORMS)) {
