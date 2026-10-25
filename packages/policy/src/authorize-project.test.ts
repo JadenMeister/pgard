@@ -5,6 +5,8 @@ import {
   GitHubAuthError,
   createDeviceFlowSessionProvider,
   resolveGitHubAppClientId,
+  type GitHubRepository,
+  type GitHubUser,
 } from "@pgard/github-auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,9 +14,12 @@ import {
   type GitFixture,
 } from "../../git-history/src/test-support/git-fixture.js";
 import { authorizeProject, isAuthorizationAllowed } from "./authorize-project.js";
+import { evaluateOwnerApproval, ownerExemptionReason, type OwnerEvidence } from "./checks.js";
 import {
+  MAINTAINER,
   ME,
   ORG,
+  collaboratorRepository,
   createMockGitHub,
   orgInstallation,
   orgMembership,
@@ -34,7 +39,7 @@ afterEach(() => {
 });
 
 function repoWithCommits(
-  remotes: Record<string, string> = { origin: "git@github.com:me/app.git" },
+  remotes: Record<string, string> = { origin: "git@github.com:maintainer/app.git" },
 ) {
   fixture = createGitFixture({ remotes });
   const other = fixture.commit({ authorName: "Someone", authorEmail: "someone@example.com" });
@@ -42,11 +47,15 @@ function repoWithCommits(
   return { root: fixture.root, other, mine };
 }
 
+/**
+ * `ME` as a collaborator on `MAINTAINER`'s personal repository, which the maintainer approved by
+ * installing the App: every check but contribution passes, and the owner exemption never applies.
+ */
 function baseState(overrides: Partial<MockGitHubState> = {}): MockGitHubState {
   return {
     user: ME,
-    repository: userRepository(),
-    installations: [ownerInstallation()],
+    repository: collaboratorRepository(),
+    installations: [ownerInstallation(MAINTAINER.id, MAINTAINER.login)],
     installationRepositories: { 77: [555] },
     pulls: {},
     commits: {},
@@ -97,7 +106,7 @@ describe("authorizeProject: allowed paths", () => {
     );
     expect(outcome.summary.decision).toBe("allowed");
     expect(isAuthorizationAllowed(outcome)).toBe(true);
-    expect(outcome.repo).toBe("me/app");
+    expect(outcome.repo).toBe("maintainer/app");
     expect(outcome.revision).toBe(mine);
   });
 
@@ -183,7 +192,7 @@ describe("authorizeProject: blocked paths", () => {
     const { outcome, calls } = await authorize(
       root,
       baseState({
-        repository: userRepository({
+        repository: collaboratorRepository({
           permissions: { admin: false, maintain: false, push: false, triage: false, pull: false },
         }),
       }),
@@ -247,7 +256,7 @@ describe("authorizeProject: blocked paths", () => {
     const { outcome, calls } = await authorize(
       root,
       baseState({
-        repository: userRepository({ fullName: "me/app-renamed" }),
+        repository: collaboratorRepository({ fullName: "maintainer/app-renamed" }),
         pulls: {
           [mine]: [
             {
@@ -263,8 +272,8 @@ describe("authorizeProject: blocked paths", () => {
       }),
     );
     expect(outcome.summary.decision).toBe("allowed");
-    expect(outcome.repo).toBe("me/app-renamed");
-    expect(calls).toContain(`pulls:me/app-renamed:${mine}`);
+    expect(outcome.repo).toBe("maintainer/app-renamed");
+    expect(calls).toContain(`pulls:maintainer/app-renamed:${mine}`);
   });
 
   it("blocks when the user's PR was never merged", async () => {
@@ -403,47 +412,6 @@ describe("authorizeProject: blocked paths", () => {
     expect(calls.filter((call) => call.startsWith("pulls:"))).toHaveLength(1);
   });
 
-  it("ends a non-passing contribution reason with how to qualify, after the existing text", async () => {
-    const guidance = (branch: string) =>
-      `To qualify, get a pull request merged into "${branch}", or sign your commits (GitHub shows them as Verified) and push them to "${branch}".`;
-    const { root, other } = repoWithCommits();
-    const none = await authorize(root, baseState());
-    const failed = none.outcome.summary.checks.find((check) => check.id === "contribution");
-    expect(failed?.status).toBe("failed");
-    expect(failed?.reason).toMatch(/^No qualifying contribution found among 2 local commits\./);
-    expect(failed?.reason.endsWith(` ${guidance("main")}`)).toBe(true);
-
-    const capped = await authorize(
-      root,
-      baseState({
-        pulls: {
-          [other]: [
-            {
-              number: 4,
-              userId: ME.id,
-              mergedAt: "2026-10-01T00:00:00Z",
-              baseRef: "main",
-              baseRepositoryId: 555,
-            },
-          ],
-        },
-        compare: { [other]: "ahead" },
-      }),
-      1,
-    );
-    const unverifiable = capped.outcome.summary.checks.find((check) => check.id === "contribution");
-    expect(unverifiable?.status).toBe("unverifiable");
-    expect(unverifiable?.reason.endsWith(` ${guidance("main")}`)).toBe(true);
-
-    const develop = await authorize(
-      root,
-      baseState({ repository: userRepository({ defaultBranch: "develop" }) }),
-    );
-    expect(
-      develop.outcome.summary.checks.find((check) => check.id === "contribution")?.reason,
-    ).toContain(guidance("develop"));
-  });
-
   it("reports GitHub API failures as unverifiable", async () => {
     const { root } = repoWithCommits();
     const { session } = createMockGitHub(baseState());
@@ -547,7 +515,7 @@ describe("authorizeProject: repository and identity", () => {
     expect(statusOf(outcome, "current_access")).not.toBe("passed");
     expect(statusOf(outcome, "contribution")).not.toBe("passed");
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(outcome.repo).toBe("me/app");
+    expect(outcome.repo).toBe("maintainer/app");
   });
 
   it("blocks with github_identity unverifiable when the override is malformed", async () => {
@@ -691,7 +659,9 @@ describe("authorizeProject: organization repositories", () => {
     expect(calls).toContain("installation-repos:88");
   });
 
-  it("keeps current access and contribution checks unchanged for organization repos", async () => {
+  // An organization owner is exempt from a separate contribution (#47); the exemption is
+  // covered in "verified owner exemption" below. Current access still applies on its own.
+  it("keeps the current access check unchanged for organization repos", async () => {
     const { root, mine } = repoWithCommits(ORG_REMOTE);
     const noAccess = await authorize(
       root,
@@ -705,11 +675,6 @@ describe("authorizeProject: organization repositories", () => {
     expect(statusOf(noAccess.outcome, "owner_approval")).toBe("passed");
     expect(statusOf(noAccess.outcome, "current_access")).toBe("failed");
     expect(statusOf(noAccess.outcome, "contribution")).toBe("unverifiable");
-
-    const noContribution = await authorize(root, orgState(mine, { pulls: {}, compare: {} }));
-    expectBlocked(noContribution.outcome);
-    expect(statusOf(noContribution.outcome, "owner_approval")).toBe("passed");
-    expect(statusOf(noContribution.outcome, "contribution")).toBe("failed");
   });
 
   // Mutation sanity: this and the next test fail if the `role === "admin"` check is removed.
@@ -919,8 +884,335 @@ describe("authorizeProject: organization repositories", () => {
     );
     expect(outcome.summary.decision).toBe("allowed");
     expect(approval(outcome)?.reason).toBe(
-      'The PGARD GitHub App is installed by the owner account "me" and includes me/app.',
+      'The PGARD GitHub App is installed by the owner account "maintainer" and includes maintainer/app.',
     );
     expect(calls.some((call) => call.startsWith("membership:"))).toBe(false);
+  });
+});
+
+describe("authorizeProject: verified owner exemption (#47)", () => {
+  const PERSONAL_REMOTE = { origin: "git@github.com:me/app.git" };
+  const ORG_REMOTE = { origin: "git@github.com:acme/app.git" };
+  const PERSONAL_EXEMPT =
+    "me owns me/app (verified by GitHub account id); a separate contribution is not required.";
+  const ORG_EXEMPT =
+    'me is an owner of the organization "acme"; a separate contribution is not required.';
+  const GUIDANCE =
+    'To qualify, get a pull request merged into "main", or sign your commits (GitHub shows them as Verified) and push them to "main".';
+
+  /** `ME` owns `me/app` and installed the App on it; no merged PR, no signed commit. */
+  function personalOwnerState(overrides: Partial<MockGitHubState> = {}): MockGitHubState {
+    return baseState({
+      repository: userRepository(),
+      installations: [ownerInstallation()],
+      installationRepositories: { 77: [555] },
+      ...overrides,
+    });
+  }
+
+  /** `acme/app` with the App installed on `acme` and `ME` an active owner; no contribution. */
+  function orgOwnerState(overrides: Partial<MockGitHubState> = {}): MockGitHubState {
+    return baseState({
+      repository: orgRepository(),
+      installations: [orgInstallation()],
+      installationRepositories: { 88: [555] },
+      memberships: { acme: orgMembership() },
+      ...overrides,
+    });
+  }
+
+  function contributionOf(outcome: AuthorizationOutcome) {
+    return outcome.summary.checks.find((check) => check.id === "contribution");
+  }
+
+  function mergedPull(sha: string) {
+    return {
+      [sha]: [
+        {
+          number: 4,
+          userId: ME.id,
+          mergedAt: "2026-10-01T00:00:00Z",
+          baseRef: "main",
+          baseRepositoryId: 555,
+        },
+      ],
+    };
+  }
+
+  it("passes contribution for the personal owner without a PR or signed commit", async () => {
+    const { root } = repoWithCommits(PERSONAL_REMOTE);
+    const { outcome, calls } = await authorize(root, personalOwnerState());
+    expect(outcome.summary.decision).toBe("allowed");
+    expect(isAuthorizationAllowed(outcome)).toBe(true);
+    expect(contributionOf(outcome)).toEqual({
+      id: "contribution",
+      status: "passed",
+      reason: PERSONAL_EXEMPT,
+    });
+    // The evidence comes from the owner approval of this run: no extra API calls.
+    expect(calls.some((call) => /^(pulls|commit|compare|membership):/.test(call))).toBe(false);
+  });
+
+  it("blocks a personal collaborator without a contribution, with guidance", async () => {
+    const { root } = repoWithCommits();
+    const { outcome } = await authorize(root, baseState());
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("passed");
+    expect(statusOf(outcome, "current_access")).toBe("passed");
+    const contribution = contributionOf(outcome);
+    expect(contribution?.status).toBe("failed");
+    expect(contribution?.reason).toMatch(
+      /^No qualifying contribution found among 2 local commits\./,
+    );
+    expect(contribution?.reason.endsWith(` ${GUIDANCE}`)).toBe(true);
+  });
+
+  it("adds the guidance to every non-passing contribution reason, after the existing text", async () => {
+    const { root, other } = repoWithCommits();
+    const capped = await authorize(
+      root,
+      baseState({ pulls: mergedPull(other), compare: { [other]: "ahead" } }),
+      1,
+    );
+    expect(contributionOf(capped.outcome)?.status).toBe("unverifiable");
+    expect(contributionOf(capped.outcome)?.reason).toMatch(
+      /^No qualifying contribution among the 1 commits examined \(of 2 local commits\)\./,
+    );
+    expect(contributionOf(capped.outcome)?.reason.endsWith(` ${GUIDANCE}`)).toBe(true);
+
+    const renamedBranch = await authorize(
+      root,
+      baseState({ repository: collaboratorRepository({ defaultBranch: "develop" }) }),
+    );
+    expect(contributionOf(renamedBranch.outcome)?.reason).toContain(
+      'To qualify, get a pull request merged into "develop", or sign your commits (GitHub shows them as Verified) and push them to "develop".',
+    );
+  });
+
+  it("passes contribution for an organization owner without a contribution", async () => {
+    const { root } = repoWithCommits(ORG_REMOTE);
+    const { outcome, calls } = await authorize(root, orgOwnerState());
+    expect(outcome.summary.decision).toBe("allowed");
+    expect(isAuthorizationAllowed(outcome)).toBe(true);
+    expect(contributionOf(outcome)).toEqual({
+      id: "contribution",
+      status: "passed",
+      reason: ORG_EXEMPT,
+    });
+    // The membership owner approval already read is reused, not read a second time.
+    expect(calls.filter((call) => call === "membership:acme")).toHaveLength(1);
+    expect(calls.some((call) => /^(pulls|commit|compare):/.test(call))).toBe(false);
+  });
+
+  it("blocks an organization member without a contribution", async () => {
+    const { root } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgOwnerState({ memberships: { acme: orgMembership({ role: "member" }) } }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("failed");
+    expect(contributionOf(outcome)?.status).toBe("failed");
+    expect(contributionOf(outcome)?.reason.endsWith(` ${GUIDANCE}`)).toBe(true);
+  });
+
+  it("gives no exemption when the organization membership is unverifiable", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    for (const membership of [
+      undefined, // 404
+      new GitHubAuthError("forbidden", "forbidden", 403),
+      new GitHubAuthError("network_error", "Could not reach the GitHub API."),
+    ]) {
+      const memberships: MockGitHubState["memberships"] = membership ? { acme: membership } : {};
+      const { outcome } = await authorize(root, orgOwnerState({ memberships }));
+      expectBlocked(outcome);
+      expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+      // Current access passed, so contribution is evaluated normally, not exempted.
+      expect(contributionOf(outcome)?.status).toBe("failed");
+      expect(contributionOf(outcome)?.reason).not.toContain("not required");
+
+      // A real contribution still counts, but authorization stays blocked on owner approval.
+      const withPull = await authorize(
+        root,
+        orgOwnerState({ memberships, pulls: mergedPull(mine), compare: { [mine]: "ahead" } }),
+      );
+      expectBlocked(withPull.outcome);
+      expect(contributionOf(withPull.outcome)?.reason).toMatch(/pull request #4/);
+    }
+  });
+
+  // Mutation sanity: fails if the owner is matched by login instead of GitHub account id.
+  it("gives no exemption when the logins match but the account ids differ", async () => {
+    const { root } = repoWithCommits(PERSONAL_REMOTE);
+    const impostor = { ...ME, id: 2002 };
+    const { outcome } = await authorize(root, personalOwnerState({ user: impostor }));
+    expectBlocked(outcome);
+    // The owner installed the App, so owner approval passes for any user with access...
+    expect(statusOf(outcome, "owner_approval")).toBe("passed");
+    // ...but only the owner account id is owner evidence.
+    expect(contributionOf(outcome)?.status).toBe("failed");
+    expect(contributionOf(outcome)?.reason.endsWith(` ${GUIDANCE}`)).toBe(true);
+  });
+
+  // Mutation sanity: fails if the exemption is granted without a passed owner approval.
+  it("gives no exemption to the personal owner when owner approval did not pass", async () => {
+    const { root } = repoWithCommits(PERSONAL_REMOTE);
+    const cases: Partial<MockGitHubState>[] = [
+      { installations: [] }, // App not installed
+      { installationRepositories: { 77: [1] } }, // installation without this repository
+    ];
+    for (const overrides of cases) {
+      const { outcome } = await authorize(root, personalOwnerState(overrides));
+      expectBlocked(outcome);
+      expect(statusOf(outcome, "owner_approval")).toBe("failed");
+      expect(contributionOf(outcome)?.status).toBe("failed");
+      expect(contributionOf(outcome)?.reason).not.toContain("not required");
+    }
+
+    const { session } = createMockGitHub(personalOwnerState());
+    const outcome = await authorizeProject(root, {
+      getGitHubSession: sessionProvider(async () => ({
+        ...session,
+        client: {
+          ...session.client,
+          listUserInstallations: async () => {
+            throw new GitHubAuthError("network_error", "Could not reach the GitHub API.");
+          },
+        },
+      })),
+    });
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+    expect(contributionOf(outcome)?.status).toBe("failed");
+  });
+
+  it("does not let the exemption replace owner approval or current access", async () => {
+    const { root } = repoWithCommits(PERSONAL_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      personalOwnerState({
+        repository: userRepository({
+          permissions: { admin: false, maintain: false, push: false, triage: false, pull: false },
+        }),
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("passed");
+    expect(statusOf(outcome, "current_access")).toBe("failed");
+    expect(statusOf(outcome, "contribution")).toBe("unverifiable");
+  });
+});
+
+describe("evaluateOwnerApproval: owner evidence", () => {
+  const state = (user: GitHubUser, overrides: Partial<MockGitHubState> = {}) =>
+    baseState({
+      user,
+      repository: userRepository(),
+      installations: [ownerInstallation()],
+      installationRepositories: { 77: [555] },
+      ...overrides,
+    });
+
+  async function evaluate(s: MockGitHubState) {
+    const { session } = createMockGitHub(s);
+    const repository = s.repository ?? userRepository();
+    return evaluateOwnerApproval(session.client, repository, {
+      user: s.user,
+      remoteOwner: repository.owner.login,
+    });
+  }
+
+  it("records personal owner evidence only for the owner account id", async () => {
+    const owner = await evaluate(state(ME));
+    expect(owner.check.status).toBe("passed");
+    expect(owner.ownerEvidence).toEqual({ kind: "personal_owner", userId: 1001, ownerId: 1001 });
+
+    // Same login, different account id: owner approval passes, but there is no owner evidence.
+    const impostor = await evaluate(state({ ...ME, id: 2002 }));
+    expect(impostor.check.status).toBe("passed");
+    expect(impostor.ownerEvidence).toBeNull();
+  });
+
+  it("records no evidence when owner approval did not pass", async () => {
+    expect((await evaluate(state(ME, { installations: [] }))).ownerEvidence).toBeNull();
+    const member = await evaluate(
+      state(ME, {
+        repository: orgRepository(),
+        installations: [orgInstallation()],
+        installationRepositories: { 88: [555] },
+        memberships: { acme: orgMembership({ role: "member" }) },
+      }),
+    );
+    expect(member.check.status).toBe("failed");
+    expect(member.ownerEvidence).toBeNull();
+  });
+});
+
+describe("ownerExemptionReason", () => {
+  const personal = userRepository();
+  const org = orgRepository();
+
+  it("accepts only evidence that matches this user and this owner account by id", () => {
+    expect(
+      ownerExemptionReason({ kind: "personal_owner", userId: 1001, ownerId: 1001 }, ME, personal),
+    ).toBe(
+      "me owns me/app (verified by GitHub account id); a separate contribution is not required.",
+    );
+    expect(
+      ownerExemptionReason(
+        { kind: "organization_owner", userId: 1001, organizationId: 42, organization: "acme" },
+        ME,
+        org,
+      ),
+    ).toBe('me is an owner of the organization "acme"; a separate contribution is not required.');
+  });
+
+  const cases: [string, OwnerEvidence | null, GitHubUser, GitHubRepository][] = [
+    ["no evidence", null, ME, personal],
+    [
+      "evidence for another user",
+      { kind: "personal_owner", userId: 2002, ownerId: 1001 },
+      ME,
+      personal,
+    ],
+    [
+      "evidence for another owner id",
+      { kind: "personal_owner", userId: 1001, ownerId: 3003 },
+      ME,
+      personal,
+    ],
+    [
+      "a user who is not the owner",
+      { kind: "personal_owner", userId: 2002, ownerId: 1001 },
+      { ...ME, id: 2002 },
+      personal,
+    ],
+    [
+      "personal evidence for an org repo",
+      { kind: "personal_owner", userId: 1001, ownerId: 42 },
+      ME,
+      org,
+    ],
+    [
+      "org evidence for a personal repo",
+      { kind: "organization_owner", userId: 1001, organizationId: 1001, organization: "me" },
+      ME,
+      personal,
+    ],
+    [
+      "org evidence for another organization id",
+      { kind: "organization_owner", userId: 1001, organizationId: 43, organization: "acme" },
+      ME,
+      org,
+    ],
+    [
+      "org evidence with a different login",
+      { kind: "organization_owner", userId: 1001, organizationId: 42, organization: "Acme" },
+      ME,
+      org,
+    ],
+  ];
+  it.each(cases)("gives no exemption for %s", (_label, evidence, user, repository) => {
+    expect(ownerExemptionReason(evidence, user, repository)).toBeNull();
   });
 });

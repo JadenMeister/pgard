@@ -134,6 +134,8 @@ export async function authorizeProject(
       projectRoot,
       runner,
       maxCandidates,
+      // Owner evidence only from a passed owner approval in this run; otherwise no exemption.
+      ownerEvidence: ownerApproval.check.status === "passed" ? ownerApproval.ownerEvidence : null,
     }),
   );
   return build(canonicalName, revision);
