@@ -89,3 +89,10 @@ export interface OwnerApprovalRecheck {
   reason: string;
   remedy: OwnerApprovalRemedy | null;
 }
+
+/**
+ * Display cap for one check reason in the CLI and in scan reports. Every policy reason fits well
+ * below it (the longest, a contribution failure with its guidance, is about 420 characters plus
+ * the default branch name twice), so frontends show reasons verbatim, like the dashboard does.
+ */
+export const AUTHORIZATION_REASON_MAX_LENGTH = 1000;

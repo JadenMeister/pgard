@@ -440,9 +440,17 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
       status: "passed",
       reason,
     });
+    // The organization owner is exempt from a separate contribution (#47).
+    const contribution = `me is an owner of the organization "acme"; a separate contribution is not required. Local HEAD is linked to acme/app by commit ${head.slice(0, 12)}.`;
+    expect(cli.result.authorization.checks.find((check) => check.id === "contribution")).toEqual({
+      id: "contribution",
+      status: "passed",
+      reason: contribution,
+    });
     const verify = await verifyWithBoth(root, () => cliGitHub.provider);
     expect(verify.cliCode).toBe(0);
     expect(verify.cliStdout).toContain(`[passed] owner approval: ${reason}`);
+    expect(verify.cliStdout).toContain(`[passed] contribution: ${contribution}`);
     expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
@@ -474,6 +482,79 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     const verify = await verifyWithBoth(root, () => cliGitHub.provider);
     expect(verify.cliCode).toBe(3);
     expect(verify.cliStdout).toContain(`[failed] owner approval: ${reason}`);
+    expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
+
+    expect(comparable(web.result)).toEqual(comparable(cli.result));
+    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(webGitHub.calls).toEqual(cliGitHub.calls);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("allow the verified personal owner without a separate contribution, with the same reason", async () => {
+    const { root, head } = createProject();
+    // No merged PR and no signed commit: only the owner exemption (#47) can pass contribution.
+    // HEAD is on the default branch, which links the local code to me/app.
+    const ownerOnly = (): MockGitHubState => ({ ...allowedState(head), commits: {} });
+    const cliGitHub = mockSessionProvider(ownerOnly());
+    const webGitHub = mockSessionProvider(ownerOnly());
+
+    const cli = await scanWithCli(root, () => cliGitHub.provider);
+    const web = await scanWithWeb(root, () => webGitHub.provider);
+
+    const reason = `me owns me/app (verified by GitHub account id); a separate contribution is not required. Local HEAD is linked to me/app by commit ${head.slice(0, 12)}.`;
+    expect(cli.result.authorization.decision).toBe("allowed");
+    expect(cli.exitCode).toBe(0);
+    expect(cli.result.authorization.checks.find((check) => check.id === "contribution")).toEqual({
+      id: "contribution",
+      status: "passed",
+      reason,
+    });
+    const verify = await verifyWithBoth(root, () => cliGitHub.provider);
+    expect(verify.cliCode).toBe(0);
+    expect(verify.cliStdout).toContain(`[passed] contribution: ${reason}`);
+    expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
+
+    expect(comparable(web.result)).toEqual(comparable(cli.result));
+    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(webGitHub.calls).toEqual(cliGitHub.calls);
+    expect(cliGitHub.calls.some((call) => /^(pulls|commit):/.test(call))).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("block a collaborator without a contribution with the same full reason and guidance", async () => {
+    const { root } = createProject("git@github.com:maintainer/app.git");
+    const collaborator = (): MockGitHubState => ({
+      user: ME,
+      repository: userRepository({
+        fullName: "maintainer/app",
+        owner: { id: 3003, login: "maintainer", type: "User" },
+      }),
+      installations: [{ id: 77, targetType: "User", account: { id: 3003, login: "maintainer" } }],
+      installationRepositories: { 77: [555] },
+      pulls: {},
+      commits: {},
+      compare: {},
+    });
+    const cliGitHub = mockSessionProvider(collaborator());
+    const webGitHub = mockSessionProvider(collaborator());
+
+    const cli = await scanWithCli(root, () => cliGitHub.provider);
+    const web = await scanWithWeb(root, () => webGitHub.provider);
+
+    const reason =
+      'No qualifying contribution found among 2 local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count. To qualify, get a pull request merged into "main", or sign your commits (GitHub shows them as Verified) and push them to "main".';
+    expect(cli.result.overallStatus).toBe("blocked");
+    expect(cli.exitCode).toBe(3);
+    expect(cli.result.authorization.checks.find((check) => check.id === "contribution")).toEqual({
+      id: "contribution",
+      status: "failed",
+      reason,
+    });
+    // Shown in full (not truncated) by the scan output, `project verify` and the dashboard API.
+    expect(cli.stdout).toContain(`[failed] contribution: ${reason}`);
+    const verify = await verifyWithBoth(root, () => cliGitHub.provider);
+    expect(verify.cliCode).toBe(3);
+    expect(verify.cliStdout).toContain(`[failed] contribution: ${reason}`);
     expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));

@@ -50,8 +50,27 @@ export function userRepository(overrides: Partial<GitHubRepository> = {}): GitHu
   };
 }
 
-export function ownerInstallation(accountId = OWNER_ID): GitHubInstallation {
-  return { id: 77, targetType: "User", account: { id: accountId, login: "me" } };
+export function ownerInstallation(accountId = OWNER_ID, login = "me"): GitHubInstallation {
+  return { id: 77, targetType: "User", account: { id: accountId, login } };
+}
+
+/** Another person's personal account; `ME` collaborates on its repository. */
+export const MAINTAINER = { id: 3003, login: "maintainer" };
+
+/**
+ * A personal repository owned by `MAINTAINER`, on which `ME` is a collaborator (push access).
+ * Owner approval passes once the maintainer installs the App, but `ME` is not the owner, so the
+ * normal contribution rule applies.
+ */
+export function collaboratorRepository(
+  overrides: Partial<GitHubRepository> = {},
+): GitHubRepository {
+  return userRepository({
+    fullName: "maintainer/app",
+    owner: { ...MAINTAINER, type: "User" },
+    permissions: { admin: false, maintain: false, push: true, triage: true, pull: true },
+    ...overrides,
+  });
 }
 
 export const ORG = { id: 42, login: "acme" };

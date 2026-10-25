@@ -209,9 +209,20 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     return response;
   }
 
-  async function getJson(path: string, allowNotFound: boolean): Promise<unknown | null> {
+  /**
+   * `allowNotFound`: 404 and 422 mean "no such object" and return `null`. `alsoNull` adds
+   * statuses that mean the same for one endpoint.
+   */
+  async function getJson(
+    path: string,
+    allowNotFound: boolean,
+    alsoNull: readonly number[] = [],
+  ): Promise<unknown | null> {
     const response = await request(path);
-    if (allowNotFound && (response.status === 404 || response.status === 422)) {
+    if (
+      allowNotFound &&
+      (response.status === 404 || response.status === 422 || alsoNull.includes(response.status))
+    ) {
       return null;
     }
     if (response.status === 401) {
@@ -388,7 +399,8 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       const path =
         `/repos/${encodeSegment(owner, "owner")}/${encodeSegment(name, "repository")}` +
         `/compare/${encodeRef(base)}...${encodeRef(head)}?per_page=1`;
-      const body = asRecord(await getJson(path, true));
+      // 409 is GitHub's answer for an empty repository: no commit of it can contain `base`.
+      const body = asRecord(await getJson(path, true, [409]));
       if (body === null) {
         return null;
       }

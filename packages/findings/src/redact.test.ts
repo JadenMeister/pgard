@@ -184,6 +184,15 @@ describe("redactEvidence", () => {
     expect(output.length).toBeLessThanOrEqual(60);
     expect(output.startsWith("read ./src/a.ts and ~/.ssh/id_rsa then more")).toBe(true);
   });
+
+  it("drops C1, zero-width and bidi characters so text cannot be spoofed", () => {
+    // A branch name with a right-to-left override would display reversed in a report.
+    const output = redactEvidence('merged into "main‮niam" ⁦x⁩ a​b \u009B31m c d e');
+    expect(output).toBe('merged into "mainniam" x ab 31m c d e');
+    for (const code of [0x202e, 0x2066, 0x2069, 0x200b, 0x009b, 0x2028, 0x2029]) {
+      expect(output).not.toContain(String.fromCharCode(code));
+    }
+  });
 });
 
 describe("absolute paths (#59)", () => {

@@ -148,10 +148,33 @@ export interface OwnerApprovalContext {
   appSlug?: string | null;
 }
 
+/**
+ * Evidence, established while owner approval passed in this run, that the signed-in user is the
+ * verified owner of the repository `repositoryId`. Every id comes from the GitHub API, never from
+ * the remote.
+ * - `personal_owner`: the signed-in user's account id equals the personal owner account id.
+ * - `organization_owner`: GitHub returned this user's active owner (`admin`) membership of the
+ *   organization that owns the repository.
+ */
+export type OwnerEvidence =
+  | { kind: "personal_owner"; repositoryId: number; userId: number; ownerId: number }
+  | {
+      kind: "organization_owner";
+      repositoryId: number;
+      userId: number;
+      organizationId: number;
+      organization: string;
+    };
+
 /** The owner_approval check, plus guidance when the App is not installed for this repository. */
 export interface OwnerApprovalResult {
   check: CheckResult;
   remedy: OwnerApprovalRemedy | null;
+  /**
+   * Set only when `check` passed and the signed-in user is the verified owner (see
+   * `OwnerEvidence`); `null` on every other path, including any error or unknown state.
+   */
+  ownerEvidence: OwnerEvidence | null;
 }
 
 /** Shown in `remedy.unavailableReason` when a link could not be built for another reason. */
@@ -247,11 +270,23 @@ export async function evaluateOwnerApproval(
       return noRemedy(describeApiError(error, "list repositories of the GitHub App installation"));
     }
     if (repositoryIds.includes(repository.id)) {
-      return noRemedy(
-        passed(
+      // A collaborator also passes owner approval here (the owner installed the App), but only
+      // the owner account itself, matched by GitHub account id, is owner evidence.
+      const isOwner = context.user.id === repository.owner.id;
+      return {
+        check: passed(
           `The PGARD GitHub App is installed by the owner account "${repository.owner.login}" and includes ${repository.fullName}.`,
         ),
-      );
+        remedy: null,
+        ownerEvidence: isOwner
+          ? {
+              kind: "personal_owner",
+              repositoryId: repository.id,
+              userId: context.user.id,
+              ownerId: repository.owner.id,
+            }
+          : null,
+      };
     }
   }
   // Only the owner account itself can install an App on a personal account.
@@ -262,6 +297,7 @@ export async function evaluateOwnerApproval(
         `The owner's PGARD GitHub App installation does not include ${repository.fullName}.`,
       ),
       remedy: installRemedy(repository, "repository", canApprove, context.appSlug),
+      ownerEvidence: null,
     };
   }
   return {
@@ -269,11 +305,12 @@ export async function evaluateOwnerApproval(
       `No PGARD GitHub App installation on the owner account "${repository.owner.login}" was found for ${repository.fullName}.`,
     ),
     remedy: installRemedy(repository, "installation", canApprove, context.appSlug),
+    ownerEvidence: null,
   };
 }
 
 function noRemedy(check: CheckResult): OwnerApprovalResult {
-  return { check, remedy: null };
+  return { check, remedy: null, ownerEvidence: null };
 }
 
 /**
@@ -364,12 +401,14 @@ async function verifyOrganizationOwnerApproval(
             `The PGARD GitHub App installation on the organization "${org}" does not include ${repository.fullName}. An owner of ${org} must add the repository to the installation.`,
           ),
           remedy: installRemedy(repository, "repository", canApprove, appSlug),
+          ownerEvidence: null,
         }
       : {
           check: failed(
             `No PGARD GitHub App installation on the organization "${org}" was found for ${repository.fullName}. An owner of ${org} must install the App on the organization and include the repository.`,
           ),
           remedy: installRemedy(repository, "installation", canApprove, appSlug),
+          ownerEvidence: null,
         };
   }
 
@@ -395,11 +434,19 @@ async function verifyOrganizationOwnerApproval(
     );
   }
   if (membership.state === "active" && membership.role === "admin") {
-    return noRemedy(
-      passed(
+    return {
+      check: passed(
         `${user.login} is an owner of the organization "${org}", and the organization's PGARD GitHub App installation includes ${repository.fullName}.`,
       ),
-    );
+      remedy: null,
+      ownerEvidence: {
+        kind: "organization_owner",
+        repositoryId: repository.id,
+        userId: user.id,
+        organizationId: repository.owner.id,
+        organization: org,
+      },
+    };
   }
   if (membership.state === "pending") {
     return noRemedy(
@@ -481,6 +528,46 @@ export interface ContributionInput {
   projectRoot: string;
   runner: GitRunner;
   maxCandidates: number;
+  /**
+   * Owner evidence from this run's owner_approval check, passed only when that check passed.
+   * Omitted or `null`: no exemption, the normal contribution check runs.
+   */
+  ownerEvidence?: OwnerEvidence | null;
+}
+
+/**
+ * The owner exemption reason, or `null`. The evidence must have come from a passed owner
+ * approval in this run and must still describe this user and this repository's owner account
+ * by GitHub id; anything else (missing, mismatched or of the wrong kind) is no exemption.
+ */
+export function ownerExemptionReason(
+  evidence: OwnerEvidence | null | undefined,
+  user: GitHubUser,
+  repository: GitHubRepository,
+): string | null {
+  if (!evidence || evidence.repositoryId !== repository.id || evidence.userId !== user.id) {
+    return null;
+  }
+  if (evidence.kind === "personal_owner") {
+    return repository.owner.type === "User" &&
+      evidence.ownerId === repository.owner.id &&
+      user.id === repository.owner.id
+      ? `${user.login} owns ${repository.fullName} (verified by GitHub account id); a separate contribution is not required.`
+      : null;
+  }
+  if (evidence.kind === "organization_owner") {
+    return repository.owner.type === "Organization" &&
+      evidence.organizationId === repository.owner.id &&
+      evidence.organization === repository.owner.login
+      ? `${user.login} is an owner of the organization "${evidence.organization}"; a separate contribution is not required.`
+      : null;
+  }
+  return null;
+}
+
+/** Appended to a contribution that did not pass: how a non-owner qualifies. */
+export function contributionGuidance(defaultBranch: string): string {
+  return `To qualify, get a pull request merged into "${defaultBranch}", or sign your commits (GitHub shows them as Verified) and push them to "${defaultBranch}".`;
 }
 
 /** Splits GitHub's canonical `owner/name`; `null` if it is not in that form. */
@@ -493,15 +580,72 @@ export function parseCanonicalRepository(fullName: string): GitHubRepositoryRef 
 }
 
 /**
+ * True when GitHub reports `sha` in the default branch history of the canonical repository: the
+ * default branch is ahead of it or identical (`compare/<sha>...<default>`). A SHA GitHub does
+ * not know (404/422), a commit only on another branch, and an empty repository (409) are not.
+ * API errors propagate to the caller, which reports them as unverifiable.
+ */
+async function isInDefaultBranch(
+  client: GitHubClient,
+  repo: GitHubRepositoryRef,
+  sha: string,
+  defaultBranch: string,
+): Promise<boolean> {
+  const comparison = await client.compareCommits(repo.owner, repo.name, sha, defaultBranch);
+  return comparison === "ahead" || comparison === "identical";
+}
+
+/**
+ * The verified owner's contribution check: no contribution of their own is needed, but the
+ * local code must belong to this repository. At least one commit of HEAD's ancestry (newest
+ * first, at most `maxCandidates`) must be in the canonical repository's default branch, by the
+ * same reachability test the normal check uses. Not linked: failed. API error: unverifiable.
+ */
+async function verifyOwnerLink(
+  input: ContributionInput,
+  repo: GitHubRepositoryRef,
+  candidates: CommitCandidate[],
+  exemption: string,
+): Promise<CheckResult> {
+  const { client, repository } = input;
+  const branch = repository.defaultBranch;
+  const unlinked = (count: number) =>
+    failed(
+      `None of the last ${count} local commits is on ${repository.fullName}'s default branch "${branch}"; the local code can't be tied to this repository. Push or pull so local history shares a commit with the default branch.`,
+    );
+  if (candidates.length === 0) {
+    return unlinked(0);
+  }
+  const examined = candidates.slice(0, input.maxCandidates);
+  try {
+    for (const candidate of examined) {
+      if (await isInDefaultBranch(client, repo, candidate.sha, branch)) {
+        return passed(
+          `${exemption} Local HEAD is linked to ${repository.fullName} by commit ${candidate.sha.slice(0, 12)}.`,
+        );
+      }
+    }
+  } catch (error) {
+    return describeApiError(error, `check that the local code belongs to ${repository.fullName}`);
+  }
+  return unlinked(examined.length);
+}
+
+/**
  * A local commit (from HEAD's ancestry) counts only when (1) GitHub reports it in the default
  * branch history and (2) a pull request authored by the user and merged into this repository's
  * default branch is associated with it, or GitHub verified its signature and attributes the
  * committer to the user. Author name/email, co-author trailers, unmerged PRs, PRs merged into
  * other branches or forks, unsigned direct pushes and local-only commits are never proof.
  * All API calls use GitHub's canonical repository name.
+ *
+ * Exception: the verified owner (see `ownerExemptionReason`) needs no contribution of their
+ * own, but the local code must still be tied to this repository (see `verifyOwnerLink`).
+ * Everyone else gets the rule above, with guidance on how to qualify.
  */
 export async function verifyContribution(input: ContributionInput): Promise<CheckResult> {
   const { client, user, repository } = input;
+  const guidance = contributionGuidance(repository.defaultBranch);
   const repo = parseCanonicalRepository(repository.fullName);
   if (repo === null) {
     return unverifiable("GitHub returned an unexpected repository name.");
@@ -512,8 +656,12 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
   } catch {
     return unverifiable("Could not read local Git history to find contribution candidates.");
   }
+  const exemption = ownerExemptionReason(input.ownerEvidence, user, repository);
+  if (exemption !== null) {
+    return verifyOwnerLink(input, repo, candidates, exemption);
+  }
   if (candidates.length === 0) {
-    return failed("No local commits were found to check for a contribution.");
+    return failed(`No local commits were found to check for a contribution. ${guidance}`);
   }
   const ordered = orderCandidates(candidates, user);
   const examined = ordered.slice(0, input.maxCandidates);
@@ -539,13 +687,7 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
       if (evidence === null) {
         continue;
       }
-      const comparison = await client.compareCommits(
-        repo.owner,
-        repo.name,
-        candidate.sha,
-        repository.defaultBranch,
-      );
-      if (comparison === "ahead" || comparison === "identical") {
+      if (await isInDefaultBranch(client, repo, candidate.sha, repository.defaultBranch)) {
         return passed(
           `Commit ${candidate.sha.slice(0, 12)} is in the default branch "${repository.defaultBranch}" (${evidence}).`,
         );
@@ -556,10 +698,10 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
   }
   if (ordered.length > examined.length) {
     return unverifiable(
-      `No qualifying contribution among the ${examined.length} commits examined (of ${ordered.length} local commits). A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required.`,
+      `No qualifying contribution among the ${examined.length} commits examined (of ${ordered.length} local commits). A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required. ${guidance}`,
     );
   }
   return failed(
-    `No qualifying contribution found among ${examined.length} local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count.`,
+    `No qualifying contribution found among ${examined.length} local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count. ${guidance}`,
   );
 }

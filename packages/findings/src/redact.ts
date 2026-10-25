@@ -291,8 +291,14 @@ const ABSOLUTE_PATH_PATTERN = new RegExp(
   ].join("|"),
   "g",
 );
-// eslint-disable-next-line no-control-regex
-const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+/**
+ * Characters that must never reach a terminal, log line or report: C0/C1 controls (ANSI escape
+ * injection), zero-width characters and bidi overrides/isolates (text that displays differently
+ * from what it is, e.g. U+202E in a branch name). Shared with `sanitizeDisplayText`.
+ */
+export const UNSAFE_DISPLAY_CHARACTERS =
+  "[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]";
+const UNSAFE_CHARS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
 
 /**
  * Removes the project root (-> `.`), home directories (-> `~`) and any other absolute
@@ -318,7 +324,12 @@ export function redactEvidence(evidence: string, options: RedactEvidenceOptions 
   // Cap before redacting: redaction cost is bounded by the output size, not the input size.
   let output = redactSecrets(capText(evidence, Math.max(maxLength * 4, 4096)));
   output = scrubAbsolutePaths(output, options.projectRoot);
-  output = output.replace(CONTROL_CHARS, "").replace(/\s+/g, " ").trim();
+  // Tabs and line or paragraph breaks become spaces; every other unsafe character is dropped.
+  output = output
+    .replace(/[\t\n\r\u2028\u2029]/g, " ")
+    .replace(UNSAFE_CHARS, "")
+    .replace(/\s+/g, " ")
+    .trim();
   if (output.length > maxLength) {
     output = `${output.slice(0, Math.max(0, maxLength - 1))}…`;
   }
