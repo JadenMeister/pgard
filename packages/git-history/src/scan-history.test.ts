@@ -242,6 +242,23 @@ describe("detectSecrets", () => {
     expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
   });
 
+  it.each([
+    ["unquoted YAML value with (", "password: K9x(mQ2vLp8Wz4Rt", "config/app.yml"],
+    ["unquoted YAML value ending in (", "password: K9xmQ2vLp8Wz4Rt(", "config/app.yml"],
+    ["quoted value with (", 'const password = "K9x(mQ2vLp8Wz4Rt";', "src/db.ts"],
+    ["value with ( in a multi-line string", 'CFG = """\npassword=K9x(mQ2vLp8Wz4Rt\n"""', "a.py"],
+  ])("detects a %s (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    ["a call with arguments", 'const apiKey = getApiKey(config, "default")', "src/a.ts"],
+    ["a Python call with arguments", "password = hash_password(user_input, salt)", "a.py"],
+    ["a complete call in a config file", "password: getSecret()", "config/app.yml"],
+  ])("ignores %s (#145)", (_label, text, path) => {
+    expect(detectSecrets(text, { path })).toEqual([]);
+  });
+
   it("stays linear on large inputs (#145)", () => {
     const shapes = [
       'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',

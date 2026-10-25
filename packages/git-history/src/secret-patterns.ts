@@ -145,6 +145,8 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
+/** `getSecret()`, `hash(input`: a call (cut at `,` or a space). */
+const CALL_SHAPED_VALUE = /^[A-Za-z_$][\w$.]*\(/;
 
 /** Code right before a key: a declaration keyword, or an opening `(`/`{`/`[` or `,` separator. */
 const CODE_BEFORE_KEY =
@@ -196,11 +198,12 @@ function looksLikeCode(text: string, keyStart: number, end: number, separator: s
 
 /**
  * Whether a generic `key = value` match is an assignment of a literal value, judged by what
- * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). In
- * source code files, an unquoted value is rejected only when the key is not inside a string
- * literal (judged over the whole file, so multi-line strings count), the line positively looks
- * like code at the match (see `looksLikeCode`), and the value is code-shaped, an all-caps
- * constant name or a bare identifier. Everything else is kept: config files, string
+ * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). An
+ * unquoted call (`getSecret()`) is rejected when it is complete, or in source code outside a
+ * string literal. In source code files, an unquoted value is rejected only when the key is not
+ * inside a string literal (judged over the whole file, so multi-line strings count), the line
+ * positively looks like code at the match (see `looksLikeCode`), and the value is code-shaped,
+ * an all-caps constant name or a bare identifier. Everything else is kept: config files, string
  * literals and ambiguous lines. Erring towards reporting is deliberate.
  */
 function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): boolean {
@@ -228,6 +231,9 @@ function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): b
     stringStart = context.stringStartAt(start - 2);
   }
   const inString = stringStart !== -1;
+  if (CALL_SHAPED_VALUE.test(value) && (value.endsWith(")") || (context.isSource && !inString))) {
+    return false;
+  }
   if (!context.isSource || inString) return true;
   if (!looksLikeCode(text, keyStart, start + match[0].length, separator)) return true;
   return (
@@ -247,7 +253,6 @@ function hasPrivateKeyBody(block: string): boolean {
 function isLikelySecretValue(value: string): boolean {
   if (PLACEHOLDER.test(value)) return false;
   if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) return false; // config.db.password
-  if (/^[A-Za-z_$][\w$.]*\(/.test(value)) return false; // getSecret()
   if (/^[a-z]+$/.test(value) && value.length < 16) return false; // plain words
   return shannonEntropy(value) >= 3.0;
 }
