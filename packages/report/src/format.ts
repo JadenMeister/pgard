@@ -201,7 +201,7 @@ export const VENDORED_FINDINGS_TITLE = "Suggestions: in third-party/vendored cod
 export const VENDORED_FINDINGS_NOTE =
   "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git (git rm -r --cached <directory>, then add the directory to .gitignore).";
 export const VENDORED_FINDINGS_DETAIL =
-  "Classified by path only: files under a node_modules/, bower_components/, jspm_packages/, vendor/, third_party/ or Pods/ directory. Their confidence is capped at low and they are not counted above, but they are not dropped: a real secret committed there is still exposed.";
+  "Classified by path only: files under a node_modules/, bower_components/, jspm_packages/ or Pods/ directory, or under a vendor/ or third_party/ directory that is not inside src/, app/ or lib/. Their confidence is capped at low and they are not counted above, but they are not dropped: a real secret committed there is still exposed.";
 
 /**
  * Sorted findings split into regular code (headline counts), test or fixture code, and

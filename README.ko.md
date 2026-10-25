@@ -302,7 +302,11 @@ PGARD는 취약점 데이터베이스를 포함하거나 내려받거나 조회�
 - `PG-SECRET-001`: 커밋된 환경 파일(`.env`, `.env.local`, `prod.env` 등. `.env.example` 같은 템플릿은 제외). 값은 보여 주지 않습니다.
 - `PG-SECRET-002`: `HEAD`에서 추적 중인 파일 속 비밀정보.
 - `PG-SECRET-003`: 이력에는 있지만 현재 파일에는 더 이상 없는 비밀정보.
-- `PG-HYGIENE-001`(info, 제안으로 표시): `HEAD`에서 의존성 디렉터리를 추적 중인 경우. 검사마다 발견 항목 하나가 루트 디렉터리(경로에서 가장 바깥쪽의 `node_modules/`, `bower_components/`, `jspm_packages/`, `vendor/`, `Pods/`. 중첩된 `node_modules/`는 그 루트에 포함)와 추적 파일 수를 최대 5개까지 보여 줍니다. 해결 방법: 로컬 사본은 지우지 않고 인덱스에서만 제거하고(`git rm -r --cached node_modules`), `.gitignore`에 추가한 뒤 패키지 관리자로 복원합니다. 추적 중인 경로만 보고 판단하며 작업 트리는 읽지 않습니다. Go 모듈 vendoring(추적 중인 `go.mod` 옆에 있고 `vendor/modules.txt`도 추적 중인 `vendor/`)은 Go가 지원하는 방식이므로 보고하지 않으며, 의도적으로 복사해 둔 코드가 대부분인 `third_party/`도 보고하지 않습니다. 이 디렉터리 안의 발견 항목은 그대로 vendored 제안으로 표시됩니다.
+- `PG-HYGIENE-001`(info, 제안으로 표시): `HEAD`에서 의존성 디렉터리를 추적 중인 경우. 검사마다 발견 항목 하나가 루트 디렉터리와 추적 파일 수를 최대 5개까지 보여 줍니다. 해결 방법: 로컬 사본은 지우지 않고 인덱스에서만 제거하고(`git rm -r --cached node_modules`), `.gitignore`에 추가한 뒤 패키지 관리자로 복원합니다. 추적 중인 경로만 보고 판단하며 작업 트리는 읽지 않습니다. 루트는 vendored 경로([서드파티·vendored 코드의 제안](#서드파티vendored-코드의-제안) 참고)에서 대상이 되는 가장 바깥쪽 디렉터리이며, 중첩된 `node_modules/`는 그 루트에 포함됩니다.
+  - `node_modules/`, `bower_components/`, `jspm_packages/`, `Pods/`는 항상 대상입니다.
+  - `vendor/`는 저장소 루트에 있거나, 같은 디렉터리에 추적 중인 `composer.json`, `go.mod`, `Gemfile`이 있을 때만 대상입니다. Go 모듈 vendoring(추적 중인 `go.mod` 옆에 있고 `vendor/modules.txt`도 추적 중인 경우)은 Go가 지원하는 방식이므로 대상이 아닙니다. 직접 만든 `src/vendor/` 모듈은 vendored가 아니므로 대상이 되지 않습니다.
+  - `third_party/`는 의도적으로 복사해 둔 코드가 대부분이므로 대상이 아닙니다.
+  - 바깥 디렉터리가 대상이 아닐 때(Go 모듈 `vendor/`, `third_party/`)도 그 안의 `node_modules/`, `bower_components/`, `jspm_packages/`, `Pods/`는 대상입니다(예: `vendor/node_modules/`). 대상이 아닌 디렉터리 안의 발견 항목도 그대로 vendored 제안으로 표시됩니다.
 
 비밀정보는 개인 키, 잘 알려진 토큰 형식(AWS, GitHub, Slack, Stripe, Google API 키), 일반적인 자격 증명 대입(`password = ...`, `api_key: ...`)입니다. 일반 대입은 값이 충분히 무작위로 보이는 리터럴이고 placeholder가 아닐 때만 인정합니다. 소스 파일에서 확실히 코드로 보이는 줄의 따옴표 없는 값(타입, 매개변수 목록, 상수·변수 이름)은 자격 증명으로 보지 않습니다. 탐지는 패턴 기반이며 알려진 누락이 있습니다(#145).
 
@@ -326,12 +330,17 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 ### 서드파티·vendored 코드의 제안
 
-저장소에 커밋된 서드파티 의존성 코드의 발견 항목은 일반 발견 항목이 아니라 제안으로 표시됩니다. 사용자가 소유한 코드가 아니고 그 자리에서 고칠 수도 없기 때문입니다. 이 항목들은 테스트·fixture 그룹 뒤, 맨 마지막에 **Suggestions: in third-party/vendored code (N)** 그룹으로 표시되며 "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git."(커밋된 의존성 코드이며 사용자의 코드가 아님. 예상치 못한 것이면 검토하고, 아니면 Git에서 제거를 고려) 안내가 붙습니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트에는 포함되지 않습니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code`). `node_modules/`에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. coverage, 전체 상태, 종료 코드는 바뀌지 않습니다. CLI, 대시보드(같은 필터 적용), HTML/PDF 보고서가 모두 같은 방식으로 묶으며, `PG-HYGIENE-001` 제안([Git 이력 검사](#git-이력-검사) 참고)도 같은 그룹에 표시됩니다.
+저장소에 커밋된 서드파티 의존성 코드의 발견 항목은 일반 발견 항목이 아니라 제안으로 표시됩니다. 사용자가 소유한 코드가 아니고 그 자리에서 고칠 수도 없기 때문입니다. 이 항목들은 테스트·fixture 그룹 뒤, 맨 마지막에 **Suggestions: in third-party/vendored code (N)** 그룹으로 표시되며 "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git."(커밋된 의존성 코드이며 사용자의 코드가 아님. 예상치 못한 것이면 검토하고, 아니면 Git에서 제거를 고려) 안내가 붙습니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트에는 포함되지 않습니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code (1 high)`. 제안 중 critical·high 항목은 합계에 묻히지 않도록 괄호 안에 개수를 보여 줍니다). `node_modules/`에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. coverage, 전체 상태, 종료 코드는 바뀌지 않습니다. CLI, 대시보드(같은 필터 적용), HTML/PDF 보고서가 모두 같은 방식으로 묶으며, `PG-HYGIENE-001` 제안([Git 이력 검사](#git-이력-검사) 참고)도 같은 그룹에 표시됩니다.
 
-분류는 파일 내용이 아니라 경로로만 합니다. 경로의 디렉터리 중 하나가 정확히 `node_modules`, `bower_components`, `jspm_packages`, `vendor`, `third_party`, `Pods`이면 vendored 코드입니다.
+분류는 파일 내용이 아니라 경로로만 합니다. 경로의 디렉터리가 다음에 해당하면 vendored 코드입니다.
+
+- 경로 어디에 있든 정확히 `node_modules`, `bower_components`, `jspm_packages`, `Pods`인 경우, 또는
+- 정확히 `vendor` 또는 `third_party`인 경우. **단** 그 앞의 디렉터리 중에 `src`, `app`, `lib`가 있으면 제외합니다. 이 이름들은 직접 만든 모듈 이름으로도 흔하므로(`nest g module vendor`는 `src/vendor/`를 만듦) `src/vendor/vendor.service.ts`, `packages/web/src/third_party/a.ts`, `app/vendor/client.rb`는 사용자의 코드로 봅니다.
+
+그 밖에:
 
 - 디렉터리 이름 전체가 일치해야 하며 대소문자를 구분합니다. `src/vendored.ts`, `my_node_modules_x/index.js`, `k8s/pods/`는 vendored가 아닙니다.
-- Go와 PHP(Composer)의 `vendor/` 디렉터리는 둘 다 의존성 사본이므로 모두 해당합니다.
+- 프로젝트나 패키지 최상위에 있는 Go와 PHP(Composer)의 `vendor/` 디렉터리(`vendor/`, `api/vendor/`)는 둘 다 의존성 사본이므로 모두 해당합니다.
 - `dist/`, `build/` 같은 빌드 결과물은 사용자 자신의 산출물이므로 vendored가 아닙니다.
 - vendored이면서 테스트 코드이기도 한 경로(`node_modules/pkg/test/a.js`)는 vendored로 봅니다.
 
