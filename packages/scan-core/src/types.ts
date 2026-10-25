@@ -1,5 +1,5 @@
 import type { AnalyzerOutput, ConfirmedWebTarget } from "@pgard/findings";
-import type { AuthorizationDependencies } from "@pgard/policy";
+import type { AuthorizationDependencies, AuthorizationOutcome } from "@pgard/policy";
 
 export interface WebScanProgress {
   pagesVisited: number;
@@ -56,6 +56,12 @@ export interface ScanDependencies {
   authorization: AuthorizationDependencies;
   webScanner?: WebScanner;
   onProgress?: (event: ScanProgressEvent) => void;
+  /**
+   * Receives this scan's authorization outcome (allowed or blocked) right after the gate ran, so
+   * a frontend can show `guidedInstallRemedy(outcome)`. Display only: the scan never reuses it,
+   * and an error thrown here is ignored.
+   */
+  onAuthorization?: (outcome: AuthorizationOutcome) => void;
   /** Aborting rejects `runScan` with `ScanCancelledError`. */
   signal?: AbortSignal;
   /** Environment for analyzers. Defaults to `process.env`. */

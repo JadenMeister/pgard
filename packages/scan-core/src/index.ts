@@ -18,9 +18,14 @@ export {
 // Launcher-facing re-exports so apps depend on scan-core (and findings) only.
 export {
   AUTHORIZATION_CHECK_ORDER,
+  GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE,
+  guidedInstallRemedy,
   isAuthorizationAllowed,
+  recheckOwnerApproval,
   type AuthorizationDependencies,
   type AuthorizationOutcome,
+  type OwnerApprovalRecheck,
+  type OwnerApprovalRemedy,
 } from "@pgard/policy";
 export {
   GITHUB_APP_AUTHORIZATIONS_URL,

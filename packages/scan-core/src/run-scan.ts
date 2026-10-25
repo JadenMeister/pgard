@@ -228,6 +228,11 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     });
   }
   throwIfCancelled(deps.signal);
+  try {
+    deps.onAuthorization?.(outcome);
+  } catch {
+    // Display hooks must never affect scan results.
+  }
 
   if (!isAuthorizationAllowed(outcome)) {
     emit({
