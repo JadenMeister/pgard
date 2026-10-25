@@ -305,6 +305,7 @@ How the dashboard protects itself:
 - Scanning remote (non-loopback) services
 - Attack requests, form submission and other state-changing requests
 - Logged-in (authenticated) web browsing (#45). The `web:authenticated` area is always `not_selected`, and PGARD never asks for application passwords.
+- Dependency vulnerability (CVE/advisory) lookups: PGARD ships no vulnerability database.
 
 ## Known limitations
 

@@ -305,6 +305,7 @@ Open this private session URL in your browser (valid until you stop the dashboar
 - 원격(loopback이 아닌) 서비스 검사
 - 공격 요청, 폼 제출 등 상태를 바꾸는 요청
 - 로그인한 상태의 웹 탐색(#45). `web:authenticated` 영역은 항상 `not_selected`이며, PGARD는 애플리케이션 비밀번호를 묻지 않습니다.
+- 의존성 취약점(CVE/advisory) 조회: PGARD에는 취약점 데이터베이스가 없습니다.
 
 ## 알려진 제한 사항
 

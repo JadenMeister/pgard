@@ -60,6 +60,9 @@ describe("renderHtmlReport", () => {
     expect(html).toContain("src/api/users.ts:42");
     expect(html).toContain("http://127.0.0.1:3000/");
     expect(html).toContain("PGARD does not ship or query a vulnerability database.");
+    expect(html).toContain(
+      "Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
+    );
     expect(html).not.toMatch(/advisory/i);
     expect(html).toContain("No findings does not mean the project is secure");
     expect(html).toContain("1 confirmed, 1 suspected, 1 informational");

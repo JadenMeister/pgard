@@ -27,6 +27,9 @@ describe("runScanCommand", () => {
     );
     expect(code).toBe(0);
     expect(captured.stdout()).toContain("PGARD does not ship or query a vulnerability database.");
+    expect(captured.stdout()).toContain(
+      "Dependency versions are not checked against known vulnerabilities.",
+    );
     expect(captured.stdout()).not.toMatch(/advisory/i);
   });
 

@@ -190,8 +190,8 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
       ) : null}
       <p className="muted small">
         PGARD does not ship or query a vulnerability database. Findings come from the code itself
-        (query statements, server code, configuration), Git history and the local HTTP checks you
-        selected.
+        (query statements, server code, configuration), Git history and, if selected, local HTTP
+        checks. Dependency versions are not checked against known vulnerabilities.
       </p>
     </Card>
   );

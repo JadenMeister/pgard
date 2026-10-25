@@ -178,8 +178,8 @@ export const REPORT_DISCLAIMER =
 /** How findings are decided, shown where reports used to name an advisory database. */
 export const ANALYSIS_BASIS_NOTE =
   "PGARD does not ship or query a vulnerability database. Findings come from the code itself " +
-  "(query statements, server code, configuration), Git history and the local HTTP checks you " +
-  "selected.";
+  "(query statements, server code, configuration), Git history and, if selected, local HTTP " +
+  "checks. Dependency versions are not checked against known vulnerabilities.";
 
 export function summarizeStatusSplit(findings: readonly Finding[]): {
   confirmed: number;
