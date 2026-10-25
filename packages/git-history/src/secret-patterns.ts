@@ -90,9 +90,9 @@ const PATTERNS: Pattern[] = [
   },
   {
     kind: "generic_credential",
-    // `key = value`, `key: "value"`.
+    // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
     pattern: new RegExp(
-      `${CREDENTIAL_KEY}(?<keyQuote>["']?)[ \\t]{0,8}(?<separator>[:=])[ \\t]{0,8}(?<valueQuote>["']?)(?<value>[^\\s"'\`,;]{8,256})\\k<valueQuote>`,
+      `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>[^\\s"'\`,;]{8,256})\\k<valueQuote>`,
       "gi",
     ),
     group: "value",
@@ -133,9 +133,9 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
 
-/** Code right before a key: a declaration keyword, or an opening `(`/`{` or `,` separator. */
+/** Code right before a key: a declaration keyword, or an opening `(`/`{`/`[` or `,` separator. */
 const CODE_BEFORE_KEY =
-  /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({,]\s*$/;
+  /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({[,]\s*$/;
 /** Code right after a value: `)`, `,`, `;`, `{` or `=>`. */
 const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
 
@@ -165,14 +165,16 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
 
 /**
  * Whether the match positively looks like code: the key follows a code token on its line
- * (`const password = …`, `f(secret: …`, `{ apiKey: …`), or the key starts the line as an object
- * property or type member (`key: value`) and the value is followed by code (an object property
- * set to a constant and a trailing comma, or a `string;` type member). The caller has checked
- * that the key is not inside a string literal; anything ambiguous is not treated as code.
+ * (`const password = …`, `f(secret: …`, `{ apiKey: …`, `headers["x-api-key"] = …`), it is a Go
+ * short declaration (`token := …`), or the key starts the line as an object property or type
+ * member (`key: value`) and the value is followed by code (an object property set to a constant
+ * and a trailing comma, or a `string;` type member). The caller has checked that the key is not
+ * inside a string literal; anything ambiguous is not treated as code.
  */
-function looksLikeCode(text: string, start: number, end: number, separator: string): boolean {
-  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  const before = text.slice(lineStart, start);
+function looksLikeCode(text: string, keyStart: number, end: number, separator: string): boolean {
+  if (separator === ":=") return true;
+  const lineStart = text.lastIndexOf("\n", keyStart - 1) + 1;
+  const before = text.slice(lineStart, keyStart);
   if (CODE_BEFORE_KEY.test(before)) return true;
   const lineEnd = text.indexOf("\n", end);
   const after = text.slice(end, lineEnd === -1 ? text.length : lineEnd);
@@ -199,14 +201,22 @@ function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): b
   if (
     separator === ":" &&
     keyQuote !== "" &&
-    /\?[ \t]*["']$/.test(text.slice(Math.max(0, start - 16), start))
+    /\?[ \t]*["'`]$/.test(text.slice(Math.max(0, start - 16), start))
   ) {
     return false; // `cond ? "PG-SECRET-003" : "PG-SECRET-002"` is a ternary, not a key
   }
   if (valueQuote !== "") return true;
-  const inString = context.isSource && context.stringStartAt(start) !== -1;
+  // A quoted index key (`headers["x-api-key"] = …`) is a string token of its own: judge the code
+  // around its opening quote.
+  let keyStart = start;
+  let stringStart = context.isSource ? context.stringStartAt(start) : -1;
+  if (groups.bracket === "]" && keyQuote !== "" && stringStart === start - 1) {
+    keyStart = start - 1;
+    stringStart = context.stringStartAt(start - 2);
+  }
+  const inString = stringStart !== -1;
   if (!context.isSource || inString) return true;
-  if (!looksLikeCode(text, start, start + match[0].length, separator)) return true;
+  if (!looksLikeCode(text, keyStart, start + match[0].length, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&
     !CONSTANT_NAME.test(value) &&

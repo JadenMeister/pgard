@@ -204,6 +204,24 @@ describe("detectSecrets", () => {
     expect(detectSecrets(text, { path })).toEqual([]);
   });
 
+  it.each([
+    ["template literal value", `const password = \`${L}\`;`, "src/db.ts"],
+    ["Go short declaration", `password := "${L}"`, "main.go"],
+    ["index assignment", `headers["x-api-key"] = "${L}";`, "src/client.ts"],
+  ])("detects a %s (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    ["a Go short declaration of a variable", "secret := mySecretValue"],
+    ["a Go call", "token := getTokenFromVault(ctx)"],
+    ["an index assignment of a variable", 'headers["x-api-key"] = apiKeyFromVault;'],
+    ["a ternary between key names in backticks", "const label = cond ? `apiKey` : `clientSecret`;"],
+  ])("ignores %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+    expect(detectSecrets(text, { path: "internal/scan/module.go" })).toEqual([]);
+  });
+
   it("stays linear on large inputs (#145)", () => {
     const shapes = [
       'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
