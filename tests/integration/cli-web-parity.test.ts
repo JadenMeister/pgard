@@ -5,7 +5,7 @@
  * policy package's in-memory mock; nothing here touches the network.
  */
 import http from "node:http";
-import type { ScanResult } from "@pgard/findings";
+import { splitFindingsByContext, type ScanResult } from "@pgard/findings";
 import {
   DEFAULT_GITHUB_APP_CLIENT_ID,
   createDeviceFlowSessionProvider,
@@ -16,7 +16,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultDeps, main, type CliDeps } from "../../apps/cli/src/app.js";
 import { exitCodeForStatus } from "../../apps/cli/src/exit-codes.js";
-import { splitByContext } from "../../apps/local-web/src/client/features/findings/filter-findings.js";
 import { createTestIo, noInterrupts } from "../../apps/cli/src/test-support.js";
 import {
   createDefaultServerDeps,
@@ -359,8 +358,8 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(hygiene).toHaveLength(1);
     expect(hygiene[0]).toMatchObject({ severity: "info", context: "vendored" });
     expect(hygiene[0]?.evidence).toContain("node_modules/ (1 tracked file)");
-    const cliGroups = splitByContext(cli.result.findings);
-    const webGroups = splitByContext(web.result.findings);
+    const cliGroups = splitFindingsByContext(cli.result.findings);
+    const webGroups = splitFindingsByContext(web.result.findings);
     expect(cliGroups.vendored).toHaveLength(2);
     expect(webGroups.vendored.map((finding) => finding.id)).toEqual(
       cliGroups.vendored.map((finding) => finding.id),
