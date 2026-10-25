@@ -135,21 +135,31 @@ export function verifyCurrentAccess(repository: GitHubRepository): CheckResult {
     : failed(`The signed-in user has no read access to ${repository.fullName}.`);
 }
 
+export interface OwnerApprovalContext {
+  /** The signed-in user (github_identity passed). */
+  user: GitHubUser;
+  /** Owner segment of the verified Git remote, exactly as written there. */
+  remoteOwner: string;
+}
+
 /**
- * Owner approval = the PGARD GitHub App is installed on the owner's personal account and that
- * installation includes this repository. Only a personal account's owner can install an app on
- * that account. For organizations, GitHub's public APIs do not reveal who installed the app
- * (repository admins may be allowed to), so owner approval cannot be proven and is reported as
- * unverifiable — never passed.
+ * Owner approval for a personal account = the PGARD GitHub App is installed on the owner's
+ * personal account and that installation includes this repository. Only a personal account's
+ * owner can install an app on that account.
+ *
+ * For an organization, GitHub does not reveal who installed the app (repository admins may be
+ * allowed to), so the installation alone is not proof. Owner approval passes only when BOTH
+ * (a) the App installation on the organization account includes this repository and (b) the
+ * signed-in user is an owner of that organization (`state: active`, `role: admin`). Anything
+ * unclear is reported as failed or unverifiable, never passed.
  */
 export async function verifyOwnerApproval(
   client: GitHubClient,
   repository: GitHubRepository,
+  context: OwnerApprovalContext,
 ): Promise<CheckResult> {
   if (repository.owner.type === "Organization") {
-    return unverifiable(
-      "The repository is owned by an organization. GitHub's APIs cannot prove that an organization owner (rather than a repository admin) approved the PGARD GitHub App, so organization repositories are blocked.",
-    );
+    return verifyOrganizationOwnerApproval(client, repository, context);
   }
   if (repository.owner.type !== "User") {
     return unverifiable("The repository owner type could not be determined.");
@@ -184,6 +194,124 @@ export async function verifyOwnerApproval(
   }
   return failed(
     `No PGARD GitHub App installation on the owner account "${repository.owner.login}" was found for ${repository.fullName}.`,
+  );
+}
+
+async function verifyOrganizationOwnerApproval(
+  client: GitHubClient,
+  repository: GitHubRepository,
+  { user, remoteOwner }: OwnerApprovalContext,
+): Promise<CheckResult> {
+  const org = repository.owner.login;
+  // The organization named in the remote must be exactly the account GitHub reports (no
+  // redirect from a renamed organization, no case difference), so every lookup below is about
+  // the organization the user pointed PGARD at.
+  if (remoteOwner !== org) {
+    return unverifiable(
+      `The Git remote names the organization "${remoteOwner}", but GitHub reports the owner as "${org}". Update the remote to github.com/${repository.fullName} so the organization can be verified.`,
+    );
+  }
+
+  // (a) The App installation on this organization account includes the repository.
+  let installations;
+  try {
+    installations = await client.listUserInstallations();
+  } catch (error) {
+    return describeApiError(error, "list GitHub App installations");
+  }
+  const orgInstallations = installations.filter(
+    (installation) =>
+      installation.targetType === "Organization" && installation.account.id === repository.owner.id,
+  );
+  const mismatched = orgInstallations.find((installation) => installation.account.login !== org);
+  if (mismatched) {
+    return unverifiable(
+      `The PGARD GitHub App installation for the organization "${org}" reports the account "${mismatched.account.login}". Owner approval cannot be verified.`,
+    );
+  }
+  let isIncluded = false;
+  for (const installation of orgInstallations) {
+    let repositoryIds: number[];
+    try {
+      repositoryIds = await client.listInstallationRepositoryIds(installation.id);
+    } catch (error) {
+      return describeApiError(error, "list repositories of the GitHub App installation");
+    }
+    if (repositoryIds.includes(repository.id)) {
+      isIncluded = true;
+      break;
+    }
+  }
+  if (!isIncluded) {
+    return orgInstallations.length > 0
+      ? failed(
+          `The PGARD GitHub App installation on the organization "${org}" does not include ${repository.fullName}. An owner of ${org} must add the repository to the installation.`,
+        )
+      : failed(
+          `No PGARD GitHub App installation on the organization "${org}" was found for ${repository.fullName}. An owner of ${org} must install the App on the organization and include the repository.`,
+        );
+  }
+
+  // (b) The signed-in user is an owner of the organization.
+  let membership;
+  try {
+    membership = await client.getOrganizationMembership(org);
+  } catch (error) {
+    return describeMembershipError(error, user, org);
+  }
+  if (membership.organization.id !== repository.owner.id || membership.organization.login !== org) {
+    return unverifiable(
+      `GitHub returned a membership for the organization "${membership.organization.login}" instead of "${org}". Owner approval cannot be verified.`,
+    );
+  }
+  if (membership.user.id !== user.id) {
+    return unverifiable(
+      `GitHub returned the ${org} membership of "${membership.user.login}" instead of the signed-in user ${user.login}. Owner approval cannot be verified.`,
+    );
+  }
+  if (membership.state === "active" && membership.role === "admin") {
+    return passed(
+      `${user.login} is an owner of the organization "${org}", and the organization's PGARD GitHub App installation includes ${repository.fullName}.`,
+    );
+  }
+  if (membership.state === "pending") {
+    return failed(
+      `${user.login}'s membership in ${org} is pending, not active; an organization owner with an active membership must run the scan.`,
+    );
+  }
+  if (membership.state === "active") {
+    return failed(
+      `${user.login} is not an owner of ${org} (role: ${membership.role}); an organization owner must run the scan.`,
+    );
+  }
+  return unverifiable(
+    `GitHub reported an unexpected membership state for ${user.login} in ${org}; an organization owner with an active membership must run the scan.`,
+  );
+}
+
+function describeMembershipError(error: unknown, user: GitHubUser, org: string): CheckResult {
+  if (isGitHubAuthError(error)) {
+    switch (error.code) {
+      case "forbidden":
+        return unverifiable(
+          `GitHub refused to show ${user.login}'s membership in ${org} (403): the PGARD GitHub App needs the organization permission Members: read, approved by an owner of ${org}.`,
+        );
+      case "not_found":
+        return unverifiable(
+          `GitHub did not return ${user.login}'s membership in ${org} (404): ${user.login} may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of ${org} must run the scan, with the App's Members: read permission approved.`,
+        );
+      case "rate_limited":
+        return unverifiable(
+          `Could not read ${user.login}'s membership in ${org}: the GitHub API rate limit was reached. Try again later.`,
+        );
+      default:
+        return unverifiable(
+          `Could not read ${user.login}'s membership in ${org}: ${error.message}`,
+        );
+    }
+  }
+  return unverifiable(
+    `Could not read ${user.login}'s membership in ${org} due to an unexpected error.`,
   );
 }
 

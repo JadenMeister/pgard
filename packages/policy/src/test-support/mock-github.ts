@@ -24,7 +24,7 @@ export interface MockGitHubState {
   /** Comparison of `sha...defaultBranch`; missing ⇒ `null` (unknown to GitHub). */
   compare: Record<string, GitHubCompareStatus>;
   /** Membership by organization login; an error is thrown; missing ⇒ 404 `not_found`. */
-  memberships?: Record<string, GitHubOrganizationMembership | GitHubAuthError>;
+  memberships?: Record<string, GitHubOrganizationMembership | Error>;
   failWith?: GitHubAuthError;
 }
 
@@ -52,6 +52,33 @@ export function userRepository(overrides: Partial<GitHubRepository> = {}): GitHu
 
 export function ownerInstallation(accountId = OWNER_ID): GitHubInstallation {
   return { id: 77, targetType: "User", account: { id: accountId, login: "me" } };
+}
+
+export const ORG = { id: 42, login: "acme" };
+
+export function orgRepository(overrides: Partial<GitHubRepository> = {}): GitHubRepository {
+  return userRepository({
+    fullName: "acme/app",
+    owner: { ...ORG, type: "Organization" },
+    ...overrides,
+  });
+}
+
+export function orgInstallation(overrides: Partial<GitHubInstallation> = {}): GitHubInstallation {
+  return { id: 88, targetType: "Organization", account: { ...ORG }, ...overrides };
+}
+
+/** An active owner (`admin`) membership of `ME` in `ORG`. */
+export function orgMembership(
+  overrides: Partial<GitHubOrganizationMembership> = {},
+): GitHubOrganizationMembership {
+  return {
+    state: "active",
+    role: "admin",
+    organization: { ...ORG },
+    user: { id: ME.id, login: ME.login },
+    ...overrides,
+  };
 }
 
 export function createMockGitHub(state: MockGitHubState): {
@@ -84,7 +111,7 @@ export function createMockGitHub(state: MockGitHubState): {
       if (membership === undefined) {
         throw new GitHubAuthError("not_found", "not found", 404);
       }
-      if (membership instanceof GitHubAuthError) {
+      if (membership instanceof Error) {
         throw membership;
       }
       return membership;
