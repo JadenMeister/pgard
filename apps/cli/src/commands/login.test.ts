@@ -180,6 +180,27 @@ describe("pgard login", () => {
     expect(mainHelp.stdout()).toContain("pgard login");
     expect(mainHelp.stdout()).toContain("pgard logout");
   });
+
+  it("documents the built-in App and the override, and no 'not set' exit code", async () => {
+    const help = async (args: string[]): Promise<string> => {
+      const captured = createTestIo();
+      expect(
+        await main(args, captured.io, { deps: createTestDeps(), interrupts: noInterrupts }),
+      ).toBe(0);
+      return captured.stdout();
+    };
+    const login = await help(["login", "--help"]);
+    expect(login).toContain("PGARD signs in as the built-in PGARD GitHub App");
+    expect(login).toContain("set PGARD_GITHUB_APP_CLIENT_ID\nonly to use another App");
+    expect(login).toContain("  3    GitHub sign-in failed\n");
+    const logout = await help(["logout", "--help"]);
+    expect(logout).toContain("  0    removed, or nothing was saved\n  4    no OS keychain");
+    const doctor = await help(["doctor", "--help"]);
+    expect(doctor).toContain(
+      "(the built-in PGARD App, or PGARD_GITHUB_APP_CLIENT_ID\nas an override)",
+    );
+    for (const text of [login, logout, doctor]) expect(text).not.toContain("is not set");
+  });
 });
 
 describe("pgard logout", () => {
