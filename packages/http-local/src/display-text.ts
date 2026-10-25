@@ -1,10 +1,8 @@
+import { UNSAFE_DISPLAY_CHARACTERS } from "@pgard/findings";
 import { MAX_DISPLAY_TEXT_LENGTH } from "./constants.js";
 
-/** C0/C1 controls, zero-width and bidi override characters. */
-const UNSAFE_CHARACTERS = new RegExp(
-  "[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]",
-  "g",
-);
+/** C0/C1 controls, zero-width and bidi override characters (shared with `redactEvidence`). */
+const UNSAFE_CHARACTERS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
 
 /**
  * Makes text received from a local service safe to show in a terminal, log line or report:
