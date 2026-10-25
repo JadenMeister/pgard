@@ -5,6 +5,7 @@ import {
   ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
+  formatOutsideContexts,
   groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
@@ -14,6 +15,9 @@ import {
   severityColor,
   TEST_FINDINGS_NOTE,
   TEST_FINDINGS_TITLE,
+  VENDORED_FINDINGS_DETAIL,
+  VENDORED_FINDINGS_NOTE,
+  VENDORED_FINDINGS_TITLE,
   type SeverityCounts,
 } from "./format.js";
 
@@ -127,18 +131,23 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); 
  */
 export function renderHtmlReport(input: ScanResult): string {
   const result = prepareReportResult(input);
-  // Headline counts cover regular code; test and fixture findings get their own section.
-  const { primary, test } = groupReportFindings(result.findings);
+  // Headline counts cover regular code; test and fixture findings get their own section, and
+  // suggestions in vendored code come last.
+  const { primary, test, vendored } = groupReportFindings(result.findings);
   const counts = countFindingsBySeverity(primary);
   const target = result.target;
   const findingsHtml =
     primary.length === 0
-      ? `<p>No findings${test.length === 0 ? "" : " outside test or fixture code"} in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
+      ? `<p>No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
       : primary.map(renderFinding).join("\n");
   const testFindingsHtml =
     test.length === 0
       ? ""
       : `\n<h2>${escapeHtml(TEST_FINDINGS_TITLE)} (${test.length})</h2>\n<p class="meta">${escapeHtml(TEST_FINDINGS_NOTE)}</p>\n${test.map(renderFinding).join("\n")}\n`;
+  const vendoredFindingsHtml =
+    vendored.length === 0
+      ? ""
+      : `\n<h2>${escapeHtml(VENDORED_FINDINGS_TITLE)} (${vendored.length})</h2>\n<p>${escapeHtml(VENDORED_FINDINGS_NOTE)}</p>\n<p class="meta">${escapeHtml(VENDORED_FINDINGS_DETAIL)}</p>\n${vendored.map(renderFinding).join("\n")}\n`;
 
   return `<!doctype html>
 <html lang="en">
@@ -172,7 +181,7 @@ ${renderCoverageRows(result.coverage)}
 
 <h2>Findings</h2>
 ${findingsHtml}
-${testFindingsHtml}
+${testFindingsHtml}${vendoredFindingsHtml}
 <h2>Authorization</h2>
 <p>Decision: ${escapeHtml(result.authorization.decision)}</p>
 ${renderAuthorization(result)}

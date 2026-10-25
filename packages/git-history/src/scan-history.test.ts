@@ -339,4 +339,84 @@ describe("scanGitHistory", () => {
       rmSync(markerDir, { recursive: true, force: true });
     }
   });
+
+  it("emits one PG-HYGIENE-001 suggestion for committed dependency directories, by tracked paths only", async () => {
+    fixture = createGitFixture();
+    fixture.commit({
+      files: {
+        "package.json": '{ "name": "app" }\n',
+        "node_modules/pkg/index.js": `const DB_PASSWORD = "${FAKE.dbPassword}";\n`,
+        "node_modules/pkg/node_modules/dep/index.js": "module.exports = 1;\n",
+        "packages/web/node_modules/x/index.js": "module.exports = 2;\n",
+      },
+    });
+    // Untracked local dependency directories are never read.
+    fixture.writeFile("vendor/local/untracked.php", "<?php\n");
+    const result = await scanGitHistory(fixture.root);
+    const hygiene = byRule(result, "PG-HYGIENE-001");
+    expect(hygiene).toHaveLength(1);
+    expect(hygiene[0]).toMatchObject({
+      title: "Dependency directory committed to Git",
+      severity: "info",
+      status: "informational",
+      context: "vendored",
+      location: { kind: "file", path: "node_modules/", line: null, commit: null },
+    });
+    expect(hygiene[0]?.evidence).toContain("2 dependency directories are tracked in commit");
+    expect(hygiene[0]?.evidence).toContain(
+      "node_modules/ (2 tracked files), packages/web/node_modules/ (1 tracked file)",
+    );
+    expect(hygiene[0]?.evidence).not.toContain("vendor");
+    expect(hygiene[0]?.recommendation).toContain(
+      "git rm -r --cached node_modules packages/web/node_modules",
+    );
+    // The secret in the vendored file is still reported (the scan engine groups it later).
+    expect(byRule(result, "PG-SECRET-002").map((finding) => finding.location.path)).toEqual([
+      "node_modules/pkg/index.js",
+    ]);
+    expect(result.coverage[0]?.ruleIds).toContain("PG-HYGIENE-001");
+    expect(result.coverage.map((entry) => entry.status)).toEqual(["completed", "completed"]);
+  });
+
+  it("does not emit PG-HYGIENE-001 without a committed dependency directory or for Go module vendoring", async () => {
+    fixture = createGitFixture();
+    fixture.commit({
+      files: { "src/vendored.ts": "export {};\n", "my_node_modules_x/a.js": "1\n" },
+    });
+    expect(byRule(await scanGitHistory(fixture.root), "PG-HYGIENE-001")).toEqual([]);
+    fixture.commit({
+      files: {
+        "go.mod": "module example.com/app\n",
+        "vendor/modules.txt": "# github.com/pkg/errors v0.9.1\n",
+        "vendor/github.com/pkg/errors/errors.go": "package errors\n",
+      },
+    });
+    expect(byRule(await scanGitHistory(fixture.root), "PG-HYGIENE-001")).toEqual([]);
+    // A first-party NestJS module named vendor is never suggested for removal.
+    fixture.commit({
+      files: {
+        "package.json": '{ "name": "api" }\n',
+        "src/vendor/vendor.module.ts": "export class VendorModule {}\n",
+        "src/vendor/vendor.service.ts": "export class VendorService {}\n",
+      },
+    });
+    expect(byRule(await scanGitHistory(fixture.root), "PG-HYGIENE-001")).toEqual([]);
+  });
+
+  it("emits PG-HYGIENE-001 for a root vendor/ next to composer.json", async () => {
+    fixture = createGitFixture();
+    fixture.commit({
+      files: {
+        "composer.json": '{ "require": { "guzzlehttp/guzzle": "^7.0" } }\n',
+        "vendor/autoload.php": "<?php\n",
+        "vendor/guzzlehttp/guzzle/src/Client.php": "<?php\n",
+        "src/vendor/Mine.php": "<?php\n",
+      },
+    });
+    const hygiene = byRule(await scanGitHistory(fixture.root), "PG-HYGIENE-001");
+    expect(hygiene).toHaveLength(1);
+    expect(hygiene[0]?.location.path).toBe("vendor/");
+    expect(hygiene[0]?.evidence).toMatch(/: vendor\/ \(2 tracked files\)$/);
+    expect(hygiene[0]?.recommendation).toContain("git rm -r --cached vendor)");
+  });
 });

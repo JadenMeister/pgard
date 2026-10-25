@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { hasUnsupportedPdfCharacters, renderPdfReport, toPdfText } from "./render-pdf.js";
+import {
+  countFindingsBySeverity,
+  TEST_FINDINGS_TITLE,
+  VENDORED_FINDINGS_DETAIL,
+  VENDORED_FINDINGS_NOTE,
+  VENDORED_FINDINGS_TITLE,
+} from "./format.js";
 import { finding, scanResult } from "./test-fixtures.js";
+
+/**
+ * Text drawn into an uncompressed PDF, one entry per `TJ` operation (a wrapped line or a chart
+ * label). PDFKit writes the built-in fonts' WinAnsi bytes as hex strings, split for kerning.
+ */
+function pdfTextLines(pdf: Buffer): string[] {
+  const source = pdf.toString("latin1");
+  return [...source.matchAll(/\[((?:<[0-9a-fA-F]*>|[^\]])*)\]\s*TJ/g)].map((match) =>
+    [...(match[1] ?? "").matchAll(/<([0-9a-fA-F]*)>/g)]
+      .map((hex) => Buffer.from(hex[1] ?? "", "hex").toString("latin1"))
+      .join("")
+      .trimEnd(),
+  );
+}
 
 describe("renderPdfReport", () => {
   it("produces a PDF document", async () => {
@@ -19,6 +40,113 @@ describe("renderPdfReport", () => {
       }),
     );
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+  });
+
+  it("charts regular code only and lists test findings, then vendored suggestions", async () => {
+    const result = scanResult({
+      findings: [
+        finding({
+          id: "v1",
+          ruleId: "PG-SECRET-002",
+          severity: "critical",
+          context: "vendored",
+          confidence: "low",
+          location: {
+            kind: "file",
+            path: "node_modules/pkg/index.js",
+            line: 7,
+            url: null,
+            commit: null,
+          },
+        }),
+        finding({
+          id: "t1",
+          severity: "critical",
+          context: "test",
+          confidence: "low",
+          location: { kind: "file", path: "src/a.test.ts", line: 3, url: null, commit: null },
+        }),
+        ...scanResult().findings,
+      ],
+    });
+    const lines = pdfTextLines(await renderPdfReport(result, { compress: false }));
+    // Severity chart: label then count, for regular code only.
+    const regular = countFindingsBySeverity(scanResult().findings);
+    const chart = lines.indexOf("Critical");
+    expect(lines.slice(chart, chart + 10)).toEqual([
+      "Critical",
+      String(regular.critical),
+      "High",
+      String(regular.high),
+      "Medium",
+      String(regular.medium),
+      "Low",
+      String(regular.low),
+      "Info",
+      String(regular.info),
+    ]);
+    // The vendored and test findings are critical; the chart must not count either.
+    expect(lines[chart + 1]).not.toBe(String(regular.critical + 1));
+    expect(lines.join(" ")).toContain(
+      "3 finding(s): 1 confirmed, 1 suspected, 1 informational. 1 more in test or fixture code, listed separately. 1 suggestion in vendored code (1 critical), listed last.",
+    );
+    const testSection = lines.indexOf(`${TEST_FINDINGS_TITLE} (1)`);
+    const suggestions = lines.indexOf(`${VENDORED_FINDINGS_TITLE} (1)`);
+    expect(testSection).toBeGreaterThan(lines.indexOf("Location: src/api/users.ts:42"));
+    expect(lines.indexOf("Location: src/a.test.ts:3")).toBeGreaterThan(testSection);
+    expect(suggestions).toBeGreaterThan(lines.indexOf("Location: src/a.test.ts:3"));
+    expect(lines.indexOf("Location: node_modules/pkg/index.js:7")).toBeGreaterThan(suggestions);
+    expect(lines.indexOf("Authorization")).toBeGreaterThan(suggestions);
+  });
+
+  it("does not call a PDF with only vendored findings empty", async () => {
+    const lines = pdfTextLines(
+      await renderPdfReport(
+        scanResult({
+          findings: [
+            finding({
+              id: "v1",
+              context: "vendored",
+              confidence: "low",
+              location: { kind: "file", path: "vendor/a.php", line: 1, url: null, commit: null },
+            }),
+          ],
+        }),
+        { compress: false },
+      ),
+    );
+    expect(lines.some((text) => text.startsWith("No findings outside vendored code"))).toBe(true);
+    expect(lines).toContain(`${VENDORED_FINDINGS_TITLE} (1)`);
+    expect(lines).toContain("Location: vendor/a.php:1");
+  });
+
+  it("renders a result with vendored suggestions using only text the PDF fonts can show", async () => {
+    const result = scanResult({
+      findings: [
+        finding({
+          id: "v1",
+          context: "vendored",
+          confidence: "low",
+          location: {
+            kind: "file",
+            path: "node_modules/pkg/index.js",
+            line: 1,
+            url: null,
+            commit: null,
+          },
+        }),
+        ...scanResult().findings,
+      ],
+    });
+    const pdf = await renderPdfReport(result);
+    expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+    for (const text of [
+      VENDORED_FINDINGS_TITLE,
+      VENDORED_FINDINGS_NOTE,
+      VENDORED_FINDINGS_DETAIL,
+    ]) {
+      expect(text).toMatch(/^[\x20-\x7e]+$/);
+    }
   });
 
   it("replaces characters the built-in fonts cannot encode", () => {

@@ -49,6 +49,11 @@ describe("runRulesList", () => {
     expect(stdout.indexOf("PG-SECRET-001")).toBeGreaterThan(historyHeading);
     expect(stdout.indexOf("PG-SECRET-001")).toBeLessThan(webHeading);
     expect(stdout).toMatch(/PG-SQL-001\s+high\s+.+\[javascript, typescript\]/);
+    expect(stdout.indexOf("PG-HYGIENE-001")).toBeGreaterThan(historyHeading);
+    expect(stdout.indexOf("PG-HYGIENE-001")).toBeLessThan(webHeading);
+    expect(stdout).toContain(
+      "  PG-HYGIENE-001 info     Dependency directory committed to Git [any]",
+    );
   });
 
   it("filters by language and keeps rules for any language", async () => {

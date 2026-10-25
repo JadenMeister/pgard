@@ -265,11 +265,11 @@ Every result reports coverage for each area, so you can see what was and was not
 
 ## Analyzers and rules
 
-| Analyzer        | Scope     | Rule ids                                                                                                                           |
-| --------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Source analysis | `code`    | `PG-SQL-*`, `PG-XSS-*`, `PG-SSRF-*`, `PG-CMD-*`, `PG-PATH-*`, `PG-CRYPTO-*`, `PG-AUTH-*`, `PG-COOKIE-*`, `PG-CSRF-*`, `PG-BRUTE-*` |
-| Git history     | `history` | `PG-SECRET-001` (committed environment file), `PG-SECRET-002` (secret in a tracked file), `PG-SECRET-003` (secret only in history) |
-| Local HTTP      | `web`     | `PG-WEB-001` to `PG-WEB-013`                                                                                                       |
+| Analyzer        | Scope     | Rule ids                                                                                                                                                                                            |
+| --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Source analysis | `code`    | `PG-SQL-*`, `PG-XSS-*`, `PG-SSRF-*`, `PG-CMD-*`, `PG-PATH-*`, `PG-CRYPTO-*`, `PG-AUTH-*`, `PG-COOKIE-*`, `PG-CSRF-*`, `PG-BRUTE-*`                                                                  |
+| Git history     | `history` | `PG-SECRET-001` (committed environment file), `PG-SECRET-002` (secret in a tracked file), `PG-SECRET-003` (secret only in history), `PG-HYGIENE-001` (dependency directory committed, a suggestion) |
+| Local HTTP      | `web`     | `PG-WEB-001` to `PG-WEB-013`                                                                                                                                                                        |
 
 Source analysis covers JavaScript, TypeScript, React (JSX/TSX), Vue and Go files. Run `pgard rules list` (optionally with `--language`) for the current list of rules and their severities, instead of relying on a copy in this README.
 
@@ -302,6 +302,11 @@ A badly built application can still change state on a `GET` request. PGARD canno
 - `PG-SECRET-001`: a committed environment file (`.env`, `.env.local`, `prod.env`, ...; templates such as `.env.example` are excluded). Its values are never shown.
 - `PG-SECRET-002`: a secret in a file tracked at `HEAD`.
 - `PG-SECRET-003`: a secret that appears in history but no longer in the current files.
+- `PG-HYGIENE-001` (info, shown as a suggestion): a dependency directory is tracked at `HEAD`. One finding per scan names each root directory with its tracked file count, listing up to 5 directories. The fix: remove it from the index without deleting your local copy (`git rm -r --cached node_modules`), add it to `.gitignore` and let the package manager restore it. It is decided from the tracked paths only; the working tree is not read. A root is the outermost flagged directory of a vendored path (see [Suggestions in third-party or vendored code](#suggestions-in-third-party-or-vendored-code)), so nested `node_modules/` count toward their root:
+  - `node_modules/`, `bower_components/`, `jspm_packages/` and `Pods/` are always flagged.
+  - `vendor/` is flagged only at the repository root or next to a tracked `composer.json`, `go.mod` or `Gemfile` in the same directory. It is not flagged for Go module vendoring (a tracked `vendor/modules.txt` next to a tracked `go.mod`), which is the workflow Go supports. A first-party `src/vendor/` module is never vendored, so it is never flagged.
+  - `third_party/` is never flagged: it usually holds code copied in on purpose.
+  - When an outer directory is not flagged (Go module `vendor/`, `third_party/`), a `node_modules/`, `bower_components/`, `jspm_packages/` or `Pods/` inside it still is, for example `vendor/node_modules/`. Findings inside unflagged directories are still vendored suggestions.
 
 Secrets are private keys, well-known token formats (AWS, GitHub, Slack, Stripe, Google API keys) and generic credential assignments (`password = ...`, `api_key: ...`). A generic assignment counts only when its value is a literal that looks random enough and is not a placeholder. In source files, an unquoted value on a line that clearly looks like code (a type, a parameter list, a constant or variable name) is not treated as a credential. Detection is pattern-based and has known gaps (#145).
 
@@ -323,6 +328,22 @@ The classification is by path only, never by file content. A file is test or fix
 
 Directory names are matched case-insensitively. The rule applies to findings from every scope, so a `.env` under `fixtures/` is a test finding, while `deploy/test/.env` is not.
 
+### Suggestions in third-party or vendored code
+
+Findings in third-party dependency code committed to the repository are shown as suggestions, not as regular findings: you do not own that code and cannot fix it there. They are listed last, after the test or fixture group, in **Suggestions: in third-party/vendored code (N)**, with the note "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git." Their rule, severity and evidence are unchanged, but their confidence is capped at `low`. The headline count and the severity chart do not include them (for example `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code (1 high)`; critical and high suggestions are counted in the parentheses so they are not hidden in a total). They are never dropped, because a real secret committed in `node_modules/` is still exposed. Coverage, the overall status and exit codes do not change. The CLI, the dashboard (with the same filters) and the HTML/PDF reports use the same grouping, and the `PG-HYGIENE-001` suggestion (see [Git history checks](#git-history-checks)) is listed in the same group.
+
+The classification is by path only, never by file content. A file is vendored when a directory in its path is:
+
+- exactly `node_modules`, `bower_components`, `jspm_packages` or `Pods`, anywhere in the path, or
+- exactly `vendor` or `third_party`, **unless** a directory before it is `src`, `app` or `lib`. Those names are also common first-party module names (`nest g module vendor` creates `src/vendor/`), so `src/vendor/vendor.service.ts`, `packages/web/src/third_party/a.ts` and `app/vendor/client.rb` are your own code.
+
+Also:
+
+- Whole directory names only, matched case-sensitively: `src/vendored.ts`, `my_node_modules_x/index.js` and `k8s/pods/` are not vendored.
+- Go and PHP (Composer) `vendor/` directories at the top of a project or package (`vendor/`, `api/vendor/`) are both dependency copies, so both count.
+- Build output such as `dist/` or `build/` is your own output and is not vendored.
+- A path that is both vendored and test code (`node_modules/pkg/test/a.js`) is vendored.
+
 HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600`. Keep reports outside the repository so they are not committed by mistake.
 
 ## Dashboard
@@ -334,7 +355,7 @@ PGARD dashboard is running on 127.0.0.1 only.
 Open this private session URL in your browser (valid until you stop the dashboard): http://127.0.0.1:<port>/#token=<random>
 ```
 
-The dashboard runs its own scans (it never reads CLI results). It shows the authorization checks and the GitHub device code, lets you pick and confirm a local service, select scopes, follow progress, filter findings (test or fixture findings are shown in their own group) and export HTML/PDF reports. It reuses the GitHub sign-in saved in the OS keychain on the server side; the token never reaches the browser. There are two sign-out buttons: **End dashboard session (keep keychain sign-in)** forgets the session in this dashboard only, and the next check reuses the keychain sign-in; **Sign out and remove from OS keychain** also deletes the saved sign-in (for the CLI too). Stop the dashboard with Ctrl+C: its GitHub session ends (the keychain sign-in is kept) and all results are discarded.
+The dashboard runs its own scans (it never reads CLI results). It shows the authorization checks and the GitHub device code, lets you pick and confirm a local service, select scopes, follow progress, filter findings (test or fixture findings and suggestions in vendored code are shown in their own groups) and export HTML/PDF reports. It reuses the GitHub sign-in saved in the OS keychain on the server side; the token never reaches the browser. There are two sign-out buttons: **End dashboard session (keep keychain sign-in)** forgets the session in this dashboard only, and the next check reuses the keychain sign-in; **Sign out and remove from OS keychain** also deletes the saved sign-in (for the CLI too). Stop the dashboard with Ctrl+C: its GitHub session ends (the keychain sign-in is kept) and all results are discarded.
 
 When a device code is needed, the dashboard shows an **Open the GitHub sign-in page** button and, unless `pgard dashboard --no-browser`, opens the page itself. When the authorization panel is blocked only because the PGARD GitHub App is not installed for this repository and you can approve (or GitHub cannot show your organization role yet; the CLI's wording is used), it shows an **Install the PGARD GitHub App** button (opens a new tab), checks owner approval again every 5 seconds for up to 10 minutes, and then runs the full check again automatically. Otherwise it shows the same `Ask an owner of <account> ...` link as the CLI.
 

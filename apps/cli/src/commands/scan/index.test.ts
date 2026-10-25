@@ -227,6 +227,103 @@ describe("runScanCommand", () => {
     expect(stdout).toContain("test/db.js:1");
   });
 
+  it("lists vendored findings last as suggestions, outside the headline counts", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          runScan: async () =>
+            testResult({
+              findings: [
+                testFinding({
+                  id: "v1",
+                  ruleId: "PG-SECRET-002",
+                  title: "Secret in a tracked file",
+                  severity: "high",
+                  confidence: "low",
+                  context: "vendored",
+                  location: {
+                    kind: "file",
+                    path: "node_modules/@babel/parser/lib/index.js",
+                    line: 11694,
+                    url: null,
+                    commit: null,
+                  },
+                }),
+                testFinding({
+                  id: "t1",
+                  confidence: "low",
+                  context: "test",
+                  location: {
+                    kind: "file",
+                    path: "test/db.js",
+                    line: 1,
+                    url: null,
+                    commit: null,
+                  },
+                }),
+                testFinding(),
+              ],
+            }),
+        }),
+      ),
+      DEFAULT_SCAN,
+    );
+    expect(code).toBe(0);
+    const stdout = captured.stdout();
+    expect(stdout).toContain(
+      "Findings by severity (1 total) - plus 1 in test or fixture code, 1 suggestion in vendored code (1 high)",
+    );
+    expect(stdout).toMatch(/High\s+#+ 1\n/);
+    const testGroup = stdout.indexOf("In test or fixture code (1)");
+    const suggestions = stdout.indexOf("Suggestions: in third-party/vendored code (1)");
+    expect(suggestions).toBeGreaterThan(testGroup);
+    expect(stdout).toContain("This code is a committed dependency, not your code.");
+    const vendoredLine = stdout.indexOf("node_modules/@babel/parser/lib/index.js:11694");
+    expect(vendoredLine).toBeGreaterThan(suggestions);
+    expect(stdout.slice(vendoredLine)).toContain("PG-SECRET-002 - confidence low");
+    expect(stdout.indexOf("Coverage")).toBeGreaterThan(suggestions);
+  });
+
+  it("does not call a scan with only vendored findings empty and keeps its exit code", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          runScan: async () =>
+            testResult({
+              findings: [
+                testFinding({
+                  context: "vendored",
+                  confidence: "low",
+                  location: {
+                    kind: "file",
+                    path: "vendor/acme/lib.php",
+                    line: 2,
+                    url: null,
+                    commit: null,
+                  },
+                }),
+              ],
+            }),
+        }),
+      ),
+      DEFAULT_SCAN,
+    );
+    expect(code).toBe(0);
+    const stdout = captured.stdout();
+    expect(stdout).toContain(
+      "Findings by severity (0 total) - plus 1 suggestion in vendored code (1 high)",
+    );
+    // The severity bars count regular code only: the vendored high finding is not a bar.
+    expect(stdout).toMatch(/High\s+0\n/);
+    expect(stdout).toContain("No findings outside vendored code");
+    expect(stdout).toContain("Suggestions: in third-party/vendored code (1)");
+    expect(stdout).toContain("vendor/acme/lib.php:2");
+  });
+
   it("exits 4 for a partial scan and records web as not tested without a terminal", async () => {
     const captured = createTestIo();
     let request: ScanRequest | null = null;

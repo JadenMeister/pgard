@@ -63,12 +63,13 @@ export interface FindingLocation {
 }
 
 /**
- * Where the finding sits. `test`: test or fixture code (see `isTestOrFixturePath`). Such
- * findings are kept and shown in their own group, never dropped; headline counts use the other
- * findings. Absent means regular project code. Optional, so JSON v1 consumers that do not know
- * it keep working.
+ * Where the finding sits. `test`: test or fixture code (see `isTestOrFixturePath`).
+ * `vendored`: committed third-party dependency code such as `node_modules/` (see
+ * `isVendoredPath`), shown as a suggestion. Such findings are kept and shown in their own group,
+ * never dropped; headline counts use the other findings. Absent means regular project code.
+ * Optional, so JSON v1 consumers that do not know it keep working.
  */
-export type FindingContext = "test";
+export type FindingContext = "test" | "vendored";
 
 export interface FindingReferences {
   cwe: string[];
@@ -93,7 +94,10 @@ export interface Finding {
   references: FindingReferences;
   /** Scopes that produced this finding (kept when code and HTTP evidence are merged). */
   sources: ScanScope[];
-  /** Present only for findings in test or fixture code; their confidence is capped at `low`. */
+  /**
+   * Present only for findings in test or fixture code (`test`) or committed third-party code
+   * (`vendored`); their confidence is capped at `low`.
+   */
   context?: FindingContext;
 }
 

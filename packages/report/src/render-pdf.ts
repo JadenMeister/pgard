@@ -5,6 +5,7 @@ import {
   ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
+  formatOutsideContexts,
   groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
@@ -14,6 +15,9 @@ import {
   severityColor,
   TEST_FINDINGS_NOTE,
   TEST_FINDINGS_TITLE,
+  VENDORED_FINDINGS_DETAIL,
+  VENDORED_FINDINGS_NOTE,
+  VENDORED_FINDINGS_TITLE,
 } from "./format.js";
 
 const MUTED = "#475569";
@@ -98,11 +102,16 @@ function writeFinding(doc: PDFKit.PDFDocument, finding: Finding): void {
 }
 
 /** Renders the same content as the HTML report into a PDF buffer (pure JS, no browser). */
-export function renderPdfReport(input: ScanResult): Promise<Buffer> {
+export function renderPdfReport(
+  input: ScanResult,
+  /** `compress: false` keeps the content streams readable, so tests can extract the text. */
+  options: { compress?: boolean } = {},
+): Promise<Buffer> {
   const result = prepareReportResult(input);
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
+      compress: options.compress ?? true,
       margin: PAGE_MARGIN,
       info: { Title: "PGARD Report", Creator: "pgard", Producer: "pgard" },
     });
@@ -136,8 +145,9 @@ export function renderPdfReport(input: ScanResult): Promise<Buffer> {
       .fillColor("#0f172a")
       .text(`Overall status: ${toPdfText(labelOverallStatus(result.overallStatus))}`);
 
-    // Headline counts cover regular code; test and fixture findings get their own section.
-    const { primary, test } = groupReportFindings(result.findings);
+    // Headline counts cover regular code; test and fixture findings get their own section, and
+    // suggestions in vendored code come last.
+    const { primary, test, vendored } = groupReportFindings(result.findings);
     heading(doc, "Summary");
     line(doc, formatFindingSummary(result.findings));
     doc.moveDown(0.5);
@@ -156,7 +166,7 @@ export function renderPdfReport(input: ScanResult): Promise<Buffer> {
     if (primary.length === 0) {
       line(
         doc,
-        `No findings${test.length === 0 ? "" : " outside test or fixture code"} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
+        `No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
       );
     }
     for (const finding of primary) writeFinding(doc, finding);
@@ -164,6 +174,12 @@ export function renderPdfReport(input: ScanResult): Promise<Buffer> {
       heading(doc, `${TEST_FINDINGS_TITLE} (${test.length})`);
       line(doc, TEST_FINDINGS_NOTE, MUTED);
       for (const finding of test) writeFinding(doc, finding);
+    }
+    if (vendored.length > 0) {
+      heading(doc, `${VENDORED_FINDINGS_TITLE} (${vendored.length})`);
+      line(doc, VENDORED_FINDINGS_NOTE);
+      line(doc, VENDORED_FINDINGS_DETAIL, MUTED);
+      for (const finding of vendored) writeFinding(doc, finding);
     }
 
     heading(doc, "Authorization");

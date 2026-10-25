@@ -111,8 +111,8 @@ function unverifiedSummary(reason: string): AuthorizationSummary {
 
 /**
  * Forces analyzer output into the stage's scope so a scanner cannot report for another area, and
- * marks findings in test or fixture code (every source: code, dependencies, history, web) so all
- * frontends group them the same way.
+ * marks findings in test, fixture or vendored code (every source: code, dependencies, history,
+ * web) so all frontends group them the same way.
  */
 function normalizeAnalyzerOutput(
   scope: ScanScope,

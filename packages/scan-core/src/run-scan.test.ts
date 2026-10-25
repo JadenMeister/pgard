@@ -197,6 +197,88 @@ describe("runScan", () => {
     expect(byId.get("h1")).toMatchObject({ ruleId: "PG-SECRET-003", severity: "critical" });
   });
 
+  it("marks findings in committed vendored code as suggestions without changing status", async () => {
+    authorizeProject.mockResolvedValue(ALLOWED);
+    const history: AnalyzerOutput = {
+      ...historyOutput,
+      findings: [
+        finding({
+          id: "v1",
+          ruleId: "PG-SECRET-002",
+          severity: "high",
+          confidence: "medium",
+          location: {
+            kind: "file",
+            path: "node_modules/pkg/test/index.js",
+            line: 3,
+            url: null,
+            commit: null,
+          },
+          sources: ["history"],
+        }),
+      ],
+    };
+    const result = await runScan(
+      request(),
+      deps({ analyzers: { code: async () => codeOutput, history: async () => history } }),
+    );
+    const vendored = result.findings.find((entry) => entry.id === "v1");
+    // Kept (rule, severity unchanged), vendored wins over the test path, confidence capped.
+    expect(vendored).toMatchObject({
+      ruleId: "PG-SECRET-002",
+      severity: "high",
+      context: "vendored",
+      confidence: "low",
+    });
+    const withoutVendored = await runScan(
+      request(),
+      deps({
+        analyzers: {
+          code: async () => codeOutput,
+          history: async () => ({ ...history, findings: [] }),
+        },
+      }),
+    );
+    // The grouping never changes coverage or the overall status.
+    expect(result.overallStatus).toBe(withoutVendored.overallStatus);
+    expect(result.coverage).toEqual(withoutVendored.coverage);
+  });
+
+  it("classifies vendored code after making paths repository-relative", async () => {
+    authorizeProject.mockResolvedValue(ALLOWED);
+    // The project itself lives under a directory named vendor/: only the path inside the
+    // repository may decide the context.
+    const projectRoot = "/x/vendor/proj";
+    const code: AnalyzerOutput = {
+      ...codeOutput,
+      findings: [
+        finding({
+          id: "p1",
+          location: {
+            kind: "file",
+            path: `${projectRoot}/server/db.ts`,
+            line: 1,
+            url: null,
+            commit: null,
+          },
+        }),
+      ],
+    };
+    const result = await runScan(
+      request({ projectRoot }),
+      deps({
+        analyzers: {
+          code: async () => code,
+          history: async () => ({ ...historyOutput, findings: [] }),
+        },
+      }),
+    );
+    const own = result.findings.find((entry) => entry.id === "p1");
+    expect(own?.location.path).toBe("server/db.ts");
+    expect(own?.context).toBeUndefined();
+    expect(own?.confidence).toBe("medium");
+  });
+
   it("re-runs authorization on every scan", async () => {
     authorizeProject.mockResolvedValue(ALLOWED);
     await runScan(request(), deps());

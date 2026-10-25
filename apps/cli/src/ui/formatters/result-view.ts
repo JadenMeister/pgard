@@ -10,11 +10,15 @@ import {
 } from "@pgard/findings";
 import {
   ANALYSIS_BASIS_NOTE,
+  formatContextCounts,
   formatLocation,
+  formatOutsideContexts,
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
   sortFindings,
+  VENDORED_FINDINGS_NOTE,
+  VENDORED_FINDINGS_TITLE,
 } from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER } from "@pgard/scan-core";
 import { safeText, type Style } from "./style.js";
@@ -120,12 +124,15 @@ export function formatScanResult(result: ScanResult, style: Style): string {
     sections.push("", formatAuthorization(result.authorization, style));
     return sections.join("\n");
   }
-  // Headline counts cover regular code; test and fixture findings follow in their own group.
-  const { primary, test } = splitFindingsByContext(sortFindings(result.findings));
+  // Headline counts cover regular code; test and fixture findings follow in their own group and
+  // suggestions in vendored code come last.
+  const { primary, test, vendored } = splitFindingsByContext(sortFindings(result.findings));
+  const contextCounts = { test: test.length, vendored: vendored.length };
+  const extra = formatContextCounts({ test: test.length, vendored });
   sections.push(
     "",
     style.bold(`Findings by severity (${primary.length} total)`) +
-      (test.length === 0 ? "" : style.dim(` - plus ${test.length} in test or fixture code`)),
+      (extra === "" ? "" : style.dim(` - ${extra}`)),
     formatSeverityBars(primary, style),
   );
   for (const group of STATUS_GROUPS) {
@@ -137,9 +144,7 @@ export function formatScanResult(result: ScanResult, style: Style): string {
   if (primary.length === 0) {
     sections.push(
       "",
-      test.length === 0
-        ? "No findings in the areas that ran. This does not mean the project is secure; see coverage."
-        : "No findings outside test or fixture code in the areas that ran. This does not mean the project is secure; see coverage.",
+      `No findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; see coverage.`,
     );
   }
   if (test.length > 0) {
@@ -148,6 +153,14 @@ export function formatScanResult(result: ScanResult, style: Style): string {
       style.bold(`${TEST_GROUP_TITLE} (${test.length})`),
       style.dim(`  ${TEST_GROUP_NOTE}`),
       test.map((finding) => formatFinding(finding, style)).join("\n\n"),
+    );
+  }
+  if (vendored.length > 0) {
+    sections.push(
+      "",
+      style.bold(`${VENDORED_FINDINGS_TITLE} (${vendored.length})`),
+      style.dim(`  ${VENDORED_FINDINGS_NOTE}`),
+      vendored.map((finding) => formatFinding(finding, style)).join("\n\n"),
     );
   }
   sections.push("", style.bold("Coverage"), formatCoverage(result.coverage, style));

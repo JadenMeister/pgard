@@ -24,17 +24,142 @@ export function countBySeverity(findings: readonly Finding[]): Record<Severity, 
 }
 
 /**
- * Splits findings into regular code and test or fixture code (`context: "test"`, set by the scan
- * engine). Mirrors `splitFindingsByContext` from @pgard/findings without bundling it.
+ * Splits findings into regular code, test or fixture code (`context: "test"`) and suggestions in
+ * committed third-party code (`context: "vendored"`), both set by the scan engine. Mirrors
+ * `splitFindingsByContext` from @pgard/findings without bundling it.
  */
 export function splitByContext(findings: readonly Finding[]): {
   primary: Finding[];
   test: Finding[];
+  vendored: Finding[];
 } {
   const primary: Finding[] = [];
   const test: Finding[] = [];
-  for (const finding of findings) (finding.context === "test" ? test : primary).push(finding);
-  return { primary, test };
+  const vendored: Finding[] = [];
+  for (const finding of findings) {
+    if (finding.context === "vendored") vendored.push(finding);
+    else if (finding.context === "test") test.push(finding);
+    else primary.push(finding);
+  }
+  return { primary, test, vendored };
+}
+
+/**
+ * "3 suggestions in vendored code", plus the critical and high counts when there are any
+ * ("1 suggestion in vendored code (1 critical)"). Same wording as `formatVendoredSuggestions` in
+ * @pgard/report.
+ */
+export function formatVendoredSuggestions(vendored: readonly Pick<Finding, "severity">[]): string {
+  const count = vendored.length;
+  const severe = (["critical", "high"] as const)
+    .map((severity) => ({
+      severity,
+      count: vendored.filter((finding) => finding.severity === severity).length,
+    }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${entry.severity}`);
+  return (
+    `${count} suggestion${count === 1 ? "" : "s"} in vendored code` +
+    (severe.length === 0 ? "" : ` (${severe.join(", ")})`)
+  );
+}
+
+/**
+ * Headline addition, e.g. "plus 2 in test or fixture code, 3 suggestions in vendored code
+ * (1 high)"; empty when every finding is regular code. Same wording as `formatContextCounts` in
+ * @pgard/report.
+ */
+export function formatContextCounts(groups: {
+  test: number;
+  vendored: readonly Pick<Finding, "severity">[];
+}): string {
+  const parts = [
+    ...(groups.test === 0 ? [] : [`${groups.test} in test or fixture code`]),
+    ...(groups.vendored.length === 0 ? [] : [formatVendoredSuggestions(groups.vendored)]),
+  ];
+  return parts.length === 0 ? "" : `plus ${parts.join(", ")}`;
+}
+
+/** A separate group listed after the regular findings: test code, then vendored suggestions. */
+export interface ContextSection {
+  kind: "test" | "vendored";
+  title: string;
+  /** Every finding in the group (shown in the title), before filters. */
+  total: number;
+  /** The group's findings that match the filters, sorted. */
+  visible: Finding[];
+}
+
+export interface FindingsView {
+  /** Regular findings only: the headline count, the charts and the status split. */
+  total: number;
+  counts: Record<Severity, number>;
+  statusCounts: Record<FindingStatus, number>;
+  /** "plus 1 in test or fixture code, 2 suggestions in vendored code (1 high)", or "". */
+  contextNote: string;
+  visible: Finding[];
+  /** Shown instead of the regular list when it is empty; `null` when there is something to show. */
+  emptyMessage: string | null;
+  /** Non-empty groups only, in display order (test or fixture code, then vendored suggestions). */
+  sections: ContextSection[];
+}
+
+/**
+ * Everything the results panel shows, from the result's findings and the filters. Headline counts
+ * and charts cover regular code; test findings and vendored suggestions are counted and listed
+ * separately, never dropped. Filters apply to every group.
+ */
+export function buildFindingsView(
+  findings: readonly Finding[],
+  filters: FindingFilters,
+): FindingsView {
+  const groups = splitByContext(findings);
+  const statusCounts: Record<FindingStatus, number> = {
+    confirmed: 0,
+    suspected: 0,
+    informational: 0,
+  };
+  for (const finding of groups.primary) {
+    if (finding.status in statusCounts) statusCounts[finding.status] += 1;
+  }
+  const visible = filterFindings(groups.primary, filters);
+  const contextCounts = { test: groups.test.length, vendored: groups.vendored.length };
+  const sections: ContextSection[] = [
+    {
+      kind: "test" as const,
+      title: `In test or fixture code (${groups.test.length})`,
+      total: groups.test.length,
+      visible: filterFindings(groups.test, filters),
+    },
+    {
+      kind: "vendored" as const,
+      title: `Suggestions: in third-party/vendored code (${groups.vendored.length})`,
+      total: groups.vendored.length,
+      visible: filterFindings(groups.vendored, filters),
+    },
+  ].filter((section) => section.total > 0);
+  return {
+    total: groups.primary.length,
+    counts: countBySeverity(groups.primary),
+    statusCounts,
+    contextNote: formatContextCounts({ test: groups.test.length, vendored: groups.vendored }),
+    visible,
+    emptyMessage:
+      visible.length > 0
+        ? null
+        : groups.primary.length === 0
+          ? `No findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; check coverage.`
+          : "No findings match the filters.",
+    sections,
+  };
+}
+
+/** Same wording as `formatOutsideContexts` in @pgard/report. */
+export function formatOutsideContexts(counts: { test: number; vendored: number }): string {
+  if (counts.test > 0 && counts.vendored > 0) return " outside test, fixture or vendored code";
+  if (counts.test > 0) return " outside test or fixture code";
+  if (counts.vendored > 0) return " outside vendored code";
+  return "";
 }
 
 export function formatLocation(location: FindingLocation): string {

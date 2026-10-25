@@ -5,11 +5,9 @@ import { SeverityDonutChart } from "../../components/charts/SeverityDonutChart";
 import { SEVERITY_LABELS, SEVERITY_ORDER } from "../../components/charts/severity-scale";
 import { Card, Notice } from "../../components/ui/Card";
 import {
-  countBySeverity,
+  buildFindingsView,
   EMPTY_FILTERS,
-  filterFindings,
   formatLocation,
-  splitByContext,
   type FindingFilters,
 } from "./filter-findings";
 
@@ -52,16 +50,13 @@ function FindingItem({ finding }: { finding: Finding }) {
 /** Charts, filters and the finding list for the current session's result (already redacted). */
 export function FindingsDashboard({ result }: { result: ScanResult }) {
   const [filters, setFilters] = useState<FindingFilters>(EMPTY_FILTERS);
-  // Headline counts and charts cover regular code; test and fixture findings are listed after.
-  const groups = useMemo(() => splitByContext(result.findings), [result.findings]);
-  const counts = useMemo(() => countBySeverity(groups.primary), [groups]);
-  const visible = useMemo(() => filterFindings(groups.primary, filters), [groups, filters]);
-  const visibleTest = useMemo(() => filterFindings(groups.test, filters), [groups, filters]);
-  const statusCounts = useMemo(() => {
-    const split = { confirmed: 0, suspected: 0, informational: 0 };
-    for (const finding of groups.primary) if (finding.status in split) split[finding.status] += 1;
-    return split;
-  }, [groups]);
+  // Headline counts and charts cover regular code; test and fixture findings are listed after,
+  // and suggestions in vendored code come last (see buildFindingsView).
+  const view = useMemo(
+    () => buildFindingsView(result.findings, filters),
+    [result.findings, filters],
+  );
+  const { counts, statusCounts, contextNote, visible } = view;
 
   if (result.overallStatus === "blocked") {
     return (
@@ -76,10 +71,10 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
   return (
     <Card title="Results" step={4}>
       <p className={`overall overall-${result.overallStatus}`}>
-        {OVERALL_LABELS[result.overallStatus] ?? "Unknown"} - {groups.primary.length} finding(s):{" "}
+        {OVERALL_LABELS[result.overallStatus] ?? "Unknown"} - {view.total} finding(s):{" "}
         {statusCounts.confirmed} confirmed, {statusCounts.suspected} suspected,{" "}
         {statusCounts.informational} informational
-        {groups.test.length > 0 ? ` - plus ${groups.test.length} in test or fixture code` : ""}
+        {contextNote === "" ? "" : ` - ${contextNote}`}
       </p>
       <div className="charts">
         <SeverityBarChart
@@ -154,14 +149,8 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
           />
         </label>
       </div>
-      {visible.length === 0 ? (
-        <p className="muted">
-          {groups.primary.length === 0
-            ? groups.test.length === 0
-              ? "No findings in the areas that ran. This does not mean the project is secure; check coverage."
-              : "No findings outside test or fixture code in the areas that ran. This does not mean the project is secure; check coverage."
-            : "No findings match the filters."}
-        </p>
+      {view.emptyMessage !== null ? (
+        <p className="muted">{view.emptyMessage}</p>
       ) : (
         <ul className="findings">
           {visible.map((finding) => (
@@ -169,25 +158,51 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
           ))}
         </ul>
       )}
-      {groups.test.length > 0 ? (
-        <section className="test-findings" aria-label="Findings in test or fixture code">
-          <h3>In test or fixture code ({groups.test.length})</h3>
-          <p className="muted small">
-            Matches in files classified as test or fixture code by their path only, with confidence
-            capped at low. They are not counted above, but review them: a real value committed in a
-            test is still exposed.
-          </p>
-          {visibleTest.length === 0 ? (
+      {view.sections.map((section) => (
+        <section
+          key={section.kind}
+          className={section.kind === "test" ? "test-findings" : "test-findings vendored-findings"}
+          aria-label={
+            section.kind === "test"
+              ? "Findings in test or fixture code"
+              : "Suggestions in third-party or vendored code"
+          }
+        >
+          <h3>{section.title}</h3>
+          {section.kind === "test" ? (
+            <p className="muted small">
+              Matches in files classified as test or fixture code by their path only, with
+              confidence capped at low. They are not counted above, but review them: a real value
+              committed in a test is still exposed.
+            </p>
+          ) : (
+            <>
+              <p>
+                This code is a committed dependency, not your code. Review it if it&apos;s
+                unexpected; otherwise consider removing it from Git (
+                <code>git rm -r --cached &lt;directory&gt;</code>, then add the directory to{" "}
+                <code>.gitignore</code>).
+              </p>
+              <p className="muted small">
+                Classified by path only: files under a node_modules/, bower_components/,
+                jspm_packages/ or Pods/ directory, or under a vendor/ or third_party/ directory that
+                is not inside src/, app/ or lib/. Confidence is capped at low and they are not
+                counted above, but they are not dropped: a real secret committed there is still
+                exposed.
+              </p>
+            </>
+          )}
+          {section.visible.length === 0 ? (
             <p className="muted">No findings match the filters.</p>
           ) : (
             <ul className="findings">
-              {visibleTest.map((finding) => (
+              {section.visible.map((finding) => (
                 <FindingItem key={finding.id} finding={finding} />
               ))}
             </ul>
           )}
         </section>
-      ) : null}
+      ))}
       <p className="muted small">
         PGARD does not ship or query a vulnerability database. Findings come from the code itself
         (query statements, server code, configuration), Git history and, if selected, local HTTP
