@@ -16,6 +16,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultDeps, main, type CliDeps } from "../../apps/cli/src/app.js";
 import { exitCodeForStatus } from "../../apps/cli/src/exit-codes.js";
+import { splitByContext } from "../../apps/local-web/src/client/features/findings/filter-findings.js";
 import { createTestIo, noInterrupts } from "../../apps/cli/src/test-support.js";
 import {
   createDefaultServerDeps,
@@ -46,6 +47,7 @@ const ENV: Record<string, string> = {};
 // Runtime-assembled fake values so nothing secret-looking is committed to this repository.
 const join = (...parts: string[]) => parts.join("");
 const REMOVED_TOKEN = join("ghp", "_", "R3mOv3dT0k3n", "AbCdEfGhIjKl", "MnOpQrStUvWxYz");
+const VENDORED_PASSWORD = join("Xq9", "!vR2", "#mT7", "pLw4");
 const SQL_VULN =
   'import { Pool } from "pg";\nconst pool = new Pool();\nexport const q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n';
 const LOCKFILE = JSON.stringify(
@@ -102,6 +104,9 @@ function createProject(remote = "git@github.com:me/app.git"): { root: string; he
       "package.json": '{ "name": "app", "version": "1.0.0", "dependencies": { "pg": "8.11.0" } }\n',
       "package-lock.json": `${LOCKFILE}\n`,
       "deploy.sh": `export GH="${REMOVED_TOKEN}"\n`,
+      // A committed dependency with a high-entropy credential: shown as a suggestion, together
+      // with one PG-HYGIENE-001 suggestion for the committed node_modules/ directory.
+      "node_modules/pkg/index.js": `const DB_PASSWORD = "${VENDORED_PASSWORD}";\nmodule.exports = DB_PASSWORD;\n`,
     },
   });
   const head = fixture.commit({ ...me, remove: ["deploy.sh"], files: {} });
@@ -340,6 +345,36 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
       confidence: "low",
     });
     expect(cli.stdout).toContain("In test or fixture code (1)");
+    // The credential in committed node_modules/ is kept (rule and severity unchanged) but moved to
+    // the suggestions, next to the single PG-HYGIENE-001 suggestion; neither is a headline finding.
+    expect(
+      cli.result.findings.find((finding) => finding.location.path === "node_modules/pkg/index.js"),
+    ).toMatchObject({
+      ruleId: "PG-SECRET-002",
+      severity: "high",
+      context: "vendored",
+      confidence: "low",
+    });
+    const hygiene = cli.result.findings.filter((finding) => finding.ruleId === "PG-HYGIENE-001");
+    expect(hygiene).toHaveLength(1);
+    expect(hygiene[0]).toMatchObject({ severity: "info", context: "vendored" });
+    expect(hygiene[0]?.evidence).toContain("node_modules/ (1 tracked file)");
+    const cliGroups = splitByContext(cli.result.findings);
+    const webGroups = splitByContext(web.result.findings);
+    expect(cliGroups.vendored).toHaveLength(2);
+    expect(webGroups.vendored.map((finding) => finding.id)).toEqual(
+      cliGroups.vendored.map((finding) => finding.id),
+    );
+    expect(cli.stdout).toContain(
+      `Findings by severity (${cliGroups.primary.length} total) - plus 1 in test or fixture code, 2 suggestions in vendored code`,
+    );
+    expect(
+      cliGroups.primary.some((finding) => finding.location.path?.startsWith("node_modules")),
+    ).toBe(false);
+    const suggestions = cli.stdout.indexOf("Suggestions: in third-party/vendored code (2)");
+    expect(suggestions).toBeGreaterThan(cli.stdout.indexOf("In test or fixture code (1)"));
+    expect(cli.stdout.indexOf("node_modules/pkg/index.js:1")).toBeGreaterThan(suggestions);
+    expect(JSON.stringify(cli.result)).not.toContain(VENDORED_PASSWORD);
     expect(JSON.stringify(cli.result)).not.toContain(REMOVED_TOKEN);
     expect(JSON.stringify(cli.result)).not.toContain(root);
     // Every selected area completes, so the full scan is "completed" and exits 0. There is no
