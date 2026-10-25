@@ -1125,7 +1125,12 @@ describe("evaluateOwnerApproval: owner evidence", () => {
   it("records personal owner evidence only for the owner account id", async () => {
     const owner = await evaluate(state(ME));
     expect(owner.check.status).toBe("passed");
-    expect(owner.ownerEvidence).toEqual({ kind: "personal_owner", userId: 1001, ownerId: 1001 });
+    expect(owner.ownerEvidence).toEqual({
+      kind: "personal_owner",
+      repositoryId: 555,
+      userId: 1001,
+      ownerId: 1001,
+    });
 
     // Same login, different account id: owner approval passes, but there is no owner evidence.
     const impostor = await evaluate(state({ ...ME, id: 2002 }));
@@ -1146,6 +1151,81 @@ describe("evaluateOwnerApproval: owner evidence", () => {
     expect(member.check.status).toBe("failed");
     expect(member.ownerEvidence).toBeNull();
   });
+
+  const orgState = (overrides: Partial<MockGitHubState> = {}) =>
+    state(ME, {
+      repository: orgRepository(),
+      installations: [orgInstallation()],
+      installationRepositories: { 88: [555] },
+      memberships: { acme: orgMembership() },
+      ...overrides,
+    });
+
+  it("records organization owner evidence for an active admin of the installed organization", async () => {
+    const admin = await evaluate(orgState());
+    expect(admin.check.status).toBe("passed");
+    expect(admin.ownerEvidence).toEqual({
+      kind: "organization_owner",
+      repositoryId: 555,
+      userId: 1001,
+      organizationId: 42,
+      organization: "acme",
+    });
+  });
+
+  // Mutation sanity: each case fails if its path returns owner evidence.
+  it.each<[string, Partial<MockGitHubState>, "failed" | "unverifiable"]>([
+    [
+      "a pending admin membership",
+      { memberships: { acme: orgMembership({ state: "pending" }) } },
+      "failed",
+    ],
+    [
+      "a membership 403",
+      { memberships: { acme: new GitHubAuthError("forbidden", "forbidden", 403) } },
+      "unverifiable",
+    ],
+    ["a membership 404", { memberships: {} }, "unverifiable"],
+    [
+      "a membership network error",
+      {
+        memberships: {
+          acme: new GitHubAuthError("network_error", "Could not reach the GitHub API."),
+        },
+      },
+      "unverifiable",
+    ],
+    [
+      "an org installation without the repository (admin membership)",
+      { installationRepositories: { 88: [1] } },
+      "failed",
+    ],
+    ["no org installation (admin membership)", { installations: [] }, "failed"],
+  ])("records no evidence for %s", async (_label, overrides, status) => {
+    const result = await evaluate(orgState(overrides));
+    expect(result.check.status).toBe(status);
+    expect(result.ownerEvidence).toBeNull();
+  });
+});
+
+describe("authorizeProject: org admin without an installation that includes the repository", () => {
+  it("is not exempted from contribution and stays blocked", async () => {
+    const { root } = repoWithCommits({ origin: "git@github.com:acme/app.git" });
+    const { outcome } = await authorize(
+      root,
+      baseState({
+        repository: orgRepository(),
+        installations: [orgInstallation()],
+        installationRepositories: { 88: [1] },
+        memberships: { acme: orgMembership() },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("failed");
+    const contribution = outcome.summary.checks.find((check) => check.id === "contribution");
+    expect(contribution?.status).toBe("failed");
+    expect(contribution?.reason).not.toContain("not required");
+  });
 });
 
 describe("ownerExemptionReason", () => {
@@ -1154,13 +1234,23 @@ describe("ownerExemptionReason", () => {
 
   it("accepts only evidence that matches this user and this owner account by id", () => {
     expect(
-      ownerExemptionReason({ kind: "personal_owner", userId: 1001, ownerId: 1001 }, ME, personal),
+      ownerExemptionReason(
+        { kind: "personal_owner", repositoryId: 555, userId: 1001, ownerId: 1001 },
+        ME,
+        personal,
+      ),
     ).toBe(
       "me owns me/app (verified by GitHub account id); a separate contribution is not required.",
     );
     expect(
       ownerExemptionReason(
-        { kind: "organization_owner", userId: 1001, organizationId: 42, organization: "acme" },
+        {
+          kind: "organization_owner",
+          repositoryId: 555,
+          userId: 1001,
+          organizationId: 42,
+          organization: "acme",
+        },
         ME,
         org,
       ),
@@ -1170,44 +1260,80 @@ describe("ownerExemptionReason", () => {
   const cases: [string, OwnerEvidence | null, GitHubUser, GitHubRepository][] = [
     ["no evidence", null, ME, personal],
     [
+      "personal evidence for another repository id",
+      { kind: "personal_owner", repositoryId: 556, userId: 1001, ownerId: 1001 },
+      ME,
+      personal,
+    ],
+    [
+      "org evidence for another repository id",
+      {
+        kind: "organization_owner",
+        repositoryId: 556,
+        userId: 1001,
+        organizationId: 42,
+        organization: "acme",
+      },
+      ME,
+      org,
+    ],
+    [
       "evidence for another user",
-      { kind: "personal_owner", userId: 2002, ownerId: 1001 },
+      { kind: "personal_owner", repositoryId: 555, userId: 2002, ownerId: 1001 },
       ME,
       personal,
     ],
     [
       "evidence for another owner id",
-      { kind: "personal_owner", userId: 1001, ownerId: 3003 },
+      { kind: "personal_owner", repositoryId: 555, userId: 1001, ownerId: 3003 },
       ME,
       personal,
     ],
     [
       "a user who is not the owner",
-      { kind: "personal_owner", userId: 2002, ownerId: 1001 },
+      { kind: "personal_owner", repositoryId: 555, userId: 2002, ownerId: 1001 },
       { ...ME, id: 2002 },
       personal,
     ],
     [
       "personal evidence for an org repo",
-      { kind: "personal_owner", userId: 1001, ownerId: 42 },
+      { kind: "personal_owner", repositoryId: 555, userId: 1001, ownerId: 42 },
       ME,
       org,
     ],
     [
       "org evidence for a personal repo",
-      { kind: "organization_owner", userId: 1001, organizationId: 1001, organization: "me" },
+      {
+        kind: "organization_owner",
+        repositoryId: 555,
+        userId: 1001,
+        organizationId: 1001,
+        organization: "me",
+      },
       ME,
       personal,
     ],
     [
       "org evidence for another organization id",
-      { kind: "organization_owner", userId: 1001, organizationId: 43, organization: "acme" },
+      {
+        kind: "organization_owner",
+        repositoryId: 555,
+        userId: 1001,
+        organizationId: 43,
+        organization: "acme",
+      },
       ME,
       org,
     ],
     [
       "org evidence with a different login",
-      { kind: "organization_owner", userId: 1001, organizationId: 42, organization: "Acme" },
+      {
+        kind: "organization_owner",
+        repositoryId: 555,
+        userId: 1001,
+        organizationId: 42,
+        organization: "Acme",
+      },
       ME,
       org,
     ],

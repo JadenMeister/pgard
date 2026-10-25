@@ -150,14 +150,21 @@ export interface OwnerApprovalContext {
 
 /**
  * Evidence, established while owner approval passed in this run, that the signed-in user is the
- * verified owner of the repository. Every id comes from the GitHub API, never from the remote.
+ * verified owner of the repository `repositoryId`. Every id comes from the GitHub API, never from
+ * the remote.
  * - `personal_owner`: the signed-in user's account id equals the personal owner account id.
  * - `organization_owner`: GitHub returned this user's active owner (`admin`) membership of the
  *   organization that owns the repository.
  */
 export type OwnerEvidence =
-  | { kind: "personal_owner"; userId: number; ownerId: number }
-  | { kind: "organization_owner"; userId: number; organizationId: number; organization: string };
+  | { kind: "personal_owner"; repositoryId: number; userId: number; ownerId: number }
+  | {
+      kind: "organization_owner";
+      repositoryId: number;
+      userId: number;
+      organizationId: number;
+      organization: string;
+    };
 
 /** The owner_approval check, plus guidance when the App is not installed for this repository. */
 export interface OwnerApprovalResult {
@@ -272,7 +279,12 @@ export async function evaluateOwnerApproval(
         ),
         remedy: null,
         ownerEvidence: isOwner
-          ? { kind: "personal_owner", userId: context.user.id, ownerId: repository.owner.id }
+          ? {
+              kind: "personal_owner",
+              repositoryId: repository.id,
+              userId: context.user.id,
+              ownerId: repository.owner.id,
+            }
           : null,
       };
     }
@@ -429,6 +441,7 @@ async function verifyOrganizationOwnerApproval(
       remedy: null,
       ownerEvidence: {
         kind: "organization_owner",
+        repositoryId: repository.id,
         userId: user.id,
         organizationId: repository.owner.id,
         organization: org,
@@ -532,7 +545,9 @@ export function ownerExemptionReason(
   user: GitHubUser,
   repository: GitHubRepository,
 ): string | null {
-  if (!evidence || evidence.userId !== user.id) return null;
+  if (!evidence || evidence.repositoryId !== repository.id || evidence.userId !== user.id) {
+    return null;
+  }
   if (evidence.kind === "personal_owner") {
     return repository.owner.type === "User" &&
       evidence.ownerId === repository.owner.id &&
