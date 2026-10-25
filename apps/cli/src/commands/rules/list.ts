@@ -8,11 +8,6 @@ import {
 import { out, type CommandContext } from "../../context.js";
 import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
 import type { RuleLanguage } from "../../options.js";
-import {
-  formatAdvisoryStatus,
-  isAdvisoryStatusOk,
-  readAdvisoryStatusSafely,
-} from "../../ui/formatters/advisory.js";
 
 export const UNSUPPORTED_AREAS = [
   "Direct database connections",
@@ -21,13 +16,14 @@ export const UNSUPPORTED_AREAS = [
   "Remote (non-loopback) web services",
   "Authenticated (logged-in) web browsing",
   "Form submission and other state-changing requests",
+  "Known-vulnerability (CVE/advisory) lookups for dependencies: PGARD ships no vulnerability database",
 ];
 
 /**
  * Version of the detection criteria shown to users. Bump when rule ids, conditions or severities
  * change.
  */
-export const RULE_CRITERIA_VERSION = "2026.10-mvp";
+export const RULE_CRITERIA_VERSION = "2026.10-mvp.2";
 
 /**
  * `--language` value -> catalog languages it selects. Rules tagged "any" always match. React and
@@ -99,8 +95,7 @@ export async function runRulesList(
   context: CommandContext,
   language: RuleLanguage | null,
 ): Promise<ExitCode> {
-  const { deps, io, style } = context;
-  const advisory = await readAdvisoryStatusSafely(deps, io.env);
+  const { style } = context;
   out(context, style.bold(`pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`));
   if (language !== null) {
     out(context, style.dim(describeLanguageFilter(language)));
@@ -117,10 +112,6 @@ export async function runRulesList(
   for (const rule of WEB_RULE_LIST) {
     out(context, `  ${rule.id.padEnd(13)} ${rule.severity.padEnd(8)} ${rule.title}`);
   }
-  out(context, "");
-  out(context, style.bold("Advisory data"));
-  const advisoryLine = `  Advisory database status: ${formatAdvisoryStatus(advisory)}`;
-  out(context, isAdvisoryStatusOk(advisory) ? advisoryLine : style.yellow(advisoryLine));
   out(context, "");
   out(context, style.bold("Not covered in this version"));
   for (const area of UNSUPPORTED_AREAS) out(context, `  - ${area}`);

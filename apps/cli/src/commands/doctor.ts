@@ -8,11 +8,6 @@ import {
 } from "@pgard/scan-core";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import {
-  formatAdvisoryStatus,
-  isAdvisoryStatusOk,
-  readAdvisoryStatusSafely,
-} from "../ui/formatters/advisory.js";
 import { safeText } from "../ui/formatters/style.js";
 
 const MIN_NODE_VERSION = [22, 12] as const;
@@ -126,12 +121,11 @@ async function describeStoredSignIn(
  */
 export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const { deps, io, style } = context;
-  const [gitVersion, gitRoot, isGitHubReachable, discovery, advisory] = await Promise.all([
+  const [gitVersion, gitRoot, isGitHubReachable, discovery] = await Promise.all([
     deps.readGitVersion(),
     deps.findGitRoot(io.cwd).catch(() => null),
     deps.checkGitHubReachable(),
     deps.discoverListeningPorts(),
-    readAdvisoryStatusSafely(deps, io.env),
   ]);
   const app = resolveGitHubAppClientId(io.env);
   const signIn = await describeStoredSignIn(context, app.clientId);
@@ -171,12 +165,6 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
       detail: discovery.isAvailable
         ? `${discovery.method} available (lists can be incomplete; "Other port" is always offered)`
         : `unavailable (${safeText(discovery.note ?? "unknown reason", 120)})`,
-      isRequired: false,
-    },
-    {
-      label: "Advisory database",
-      isOk: isAdvisoryStatusOk(advisory),
-      detail: formatAdvisoryStatus(advisory),
       isRequired: false,
     },
   ];
