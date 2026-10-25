@@ -47,28 +47,76 @@ export function isTestOrFixturePath(filePath: string | null): boolean {
   });
 }
 
+/**
+ * Directory names whose contents are committed third-party dependency code (matched exactly,
+ * case-sensitively: `Pods` is CocoaPods, while a lowercase `pods/` may be your own Kubernetes
+ * configuration).
+ */
+export const VENDORED_DIRECTORIES: readonly string[] = [
+  "node_modules",
+  "bower_components",
+  "jspm_packages",
+  "vendor",
+  "third_party",
+  "Pods",
+];
+const VENDORED_DIRECTORY_SET: ReadonlySet<string> = new Set(VENDORED_DIRECTORIES);
+
+/**
+ * Whether a repository-relative POSIX path is committed third-party dependency code. By path
+ * only, never by content: any directory segment is exactly `node_modules`, `bower_components`,
+ * `jspm_packages`, `vendor`, `third_party` or `Pods`. Whole segments only, so `src/vendored.ts`
+ * or `my_node_modules_x/` is not vendored. A path ending in `/` names a directory, so its last
+ * segment counts too (`node_modules/`).
+ */
+export function isVendoredPath(filePath: string | null): boolean {
+  if (filePath === null || filePath === "") return false;
+  const segments = filePath.split("/");
+  segments.pop(); // the file name (empty for a path ending in `/`)
+  return segments.some((segment) => VENDORED_DIRECTORY_SET.has(segment));
+}
+
 export function isTestContextFinding(finding: Pick<Finding, "context">): boolean {
   return finding.context === "test";
 }
 
+export function isVendoredContextFinding(finding: Pick<Finding, "context">): boolean {
+  return finding.context === "vendored";
+}
+
 /**
- * Marks a finding in test or fixture code with `context: "test"` and caps its confidence at
- * `low`: a match in a test is usually a deliberate sample, but it is still reported (rule,
- * severity and evidence unchanged) so a real value committed in a test is not lost.
+ * Marks findings by where they sit, capping their confidence at `low`; rule, severity and
+ * evidence stay unchanged so nothing real is lost:
+ * - committed third-party code (`isVendoredPath`) gets `context: "vendored"` and is shown as a
+ *   suggestion: the user does not own that code and cannot fix it there;
+ * - test or fixture code (`isTestOrFixturePath`) gets `context: "test"`: a match there is
+ *   usually a deliberate sample, but a real value committed in a test is still exposed.
+ * Vendored wins when a path is both (`node_modules/pkg/test/a.js`).
  */
 export function applyFindingContext(finding: Finding): Finding {
+  if (isVendoredContextFinding(finding) || isVendoredPath(finding.location.path)) {
+    return { ...finding, context: "vendored", confidence: "low" };
+  }
   if (!isTestContextFinding(finding) && !isTestOrFixturePath(finding.location.path)) {
     return finding;
   }
   return { ...finding, context: "test", confidence: "low" };
 }
 
-/** Splits findings into regular code (headline counts) and test or fixture code. */
+/**
+ * Splits findings into regular code (headline counts), test or fixture code, and suggestions in
+ * committed third-party (vendored) code.
+ */
 export function splitFindingsByContext<T extends Pick<Finding, "context">>(
   findings: readonly T[],
-): { primary: T[]; test: T[] } {
+): { primary: T[]; test: T[]; vendored: T[] } {
   const primary: T[] = [];
   const test: T[] = [];
-  for (const finding of findings) (isTestContextFinding(finding) ? test : primary).push(finding);
-  return { primary, test };
+  const vendored: T[] = [];
+  for (const finding of findings) {
+    if (isVendoredContextFinding(finding)) vendored.push(finding);
+    else if (isTestContextFinding(finding)) test.push(finding);
+    else primary.push(finding);
+  }
+  return { primary, test, vendored };
 }

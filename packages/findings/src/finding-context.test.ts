@@ -3,6 +3,7 @@ import type { Finding } from "./contract.js";
 import {
   applyFindingContext,
   isTestOrFixturePath,
+  isVendoredPath,
   splitFindingsByContext,
 } from "./finding-context.js";
 
@@ -124,6 +125,82 @@ describe("splitFindingsByContext", () => {
   it("separates test findings without dropping any", () => {
     const regular = finding("src/a.ts");
     const test = applyFindingContext(finding("src/a.test.ts"));
-    expect(splitFindingsByContext([test, regular])).toEqual({ primary: [regular], test: [test] });
+    expect(splitFindingsByContext([test, regular])).toEqual({
+      primary: [regular],
+      test: [test],
+      vendored: [],
+    });
+  });
+
+  it("separates vendored suggestions from test and regular findings", () => {
+    const regular = finding("src/a.ts");
+    const test = applyFindingContext(finding("src/a.test.ts"));
+    const vendored = applyFindingContext(finding("node_modules/pkg/index.js"));
+    expect(splitFindingsByContext([vendored, test, regular])).toEqual({
+      primary: [regular],
+      test: [test],
+      vendored: [vendored],
+    });
+  });
+});
+
+describe("isVendoredPath", () => {
+  it.each([
+    "node_modules/@babel/parser/lib/index.js",
+    "packages/web/node_modules/pkg/index.js",
+    "bower_components/jquery/dist/jquery.js",
+    "jspm_packages/npm/lodash@4.17.21/lodash.js",
+    "vendor/github.com/pkg/errors/errors.go",
+    "vendor/guzzlehttp/guzzle/src/Client.php",
+    "third_party/zlib/zlib.h",
+    "ios/Pods/Alamofire/Source/Session.swift",
+    "node_modules/",
+  ])("treats %s as vendored", (filePath) => {
+    expect(isVendoredPath(filePath)).toBe(true);
+  });
+
+  it.each([
+    "src/vendored.ts",
+    "my_node_modules_x/index.js",
+    "src/vendor.ts",
+    "node_modules",
+    "lib/vendors/a.js",
+    "k8s/pods/secret.yaml",
+    "dist/bundle.js",
+    "build/app.js",
+    "Vendor/a.js",
+  ])("does not treat %s as vendored", (filePath) => {
+    expect(isVendoredPath(filePath)).toBe(false);
+  });
+
+  it("returns false without a path", () => {
+    expect(isVendoredPath(null)).toBe(false);
+    expect(isVendoredPath("")).toBe(false);
+  });
+});
+
+describe("applyFindingContext for vendored code", () => {
+  it("marks vendored findings as suggestions with low confidence, keeping rule, severity and evidence", () => {
+    const original = finding("node_modules/@babel/parser/lib/index.js", {
+      severity: "high",
+      confidence: "high",
+    });
+    expect(applyFindingContext(original)).toEqual({
+      ...original,
+      context: "vendored",
+      confidence: "low",
+    });
+  });
+
+  it("prefers vendored over test when a path is both", () => {
+    expect(applyFindingContext(finding("node_modules/pkg/test/a.test.js")).context).toBe(
+      "vendored",
+    );
+    expect(applyFindingContext(finding("test/fixtures/vendor/lib.js")).context).toBe("vendored");
+  });
+
+  it("keeps a vendored context an analyzer already set", () => {
+    const original = finding("node_modules/", { context: "vendored", severity: "info" });
+    expect(applyFindingContext(original)).toEqual({ ...original, confidence: "low" });
   });
 });
