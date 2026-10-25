@@ -13,7 +13,8 @@ export type DetectedSecretKind =
   | "slack_token"
   | "stripe_key"
   | "google_api_key"
-  | "generic_credential";
+  | "generic_credential"
+  | "url_credential";
 
 export interface DetectedSecret {
   kind: DetectedSecretKind;
@@ -33,6 +34,7 @@ export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
   stripe_key: "Stripe secret key",
   google_api_key: "Google API key",
   generic_credential: "credential assignment",
+  url_credential: "password in a URL",
 };
 
 export interface DetectSecretsOptions {
@@ -108,6 +110,13 @@ const PATTERNS: Pattern[] = [
       `${CREDENTIAL_KEY}["']?\\??(?:[ \\t]{0,8}:[ \\t]{0,8}[A-Za-z_$][\\w$.]{0,40}(?:<[^<>\\n]{0,80}>)?(?:\\[\\])?\\??[ \\t]{0,8}(?::=|=(?![=>]))|[ \\t]{1,8}[A-Za-z_*[\\]][\\w$.*[\\]]{0,40}[ \\t]{0,8}=(?![=>])|[ \\t]{0,8}(?::=|=(?![=>]))[ \\t]{0,8}!?[\\w$.!()[\\]]{1,80}[ \\t]{0,8}(?:\\?\\?|\\|\\||\\?(?![.?])))[ \\t]{0,8}${QUOTED_VALUE}`,
       "gi",
     ),
+    group: "value",
+  },
+  {
+    kind: "url_credential",
+    // `scheme://user:password@host`: the value is the password only.
+    pattern:
+      /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/[^\s:/?#@"'`<>]{0,128}:(?<value>[^\s/?#@"'`<>]{1,256})@(?=[A-Za-z0-9[])/g,
     group: "value",
   },
 ];
@@ -301,6 +310,7 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
         (!isLikelySecretValue(value) || !isLiteralAssignment(context, match))
       )
         continue;
+      if (kind === "url_credential" && !isLikelySecretValue(value)) continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
         continue;
       const line = lineOfIndex(match.index ?? 0);

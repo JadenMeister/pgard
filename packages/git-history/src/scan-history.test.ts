@@ -259,6 +259,26 @@ describe("detectSecrets", () => {
     expect(detectSecrets(text, { path })).toEqual([]);
   });
 
+  it.each([
+    ["in a TS string", `const u = "postgres://admin:${L}@db.prod.internal:5432/app";`, "a.ts"],
+    ["with an empty user", `url: redis://:${L}@cache:6379`, "config/app.yml"],
+    ["in an env file", `DATABASE_URL=mysql://app:${C}@db/app`, ".env"],
+  ])("detects a password in a URL %s, keeping only the password (#145)", (_label, text, path) => {
+    const found = detectSecrets(text, { path }).find((secret) => secret.kind === "url_credential");
+    expect(found?.value).toMatch(/^(?:Qw|K9)/);
+    expect(found?.value).not.toContain("@");
+    expect(found?.value).not.toContain("admin");
+  });
+
+  it.each([
+    ["placeholder words", 'const u = "postgres://user:password@localhost/db";'],
+    ["an interpolated password", 'const u = "postgres://user:${DB_PASSWORD}@localhost/db";'],
+    ["a port and a mail address", 'const u = "https://host:8080/path?x=a@b";'],
+    ["a user without a password", 'const u = "https://token@github.com/org/repo";'],
+  ])("ignores URLs with %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/db.ts" })).toEqual([]);
+  });
+
   it("stays linear on large inputs (#145)", () => {
     const shapes = [
       'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
@@ -404,6 +424,39 @@ describe("scanGitHistory", () => {
       ["history:tracked-files", "completed"],
       ["history:commits", "completed"],
     ]);
+  });
+
+  it("reports #145 credentials as PG-SECRET-002 without their values", async () => {
+    fixture = createGitFixture();
+    const password = join("Qw9", "ErTy", "UiOp", "AsDf");
+    const bracketed = join("K9x", "[mQ2]", "vLp8", "Wz4Rt");
+    fixture.commit({
+      files: {
+        "src/db.ts": [
+          `const url = "postgres://admin:${password}@db.internal:5432/app";`,
+          `const dbPassword: string = "${password}x";`,
+          `const y = \`\n{password: ${bracketed}, user: a}\n\`;`,
+        ].join("\n"),
+        "main.go": `package main\n\nfunc f() {\n\tpassword := "${password}y"\n}\n`,
+      },
+    });
+    const result = await scanGitHistory(fixture.root);
+    const tracked = byRule(result, "PG-SECRET-002");
+    expect(tracked.map((finding) => [finding.location.path, finding.location.line])).toEqual(
+      expect.arrayContaining([
+        ["src/db.ts", 1],
+        ["src/db.ts", 2],
+        ["src/db.ts", 4],
+        ["main.go", 4],
+      ]),
+    );
+    expect(tracked.find((finding) => finding.location.line === 1)).toMatchObject({
+      evidence: "password in a URL in a tracked file (value redacted)",
+      status: "suspected",
+    });
+    const json = JSON.stringify(result);
+    expect(json).not.toContain(password);
+    expect(json).not.toContain(bracketed);
   });
 
   it("does not report untracked or ignored local .env files", async () => {
