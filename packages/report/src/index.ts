@@ -1,7 +1,7 @@
 export { escapeHtml, markInvisibleCharacters } from "./escape-html.js";
 export {
   countFindingsBySeverity,
-  formatAdvisoryDb,
+  ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
   groupReportFindings,

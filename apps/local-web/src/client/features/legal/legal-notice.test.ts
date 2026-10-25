@@ -4,10 +4,11 @@ import { LEGAL_POINTS } from "./LegalNotice";
 const text = LEGAL_POINTS.join("\n");
 
 describe("dashboard privacy notice", () => {
-  it("does not promise advisory updates that do not exist", () => {
-    expect(text).not.toMatch(/updat\w* advisory|advisory data, when you choose/i);
-    expect(text).toContain("PGARD_ADVISORY_DB");
-    expect(text).toMatch(/no advisory update command/i);
+  it("says PGARD has no vulnerability database and analysis is code-based", () => {
+    expect(text).not.toMatch(/advisory/i);
+    expect(text).not.toContain("PGARD_ADVISORY_DB");
+    expect(text).toContain("does not ship, download or query a vulnerability database");
+    expect(text).toContain("Findings come from the code itself");
   });
 
   it("says the GitHub sign-in is kept in the OS keychain, not memory only and not in a file", () => {

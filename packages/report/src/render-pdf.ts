@@ -2,7 +2,7 @@ import { SEVERITIES, type Finding, type ScanResult } from "@pgard/findings";
 import PDFDocument from "pdfkit";
 import {
   countFindingsBySeverity,
-  formatAdvisoryDb,
+  ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
   groupReportFindings,
@@ -172,8 +172,8 @@ export function renderPdfReport(input: ScanResult): Promise<Buffer> {
       line(doc, `${check.id}: ${check.status} - ${check.reason}`);
     }
 
-    heading(doc, "Data sources");
-    line(doc, formatAdvisoryDb(result));
+    heading(doc, "Analysis basis");
+    line(doc, ANALYSIS_BASIS_NOTE);
 
     doc.moveDown(1);
     doc.font("Helvetica").fontSize(8).fillColor(MUTED).text(toPdfText(REPORT_DISCLAIMER));

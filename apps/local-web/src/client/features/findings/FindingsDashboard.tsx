@@ -189,8 +189,9 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
         </section>
       ) : null}
       <p className="muted small">
-        Advisory data: {result.advisoryDb.version ?? "none"}
-        {result.advisoryDb.updatedAt ? `, updated ${result.advisoryDb.updatedAt}` : ""}
+        PGARD does not ship or query a vulnerability database. Findings come from the code itself
+        (query statements, server code, configuration), Git history and the local HTTP checks you
+        selected.
       </p>
     </Card>
   );

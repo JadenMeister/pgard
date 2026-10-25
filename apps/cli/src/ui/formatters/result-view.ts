@@ -9,7 +9,7 @@ import {
   type ScanResult,
 } from "@pgard/findings";
 import {
-  formatAdvisoryDb,
+  ANALYSIS_BASIS_NOTE,
   formatLocation,
   labelCoverageStatus,
   labelOverallStatus,
@@ -104,7 +104,7 @@ export function formatAuthorization(summary: AuthorizationSummary, style: Style)
   return `${style.bold(decision)}\n${lines.join("\n")}`;
 }
 
-/** Full terminal result view: status, chart, findings by status, coverage, data sources. */
+/** Full terminal result view: status, chart, findings by status, coverage, analysis basis. */
 export function formatScanResult(result: ScanResult, style: Style): string {
   const sections: string[] = [];
   const target = result.target;
@@ -151,6 +151,6 @@ export function formatScanResult(result: ScanResult, style: Style): string {
     );
   }
   sections.push("", style.bold("Coverage"), formatCoverage(result.coverage, style));
-  sections.push("", style.dim(safeText(formatAdvisoryDb(result), 300)));
+  sections.push("", style.dim(ANALYSIS_BASIS_NOTE));
   return sections.join("\n");
 }
