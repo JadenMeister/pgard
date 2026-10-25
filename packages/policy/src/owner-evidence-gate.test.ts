@@ -43,8 +43,9 @@ afterEach(() => {
 
 async function authorizeOwner() {
   fixture = createGitFixture({ remotes: { origin: "git@github.com:me/app.git" } });
-  fixture.commit({ authorName: "Me Person", authorEmail: "me@example.com" });
-  // `ME` owns `me/app` and installed the App; no merged PR and no signed commit.
+  const head = fixture.commit({ authorName: "Me Person", authorEmail: "me@example.com" });
+  // `ME` owns `me/app` and installed the App; no merged PR and no signed commit. HEAD is on the
+  // default branch, so only the exemption decides contribution.
   const { session } = createMockGitHub({
     user: ME,
     repository: userRepository(),
@@ -52,7 +53,7 @@ async function authorizeOwner() {
     installationRepositories: { 77: [555] },
     pulls: {},
     commits: {},
-    compare: {},
+    compare: { [head]: "identical" },
   });
   return authorizeProject(fixture.root, { getGitHubSession: sessionProvider(async () => session) });
 }

@@ -441,8 +441,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
       reason,
     });
     // The organization owner is exempt from a separate contribution (#47).
-    const contribution =
-      'me is an owner of the organization "acme"; a separate contribution is not required.';
+    const contribution = `me is an owner of the organization "acme"; a separate contribution is not required. Local HEAD is linked to acme/app by commit ${head.slice(0, 12)}.`;
     expect(cli.result.authorization.checks.find((check) => check.id === "contribution")).toEqual({
       id: "contribution",
       status: "passed",
@@ -494,15 +493,15 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
   it("allow the verified personal owner without a separate contribution, with the same reason", async () => {
     const { root, head } = createProject();
     // No merged PR and no signed commit: only the owner exemption (#47) can pass contribution.
-    const ownerOnly = (): MockGitHubState => ({ ...allowedState(head), commits: {}, compare: {} });
+    // HEAD is on the default branch, which links the local code to me/app.
+    const ownerOnly = (): MockGitHubState => ({ ...allowedState(head), commits: {} });
     const cliGitHub = mockSessionProvider(ownerOnly());
     const webGitHub = mockSessionProvider(ownerOnly());
 
     const cli = await scanWithCli(root, () => cliGitHub.provider);
     const web = await scanWithWeb(root, () => webGitHub.provider);
 
-    const reason =
-      "me owns me/app (verified by GitHub account id); a separate contribution is not required.";
+    const reason = `me owns me/app (verified by GitHub account id); a separate contribution is not required. Local HEAD is linked to me/app by commit ${head.slice(0, 12)}.`;
     expect(cli.result.authorization.decision).toBe("allowed");
     expect(cli.exitCode).toBe(0);
     expect(cli.result.authorization.checks.find((check) => check.id === "contribution")).toEqual({
@@ -518,7 +517,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
     expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
     expect(webGitHub.calls).toEqual(cliGitHub.calls);
-    expect(cliGitHub.calls.some((call) => /^(pulls|commit|compare):/.test(call))).toBe(false);
+    expect(cliGitHub.calls.some((call) => /^(pulls|commit):/.test(call))).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 

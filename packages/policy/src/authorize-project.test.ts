@@ -940,17 +940,21 @@ describe("authorizeProject: verified owner exemption (#47)", () => {
   }
 
   it("passes contribution for the personal owner without a PR or signed commit", async () => {
-    const { root } = repoWithCommits(PERSONAL_REMOTE);
-    const { outcome, calls } = await authorize(root, personalOwnerState());
+    const { root, mine } = repoWithCommits(PERSONAL_REMOTE);
+    const { outcome, calls } = await authorize(
+      root,
+      personalOwnerState({ compare: { [mine]: "identical" } }),
+    );
     expect(outcome.summary.decision).toBe("allowed");
     expect(isAuthorizationAllowed(outcome)).toBe(true);
     expect(contributionOf(outcome)).toEqual({
       id: "contribution",
       status: "passed",
-      reason: PERSONAL_EXEMPT,
+      reason: `${PERSONAL_EXEMPT} Local HEAD is linked to me/app by commit ${mine.slice(0, 12)}.`,
     });
-    // The evidence comes from the owner approval of this run: no extra API calls.
-    expect(calls.some((call) => /^(pulls|commit|compare|membership):/.test(call))).toBe(false);
+    // The owner evidence comes from this run's owner approval; the only extra call is the link.
+    expect(calls.some((call) => /^(pulls|commit|membership):/.test(call))).toBe(false);
+    expect(calls.filter((call) => call.startsWith("compare:"))).toEqual([`compare:me/app:${mine}`]);
   });
 
   it("blocks a personal collaborator without a contribution, with guidance", async () => {
@@ -990,18 +994,21 @@ describe("authorizeProject: verified owner exemption (#47)", () => {
   });
 
   it("passes contribution for an organization owner without a contribution", async () => {
-    const { root } = repoWithCommits(ORG_REMOTE);
-    const { outcome, calls } = await authorize(root, orgOwnerState());
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome, calls } = await authorize(
+      root,
+      orgOwnerState({ compare: { [mine]: "ahead" } }),
+    );
     expect(outcome.summary.decision).toBe("allowed");
     expect(isAuthorizationAllowed(outcome)).toBe(true);
     expect(contributionOf(outcome)).toEqual({
       id: "contribution",
       status: "passed",
-      reason: ORG_EXEMPT,
+      reason: `${ORG_EXEMPT} Local HEAD is linked to acme/app by commit ${mine.slice(0, 12)}.`,
     });
     // The membership owner approval already read is reused, not read a second time.
     expect(calls.filter((call) => call === "membership:acme")).toHaveLength(1);
-    expect(calls.some((call) => /^(pulls|commit|compare):/.test(call))).toBe(false);
+    expect(calls.some((call) => /^(pulls|commit):/.test(call))).toBe(false);
   });
 
   it("blocks an organization member without a contribution", async () => {
@@ -1100,6 +1107,152 @@ describe("authorizeProject: verified owner exemption (#47)", () => {
     expect(statusOf(outcome, "owner_approval")).toBe("passed");
     expect(statusOf(outcome, "current_access")).toBe("failed");
     expect(statusOf(outcome, "contribution")).toBe("unverifiable");
+  });
+});
+
+describe("authorizeProject: verified owner must link the local code to the repository", () => {
+  const PERSONAL_EXEMPT =
+    "me owns me/app (verified by GitHub account id); a separate contribution is not required.";
+
+  function ownerState(overrides: Partial<MockGitHubState> = {}): MockGitHubState {
+    return baseState({
+      repository: userRepository(),
+      installations: [ownerInstallation()],
+      installationRepositories: { 77: [555] },
+      ...overrides,
+    });
+  }
+
+  function contributionOf(outcome: AuthorizationOutcome) {
+    return outcome.summary.checks.find((check) => check.id === "contribution");
+  }
+
+  const unlinked = (count: number, repo = "me/app") =>
+    `None of the last ${count} local commits is on ${repo}'s default branch "main"; the local code can't be tied to this repository. Push or pull so local history shares a commit with the default branch.`;
+
+  // Mutation sanity: fails if the owner exemption passes without the link.
+  it("fails when no local commit is on the default branch (e.g. origin points at another repo)", async () => {
+    const { root } = repoWithCommits({ origin: "git@github.com:me/app.git" });
+    const { outcome } = await authorize(root, ownerState());
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("passed");
+    expect(statusOf(outcome, "current_access")).toBe("passed");
+    expect(contributionOf(outcome)).toEqual({
+      id: "contribution",
+      status: "failed",
+      reason: unlinked(2),
+    });
+  });
+
+  it("fails for an empty canonical repository (GitHub knows none of the commits)", async () => {
+    // The client maps the 409 GitHub returns for an empty repository to "no comparison".
+    const { root } = repoWithCommits({ origin: "git@github.com:me/app.git" });
+    const { outcome } = await authorize(root, ownerState({ compare: {} }));
+    expectBlocked(outcome);
+    expect(contributionOf(outcome)?.reason).toBe(unlinked(2));
+  });
+
+  it.each(["behind", "diverged"] as const)(
+    "does not link a commit whose comparison is %s",
+    async (comparison) => {
+      const { root, other, mine } = repoWithCommits({ origin: "git@github.com:me/app.git" });
+      const { outcome } = await authorize(
+        root,
+        ownerState({ compare: { [mine]: comparison, [other]: comparison } }),
+      );
+      expectBlocked(outcome);
+      expect(contributionOf(outcome)?.status).toBe("failed");
+    },
+  );
+
+  it("respects the commit bound in a shallow history: fails if none of the examined commits link", async () => {
+    const { root, other } = repoWithCommits({ origin: "git@github.com:me/app.git" });
+    // Only the older commit is on the default branch; with a bound of 1 it is never examined.
+    const { outcome, calls } = await authorize(
+      root,
+      ownerState({ compare: { [other]: "ahead" } }),
+      1,
+    );
+    expectBlocked(outcome);
+    expect(contributionOf(outcome)?.reason).toBe(unlinked(1));
+    expect(calls.filter((call) => call.startsWith("compare:"))).toHaveLength(1);
+
+    fixture?.cleanup();
+    fixture = createGitFixture({ remotes: { origin: "git@github.com:me/app.git" } });
+    fixture.commit({});
+    const single = await authorize(fixture.root, ownerState());
+    expect(contributionOf(single.outcome)?.reason).toBe(unlinked(1));
+  });
+
+  it("links through the merge-base when local commits are ahead of the default branch", async () => {
+    const { root, other, mine } = repoWithCommits({ origin: "git@github.com:me/app.git" });
+    const unpushed = fixture?.commit({ files: { "local.txt": "x" } }) ?? "";
+    // GitHub knows neither unpushed commit (404 -> no comparison); their ancestor is on main.
+    const { outcome } = await authorize(root, ownerState({ compare: { [other]: "ahead" } }));
+    expect(isAuthorizationAllowed(outcome)).toBe(true);
+    expect(contributionOf(outcome)?.reason).toBe(
+      `${PERSONAL_EXEMPT} Local HEAD is linked to me/app by commit ${other.slice(0, 12)}.`,
+    );
+    expect([mine, unpushed]).not.toContain(other);
+  });
+
+  it("links a fork's owner to the fork named by origin", async () => {
+    const { root, mine } = repoWithCommits({ origin: "git@github.com:me/app-fork.git" });
+    const { outcome, calls } = await authorize(
+      root,
+      ownerState({
+        repository: userRepository({ id: 556, fullName: "me/app-fork" }),
+        installationRepositories: { 77: [556] },
+        compare: { [mine]: "identical" },
+      }),
+    );
+    expect(isAuthorizationAllowed(outcome)).toBe(true);
+    expect(contributionOf(outcome)?.reason).toContain(
+      `Local HEAD is linked to me/app-fork by commit ${mine.slice(0, 12)}.`,
+    );
+    expect(calls).toContain(`compare:me/app-fork:${mine}`);
+  });
+
+  it("fails an organization owner whose local code is not on the default branch", async () => {
+    const { root } = repoWithCommits({ origin: "git@github.com:acme/app.git" });
+    const { outcome } = await authorize(
+      root,
+      baseState({
+        repository: orgRepository(),
+        installations: [orgInstallation()],
+        installationRepositories: { 88: [555] },
+        memberships: { acme: orgMembership() },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("passed");
+    expect(contributionOf(outcome)?.reason).toBe(unlinked(2, "acme/app"));
+  });
+
+  it.each([
+    new GitHubAuthError("rate_limited", "GitHub API rate limit reached; try again later.", 403),
+    new GitHubAuthError("network_error", "Could not reach the GitHub API."),
+    new GitHubAuthError("http_error", "GitHub API request failed with status 500.", 500),
+  ])("reports an API error during the link check as unverifiable ($code)", async (error) => {
+    const { root } = repoWithCommits({ origin: "git@github.com:me/app.git" });
+    const { session } = createMockGitHub(ownerState());
+    const outcome = await authorizeProject(root, {
+      getGitHubSession: sessionProvider(async () => ({
+        ...session,
+        client: {
+          ...session.client,
+          compareCommits: async () => {
+            throw error;
+          },
+        },
+      })),
+    });
+    expectBlocked(outcome);
+    expect(contributionOf(outcome)).toEqual({
+      id: "contribution",
+      status: "unverifiable",
+      reason: `Could not check that the local code belongs to me/app: ${error.message}`,
+    });
   });
 });
 

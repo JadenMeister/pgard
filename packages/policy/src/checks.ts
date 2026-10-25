@@ -580,6 +580,58 @@ export function parseCanonicalRepository(fullName: string): GitHubRepositoryRef 
 }
 
 /**
+ * True when GitHub reports `sha` in the default branch history of the canonical repository: the
+ * default branch is ahead of it or identical (`compare/<sha>...<default>`). A SHA GitHub does
+ * not know (404/422), a commit only on another branch, and an empty repository (409) are not.
+ * API errors propagate to the caller, which reports them as unverifiable.
+ */
+async function isInDefaultBranch(
+  client: GitHubClient,
+  repo: GitHubRepositoryRef,
+  sha: string,
+  defaultBranch: string,
+): Promise<boolean> {
+  const comparison = await client.compareCommits(repo.owner, repo.name, sha, defaultBranch);
+  return comparison === "ahead" || comparison === "identical";
+}
+
+/**
+ * The verified owner's contribution check: no contribution of their own is needed, but the
+ * local code must belong to this repository. At least one commit of HEAD's ancestry (newest
+ * first, at most `maxCandidates`) must be in the canonical repository's default branch, by the
+ * same reachability test the normal check uses. Not linked: failed. API error: unverifiable.
+ */
+async function verifyOwnerLink(
+  input: ContributionInput,
+  repo: GitHubRepositoryRef,
+  candidates: CommitCandidate[],
+  exemption: string,
+): Promise<CheckResult> {
+  const { client, repository } = input;
+  const branch = repository.defaultBranch;
+  const unlinked = (count: number) =>
+    failed(
+      `None of the last ${count} local commits is on ${repository.fullName}'s default branch "${branch}"; the local code can't be tied to this repository. Push or pull so local history shares a commit with the default branch.`,
+    );
+  if (candidates.length === 0) {
+    return unlinked(0);
+  }
+  const examined = candidates.slice(0, input.maxCandidates);
+  try {
+    for (const candidate of examined) {
+      if (await isInDefaultBranch(client, repo, candidate.sha, branch)) {
+        return passed(
+          `${exemption} Local HEAD is linked to ${repository.fullName} by commit ${candidate.sha.slice(0, 12)}.`,
+        );
+      }
+    }
+  } catch (error) {
+    return describeApiError(error, `check that the local code belongs to ${repository.fullName}`);
+  }
+  return unlinked(examined.length);
+}
+
+/**
  * A local commit (from HEAD's ancestry) counts only when (1) GitHub reports it in the default
  * branch history and (2) a pull request authored by the user and merged into this repository's
  * default branch is associated with it, or GitHub verified its signature and attributes the
@@ -587,15 +639,12 @@ export function parseCanonicalRepository(fullName: string): GitHubRepositoryRef 
  * other branches or forks, unsigned direct pushes and local-only commits are never proof.
  * All API calls use GitHub's canonical repository name.
  *
- * Exception: the verified owner (see `ownerExemptionReason`) passes without a separate
- * contribution. Everyone else gets the rule above, with guidance on how to qualify.
+ * Exception: the verified owner (see `ownerExemptionReason`) needs no contribution of their
+ * own, but the local code must still be tied to this repository (see `verifyOwnerLink`).
+ * Everyone else gets the rule above, with guidance on how to qualify.
  */
 export async function verifyContribution(input: ContributionInput): Promise<CheckResult> {
   const { client, user, repository } = input;
-  const exemption = ownerExemptionReason(input.ownerEvidence, user, repository);
-  if (exemption !== null) {
-    return passed(exemption);
-  }
   const guidance = contributionGuidance(repository.defaultBranch);
   const repo = parseCanonicalRepository(repository.fullName);
   if (repo === null) {
@@ -606,6 +655,10 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
     candidates = await listCommitCandidates(input.projectRoot, input.runner);
   } catch {
     return unverifiable("Could not read local Git history to find contribution candidates.");
+  }
+  const exemption = ownerExemptionReason(input.ownerEvidence, user, repository);
+  if (exemption !== null) {
+    return verifyOwnerLink(input, repo, candidates, exemption);
   }
   if (candidates.length === 0) {
     return failed(`No local commits were found to check for a contribution. ${guidance}`);
@@ -634,13 +687,7 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
       if (evidence === null) {
         continue;
       }
-      const comparison = await client.compareCommits(
-        repo.owner,
-        repo.name,
-        candidate.sha,
-        repository.defaultBranch,
-      );
-      if (comparison === "ahead" || comparison === "identical") {
+      if (await isInDefaultBranch(client, repo, candidate.sha, repository.defaultBranch)) {
         return passed(
           `Commit ${candidate.sha.slice(0, 12)} is in the default branch "${repository.defaultBranch}" (${evidence}).`,
         );
