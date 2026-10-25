@@ -54,6 +54,8 @@ interface Pattern {
 /** A credential-like key name (`password`, `DB_PASSWORD`, `x-api-key`, `clientSecret`...). */
 const CREDENTIAL_KEY =
   "(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}";
+/** A quoted literal value: the quote must close right after the value. */
+const QUOTED_VALUE = "(?<valueQuote>[\"'`])(?<value>[^\\s\"'`,;]{8,256})\\k<valueQuote>";
 
 // Bounded quantifiers keep matching linear.
 const PATTERNS: Pattern[] = [
@@ -93,6 +95,17 @@ const PATTERNS: Pattern[] = [
     // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
     pattern: new RegExp(
       `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>[^\\s"'\`,;]{8,256})\\k<valueQuote>`,
+      "gi",
+    ),
+    group: "value",
+  },
+  {
+    kind: "generic_credential",
+    // Only with a quoted literal: a typed declaration (`const dbPassword: string = "…"`,
+    // `var password string = "…"`) or a literal behind a condition or fallback
+    // (`apiKey = isProd ? "…" : …`, `apiKey = process.env.KEY ?? "…"`).
+    pattern: new RegExp(
+      `${CREDENTIAL_KEY}["']?\\??(?:[ \\t]{0,8}:[ \\t]{0,8}[A-Za-z_$][\\w$.]{0,40}(?:<[^<>\\n]{0,80}>)?(?:\\[\\])?\\??[ \\t]{0,8}(?::=|=(?![=>]))|[ \\t]{1,8}[A-Za-z_*[\\]][\\w$.*[\\]]{0,40}[ \\t]{0,8}=(?![=>])|[ \\t]{0,8}(?::=|=(?![=>]))[ \\t]{0,8}!?[\\w$.!()[\\]]{1,80}[ \\t]{0,8}(?:\\?\\?|\\|\\||\\?(?![.?])))[ \\t]{0,8}${QUOTED_VALUE}`,
       "gi",
     ),
     group: "value",

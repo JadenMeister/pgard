@@ -222,6 +222,26 @@ describe("detectSecrets", () => {
     expect(detectSecrets(text, { path: "internal/scan/module.go" })).toEqual([]);
   });
 
+  it.each([
+    ["TS typed declaration", `const dbPassword: string = "${L}";`, "src/db.ts"],
+    ["optional typed class field", `private readonly apiKey?: string = "${L}";`, "src/db.ts"],
+    ["Python typed assignment", `password: str = "${L}"`, "app/db.py"],
+    ["Go typed var", `var password string = "${L}"`, "main.go"],
+    ["quoted secret in a ternary", `const accessKey = cond ? "${L}" : "other";`, "src/db.ts"],
+    ["quoted fallback after ??", `const apiKey = process.env.API_KEY ?? "${L}";`, "src/db.ts"],
+    ["quoted fallback after ||", `const apiKey = process.env.API_KEY || "${L}";`, "src/db.ts"],
+  ])("detects a %s (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    ["a typed field set to a variable", "class A { secret: string = defaultSecretValue }"],
+    ["a comparison", 'if (password == "Xq9vL2mTz8RkWp4N") {}'],
+    ["a typed parameter with a constant default", "function f(password: string = DEFAULT_PW) {}"],
+  ])("ignores %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+  });
+
   it("stays linear on large inputs (#145)", () => {
     const shapes = [
       'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
