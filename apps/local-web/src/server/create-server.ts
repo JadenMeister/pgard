@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { sanitizeDisplayText } from "@pgard/http-local";
+import { isOpenableGitHubUrl } from "@pgard/scan-core";
 import { createDefaultServerDeps, type ServerDeps } from "./deps.js";
 import {
   applySecurityHeaders,
@@ -32,6 +33,11 @@ export interface LocalWebServerOptions {
   env: Readonly<Record<string, string | undefined>>;
   assets: Map<string, StaticAsset>;
   deps?: ServerDeps;
+  /**
+   * Opens a GitHub page (the device sign-in page) in the system browser. Omitted: nothing is
+   * opened automatically. Only `https://github.com/` URLs are ever passed.
+   */
+  openGitHubPage?: (url: string) => void;
   /** Test hook; production uses 32 random bytes. */
   token?: string;
 }
@@ -103,6 +109,13 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
         verificationUri: sanitizeDisplayText(code.verificationUri, 200),
         expiresIn: code.expiresIn,
       };
+      if (isOpenableGitHubUrl(code.verificationUri)) {
+        try {
+          options.openGitHubPage?.(code.verificationUri);
+        } catch {
+          // Failing to open a browser is never an error; the page is linked in the dashboard.
+        }
+      }
     },
     (notice) => applySignInNotice(state, notice),
   );

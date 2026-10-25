@@ -87,7 +87,7 @@ function expectNoSecret(captured: CapturedIo): void {
 
 describe("pgard login", () => {
   it("parses login and logout without arguments only", () => {
-    expect(parseCommandLine(["login"])).toEqual({ kind: "login" });
+    expect(parseCommandLine(["login"])).toEqual({ kind: "login", noBrowser: false });
     expect(parseCommandLine(["logout"])).toEqual({ kind: "logout" });
     expect(parseCommandLine(["login", "--help"])).toEqual({ kind: "help", topic: "login" });
     expect(() => parseCommandLine(["logout", "now"])).toThrow("Unexpected argument");

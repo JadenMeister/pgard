@@ -7,7 +7,7 @@ import {
 } from "@pgard/scan-core";
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import { formatDeviceCode, formatGitHubAppOverride } from "../flows/authenticate.js";
+import { formatGitHubAppOverride, showDeviceCode } from "../flows/authenticate.js";
 import { safeText } from "../ui/formatters/style.js";
 
 export const REVOKE_HINT = `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${GITHUB_APP_AUTHORIZATIONS_URL} and revoke the PGARD app.`;
@@ -43,7 +43,7 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
     result = await deps.signInAndStore({
       clientId,
       credentialStore: deps.credentialStore,
-      onUserCode: (code) => err(context, errStyle.bold(formatDeviceCode(code))),
+      onUserCode: (code) => showDeviceCode(context, code),
       signal: context.signal,
     });
   } catch (error) {

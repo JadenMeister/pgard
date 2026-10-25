@@ -6,6 +6,8 @@ import { findGitRoot } from "@pgard/scan-core";
 export interface LauncherOptions {
   projectRoot: string;
   presetTargetPort: number | null;
+  /** `--no-browser`: never open GitHub pages automatically (links are still shown). */
+  noBrowser: boolean;
 }
 
 export class LauncherUsageError extends Error {
@@ -25,8 +27,14 @@ export async function parseLauncherArgs(
 ): Promise<LauncherOptions> {
   let projectRoot: string | null = null;
   let presetTargetPort: number | null = null;
+  let noBrowser = false;
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
+    if (name === "--no-browser" && !noBrowser) {
+      noBrowser = true;
+      index -= 1;
+      continue;
+    }
     const value = argv[index + 1];
     if (value === undefined) throw new LauncherUsageError(`Missing value for ${name ?? "option"}.`);
     if (name === "--project-root" && projectRoot === null) {
@@ -50,5 +58,5 @@ export async function parseLauncherArgs(
   if (resolvedRoot === null || resolvedGitRoot === null || resolvedRoot !== resolvedGitRoot) {
     throw new LauncherUsageError("--project-root must be the root of a Git repository.");
   }
-  return { projectRoot: resolvedRoot, presetTargetPort };
+  return { projectRoot: resolvedRoot, presetTargetPort, noBrowser };
 }

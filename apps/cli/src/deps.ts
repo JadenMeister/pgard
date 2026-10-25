@@ -12,6 +12,8 @@ import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
   findGitRoot,
+  openGitHubUrl,
+  recheckOwnerApproval,
   resolveGitHubAppClientId,
   runScan,
   signInAndStore,
@@ -31,6 +33,16 @@ export interface CliDeps {
   findGitRoot: (cwd: string) => Promise<string | null>;
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
+  /** Owner approval alone, for noticing an App install; never an authorization by itself. */
+  recheckOwnerApproval: typeof recheckOwnerApproval;
+  /**
+   * Opens an `https://github.com/` URL in the system browser (fixed argv, no shell). Resolves
+   * `false` when nothing was opened; never rejects.
+   */
+  openBrowser: (url: string) => Promise<boolean>;
+  /** Waits `ms`; rejects when `signal` aborts. */
+  sleep: (ms: number, signal: AbortSignal) => Promise<void>;
+  now: () => number;
   createSessionProvider: (options: {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
@@ -91,6 +103,24 @@ function startDashboardProcessDefault(entry: string, args: readonly string[]): P
   });
 }
 
+function sleepDefault(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(new Error("aborted"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 function readGitVersionDefault(): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(
@@ -135,6 +165,10 @@ export function createDefaultDeps(): CliDeps {
     findGitRoot,
     verifyProject,
     runScan,
+    recheckOwnerApproval,
+    openBrowser: (url) => openGitHubUrl(url),
+    sleep: sleepDefault,
+    now: Date.now,
     createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
         ...deviceFlowApp(env),

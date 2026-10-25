@@ -34,6 +34,21 @@ describe("parseLauncherArgs", () => {
     );
   });
 
+  it("accepts --no-browser once, anywhere, and defaults to opening GitHub pages", async () => {
+    expect((await parseLauncherArgs(["--project-root", root], async () => root)).noBrowser).toBe(
+      false,
+    );
+    for (const argv of [
+      ["--no-browser", "--project-root", root],
+      ["--project-root", root, "--no-browser", "--target-port", "5173"],
+    ]) {
+      expect((await parseLauncherArgs(argv, async () => root)).noBrowser).toBe(true);
+    }
+    await expect(
+      parseLauncherArgs(["--project-root", root, "--no-browser", "--no-browser"], async () => root),
+    ).rejects.toBeInstanceOf(LauncherUsageError);
+  });
+
   it("rejects a directory that is not the Git root itself", async () => {
     await expect(
       parseLauncherArgs(["--project-root", path.join(root, "sub")], async () => root),

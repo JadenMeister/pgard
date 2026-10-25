@@ -764,6 +764,35 @@ describe("local web scans", () => {
     );
     expect(JSON.parse(done.body).deviceCode).toBeNull();
   });
+
+  it("opens only a github.com device page through openGitHubPage, when one is given", async () => {
+    let onUserCode:
+      ((code: { userCode: string; verificationUri: string; expiresIn: number }) => void) | null =
+      null;
+    const deps = fakeDeps();
+    deps.createSessionProvider = (options) => {
+      onUserCode = options.onUserCode;
+      return Object.assign(async () => ({}) as never, {
+        invalidate: vi.fn(),
+        signOut: deps.signOut,
+      }) as never;
+    };
+    const openGitHubPage = vi.fn();
+    server = await startLocalWebServer({
+      projectRoot: "/work/my-project",
+      presetTargetPort: null,
+      env: {},
+      assets: new Map(),
+      deps,
+      token: TOKEN,
+      openGitHubPage,
+    });
+    const show = (verificationUri: string) =>
+      onUserCode?.({ userCode: "ABCD-1234", verificationUri, expiresIn: 900 });
+    show("https://github.com/login/device");
+    show("https://evil.test/login/device");
+    expect(openGitHubPage).toHaveBeenCalledExactlyOnceWith("https://github.com/login/device");
+  });
 });
 
 describe("local web reports", () => {

@@ -36,7 +36,7 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
     case "scan":
       return runScanCommand(context, command);
     case "dashboard":
-      return runDashboard(context, command.targetPort);
+      return runDashboard(context, command.targetPort, command.noBrowser);
     case "rules-list":
       return runRulesList(context, command.language);
     case "doctor":
@@ -57,36 +57,40 @@ const MENU_CHOICES: ReadonlyArray<{
   hint: string;
   value: RunnableCommand | "quit";
 }> = [
-  { label: "Verify project", hint: "authorization checks", value: { kind: "project-verify" } },
+  {
+    label: "Verify project",
+    hint: "authorization checks",
+    value: { kind: "project-verify", noBrowser: false },
+  },
   {
     label: "Scan code + history",
     hint: "pgard scan",
-    value: { kind: "scan", variant: "default", port: null, report: null },
+    value: { kind: "scan", variant: "default", port: null, report: null, noBrowser: false },
   },
   {
     label: "Scan code",
     hint: "pgard scan code",
-    value: { kind: "scan", variant: "code", port: null, report: null },
+    value: { kind: "scan", variant: "code", port: null, report: null, noBrowser: false },
   },
   {
     label: "Scan Git history",
     hint: "pgard scan history",
-    value: { kind: "scan", variant: "history", port: null, report: null },
+    value: { kind: "scan", variant: "history", port: null, report: null, noBrowser: false },
   },
   {
     label: "Scan local web service",
     hint: "pgard scan web",
-    value: { kind: "scan", variant: "web", port: null, report: null },
+    value: { kind: "scan", variant: "web", port: null, report: null, noBrowser: false },
   },
   {
     label: "Scan all",
     hint: "code + history + web",
-    value: { kind: "scan", variant: "all", port: null, report: null },
+    value: { kind: "scan", variant: "all", port: null, report: null, noBrowser: false },
   },
   {
     label: "Open dashboard",
     hint: "local web app",
-    value: { kind: "dashboard", targetPort: null },
+    value: { kind: "dashboard", targetPort: null, noBrowser: false },
   },
   { label: "List rules", hint: "pgard rules list", value: { kind: "rules-list", language: null } },
   { label: "Doctor", hint: "environment diagnosis", value: { kind: "doctor" } },
@@ -153,9 +157,12 @@ export async function main(
   const cancel = createCancelController(options.interrupts ?? process, (message) =>
     io.stderr.write(`${errStyle.yellow(message)}\n`),
   );
+  const noBrowser = "noBrowser" in command && command.noBrowser;
   const context: CommandContext = {
     io,
     deps,
+    // GitHub pages open automatically only for a person at a terminal who did not opt out.
+    canOpenBrowser: io.stdout.isTTY === true && !noBrowser,
     style: createStyle(shouldUseColor(io.stdout, io.env)),
     errStyle,
     keys,

@@ -14,6 +14,7 @@ The browser cannot choose another folder. Results end when you stop it.`;
 export async function runDashboard(
   context: CommandContext,
   targetPort: number | null,
+  noBrowser = false,
 ): Promise<ExitCode> {
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
@@ -38,6 +39,8 @@ export async function runDashboard(
   if (!isConfirmed) return EXIT_CODES.cancelled;
   const args = ["--project-root", projectRoot];
   if (targetPort !== null) args.push("--target-port", String(targetPort));
+  // The dashboard opens the GitHub sign-in page itself unless told not to.
+  if (noBrowser) args.push("--no-browser");
   context.keys?.close();
   // The dashboard process handles Ctrl+C itself; stop our scan-cancel prompt from printing.
   context.releaseInterrupts();

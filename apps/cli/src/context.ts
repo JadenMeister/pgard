@@ -15,6 +15,11 @@ export interface CommandContext {
   keys: KeyReader | null;
   /** Aborted when the user confirms cancellation during a running scan. */
   signal: AbortSignal;
+  /**
+   * Open GitHub pages (device sign-in, App install) in the browser automatically: stdout is a TTY
+   * and `--no-browser` was not given. The URL is always printed as well.
+   */
+  canOpenBrowser: boolean;
   /** True inside the arrow-key menu (enables follow-up prompts such as report export). */
   isMenu: boolean;
   /** Stops listening for SIGINT (e.g. before handing the terminal to the dashboard process). */
