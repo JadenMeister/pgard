@@ -62,6 +62,7 @@ describe("parseCommandLine", () => {
   it.each([
     [["unknown"]],
     [["scan", "remote"]],
+    [["scan", "dependencies"]],
     [["scan", "code", "--port", "3000"]],
     [["scan", "--port", "3000"]],
     [["scan", "web", "--port", "0"]],

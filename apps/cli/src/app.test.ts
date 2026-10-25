@@ -36,6 +36,40 @@ describe("main", () => {
     expect(captured.stderr()).toContain("--port must be an integer from 1 to 65535");
   });
 
+  it("rejects the removed dependencies scope with exit 2 and names the valid scan types", async () => {
+    const findGitRoot = vi.fn();
+    const runScan = vi.fn();
+    const captured = createTestIo();
+    const code = await main(["scan", "dependencies"], captured.io, {
+      deps: createTestDeps({ findGitRoot, runScan }),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(2);
+    expect(findGitRoot).not.toHaveBeenCalled();
+    expect(runScan).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain(
+      "Unknown scan type: dependencies. Valid scan types: code, history, web, all.",
+    );
+  });
+
+  it("documents code-based analysis in help, without dependency advisories", async () => {
+    for (const argv of [
+      ["--help"],
+      ["scan", "--help"],
+      ["rules", "list", "--help"],
+      ["doctor", "--help"],
+    ]) {
+      const captured = createTestIo();
+      expect(
+        await main(argv, captured.io, { deps: createTestDeps(), interrupts: noInterrupts }),
+      ).toBe(0);
+      expect(captured.stdout()).not.toMatch(/advisory|dependencies|PGARD_ADVISORY_DB/i);
+    }
+    const scan = createTestIo();
+    await main(["scan", "--help"], scan.io, { deps: createTestDeps(), interrupts: noInterrupts });
+    expect(scan.stdout()).toContain("PGARD does not ship or query a vulnerability");
+  });
+
   it("strips control characters from echoed invalid input", async () => {
     const captured = createTestIo();
     await main(["\u001b[31mevil"], captured.io, {

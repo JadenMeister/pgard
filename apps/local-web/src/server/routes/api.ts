@@ -341,7 +341,11 @@ function readScopes(body: unknown): ScanScope[] {
       (SCAN_SCOPES as readonly unknown[]).includes(scope),
     )
   ) {
-    throw new ApiError(400, "bad_scopes", "Unknown scan scope.");
+    throw new ApiError(
+      400,
+      "bad_scopes",
+      `Unknown scan scope. Valid scopes: ${SCAN_SCOPES.join(", ")}.`,
+    );
   }
   return SCAN_SCOPES.filter((scope) => unique.includes(scope));
 }

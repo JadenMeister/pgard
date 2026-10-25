@@ -20,9 +20,6 @@
       "path": "packages/source-analysis"
     },
     {
-      "path": "packages/advisory"
-    },
-    {
       "path": "packages/http-local"
     },
     {

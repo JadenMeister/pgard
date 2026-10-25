@@ -32,7 +32,6 @@ export type FindingCategory =
   | "csrf"
   | "file_handling"
   | "command_execution"
-  | "vulnerable_dependency"
   | "secret_exposure";
 
 /**
@@ -52,7 +51,7 @@ export interface Coverage {
   note: string | null;
 }
 
-export type LocationKind = "file" | "url" | "commit" | "dependency";
+export type LocationKind = "file" | "url" | "commit";
 
 export interface FindingLocation {
   kind: LocationKind;
@@ -110,6 +109,10 @@ export interface ScanTarget {
   webOrigin: string | null;
 }
 
+/**
+ * Kept in JSON v1 for compatibility only. PGARD does not ship or query a vulnerability database,
+ * so both fields are always `null`.
+ */
 export interface AdvisoryDbInfo {
   version: string | null;
   updatedAt: string | null;
@@ -152,6 +155,7 @@ export interface ScanResult {
   authorization: AuthorizationSummary;
   coverage: Coverage[];
   findings: Finding[];
+  /** Deprecated: always `{ version: null, updatedAt: null }`. */
   advisoryDb: AdvisoryDbInfo;
 }
 

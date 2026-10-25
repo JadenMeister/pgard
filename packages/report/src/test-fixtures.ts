@@ -78,7 +78,7 @@ export function scanResult(overrides: Partial<ScanResult> = {}): ScanResult {
       }),
       finding({ id: "f3", severity: "critical", status: "confirmed", ruleId: "PG-SECRET-001" }),
     ],
-    advisoryDb: { version: "bundle-2026-10-01", updatedAt: "2026-10-01T00:00:00Z" },
+    advisoryDb: { version: null, updatedAt: null },
     ...overrides,
   };
 }

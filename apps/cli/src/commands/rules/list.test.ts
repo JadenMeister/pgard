@@ -1,9 +1,4 @@
-import {
-  PGARD_VERSION,
-  listSupportedRules,
-  type AdvisoryDbStatus,
-  type RuleDescriptor,
-} from "@pgard/scan-core";
+import { PGARD_VERSION, listSupportedRules, type RuleDescriptor } from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 import type { CliDeps } from "../../deps.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
@@ -28,19 +23,18 @@ async function runList(
   return captured.stdout();
 }
 
-function advisoryDeps(status: AdvisoryDbStatus): Partial<CliDeps> {
-  return { readAdvisoryDbStatus: async () => status };
-}
-
 describe("runRulesList", () => {
-  it("shows the version header, web rules, advisory status and unsupported areas", async () => {
+  it("shows the version header, web rules and unsupported areas, with no advisory status", async () => {
     const stdout = await runList(null);
     expect(stdout).toContain(
       `pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`,
     );
     expect(stdout).toContain("PG-WEB-013");
-    expect(stdout).toContain("Advisory database status: missing");
+    expect(stdout).not.toContain("Advisory database status");
+    expect(stdout).not.toContain("PG-DEP-001");
+    expect(stdout).not.toContain(DB_PATH);
     expect(stdout).toContain("Direct database connections");
+    expect(stdout).toContain("PGARD ships no vulnerability database");
   });
 
   it("lists every engine rule grouped by scope", async () => {
@@ -81,104 +75,6 @@ describe("runRulesList", () => {
 
   it("is deterministic", async () => {
     expect(await runList("ts")).toBe(await runList("ts"));
-  });
-});
-
-describe("runRulesList advisory status", () => {
-  it("shows an ok database with version, update time and note", async () => {
-    const stdout = await runList(
-      null,
-      advisoryDeps({
-        status: "ok",
-        version: "osv-2026-10-20",
-        updatedAt: "2026-10-20T00:00:00.000Z",
-        advisoryCount: 12,
-        note: "12 advisories, updated 2026-10-20.",
-      }),
-    );
-    expect(stdout).toContain(
-      "Advisory database status: ok - version osv-2026-10-20, updated 2026-10-20T00:00:00.000Z - 12 advisories, updated 2026-10-20.",
-    );
-  });
-
-  it("shows stale and invalid databases without the configured path", async () => {
-    const stale = await runList(
-      null,
-      advisoryDeps({
-        status: "stale",
-        version: "v1",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        advisoryCount: 3,
-        note: "Advisory data is stale: last updated 2026-01-01 (more than 30 days ago). Newer advisories are not checked.",
-      }),
-    );
-    expect(stale).toContain("Advisory database status: stale - version v1");
-    expect(stale).toContain("Newer advisories are not checked.");
-    const invalid = await runList(
-      null,
-      advisoryDeps({
-        status: "invalid",
-        version: null,
-        updatedAt: null,
-        advisoryCount: 0,
-        note: "The advisory database contains no advisories.",
-      }),
-    );
-    expect(invalid).toContain(
-      "Advisory database status: invalid - version none, updated never - The advisory database contains no advisories.",
-    );
-    expect(stale).not.toContain(DB_PATH);
-    expect(invalid).not.toContain(DB_PATH);
-  });
-
-  it("strips terminal escapes, line breaks and bidi controls from version, date and note", async () => {
-    const stdout = await runList(
-      null,
-      advisoryDeps({
-        status: "ok",
-        version: "v1\u001b[2J\u001b]0;owned\u0007",
-        updatedAt: "2026-10-20\r\nFAKE: ok",
-        advisoryCount: 1,
-        note: "1 advisory.‮TXT.exe⁦⁩‏\u0000\u009b31m",
-      }),
-    );
-    const line = stdout.split("\n").find((entry) => entry.includes("Advisory database status"));
-    expect(line).toContain("version v1");
-    expect(line).toContain("FAKE: ok");
-    expect(stdout).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
-    expect(stdout).not.toMatch(/[‎‏‪-‮⁦-⁩]/);
-    expect(stdout).not.toMatch(/^FAKE: ok/m);
-  });
-
-  it("shows a not fully validated status with its note and no version or date", async () => {
-    const stdout = await runList(
-      null,
-      advisoryDeps({
-        status: "ok",
-        version: "unread-version",
-        updatedAt: "2026-01-01T00:00:00.000Z",
-        advisoryCount: 0,
-        note: "Only a sample was checked.",
-        validated: false,
-      }),
-    );
-    expect(stdout).toContain(
-      "Advisory database status: unverified - not fully validated - Only a sample was checked.",
-    );
-    expect(stdout).not.toContain("unread-version");
-    expect(stdout).not.toContain("2026-01-01");
-    expect(stdout).not.toContain("updated never");
-  });
-
-  it("reports a failing status read as invalid without echoing the error", async () => {
-    const stdout = await runList(null, {
-      readAdvisoryDbStatus: async () => {
-        throw new Error(`EACCES: permission denied, open '${DB_PATH}'`);
-      },
-    });
-    expect(stdout).toContain("Advisory database status: invalid - version none, updated never");
-    expect(stdout).not.toContain(DB_PATH);
-    expect(stdout).not.toContain("EACCES");
   });
 });
 

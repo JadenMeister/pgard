@@ -105,7 +105,6 @@ export function formatLocation(location: FindingLocation): string {
         location.commit === null ? "unknown commit" : `commit ${location.commit.slice(0, 12)}`;
       return fileAndLine === null ? commit : `${fileAndLine} (${commit})`;
     }
-    case "dependency":
     case "file":
       return fileAndLine ?? "(unknown location)";
     default:
@@ -176,13 +175,11 @@ export const REPORT_DISCLAIMER =
   "This report was generated locally and may describe sensitive weaknesses: store it outside " +
   "the repository and share it only with people who are allowed to see it.";
 
-export function formatAdvisoryDb(result: ScanResult): string {
-  const { version, updatedAt } = result.advisoryDb;
-  if (version === null) {
-    return "No local advisory database was used (dependency advisories not checked).";
-  }
-  return `Advisory database ${version}${updatedAt === null ? "" : `, updated ${updatedAt}`}`;
-}
+/** How findings are decided, shown where reports used to name an advisory database. */
+export const ANALYSIS_BASIS_NOTE =
+  "PGARD does not ship or query a vulnerability database. Findings come from the code itself " +
+  "(query statements, server code, configuration), Git history and, if selected, local HTTP " +
+  "checks. Dependency versions are not checked against known vulnerabilities.";
 
 export function summarizeStatusSplit(findings: readonly Finding[]): {
   confirmed: number;

@@ -186,13 +186,6 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     startDashboardProcess: unexpected("startDashboardProcess") as never,
     readGitVersion: async () => "git version 2.50.0",
     checkGitHubReachable: async () => true,
-    readAdvisoryDbStatus: async () => ({
-      status: "missing",
-      version: null,
-      updatedAt: null,
-      advisoryCount: 0,
-      note: "No advisory database is configured. Set PGARD_ADVISORY_DB to a local OSV-format export; this version of PGARD has no network update command.",
-    }),
     nodeVersion: "22.12.0",
     ...overrides,
   };

@@ -84,7 +84,7 @@ afterEach(async () => {
 
 /**
  * Repository `me/app` with a SQL-injection pattern in the working tree (also in a test file), a
- * lockfile, and a GitHub token that was committed and then removed (only the history scan can
+ * lockfile (ignored: PGARD has no vulnerability database), and a GitHub token that was committed and then removed (only the history scan can
  * still see it).
  */
 function createProject(): { root: string; head: string } {
@@ -298,9 +298,19 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(cli.stdout).toContain("In test or fixture code (1)");
     expect(JSON.stringify(cli.result)).not.toContain(REMOVED_TOKEN);
     expect(JSON.stringify(cli.result)).not.toContain(root);
-    // Dependency advisories are not available in every build, which makes the scan "partial".
-    expect(["completed", "partial"]).toContain(cli.result.overallStatus);
+    // Every selected area completes, so the full scan is "completed" and exits 0. There is no
+    // vulnerability database: no dependency coverage, no advisory data.
+    expect(cli.result.overallStatus).toBe("completed");
+    expect(cli.exitCode).toBe(0);
     expect(cli.exitCode).toBe(exitCodeForStatus(cli.result.overallStatus));
+    expect(
+      cli.result.coverage.filter(
+        (entry) => entry.status !== "completed" && entry.status !== "not_selected",
+      ),
+    ).toEqual([]);
+    expect(cli.result.coverage.some((entry) => entry.area.startsWith("dependencies"))).toBe(false);
+    expect(cli.result.advisoryDb).toEqual({ version: null, updatedAt: null });
+    expect(ruleIds.some((id) => id.startsWith("PG-DEP"))).toBe(false);
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
     // With the clock and id pinned, the whole document matches, and the API returns it unchanged.

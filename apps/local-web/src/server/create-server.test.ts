@@ -721,6 +721,9 @@ describe("local web scans", () => {
     );
     expect((await apiPost(running, "/api/scan", { scopes: [] })).status).toBe(400);
     expect((await apiPost(running, "/api/scan", { scopes: ["remote"] })).status).toBe(400);
+    const removed = await apiPost(running, "/api/scan", { scopes: ["code", "dependencies"] });
+    expect(removed.status).toBe(400);
+    expect(removed.body).toContain("Valid scopes: code, history, web.");
     expect((await apiPost(running, "/api/scan", { scopes: ["code"] })).status).toBe(200);
     expect((await apiPost(running, "/api/scan", { scopes: ["code"] })).status).toBe(409);
     release();

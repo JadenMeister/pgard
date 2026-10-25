@@ -1,4 +1,4 @@
-import type { AdvisoryDbInfo, AnalyzerOutput, ConfirmedWebTarget } from "@pgard/findings";
+import type { AnalyzerOutput, ConfirmedWebTarget } from "@pgard/findings";
 import type { AuthorizationDependencies } from "@pgard/policy";
 
 export interface WebScanProgress {
@@ -46,10 +46,7 @@ export interface AnalyzerContext {
   now: () => Date;
 }
 
-/** `code` analyzers also report which advisory database they compared against. */
-export interface LocalAnalyzerOutput extends AnalyzerOutput {
-  advisoryDb?: AdvisoryDbInfo;
-}
+export type LocalAnalyzerOutput = AnalyzerOutput;
 
 /** A local analyzer for one scope. Must be read-only and never execute project code. */
 export type LocalAnalyzer = (context: AnalyzerContext) => Promise<LocalAnalyzerOutput>;
@@ -61,7 +58,7 @@ export interface ScanDependencies {
   onProgress?: (event: ScanProgressEvent) => void;
   /** Aborting rejects `runScan` with `ScanCancelledError`. */
   signal?: AbortSignal;
-  /** Environment for analyzers (e.g. `PGARD_ADVISORY_DB`). Defaults to `process.env`. */
+  /** Environment for analyzers. Defaults to `process.env`. */
   env?: Readonly<Record<string, string | undefined>>;
   now?: () => Date;
   createScanId?: () => string;

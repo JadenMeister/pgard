@@ -52,14 +52,18 @@ describe("renderHtmlReport", () => {
     expect(html).toContain("default-src 'none'");
   });
 
-  it("includes chart, coverage incl. not_tested/not_selected, locations, advisory DB and disclaimer", () => {
+  it("includes chart, coverage incl. not_tested/not_selected, locations, analysis basis and disclaimer", () => {
     expect(html).toContain("<svg");
     expect(html).toContain("Not tested");
     expect(html).toContain("Not selected");
     expect(html).toContain("authenticated browsing is not available in this MVP");
     expect(html).toContain("src/api/users.ts:42");
     expect(html).toContain("http://127.0.0.1:3000/");
-    expect(html).toContain("bundle-2026-10-01");
+    expect(html).toContain("PGARD does not ship or query a vulnerability database.");
+    expect(html).toContain(
+      "Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
+    );
+    expect(html).not.toMatch(/advisory/i);
     expect(html).toContain("No findings does not mean the project is secure");
     expect(html).toContain("1 confirmed, 1 suspected, 1 informational");
   });

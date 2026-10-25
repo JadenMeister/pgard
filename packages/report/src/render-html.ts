@@ -2,7 +2,7 @@ import { SEVERITIES, type Coverage, type Finding, type ScanResult } from "@pgard
 import { escapeHtml } from "./escape-html.js";
 import {
   countFindingsBySeverity,
-  formatAdvisoryDb,
+  ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
   groupReportFindings,
@@ -177,8 +177,8 @@ ${testFindingsHtml}
 <p>Decision: ${escapeHtml(result.authorization.decision)}</p>
 ${renderAuthorization(result)}
 
-<h2>Data sources</h2>
-<p>${escapeHtml(formatAdvisoryDb(result))}</p>
+<h2>Analysis basis</h2>
+<p>${escapeHtml(ANALYSIS_BASIS_NOTE)}</p>
 
 <p class="disclaimer">${escapeHtml(REPORT_DISCLAIMER)}</p>
 </main>

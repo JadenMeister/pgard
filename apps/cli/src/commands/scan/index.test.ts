@@ -19,6 +19,54 @@ import { runScanCommand } from "./index.js";
 const DEFAULT_SCAN = { variant: "default", port: null, report: null } as const;
 
 describe("runScanCommand", () => {
+  it("exits 0 for a full scan whose selected areas all completed, with no advisory text", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(captured, createTestDeps({ runScan: async () => testResult() })),
+      DEFAULT_SCAN,
+    );
+    expect(code).toBe(0);
+    expect(captured.stdout()).toContain("PGARD does not ship or query a vulnerability database.");
+    expect(captured.stdout()).toContain(
+      "Dependency versions are not checked against known vulnerabilities.",
+    );
+    expect(captured.stdout()).not.toMatch(/advisory/i);
+  });
+
+  it("keeps exit 4 for genuine partial coverage (history time budget)", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          runScan: async () =>
+            testResult({
+              overallStatus: "partial",
+              coverage: [
+                {
+                  area: "source:typescript",
+                  scope: "code",
+                  status: "completed",
+                  ruleIds: [],
+                  note: null,
+                },
+                {
+                  area: "history:commits",
+                  scope: "history",
+                  status: "partial",
+                  ruleIds: [],
+                  note: "Stopped at the time budget.",
+                },
+              ],
+            }),
+        }),
+      ),
+      DEFAULT_SCAN,
+    );
+    expect(code).toBe(4);
+    expect(captured.stdout()).toContain("history:commits");
+  });
+
   it("exits 3 outside a Git repository without scanning", async () => {
     const captured = createTestIo();
     const runScan = vi.fn();

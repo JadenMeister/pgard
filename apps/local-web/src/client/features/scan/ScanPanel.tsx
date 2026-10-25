@@ -8,7 +8,7 @@ import { usePolling } from "../../hooks/use-polling";
 import { CoverageTable } from "./CoverageTable";
 
 const SCOPE_OPTIONS: ReadonlyArray<{ scope: ScanScope; label: string; hint: string }> = [
-  { scope: "code", label: "Code", hint: "current code, configuration and dependencies" },
+  { scope: "code", label: "Code", hint: "current code and configuration" },
   {
     scope: "history",
     label: "Git history",
