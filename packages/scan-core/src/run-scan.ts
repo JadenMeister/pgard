@@ -41,7 +41,11 @@ export class ScanRequestError extends Error {
   }
 }
 
-const EMPTY_ADVISORY_DB: AdvisoryDbInfo = { version: null, updatedAt: null };
+/**
+ * PGARD does not ship or query a vulnerability database. The JSON v1 `advisoryDb` field is kept
+ * for compatibility and is always empty.
+ */
+const NO_ADVISORY_DB: AdvisoryDbInfo = { version: null, updatedAt: null };
 
 function validateRequest(request: ScanRequest): ScanScope[] {
   if (typeof request.projectRoot !== "string" || !path.isAbsolute(request.projectRoot)) {
@@ -157,7 +161,6 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     outcome: AuthorizationOutcome | null;
     coverage: Coverage[];
     findings: Finding[];
-    advisoryDb: AdvisoryDbInfo;
     overallStatus?: ScanResult["overallStatus"];
   }): ScanResult => ({
     schemaVersion: SCHEMA_VERSION,
@@ -195,7 +198,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
           : redactEvidence(entry.note, { projectRoot: request.projectRoot }),
     })),
     findings: sortFindings(mergeFindings(fields.findings)),
-    advisoryDb: fields.advisoryDb,
+    advisoryDb: { ...NO_ADVISORY_DB },
   });
 
   throwIfCancelled(deps.signal);
@@ -221,7 +224,6 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
           : scopeCoverage(scope, "not_selected", null),
       ),
       findings: [],
-      advisoryDb: EMPTY_ADVISORY_DB,
       overallStatus: "failed",
     });
   }
@@ -242,7 +244,6 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
           : scopeCoverage(scope, "not_selected", null),
       ),
       findings: [],
-      advisoryDb: EMPTY_ADVISORY_DB,
     });
   }
   emit({ stage: "authorization", status: "completed", message: "Authorization verified." });
@@ -257,7 +258,6 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   };
   const coverage: Coverage[] = [];
   const findings: Finding[] = [];
-  let advisoryDb = EMPTY_ADVISORY_DB;
 
   for (const scope of SCAN_SCOPES) {
     if (!requestedScopes.includes(scope)) {
@@ -298,9 +298,6 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       const normalized = normalizeAnalyzerOutput(scope, output, request.projectRoot);
       coverage.push(...normalized.coverage);
       findings.push(...normalized.findings);
-      if (scope === "code" && output.advisoryDb) {
-        advisoryDb = output.advisoryDb;
-      }
       emit({ stage: scope, status: "completed", message: `Finished ${scope} analysis.` });
     } catch (error) {
       if (error instanceof ScanCancelledError || deps.signal?.aborted) {
@@ -322,6 +319,5 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     outcome,
     coverage,
     findings,
-    advisoryDb,
   });
 }

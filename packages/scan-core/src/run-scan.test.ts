@@ -126,7 +126,7 @@ describe("runScan", () => {
     expect(code).not.toHaveBeenCalled();
   });
 
-  it("marks code, dependency and history findings in test or fixture code", async () => {
+  it("marks code and history findings in test or fixture code", async () => {
     authorizeProject.mockResolvedValue(ALLOWED);
     const file = (path: string) => ({
       kind: "file" as const,
@@ -142,8 +142,8 @@ describe("runScan", () => {
         finding({ id: "c2", confidence: "high", location: file(`${ROOT}/src/db.test.ts`) }),
         finding({
           id: "d1",
-          ruleId: "PG-DEP-001",
-          location: { ...file("testdata/package-lock.json"), kind: "dependency" },
+          ruleId: "PG-SQL-003",
+          location: file("testdata/seed.go"),
         }),
       ],
     };

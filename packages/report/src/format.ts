@@ -105,7 +105,6 @@ export function formatLocation(location: FindingLocation): string {
         location.commit === null ? "unknown commit" : `commit ${location.commit.slice(0, 12)}`;
       return fileAndLine === null ? commit : `${fileAndLine} (${commit})`;
     }
-    case "dependency":
     case "file":
       return fileAndLine ?? "(unknown location)";
     default:

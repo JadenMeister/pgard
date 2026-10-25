@@ -4,14 +4,6 @@ export { PGARD_VERSION } from "./version.js";
 export { verifyProject } from "./verify-project.js";
 export { listSupportedRules, type RuleDescriptor, type RuleLanguage } from "./rules.js";
 export {
-  ADVISORY_DB_ENV,
-  MAX_ADVISORY_AGE_DAYS,
-  peekAdvisoryDb,
-  readAdvisoryDbStatus,
-  type AdvisoryDbState,
-  type AdvisoryDbStatus,
-} from "@pgard/advisory";
-export {
   ScanCancelledError,
   type AnalyzerContext,
   type LocalAnalyzer,
