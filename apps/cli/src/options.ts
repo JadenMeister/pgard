@@ -199,8 +199,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       let variant: ScanVariant = "default";
       if (sub !== undefined) {
         const known = SCAN_VARIANTS[sub];
-        if (known === undefined)
-          throw new UsageError(`Unknown scan type: ${sub.slice(0, 40)}`, topic);
+        if (known === undefined) {
+          throw new UsageError(
+            `Unknown scan type: ${sub.slice(0, 40)}. Valid scan types: ${Object.keys(SCAN_VARIANTS).join(", ")}.`,
+            topic,
+          );
+        }
         variant = known;
       }
       rejectExtraPositionals(rest, topic);
