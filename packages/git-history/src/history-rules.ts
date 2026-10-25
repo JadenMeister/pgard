@@ -41,6 +41,20 @@ export const HISTORY_RULES = [
       "Deleting the file does not remove the value: it stays readable in every clone's history.",
     recommendation: ROTATE,
   },
+  {
+    id: "PG-HYGIENE-001",
+    title: "Dependency directory committed to Git",
+    category: "misconfiguration",
+    defaultSeverity: "info",
+    scope: "history",
+    languages: ["any"],
+    cwe: ["CWE-1104"],
+    owasp: ["A03:2025"],
+    impact:
+      "Committed third-party code (node_modules/, vendor/, bower_components/, jspm_packages/, Pods/) is not your code, is not updated by the package manager, bloats every clone, and its matches show up as suggestions in every scan.",
+    recommendation:
+      "Remove the directory from the Git index without deleting the local copy (for example git rm -r --cached node_modules), add it to .gitignore and commit; let the package manager restore dependencies instead.",
+  },
 ] as const satisfies readonly RuleDescriptor[];
 
 export type HistoryRuleId = (typeof HISTORY_RULES)[number]["id"];

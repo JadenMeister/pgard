@@ -9,6 +9,10 @@ import {
   type FindingStatus,
   type Severity,
 } from "@pgard/findings";
+import {
+  describeCommittedDependencyDirectories,
+  findCommittedDependencyDirectories,
+} from "./dependency-directories.js";
 import { HISTORY_RULES, type HistoryRuleId } from "./history-rules.js";
 import { GitCommandError, GREP_FLAGS, runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 import {
@@ -565,7 +569,8 @@ async function readShallowBoundary(cwd: string, runner: GitRunner): Promise<Set<
 /**
  * Scans what Git stores — never the working tree — for committed environment files and
  * secrets: tracked files at the scanned revision and blobs added or modified in recent commits
- * reachable from it. Untracked or ignored local files (such as a local `.env`) are
+ * reachable from it. Tracked dependency directories (`node_modules/`, ...) at the revision yield
+ * one PG-HYGIENE-001 suggestion. Untracked or ignored local files (such as a local `.env`) are
  * never read. Secret values are kept in memory only to tell current secrets from removed ones;
  * findings name the kind, never the value. Limits (commits, blob size, total bytes, time,
  * output size, shallow clones) degrade coverage to `partial` with a note.
@@ -687,13 +692,36 @@ export async function scanGitHistory(
       report(entry, secret, null, false);
     }
   }
+  // One project-level suggestion when dependency directories are tracked (paths only).
+  const dependencyDirectories = findCommittedDependencyDirectories(
+    headBlobs.map((entry) => entry.path),
+  );
+  const firstDirectory = dependencyDirectories[0];
+  if (firstDirectory !== undefined) {
+    const text = describeCommittedDependencyDirectories(dependencyDirectories, revision);
+    findings.push({
+      ...createFinding({
+        ruleId: "PG-HYGIENE-001",
+        path: `${firstDirectory.root}/`,
+        line: null,
+        commit: null,
+        severity: "info",
+        status: "informational",
+        confidence: "low",
+        evidence: text.evidence,
+        cause: "dependency-directory-tracked",
+      }),
+      recommendation: text.recommendation,
+      context: "vendored",
+    });
+  }
   const headSkips = skipNotes(headRead, maxBlobBytes, "file");
   headProblems.push(...headSkips.problems);
   coverage.push({
     area: "history:tracked-files",
     scope: "history",
     status: headProblems.length > 0 ? "partial" : "completed",
-    ruleIds: ["PG-SECRET-001", "PG-SECRET-002"],
+    ruleIds: ["PG-SECRET-001", "PG-SECRET-002", "PG-HYGIENE-001"],
     note: formatNote(
       `${headBlobs.length} tracked file(s) in commit ${revision.slice(0, 12)}; Git objects only (untracked/ignored files are not read).`,
       headProblems,

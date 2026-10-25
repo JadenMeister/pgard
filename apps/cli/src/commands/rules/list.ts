@@ -23,7 +23,7 @@ export const UNSUPPORTED_AREAS = [
  * Version of the detection criteria shown to users. Bump when rule ids, conditions or severities
  * change.
  */
-export const RULE_CRITERIA_VERSION = "2026.10-mvp.2";
+export const RULE_CRITERIA_VERSION = "2026.10-mvp.3";
 
 /**
  * `--language` value -> catalog languages it selects. Rules tagged "any" always match. React and
@@ -87,7 +87,7 @@ export function filterRulesByLanguage(
 }
 
 function formatRule(rule: RuleDescriptor): string {
-  return `  ${rule.id.padEnd(13)} ${rule.defaultSeverity.padEnd(8)} ${rule.title} [${rule.languages.join(", ")}]`;
+  return `  ${rule.id.padEnd(14)} ${rule.defaultSeverity.padEnd(8)} ${rule.title} [${rule.languages.join(", ")}]`;
 }
 
 /** `pgard rules list`: works outside a project; never touches GitHub or the network. */
@@ -110,7 +110,7 @@ export async function runRulesList(
   out(context, "");
   out(context, style.bold("Local HTTP rules (anonymous GET, any language)"));
   for (const rule of WEB_RULE_LIST) {
-    out(context, `  ${rule.id.padEnd(13)} ${rule.severity.padEnd(8)} ${rule.title}`);
+    out(context, `  ${rule.id.padEnd(14)} ${rule.severity.padEnd(8)} ${rule.title}`);
   }
   out(context, "");
   out(context, style.bold("Not covered in this version"));
