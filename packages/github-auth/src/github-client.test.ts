@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   DEFAULT_GITHUB_APP_CLIENT_ID,
+  DEFAULT_GITHUB_APP_SLUG,
+  INVALID_APP_SLUG_OVERRIDE_MESSAGE,
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
 } from "./env.js";
@@ -266,7 +268,11 @@ describe("createGitHubClient: getOrganizationMembership", () => {
 });
 
 describe("resolveGitHubAppClientId", () => {
-  const builtIn = { clientId: DEFAULT_GITHUB_APP_CLIENT_ID, source: "default" };
+  const builtIn = {
+    clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+    slug: DEFAULT_GITHUB_APP_SLUG,
+    source: "default",
+  };
 
   it("ships the public client id of the PGARD GitHub App as the default", () => {
     expect(DEFAULT_GITHUB_APP_CLIENT_ID).toBe("Iv23liKDf0mhnPl2c7zj");
@@ -281,6 +287,7 @@ describe("resolveGitHubAppClientId", () => {
   it("lets a non-empty override win, trimmed", () => {
     expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: " Iv23liExample\n" })).toEqual({
       clientId: "Iv23liExample",
+      slug: null,
       source: "env",
     });
   });
@@ -288,14 +295,16 @@ describe("resolveGitHubAppClientId", () => {
   it("reports an override equal to the built-in id as coming from the env", () => {
     expect(
       resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: DEFAULT_GITHUB_APP_CLIENT_ID }),
-    ).toEqual({ ...builtIn, source: "env" });
+    ).toEqual({ ...builtIn, slug: null, source: "env" });
   });
 
   it("resolves a malformed override to invalid with no client id, never to the built-in App", () => {
     for (const value of ["a b", '"bad id"', "Iv23/li", "x".repeat(101)]) {
       expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: value })).toEqual({
         clientId: null,
+        slug: null,
         source: "invalid",
+        message: INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
       });
     }
   });
@@ -304,5 +313,40 @@ describe("resolveGitHubAppClientId", () => {
     expect(INVALID_CLIENT_ID_OVERRIDE_MESSAGE).toBe(
       "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
     );
+  });
+
+  it("ships the public slug of the PGARD GitHub App", () => {
+    expect(DEFAULT_GITHUB_APP_SLUG).toBe("pgard-jadenmeister");
+  });
+
+  it("uses PGARD_GITHUB_APP_SLUG when set, trimmed, with or without a client id override", () => {
+    expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_SLUG: " my-fork-app " })).toEqual({
+      ...builtIn,
+      slug: "my-fork-app",
+    });
+    expect(
+      resolveGitHubAppClientId({
+        PGARD_GITHUB_APP_CLIENT_ID: "Iv23liExample",
+        PGARD_GITHUB_APP_SLUG: "my-fork-app",
+      }),
+    ).toEqual({ clientId: "Iv23liExample", slug: "my-fork-app", source: "env" });
+  });
+
+  it("gives no slug (no install link) when the client id is overridden without a slug", () => {
+    expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liExample" }).slug).toBe(
+      null,
+    );
+  });
+
+  it("blocks on a malformed slug override, never falling back to the built-in App", () => {
+    for (const value of ["My-App", "a b", "../x", "app?x=1", "a".repeat(101), "app/1"]) {
+      expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_SLUG: value })).toEqual({
+        clientId: null,
+        slug: null,
+        source: "invalid",
+        message: INVALID_APP_SLUG_OVERRIDE_MESSAGE,
+      });
+    }
+    expect(INVALID_APP_SLUG_OVERRIDE_MESSAGE).not.toContain("My-App");
   });
 });

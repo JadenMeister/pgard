@@ -482,7 +482,7 @@ describe("stored sign-in reuse", () => {
     await store.set(builtInKey, storedRecord({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
     const app = resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' });
-    expect(app).toEqual({ clientId: null, source: "invalid" });
+    expect(app).toMatchObject({ clientId: null, slug: null, source: "invalid" });
     const notices: SignInNotice[] = [];
     const provider = createDeviceFlowSessionProvider({
       clientId: app.clientId,

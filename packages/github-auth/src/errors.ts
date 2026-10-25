@@ -3,7 +3,10 @@
  * Messages never contain tokens, device codes or response bodies.
  */
 export type GitHubAuthErrorCode =
-  /** `PGARD_GITHUB_APP_CLIENT_ID` is set but malformed; identity cannot be verified. */
+  /**
+   * `PGARD_GITHUB_APP_CLIENT_ID` or `PGARD_GITHUB_APP_SLUG` is set but malformed; identity cannot
+   * be verified. The message is fixed text naming the override.
+   */
   | "invalid_client_id_override"
   | "access_denied"
   | "expired_token"

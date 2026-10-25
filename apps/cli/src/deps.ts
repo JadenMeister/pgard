@@ -117,6 +117,17 @@ async function checkGitHubReachableDefault(): Promise<boolean> {
   }
 }
 
+/** Client id (or the fixed reason a malformed override blocks) for the session provider. */
+function deviceFlowApp(env: Readonly<Record<string, string | undefined>>): {
+  clientId: string | null;
+  invalidClientIdMessage?: string;
+} {
+  const app = resolveGitHubAppClientId(env);
+  return app.source === "invalid"
+    ? { clientId: null, invalidClientIdMessage: app.message }
+    : { clientId: app.clientId };
+}
+
 export function createDefaultDeps(): CliDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
@@ -126,7 +137,7 @@ export function createDefaultDeps(): CliDeps {
     runScan,
     createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
-        clientId: resolveGitHubAppClientId(env).clientId,
+        ...deviceFlowApp(env),
         onUserCode,
         onNotice,
         credentialStore,

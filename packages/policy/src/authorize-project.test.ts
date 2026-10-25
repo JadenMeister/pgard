@@ -533,6 +533,31 @@ describe("authorizeProject: repository and identity", () => {
     expect(JSON.stringify(outcome)).not.toContain("bad id");
   });
 
+  it("blocks with github_identity unverifiable when the slug override is malformed", async () => {
+    const { root } = repoWithCommits();
+    const fetch = vi.fn(async () => {
+      throw new Error("must not be called");
+    });
+    const app = resolveGitHubAppClientId({ PGARD_GITHUB_APP_SLUG: "Bad Slug" });
+    expect(app.source).toBe("invalid");
+    const provider = createDeviceFlowSessionProvider({
+      clientId: app.clientId,
+      ...(app.source === "invalid" ? { invalidClientIdMessage: app.message } : {}),
+      onUserCode: () => {},
+      fetch,
+    });
+    const outcome = await authorizeProject(root, { getGitHubSession: provider });
+    expectBlocked(outcome);
+    expect(outcome.summary.checks.find((check) => check.id === "github_identity")).toEqual({
+      id: "github_identity",
+      status: "unverifiable",
+      reason:
+        'PGARD_GITHUB_APP_SLUG is set but is not a valid GitHub App slug (lowercase letters, digits and "-"); fix or unset it.',
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(outcome)).not.toContain("Bad Slug");
+  });
+
   it("blocks when sign-in is denied", async () => {
     const { root } = repoWithCommits();
     const outcome = await authorizeProject(root, {

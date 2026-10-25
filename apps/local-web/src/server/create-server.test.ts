@@ -297,10 +297,12 @@ describe("local web server security", () => {
     };
     expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liForkApp" })).toEqual({
       clientId: "Iv23liForkApp",
+      slug: null,
       source: "env",
     });
     expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "  " })).toEqual({
       clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+      slug: "pgard-jadenmeister",
       source: "default",
     });
   });
@@ -1117,7 +1119,13 @@ describe("local web keychain sign-in", () => {
       PGARD_GITHUB_APP_CLIENT_ID: '"bad id"',
     });
     const sessionBody = (await apiGet(running, "/api/session")).body;
-    expect(JSON.parse(sessionBody).githubApp).toEqual({ clientId: null, source: "invalid" });
+    expect(JSON.parse(sessionBody).githubApp).toEqual({
+      clientId: null,
+      slug: null,
+      source: "invalid",
+      message:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
     expect(sessionBody).not.toContain("bad id");
     // The built-in App's entry is not shown as this App's sign-in...
     const auth = JSON.parse((await apiGet(running, "/api/auth")).body);

@@ -26,12 +26,26 @@ describe("dashboard sign-in texts", () => {
   });
 
   it("mentions an override, warns about an invalid one, and is silent for the built-in App", () => {
-    expect(describeGitHubApp({ clientId: "Iv23liKDf0mhnPl2c7zj", source: "default" })).toBeNull();
-    expect(describeGitHubApp({ clientId: "Iv23liForkApp", source: "env" })).toEqual({
+    expect(
+      describeGitHubApp({
+        clientId: "Iv23liKDf0mhnPl2c7zj",
+        slug: "pgard-jadenmeister",
+        source: "default",
+      }),
+    ).toBeNull();
+    expect(describeGitHubApp({ clientId: "Iv23liForkApp", slug: null, source: "env" })).toEqual({
       tone: "info",
       text: "GitHub App: Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).",
     });
-    expect(describeGitHubApp({ clientId: null, source: "invalid" })).toEqual({
+    expect(
+      describeGitHubApp({
+        clientId: null,
+        slug: null,
+        source: "invalid",
+        message:
+          "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+      }),
+    ).toEqual({
       tone: "warning",
       text: "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App. Until then GitHub identity is unverifiable and every scan is blocked.",
     });

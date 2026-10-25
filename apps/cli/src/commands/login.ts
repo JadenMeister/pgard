@@ -1,7 +1,6 @@
 import {
   GITHUB_APP_AUTHORIZATIONS_URL,
   isGitHubAuthError,
-  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   readStoredSignInStatus,
   removeStoredSignIn,
@@ -22,7 +21,7 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
   const app = resolveGitHubAppClientId(context.io.env);
   if (app.source === "invalid") {
-    err(context, errStyle.red(INVALID_CLIENT_ID_OVERRIDE_MESSAGE));
+    err(context, errStyle.red(app.message));
     return EXIT_CODES.blocked;
   }
   const { clientId } = app;
@@ -78,7 +77,7 @@ export async function runLogout(context: CommandContext): Promise<ExitCode> {
   const app = resolveGitHubAppClientId(context.io.env);
   // Never fall back to the built-in App's entry: the operator asked for another App.
   if (app.source === "invalid") {
-    err(context, errStyle.red(INVALID_CLIENT_ID_OVERRIDE_MESSAGE));
+    err(context, errStyle.red(app.message));
     return EXIT_CODES.blocked;
   }
   const result = await removeStoredSignIn(deps.credentialStore, app.clientId);

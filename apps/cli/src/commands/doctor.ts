@@ -1,6 +1,5 @@
 import {
   GITHUB_APP_CLIENT_ID_ENV,
-  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   readStoredSignInStatus,
   type ResolvedGitHubAppClientId,
@@ -57,7 +56,7 @@ function describeGitHubApp(app: ResolvedGitHubAppClientId): DoctorCheck {
       return {
         label,
         isOk: false,
-        detail: `${INVALID_CLIENT_ID_OVERRIDE_MESSAGE} Until then GitHub identity is unverifiable and every scan is blocked.`,
+        detail: `${app.message} Until then GitHub identity is unverifiable and every scan is blocked.`,
         isRequired: true,
       };
   }

@@ -12,7 +12,6 @@ import {
   GITHUB_APP_AUTHORIZATIONS_URL,
   isAuthorizationAllowed,
   PGARD_VERSION,
-  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   removeStoredSignIn,
   ScanCancelledError,
@@ -191,7 +190,7 @@ const signOut: ApiHandler = async (context, body) => {
   const app = resolveGitHubAppClientId(context.env);
   if (app.source === "invalid") {
     // Never remove the built-in App's entry on behalf of a malformed override.
-    state.signInNotice = `Signed out of this dashboard session. Nothing was removed from the OS keychain: ${INVALID_CLIENT_ID_OVERRIDE_MESSAGE}`;
+    state.signInNotice = `Signed out of this dashboard session. Nothing was removed from the OS keychain: ${app.message}`;
     return authStatus(state);
   }
   const removed = await removeStoredSignIn(context.deps.credentialStore, app.clientId);

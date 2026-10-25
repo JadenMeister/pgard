@@ -21,9 +21,17 @@ export interface SessionInfo {
    * `PGARD_GITHUB_APP_CLIENT_ID` override. The client id is public (device flow, no secret).
    */
   githubApp:
-    | { clientId: string; source: "default" | "env" }
-    /** The override is set but malformed: identity is unverifiable and every scan is blocked. */
-    | { clientId: null; source: "invalid" };
+    | {
+        clientId: string;
+        /** Install-page slug; `null` when the client id is overridden without a slug. */
+        slug: string | null;
+        source: "default" | "env";
+      }
+    /**
+     * An override (client id or slug) is set but malformed: identity is unverifiable and every
+     * scan is blocked. `message` is fixed text naming the override, never its value.
+     */
+    | { clientId: null; slug: null; source: "invalid"; message: string };
 }
 
 export interface DeviceCodeInfo {
