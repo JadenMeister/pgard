@@ -1099,4 +1099,33 @@ describe("local web keychain sign-in", () => {
     expect(await store.get(builtInKey)).toBeNull();
     expect(await store.get(KEYCHAIN_KEY)).not.toBeNull();
   });
+
+  it("exposes an invalid override and refuses to remove the built-in App's keychain entry", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      builtInKey,
+      keychainEntry().replace(KEYCHAIN_CLIENT_ID, DEFAULT_GITHUB_APP_CLIENT_ID),
+    );
+    const running = await start(fakeDeps({ credentialStore: store }), null, {
+      PGARD_GITHUB_APP_CLIENT_ID: '"bad id"',
+    });
+    const sessionBody = (await apiGet(running, "/api/session")).body;
+    expect(JSON.parse(sessionBody).githubApp).toEqual({ clientId: null, source: "invalid" });
+    expect(sessionBody).not.toContain("bad id");
+    // The built-in App's entry is not shown as this App's sign-in...
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.storedSignIn).toEqual({ status: "unknown" });
+    // ...and an explicit "remove from keychain" leaves it alone.
+    const removed = JSON.parse(
+      (await apiPost(running, "/api/auth/sign-out", { removeStored: true })).body,
+    );
+    expect(removed.signInNotice).toBe(
+      "Signed out of this dashboard session. Nothing was removed from the OS keychain: PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    );
+    expect(await store.get(builtInKey)).not.toBeNull();
+  });
 });

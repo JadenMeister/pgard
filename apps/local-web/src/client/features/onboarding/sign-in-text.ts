@@ -14,13 +14,26 @@ export const SIGN_OUT_HINTS = {
 } as const;
 
 /**
- * One line about a GitHub App override; `null` for the built-in PGARD App, which needs no setup
- * and no mention.
+ * One line about the GitHub App: the override in use, or why an invalid override blocks every
+ * check. `null` for the built-in PGARD App, which needs no setup and no mention.
  */
-export function describeGitHubApp(app: SessionInfo["githubApp"]): string | null {
-  return app.source === "env"
-    ? `GitHub App: ${app.clientId} from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).`
-    : null;
+export function describeGitHubApp(
+  app: SessionInfo["githubApp"],
+): { tone: "info" | "warning"; text: string } | null {
+  switch (app.source) {
+    case "default":
+      return null;
+    case "env":
+      return {
+        tone: "info",
+        text: `GitHub App: ${app.clientId} from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).`,
+      };
+    case "invalid":
+      return {
+        tone: "warning",
+        text: "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App. Until then GitHub identity is unverifiable and every scan is blocked.",
+      };
+  }
 }
 
 /** One line about the GitHub sign-in the server holds. Shows the account login at most. */

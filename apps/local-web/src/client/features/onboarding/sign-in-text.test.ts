@@ -25,10 +25,15 @@ describe("dashboard sign-in texts", () => {
     expect(describeStoredSignIn({ status: "unknown" })).toBeNull();
   });
 
-  it("mentions only a GitHub App override, never a missing client id", () => {
+  it("mentions an override, warns about an invalid one, and is silent for the built-in App", () => {
     expect(describeGitHubApp({ clientId: "Iv23liKDf0mhnPl2c7zj", source: "default" })).toBeNull();
-    expect(describeGitHubApp({ clientId: "Iv23liForkApp", source: "env" })).toBe(
-      "GitHub App: Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).",
-    );
+    expect(describeGitHubApp({ clientId: "Iv23liForkApp", source: "env" })).toEqual({
+      tone: "info",
+      text: "GitHub App: Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).",
+    });
+    expect(describeGitHubApp({ clientId: null, source: "invalid" })).toEqual({
+      tone: "warning",
+      text: "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App. Until then GitHub identity is unverifiable and every scan is blocked.",
+    });
   });
 });

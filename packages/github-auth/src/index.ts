@@ -2,6 +2,7 @@ export { GitHubAuthError, isGitHubAuthError, type GitHubAuthErrorCode } from "./
 export {
   DEFAULT_GITHUB_APP_CLIENT_ID,
   GITHUB_APP_CLIENT_ID_ENV,
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   type GitHubAppClientIdSource,
   type ResolvedGitHubAppClientId,

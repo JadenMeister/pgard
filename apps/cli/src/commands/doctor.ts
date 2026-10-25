@@ -1,5 +1,6 @@
 import {
   GITHUB_APP_CLIENT_ID_ENV,
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   readStoredSignInStatus,
   type ResolvedGitHubAppClientId,
@@ -37,28 +38,34 @@ function formatTime(epochMs: number): string {
 
 /**
  * Which GitHub App PGARD signs in with. The client id is public (device flow, no client secret),
- * so it is shown. A malformed override is ignored and only warned about: PGARD still works with
- * the built-in App, but the user asked for another one.
+ * so it is shown. A malformed override is a [fail]: scans are blocked until it is fixed or unset.
+ * The malformed value itself is never printed.
  */
 function describeGitHubApp(app: ResolvedGitHubAppClientId): DoctorCheck {
   const label = "GitHub App";
-  if (app.source === "env") {
-    return {
-      label,
-      isOk: true,
-      detail: `${app.clientId} from ${GITHUB_APP_CLIENT_ID_ENV} (override)`,
-      isRequired: false,
-    };
-  }
-  const builtIn = `built-in PGARD App (${app.clientId})`;
-  return app.isOverrideIgnored
-    ? {
+  switch (app.source) {
+    case "default":
+      return {
+        label,
+        isOk: true,
+        detail: `built-in PGARD App (${app.clientId})`,
+        isRequired: true,
+      };
+    case "env":
+      return {
+        label,
+        isOk: true,
+        detail: `${app.clientId} from ${GITHUB_APP_CLIENT_ID_ENV} (override)`,
+        isRequired: true,
+      };
+    case "invalid":
+      return {
         label,
         isOk: false,
-        detail: `${builtIn}; ${GITHUB_APP_CLIENT_ID_ENV} is not a valid client id and was ignored`,
-        isRequired: false,
-      }
-    : { label, isOk: true, detail: builtIn, isRequired: false };
+        detail: `${INVALID_CLIENT_ID_OVERRIDE_MESSAGE} Until then GitHub identity is unverifiable and every scan is blocked.`,
+        isRequired: true,
+      };
+  }
 }
 
 /**
@@ -67,8 +74,11 @@ function describeGitHubApp(app: ResolvedGitHubAppClientId): DoctorCheck {
  */
 async function describeStoredSignIn(
   context: CommandContext,
-  clientId: string,
+  clientId: string | null,
 ): Promise<{ isOk: boolean; detail: string }> {
+  if (clientId === null) {
+    return { isOk: false, detail: `not checked (${GITHUB_APP_CLIENT_ID_ENV} is not valid)` };
+  }
   let status: StoredSignInStatus;
   try {
     status = await readStoredSignInStatus(context.deps.credentialStore, clientId);

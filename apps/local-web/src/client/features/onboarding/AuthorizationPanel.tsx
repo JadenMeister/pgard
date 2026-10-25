@@ -109,7 +109,8 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
         Project <strong>{session.projectName}</strong>. PGARD checks owner approval, your current
         access and a merged contribution before every scan.
       </p>
-      {githubAppLine && <p className="muted">{githubAppLine}</p>}
+      {githubAppLine?.tone === "info" && <p className="muted">{githubAppLine.text}</p>}
+      {githubAppLine?.tone === "warning" && <Notice tone="warning">{githubAppLine.text}</Notice>}
       {signInLine && <p className="muted">{signInLine}</p>}
       {(canEndSession || canRemoveStored) && (
         <p className="muted">

@@ -476,12 +476,41 @@ describe("stored sign-in reuse", () => {
     });
   });
 
-  it("keys the built-in App and a same-id env override to one entry, other overrides apart", async () => {
-    const builtIn = resolveGitHubAppClientId({});
-    const sameOverride = resolveGitHubAppClientId({
-      PGARD_GITHUB_APP_CLIENT_ID: ` ${DEFAULT_GITHUB_APP_CLIENT_ID} `,
+  it("refuses an invalid override without touching GitHub or the built-in App's entry", async () => {
+    const builtInKey = signInKey("github.com", DEFAULT_GITHUB_APP_CLIENT_ID);
+    const store = createInMemoryCredentialStore();
+    await store.set(builtInKey, storedRecord({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const app = resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' });
+    expect(app).toEqual({ clientId: null, source: "invalid" });
+    const notices: SignInNotice[] = [];
+    const provider = createDeviceFlowSessionProvider({
+      clientId: app.clientId,
+      onUserCode: () => {},
+      credentialStore: store,
+      onNotice: (notice) => notices.push(notice),
+      fetch: github.fetch,
     });
-    const otherOverride = resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: OTHER_CLIENT_ID });
+    await expect(provider()).rejects.toMatchObject({
+      code: "invalid_client_id_override",
+      message:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
+    expect(github.calls).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(store.size()).toBe(1);
+    expect(await store.get(builtInKey)).not.toBeNull();
+  });
+
+  it("keys the built-in App and a same-id env override to one entry, other overrides apart", async () => {
+    const valid = (env: Record<string, string>) => {
+      const app = resolveGitHubAppClientId(env);
+      if (app.source === "invalid") throw new Error("expected a valid client id");
+      return app;
+    };
+    const builtIn = valid({});
+    const sameOverride = valid({ PGARD_GITHUB_APP_CLIENT_ID: ` ${DEFAULT_GITHUB_APP_CLIENT_ID} ` });
+    const otherOverride = valid({ PGARD_GITHUB_APP_CLIENT_ID: OTHER_CLIENT_ID });
     expect([builtIn.source, sameOverride.source, otherOverride.source]).toEqual([
       "default",
       "env",

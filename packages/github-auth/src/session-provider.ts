@@ -10,6 +10,7 @@ import {
   type GitHubSession,
   type UserTokenSet,
 } from "./device-flow.js";
+import { INVALID_CLIENT_ID_OVERRIDE_MESSAGE } from "./env.js";
 import { GitHubAuthError, isGitHubAuthError } from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import type { GitHubClient, GitHubUser } from "./github-client.js";
@@ -49,8 +50,12 @@ export type SignInNotice =
   | { kind: "memory_only"; reason: string };
 
 export interface DeviceFlowSessionProviderOptions {
-  /** From `resolveGitHubAppClientId(process.env)`: the built-in PGARD App or the env override. */
-  clientId: string;
+  /**
+   * From `resolveGitHubAppClientId(process.env).clientId`: the built-in PGARD App or the env
+   * override. `null` means the override is set but malformed; every call then fails with
+   * `invalid_client_id_override` and nothing is read from or written to the keychain.
+   */
+  clientId: string | null;
   onUserCode: (code: DeviceUserCode) => void | Promise<void>;
   /**
    * Where the sign-in is reused from and saved to (the OS keychain in production). Omitted or
@@ -134,7 +139,7 @@ function toRecord(
 }
 
 /** Options shared by the provider and `signInAndStore`. */
-type SignInOptions = DeviceFlowSessionProviderOptions;
+type SignInOptions = Omit<DeviceFlowSessionProviderOptions, "clientId"> & { clientId: string };
 
 /**
  * Runs the device flow, looks up the signed-in account and saves the sign-in to the keychain.
@@ -427,7 +432,7 @@ export function createDeviceFlowSessionProvider(
     const clientId = options.clientId;
     const onUnauthorized = () => {
       if (generation === myGeneration) forget();
-      if (store !== null) {
+      if (clientId !== null && store !== null) {
         void deleteIfStillHolds(clientId, accessToken).then((wasDeleted) => {
           if (wasDeleted) notify({ kind: "removed", reason: "revoked" });
         });
@@ -450,6 +455,9 @@ export function createDeviceFlowSessionProvider(
 
   const provider = async (): Promise<GitHubSession> => {
     const { clientId } = options;
+    if (clientId === null) {
+      throw new GitHubAuthError("invalid_client_id_override", INVALID_CLIENT_ID_OVERRIDE_MESSAGE);
+    }
     if (pending !== null) {
       const current = pending;
       const session = await current.catch(() => null);

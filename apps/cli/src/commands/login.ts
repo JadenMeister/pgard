@@ -1,6 +1,7 @@
 import {
   GITHUB_APP_AUTHORIZATIONS_URL,
   isGitHubAuthError,
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   resolveGitHubAppClientId,
   readStoredSignInStatus,
   removeStoredSignIn,
@@ -19,7 +20,12 @@ export const REVOKE_HINT = `PGARD cannot revoke the token at GitHub (that needs 
  */
 export async function runLogin(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
-  const { clientId } = resolveGitHubAppClientId(context.io.env);
+  const app = resolveGitHubAppClientId(context.io.env);
+  if (app.source === "invalid") {
+    err(context, errStyle.red(INVALID_CLIENT_ID_OVERRIDE_MESSAGE));
+    return EXIT_CODES.blocked;
+  }
+  const { clientId } = app;
   // Check the keychain before asking the user to type a code that could not be saved.
   const status = await readStoredSignInStatus(deps.credentialStore, clientId);
   if (status.status === "unavailable") {
@@ -68,8 +74,13 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
 /** `pgard logout`: deletes the stored sign-in from the OS keychain. */
 export async function runLogout(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
-  const { clientId } = resolveGitHubAppClientId(context.io.env);
-  const result = await removeStoredSignIn(deps.credentialStore, clientId);
+  const app = resolveGitHubAppClientId(context.io.env);
+  // Never fall back to the built-in App's entry: the operator asked for another App.
+  if (app.source === "invalid") {
+    err(context, errStyle.red(INVALID_CLIENT_ID_OVERRIDE_MESSAGE));
+    return EXIT_CODES.blocked;
+  }
+  const result = await removeStoredSignIn(deps.credentialStore, app.clientId);
   switch (result.status) {
     case "unavailable":
       err(

@@ -159,6 +159,7 @@ type SessionFactory = CliDeps["createSessionProvider"] | null;
 async function scanWithCli(
   root: string,
   createSessionProvider: SessionFactory,
+  env: Record<string, string> = ENV,
 ): Promise<{ result: ScanResult; exitCode: number; stdout: string }> {
   const defaults = createDefaultDeps();
   const recorder = recordingRunScan(defaults.runScan);
@@ -167,7 +168,7 @@ async function scanWithCli(
     runScan: recorder.runScan,
     ...(createSessionProvider === null ? {} : { createSessionProvider }),
   };
-  const captured = createTestIo({ cwd: root, env: ENV });
+  const captured = createTestIo({ cwd: root, env });
   const exitCode = await main(["scan"], captured.io, { deps, interrupts: noInterrupts });
   expect(recorder.results).toHaveLength(1);
   return { result: recorder.results[0]!, exitCode, stdout: captured.stdout() };
@@ -215,6 +216,7 @@ const PARITY_TEST_TIMEOUT_MS = 30_000;
 async function scanWithWeb(
   root: string,
   createSessionProvider: SessionFactory,
+  env: Record<string, string> = ENV,
 ): Promise<{ result: ScanResult; received: ScanResult }> {
   const defaults = createDefaultServerDeps();
   const recorder = recordingRunScan(defaults.runScan);
@@ -226,7 +228,7 @@ async function scanWithWeb(
   server = await startLocalWebServer({
     projectRoot: root,
     presetTargetPort: null,
-    env: ENV,
+    env,
     assets: new Map(),
     deps,
     token: TOKEN,
@@ -256,6 +258,19 @@ function comparable(result: ScanResult): unknown {
   const { scanId: _scanId, startedAt: _startedAt, finishedAt: _finishedAt, ...rest } = result;
   return JSON.parse(JSON.stringify(rest)) as unknown;
 }
+
+/**
+ * The real device-flow provider with the client id from the resolver and an in-memory keychain,
+ * so tests never touch the OS keychain. Global fetch is the spy that throws.
+ */
+const realProvider: NonNullable<SessionFactory> = ({ env, onUserCode, onNotice, signal }) =>
+  createDeviceFlowSessionProvider({
+    clientId: resolveGitHubAppClientId(env).clientId,
+    onUserCode,
+    onNotice,
+    credentialStore: createInMemoryCredentialStore(),
+    ...(signal === undefined ? {} : { signal }),
+  });
 
 describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => {
   it("produce the same ScanResult for an allowed code + history scan", async () => {
@@ -322,16 +337,6 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
 
   it("produce the same blocked result with the real sign-in for the built-in App when GitHub is unreachable", async () => {
     const { root } = createProject();
-    // The real device-flow provider, with no override set (ENV is empty) and an in-memory
-    // keychain so the test never touches the OS keychain. Global fetch is the spy that throws.
-    const realProvider: NonNullable<SessionFactory> = ({ env, onUserCode, onNotice, signal }) =>
-      createDeviceFlowSessionProvider({
-        clientId: resolveGitHubAppClientId(env).clientId,
-        onUserCode,
-        onNotice,
-        credentialStore: createInMemoryCredentialStore(),
-        ...(signal === undefined ? {} : { signal }),
-      });
 
     const cli = await scanWithCli(root, realProvider);
     const web = await scanWithWeb(root, realProvider);
@@ -357,5 +362,51 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
         DEFAULT_GITHUB_APP_CLIENT_ID,
       );
     }
+  });
+
+  it("block scan and verify with the same reason when the override is malformed", async () => {
+    const { root } = createProject();
+    const badEnv = { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' };
+
+    const cli = await scanWithCli(root, realProvider, badEnv);
+    const web = await scanWithWeb(root, realProvider, badEnv);
+
+    expect(cli.result.overallStatus).toBe("blocked");
+    expect(cli.exitCode).toBe(3);
+    expect(cli.result.findings).toEqual([]);
+    const identity = cli.result.authorization.checks.find(
+      (check) => check.id === "github_identity",
+    );
+    expect(identity).toEqual({
+      id: "github_identity",
+      status: "unverifiable",
+      reason:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
+    expect(cli.stdout).toContain(
+      "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    );
+    expect(comparable(web.result)).toEqual(comparable(cli.result));
+
+    const verify = createTestIo({ cwd: root, env: badEnv });
+    const verifyCode = await main(["project", "verify"], verify.io, {
+      deps: { ...createDefaultDeps(), createSessionProvider: realProvider },
+      interrupts: noInterrupts,
+    });
+    expect(verifyCode).toBe(3);
+    expect(verify.stdout()).toContain("Authorization: blocked");
+    expect(verify.stdout()).toContain(
+      "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    );
+    for (const output of [
+      cli.stdout,
+      verify.stdout(),
+      verify.stderr(),
+      JSON.stringify(web.result),
+    ]) {
+      expect(output).not.toContain("bad id");
+    }
+    // Nothing reached GitHub, so no other App was ever asked for a sign-in.
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

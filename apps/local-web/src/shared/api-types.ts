@@ -20,7 +20,10 @@ export interface SessionInfo {
    * The GitHub App the server signs in with: the built-in PGARD App, or the
    * `PGARD_GITHUB_APP_CLIENT_ID` override. The client id is public (device flow, no secret).
    */
-  githubApp: { clientId: string; source: "default" | "env" };
+  githubApp:
+    | { clientId: string; source: "default" | "env" }
+    /** The override is set but malformed: identity is unverifiable and every scan is blocked. */
+    | { clientId: null; source: "invalid" };
 }
 
 export interface DeviceCodeInfo {
@@ -39,7 +42,7 @@ export type StoredSignInDto =
   | { status: "stored"; login: string }
   | { status: "none" }
   | { status: "unavailable"; reason: string }
-  /** Not read yet. */
+  /** Not read yet, or not readable because the client id override is invalid. */
   | { status: "unknown" };
 
 export interface AuthStatus {

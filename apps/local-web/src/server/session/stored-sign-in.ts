@@ -47,6 +47,7 @@ export async function readStoredSignInDto(
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<StoredSignInDto> {
   const { clientId } = resolveGitHubAppClientId(env);
+  if (clientId === null) return { status: "unknown" };
   try {
     const status = await readStoredSignInStatus(store, clientId);
     if (status.status === "stored") return { status: "stored", login: login(status.login) };

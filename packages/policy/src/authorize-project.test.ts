@@ -532,6 +532,30 @@ describe("authorizeProject: repository and identity", () => {
     expect(outcome.repo).toBe("me/app");
   });
 
+  it("blocks with github_identity unverifiable when the override is malformed", async () => {
+    const { root } = repoWithCommits();
+    const fetch = vi.fn(async () => {
+      throw new Error("must not be called");
+    });
+    const provider = createDeviceFlowSessionProvider({
+      clientId: resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' }).clientId,
+      onUserCode: () => {},
+      fetch,
+    });
+    const outcome = await authorizeProject(root, { getGitHubSession: provider });
+    expectBlocked(outcome);
+    const identity = outcome.summary.checks.find((check) => check.id === "github_identity");
+    expect(identity).toEqual({
+      id: "github_identity",
+      status: "unverifiable",
+      reason:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
+    expect(statusOf(outcome, "owner_approval")).not.toBe("passed");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(outcome)).not.toContain("bad id");
+  });
+
   it("blocks when sign-in is denied", async () => {
     const { root } = repoWithCommits();
     const outcome = await authorizeProject(root, {

@@ -11,6 +11,7 @@ import {
   type GitRunner,
 } from "@pgard/git-history";
 import {
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   isGitHubAuthError,
   type GitHubClient,
   type GitHubRepository,
@@ -92,6 +93,8 @@ export async function verifyRepository(
 export function describeIdentityError(error: unknown): CheckResult {
   if (isGitHubAuthError(error)) {
     switch (error.code) {
+      case "invalid_client_id_override":
+        return unverifiable(INVALID_CLIENT_ID_OVERRIDE_MESSAGE);
       case "access_denied":
         return failed("GitHub sign-in was denied.");
       case "expired_token":

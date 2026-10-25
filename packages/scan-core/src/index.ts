@@ -35,6 +35,7 @@ export {
   DEFAULT_GITHUB_APP_CLIENT_ID,
   GITHUB_APP_CLIENT_ID_ENV,
   GitHubAuthError,
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,
   createOsCredentialStore,
