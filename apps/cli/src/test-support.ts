@@ -98,7 +98,7 @@ export const BLOCKED: AuthorizationSummary = {
     {
       id: "github_identity",
       status: "unverifiable",
-      reason: "PGARD_GITHUB_APP_CLIENT_ID is not set.",
+      reason: "GitHub sign-in was denied.",
     },
     { id: "owner_approval", status: "unverifiable", reason: "Not evaluated." },
     { id: "current_access", status: "unverifiable", reason: "Not evaluated." },

@@ -31,7 +31,7 @@ describe("runScanCommand", () => {
     expect(captured.stderr()).toContain("not inside a Git repository");
   });
 
-  it("shows per-check reasons, the client-id hint and exits 3 when blocked", async () => {
+  it("shows per-check reasons and exits 3 when blocked, without a client-id hint", async () => {
     const captured = createTestIo();
     const code = await runScanCommand(
       createTestContext(
@@ -50,9 +50,11 @@ describe("runScanCommand", () => {
     );
     expect(code).toBe(3);
     expect(captured.stdout()).toContain(
-      "[unverifiable] github identity: PGARD_GITHUB_APP_CLIENT_ID is not set.",
+      "[unverifiable] github identity: GitHub sign-in was denied.",
     );
-    expect(captured.stderr()).toContain("Hint: PGARD_GITHUB_APP_CLIENT_ID is not set.");
+    expect(captured.stdout()).toContain("[unverifiable] owner approval: Not evaluated.");
+    // The client id always resolves (built-in PGARD App), so there is no "not set" hint.
+    expect(captured.stdout() + captured.stderr()).not.toContain("PGARD_GITHUB_APP_CLIENT_ID");
   });
 
   it("passes code+history scopes with the Git root and exits 0 for a completed scan with findings", async () => {
@@ -81,6 +83,26 @@ describe("runScanCommand", () => {
     expect(stdout).toContain("src/api/users.ts:42");
     expect(stdout).toContain("Suspected (needs review) (1)");
     expect(stdout).toContain("Coverage");
+  });
+
+  it("names an override App once on stderr, and nothing for the built-in App", async () => {
+    const run = async (env: Record<string, string>) => {
+      const captured = createTestIo({ env });
+      await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => testResult() })),
+        DEFAULT_SCAN,
+      );
+      return captured;
+    };
+    const override = await run({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liForkApp" });
+    expect(
+      override
+        .stderr()
+        .split("\n")
+        .filter((line) => line.startsWith("Using GitHub App")),
+    ).toEqual(["Using GitHub App Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override)."]);
+    expect(override.stdout()).not.toContain("Using GitHub App");
+    expect((await run({})).stderr()).not.toContain("Using GitHub App");
   });
 
   it("lists test or fixture findings in their own group after the headline counts", async () => {

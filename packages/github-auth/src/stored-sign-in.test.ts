@@ -5,6 +5,7 @@ import {
   isCredentialStoreError,
   type CredentialStore,
 } from "./credential-store.js";
+import { DEFAULT_GITHUB_APP_CLIENT_ID, resolveGitHubAppClientId } from "./env.js";
 import type { FetchLike, FetchRequestInit } from "./fetch.js";
 
 import {
@@ -473,6 +474,79 @@ describe("stored sign-in reuse", () => {
       clientId: OTHER_CLIENT_ID,
       accessToken: NEW_TOKEN,
     });
+  });
+
+  it("refuses an invalid override without touching GitHub or the built-in App's entry", async () => {
+    const builtInKey = signInKey("github.com", DEFAULT_GITHUB_APP_CLIENT_ID);
+    const store = createInMemoryCredentialStore();
+    await store.set(builtInKey, storedRecord({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const app = resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' });
+    expect(app).toEqual({ clientId: null, source: "invalid" });
+    const notices: SignInNotice[] = [];
+    const provider = createDeviceFlowSessionProvider({
+      clientId: app.clientId,
+      onUserCode: () => {},
+      credentialStore: store,
+      onNotice: (notice) => notices.push(notice),
+      fetch: github.fetch,
+    });
+    await expect(provider()).rejects.toMatchObject({
+      code: "invalid_client_id_override",
+      message:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
+    expect(github.calls).toEqual([]);
+    expect(notices).toEqual([]);
+    expect(store.size()).toBe(1);
+    expect(await store.get(builtInKey)).not.toBeNull();
+  });
+
+  it("keys the built-in App and a same-id env override to one entry, other overrides apart", async () => {
+    const valid = (env: Record<string, string>) => {
+      const app = resolveGitHubAppClientId(env);
+      if (app.source === "invalid") throw new Error("expected a valid client id");
+      return app;
+    };
+    const builtIn = valid({});
+    const sameOverride = valid({ PGARD_GITHUB_APP_CLIENT_ID: ` ${DEFAULT_GITHUB_APP_CLIENT_ID} ` });
+    const otherOverride = valid({ PGARD_GITHUB_APP_CLIENT_ID: OTHER_CLIENT_ID });
+    expect([builtIn.source, sameOverride.source, otherOverride.source]).toEqual([
+      "default",
+      "env",
+      "env",
+    ]);
+    expect(signInKey("github.com", builtIn.clientId)).toEqual({
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    });
+    expect(signInKey("github.com", sameOverride.clientId)).toEqual(
+      signInKey("github.com", builtIn.clientId),
+    );
+    expect(signInKey("github.com", otherOverride.clientId)).not.toEqual(
+      signInKey("github.com", builtIn.clientId),
+    );
+
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      signInKey("github.com", builtIn.clientId),
+      storedRecord({ clientId: builtIn.clientId }),
+    );
+    // Saved under the built-in App, reused by the same id given as an override: no device code.
+    const same = makeProvider(fakeGitHub(), store, { clientId: sameOverride.clientId });
+    await same.provider();
+    expect(same.userCodes).toEqual([]);
+    expect(same.notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+
+    // A different override never sees that entry and signs in on its own.
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const other = makeProvider(github, store, { clientId: otherOverride.clientId });
+    await other.provider();
+    expect(other.userCodes).toEqual(["ABCD-1234"]);
+    expect(github.calls[0]?.form.get("client_id")).toBe(OTHER_CLIENT_ID);
+    expect(
+      JSON.parse((await store.get(signInKey("github.com", builtIn.clientId))) ?? "{}").accessToken,
+    ).toBe(STORED_TOKEN);
   });
 
   it("treats an entry whose payload names another client id as malformed and deletes it", async () => {

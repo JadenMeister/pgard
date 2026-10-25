@@ -1,5 +1,12 @@
 export { GitHubAuthError, isGitHubAuthError, type GitHubAuthErrorCode } from "./errors.js";
-export { GITHUB_APP_CLIENT_ID_ENV, readGitHubAppClientId } from "./env.js";
+export {
+  DEFAULT_GITHUB_APP_CLIENT_ID,
+  GITHUB_APP_CLIENT_ID_ENV,
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
+  resolveGitHubAppClientId,
+  type GitHubAppClientIdSource,
+  type ResolvedGitHubAppClientId,
+} from "./env.js";
 export type { FetchLike, FetchRequestInit, FetchResponseLike } from "./fetch.js";
 export {
   GITHUB_API_BASE_URL,

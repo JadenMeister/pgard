@@ -96,11 +96,11 @@ Works outside a project.`,
   doctor: `Usage:
   pgard doctor
 
-Checks Node.js, Git, GitHub reachability, local port discovery, whether
-PGARD_GITHUB_APP_CLIENT_ID is set, whether a GitHub sign-in is saved in the OS
-keychain (and for which account; the token is never shown) and the advisory
-database. This is a diagnosis only; it does not authorize scans. Works outside
-a project.
+Checks Node.js, Git, GitHub reachability, local port discovery, which GitHub
+App PGARD signs in with (the built-in PGARD App, or PGARD_GITHUB_APP_CLIENT_ID
+as an override), whether a GitHub sign-in is saved in the OS keychain (and for
+which account; the token is never shown) and the advisory database. This is a
+diagnosis only; it does not authorize scans. Works outside a project.
 
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,
@@ -114,11 +114,16 @@ pgard project verify and pgard dashboard then reuse it without a device code;
 an expired token is refreshed automatically when the GitHub App issues refresh
 tokens. Every scan still runs all five authorization checks against GitHub.
 Running login again replaces the saved sign-in (e.g. to switch accounts).
+PGARD signs in as the built-in PGARD GitHub App; set PGARD_GITHUB_APP_CLIENT_ID
+only to use another App (a fork or a self-registered App). A value that is not
+a valid client id blocks sign-in (exit 3); it never falls back to the built-in
+App.
 Works outside a project.
 
 Exit codes:
   0    signed in and saved
-  3    GitHub sign-in failed, or PGARD_GITHUB_APP_CLIENT_ID is not set
+  3    GitHub sign-in failed, or PGARD_GITHUB_APP_CLIENT_ID is not a valid
+       client id
   4    no OS keychain is available, or it did not save; nothing was saved
   5    internal error
   130  cancelled`,
@@ -132,7 +137,7 @@ project.
 
 Exit codes:
   0    removed, or nothing was saved
-  3    PGARD_GITHUB_APP_CLIENT_ID is not set
+  3    PGARD_GITHUB_APP_CLIENT_ID is not a valid client id; nothing was removed
   4    no OS keychain is available; nothing was removed
   5    internal error`,
 };

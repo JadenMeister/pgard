@@ -8,6 +8,7 @@ import {
   AUTHORIZATION_CHECK_ORDER,
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,
+  DEFAULT_GITHUB_APP_CLIENT_ID,
   type AuthorizationOutcome,
   type CredentialStore,
 } from "@pgard/scan-core";
@@ -281,9 +282,27 @@ describe("local web server security", () => {
     const body = (await apiGet(running, "/api/session")).body;
     expect(JSON.parse(body)).toMatchObject({
       projectName: "my-project",
-      isClientIdConfigured: false,
+      githubApp: { clientId: DEFAULT_GITHUB_APP_CLIENT_ID, source: "default" },
     });
     expect(body).not.toContain("/work/");
+  });
+
+  it("reports an env override as the GitHub App, and treats a blank one as unset", async () => {
+    const session = async (env: Record<string, string>) => {
+      const running = await start(fakeDeps(), null, env);
+      const info = JSON.parse((await apiGet(running, "/api/session")).body).githubApp;
+      await running.close();
+      server = null;
+      return info;
+    };
+    expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liForkApp" })).toEqual({
+      clientId: "Iv23liForkApp",
+      source: "env",
+    });
+    expect(await session({ PGARD_GITHUB_APP_CLIENT_ID: "  " })).toEqual({
+      clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+      source: "default",
+    });
   });
 });
 
@@ -1055,5 +1074,58 @@ describe("local web keychain sign-in", () => {
     expect(removed.signInNotice).toContain("https://github.com/settings/apps/authorizations");
     expect(removed.storedSignIn).toEqual({ status: "none" });
     expect(store.size()).toBe(0);
+  });
+
+  it("uses the built-in App's keychain entry when no override is set", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      builtInKey,
+      keychainEntry().replace(KEYCHAIN_CLIENT_ID, DEFAULT_GITHUB_APP_CLIENT_ID),
+    );
+    // An override's entry is a different App's sign-in and is neither shown nor removed.
+    await store.set(KEYCHAIN_KEY, keychainEntry());
+    const running = await start(fakeDeps({ credentialStore: store }));
+    await apiGet(running, "/api/session");
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.storedSignIn).toEqual({ status: "stored", login: "octo" });
+    const removed = JSON.parse(
+      (await apiPost(running, "/api/auth/sign-out", { removeStored: true })).body,
+    );
+    expect(removed.storedSignIn).toEqual({ status: "none" });
+    expect(await store.get(builtInKey)).toBeNull();
+    expect(await store.get(KEYCHAIN_KEY)).not.toBeNull();
+  });
+
+  it("exposes an invalid override and refuses to remove the built-in App's keychain entry", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      builtInKey,
+      keychainEntry().replace(KEYCHAIN_CLIENT_ID, DEFAULT_GITHUB_APP_CLIENT_ID),
+    );
+    const running = await start(fakeDeps({ credentialStore: store }), null, {
+      PGARD_GITHUB_APP_CLIENT_ID: '"bad id"',
+    });
+    const sessionBody = (await apiGet(running, "/api/session")).body;
+    expect(JSON.parse(sessionBody).githubApp).toEqual({ clientId: null, source: "invalid" });
+    expect(sessionBody).not.toContain("bad id");
+    // The built-in App's entry is not shown as this App's sign-in...
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.storedSignIn).toEqual({ status: "unknown" });
+    // ...and an explicit "remove from keychain" leaves it alone.
+    const removed = JSON.parse(
+      (await apiPost(running, "/api/auth/sign-out", { removeStored: true })).body,
+    );
+    expect(removed.signInNotice).toBe(
+      "Signed out of this dashboard session. Nothing was removed from the OS keychain: PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    );
+    expect(await store.get(builtInKey)).not.toBeNull();
   });
 });

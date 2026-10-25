@@ -10,7 +10,7 @@ import {
   type GitHubSession,
   type UserTokenSet,
 } from "./device-flow.js";
-import { GITHUB_APP_CLIENT_ID_ENV } from "./env.js";
+import { INVALID_CLIENT_ID_OVERRIDE_MESSAGE } from "./env.js";
 import { GitHubAuthError, isGitHubAuthError } from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import type { GitHubClient, GitHubUser } from "./github-client.js";
@@ -50,7 +50,11 @@ export type SignInNotice =
   | { kind: "memory_only"; reason: string };
 
 export interface DeviceFlowSessionProviderOptions {
-  /** From `readGitHubAppClientId(process.env)`; `null` makes every call fail. */
+  /**
+   * From `resolveGitHubAppClientId(process.env).clientId`: the built-in PGARD App or the env
+   * override. `null` means the override is set but malformed; every call then fails with
+   * `invalid_client_id_override` and nothing is read from or written to the keychain.
+   */
   clientId: string | null;
   onUserCode: (code: DeviceUserCode) => void | Promise<void>;
   /**
@@ -104,13 +108,6 @@ function wrapClient(
     };
   }
   return wrapped as unknown as GitHubClient;
-}
-
-function missingClientIdError(): GitHubAuthError {
-  return new GitHubAuthError(
-    "missing_client_id",
-    `${GITHUB_APP_CLIENT_ID_ENV} is not set. A registered PGARD GitHub App is required to verify GitHub identity.`,
-  );
 }
 
 function isUnauthorized(error: unknown): boolean {
@@ -459,7 +456,7 @@ export function createDeviceFlowSessionProvider(
   const provider = async (): Promise<GitHubSession> => {
     const { clientId } = options;
     if (clientId === null) {
-      throw missingClientIdError();
+      throw new GitHubAuthError("invalid_client_id_override", INVALID_CLIENT_ID_OVERRIDE_MESSAGE);
     }
     if (pending !== null) {
       const current = pending;

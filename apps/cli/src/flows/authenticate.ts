@@ -1,7 +1,6 @@
-import type { AuthorizationSummary } from "@pgard/findings";
 import {
   GITHUB_APP_CLIENT_ID_ENV,
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   type DeviceUserCode,
   type GitHubSessionProvider,
   type SignInNotice,
@@ -44,11 +43,19 @@ export function formatSignInNotice(notice: SignInNotice): string {
   }
 }
 
+/** Said once per command when the env override (not the built-in PGARD App) is in use. */
+export function formatGitHubAppOverride(clientId: string): string {
+  return `Using GitHub App ${clientId} from ${GITHUB_APP_CLIENT_ID_ENV} (override).`;
+}
+
 /**
  * One provider per CLI process. It reuses the sign-in saved in the OS keychain (or saves a new
  * one); without a keychain the token stays in memory and is dropped on exit.
  */
 export function createSessionProvider(context: CommandContext): GitHubSessionProvider {
+  const app = resolveGitHubAppClientId(context.io.env);
+  if (app.source === "env")
+    err(context, context.errStyle.dim(formatGitHubAppOverride(app.clientId)));
   return context.deps.createSessionProvider({
     env: context.io.env,
     onUserCode: (code) => err(context, context.errStyle.bold(formatDeviceCode(code))),
@@ -61,21 +68,4 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
     },
     signal: context.signal,
   });
-}
-
-/**
- * When the gate was blocked and no GitHub App client id is configured, say so explicitly:
- * without a registered PGARD GitHub App, identity can never be verified.
- */
-export function printMissingClientIdHint(
-  context: CommandContext,
-  summary: AuthorizationSummary,
-): void {
-  if (summary.decision !== "blocked" || readGitHubAppClientId(context.io.env) !== null) return;
-  err(
-    context,
-    context.errStyle.yellow(
-      `Hint: ${GITHUB_APP_CLIENT_ID_ENV} is not set. A registered PGARD GitHub App is required to verify your GitHub identity; until it is configured every scan is blocked.`,
-    ),
-  );
 }

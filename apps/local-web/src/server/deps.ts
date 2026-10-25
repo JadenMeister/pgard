@@ -9,7 +9,7 @@ import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   runScan,
   verifyProject,
   type CredentialStore,
@@ -52,7 +52,7 @@ export function createDefaultServerDeps(): ServerDeps {
     runScan,
     createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
-        clientId: readGitHubAppClientId(env),
+        clientId: resolveGitHubAppClientId(env).clientId,
         onUserCode,
         onNotice,
         credentialStore,

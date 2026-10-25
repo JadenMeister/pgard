@@ -3,7 +3,8 @@
  * Messages never contain tokens, device codes or response bodies.
  */
 export type GitHubAuthErrorCode =
-  | "missing_client_id"
+  /** `PGARD_GITHUB_APP_CLIENT_ID` is set but malformed; identity cannot be verified. */
+  | "invalid_client_id_override"
   | "access_denied"
   | "expired_token"
   | "refresh_failed"

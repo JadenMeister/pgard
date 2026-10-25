@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { describeStoredSignIn, SIGN_OUT_HINTS, SIGN_OUT_LABELS } from "./sign-in-text";
+import {
+  describeGitHubApp,
+  describeStoredSignIn,
+  SIGN_OUT_HINTS,
+  SIGN_OUT_LABELS,
+} from "./sign-in-text";
 
 describe("dashboard sign-in texts", () => {
   it("labels both sign-out actions by what they do to the OS keychain", () => {
@@ -18,5 +23,17 @@ describe("dashboard sign-in texts", () => {
       "kept in memory until the dashboard stops",
     );
     expect(describeStoredSignIn({ status: "unknown" })).toBeNull();
+  });
+
+  it("mentions an override, warns about an invalid one, and is silent for the built-in App", () => {
+    expect(describeGitHubApp({ clientId: "Iv23liKDf0mhnPl2c7zj", source: "default" })).toBeNull();
+    expect(describeGitHubApp({ clientId: "Iv23liForkApp", source: "env" })).toEqual({
+      tone: "info",
+      text: "GitHub App: Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).",
+    });
+    expect(describeGitHubApp({ clientId: null, source: "invalid" })).toEqual({
+      tone: "warning",
+      text: "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App. Until then GitHub identity is unverifiable and every scan is blocked.",
+    });
   });
 });

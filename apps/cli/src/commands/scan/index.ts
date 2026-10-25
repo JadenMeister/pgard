@@ -2,7 +2,7 @@ import type { ConfirmedWebTarget, ScanScope } from "@pgard/findings";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
-import { createSessionProvider, printMissingClientIdHint } from "../../flows/authenticate.js";
+import { createSessionProvider } from "../../flows/authenticate.js";
 import {
   checkOutputDir,
   confirmInsideRepository,
@@ -75,7 +75,6 @@ export async function runScanCommand(
     throwIfCancelled(context);
     if (outcome.summary.decision !== "allowed") {
       out(context, formatAuthorization(outcome.summary, context.style));
-      printMissingClientIdHint(context, outcome.summary);
       return EXIT_CODES.blocked;
     }
     if (context.keys === null) {
@@ -130,7 +129,6 @@ export async function runScanCommand(
   let exitCode = exitCodeForStatus(result.overallStatus);
 
   if (result.overallStatus === "blocked") {
-    printMissingClientIdHint(context, result.authorization);
     if (command.report !== null)
       out(context, "No report was written because the scan was blocked.");
     return exitCode;

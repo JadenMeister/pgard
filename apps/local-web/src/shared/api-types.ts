@@ -16,7 +16,14 @@ export interface SessionInfo {
   projectName: string;
   /** Port pre-selected with `pgard dashboard --target-port`; still needs confirmation. */
   presetTargetPort: number | null;
-  isClientIdConfigured: boolean;
+  /**
+   * The GitHub App the server signs in with: the built-in PGARD App, or the
+   * `PGARD_GITHUB_APP_CLIENT_ID` override. The client id is public (device flow, no secret).
+   */
+  githubApp:
+    | { clientId: string; source: "default" | "env" }
+    /** The override is set but malformed: identity is unverifiable and every scan is blocked. */
+    | { clientId: null; source: "invalid" };
 }
 
 export interface DeviceCodeInfo {
@@ -35,7 +42,7 @@ export type StoredSignInDto =
   | { status: "stored"; login: string }
   | { status: "none" }
   | { status: "unavailable"; reason: string }
-  /** No client id configured, or not read yet. */
+  /** Not read yet, or not readable because the client id override is invalid. */
   | { status: "unknown" };
 
 export interface AuthStatus {

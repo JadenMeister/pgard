@@ -1,6 +1,6 @@
 import { sanitizeDisplayText } from "@pgard/http-local";
 import {
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   readStoredSignInStatus,
   type CredentialStore,
   type SignInNotice,
@@ -46,7 +46,7 @@ export async function readStoredSignInDto(
   store: CredentialStore,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<StoredSignInDto> {
-  const clientId = readGitHubAppClientId(env);
+  const { clientId } = resolveGitHubAppClientId(env);
   if (clientId === null) return { status: "unknown" };
   try {
     const status = await readStoredSignInStatus(store, clientId);

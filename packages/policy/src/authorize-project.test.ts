@@ -1,7 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { AuthorizationCheckId } from "@pgard/findings";
-import { GitHubAuthError, createDeviceFlowSessionProvider } from "@pgard/github-auth";
+import {
+  GitHubAuthError,
+  createDeviceFlowSessionProvider,
+  resolveGitHubAppClientId,
+} from "@pgard/github-auth";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGitFixture,
@@ -503,15 +507,53 @@ describe("authorizeProject: repository and identity", () => {
     expect(statusOf(outcome, "repository")).toBe("failed");
   });
 
-  it("blocks with github_identity unverifiable when no client id is configured", async () => {
+  it("blocks with github_identity unverifiable when the built-in App cannot reach GitHub", async () => {
     const { root } = repoWithCommits();
-    const provider = createDeviceFlowSessionProvider({ clientId: null, onUserCode: () => {} });
+    const fetch = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const provider = createDeviceFlowSessionProvider({
+      clientId: resolveGitHubAppClientId({}).clientId,
+      onUserCode: () => {},
+      fetch,
+    });
     const outcome = await authorizeProject(root, { getGitHubSession: provider });
     expectBlocked(outcome);
     const identity = outcome.summary.checks.find((check) => check.id === "github_identity");
     expect(identity?.status).toBe("unverifiable");
-    expect(identity?.reason).toMatch(/PGARD_GITHUB_APP_CLIENT_ID/);
+    expect(identity?.reason).toBe(
+      "GitHub identity could not be verified: Could not reach GitHub for sign-in.",
+    );
+    // A configured client id alone never lets the later checks pass.
+    expect(statusOf(outcome, "owner_approval")).not.toBe("passed");
+    expect(statusOf(outcome, "current_access")).not.toBe("passed");
+    expect(statusOf(outcome, "contribution")).not.toBe("passed");
+    expect(fetch).toHaveBeenCalledTimes(1);
     expect(outcome.repo).toBe("me/app");
+  });
+
+  it("blocks with github_identity unverifiable when the override is malformed", async () => {
+    const { root } = repoWithCommits();
+    const fetch = vi.fn(async () => {
+      throw new Error("must not be called");
+    });
+    const provider = createDeviceFlowSessionProvider({
+      clientId: resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' }).clientId,
+      onUserCode: () => {},
+      fetch,
+    });
+    const outcome = await authorizeProject(root, { getGitHubSession: provider });
+    expectBlocked(outcome);
+    const identity = outcome.summary.checks.find((check) => check.id === "github_identity");
+    expect(identity).toEqual({
+      id: "github_identity",
+      status: "unverifiable",
+      reason:
+        "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    });
+    expect(statusOf(outcome, "owner_approval")).not.toBe("passed");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(outcome)).not.toContain("bad id");
   });
 
   it("blocks when sign-in is denied", async () => {

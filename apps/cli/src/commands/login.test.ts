@@ -2,6 +2,7 @@ import {
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,
   createUnavailableCredentialStore,
+  DEFAULT_GITHUB_APP_CLIENT_ID,
   GitHubAuthError,
   signInAndStore,
   type CredentialStore,
@@ -128,7 +129,7 @@ describe("pgard login", () => {
     );
   });
 
-  it("reports a failed sign-in with exit 3 and a missing client id with exit 3", async () => {
+  it("reports a failed sign-in with exit 3", async () => {
     const denied = createTestIo({ env: ENV });
     const deps = createTestDeps({
       signInAndStore: async () => {
@@ -137,10 +138,50 @@ describe("pgard login", () => {
     });
     expect(await runLogin(createTestContext(denied, deps))).toBe(3);
     expect(denied.stderr()).toContain("GitHub sign-in failed: GitHub sign-in was denied");
+  });
 
-    const missing = createTestIo();
-    expect(await runLogin(createTestContext(missing, createTestDeps()))).toBe(3);
-    expect(missing.stderr()).toContain("PGARD_GITHUB_APP_CLIENT_ID is not set");
+  it("signs in with the built-in PGARD App when no override is set, or the override when set", async () => {
+    const clientIdFor = async (env: Record<string, string>): Promise<string | undefined> => {
+      const signIn = vi.fn(async () => ({ login: "octo", savedError: null }));
+      const captured = createTestIo({ env });
+      expect(
+        await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn }))),
+      ).toBe(0);
+      expect(captured.stderr()).not.toContain("PGARD_GITHUB_APP_CLIENT_ID");
+      return (signIn.mock.calls[0] as unknown as [{ clientId: string }] | undefined)?.[0].clientId;
+    };
+    expect(await clientIdFor({})).toBe(DEFAULT_GITHUB_APP_CLIENT_ID);
+    expect(await clientIdFor({ PGARD_GITHUB_APP_CLIENT_ID: "   " })).toBe(
+      DEFAULT_GITHUB_APP_CLIENT_ID,
+    );
+    expect(await clientIdFor(ENV)).toBe(CLIENT_ID);
+  });
+
+  it("says on stdout when the override is in use, and not for the built-in App", async () => {
+    const run = async (env: Record<string, string>) => {
+      const captured = createTestIo({ env });
+      const signIn = async () => ({ login: "octo", savedError: null });
+      await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn })));
+      return captured;
+    };
+    const override = await run(ENV);
+    expect(override.stdout()).toContain(
+      `Using GitHub App ${CLIENT_ID} from PGARD_GITHUB_APP_CLIENT_ID (override).`,
+    );
+    expect((await run({})).stdout()).not.toContain("Using GitHub App");
+  });
+
+  it("exits 3 for a malformed override before any sign-in, without printing the value", async () => {
+    const signIn = vi.fn();
+    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });
+    expect(
+      await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn }))),
+    ).toBe(3);
+    expect(signIn).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain(
+      "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    );
+    expect(captured.stdout() + captured.stderr()).not.toContain("bad id");
   });
 
   it("reports a keychain that refused to save with exit 4", async () => {
@@ -166,6 +207,35 @@ describe("pgard login", () => {
     expect(mainHelp.stdout()).toContain("pgard login");
     expect(mainHelp.stdout()).toContain("pgard logout");
   });
+
+  it("documents the built-in App and the override, and no 'not set' exit code", async () => {
+    const help = async (args: string[]): Promise<string> => {
+      const captured = createTestIo();
+      expect(
+        await main(args, captured.io, { deps: createTestDeps(), interrupts: noInterrupts }),
+      ).toBe(0);
+      return captured.stdout();
+    };
+    const login = await help(["login", "--help"]);
+    expect(login).toContain("PGARD signs in as the built-in PGARD GitHub App");
+    expect(login).toContain("set PGARD_GITHUB_APP_CLIENT_ID\nonly to use another App");
+    expect(login).toContain("A value that is not\na valid client id blocks sign-in (exit 3)");
+    expect(login).toContain(
+      "  3    GitHub sign-in failed, or PGARD_GITHUB_APP_CLIENT_ID is not a valid\n       client id\n",
+    );
+    const logout = await help(["logout", "--help"]);
+    expect(logout).toContain(
+      "  0    removed, or nothing was saved\n  3    PGARD_GITHUB_APP_CLIENT_ID is not a valid client id; nothing was removed\n  4    no OS keychain",
+    );
+    const doctor = await help(["doctor", "--help"]);
+    expect(doctor).toContain(
+      "(the built-in PGARD App, or PGARD_GITHUB_APP_CLIENT_ID\nas an override)",
+    );
+    for (const text of [login, logout, doctor]) {
+      expect(text).not.toContain("is not set");
+      for (const line of text.split("\n")) expect(line.length).toBeLessThanOrEqual(82);
+    }
+  });
 });
 
 describe("pgard logout", () => {
@@ -187,6 +257,40 @@ describe("pgard logout", () => {
     const captured = createTestIo({ env: ENV });
     expect(await runLogout(createTestContext(captured, createTestDeps()))).toBe(0);
     expect(captured.stdout()).toContain("No GitHub sign-in is saved in the OS keychain");
+  });
+
+  it("removes the built-in App's entry when no override is set, never an override's", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = await storeWith(storedEntry());
+    await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
+    const captured = createTestIo();
+    expect(
+      await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
+    ).toBe(0);
+    expect(captured.stdout()).toContain("Removed the GitHub sign-in for octo");
+    expect(await store.get(builtInKey)).toBeNull();
+    expect(await store.get(KEY)).not.toBeNull();
+  });
+
+  it("exits 3 for a malformed override and keeps the built-in App's entry", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = await storeWith(null);
+    await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
+    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });
+    expect(
+      await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
+    ).toBe(3);
+    expect(captured.stderr()).toContain(
+      "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.",
+    );
+    expect(await store.get(builtInKey)).not.toBeNull();
+    expect(captured.stdout()).not.toContain("Removed");
   });
 
   it("exits 4 when no keychain is available", async () => {
@@ -216,15 +320,16 @@ describe("doctor: saved GitHub sign-in", () => {
     ).toContain("[ok]   Saved GitHub sign-in: octo (OS keychain; the token does not expire)");
   });
 
-  it("warns when nothing is saved, the keychain is unavailable or no client id is set", async () => {
+  it("warns when nothing is saved for this App or the keychain is unavailable", async () => {
     expect(await doctor(await storeWith(null))).toContain(
       "[warn] Saved GitHub sign-in: none - run `pgard login` once",
     );
     expect(await doctor(createUnavailableCredentialStore("no keychain service"))).toContain(
       "[warn] Saved GitHub sign-in: OS keychain unavailable (no keychain service)",
     );
+    // Without the override, doctor looks up the built-in App's entry, not the override's.
     expect(await doctor(await storeWith(storedEntry()), {})).toContain(
-      "[warn] Saved GitHub sign-in: not checked (PGARD_GITHUB_APP_CLIENT_ID is not set)",
+      "[warn] Saved GitHub sign-in: none - run `pgard login` once",
     );
   });
 

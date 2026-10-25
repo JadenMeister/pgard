@@ -1,7 +1,9 @@
 import {
   GITHUB_APP_CLIENT_ID_ENV,
-  readGitHubAppClientId,
+  INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
+  resolveGitHubAppClientId,
   readStoredSignInStatus,
+  type ResolvedGitHubAppClientId,
   type StoredSignInStatus,
 } from "@pgard/scan-core";
 import { out, type CommandContext } from "../context.js";
@@ -35,6 +37,38 @@ function formatTime(epochMs: number): string {
 }
 
 /**
+ * Which GitHub App PGARD signs in with. The client id is public (device flow, no client secret),
+ * so it is shown. A malformed override is a [fail]: scans are blocked until it is fixed or unset.
+ * The malformed value itself is never printed.
+ */
+function describeGitHubApp(app: ResolvedGitHubAppClientId): DoctorCheck {
+  const label = "GitHub App";
+  switch (app.source) {
+    case "default":
+      return {
+        label,
+        isOk: true,
+        detail: `built-in PGARD App (${app.clientId})`,
+        isRequired: true,
+      };
+    case "env":
+      return {
+        label,
+        isOk: true,
+        detail: `${app.clientId} from ${GITHUB_APP_CLIENT_ID_ENV} (override)`,
+        isRequired: true,
+      };
+    case "invalid":
+      return {
+        label,
+        isOk: false,
+        detail: `${INVALID_CLIENT_ID_OVERRIDE_MESSAGE} Until then GitHub identity is unverifiable and every scan is blocked.`,
+        isRequired: true,
+      };
+  }
+}
+
+/**
  * Reads the keychain entry for this App without contacting GitHub. Shows the account login and
  * expiry only; never the token.
  */
@@ -43,7 +77,7 @@ async function describeStoredSignIn(
   clientId: string | null,
 ): Promise<{ isOk: boolean; detail: string }> {
   if (clientId === null) {
-    return { isOk: false, detail: `not checked (${GITHUB_APP_CLIENT_ID_ENV} is not set)` };
+    return { isOk: false, detail: `not checked (${GITHUB_APP_CLIENT_ID_ENV} is not valid)` };
   }
   let status: StoredSignInStatus;
   try {
@@ -87,8 +121,8 @@ async function describeStoredSignIn(
 }
 
 /**
- * `pgard doctor`: environment diagnosis only. It never authorizes a scan, never prints the
- * client id value, and works outside a project.
+ * `pgard doctor`: environment diagnosis only. It never authorizes a scan, never prints a token,
+ * and works outside a project.
  */
 export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const { deps, io, style } = context;
@@ -99,9 +133,8 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     deps.discoverListeningPorts(),
     readAdvisoryStatusSafely(deps, io.env),
   ]);
-  const clientId = readGitHubAppClientId(io.env);
-  const isClientIdSet = clientId !== null;
-  const signIn = await describeStoredSignIn(context, clientId);
+  const app = resolveGitHubAppClientId(io.env);
+  const signIn = await describeStoredSignIn(context, app.clientId);
   const checks: DoctorCheck[] = [
     {
       label: "Node.js",
@@ -130,14 +163,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
       detail: isGitHubReachable ? "api.github.com reachable" : "api.github.com not reachable",
       isRequired: true,
     },
-    {
-      label: GITHUB_APP_CLIENT_ID_ENV,
-      isOk: isClientIdSet,
-      detail: isClientIdSet
-        ? "set"
-        : "not set or invalid - set it to the client id of a registered PGARD GitHub App; until then GitHub identity is unverifiable and every scan is blocked",
-      isRequired: true,
-    },
+    describeGitHubApp(app),
     { label: "Saved GitHub sign-in", ...signIn, isRequired: false },
     {
       label: "Local port discovery",
