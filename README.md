@@ -395,7 +395,6 @@ How the dashboard protects itself:
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope for the MVP (see [Out of scope for the MVP](#out-of-scope-for-the-mvp)).
 - Contribution is checked conservatively for users who are not the verified owner: co-author trailers and unsigned direct pushes do not count, so a collaborator who only co-authored commits or pushed unsigned commits is blocked at contribution until a pull request of theirs is merged or they push signed commits.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) Follow-ups from the keychain sign-in review: narrow races between a keychain save and a removal; a session-only dashboard sign-out during a token refresh can make the next use ask for a new device code; and after `pgard login` switches accounts, the dashboard keeps the previous account's port access for up to 30 minutes (scans still re-check authorization).
-- [#145](https://github.com/JadenMeister/pgard/issues/145) Secret detection misses some forms, for example template literals, TypeScript type-annotated declarations, Go `:=` declarations, credentials in `postgres://` URLs and index assignments such as `headers["x-api-key"] = "..."`.
 - Detection is not complete. Missing findings do not mean the project is secure.
 - Port discovery can be incomplete or unavailable. Type the port by hand in that case.
 

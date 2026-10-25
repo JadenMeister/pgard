@@ -395,7 +395,6 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 - [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. MVP 범위 밖입니다([MVP 범위 밖](#mvp-범위-밖) 참고).
 - 검증된 owner가 아닌 사용자의 기여는 보수적으로 확인합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않으므로, 커밋을 공동 작성만 했거나 서명 없이 push한 협력자는 본인의 pull request가 merge되거나 서명된 커밋을 push할 때까지 기여에서 차단됩니다.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) 키체인 로그인 리뷰의 후속 작업: 키체인 저장과 삭제 사이의 짧은 경쟁 상태, 토큰 갱신 중 대시보드 세션만 끝내는 로그아웃을 하면 다음 사용 때 새 device 코드를 요구할 수 있는 문제, `pgard login`으로 계정을 바꾼 뒤에도 대시보드가 이전 계정의 포트 접근을 최대 30분 유지하는 문제(검사는 권한을 다시 확인함).
-- [#145](https://github.com/JadenMeister/pgard/issues/145) 비밀정보 탐지가 일부 형태를 놓칩니다. 예: 템플릿 리터럴, TypeScript 타입 표기가 붙은 선언, Go `:=` 선언, `postgres://` URL 속 자격 증명, `headers["x-api-key"] = "..."` 같은 인덱스 대입.
 - 탐지는 완전하지 않습니다. 발견 항목이 없다고 프로젝트가 안전한 것은 아닙니다.
 - 포트 탐지는 불완전하거나 사용할 수 없을 수 있습니다. 그럴 때는 포트를 직접 입력하세요.
 
