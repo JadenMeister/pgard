@@ -403,6 +403,47 @@ describe("authorizeProject: blocked paths", () => {
     expect(calls.filter((call) => call.startsWith("pulls:"))).toHaveLength(1);
   });
 
+  it("ends a non-passing contribution reason with how to qualify, after the existing text", async () => {
+    const guidance = (branch: string) =>
+      `To qualify, get a pull request merged into "${branch}", or sign your commits (GitHub shows them as Verified) and push them to "${branch}".`;
+    const { root, other } = repoWithCommits();
+    const none = await authorize(root, baseState());
+    const failed = none.outcome.summary.checks.find((check) => check.id === "contribution");
+    expect(failed?.status).toBe("failed");
+    expect(failed?.reason).toMatch(/^No qualifying contribution found among 2 local commits\./);
+    expect(failed?.reason.endsWith(` ${guidance("main")}`)).toBe(true);
+
+    const capped = await authorize(
+      root,
+      baseState({
+        pulls: {
+          [other]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
+        compare: { [other]: "ahead" },
+      }),
+      1,
+    );
+    const unverifiable = capped.outcome.summary.checks.find((check) => check.id === "contribution");
+    expect(unverifiable?.status).toBe("unverifiable");
+    expect(unverifiable?.reason.endsWith(` ${guidance("main")}`)).toBe(true);
+
+    const develop = await authorize(
+      root,
+      baseState({ repository: userRepository({ defaultBranch: "develop" }) }),
+    );
+    expect(
+      develop.outcome.summary.checks.find((check) => check.id === "contribution")?.reason,
+    ).toContain(guidance("develop"));
+  });
+
   it("reports GitHub API failures as unverifiable", async () => {
     const { root } = repoWithCommits();
     const { session } = createMockGitHub(baseState());

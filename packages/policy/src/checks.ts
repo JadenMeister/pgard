@@ -483,6 +483,11 @@ export interface ContributionInput {
   maxCandidates: number;
 }
 
+/** Appended to a contribution that did not pass: how a non-owner qualifies. */
+export function contributionGuidance(defaultBranch: string): string {
+  return `To qualify, get a pull request merged into "${defaultBranch}", or sign your commits (GitHub shows them as Verified) and push them to "${defaultBranch}".`;
+}
+
 /** Splits GitHub's canonical `owner/name`; `null` if it is not in that form. */
 export function parseCanonicalRepository(fullName: string): GitHubRepositoryRef | null {
   const parts = fullName.split("/");
@@ -502,6 +507,7 @@ export function parseCanonicalRepository(fullName: string): GitHubRepositoryRef 
  */
 export async function verifyContribution(input: ContributionInput): Promise<CheckResult> {
   const { client, user, repository } = input;
+  const guidance = contributionGuidance(repository.defaultBranch);
   const repo = parseCanonicalRepository(repository.fullName);
   if (repo === null) {
     return unverifiable("GitHub returned an unexpected repository name.");
@@ -513,7 +519,7 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
     return unverifiable("Could not read local Git history to find contribution candidates.");
   }
   if (candidates.length === 0) {
-    return failed("No local commits were found to check for a contribution.");
+    return failed(`No local commits were found to check for a contribution. ${guidance}`);
   }
   const ordered = orderCandidates(candidates, user);
   const examined = ordered.slice(0, input.maxCandidates);
@@ -556,10 +562,10 @@ export async function verifyContribution(input: ContributionInput): Promise<Chec
   }
   if (ordered.length > examined.length) {
     return unverifiable(
-      `No qualifying contribution among the ${examined.length} commits examined (of ${ordered.length} local commits). A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required.`,
+      `No qualifying contribution among the ${examined.length} commits examined (of ${ordered.length} local commits). A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required. ${guidance}`,
     );
   }
   return failed(
-    `No qualifying contribution found among ${examined.length} local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count.`,
+    `No qualifying contribution found among ${examined.length} local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count. ${guidance}`,
   );
 }
