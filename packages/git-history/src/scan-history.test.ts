@@ -139,6 +139,173 @@ describe("detectSecrets", () => {
     );
   });
 
+  // #145: false negatives on main. Every case is a credential and must be reported.
+  const L = "QwErTyUiOpAsDfGh";
+  const C = "K9x[mQ2]vLp8Wz4Rt";
+  const expectCredential = (text: string, path: string) =>
+    expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
+      "generic_credential",
+    );
+
+  it.each([
+    ["Python block with comma params", `DSN = """\nhost=db,password=${C},port=5432\n"""`, "a.py"],
+    ["Python block, letters only", `DSN = '''\nhost=db,password=${L},port=5432\n'''`, "a.py"],
+    ["YAML flow mapping in a template", `const y = \`\n{password: ${C}, user: a}\n\`;`, "a.ts"],
+    ["YAML key with a comma in a template", `const y = \`\npassword: ${C},\n\`;`, "a.ts"],
+    ["code-like line in a template", `const y = \`\nconst password = ${C};\n\`;`, "a.ts"],
+    ["template after an interpolation", `const y = \`\${a}\n{password: ${C}}\n\`;`, "a.ts"],
+    [
+      "string after a regex literal with a quote",
+      `const r = /"/; const c = "x,password=${C}";`,
+      "a.ts",
+    ],
+    [
+      "template after a regex with a backtick",
+      `const r = /\`/;\nconst c = \`\n{password: ${C}}\`;`,
+      "a.ts",
+    ],
+    [
+      "template after a comment with a backtick",
+      `// a \` b\nconst c = \`\n{password: ${C}}\`;`,
+      "a.ts",
+    ],
+    ["Go raw string with parens", `cfg := \`\n(password=${C})\n\``, "main.go"],
+    ["Ruby heredoc flow mapping", `cfg = <<~EOS\n  {password: ${C}}\nEOS`, "app.rb"],
+    ["PHP heredoc", `$c = <<<EOT\n{password: ${C}}\nEOT;`, "app.php"],
+    ["Java text block", `String c = """\n{password: ${C}}\n""";`, "App.java"],
+    ["C# verbatim string", `var c = @"\n{password: ${C}}\n";`, "App.cs"],
+    ["Rust raw string", `let c = r#"\n{password: ${C}}\n"#;`, "main.rs"],
+    ["unterminated template (confused)", `const y = \`x\n{password: ${C}}`, "a.ts"],
+    ["unterminated block comment (confused)", `const a = 1; /* x\n{password: ${C}}`, "a.ts"],
+  ])("detects %s: multi-line strings are tracked over the file (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  // #142 false positives must stay fixed with the whole-file string tracking (#145).
+  it.each([
+    ["after a closed template", "const t = `x`;\nconst x = { password: passwordFromVault };"],
+    [
+      "after a nested template",
+      'const t = `a${b ? `c` : "d"}e`;\nconst x = { password: passwordFromVault };',
+    ],
+    ["after a comment with an apostrophe", "// don't\nconst x = { password: passwordFromVault };"],
+    ["after a block comment", "/* it's */\nconst x = { password: passwordFromVault };"],
+    ["after a division", 'const r = a / b; const s = "/";\nconst x = { secret: ACCESS_TOKEN };'],
+    ["after a regex with a quote", "const re = /'/;\nconst x = { password: passwordFromVault };"],
+  ])("ignores code %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+  });
+
+  it.each([
+    ["Python after a closed block", 'x = """doc"""\nconnect(password=userSuppliedValue)', "a.py"],
+    ["Python after a comment", "# it's\nconnect(password=userSuppliedValue)", "a.py"],
+    ["Ruby after a heredoc", "a = <<~EOS\n  x\nEOS\nconnect(password: passwordFromVault)", "a.rb"],
+  ])("ignores %s (#145)", (_label, text, path) => {
+    expect(detectSecrets(text, { path })).toEqual([]);
+  });
+
+  it.each([
+    ["template literal value", `const password = \`${L}\`;`, "src/db.ts"],
+    ["Go short declaration", `password := "${L}"`, "main.go"],
+    ["index assignment", `headers["x-api-key"] = "${L}";`, "src/client.ts"],
+  ])("detects a %s (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    ["a Go short declaration of a variable", "secret := mySecretValue"],
+    ["a Go call", "token := getTokenFromVault(ctx)"],
+    ["an index assignment of a variable", 'headers["x-api-key"] = apiKeyFromVault;'],
+    ["a ternary between key names in backticks", "const label = cond ? `apiKey` : `clientSecret`;"],
+  ])("ignores %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+    expect(detectSecrets(text, { path: "internal/scan/module.go" })).toEqual([]);
+  });
+
+  it.each([
+    ["TS typed declaration", `const dbPassword: string = "${L}";`, "src/db.ts"],
+    ["optional typed class field", `private readonly apiKey?: string = "${L}";`, "src/db.ts"],
+    ["Python typed assignment", `password: str = "${L}"`, "app/db.py"],
+    ["Go typed var", `var password string = "${L}"`, "main.go"],
+    ["quoted secret in a ternary", `const accessKey = cond ? "${L}" : "other";`, "src/db.ts"],
+    ["quoted fallback after ??", `const apiKey = process.env.API_KEY ?? "${L}";`, "src/db.ts"],
+    ["quoted fallback after ||", `const apiKey = process.env.API_KEY || "${L}";`, "src/db.ts"],
+  ])("detects a %s (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    ["a typed field set to a variable", "class A { secret: string = defaultSecretValue }"],
+    ["a comparison", 'if (password == "Xq9vL2mTz8RkWp4N") {}'],
+    ["a typed parameter with a constant default", "function f(password: string = DEFAULT_PW) {}"],
+  ])("ignores %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+  });
+
+  it.each([
+    ["unquoted YAML value with (", "password: K9x(mQ2vLp8Wz4Rt", "config/app.yml"],
+    ["unquoted YAML value ending in (", "password: K9xmQ2vLp8Wz4Rt(", "config/app.yml"],
+    ["quoted value with (", 'const password = "K9x(mQ2vLp8Wz4Rt";', "src/db.ts"],
+    ["value with ( in a multi-line string", 'CFG = """\npassword=K9x(mQ2vLp8Wz4Rt\n"""', "a.py"],
+  ])("detects a %s (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    ["a call with arguments", 'const apiKey = getApiKey(config, "default")', "src/a.ts"],
+    ["a Python call with arguments", "password = hash_password(user_input, salt)", "a.py"],
+    ["a complete call in a config file", "password: getSecret()", "config/app.yml"],
+  ])("ignores %s (#145)", (_label, text, path) => {
+    expect(detectSecrets(text, { path })).toEqual([]);
+  });
+
+  it.each([
+    ["in a TS string", `const u = "postgres://admin:${L}@db.prod.internal:5432/app";`, "a.ts"],
+    ["with an empty user", `url: redis://:${L}@cache:6379`, "config/app.yml"],
+    ["in an env file", `DATABASE_URL=mysql://app:${C}@db/app`, ".env"],
+  ])("detects a password in a URL %s, keeping only the password (#145)", (_label, text, path) => {
+    const found = detectSecrets(text, { path }).find((secret) => secret.kind === "url_credential");
+    expect(found?.value).toMatch(/^(?:Qw|K9)/);
+    expect(found?.value).not.toContain("@");
+    expect(found?.value).not.toContain("admin");
+  });
+
+  it.each([
+    ["placeholder words", 'const u = "postgres://user:password@localhost/db";'],
+    ["an interpolated password", 'const u = "postgres://user:${DB_PASSWORD}@localhost/db";'],
+    ["a port and a mail address", 'const u = "https://host:8080/path?x=a@b";'],
+    ["a user without a password", 'const u = "https://token@github.com/org/repo";'],
+  ])("ignores URLs with %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/db.ts" })).toEqual([]);
+  });
+
+  it("stays linear on large inputs (#145)", () => {
+    const shapes = [
+      'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
+      "password secret apiKey accessToken ",
+      "password=x(/[",
+      "postgres://user:pa@x ",
+      `${"a".repeat(39)}password_${"b".repeat(39)} `,
+      "password: abc <<~A r#\"`${'",
+    ];
+    const time = (text: string) => {
+      const start = performance.now();
+      for (const path of ["big.ts", "big.rb", "config.yml"]) detectSecrets(text, { path });
+      return performance.now() - start;
+    };
+    for (const shape of shapes) {
+      // Starts with an unquoted match so the string tracker runs over the whole text.
+      const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(1_250_000 / shape.length))}`;
+      time(unit.slice(0, 100_000)); // warm up
+      const small = time(unit);
+      const large = time(unit.repeat(4)); // 5 MB
+      // 4x the input should take roughly 4x the time (16x if quadratic). CI runners are much
+      // slower than local machines, so the absolute bound is loose.
+      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      expect(large).toBeLessThan(15_000);
+    }
+  }, 120_000);
+
   it("ignores bare identifiers only where the line clearly is code", () => {
     expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);
     expect(detectSecrets("const x = { password: passwordFromVault };", { path: "a.ts" })).toEqual(
@@ -257,6 +424,39 @@ describe("scanGitHistory", () => {
       ["history:tracked-files", "completed"],
       ["history:commits", "completed"],
     ]);
+  });
+
+  it("reports #145 credentials as PG-SECRET-002 without their values", async () => {
+    fixture = createGitFixture();
+    const password = join("Qw9", "ErTy", "UiOp", "AsDf");
+    const bracketed = join("K9x", "[mQ2]", "vLp8", "Wz4Rt");
+    fixture.commit({
+      files: {
+        "src/db.ts": [
+          `const url = "postgres://admin:${password}@db.internal:5432/app";`,
+          `const dbPassword: string = "${password}x";`,
+          `const y = \`\n{password: ${bracketed}, user: a}\n\`;`,
+        ].join("\n"),
+        "main.go": `package main\n\nfunc f() {\n\tpassword := "${password}y"\n}\n`,
+      },
+    });
+    const result = await scanGitHistory(fixture.root);
+    const tracked = byRule(result, "PG-SECRET-002");
+    expect(tracked.map((finding) => [finding.location.path, finding.location.line])).toEqual(
+      expect.arrayContaining([
+        ["src/db.ts", 1],
+        ["src/db.ts", 2],
+        ["src/db.ts", 4],
+        ["main.go", 4],
+      ]),
+    );
+    expect(tracked.find((finding) => finding.location.line === 1)).toMatchObject({
+      evidence: "password in a URL in a tracked file (value redacted)",
+      status: "suspected",
+    });
+    const json = JSON.stringify(result);
+    expect(json).not.toContain(password);
+    expect(json).not.toContain(bracketed);
   });
 
   it("does not report untracked or ignored local .env files", async () => {

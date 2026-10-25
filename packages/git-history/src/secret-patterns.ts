@@ -2,6 +2,8 @@
  * Secret detection for file contents read from Git objects. Matches carry the value only so the
  * caller can compare occurrences in memory; values must never be written to findings.
  */
+import { createStringLookup } from "./string-regions.js";
+
 export type DetectedSecretKind =
   | "private_key"
   | "private_key_header"
@@ -11,7 +13,8 @@ export type DetectedSecretKind =
   | "slack_token"
   | "stripe_key"
   | "google_api_key"
-  | "generic_credential";
+  | "generic_credential"
+  | "url_credential";
 
 export interface DetectedSecret {
   kind: DetectedSecretKind;
@@ -31,6 +34,7 @@ export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
   stripe_key: "Stripe secret key",
   google_api_key: "Google API key",
   generic_credential: "credential assignment",
+  url_credential: "password in a URL",
 };
 
 export interface DetectSecretsOptions {
@@ -45,9 +49,15 @@ export interface DetectSecretsOptions {
 interface Pattern {
   kind: DetectedSecretKind;
   pattern: RegExp;
-  /** Capture group holding the value (0 = whole match). */
-  group: number;
+  /** Capture group holding the value (0 = whole match, a name for a named group). */
+  group: number | string;
 }
+
+/** A credential-like key name (`password`, `DB_PASSWORD`, `x-api-key`, `clientSecret`...). */
+const CREDENTIAL_KEY =
+  "(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}";
+/** A quoted literal value: the quote must close right after the value. */
+const QUOTED_VALUE = "(?<valueQuote>[\"'`])(?<value>[^\\s\"'`,;]{8,256})\\k<valueQuote>";
 
 // Bounded quantifiers keep matching linear.
 const PATTERNS: Pattern[] = [
@@ -84,10 +94,30 @@ const PATTERNS: Pattern[] = [
   },
   {
     kind: "generic_credential",
-    // Groups: 1 quote closing the key, 2 separator, 3 quote opening the value, 4 value.
+    // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
+    pattern: new RegExp(
+      `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>[^\\s"'\`,;]{8,256})\\k<valueQuote>`,
+      "gi",
+    ),
+    group: "value",
+  },
+  {
+    kind: "generic_credential",
+    // Only with a quoted literal: a typed declaration (`const dbPassword: string = "…"`,
+    // `var password string = "…"`) or a literal behind a condition or fallback
+    // (`apiKey = isProd ? "…" : …`, `apiKey = process.env.KEY ?? "…"`).
+    pattern: new RegExp(
+      `${CREDENTIAL_KEY}["']?\\??(?:[ \\t]{0,8}:[ \\t]{0,8}[A-Za-z_$][\\w$.]{0,40}(?:<[^<>\\n]{0,80}>)?(?:\\[\\])?\\??[ \\t]{0,8}(?::=|=(?![=>]))|[ \\t]{1,8}[A-Za-z_*[\\]][\\w$.*[\\]]{0,40}[ \\t]{0,8}=(?![=>])|[ \\t]{0,8}(?::=|=(?![=>]))[ \\t]{0,8}!?[\\w$.!()[\\]]{1,80}[ \\t]{0,8}(?:\\?\\?|\\|\\||\\?(?![.?])))[ \\t]{0,8}${QUOTED_VALUE}`,
+      "gi",
+    ),
+    group: "value",
+  },
+  {
+    kind: "url_credential",
+    // `scheme://user:password@host`: the value is the password only.
     pattern:
-      /(?<![A-Za-z0-9])[A-Za-z0-9_.-]{0,40}(?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|auth[_-]?token|access[_-]?token|client[_-]?secret|private[_-]?key)[A-Za-z0-9_.-]{0,40}(["']?)[ \t]{0,8}([:=])[ \t]{0,8}(["']?)([^\s"'`,;]{8,256})\3/gi,
-    group: 4,
+      /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/[^\s:/?#@"'`<>]{0,128}:(?<value>[^\s/?#@"'`<>]{1,256})@(?=[A-Za-z0-9[])/g,
+    group: "value",
   },
 ];
 
@@ -124,45 +154,51 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
+/** `getSecret()`, `hash(input`: a call (cut at `,` or a space). */
+const CALL_SHAPED_VALUE = /^[A-Za-z_$][\w$.]*\(/;
 
-/**
- * Whether `index` sits inside a string literal on its line (`"…;Password=abc"`), judged by the
- * unescaped quotes before it on that line. A stray apostrophe errs towards "inside", which keeps
- * the match.
- */
-function isInsideStringLiteral(text: string, index: number): boolean {
-  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
-  let open: string | null = null;
-  for (let cursor = lineStart; cursor < index; cursor += 1) {
-    const char = text[cursor];
-    if (char === "\\") {
-      cursor += 1;
-    } else if (open === null) {
-      if (char === '"' || char === "'" || char === "`") open = char;
-    } else if (char === open) {
-      open = null;
-    }
-  }
-  return open !== null;
-}
-
-/** Code right before a key: a declaration keyword, or an opening `(`/`{` or `,` separator. */
+/** Code right before a key: a declaration keyword, or an opening `(`/`{`/`[` or `,` separator. */
 const CODE_BEFORE_KEY =
-  /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({,]\s*$/;
+  /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({[,]\s*$/;
 /** Code right after a value: `)`, `,`, `;`, `{` or `=>`. */
 const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
 
+/** Per-text state shared by the matches of one `detectSecrets` call. */
+interface DetectContext {
+  text: string;
+  /** Whether the text is a source code file (string values there must be quoted). */
+  isSource: boolean;
+  /** Start of the string literal around an index, or -1 (built lazily, once per text). */
+  stringStartAt: (index: number) => number;
+}
+
+function createContext(text: string, options: DetectSecretsOptions): DetectContext {
+  const path = options.path;
+  const isSource = path !== undefined && SOURCE_CODE_FILE.test(path);
+  let lookup: ((index: number) => number) | null = null;
+  return {
+    text,
+    isSource,
+    stringStartAt: (index) => {
+      if (path === undefined) return -1;
+      lookup ??= createStringLookup(text, path);
+      return lookup(index);
+    },
+  };
+}
+
 /**
  * Whether the match positively looks like code: the key follows a code token on its line
- * (`const password = …`, `f(secret: …`, `{ apiKey: …`), or the key starts the line as an
- * object property or type member (`key: value`) and the value is followed by code
- * (an object property set to a constant and a trailing comma, or a `string;` type member). Anything else, including lines inside
- * multi-line strings (`Password=abc;`) and anything ambiguous, is not treated as code.
+ * (`const password = …`, `f(secret: …`, `{ apiKey: …`, `headers["x-api-key"] = …`), it is a Go
+ * short declaration (`token := …`), or the key starts the line as an object property or type
+ * member (`key: value`) and the value is followed by code (an object property set to a constant
+ * and a trailing comma, or a `string;` type member). The caller has checked that the key is not
+ * inside a string literal; anything ambiguous is not treated as code.
  */
-function looksLikeCode(text: string, start: number, end: number, separator: string): boolean {
-  if (isInsideStringLiteral(text, start)) return false;
-  const lineStart = text.lastIndexOf("\n", start - 1) + 1;
-  const before = text.slice(lineStart, start);
+function looksLikeCode(text: string, keyStart: number, end: number, separator: string): boolean {
+  if (separator === ":=") return true;
+  const lineStart = text.lastIndexOf("\n", keyStart - 1) + 1;
+  const before = text.slice(lineStart, keyStart);
   if (CODE_BEFORE_KEY.test(before)) return true;
   const lineEnd = text.indexOf("\n", end);
   const after = text.slice(end, lineEnd === -1 ? text.length : lineEnd);
@@ -171,32 +207,44 @@ function looksLikeCode(text: string, start: number, end: number, separator: stri
 
 /**
  * Whether a generic `key = value` match is an assignment of a literal value, judged by what
- * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). In
- * source code files, an unquoted value is rejected only when the line positively looks like code
- * at the match (see `looksLikeCode`) and the value is code-shaped, an all-caps constant name or
- * a bare identifier. Everything else is kept: config files, string literals (also multi-line
- * ones), and ambiguous lines. Erring towards reporting is deliberate.
+ * surrounds it. Rejects a ternary between two strings (`x ? "API_KEY" : "PG-SECRET-002"`). An
+ * unquoted call (`getSecret()`) is rejected when it is complete, or in source code outside a
+ * string literal. In source code files, an unquoted value is rejected only when the key is not
+ * inside a string literal (judged over the whole file, so multi-line strings count), the line
+ * positively looks like code at the match (see `looksLikeCode`), and the value is code-shaped,
+ * an all-caps constant name or a bare identifier. Everything else is kept: config files, string
+ * literals and ambiguous lines. Erring towards reporting is deliberate.
  */
-function isLiteralAssignment(
-  text: string,
-  match: RegExpMatchArray,
-  options: DetectSecretsOptions,
-): boolean {
-  const [whole, keyQuote = "", separator = "", valueQuote = "", value = ""] = match;
+function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): boolean {
+  const groups = match.groups ?? {};
+  const keyQuote = groups.keyQuote ?? "";
+  const separator = groups.separator ?? "=";
+  const valueQuote = groups.valueQuote ?? "";
+  const value = groups.value ?? "";
+  const { text } = context;
   const start = match.index ?? 0;
   if (
     separator === ":" &&
     keyQuote !== "" &&
-    /\?[ \t]*["']$/.test(text.slice(Math.max(0, start - 16), start))
+    /\?[ \t]*["'`]$/.test(text.slice(Math.max(0, start - 16), start))
   ) {
     return false; // `cond ? "PG-SECRET-003" : "PG-SECRET-002"` is a ternary, not a key
   }
   if (valueQuote !== "") return true;
-  const isCode =
-    options.path !== undefined &&
-    SOURCE_CODE_FILE.test(options.path) &&
-    looksLikeCode(text, start, start + whole.length, separator);
-  if (!isCode) return true;
+  // A quoted index key (`headers["x-api-key"] = …`) is a string token of its own: judge the code
+  // around its opening quote.
+  let keyStart = start;
+  let stringStart = context.isSource ? context.stringStartAt(start) : -1;
+  if (groups.bracket === "]" && keyQuote !== "" && stringStart === start - 1) {
+    keyStart = start - 1;
+    stringStart = context.stringStartAt(start - 2);
+  }
+  const inString = stringStart !== -1;
+  if (CALL_SHAPED_VALUE.test(value) && (value.endsWith(")") || (context.isSource && !inString))) {
+    return false;
+  }
+  if (!context.isSource || inString) return true;
+  if (!looksLikeCode(text, keyStart, start + match[0].length, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&
     !CONSTANT_NAME.test(value) &&
@@ -210,11 +258,10 @@ function hasPrivateKeyBody(block: string): boolean {
   return (body.match(/[A-Za-z0-9+/]/g)?.length ?? 0) >= MIN_PRIVATE_KEY_BODY;
 }
 
-/** Generic assignments must look random enough and not be a code reference or placeholder. */
+/** Generic values must look random enough and not be a code reference or placeholder. */
 function isLikelySecretValue(value: string): boolean {
   if (PLACEHOLDER.test(value)) return false;
   if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) return false; // config.db.password
-  if (/^[A-Za-z_$][\w$.]*\(/.test(value)) return false; // getSecret()
   if (/^[a-z]+$/.test(value) && value.length < 16) return false; // plain words
   return shannonEntropy(value) >= 3.0;
 }
@@ -243,13 +290,14 @@ function createLineLookup(text: string): (index: number) => number {
  */
 export function detectSecrets(text: string, options: DetectSecretsOptions = {}): DetectedSecret[] {
   const lineOfIndex = createLineLookup(text);
+  const context = createContext(text, options);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
   for (const { kind: patternKind, pattern, group } of PATTERNS) {
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
       let kind = patternKind;
-      let value = match[group] ?? "";
+      let value = (typeof group === "number" ? match[group] : match.groups?.[group]) ?? "";
       if (value.length === 0) continue;
       if (kind === "private_key" && !hasPrivateKeyBody(value)) {
         kind = "private_key_header";
@@ -259,9 +307,10 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
       }
       if (
         kind === "generic_credential" &&
-        (!isLikelySecretValue(value) || !isLiteralAssignment(text, match, options))
+        (!isLikelySecretValue(value) || !isLiteralAssignment(context, match))
       )
         continue;
+      if (kind === "url_credential" && !isLikelySecretValue(value)) continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
         continue;
       const line = lineOfIndex(match.index ?? 0);
