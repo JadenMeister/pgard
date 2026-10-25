@@ -157,6 +157,20 @@ describe("pgard login", () => {
     expect(await clientIdFor(ENV)).toBe(CLIENT_ID);
   });
 
+  it("says on stdout when the override is in use, and not for the built-in App", async () => {
+    const run = async (env: Record<string, string>) => {
+      const captured = createTestIo({ env });
+      const signIn = async () => ({ login: "octo", savedError: null });
+      await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn })));
+      return captured;
+    };
+    const override = await run(ENV);
+    expect(override.stdout()).toContain(
+      `Using GitHub App ${CLIENT_ID} from PGARD_GITHUB_APP_CLIENT_ID (override).`,
+    );
+    expect((await run({})).stdout()).not.toContain("Using GitHub App");
+  });
+
   it("exits 3 for a malformed override before any sign-in, without printing the value", async () => {
     const signIn = vi.fn();
     const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });

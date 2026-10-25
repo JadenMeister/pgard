@@ -85,6 +85,26 @@ describe("runScanCommand", () => {
     expect(stdout).toContain("Coverage");
   });
 
+  it("names an override App once on stderr, and nothing for the built-in App", async () => {
+    const run = async (env: Record<string, string>) => {
+      const captured = createTestIo({ env });
+      await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => testResult() })),
+        DEFAULT_SCAN,
+      );
+      return captured;
+    };
+    const override = await run({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liForkApp" });
+    expect(
+      override
+        .stderr()
+        .split("\n")
+        .filter((line) => line.startsWith("Using GitHub App")),
+    ).toEqual(["Using GitHub App Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override)."]);
+    expect(override.stdout()).not.toContain("Using GitHub App");
+    expect((await run({})).stderr()).not.toContain("Using GitHub App");
+  });
+
   it("lists test or fixture findings in their own group after the headline counts", async () => {
     const captured = createTestIo();
     const code = await runScanCommand(

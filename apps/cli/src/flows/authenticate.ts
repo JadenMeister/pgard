@@ -1,4 +1,6 @@
 import {
+  GITHUB_APP_CLIENT_ID_ENV,
+  resolveGitHubAppClientId,
   type DeviceUserCode,
   type GitHubSessionProvider,
   type SignInNotice,
@@ -41,11 +43,19 @@ export function formatSignInNotice(notice: SignInNotice): string {
   }
 }
 
+/** Said once per command when the env override (not the built-in PGARD App) is in use. */
+export function formatGitHubAppOverride(clientId: string): string {
+  return `Using GitHub App ${clientId} from ${GITHUB_APP_CLIENT_ID_ENV} (override).`;
+}
+
 /**
  * One provider per CLI process. It reuses the sign-in saved in the OS keychain (or saves a new
  * one); without a keychain the token stays in memory and is dropped on exit.
  */
 export function createSessionProvider(context: CommandContext): GitHubSessionProvider {
+  const app = resolveGitHubAppClientId(context.io.env);
+  if (app.source === "env")
+    err(context, context.errStyle.dim(formatGitHubAppOverride(app.clientId)));
   return context.deps.createSessionProvider({
     env: context.io.env,
     onUserCode: (code) => err(context, context.errStyle.bold(formatDeviceCode(code))),

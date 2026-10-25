@@ -8,7 +8,7 @@ import {
 } from "@pgard/scan-core";
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import { formatDeviceCode } from "../flows/authenticate.js";
+import { formatDeviceCode, formatGitHubAppOverride } from "../flows/authenticate.js";
 import { safeText } from "../ui/formatters/style.js";
 
 export const REVOKE_HINT = `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${GITHUB_APP_AUTHORIZATIONS_URL} and revoke the PGARD app.`;
@@ -26,6 +26,7 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
     return EXIT_CODES.blocked;
   }
   const { clientId } = app;
+  if (app.source === "env") out(context, formatGitHubAppOverride(clientId));
   // Check the keychain before asking the user to type a code that could not be saved.
   const status = await readStoredSignInStatus(deps.credentialStore, clientId);
   if (status.status === "unavailable") {

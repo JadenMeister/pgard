@@ -21,10 +21,19 @@ describe("runProjectVerify", () => {
     expect(stdout).toContain("not stored");
   });
 
-  it("exits 0 when allowed", async () => {
+  it("exits 0 when allowed and names an override App once on stderr", async () => {
     const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: "Iv23liExample" } });
     expect(await runProjectVerify(createTestContext(captured, createTestDeps()))).toBe(0);
-    expect(captured.stderr()).not.toContain("Hint");
+    expect(captured.stderr().split("\n")).toContain(
+      "Using GitHub App Iv23liExample from PGARD_GITHUB_APP_CLIENT_ID (override).",
+    );
+    expect(captured.stdout()).not.toContain("Using GitHub App");
+  });
+
+  it("does not mention the App when the built-in PGARD App is used", async () => {
+    const captured = createTestIo();
+    expect(await runProjectVerify(createTestContext(captured, createTestDeps()))).toBe(0);
+    expect(captured.stderr()).not.toContain("Using GitHub App");
   });
 
   it("ends as a cancellation when Ctrl+C aborted the sign-in wait", async () => {
