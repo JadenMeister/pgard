@@ -40,7 +40,9 @@ export interface CommittedDependencyDirectory {
  * (`vendor/node_modules/` under Go module vendoring). Placeholder files (`.keep`, `.gitkeep`)
  * are not counted. In a Rails app that uses importmap-rails (a tracked `config/importmap.rb`
  * next to the `vendor/`), the pinned packages in `vendor/javascript/` are committed on purpose
- * and not counted; the other subdirectories are reported one by one (`vendor/bundle`).
+ * and not counted; the other subdirectories are reported one by one (`vendor/bundle`), loose
+ * files directly in `vendor/` count toward `vendor` itself, and a dependency directory nested in
+ * `vendor/javascript/` (`vendor/javascript/node_modules/`) is still flagged.
  */
 export function findCommittedDependencyDirectories(
   trackedPaths: readonly string[],
@@ -66,9 +68,11 @@ export function findCommittedDependencyDirectories(
       if (directories[index] === "vendor" && usesImportmap(directories.slice(0, index), tracked)) {
         // Rails importmap pins in vendor/javascript/ are committed on purpose; report the other
         // vendor/ subdirectories (vendor/bundle/) one by one so the suggested `git rm` spares it.
+        // Loose files directly in vendor/ still count toward vendor/ itself, and a dependency
+        // directory nested in vendor/javascript/ (vendor/javascript/node_modules/) is still found.
         const child = directories[index + 1];
-        if (child === undefined || child === "javascript") break;
-        root = `${root}/${child}`;
+        if (child === "javascript") continue;
+        if (child !== undefined) root = `${root}/${child}`;
       }
       counts.set(root, (counts.get(root) ?? 0) + 1);
       break;
