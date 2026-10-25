@@ -171,7 +171,42 @@ describe("findCommittedDependencyDirectories", () => {
         "vendor/jquery.min.js",
         "vendor/legacy.js",
       ]),
-    ).toEqual([{ root: "vendor", fileCount: 2 }]);
+    ).toEqual([
+      { root: "vendor", fileCount: 2, looseFiles: ["vendor/jquery.min.js", "vendor/legacy.js"] },
+    ]);
+  });
+
+  it("names loose importmap vendor/ files in the fix, never vendor/ or vendor/javascript/", () => {
+    const text = describeCommittedDependencyDirectories(
+      findCommittedDependencyDirectories([
+        ...importmapRails,
+        "vendor/jquery.min.js",
+        "vendor/javascript/pin.js",
+      ]),
+      REVISION,
+    );
+    expect(text.recommendation).toContain("git rm --cached vendor/jquery.min.js)");
+    expect(text.recommendation).not.toMatch(/--cached[^;)]* vendor(\/javascript)?\/?[\s;)]/);
+    expect(text.recommendation).toContain("keeping the importmap pins in vendor/javascript/");
+    expect(text.evidence).toContain(
+      "vendor/ (1 tracked file directly in it; the importmap pins in vendor/javascript/ are kept on purpose)",
+    );
+  });
+
+  it("caps the named loose files and keeps nested dependency directories by path", () => {
+    const loose = Array.from({ length: 7 }, (_, index) => `vendor/lib${index}.js`);
+    const text = describeCommittedDependencyDirectories(
+      findCommittedDependencyDirectories([
+        ...importmapRails,
+        ...loose,
+        "vendor/bundle/x.rb",
+        "vendor/javascript/node_modules/react/index.js",
+      ]),
+      REVISION,
+    );
+    expect(text.recommendation).toContain(
+      "git rm -r --cached vendor/bundle vendor/javascript/node_modules; git rm --cached vendor/lib0.js vendor/lib1.js vendor/lib2.js vendor/lib3.js vendor/lib4.js (and 2 more loose files)",
+    );
   });
 
   it("still flags a dependency directory nested in importmap pins", () => {
