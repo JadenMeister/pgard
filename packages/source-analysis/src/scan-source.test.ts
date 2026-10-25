@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { scanSourceCode } from "./scan-source.js";
+import {
+  MAX_DEPENDENCY_NOTE_LENGTH,
+  describeSkippedDependencyDirectories,
+  scanSourceCode,
+} from "./scan-source.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -141,7 +145,7 @@ describe("scanSourceCode", () => {
     expect(result.findings.map((finding) => finding.location.path)).not.toContain("vendor/a.ts");
     expect(
       result.coverage.find((entry) => entry.area === "source:dependency-directories")?.note,
-    ).toContain("vendor/ (repository root)");
+    ).toContain("vendor/ (repository root, no manifest; assumed third-party)");
   });
 
   it("reports languages without files as completed with a note, never as findings", async () => {
@@ -273,5 +277,43 @@ describe("time budget, parse errors and caps (#87, #89)", () => {
     expect(result.coverage.find((entry) => entry.area === "source:javascript")?.note).toMatch(
       /finding cap/,
     );
+  });
+});
+
+describe("describeSkippedDependencyDirectories", () => {
+  it("lists at most five directories, sorted, and counts the rest", () => {
+    const directories = Array.from({ length: 7 }, (_, index) => ({
+      path: `packages/p${6 - index}/node_modules`,
+      reason: null,
+    }));
+    const note = describeSkippedDependencyDirectories(directories);
+    expect(note).toBe(
+      "Skipped 7 dependency directories (third-party code, not analyzed): packages/p0/node_modules/, packages/p1/node_modules/, packages/p2/node_modules/, packages/p3/node_modules/, packages/p4/node_modules/ and 2 more.",
+    );
+  });
+
+  it("quotes unusual names and marks a root vendor/ without a manifest as an assumption", () => {
+    expect(
+      describeSkippedDependencyDirectories([
+        { path: "my app/vendor", reason: "Gemfile" },
+        { path: "vendor", reason: "repository root" },
+      ]),
+    ).toBe(
+      'Skipped 2 dependency directories (third-party code, not analyzed): "my app/vendor/" (Gemfile), vendor/ (repository root, no manifest; assumed third-party).',
+    );
+  });
+
+  it("lists fewer names when paths are long so the count is never cut off", () => {
+    const directories = Array.from({ length: 6 }, (_, index) => ({
+      path: `${"deeply/nested/workspace/".repeat(4)}p${index}/node_modules`,
+      reason: null,
+    }));
+    const note = describeSkippedDependencyDirectories(directories);
+    expect(note.length).toBeLessThanOrEqual(MAX_DEPENDENCY_NOTE_LENGTH);
+    expect(note).toMatch(/^Skipped 6 dependency directories/);
+    expect(note).toMatch(/ and \d more\.$/);
+    // Long paths keep their last characters.
+    expect(note).toContain("…");
+    expect(note).toContain("p0/node_modules/");
   });
 });

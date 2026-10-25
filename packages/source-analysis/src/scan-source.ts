@@ -75,6 +75,10 @@ interface LanguageStats {
 }
 
 const MAX_LISTED_PATHS = 5;
+/** The CLI shows at most 300 characters of a coverage note; the dependency note stays within. */
+export const MAX_DEPENDENCY_NOTE_LENGTH = 300;
+/** Longer directory paths in the dependency note keep their last characters. */
+const MAX_LABEL_PATH_LENGTH = 60;
 
 /**
  * Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. Each path is quoted
@@ -97,22 +101,33 @@ export function describeSkippedDependencyDirectories(
   directories: readonly SkippedDependencyDirectory[],
 ): string {
   const label = (entry: SkippedDependencyDirectory) => {
-    const name = /^[\w./@+-]+$/.test(entry.path)
-      ? `${entry.path}/`
-      : JSON.stringify(`${entry.path}/`);
-    return entry.reason === null ? name : `${name} (${entry.reason})`;
+    const directory =
+      entry.path.length > MAX_LABEL_PATH_LENGTH
+        ? `…${entry.path.slice(-(MAX_LABEL_PATH_LENGTH - 1))}`
+        : entry.path;
+    const name = /^[\w./@+-]+$/.test(directory) ? `${directory}/` : JSON.stringify(`${directory}/`);
+    if (entry.reason === null) return name;
+    if (entry.reason === "repository root") {
+      return `${name} (repository root, no manifest; assumed third-party)`;
+    }
+    return `${name} (${entry.reason})`;
   };
-  const listed = [...directories]
-    .sort((a, b) => a.path.localeCompare(b.path, "en"))
-    .slice(0, MAX_LISTED_PATHS)
-    .map(label)
-    .join(", ");
-  const rest = directories.length - MAX_LISTED_PATHS;
   const count = directories.length;
-  return (
-    `Skipped ${count} dependency director${count === 1 ? "y" : "ies"} (third-party code, not analyzed): ` +
-    `${listed}${rest > 0 ? ` and ${rest} more` : ""}.`
-  );
+  const heading = `Skipped ${count} dependency director${count === 1 ? "y" : "ies"} (third-party code, not analyzed): `;
+  const compose = (labels: string[]) => {
+    const rest = count - labels.length;
+    if (labels.length === 0) return `${heading}${count} not listed.`;
+    return `${heading}${labels.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  };
+  // List fewer names rather than let a display limit cut off the "and N more" count.
+  const labels: string[] = [];
+  for (const entry of [...directories].sort((a, b) => a.path.localeCompare(b.path, "en"))) {
+    if (labels.length === MAX_LISTED_PATHS) break;
+    const next = [...labels, label(entry)];
+    if (compose(next).length > MAX_DEPENDENCY_NOTE_LENGTH) break;
+    labels.push(next[next.length - 1] as string);
+  }
+  return compose(labels);
 }
 
 /** Capitalizes the first letter so a clause can start a sentence in a note. */
