@@ -75,6 +75,21 @@ describe("createGitHubClient", () => {
     expect(await client.compareCommits("o", "r", "b".repeat(40), "main")).toBeNull();
   });
 
+  it("returns null comparison for an empty repository (409) but throws on other errors", async () => {
+    const { fetch } = routeFetch({
+      [`/repos/o/empty/compare/${SHA}...main?per_page=1`]: [
+        409,
+        { message: "Git Repository is empty." },
+      ],
+      [`/repos/o/broken/compare/${SHA}...main?per_page=1`]: [500, {}],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    expect(await client.compareCommits("o", "empty", SHA, "main")).toBeNull();
+    await expect(client.compareCommits("o", "broken", SHA, "main")).rejects.toMatchObject({
+      code: "http_error",
+    });
+  });
+
   it("paginates installations and repositories with a bound", async () => {
     const page = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }));
     const { fetch, urls } = routeFetch({
