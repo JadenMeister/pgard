@@ -131,13 +131,13 @@ Unknown commands and options, invalid values and invalid combinations are reject
 
 `doctor` exits with 0 when the diagnosis completed (problems are listed as `[fail]` or `[warn]` rows) and 5 on an internal error. `pgard login` and `pgard logout` use these codes:
 
-| Code | `pgard login`                                                     | `pgard logout`                                    |
-| ---- | ----------------------------------------------------------------- | ------------------------------------------------- |
-| 0    | Signed in and saved.                                              | Removed, or nothing was saved.                    |
-| 3    | GitHub sign-in failed.                                            |                                                   |
-| 4    | No OS keychain is available, or saving failed; nothing was saved. | No OS keychain is available; nothing was removed. |
-| 5    | Internal error.                                                   | Internal error.                                   |
-| 130  | Cancelled.                                                        |                                                   |
+| Code | `pgard login`                                                                    | `pgard logout`                                                              |
+| ---- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 0    | Signed in and saved.                                                             | Removed, or nothing was saved.                                              |
+| 3    | GitHub sign-in failed, or `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id. | `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id; nothing was removed. |
+| 4    | No OS keychain is available, or saving failed; nothing was saved.                | No OS keychain is available; nothing was removed.                           |
+| 5    | Internal error.                                                                  | Internal error.                                                             |
+| 130  | Cancelled.                                                                       |                                                                             |
 
 ### Interactive keys
 
@@ -169,7 +169,7 @@ PGARD signs you in through the PGARD GitHub App using the OAuth device flow. The
 export PGARD_GITHUB_APP_CLIENT_ID=<client id of your own GitHub App>
 ```
 
-An empty or whitespace-only value counts as unset. A value that is not a valid client id is ignored, and `pgard doctor` warns about it. `pgard doctor` shows which App is used, for example `[ok] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)` or `[ok] GitHub App: <id> from PGARD_GITHUB_APP_CLIENT_ID (override)`. Only where the client id comes from is configurable: owner approval, current access and contribution are checked the same way for every App.
+An empty or whitespace-only value counts as unset. A value that is not a valid client id **blocks**: PGARD never falls back to the built-in App, because owner approval would then be proven against a different App than the one you set. GitHub identity is `unverifiable` with the reason "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App.", scans and `project verify` are blocked (exit code 3), `pgard login` and `pgard logout` exit with 3 (logout removes nothing), `pgard doctor` shows a `[fail]` row, and the dashboard shows the same reason and will not remove anything from the keychain. The invalid value itself is never printed. `pgard doctor` shows which App is used, for example `[ok] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)` or `[ok] GitHub App: <id> from PGARD_GITHUB_APP_CLIENT_ID (override)`. When an override is in use, `login`, `scan` and `project verify` also print `Using GitHub App <id> from PGARD_GITHUB_APP_CLIENT_ID (override).` Only where the client id comes from is configurable: owner approval, current access and contribution are checked the same way for every App.
 
 When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code. You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
 

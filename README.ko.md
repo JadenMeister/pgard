@@ -131,13 +131,13 @@ Usage:
 
 `doctor`는 진단을 마치면 0(문제는 `[fail]`·`[warn]` 행으로 표시), 내부 오류면 5로 끝납니다. `pgard login`과 `pgard logout`의 종료 코드는 다음과 같습니다.
 
-| 코드 | `pgard login`                                                          | `pgard logout`                                         |
-| ---- | ---------------------------------------------------------------------- | ------------------------------------------------------ |
-| 0    | 로그인하고 저장했습니다.                                               | 지웠거나, 저장된 것이 없었습니다.                      |
-| 3    | GitHub 로그인 실패.                                                    |                                                        |
-| 4    | 사용할 수 있는 OS 키체인이 없거나 저장에 실패. 아무것도 저장하지 않음. | 사용할 수 있는 OS 키체인이 없음. 아무것도 지우지 않음. |
-| 5    | 내부 오류.                                                             | 내부 오류.                                             |
-| 130  | 취소.                                                                  |                                                        |
+| 코드 | `pgard login`                                                                   | `pgard logout`                                                                |
+| ---- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 0    | 로그인하고 저장했습니다.                                                        | 지웠거나, 저장된 것이 없었습니다.                                             |
+| 3    | GitHub 로그인 실패 또는 `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. | `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. 아무것도 지우지 않음. |
+| 4    | 사용할 수 있는 OS 키체인이 없거나 저장에 실패. 아무것도 저장하지 않음.          | 사용할 수 있는 OS 키체인이 없음. 아무것도 지우지 않음.                        |
+| 5    | 내부 오류.                                                                      | 내부 오류.                                                                    |
+| 130  | 취소.                                                                           |                                                                               |
 
 ### 대화형 키
 
@@ -169,7 +169,7 @@ PGARD는 PGARD GitHub App을 통해 OAuth device flow로 로그인합니다. App
 export PGARD_GITHUB_APP_CLIENT_ID=<직접 등록한 GitHub App의 client id>
 ```
 
-비어 있거나 공백뿐인 값은 설정하지 않은 것으로 봅니다. 올바른 client id가 아닌 값은 무시되며 `pgard doctor`가 경고합니다. 어떤 App을 쓰는지는 `pgard doctor`가 보여 줍니다. 예: `[ok] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)` 또는 `[ok] GitHub App: <id> from PGARD_GITHUB_APP_CLIENT_ID (override)`. 바꿀 수 있는 것은 client id의 출처뿐이며, owner 승인, 현재 접근 권한, 기여 확인은 어느 App이든 똑같이 검사합니다.
+비어 있거나 공백뿐인 값은 설정하지 않은 것으로 봅니다. 올바른 client id가 아닌 값은 **차단**됩니다. 내장 App으로 대신 진행하면 설정한 App이 아닌 다른 App으로 owner 승인을 증명하게 되므로, PGARD는 내장 App으로 넘어가지 않습니다. GitHub 신원은 "PGARD_GITHUB_APP_CLIENT_ID is set but is not a valid client id; unset it to use the built-in PGARD App." 사유와 함께 `unverifiable`이 되고, 검사와 `project verify`는 차단되며(종료 코드 3), `pgard login`과 `pgard logout`은 3으로 끝나고(logout은 아무것도 지우지 않음), `pgard doctor`는 `[fail]` 행을 보여 주며, 대시보드도 같은 사유를 보여 주고 키체인에서 아무것도 지우지 않습니다. 잘못된 값 자체는 출력하지 않습니다. 어떤 App을 쓰는지는 `pgard doctor`가 보여 줍니다. 예: `[ok] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)` 또는 `[ok] GitHub App: <id> from PGARD_GITHUB_APP_CLIENT_ID (override)`. 재정의 값을 쓰는 동안에는 `login`, `scan`, `project verify`도 `Using GitHub App <id> from PGARD_GITHUB_APP_CLIENT_ID (override).`를 출력합니다. 바꿀 수 있는 것은 client id의 출처뿐이며, owner 승인, 현재 접근 권한, 기여 확인은 어느 App이든 똑같이 검사합니다.
 
 로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 줍니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
 
