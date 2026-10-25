@@ -30,6 +30,9 @@ import {
 import {
   ME,
   createMockGitHub,
+  orgInstallation,
+  orgMembership,
+  orgRepository,
   ownerInstallation,
   userRepository,
   type MockGitHubState,
@@ -87,8 +90,8 @@ afterEach(async () => {
  * lockfile (ignored: PGARD has no vulnerability database), and a GitHub token that was committed and then removed (only the history scan can
  * still see it).
  */
-function createProject(): { root: string; head: string } {
-  fixture = createGitFixture({ remotes: { origin: "git@github.com:me/app.git" } });
+function createProject(remote = "git@github.com:me/app.git"): { root: string; head: string } {
+  fixture = createGitFixture({ remotes: { origin: remote } });
   const me = { authorName: ME.name ?? "Me Person", authorEmail: ME.email ?? "me@example.com" };
   fixture.commit({
     ...me,
@@ -121,6 +124,20 @@ function allowedState(head: string): MockGitHubState {
 /** Same as allowed, but the owner never installed the PGARD GitHub App. */
 function deniedState(head: string): MockGitHubState {
   return { ...allowedState(head), installations: [] };
+}
+
+/**
+ * Repository `acme/app` owned by an organization: the App installation on `acme` includes it, and
+ * `ME` has the given membership role.
+ */
+function orgState(head: string, role: string): MockGitHubState {
+  return {
+    ...allowedState(head),
+    repository: orgRepository(),
+    installations: [orgInstallation()],
+    installationRepositories: { 88: [555] },
+    memberships: { acme: orgMembership({ role }) },
+  };
 }
 
 /** A session provider backed by the in-memory mock; each frontend gets its own instance. */
@@ -253,6 +270,33 @@ async function scanWithWeb(
   }
 }
 
+/**
+ * Runs `pgard project verify` and the dashboard's authorization check (on the server that
+ * `scanWithWeb` started) and returns what each one shows.
+ */
+async function verifyWithBoth(
+  root: string,
+  createSessionProvider: NonNullable<SessionFactory>,
+): Promise<{ cliStdout: string; cliCode: number; webSummary: unknown }> {
+  const captured = createTestIo({ cwd: root, env: ENV });
+  const cliCode = await main(["project", "verify"], captured.io, {
+    deps: { ...createDefaultDeps(), createSessionProvider },
+    interrupts: noInterrupts,
+  });
+  if (server === null) throw new Error("scanWithWeb must start the server first");
+  expect((await request(server.port, "POST", "/api/auth/verify")).status).toBe(200);
+  const deadline = Date.now() + WEB_SCAN_DEADLINE_MS;
+  for (;;) {
+    const polled = await request(server.port, "GET", "/api/auth");
+    const status = polled.json as { status: string; summary: unknown };
+    if (status.status === "done") {
+      return { cliStdout: captured.stdout(), cliCode, webSummary: status.summary };
+    }
+    if (Date.now() > deadline) throw new Error("web verify did not finish in time");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 /** The ScanResult as JSON, without the per-run fields the contract allows to differ. */
 function comparable(result: ScanResult): unknown {
   const { scanId: _scanId, startedAt: _startedAt, finishedAt: _finishedAt, ...rest } = result;
@@ -338,6 +382,65 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     ).toBe("failed");
     expect(cli.result.findings).toEqual([]);
     expect(cli.exitCode).toBe(3);
+
+    expect(comparable(web.result)).toEqual(comparable(cli.result));
+    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(webGitHub.calls).toEqual(cliGitHub.calls);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("allow an organization owner's scan with the same owner-approval reason", async () => {
+    const { root, head } = createProject("git@github.com:acme/app.git");
+    const cliGitHub = mockSessionProvider(orgState(head, "admin"));
+    const webGitHub = mockSessionProvider(orgState(head, "admin"));
+
+    const cli = await scanWithCli(root, () => cliGitHub.provider);
+    const web = await scanWithWeb(root, () => webGitHub.provider);
+
+    const reason =
+      'me is an owner of the organization "acme", and the organization\'s PGARD GitHub App installation includes acme/app.';
+    expect(cli.result.authorization.decision).toBe("allowed");
+    expect(cli.result.target.repo).toBe("acme/app");
+    expect(cli.result.authorization.checks.find((check) => check.id === "owner_approval")).toEqual({
+      id: "owner_approval",
+      status: "passed",
+      reason,
+    });
+    const verify = await verifyWithBoth(root, () => cliGitHub.provider);
+    expect(verify.cliCode).toBe(0);
+    expect(verify.cliStdout).toContain(`[passed] owner approval: ${reason}`);
+    expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
+
+    expect(comparable(web.result)).toEqual(comparable(cli.result));
+    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(webGitHub.calls).toEqual(cliGitHub.calls);
+    expect(cliGitHub.calls).toContain("membership:acme");
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("block an organization member's scan with the same reason", async () => {
+    const { root, head } = createProject("git@github.com:acme/app.git");
+    const cliGitHub = mockSessionProvider(orgState(head, "member"));
+    const webGitHub = mockSessionProvider(orgState(head, "member"));
+
+    const cli = await scanWithCli(root, () => cliGitHub.provider);
+    const web = await scanWithWeb(root, () => webGitHub.provider);
+
+    const reason =
+      "me is not an owner of acme (role: member); an organization owner must run the scan.";
+    expect(cli.result.overallStatus).toBe("blocked");
+    expect(cli.exitCode).toBe(3);
+    expect(cli.result.findings).toEqual([]);
+    expect(cli.result.authorization.checks.find((check) => check.id === "owner_approval")).toEqual({
+      id: "owner_approval",
+      status: "failed",
+      reason,
+    });
+    expect(cli.stdout).toContain(`[failed] owner approval: ${reason}`);
+    const verify = await verifyWithBoth(root, () => cliGitHub.provider);
+    expect(verify.cliCode).toBe(3);
+    expect(verify.cliStdout).toContain(`[failed] owner approval: ${reason}`);
+    expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
     expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));

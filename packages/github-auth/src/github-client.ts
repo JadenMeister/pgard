@@ -50,6 +50,18 @@ export interface GitHubRepository {
   permissions: GitHubRepositoryPermissions | null;
 }
 
+/**
+ * The signed-in user's membership in an organization (`GET /user/memberships/orgs/{org}`).
+ * `state` and `role` are GitHub's raw values (`active`/`pending`, `admin`/`member`/...), so
+ * callers decide what counts; only `active` + `admin` means organization owner.
+ */
+export interface GitHubOrganizationMembership {
+  state: string;
+  role: string;
+  organization: GitHubAccount;
+  user: GitHubAccount;
+}
+
 /** Status of `head` relative to `base` in `GET /repos/{o}/{r}/compare/{base}...{head}`. */
 export type GitHubCompareStatus = "ahead" | "behind" | "identical" | "diverged";
 
@@ -78,6 +90,12 @@ export interface GitHubClient {
   getAuthenticatedUser(): Promise<GitHubUser>;
   listUserInstallations(): Promise<GitHubInstallation[]>;
   listInstallationRepositoryIds(installationId: number): Promise<number[]>;
+  /**
+   * The signed-in user's membership in `org`. Throws `GitHubAuthError` with code `forbidden`
+   * (403, e.g. the App lacks the organization Members permission), `not_found` (404),
+   * `rate_limited`, `unauthorized`, `http_error`, `network_error` or `unexpected_response`.
+   */
+  getOrganizationMembership(org: string): Promise<GitHubOrganizationMembership>;
   /** Throws `GitHubAuthError` with code `not_found` when the user cannot see the repo. */
   getRepository(owner: string, name: string): Promise<GitHubRepository>;
   /** Returns `null` when GitHub cannot compare the refs (e.g. unknown SHA). */
@@ -220,6 +238,47 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     }
   }
 
+  /** Like `getJson`, but tells a rate limit and a permission 403 apart from other failures. */
+  async function getJsonDistinguishingForbidden(path: string): Promise<unknown> {
+    const response = await request(path);
+    const remaining = response.headers?.get("x-ratelimit-remaining") ?? null;
+    // A secondary rate limit is a 403 with `retry-after` (and possibly requests remaining).
+    const retryAfter = response.headers?.get("retry-after") ?? null;
+    const isRateLimited403 = response.status === 403 && (remaining === "0" || retryAfter !== null);
+    if (response.status === 429 || isRateLimited403) {
+      throw new GitHubAuthError(
+        "rate_limited",
+        "GitHub API rate limit reached; try again later.",
+        response.status,
+      );
+    }
+    if (response.status === 403) {
+      throw new GitHubAuthError("forbidden", "GitHub refused the request (403).", 403);
+    }
+    if (response.status === 401) {
+      throw new GitHubAuthError(
+        "unauthorized",
+        "The GitHub sign-in is no longer valid (expired or revoked).",
+        401,
+      );
+    }
+    if (response.status === 404) {
+      throw new GitHubAuthError("not_found", "GitHub resource not found or not visible.", 404);
+    }
+    if (!response.ok) {
+      throw new GitHubAuthError(
+        "http_error",
+        `GitHub API request failed with status ${response.status}.`,
+        response.status,
+      );
+    }
+    try {
+      return await response.json();
+    } catch {
+      throw malformed("response body");
+    }
+  }
+
   async function getPaged(basePath: string, key: string): Promise<unknown[]> {
     const items: unknown[] = [];
     for (let page = 1; page <= MAX_PAGES; page += 1) {
@@ -283,6 +342,27 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         }
         return id;
       });
+    },
+
+    async getOrganizationMembership(org) {
+      const body = asRecord(
+        await getJsonDistinguishingForbidden(
+          `/user/memberships/orgs/${encodeSegment(org, "organization")}`,
+        ),
+      );
+      const state = asString(body?.state);
+      const role = asString(body?.role);
+      const organization = parseAccount(body?.organization);
+      const user = parseAccount(body?.user);
+      if (state === null || role === null || organization === null || user === null) {
+        throw malformed("organization membership");
+      }
+      return {
+        state,
+        role,
+        organization: { id: organization.id, login: organization.login },
+        user: { id: user.id, login: user.login },
+      };
     },
 
     async getRepository(owner, name) {

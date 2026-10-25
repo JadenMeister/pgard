@@ -106,7 +106,10 @@ export async function authorizeProject(
   const canonicalName = repository.fullName;
   const access = verifyCurrentAccess(repository);
   results.set("current_access", access);
-  results.set("owner_approval", await verifyOwnerApproval(client, repository));
+  results.set(
+    "owner_approval",
+    await verifyOwnerApproval(client, repository, { user, remoteOwner: repo.owner }),
+  );
   if (access.status !== "passed") {
     results.set("contribution", notEvaluated("current_access"));
     return build(canonicalName, revision);

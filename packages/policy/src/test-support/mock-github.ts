@@ -6,6 +6,7 @@ import {
   type GitHubCommitSummary,
   type GitHubCompareStatus,
   type GitHubInstallation,
+  type GitHubOrganizationMembership,
   type GitHubPullRequestSummary,
   type GitHubRepository,
   type GitHubSession,
@@ -22,6 +23,8 @@ export interface MockGitHubState {
   commits: Record<string, GitHubCommitSummary>;
   /** Comparison of `sha...defaultBranch`; missing ⇒ `null` (unknown to GitHub). */
   compare: Record<string, GitHubCompareStatus>;
+  /** Membership by organization login; an error is thrown; missing ⇒ 404 `not_found`. */
+  memberships?: Record<string, GitHubOrganizationMembership | Error>;
   failWith?: GitHubAuthError;
 }
 
@@ -51,6 +54,33 @@ export function ownerInstallation(accountId = OWNER_ID): GitHubInstallation {
   return { id: 77, targetType: "User", account: { id: accountId, login: "me" } };
 }
 
+export const ORG = { id: 42, login: "acme" };
+
+export function orgRepository(overrides: Partial<GitHubRepository> = {}): GitHubRepository {
+  return userRepository({
+    fullName: "acme/app",
+    owner: { ...ORG, type: "Organization" },
+    ...overrides,
+  });
+}
+
+export function orgInstallation(overrides: Partial<GitHubInstallation> = {}): GitHubInstallation {
+  return { id: 88, targetType: "Organization", account: { ...ORG }, ...overrides };
+}
+
+/** An active owner (`admin`) membership of `ME` in `ORG`. */
+export function orgMembership(
+  overrides: Partial<GitHubOrganizationMembership> = {},
+): GitHubOrganizationMembership {
+  return {
+    state: "active",
+    role: "admin",
+    organization: { ...ORG },
+    user: { id: ME.id, login: ME.login },
+    ...overrides,
+  };
+}
+
 export function createMockGitHub(state: MockGitHubState): {
   session: GitHubSession;
   calls: string[];
@@ -74,6 +104,17 @@ export function createMockGitHub(state: MockGitHubState): {
     async listInstallationRepositoryIds(id) {
       guard(`installation-repos:${id}`);
       return state.installationRepositories[id] ?? [];
+    },
+    async getOrganizationMembership(org) {
+      guard(`membership:${org}`);
+      const membership = state.memberships?.[org];
+      if (membership === undefined) {
+        throw new GitHubAuthError("not_found", "not found", 404);
+      }
+      if (membership instanceof Error) {
+        throw membership;
+      }
+      return membership;
     },
     async getRepository() {
       guard("repo");

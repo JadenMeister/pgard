@@ -8,7 +8,7 @@ Before every scan, PGARD checks that the repository owner approved PGARD, that y
 
 PGARD is an MVP. It does not find every vulnerability, and "no findings" never means "secure".
 
-> **Current status:** PGARD ships the client id of the PGARD GitHub App, so signing in needs no setup. A scan still needs the App installed on the personal account that owns the repository (see [Authorization model](#authorization-model)).
+> **Current status:** PGARD ships the client id of the PGARD GitHub App, so signing in needs no setup. A scan still needs the App installed on the account that owns the repository: your personal account, or an organization you own (see [Authorization model](#authorization-model)).
 
 PGARD is released under the [MIT License](LICENSE).
 
@@ -149,7 +149,7 @@ PGARD scans a repository only when it has evidence that you are allowed to. Befo
 
 1. **Repository.** The current directory is the root of a Git repository with valid history. The repository uses only its own objects and history (no alternates, grafts or replace refs), and it has exactly one unambiguous `github.com` remote.
 2. **GitHub identity.** You sign in to GitHub with the device flow, or PGARD reuses the sign-in saved in the OS keychain (see below). Only the sign-in is reused: checks 3 to 5 always run against GitHub again.
-3. **Owner approval.** The PGARD GitHub App is installed on the repository owner's **personal account**, and that installation includes this repository. Only the owner of a personal account can install an app on it.
+3. **Owner approval.** For a repository owned by a **personal account**, the PGARD GitHub App is installed on that account and the installation includes this repository. Only the owner of a personal account can install an app on it. For a repository owned by an **organization**, see [Organization repositories](#organization-repositories).
 4. **Current access.** GitHub reports that you currently have at least read access to the repository.
 5. **Contribution.** Your contribution is in the default-branch history. A commit counts only if GitHub shows it in the default branch, and either it belongs to a pull request you authored that was merged into the default branch, or GitHub verified its signature and attributes the committer to you. Author names or emails, co-author trailers, unmerged pull requests, pull requests merged into other branches or forks, unsigned direct pushes and local-only commits are never accepted as proof. PGARD examines up to 30 local commits (the ancestry of `HEAD`). If none of them qualifies and more local commits exist, contribution is `unverifiable`.
 
@@ -157,7 +157,16 @@ Each check is `passed`, `failed` or `unverifiable`, with a reason. The checks ar
 
 ### Organization repositories
 
-Repositories owned by an organization are always blocked (#43). GitHub's APIs cannot prove that an organization owner, rather than a repository admin, installed the PGARD GitHub App, so owner approval is reported as `unverifiable`.
+An organization repository can be scanned only by an **owner of the organization**. Owner approval passes only when both are true:
+
+- The PGARD GitHub App is installed on the organization account, and that installation includes the repository.
+- You are an owner of that organization: GitHub's `GET /user/memberships/orgs/{org}` reports your membership as `state: active` with `role: admin`.
+
+The installation alone is not proof, because organization settings can let repository admins install apps and GitHub does not say who installed it. An active member whose role is not `admin` (for example a plain member or a billing manager) is blocked (`failed`) with the reason "`<user>` is not an owner of `<org>` (role: `<role>`); an organization owner must run the scan." A pending membership is blocked (`failed`) with "`<user>`'s membership in `<org>` is pending, not active; an organization owner with an active membership must run the scan." An outside collaborator is not a member, so GitHub answers 404 and owner approval is `unverifiable` with the 404 reason below. Contribution and current access are checked exactly as for personal repositories.
+
+When the evidence is unclear, the scan is blocked and owner approval is `unverifiable` with the reason. This includes GitHub answering 403 or 404 for the membership, a rate limit, a network error or an unexpected response, and an organization name in the Git remote that differs from GitHub's (including only in letter case; update the remote to the exact name GitHub shows). A 404 for the membership, which is what an outside collaborator or a non-member gets, is reported as "GitHub did not return `<user>`'s membership in `<org>` (404): `<user>` may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of `<org>` must run the scan, with the App's Members: Read-only permission approved."
+
+**Required App permission.** Reading the membership needs the organization permission **Members: Read-only** on the PGARD GitHub App (**Organization permissions → Members → Read-only**). The App owner must add it in the App's settings, and every existing organization installation must accept the new permission (an organization owner approves it under the organization's **Settings → GitHub Apps**). Until then GitHub answers 403 and PGARD reports "GitHub refused to show `<user>`'s membership in `<org>` (403): the PGARD GitHub App needs the organization permission Members: Read-only, approved by an owner of `<org>`."
 
 ### GitHub App and sign-in
 
@@ -293,7 +302,7 @@ How the dashboard protects itself:
 
 - Your code, Git history and scan results are processed on your computer and are not uploaded anywhere. Results are kept in memory and discarded when the process or dashboard stops; only reports you export are saved.
 - The GitHub sign-in is saved in the OS keychain, never in a file, and never sent to the browser. Without a keychain it is kept in memory only. See [Saved sign-in](#saved-sign-in-os-keychain).
-- The only external network traffic is to GitHub: the device-flow sign-in (and refreshing a saved sign-in) and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. `pgard doctor` also checks whether `api.github.com` is reachable.
+- The only external network traffic is to GitHub: the device-flow sign-in (and refreshing a saved sign-in) and GitHub API calls that read the metadata needed for authorization (your identity, the app installation, your organization membership (for organization repositories), your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. `pgard doctor` also checks whether `api.github.com` is reachable.
 - After authorization passes, PGARD sends one `GET /` to each discovered listening port on `127.0.0.1` to show its identity. The web checks then send requests only to the service you confirmed.
 - PGARD does not ship, download or query a vulnerability database.
 
@@ -309,7 +318,6 @@ How the dashboard protects itself:
 
 ## Known limitations
 
-- [#43](https://github.com/JadenMeister/pgard/issues/43) Organization repositories are blocked because owner approval cannot be proven.
 - [#44](https://github.com/JadenMeister/pgard/issues/44) PDF reports replace text outside Latin-1 (for example Korean) with `?`. Use the HTML report for the full text.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available.
 - [#47](https://github.com/JadenMeister/pgard/issues/47) Squash-merged and co-authored contributions are handled conservatively: co-author trailers and unsigned direct pushes do not count as contribution.

@@ -14,7 +14,11 @@ import {
 import { authorizeProject, isAuthorizationAllowed } from "./authorize-project.js";
 import {
   ME,
+  ORG,
   createMockGitHub,
+  orgInstallation,
+  orgMembership,
+  orgRepository,
   ownerInstallation,
   sessionProvider,
   userRepository,
@@ -165,33 +169,6 @@ describe("authorizeProject: blocked paths", () => {
     const { outcome } = await authorize(root, baseState({ installationRepositories: { 77: [1] } }));
     expectBlocked(outcome);
     expect(statusOf(outcome, "owner_approval")).toBe("failed");
-  });
-
-  it("blocks organization repositories as unverifiable even with an installation", async () => {
-    const { root, mine } = repoWithCommits();
-    const { outcome } = await authorize(
-      root,
-      baseState({
-        repository: userRepository({ owner: { id: 42, login: "org", type: "Organization" } }),
-        installations: [{ id: 77, targetType: "Organization", account: { id: 42, login: "org" } }],
-        pulls: {
-          [mine]: [
-            {
-              number: 4,
-              userId: ME.id,
-              mergedAt: "2026-10-01T00:00:00Z",
-              baseRef: "main",
-              baseRepositoryId: 555,
-            },
-          ],
-        },
-        compare: { [mine]: "ahead" },
-      }),
-    );
-    expectBlocked(outcome);
-    const approval = outcome.summary.checks.find((check) => check.id === "owner_approval");
-    expect(approval?.status).toBe("unverifiable");
-    expect(approval?.reason).toMatch(/organization/);
   });
 
   it("blocks when the user cannot see the repository", async () => {
@@ -600,5 +577,281 @@ describe("isAuthorizationAllowed", () => {
     const duplicates = passed.map((check) => ({ ...check, id: "repository" as never }));
     expect(isAuthorizationAllowed(outcome("allowed", duplicates))).toBe(false);
     expect(isAuthorizationAllowed(outcome("allowed", [...passed].reverse()))).toBe(false);
+  });
+});
+
+describe("authorizeProject: organization repositories", () => {
+  const ORG_REMOTE = { origin: "git@github.com:acme/app.git" };
+
+  function orgState(mine: string, overrides: Partial<MockGitHubState> = {}): MockGitHubState {
+    return baseState({
+      repository: orgRepository(),
+      installations: [orgInstallation()],
+      installationRepositories: { 88: [555] },
+      memberships: { acme: orgMembership() },
+      pulls: {
+        [mine]: [
+          {
+            number: 4,
+            userId: ME.id,
+            mergedAt: "2026-10-01T00:00:00Z",
+            baseRef: "main",
+            baseRepositoryId: 555,
+          },
+        ],
+      },
+      compare: { [mine]: "ahead" },
+      ...overrides,
+    });
+  }
+
+  function approval(outcome: AuthorizationOutcome) {
+    return outcome.summary.checks.find((check) => check.id === "owner_approval");
+  }
+
+  it("allows an organization owner when the org installation includes the repository", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome, calls } = await authorize(root, orgState(mine));
+    expect(outcome.summary.decision).toBe("allowed");
+    expect(isAuthorizationAllowed(outcome)).toBe(true);
+    expect(outcome.repo).toBe("acme/app");
+    expect(approval(outcome)).toEqual({
+      id: "owner_approval",
+      status: "passed",
+      reason:
+        'me is an owner of the organization "acme", and the organization\'s PGARD GitHub App installation includes acme/app.',
+    });
+    expect(calls).toContain("membership:acme");
+    expect(calls).toContain("installation-repos:88");
+  });
+
+  it("keeps current access and contribution checks unchanged for organization repos", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const noAccess = await authorize(
+      root,
+      orgState(mine, {
+        repository: orgRepository({
+          permissions: { admin: false, maintain: false, push: false, triage: false, pull: false },
+        }),
+      }),
+    );
+    expectBlocked(noAccess.outcome);
+    expect(statusOf(noAccess.outcome, "owner_approval")).toBe("passed");
+    expect(statusOf(noAccess.outcome, "current_access")).toBe("failed");
+    expect(statusOf(noAccess.outcome, "contribution")).toBe("unverifiable");
+
+    const noContribution = await authorize(root, orgState(mine, { pulls: {}, compare: {} }));
+    expectBlocked(noContribution.outcome);
+    expect(statusOf(noContribution.outcome, "owner_approval")).toBe("passed");
+    expect(statusOf(noContribution.outcome, "contribution")).toBe("failed");
+  });
+
+  // Mutation sanity: this and the next test fail if the `role === "admin"` check is removed.
+  it("blocks a plain member", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgState(mine, { memberships: { acme: orgMembership({ role: "member" }) } }),
+    );
+    expectBlocked(outcome);
+    expect(approval(outcome)).toMatchObject({
+      status: "failed",
+      reason: "me is not an owner of acme (role: member); an organization owner must run the scan.",
+    });
+  });
+
+  it("blocks a billing manager or any other non-admin role", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    for (const role of ["billing_manager", "Admin", "owner", ""]) {
+      const { outcome } = await authorize(
+        root,
+        orgState(mine, { memberships: { acme: orgMembership({ role }) } }),
+      );
+      expectBlocked(outcome);
+      expect(statusOf(outcome, "owner_approval")).toBe("failed");
+    }
+  });
+
+  it("blocks a pending membership, even with the admin role", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgState(mine, { memberships: { acme: orgMembership({ state: "pending" }) } }),
+    );
+    expectBlocked(outcome);
+    expect(approval(outcome)).toMatchObject({
+      status: "failed",
+      reason:
+        "me\'s membership in acme is pending, not active; an organization owner with an active membership must run the scan.",
+    });
+  });
+
+  it("reports an unknown membership state as unverifiable", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgState(mine, { memberships: { acme: orgMembership({ state: "suspended" }) } }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+  });
+
+  it("reports a membership 403 as unverifiable with the Members: Read-only permission reason", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgState(mine, {
+        memberships: { acme: new GitHubAuthError("forbidden", "GitHub refused (403).", 403) },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(approval(outcome)).toMatchObject({
+      status: "unverifiable",
+      reason:
+        "GitHub refused to show me\'s membership in acme (403): the PGARD GitHub App needs the organization permission Members: Read-only, approved by an owner of acme.",
+    });
+  });
+
+  it.each([
+    ["404", undefined, /\(404\).*Members: Read-only/],
+    [
+      "5xx",
+      new GitHubAuthError("http_error", "GitHub API request failed with status 502.", 502),
+      /^Could not read me\'s membership in acme: GitHub API request failed with status 502\.$/,
+    ],
+    [
+      "network error",
+      new GitHubAuthError("network_error", "Could not reach the GitHub API."),
+      /^Could not read me\'s membership in acme: Could not reach the GitHub API\.$/,
+    ],
+    [
+      "malformed body",
+      new GitHubAuthError(
+        "unexpected_response",
+        "GitHub returned a malformed organization membership.",
+      ),
+      /malformed organization membership/,
+    ],
+    [
+      "rate limit",
+      new GitHubAuthError("rate_limited", "GitHub API rate limit reached.", 429),
+      /rate limit was reached/,
+    ],
+    ["non-GitHub error", new Error("boom"), /unexpected error/],
+  ])("reports a membership %s as unverifiable", async (_label, error, reason) => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgState(mine, {
+        memberships: error === undefined ? {} : { acme: error },
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+    expect(approval(outcome)?.reason).toMatch(reason);
+  });
+
+  it("blocks when the org installation does not include the repository, without asking for membership", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome, calls } = await authorize(
+      root,
+      orgState(mine, { installationRepositories: { 88: [1] } }),
+    );
+    expectBlocked(outcome);
+    expect(approval(outcome)).toMatchObject({
+      status: "failed",
+      reason:
+        'The PGARD GitHub App installation on the organization "acme" does not include acme/app. An owner of acme must add the repository to the installation.',
+    });
+    expect(calls).not.toContain("membership:acme");
+  });
+
+  it("blocks when the only installation is on a different account", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    for (const installation of [
+      orgInstallation({ account: { id: 4242, login: "other-org" } }),
+      // A personal installation by the org owner is not an installation on the organization.
+      { ...ownerInstallation(), id: 88 },
+      // Same account id, but not reported as an organization installation.
+      { ...orgInstallation(), targetType: "User" },
+    ]) {
+      const { outcome } = await authorize(root, orgState(mine, { installations: [installation] }));
+      expectBlocked(outcome);
+      expect(approval(outcome)).toMatchObject({
+        status: "failed",
+        reason:
+          'No PGARD GitHub App installation on the organization "acme" was found for acme/app. An owner of acme must install the App on the organization and include the repository.',
+      });
+    }
+  });
+
+  it("blocks when the remote names the organization with different case", async () => {
+    const { root, mine } = repoWithCommits({ origin: "git@github.com:Acme/app.git" });
+    const { outcome, calls } = await authorize(root, orgState(mine));
+    expectBlocked(outcome);
+    expect(approval(outcome)).toMatchObject({
+      status: "unverifiable",
+      reason:
+        'The Git remote names the organization "Acme", but GitHub reports the owner as "acme". Update the remote to github.com/acme/app so the organization can be verified.',
+    });
+    expect(calls).not.toContain("membership:acme");
+    expect(calls).not.toContain("membership:Acme");
+  });
+
+  it("blocks when the installation account login differs from the organization (case)", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    const { outcome } = await authorize(
+      root,
+      orgState(mine, {
+        installations: [orgInstallation({ account: { id: ORG.id, login: "ACME" } })],
+      }),
+    );
+    expectBlocked(outcome);
+    expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+    expect(approval(outcome)?.reason).toContain('reports the account "ACME"');
+  });
+
+  it("blocks a membership that is for another organization or another user", async () => {
+    const { root, mine } = repoWithCommits(ORG_REMOTE);
+    for (const membership of [
+      orgMembership({ organization: { id: 9, login: "acme" } }),
+      orgMembership({ organization: { id: ORG.id, login: "Acme" } }),
+      orgMembership({ user: { id: 2002, login: "someone" } }),
+      // Same login, different id: the user must be matched by id, not by login.
+      orgMembership({ user: { id: 2002, login: "me" } }),
+    ]) {
+      const { outcome } = await authorize(
+        root,
+        orgState(mine, { memberships: { acme: membership } }),
+      );
+      expectBlocked(outcome);
+      expect(statusOf(outcome, "owner_approval")).toBe("unverifiable");
+    }
+  });
+
+  it("does not use the organization path for a personal repository", async () => {
+    const { root, mine } = repoWithCommits();
+    const { outcome, calls } = await authorize(
+      root,
+      baseState({
+        pulls: {
+          [mine]: [
+            {
+              number: 4,
+              userId: ME.id,
+              mergedAt: "2026-10-01T00:00:00Z",
+              baseRef: "main",
+              baseRepositoryId: 555,
+            },
+          ],
+        },
+        compare: { [mine]: "ahead" },
+      }),
+    );
+    expect(outcome.summary.decision).toBe("allowed");
+    expect(approval(outcome)?.reason).toBe(
+      'The PGARD GitHub App is installed by the owner account "me" and includes me/app.',
+    );
+    expect(calls.some((call) => call.startsWith("membership:"))).toBe(false);
   });
 });
