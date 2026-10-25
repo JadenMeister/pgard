@@ -1,6 +1,7 @@
 import type { Finding } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
 import {
+  buildFindingsView,
   countBySeverity,
   EMPTY_FILTERS,
   filterFindings,
@@ -126,6 +127,65 @@ describe("filterFindings", () => {
     expect(formatOutsideContexts({ test: 0, vendored: 1 })).toBe(" outside vendored code");
     expect(formatOutsideContexts({ test: 1, vendored: 1 })).toBe(
       " outside test, fixture or vendored code",
+    );
+  });
+});
+
+describe("buildFindingsView", () => {
+  const vendoredCritical = finding({
+    id: "v",
+    severity: "critical",
+    context: "vendored",
+    confidence: "low",
+    location: { kind: "file", path: "node_modules/pkg/index.js", line: 1, url: null, commit: null },
+  });
+  const testHigh = finding({ id: "t", severity: "high", context: "test", confidence: "low" });
+
+  it("counts and charts regular code only and lists test, then vendored groups", () => {
+    const view = buildFindingsView([vendoredCritical, testHigh, ...FINDINGS], EMPTY_FILTERS);
+    expect(view.total).toBe(3);
+    expect(view.counts).toEqual({ critical: 1, high: 1, medium: 0, low: 1, info: 0 });
+    expect(view.statusCounts).toEqual({ confirmed: 1, suspected: 1, informational: 1 });
+    expect(view.contextNote).toBe(
+      "plus 1 in test or fixture code, 1 suggestion in vendored code (1 critical)",
+    );
+    expect(view.visible.map((entry) => entry.id)).toEqual(["b", "c", "a"]);
+    expect(view.emptyMessage).toBeNull();
+    expect(
+      view.sections.map((section) => [
+        section.kind,
+        section.title,
+        section.visible.map((entry) => entry.id),
+      ]),
+    ).toEqual([
+      ["test", "In test or fixture code (1)", ["t"]],
+      ["vendored", "Suggestions: in third-party/vendored code (1)", ["v"]],
+    ]);
+  });
+
+  it("does not call a result with only vendored findings empty", () => {
+    const view = buildFindingsView([vendoredCritical], EMPTY_FILTERS);
+    expect(view.total).toBe(0);
+    expect(view.counts.critical).toBe(0);
+    expect(view.emptyMessage).toBe(
+      "No findings outside vendored code in the areas that ran. This does not mean the project is secure; check coverage.",
+    );
+    expect(view.sections.map((section) => section.kind)).toEqual(["vendored"]);
+  });
+
+  it("applies the filters to every group but keeps the group totals", () => {
+    const view = buildFindingsView([vendoredCritical, testHigh, ...FINDINGS], {
+      ...EMPTY_FILTERS,
+      severity: "low",
+    });
+    expect(view.visible.map((entry) => entry.id)).toEqual(["a"]);
+    expect(view.sections.map((section) => [section.total, section.visible.length])).toEqual([
+      [1, 0],
+      [1, 0],
+    ]);
+    expect(buildFindingsView([], EMPTY_FILTERS).sections).toEqual([]);
+    expect(buildFindingsView(FINDINGS, { ...EMPTY_FILTERS, text: "zzz" }).emptyMessage).toBe(
+      "No findings match the filters.",
     );
   });
 });
