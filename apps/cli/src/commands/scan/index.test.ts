@@ -273,8 +273,9 @@ describe("runScanCommand", () => {
     expect(code).toBe(0);
     const stdout = captured.stdout();
     expect(stdout).toContain(
-      "Findings by severity (1 total) - plus 1 in test or fixture code, 1 suggestion in vendored code",
+      "Findings by severity (1 total) - plus 1 in test or fixture code, 1 suggestion in vendored code (1 high)",
     );
+    expect(stdout).toMatch(/High\s+#+ 1\n/);
     const testGroup = stdout.indexOf("In test or fixture code (1)");
     const suggestions = stdout.indexOf("Suggestions: in third-party/vendored code (1)");
     expect(suggestions).toBeGreaterThan(testGroup);
@@ -313,7 +314,11 @@ describe("runScanCommand", () => {
     );
     expect(code).toBe(0);
     const stdout = captured.stdout();
-    expect(stdout).toContain("Findings by severity (0 total) - plus 1 suggestion in vendored code");
+    expect(stdout).toContain(
+      "Findings by severity (0 total) - plus 1 suggestion in vendored code (1 high)",
+    );
+    // The severity bars count regular code only: the vendored high finding is not a bar.
+    expect(stdout).toMatch(/High\s+0\n/);
     expect(stdout).toContain("No findings outside vendored code");
     expect(stdout).toContain("Suggestions: in third-party/vendored code (1)");
     expect(stdout).toContain("vendor/acme/lib.php:2");

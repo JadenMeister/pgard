@@ -215,18 +215,36 @@ export function groupReportFindings(findings: readonly Finding[]): {
   return splitFindingsByContext(sortFindings(findings));
 }
 
-function pluralSuggestions(count: number): string {
-  return `${count} suggestion${count === 1 ? "" : "s"} in vendored code`;
+/**
+ * "3 suggestions in vendored code", with the critical and high counts when there are any
+ * ("1 suggestion in vendored code (1 critical)") so a severe match is not hidden in a total.
+ */
+export function formatVendoredSuggestions(vendored: readonly Pick<Finding, "severity">[]): string {
+  const count = vendored.length;
+  const severe = (["critical", "high"] as const)
+    .map((severity) => ({
+      severity,
+      count: vendored.filter((finding) => finding.severity === severity).length,
+    }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${entry.severity}`);
+  return (
+    `${count} suggestion${count === 1 ? "" : "s"} in vendored code` +
+    (severe.length === 0 ? "" : ` (${severe.join(", ")})`)
+  );
 }
 
 /**
  * The part after the headline count, e.g. "plus 2 in test or fixture code, 3 suggestions in
- * vendored code"; empty when every finding is regular code.
+ * vendored code (1 high)"; empty when every finding is regular code.
  */
-export function formatContextCounts(counts: { test: number; vendored: number }): string {
+export function formatContextCounts(groups: {
+  test: number;
+  vendored: readonly Pick<Finding, "severity">[];
+}): string {
   const parts = [
-    ...(counts.test === 0 ? [] : [`${counts.test} in test or fixture code`]),
-    ...(counts.vendored === 0 ? [] : [pluralSuggestions(counts.vendored)]),
+    ...(groups.test === 0 ? [] : [`${groups.test} in test or fixture code`]),
+    ...(groups.vendored.length === 0 ? [] : [formatVendoredSuggestions(groups.vendored)]),
   ];
   return parts.length === 0 ? "" : `plus ${parts.join(", ")}`;
 }
@@ -249,6 +267,6 @@ export function formatFindingSummary(findings: readonly Finding[]): string {
   return (
     `${primary.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.` +
     (test.length === 0 ? "" : ` ${test.length} more in test or fixture code, listed separately.`) +
-    (vendored.length === 0 ? "" : ` ${pluralSuggestions(vendored.length)}, listed last.`)
+    (vendored.length === 0 ? "" : ` ${formatVendoredSuggestions(vendored)}, listed last.`)
   );
 }

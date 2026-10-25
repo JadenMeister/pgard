@@ -65,7 +65,7 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
     [groups, filters],
   );
   const contextCounts = { test: groups.test.length, vendored: groups.vendored.length };
-  const contextNote = formatContextCounts(contextCounts);
+  const contextNote = formatContextCounts({ test: groups.test.length, vendored: groups.vendored });
   const statusCounts = useMemo(() => {
     const split = { confirmed: 0, suspected: 0, informational: 0 };
     for (const finding of groups.primary) if (finding.status in split) split[finding.status] += 1;

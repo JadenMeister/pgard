@@ -128,7 +128,7 @@ export function formatScanResult(result: ScanResult, style: Style): string {
   // suggestions in vendored code come last.
   const { primary, test, vendored } = splitFindingsByContext(sortFindings(result.findings));
   const contextCounts = { test: test.length, vendored: vendored.length };
-  const extra = formatContextCounts(contextCounts);
+  const extra = formatContextCounts({ test: test.length, vendored });
   sections.push(
     "",
     style.bold(`Findings by severity (${primary.length} total)`) +

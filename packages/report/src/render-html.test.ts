@@ -130,7 +130,7 @@ describe("renderHtmlReport", () => {
       scanResult({ findings: [vendoredSecret, testFinding, ...scanResult().findings] }),
     );
     expect(all).toContain(
-      "3 finding(s): 1 confirmed, 1 suspected, 1 informational. 1 more in test or fixture code, listed separately. 1 suggestion in vendored code, listed last.",
+      "3 finding(s): 1 confirmed, 1 suspected, 1 informational. 1 more in test or fixture code, listed separately. 1 suggestion in vendored code (1 high), listed last.",
     );
     // The vendored high finding is not in the headline chart.
     expect(all).toContain("High 1");

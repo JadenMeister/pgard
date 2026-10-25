@@ -105,14 +105,22 @@ describe("filterFindings", () => {
   });
 
   it("words the headline addition like the CLI and reports", () => {
-    expect(formatContextCounts({ test: 0, vendored: 0 })).toBe("");
-    expect(formatContextCounts({ test: 2, vendored: 0 })).toBe("plus 2 in test or fixture code");
-    expect(formatContextCounts({ test: 0, vendored: 1 })).toBe(
+    const vendored = (severity: Finding["severity"]) =>
+      finding({ id: `v-${severity}`, severity, context: "vendored", confidence: "low" });
+    expect(formatContextCounts({ test: 0, vendored: [] })).toBe("");
+    expect(formatContextCounts({ test: 2, vendored: [] })).toBe("plus 2 in test or fixture code");
+    expect(formatContextCounts({ test: 0, vendored: [vendored("medium")] })).toBe(
       "plus 1 suggestion in vendored code",
     );
-    expect(formatContextCounts({ test: 1, vendored: 3 })).toBe(
-      "plus 1 in test or fixture code, 3 suggestions in vendored code",
+    expect(formatContextCounts({ test: 0, vendored: [vendored("critical")] })).toBe(
+      "plus 1 suggestion in vendored code (1 critical)",
     );
+    expect(
+      formatContextCounts({
+        test: 1,
+        vendored: [vendored("high"), vendored("info"), vendored("critical")],
+      }),
+    ).toBe("plus 1 in test or fixture code, 3 suggestions in vendored code (1 critical, 1 high)");
     expect(formatOutsideContexts({ test: 0, vendored: 0 })).toBe("");
     expect(formatOutsideContexts({ test: 1, vendored: 0 })).toBe(" outside test or fixture code");
     expect(formatOutsideContexts({ test: 0, vendored: 1 })).toBe(" outside vendored code");

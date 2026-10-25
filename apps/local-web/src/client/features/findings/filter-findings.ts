@@ -45,15 +45,37 @@ export function splitByContext(findings: readonly Finding[]): {
 }
 
 /**
- * Headline addition, e.g. "plus 2 in test or fixture code, 3 suggestions in vendored code"; empty
- * when every finding is regular code. Same wording as `formatContextCounts` in @pgard/report.
+ * "3 suggestions in vendored code", plus the critical and high counts when there are any
+ * ("1 suggestion in vendored code (1 critical)"). Same wording as `formatVendoredSuggestions` in
+ * @pgard/report.
  */
-export function formatContextCounts(counts: { test: number; vendored: number }): string {
+export function formatVendoredSuggestions(vendored: readonly Pick<Finding, "severity">[]): string {
+  const count = vendored.length;
+  const severe = (["critical", "high"] as const)
+    .map((severity) => ({
+      severity,
+      count: vendored.filter((finding) => finding.severity === severity).length,
+    }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${entry.severity}`);
+  return (
+    `${count} suggestion${count === 1 ? "" : "s"} in vendored code` +
+    (severe.length === 0 ? "" : ` (${severe.join(", ")})`)
+  );
+}
+
+/**
+ * Headline addition, e.g. "plus 2 in test or fixture code, 3 suggestions in vendored code
+ * (1 high)"; empty when every finding is regular code. Same wording as `formatContextCounts` in
+ * @pgard/report.
+ */
+export function formatContextCounts(groups: {
+  test: number;
+  vendored: readonly Pick<Finding, "severity">[];
+}): string {
   const parts = [
-    ...(counts.test === 0 ? [] : [`${counts.test} in test or fixture code`]),
-    ...(counts.vendored === 0
-      ? []
-      : [`${counts.vendored} suggestion${counts.vendored === 1 ? "" : "s"} in vendored code`]),
+    ...(groups.test === 0 ? [] : [`${groups.test} in test or fixture code`]),
+    ...(groups.vendored.length === 0 ? [] : [formatVendoredSuggestions(groups.vendored)]),
   ];
   return parts.length === 0 ? "" : `plus ${parts.join(", ")}`;
 }

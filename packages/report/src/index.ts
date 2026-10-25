@@ -3,6 +3,7 @@ export {
   countFindingsBySeverity,
   ANALYSIS_BASIS_NOTE,
   formatContextCounts,
+  formatVendoredSuggestions,
   formatFindingSummary,
   formatLocation,
   formatOutsideContexts,
