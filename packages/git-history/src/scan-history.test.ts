@@ -139,6 +139,98 @@ describe("detectSecrets", () => {
     );
   });
 
+  // #145: false negatives on main. Every case is a credential and must be reported.
+  const L = "QwErTyUiOpAsDfGh";
+  const C = "K9x[mQ2]vLp8Wz4Rt";
+  const expectCredential = (text: string, path: string) =>
+    expect(detectSecrets(text, { path }).map((secret) => secret.kind)).toContain(
+      "generic_credential",
+    );
+
+  it.each([
+    ["Python block with comma params", `DSN = """\nhost=db,password=${C},port=5432\n"""`, "a.py"],
+    ["Python block, letters only", `DSN = '''\nhost=db,password=${L},port=5432\n'''`, "a.py"],
+    ["YAML flow mapping in a template", `const y = \`\n{password: ${C}, user: a}\n\`;`, "a.ts"],
+    ["YAML key with a comma in a template", `const y = \`\npassword: ${C},\n\`;`, "a.ts"],
+    ["code-like line in a template", `const y = \`\nconst password = ${C};\n\`;`, "a.ts"],
+    ["template after an interpolation", `const y = \`\${a}\n{password: ${C}}\n\`;`, "a.ts"],
+    [
+      "string after a regex literal with a quote",
+      `const r = /"/; const c = "x,password=${C}";`,
+      "a.ts",
+    ],
+    [
+      "template after a regex with a backtick",
+      `const r = /\`/;\nconst c = \`\n{password: ${C}}\`;`,
+      "a.ts",
+    ],
+    [
+      "template after a comment with a backtick",
+      `// a \` b\nconst c = \`\n{password: ${C}}\`;`,
+      "a.ts",
+    ],
+    ["Go raw string with parens", `cfg := \`\n(password=${C})\n\``, "main.go"],
+    ["Ruby heredoc flow mapping", `cfg = <<~EOS\n  {password: ${C}}\nEOS`, "app.rb"],
+    ["PHP heredoc", `$c = <<<EOT\n{password: ${C}}\nEOT;`, "app.php"],
+    ["Java text block", `String c = """\n{password: ${C}}\n""";`, "App.java"],
+    ["C# verbatim string", `var c = @"\n{password: ${C}}\n";`, "App.cs"],
+    ["Rust raw string", `let c = r#"\n{password: ${C}}\n"#;`, "main.rs"],
+    ["unterminated template (confused)", `const y = \`x\n{password: ${C}}`, "a.ts"],
+    ["unterminated block comment (confused)", `const a = 1; /* x\n{password: ${C}}`, "a.ts"],
+  ])("detects %s: multi-line strings are tracked over the file (#145)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  // #142 false positives must stay fixed with the whole-file string tracking (#145).
+  it.each([
+    ["after a closed template", "const t = `x`;\nconst x = { password: passwordFromVault };"],
+    [
+      "after a nested template",
+      'const t = `a${b ? `c` : "d"}e`;\nconst x = { password: passwordFromVault };',
+    ],
+    ["after a comment with an apostrophe", "// don't\nconst x = { password: passwordFromVault };"],
+    ["after a block comment", "/* it's */\nconst x = { password: passwordFromVault };"],
+    ["after a division", 'const r = a / b; const s = "/";\nconst x = { secret: ACCESS_TOKEN };'],
+    ["after a regex with a quote", "const re = /'/;\nconst x = { password: passwordFromVault };"],
+  ])("ignores code %s (#145)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/module.ts" })).toEqual([]);
+  });
+
+  it.each([
+    ["Python after a closed block", 'x = """doc"""\nconnect(password=userSuppliedValue)', "a.py"],
+    ["Python after a comment", "# it's\nconnect(password=userSuppliedValue)", "a.py"],
+    ["Ruby after a heredoc", "a = <<~EOS\n  x\nEOS\nconnect(password: passwordFromVault)", "a.rb"],
+  ])("ignores %s (#145)", (_label, text, path) => {
+    expect(detectSecrets(text, { path })).toEqual([]);
+  });
+
+  it("stays linear on large inputs (#145)", () => {
+    const shapes = [
+      'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
+      "password secret apiKey accessToken ",
+      "password=x(/[",
+      "postgres://user:pa@x ",
+      `${"a".repeat(39)}password_${"b".repeat(39)} `,
+      "password: abc <<~A r#\"`${'",
+    ];
+    const time = (text: string) => {
+      const start = performance.now();
+      for (const path of ["big.ts", "big.rb", "config.yml"]) detectSecrets(text, { path });
+      return performance.now() - start;
+    };
+    for (const shape of shapes) {
+      // Starts with an unquoted match so the string tracker runs over the whole text.
+      const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(1_250_000 / shape.length))}`;
+      time(unit.slice(0, 100_000)); // warm up
+      const small = time(unit);
+      const large = time(unit.repeat(4)); // 5 MB
+      // 4x the input should take roughly 4x the time (16x if quadratic). CI runners are much
+      // slower than local machines, so the absolute bound is loose.
+      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      expect(large).toBeLessThan(15_000);
+    }
+  }, 120_000);
+
   it("ignores bare identifiers only where the line clearly is code", () => {
     expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);
     expect(detectSecrets("const x = { password: passwordFromVault };", { path: "a.ts" })).toEqual(
