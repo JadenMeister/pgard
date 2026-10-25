@@ -39,10 +39,26 @@ export function formatAskOwner(accountLogin: string, url: string): string {
   return `Ask an owner of ${safeText(accountLogin, 100)} to install the PGARD GitHub App: ${url}`;
 }
 
-function formatInstallSteps(accountLogin: string, repo: string | null, url: string): string {
+/**
+ * Said when GitHub would not show the organization membership (expected before the App is
+ * installed there): an owner installs it on the page PGARD opened, anyone else asks an owner.
+ */
+export function formatOwnerOrAsk(accountLogin: string, url: string): string {
+  const account = safeText(accountLogin, 100);
+  return `If you are an owner of ${account}, install the App on the page that opened; otherwise ask an owner: ${url}`;
+}
+
+function formatInstallSteps(
+  accountLogin: string,
+  repo: string | null,
+  url: string,
+  canApprove: "yes" | "unknown",
+): string {
   const target = repo === null ? "this repository" : safeText(repo, 120);
   return [
-    `Owner approval: install the PGARD GitHub App on ${safeText(accountLogin, 100)} to approve PGARD for ${target}.`,
+    canApprove === "yes"
+      ? `Owner approval: install the PGARD GitHub App on ${safeText(accountLogin, 100)} to approve PGARD for ${target}.`
+      : formatOwnerOrAsk(accountLogin, url),
     `  1. Open ${url}`,
     `  2. Choose "Only select repositories" (${target}) or "All repositories", then click Install.`,
     "Installing the App is the owner approval; PGARD cannot install it for you.",
@@ -54,9 +70,10 @@ function formatInstallSteps(accountLogin: string, repo: string | null, url: stri
  * App is not installed for this repository:
  *
  * - no install link (client id override without a slug): prints why;
- * - the signed-in user cannot install it (not the personal owner / not an organization owner):
- *   prints "Ask an owner of <account> ..." with the link; no browser, no waiting;
- * - the user can install it: prints the steps, opens the install page (when allowed) and, on a
+ * - GitHub shows the signed-in user cannot install it (not the personal owner, or a non-owner /
+ *   pending organization membership): prints "Ask an owner of <account> ..." with the link; no
+ *   browser, no waiting;
+ * - the user can install it, or the organization membership could not be read yet: prints the steps, opens the install page (when allowed) and, on a
  *   terminal, re-checks owner approval every 5 s for up to 10 minutes.
  *
  * Detecting the installation is never a pass by itself: `reauthorize` tells the caller to run the
@@ -75,11 +92,18 @@ export async function offerGuidedInstall(
     err(context, errStyle.yellow(remedy.unavailableReason ?? "No install link is available."));
     return "blocked";
   }
-  if (!remedy.canApprove) {
+  if (remedy.canApprove === "no") {
     err(context, errStyle.yellow(formatAskOwner(remedy.account.login, remedy.url)));
     return "blocked";
   }
-  err(context, errStyle.bold(formatInstallSteps(remedy.account.login, outcome.repo, remedy.url)));
+  // `unknown` (the organization membership could not be read yet) is guided like `yes`: only a
+  // real owner can complete the install, and the full authorization runs again afterwards.
+  err(
+    context,
+    errStyle.bold(
+      formatInstallSteps(remedy.account.login, outcome.repo, remedy.url, remedy.canApprove),
+    ),
+  );
   if (context.io.stdout.isTTY !== true) {
     err(
       context,

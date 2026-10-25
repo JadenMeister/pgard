@@ -33,6 +33,19 @@ export interface AuthorizationDependencies {
 }
 
 /**
+ * Whether the signed-in user can install the App, as far as GitHub's data shows:
+ * - `yes`: personal repository owned by the user, or GitHub returned an active owner (admin)
+ *   membership of the organization;
+ * - `no`: someone else's personal account, or GitHub returned a membership that is not an
+ *   active owner (non-admin role or pending);
+ * - `unknown`: the organization membership could not be read (GitHub answers 403/404 before the
+ *   App is installed on the organization).
+ * Guidance only: it never makes any check pass. The install itself needs a real owner, and the
+ * full authorization (including the owner membership check) runs again afterwards.
+ */
+export type InstallApproval = "yes" | "no" | "unknown";
+
+/**
  * What the user can do when owner approval failed only because the PGARD GitHub App is not
  * installed on the owner account, or its installation does not include this repository.
  * Computed from GitHub API data only. It is guidance, never evidence: installing the App is the
@@ -50,11 +63,8 @@ export interface OwnerApprovalRemedy {
    * built (see `unavailableReason`).
    */
   url: string | null;
-  /**
-   * The signed-in user can install it: for a personal repository, the user is the owner account;
-   * for an organization, GitHub reports an active owner (admin) membership. Unknown is `false`.
-   */
-  canApprove: boolean;
+  /** Whether the signed-in user can install it; see `InstallApproval`. */
+  canApprove: InstallApproval;
   /** Fixed text explaining why `url` is `null`; otherwise `null`. */
   unavailableReason: string | null;
 }

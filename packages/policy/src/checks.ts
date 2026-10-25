@@ -19,7 +19,7 @@ import {
   type GitHubRepository,
   type GitHubUser,
 } from "@pgard/github-auth";
-import type { OwnerApprovalRemedy } from "./types.js";
+import type { InstallApproval, OwnerApprovalRemedy } from "./types.js";
 
 export type CheckResult = Omit<AuthorizationCheck, "id">;
 
@@ -165,7 +165,7 @@ export const GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE =
 function installRemedy(
   repository: GitHubRepository,
   missing: OwnerApprovalRemedy["missing"],
-  canApprove: boolean,
+  canApprove: InstallApproval,
   appSlug: string | null | undefined,
 ): OwnerApprovalRemedy {
   const url =
@@ -255,7 +255,7 @@ export async function evaluateOwnerApproval(
     }
   }
   // Only the owner account itself can install an App on a personal account.
-  const canApprove = context.user.id === repository.owner.id;
+  const canApprove: InstallApproval = context.user.id === repository.owner.id ? "yes" : "no";
   if (ownerInstallations.length > 0) {
     return {
       check: failed(
@@ -277,27 +277,34 @@ function noRemedy(check: CheckResult): OwnerApprovalResult {
 }
 
 /**
- * Whether GitHub reports the signed-in user as an active owner of the organization. Used only to
- * decide how to guide the user (install it yourself, or ask an owner); any error or mismatch is
- * `false`. The owner_approval check itself reads the membership again on every run.
+ * Whether the signed-in user can install the App on the organization, used only to decide how
+ * to guide the user. `no` only when GitHub actually returned this user's membership of this
+ * organization and it is not an active owner (non-admin role, or pending). A membership that
+ * cannot be read (403/404 is expected before the App is installed on the organization, or any
+ * other error) or that does not match is `unknown`. The owner_approval check itself reads the
+ * membership again on every run and requires an active owner.
  */
-async function isConfirmedOrganizationOwner(
+async function organizationInstallApproval(
   client: GitHubClient,
   repository: GitHubRepository,
   user: GitHubUser,
-): Promise<boolean> {
+): Promise<InstallApproval> {
+  let membership;
   try {
-    const membership = await client.getOrganizationMembership(repository.owner.login);
-    return (
-      membership.organization.id === repository.owner.id &&
-      membership.organization.login === repository.owner.login &&
-      membership.user.id === user.id &&
-      membership.state === "active" &&
-      membership.role === "admin"
-    );
+    membership = await client.getOrganizationMembership(repository.owner.login);
   } catch {
-    return false;
+    return "unknown";
   }
+  if (
+    membership.organization.id !== repository.owner.id ||
+    membership.organization.login !== repository.owner.login ||
+    membership.user.id !== user.id
+  ) {
+    return "unknown";
+  }
+  if (membership.state === "active" && membership.role === "admin") return "yes";
+  if (membership.state === "active" || membership.state === "pending") return "no";
+  return "unknown";
 }
 
 async function verifyOrganizationOwnerApproval(
@@ -350,7 +357,7 @@ async function verifyOrganizationOwnerApproval(
     }
   }
   if (!isIncluded) {
-    const canApprove = await isConfirmedOrganizationOwner(client, repository, user);
+    const canApprove = await organizationInstallApproval(client, repository, user);
     return orgInstallations.length > 0
       ? {
           check: failed(

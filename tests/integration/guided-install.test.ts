@@ -7,6 +7,7 @@
 import http from "node:http";
 import type { AuthorizationSummary, ScanResult } from "@pgard/findings";
 import {
+  GitHubAuthError,
   guidedInstallRemedy,
   recheckOwnerApproval as realRecheck,
   runScan as realRunScan,
@@ -321,6 +322,88 @@ describe("guided install: organizations and configuration", () => {
     expect(result.exitCode).toBe(0);
     expect(h.openBrowser).toHaveBeenCalledExactlyOnceWith(ORG_INSTALL_URL);
     expect(h.verifyCalls()).toBe(2);
+  });
+
+  /** Org repo, App not installed on the org, and GitHub refuses the membership (403) for now. */
+  function orgBeforeInstall(head: string): MockGitHubState {
+    return notInstalled(head, {
+      repository: orgRepository(),
+      memberships: { acme: new GitHubAuthError("forbidden", "forbidden", 403) },
+    });
+  }
+
+  function installOnOrg(state: MockGitHubState, role: string): void {
+    state.installations = [orgInstallation()];
+    state.installationRepositories = { 88: [555] };
+    state.memberships = { acme: orgMembership({ role }) };
+  }
+
+  it("guides and waits when the membership cannot be read yet, then passes as an owner", async () => {
+    const { head } = project(ORG_REMOTE);
+    const state = orgBeforeInstall(head);
+    const h = harness(state, (count) => {
+      if (count === 2) installOnOrg(state, "admin");
+    });
+    const result = await run(["project", "verify"], h.deps);
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toContain(
+      `If you are an owner of acme, install the App on the page that opened; otherwise ask an owner: ${ORG_INSTALL_URL}`,
+    );
+    expect(result.stderr).toContain(WAITING_FOR_INSTALL_MESSAGE);
+    expect(h.openBrowser).toHaveBeenCalledExactlyOnceWith(ORG_INSTALL_URL);
+    expect(h.sleeps()).toBe(2);
+    // The full gate ran again and checked the owner membership itself.
+    expect(h.verifyCalls()).toBe(2);
+    expect(result.stdout).toContain('me is an owner of the organization "acme"');
+  });
+
+  it("blocks after the install when the membership GitHub then shows is not an owner", async () => {
+    const { head } = project(ORG_REMOTE);
+    const state = orgBeforeInstall(head);
+    const h = harness(state, () => installOnOrg(state, "member"));
+    const result = await run(["scan", "code"], h.deps);
+    expect(result.exitCode).toBe(3);
+    expect(h.openBrowser).toHaveBeenCalledExactlyOnceWith(ORG_INSTALL_URL);
+    expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "blocked"]);
+    expect(
+      h.scanResults[1]?.authorization.checks.find((check) => check.id === "owner_approval"),
+    ).toMatchObject({
+      status: "failed",
+      reason: "me is not an owner of acme (role: member); an organization owner must run the scan.",
+    });
+  });
+
+  it("dashboard: guides an unreadable membership the same way and re-checks", async () => {
+    const { root, head } = project(ORG_REMOTE);
+    const state = orgBeforeInstall(head);
+    const { session } = createMockGitHub(state);
+    const provider = Object.assign(async () => session, {
+      invalidate: () => undefined,
+      signOut: () => undefined,
+    });
+    const server = await startLocalWebServer({
+      projectRoot: root,
+      presetTargetPort: null,
+      env: {},
+      assets: new Map(),
+      deps: { ...createDefaultServerDeps(), createSessionProvider: () => provider },
+      token: WEB_TOKEN,
+    });
+    try {
+      const blocked = await webVerify(server.port);
+      expect(blocked.remedy).toMatchObject({ canApprove: "unknown", url: ORG_INSTALL_URL });
+      const waiting = await webRequest(server.port, "POST", "/api/auth/owner-approval");
+      expect(waiting.status).toBe(200);
+      expect(waiting.json).toMatchObject({ status: "failed", remedy: { canApprove: "unknown" } });
+      installOnOrg(state, "member");
+      const recheck = await webRequest(server.port, "POST", "/api/auth/owner-approval");
+      expect(recheck.json).toMatchObject({ status: "failed", remedy: null });
+      const after = await webVerify(server.port);
+      expect(after.summary.decision).toBe("blocked");
+      expect(after.remedy).toBeNull();
+    } finally {
+      await server.close();
+    }
   });
 
   it("tells a member who is not an owner to ask an owner, without waiting or opening", async () => {

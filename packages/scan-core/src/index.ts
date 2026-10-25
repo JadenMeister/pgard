@@ -25,6 +25,7 @@ export {
   type AuthorizationDependencies,
   type AuthorizationOutcome,
   type OwnerApprovalRecheck,
+  type InstallApproval,
   type OwnerApprovalRemedy,
 } from "@pgard/policy";
 export {

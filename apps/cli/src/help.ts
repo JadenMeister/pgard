@@ -62,8 +62,9 @@ passed / failed / unverifiable with a reason for each. The result is not stored;
 every scan checks again.
 
 If owner approval fails only because the PGARD GitHub App is not installed for
-this repository and you can install it (you own the personal account, or you are
-an owner of the organization), PGARD opens the App's install page, waits up to
+this repository and you may be able to install it (you own the personal account,
+or GitHub shows you as an owner of the organization or cannot show your role
+yet), PGARD opens the App's install page, waits up to
 10 minutes for the installation and then runs all five checks again. Installing
 the App is the owner's approval; PGARD cannot install it for you.
 

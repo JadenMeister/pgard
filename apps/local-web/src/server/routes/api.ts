@@ -115,7 +115,7 @@ function toRemedyDto(remedy: OwnerApprovalRemedy | null): InstallRemedyDto | nul
       type: remedy.account.type,
     },
     url,
-    canApprove: remedy.canApprove && url !== null,
+    canApprove: url === null ? "no" : remedy.canApprove,
     unavailableReason:
       remedy.unavailableReason === null ? null : sanitizeDisplayText(remedy.unavailableReason, 200),
   };
@@ -212,7 +212,7 @@ const recheckOwnerApproval: ApiHandler = async (context) => {
     state.auth.status === "done" && state.auth.outcome !== null
       ? toRemedyDto(guidedInstallRemedy(state.auth.outcome))
       : null;
-  if (remedy === null || !remedy.canApprove) {
+  if (remedy === null || remedy.canApprove === "no") {
     throw new ApiError(
       409,
       "no_install_pending",

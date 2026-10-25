@@ -28,11 +28,19 @@ export function describeInstallRemedy(remedy: InstallRemedyDto): InstallRemedyVi
       text: remedy.unavailableReason ?? "No install link is available.",
     };
   }
-  if (!remedy.canApprove) {
+  if (remedy.canApprove === "no") {
     return {
       kind: "ask_owner",
       url: remedy.url,
       text: `Ask an owner of ${account} to install the PGARD GitHub App:`,
+    };
+  }
+  if (remedy.canApprove === "unknown") {
+    // Same wording as the CLI: GitHub would not show the membership before the App is installed.
+    return {
+      kind: "install",
+      url: remedy.url,
+      text: `If you are an owner of ${account}, install the App on the page that opened; otherwise ask an owner: ${remedy.url}`,
     };
   }
   return {

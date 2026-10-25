@@ -791,7 +791,7 @@ describe("authorizeProject: organization repositories", () => {
     // The membership is read only to guide the user (install it yourself or ask an owner); an
     // owner membership never turns the missing repository into a pass.
     expect(calls).toContain("membership:acme");
-    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: true });
+    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: "yes" });
   });
 
   it("blocks when the only installation is on a different account", async () => {

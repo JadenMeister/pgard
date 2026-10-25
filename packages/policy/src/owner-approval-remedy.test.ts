@@ -91,7 +91,7 @@ describe("owner approval remedy: personal repositories", () => {
       missing: "installation",
       account: { login: "me", type: "User" },
       url: PERSONAL_URL,
-      canApprove: true,
+      canApprove: "yes",
       unavailableReason: null,
     });
     expect(guidedInstallRemedy(outcome)).toEqual(outcome.remedy);
@@ -107,7 +107,7 @@ describe("owner approval remedy: personal repositories", () => {
       }),
     );
     expect(approval(outcome)?.status).toBe("failed");
-    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: true });
+    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: "yes" });
   });
 
   it("does not let a collaborator approve someone else's personal repository", async () => {
@@ -116,7 +116,7 @@ describe("owner approval remedy: personal repositories", () => {
       root,
       personalState(head, { user: { ...ME, id: 2002, login: "collab" } }),
     );
-    expect(outcome.remedy).toMatchObject({ canApprove: false, url: PERSONAL_URL });
+    expect(outcome.remedy).toMatchObject({ canApprove: "no", url: PERSONAL_URL });
   });
 
   it("has no link, and says how to enable one, when no slug is configured", async () => {
@@ -187,24 +187,44 @@ describe("owner approval remedy: organization repositories", () => {
       missing: "installation",
       account: { login: "acme", type: "Organization" },
       url: ORG_URL,
-      canApprove: true,
+      canApprove: "yes",
       unavailableReason: null,
     });
   });
 
-  it("tells a member who is not an owner to ask an owner (same link, canApprove false)", async () => {
+  it("tells a member GitHub shows is not an owner to ask an owner (canApprove no)", async () => {
     const { root, head } = project(ORG_REMOTE);
     const cases: NonNullable<MockGitHubState["memberships"]>[] = [
       { acme: orgMembership({ role: "member" }) },
+      { acme: orgMembership({ role: "billing_manager" }) },
       { acme: orgMembership({ state: "pending" }) },
-      { acme: orgMembership({ user: { id: 9, login: "someone" } }) },
-      { acme: new GitHubAuthError("forbidden", "forbidden", 403) },
-      {},
     ];
     for (const memberships of cases) {
       const { outcome } = await authorize(root, orgState(head, { memberships }));
       expect(approval(outcome)?.status).toBe("failed");
-      expect(outcome.remedy).toMatchObject({ canApprove: false, url: ORG_URL });
+      expect(outcome.remedy).toMatchObject({ canApprove: "no", url: ORG_URL });
+    }
+  });
+
+  it("is unknown when the membership cannot be read or does not match (before the install)", async () => {
+    const { root, head } = project(ORG_REMOTE);
+    const cases: NonNullable<MockGitHubState["memberships"]>[] = [
+      { acme: new GitHubAuthError("forbidden", "forbidden", 403) },
+      {},
+      { acme: new GitHubAuthError("rate_limited", "rate limited", 429) },
+      { acme: orgMembership({ user: { id: 9, login: "someone" } }) },
+      { acme: orgMembership({ organization: { id: 4242, login: "other" } }) },
+    ];
+    for (const memberships of cases) {
+      const { outcome } = await authorize(root, orgState(head, { memberships }));
+      // Never a pass: the check is failed exactly as without a remedy.
+      expect(approval(outcome)).toEqual({
+        id: "owner_approval",
+        status: "failed",
+        reason:
+          'No PGARD GitHub App installation on the organization "acme" was found for acme/app. An owner of acme must install the App on the organization and include the repository.',
+      });
+      expect(outcome.remedy).toMatchObject({ canApprove: "unknown", url: ORG_URL });
     }
   });
 
@@ -214,7 +234,7 @@ describe("owner approval remedy: organization repositories", () => {
       root,
       orgState(head, { installations: [orgInstallation()], installationRepositories: { 88: [] } }),
     );
-    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: true });
+    expect(outcome.remedy).toMatchObject({ missing: "repository", canApprove: "yes" });
   });
 });
 

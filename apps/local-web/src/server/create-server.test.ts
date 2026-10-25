@@ -1186,7 +1186,7 @@ function needsInstall(remedy: Partial<OwnerApprovalRemedy> = {}): AuthorizationO
       missing: "installation",
       account: { login: "me", type: "User" },
       url: INSTALL_URL,
-      canApprove: true,
+      canApprove: "yes",
       unavailableReason: null,
       ...remedy,
     },
@@ -1212,7 +1212,7 @@ describe("local web guided App install", () => {
       missing: "installation",
       account: { login: "me", type: "User" },
       url: INSTALL_URL,
-      canApprove: true,
+      canApprove: "yes",
       unavailableReason: null,
     });
     // The configured slug reaches the gate, which builds the link from GitHub ids.
@@ -1233,7 +1233,7 @@ describe("local web guided App install", () => {
     );
     await authorize(running);
     const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
-    expect(auth.remedy).toMatchObject({ url: null, canApprove: false });
+    expect(auth.remedy).toMatchObject({ url: null, canApprove: "no" });
   });
 
   it("re-checks owner approval only while an install is pending for this user", async () => {
@@ -1242,7 +1242,7 @@ describe("local web guided App install", () => {
       reason: "The PGARD GitHub App is installed.",
       remedy: null,
     }));
-    let next = needsInstall({ canApprove: false });
+    let next = needsInstall({ canApprove: "no" });
     const running = await start(
       fakeDeps({ verifyProject: async () => next, recheckOwnerApproval: recheck }),
     );
@@ -1252,7 +1252,8 @@ describe("local web guided App install", () => {
     expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(409);
     expect(recheck).not.toHaveBeenCalled();
 
-    next = needsInstall();
+    // An unreadable organization membership is guided like "yes".
+    next = needsInstall({ canApprove: "unknown" });
     await authorize(running);
     const response = await apiPost(running, "/api/auth/owner-approval");
     expect(response.status).toBe(200);

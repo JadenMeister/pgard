@@ -16,7 +16,7 @@ function remedy(overrides: Partial<InstallRemedyDto> = {}): InstallRemedyDto {
     missing: "installation",
     account: { login: "acme", type: "Organization" },
     url: URL,
-    canApprove: true,
+    canApprove: "yes",
     unavailableReason: null,
     ...overrides,
   };
@@ -31,10 +31,18 @@ describe("dashboard install remedy", () => {
   });
 
   it("shows the same ask-owner wording as the CLI to a user who cannot approve", () => {
-    expect(describeInstallRemedy(remedy({ canApprove: false }))).toEqual({
+    expect(describeInstallRemedy(remedy({ canApprove: "no" }))).toEqual({
       kind: "ask_owner",
       url: URL,
       text: "Ask an owner of acme to install the PGARD GitHub App:",
+    });
+  });
+
+  it("guides an unknown organization role like an owner, with the CLI wording", () => {
+    expect(describeInstallRemedy(remedy({ canApprove: "unknown" }))).toEqual({
+      kind: "install",
+      url: URL,
+      text: `If you are an owner of acme, install the App on the page that opened; otherwise ask an owner: ${URL}`,
     });
   });
 
@@ -43,7 +51,7 @@ describe("dashboard install remedy", () => {
       describeInstallRemedy(
         remedy({
           url: null,
-          canApprove: false,
+          canApprove: "no",
           unavailableReason: "Set PGARD_GITHUB_APP_SLUG to enable the guided install.",
         }),
       ),

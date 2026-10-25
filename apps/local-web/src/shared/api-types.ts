@@ -53,8 +53,11 @@ export interface InstallRemedyDto {
   account: { login: string; type: "User" | "Organization" };
   /** Always an `https://github.com/apps/...` URL, or `null` (see `unavailableReason`). */
   url: string | null;
-  /** The signed-in user can install it (personal owner, or active organization owner). */
-  canApprove: boolean;
+  /**
+   * `yes`: personal owner or active organization owner; `no`: GitHub shows they are not;
+   * `unknown`: the organization membership could not be read yet (guided like `yes`).
+   */
+  canApprove: "yes" | "no" | "unknown";
   unavailableReason: string | null;
 }
 

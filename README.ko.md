@@ -179,7 +179,7 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 저장소에서 처음 `pgard scan`(또는 `pgard project verify`, 대시보드)을 실행하면 다음과 같이 진행됩니다.
 
 1. **로그인.** PGARD가 코드를 출력하고 브라우저에서 `https://github.com/login/device`를 엽니다(`--no-browser` 참고). 코드를 입력하고 PGARD GitHub App을 승인합니다.
-2. **빠진 것이 App 설치뿐이면 설치.** owner 승인만 실패했고, 그 이유가 PGARD GitHub App이 owner 계정에 설치되어 있지 않거나 설치에 이 저장소가 포함되지 않았기 때문이며, 승인할 수 있는 사람이 본인이면(개인 저장소는 본인이 owner, 조직은 본인이 그 조직의 활성 owner), PGARD가 owner 계정과 이 저장소가 미리 선택된 App 설치 페이지를 출력하고 엽니다.
+2. **빠진 것이 App 설치뿐이면 설치.** owner 승인만 실패했고, 그 이유가 PGARD GitHub App이 owner 계정에 설치되어 있지 않거나 설치에 이 저장소가 포함되지 않았기 때문이며, 본인이 승인할 수 있는 사람일 수 있으면(개인 저장소는 본인이 owner, 조직은 GitHub가 본인을 활성 owner로 보여 주거나 아직 역할을 보여 주지 못하는 경우), PGARD가 owner 계정과 이 저장소가 미리 선택된 App 설치 페이지를 출력하고 엽니다.
 
    ```text
    https://github.com/apps/<slug>/installations/new/permissions?suggested_target_id=<owner account id>&repository_ids[]=<repository id>
@@ -192,7 +192,8 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 **App 설치가 곧 owner의 승인이며, PGARD가 대신 설치할 수는 없습니다.** PGARD는 App을 직접 설치하지 않고, 어떤 항목도 건너뛰지 않으며, 승인을 캐시하지 않습니다. 설치를 확인한 것만으로는 통과가 아닙니다. 그사이 접근 권한이 사라졌다면 새 확인에서 차단됩니다.
 
 - 10분 안에 설치되지 않거나 stdout이 터미널이 아니면(링크만 출력하고 기다리지 않음) 평소 사유와 함께 차단됩니다(종료 코드 3). 기다리는 중 Ctrl+C로 취소를 확정하면 취소됩니다(종료 코드 130).
-- 본인이 승인할 수 없으면(예: owner가 아닌 조직 멤버, 다른 사람의 개인 저장소 협업자) PGARD는 기다리거나 아무것도 열지 않습니다. 사유와 함께 `Ask an owner of <account> to install the PGARD GitHub App: <link>`를 출력합니다. 링크에는 GitHub의 숫자 id만 들어 있어 공유해도 안전합니다.
+- App이 조직에 설치되기 전에는 GitHub가 보통 App에 본인의 멤버십을 보여 주지 않습니다(403/404). 이때도 PGARD는 안내를 진행하고 `If you are an owner of <org>, install the App on the page that opened; otherwise ask an owner: <link>`를 출력합니다. 안내는 어떤 항목도 통과시키지 않으므로 안전합니다. 설치는 조직의 실제 owner만 완료할 수 있고, 설치가 확인되면 활성 owner 멤버십 확인을 포함한 전체 확인을 처음부터 다시 실행합니다.
+- GitHub가 본인이 승인할 수 없다고 보여 주면(owner가 아니거나 대기 중인 조직 멤버십, 다른 사람의 개인 저장소 협업자) PGARD는 기다리거나 아무것도 열지 않습니다. 사유와 함께 `Ask an owner of <account> to install the PGARD GitHub App: <link>`를 출력합니다. 링크에는 GitHub의 숫자 id만 들어 있어 공유해도 안전합니다.
 - 다른 항목도 실패했다면 App 설치만으로는 부족하므로 설치 링크를 보여 주지 않습니다.
 - `PGARD_GITHUB_APP_SLUG` 없이 `PGARD_GITHUB_APP_CLIENT_ID`만 설정하면 어느 App 페이지를 열지 알 수 없으므로, 사유는 그대로 두고 `Set PGARD_GITHUB_APP_SLUG to enable the guided install.`을 덧붙입니다. 링크는 `github.com` 링크만 보여 주고 엽니다.
 
@@ -335,7 +336,7 @@ Open this private session URL in your browser (valid until you stop the dashboar
 
 대시보드는 CLI 결과를 읽지 않고 직접 검사합니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터(테스트·fixture 항목은 별도 그룹), HTML/PDF 보고서 내보내기를 제공합니다. OS 키체인에 저장된 GitHub 로그인은 서버 쪽에서 다시 사용하며, 토큰은 브라우저로 보내지 않습니다. 로그아웃 버튼은 두 가지입니다. **End dashboard session (keep keychain sign-in)** 버튼은 이 대시보드의 세션만 끝내고 다음 확인 때 키체인 로그인을 다시 사용합니다. **Sign out and remove from OS keychain**은 저장된 로그인도 지웁니다(CLI에서도 지워짐). Ctrl+C로 종료하면 대시보드의 GitHub 세션이 끝나고(키체인 로그인은 유지) 모든 결과를 버립니다.
 
-device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** 버튼을 보여 주고, `pgard dashboard --no-browser`가 아니면 페이지를 직접 엽니다. 권한 확인 패널이 이 저장소에 PGARD GitHub App이 설치되지 않았다는 이유로만 차단되었고 본인이 승인할 수 있으면 **Install the PGARD GitHub App** 버튼(새 탭에서 열림)을 보여 주고, 최대 10분 동안 5초마다 owner 승인을 다시 확인한 뒤 전체 확인을 자동으로 다시 실행합니다. 그렇지 않으면 CLI와 같은 `Ask an owner of <account> ...` 링크를 보여 줍니다.
+device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** 버튼을 보여 주고, `pgard dashboard --no-browser`가 아니면 페이지를 직접 엽니다. 권한 확인 패널이 이 저장소에 PGARD GitHub App이 설치되지 않았다는 이유로만 차단되었고 본인이 승인할 수 있으면(또는 GitHub가 아직 조직 역할을 보여 주지 못하면. 문구는 CLI와 같음) **Install the PGARD GitHub App** 버튼(새 탭에서 열림)을 보여 주고, 최대 10분 동안 5초마다 owner 승인을 다시 확인한 뒤 전체 확인을 자동으로 다시 실행합니다. 그렇지 않으면 CLI와 같은 `Ask an owner of <account> ...` 링크를 보여 줍니다.
 
 포트 탐지, 서비스 정체 확인 요청, 대상 확인은 이 프로젝트에 대한 대시보드의 가장 최근 권한 확인이 통과한 뒤에만, 그리고 그 확인이 끝난 뒤 30분 동안만 허용됩니다. 대시보드는 이 시간이 언제 끝나는지 보여 주며, 그 뒤에는(또는 시스템 시계가 뒤로 가면) 다시 확인해야 로컬 서비스에 접근합니다. 새 확인이나 로그아웃은 즉시 이 시간을 끝내고 진행 중인 요청을 중단하며, 페이지는 이전 확인 때의 포트 목록과 확인 결과를 버립니다. 이 시간과 관계없이 모든 검사는 권한 확인 전체를 다시 실행합니다.
 
@@ -372,7 +373,6 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 - [#47](https://github.com/JadenMeister/pgard/issues/47) squash merge와 공동 작성 기여는 보수적으로 처리합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않습니다.
 - [#143](https://github.com/JadenMeister/pgard/issues/143) 키체인 로그인 리뷰의 후속 작업: 키체인 저장과 삭제 사이의 짧은 경쟁 상태, 토큰 갱신 중 대시보드 세션만 끝내는 로그아웃을 하면 다음 사용 때 새 device 코드를 요구할 수 있는 문제, `pgard login`으로 계정을 바꾼 뒤에도 대시보드가 이전 계정의 포트 접근을 최대 30분 유지하는 문제(검사는 권한을 다시 확인함).
 - [#145](https://github.com/JadenMeister/pgard/issues/145) 비밀정보 탐지가 일부 형태를 놓칩니다. 예: 템플릿 리터럴, TypeScript 타입 표기가 붙은 선언, Go `:=` 선언, `postgres://` URL 속 자격 증명, `headers["x-api-key"] = "..."` 같은 인덱스 대입.
-- 조직의 안내형 설치: GitHub는 App이 조직에 설치되기 전에는 App에 조직 멤버십을 보여 주지 않을 수 있습니다. 그러면 PGARD는 본인이 owner인지 확인할 수 없으므로 기다리지 않고 "Ask an owner" 링크를 보여 줍니다(owner가 그 링크를 열어 설치할 수 있음). owner 승인 확인 자체는 바뀌지 않습니다.
 - 탐지는 완전하지 않습니다. 발견 항목이 없다고 프로젝트가 안전한 것은 아닙니다.
 - 포트 탐지는 불완전하거나 사용할 수 없을 수 있습니다. 그럴 때는 포트를 직접 입력하세요.
 
