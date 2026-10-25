@@ -1,5 +1,10 @@
 import type { ConfirmedWebTarget, ScanScope } from "@pgard/findings";
-import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
+import {
+  ScanCancelledError,
+  ScanRequestError,
+  type AuthorizationOutcome,
+  type ScanProgressEvent,
+} from "@pgard/scan-core";
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
 import { createSessionProvider } from "../../flows/authenticate.js";
@@ -9,6 +14,7 @@ import {
   offerReportExport,
   saveReports,
 } from "../../flows/export-report.js";
+import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
 import type { ReportRequest, ScanVariant } from "../../options.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
@@ -66,16 +72,25 @@ export async function runScanCommand(
     reportDir = check.outputDir;
   }
 
-  const getGitHubSession = createSessionProvider(context);
+  const authorization = authorizationDepsFor(context, createSessionProvider(context));
   let webTarget: ConfirmedWebTarget | null = null;
   if (scopes.includes("web")) {
     // Confirm authorization before probing any local port; the scan re-checks it anyway.
     suspendKeys(context);
-    const outcome = await context.deps.verifyProject(projectRoot, { getGitHubSession });
+    let outcome = await context.deps.verifyProject(projectRoot, authorization);
     throwIfCancelled(context);
     if (outcome.summary.decision !== "allowed") {
       out(context, formatAuthorization(outcome.summary, context.style));
-      return EXIT_CODES.blocked;
+      const guided = await offerGuidedInstall(context, outcome, projectRoot, authorization);
+      throwIfCancelled(context);
+      if (guided !== "reauthorize") return EXIT_CODES.blocked;
+      // All five checks again, from scratch; the installation alone is not a pass.
+      outcome = await context.deps.verifyProject(projectRoot, authorization);
+      throwIfCancelled(context);
+      if (outcome.summary.decision !== "allowed") {
+        out(context, formatAuthorization(outcome.summary, context.style));
+        return EXIT_CODES.blocked;
+      }
     }
     if (context.keys === null) {
       err(
@@ -95,37 +110,57 @@ export async function runScanCommand(
     }
   }
 
-  err(
-    context,
-    context.errStyle.dim(`Scanning (${scopes.join(", ")})... Press Ctrl+C twice to cancel.`),
-  );
-  suspendKeys(context);
-  let result;
-  try {
-    result = await context.deps.runScan(
-      { projectRoot, scopes, webTarget },
-      {
-        authorization: { getGitHubSession },
-        webScanner: context.deps.webScanner,
-        signal: context.signal,
-        env: context.io.env,
-        onProgress: (event) => {
-          const line = formatProgress(event);
-          if (line !== null) err(context, context.errStyle.dim(line));
-        },
-      },
+  // Every call runs the full authorization gate inside runScan; nothing is reused between them.
+  const scanOnce = async () => {
+    err(
+      context,
+      context.errStyle.dim(`Scanning (${scopes.join(", ")})... Press Ctrl+C twice to cancel.`),
     );
-  } catch (error) {
-    if (error instanceof ScanCancelledError) throw new UserCancelledError();
-    if (error instanceof ScanRequestError) {
-      err(context, context.errStyle.red(safeText(error.message, 300)));
-      return EXIT_CODES.usage;
+    suspendKeys(context);
+    let outcome: AuthorizationOutcome | null = null;
+    try {
+      const scanned = await context.deps.runScan(
+        { projectRoot, scopes, webTarget },
+        {
+          authorization,
+          webScanner: context.deps.webScanner,
+          signal: context.signal,
+          env: context.io.env,
+          onAuthorization: (received) => {
+            outcome = received;
+          },
+          onProgress: (event) => {
+            const line = formatProgress(event);
+            if (line !== null) err(context, context.errStyle.dim(line));
+          },
+        },
+      );
+      return { result: scanned, outcome: outcome as AuthorizationOutcome | null };
+    } catch (error) {
+      if (error instanceof ScanCancelledError) throw new UserCancelledError();
+      if (error instanceof ScanRequestError) {
+        err(context, context.errStyle.red(safeText(error.message, 300)));
+        return null;
+      }
+      throw error;
     }
-    throw error;
-  }
+  };
 
+  let scanned = await scanOnce();
+  if (scanned === null) return EXIT_CODES.usage;
   out(context, "");
-  out(context, formatScanResult(result, context.style));
+  out(context, formatScanResult(scanned.result, context.style));
+  if (scanned.result.overallStatus === "blocked" && scanned.outcome !== null) {
+    const guided = await offerGuidedInstall(context, scanned.outcome, projectRoot, authorization);
+    throwIfCancelled(context);
+    if (guided === "reauthorize") {
+      scanned = await scanOnce();
+      if (scanned === null) return EXIT_CODES.usage;
+      out(context, "");
+      out(context, formatScanResult(scanned.result, context.style));
+    }
+  }
+  const { result } = scanned;
   let exitCode = exitCodeForStatus(result.overallStatus);
 
   if (result.overallStatus === "blocked") {

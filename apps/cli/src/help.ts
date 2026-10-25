@@ -8,6 +8,11 @@ const EXIT_CODE_HELP = `Exit codes:
   5    internal error
   130  cancelled`;
 
+const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (device sign-in, App
+                           install) in the browser; the links are printed.
+                           Pages open automatically only when stdout is a
+                           terminal`;
+
 const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output-dir)
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
@@ -38,6 +43,8 @@ Usage:
 The target is always the Git root of the current directory. Every scan re-runs the
 authorization gate; only the GitHub sign-in is reused. Code and results are
 processed locally; PGARD contacts GitHub for sign-in and repository metadata only.
+GitHub pages open in the browser automatically when stdout is a terminal; pass
+--no-browser to scan, project verify, login or dashboard to only print the links.
 
 ${EXIT_CODE_HELP}`,
   project: `Usage:
@@ -46,13 +53,22 @@ ${EXIT_CODE_HELP}`,
 Subcommands:
   verify   show each authorization check with its reason`,
   "project verify": `Usage:
-  pgard project verify
+  pgard project verify [--no-browser]
 
 Checks the Git repository, GitHub remote, your GitHub identity (the sign-in saved
 by pgard login, or a device sign-in),
 owner approval, your current access and a merged contribution, and shows
 passed / failed / unverifiable with a reason for each. The result is not stored;
 every scan checks again.
+
+If owner approval fails only because the PGARD GitHub App is not installed for
+this repository and you can install it (you own the personal account, or you are
+an owner of the organization), PGARD opens the App's install page, waits up to
+10 minutes for the installation and then runs all five checks again. Installing
+the App is the owner's approval; PGARD cannot install it for you.
+
+Options:
+${NO_BROWSER_HELP}
 
 ${EXIT_CODE_HELP}`,
   scan: `Usage:
@@ -69,6 +85,11 @@ Options:
   --port N                 local service port 1-65535 (web and all only). You
                            still confirm the service identity with y/N.
 ${REPORT_HELP}
+${NO_BROWSER_HELP}
+
+If owner approval is the only failed check and the PGARD GitHub App just needs to
+be installed, PGARD opens the install page, waits for it, re-runs the full
+authorization and continues the scan.
 
 Findings come from the code itself (query statements, server code,
 configuration, Git history). PGARD does not ship or query a vulnerability
@@ -80,13 +101,16 @@ Authenticated browsing is not available in this MVP.
 
 ${EXIT_CODE_HELP}`,
   dashboard: `Usage:
-  pgard dashboard [--target-port N]
+  pgard dashboard [--target-port N] [--no-browser]
 
 Starts the local web dashboard on a free 127.0.0.1 port and prints its private
 URL. --target-port pre-selects the local service to check (you still confirm it
 in the browser). The dashboard reuses the GitHub sign-in saved in the OS
 keychain; the token stays in the dashboard server and never reaches the
 browser. Results and the session end when you stop the dashboard.
+The dashboard opens the GitHub sign-in page when a device code is needed
+(unless --no-browser) and shows an install button when the PGARD GitHub App is
+not installed for this repository.
 
 ${EXIT_CODE_HELP}`,
   rules: `Usage:
@@ -109,7 +133,7 @@ not authorize scans. Works outside a project.
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,
   login: `Usage:
-  pgard login
+  pgard login [--no-browser]
 
 Signs in to GitHub with the device flow (you enter a code on github.com) and
 saves the sign-in in the OS keychain: macOS Keychain, Windows Credential Manager
@@ -121,7 +145,9 @@ Running login again replaces the saved sign-in (e.g. to switch accounts).
 PGARD signs in as the built-in PGARD GitHub App; set PGARD_GITHUB_APP_CLIENT_ID
 only to use another App (a fork or a self-registered App). A value that is not
 a valid client id blocks sign-in (exit 3); it never falls back to the built-in
-App.
+App. PGARD_GITHUB_APP_SLUG names that App's install page for the guided install
+(lowercase letters, digits and "-"); a malformed value also blocks sign-in.
+--no-browser prints the sign-in page without opening it.
 Works outside a project.
 
 Exit codes:
