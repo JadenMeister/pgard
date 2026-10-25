@@ -244,6 +244,41 @@ describe("runScan", () => {
     expect(result.coverage).toEqual(withoutVendored.coverage);
   });
 
+  it("classifies vendored code after making paths repository-relative", async () => {
+    authorizeProject.mockResolvedValue(ALLOWED);
+    // The project itself lives under a directory named vendor/: only the path inside the
+    // repository may decide the context.
+    const projectRoot = "/x/vendor/proj";
+    const code: AnalyzerOutput = {
+      ...codeOutput,
+      findings: [
+        finding({
+          id: "p1",
+          location: {
+            kind: "file",
+            path: `${projectRoot}/server/db.ts`,
+            line: 1,
+            url: null,
+            commit: null,
+          },
+        }),
+      ],
+    };
+    const result = await runScan(
+      request({ projectRoot }),
+      deps({
+        analyzers: {
+          code: async () => code,
+          history: async () => ({ ...historyOutput, findings: [] }),
+        },
+      }),
+    );
+    const own = result.findings.find((entry) => entry.id === "p1");
+    expect(own?.location.path).toBe("server/db.ts");
+    expect(own?.context).toBeUndefined();
+    expect(own?.confidence).toBe("medium");
+  });
+
   it("re-runs authorization on every scan", async () => {
     authorizeProject.mockResolvedValue(ALLOWED);
     await runScan(request(), deps());
