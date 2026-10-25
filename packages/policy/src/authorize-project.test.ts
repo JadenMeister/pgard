@@ -817,6 +817,8 @@ describe("authorizeProject: organization repositories", () => {
       orgMembership({ organization: { id: 9, login: "acme" } }),
       orgMembership({ organization: { id: ORG.id, login: "Acme" } }),
       orgMembership({ user: { id: 2002, login: "someone" } }),
+      // Same login, different id: the user must be matched by id, not by login.
+      orgMembership({ user: { id: 2002, login: "me" } }),
     ]) {
       const { outcome } = await authorize(
         root,
