@@ -4,11 +4,14 @@
  * The browser opener, the clock and the 5 s wait are fakes; nothing touches the network, no
  * browser is opened and nothing is installed.
  */
-import type { ScanResult } from "@pgard/findings";
+import http from "node:http";
+import type { AuthorizationSummary, ScanResult } from "@pgard/findings";
 import {
+  guidedInstallRemedy,
   recheckOwnerApproval as realRecheck,
   runScan as realRunScan,
   verifyProject as realVerify,
+  type AuthorizationOutcome,
 } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InterruptSource } from "../../apps/cli/src/adapters/cancel.js";
@@ -18,6 +21,11 @@ import {
   WAITING_FOR_INSTALL_MESSAGE,
 } from "../../apps/cli/src/flows/guided-install.js";
 import { createTestDeps, createTestIo, noInterrupts } from "../../apps/cli/src/test-support.js";
+import {
+  createDefaultServerDeps,
+  startLocalWebServer,
+  type LocalWebServer,
+} from "../../apps/local-web/src/server/create-server.js";
 import {
   createGitFixture,
   type GitFixture,
@@ -369,5 +377,125 @@ describe("guided install: organizations and configuration", () => {
     expect(result.exitCode).toBe(3);
     expect(result.stderr).not.toContain("/installations/new");
     expect(h.sleeps()).toBe(0);
+  });
+});
+
+const WEB_TOKEN = "guided-install-token-0123456789abcdefgh";
+
+function webRequest(
+  port: number,
+  method: "GET" | "POST",
+  urlPath: string,
+): Promise<{ status: number; json: unknown }> {
+  return new Promise((resolve, reject) => {
+    const req = http.request(
+      {
+        host: "127.0.0.1",
+        port,
+        method,
+        path: urlPath,
+        headers: {
+          host: `127.0.0.1:${port}`,
+          "x-pgard-token": WEB_TOKEN,
+          ...(method === "GET"
+            ? {}
+            : { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" }),
+        },
+      },
+      (res) => {
+        let text = "";
+        res.on("data", (chunk: Buffer) => (text += chunk.toString()));
+        res.on("end", () => resolve({ status: res.statusCode ?? 0, json: JSON.parse(text) }));
+      },
+    );
+    req.on("error", reject);
+    if (method === "POST") req.write("{}");
+    req.end();
+  });
+}
+
+async function webVerify(
+  port: number,
+): Promise<{ summary: AuthorizationSummary; remedy: unknown }> {
+  expect((await webRequest(port, "POST", "/api/auth/verify")).status).toBe(200);
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const polled = (await webRequest(port, "GET", "/api/auth")).json as {
+      status: string;
+      summary: AuthorizationSummary;
+      remedy: unknown;
+    };
+    if (polled.status === "done") return polled;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("web verify did not finish in time");
+}
+
+describe("guided install: CLI and dashboard parity", () => {
+  let web: LocalWebServer | null = null;
+  afterEach(async () => {
+    await web?.close();
+    web = null;
+  });
+
+  it("shows the same remedy, and both re-run the full gate after the install", async () => {
+    const { root, head } = project();
+    const state = notInstalled(head);
+    const { session } = createMockGitHub(state);
+    const provider = Object.assign(async () => session, {
+      invalidate: () => undefined,
+      signOut: () => undefined,
+    });
+
+    // CLI: the remedy the gate produced for `pgard project verify` (not a terminal: no waiting).
+    const cliOutcomes: AuthorizationOutcome[] = [];
+    const cliDeps = createTestDeps({
+      findGitRoot: async () => root,
+      createSessionProvider: () => provider,
+      verifyProject: async (projectRoot, authorization) => {
+        const outcome = await realVerify(projectRoot, authorization);
+        cliOutcomes.push(outcome);
+        return outcome;
+      },
+    });
+    const cli = await run(["project", "verify"], cliDeps, { stdoutIsTTY: false });
+    expect(cli.exitCode).toBe(3);
+    const cliRemedy = guidedInstallRemedy(cliOutcomes[0]!);
+    expect(cliRemedy?.url).toBe(PERSONAL_INSTALL_URL);
+    expect(cli.stderr).toContain(PERSONAL_INSTALL_URL);
+
+    // Dashboard: the same gate through the server's default deps.
+    web = await startLocalWebServer({
+      projectRoot: root,
+      presetTargetPort: null,
+      env: {},
+      assets: new Map(),
+      deps: { ...createDefaultServerDeps(), createSessionProvider: () => provider },
+      token: WEB_TOKEN,
+    });
+    const blocked = await webVerify(web.port);
+    expect(blocked.summary).toEqual(cliOutcomes[0]!.summary);
+    expect(blocked.remedy).toEqual(cliRemedy);
+
+    // Still missing: the re-check keeps the remedy.
+    const waiting = await webRequest(web.port, "POST", "/api/auth/owner-approval");
+    expect(waiting.json).toMatchObject({ status: "failed", remedy: { url: PERSONAL_INSTALL_URL } });
+
+    // Installed, but access revoked meanwhile: the re-check passes, the full gate does not.
+    installForOwner(state);
+    state.repository = userRepository({
+      permissions: { admin: false, maintain: false, push: false, triage: false, pull: false },
+    });
+    const recheck = await webRequest(web.port, "POST", "/api/auth/owner-approval");
+    expect(recheck.json).toMatchObject({ status: "passed", remedy: null });
+    const after = await webVerify(web.port);
+    expect(after.summary.decision).toBe("blocked");
+    expect(after.summary.checks.find((check) => check.id === "current_access")?.status).toBe(
+      "failed",
+    );
+    expect(after.remedy).toBeNull();
+
+    // Access restored: the full gate allows it.
+    state.repository = userRepository();
+    expect((await webVerify(web.port)).summary.decision).toBe("allowed");
   });
 });
