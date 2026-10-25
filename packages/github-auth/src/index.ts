@@ -1,3 +1,16 @@
+export {
+  GITHUB_WEB_ORIGIN,
+  buildAppInstallUrl,
+  isOpenableGitHubUrl,
+  type AppInstallUrlInput,
+} from "./app-install.js";
+export {
+  openGitHubUrl,
+  openerCommandFor,
+  spawnOpener,
+  type OpenerCommand,
+  type SpawnOpener,
+} from "./open-url.js";
 export { GitHubAuthError, isGitHubAuthError, type GitHubAuthErrorCode } from "./errors.js";
 export {
   APP_SLUG_PATTERN,
