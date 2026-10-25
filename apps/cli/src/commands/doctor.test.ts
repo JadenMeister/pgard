@@ -4,19 +4,44 @@ import { createTestContext, createTestDeps, createTestIo } from "../test-support
 import { isSupportedNodeVersion, runDoctor } from "./doctor.js";
 
 describe("runDoctor", () => {
-  it("reports a missing client id and still exits 0 because the diagnosis completed", async () => {
+  it("shows the built-in PGARD App when no override is set, and exits 0", async () => {
     const captured = createTestIo();
     const code = await runDoctor(createTestContext(captured, createTestDeps()));
     expect(code).toBe(0);
-    expect(captured.stdout()).toContain("1 required check(s) need attention");
-    expect(captured.stdout()).toContain("[fail] PGARD_GITHUB_APP_CLIENT_ID: not set");
+    expect(captured.stdout()).toContain(
+      "[ok]   GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)",
+    );
+    expect(captured.stdout()).toContain("All required checks passed.");
     expect(captured.stdout()).toContain("not an authorization");
+    expect(captured.stdout()).not.toContain("not set");
   });
 
-  it("never prints the client id value and exits 0 when required checks pass", async () => {
-    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: "Iv23liSecretLooking" } });
+  it("shows an override as coming from PGARD_GITHUB_APP_CLIENT_ID", async () => {
+    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: " Iv23liForkApp " } });
     expect(await runDoctor(createTestContext(captured, createTestDeps()))).toBe(0);
-    expect(captured.stdout()).not.toContain("Iv23liSecretLooking");
+    expect(captured.stdout()).toContain(
+      "[ok]   GitHub App: Iv23liForkApp from PGARD_GITHUB_APP_CLIENT_ID (override)",
+    );
+    expect(captured.stdout()).not.toContain("built-in PGARD App");
+  });
+
+  it("treats a whitespace-only override as unset", async () => {
+    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: "   " } });
+    expect(await runDoctor(createTestContext(captured, createTestDeps()))).toBe(0);
+    expect(captured.stdout()).toContain(
+      "[ok]   GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj)",
+    );
+  });
+
+  it("warns, without failing, when a malformed override was ignored", async () => {
+    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: "not a client id" } });
+    expect(await runDoctor(createTestContext(captured, createTestDeps()))).toBe(0);
+    const stdout = captured.stdout();
+    expect(stdout).toContain(
+      "[warn] GitHub App: built-in PGARD App (Iv23liKDf0mhnPl2c7zj); PGARD_GITHUB_APP_CLIENT_ID is not a valid client id and was ignored",
+    );
+    expect(stdout).not.toContain("not a client id");
+    expect(stdout).toContain("All required checks passed.");
   });
 
   it("shows a missing advisory database as a [warn] row that does not fail the diagnosis", async () => {
