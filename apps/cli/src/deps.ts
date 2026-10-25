@@ -13,7 +13,7 @@ import {
   createOsCredentialStore,
   findGitRoot,
   peekAdvisoryDb,
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   runScan,
   signInAndStore,
   verifyProject,
@@ -136,7 +136,7 @@ export function createDefaultDeps(): CliDeps {
     runScan,
     createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
       createDeviceFlowSessionProvider({
-        clientId: readGitHubAppClientId(env),
+        clientId: resolveGitHubAppClientId(env).clientId,
         onUserCode,
         onNotice,
         credentialStore,

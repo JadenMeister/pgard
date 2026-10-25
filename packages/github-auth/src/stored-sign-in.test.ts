@@ -5,6 +5,7 @@ import {
   isCredentialStoreError,
   type CredentialStore,
 } from "./credential-store.js";
+import { DEFAULT_GITHUB_APP_CLIENT_ID, resolveGitHubAppClientId } from "./env.js";
 import type { FetchLike, FetchRequestInit } from "./fetch.js";
 
 import {
@@ -473,6 +474,50 @@ describe("stored sign-in reuse", () => {
       clientId: OTHER_CLIENT_ID,
       accessToken: NEW_TOKEN,
     });
+  });
+
+  it("keys the built-in App and a same-id env override to one entry, other overrides apart", async () => {
+    const builtIn = resolveGitHubAppClientId({});
+    const sameOverride = resolveGitHubAppClientId({
+      PGARD_GITHUB_APP_CLIENT_ID: ` ${DEFAULT_GITHUB_APP_CLIENT_ID} `,
+    });
+    const otherOverride = resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: OTHER_CLIENT_ID });
+    expect([builtIn.source, sameOverride.source, otherOverride.source]).toEqual([
+      "default",
+      "env",
+      "env",
+    ]);
+    expect(signInKey("github.com", builtIn.clientId)).toEqual({
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    });
+    expect(signInKey("github.com", sameOverride.clientId)).toEqual(
+      signInKey("github.com", builtIn.clientId),
+    );
+    expect(signInKey("github.com", otherOverride.clientId)).not.toEqual(
+      signInKey("github.com", builtIn.clientId),
+    );
+
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      signInKey("github.com", builtIn.clientId),
+      storedRecord({ clientId: builtIn.clientId }),
+    );
+    // Saved under the built-in App, reused by the same id given as an override: no device code.
+    const same = makeProvider(fakeGitHub(), store, { clientId: sameOverride.clientId });
+    await same.provider();
+    expect(same.userCodes).toEqual([]);
+    expect(same.notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+
+    // A different override never sees that entry and signs in on its own.
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const other = makeProvider(github, store, { clientId: otherOverride.clientId });
+    await other.provider();
+    expect(other.userCodes).toEqual(["ABCD-1234"]);
+    expect(github.calls[0]?.form.get("client_id")).toBe(OTHER_CLIENT_ID);
+    expect(
+      JSON.parse((await store.get(signInKey("github.com", builtIn.clientId))) ?? "{}").accessToken,
+    ).toBe(STORED_TOKEN);
   });
 
   it("treats an entry whose payload names another client id as malformed and deletes it", async () => {

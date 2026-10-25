@@ -2,6 +2,7 @@ import {
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,
   createUnavailableCredentialStore,
+  DEFAULT_GITHUB_APP_CLIENT_ID,
   GitHubAuthError,
   signInAndStore,
   type CredentialStore,
@@ -128,7 +129,7 @@ describe("pgard login", () => {
     );
   });
 
-  it("reports a failed sign-in with exit 3 and a missing client id with exit 3", async () => {
+  it("reports a failed sign-in with exit 3", async () => {
     const denied = createTestIo({ env: ENV });
     const deps = createTestDeps({
       signInAndStore: async () => {
@@ -137,10 +138,23 @@ describe("pgard login", () => {
     });
     expect(await runLogin(createTestContext(denied, deps))).toBe(3);
     expect(denied.stderr()).toContain("GitHub sign-in failed: GitHub sign-in was denied");
+  });
 
-    const missing = createTestIo();
-    expect(await runLogin(createTestContext(missing, createTestDeps()))).toBe(3);
-    expect(missing.stderr()).toContain("PGARD_GITHUB_APP_CLIENT_ID is not set");
+  it("signs in with the built-in PGARD App when no override is set, or the override when set", async () => {
+    const clientIdFor = async (env: Record<string, string>): Promise<string | undefined> => {
+      const signIn = vi.fn(async () => ({ login: "octo", savedError: null }));
+      const captured = createTestIo({ env });
+      expect(
+        await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn }))),
+      ).toBe(0);
+      expect(captured.stderr()).not.toContain("PGARD_GITHUB_APP_CLIENT_ID");
+      return (signIn.mock.calls[0] as unknown as [{ clientId: string }] | undefined)?.[0].clientId;
+    };
+    expect(await clientIdFor({})).toBe(DEFAULT_GITHUB_APP_CLIENT_ID);
+    expect(await clientIdFor({ PGARD_GITHUB_APP_CLIENT_ID: "   " })).toBe(
+      DEFAULT_GITHUB_APP_CLIENT_ID,
+    );
+    expect(await clientIdFor(ENV)).toBe(CLIENT_ID);
   });
 
   it("reports a keychain that refused to save with exit 4", async () => {
@@ -189,6 +203,22 @@ describe("pgard logout", () => {
     expect(captured.stdout()).toContain("No GitHub sign-in is saved in the OS keychain");
   });
 
+  it("removes the built-in App's entry when no override is set, never an override's", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = await storeWith(storedEntry());
+    await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
+    const captured = createTestIo();
+    expect(
+      await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
+    ).toBe(0);
+    expect(captured.stdout()).toContain("Removed the GitHub sign-in for octo");
+    expect(await store.get(builtInKey)).toBeNull();
+    expect(await store.get(KEY)).not.toBeNull();
+  });
+
   it("exits 4 when no keychain is available", async () => {
     const captured = createTestIo({ env: ENV });
     const deps = createTestDeps({ credentialStore: createUnavailableCredentialStore("locked") });
@@ -216,15 +246,16 @@ describe("doctor: saved GitHub sign-in", () => {
     ).toContain("[ok]   Saved GitHub sign-in: octo (OS keychain; the token does not expire)");
   });
 
-  it("warns when nothing is saved, the keychain is unavailable or no client id is set", async () => {
+  it("warns when nothing is saved for this App or the keychain is unavailable", async () => {
     expect(await doctor(await storeWith(null))).toContain(
       "[warn] Saved GitHub sign-in: none - run `pgard login` once",
     );
     expect(await doctor(createUnavailableCredentialStore("no keychain service"))).toContain(
       "[warn] Saved GitHub sign-in: OS keychain unavailable (no keychain service)",
     );
+    // Without the override, doctor looks up the built-in App's entry, not the override's.
     expect(await doctor(await storeWith(storedEntry()), {})).toContain(
-      "[warn] Saved GitHub sign-in: not checked (PGARD_GITHUB_APP_CLIENT_ID is not set)",
+      "[warn] Saved GitHub sign-in: none - run `pgard login` once",
     );
   });
 

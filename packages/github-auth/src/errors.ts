@@ -3,7 +3,6 @@
  * Messages never contain tokens, device codes or response bodies.
  */
 export type GitHubAuthErrorCode =
-  | "missing_client_id"
   | "access_denied"
   | "expired_token"
   | "refresh_failed"

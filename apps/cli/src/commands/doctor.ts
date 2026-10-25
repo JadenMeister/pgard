@@ -1,6 +1,6 @@
 import {
   GITHUB_APP_CLIENT_ID_ENV,
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   readStoredSignInStatus,
   type StoredSignInStatus,
 } from "@pgard/scan-core";
@@ -40,11 +40,8 @@ function formatTime(epochMs: number): string {
  */
 async function describeStoredSignIn(
   context: CommandContext,
-  clientId: string | null,
+  clientId: string,
 ): Promise<{ isOk: boolean; detail: string }> {
-  if (clientId === null) {
-    return { isOk: false, detail: `not checked (${GITHUB_APP_CLIENT_ID_ENV} is not set)` };
-  }
   let status: StoredSignInStatus;
   try {
     status = await readStoredSignInStatus(context.deps.credentialStore, clientId);
@@ -99,8 +96,8 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     deps.discoverListeningPorts(),
     readAdvisoryStatusSafely(deps, io.env),
   ]);
-  const clientId = readGitHubAppClientId(io.env);
-  const isClientIdSet = clientId !== null;
+  const { clientId } = resolveGitHubAppClientId(io.env);
+  const isClientIdSet = true;
   const signIn = await describeStoredSignIn(context, clientId);
   const checks: DoctorCheck[] = [
     {

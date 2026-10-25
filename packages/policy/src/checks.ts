@@ -92,10 +92,6 @@ export async function verifyRepository(
 export function describeIdentityError(error: unknown): CheckResult {
   if (isGitHubAuthError(error)) {
     switch (error.code) {
-      case "missing_client_id":
-        return unverifiable(
-          "PGARD_GITHUB_APP_CLIENT_ID is not set. No PGARD GitHub App is configured, so GitHub identity cannot be verified.",
-        );
       case "access_denied":
         return failed("GitHub sign-in was denied.");
       case "expired_token":

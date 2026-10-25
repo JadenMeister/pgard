@@ -37,7 +37,8 @@ export function githubHostOf(oauthBaseUrl: string = GITHUB_OAUTH_BASE_URL): stri
 
 /**
  * One entry per GitHub host and App client id, so a token issued to another App (or another
- * GitHub host) is never reused after `PGARD_GITHUB_APP_CLIENT_ID` changes.
+ * GitHub host) is never reused after the client id changes. The built-in PGARD App and an env
+ * override with the same id share one entry; a different override id gets its own.
  */
 export function signInKey(host: string, clientId: string): CredentialKey {
   return { service: CREDENTIAL_SERVICE, account: `github:${host}:${clientId}` };

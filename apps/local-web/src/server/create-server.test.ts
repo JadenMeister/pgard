@@ -8,6 +8,7 @@ import {
   AUTHORIZATION_CHECK_ORDER,
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,
+  DEFAULT_GITHUB_APP_CLIENT_ID,
   type AuthorizationOutcome,
   type CredentialStore,
 } from "@pgard/scan-core";
@@ -281,7 +282,7 @@ describe("local web server security", () => {
     const body = (await apiGet(running, "/api/session")).body;
     expect(JSON.parse(body)).toMatchObject({
       projectName: "my-project",
-      isClientIdConfigured: false,
+      isClientIdConfigured: true,
     });
     expect(body).not.toContain("/work/");
   });
@@ -1055,5 +1056,29 @@ describe("local web keychain sign-in", () => {
     expect(removed.signInNotice).toContain("https://github.com/settings/apps/authorizations");
     expect(removed.storedSignIn).toEqual({ status: "none" });
     expect(store.size()).toBe(0);
+  });
+
+  it("uses the built-in App's keychain entry when no override is set", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      builtInKey,
+      keychainEntry().replace(KEYCHAIN_CLIENT_ID, DEFAULT_GITHUB_APP_CLIENT_ID),
+    );
+    // An override's entry is a different App's sign-in and is neither shown nor removed.
+    await store.set(KEYCHAIN_KEY, keychainEntry());
+    const running = await start(fakeDeps({ credentialStore: store }));
+    await apiGet(running, "/api/session");
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.storedSignIn).toEqual({ status: "stored", login: "octo" });
+    const removed = JSON.parse(
+      (await apiPost(running, "/api/auth/sign-out", { removeStored: true })).body,
+    );
+    expect(removed.storedSignIn).toEqual({ status: "none" });
+    expect(await store.get(builtInKey)).toBeNull();
+    expect(await store.get(KEYCHAIN_KEY)).not.toBeNull();
   });
 });

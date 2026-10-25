@@ -1,7 +1,4 @@
-import type { AuthorizationSummary } from "@pgard/findings";
 import {
-  GITHUB_APP_CLIENT_ID_ENV,
-  readGitHubAppClientId,
   type DeviceUserCode,
   type GitHubSessionProvider,
   type SignInNotice,
@@ -61,21 +58,4 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
     },
     signal: context.signal,
   });
-}
-
-/**
- * When the gate was blocked and no GitHub App client id is configured, say so explicitly:
- * without a registered PGARD GitHub App, identity can never be verified.
- */
-export function printMissingClientIdHint(
-  context: CommandContext,
-  summary: AuthorizationSummary,
-): void {
-  if (summary.decision !== "blocked" || readGitHubAppClientId(context.io.env) !== null) return;
-  err(
-    context,
-    context.errStyle.yellow(
-      `Hint: ${GITHUB_APP_CLIENT_ID_ENV} is not set. A registered PGARD GitHub App is required to verify your GitHub identity; until it is configured every scan is blocked.`,
-    ),
-  );
 }

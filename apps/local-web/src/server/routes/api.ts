@@ -12,7 +12,7 @@ import {
   GITHUB_APP_AUTHORIZATIONS_URL,
   isAuthorizationAllowed,
   PGARD_VERSION,
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   removeStoredSignIn,
   ScanCancelledError,
 } from "@pgard/scan-core";
@@ -120,7 +120,7 @@ const getSession: ApiHandler = async (context) => {
     version: PGARD_VERSION,
     projectName: sanitizeDisplayText(path.basename(context.projectRoot), 120),
     presetTargetPort: context.presetTargetPort,
-    isClientIdConfigured: readGitHubAppClientId(context.env) !== null,
+    isClientIdConfigured: true,
   };
   return info;
 };
@@ -174,14 +174,14 @@ const signOut: ApiHandler = async (context, body) => {
   context.github.signOut();
   state.deviceCode = null;
   setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
-  const clientId = readGitHubAppClientId(context.env);
-  if (removeStored !== true || clientId === null) {
+  if (removeStored !== true) {
     state.signInNotice =
       state.storedSignIn.status === "stored"
         ? `Signed out of this dashboard session only. The sign-in for ${state.storedSignIn.login} is still saved in the OS keychain and the next check reuses it.`
         : "Signed out of this dashboard session.";
     return authStatus(state);
   }
+  const { clientId } = resolveGitHubAppClientId(context.env);
   const removed = await removeStoredSignIn(context.deps.credentialStore, clientId);
   if (removed.status === "unavailable") {
     const reason = sanitizeDisplayText(removed.reason, 200);

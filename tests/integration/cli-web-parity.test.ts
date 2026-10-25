@@ -6,7 +6,13 @@
  */
 import http from "node:http";
 import type { ScanResult } from "@pgard/findings";
-import type { GitHubSessionProvider } from "@pgard/github-auth";
+import {
+  DEFAULT_GITHUB_APP_CLIENT_ID,
+  createDeviceFlowSessionProvider,
+  createInMemoryCredentialStore,
+  resolveGitHubAppClientId,
+  type GitHubSessionProvider,
+} from "@pgard/github-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDefaultDeps, main, type CliDeps } from "../../apps/cli/src/app.js";
 import { exitCodeForStatus } from "../../apps/cli/src/exit-codes.js";
@@ -314,23 +320,42 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("produce the same blocked result with the real sign-in when no GitHub App is configured", async () => {
+  it("produce the same blocked result with the real sign-in for the built-in App when GitHub is unreachable", async () => {
     const { root } = createProject();
+    // The real device-flow provider, with no override set (ENV is empty) and an in-memory
+    // keychain so the test never touches the OS keychain. Global fetch is the spy that throws.
+    const realProvider: NonNullable<SessionFactory> = ({ env, onUserCode, onNotice, signal }) =>
+      createDeviceFlowSessionProvider({
+        clientId: resolveGitHubAppClientId(env).clientId,
+        onUserCode,
+        onNotice,
+        credentialStore: createInMemoryCredentialStore(),
+        ...(signal === undefined ? {} : { signal }),
+      });
 
-    // Default deps: the real device-flow provider, which refuses without a client id.
-    const cli = await scanWithCli(root, null);
-    const web = await scanWithWeb(root, null);
+    const cli = await scanWithCli(root, realProvider);
+    const web = await scanWithWeb(root, realProvider);
 
     expect(cli.result.overallStatus).toBe("blocked");
+    expect(cli.exitCode).toBe(3);
     const identity = cli.result.authorization.checks.find(
       (check) => check.id === "github_identity",
     );
-    expect(identity?.status).not.toBe("passed");
-    expect(identity?.reason).toContain("PGARD_GITHUB_APP_CLIENT_ID");
-    expect(cli.stdout).toContain("PGARD_GITHUB_APP_CLIENT_ID");
+    expect(identity?.status).toBe("unverifiable");
+    expect(identity?.reason).toBe(
+      "GitHub identity could not be verified: Could not reach GitHub for sign-in.",
+    );
+    expect(cli.stdout).not.toContain("PGARD_GITHUB_APP_CLIENT_ID");
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
     expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
-    expect(fetchSpy).not.toHaveBeenCalled();
+    // Both frontends asked GitHub for a device code as the built-in PGARD App, and nothing else.
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    for (const [url, init] of fetchSpy.mock.calls as [string, { body?: string }][]) {
+      expect(url).toBe("https://github.com/login/device/code");
+      expect(new URLSearchParams(init.body ?? "").get("client_id")).toBe(
+        DEFAULT_GITHUB_APP_CLIENT_ID,
+      );
+    }
   });
 });

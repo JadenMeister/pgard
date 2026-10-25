@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readGitHubAppClientId } from "./env.js";
+import { DEFAULT_GITHUB_APP_CLIENT_ID, resolveGitHubAppClientId } from "./env.js";
 import type { FetchLike } from "./fetch.js";
 import { createGitHubClient } from "./github-client.js";
 
@@ -165,13 +165,43 @@ describe("createGitHubClient", () => {
   });
 });
 
-describe("readGitHubAppClientId", () => {
-  it("returns null when unset or malformed", () => {
-    expect(readGitHubAppClientId({})).toBeNull();
-    expect(readGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "  " })).toBeNull();
-    expect(readGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "a b" })).toBeNull();
-    expect(readGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "Iv23liExample" })).toBe(
-      "Iv23liExample",
-    );
+describe("resolveGitHubAppClientId", () => {
+  const builtIn = {
+    clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+    source: "default",
+    isOverrideIgnored: false,
+  };
+
+  it("ships the public client id of the PGARD GitHub App as the default", () => {
+    expect(DEFAULT_GITHUB_APP_CLIENT_ID).toBe("Iv23liKDf0mhnPl2c7zj");
+  });
+
+  it("uses the built-in App when the override is unset, empty or whitespace-only", () => {
+    expect(resolveGitHubAppClientId({})).toEqual(builtIn);
+    expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: "" })).toEqual(builtIn);
+    expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: " \t " })).toEqual(builtIn);
+  });
+
+  it("lets a non-empty override win, trimmed", () => {
+    expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: " Iv23liExample\n" })).toEqual({
+      clientId: "Iv23liExample",
+      source: "env",
+      isOverrideIgnored: false,
+    });
+  });
+
+  it("reports an override equal to the built-in id as coming from the env", () => {
+    expect(
+      resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: DEFAULT_GITHUB_APP_CLIENT_ID }),
+    ).toEqual({ ...builtIn, source: "env" });
+  });
+
+  it("ignores a malformed override, flags it and falls back to the built-in App", () => {
+    for (const value of ["a b", "Iv23/li", "x".repeat(101)]) {
+      expect(resolveGitHubAppClientId({ PGARD_GITHUB_APP_CLIENT_ID: value })).toEqual({
+        ...builtIn,
+        isOverrideIgnored: true,
+      });
+    }
   });
 });

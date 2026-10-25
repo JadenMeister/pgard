@@ -1,6 +1,6 @@
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../../context.js";
 import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
-import { createSessionProvider, printMissingClientIdHint } from "../../flows/authenticate.js";
+import { createSessionProvider } from "../../flows/authenticate.js";
 import { formatAuthorization } from "../../ui/formatters/result-view.js";
 import { safeText } from "../../ui/formatters/style.js";
 
@@ -29,7 +29,6 @@ export async function runProjectVerify(context: CommandContext): Promise<ExitCod
     ),
   );
   out(context, formatAuthorization(outcome.summary, context.style));
-  printMissingClientIdHint(context, outcome.summary);
   out(context, context.style.dim("This result is not stored. Every scan checks again."));
   return outcome.summary.decision === "allowed" ? EXIT_CODES.ok : EXIT_CODES.blocked;
 }

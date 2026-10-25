@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { authenticateWithDeviceFlow } from "./device-flow.js";
+import { DEFAULT_GITHUB_APP_CLIENT_ID, resolveGitHubAppClientId } from "./env.js";
 import { GitHubAuthError } from "./errors.js";
 import type { FetchLike, FetchRequestInit } from "./fetch.js";
 import { createDeviceFlowSessionProvider } from "./session-provider.js";
@@ -146,9 +147,19 @@ describe("authenticateWithDeviceFlow", () => {
 });
 
 describe("createDeviceFlowSessionProvider", () => {
-  it("fails with missing_client_id when no GitHub App is configured", async () => {
-    const provider = createDeviceFlowSessionProvider({ clientId: null, onUserCode: () => {} });
-    await expect(provider()).rejects.toMatchObject({ code: "missing_client_id" });
+  it("signs in with the built-in PGARD App when no override is set", async () => {
+    const { fetch, calls } = createFetch([{ access_token: FAKE_TOKEN }]);
+    const provider = createDeviceFlowSessionProvider({
+      clientId: resolveGitHubAppClientId({}).clientId,
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+    });
+    await provider();
+    const codeRequest = calls.find((call) => call.url.endsWith("/login/device/code"));
+    expect(new URLSearchParams(codeRequest?.init.body ?? "").get("client_id")).toBe(
+      DEFAULT_GITHUB_APP_CLIENT_ID,
+    );
   });
 
   it("reuses the in-memory session within one provider", async () => {

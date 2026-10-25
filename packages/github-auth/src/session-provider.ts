@@ -10,7 +10,6 @@ import {
   type GitHubSession,
   type UserTokenSet,
 } from "./device-flow.js";
-import { GITHUB_APP_CLIENT_ID_ENV } from "./env.js";
 import { GitHubAuthError, isGitHubAuthError } from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import type { GitHubClient, GitHubUser } from "./github-client.js";
@@ -50,8 +49,8 @@ export type SignInNotice =
   | { kind: "memory_only"; reason: string };
 
 export interface DeviceFlowSessionProviderOptions {
-  /** From `readGitHubAppClientId(process.env)`; `null` makes every call fail. */
-  clientId: string | null;
+  /** From `resolveGitHubAppClientId(process.env)`: the built-in PGARD App or the env override. */
+  clientId: string;
   onUserCode: (code: DeviceUserCode) => void | Promise<void>;
   /**
    * Where the sign-in is reused from and saved to (the OS keychain in production). Omitted or
@@ -106,13 +105,6 @@ function wrapClient(
   return wrapped as unknown as GitHubClient;
 }
 
-function missingClientIdError(): GitHubAuthError {
-  return new GitHubAuthError(
-    "missing_client_id",
-    `${GITHUB_APP_CLIENT_ID_ENV} is not set. A registered PGARD GitHub App is required to verify GitHub identity.`,
-  );
-}
-
 function isUnauthorized(error: unknown): boolean {
   return isGitHubAuthError(error) && error.code === "unauthorized";
 }
@@ -142,7 +134,7 @@ function toRecord(
 }
 
 /** Options shared by the provider and `signInAndStore`. */
-type SignInOptions = Omit<DeviceFlowSessionProviderOptions, "clientId"> & { clientId: string };
+type SignInOptions = DeviceFlowSessionProviderOptions;
 
 /**
  * Runs the device flow, looks up the signed-in account and saves the sign-in to the keychain.
@@ -435,7 +427,7 @@ export function createDeviceFlowSessionProvider(
     const clientId = options.clientId;
     const onUnauthorized = () => {
       if (generation === myGeneration) forget();
-      if (clientId !== null && store !== null) {
+      if (store !== null) {
         void deleteIfStillHolds(clientId, accessToken).then((wasDeleted) => {
           if (wasDeleted) notify({ kind: "removed", reason: "revoked" });
         });
@@ -458,9 +450,6 @@ export function createDeviceFlowSessionProvider(
 
   const provider = async (): Promise<GitHubSession> => {
     const { clientId } = options;
-    if (clientId === null) {
-      throw missingClientIdError();
-    }
     if (pending !== null) {
       const current = pending;
       const session = await current.catch(() => null);

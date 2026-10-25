@@ -1,8 +1,7 @@
 import {
   GITHUB_APP_AUTHORIZATIONS_URL,
-  GITHUB_APP_CLIENT_ID_ENV,
   isGitHubAuthError,
-  readGitHubAppClientId,
+  resolveGitHubAppClientId,
   readStoredSignInStatus,
   removeStoredSignIn,
 } from "@pgard/scan-core";
@@ -10,8 +9,6 @@ import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "..
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { formatDeviceCode } from "../flows/authenticate.js";
 import { safeText } from "../ui/formatters/style.js";
-
-const MISSING_CLIENT_ID = `${GITHUB_APP_CLIENT_ID_ENV} is not set. Set it to the client id of a registered PGARD GitHub App first.`;
 
 export const REVOKE_HINT = `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${GITHUB_APP_AUTHORIZATIONS_URL} and revoke the PGARD app.`;
 
@@ -22,11 +19,7 @@ export const REVOKE_HINT = `PGARD cannot revoke the token at GitHub (that needs 
  */
 export async function runLogin(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
-  const clientId = readGitHubAppClientId(context.io.env);
-  if (clientId === null) {
-    err(context, errStyle.red(MISSING_CLIENT_ID));
-    return EXIT_CODES.blocked;
-  }
+  const { clientId } = resolveGitHubAppClientId(context.io.env);
   // Check the keychain before asking the user to type a code that could not be saved.
   const status = await readStoredSignInStatus(deps.credentialStore, clientId);
   if (status.status === "unavailable") {
@@ -75,11 +68,7 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
 /** `pgard logout`: deletes the stored sign-in from the OS keychain. */
 export async function runLogout(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
-  const clientId = readGitHubAppClientId(context.io.env);
-  if (clientId === null) {
-    err(context, errStyle.red(MISSING_CLIENT_ID));
-    return EXIT_CODES.blocked;
-  }
+  const { clientId } = resolveGitHubAppClientId(context.io.env);
   const result = await removeStoredSignIn(deps.credentialStore, clientId);
   switch (result.status) {
     case "unavailable":
