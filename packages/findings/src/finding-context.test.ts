@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Finding } from "./contract.js";
 import {
   applyFindingContext,
+  classifyDependencyVendorDirectory,
   isTestOrFixturePath,
   isVendoredPath,
   splitFindingsByContext,
@@ -220,5 +221,27 @@ describe("applyFindingContext for vendored code", () => {
   it("keeps a vendored context an analyzer already set", () => {
     const original = finding("node_modules/", { context: "vendored", severity: "info" });
     expect(applyFindingContext(original)).toEqual({ ...original, confidence: "low" });
+  });
+});
+
+describe("classifyDependencyVendorDirectory", () => {
+  const has =
+    (...files: string[]) =>
+    (file: string) =>
+      files.includes(file);
+
+  it("names the manifest next to a vendor/ directory, or the repository root", () => {
+    expect(classifyDependencyVendorDirectory("vendor", has("composer.json"))).toBe("composer.json");
+    expect(classifyDependencyVendorDirectory("vendor", has())).toBe("repository root");
+    expect(classifyDependencyVendorDirectory("svc/vendor", has("svc/go.mod"))).toBe("go.mod");
+    expect(classifyDependencyVendorDirectory("web/vendor", has("web/Gemfile"))).toBe("Gemfile");
+  });
+
+  it("returns null for first-party or manifest-less nested vendor/ and other names", () => {
+    expect(classifyDependencyVendorDirectory("tools/vendor", has("go.mod"))).toBeNull();
+    expect(classifyDependencyVendorDirectory("src/vendor", has("src/composer.json"))).toBeNull();
+    expect(classifyDependencyVendorDirectory("Src/vendor", has("Src/composer.json"))).toBeNull();
+    expect(classifyDependencyVendorDirectory("Vendor", has("composer.json"))).toBeNull();
+    expect(classifyDependencyVendorDirectory("node_modules", has())).toBeNull();
   });
 });

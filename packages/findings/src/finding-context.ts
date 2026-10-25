@@ -100,6 +100,35 @@ export function findVendoredDirectoryIndexes(directories: readonly string[]): nu
   return indexes;
 }
 
+/** Manifests whose package manager fills a `vendor/` directory next to them. */
+export const VENDOR_MANIFESTS = ["composer.json", "go.mod", "Gemfile"] as const;
+
+/** Why a `vendor/` directory counts as a dependency directory: its manifest, or the root. */
+export type DependencyVendorReason = (typeof VENDOR_MANIFESTS)[number] | "repository root";
+
+/**
+ * Whether a repository-relative `vendor` directory (e.g. `vendor` or `api/vendor`) is a package
+ * manager's dependency directory, and why. It must be vendored by `findVendoredDirectoryIndexes`
+ * (so never under `src/`, `app/` or `lib/`) and sit next to a `composer.json`, `go.mod` or
+ * `Gemfile` (the first one found is returned) or at the repository root. `hasFile` answers
+ * whether a repository-relative file exists (tracked, or in the working tree). Returns `null`
+ * for any other directory, including a nested `vendor/` with no manifest next to it.
+ */
+export function classifyDependencyVendorDirectory(
+  directory: string,
+  hasFile: (filePath: string) => boolean,
+): DependencyVendorReason | null {
+  const segments = directory.split("/");
+  if (segments[segments.length - 1] !== "vendor") return null;
+  if (!findVendoredDirectoryIndexes(segments).includes(segments.length - 1)) return null;
+  const parent = segments.slice(0, -1).join("/");
+  const manifest = VENDOR_MANIFESTS.find((file) =>
+    hasFile(parent === "" ? file : `${parent}/${file}`),
+  );
+  if (manifest !== undefined) return manifest;
+  return parent === "" ? "repository root" : null;
+}
+
 /**
  * Whether a repository-relative POSIX path is committed third-party dependency code. By path
  * only, never by content: a directory segment is exactly `node_modules`, `bower_components`,

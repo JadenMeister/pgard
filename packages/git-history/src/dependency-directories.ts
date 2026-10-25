@@ -1,4 +1,4 @@
-import { findVendoredDirectoryIndexes } from "@pgard/findings";
+import { classifyDependencyVendorDirectory, findVendoredDirectoryIndexes } from "@pgard/findings";
 
 /**
  * Vendored directory names that a package manager restores, so committing them is a hygiene
@@ -22,9 +22,6 @@ export interface CommittedDependencyDirectory {
   /** Tracked files under it at the scanned revision. */
   fileCount: number;
 }
-
-/** Manifests whose package manager fills a `vendor/` directory next to them. */
-const VENDOR_MANIFESTS: readonly string[] = ["composer.json", "go.mod", "Gemfile"];
 
 /**
  * Dependency directories among the tracked file paths at a revision, one entry per root: the
@@ -73,9 +70,9 @@ function isFlaggedRoot(root: string, tracked: ReadonlySet<string>): boolean {
   if (!RESTORABLE_DIRECTORIES.has(name)) return false;
   if (name !== "vendor") return true;
   const parent = segments.slice(0, -1).join("/");
-  const sibling = (file: string) => tracked.has(parent === "" ? file : `${parent}/${file}`);
-  if (sibling("go.mod") && tracked.has(`${root}/modules.txt`)) return false;
-  return parent === "" || VENDOR_MANIFESTS.some(sibling);
+  const goMod = parent === "" ? "go.mod" : `${parent}/go.mod`;
+  if (tracked.has(goMod) && tracked.has(`${root}/modules.txt`)) return false;
+  return classifyDependencyVendorDirectory(root, (file) => tracked.has(file)) !== null;
 }
 
 /** Evidence and fix text for the single PG-HYGIENE-001 finding. */
