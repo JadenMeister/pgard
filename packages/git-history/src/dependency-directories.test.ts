@@ -125,6 +125,50 @@ describe("findCommittedDependencyDirectories", () => {
     ]);
   });
 
+  it("spares Rails importmap pins in vendor/javascript/ but still flags vendor/bundle/", () => {
+    const rails = [
+      "Gemfile",
+      "config/importmap.rb",
+      "vendor/.keep",
+      "vendor/javascript/.keep",
+      "vendor/javascript/stimulus.min.js",
+      "vendor/javascript/@hotwired--turbo.js",
+    ];
+    expect(findCommittedDependencyDirectories(rails)).toEqual([]);
+    expect(
+      findCommittedDependencyDirectories([
+        ...rails,
+        "vendor/bundle/ruby/3.3.0/gems/rack-3.0.0/lib/rack.rb",
+        "vendor/bundle/ruby/3.3.0/gems/rack-3.0.0/README.md",
+      ]),
+    ).toEqual([{ root: "vendor/bundle", fileCount: 2 }]);
+    // A Rails app in a subdirectory.
+    expect(
+      findCommittedDependencyDirectories([
+        "web/Gemfile",
+        "web/config/importmap.rb",
+        "web/vendor/javascript/a.js",
+        "web/vendor/bundle/x.rb",
+      ]),
+    ).toEqual([{ root: "web/vendor/bundle", fileCount: 1 }]);
+    // Without config/importmap.rb, vendor/javascript/ is an ordinary committed vendor/.
+    expect(
+      findCommittedDependencyDirectories(["Gemfile", "vendor/javascript/stimulus.min.js"]),
+    ).toEqual([{ root: "vendor", fileCount: 1 }]);
+    const description = describeCommittedDependencyDirectories(
+      findCommittedDependencyDirectories([...rails, "vendor/bundle/x.rb"]),
+      REVISION,
+    );
+    expect(description.recommendation).toContain("(git rm -r --cached vendor/bundle)");
+  });
+
+  it("does not count placeholder files such as vendor/.keep", () => {
+    expect(findCommittedDependencyDirectories(["Gemfile", "vendor/.keep"])).toEqual([]);
+    expect(
+      findCommittedDependencyDirectories(["node_modules/.gitkeep", "node_modules/a/index.js"]),
+    ).toEqual([{ root: "node_modules", fileCount: 1 }]);
+  });
+
   it("skips Go module vendoring (go.mod and vendor/modules.txt) but flags other vendor/ copies", () => {
     const goVendor = ["go.mod", "vendor/modules.txt", "vendor/github.com/pkg/errors/errors.go"];
     expect(findCommittedDependencyDirectories(goVendor)).toEqual([]);

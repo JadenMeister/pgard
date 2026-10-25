@@ -13,6 +13,9 @@ const RESTORABLE_DIRECTORIES: ReadonlySet<string> = new Set([
   "Pods",
 ]);
 
+/** Empty placeholder files that keep a directory in Git (`rails new` commits `vendor/.keep`). */
+const PLACEHOLDER_FILES: ReadonlySet<string> = new Set([".keep", ".gitkeep"]);
+
 /** Directories named in the PG-HYGIENE-001 evidence; the rest are counted. */
 export const MAX_LISTED_DEPENDENCY_DIRECTORIES = 5;
 
@@ -34,7 +37,10 @@ export interface CommittedDependencyDirectory {
  *   tracked `go.mod`);
  * - `third_party/` never.
  * When an outer directory is not flagged, a flagged one nested inside it still is
- * (`vendor/node_modules/` under Go module vendoring).
+ * (`vendor/node_modules/` under Go module vendoring). Placeholder files (`.keep`, `.gitkeep`)
+ * are not counted. In a Rails app that uses importmap-rails (a tracked `config/importmap.rb`
+ * next to the `vendor/`), the pinned packages in `vendor/javascript/` are committed on purpose
+ * and not counted; the other subdirectories are reported one by one (`vendor/bundle`).
  */
 export function findCommittedDependencyDirectories(
   trackedPaths: readonly string[],
@@ -51,10 +57,19 @@ export function findCommittedDependencyDirectories(
   };
   const counts = new Map<string, number>();
   for (const filePath of trackedPaths) {
-    const directories = filePath.split("/").slice(0, -1);
+    const segments = filePath.split("/");
+    if (PLACEHOLDER_FILES.has(segments[segments.length - 1] ?? "")) continue;
+    const directories = segments.slice(0, -1);
     for (const index of findVendoredDirectoryIndexes(directories)) {
-      const root = directories.slice(0, index + 1).join("/");
+      let root = directories.slice(0, index + 1).join("/");
       if (!isFlagged(root)) continue;
+      if (directories[index] === "vendor" && usesImportmap(directories.slice(0, index), tracked)) {
+        // Rails importmap pins in vendor/javascript/ are committed on purpose; report the other
+        // vendor/ subdirectories (vendor/bundle/) one by one so the suggested `git rm` spares it.
+        const child = directories[index + 1];
+        if (child === undefined || child === "javascript") break;
+        root = `${root}/${child}`;
+      }
       counts.set(root, (counts.get(root) ?? 0) + 1);
       break;
     }
@@ -62,6 +77,11 @@ export function findCommittedDependencyDirectories(
   return [...counts.entries()]
     .map(([root, fileCount]) => ({ root, fileCount }))
     .sort((a, b) => b.fileCount - a.fileCount || a.root.localeCompare(b.root, "en"));
+}
+
+/** Whether the Rails app in `appDirectory` (segments; empty for the root) uses importmap-rails. */
+function usesImportmap(appDirectory: readonly string[], tracked: ReadonlySet<string>): boolean {
+  return tracked.has([...appDirectory, "config", "importmap.rb"].join("/"));
 }
 
 function isFlaggedRoot(root: string, tracked: ReadonlySet<string>): boolean {
@@ -90,7 +110,7 @@ export function describeCommittedDependencyDirectories(
   const roots = listed.map((entry) => quoteShellWord(entry.root)).join(" ");
   const recommendation =
     `Remove ${listed.length === 1 ? "it" : "them"} from the Git index without deleting the local copy (git rm -r --cached ${roots}), ` +
-    `add ${listed.length === 1 ? "the directory" : "the directories"} to .gitignore and commit; let the package manager restore dependencies instead (npm ci, composer install, pod install).`;
+    `add ${listed.length === 1 ? "the directory" : "the directories"} to .gitignore and commit; let the package manager restore dependencies instead (npm ci, composer install, bundle install, pod install).`;
   return { evidence, recommendation };
 }
 
