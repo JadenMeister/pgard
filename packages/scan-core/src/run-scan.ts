@@ -5,6 +5,7 @@ import {
   SCHEMA_VERSION,
   applyFindingContext,
   compilePathMatcher,
+  computeStandardsCoverage,
   deriveOverallStatus,
   mergeFindings,
   redactEvidence,
@@ -15,6 +16,8 @@ import {
   type Coverage,
   type Finding,
   type PathMatcher,
+  type RuleStat,
+  type StandardsRule,
   type ScanRequest,
   type ScanResult,
   type ScanScope,
@@ -41,6 +44,7 @@ import {
   type ScanDependencies,
   type ScanProgressEvent,
 } from "./types.js";
+import { listSupportedRules } from "./rules.js";
 import { PGARD_VERSION } from "./version.js";
 
 export class ScanRequestError extends Error {
@@ -128,7 +132,7 @@ function normalizeAnalyzerOutput(
   output: AnalyzerOutput,
   projectRoot: string,
   testPaths: PathMatcher | null,
-): AnalyzerOutput & { configTestFindings: number } {
+): AnalyzerOutput & { configTestFindings: number; ruleStats: RuleStat[] } {
   let configTestFindings = 0;
   const coverage = output.coverage.map((entry) => ({ ...entry, scope }));
   const findings = output.findings.map((finding) => {
@@ -146,12 +150,51 @@ function normalizeAnalyzerOutput(
     if (configured.context !== context.context) configTestFindings += 1;
     return configured;
   });
+  const finalCoverage =
+    coverage.length > 0 ? coverage : [scopeCoverage(scope, "partial", "No coverage reported.")];
   return {
     configTestFindings,
     findings,
-    coverage:
-      coverage.length > 0 ? coverage : [scopeCoverage(scope, "partial", "No coverage reported.")],
+    coverage: finalCoverage,
+    ruleStats: normalizeRuleStats(scope, output, finalCoverage),
   };
+}
+
+const UNMEASURED = "The analyzer did not report how many targets this rule examined.";
+
+/**
+ * Rule stats are tied to the coverage the same output reports: one row per rule that an area
+ * lists and that ran (`completed` or `partial`). A row the analyzer sent for a rule or area that
+ * coverage does not list is dropped, the area's status always comes from coverage, and a rule
+ * the analyzer sent no row for gets an explicit unknown count instead of a guess.
+ */
+function normalizeRuleStats(
+  scope: ScanScope,
+  output: AnalyzerOutput,
+  coverage: readonly Coverage[],
+): RuleStat[] {
+  const reported = output.ruleStats ?? [];
+  const stats: RuleStat[] = [];
+  for (const entry of coverage) {
+    if (entry.status !== "completed" && entry.status !== "partial") continue;
+    for (const ruleId of new Set(entry.ruleIds)) {
+      const row = reported.find((stat) => stat.ruleId === ruleId && stat.area === entry.area);
+      stats.push(
+        row === undefined
+          ? {
+              ruleId,
+              area: entry.area,
+              scope,
+              status: entry.status,
+              targets: [{ unit: "unknown", examined: null, reason: UNMEASURED }],
+              // Findings carry no area, so the count is only known when the rule ran in one area.
+              findings: output.findings.filter((finding) => finding.ruleId === ruleId).length,
+            }
+          : { ...row, scope, status: entry.status },
+      );
+    }
+  }
+  return stats;
 }
 
 /**
@@ -162,6 +205,11 @@ function normalizeAnalyzerOutput(
  */
 export async function runScan(request: ScanRequest, deps: ScanDependencies): Promise<ScanResult> {
   const requestedScopes = validateRequest(request);
+  // Without the web rules the standards map would not know what the web scanner can check and
+  // would claim more than it can support, so a launcher that injects a scanner must name them.
+  if (deps.webScanner !== undefined && deps.webRules === undefined) {
+    throw new TypeError("ScanDependencies.webRules is required when webScanner is set.");
+  }
   const now = deps.now ?? (() => new Date());
   const scanId = (deps.createScanId ?? randomUUID)();
   const startedAt = now().toISOString();
@@ -173,6 +221,14 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       // Progress rendering must never affect scan results.
     }
   };
+  const catalog: StandardsRule[] = [
+    ...listSupportedRules(),
+    ...(deps.webRules ?? []).map((rule) => ({
+      id: rule.id,
+      scope: "web" as const,
+      metadata: rule.metadata,
+    })),
+  ];
   const isWebTargetValid =
     requestedScopes.includes("web") && isValidConfirmedWebTarget(request.webTarget);
 
@@ -181,6 +237,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     outcome: AuthorizationOutcome | null;
     coverage: Coverage[];
     findings: Finding[];
+    ruleStats?: RuleStat[];
     overallStatus?: ScanResult["overallStatus"];
   }): ScanResult => ({
     schemaVersion: SCHEMA_VERSION,
@@ -222,6 +279,12 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     })),
     findings: sortFindings(mergeFindings(fields.findings)),
     advisoryDb: { ...NO_ADVISORY_DB },
+    ruleStats: fields.ruleStats ?? [],
+    standardsCoverage: computeStandardsCoverage({
+      rules: catalog,
+      coverage: fields.coverage,
+      ruleStats: fields.ruleStats ?? [],
+    }),
   });
 
   throwIfCancelled(deps.signal);
@@ -301,6 +364,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   };
   const coverage: Coverage[] = [];
   const findings: Finding[] = [];
+  const ruleStats: RuleStat[] = [];
 
   for (const scope of SCAN_SCOPES) {
     if (!requestedScopes.includes(scope)) {
@@ -363,6 +427,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
         coverage.push(...normalized.coverage);
       }
       findings.push(...normalized.findings);
+      ruleStats.push(...normalized.ruleStats);
       emit({ stage: scope, status: "completed", message: `Finished ${scope} analysis.` });
     } catch (error) {
       if (error instanceof ScanCancelledError || deps.signal?.aborted) {
@@ -384,5 +449,6 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     outcome,
     coverage,
     findings,
+    ruleStats,
   });
 }

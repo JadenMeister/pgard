@@ -32,7 +32,7 @@ const FINDING: Finding = {
 
 function resultWith(finding: Finding): ScanResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     scanId: "s1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",

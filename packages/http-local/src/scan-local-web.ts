@@ -1,4 +1,11 @@
-import type { AnalyzerOutput, ConfirmedWebTarget, Coverage, Finding } from "@pgard/findings";
+import type {
+  AnalyzerOutput,
+  ConfirmedWebTarget,
+  Coverage,
+  Finding,
+  RuleStat,
+  RuleTargetCount,
+} from "@pgard/findings";
 import { checkCors } from "./checks/cors.js";
 import { CookieFlagCollector } from "./checks/cookies.js";
 import {
@@ -22,7 +29,7 @@ import {
   type LoopbackFetchResult,
   type LoopbackRequestOptions,
 } from "./request.js";
-import { WEB_RULE_IDS } from "./rules.js";
+import { WEB_RULE_IDS, WEB_RULES } from "./rules.js";
 import { assertConfirmedWebTarget, InvalidTargetError } from "./target.js";
 
 export interface WebScanProgress {
@@ -120,6 +127,13 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
   const cookies = new CookieFlagCollector();
   let pagesVisited = 0;
   let hasRootResponse = false;
+  // Counts for the rule stats: what each check really looked at.
+  let responsesReceived = 0;
+  let htmlPages = 0;
+  let headerResponses = 0;
+  let corsResponses = 0;
+  let envResponses = 0;
+  let gitResponses = 0;
 
   const request = async (
     path: string,
@@ -151,6 +165,7 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
         );
       }
       cookies.addResponse(result.response.url, result.response.headers);
+      responsesReceived += 1;
       return result;
     } catch (error) {
       if (error instanceof LoopbackRequestError) {
@@ -195,11 +210,13 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
             "security headers were not checked because / redirected to a target PGARD does not follow",
           );
         } else {
+          headerResponses += 1;
           findings.push(...checkSecurityHeaders(response.url, response.headers));
         }
         findings.push(...checkVersionDisclosure(response.url, response.headers));
       }
       if (html !== null) {
+        htmlPages += 1;
         findings.push(...checkDirectoryListing(response, html));
         if (response.isBodyTruncated) gaps.add("some page bodies exceeded the size limit");
         if (depth < limits.maxDepth && result.redirectStop === null) {
@@ -220,22 +237,73 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
   }
 
   const corsResult = await request("/", { headers: { origin: CORS_PROBE_ORIGIN } });
-  if (corsResult !== null)
+  if (corsResult !== null) {
+    corsResponses += 1;
     findings.push(...checkCors(corsResult.response.url, corsResult.response.headers));
+  }
 
   const envResult = await request(SENSITIVE_PATHS.envFile);
-  if (envResult !== null && envResult.redirectStop === null)
+  if (envResult !== null && envResult.redirectStop === null) {
+    envResponses += 1;
     findings.push(...checkEnvExposure(envResult.response));
+  }
   const gitResult = await request(SENSITIVE_PATHS.gitHead);
-  if (gitResult !== null && gitResult.redirectStop === null)
+  if (gitResult !== null && gitResult.redirectStop === null) {
+    gitResponses += 1;
     findings.push(...checkGitExposure(gitResult.response));
+  }
 
   findings.push(...cookies.findings);
 
   const isPartial = gaps.size > 0;
   const noteParts = [...gaps, HSTS_NOTE, GET_SIDE_EFFECT_NOTE];
+  const deduped = dedupeFindings(findings);
+  const status = isPartial ? "partial" : "completed";
+  const responses = (examined: number): RuleTargetCount[] => [
+    { unit: "responses", examined, reason: null },
+  ];
+  const checks: Array<[string[], RuleTargetCount[]]> = [
+    // Security headers are judged on the response for `/` (not when it was an unfollowed redirect).
+    [
+      [
+        WEB_RULES.missingCsp.id,
+        WEB_RULES.missingFrameProtection.id,
+        WEB_RULES.missingNoSniff.id,
+        WEB_RULES.missingReferrerPolicy.id,
+      ],
+      responses(headerResponses),
+    ],
+    [[WEB_RULES.versionDisclosure.id], responses(hasRootResponse ? 1 : 0)],
+    // Cookies are collected from every response of the crawl and the probes.
+    [
+      [
+        WEB_RULES.cookieWithoutHttpOnly.id,
+        WEB_RULES.cookieWithoutSameSite.id,
+        WEB_RULES.cookieWithoutSecure.id,
+      ],
+      responses(responsesReceived),
+    ],
+    [
+      [WEB_RULES.corsWildcardWithCredentials.id, WEB_RULES.corsReflectedOrigin.id],
+      responses(corsResponses),
+    ],
+    [[WEB_RULES.directoryListing.id], [{ unit: "pages", examined: htmlPages, reason: null }]],
+    [[WEB_RULES.exposedEnvFile.id], responses(envResponses)],
+    [[WEB_RULES.exposedGitDirectory.id], responses(gitResponses)],
+  ];
+  const ruleStats: RuleStat[] = checks.flatMap(([ids, targets]) =>
+    ids.map((ruleId) => ({
+      ruleId,
+      area: WEB_AREA_ANONYMOUS,
+      scope: "web" as const,
+      status: status as RuleStat["status"],
+      targets,
+      findings: deduped.filter((finding) => finding.ruleId === ruleId).length,
+    })),
+  );
   return {
-    findings: dedupeFindings(findings),
+    ruleStats,
+    findings: deduped,
     coverage: [
       {
         area: WEB_AREA_ANONYMOUS,

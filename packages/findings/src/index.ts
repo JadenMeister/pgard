@@ -12,3 +12,4 @@ export * from "./glob.js";
 export * from "./project-config.js";
 export * from "./rule-text.js";
 export * from "./config-notices.js";
+export * from "./standards-coverage.js";

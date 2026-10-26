@@ -5,6 +5,7 @@ import {
   type AnalyzerOutput,
   type Confidence,
   type Coverage,
+  type RuleStat,
   type Finding,
   type FindingStatus,
   type Severity,
@@ -622,6 +623,7 @@ export async function scanGitHistory(
         },
         { area: "history:commits", scope: "history", status: "not_tested", ruleIds: [], note },
       ],
+      ruleStats: [],
     };
   }
 
@@ -999,5 +1001,46 @@ export async function scanGitHistory(
     ),
   });
 
-  return { findings, coverage };
+  // Rule stats. A finding with a commit belongs to the commits area, one without to the tracked
+  // files area. Targets are counted from what was read: tracked files listed and read as text,
+  // commits processed and history blobs read as text. A shallow or truncated history shows in
+  // the area's status and note, not in these counts.
+  const countFindings = (ruleId: string, inCommits: boolean) =>
+    findings.filter(
+      (finding) => finding.ruleId === ruleId && (finding.location.commit !== null) === inCommits,
+    ).length;
+  const readTrackedFiles = headBlobs.filter((entry) => headRead.contents.has(entry.sha)).length;
+  const stat = (
+    area: string,
+    status: Coverage["status"],
+    ruleId: string,
+    targets: RuleStat["targets"],
+    inCommits: boolean,
+  ): RuleStat => ({
+    ruleId,
+    area,
+    scope: "history",
+    status,
+    targets,
+    findings: countFindings(ruleId, inCommits),
+  });
+  const trackedStatus = headProblems.length > 0 ? "partial" : "completed";
+  const commitsStatus = historyProblems.length > 0 ? "partial" : "completed";
+  const files = (examined: number) => [{ unit: "files", examined, reason: null }];
+  const commitCount = { unit: "commits", examined: listed.processedCommits, reason: null };
+  const ruleStats: RuleStat[] = [
+    stat("history:tracked-files", trackedStatus, "PG-SECRET-001", files(headBlobs.length), false),
+    stat("history:tracked-files", trackedStatus, "PG-SECRET-002", files(readTrackedFiles), false),
+    stat("history:tracked-files", trackedStatus, "PG-HYGIENE-001", files(headBlobs.length), false),
+    stat("history:commits", commitsStatus, "PG-SECRET-001", [commitCount], true),
+    stat(
+      "history:commits",
+      commitsStatus,
+      "PG-SECRET-003",
+      [commitCount, { unit: "blobs", examined: historyRead.contents.size, reason: null }],
+      true,
+    ),
+  ];
+
+  return { findings, coverage, ruleStats };
 }

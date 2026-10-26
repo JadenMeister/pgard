@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.0`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.1`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.0`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.1`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -49,6 +49,17 @@
 ## Finding.id는 지문입니다
 
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
+
+## 버전 이력
+
+**1.1**(추가만 있는 변경, minor 올림). 최상위의 선택 필드 두 개가 추가되었습니다. `1.0` 결과에는 둘 다 없으며, 읽는 쪽은 없는 필드를 "기록되지 않음"으로 다루고 "실행된 것이 없음"이나 "확인된 것이 없음"으로 해석하지 않습니다.
+
+- `ruleStats`(`RuleStat[]`): 규칙이 실행된(`completed` 또는 `partial`) 규칙·coverage 영역마다 항목이 하나씩 있습니다. `ruleId`, `area`(`Coverage.area`), `scope`, `status`(영역의 상태), `findings`(그 영역에서 규칙이 보고한 발견 항목 수, 여러 범위의 발견 항목을 합치기 전에 셉니다), 그리고 `{ unit, examined, reason }` 목록인 `targets`가 있습니다. `unit`은 값이 열려 있는 문자열입니다(`files`, `commits`, `blobs`, `pages`, `responses`, `unknown`, 새 단위가 생겨도 스키마 변경이 아닙니다). `examined`는 분석기가 직접 센 값이거나, 측정할 수 없으면 `null`이며 이때 `reason`이 이유를 설명합니다(그 밖에는 `reason`이 `null`). 아무것도 보고하지 않은 분석기에는 추측 대신 `{ unit: "unknown", examined: null, reason }`가 들어갑니다. 같은 발견 항목이 두 항목에 세어질 수 있는 경우는 `source:react`와 `source:heuristics`뿐이며, 이 영역들은 언어 영역과 같은 파일을 봅니다.
+- `standardsCoverage`(`{ owasp, cweTop25 }`): OWASP Top 10 2025의 분류(A01~A10, 순서대로)마다, 그리고 CWE Top 25 2025의 항목(순위 순서)마다 `StandardCoverageEntry`가 하나씩 있습니다. `id`, `title`, `rank`(OWASP는 `null`), `state`, `breadth`, `ruleIds`(실행되어 상태에 기여한 규칙), `mappedRuleIds`(이 PGARD 버전에서 항목에 연결된 모든 규칙), 짧은 영문 `reason`이 있습니다. `breadth`는 OWASP 항목에서는 `{ cwesWithRules, cwesInCategory }`(분류의 "List of Mapped CWEs"에 있는 CWE 중 PGARD 규칙이 하나라도 있는 것의 수), CWE Top 25 항목에서는 `null`입니다. `state`는 `rules_ran`, `rules_partial`, `not_run`, `no_rules`이며 닫힌 enum이므로 새 상태는 major 변경입니다. 어느 상태도 "안전"이나 "분류 전체를 다룸"을 뜻하지 않으며, 그 항목에 연결된 PGARD 규칙이 실행되었는지만 알려 줍니다. `computeStandardsCoverage`가 규칙 매핑과 해당 검사의 coverage·`ruleStats`로 계산합니다. `rules_ran`이 되려면 연결된 규칙이 실행되었고, 기여한 모든 영역이 `completed`이며, `partial`인 코드 범위 영역이 하나도 없고(규칙을 나열하지 않는 영역도 포함), 연결된 규칙이 있는 모든 범위가 실행되었고, 프로젝트에 있는 모든 언어가 완료된 연결 규칙으로 확인되었고(이력·웹 규칙은 언어에 묶이지 않습니다), 대상을 0개 확인한 연결 규칙이 없고, 실행된 규칙 중 규칙 목록에 없는 것이 없어야 합니다. `rules_partial`은 연결된 규칙이 실행되었지만 위 조건 중 하나가 충족되지 않은 경우, `not_run`은 규칙은 있지만 하나도 실행되지 않은 경우, `no_rules`는 항목에 연결된 규칙이 없는 경우(이유 `no rules`)입니다. 권고 정보(OSV)는 검사의 규칙이 아니므로 반영되지 않습니다.
+
+차단되었거나 실패한 검사는 `ruleStats: []`와, `rules_ran`인 항목이 없는(`not_run` 또는 `no_rules`) `standardsCoverage`를 기록합니다.
+
+**1.0**: 최초의 형태.
 
 ## 버전 바꾸기
 
