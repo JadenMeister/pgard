@@ -57,6 +57,9 @@ describe("pickText", () => {
   });
 });
 
+// Deliberately wrong values: the types reject them, the validator must still catch them at runtime.
+const wrong = (value: string): never => value as never;
+
 describe("validateRuleMetadata", () => {
   it("accepts valid metadata, including a direct CERT reference and examples", () => {
     expect(problems()).toEqual([]);
@@ -81,17 +84,49 @@ describe("validateRuleMetadata", () => {
 
   it("rejects OWASP ids outside the 2025 list", () => {
     expect(
-      problems({ standards: { owasp: ["A03:2021", "A11:2025"], cwe: [], cert: [] } }),
-    ).toHaveLength(2);
+      problems({
+        standards: { owasp: [wrong("A03:2021"), wrong("A11:2025")], cwe: [], cert: [] },
+      }),
+    ).toEqual([
+      "PG-TEST-001: OWASP id A03:2021 is not an OWASP Top 10 2025 id",
+      "PG-TEST-001: OWASP id A11:2025 is not an OWASP Top 10 2025 id",
+    ]);
   });
 
-  it("rejects malformed CWE ids and unknown or inconsistent CERT references", () => {
-    expect(problems({ standards: { owasp: [], cwe: ["79"], cert: [] } })).toHaveLength(1);
+  it("rejects malformed and duplicate CWE ids", () => {
+    expect(problems({ standards: { owasp: [], cwe: ["79"], cert: [] } })).toEqual([
+      "PG-TEST-001: CWE id 79 is malformed",
+    ]);
+    expect(problems({ standards: { owasp: [], cwe: ["CWE-79", "CWE-79"], cert: [] } })).toEqual([
+      "PG-TEST-001: duplicate CWE ids",
+    ]);
+  });
+
+  it("rejects malformed, unknown and duplicate CERT references", () => {
+    const cert = (...refs: NonNullable<RuleDefinition["standards"]>["cert"]) => ({
+      standards: { owasp: [], cwe: ["CWE-78"], cert: refs },
+    });
+    expect(problems(cert({ kind: "direct", id: "ids00-j" }))).toEqual([
+      "PG-TEST-001: CERT id ids00-j is malformed",
+    ]);
+    expect(problems(cert({ kind: "direct", id: "IDS00-K" }))).toEqual([
+      "PG-TEST-001: CERT id IDS00-K is malformed",
+    ]);
+    expect(problems(cert({ kind: "direct", id: "ZZZ99-J" }))).toEqual([
+      "PG-TEST-001: CERT rule ZZZ99-J is not in the CERT Java data",
+    ]);
     expect(
-      problems({
-        standards: { owasp: [], cwe: ["CWE-78"], cert: [{ kind: "direct", id: "ZZZ99-J" }] },
-      }),
-    ).toHaveLength(1);
+      problems(cert({ kind: "direct", id: "IDS00-J" }, { kind: "direct", id: "IDS00-J" })),
+    ).toEqual(["PG-TEST-001: duplicate CERT references"]);
+    // The same rule can be both direct and via-cwe.
+    expect(
+      problems(
+        cert({ kind: "direct", id: "IDS07-J" }, { kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("rejects via-cwe references the CERT rule or the rule itself does not back", () => {
     // IDS07-J exists but does not list CWE-89.
     expect(
       problems({
@@ -101,7 +136,7 @@ describe("validateRuleMetadata", () => {
           cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-89" }],
         },
       }),
-    ).toHaveLength(1);
+    ).toEqual(["PG-TEST-001: CERT IDS07-J does not list CWE-89"]);
     // The rule itself does not carry CWE-78.
     expect(
       problems({
@@ -111,12 +146,39 @@ describe("validateRuleMetadata", () => {
           cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
         },
       }),
-    ).toHaveLength(1);
+    ).toEqual(["PG-TEST-001: CERT IDS07-J via CWE-78: rule has no such CWE"]);
   });
 
   it("rejects empty text and Korean text without Korean", () => {
-    expect(problems({ rationale: { en: "ok", ko: "" } })).toHaveLength(2);
-    expect(problems({ remediation: { en: "ok", ko: "TODO" } })).toHaveLength(1);
-    expect(problems({ remediation: { en: " ", ko: "한국어" } })).toHaveLength(1);
+    expect(problems({ rationale: { en: "ok", ko: "" } })).toEqual([
+      "PG-TEST-001: rationale.ko is empty",
+      "PG-TEST-001: rationale.ko contains no Korean",
+    ]);
+    expect(problems({ remediation: { en: "ok", ko: "TODO" } })).toEqual([
+      "PG-TEST-001: remediation.ko contains no Korean",
+    ]);
+    expect(problems({ remediation: { en: " ", ko: "한국어" } })).toEqual([
+      "PG-TEST-001: remediation.en is empty",
+    ]);
+  });
+
+  it("checks example notes like any other prose, and tolerates examples without a note", () => {
+    const example = { language: "go", vulnerable: "a", safe: "b" };
+    expect(problems({ examples: [example] })).toEqual([]);
+    expect(problems({ examples: [example, { ...example, note: { en: "Note", ko: "" } }] })).toEqual(
+      [
+        "PG-TEST-001: examples[1].note.ko is empty",
+        "PG-TEST-001: examples[1].note.ko contains no Korean",
+      ],
+    );
+    expect(problems({ examples: [{ ...example, note: { en: "", ko: "메모" } }] })).toEqual([
+      "PG-TEST-001: examples[0].note.en is empty",
+    ]);
+  });
+
+  it("rejects a mistyped OWASP id at compile time", () => {
+    // @ts-expect-error A5:2025 is not an OWASP Top 10 2025 id
+    definition({ standards: { owasp: ["A5:2025"], cwe: [], cert: [] } });
+    expect(true).toBe(true);
   });
 });

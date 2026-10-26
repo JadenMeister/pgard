@@ -86,6 +86,15 @@ describe("rule references against bundled standards data", () => {
       expect(rule.impact, rule.id).toBe(rule.metadata.rationale.en);
       expect(rule.recommendation, rule.id).toBe(rule.metadata.remediation.en);
       expect(rule.references.cwe, rule.id).toEqual([...rule.metadata.standards.cwe]);
+      expect(rule.references.owasp, rule.id).toEqual([...rule.metadata.standards.owasp]);
+      expect(rule.references.cve, rule.id).toEqual([]);
+    }
+  });
+
+  it("does not share mutable arrays between a web rule's flat fields and its metadata", () => {
+    for (const rule of WEB_RULE_LIST) {
+      expect(rule.references.cwe, rule.id).not.toBe(rule.metadata.standards.cwe);
+      expect(rule.references.owasp, rule.id).not.toBe(rule.metadata.standards.owasp);
     }
   });
 });

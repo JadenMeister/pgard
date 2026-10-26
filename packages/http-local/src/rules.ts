@@ -1,10 +1,11 @@
-import type {
-  Confidence,
-  FindingCategory,
-  FindingReferences,
-  FindingStatus,
-  RuleMetadata,
-  Severity,
+import {
+  copyRuleMetadata,
+  type Confidence,
+  type FindingCategory,
+  type FindingReferences,
+  type FindingStatus,
+  type RuleMetadata,
+  type Severity,
 } from "@pgard/findings";
 
 /** A local HTTP rule as written: identity plus the explanatory metadata. */
@@ -38,17 +39,22 @@ const MISCONFIGURATION = "A02:2025";
 
 function rule(definition: WebRuleDefinition): WebRule {
   const { standards, rationale, remediation, examples, ...identity } = definition;
+  const metadata = copyRuleMetadata({
+    standards,
+    rationale,
+    remediation,
+    ...(examples === undefined ? {} : { examples }),
+  });
   return {
     ...identity,
-    impact: rationale.en,
-    recommendation: remediation.en,
-    references: { cwe: [...standards.cwe], owasp: [...standards.owasp], cve: [] },
-    metadata: {
-      standards,
-      rationale,
-      remediation,
-      ...(examples === undefined ? {} : { examples }),
+    impact: metadata.rationale.en,
+    recommendation: metadata.remediation.en,
+    references: {
+      cwe: [...metadata.standards.cwe],
+      owasp: [...metadata.standards.owasp],
+      cve: [],
     },
+    metadata,
   };
 }
 
@@ -71,7 +77,7 @@ export const WEB_RULES = {
     },
     remediation: {
       en: "Send a Content-Security-Policy that restricts script sources for HTML responses.",
-      ko: "HTML 응답에 스크립트 출처를 제한하는 Content-Security-Policy를 보내세요.",
+      ko: "HTML 응답에 스크립트 출처를 제한하는 Content-Security-Policy 헤더를 설정하세요.",
     },
   }),
   missingFrameProtection: rule({
@@ -88,7 +94,7 @@ export const WEB_RULES = {
     },
     remediation: {
       en: "Send CSP frame-ancestors (or X-Frame-Options: DENY/SAMEORIGIN).",
-      ko: "CSP frame-ancestors(또는 X-Frame-Options: DENY/SAMEORIGIN)를 보내세요.",
+      ko: "CSP frame-ancestors(또는 X-Frame-Options: DENY/SAMEORIGIN)를 응답에 설정하세요.",
     },
   }),
   missingNoSniff: rule({
@@ -105,7 +111,7 @@ export const WEB_RULES = {
     },
     remediation: {
       en: "Send X-Content-Type-Options: nosniff on all responses.",
-      ko: "모든 응답에 X-Content-Type-Options: nosniff를 보내세요.",
+      ko: "모든 응답에 X-Content-Type-Options: nosniff 헤더를 응답에 설정하세요.",
     },
   }),
   missingReferrerPolicy: rule({
@@ -122,7 +128,7 @@ export const WEB_RULES = {
     },
     remediation: {
       en: "Send Referrer-Policy: strict-origin-when-cross-origin or stricter.",
-      ko: "Referrer-Policy: strict-origin-when-cross-origin 또는 더 엄격한 값을 보내세요.",
+      ko: "Referrer-Policy 헤더를 strict-origin-when-cross-origin 또는 더 엄격한 값으로 응답에 설정하세요.",
     },
   }),
   cookieWithoutHttpOnly: rule({
@@ -169,7 +175,7 @@ export const WEB_RULES = {
     standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-614"], cert: [] },
     rationale: {
       en: "Expected on plain-http loopback; make sure production (HTTPS) sets Secure so the cookie is never sent over HTTP.",
-      ko: "평문 http 루프백에서는 예상되는 결과입니다. 운영 환경(HTTPS)에서는 쿠키가 HTTP로 절대 전송되지 않도록 Secure를 설정했는지 확인하세요.",
+      ko: "평문 HTTP loopback에서는 예상되는 결과입니다. 운영 환경(HTTPS)에서는 쿠키가 HTTP로 절대 전송되지 않도록 Secure를 설정했는지 확인하세요.",
     },
     remediation: {
       en: "Set Secure on cookies in HTTPS deployments.",
@@ -186,7 +192,7 @@ export const WEB_RULES = {
     standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-942"], cert: [] },
     rationale: {
       en: "Indicates a permissive CORS setup; combined with origin reflection it can expose user data.",
-      ko: "느슨한 CORS 설정을 뜻하며, origin 반사와 함께 쓰이면 사용자 데이터가 노출될 수 있습니다.",
+      ko: "느슨한 CORS 설정을 뜻하며, 요청의 Origin을 그대로 반영(reflect)하는 설정과 함께 쓰이면 사용자 데이터가 노출될 수 있습니다.",
     },
     remediation: {
       en: "Allow only specific trusted origins when credentials are enabled.",
@@ -207,7 +213,7 @@ export const WEB_RULES = {
     },
     remediation: {
       en: "Validate Origin against an allowlist; never echo it back with credentials enabled.",
-      ko: "Origin을 allowlist와 대조해 검증하고, 자격 증명을 켠 상태에서 값을 그대로 되돌려 주지 마세요.",
+      ko: "Origin을 허용 목록(allowlist)과 대조해 검증하고, 자격 증명을 켠 상태에서 Origin 값을 응답에 그대로 반영하지 마세요.",
     },
   }),
   versionDisclosure: rule({
@@ -254,11 +260,11 @@ export const WEB_RULES = {
     standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-538"], cert: [] },
     rationale: {
       en: "Configuration secrets in .env can be downloaded by anyone who can reach the service.",
-      ko: ".env에 든 설정 비밀을 서비스에 접근할 수 있는 누구나 내려받을 수 있습니다.",
+      ko: ".env에 든 설정 비밀정보를 서비스에 접근할 수 있는 누구나 내려받을 수 있습니다.",
     },
     remediation: {
       en: "Stop serving dotfiles, move .env out of the web root, and rotate any exposed secrets.",
-      ko: "dotfile 제공을 중단하고, .env를 웹 루트 밖으로 옮기고, 노출된 비밀을 교체(rotate)하세요.",
+      ko: "점(.)으로 시작하는 파일(dotfile)을 제공하지 않도록 하고, .env를 웹 루트 밖으로 옮기고, 노출된 비밀정보를 교체(rotate)하세요.",
     },
   }),
   exposedGitDirectory: rule({
@@ -271,7 +277,7 @@ export const WEB_RULES = {
     standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-538"], cert: [] },
     rationale: {
       en: "Source code and history (including past secrets) can be reconstructed from the .git directory.",
-      ko: ".git 디렉터리에서 소스 코드와 이력(과거의 비밀 포함)을 복원할 수 있습니다.",
+      ko: ".git 디렉터리에서 소스 코드와 이력(과거의 비밀정보 포함)을 복원할 수 있습니다.",
     },
     remediation: {
       en: "Block access to /.git in the web server and keep the repository out of the web root.",

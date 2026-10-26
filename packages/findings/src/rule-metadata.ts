@@ -4,6 +4,7 @@ import {
   getCertJavaRule,
   getOwaspCategory,
   OWASP_ID_PATTERN,
+  type OwaspId,
 } from "./standards/index.js";
 
 /** Languages a rule's explanatory text is written in. English is the default. */
@@ -36,7 +37,7 @@ export type CertReference = DirectCertReference | ViaCweCertReference;
 
 export interface RuleStandards {
   /** OWASP Top 10 2025 ids, for example `A05:2025`. */
-  owasp: readonly string[];
+  owasp: readonly OwaspId[];
   /** CWE ids, for example `CWE-89`. */
   cwe: readonly string[];
   cert: readonly CertReference[];

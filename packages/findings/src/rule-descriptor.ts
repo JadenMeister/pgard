@@ -30,25 +30,44 @@ export type RuleDefinition = Omit<
 > &
   RuleMetadata & { languages: readonly RuleLanguage[] };
 
+/** Deep copy of rule metadata, so no mutable reference is shared with the definition. */
+export function copyRuleMetadata(metadata: RuleMetadata): RuleMetadata {
+  const { standards, rationale, remediation, examples } = metadata;
+  return {
+    standards: {
+      owasp: [...standards.owasp],
+      cwe: [...standards.cwe],
+      cert: standards.cert.map((ref) => ({ ...ref })),
+    },
+    rationale: { ...rationale },
+    remediation: { ...remediation },
+    ...(examples === undefined
+      ? {}
+      : {
+          examples: examples.map((example) => ({
+            ...example,
+            ...(example.note === undefined ? {} : { note: { ...example.note } }),
+          })),
+        }),
+  };
+}
+
 /** Splits a definition into the descriptor (English flat fields derived from the metadata). */
 export function defineRule(definition: RuleDefinition): RuleDescriptor {
   const { standards, rationale, remediation, examples, languages, ...identity } = definition;
+  const metadata = copyRuleMetadata({
+    standards,
+    rationale,
+    remediation,
+    ...(examples === undefined ? {} : { examples }),
+  });
   return {
     ...identity,
     languages: [...languages],
-    cwe: [...standards.cwe],
-    owasp: [...standards.owasp],
-    impact: rationale.en,
-    recommendation: remediation.en,
-    metadata: {
-      standards: {
-        owasp: [...standards.owasp],
-        cwe: [...standards.cwe],
-        cert: standards.cert.map((ref) => ({ ...ref })),
-      },
-      rationale: { ...rationale },
-      remediation: { ...remediation },
-      ...(examples === undefined ? {} : { examples: examples.map((example) => ({ ...example })) }),
-    },
+    cwe: [...metadata.standards.cwe],
+    owasp: [...metadata.standards.owasp],
+    impact: metadata.rationale.en,
+    recommendation: metadata.remediation.en,
+    metadata,
   };
 }

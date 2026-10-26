@@ -20,7 +20,7 @@ export const SOURCE_RULES = [
     standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
     rationale: {
       en: "Input can change the structure of the SQL statement (read, modify or delete data).",
-      ko: "입력이 SQL 문의 구조를 바꿔 데이터를 읽거나 수정하거나 삭제할 수 있습니다.",
+      ko: "입력값이 SQL 문의 구조를 바꿀 수 있어 데이터가 조회·수정·삭제될 수 있습니다.",
     },
     remediation: {
       en: "Pass values as bound parameters (e.g. `query('... WHERE id = $1', [id])`) instead of building SQL text.",
@@ -88,11 +88,11 @@ export const SOURCE_RULES = [
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
       en: "Untrusted HTML can run script in the user's browser.",
-      ko: "신뢰할 수 없는 HTML이 사용자의 브라우저에서 스크립트를 실행할 수 있습니다.",
+      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
     },
     remediation: {
       en: "Use textContent, or sanitize with a maintained sanitizer (e.g. DOMPurify) before inserting HTML.",
-      ko: "textContent를 사용하거나, HTML을 삽입하기 전에 관리되는 sanitizer(예: DOMPurify)로 정화하세요.",
+      ko: "textContent를 사용하거나, HTML을 삽입하기 전에 꾸준히 유지보수되는 sanitizer(예: DOMPurify)로 sanitize하세요.",
     },
   },
   {
@@ -105,11 +105,11 @@ export const SOURCE_RULES = [
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
       en: "Untrusted HTML can run script in the user's browser.",
-      ko: "신뢰할 수 없는 HTML이 사용자의 브라우저에서 스크립트를 실행할 수 있습니다.",
+      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
     },
     remediation: {
       en: "Render text through JSX, or sanitize the HTML (e.g. DOMPurify) first.",
-      ko: "JSX로 텍스트를 렌더링하거나, 먼저 HTML을 정화하세요(예: DOMPurify).",
+      ko: "JSX로 텍스트를 렌더링하거나, 먼저 HTML을 sanitize하세요(예: DOMPurify).",
     },
   },
   {
@@ -122,11 +122,11 @@ export const SOURCE_RULES = [
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
       en: "Untrusted HTML can run script in the user's browser.",
-      ko: "신뢰할 수 없는 HTML이 사용자의 브라우저에서 스크립트를 실행할 수 있습니다.",
+      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
     },
     remediation: {
       en: "Use text interpolation (`{{ }}`), or sanitize the HTML before binding it.",
-      ko: "텍스트 보간(`{{ }}`)을 사용하거나, HTML을 바인딩하기 전에 정화하세요.",
+      ko: "텍스트 보간(`{{ }}`)을 사용하거나, HTML을 바인딩하기 전에 sanitize하세요.",
     },
   },
   {
@@ -143,7 +143,7 @@ export const SOURCE_RULES = [
     },
     remediation: {
       en: "Allow only known hosts/schemes (allowlist), resolve and block private addresses, and do not forward raw user URLs.",
-      ko: "알려진 호스트와 스킴만 허용(allowlist)하고, 주소를 해석해 사설 주소를 차단하며, 사용자가 준 URL을 그대로 전달하지 마세요.",
+      ko: "알려진 호스트와 스킴만 허용 목록(allowlist)으로 허용하고, 호스트 이름을 IP로 확인(resolve)한 뒤 사설 주소를 차단하며, 사용자가 준 URL을 그대로 전달하지 마세요.",
     },
   },
   {
@@ -160,11 +160,11 @@ export const SOURCE_RULES = [
     },
     rationale: {
       en: "Input can inject additional shell commands.",
-      ko: "입력이 추가 셸 명령을 주입할 수 있습니다.",
+      ko: "입력을 통해 추가 셸 명령이 주입될 수 있습니다.",
     },
     remediation: {
       en: "Use execFile/spawn with an argument array and no shell; validate arguments against an allowlist.",
-      ko: "셸 없이 인자 배열과 함께 execFile/spawn을 사용하고, 인자는 allowlist로 검증하세요.",
+      ko: "셸 없이 인자 배열과 함께 execFile/spawn을 사용하고, 인자는 허용 목록(allowlist)으로 검증하세요.",
     },
   },
   {
@@ -181,11 +181,11 @@ export const SOURCE_RULES = [
     },
     rationale: {
       en: "Input can inject additional shell commands.",
-      ko: "입력이 추가 셸 명령을 주입할 수 있습니다.",
+      ko: "입력을 통해 추가 셸 명령이 주입될 수 있습니다.",
     },
     remediation: {
       en: 'Call the program directly with separate arguments (`exec.Command("git", "log")`), never via `sh -c`.',
-      ko: '프로그램을 인자를 나누어 직접 호출하고(`exec.Command("git", "log")`), `sh -c`를 거치지 마세요.',
+      ko: '인자를 분리해 프로그램을 직접 호출하고(`exec.Command("git", "log")`), `sh -c`를 거치지 마세요.',
     },
   },
   {
@@ -215,7 +215,7 @@ export const SOURCE_RULES = [
     standards: { owasp: ["A04:2025"], cwe: ["CWE-916", "CWE-328"], cert: [] },
     rationale: {
       en: "Password hashes can be cracked quickly after a database leak.",
-      ko: "데이터베이스가 유출되면 비밀번호 해시를 빠르게 풀 수 있습니다.",
+      ko: "데이터베이스가 유출되면 비밀번호 해시가 빠르게 크래킹될 수 있습니다.",
     },
     remediation: {
       en: "Hash passwords with bcrypt, scrypt or Argon2id with a per-user salt.",
@@ -240,7 +240,7 @@ export const SOURCE_RULES = [
     },
     remediation: {
       en: "Load keys from a secret store or environment at runtime and rotate the exposed key.",
-      ko: "키는 실행 시점에 비밀 저장소나 환경에서 불러오고, 노출된 키는 교체(rotate)하세요.",
+      ko: "키는 실행 시점에 비밀정보 저장소나 환경 변수에서 불러오고, 노출된 키는 교체(rotate)하세요.",
     },
   },
   {
@@ -257,7 +257,7 @@ export const SOURCE_RULES = [
     },
     rationale: {
       en: "Encrypted data may be recoverable or tampered with.",
-      ko: "암호화된 데이터가 복구되거나 변조될 수 있습니다.",
+      ko: "암호화된 데이터가 복호화되거나 변조될 수 있습니다.",
     },
     remediation: {
       en: "Use an AEAD cipher such as AES-256-GCM via createCipheriv with a random IV.",
@@ -291,7 +291,7 @@ export const SOURCE_RULES = [
     standards: { owasp: ["A02:2025"], cwe: ["CWE-1004", "CWE-614"], cert: [] },
     rationale: {
       en: "Cookies may be read by scripts, sent over plain HTTP or sent cross-site.",
-      ko: "쿠키를 스크립트가 읽거나, 평문 HTTP로 전송하거나, 다른 사이트로 보낼 수 있습니다.",
+      ko: "스크립트가 쿠키를 읽거나, 쿠키가 평문 HTTP로 전송되거나, 다른 사이트에서 보낸 요청에 함께 실릴 수 있습니다.",
     },
     remediation: {
       en: "Set httpOnly, secure and sameSite ('lax' or 'strict') on session cookies.",
@@ -329,7 +329,7 @@ export const SOURCE_RULES = [
     },
     remediation: {
       en: "Add per-account and per-IP rate limiting or lockout (e.g. express-rate-limit) to authentication routes.",
-      ko: "인증 라우트에 계정별·IP별 요청 제한이나 잠금(예: express-rate-limit)을 추가하세요.",
+      ko: "인증 라우트에 계정별·IP별 요청 제한이나 계정 잠금(예: express-rate-limit)을 추가하세요.",
     },
   },
 ] as const satisfies readonly RuleDefinition[];
