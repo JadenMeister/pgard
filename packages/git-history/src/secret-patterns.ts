@@ -22,6 +22,8 @@ export interface DetectedSecret {
   line: number;
   /** In-memory only: used for equality between occurrences, never output. */
   value: string;
+  /** A short or simple password in a URL that is still not a placeholder: report it as unsure. */
+  weak?: true;
 }
 
 export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
@@ -275,6 +277,31 @@ function isLikelySecretValue(value: string): boolean {
   return shannonEntropy(value) >= 3.0;
 }
 
+/**
+ * Passwords in URLs that are template slots rather than values: `$DB_PASSWORD`, `{password}`,
+ * `%s`, `:password`, `***`.
+ */
+const URL_PLACEHOLDER = /^(?:\$\w+|\{\w+\}|%\w|:\w+|\*+)$/;
+
+/**
+ * Judges the password of a `scheme://user:password@host` match: `null` for a placeholder (see
+ * `PLACEHOLDER` and `URL_PLACEHOLDER`), a plain word (`user:pass`, `postgres:password`) or the
+ * user name repeated (`guest:guest`, `postgres:postgres`), or a host and port. A short or simple password that is
+ * none of these (`admin:hunter2`) is kept as weak, to be reported with low confidence.
+ */
+function urlPasswordStrength(match: RegExpMatchArray, value: string): "strong" | "weak" | null {
+  if (PLACEHOLDER.test(value) || URL_PLACEHOLDER.test(value)) return null;
+  if (/^[a-z]+$/.test(value) && value.length < 16) return null;
+  const authority = match[0].slice(match[0].indexOf("//") + 2);
+  const user = authority.slice(0, authority.indexOf(":"));
+  if (user.toLowerCase() === value.toLowerCase()) return null;
+  // `http://localhost:8080@host`: a host and port, not a user and password.
+  if (/^\d{1,5}$/.test(value) && (user.includes(".") || user.toLowerCase() === "localhost")) {
+    return null;
+  }
+  return isLikelySecretValue(value) ? "strong" : "weak";
+}
+
 function createLineLookup(text: string): (index: number) => number {
   const newlines: number[] = [];
   for (let cursor = text.indexOf("\n"); cursor !== -1; cursor = text.indexOf("\n", cursor + 1)) {
@@ -319,14 +346,15 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
         (!isLikelySecretValue(value) || !isLiteralAssignment(context, match))
       )
         continue;
-      if (kind === "url_credential" && !isLikelySecretValue(value)) continue;
+      const strength = kind === "url_credential" ? urlPasswordStrength(match, value) : "strong";
+      if (strength === null) continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
         continue;
       const line = lineOfIndex(match.index ?? 0);
       const key = `${line}:${value}`;
       if (seen.has(key)) continue; // a specific pattern already reported this value
       seen.add(key);
-      results.push({ kind, line, value });
+      results.push(strength === "weak" ? { kind, line, value, weak: true } : { kind, line, value });
     }
   }
   return results;

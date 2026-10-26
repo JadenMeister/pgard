@@ -345,6 +345,34 @@ describe("detectSecrets", () => {
     expect(detectSecrets(text, { path: "src/db.ts" })).toEqual([]);
   });
 
+  it.each([
+    ["user:pass", 'const u = "postgres://user:pass@localhost/db";'],
+    ["the user name as the password", 'const u = "amqp://guest:guest@localhost:5672";'],
+    ["postgres:postgres", 'const u = "postgres://postgres:postgres@db:5432/app";'],
+    ["a shell variable", 'const u = "mysql://root:$MYSQL_PASSWORD@db/app";'],
+    ["a format slot", 'const u = "postgres://u:{password}@h/db";'],
+    ["a printf slot", 'const u = "postgres://u:%s@h/db";'],
+    ["an angle-bracket slot", 'const u = "postgres://u:<password>@h/db";'],
+    ["a host and port before @", 'const u = "http://localhost:8080@x.com";'],
+  ])("ignores URL placeholders: %s (#158)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/db.ts" })).toEqual([]);
+  });
+
+  it.each([
+    ["a short password", 'const u = "postgres://admin:hunter2@db/x";', "hunter2"],
+    ["a short password with symbols", "url: postgres://admin:S3cr3t!@db/x", "S3cr3t!"],
+    ["a numeric password", "DATABASE_URL=mysql://root:1234@db/app", "1234"],
+  ])("reports %s in a URL as weak (#158)", (_label, text, password) => {
+    const found = detectSecrets(text, { path: "config/app.yml" });
+    expect(found).toEqual([{ kind: "url_credential", line: 1, value: password, weak: true }]);
+  });
+
+  it("keeps a random password in a URL at full strength (#158)", () => {
+    const [found] = detectSecrets(`u = "redis://default:${L}@cache:6379"`, { path: "a.ts" });
+    expect(found).toMatchObject({ kind: "url_credential", value: L });
+    expect(found?.weak).toBeUndefined();
+  });
+
   it("stays linear on large inputs (#145)", () => {
     const shapes = [
       'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
@@ -482,6 +510,22 @@ describe("scanGitHistory", () => {
       status: "confirmed",
       confidence: "high",
     });
+  });
+
+  it("reports a weak password in a URL with low confidence and without the value (#158)", async () => {
+    fixture = createGitFixture();
+    const password = join("hun", "ter2");
+    fixture.commit({ files: { "config/db.yml": `url: postgres://admin:${password}@db/app\n` } });
+    const result = await scanGitHistory(fixture.root);
+    const tracked = byRule(result, "PG-SECRET-002");
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]).toMatchObject({
+      severity: "high",
+      status: "suspected",
+      confidence: "low",
+      evidence: "password in a URL in a tracked file (value redacted)",
+    });
+    expect(JSON.stringify(result)).not.toContain(password);
   });
 
   it("reports committed .env files and tracked secrets at HEAD without values", async () => {
