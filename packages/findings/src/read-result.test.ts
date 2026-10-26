@@ -242,7 +242,11 @@ describe("readScanResult hostile input", () => {
 
   it("accepts a result exactly at the findings limit", () => {
     const input = raw();
-    input.findings = new Array(READ_LIMITS.findings).fill(input.findings[0]);
+    const first = input.findings[0];
+    input.findings = Array.from({ length: READ_LIMITS.findings }, (_, i) => ({
+      ...first,
+      id: `f${i}`,
+    }));
     expect(readScanResult(input).ok).toBe(true);
   });
 
@@ -280,6 +284,151 @@ describe("readScanResult hostile input", () => {
     const input = raw();
     input.findings = [input];
     expect(errorCode(input)).toBe("invalid_shape");
+  });
+});
+
+describe("readScanResult array and proxy hardening", () => {
+  it("normalizes schemaVersion to SCHEMA_VERSION for a newer minor", () => {
+    const input = raw();
+    input.schemaVersion = "1.7";
+    const outcome = readScanResult(input);
+    expect(outcome.ok && outcome.result.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(outcome.ok && outcome.sourceVersion).toBe("1.7");
+  });
+
+  it("refuses holes and sparse arrays instead of keeping undefined entries", () => {
+    const sparse = raw();
+    sparse.findings = new Array(3);
+    expect(errorCode(sparse)).toBe("invalid_shape");
+    const hole = raw();
+    hole.findings = [, , hole.findings[0]];
+    expect(errorCode(hole)).toBe("invalid_shape");
+    const inner = raw();
+    inner.findings[0].references.cwe = new Array(2);
+    expect(errorCode(inner)).toBe("invalid_shape");
+    const scopes = raw();
+    scopes.requestedScopes = new Array(1);
+    expect(errorCode(scopes)).toBe("invalid_shape");
+  });
+
+  it("does not run an own `constructor` species hook", () => {
+    let ran = false;
+    const input = raw();
+    input.findings.constructor = {
+      [Symbol.species]: function () {
+        ran = true;
+        return {};
+      },
+    };
+    const outcome = readScanResult(input);
+    expect(ran).toBe(false);
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) expect(Array.isArray(outcome.result.findings)).toBe(true);
+  });
+
+  it("does not run getters on objects or array elements", () => {
+    let ran = false;
+    const input = raw();
+    Object.defineProperty(input.findings[0], "title", {
+      enumerable: true,
+      get() {
+        ran = true;
+        return "t";
+      },
+    });
+    expect(errorCode(input)).toBe("invalid_shape");
+    const arr = raw();
+    Object.defineProperty(arr.findings, "0", {
+      enumerable: true,
+      get() {
+        ran = true;
+        return {};
+      },
+    });
+    expect(errorCode(arr)).toBe("invalid_shape");
+    expect(ran).toBe(false);
+  });
+
+  it("reads a proxy's length once, so a lying length cannot bypass the cap", () => {
+    const real = raw().findings;
+    let lengthReads = 0;
+    const lying = new Proxy(real, {
+      getOwnPropertyDescriptor(target, key) {
+        if (key === "length") {
+          lengthReads += 1;
+          return { value: lengthReads === 1 ? 1 : 10 ** 9, writable: true, configurable: false };
+        }
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+      get(target, key, receiver) {
+        return key === "length" ? 10 ** 9 : Reflect.get(target, key, receiver);
+      },
+    });
+    const input = raw();
+    input.findings = lying;
+    expect(readScanResult(input).ok).toBe(true);
+    expect(lengthReads).toBe(1);
+    const huge = raw();
+    huge.findings = new Proxy(real, {
+      getOwnPropertyDescriptor: () => ({ value: 10 ** 9, writable: true, configurable: false }),
+    });
+    expect(errorCode(huge)).toBe("too_large");
+  });
+
+  it("never throws when getPrototypeOf or other traps throw", () => {
+    const trap = () => {
+      throw new Error("trap");
+    };
+    const hostile = new Proxy({}, { getPrototypeOf: trap, getOwnPropertyDescriptor: trap });
+    expect(() => readScanResult(hostile)).not.toThrow();
+    const input = raw();
+    input.findings[0] = hostile;
+    expect(() => readScanResult(input)).not.toThrow();
+    expect(errorCode(input)).toBe("invalid_shape");
+    // A trap that throws a hostile proxy: the catch block must not probe its prototype.
+    const evil = new Proxy(new Error("evil"), { getPrototypeOf: trap });
+    const thrower = raw();
+    thrower.target = new Proxy(
+      {},
+      {
+        getOwnPropertyDescriptor() {
+          throw evil;
+        },
+      },
+    );
+    expect(() => readScanResult(thrower)).not.toThrow();
+    expect(errorCode(thrower)).toBe("invalid_shape");
+    // The reader's own failure must come back as itself, not trip over the proxy trap.
+    const protoOnly = raw();
+    protoOnly.target = new Proxy({ repo: 1 }, { getPrototypeOf: trap });
+    expect(() => readScanResult(protoOnly)).not.toThrow();
+    expect(errorCode(protoOnly)).toBe("invalid_shape");
+  });
+
+  it("refuses duplicate finding ids", () => {
+    const input = raw();
+    input.findings.push({ ...input.findings[0] });
+    const outcome = readScanResult(input);
+    expect(!outcome.ok && outcome.error.code).toBe("invalid_shape");
+    expect(!outcome.ok && outcome.error.message).toContain("findings[1].id");
+  });
+
+  it("requires line numbers of at least 1", () => {
+    const input = raw();
+    input.findings[0].location.line = 0;
+    expect(errorCode(input)).toBe("invalid_shape");
+  });
+
+  it("caps the total number of array entries", () => {
+    const input = raw();
+    const finding = input.findings[0];
+    const count = Math.floor(READ_LIMITS.entries / READ_LIMITS.list) + 5;
+    input.findings = Array.from({ length: count }, (_, i) => ({
+      ...finding,
+      id: `f${i}`,
+      references: { cwe: new Array(READ_LIMITS.list).fill("CWE-1"), owasp: [], cve: [] },
+    }));
+    expect(errorCode(input)).toBe("too_large");
   });
 });
 

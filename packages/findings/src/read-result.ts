@@ -11,12 +11,17 @@ import {
   SCAN_SCOPES,
   SCHEMA_VERSION,
   SEVERITIES,
+  AUTHORIZATION_DECISIONS,
+  type AdvisoryDbInfo,
   type AuthorizationCheck,
+  type AuthorizationSummary,
   type Coverage,
   type Finding,
   type FindingLocation,
+  type FindingReferences,
   type ScanResult,
   type ScanScope,
+  type ScanTarget,
 } from "./contract.js";
 
 /**
@@ -57,23 +62,89 @@ export const READ_LIMITS = {
   list: 1_000,
   /** Per-string cap (UTF-16 units). */
   string: 100_000,
+  /** Cap on the entries of all arrays together (findings, coverage and every inner list). */
+  entries: 1_000_000,
 } as const;
 
+/**
+ * Compile-time key lists: adding a field to a contract type without listing it here (and so
+ * without updating the reader) is a type error. Optional fields are what this really guards,
+ * because required ones are already enforced by the object literals below.
+ */
+export const READER_KEYS = {
+  scanResult: {
+    schemaVersion: true,
+    scanId: true,
+    startedAt: true,
+    finishedAt: true,
+    tool: true,
+    requestedScopes: true,
+    overallStatus: true,
+    target: true,
+    authorization: true,
+    coverage: true,
+    findings: true,
+    advisoryDb: true,
+  } satisfies Record<keyof ScanResult, true>,
+  finding: {
+    id: true,
+    ruleId: true,
+    title: true,
+    category: true,
+    severity: true,
+    status: true,
+    confidence: true,
+    location: true,
+    evidence: true,
+    impact: true,
+    recommendation: true,
+    references: true,
+    sources: true,
+    context: true,
+  } satisfies Record<keyof Finding, true>,
+  location: {
+    kind: true,
+    path: true,
+    line: true,
+    url: true,
+    commit: true,
+  } satisfies Record<keyof FindingLocation, true>,
+  references: { cwe: true, owasp: true, cve: true } satisfies Record<keyof FindingReferences, true>,
+  coverage: {
+    area: true,
+    scope: true,
+    status: true,
+    ruleIds: true,
+    note: true,
+  } satisfies Record<keyof Coverage, true>,
+  target: { repo: true, revision: true, webOrigin: true } satisfies Record<keyof ScanTarget, true>,
+  authorization: { decision: true, checks: true } satisfies Record<
+    keyof AuthorizationSummary,
+    true
+  >,
+  check: { id: true, status: true, reason: true } satisfies Record<keyof AuthorizationCheck, true>,
+  advisoryDb: { version: true, updatedAt: true } satisfies Record<keyof AdvisoryDbInfo, true>,
+  tool: { name: true, version: true } satisfies Record<keyof ScanResult["tool"], true>,
+};
+
+const TOOL_NAMES: readonly ScanResult["tool"]["name"][] = ["pgard"];
 const SUPPORTED_MAJOR = Number(SCHEMA_VERSION.split(".")[0]);
 const VERSION_PATTERN = /^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
 
-class ReadFailure extends Error {
-  constructor(
-    readonly code: ReadScanResultErrorCode,
-    message: string,
-  ) {
-    super(message);
-  }
-}
+/**
+ * Errors this module raised itself, tracked by identity so the catch block never runs
+ * `instanceof` (which would call a hostile proxy's `getPrototypeOf` trap).
+ */
+const failures = new WeakMap<object, ReadScanResultError>();
 
 function fail(code: ReadScanResultErrorCode, message: string): never {
-  throw new ReadFailure(code, message);
+  const error = new Error(message);
+  failures.set(error, { code, message });
+  throw error;
 }
+
+/** Remaining array entries this read may visit; reset per call (the reader is synchronous). */
+let budget = 0;
 
 type Obj = Record<string, unknown>;
 
@@ -81,9 +152,15 @@ function isObject(value: unknown): value is Obj {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Own property only: values inherited through a polluted prototype do not count. */
+/**
+ * Reads an own data property. Inherited values do not count and accessors are refused without
+ * being called, so input code never runs.
+ */
 function field(obj: Obj, key: string): unknown {
-  return Object.hasOwn(obj, key) ? obj[key] : undefined;
+  const descriptor = Object.getOwnPropertyDescriptor(obj, key);
+  if (descriptor === undefined) return undefined;
+  if (!("value" in descriptor)) fail("invalid_shape", `${key} must be a plain data property.`);
+  return descriptor.value;
 }
 
 function object(value: unknown, path: string): Obj {
@@ -91,6 +168,10 @@ function object(value: unknown, path: string): Obj {
   return value;
 }
 
+/**
+ * Strings are length-capped, not sanitized: evidence, titles and notes may contain any
+ * characters, and escaping them for HTML, terminals or SARIF is the consumer's job.
+ */
 function str(value: unknown, path: string): string {
   if (typeof value !== "string") fail("invalid_shape", `${path} must be a string.`);
   if (value.length > READ_LIMITS.string) fail("too_large", `${path} is too long.`);
@@ -103,8 +184,8 @@ function nullableStr(value: unknown, path: string): string | null {
 
 function nullableLine(value: unknown, path: string): number | null {
   if (value === null) return null;
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    fail("invalid_shape", `${path} must be a non-negative integer or null.`);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
+    fail("invalid_shape", `${path} must be an integer of at least 1, or null.`);
   }
   return value;
 }
@@ -116,20 +197,41 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], path: st
   return value as T;
 }
 
-function list(value: unknown, path: string, max: number): unknown[] {
+/**
+ * Reads an array into a fresh one. `length` is read once and capped, then elements are read by
+ * index as own data properties (a hole or accessor reads as `undefined` and fails in `read`).
+ * No `map`, so holes and `Symbol.species` cannot change the outcome.
+ */
+function list<T>(
+  value: unknown,
+  path: string,
+  max: number,
+  read: (item: unknown, path: string) => T,
+): T[] {
   if (!Array.isArray(value)) fail("invalid_shape", `${path} must be an array.`);
-  if (value.length > max) fail("too_large", `${path} has more than ${max} entries.`);
-  return value;
+  const lengthDescriptor = Object.getOwnPropertyDescriptor(value, "length");
+  const length = lengthDescriptor && "value" in lengthDescriptor ? lengthDescriptor.value : null;
+  if (typeof length !== "number" || !Number.isSafeInteger(length) || length < 0) {
+    fail("invalid_shape", `${path} has no readable length.`);
+  }
+  if (length > max) fail("too_large", `${path} has more than ${max} entries.`);
+  budget -= length;
+  if (budget < 0) fail("too_large", "The result has too many array entries in total.");
+  const out: T[] = [];
+  for (let i = 0; i < length; i++) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+    const item = descriptor && "value" in descriptor ? descriptor.value : undefined;
+    out.push(read(item, `${path}[${i}]`));
+  }
+  return out;
 }
 
 function strings(value: unknown, path: string): string[] {
-  return list(value, path, READ_LIMITS.list).map((item, i) => str(item, `${path}[${i}]`));
+  return list(value, path, READ_LIMITS.list, str);
 }
 
 function scopes(value: unknown, path: string): ScanScope[] {
-  return list(value, path, READ_LIMITS.list).map((item, i) =>
-    oneOf(item, SCAN_SCOPES, `${path}[${i}]`),
-  );
+  return list(value, path, READ_LIMITS.list, (item, at) => oneOf(item, SCAN_SCOPES, at));
 }
 
 function readCoverage(value: unknown, path: string): Coverage {
@@ -183,22 +285,20 @@ function readFinding(value: unknown, path: string): Finding {
   return finding;
 }
 
+function readCheck(value: unknown, path: string): AuthorizationCheck {
+  const c = object(value, path);
+  return {
+    id: oneOf(field(c, "id"), AUTHORIZATION_CHECK_IDS, `${path}.id`),
+    status: oneOf(field(c, "status"), AUTHORIZATION_CHECK_STATUSES, `${path}.status`),
+    reason: str(field(c, "reason"), `${path}.reason`),
+  };
+}
+
 function readAuthorization(value: unknown): ScanResult["authorization"] {
   const o = object(value, "authorization");
-  const checks = list(field(o, "checks"), "authorization.checks", READ_LIMITS.list).map(
-    (item, i): AuthorizationCheck => {
-      const at = `authorization.checks[${i}]`;
-      const c = object(item, at);
-      return {
-        id: oneOf(field(c, "id"), AUTHORIZATION_CHECK_IDS, `${at}.id`),
-        status: oneOf(field(c, "status"), AUTHORIZATION_CHECK_STATUSES, `${at}.status`),
-        reason: str(field(c, "reason"), `${at}.reason`),
-      };
-    },
-  );
   return {
-    decision: oneOf(field(o, "decision"), ["allowed", "blocked"], "authorization.decision"),
-    checks,
+    decision: oneOf(field(o, "decision"), AUTHORIZATION_DECISIONS, "authorization.decision"),
+    checks: list(field(o, "checks"), "authorization.checks", READ_LIMITS.list, readCheck),
   };
 }
 
@@ -236,7 +336,7 @@ function parse(input: unknown): ReadScanResultOutcome {
     startedAt: str(field(input, "startedAt"), "startedAt"),
     finishedAt: str(field(input, "finishedAt"), "finishedAt"),
     tool: {
-      name: oneOf(field(tool, "name"), ["pgard"], "tool.name"),
+      name: oneOf(field(tool, "name"), TOOL_NAMES, "tool.name"),
       version: str(field(tool, "version"), "tool.version"),
     },
     requestedScopes: scopes(field(input, "requestedScopes"), "requestedScopes"),
@@ -247,29 +347,35 @@ function parse(input: unknown): ReadScanResultOutcome {
       webOrigin: nullableStr(field(target, "webOrigin"), "target.webOrigin"),
     },
     authorization: readAuthorization(field(input, "authorization")),
-    coverage: list(field(input, "coverage"), "coverage", READ_LIMITS.coverage).map((item, i) =>
-      readCoverage(item, `coverage[${i}]`),
-    ),
-    findings: list(field(input, "findings"), "findings", READ_LIMITS.findings).map((item, i) =>
-      readFinding(item, `findings[${i}]`),
-    ),
+    coverage: list(field(input, "coverage"), "coverage", READ_LIMITS.coverage, readCoverage),
+    findings: list(field(input, "findings"), "findings", READ_LIMITS.findings, readFinding),
     advisoryDb: {
       version: nullableStr(field(advisory, "version"), "advisoryDb.version"),
       updatedAt: nullableStr(field(advisory, "updatedAt"), "advisoryDb.updatedAt"),
     },
   };
+  const seen = new Set<string>();
+  for (const [i, finding] of result.findings.entries()) {
+    if (seen.has(finding.id)) {
+      fail("invalid_shape", `findings[${i}].id duplicates an earlier finding id.`);
+    }
+    seen.add(finding.id);
+  }
   return { ok: true, result, sourceVersion };
 }
 
-/** Validates `input` as a scan result. Never throws; every failure is a typed error. */
+/**
+ * Validates `input` as a scan result. Never throws; every failure is a typed error. Callers
+ * should cap the file size before `JSON.parse`; this function bounds the work after parsing.
+ */
 export function readScanResult(input: unknown): ReadScanResultOutcome {
+  budget = READ_LIMITS.entries;
   try {
     return parse(input);
   } catch (error) {
-    if (error instanceof ReadFailure) {
-      return { ok: false, error: { code: error.code, message: error.message } };
-    }
-    // Hostile input (throwing getters, revoked proxies): still a typed error, never a throw.
+    const info = typeof error === "object" && error !== null ? failures.get(error) : undefined;
+    if (info !== undefined) return { ok: false, error: info };
+    // Hostile input (throwing proxy traps, revoked proxies): still a typed error, never a throw.
     return {
       ok: false,
       error: { code: "invalid_shape", message: "The result could not be read safely." },

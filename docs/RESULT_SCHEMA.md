@@ -30,13 +30,19 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
 | Missing or malformed          | Refused with `version_missing` or `version_malformed`. A valid version is exactly two dot-separated integers without leading zeros. |
 
-A version that is accepted is still checked against the full shape. A wrong enum value, a missing required field or an oversized array is refused with `invalid_shape` or `too_large`, whatever the version says. The reader caps array sizes and string lengths (`READ_LIMITS`) so a hostile file cannot make it do unbounded work.
+The version grammar is `major.minor`, each part a non-negative integer of at most 6 digits and without leading zeros.
+
+A version that is accepted is still checked against the full shape. A wrong enum value, a missing required field, a hole in an array, a duplicate `Finding.id`, a line number below 1 or an oversized array is refused with `invalid_shape` or `too_large`, whatever the version says. The reader reads own data properties only (it never runs getters), and caps array sizes, string lengths and the total number of array entries (`READ_LIMITS`), so a hostile file cannot make it do unbounded work after parsing. Callers must cap the file size before `JSON.parse`; the reader cannot do that for them.
+
+Strings are length-capped but not sanitized. Evidence, titles and notes can contain any characters, and escaping them for HTML, terminals or SARIF is the job of whatever renders them.
+
+**Write-back.** The reader returns the fields it knows and drops the rest. When `sourceVersion` is newer than `SCHEMA_VERSION`, never write the reader's output back over the source file: that would silently delete the newer fields. Save a copy under another name, or refuse.
 
 ## Which outputs carry the version
 
 - Any JSON output of a scan, including the planned CLI JSON output (`schemaVersion` at the top level).
 - Stored results (the same object, written as is).
-- Reports built from a result: they record the version of the result they were built from.
+- Reports built from a result (HTML and PDF). They print the normalized `schemaVersion` of the reader (the version this PGARD implements), not necessarily the version the source file carried.
 
 ## Finding.id is a fingerprint
 

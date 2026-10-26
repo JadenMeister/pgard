@@ -448,7 +448,7 @@ PGARD was built from three Korean planning documents in [`docs/`](docs/):
 - [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
 - [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): the command set and the layout of the apps and packages.
 - [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): the rules for commit units, messages, naming, verification and pull requests.
-- [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md): how the scan result schema is versioned and how a reader treats another version.
+  One further document is written in English: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
 
 Where these documents and this README disagree, this README and the code are correct, because they reflect decisions made later.
 
