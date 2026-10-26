@@ -278,7 +278,7 @@ export const WEB_RULES = {
     standards: { owasp: ["A01:2025"], cwe: ["CWE-538"], cert: [] },
     rationale: {
       en: "A reachable `/.env` returns database passwords, API keys and signing secrets to anyone who requests it, and attackers scan for this path automatically. Treat every value in it as already exposed.",
-      ko: "접근 가능한 `/.env`는 요청하는 누구에게나 데이터베이스 비밀번호, API 키, 서명 비밀정보을 돌려주며, 공격자는 이 경로를 자동으로 스캔합니다. 그 안의 모든 값이 이미 노출된 것으로 간주하세요.",
+      ko: "접근 가능한 `/.env`는 요청하는 누구에게나 데이터베이스 비밀번호, API 키, 서명 비밀정보를 돌려주며, 공격자는 이 경로를 자동으로 스캔합니다. 그 안의 모든 값이 이미 노출된 것으로 간주하세요.",
     },
     remediation: {
       en: "Serve static files from a dedicated public directory that does not contain `.env`, deny dotfiles in the server configuration (`location ~ /\\.(?!well-known) { deny all; }` in nginx), and rotate every secret that was in the file, because it was readable.",
