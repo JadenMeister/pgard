@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-SQL-003:fmt.Sprintf with only a package constant is reported as dynamic SQL
+// corpus: expect=none
 package store
 
 import (

@@ -7,6 +7,14 @@
 // History rules: history-cases.mjs describes throwaway git repositories built here.
 // Web rules: web-cases.mjs describes loopback servers started here.
 //
+// Confidence: a rule fires on a sample at some confidence. A positive sample is found at any
+// confidence. A negative sample must stay silent (`expect=none`), unless its header says
+// `expect=low`: it is safe only through something the rules recognise but cannot prove (a guard,
+// an allowlist table, a constant), so its own rule MUST report a finding capped at low confidence.
+// Silence there fails the check (demotion regressed to hiding), and so does a medium or high
+// finding (counted as a false positive).
+// The report also gives precision counting only medium and high confidence findings.
+//
 // Labels are the truth. A rule is judged per sample: predicted = the rule reported a finding on
 // that sample, expected = the sample's label lists the rule. Every disagreement (a miss or a false
 // positive) must be declared with a reason (`known=` header / `known:` field), and the declared
@@ -47,10 +55,11 @@ function parseHeader(line, label) {
   const match = /corpus:\s*(.*?)(?:\s*-->)?\s*$/.exec(line);
   if (match === null) {
     fail(`${label}: the first line must be a "corpus:" header comment`);
-    return { expect: [], known: [] };
+    return { expect: [], known: [], low: false };
   }
   const expect = [];
   const known = [];
+  let low = false;
   let sawExpect = false;
   for (const part of match[1].split(";")) {
     const field = part.trim();
@@ -59,7 +68,8 @@ function parseHeader(line, label) {
     const value = rest.join("=").trim();
     if (key === "expect") {
       sawExpect = true;
-      if (value !== "none") expect.push(...value.split(",").map((id) => id.trim()));
+      if (value === "low") low = true;
+      else if (value !== "none") expect.push(...value.split(",").map((id) => id.trim()));
     } else if (key === "known") {
       const [type, rule, ...reason] = value.split(":");
       if ((type !== "miss" && type !== "fp") || !rule || reason.join(":").trim() === "") {
@@ -72,7 +82,7 @@ function parseHeader(line, label) {
     }
   }
   if (!sawExpect) fail(`${label}: header needs expect=<ids|none>`);
-  return { expect, known };
+  return { expect, known, low };
 }
 
 function loadSourceSamples() {
@@ -92,7 +102,8 @@ function loadSourceSamples() {
         const file = path.join(dir, name);
         const label = `${rule.name}/${kind}/${name}`;
         const first = readFileSync(file, "utf8").split("\n", 1)[0];
-        const { expect, known } = parseHeader(first, label);
+        const { expect, known, low } = parseHeader(first, label);
+        if (low && kind !== "negative") fail(`${label}: expect=low is for negative samples`);
         if (kind === "positive" && !expect.includes(rule.name)) {
           fail(`${label}: a positive sample must expect ${rule.name}`);
         }
@@ -108,6 +119,7 @@ function loadSourceSamples() {
           name,
           expect,
           known,
+          low,
         });
       }
     }
@@ -123,7 +135,12 @@ async function scanSource(sample) {
     // Header line stays: it is a comment in every sample language.
     copyFileSync(sample.file, path.join(root, sample.name));
     const output = await scanSourceCode(root);
-    return new Set(output.findings.map((finding) => finding.ruleId));
+    // rule -> confidences of its findings on this sample
+    const found = new Map();
+    for (const finding of output.findings) {
+      found.set(finding.ruleId, [...(found.get(finding.ruleId) ?? []), finding.confidence]);
+    }
+    return found;
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -270,14 +287,18 @@ const RULES = {
 
 // ---------------------------------------------------------------- run
 
-const stats = new Map(); // rule -> { domain, tp, fp, fn, tn }
+const stats = new Map(); // rule -> { domain, tp, fp, fn, tn, tpStrong, fpStrong }
 for (const [domain, ids] of Object.entries(RULES)) {
-  for (const id of ids) stats.set(id, { domain, tp: 0, fp: 0, fn: 0, tn: 0 });
+  for (const id of ids)
+    stats.set(id, { domain, tp: 0, fp: 0, fn: 0, tn: 0, tpStrong: 0, fpStrong: 0 });
 }
 const deviations = []; // { sample, rule, type, reason | null }
 
 for (const sample of samples) {
-  const found = await sample.run();
+  const raw = await sample.run();
+  // History and web rules have no confidence levels: every finding counts as high.
+  const found = raw instanceof Map ? raw : new Map([...raw].map((id) => [id, ["high"]]));
+  const expectLow = sample.low === true;
   const universe = RULES[sample.domain];
   for (const rule of sample.expect) {
     if (!universe.includes(rule))
@@ -285,8 +306,18 @@ for (const sample of samples) {
   }
   for (const rule of universe) {
     const expected = sample.expect.includes(rule);
-    const predicted = found.has(rule);
+    const confidences = found.get(rule) ?? [];
+    const strong = confidences.some((confidence) => confidence !== "low");
+    // `expect=low`: the sample's own rule must report, at low confidence only.
+    const lowExpected = expectLow && rule === sample.rule;
+    if (lowExpected && confidences.length === 0)
+      fail(
+        `${sample.id}: expected a low-confidence ${rule} finding but the rule is silent (demotion regressed to hiding the finding)`,
+      );
+    const predicted = lowExpected ? strong : confidences.length > 0;
     const entry = stats.get(rule);
+    if (expected && strong) entry.tpStrong += 1;
+    if (!expected && strong) entry.fpStrong += 1;
     if (expected && predicted) entry.tp += 1;
     else if (!expected && predicted) entry.fp += 1;
     else if (expected && !predicted) entry.fn += 1;
@@ -330,6 +361,7 @@ const rows = [...stats.entries()].map(([rule, s]) => ({
   ...s,
   precision: ratio(s.tp, s.tp + s.fp),
   recall: ratio(s.tp, s.tp + s.fn),
+  precisionStrong: ratio(s.tpStrong, s.tpStrong + s.fpStrong),
 }));
 
 let thresholds = { rules: {} };
@@ -339,7 +371,14 @@ if (process.argv.includes("--update-thresholds")) {
   const floor = (value) => Math.floor((value ?? 0) * 1000) / 1000;
   thresholds = {
     rules: Object.fromEntries(
-      rows.map((row) => [row.rule, { precision: floor(row.precision), recall: floor(row.recall) }]),
+      rows.map((row) => [
+        row.rule,
+        {
+          precision: floor(row.precision),
+          recall: floor(row.recall),
+          precisionMedium: floor(row.precisionStrong),
+        },
+      ]),
     ),
   };
   writeFileSync(THRESHOLDS_PATH, `${JSON.stringify(thresholds, null, 2)}\n`);
@@ -365,6 +404,11 @@ for (const row of rows) {
       `${row.rule}: precision ${pct(row.precision)} is below the threshold ${pct(limit.precision)}`,
     );
   }
+  if ((row.precisionStrong ?? 0) < (limit.precisionMedium ?? 0)) {
+    fail(
+      `${row.rule}: precision at medium+ confidence ${pct(row.precisionStrong)} is below the threshold ${pct(limit.precisionMedium)}`,
+    );
+  }
   if ((row.recall ?? 0) < limit.recall) {
     fail(`${row.rule}: recall ${pct(row.recall)} is below the threshold ${pct(limit.recall)}`);
   }
@@ -388,18 +432,24 @@ const lines = [
   "TP: expected and reported. FP: reported but not expected. FN: expected but not reported.",
   "TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).",
   "",
+  "Confidence: a finding at any confidence counts for recall. A safe sample that is only safe through",
+  "a recognised guard, allowlist table or constant is labelled `expect=low`: its rule must report a",
+  "finding capped at low confidence (counted as TN); silence or a medium/high finding fails the",
+  "check, because guards lower confidence and never hide a finding. Precision (medium+) counts only",
+  "medium and high confidence findings, on every sample.",
+  "",
 ];
 for (const domain of ["source", "history", "web"]) {
   const domainSamples = samples.filter((sample) => sample.domain === domain);
   lines.push(`## ${SECTION_TITLES[domain]}`, "");
   lines.push(`${domainSamples.length} samples.`, "");
   lines.push(
-    "| Rule | TP | FP | FN | TN | Precision | Recall |",
-    "| --- | --: | --: | --: | --: | --: | --: |",
+    "| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |",
+    "| --- | --: | --: | --: | --: | --: | --: | --: |",
   );
   for (const row of rows.filter((candidate) => candidate.domain === domain)) {
     lines.push(
-      `| ${row.rule} | ${row.tp} | ${row.fp} | ${row.fn} | ${row.tn} | ${pct(row.precision)} | ${pct(row.recall)} |`,
+      `| ${row.rule} | ${row.tp} | ${row.fp} | ${row.fn} | ${row.tn} | ${pct(row.precision)} | ${pct(row.recall)} | ${pct(row.precisionStrong)} |`,
     );
   }
   lines.push("");

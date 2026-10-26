@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-SQL-001:a value picked from an allowlist map is still concatenated, and the analyzer does not see that it is constant
+// corpus: expect=low
 const { Pool } = require("pg");
 const pool = new Pool();
 const SORTABLE = new Map([["new", "created_at DESC"], ["name", "name ASC"]]);

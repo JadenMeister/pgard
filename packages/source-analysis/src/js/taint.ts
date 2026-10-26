@@ -246,6 +246,15 @@ export class TaintTracker {
         if (name === "get" && receiverPath && /searchParams$/.test(receiverPath)) {
           return "request";
         }
+        // Hono: `c.req.query("x")`, `c.req.param("id")`, `c.req.header("h")`.
+        if (
+          name &&
+          /^(query|queries|param|header|json|text|parseBody|formData)$/.test(name) &&
+          receiverPath !== null &&
+          /^(c|ctx|context)\.req$/.test(receiverPath)
+        ) {
+          return "request";
+        }
       }
       return firstKind(
         expression.arguments.map((argument) =>

@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-CMD-001:a template literal that interpolates only a module constant is reported as dynamic
+// corpus: expect=none
 const { exec } = require("node:child_process");
 const VERSION = "1.2.3";
 

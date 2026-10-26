@@ -107,9 +107,220 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const isTaintedExpr = (expression: string): boolean =>
     !SANITIZER_PATTERN.test(expression) &&
     (SOURCE_PATTERN.test(expression) || referencesAny(expression, tainted));
+  // Names whose value is fixed: `const`s, and numbers parsed with strconv. A name counts only when
+  // it is bound exactly once in the whole file: a parameter, `:=`, `var`, assignment or second
+  // declaration of the same name anywhere (any function) makes it untrusted.
+  interface FunctionSpan {
+    signature: string;
+    start: number;
+    end: number;
+  }
+  const functionSpans: FunctionSpan[] = [];
+  const bound = new Map<string, number>();
+  const constDeclarations = new Map<string, number>();
+  const constPositions = new Map<string, number>();
+  const bump = (map: Map<string, number>, name: string) => map.set(name, (map.get(name) ?? 0) + 1);
+  const bumpTokens = (text: string) => {
+    for (const token of text.matchAll(/[A-Za-z_]\w*/g)) bump(bound, token[0]);
+  };
+  // Strict: package-level constants. Inferred: block-local constants and strconv-parsed numbers.
+  const inertNames = new Set<string>();
+  const inferredNames = new Set<string>();
+  {
+    // `const` declarations: counted separately, then blanked so they do not look like assignments.
+    let withoutConsts = "";
+    let cursor = 0;
+    for (const match of code.matchAll(/\bconst\b/g)) {
+      const at = match.index ?? 0;
+      if (at < cursor) continue;
+      let end = code.indexOf("\n", at);
+      if (end === -1) end = code.length;
+      const afterKeyword = /^[ \t]*\(/.exec(code.slice(at + 5));
+      const lineNames: string[] = [];
+      if (afterKeyword) {
+        let depth = 0;
+        let index = at + 5 + afterKeyword[0].length - 1;
+        for (; index < code.length; index += 1) {
+          if (code[index] === "(") depth += 1;
+          else if (code[index] === ")" && (depth -= 1) === 0) break;
+        }
+        end = Math.min(index + 1, code.length);
+        for (const line of code.slice(at + 5, end).split("\n")) {
+          const names = /^[ \t(]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(line)?.[1];
+          if (names) lineNames.push(...names.split(",").map((name) => name.trim()));
+        }
+      } else {
+        const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(
+          code.slice(at + 5, end),
+        )?.[1];
+        if (names) lineNames.push(...names.split(",").map((name) => name.trim()));
+      }
+      for (const name of lineNames) {
+        bump(constDeclarations, name);
+        constPositions.set(name, at);
+      }
+      withoutConsts += code.slice(cursor, at) + code.slice(at, end).replace(/[^\n]/g, " ");
+      cursor = end;
+    }
+    withoutConsts += code.slice(cursor);
+    // Function signatures: parameters, receivers and named results are bindings; every token in
+    // the signature counts (over-inclusive on purpose).
+    for (const match of withoutConsts.matchAll(/\bfunc\b/g)) {
+      const at = match.index ?? 0;
+      let depth = 0;
+      let index = at + 4;
+      for (; index < withoutConsts.length; index += 1) {
+        const char = withoutConsts[index];
+        if (char === "(" || char === "[") depth += 1;
+        else if (char === ")" || char === "]") depth -= 1;
+        else if (char === "\n" && depth === 0) break;
+        else if (char === "{" && depth === 0) {
+          if (/\b(?:interface|struct)\s*$/.test(withoutConsts.slice(at, index))) {
+            let inner = 0;
+            for (; index < withoutConsts.length; index += 1) {
+              if (withoutConsts[index] === "{") inner += 1;
+              else if (withoutConsts[index] === "}" && (inner -= 1) === 0) break;
+            }
+            continue;
+          }
+          break;
+        }
+      }
+      const signature = withoutConsts.slice(at + 4, index);
+      bumpTokens(signature);
+      if (withoutConsts[index] === "{") {
+        let braces = 0;
+        let close = index;
+        for (; close < withoutConsts.length; close += 1) {
+          if (withoutConsts[close] === "{") braces += 1;
+          else if (withoutConsts[close] === "}" && (braces -= 1) === 0) break;
+        }
+        functionSpans.push({ signature, start: index, end: close });
+      }
+    }
+    for (const match of withoutConsts.matchAll(
+      /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*(?::=|(?:[-+*/|&^%]|<<|>>|&\^)?=(?!=))/g,
+    )) {
+      const before = withoutConsts[(match.index ?? 0) - 1];
+      if (before === "." || before === "]") continue;
+      for (const name of (match[1] ?? "").split(",")) bump(bound, name.trim());
+    }
+    for (const match of withoutConsts.matchAll(/\bvar\b/g)) {
+      const at = (match.index ?? 0) + 3;
+      const tail = withoutConsts.slice(at);
+      if (/^[ \t]*\(/.test(tail)) {
+        let depth = 0;
+        let index = tail.indexOf("(");
+        const first = index;
+        for (; index < tail.length; index += 1) {
+          if (tail[index] === "(") depth += 1;
+          else if (tail[index] === ")" && (depth -= 1) === 0) break;
+        }
+        for (const line of tail.slice(first + 1, index).split("\n")) {
+          const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(line)?.[1];
+          if (names) for (const name of names.split(",")) bump(bound, name.trim());
+        }
+      } else {
+        const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(tail)?.[1];
+        if (names) for (const name of names.split(",")) bump(bound, name.trim());
+      }
+    }
+    for (const [name, count] of constDeclarations) {
+      if (count !== 1 || bound.has(name)) continue;
+      // A const declared inside a block is trusted only when every use of the name is inside that
+      // same innermost `{...}`: elsewhere the name may mean a package variable of another file.
+      const at = constPositions.get(name) ?? 0;
+      let open = -1;
+      const stack: number[] = [];
+      for (let index = 0; index < at; index += 1) {
+        if (code[index] === "{") stack.push(index);
+        else if (code[index] === "}") stack.pop();
+      }
+      open = stack[stack.length - 1] ?? -1;
+      if (open === -1) {
+        inertNames.add(name);
+        continue;
+      }
+      let depth = 0;
+      let close = open;
+      for (; close < code.length; close += 1) {
+        if (code[close] === "{") depth += 1;
+        else if (code[close] === "}" && (depth -= 1) === 0) break;
+      }
+      let outside = false;
+      for (const use of code.matchAll(new RegExp(`(?<![\\w.])${name}\\b`, "g"))) {
+        const index = use.index ?? 0;
+        if (index < open || index > close) {
+          outside = true;
+          break;
+        }
+      }
+      if (!outside) inferredNames.add(name);
+    }
+    // `n, err := strconv.Atoi(...)`: a number, trusted only when this is the name's only binding.
+    for (const match of withoutConsts.matchAll(
+      /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*:=[ \t]*strconv\.(?:Atoi|ParseInt|ParseUint|ParseFloat|ParseBool)\(/g,
+    )) {
+      const names = (match[1] ?? "").split(",").map((name) => name.trim());
+      const [first] = names;
+      if (first && first !== "_" && bound.get(first) === 1 && !constDeclarations.has(first))
+        inferredNames.add(first);
+    }
+  }
+  const splitTopLevelPlus = (text: string): string[] => {
+    const parts: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of text) {
+      if (char === "(" || char === "[" || char === "{") depth += 1;
+      else if (char === ")" || char === "]" || char === "}") depth -= 1;
+      if (char === "+" && depth === 0) {
+        parts.push(current);
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    parts.push(current);
+    return parts;
+  };
+  /**
+   * "strict" when the expression can only produce a fixed or numeric string by itself (literals,
+   * package constants, `strconv.Itoa` of the whole expression); "inferred" when that relies on a
+   * block-local constant or a parsed number; null otherwise.
+   */
+  type Inertness = "strict" | "inferred" | null;
+  const isInertExpr = (expression: string, depth = 0): Inertness => {
+    const trimmed = expression.trim();
+    if (depth > 4 || trimmed === "") return null;
+    if (LITERAL_PATTERN.test(trimmed) || /^\d+$/.test(trimmed)) return "strict";
+    if (IDENTIFIER.test(trimmed))
+      return inertNames.has(trimmed) ? "strict" : inferredNames.has(trimmed) ? "inferred" : null;
+    if (/^strconv\.Itoa\(/.test(trimmed)) {
+      // Only when the call is the whole expression: `strconv.Itoa(id) + clause` is not fixed.
+      const { end } = readCallArguments(trimmed, trimmed.indexOf("("));
+      return end === trimmed.length - 1 ? "strict" : null;
+    }
+    const combine = (parts: string[]): Inertness => {
+      let result: Inertness = "strict";
+      for (const part of parts) {
+        const level = isInertExpr(part, depth + 1);
+        if (level === null) return null;
+        if (level === "inferred") result = "inferred";
+      }
+      return result;
+    };
+    if (/^fmt\.Sprintf\(/.test(trimmed)) {
+      const { args, end } = readCallArguments(trimmed, trimmed.indexOf("("));
+      return end === trimmed.length - 1 && args.length > 0 ? combine(args) : null;
+    }
+    const parts = splitTopLevelPlus(trimmed);
+    return parts.length > 1 ? combine(parts) : null;
+  };
   const isDynamicExpr = (expression: string): boolean => {
     const trimmed = expression.trim();
     if (LITERAL_PATTERN.test(trimmed)) return false;
+    if (isInertExpr(trimmed) === "strict") return false;
     if (/\bfmt\.Sprintf\(|\bstrings\.Join\(|\bstrings\.Replace(All)?\(/.test(trimmed)) return true;
     if (/\+/.test(trimmed) && !/^("#\d+"\s*\+\s*)*"#\d+"$/.test(trimmed)) return true;
     return IDENTIFIER.test(trimmed) && dynamic.has(trimmed);
@@ -174,8 +385,27 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     }
   };
 
+  const INFERRED_NOTE =
+    "value inferred to be fixed through a local constant or a parsed number; verify it cannot hold request input";
+  const demote = (evidence: Evidence, note: string): Evidence => ({
+    ...evidence,
+    severity:
+      evidence.severity === "critical" || evidence.severity === "high"
+        ? "medium"
+        : evidence.severity,
+    status: "suspected",
+    confidence: "low",
+    flow: `${evidence.flow} (${note})`,
+  });
   const sqlEvidence = (expression: string, sink: string): Evidence | null => {
+    const evidence = sqlEvidenceRaw(expression, sink);
+    return evidence && isInertExpr(expression) === "inferred"
+      ? demote(evidence, INFERRED_NOTE)
+      : evidence;
+  };
+  const sqlEvidenceRaw = (expression: string, sink: string): Evidence | null => {
     if (LITERAL_PATTERN.test(expression.trim())) return null;
+    if (isInertExpr(expression) === "strict") return null;
     if (!isDynamicExpr(expression)) {
       // Request input passed straight in as SQL (e.g. db.Order(c.Query("sort"))).
       if (!isTaintedExpr(expression)) return null;
@@ -236,6 +466,111 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     );
   }
 
+  /** `exec.Command("sh", args...)`: the slice holds the flag and script, so judge its elements. */
+  const reportShellSlice = (slice: string, shell: string, offset: number, name: string) => {
+    const unresolved = () =>
+      // Parameter, reassigned or other origin: the shell receives arguments we cannot see.
+      // Keep a weak finding instead of going silent.
+      report(
+        "PG-CMD-002",
+        offset,
+        {
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          flow: `${shell} invoked with an argument slice (${slice}...) whose contents cannot be resolved`,
+        },
+        `${name}-shell-slice`,
+      );
+    // Only the innermost function around the call is searched, and the name must be declared
+    // once there, not be a parameter, and never be indexed or reassigned.
+    const owner = functionSpans
+      .filter((span) => span.start <= offset && offset <= span.end)
+      .sort((a, b) => b.start - a.start)[0];
+    if (owner === undefined) return unresolved();
+    const body = code.slice(owner.start, owner.end);
+    const declarations = [
+      ...body.matchAll(
+        new RegExp(
+          `(?:^|\\n)[ \\t]*(?:var[ \\t]+)?${slice}[ \\t]*(?::=|=)[ \\t]*\\[\\]string[ \\t]*\\{`,
+          "g",
+        ),
+      ),
+    ];
+    const declaration = declarations[0];
+    const identifier = new RegExp(`\\b${slice}\\b`);
+    const writes = [
+      ...body.matchAll(
+        new RegExp(
+          `\\b${slice}\\b[ \\t]*(?:\\[[^\\]]*\\][ \\t]*)?(?::|[-+*/|&^%]|<<|>>)?=(?!=)`,
+          "g",
+        ),
+      ),
+    ];
+    const appends = [
+      ...body.matchAll(new RegExp(`\\b${slice}[ \\t]*=[ \\t]*append\\(\\s*${slice}\\s*,`, "g")),
+    ];
+    // Writes other than the declaration and `slice = append(slice, ...)` (indexing, reassignment).
+    const otherWrites = writes.length - declarations.length - appends.length;
+    if (
+      declarations.length !== 1 ||
+      declaration === undefined ||
+      identifier.test(owner.signature) ||
+      otherWrites > 0 ||
+      new RegExp(`\\b${slice}\\b[ \\t]*,[^=\\n]*:=`).test(body)
+    )
+      return unresolved();
+    const elementsStart = owner.start + (declaration.index ?? 0) + declaration[0].length - 1;
+    const elements = readCallArguments(code, elementsStart).args;
+    const appended: string[] = [];
+    for (const append of appends) {
+      const open = owner.start + (append.index ?? 0) + append[0].indexOf("(");
+      appended.push(...readCallArguments(code, open).args.slice(1));
+    }
+    const flag = literalValue(elements[0] ?? "", literals);
+    if (flag !== null && !/^[-/]c$/i.test(flag)) return; // runs a script file, not inline text
+    const items = [...elements.slice(flag === null ? 0 : 1), ...appended];
+    const dynamicItems = items.filter(
+      (item) => !LITERAL_PATTERN.test(item.trim()) && isInertExpr(item) !== "strict",
+    );
+    if (flag !== null && dynamicItems.length === 0) {
+      // Resolved through the slice declaration, which is an inference: keep a weak finding.
+      report(
+        "PG-CMD-002",
+        offset,
+        {
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          flow: `${shell} -c with an argument slice resolved to fixed values; verify nothing else changes ${slice}`,
+        },
+        `${name}-shell-slice`,
+      );
+      return;
+    }
+    const isTainted = dynamicItems.some((item) => isTaintedExpr(item));
+    report(
+      "PG-CMD-002",
+      offset,
+      isTainted
+        ? {
+            severity: "critical",
+            status: dynamicItems.some((item) => SOURCE_PATTERN.test(item))
+              ? "confirmed"
+              : "suspected",
+            confidence: "high",
+            flow: `request input -> argument slice -> ${shell} -c`,
+          }
+        : {
+            severity: "high",
+            status: "suspected",
+            confidence: "medium",
+            flow: `non-constant argument slice -> ${shell}`,
+          },
+      `${name}-shell-slice`,
+    );
+  };
+
   // PG-CMD-002 os/exec.
   if (has("os/exec")) {
     forEachCall(/\bexec\.(Command|CommandContext)\s*\(/g, (args, offset, name) => {
@@ -243,30 +578,44 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       const program = rest[0];
       if (!program) return;
       const programLiteral = literalValue(program, literals);
+      const spread = /^(\w+)\.\.\.$/.exec((rest[1] ?? "").trim());
+      if (
+        programLiteral !== null &&
+        SHELLS.has(programLiteral) &&
+        rest.length === 2 &&
+        spread?.[1]
+      ) {
+        reportShellSlice(spread[1], programLiteral, offset, name);
+        return;
+      }
       if (
         programLiteral !== null &&
         SHELLS.has(programLiteral) &&
         literalValue(rest[1] ?? "", literals)?.match(/^[-/]c$/i)
       ) {
         const script = rest[2];
-        if (!script || LITERAL_PATTERN.test(script.trim())) return;
+        if (!script || LITERAL_PATTERN.test(script.trim()) || isInertExpr(script) === "strict")
+          return;
         const isTainted = isTaintedExpr(script);
+        const scriptEvidence: Evidence = isTainted
+          ? {
+              severity: "critical",
+              status: SOURCE_PATTERN.test(script) ? "confirmed" : "suspected",
+              confidence: "high",
+              flow: `request input -> ${describe(script)} -> ${programLiteral} -c`,
+            }
+          : {
+              severity: "high",
+              status: "suspected",
+              confidence: "medium",
+              flow: `non-constant script -> ${programLiteral} -c`,
+            };
         report(
           "PG-CMD-002",
           offset,
-          isTainted
-            ? {
-                severity: "critical",
-                status: SOURCE_PATTERN.test(script) ? "confirmed" : "suspected",
-                confidence: "high",
-                flow: `request input -> ${describe(script)} -> ${programLiteral} -c`,
-              }
-            : {
-                severity: "high",
-                status: "suspected",
-                confidence: "medium",
-                flow: `non-constant script -> ${programLiteral} -c`,
-              },
+          isInertExpr(script) === "inferred"
+            ? demote(scriptEvidence, INFERRED_NOTE)
+            : scriptEvidence,
           `${name}-shell`,
         );
         return;
