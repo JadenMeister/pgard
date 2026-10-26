@@ -102,6 +102,13 @@ export interface ListOutcome {
   warnings: string[];
 }
 
+export interface FindNewestOutcome {
+  /** The newest stored scan that was readable and accepted; null when there is none. */
+  scan: StoredScan | null;
+  /** One line per file skipped on the way (unreadable, or rejected by `accept`). */
+  warnings: string[];
+}
+
 export type LoadOutcome = { ok: true; scan: StoredScan } | { ok: false; error: StoreError };
 
 export interface ClearOptions {
@@ -134,6 +141,15 @@ export interface ResultStore {
   save(result: ScanResult, options: SaveOptions): Promise<SaveOutcome>;
   list(repositoryId: number): Promise<ListOutcome>;
   load(repositoryId: number, file: string): Promise<LoadOutcome>;
+  /**
+   * Reads stored scans newest first and stops at the first one that is readable and that
+   * `accept` approves (it returns null to approve, or a reason to skip the file with a warning).
+   * Unlike `list`, older files are not read once one is accepted.
+   */
+  findNewest(
+    repositoryId: number,
+    accept: (scan: StoredScan) => string | null,
+  ): Promise<FindNewestOutcome>;
   prune(repositoryId: number): Promise<number>;
   clear(options?: ClearOptions): Promise<ClearOutcome>;
   /** True exactly once per store directory (the caller prints the first-run notice then). */
@@ -493,6 +509,39 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         .reverse()) {
         try {
           outcome.scans.push(parseStored(name, await readCapped(path.join(dir, name))));
+        } catch (error) {
+          outcome.warnings.push(`Skipped stored result ${name}: ${toStoreError(error).message}`);
+        }
+      }
+      return outcome;
+    },
+
+    async findNewest(repositoryId, accept) {
+      const outcome: FindNewestOutcome = { scan: null, warnings: [] };
+      if (!isRepositoryId(repositoryId)) return outcome;
+      const dir = path.join(reposDir, String(repositoryId));
+      let names: string[];
+      try {
+        await ensureDirectory(root, false);
+        await ensureDirectory(reposDir, false);
+        await ensureDirectory(dir, false);
+        names = await listFiles(dir);
+      } catch (error) {
+        if (errnoOf(error) !== "ENOENT") outcome.warnings.push(toStoreError(error).message);
+        return outcome;
+      }
+      for (const name of names
+        .filter((n) => RESULT_FILE_PATTERN.test(n))
+        .sort()
+        .reverse()) {
+        try {
+          const scan = parseStored(name, await readCapped(path.join(dir, name)));
+          const reason = accept(scan);
+          if (reason === null) {
+            outcome.scan = scan;
+            return outcome;
+          }
+          outcome.warnings.push(`Skipped stored result ${name}: ${reason}`);
         } catch (error) {
           outcome.warnings.push(`Skipped stored result ${name}: ${toStoreError(error).message}`);
         }

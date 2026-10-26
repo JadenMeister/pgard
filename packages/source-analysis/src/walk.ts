@@ -63,6 +63,10 @@ export interface WalkResult {
   packageJsonPaths: string[];
   goModPaths: string[];
   skippedLarge: number;
+  /** Repository-relative paths of every symbolic link (file or directory); never followed. */
+  skippedSymlinks: string[];
+  /** Repository-relative paths of directories that could not be read ("." is the root). */
+  unreadableDirectories: string[];
   /** Dependency directories that were not entered, in walk order. */
   skippedDependencyDirectories: SkippedDependencyDirectory[];
   isTruncated: boolean;
@@ -104,6 +108,8 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     packageJsonPaths: [],
     goModPaths: [],
     skippedLarge: 0,
+    skippedSymlinks: [],
+    unreadableDirectories: [],
     skippedDependencyDirectories: [],
     isTruncated: false,
   };
@@ -114,6 +120,9 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     try {
       entries = await readdir(directory, { withFileTypes: true });
     } catch {
+      result.unreadableDirectories.push(
+        path.relative(root, directory).split(path.sep).join("/") || ".",
+      );
       continue;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
@@ -132,7 +141,10 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
       const absolutePath = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) continue;
+      if (entry.isSymbolicLink()) {
+        result.skippedSymlinks.push(path.relative(root, absolutePath).split(path.sep).join("/"));
+        continue;
+      }
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
