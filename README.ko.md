@@ -448,6 +448,7 @@ PGARD는 [`docs/`](docs/)에 있는 기획 문서 세 개를 바탕으로 구현
 - [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): 구현 브리프입니다. 제품 범위, 권한 게이트, 검사 경계, 완료 조건을 정했습니다.
 - [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): CLI 명령 체계와 앱·패키지 구조를 정했습니다.
 - [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙을 정했습니다.
+- [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md): 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다(영문).
 
 구현하면서 나중에 바뀐 결정이 있어서, 이 문서들과 README가 다르면 README와 코드가 맞습니다.
 
