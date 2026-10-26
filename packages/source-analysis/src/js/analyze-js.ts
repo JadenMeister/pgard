@@ -594,7 +594,7 @@ export function analyzeJsSource(
       isSanitized(value)
     )
       return;
-    const verdict = escapeHtmlVerdict(value);
+    const verdict = importSet.has("escape-html") ? escapeHtmlVerdict(value) : null;
     if (verdict === "safe") return;
     const evidence = classify(
       value,
@@ -606,7 +606,7 @@ export function analyzeJsSource(
       sink,
     );
     if (!evidence) return;
-    const template = bundledTemplate(value);
+    const template = namespaceImports.size > 0 ? bundledTemplate(value) : null;
     if (verdict === "unclear") {
       report(
         ruleId,
@@ -678,6 +678,15 @@ export function analyzeJsSource(
     return looksLikeHtml(node) || taint.isDynamicString(node);
   };
   const JQUERY_HTML_INSERTERS = new Set(["append", "prepend", "before", "after", "replaceWith"]);
+  const JQUERY_CALL_NAMES = new Set(["html", "$", "jQuery", ...JQUERY_HTML_INSERTERS]);
+  const ELEMENT_FACTORY_NAMES = new Set([
+    "createElement",
+    "cloneElement",
+    "jsx",
+    "jsxs",
+    "jsxDEV",
+    "h",
+  ]);
   const checkJQuery = (call: ts.CallExpression, name: string) => {
     const receiver = calleeReceiver(call);
     const argument = call.arguments[0];
@@ -2934,9 +2943,8 @@ export function analyzeJsSource(
           node.arguments[0]
         )
           checkHtmlSink("PG-XSS-001", node, node.arguments[0], `document.${name}`);
-        if (name === "html" || name === "$" || name === "jQuery" || JQUERY_HTML_INSERTERS.has(name))
-          checkJQuery(node, name);
-        if (/^(createElement|cloneElement|jsx|jsxs|jsxDEV|h)$/.test(name))
+        if (JQUERY_CALL_NAMES.has(name)) checkJQuery(node, name);
+        if (ELEMENT_FACTORY_NAMES.has(name))
           for (const argument of node.arguments)
             if (!ts.isSpreadElement(argument)) checkDangerousProps(node, argument);
       }
