@@ -196,22 +196,12 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
 
   // Suppressed and baseline findings are collapsed sections, never omitted: the count is in the
   // summary line, and a section holding a critical finding is open.
-  const collapsed = (
-    title: string,
-    note: string,
-    members: readonly Finding[],
-    openNote: string,
-  ): string =>
+  const collapsed = (title: string, note: string, members: readonly Finding[]): string =>
     members.length === 0
       ? ""
-      : `\n<details class="group"${members.some((finding) => finding.severity === "critical") ? " open" : ""}>\n<summary>${escapeHtml(title)} (${members.length})</summary>\n<p class="meta">${escapeHtml(`${note}${openNote}`)}</p>\n${members.map((finding) => renderFinding(finding, lang)).join("\n")}\n</details>\n`;
-  const suppressedHtml = collapsed(
-    SUPPRESSED_FINDINGS_TITLE,
-    SUPPRESSED_FINDINGS_NOTE,
-    suppressed,
-    "",
-  );
-  const baselineHtml = collapsed(BASELINE_FINDINGS_TITLE, BASELINE_FINDINGS_NOTE, baseline, "");
+      : `\n<details class="group"${members.some((finding) => finding.severity === "critical") ? " open" : ""}>\n<summary>${escapeHtml(title)} (${members.length})</summary>\n<p class="meta">${escapeHtml(note)}</p>\n${members.map((finding) => renderFinding(finding, lang)).join("\n")}\n</details>\n`;
+  const suppressedHtml = collapsed(SUPPRESSED_FINDINGS_TITLE, SUPPRESSED_FINDINGS_NOTE, suppressed);
+  const baselineHtml = collapsed(BASELINE_FINDINGS_TITLE, BASELINE_FINDINGS_NOTE, baseline);
 
   return `<!doctype html>
 <html lang="${lang}">

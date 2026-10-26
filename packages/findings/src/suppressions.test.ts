@@ -170,6 +170,18 @@ describe("expiry", () => {
   });
 });
 
+describe("expired wildcard", () => {
+  it("does not suppress anything, not even through a path that matches every file", () => {
+    const applied = applySuppressions(
+      [finding({ path: "src/a.ts" }), web("PG-SQL-001")],
+      [entry({ path: "**", expires: "2026-10-26" })],
+      NOW,
+    );
+    expect(suppressedOf(applied.findings)).toHaveLength(0);
+    expect(applied.summary?.entries[0]).toMatchObject({ state: "expired", matched: 0 });
+  });
+});
+
 describe("critical policy", () => {
   it("lets a critical finding be suppressed but counts and flags it", () => {
     const critical = finding({ path: "scripts/a.ts", severity: "critical" });
