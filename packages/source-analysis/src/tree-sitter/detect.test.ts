@@ -14,6 +14,9 @@ import {
 } from "./detect-frameworks.js";
 import { detectLanguageTrack, languageTrackCoverage } from "./language-track.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 const roots: string[] = [];
 function project(files: Record<string, string>): string {
   const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-det-")));
@@ -134,7 +137,7 @@ describe("malicious manifests", () => {
     });
     const startedAt = Date.now();
     const detection = await detectLanguageTrack(await walkSourceTree(root));
-    expect(Date.now() - startedAt).toBeLessThan(5000 * (process.env.CI ? 3 : 1));
+    expect(Date.now() - startedAt).toBeLessThan(5000 * SLOW);
     expect(detection.manifestIssues.map((issue) => [issue.path, issue.reason])).toContainEqual([
       "composer.json",
       "unreadable_or_too_large",
@@ -144,7 +147,7 @@ describe("malicious manifests", () => {
       (entry) => entry.area === "source:manifests",
     );
     expect(note?.status).toBe("partial");
-  });
+  }, 60_000);
 });
 
 describe("fixture layout", () => {

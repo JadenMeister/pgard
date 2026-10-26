@@ -9,6 +9,9 @@ import {
   matchesEverything,
 } from "./glob.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 const matches = (pattern: string, filePath: string) => globMatches(compileGlob(pattern), filePath);
 
 describe("glob syntax", () => {
@@ -167,7 +170,7 @@ describe("glob matching is not exponential", () => {
       result = globMatches(glob, `dir/${name}`);
     });
     expect(result).toBe(false);
-    expect(elapsed).toBeLessThan(1500);
+    expect(elapsed).toBeLessThan(1500 * SLOW);
   });
 
   it("survives many ** segments against a deep path", () => {
@@ -179,7 +182,7 @@ describe("glob matching is not exponential", () => {
       result = globMatches(glob, deep);
     });
     expect(result).toBe(false);
-    expect(elapsed).toBeLessThan(1500);
+    expect(elapsed).toBeLessThan(1500 * SLOW);
   });
 
   it("does work proportional to the path length for a fixed pattern (counted, not timed)", () => {

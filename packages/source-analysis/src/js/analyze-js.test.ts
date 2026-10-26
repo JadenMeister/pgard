@@ -6,11 +6,8 @@ const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
 const findingsIn = (code: string, path = "src/app.ts") => analyzeJsSource(code, path).findings;
 
-/**
- * Wall-clock limits are a backstop against quadratic blow-ups (minutes), not a benchmark, so CI
- * runners (Windows in particular) get three times the room.
- */
-const TIME_LIMIT_FACTOR = process.env.CI ? 3 : 1;
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
 
 /** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
 const bestTimeOf = (runs: number, fn: () => void) => {
@@ -937,9 +934,7 @@ describe("per-function facts stay linear (#104)", () => {
     ).join("\n");
     const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
     expect(code.length).toBeGreaterThan(400_000);
-    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(
-      5000 * TIME_LIMIT_FACTOR,
-    );
+    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000 * SLOW);
   }, 60_000);
 
   it("still detects MD5 of passwords via update() in the same function", () => {
@@ -1007,18 +1002,23 @@ describe("shells via spawn/execFile and promisified exec (#86)", () => {
 
 describe("linear cost and caps (#87)", () => {
   it("analyzes a large JS file quickly", () => {
-    const code = Array.from(
-      { length: 8000 },
-      (_, index) =>
-        `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
-    ).join("\n");
+    const build = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
+      ).join("\n");
+    const code = build(8000);
     expect(code.length).toBeGreaterThan(500_000);
+    const quarter = build(2000);
     let analysis = analyzeJsSource(code, "big.js");
-    expect(
-      bestTimeOf(3, () => {
-        analysis = analyzeJsSource(code, "big.js");
-      }),
-    ).toBeLessThan(5000 * TIME_LIMIT_FACTOR);
+    const large = bestTimeOf(3, () => {
+      analysis = analyzeJsSource(code, "big.js");
+    });
+    const small = bestTimeOf(3, () => analyzeJsSource(quarter, "big.js"));
+    expect(large).toBeLessThan(5000 * SLOW);
+    // Four times the input: linear is about 4x, quadratic about 16x.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
     expect(analysis.cappedRules).toContain("PG-XSS-001");
   }, 60_000);
 

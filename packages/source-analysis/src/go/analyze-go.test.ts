@@ -7,11 +7,8 @@ const go = (imports: string[], body: string) =>
 const rulesIn = (source: string) =>
   analyzeGoSource(source, "main.go").findings.map((f) => f.ruleId);
 
-/**
- * Wall-clock limits are a backstop against quadratic blow-ups (minutes), not a benchmark, so CI
- * runners (Windows in particular) get three times the room.
- */
-const TIME_LIMIT_FACTOR = process.env.CI ? 3 : 1;
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
 
 /** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
 const bestTimeOf = (runs: number, fn: () => void) => {
@@ -247,22 +244,28 @@ describe("GORM with request input (#85)", () => {
 
 describe("linear cost and caps (#87)", () => {
   it("analyzes a large Go file quickly", () => {
-    const body = Array.from(
-      { length: 6000 },
-      (_, index) =>
-        `\tv${index} := r.FormValue("k${index}")\n\tdb.Query(fmt.Sprintf("SELECT %s", v${index}))`,
-    ).join("\n");
-    const source = go(
-      ["database/sql", "fmt", "net/http"],
-      `func h(w http.ResponseWriter, r *http.Request) {\n${body}\n}`,
-    );
+    const build = (count: number) => {
+      const body = Array.from(
+        { length: count },
+        (_, index) =>
+          `\tv${index} := r.FormValue("k${index}")\n\tdb.Query(fmt.Sprintf("SELECT %s", v${index}))`,
+      ).join("\n");
+      return go(
+        ["database/sql", "fmt", "net/http"],
+        `func h(w http.ResponseWriter, r *http.Request) {\n${body}\n}`,
+      );
+    };
+    const source = build(6000);
+    const quarter = build(1500);
     expect(source.length).toBeGreaterThan(300_000);
     let analysis = analyzeGoSource(source, "big.go");
-    expect(
-      bestTimeOf(3, () => {
-        analysis = analyzeGoSource(source, "big.go");
-      }),
-    ).toBeLessThan(3000 * TIME_LIMIT_FACTOR);
+    const large = bestTimeOf(3, () => {
+      analysis = analyzeGoSource(source, "big.go");
+    });
+    const small = bestTimeOf(3, () => analyzeGoSource(quarter, "big.go"));
+    expect(large).toBeLessThan(3000 * SLOW);
+    // Four times the input: linear is about 4x, quadratic about 16x.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
     expect(analysis.findings.length).toBeLessThanOrEqual(25);
     expect(analysis.cappedRules).toEqual(["PG-SQL-003"]);
   }, 60_000);
