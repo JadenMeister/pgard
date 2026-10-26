@@ -12,13 +12,21 @@ const formatSeconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
  */
 export async function runAdvisoriesUpdate(context: CommandContext): Promise<ExitCode> {
   const { deps, style } = context;
+  const appDataDir = deps.appDataDir;
+  if (appDataDir === null) {
+    err(
+      context,
+      "No home directory was found, so PGARD has nowhere to store advisory data. Nothing was downloaded. Set HOME (or XDG_DATA_HOME / LOCALAPPDATA) to an absolute path and try again.",
+    );
+    return EXIT_CODES.partial;
+  }
   out(
     context,
     `Downloading public OSV data from ${OSV_EXPORT_HOST} (nothing is uploaded; no package names are sent).`,
   );
   let lastReported = -1;
   const outcomes = await deps.updateAdvisories({
-    appDataDir: deps.appDataDir,
+    appDataDir,
     signal: context.signal,
     now: deps.now,
     onProgress: (ecosystem, received, total) => {

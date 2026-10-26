@@ -5,12 +5,13 @@ import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { osvDataDir, resolveAppDataDir } from "../app-data.js";
 import { makeZip, osvRecord, type TestZipEntry } from "../test-support/zip.js";
 import { downloadToFile, DownloadError, OSV_EXPORT_HOST, osvArchiveUrl } from "./download.js";
 import { readAdvisoryStatus } from "./status.js";
-import { swapIntoPlace } from "./store.js";
+import { GzipLineWriter, acquireUpdateLock, removeLeftovers, swapIntoPlace } from "./store.js";
 import { updateOsvData } from "./update.js";
 import { DEFAULT_ZIP_LIMITS, forEachZipEntry, ZipError } from "./zip.js";
 
@@ -137,7 +138,11 @@ describe("updateOsvData", () => {
     // The only request: a plain GET of the fixed URL, no query, no body, no cookies.
     expect(calls).toHaveLength(1);
     expect(calls[0]!.url).toBe("https://osv-vulnerabilities.storage.googleapis.com/npm/all.zip");
-    expect(calls[0]!.init).toMatchObject({ method: "GET", credentials: "omit" });
+    expect(calls[0]!.init).toMatchObject({
+      method: "GET",
+      credentials: "omit",
+      redirect: "manual",
+    });
     expect(calls[0]!.init?.body).toBeUndefined();
     expect(Object.keys(calls[0]!.init?.headers as Record<string, string>)).toEqual(["accept"]);
     // The downloaded archive and staging directories are gone.
@@ -536,5 +541,185 @@ describe("swapIntoPlace", () => {
     await expect(swapIntoPlace(osv, "npm", path.join(osv, ".staging-missing"))).rejects.toThrow();
     expect(await readFile(path.join(osv, "npm", "meta.json"), "utf8")).toBe("old");
     expect((await readdir(osv)).sort()).toEqual(["npm"]);
+  });
+});
+
+describe("zip structure attacks", () => {
+  const write = async (name: string, data: Buffer): Promise<string> => {
+    const { writeFile } = await import("node:fs/promises");
+    const file = path.join(dir, name);
+    await writeFile(file, data);
+    return file;
+  };
+  const rec = (id: string): TestZipEntry => ({ name: `${id}.json`, content: `{"id":"${id}"}` });
+
+  it("rejects encrypted entries", async () => {
+    const file = await write("enc.zip", makeZip([{ ...rec("A"), encrypted: true }]));
+    await expect(forEachZipEntry(file, () => undefined)).rejects.toMatchObject({
+      message: "Encrypted entries are not supported.",
+    });
+  });
+
+  it("rejects an entry that claims more compressed bytes than allowed, without reading them", async () => {
+    const file = await write(
+      "claim.zip",
+      makeZip([{ ...rec("A"), claimCompressedSize: 900 * 1024 * 1024 }]),
+    );
+    await expect(forEachZipEntry(file, () => undefined)).rejects.toMatchObject({
+      message: "An entry is larger than allowed.",
+    });
+    // Under the per-entry cap but past the end of the data: out of range.
+    const past = await write(
+      "past.zip",
+      makeZip([{ ...rec("A"), claimCompressedSize: 20 * 1024 * 1024 }]),
+    );
+    await expect(forEachZipEntry(past, () => undefined)).rejects.toMatchObject({
+      message: "An entry overlaps another or is out of range.",
+    });
+  });
+
+  it("rejects overlapping and repeated entries", async () => {
+    // B's central record points at A's local header: the same bytes would be read twice.
+    const overlap = await write(
+      "overlap.zip",
+      makeZip([rec("A"), { ...rec("B"), claimOffsetOfEntry: 0 }]),
+    );
+    await expect(forEachZipEntry(overlap, () => undefined)).rejects.toMatchObject({
+      message: "An entry overlaps another or is out of range.",
+    });
+    const many = Array.from({ length: 200 }, (_, index) => ({
+      ...rec(`E${index}`),
+      claimOffsetOfEntry: index === 0 ? undefined : 0,
+    }));
+    await expect(
+      forEachZipEntry(await write("many.zip", makeZip(many)), () => undefined),
+    ).rejects.toBeInstanceOf(ZipError);
+    const dup = await write("dup.zip", makeZip([rec("A"), rec("A")]));
+    await expect(forEachZipEntry(dup, () => undefined)).rejects.toMatchObject({
+      message: "The archive repeats an entry name.",
+    });
+  });
+
+  it("rejects a local header whose name or method differs from the central directory", async () => {
+    const name = await write("name.zip", makeZip([{ ...rec("A"), localName: "B.json" }]));
+    await expect(forEachZipEntry(name, () => undefined)).rejects.toMatchObject({
+      message: "A local header does not match the central directory.",
+    });
+    const method = await write("method.zip", makeZip([{ ...rec("A"), localMethod: 0 }]));
+    await expect(forEachZipEntry(method, () => undefined)).rejects.toMatchObject({
+      message: "A local header does not match the central directory.",
+    });
+  });
+});
+
+describe("disk errors, idle timeout and writers", () => {
+  const body = Buffer.alloc(200_000, 1);
+
+  it("fails a download whose destination cannot be written, instead of hanging", async () => {
+    const { impl } = fakeFetch(() => ({ body }));
+    await expect(
+      downloadToFile(osvArchiveUrl("npm"), path.join(dir, "missing-dir", "a.zip"), { fetch: impl }),
+    ).rejects.toMatchObject({ code: "disk" });
+  });
+
+  it("gives up when the server goes silent between chunks", async () => {
+    const stalled: typeof fetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.enqueue(new Uint8Array([1, 2, 3]));
+          },
+        }),
+        { status: 200 },
+      );
+    await expect(
+      downloadToFile(osvArchiveUrl("npm"), path.join(dir, "idle.zip"), {
+        fetch: stalled,
+        idleTimeoutMs: 40,
+      }),
+    ).rejects.toMatchObject({ code: "timeout" });
+  });
+
+  it("a line writer on an unwritable file rejects instead of hanging", async () => {
+    const writer = new GzipLineWriter(path.join(dir, "missing-dir", "x.gz"));
+    const run = (async () => {
+      for (let index = 0; index < 200_000; index += 1) {
+        await writer.writeLine(`{"line":${index},"pad":"${"x".repeat(200)}"}`);
+      }
+      await writer.close();
+    })();
+    await expect(
+      Promise.race([
+        run,
+        new Promise((_, reject) => setTimeout(() => reject(new Error("hung")), 5000)),
+      ]),
+    ).rejects.toThrow(/^(?!hung)/);
+  });
+});
+
+describe("update lock and leftovers", () => {
+  const deadPid = (): number => {
+    const child = spawnSync(process.execPath, ["-e", ""]);
+    return child.pid;
+  };
+
+  it("removeLeftovers deletes staging and aside directories only", async () => {
+    const { mkdir } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    for (const name of [".staging-npm-1-1", ".old-Go-1-1", "npm"])
+      await mkdir(path.join(osv, name), { recursive: true });
+    await removeLeftovers(osv);
+    expect(await readdir(osv)).toEqual(["npm"]);
+  });
+
+  it("a running update's staging directory is not deleted by a second update", async () => {
+    const { mkdir } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    const live = path.join(osv, ".staging-npm-live");
+    await mkdir(live, { recursive: true });
+    const release = await acquireUpdateLock(osv);
+    const { impl, calls } = fakeFetch(() => ({ body: makeZip(goodEntries) }));
+    const outcomes = await updateOsvData({ appDataDir: dir, ecosystems: ["npm"], fetch: impl });
+    expect(outcomes[0]).toMatchObject({ ok: false });
+    expect((outcomes[0] as { error: string }).error).toContain("already running");
+    expect(calls).toHaveLength(0);
+    expect((await readdir(osv)).sort()).toEqual([".staging-npm-live", ".update.lock"]);
+    await release();
+    expect(await readdir(osv)).toEqual([".staging-npm-live"]);
+  });
+
+  it("replaces a stale lock from a dead process and cleans its leftovers", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(path.join(osv, ".staging-npm-dead"), { recursive: true });
+    await writeFile(path.join(osv, ".update.lock"), `${deadPid()}\n`);
+    const { impl } = fakeFetch(() => ({ body: makeZip(goodEntries) }));
+    const [outcome] = await updateOsvData({ appDataDir: dir, ecosystems: ["npm"], fetch: impl });
+    expect(outcome?.ok).toBe(true);
+    expect(await readdir(osv)).toEqual(["npm"]);
+  });
+
+  it("releases the lock after a failed update", async () => {
+    const { impl } = fakeFetch(() => ({ status: 500 }));
+    await updateOsvData({ appDataDir: dir, ecosystems: ["npm"], fetch: impl });
+    expect(await readdir(osvDataDir(dir))).toEqual([]);
+  });
+});
+
+describe("resolveAppDataDir without a home", () => {
+  it("returns null instead of a relative path", () => {
+    expect(resolveAppDataDir({ platform: "darwin", env: {}, homedir: "" })).toBeNull();
+    expect(resolveAppDataDir({ platform: "linux", env: {}, homedir: "" })).toBeNull();
+    expect(
+      resolveAppDataDir({ platform: "linux", env: { XDG_DATA_HOME: "rel" }, homedir: "rel" }),
+    ).toBeNull();
+    expect(resolveAppDataDir({ platform: "win32", env: {}, homedir: "" })).toBeNull();
+    expect(
+      resolveAppDataDir({ platform: "linux", env: { XDG_DATA_HOME: "/x" }, homedir: "" }),
+    ).toBe("/x/pgard");
+    // A Windows drive path is absolute on win32 even though this test runs on another platform.
+    expect(
+      resolveAppDataDir({ platform: "win32", env: { LOCALAPPDATA: "D:\\L" }, homedir: "" }),
+    ).toBe("D:\\L\\pgard");
   });
 });

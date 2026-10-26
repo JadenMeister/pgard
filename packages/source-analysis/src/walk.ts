@@ -2,6 +2,7 @@ import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
+import { SKIPPED_DEPENDENCY_DIRECTORIES, SKIPPED_DIRECTORIES } from "./walk-rules.js";
 
 export type SourceLanguage = "javascript" | "typescript" | "vue" | "go";
 
@@ -30,24 +31,6 @@ export interface WalkResult {
   skippedDependencyDirectories: SkippedDependencyDirectory[];
   isTruncated: boolean;
 }
-
-/** Build output, caches and VCS metadata: never entered, at any depth. */
-export const SKIPPED_DIRECTORIES = new Set([
-  "dist",
-  "build",
-  "out",
-  ".git",
-  ".next",
-  ".nuxt",
-  ".output",
-  ".svelte-kit",
-  "coverage",
-  ".turbo",
-  ".cache",
-]);
-
-/** Dependency directories that are never entered, at any depth, and listed in coverage. */
-export const SKIPPED_DEPENDENCY_DIRECTORIES = new Set(["node_modules", "bower_components"]);
 
 export const MAX_FILE_BYTES = 1024 * 1024;
 export const MAX_FILES = 20_000;

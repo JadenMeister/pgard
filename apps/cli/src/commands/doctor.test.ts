@@ -91,6 +91,12 @@ describe("runDoctor", () => {
     );
   });
 
+  it("says where advisory data cannot be stored when there is no home directory", async () => {
+    const captured = createTestIo();
+    await runDoctor(createTestContext(captured, createTestDeps({ appDataDir: null })));
+    expect(captured.stdout()).toContain("[warn] Advisory data (OSV): no home directory found");
+  });
+
   it("requires a Node.js release with the October 2026 security fixes", () => {
     for (const ok of ["22.23.4", "22.24.0", "24.22.1", "24.23.0", "26.12.1", "26.13.0", "28.0.0"]) {
       expect(isSupportedNodeVersion(ok), ok).toBe(true);

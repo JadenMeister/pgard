@@ -9,6 +9,16 @@ export interface TestZipEntry {
   badCrc?: boolean;
   /** Announce a larger inflated size in the central directory than the real one. */
   lieSize?: boolean;
+  /** Set the "encrypted" flag in the central directory. */
+  encrypted?: boolean;
+  /** Write this name in the local header instead of `name`. */
+  localName?: string;
+  /** Write this compression method in the local header instead of the real one. */
+  localMethod?: number;
+  /** Claim this compressed size in the central directory. */
+  claimCompressedSize?: number;
+  /** Claim this local header offset (an index into the entries before it) in the central directory. */
+  claimOffsetOfEntry?: number;
 }
 
 /** Builds a small zip in memory. `zip64` writes the zip64 end-of-directory records. */
@@ -19,33 +29,40 @@ export function makeZip(
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
+  const offsets: number[] = [];
   for (const entry of entries) {
     const raw = Buffer.from(entry.content, "utf8");
     const data = entry.stored === true ? raw : deflateRawSync(raw);
     const crc = entry.badCrc === true ? (crc32(raw) ^ 0xdeadbeef) >>> 0 : crc32(raw);
     const name = Buffer.from(entry.name, "utf8");
     const method = entry.stored === true ? 0 : 8;
+    const localNameBytes = Buffer.from(entry.localName ?? entry.name, "utf8");
     const local = Buffer.alloc(30);
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
-    local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(entry.localMethod ?? method, 8);
     local.writeUInt32LE(crc, 14);
     local.writeUInt32LE(data.length, 18);
     local.writeUInt32LE(raw.length, 22);
-    local.writeUInt16LE(name.length, 26);
-    locals.push(local, name, data);
+    local.writeUInt16LE(localNameBytes.length, 26);
+    locals.push(local, localNameBytes, data);
+    offsets.push(offset);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(entry.encrypted === true ? 1 : 0, 8);
     central.writeUInt16LE(method, 10);
     central.writeUInt32LE(crc, 16);
-    central.writeUInt32LE(data.length, 20);
+    central.writeUInt32LE(entry.claimCompressedSize ?? data.length, 20);
     central.writeUInt32LE(entry.lieSize === true ? raw.length + 5 : raw.length, 24);
     central.writeUInt16LE(name.length, 28);
-    central.writeUInt32LE(offset, 42);
+    central.writeUInt32LE(
+      entry.claimOffsetOfEntry === undefined ? offset : (offsets[entry.claimOffsetOfEntry] ?? 0),
+      42,
+    );
     centrals.push(central, name);
-    offset += 30 + name.length + data.length;
+    offset += 30 + localNameBytes.length + data.length;
   }
   const directory = Buffer.concat(centrals);
   const parts = [...locals, directory];

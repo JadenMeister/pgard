@@ -42,6 +42,7 @@ export class GzipLineWriter {
   private readonly hash = createHash("sha256");
   private bytes = 0;
   private readonly finished: Promise<void>;
+  private failure: Error | null = null;
 
   constructor(filePath: string) {
     this.out = createWriteStream(filePath, { flags: "wx", mode: 0o600 });
@@ -55,14 +56,22 @@ export class GzipLineWriter {
       this.out.once("error", reject);
       this.gzip.once("error", reject);
     });
-    this.finished.catch(() => undefined);
+    this.finished.catch((error: unknown) => {
+      this.failure = error instanceof Error ? error : new Error(String(error));
+    });
   }
 
   async writeLine(line: string): Promise<void> {
-    if (!this.gzip.write(`${line}\n`)) await once(this.gzip, "drain");
+    if (this.failure !== null) throw this.failure;
+    if (!this.gzip.write(`${line}\n`)) {
+      // `finished` only ever rejects before the end: it wakes this wait on a stream error.
+      await Promise.race([once(this.gzip, "drain"), this.finished]);
+    }
+    if (this.failure !== null) throw this.failure;
   }
 
   async close(): Promise<FileRecord> {
+    if (this.failure !== null) throw this.failure;
     this.gzip.end();
     await this.finished;
     return { bytes: this.bytes, sha256: this.hash.digest("hex") };
@@ -122,7 +131,64 @@ export async function writeMeta(directory: string, meta: OsvMeta): Promise<void>
   });
 }
 
-/** Removes staging and aside directories left by an interrupted run. */
+export const LOCK_FILE = ".update.lock";
+/** A lock older than this is stale even if its pid is alive (the pid may have been reused). */
+const LOCK_MAX_AGE_MS = 60 * 60 * 1000;
+
+export class UpdateLockedError extends Error {
+  constructor() {
+    super("Another `pgard advisories update` is already running. Wait for it to finish.");
+    this.name = "UpdateLockedError";
+  }
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+/**
+ * Takes the update lock (`O_EXCL` file holding the pid). A lock whose process is gone, or that is
+ * older than an hour, is stale and replaced. Returns a release function.
+ */
+export async function acquireUpdateLock(
+  osvDir: string,
+  now: () => number = Date.now,
+): Promise<() => Promise<void>> {
+  await mkdir(osvDir, { recursive: true, mode: 0o700 });
+  const lockPath = path.join(osvDir, LOCK_FILE);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      await writeFile(lockPath, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+      return async () => {
+        await rm(lockPath, { force: true }).catch(() => undefined);
+      };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    }
+    let holder = Number.NaN;
+    let ageMs = 0;
+    try {
+      holder = Number.parseInt(await readFile(lockPath, "utf8"), 10);
+      ageMs = now() - (await stat(lockPath)).mtimeMs;
+    } catch {
+      continue; // released between the two calls: try again
+    }
+    const isLive = Number.isInteger(holder) && holder > 0 && isProcessAlive(holder);
+    if (isLive && ageMs < LOCK_MAX_AGE_MS) throw new UpdateLockedError();
+    await rm(lockPath, { force: true });
+  }
+  throw new UpdateLockedError();
+}
+
+/**
+ * Removes staging and aside directories left by an interrupted run. Call it only while holding
+ * the update lock: otherwise it would delete a live update's staging directory.
+ */
 export async function removeLeftovers(osvDir: string): Promise<void> {
   let names: string[];
   try {

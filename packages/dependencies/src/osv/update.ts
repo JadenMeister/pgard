@@ -12,6 +12,8 @@ import {
 import { isMalwareId, reduceAdvisory } from "./reduce.js";
 import {
   ADVISORIES_FILE,
+  UpdateLockedError,
+  acquireUpdateLock,
   GzipLineWriter,
   MALWARE_FILE,
   STORE_SCHEMA,
@@ -33,6 +35,7 @@ export interface UpdateOptions {
   signal?: AbortSignal;
   maxArchiveBytes?: number;
   timeoutMs?: number;
+  idleTimeoutMs?: number;
   allowedHosts?: readonly string[];
   zipLimits?: ZipLimits;
   onProgress?: (ecosystem: Ecosystem, receivedBytes: number, totalBytes: number | null) => void;
@@ -49,7 +52,13 @@ export type UpdateOutcome =
   | { ecosystem: Ecosystem; ok: false; error: string };
 
 function describeFailure(error: unknown): string {
-  if (error instanceof DownloadError || error instanceof ZipError) return error.message;
+  if (
+    error instanceof DownloadError ||
+    error instanceof ZipError ||
+    error instanceof UpdateLockedError
+  ) {
+    return error.message;
+  }
   if (error instanceof Error && error.name === "AbortError") return "Cancelled.";
   return "Could not store the data (disk error or unexpected format).";
 }
@@ -67,6 +76,7 @@ async function updateOne(ecosystem: Ecosystem, options: UpdateOptions): Promise<
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       ...(options.maxArchiveBytes === undefined ? {} : { maxBytes: options.maxArchiveBytes }),
       ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+      ...(options.idleTimeoutMs === undefined ? {} : { idleTimeoutMs: options.idleTimeoutMs }),
       ...(options.allowedHosts === undefined ? {} : { allowedHosts: options.allowedHosts }),
       onProgress: (received, total) => options.onProgress?.(ecosystem, received, total),
     };
@@ -158,10 +168,26 @@ async function updateOne(ecosystem: Ecosystem, options: UpdateOptions): Promise<
  * Package names are never sent: the only request is a GET of a fixed archive URL.
  */
 export async function updateOsvData(options: UpdateOptions): Promise<UpdateOutcome[]> {
-  await removeLeftovers(osvDataDir(options.appDataDir));
-  const outcomes: UpdateOutcome[] = [];
-  for (const ecosystem of options.ecosystems ?? OSV_ECOSYSTEMS) {
-    outcomes.push(await updateOne(ecosystem, options));
+  const ecosystems = options.ecosystems ?? OSV_ECOSYSTEMS;
+  const osvDir = osvDataDir(options.appDataDir);
+  let release: () => Promise<void>;
+  try {
+    release = await acquireUpdateLock(osvDir, options.now);
+  } catch (error) {
+    return ecosystems.map((ecosystem) => ({
+      ecosystem,
+      ok: false as const,
+      error: describeFailure(error),
+    }));
   }
-  return outcomes;
+  try {
+    await removeLeftovers(osvDir);
+    const outcomes: UpdateOutcome[] = [];
+    for (const ecosystem of ecosystems) {
+      outcomes.push(await updateOne(ecosystem, options));
+    }
+    return outcomes;
+  } finally {
+    await release();
+  }
 }

@@ -76,7 +76,7 @@ export interface CliDeps {
   checkGitHubReachable: () => Promise<boolean>;
   nodeVersion: string;
   /** Per-user data directory (downloaded advisory data lives under it). */
-  appDataDir: string;
+  appDataDir: string | null;
   /** `pgard advisories update`: the only place advisory data is downloaded. */
   updateAdvisories: typeof updateOsvData;
   /** Age of the downloaded data, from local metadata only. */

@@ -162,9 +162,9 @@ snapshots:
   react@18.2.0: {}
 `;
 
-  it("reads v9 packages, snapshots, direct marks, and notes non-registry sources", () => {
+  it("reads v9 packages, snapshots, direct marks, and marks non-registry sources as partial", () => {
     const parsed = parsePnpmLock(v9);
-    expect(parsed.isComplete).toBe(true);
+    expect(parsed.isComplete).toBe(false); // the tarball dependency's version is unknown
     expect(names(parsed)).toEqual([
       "@types/node@20.11.0",
       "express@4.18.2",
@@ -407,5 +407,97 @@ golang.org/x/text v0.3.0/go.mod h1:f=
     expect(names(parsed)).toEqual(["github.com/a/b@v1.0.0"]);
     expect(parsed.notes.join(" ")).toContain("No go.mod");
     expect(parseGoSum("garbage line\n").isComplete).toBe(false);
+  });
+});
+
+describe("hostile input", () => {
+  const BOUND_MS = 1500;
+  const timed = <T>(run: () => T): { result: T; ms: number } => {
+    const start = performance.now();
+    const result = run();
+    return { result, ms: performance.now() - start };
+  };
+
+  it("pnpm: long adversarial lines parse in bounded time and mark the file partial", () => {
+    const head = "lockfileVersion: '9.0'\npackages:\n  a@1.0.0:\n    resolution: {integrity: x}\n";
+    const hostile = [
+      `  k:${" ".repeat(1_000_000)}\r\n`,
+      `  k: ${" ".repeat(1_000_000)}x\n`,
+      `  k: ${"a ".repeat(500_000)}\n`,
+      `${"  k:".repeat(250_000)}\n`,
+      `  '${"'".repeat(1_000_000)}\n`,
+    ];
+    for (const line of hostile) {
+      const { result, ms } = timed(() => parsePnpmLock(head + line));
+      expect(ms).toBeLessThan(BOUND_MS);
+      expect(result.isComplete).toBe(false);
+      expect(result.notes.join(" ")).toContain("longer than");
+      expect(names(result)).toEqual(["a@1.0.0"]);
+    }
+  });
+
+  it("pnpm: adversarial lines just under the cap are also fast", () => {
+    const head = "lockfileVersion: '9.0'\npackages:\n";
+    for (const line of [
+      `  k:${" ".repeat(16_000)}\r`,
+      `  k: ${" ".repeat(16_000)}x`,
+      `  k: ${"a ".repeat(8_000)}`,
+      `  '${"''".repeat(8_000)}`,
+    ]) {
+      const { ms } = timed(() => parsePnpmLock(`${head}${line}\n`.repeat(50)));
+      expect(ms).toBeLessThan(BOUND_MS);
+    }
+  });
+
+  it("yarn, go and npm: megabyte-long lines parse in bounded time", () => {
+    const long = "x".repeat(1_000_000);
+    const spaces = " ".repeat(1_000_000);
+    expect(
+      timed(() => parseYarnLock(`# yarn lockfile v1\n\n${long}@^1:\n  version${spaces}"1"\n`)).ms,
+    ).toBeLessThan(BOUND_MS);
+    expect(
+      timed(() => parseYarnLock(`# yarn lockfile v1\n\n  version: ${spaces}\n  ${long}:`)).ms,
+    ).toBeLessThan(BOUND_MS);
+    expect(
+      timed(() => parseGoMod(`module m\ngo 1.21\nrequire ${long} ${spaces}\n${long}${spaces}(\n`))
+        .ms,
+    ).toBeLessThan(BOUND_MS);
+    expect(timed(() => parseGoSum(`${long} ${spaces} ${long}\n`.repeat(3))).ms).toBeLessThan(
+      BOUND_MS,
+    );
+    expect(
+      timed(() =>
+        parseNpmLock(
+          `{"lockfileVersion":3,"packages":{"node_modules/${long}":{"version":"1.0.0"}}}`,
+        ),
+      ).ms,
+    ).toBeLessThan(BOUND_MS);
+  });
+
+  it("yarn v1: a block without a readable version makes the file incomplete even with other entries", () => {
+    const parsed = parseYarnLock(
+      '# yarn lockfile v1\n\ngood@^1:\n  version "1.0.0"\n\nbad@^1:\n  resolved "x"\n',
+    );
+    expect(names(parsed)).toEqual(["good@1.0.0"]);
+    expect(parsed.isComplete).toBe(false);
+    expect(parsed.notes.join(" ")).toContain("without a readable name or version");
+  });
+
+  it("npm v1: counts dependencies from file, link, git and tarball sources in a note", () => {
+    const parsed = parseNpmLock(
+      JSON.stringify({
+        lockfileVersion: 1,
+        dependencies: {
+          a: { version: "1.0.0" },
+          b: { version: "file:../b" },
+          c: { version: "git+https://example.com/c.git#abc" },
+          d: { version: "github:user/d#abc" },
+          e: { version: "https://example.com/e.tgz" },
+          f: { version: "link:../f" },
+        },
+      }),
+    );
+    expect(names(parsed)).toEqual(["a@1.0.0"]);
+    expect(parsed.notes.join(" ")).toContain("5 dependencies from file:, link:, git");
   });
 });

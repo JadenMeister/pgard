@@ -14,8 +14,51 @@ interface Node {
   children: Node[];
 }
 
-const KEY_PATTERN =
-  /^( *)('(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|[^\s'"#\-?!&*|>%@`][^]*?|-[^\s][^]*?):(?:[ \t]+(.*))?$/;
+/**
+ * Longest line the reader looks at. pnpm lines are short (a few hundred characters; the longest
+ * are flow-style `resolution` maps), so anything longer is hostile or damaged: it is skipped and
+ * the file is reported as partial. Every scan below is linear in the line length.
+ */
+export const MAX_PNPM_LINE_LENGTH = 16_384;
+
+const NOT_A_KEY_START = "#?!&*|>%@`";
+
+/** Splits `key: value` with linear scans only (no backtracking patterns). */
+function splitMappingLine(body: string): { rawKey: string; rawValue: string } | null {
+  const first = body[0];
+  if (first === "'" || first === '"') {
+    let index = 1;
+    for (; index < body.length; index += 1) {
+      const char = body[index];
+      if (first === '"' && char === "\\") {
+        index += 1;
+        continue;
+      }
+      if (char === first) {
+        if (first === "'" && body[index + 1] === "'") {
+          index += 1;
+          continue;
+        }
+        break;
+      }
+    }
+    if (index >= body.length) return null;
+    const colon = body[index + 1];
+    if (colon !== ":") return null;
+    const next = body[index + 2];
+    if (next !== undefined && next !== " " && next !== "\t") return null;
+    return { rawKey: body.slice(0, index + 1), rawValue: body.slice(index + 2).trim() };
+  }
+  if (first === undefined || NOT_A_KEY_START.includes(first)) return null;
+  for (let at = body.indexOf(":"); at !== -1; at = body.indexOf(":", at + 1)) {
+    const next = body[at + 1];
+    if (next === undefined || next === " " || next === "\t") {
+      if (at === 0) return null;
+      return { rawKey: body.slice(0, at), rawValue: body.slice(at + 1).trim() };
+    }
+  }
+  return null;
+}
 
 function unquoteKey(raw: string): string {
   if (raw.startsWith("'") && raw.endsWith("'") && raw.length >= 2) {
@@ -34,42 +77,50 @@ function unquoteKey(raw: string): string {
 }
 
 function unquoteValue(raw: string): string {
-  const withoutComment = raw.replace(/\s+#.*$/, "").trim();
-  return unquoteKey(withoutComment);
+  const quoted = raw.startsWith("'") || raw.startsWith('"');
+  const comment = quoted ? -1 : raw.indexOf(" #");
+  return unquoteKey((comment === -1 ? raw : raw.slice(0, comment)).trim());
 }
 
 class UnsupportedYaml extends Error {}
 
-function parseDocument(lines: readonly string[]): Node {
+interface ParseState {
+  skippedLongLines: number;
+}
+
+function parseDocument(lines: readonly string[], state: ParseState): Node {
   const root: Node = { key: "", value: "", indent: -1, children: [] };
   const stack: Node[] = [root];
   let blockScalarIndent = -1;
-  for (const line of lines) {
-    if (line.trim() === "" || line.trimStart().startsWith("#")) continue;
-    const lineIndent = line.length - line.trimStart().length;
+  for (const rawLine of lines) {
+    if (rawLine.length > MAX_PNPM_LINE_LENGTH) {
+      state.skippedLongLines += 1;
+      continue;
+    }
+    const line = rawLine.trimEnd();
+    let indent = 0;
+    while (line[indent] === " ") indent += 1;
+    if (indent === line.length || line[indent] === "#") continue;
     if (blockScalarIndent !== -1) {
-      if (lineIndent > blockScalarIndent) continue; // body of a `|` / `>` scalar
+      if (indent > blockScalarIndent) continue; // body of a `|` / `>` scalar
       blockScalarIndent = -1;
     }
-    if (line.includes("\t") && line.slice(0, lineIndent).includes("\t")) {
-      throw new UnsupportedYaml("tab indentation");
-    }
-    const trimmed = line.trimStart();
-    if (trimmed.startsWith("- ") || trimmed === "-") continue; // list items carry no package keys
-    const match = KEY_PATTERN.exec(line);
-    if (match === null) throw new UnsupportedYaml("a line that is not a mapping entry");
-    const indent = (match[1] as string).length;
-    const rawValue = (match[3] ?? "").trim();
-    if (/^(?:[&*]\w|!)/.test(rawValue) || (match[2] as string).startsWith("<<")) {
+    if (line[indent] === "\t") throw new UnsupportedYaml("tab indentation");
+    const body = line.slice(indent);
+    if (body.startsWith("- ") || body === "-") continue; // list items carry no package keys
+    const split = splitMappingLine(body);
+    if (split === null) throw new UnsupportedYaml("a line that is not a mapping entry");
+    const { rawKey, rawValue } = split;
+    if (/^(?:[&*]\w|!)/.test(rawValue) || rawKey.startsWith("<<")) {
       throw new UnsupportedYaml("YAML tags, anchors or aliases");
     }
     const node: Node = {
-      key: unquoteKey(match[2] as string),
+      key: unquoteKey(rawKey),
       value: rawValue === "" ? "" : unquoteValue(rawValue),
       indent,
       children: [],
     };
-    if (/^[|>]/.test(rawValue)) {
+    if (rawValue.startsWith("|") || rawValue.startsWith(">")) {
       blockScalarIndent = indent;
       node.value = "";
     }
@@ -131,6 +182,7 @@ export function parsePnpmLock(text: string): ParsedLockfile {
   const found = new Map<string, { name: string; version: string; direct: boolean }>();
   let isComplete = true;
   let isTruncated = false;
+  const state: ParseState = { skippedLongLines: 0 };
   let sawVersion = false;
   let skipped = 0;
 
@@ -138,7 +190,7 @@ export function parsePnpmLock(text: string): ParsedLockfile {
     if (lines.every((line) => line.trim() === "" || line.trimStart().startsWith("#"))) continue;
     let root: Node;
     try {
-      root = parseDocument(lines);
+      root = parseDocument(lines, state);
     } catch (error) {
       isComplete = false;
       notes.push(
@@ -185,7 +237,14 @@ export function parsePnpmLock(text: string): ParsedLockfile {
     isComplete = false;
     notes.push("pnpm-lock.yaml has no lockfileVersion; the format was not recognised.");
   }
+  if (state.skippedLongLines > 0) {
+    isComplete = false;
+    notes.push(
+      `${state.skippedLongLines} line(s) longer than ${MAX_PNPM_LINE_LENGTH} characters were skipped; the file may be damaged.`,
+    );
+  }
   if (skipped > 0) {
+    isComplete = false; // their exact versions are unknown, so they were not checked
     notes.push(
       `${skipped} tarball, git or directory dependenc${skipped === 1 ? "y" : "ies"} without a registry version ${skipped === 1 ? "was" : "were"} not listed.`,
     );

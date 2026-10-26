@@ -2,7 +2,10 @@ import { constants } from "node:fs";
 import { open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory } from "@pgard/findings";
-import { SKIPPED_DEPENDENCY_DIRECTORIES, SKIPPED_DIRECTORIES } from "@pgard/source-analysis";
+import {
+  SKIPPED_DEPENDENCY_DIRECTORIES,
+  SKIPPED_DIRECTORIES,
+} from "@pgard/source-analysis/walk-rules";
 import { parseGoMod, parseGoSum } from "./lockfiles/go.js";
 import { parseNpmLock } from "./lockfiles/npm.js";
 import { parsePnpmLock } from "./lockfiles/pnpm.js";
@@ -110,8 +113,9 @@ async function discover(root: string): Promise<Discovered> {
         result.lockfiles.push({ ...found, kind });
       } else if (UNSUPPORTED.has(entry.name)) {
         result.unsupported.push({ ...found, label: UNSUPPORTED.get(entry.name) as string });
-      } else if (entry.name === "package.json" && result.manifests.length < MAX_MANIFESTS) {
-        result.manifests.push(found);
+      } else if (entry.name === "package.json") {
+        if (result.manifests.length < MAX_MANIFESTS) result.manifests.push(found);
+        else result.isTruncated = true; // later manifests are not examined
       }
     }
   }
@@ -186,10 +190,22 @@ export async function collectDependencies(root: string): Promise<DependencyColle
   const manifestNames = new Map<string, Set<string>>();
   for (const manifest of found.manifests) {
     const read = await readCapped(manifest.absolutePath, MAX_MANIFEST_BYTES);
-    if ("text" in read) {
-      const names = manifestDependencyNames(read.text);
-      if (names !== null) manifestNames.set(dirOf(manifest.relativePath), names);
+    const names = "text" in read ? manifestDependencyNames(read.text) : null;
+    if (names !== null) {
+      manifestNames.set(dirOf(manifest.relativePath), names);
+      continue;
     }
+    // A manifest that cannot be read cannot be shown to have no dependencies.
+    coverage.push({
+      path: manifest.relativePath,
+      kind: "package.json",
+      status: "error" in read && read.error === "too-large" ? "too-large" : "failed",
+      dependencyCount: 0,
+      note:
+        "error" in read && read.error === "too-large"
+          ? `Larger than ${MAX_MANIFEST_BYTES / (1024 * 1024)} MiB; not read, so its dependencies were not checked.`
+          : "Could not be read or is not a valid package.json; its dependencies were not checked.",
+    });
   }
 
   const goSumByDir = new Map(

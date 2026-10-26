@@ -78,4 +78,15 @@ describe("pgard advisories update", () => {
     const deps = createTestDeps(); // updateAdvisories throws if called
     expect(await main(["doctor"], captured.io, { deps, interrupts: noInterrupts })).toBe(0);
   });
+
+  it("refuses with a clear message when there is no home directory", async () => {
+    const captured = createTestIo();
+    const code = await main(["advisories", "update"], captured.io, {
+      deps: createTestDeps({ appDataDir: null }),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(4);
+    expect(captured.stderr()).toContain("No home directory was found");
+    expect(captured.stderr()).toContain("Nothing was downloaded");
+  });
 });

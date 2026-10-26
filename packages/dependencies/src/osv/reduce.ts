@@ -50,7 +50,8 @@ export function reduceAdvisory(raw: unknown, ecosystem: Ecosystem): ReducedAdvis
       const events: Record<string, string>[] = [];
       for (const event of Array.isArray(range["events"]) ? range["events"] : []) {
         if (!isObject(event)) continue;
-        const kept: Record<string, string> = {};
+        // No prototype: an event key such as `__proto__` stays a plain own property.
+        const kept: Record<string, string> = Object.create(null) as Record<string, string>;
         for (const [key, value] of Object.entries(event)) {
           if (typeof value === "string") kept[key] = value;
         }

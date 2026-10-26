@@ -18,10 +18,12 @@ export function osvArchiveUrl(ecosystem: Ecosystem): string {
 
 export const MAX_ARCHIVE_BYTES = 1024 * 1024 * 1024;
 export const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000;
+/** Longest silence between two body chunks before the download is given up. */
+export const IDLE_TIMEOUT_MS = 60 * 1000;
 const MAX_REDIRECTS = 3;
 
 export class DownloadError extends Error {
-  readonly code: "host" | "scheme" | "redirect" | "http" | "size" | "timeout" | "network";
+  readonly code: "host" | "scheme" | "redirect" | "http" | "size" | "timeout" | "network" | "disk";
   constructor(code: DownloadError["code"], message: string) {
     super(message);
     this.name = "DownloadError";
@@ -34,6 +36,7 @@ export interface DownloadOptions {
   signal?: AbortSignal;
   maxBytes?: number;
   timeoutMs?: number;
+  idleTimeoutMs?: number;
   allowedHosts?: readonly string[];
   onProgress?: (receivedBytes: number, totalBytes: number | null) => void;
 }
@@ -108,26 +111,58 @@ export async function downloadToFile(
 
     const hash = createHash("sha256");
     const file = createWriteStream(destination, { flags: "wx", mode: 0o600 });
+    // One listener for the stream's whole life: a disk error (ENOENT, ENOSPC, EACCES) must end the
+    // download instead of leaving a read or a drain wait hanging.
+    let diskError: DownloadError | null = null;
+    const diskFailed = new Promise<never>((_resolve, reject) => {
+      file.on("error", () => {
+        diskError = new DownloadError(
+          "disk",
+          "Could not write the download (disk error or no space).",
+        );
+        reject(diskError);
+      });
+    });
+    diskFailed.catch(() => undefined);
+    const idleMs = options.idleTimeoutMs ?? IDLE_TIMEOUT_MS;
     let received = 0;
+    const reader = response.body.getReader();
     try {
-      const reader = response.body.getReader();
       for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        let idleTimer: NodeJS.Timeout | undefined;
+        const idle = new Promise<never>((_resolve, reject) => {
+          idleTimer = setTimeout(
+            () => reject(new DownloadError("timeout", "The server stopped sending data.")),
+            idleMs,
+          );
+        });
+        let chunk;
+        try {
+          chunk = await Promise.race([reader.read(), diskFailed, idle]);
+        } finally {
+          clearTimeout(idleTimer);
+        }
+        if (chunk.done) break;
+        const value = chunk.value;
         received += value.byteLength;
         if (received > maxBytes) {
-          await reader.cancel().catch(() => undefined);
           throw new DownloadError("size", "The archive is larger than the allowed size.");
         }
         hash.update(value);
         if (!file.write(value)) {
-          await once(file, "drain");
+          await Promise.race([once(file, "drain"), diskFailed]);
         }
         options.onProgress?.(received, declaredLength);
       }
-    } finally {
-      await new Promise<void>((resolve) => file.end(resolve));
+      if (!file.destroyed) {
+        await Promise.race([new Promise<void>((resolve) => file.end(resolve)), diskFailed]);
+      }
+    } catch (error) {
+      await reader.cancel().catch(() => undefined);
+      file.destroy();
+      throw error;
     }
+    if (diskError !== null) throw diskError;
     if (declaredLength !== null && received !== declaredLength) {
       throw new DownloadError("network", "The download ended before the announced size.");
     }

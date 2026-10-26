@@ -140,3 +140,37 @@ describe("collectDependencies", () => {
     expect(result.coverage.map((c) => c.path)).toEqual(["big/package-lock.json", "real/yarn.lock"]);
   });
 });
+
+describe("collectDependencies limits and unreadable manifests", () => {
+  it("sets isTruncated when there are more lockfiles than the limit", async () => {
+    for (let index = 0; index < 205; index += 1) {
+      await put(`m${String(index).padStart(3, "0")}/go.sum`, "github.com/a/b v1.0.0 h1:x=\n");
+    }
+    const result = await collectDependencies(root);
+    expect(result.isTruncated).toBe(true);
+    expect(result.coverage).toHaveLength(200);
+  });
+
+  it("sets isTruncated when there are more package.json files than the limit", async () => {
+    for (let index = 0; index < 1005; index += 1) {
+      await put(`p${index}/package.json`, "{}");
+    }
+    expect((await collectDependencies(root)).isTruncated).toBe(true);
+  });
+
+  it("gives a coverage line to package.json files that are malformed, oversized or unreadable", async () => {
+    await put("bad/package.json", "{ not json");
+    await put("big/package.json", `{"name":"${"x".repeat(1_100_000)}"}`);
+    await put("arr/package.json", "[1]");
+    await put("ok/package.json", '{"name":"fine"}');
+    const result = await collectDependencies(root);
+    const byPath = new Map(result.coverage.map((c) => [c.path, c]));
+    expect(byPath.get("bad/package.json")).toMatchObject({
+      kind: "package.json",
+      status: "failed",
+    });
+    expect(byPath.get("arr/package.json")?.status).toBe("failed");
+    expect(byPath.get("big/package.json")).toMatchObject({ status: "too-large" });
+    expect(byPath.has("ok/package.json")).toBe(false);
+  });
+});

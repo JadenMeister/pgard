@@ -9,6 +9,11 @@
       "source": "./src/index.ts",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./walk-rules": {
+      "source": "./src/walk-rules.ts",
+      "types": "./dist/walk-rules.d.ts",
+      "default": "./dist/walk-rules.js"
     }
   },
   "files": [

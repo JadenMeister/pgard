@@ -55,7 +55,7 @@ export async function readCentralDirectory(
   handle: FileHandle,
   fileSize: number,
   limits: ZipLimits = DEFAULT_ZIP_LIMITS,
-): Promise<CentralEntry[]> {
+): Promise<{ entries: CentralEntry[]; directoryOffset: number }> {
   if (fileSize < 22) throw new ZipError("Not a zip archive (too small).");
   const tailLength = Math.min(fileSize, 22 + 65535);
   const tail = await readAt(handle, fileSize - tailLength, tailLength);
@@ -137,7 +137,7 @@ export async function readCentralDirectory(
     entries.push({ name, method, crc, compressedSize, size, localOffset });
     position = next;
   }
-  return entries;
+  return { entries, directoryOffset };
 }
 
 export interface ZipEntryContent {
@@ -158,22 +158,46 @@ export async function forEachZipEntry(
   const handle = await open(filePath, "r");
   try {
     const { size: fileSize } = await handle.stat();
-    const entries = await readCentralDirectory(handle, fileSize, limits);
-    let totalBytes = 0;
-    for (const entry of entries) {
-      if (entry.name.endsWith("/")) continue; // directory marker
+    const { entries, directoryOffset } = await readCentralDirectory(handle, fileSize, limits);
+    // Every entry's local header and data must be a disjoint range before the central directory,
+    // so the sum of compressed sizes can never exceed the file and nothing is read twice.
+    const files = entries.filter((entry) => !entry.name.endsWith("/")); // skip directory markers
+    const names = new Set<string>();
+    for (const entry of files) {
       if (!ENTRY_NAME.test(entry.name))
         throw new ZipError("The archive has an unexpected entry name.");
+      if (names.has(entry.name)) throw new ZipError("The archive repeats an entry name.");
+      names.add(entry.name);
       if (entry.size > limits.maxEntryBytes) throw new ZipError("An entry is larger than allowed.");
+      if (entry.compressedSize > limits.maxEntryBytes)
+        throw new ZipError("An entry is larger than allowed.");
+    }
+    files.sort((left, right) => left.localOffset - right.localOffset);
+    let totalBytes = 0;
+    let previousEnd = 0;
+    for (const entry of files) {
       totalBytes += entry.size;
       if (totalBytes > limits.maxTotalBytes)
         throw new ZipError("The archive expands to too much data.");
-      if (entry.localOffset + 30 > fileSize) throw new ZipError("An entry is out of range.");
-      const local = await readAt(handle, entry.localOffset, 30);
+      const nameBytes = Buffer.from(entry.name, "utf8");
+      const headerLength = 30 + nameBytes.length;
+      if (entry.localOffset < previousEnd || entry.localOffset + headerLength > directoryOffset)
+        throw new ZipError("An entry overlaps another or is out of range.");
+      const local = await readAt(handle, entry.localOffset, headerLength);
       if (local.readUInt32LE(0) !== 0x04034b50) throw new ZipError("A local header is damaged.");
-      const dataStart = entry.localOffset + 30 + local.readUInt16LE(26) + local.readUInt16LE(28);
-      if (dataStart + entry.compressedSize > fileSize)
-        throw new ZipError("An entry is out of range.");
+      if (
+        local.readUInt16LE(8) !== entry.method ||
+        local.readUInt16LE(26) !== nameBytes.length ||
+        !local.subarray(30).equals(nameBytes)
+      ) {
+        throw new ZipError("A local header does not match the central directory.");
+      }
+      const extraLength = local.readUInt16LE(28);
+      const dataStart = entry.localOffset + headerLength + extraLength;
+      const dataEnd = dataStart + entry.compressedSize;
+      if (dataEnd > directoryOffset)
+        throw new ZipError("An entry overlaps another or is out of range.");
+      previousEnd = dataEnd;
       const stored = await readAt(handle, dataStart, entry.compressedSize);
       let data: Buffer;
       if (entry.method === 0) {
@@ -191,7 +215,7 @@ export async function forEachZipEntry(
       if (crc32(data) !== entry.crc) throw new ZipError("An entry failed its checksum.");
       await visit({ name: entry.name, data });
     }
-    return { entryCount: entries.length, totalBytes };
+    return { entryCount: files.length, totalBytes };
   } finally {
     await handle.close();
   }

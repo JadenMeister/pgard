@@ -125,6 +125,7 @@ export function parseNpmLock(text: string): ParsedLockfile {
     notes.push(
       "package-lock.json is the old v1 format: direct and transitive dependencies are not distinguished.",
     );
+    let nonRegistry = 0;
     const walk = (tree: Json, depth: number): void => {
       if (depth > 100) {
         isComplete = false;
@@ -133,17 +134,20 @@ export function parseNpmLock(text: string): ParsedLockfile {
       for (const [name, value] of Object.entries(tree)) {
         if (!isObject(value)) continue;
         const version = value["version"];
-        if (
-          typeof version === "string" &&
-          version !== "" &&
-          !/^(file|link|git|github):/.test(version)
-        ) {
+        if (typeof version === "string" && /^\d/.test(version)) {
           add(name, version, undefined);
+        } else {
+          nonRegistry += 1; // file:, link:, git+..., github:, tarball URLs or missing
         }
         if (isObject(value["dependencies"])) walk(value["dependencies"], depth + 1);
       }
     };
     walk(root["dependencies"], 0);
+    if (nonRegistry > 0) {
+      notes.push(
+        `${nonRegistry} dependenc${nonRegistry === 1 ? "y" : "ies"} from file:, link:, git, github or tarball sources have no registry version and ${nonRegistry === 1 ? "was" : "were"} not listed.`,
+      );
+    }
   } else {
     return {
       dependencies: [],

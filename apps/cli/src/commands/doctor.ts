@@ -132,9 +132,18 @@ async function describeStoredSignIn(
 /** Age of the downloaded OSV data, from local metadata only (no network). */
 async function describeAdvisoryData(context: CommandContext): Promise<DoctorCheck> {
   const label = "Advisory data (OSV)";
+  const appDataDir = context.deps.appDataDir;
+  if (appDataDir === null) {
+    return {
+      label,
+      isOk: false,
+      detail: "no home directory found, so there is nowhere to store it",
+      isRequired: false,
+    };
+  }
   let status;
   try {
-    status = await context.deps.readAdvisoryStatus(context.deps.appDataDir, context.deps.now());
+    status = await context.deps.readAdvisoryStatus(appDataDir, context.deps.now());
   } catch {
     return { label, isOk: false, detail: "could not be read", isRequired: false };
   }
