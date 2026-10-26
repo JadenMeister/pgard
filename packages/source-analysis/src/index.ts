@@ -1,4 +1,10 @@
-export { CONFIG_BUDGET_NOTE, scanSourceCode, type SourceScanOptions } from "./scan-source.js";
+export {
+  CONFIG_BUDGET_NOTE,
+  scanSourceCode,
+  type SourceScanOptions,
+  type SourceScanOutput,
+} from "./scan-source.js";
+export { GRAMMAR_SHA256 } from "./tree-sitter/languages.js";
 export {
   SOURCE_RULES,
   listSourceRules,

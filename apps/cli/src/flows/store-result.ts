@@ -1,4 +1,9 @@
-import { compareScans, type RuleLocale, type ScanResult } from "@pgard/findings";
+import {
+  compareScans,
+  type IncrementalState,
+  type RuleLocale,
+  type ScanResult,
+} from "@pgard/findings";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
 import { isAuthorizationAllowed } from "@pgard/scan-core";
 import { err, out, type CommandContext } from "../context.js";
@@ -91,6 +96,8 @@ export async function storeScanResult(
   isJson = false,
   /** Already read by `loadPreviousScan` (text mode shows the comparison in the summary). */
   preloaded?: PreviousScan | null,
+  /** What the next scan can reuse (see `createIncrementalHandle`); stored with the result. */
+  incrementalState?: IncrementalState | null,
 ): Promise<void> {
   const target = storeFor(context, result, outcome, noStoreFlag);
   if (target === null) return;
@@ -105,7 +112,7 @@ export async function storeScanResult(
       preloaded === undefined
         ? await findPreviousScan(store, repositoryId, result.scanId).catch(() => null)
         : preloaded;
-    const saved = await store.save(result, { repositoryId, forbidSubstrings });
+    const saved = await store.save(result, { repositoryId, forbidSubstrings, incrementalState });
     if (saved.ok) {
       // Only after a successful save, and on stderr, so stdout (including any JSON) is untouched.
       if (await store.claimFirstRunNotice()) {

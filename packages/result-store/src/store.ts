@@ -13,8 +13,10 @@ import {
 import path from "node:path";
 import {
   AUTHORIZATION_CHECK_IDS,
+  readIncrementalState,
   readScanResult,
   SCHEMA_VERSION,
+  type IncrementalState,
   type ScanResult,
 } from "@pgard/findings";
 
@@ -85,6 +87,12 @@ export interface SaveOptions {
    * root). A defence in depth behind redaction: the save is refused instead.
    */
   forbidSubstrings?: readonly string[];
+  /**
+   * What a later incremental scan needs (per-file hashes and findings). Stored in the same file
+   * as the result, so it can never belong to another scan. It is left out, and the result is
+   * still saved, when it holds a forbidden string or would make the file too large.
+   */
+  incrementalState?: IncrementalState | null;
 }
 
 export type SaveOutcome =
@@ -97,6 +105,8 @@ export interface StoredScan {
   result: ScanResult;
   /** The `schemaVersion` the file carried (may be a newer minor). */
   sourceVersion: string;
+  /** The incremental state stored with the result; null when there is none or it is unreadable. */
+  incrementalState: IncrementalState | null;
 }
 
 /** The reference scan of a repository. */
@@ -358,11 +368,19 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       throw new StoreFailure("invalid_input", `${outcome.error.code}: ${outcome.error.message}`);
     }
     const match = RESULT_FILE_PATTERN.exec(file);
+    const stateDescriptor =
+      typeof parsed === "object" && parsed !== null
+        ? Object.getOwnPropertyDescriptor(parsed, "incrementalState")
+        : undefined;
     return {
       file,
       savedAt: new Date(Number(match?.[1] ?? 0)),
       result: outcome.result,
       sourceVersion: outcome.sourceVersion,
+      incrementalState:
+        stateDescriptor !== undefined && "value" in stateDescriptor
+          ? readIncrementalState(stateDescriptor.value)
+          : null,
     };
   }
 
@@ -550,17 +568,33 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
             `The result is not valid: ${checked.error.code}.`,
           );
         }
-        const text = `${JSON.stringify(checked.result)}\n`;
-        for (const forbidden of saveOptions.forbidSubstrings ?? []) {
-          // The file holds JSON text, where a backslash is written twice (Windows paths): check
-          // the raw form and the escaped form.
-          const escaped = JSON.stringify(forbidden).slice(1, -1);
-          if (forbidden !== "" && (text.includes(forbidden) || text.includes(escaped))) {
-            throw new StoreFailure("contains_local_path", "The result contains a local path.");
-          }
+        let text = `${JSON.stringify(checked.result)}\n`;
+        const containsForbidden = (body: string): boolean =>
+          (saveOptions.forbidSubstrings ?? []).some((forbidden) => {
+            // The file holds JSON text, where a backslash is written twice (Windows paths):
+            // check the raw form and the escaped form.
+            const escaped = JSON.stringify(forbidden).slice(1, -1);
+            return forbidden !== "" && (body.includes(forbidden) || body.includes(escaped));
+          });
+        if (containsForbidden(text)) {
+          throw new StoreFailure("contains_local_path", "The result contains a local path.");
         }
         if (Buffer.byteLength(text, "utf8") > MAX_RESULT_FILE_BYTES) {
           throw new StoreFailure("too_large", "The result is too large to store.");
+        }
+        // The state is an optimization: when it does not fit or does not pass the same checks,
+        // the result is stored without it and the next scan is a full one.
+        const state = saveOptions.incrementalState
+          ? readIncrementalState(JSON.parse(JSON.stringify(saveOptions.incrementalState)))
+          : null;
+        if (state !== null) {
+          const withState = `${JSON.stringify({ ...checked.result, incrementalState: state })}\n`;
+          if (
+            Buffer.byteLength(withState, "utf8") <= MAX_RESULT_FILE_BYTES &&
+            !containsForbidden(withState)
+          ) {
+            text = withState;
+          }
         }
         const dir = await ensureRepoDirectory(saveOptions.repositoryId);
         const file = fileNameFor(checked.result, now());

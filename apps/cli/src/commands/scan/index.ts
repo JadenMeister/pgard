@@ -29,6 +29,7 @@ import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-ins
 import { getRuleTextCatalog } from "../../rule-texts.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
 import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
+import { createIncrementalHandle } from "../../flows/incremental.js";
 import { loadPreviousScan, scanDiffOf, storeScanResult } from "../../flows/store-result.js";
 import type { OutputFormat, ReportRequest, ScanVariant } from "../../options.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
@@ -56,6 +57,8 @@ export interface ScanCommand {
   allFindings?: boolean;
   /** `--no-store`. */
   noStore?: boolean;
+  /** `--full`: scan everything again instead of building on the last stored scan. */
+  full?: boolean;
   /** `pgard baseline set --from-current`: after the scan, store it as the baseline. */
   setBaseline?: boolean;
 }
@@ -266,6 +269,11 @@ async function runScanFlow(
     err(context, context.errStyle.dim(text.progress.scanning(scopes.join(", "))));
     suspendKeys(context);
     let outcome: AuthorizationOutcome | null = null;
+    // Web checks are always live; the local scopes build on the last stored scan when they can.
+    const incremental = createIncrementalHandle(context, {
+      noStore: command.noStore === true,
+      full: command.full === true,
+    });
     try {
       const scanned = await context.deps.runScan(
         { projectRoot, scopes, webTarget },
@@ -275,6 +283,7 @@ async function runScanFlow(
           webRules: WEB_RULE_LIST,
           signal: context.signal,
           env: context.io.env,
+          incremental: incremental.dependencies,
           onAuthorization: (received) => {
             outcome = received;
           },
@@ -293,7 +302,7 @@ async function runScanFlow(
         finished,
         command.noStore === true,
       );
-      return { result: withBaseline, outcome: finished };
+      return { result: withBaseline, outcome: finished, state: incremental.takeState() };
     } catch (error) {
       if (error instanceof ScanCancelledError) throw new UserCancelledError();
       if (error instanceof ScanRequestError) {
@@ -342,6 +351,7 @@ async function runScanFlow(
     command.noStore === true,
     isJson,
     isJson ? undefined : previous,
+    scanned.state,
   );
   let isBaselineSaved = true;
   if (command.setBaseline === true) {

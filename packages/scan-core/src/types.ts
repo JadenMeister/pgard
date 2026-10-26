@@ -1,10 +1,13 @@
 import type {
   AnalyzerOutput,
+  CachedSourceFile,
   ConfirmedWebTarget,
   ProjectConfig,
   RuleMetadata,
 } from "@pgard/findings";
+import type { HistoryIncrementalBase, HistoryScanMode } from "@pgard/git-history";
 import type { AuthorizationDependencies, AuthorizationOutcome } from "@pgard/policy";
+import type { IncrementalDependencies } from "./incremental.js";
 
 export interface WebScanProgress {
   pagesVisited: number;
@@ -54,9 +57,27 @@ export interface AnalyzerContext {
    * file is ignored as a whole, never partly applied).
    */
   projectConfig: ProjectConfig | null;
+  /**
+   * Results of an earlier scan the code analyzer may reuse for files whose content did not
+   * change (null or absent: analyze every file).
+   */
+  sourceReuse?: { files: ReadonlyMap<string, CachedSourceFile>; label: string } | null;
+  /** What the history analyzer may carry over from an earlier scan (absent: scan all history). */
+  historyIncremental?: HistoryIncrementalBase | null;
 }
 
-export type LocalAnalyzerOutput = AnalyzerOutput;
+/**
+ * What a local analyzer returns. The extra fields are optional: the built-in analyzers report
+ * what they reused so the scan can say so, and an injected analyzer may leave them out.
+ */
+export type LocalAnalyzerOutput = AnalyzerOutput & {
+  /** Per-file results for the next scan (code scope). */
+  sourceCache?: CachedSourceFile[];
+  /** Files analyzed now and files reused (code scope). */
+  sourceReuse?: { rescanned: number; reused: number };
+  /** How the history area was scanned (history scope). */
+  history?: HistoryScanMode;
+};
 
 /** A local analyzer for one scope. Must be read-only and never execute project code. */
 export type LocalAnalyzer = (context: AnalyzerContext) => Promise<LocalAnalyzerOutput>;
@@ -84,6 +105,11 @@ export interface ScanDependencies {
   env?: Readonly<Record<string, string | undefined>>;
   now?: () => Date;
   createScanId?: () => string;
+  /**
+   * Incremental scans (JSON v1.2 `incremental`). Absent: every scan is a full one and the result
+   * has no `incremental` field.
+   */
+  incremental?: IncrementalDependencies;
   /** Replaces built-in local analyzers (tests). Authorization still applies. */
   analyzers?: Partial<Record<"code" | "history", LocalAnalyzer>>;
 }

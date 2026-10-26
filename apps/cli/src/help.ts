@@ -17,6 +17,11 @@ const NO_STORE_HELP = `  --no-store               do not keep this scan's result
                            (same as PGARD_NO_STORE=1); the baseline is then
                            neither read nor applied`;
 
+const FULL_HELP = `  --full                   scan everything again; by default code and history
+                           build on this repository's last stored scan and only
+                           look at what changed (the result says which; web
+                           checks are always live)`;
+
 const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output-dir)
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
@@ -114,6 +119,7 @@ ${REPORT_HELP}
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)
 ${NO_STORE_HELP}
+${FULL_HELP}
 ${NO_BROWSER_HELP}
 
 A finished scan of a repository the gate allowed is stored in this computer's

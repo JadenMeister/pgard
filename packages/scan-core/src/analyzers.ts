@@ -11,12 +11,20 @@ const analyzeCode: LocalAnalyzer = (context) =>
   scanSourceCode(context.projectRoot, {
     ...(context.signal ? { signal: context.signal } : {}),
     projectConfig: context.projectConfig,
-  });
+    ...(context.sourceReuse ? { reuse: context.sourceReuse } : {}),
+  }).then((output) => ({
+    findings: output.findings,
+    coverage: output.coverage,
+    ruleStats: output.ruleStats ?? [],
+    sourceCache: output.fileCache,
+    sourceReuse: output.reuse,
+  }));
 
 /** `history` scope: committed .env files and secrets in tracked files and recent history. */
 const analyzeHistory: LocalAnalyzer = async (context) => {
   const output = await scanGitHistory(context.projectRoot, {
     revision: context.revision,
+    ...(context.historyIncremental ? { incremental: context.historyIncremental } : {}),
     ...(context.signal ? { signal: context.signal } : {}),
   });
   const patterns = context.projectConfig?.exclude ?? [];

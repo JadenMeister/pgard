@@ -6,6 +6,7 @@ import {
   FINDING_CATEGORIES,
   FINDING_CONTEXTS,
   FINDING_STATUSES,
+  INCREMENTAL_FULL_REASONS,
   SUPPRESSION_STATES,
   LOCATION_KINDS,
   OVERALL_STATUSES,
@@ -23,6 +24,8 @@ import {
   type FindingLocation,
   type FindingReferences,
   type FindingSuppression,
+  type IncrementalAreaInfo,
+  type IncrementalInfo,
   type RuleStat,
   type RuleTargetCount,
   type StandardBreadth,
@@ -105,6 +108,7 @@ export const READER_KEYS = {
     baseline: true,
     ruleStats: true,
     standardsCoverage: true,
+    incremental: true,
   } satisfies Record<keyof ScanResult, true>,
   finding: {
     id: true,
@@ -322,6 +326,60 @@ function readRuleStat(value: unknown, path: string): RuleStat {
     targets: list(field(o, "targets"), `${path}.targets`, READ_LIMITS.list, readRuleTarget),
     findings: count(field(o, "findings"), `${path}.findings`),
   };
+}
+
+function nullableCount(value: unknown, path: string): number | null {
+  return value === null ? null : count(value, path);
+}
+
+function nullableReason(value: unknown, path: string): IncrementalAreaInfo["reason"] {
+  return value === null ? null : oneOf(value, INCREMENTAL_FULL_REASONS, path);
+}
+
+function readIncrementalArea(value: unknown, path: string): IncrementalAreaInfo | null {
+  if (value === null) return null;
+  const o = object(value, path);
+  return {
+    mode: oneOf(field(o, "mode"), ["incremental", "full"] as const, `${path}.mode`),
+    reason: nullableReason(field(o, "reason"), `${path}.reason`),
+  };
+}
+
+function readIncrementalInfo(value: unknown): IncrementalInfo {
+  const o = object(value, "incremental");
+  const basedOnValue = field(o, "basedOn");
+  let basedOn: IncrementalInfo["basedOn"] = null;
+  if (basedOnValue !== null) {
+    const b = object(basedOnValue, "incremental.basedOn");
+    basedOn = {
+      scanId: str(field(b, "scanId"), "incremental.basedOn.scanId"),
+      revision: nullableStr(field(b, "revision"), "incremental.basedOn.revision"),
+    };
+  }
+  return {
+    used: bool(field(o, "used"), "incremental.used"),
+    reason: nullableReason(field(o, "reason"), "incremental.reason"),
+    basedOn,
+    filesRescanned: nullableCount(field(o, "filesRescanned"), "incremental.filesRescanned"),
+    filesReused: nullableCount(field(o, "filesReused"), "incremental.filesReused"),
+    commitsScanned: nullableCount(field(o, "commitsScanned"), "incremental.commitsScanned"),
+    commitsReused: nullableCount(field(o, "commitsReused"), "incremental.commitsReused"),
+    code: readIncrementalArea(field(o, "code"), "incremental.code"),
+    history: readIncrementalArea(field(o, "history"), "incremental.history"),
+  };
+}
+
+/**
+ * Validates a list of findings with the same checks as a result's findings (used for the cached
+ * findings of an incremental state). `null` when anything is wrong; never throws.
+ */
+export function readFindingList(input: unknown): Finding[] | null {
+  budget = READ_LIMITS.entries;
+  try {
+    return list(input, "findings", READ_LIMITS.findings, readFinding);
+  } catch {
+    return null;
+  }
 }
 
 function readStandardEntry(value: unknown, path: string): StandardCoverageEntry {
@@ -566,6 +624,9 @@ function parse(input: unknown): ReadScanResultOutcome {
   }
   const standards = field(input, "standardsCoverage");
   if (standards !== undefined) result.standardsCoverage = readStandardsCoverage(standards);
+  // Added in 1.2: absent in older results.
+  const incremental = field(input, "incremental");
+  if (incremental !== undefined) result.incremental = readIncrementalInfo(incremental);
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {

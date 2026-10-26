@@ -127,6 +127,14 @@ export function formatSummaryBlock(
   if (files !== null || commits !== null || pages !== null) {
     rows.push([t.summaryLabels.target, t.targetValue({ files, commits, pages }), true]);
   }
+  const incremental = result.incremental;
+  if (incremental !== undefined) {
+    if (incremental.used) {
+      rows.push([t.summaryLabels.incremental, t.incrementalValue(incremental), true]);
+    } else if (incremental.reason !== null) {
+      rows.push([t.summaryLabels.fullScan, t.fullScanReason[incremental.reason], true]);
+    }
+  }
   const elapsed = elapsedMilliseconds(result);
   if (elapsed !== null) rows.push([t.summaryLabels.elapsed, t.elapsedValue(elapsed), true]);
   if (diff !== null) {

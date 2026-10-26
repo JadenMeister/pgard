@@ -71,3 +71,19 @@ export {
   type StoredSignInStatus,
 } from "@pgard/github-auth";
 export { findGitRoot, resolveGitExecutable } from "@pgard/git-history";
+export {
+  ANALYZER_REVISION,
+  blockingCoverage,
+  computeAnalysisKey,
+  planIncremental,
+  type IncrementalBase,
+  type IncrementalBaseLoad,
+  type IncrementalDependencies,
+  type IncrementalPlan,
+} from "./incremental.js";
+export {
+  RULE_LOCALITY,
+  unclassifiedRules,
+  type RuleLocality,
+  type RuleLocalityEntry,
+} from "./rule-locality.js";
