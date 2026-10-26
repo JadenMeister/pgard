@@ -1,6 +1,6 @@
 # PGARD Implementation, Commit, and Code Conventions
 
-> **Note:** This document is the MVP planning record and a translation of the Korean original ([PGARD_DEVELOPMENT_CONVENTIONS_KO.md](PGARD_DEVELOPMENT_CONVENTIONS_KO.md)), which remains the authoritative record. The current behaviour is described in the [README](../README.md) ([한국어](../README.ko.md)); where they differ, the README is correct.
+> **Note:** This document is the MVP planning record and a translation of the Korean original ([PGARD_DEVELOPMENT_CONVENTIONS_KO.md](PGARD_DEVELOPMENT_CONVENTIONS_KO.md)), which remains the authoritative record. The current behaviour is described in the [README](../README.md) ([한국어](../README.ko.md)); where they differ, the README is correct. Section 8 (issues, board and review) is the current post-MVP workflow.
 
 **Status:** Proposal for starting implementation. The product/CLI name `pgard`, local execution, permissions, and scan scope are already agreed. TypeScript/Node.js/React is still only the recommended stack, so if the final language changes, adjust only the syntax-related rules to the new language. This document is the working standard that the agents share before writing code in the actual Git repository.
 
@@ -103,7 +103,7 @@ Each owner reports to the lead, for the boundary they own, **what was changed**,
 
 ## 8. Issues, Board and Review Workflow (current, post-MVP)
 
-This section describes the rules actually used after the MVP. Where it differs from the planning record above, this section is correct.
+This section describes the rules actually used after the MVP. Where it differs from the planning record above (in particular issue linking in section 2 and the review and reporting flow in section 3), this section is correct.
 
 ### Issues
 
@@ -114,6 +114,7 @@ This section describes the rules actually used after the MVP. Where it differs f
   - exactly one `type:feature|bug|security|limitation|docs|chore`
   - one or more `area:<package>`: `area:findings`, `area:policy`, `area:scan-core`, `area:git-history`, `area:github-auth`, `area:source-analysis`, `area:http-local`, `area:report`, `area:cli`, `area:local-web`, `area:repo`
   - one `priority:p1|p2|p3`
+  - bug issues also get one `severity:blocker|major|minor|nit`, using the same scale as review findings below.
   - status labels only when needed: `status:deferred` for postponed work and `status:needs-decision` for work waiting on a decision.
 - Review findings that are not fixed in the PR become follow-up issues. Small ones may be grouped into one issue.
 
@@ -132,8 +133,8 @@ This section describes the rules actually used after the MVP. Where it differs f
 - Findings are classified by severity.
   - **blocker / major** block the merge. They are fixed in the same PR and checked again. Examples: bypassing a security or authorization gate, missing results or a false "safe", exposing secrets, wrong standards or licence statements, CI failures.
   - **minor / nit** do not block the merge. Fold them into the same PR where practical; otherwise leave a follow-up issue.
-- main is protected. A PR must pass the required CI check `check`. A branch behind main is updated with the latest main first.
-- Merge with a merge commit (`gh pr merge --merge`). Squash merges are not used.
+- main is protected. Changes reach main only through a PR, which must pass the required CI check `check`. A branch behind main is updated with the latest main first.
+- Merge with a merge commit (`gh pr merge --merge`). Squash and rebase merges are not used.
 - A change that relaxes the authorization policy is not merged without an explicit decision by the maintainer, whatever the review says.
 
 ### Commit and PR attribution

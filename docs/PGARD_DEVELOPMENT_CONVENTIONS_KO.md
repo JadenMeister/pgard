@@ -1,6 +1,6 @@
 # PGARD 구현·커밋·코드 컨벤션
 
-> **참고:** 이 문서는 MVP 기획 기록입니다. 현재 동작은 [README.ko.md](../README.ko.md)([English](../README.md))가 설명하며, 내용이 다르면 README가 맞습니다. 이 문서의 영어 번역: [PGARD_DEVELOPMENT_CONVENTIONS_EN.md](PGARD_DEVELOPMENT_CONVENTIONS_EN.md).
+> **참고:** 이 문서는 MVP 기획 기록입니다. 현재 동작은 [README.ko.md](../README.ko.md)([English](../README.md))가 설명하며, 내용이 다르면 README가 맞습니다. 단, 8절(이슈·보드·리뷰 운영)은 MVP 이후 현행 규칙입니다. 이 문서의 영어 번역: [PGARD_DEVELOPMENT_CONVENTIONS_EN.md](PGARD_DEVELOPMENT_CONVENTIONS_EN.md).
 
 **상태:** 구현 착수용 제안. `pgard`라는 제품/CLI 이름과 로컬 실행·권한·검사 범위는 기존 합의 사항이다. TypeScript/Node.js/React는 아직 추천 스택이므로 최종 언어가 바뀌면 문법 관련 규칙만 해당 언어에 맞게 조정한다. 이 문서는 실제 Git 저장소에 코드를 작성하기 전 에이전트들이 공유할 작업 기준이다.
 
@@ -103,7 +103,7 @@ Verified: policy denial cases and CLI error mapping.
 
 ## 8. 이슈·보드·리뷰 운영 (MVP 이후 현행)
 
-이 절은 MVP 이후 실제로 쓰는 운영 규칙이다. 위의 기획 기록과 다르면 이 절이 맞다.
+이 절은 MVP 이후 실제로 쓰는 운영 규칙이다. 위의 기획 기록(특히 2절의 이슈 연결, 3절의 리뷰·보고 방식)과 다르면 이 절이 맞다.
 
 ### 이슈
 
@@ -114,6 +114,7 @@ Verified: policy denial cases and CLI error mapping.
   - `type:feature|bug|security|limitation|docs|chore` 중 하나
   - `area:<패키지>` 하나 이상: `area:findings`, `area:policy`, `area:scan-core`, `area:git-history`, `area:github-auth`, `area:source-analysis`, `area:http-local`, `area:report`, `area:cli`, `area:local-web`, `area:repo`
   - `priority:p1|p2|p3` 하나
+  - 버그 이슈에는 `severity:blocker|major|minor|nit` 중 하나를 더한다(아래 리뷰 심각도와 같은 기준).
   - 상태 라벨은 필요할 때만 쓴다: 미룬 작업은 `status:deferred`, 결정이 필요한 작업은 `status:needs-decision`.
 - 리뷰에서 나온 문제 중 해당 PR에서 고치지 않는 것은 후속 이슈로 만든다. 작은 문제는 한 이슈로 묶을 수 있다.
 
@@ -132,11 +133,11 @@ Verified: policy denial cases and CLI error mapping.
 - 리뷰 결과는 심각도로 분류한다.
   - **blocker / major**: 병합을 막는다. 같은 PR에서 고친 뒤 다시 확인한다. 보안·권한 게이트 우회, 결과 누락이나 거짓 "안전" 표시, 비밀정보 노출, 잘못된 기준·라이선스 표기, CI 실패가 여기에 해당한다.
   - **minor / nit**: 병합을 막지 않는다. 가능하면 같은 PR에 반영하고, 아니면 후속 이슈로 남긴다.
-- main은 보호 브랜치다. PR과 필수 CI 검사 `check`를 통과해야 하며, 브랜치가 main보다 뒤처지면 먼저 최신 main을 반영한다.
-- 병합은 merge commit(`gh pr merge --merge`)으로 한다. squash 병합은 쓰지 않는다.
+- main은 보호 브랜치다. main에는 PR로만 반영하며, PR은 필수 CI 검사 `check`를 통과해야 한다. PR 브랜치가 main보다 뒤처지면 먼저 최신 main을 반영한다.
+- 병합은 merge commit(`gh pr merge --merge`)으로 한다. squash·rebase 병합은 쓰지 않는다.
 - 권한 정책을 완화하는 변경은 리뷰 결과와 관계없이 메인테이너의 명시적 결정 없이는 병합하지 않는다.
 
-### 커밋·PR 서명
+### 커밋·PR 작성자 표기
 
 - 커밋 메시지는 2절 형식을 따른다. AI가 작성한 커밋에는 `Co-Authored-By:` 줄로 작성 모델을 밝힌다.
 - AI가 작성한 PR 본문 끝에는 생성 도구를 밝히는 줄을 남긴다.
