@@ -113,15 +113,15 @@ export const SOURCE_RULES = [
   },
   {
     id: "PG-XSS-001",
-    title: "Dynamic HTML written to innerHTML/outerHTML/document.write",
+    title: "Dynamic HTML written to innerHTML/outerHTML/document.write/jQuery .html()",
     category: "xss",
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
-      en: "Assigning HTML that contains request or stored data to `innerHTML`, `outerHTML` or `document.write` makes the browser parse it as markup. An attacker who controls part of it can inject `<img src=x onerror=...>` or `<svg onload=...>` (a `<script>` tag set through `innerHTML` does not run, but event handlers do) and run code in the victim's session, read tokens held in the page, or send requests with that user's rights.",
-      ko: "요청이나 저장된 데이터가 들어 있는 HTML을 `innerHTML`, `outerHTML`, `document.write`에 넣으면 브라우저가 이를 마크업으로 해석합니다. 일부라도 공격자가 정할 수 있으면 `<img src=x onerror=...>`나 `<svg onload=...>`를 주입해(`innerHTML`로 넣은 `<script>` 태그는 실행되지 않지만 이벤트 핸들러는 실행됩니다) 피해자의 세션에서 코드를 실행하고, 페이지에 있는 토큰을 읽거나, 그 사용자 권한으로 요청을 보낼 수 있습니다.",
+      en: "Assigning HTML that contains request or stored data to `innerHTML`, `outerHTML`, `document.write` or jQuery `.html()` makes the browser parse it as markup. An attacker who controls part of it can inject `<img src=x onerror=...>` or `<svg onload=...>` (a `<script>` tag set through `innerHTML` does not run, but event handlers do) and run code in the victim's session, read tokens held in the page, or send requests with that user's rights.",
+      ko: "요청이나 저장된 데이터가 들어 있는 HTML을 `innerHTML`, `outerHTML`, `document.write`, jQuery `.html()`에 넣으면 브라우저가 이를 마크업으로 해석합니다. 일부라도 공격자가 정할 수 있으면 `<img src=x onerror=...>`나 `<svg onload=...>`를 주입해(`innerHTML`로 넣은 `<script>` 태그는 실행되지 않지만 이벤트 핸들러는 실행됩니다) 피해자의 세션에서 코드를 실행하고, 페이지에 있는 토큰을 읽거나, 그 사용자 권한으로 요청을 보낼 수 있습니다.",
     },
     remediation: {
       en: "Insert text with `textContent` (or `createElement` and `append`) so the browser never parses it as HTML. If you must render HTML, sanitize it with a maintained sanitizer first, as in `el.innerHTML = DOMPurify.sanitize(html)`, and keep a Content-Security-Policy as a second layer.",
