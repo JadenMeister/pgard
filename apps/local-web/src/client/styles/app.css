@@ -10,6 +10,7 @@ body {
 }
 
 .page {
+  overflow-wrap: break-word;
   max-width: 1040px;
   margin: 0 auto;
   padding: 24px 16px 48px;
@@ -61,6 +62,7 @@ pre {
 
 .card-header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
@@ -191,28 +193,69 @@ select {
   vertical-align: top;
   padding: 6px 8px;
   border-bottom: 1px solid var(--border);
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .badge {
   display: inline-block;
-  padding: 0 8px;
+  padding: 1px 8px;
   border-radius: 999px;
   border: 1px solid var(--border);
   font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
   color: var(--text-secondary);
 }
 
 .badge-passed,
-.badge-completed {
+.badge-completed,
+.badge-confirmed,
+.badge-informational {
   border-color: var(--info-border);
+  background: var(--info-bg);
 }
 
 .badge-failed,
+.badge-blocked,
 .badge-unverifiable,
 .badge-not_tested,
-.badge-partial {
+.badge-not_selected,
+.badge-partial,
+.badge-suspected {
   border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.badge-failed,
+.badge-blocked {
+  border-color: var(--error-border);
+  background: var(--error-bg);
+}
+
+/* Severity badges carry the severity color on the whole outline, not only the left edge. */
+.badge.sev-critical,
+.badge.sev-high,
+.badge.sev-medium,
+.badge.sev-low,
+.badge.sev-info {
+  border-width: 2px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.badge.sev-critical {
+  border-color: var(--severity-critical);
+}
+.badge.sev-high {
+  border-color: var(--severity-high);
+}
+.badge.sev-medium {
+  border-color: var(--severity-medium);
+}
+.badge.sev-low {
+  border-color: var(--severity-low);
+}
+.badge.sev-info {
+  border-color: var(--severity-info);
 }
 
 .decision {
@@ -233,6 +276,8 @@ select {
 }
 
 .service {
+  min-width: 0;
+  overflow-wrap: anywhere;
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -444,5 +489,37 @@ select {
   .identity dl,
   .finding dl {
     grid-template-columns: 1fr;
+  }
+
+  /* Tables become stacked rows: each cell shows its column name from data-label. */
+  .table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+
+  .table,
+  .table tbody,
+  .table tr,
+  .table td {
+    display: block;
+  }
+
+  .table tr {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .table td {
+    border-bottom: none;
+    padding: 2px 0;
+  }
+
+  .table td[data-label]::before {
+    content: attr(data-label) ": ";
+    color: var(--text-muted);
+    font-size: 12px;
   }
 }

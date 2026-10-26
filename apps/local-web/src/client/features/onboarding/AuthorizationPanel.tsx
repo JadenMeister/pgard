@@ -148,11 +148,11 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
             <tbody>
               {status.summary.checks.map((check) => (
                 <tr key={check.id}>
-                  <td>{CHECK_LABELS[check.id] ?? check.id}</td>
-                  <td>
+                  <td data-label="Check">{CHECK_LABELS[check.id] ?? check.id}</td>
+                  <td data-label="Status">
                     <span className={`badge badge-${check.status}`}>{check.status}</span>
                   </td>
-                  <td>{check.reason}</td>
+                  <td data-label="Reason">{check.reason}</td>
                 </tr>
               ))}
             </tbody>
