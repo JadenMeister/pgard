@@ -162,7 +162,7 @@ describe.skipIf(process.platform !== "win32")(
       const repo = plant();
       expect(await findGitRoot(repo.root)).toBe(repo.root);
       const head = await runGit(
-        { subcommand: "rev-parse", operands: ["HEAD"] },
+        { subcommand: "rev-parse", flags: ["--verify"], operands: ["HEAD"] },
         { cwd: repo.root },
       );
       expect(head.trim()).toMatch(/^[0-9a-f]{40}$/);
