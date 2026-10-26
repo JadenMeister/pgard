@@ -22,6 +22,7 @@
     "dist",
     "assets",
     "NOTICE.md",
+    "npm-shrinkwrap.json",
     "LICENSE",
     "README.md"
   ],

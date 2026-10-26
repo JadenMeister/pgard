@@ -44,8 +44,9 @@ jobs:
         run: npx vitest run packages/github-auth/src/os-keychain.ci.test.ts
 
   # Builds the single `pgard` package, installs the tarball into a temporary prefix and runs it
-  # (version, help, rules, doctor, Korean PDF font, tree-sitter grammar, dashboard server). Nothing
-  # is published. `pgard doctor` needs no sign-in and always exits 0, reporting state instead.
+  # (version, help, rules, doctor, Korean PDF font, all four tree-sitter grammars and a corrupted-grammar
+  # refusal, shrinkwrap tree, dashboard server). The install prefix contains a space on purpose, so
+  # the Windows run covers paths with spaces. Nothing is published. `pgard doctor` needs no sign-in and always exits 0, reporting state instead.
   pack-smoke:
     name: pack smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

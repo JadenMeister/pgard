@@ -19,6 +19,7 @@
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run format:check && npm test",
     "pack:pgard": "npm run build && node scripts/pack-pgard.mjs",
+    "pack:shrinkwrap": "node scripts/gen-shrinkwrap.mjs",
     "smoke:pack": "node scripts/smoke-pack.mjs"
   },
   "devDependencies": {
