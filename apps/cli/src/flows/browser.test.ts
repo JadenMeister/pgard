@@ -4,7 +4,8 @@ import type { CliDeps } from "../deps.js";
 import { createTestDeps, createTestIo, noInterrupts } from "../test-support.js";
 import { createKeyReader, waitForEnter } from "../adapters/terminal.js";
 import { UserCancelledError } from "../ui/components/prompts.js";
-import { OPEN_PROMPT } from "./browser.js";
+import type { CommandContext } from "../context.js";
+import { offerBrowserOpen, OPEN_PROMPT } from "./browser.js";
 
 const DEVICE_PAGE = "https://github.com/login/device";
 
@@ -275,6 +276,38 @@ describe("Enter before opening the GitHub device page (terminal)", () => {
     expect(await exit).toBe(130);
     expect(openBrowser).not.toHaveBeenCalled();
     expect(captured.stdin.isPaused()).toBe(true);
+  });
+});
+
+describe("offerBrowserOpen after stdin has ended", () => {
+  /** A terminal context whose stdin ended (Ctrl+D) earlier in the same run. */
+  function contextWith(readableEnded: boolean) {
+    const captured = createTestIo({ isTTY: true });
+    Object.defineProperty(captured.io.stdin, "readableEnded", { value: readableEnded });
+    const openBrowser = vi.fn(async () => true);
+    const context = {
+      canOpenBrowser: true,
+      io: captured.io,
+      errStyle: { dim: (text: string) => text },
+      deps: { openBrowser, now: () => 0 },
+    } as unknown as CommandContext;
+    return { captured, openBrowser, context };
+  }
+
+  it("does not print the Enter prompt or wait for a key", () => {
+    const { captured, openBrowser, context } = contextWith(true);
+    const stop = offerBrowserOpen(context, DEVICE_PAGE);
+    stop();
+    expect(captured.stderr()).not.toContain(OPEN_PROMPT);
+    expect(captured.stdin.listenerCount("data")).toBe(0);
+    expect(openBrowser).not.toHaveBeenCalled();
+  });
+
+  it("still prints the prompt while stdin is open", () => {
+    const { captured, context } = contextWith(false);
+    const stop = offerBrowserOpen(context, DEVICE_PAGE);
+    expect(captured.stderr()).toContain(OPEN_PROMPT);
+    stop();
   });
 });
 
