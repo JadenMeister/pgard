@@ -1100,6 +1100,55 @@ describe("local web keychain sign-in", () => {
     expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(403);
   });
 
+  describe("each route notices an account switch on its own (#162)", () => {
+    async function authorizedThenSwitched() {
+      const store = createInMemoryCredentialStore();
+      await store.set(KEYCHAIN_KEY, keychainEntry());
+      const { deps } = keychainDeps(store);
+      const running = await start(deps, null, KEYCHAIN_ENV);
+      await authorize(running);
+      const switchAccount = () =>
+        store.set(
+          KEYCHAIN_KEY,
+          JSON.stringify({
+            ...JSON.parse(keychainEntry()),
+            accessToken: ["ghu", "otherAccountToken00000000000"].join("_"),
+            login: "hubot",
+            userId: 8,
+          }),
+        );
+      return { running, switchAccount };
+    }
+
+    it("GET /api/auth resets the check", async () => {
+      const { running, switchAccount } = await authorizedThenSwitched();
+      await switchAccount();
+      const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+      expect(auth).toMatchObject({ status: "idle", summary: null, expiresAt: null });
+      expect(auth.signInNotice).toContain("The GitHub account changed since the last check");
+    });
+
+    it("POST /api/ports/probe is refused", async () => {
+      const { running, switchAccount } = await authorizedThenSwitched();
+      await switchAccount();
+      const probe = await apiPost(running, "/api/ports/probe", { port: 3000 });
+      expect(probe.status).toBe(403);
+      expect(JSON.parse(probe.body).error.code).toBe("authorization_required");
+    });
+
+    it("POST /api/target/confirm is refused after a probe made under the old account", async () => {
+      const { running, switchAccount } = await authorizedThenSwitched();
+      expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(200);
+      await switchAccount();
+      const confirm = await apiPost(running, "/api/target/confirm", {
+        port: 3000,
+        isConfirmed: true,
+      });
+      expect(confirm.status).toBe(403);
+      expect(JSON.parse(confirm.body).error.code).toBe("authorization_required");
+    });
+  });
+
   it("settles on the new account when pgard login replaced the sign-in during a refresh (#162)", async () => {
     const tokenA = ["ghu", "accountAExpiredToken00000"].join("_");
     const tokenARefreshed = ["ghu", "accountARefreshedToken000"].join("_");

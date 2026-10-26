@@ -364,6 +364,30 @@ describe("stored sign-in reuse", () => {
     expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
   });
 
+  it("keeps a sign-in saved between the reload and the delete of a revoked entry (#162)", async () => {
+    const { store, inner } = controllableStore();
+    await inner.set(KEY, storedRecord({ accessToken: REVOKED_TOKEN }));
+    const github = fakeGitHub();
+    let reads = 0;
+    // The reload (second read) returns the revoked entry; `pgard login` then saves a new one
+    // before the delete's own re-check (third read).
+    const racing: CredentialStore = {
+      ...store,
+      get: async (key) => {
+        reads += 1;
+        const value = await store.get(key);
+        if (reads === 2) await inner.set(KEY, storedRecord({ accessToken: NEW_TOKEN }));
+        return value;
+      },
+    };
+    const { provider, notices } = makeProvider(github, racing);
+    // No device token is queued, so the device flow after the rejected entry ends in an error and
+    // cannot write anything itself: whatever the keychain holds afterwards was left by the race.
+    await expect(provider()).rejects.toBeDefined();
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+  });
+
   it("stops reusing a cached keychain session after pgard logout in another process", async () => {
     const store = await storeWith(storedRecord());
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
