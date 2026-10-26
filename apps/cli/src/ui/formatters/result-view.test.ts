@@ -336,3 +336,40 @@ describe("project configuration notices", () => {
     expect(text).not.toContain("\u0007");
   });
 });
+
+describe("testDirectories notices", () => {
+  const coverage: Coverage[] = [
+    {
+      area: "source:config",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: "pgard.config.json read (version 1): 0 exclude patterns, 1 test directory pattern (3 findings classified as test code by it), 0 suppressions parsed, not yet applied.",
+    },
+  ];
+
+  it("says so with a ! line whenever the config reclassified findings, even when completed", () => {
+    const findings = testCode(3);
+    const text = formatScanResult(testResult({ coverage, findings }), plain);
+    expect(text).toContain(
+      "! 3 findings were classified as test code by the testDirectories setting of pgard.config.json",
+    );
+    expect(text).toContain("3 of them were classified by the testDirectories setting");
+  });
+
+  it("keeps the notice when the test findings are collapsed into a count", () => {
+    const text = formatScanResult(testResult({ coverage, findings: testCode(8) }), plain);
+    expect(text).toContain("lower-severity findings not listed");
+    expect(text).toContain("! 3 findings were classified as test code");
+  });
+
+  it("no notice when the config reclassified nothing", () => {
+    const quiet = coverage.map((entry) => ({
+      ...entry,
+      note: (entry.note ?? "").replace("3 findings", "0 findings"),
+    }));
+    expect(
+      formatScanResult(testResult({ coverage: quiet, findings: testCode(2) }), plain),
+    ).not.toContain("! ");
+  });
+});

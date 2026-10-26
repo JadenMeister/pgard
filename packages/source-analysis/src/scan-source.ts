@@ -3,6 +3,8 @@ import path from "node:path";
 import {
   compileGlob,
   compilePathMatcher,
+  isTestOrFixturePath,
+  isVendoredPath,
   matchesEverything,
   type AnalyzerOutput,
   type Coverage,
@@ -180,6 +182,8 @@ export async function scanSourceCode(
 ): Promise<AnalyzerOutput> {
   const excludePatterns = options.projectConfig?.exclude ?? [];
   const excludeMatcher = excludePatterns.length > 0 ? compilePathMatcher(excludePatterns) : null;
+  const testPatterns = options.projectConfig?.testDirectories ?? [];
+  const testMatcher = testPatterns.length > 0 ? compilePathMatcher(testPatterns) : null;
   const walk = await walkSourceTree(
     projectRoot,
     excludeMatcher ? { isExcluded: (relativePath) => excludeMatcher.matches(relativePath) } : {},
@@ -394,6 +398,13 @@ export async function scanSourceCode(
       ),
     );
   }
+  if (testMatcher !== null) {
+    const analyzed = [
+      ...walk.files.map((file) => file.relativePath),
+      ...Object.values(walk.trackFiles).flatMap((list) => list.map((file) => file.relativePath)),
+    ];
+    coverage.push(describeConfigTestDirectories(testPatterns, analyzed, testMatcher.matches));
+  }
   if (walk.skippedLarge > 0) {
     coverage.push({
       area: "source:large-files",
@@ -489,7 +500,7 @@ export function describeConfigExcluded(
   const setHash = createHash("sha256")
     .update(`${[...patterns].sort().join("\n")}\n--\n${excluded.digest}`)
     .digest("hex")
-    .slice(0, 8);
+    .slice(0, 16);
   const count = excluded.count;
   const warning =
     catchAll.length > 0
@@ -514,6 +525,54 @@ export function describeConfigExcluded(
     status: warning === "" ? "completed" : "partial",
     ruleIds: [],
     note: shown.length === 0 ? heading : compose(shown),
+  };
+}
+
+/** At or above this share of production files (and more than MIN files) the config is suspect. */
+export const CONFIG_TEST_SHARE_WARNING = 0.5;
+export const CONFIG_TEST_MIN_FILES = 20;
+
+/**
+ * Coverage entry `source:config-test` for `testDirectories`. It counts the files the patterns
+ * demote from regular code to test code (files that the built-in rules do not already treat as
+ * test or vendored). Test code is listed apart and its confidence is capped at low, so a config
+ * that marks all or most production files as test code would make real findings look minor: when
+ * the patterns match every such file, or at least half of them and more than 20, the area is
+ * `partial` with a WARNING (a real project keeps most of its code outside test paths).
+ */
+export function describeConfigTestDirectories(
+  patterns: readonly string[],
+  analyzedPaths: readonly string[],
+  matches: (filePath: string) => boolean,
+): Coverage {
+  const production = analyzedPaths.filter(
+    (filePath) => !isTestOrFixturePath(filePath) && !isVendoredPath(filePath),
+  );
+  const demoted = production.filter(matches).length;
+  const isSuspect =
+    production.length > 0 &&
+    (demoted === production.length ||
+      (demoted > CONFIG_TEST_MIN_FILES &&
+        demoted / production.length >= CONFIG_TEST_SHARE_WARNING));
+  const setHash = createHash("sha256")
+    .update(`${[...patterns].sort().join("\n")}\n--\n${demoted}`)
+    .digest("hex")
+    .slice(0, 16);
+  const listed = patterns.slice(0, MAX_LISTED_PATHS).map((pattern) => JSON.stringify(pattern));
+  const rest = patterns.length - listed.length;
+  const note =
+    `${demoted} of ${production.length} source files are classified as test code by pgard.config.json testDirectories (set ${setHash}).` +
+    (isSuspect ? " WARNING: most or all of your code is marked as test code." : "") +
+    ` Patterns: ${listed.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  return {
+    area: "source:config-test",
+    scope: "code",
+    status: isSuspect ? "partial" : "completed",
+    ruleIds: [],
+    note:
+      note.length > MAX_CONFIG_NOTE_LENGTH
+        ? `${note.slice(0, MAX_CONFIG_NOTE_LENGTH - 3)}...`
+        : note,
   };
 }
 

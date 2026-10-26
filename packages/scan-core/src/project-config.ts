@@ -23,14 +23,25 @@ export type ProjectConfigLoad =
   | { state: "loaded"; config: ProjectConfig }
   | { state: "invalid"; problems: string[] };
 
+/** Test hooks: run code between the inspection and the open, or act as a system without O_NOFOLLOW. */
+export interface LoadProjectConfigHooks {
+  afterInspect?: () => Promise<void> | void;
+  pretendNoNoFollow?: boolean;
+}
+
 /**
  * Reads the project configuration read-only: the file must be a regular file (a symbolic link is
- * refused, also at open time through `O_NOFOLLOW`), at most 64 KiB, valid UTF-8 and valid
+ * refused, also at open time through `O_NOFOLLOW`, or on Windows by comparing the opened file's
+ * device and inode with the inspected one), at most 64 KiB, valid UTF-8 and valid
  * according to `parseProjectConfig`. The content is parsed as data and never executed.
  */
-export async function loadProjectConfig(projectRoot: string): Promise<ProjectConfigLoad> {
+export async function loadProjectConfig(
+  projectRoot: string,
+  hooks: LoadProjectConfigHooks = {},
+): Promise<ProjectConfigLoad> {
   const file = path.join(projectRoot, PROJECT_CONFIG_FILE);
-  const stats = await lstat(file).catch((error: NodeJS.ErrnoException) => error);
+  const noFollow = hooks.pretendNoNoFollow === true ? undefined : constants.O_NOFOLLOW;
+  const stats = await lstat(file, { bigint: true }).catch((error: NodeJS.ErrnoException) => error);
   if (stats instanceof Error) {
     return stats.code === "ENOENT" || stats.code === "ENOTDIR"
       ? { state: "absent" }
@@ -45,30 +56,39 @@ export async function loadProjectConfig(projectRoot: string): Promise<ProjectCon
   if (!stats.isFile()) {
     return { state: "invalid", problems: [`${PROJECT_CONFIG_FILE} is not a regular file`] };
   }
-  if (stats.size > MAX_PROJECT_CONFIG_BYTES) {
+  if (stats.size > BigInt(MAX_PROJECT_CONFIG_BYTES)) {
     return {
       state: "invalid",
       problems: [`${PROJECT_CONFIG_FILE} is larger than ${MAX_PROJECT_CONFIG_BYTES} bytes`],
     };
   }
+  await hooks.afterInspect?.();
   let text: string;
   let handle;
   try {
     // O_NOFOLLOW: a file swapped for a symlink after the check above is not followed.
     // O_NONBLOCK: a file swapped for a FIFO cannot block the scan.
-    handle = await open(
-      file,
-      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
-    );
-    if (!(await handle.stat()).isFile()) {
+    handle = await open(file, constants.O_RDONLY | (noFollow ?? 0) | (constants.O_NONBLOCK ?? 0));
+    const opened = await handle.stat({ bigint: true });
+    if (!opened.isFile()) {
       return { state: "invalid", problems: [`${PROJECT_CONFIG_FILE} is not a regular file`] };
+    }
+    // Where O_NOFOLLOW does not exist (Windows), the handle must be the very file that was
+    // inspected: a swap for a link to another file shows as a different device or inode.
+    if (noFollow === undefined && (opened.dev !== stats.dev || opened.ino !== stats.ino)) {
+      return {
+        state: "invalid",
+        problems: [`${PROJECT_CONFIG_FILE} changed while it was being opened; it is refused`],
+      };
     }
     const buffer = Buffer.alloc(MAX_PROJECT_CONFIG_BYTES + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead > MAX_PROJECT_CONFIG_BYTES) {
       return {
         state: "invalid",
-        problems: [`${PROJECT_CONFIG_FILE} is larger than ${MAX_PROJECT_CONFIG_BYTES} bytes`],
+        problems: [
+          `${PROJECT_CONFIG_FILE} grew larger than ${MAX_PROJECT_CONFIG_BYTES} bytes while it was being read`,
+        ],
       };
     }
     text = new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, bytesRead));

@@ -28,7 +28,7 @@ const analyzeHistory: LocalAnalyzer = async (context) => {
   const setHash = createHash("sha256")
     .update([...patterns].sort().join("\n"))
     .digest("hex")
-    .slice(0, 8);
+    .slice(0, 16);
   return {
     ...output,
     coverage: [

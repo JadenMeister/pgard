@@ -1,5 +1,7 @@
 import {
   SEVERITIES,
+  projectConfigNotices,
+  configTestGroupNote,
   splitFindingsByContext,
   summarizeBySeverity,
   type AuthorizationSummary,
@@ -191,22 +193,12 @@ export function formatCoverage(coverage: readonly Coverage[], style: Style): str
  * or problem with the file itself.
  */
 export function formatConfigNotices(coverage: readonly Coverage[], style: Style): string[] {
-  const lines: string[] = [];
-  for (const entry of coverage) {
-    if (entry.note === null) continue;
-    const text = safeText(entry.note, 300);
-    if (entry.area === "source:config-excluded") {
-      const excludedNone = /^0 files /.test(entry.note);
-      lines.push(
-        entry.status === "partial" || !excludedNone
-          ? style.yellow(style.bold(`! ${text}`))
-          : style.dim(`  ${text}`),
-      );
-    } else if (entry.area === "source:config" && entry.status === "partial") {
-      lines.push(style.yellow(style.bold(`! ${text}`)));
-    }
-  }
-  return lines;
+  return projectConfigNotices(coverage).map((notice) => {
+    const text = safeText(notice.text, 300);
+    return notice.tone === "warning"
+      ? style.yellow(style.bold(`! ${text}`))
+      : style.dim(`  ${text}`);
+  });
 }
 
 const CHECK_STATUS_MARKS: Record<string, string> = {
@@ -290,7 +282,7 @@ export function formatScanResult(
     sections.push(
       "",
       style.bold(`${TEST_GROUP_TITLE} (${testShown.length})`),
-      style.dim(`  ${TEST_GROUP_NOTE}${severeNote}`),
+      style.dim(`  ${TEST_GROUP_NOTE}${configTestGroupNote(result.coverage)}${severeNote}`),
       formatGroups(testShown, style, allFindings),
     );
   }

@@ -1,4 +1,4 @@
-import { globProblem } from "./glob.js";
+import { INVISIBLE_CHARACTERS, globProblem } from "./glob.js";
 
 /**
  * Project configuration file: `pgard.config.json` at the Git root. It is part of the scanned
@@ -78,6 +78,9 @@ function parseStrictJson(text: string): JsonValue {
       const char = text.charAt(index);
       if (char === '"') {
         index += 1;
+        if (INVISIBLE_CHARACTERS.test(result)) {
+          return fail("string with a bidirectional, zero-width or other format character");
+        }
         return result;
       }
       if (char.charCodeAt(0) < 0x20) return fail("control character in string");

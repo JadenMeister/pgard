@@ -71,6 +71,40 @@ describe("glob syntax", () => {
     expect(() => compileGlob(pattern)).toThrow();
   });
 
+  it("caps the number of * in one segment", () => {
+    expect(globProblem("*a".repeat(10))).toBeNull();
+    expect(globProblem("*a".repeat(11))).toContain("at most 10 *");
+    expect(globProblem(`${"*a".repeat(11)}/b`)).toContain("at most 10 *");
+    // Stars in different segments are counted per segment.
+    expect(globProblem(`${"*a".repeat(10)}/${"*a".repeat(10)}`)).toBeNull();
+  });
+
+  it("rejects bidirectional controls, zero-width and format characters, lone surrogates", () => {
+    for (const bad of [
+      "a\u202Eb",
+      "a\u202Ab",
+      "a\u2066b",
+      "a\u2069b",
+      "a\u200Bb",
+      "a\u200Db",
+      "a\uFEFFb",
+      "a\u00ADb",
+      "a\ud800b",
+      "a\udc00b",
+    ]) {
+      expect(globProblem(bad)).toContain("format characters");
+    }
+    expect(globProblem("a\ud83d\ude00b")).toBeNull(); // a valid surrogate pair (an emoji)
+    expect(globProblem("caf\u00e9")).toBeNull();
+  });
+
+  it("the control-character bound is exactly U+001F and U+007F", () => {
+    expect(globProblem("a\u001fb")).toContain("control");
+    expect(globProblem("a\u007fb")).toContain("control");
+    expect(globProblem("a b")).toBeNull(); // U+0020
+    expect(globProblem("a\u0080b")).toBeNull();
+  });
+
   it("rejects non-strings", () => {
     for (const value of [1, null, undefined, {}, [], true]) {
       expect(globProblem(value)).toBe("must be a string");
@@ -120,8 +154,8 @@ describe("glob matching is not exponential", () => {
 
   it("survives classic regex-bomb patterns against long non-matching names", () => {
     // `(a*)*b`-style blowups: many stars in one segment, name that almost matches.
-    const stars = `${"*a".repeat(90)}*b`;
-    const name = `${"a".repeat(1500)}c`;
+    const stars = `*b${"*a".repeat(8)}*b`; // 10 stars, the most allowed; needs two b
+    const name = `${"a".repeat(1500)}b`;
     expect(stars.length).toBeLessThanOrEqual(MAX_GLOB_LENGTH);
     const glob = compileGlob(stars);
     let result = true;
@@ -145,20 +179,36 @@ describe("glob matching is not exponential", () => {
   });
 
   it("scales about linearly in the path length for a fixed pattern", () => {
-    const glob = compileGlob("**/a*a*a*a*b/**/c");
+    const glob = compileGlob("**/a*a*a*a*a/**/c");
     const run = (segments: number) => {
       const filePath = `${"aaaa/".repeat(segments)}x`;
       const start = performance.now();
-      for (let i = 0; i < 5; i += 1) globMatches(glob, filePath);
+      for (let i = 0; i < 40; i += 1) globMatches(glob, filePath);
       return performance.now() - start;
     };
+    const best = (segments: number) => Math.min(run(segments), run(segments), run(segments));
     run(100); // warm up
-    const small = Math.max(run(200), 0.2);
-    const large = run(800); // 4x the path
-    // Linear would be about 4x; allow generous slack for timer noise, but a quadratic or
-    // exponential matcher would be 16x or far more.
-    expect(large / small).toBeLessThan(12);
+    const small = Math.max(best(200), 0.05);
+    const large = best(800); // 4x the path
+    // Linear would be about 4x; a quadratic matcher would be 16x and an exponential one far more.
+    expect(large / small).toBeLessThan(10);
   });
+
+  it("200 patterns with 10 stars against 10 000 files stay small", () => {
+    const patterns = Array.from({ length: 200 }, (_, i) => `${"*a".repeat(9)}*b${i}`);
+    const matcher = compilePathMatcher(patterns);
+    const files = Array.from(
+      { length: 10_000 },
+      (_, i) => `src/pkg${i % 40}/${"a".repeat(30)}${i}.ts`,
+    );
+    const elapsed = time(() => {
+      for (const file of files) matcher.matches(file);
+    });
+    console.info(
+      `glob benchmark: 200 star-heavy patterns x 10000 files = ${Math.round(elapsed)} ms`,
+    );
+    expect(elapsed).toBeLessThan(20_000);
+  }, 60_000);
 
   it("matches 20 000 files against 200 patterns within a few seconds", () => {
     const patterns = Array.from({ length: 200 }, (_, i) => `module${i}/**/*.gen${i}.ts`);

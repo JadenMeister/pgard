@@ -26,11 +26,16 @@
 
 export const MAX_GLOB_LENGTH = 200;
 export const MAX_GLOB_SEGMENTS = 32;
+/** `*` per segment: each one adds a table row per name character, so they are capped. */
+export const MAX_STARS_PER_SEGMENT = 10;
 /** Longer paths never match a pattern, which keeps the per-file work bounded. */
 export const MAX_PATH_LENGTH = 4096;
 
 // eslint-disable-next-line no-control-regex
 const CONTROL = /[\u0000-\u001f\u007f]/;
+/** Format characters (bidi controls, zero-width, joiners...) and lone surrogates: invisible or ambiguous. */
+const INVISIBLE = /[\p{Cf}\p{Cs}]/u;
+export const INVISIBLE_CHARACTERS = INVISIBLE;
 
 /** Why a pattern is not acceptable, or `null` when it is. */
 export function globProblem(pattern: unknown): string | null {
@@ -38,6 +43,9 @@ export function globProblem(pattern: unknown): string | null {
   if (pattern.length === 0) return "must not be empty";
   if (pattern.length > MAX_GLOB_LENGTH) return `must be at most ${MAX_GLOB_LENGTH} characters`;
   if (CONTROL.test(pattern)) return "must not contain control characters";
+  if (INVISIBLE.test(pattern)) {
+    return "must not contain bidirectional, zero-width or other format characters, or lone surrogates";
+  }
   if (pattern.includes("\\")) return "must use / as the separator (no backslashes)";
   if (/[[\]{}]/.test(pattern)) return "must not use [ ] { } (only *, ** and ? are supported)";
   if (pattern.startsWith("!")) return "must not start with ! (negation is not supported)";
@@ -52,6 +60,9 @@ export function globProblem(pattern: unknown): string | null {
     if (segment === "..") return 'must not contain ".."';
     if (segment === ".") return 'must not contain "."';
     if (segment.includes("**") && segment !== "**") return "must use ** as a whole path segment";
+    if (segment.split("*").length - 1 > MAX_STARS_PER_SEGMENT) {
+      return `must have at most ${MAX_STARS_PER_SEGMENT} * in one path segment`;
+    }
   }
   return null;
 }
@@ -76,14 +87,29 @@ export function compileGlob(pattern: string): CompiledGlob {
   return { source: pattern, segments: collapsed };
 }
 
+// Rows are allocated once: matching runs synchronously, so sharing them is safe, and a scan of
+// 20 000 files does not allocate a table per file and segment.
+const ROW_SIZE = MAX_PATH_LENGTH + 2;
+const charRows: [Uint8Array, Uint8Array] = [new Uint8Array(ROW_SIZE), new Uint8Array(ROW_SIZE)];
+const segmentRows: [Uint8Array, Uint8Array] = [new Uint8Array(ROW_SIZE), new Uint8Array(ROW_SIZE)];
+
 /** `*` and `?` inside one segment, by dynamic programming over (pattern chars x name chars). */
 function segmentMatches(pattern: string, name: string): boolean {
   if (!pattern.includes("*") && !pattern.includes("?")) return pattern === name;
-  let row = new Uint8Array(name.length + 1);
+  // Cheap rejection before the table: the literal text before the first wildcard and after the
+  // last one must match exactly (`*a*a*b` against a name that does not end in `b`).
+  const first = pattern.search(/[*?]/);
+  const last = Math.max(pattern.lastIndexOf("*"), pattern.lastIndexOf("?"));
+  if (!name.startsWith(pattern.slice(0, first))) return false;
+  const suffix = pattern.slice(last + 1);
+  if (name.length < first + suffix.length || !name.endsWith(suffix)) return false;
+  let row = charRows[0];
+  let next = charRows[1];
+  row.fill(0, 0, name.length + 1);
   row[0] = 1;
   for (let i = 0; i < pattern.length; i += 1) {
     const char = pattern.charAt(i);
-    const next = new Uint8Array(name.length + 1);
+    next.fill(0, 0, name.length + 1);
     if (char === "*") {
       next[0] = row[0] as number;
       for (let j = 1; j <= name.length; j += 1) {
@@ -94,7 +120,7 @@ function segmentMatches(pattern: string, name: string): boolean {
         if (row[j - 1] === 1 && (char === "?" || char === name.charAt(j - 1))) next[j] = 1;
       }
     }
-    row = next;
+    [row, next] = [next, row];
   }
   return row[name.length] === 1;
 }
@@ -103,10 +129,12 @@ function segmentMatches(pattern: string, name: string): boolean {
 export function globMatches(glob: CompiledGlob, filePath: string): boolean {
   if (filePath.length === 0 || filePath.length > MAX_PATH_LENGTH) return false;
   const names = filePath.split("/");
-  let reach = new Uint8Array(names.length + 1);
+  let reach = segmentRows[0];
+  let next = segmentRows[1];
+  reach.fill(0, 0, names.length + 1);
   reach[0] = 1;
   for (const segment of glob.segments) {
-    const next = new Uint8Array(names.length + 1);
+    next.fill(0, 0, names.length + 1);
     if (segment === "**") {
       next[0] = reach[0] as number;
       for (let j = 1; j <= names.length; j += 1) {
@@ -117,7 +145,7 @@ export function globMatches(glob: CompiledGlob, filePath: string): boolean {
         if (reach[j - 1] === 1 && segmentMatches(segment, names[j - 1] as string)) next[j] = 1;
       }
     }
-    reach = next;
+    [reach, next] = [next, reach];
   }
   return reach[names.length] === 1;
 }

@@ -235,14 +235,14 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         // The walk stopped early, so the track lists are lower bounds too.
         result.trackTruncated = true;
         finishTrack(result);
-        result.excluded.digest = excludedHash.digest("hex").slice(0, 8);
+        result.excluded.digest = excludedHash.digest("hex").slice(0, 16);
         return result;
       }
       result.files.push({ absolutePath, relativePath, language });
     }
   }
   finishTrack(result);
-  result.excluded.digest = excludedHash.digest("hex").slice(0, 8);
+  result.excluded.digest = excludedHash.digest("hex").slice(0, 16);
   result.files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   return result;
 }

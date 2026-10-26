@@ -183,3 +183,22 @@ describe("PDF performance on long metadata", () => {
     expect(Date.now() - startedAt).toBeLessThan(3000);
   });
 });
+
+describe("project configuration notices in the PDF report", () => {
+  it("lists the notices before the summary", async () => {
+    const result = scanResult({
+      coverage: [
+        {
+          area: "source:config",
+          scope: "code",
+          status: "partial",
+          ruleIds: [],
+          note: "pgard.config.json is invalid and was ignored; the scan ran with no exclusions: x.",
+        },
+      ],
+    });
+    const text = pdfTextLines(await renderPdfReport(result, { compress: false })).join(" ");
+    expect(text).toContain("Note:");
+    expect(text.indexOf("invalid and was ignored")).toBeLessThan(text.indexOf("Summary"));
+  });
+});

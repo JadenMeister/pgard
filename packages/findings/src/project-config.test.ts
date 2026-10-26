@@ -139,6 +139,32 @@ describe("parseProjectConfig", () => {
       );
     });
 
+    it("allows nesting up to the depth limit and names the limit when exceeded", () => {
+      const nested = (levels: number) =>
+        `{"version":1,"x":${"[".repeat(levels)}${"]".repeat(levels)}}`;
+      // Eight levels pass the reader (the unknown key "x" is then what fails).
+      expect(problems(nested(8)).join()).toContain("not configurable");
+      expect(problems(nested(9)).join()).toContain("nesting too deep");
+    });
+
+    it("rejects raw control characters in strings, exactly up to U+001F", () => {
+      const raw = (code: number) => `{"version":1,"exclude":["a${String.fromCharCode(code)}b"]}`;
+      expect(problems(raw(0x1f)).join()).toContain("invalid JSON");
+      expect(ok(raw(0x20)).ok).toBe(true);
+    });
+
+    it("rejects bidirectional, zero-width and format characters and lone surrogates anywhere", () => {
+      const text = (value: string) =>
+        `{"version":1,"suppressions":[{"ruleId":"PG-SQL-001","path":"a","reason":"${value}"}]}`;
+      for (const bad of ["x\\u202Ey", "x\\u200Bx", "x\\u2066x", "x\\ud83dx", "x\\ude00x"]) {
+        expect(problems(text(bad)).join()).toContain("format character");
+      }
+      // The same inside a key, and as raw characters.
+      expect(problems('{"version":1,"a\\u202Eb":1}').join()).toContain("format character");
+      expect(problems(text("x\u202Ey")).join()).toContain("format character");
+      expect(ok(text("caf\u00e9 \\ud83d\\ude00")).ok).toBe(true); // accents and a valid pair
+    });
+
     it("treats __proto__ as an ordinary unknown key (no prototype pollution)", () => {
       const result = ok('{"version":1,"__proto__":{"exclude":["**"]}}');
       expect(result.ok).toBe(false);

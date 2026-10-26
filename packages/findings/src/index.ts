@@ -11,3 +11,4 @@ export * from "./compare-scans.js";
 export * from "./glob.js";
 export * from "./project-config.js";
 export * from "./rule-text.js";
+export * from "./config-notices.js";

@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ProjectConfig } from "@pgard/findings";
 import { afterEach, describe, expect, it } from "vitest";
-import { describeConfigExcluded, scanSourceCode } from "./scan-source.js";
+import {
+  describeConfigExcluded,
+  describeConfigTestDirectories,
+  scanSourceCode,
+} from "./scan-source.js";
 import { walkSourceTree } from "./walk.js";
 
 const roots: string[] = [];
@@ -56,7 +60,7 @@ describe("exclude patterns in the source scan", () => {
     expect(excluded?.status).toBe("completed");
     expect(excluded?.ruleIds).toEqual([]);
     expect(excluded?.note).toMatch(
-      /^4 files excluded by pgard\.config\.json \(of 6 source files; 2 patterns, set [0-9a-f]{8}\)\./,
+      /^4 files excluded by pgard\.config\.json \(of 6 source files; 2 patterns, set [0-9a-f]{16}\)\./,
     );
     expect(excluded?.note).toContain('Patterns: "legacy", "*.generated.ts".');
     // A track-language (Python) file is excluded too, so it is not listed as detected.
@@ -168,5 +172,70 @@ describe("describeConfigExcluded", () => {
     const a = describeConfigExcluded(["a"], { count: 0, digest: "" }, 3).note;
     const b = describeConfigExcluded(["b"], { count: 0, digest: "" }, 3).note;
     expect(a).not.toBe(b);
+  });
+});
+
+describe("testDirectories in the source scan", () => {
+  const prod = {
+    "src/a.ts": SQL_VULN,
+    "src/b.ts": SQL_VULN,
+    "lib/c.ts": SQL_VULN,
+  };
+
+  it("reports how many production files the patterns demote", async () => {
+    const output = await scanSourceCode(project(prod), {
+      projectConfig: config({ testDirectories: ["lib"] }),
+    });
+    const entry = area(output, "source:config-test");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.ruleIds).toEqual([]);
+    expect(entry?.note).toMatch(/^1 of 3 source files are classified as test code by/);
+    expect(entry?.note).toContain('Patterns: "lib".');
+  });
+
+  it("no area without testDirectories", async () => {
+    const output = await scanSourceCode(project(prod), { projectConfig: config() });
+    expect(area(output, "source:config-test")).toBeUndefined();
+  });
+
+  it.each(["*.*", "src", "**", "*", "?*"])(
+    "warns when %s marks every production file as test code",
+    async (pattern) => {
+      const output = await scanSourceCode(project({ "src/a.ts": SQL_VULN, "src/b.ts": SQL_VULN }), {
+        projectConfig: config({ testDirectories: [pattern] }),
+      });
+      const entry = area(output, "source:config-test");
+      expect(entry?.status).toBe("partial");
+      expect(entry?.note).toContain("WARNING");
+      expect(entry?.note).toMatch(/^2 of 2 source files/);
+    },
+  );
+
+  it("files already test code by the built-in rules are not counted as demoted", async () => {
+    const output = await scanSourceCode(
+      project({ "tests/a.ts": SQL_VULN, "src/b.ts": SQL_VULN, "src/c.ts": SQL_VULN }),
+      { projectConfig: config({ testDirectories: ["tests"] }) },
+    );
+    const entry = area(output, "source:config-test");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(/^0 of 2 source files/);
+  });
+
+  it("warns at 50% and more than 20 files, and not below either bound", () => {
+    const paths = (count: number, prefix: string) =>
+      Array.from({ length: count }, (_, i) => `${prefix}/f${i}.ts`);
+    const matchesDemo = (filePath: string) => filePath.startsWith("demo/");
+    const run = (demo: number, other: number) =>
+      describeConfigTestDirectories(
+        ["demo"],
+        [...paths(demo, "demo"), ...paths(other, "core")],
+        matchesDemo,
+      ).status;
+    expect(run(21, 21)).toBe("partial"); // 50% and more than 20
+    expect(run(21, 20)).toBe("partial");
+    expect(run(20, 20)).toBe("completed"); // not more than 20 files
+    expect(run(21, 22)).toBe("completed"); // under 50%
+    expect(run(3, 3)).toBe("completed"); // small
+    expect(run(3, 0)).toBe("partial"); // every production file
   });
 });
