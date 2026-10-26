@@ -423,7 +423,7 @@ The dashboard is available in Korean and English. It follows the browser languag
 
 ## Known limitations
 
-- [#44](https://github.com/JadenMeister/pgard/issues/44) PDF reports replace text outside Latin-1 (for example Korean) with `?`. Use the HTML report for the full text.
+- PDF reports embed a subset of Noto Sans KR, so Korean and English text both render. Characters the font does not have (Hanja, emoji, other scripts) are replaced with `?` and the PDF says so; the HTML report has the full text. If the bundled font cannot be loaded, the PDF falls back to a built-in Latin-1 font (Korean becomes `?`), notes this in the PDF itself, and the CLI prints a warning.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope (see [Out of scope](#out-of-scope)).
 - Contribution is checked conservatively for users who are not the verified owner: co-author trailers and unsigned direct pushes do not count, so a collaborator who only co-authored commits or pushed unsigned commits is blocked at contribution until a pull request of theirs is merged or they push signed commits.
 - The dashboard's scan text (finding titles, rule descriptions, authorization reasons) is English only; the rest of the dashboard is available in Korean and English.
@@ -475,3 +475,5 @@ Where the planning documents and this README disagree, this README and the code 
 ## License
 
 [MIT](LICENSE)
+
+The PDF reports embed a subset of Noto Sans KR, licensed under the SIL Open Font License 1.1. See [NOTICE](NOTICE.md) and `packages/report/fonts/OFL.txt`.

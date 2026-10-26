@@ -30,6 +30,8 @@ export class ReportWriteError extends Error {
 export interface WrittenReport {
   format: "html" | "pdf";
   filePath: string;
+  /** Set when the report was written but degraded (for example, the PDF fell back to Latin-1). */
+  warning?: string;
 }
 
 export interface WriteReportsOptions {
@@ -106,9 +108,13 @@ async function pathExists(filePath: string): Promise<boolean> {
 export async function renderReport(
   result: ScanResult,
   format: "html" | "pdf",
+  /** PDF only: called with why the Korean-capable font is not used, or null when it is. */
+  onFontFallback?: (message: string | null) => void,
 ): Promise<string | Buffer> {
   try {
-    return format === "html" ? renderHtmlReport(result) : await renderPdfReport(result);
+    return format === "html"
+      ? renderHtmlReport(result)
+      : await renderPdfReport(result, onFontFallback === undefined ? {} : { onFontFallback });
   } catch {
     throw new ReportWriteError(
       "render_failed",
@@ -132,12 +138,22 @@ export async function writeReports(
   const formats: Array<"html" | "pdf"> =
     options.format === "both" ? ["html", "pdf"] : [options.format];
 
-  const planned: Array<{ format: "html" | "pdf"; filePath: string; content: string | Buffer }> = [];
+  const planned: Array<{
+    format: "html" | "pdf";
+    filePath: string;
+    content: string | Buffer;
+    warning?: string;
+  }> = [];
   for (const format of formats) {
+    let warning: string | undefined;
+    const content = await renderReport(result, format, (message) => {
+      if (message !== null) warning = message;
+    });
     planned.push({
       format,
       filePath: path.join(directory, `${baseName}.${format}`),
-      content: await renderReport(result, format),
+      content,
+      ...(warning === undefined ? {} : { warning }),
     });
   }
   for (const entry of planned) {
@@ -153,7 +169,11 @@ export async function writeReports(
   try {
     for (const entry of planned) {
       await writeExclusive(entry.filePath, entry.content);
-      written.push({ format: entry.format, filePath: entry.filePath });
+      written.push({
+        format: entry.format,
+        filePath: entry.filePath,
+        ...(entry.warning === undefined ? {} : { warning: entry.warning }),
+      });
     }
   } catch (error) {
     await Promise.all(written.map((entry) => unlink(entry.filePath).catch(() => undefined)));

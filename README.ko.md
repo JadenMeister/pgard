@@ -423,7 +423,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 ## 알려진 제한 사항
 
-- [#44](https://github.com/JadenMeister/pgard/issues/44) PDF 보고서는 Latin-1 밖의 문자(예: 한국어)를 `?`로 바꿉니다. 전체 텍스트는 HTML 보고서를 사용하세요.
+- PDF 보고서에는 Noto Sans KR 서브셋이 포함되어 한국어와 영어가 모두 표시됩니다. 폰트에 없는 문자(한자, 이모지, 다른 문자 체계)는 `?`로 바뀌고 PDF에 그 사실이 표시됩니다. 전체 텍스트는 HTML 보고서에 있습니다. 포함된 폰트를 불러오지 못하면 PDF는 내장 Latin-1 폰트로 대체되고(한국어는 `?`), PDF 안에 이를 알리며 CLI도 경고를 출력합니다.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. 범위 밖입니다([범위 밖](#범위-밖) 참고).
 - 검증된 owner가 아닌 사용자의 기여는 보수적으로 확인합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않으므로, 커밋을 공동 작성만 했거나 서명 없이 push한 협력자는 본인의 pull request가 merge되거나 서명된 커밋을 push할 때까지 기여에서 차단됩니다.
 - 대시보드의 검사 결과 문구(발견 항목 제목, 규칙 설명, 권한 확인 이유)는 영어로만 표시됩니다. 나머지 대시보드는 한국어와 영어를 지원합니다.
@@ -475,3 +475,5 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 ## 라이선스
 
 [MIT](LICENSE)
+
+PDF 보고서에는 SIL Open Font License 1.1로 배포되는 Noto Sans KR 서브셋이 포함됩니다. [NOTICE](NOTICE.md)와 `packages/report/fonts/OFL.txt`를 참고하세요.
