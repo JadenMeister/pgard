@@ -183,3 +183,84 @@ describe("runProjectVerify: private repository outside the App installation", ()
     expect(captured.stderr()).not.toContain(INSTALL_URL);
   });
 });
+
+describe("runProjectVerify: App already installed, repository not included", () => {
+  const CONFIGURE_URL = "https://github.com/settings/installations/77";
+  const configure: AuthorizationOutcome = {
+    ...HIDDEN_REPO,
+    repo: "JadenMeister/photo-dump",
+    remedy: {
+      kind: "install_app",
+      missing: "repository_access",
+      account: { login: "JadenMeister", type: "User" },
+      url: CONFIGURE_URL,
+      canApprove: "yes",
+      unavailableReason: null,
+    },
+  };
+
+  it("tells the owner to add the repository to the installation, not to install again", async () => {
+    const captured = createTestIo({ isTTY: false });
+    const context = createTestContext(
+      captured,
+      createTestDeps({ verifyProject: async () => configure }),
+    );
+    expect(await runProjectVerify(context)).toBe(3);
+    const stderr = captured.stderr();
+    expect(stderr).toContain(
+      "GitHub shows no access to JadenMeister/photo-dump. The PGARD GitHub App is already installed on JadenMeister, but its repository access does not include this repository (or your account has no access to it).",
+    );
+    expect(stderr).toContain(
+      "Owner approval: add JadenMeister/photo-dump to the PGARD GitHub App's repository access.",
+    );
+    expect(stderr).toContain(`1. Open ${CONFIGURE_URL}`);
+    expect(stderr).toContain(
+      'Under "Repository access", choose "Only select repositories", add JadenMeister/photo-dump, then click Save.',
+    );
+    expect(stderr).toContain(
+      "Changing the App's repository access is the owner approval; PGARD cannot change it for you.",
+    );
+    expect(stderr).not.toContain("click Install");
+  });
+
+  it("guides an organization with an unknown role, and asks for an owner otherwise", async () => {
+    const org = { ...configure.remedy!, account: { login: "acme", type: "Organization" as const } };
+    const unknown = createTestIo({ isTTY: false });
+    await runProjectVerify(
+      createTestContext(
+        unknown,
+        createTestDeps({
+          verifyProject: async () => ({ ...configure, remedy: { ...org, canApprove: "unknown" } }),
+        }),
+      ),
+    );
+    expect(unknown.stderr()).toContain(
+      "If you are an owner of acme, add JadenMeister/photo-dump to the PGARD GitHub App's repository access on its settings page; otherwise ask an owner to do it there:",
+    );
+    const no = createTestIo({ isTTY: true });
+    const recheck = vi.fn();
+    await runProjectVerify(
+      createTestContext(
+        no,
+        createTestDeps({
+          verifyProject: async () => ({ ...configure, remedy: { ...org, canApprove: "no" } }),
+          recheckOwnerApproval: recheck as never,
+        }),
+      ),
+    );
+    expect(no.stderr()).toContain(
+      `Ask an owner of acme to add JadenMeister/photo-dump to the PGARD GitHub App's repository access: ${CONFIGURE_URL}`,
+    );
+    expect(recheck).not.toHaveBeenCalled();
+  });
+
+  it("says plainly that the install page pre-selects All repositories", async () => {
+    const captured = createTestIo({ isTTY: false });
+    await runProjectVerify(
+      createTestContext(captured, createTestDeps({ verifyProject: async () => HIDDEN_REPO })),
+    );
+    expect(captured.stderr()).toContain(
+      'The page pre-selects "All repositories". To limit PGARD to this repository, choose "Only select repositories" and pick me/app, then click Install.',
+    );
+  });
+});

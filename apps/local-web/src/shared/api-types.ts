@@ -54,9 +54,13 @@ export type JobStatus = "idle" | "running" | "done" | "failed";
  */
 export interface InstallRemedyDto {
   kind: "install_app";
-  missing: "installation" | "repository" | "access";
+  missing: "installation" | "repository" | "access" | "repository_access";
   account: { login: string; type: "User" | "Organization" };
-  /** Always an `https://github.com/apps/...` URL, or `null` (see `unavailableReason`). */
+  /**
+   * Always an `https://github.com/...` URL, or `null` (see `unavailableReason`): the App's
+   * install page (`/apps/...`), or for `repository_access` the existing installation's settings
+   * page (`/settings/installations/<id>` or `/organizations/<org>/settings/installations/<id>`).
+   */
   url: string | null;
   /**
    * `yes`: personal owner or active organization owner; `no`: GitHub shows they are not;

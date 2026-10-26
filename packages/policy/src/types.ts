@@ -57,9 +57,12 @@ export interface OwnerApprovalRemedy {
    * - `installation`: no installation on the owner account;
    * - `repository`: an installation without this repository;
    * - `access`: GitHub returned 404 for the repository itself, so the cause is unknown (usually a
-   *   private repository outside the installation). The link then preselects only the account.
+   *   private repository outside the installation) and the App is not installed on the owner
+   *   account. The link then preselects only the account.
+   * - `repository_access`: same 404, but the App is already installed on the owner account; `url`
+   *   is that installation's settings page, where the repository can be added.
    */
-  missing: "installation" | "repository" | "access";
+  missing: "installation" | "repository" | "access" | "repository_access";
   /** The account that owns the repository, as GitHub reports it. */
   account: { login: string; type: "User" | "Organization" };
   /**

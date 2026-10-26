@@ -10,9 +10,11 @@ import {
   isAuthorizationAllowed,
   recheckOwnerApproval,
 } from "./authorize-project.js";
+import { evaluateAccessRemedy } from "./checks.js";
 import {
   ME,
   ORG,
+  orgInstallation,
   createMockGitHub,
   ownerInstallation,
   sessionProvider,
@@ -157,6 +159,137 @@ describe("404 from getRepository (private repository outside the installation)",
       mutated.summary.checks[index]!.status = wrong;
       expect(guidedInstallRemedy(mutated)).toBeNull();
     }
+  });
+});
+
+const CONFIGURE_URL = "https://github.com/settings/installations/77";
+const ORG_CONFIGURE_URL = "https://github.com/organizations/acme/settings/installations/88";
+
+describe("404 when the App is already installed on the owner account", () => {
+  it("points a personal owner at the installation settings page to add the repository", async () => {
+    const { root, head } = project();
+    const { deps: d } = deps(hiddenState(head, { installations: [ownerInstallation()] }));
+    const outcome = await authorizeProject(root, d);
+    expect(status(outcome, "current_access")).toMatchObject({ status: "failed", reason: REASON });
+    expect(outcome.remedy).toMatchObject({
+      missing: "repository_access",
+      url: CONFIGURE_URL,
+      canApprove: "yes",
+    });
+    expect(guidedInstallRemedy(outcome)).toEqual(outcome.remedy);
+    expect(isAuthorizationAllowed(outcome)).toBe(false);
+  });
+
+  it("uses the organization settings page, canApprove unknown", async () => {
+    const org = project("git@github.com:acme/app.git");
+    const { deps: d } = deps(
+      hiddenState(org.head, {
+        accounts: { acme: { ...ORG, type: "Organization" } },
+        installations: [orgInstallation()],
+      }),
+    );
+    const outcome = await authorizeProject(org.root, d);
+    expect(outcome.remedy).toMatchObject({
+      missing: "repository_access",
+      url: ORG_CONFIGURE_URL,
+      canApprove: "unknown",
+    });
+  });
+
+  it("does not use an installation of another account or another account type", async () => {
+    const { root, head } = project();
+    for (const installations of [
+      [ownerInstallation(9999, "someone")],
+      [{ ...ownerInstallation(), targetType: "Organization" }],
+    ]) {
+      const { deps: d } = deps(hiddenState(head, { installations }));
+      const outcome = await authorizeProject(root, d);
+      expect(outcome.remedy).toMatchObject({ missing: "access", url: PERSONAL_URL });
+    }
+  });
+
+  it("offers no remedy when the installations cannot be listed (never guesses a page)", async () => {
+    const { root, head } = project();
+    const { deps: d } = deps(
+      hiddenState(head, { installationsError: new GitHubAuthError("network_error", "down") }),
+    );
+    const outcome = await authorizeProject(root, d);
+    expect(status(outcome, "current_access")).toMatchObject({ status: "failed", reason: REASON });
+    expect(outcome.remedy ?? null).toBeNull();
+    expect(guidedInstallRemedy(outcome)).toBeNull();
+  });
+
+  it("never builds a link from an unusable installation id", async () => {
+    const { root, head } = project();
+    const bad = { ...ownerInstallation(), id: 0 };
+    const { deps: d } = deps(hiddenState(head, { installations: [bad] }));
+    const outcome = await authorizeProject(root, d);
+    expect(outcome.remedy).toMatchObject({ missing: "repository_access", url: null });
+  });
+
+  it("is guided by the same exact shape as the install remedy", async () => {
+    const { root, head } = project();
+    const { deps: d } = deps(hiddenState(head, { installations: [ownerInstallation()] }));
+    const outcome = await authorizeProject(root, d);
+    const extra = structuredClone(outcome);
+    extra.summary.checks.push({ id: "contribution", status: "unverifiable", reason: "x" });
+    expect(guidedInstallRemedy(extra)).toBeNull();
+    const short = structuredClone(outcome);
+    short.summary.checks.pop();
+    expect(guidedInstallRemedy(short)).toBeNull();
+    const wrong = structuredClone(outcome);
+    wrong.summary.checks[3]!.status = "passed";
+    expect(guidedInstallRemedy(wrong)).toBeNull();
+  });
+});
+
+describe("configure link safety", () => {
+  it("builds no configure link for a login outside GitHub's alphabet", async () => {
+    const { session } = createMockGitHub(
+      hiddenState("x", {
+        accounts: { a_b: { id: 5, login: "a_b", type: "User" } },
+        installations: [ownerInstallation(5, "a_b")],
+      }),
+    );
+    const remedy = await evaluateAccessRemedy(session.client, ME, "a_b", SLUG);
+    expect(remedy).toMatchObject({ missing: "repository_access", url: null });
+  });
+});
+
+describe("other failures and spelling", () => {
+  it("offers no remedy for a non-404 getRepository failure", async () => {
+    const { root, head } = project();
+    for (const repositoryError of [
+      new GitHubAuthError("http_error", "boom", 500),
+      new GitHubAuthError("rate_limited", "slow"),
+      new GitHubAuthError("forbidden", "no", 403),
+      new Error("unexpected"),
+    ]) {
+      const { deps: d } = deps(hiddenState(head, { repositoryError }));
+      const outcome = await authorizeProject(root, d);
+      expect(outcome.remedy ?? null).toBeNull();
+      expect(status(outcome, "current_access")?.status).toBe("unverifiable");
+      const recheck = await recheckOwnerApproval(root, d);
+      expect(recheck.remedy).toBeNull();
+      expect(recheck.status).toBe("unverifiable");
+    }
+  });
+
+  it("matches a lowercase remote owner against GitHub's canonical login", async () => {
+    const { root, head } = project("git@github.com:jadenmeister/app.git");
+    const { deps: d } = deps(
+      hiddenState(head, {
+        user: { ...ME, login: "JadenMeister" },
+        accounts: { jadenmeister: { id: ME.id, login: "JadenMeister", type: "User" } },
+        installations: [ownerInstallation(ME.id, "JadenMeister")],
+      }),
+    );
+    const outcome = await authorizeProject(root, d);
+    expect(outcome.remedy).toMatchObject({
+      missing: "repository_access",
+      account: { login: "JadenMeister" },
+      canApprove: "yes",
+    });
   });
 });
 

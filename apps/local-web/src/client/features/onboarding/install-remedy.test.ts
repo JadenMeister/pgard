@@ -56,6 +56,33 @@ describe("dashboard install remedy", () => {
     );
   });
 
+  it("tells the owner to add the repository to the existing installation", () => {
+    const configure = "https://github.com/settings/installations/77";
+    const view = describeInstallRemedy(
+      remedy({ missing: "repository_access", url: configure, canApprove: "yes" }),
+      "acme/app",
+    );
+    expect(view).toMatchObject({ kind: "install", url: configure });
+    expect(view.text).toContain("already installed on acme");
+    expect(view.text).toContain("add acme/app to the PGARD GitHub App's repository access");
+    expect(view.text).not.toContain("click Install");
+    expect(
+      describeInstallRemedy(
+        remedy({ missing: "repository_access", url: configure, canApprove: "no" }),
+        "acme/app",
+      ),
+    ).toEqual({
+      kind: "ask_owner",
+      url: configure,
+      text: "Ask an owner of acme to add acme/app to the PGARD GitHub App's repository access:",
+    });
+  });
+
+  it("says the install page pre-selects All repositories for a hidden repository", () => {
+    const view = describeInstallRemedy(remedy({ missing: "access" }), "acme/app");
+    expect(view.text).toContain('pre-selects "All repositories"');
+  });
+
   it("shows why there is no link, and never links outside github.com", () => {
     expect(
       describeInstallRemedy(

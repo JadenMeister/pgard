@@ -22,12 +22,23 @@ export type InstallRemedyView =
   | { kind: "unavailable"; text: string };
 
 /** What the authorization panel shows for a remedy; the same wording as the CLI. */
-export function describeInstallRemedy(remedy: InstallRemedyDto): InstallRemedyView {
+export function describeInstallRemedy(
+  remedy: InstallRemedyDto,
+  repo: string | null = null,
+): InstallRemedyView {
   const account = remedy.account.login;
+  const target = repo ?? "this repository";
   if (remedy.url === null || !isGitHubUrl(remedy.url)) {
     return {
       kind: "unavailable",
       text: remedy.unavailableReason ?? "No install link is available.",
+    };
+  }
+  if (remedy.canApprove === "no" && remedy.missing === "repository_access") {
+    return {
+      kind: "ask_owner",
+      url: remedy.url,
+      text: `Ask an owner of ${account} to add ${target} to the PGARD GitHub App's repository access:`,
     };
   }
   if (remedy.canApprove === "no") {
@@ -37,11 +48,23 @@ export function describeInstallRemedy(remedy: InstallRemedyDto): InstallRemedyVi
       text: `Ask an owner of ${account} to install the PGARD GitHub App:`,
     };
   }
+  if (remedy.missing === "repository_access") {
+    const lead = `GitHub shows no access to ${target}. The PGARD GitHub App is already installed on ${account}, but its repository access does not include this repository (or your account has no access to it).`;
+    const steps = `On GitHub, under "Repository access", choose "Only select repositories", add ${target}, then click Save. Changing the App's repository access is the owner approval; PGARD cannot change it for you.`;
+    return {
+      kind: "install",
+      url: remedy.url,
+      text:
+        remedy.canApprove === "yes"
+          ? `${lead} Owner approval: add ${target} to the PGARD GitHub App's repository access. ${steps}`
+          : `${lead} If you are an owner of ${account}, add ${target} to the PGARD GitHub App's repository access on its settings page; otherwise ask an owner to do it there: ${remedy.url} ${steps}`,
+    };
+  }
   if (remedy.missing === "access") {
     return {
       kind: "install",
       url: remedy.url,
-      text: `GitHub shows no access to this repository. If it is private, the PGARD GitHub App must be installed for it; PGARD cannot tell this from missing account access. If you are an owner of ${account}, install the App on the install page and include this repository; otherwise ask an owner to install it there: ${remedy.url}`,
+      text: `GitHub shows no access to this repository. If it is private, the PGARD GitHub App must be installed for it; PGARD cannot tell this from missing account access. If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${remedy.url} The page pre-selects "All repositories"; to limit PGARD to this repository, choose "Only select repositories" and pick ${target}, then click Install.`,
     };
   }
   if (remedy.canApprove === "unknown") {

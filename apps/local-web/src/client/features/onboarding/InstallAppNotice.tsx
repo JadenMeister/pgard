@@ -15,6 +15,8 @@ import {
 
 interface InstallAppNoticeProps {
   remedy: InstallRemedyDto;
+  /** `owner/name` of the checked repository, for the wording. */
+  repo?: string | null;
   /**
    * When the server stops accepting re-checks (`AuthStatus.installWaitEndsAt`). It comes from the
    * server, so a remount (for example after a transient error) never restarts the 10 minutes.
@@ -30,8 +32,13 @@ interface InstallAppNoticeProps {
  * owner approval every 5 s until the server's 10-minute window ends, then starts the full check
  * again.
  */
-export function InstallAppNotice({ remedy, waitEndsAt, onInstalled }: InstallAppNoticeProps) {
-  const view = describeInstallRemedy(remedy);
+export function InstallAppNotice({
+  remedy,
+  repo = null,
+  waitEndsAt,
+  onInstalled,
+}: InstallAppNoticeProps) {
+  const view = describeInstallRemedy(remedy, repo);
   const canWait = view.kind === "install" && !isInstallWaitOver(waitEndsAt, Date.now());
   const [isWaiting, setIsWaiting] = useState(canWait);
   const [isTimedOut, setIsTimedOut] = useState(view.kind === "install" && !canWait);

@@ -15,6 +15,7 @@ import {
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   buildAppInstallUrl,
   isGitHubAuthError,
+  isOpenableGitHubUrl,
   type GitHubClient,
   type GitHubRepository,
   type GitHubUser,
@@ -343,6 +344,45 @@ export async function evaluateAccessRemedy(
   if (account.type !== "User" && account.type !== "Organization") return null;
   const canApprove: InstallApproval =
     account.type === "Organization" ? "unknown" : account.id === user.id ? "yes" : "no";
+  const remedyAccount: { login: string; type: "User" | "Organization" } = {
+    login: account.login,
+    type: account.type === "Organization" ? "Organization" : "User",
+  };
+
+  // Is the App already installed on the owner account? Then the repository only has to be added
+  // to that installation. If the listing fails there is no way to tell which page helps, so no
+  // remedy is offered (the failed reason still says what is likely wrong): guessing "install"
+  // for an installed App, or "configure" for a missing one, would send the user to a wrong page.
+  let installations;
+  try {
+    installations = await client.listUserInstallations();
+  } catch {
+    return null;
+  }
+  const existing = installations.find(
+    (installation) =>
+      installation.account.id === account.id && installation.targetType === account.type,
+  );
+  if (existing !== undefined) {
+    const configureUrl =
+      account.type === "Organization"
+        ? `https://github.com/organizations/${encodeURIComponent(account.login)}/settings/installations/${existing.id}`
+        : `https://github.com/settings/installations/${existing.id}`;
+    const isSafe =
+      Number.isSafeInteger(existing.id) &&
+      existing.id > 0 &&
+      /^[A-Za-z0-9-]{1,100}$/.test(account.login) &&
+      isOpenableGitHubUrl(configureUrl);
+    return {
+      kind: "install_app",
+      missing: "repository_access",
+      account: remedyAccount,
+      url: isSafe ? configureUrl : null,
+      canApprove,
+      unavailableReason: isSafe ? null : GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE,
+    };
+  }
+
   const url =
     typeof appSlug === "string"
       ? buildAppInstallUrl({ slug: appSlug, targetId: account.id })
@@ -350,7 +390,7 @@ export async function evaluateAccessRemedy(
   return {
     kind: "install_app",
     missing: "access",
-    account: { login: account.login, type: account.type },
+    account: remedyAccount,
     url,
     canApprove,
     unavailableReason:

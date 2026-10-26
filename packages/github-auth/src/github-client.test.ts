@@ -44,11 +44,18 @@ describe("getAccount", () => {
   });
 
   it("maps 404 to not_found, rejects malformed bodies and unsafe logins", async () => {
-    const { fetch } = routeFetch({ "/users/bad": [200, { login: "bad" }] });
+    const { fetch, urls } = routeFetch({ "/users/bad": [200, { login: "bad" }] });
     const client = createGitHubClient({ token: "t", fetch });
     await expect(client.getAccount("ghost")).rejects.toMatchObject({ code: "not_found" });
     await expect(client.getAccount("bad")).rejects.toMatchObject({ code: "unexpected_response" });
-    await expect(client.getAccount("a/b")).rejects.toThrow();
+    urls.length = 0;
+    for (const unsafe of ["a/b", "..", "a?b", "a#b", "a b", ""]) {
+      await expect(client.getAccount(unsafe)).rejects.toMatchObject({
+        code: "unexpected_response",
+      });
+    }
+    // Rejected before any request is made.
+    expect(urls).toEqual([]);
   });
 });
 

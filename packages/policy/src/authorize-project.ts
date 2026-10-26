@@ -172,7 +172,7 @@ export function guidedInstallRemedy(outcome: AuthorizationOutcome): OwnerApprova
   const remedy = outcome.remedy ?? null;
   if (remedy === null || outcome.summary.decision !== "blocked") return null;
   const { checks } = outcome.summary;
-  if (remedy.missing === "access") {
+  if (remedy.missing === "access" || remedy.missing === "repository_access") {
     // GitHub showed no repository: current_access failed, so owner approval and contribution
     // were not evaluated. Repository and identity must have passed.
     const expected = ["passed", "passed", "unverifiable", "failed", "unverifiable"] as const;
