@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#요구-사항)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#요구-사항)
-[![Status: MVP](https://img.shields.io/badge/status-MVP-orange)](#mvp-범위-밖)
+[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#알려진-제한-사항)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#개인정보와-네트워크-통신)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
 
@@ -15,7 +15,7 @@ PGARD(`pgard`)는 검사 권한이 있는 GitHub 프로젝트를 위한 로컬 �
 
 PGARD는 검사할 때마다 저장소 owner가 PGARD를 승인했는지, 사용자가 지금 저장소에 접근할 수 있는지, 사용자가 저장소의 owner이거나 실제로 기여했는지를 확인합니다. 코드와 결과는 사용자 컴퓨터를 벗어나지 않습니다.
 
-PGARD는 MVP입니다. 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
+PGARD는 활발히 개발 중인 사전 출시(pre-release) 버전입니다. 첫 릴리스(v0.1.0)를 계획하고 있습니다. PGARD는 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
 
 > **현재 상태:** PGARD에는 PGARD GitHub App의 client id가 내장되어 있어 로그인에 별도 설정이 필요 없습니다. 검사하려면 여전히 저장소를 소유한 계정, 즉 본인의 개인 계정이나 본인이 owner인 조직에 App이 설치되어 있어야 합니다([권한 확인 모델](#권한-확인-모델) 참고).
 
@@ -23,6 +23,7 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 
 ## 목차
 
+- [정책](#정책)
 - [요구 사항](#요구-사항)
 - [설치와 빌드](#설치와-빌드)
 - [명령](#명령)
@@ -35,10 +36,25 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 - [결과와 보고서](#결과와-보고서)
 - [대시보드](#대시보드)
 - [개인정보와 네트워크 통신](#개인정보와-네트워크-통신)
-- [MVP 범위 밖](#mvp-범위-밖)
+- [범위 밖](#범위-밖)
 - [알려진 제한 사항](#알려진-제한-사항)
 - [개발](#개발)
 - [라이선스](#라이선스)
+
+## 정책
+
+PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하고, 전체 내용이 적힌 곳으로 연결합니다. 이 README와 [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md)는 현재 동작을 설명합니다. [`docs/`](docs/README.md)의 한국어 기획 문서는 MVP 기획 기록이며, 내용이 다르면(예를 들어 기획 문서에는 advisory 데이터베이스가 나오지만 PGARD에는 없습니다) 이 README가 맞습니다.
+
+- **권한 확인 게이트.** 저장소, GitHub 신원, owner 승인, 현재 접근, 기여의 다섯 가지 확인을 검사할 때마다 다시 실행합니다. 건너뛰거나 이전 결과를 재사용하는 옵션은 없으며, 근거가 없거나 불분명하면 검사를 차단합니다(종료 코드 3). [권한 확인 모델](#권한-확인-모델) 참고.
+- **조직 저장소.** 조직 저장소는 조직의 활성 owner만 검사할 수 있으며, PGARD GitHub App이 조직에 설치되어 해당 저장소를 포함해야 합니다. [조직 저장소](#조직-저장소) 참고.
+- **로컬 처리와 네트워크 통신.** 코드, Git 이력, 결과는 사용자 컴퓨터에서 처리되며 업로드되지 않습니다. 외부 통신은 로그인과 권한 확인 메타데이터를 위한 GitHub뿐입니다. [개인정보와 네트워크 통신](#개인정보와-네트워크-통신) 참고.
+- **자격 증명.** GitHub 토큰은 OS 키체인에만 저장하고, 키체인이 없으면 메모리에만 보관합니다. 파일에 쓰거나 출력하거나 로그에 남기거나 브라우저로 보내지 않습니다. `pgard logout`은 저장된 로그인을 지웁니다(GitHub의 토큰을 폐기하지는 않습니다). [저장된 로그인](#저장된-로그인os-키체인) 참고.
+- **민감정보 가림.** 비밀 값은 터미널 출력, 발견 항목, HTML/PDF 보고서, 대시보드 어디에도 나타나지 않으며 비밀의 종류만 표시합니다. [Git 이력 검사](#git-이력-검사)와 [결과와 보고서](#결과와-보고서) 참고.
+- **로컬 웹 대시보드 보안.** `127.0.0.1`에서만 수신하고, 세션마다 토큰을 요구하며, `Host`와 `Origin` 헤더를 검사하고, 엄격한 Content-Security-Policy를 적용하며, 보고서는 파일을 쓰지 않고 브라우저 다운로드로 제공합니다. [대시보드 보호 방식](#대시보드-보호-방식) 참고.
+- **웹 검사.** 사용자가 확인한 `127.0.0.1`의 로컬 서비스만 익명 `GET`/`HEAD` 요청으로 검사하며, 상태를 바꾸는 요청은 보내지 않습니다. [로컬 웹 검사](#로컬-웹-검사) 참고.
+- **결과 스키마 버전 관리.** 검사 결과는 `major.minor` 형식의 `schemaVersion`을 가지며, 읽는 쪽은 다른 major 버전을 거부합니다. [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) 참고.
+- **범위 밖.** 원격 서비스, 공격 요청이나 상태를 바꾸는 요청, 로그인한 상태의 웹 탐색, 의존성 취약점 조회 등은 지원하지 않습니다. [범위 밖](#범위-밖) 참고.
+- **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 병합 전 리뷰는 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
 
 ## 요구 사항
 
@@ -49,7 +65,9 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 
 ## 설치와 빌드
 
-PGARD는 npm에 배포되지 않았습니다. 소스에서 빌드합니다.
+아직 npm으로 설치할 수 없습니다. npm 이름 `pgard`는 CLI가 없는 자리 표시용 패키지(0.0.1)가 선점해 두었습니다. `npm install -g pgard`는 이 자리 표시용 패키지만 설치하며 `pgard` 명령은 생기지 않습니다. 첫 릴리스(v0.1.0 예정) 전까지는 아래처럼 소스에서 설치하세요. npm과 Homebrew 릴리스를 계획하고 있습니다.
+
+소스에서 빌드합니다.
 
 ```sh
 git clone https://github.com/JadenMeister/pgard.git
@@ -376,7 +394,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 대시보드는 한국어와 영어를 지원합니다. 브라우저 언어를 따르며(한국어 설정이면 한국어, 그 외에는 영어) 헤더의 **한국어 / English** 토글로 바꿀 수 있고, 선택은 브라우저에 기억됩니다. 검사 결과에서 오는 문구(발견 항목 제목, 규칙 설명, 권한 확인 이유)는 아직 영어로 표시됩니다.
 
-대시보드 보호 방식:
+### 대시보드 보호 방식
 
 - `127.0.0.1`의 빈 포트에만 바인딩합니다.
 - 32바이트 임의 세션 토큰을 URL **fragment**로 전달하므로 브라우저가 요청이나 `Referer` 헤더에 싣지 않습니다. 페이지는 주소창에서 토큰을 지우고 메모리에만 보관합니다. URL을 공유하지 마세요.
@@ -392,7 +410,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 - 권한 확인을 통과한 뒤, PGARD는 서비스의 정체를 보여 주기 위해 `127.0.0.1`에서 발견한 각 열린 포트에 `GET /`를 한 번 보냅니다. 이후 웹 검사는 사용자가 확인한 서비스에만 요청을 보냅니다.
 - PGARD는 취약점 데이터베이스를 포함하거나 내려받거나 조회하지 않습니다.
 
-## MVP 범위 밖
+## 범위 밖
 
 - 데이터베이스 직접 접속
 - Docker·컨테이너 설정
@@ -405,9 +423,9 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 ## 알려진 제한 사항
 
 - [#44](https://github.com/JadenMeister/pgard/issues/44) PDF 보고서는 Latin-1 밖의 문자(예: 한국어)를 `?`로 바꿉니다. 전체 텍스트는 HTML 보고서를 사용하세요.
-- [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. MVP 범위 밖입니다([MVP 범위 밖](#mvp-범위-밖) 참고).
+- [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. 범위 밖입니다([범위 밖](#범위-밖) 참고).
 - 검증된 owner가 아닌 사용자의 기여는 보수적으로 확인합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않으므로, 커밋을 공동 작성만 했거나 서명 없이 push한 협력자는 본인의 pull request가 merge되거나 서명된 커밋을 push할 때까지 기여에서 차단됩니다.
-- [#143](https://github.com/JadenMeister/pgard/issues/143) 키체인 로그인 리뷰의 후속 작업: 키체인 저장과 삭제 사이의 짧은 경쟁 상태, 토큰 갱신 중 대시보드 세션만 끝내는 로그아웃을 하면 다음 사용 때 새 device 코드를 요구할 수 있는 문제, `pgard login`으로 계정을 바꾼 뒤에도 대시보드가 이전 계정의 포트 접근을 최대 30분 유지하는 문제(검사는 권한을 다시 확인함).
+- 대시보드에서 검사 결과에서 오는 문구(발견 항목 제목, 규칙 설명, 권한 확인 이유)는 영어로만 표시됩니다. 나머지 대시보드는 한국어와 영어를 지원합니다.
 - 탐지는 완전하지 않습니다. 발견 항목이 없다고 프로젝트가 안전한 것은 아닙니다.
 - 포트 탐지는 불완전하거나 사용할 수 없을 수 있습니다. 그럴 때는 포트를 직접 입력하세요.
 
@@ -441,16 +459,17 @@ npm run check         # typecheck + format:check + test
 
 CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run format:check`, `npm test`를 실행합니다.
 
-### 설계 문서
+### `docs/`의 문서
 
-PGARD는 [`docs/`](docs/)에 있는 기획 문서 세 개를 바탕으로 구현했습니다.
+[`docs/README.md`](docs/README.md)는 [`docs/`](docs/)의 문서를 안내하며, 어느 문서가 현재 정책이고 어느 문서가 과거 기록인지 알려 줍니다. PGARD는 MVP 기획 기록인 한국어 기획 문서 세 개를 바탕으로 구현했습니다.
 
 - [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): 구현 브리프입니다. 제품 범위, 권한 게이트, 검사 경계, 완료 조건을 정했습니다.
 - [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): CLI 명령 체계와 앱·패키지 구조를 정했습니다.
 - [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙을 정했습니다.
-  영문으로 쓴 문서가 하나 더 있습니다. [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
 
-구현하면서 나중에 바뀐 결정이 있어서, 이 문서들과 README가 다르면 README와 코드가 맞습니다.
+영문으로 쓴 문서가 하나 더 있으며 현재 동작을 설명합니다. [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
+
+구현하면서 나중에 바뀐 결정이 있어서, 기획 문서와 README가 다르면 README와 코드가 맞습니다.
 
 ## 라이선스
 
