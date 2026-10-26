@@ -475,4 +475,4 @@ Where the planning documents and this README disagree, this README and the code 
 
 [MIT](LICENSE)
 
-The PDF reports embed a subset of Noto Sans KR, licensed under the SIL Open Font License 1.1. See [NOTICE](NOTICE) and `packages/report/fonts/OFL.txt`.
+The PDF reports embed a subset of Noto Sans KR, licensed under the SIL Open Font License 1.1. See [NOTICE](NOTICE.md) and `packages/report/fonts/OFL.txt`.

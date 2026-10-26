@@ -19,7 +19,7 @@ import {
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
 } from "./format.js";
-import { hasCharactersOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
+import { hasStringOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
 
 const MUTED = "#475569";
 const PAGE_MARGIN = 50;
@@ -183,7 +183,7 @@ export function renderPdfReport(
       line(doc, style, fontFallbackMessage(loaded.reason), "#b45309");
     }
     const hasReplacedText = loaded.ok
-      ? hasCharactersOutsideFont(JSON.stringify(result))
+      ? hasStringOutsideFont(result)
       : hasUnsupportedPdfCharacters(result);
     if (hasReplacedText) {
       doc.moveDown(0.3);

@@ -62,10 +62,14 @@ export function extractEmbeddedFontText(pdf: Buffer): string[] {
     const hexes = [...(m[2] ?? m[3] ?? "").matchAll(/<([0-9a-fA-F]*)>/g)];
     let text = m[3] !== undefined ? [m[3]] : hexes.map((h) => h[1] ?? "");
     text = text.length === 0 && m[3] !== undefined ? [m[3]] : text;
+    if (map === undefined) throw new Error(`font ${current} has no ToUnicode CMap`);
     let line = "";
     for (const hex of text) {
       for (let i = 0; i + 4 <= hex.length; i += 4) {
-        line += map?.get(parseInt(hex.slice(i, i + 4), 16)) ?? "�";
+        const glyph = parseInt(hex.slice(i, i + 4), 16);
+        const char = map.get(glyph);
+        if (char === undefined) throw new Error(`glyph ${glyph} of font ${current} is unmapped`);
+        line += char;
       }
     }
     lines.push(line.trimEnd());

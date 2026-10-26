@@ -5,10 +5,12 @@
 #   SHA-256 194018e6b2b293a7964f037b25c0249ce1418bc9ab3c971060a03aa57861e252 (10414588 bytes)
 # License: SIL Open Font License 1.1 (see OFL.txt next to this file).
 #
-# Usage (needs `pip install fonttools`):
+# Usage (needs `pip install fonttools==4.67.0`; this version reproduces the shipped files
+# byte for byte):
 #   python3 -I subset.py <dir containing the upstream file saved as full.ttf>
 # Output files are written to that same directory. The glyph ranges below must match
-# SUPPORTED_RANGES in src/pdf-font.ts, and the SHA-256 values there must be updated.
+# SUPPORTED_RANGES in src/pdf-font.ts (code points the upstream font lacks are dropped by the
+# subsetter, so the ranges there are the exact cmap), and the SHA-256 values there (and in NOTICE.md) must be updated.
 import sys
 from fontTools.ttLib import TTFont
 from fontTools.varLib import instancer
@@ -52,4 +54,9 @@ for w, nm in ((400, "Regular"), (700, "Bold")):
     ):
         names.setName(value, name_id, 3, 1, 0x409)
         names.setName(value, name_id, 1, 0, 0)
+    # Reproducible output: keep the upstream timestamps instead of the current time, and do not
+    # leave the variable font's "Thin" in the unique font identifier.
+    f.recalcTimestamp = False
+    names.setName("2.004;ADBO;NotoSansKR-" + nm + ";ADOBE", 3, 3, 1, 0x409)
+    names.setName("2.004;ADBO;NotoSansKR-" + nm + ";ADOBE", 3, 1, 0, 0)
     f.save(d + "/PgardNotoSansKR-" + nm + ".ttf")

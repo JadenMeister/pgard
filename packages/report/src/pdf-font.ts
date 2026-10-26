@@ -10,20 +10,30 @@ import { readFileSync } from "node:fs";
 const FONT_FILES = {
   regular: {
     file: "PgardNotoSansKR-Regular.ttf",
-    sha256: "5ef492dc3174bde922db398255dfa1d6232449be408ac260e152606121481cc5",
+    sha256: "e1a4564bbbb0676ea20c72ba7cc130917096c5f43655ca99f06c99efcec2fdfb",
   },
   bold: {
     file: "PgardNotoSansKR-Bold.ttf",
-    sha256: "dcb6fe1df7eaf3f0fd0695cf3504cf9be389b19b55c5815c3c56a00a656a49d0",
+    sha256: "ff1968fc53fb9abf71041d8c9a9783518de3f85ef2e49ca713ca9a03770aa894",
   },
 } as const;
 
-/** Code point ranges present in the shipped subset (keep in sync with fonts/subset.py). */
+/**
+ * Code points that have a glyph in the shipped subset: the exact cmap (a test walks every one).
+ * Keep in sync with fonts/subset.py.
+ */
 const SUPPORTED_RANGES: ReadonlyArray<readonly [number, number]> = [
   [0x20, 0x7e],
   [0xa0, 0xff],
-  [0x2010, 0x2027],
-  [0x2030, 0x203a],
+  [0x2010, 0x2016],
+  [0x2018, 0x201a],
+  [0x201c, 0x201e],
+  [0x2020, 0x2022],
+  [0x2025, 0x2027],
+  [0x2030, 0x2030],
+  [0x2032, 0x2033],
+  [0x2035, 0x2035],
+  [0x2039, 0x203a],
   [0x20ac, 0x20ac],
   [0x2190, 0x2193],
   [0x3000, 0x303f],
@@ -79,6 +89,8 @@ export function resetPdfFontCache(): void {
 }
 
 /** True when the bundled font has a glyph for this code point. */
+export const PDF_FONT_RANGES = SUPPORTED_RANGES;
+
 export function isPdfFontCodePoint(codePoint: number): boolean {
   return SUPPORTED_RANGES.some(([from, to]) => codePoint >= from && codePoint <= to);
 }
@@ -90,6 +102,16 @@ export function toFontText(value: string): string {
     out += char === "\n" || isPdfFontCodePoint(char.codePointAt(0) ?? 0) ? char : "?";
   }
   return out;
+}
+
+/** True when any string inside `value` (an object, array or string) is altered by `toFontText`. */
+export function hasStringOutsideFont(value: unknown): boolean {
+  if (typeof value === "string") return hasCharactersOutsideFont(value);
+  if (Array.isArray(value)) return value.some(hasStringOutsideFont);
+  if (typeof value === "object" && value !== null) {
+    return Object.values(value).some(hasStringOutsideFont);
+  }
+  return false;
 }
 
 /** True when the value contains text outside the bundled font (see `toFontText`). */

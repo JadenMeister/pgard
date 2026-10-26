@@ -475,4 +475,4 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 
 [MIT](LICENSE)
 
-PDF 보고서에는 SIL Open Font License 1.1로 배포되는 Noto Sans KR 서브셋이 포함됩니다. [NOTICE](NOTICE)와 `packages/report/fonts/OFL.txt`를 참고하세요.
+PDF 보고서에는 SIL Open Font License 1.1로 배포되는 Noto Sans KR 서브셋이 포함됩니다. [NOTICE](NOTICE.md)와 `packages/report/fonts/OFL.txt`를 참고하세요.
