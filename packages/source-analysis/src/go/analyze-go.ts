@@ -107,39 +107,130 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const isTaintedExpr = (expression: string): boolean =>
     !SANITIZER_PATTERN.test(expression) &&
     (SOURCE_PATTERN.test(expression) || referencesAny(expression, tainted));
-  // Names whose value is fixed: package/local `const`s, and numbers parsed with strconv. A name
-  // that is also assigned something else anywhere in the file is not trusted.
+  // Names whose value is fixed: `const`s, and numbers parsed with strconv. A name counts only when
+  // it is bound exactly once in the whole file: a parameter, `:=`, `var`, assignment or second
+  // declaration of the same name anywhere (any function) makes it untrusted.
+  interface FunctionSpan {
+    signature: string;
+    start: number;
+    end: number;
+  }
+  const functionSpans: FunctionSpan[] = [];
+  const bound = new Map<string, number>();
+  const constDeclarations = new Map<string, number>();
+  const bump = (map: Map<string, number>, name: string) => map.set(name, (map.get(name) ?? 0) + 1);
+  const bumpTokens = (text: string) => {
+    for (const token of text.matchAll(/[A-Za-z_]\w*/g)) bump(bound, token[0]);
+  };
   const inertNames = new Set<string>();
   {
-    const impure = new Set<string>();
-    const shadowed = new Set<string>();
-    const constNames = new Set<string>();
-    for (const match of code.matchAll(/(?:^|\n)[ \t]*const[ \t]+(\w+)\b[^\n=]*=/g)) {
-      if (match[1]) constNames.add(match[1]);
+    // `const` declarations: counted separately, then blanked so they do not look like assignments.
+    let withoutConsts = "";
+    let cursor = 0;
+    for (const match of code.matchAll(/\bconst\b/g)) {
+      const at = match.index ?? 0;
+      if (at < cursor) continue;
+      let end = code.indexOf("\n", at);
+      if (end === -1) end = code.length;
+      const afterKeyword = /^[ \t]*\(/.exec(code.slice(at + 5));
+      const lineNames: string[] = [];
+      if (afterKeyword) {
+        let depth = 0;
+        let index = at + 5 + afterKeyword[0].length - 1;
+        for (; index < code.length; index += 1) {
+          if (code[index] === "(") depth += 1;
+          else if (code[index] === ")" && (depth -= 1) === 0) break;
+        }
+        end = Math.min(index + 1, code.length);
+        for (const line of code.slice(at + 5, end).split("\n")) {
+          const names = /^[ \t(]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(line)?.[1];
+          if (names) lineNames.push(...names.split(",").map((name) => name.trim()));
+        }
+      } else {
+        const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(
+          code.slice(at + 5, end),
+        )?.[1];
+        if (names) lineNames.push(...names.split(",").map((name) => name.trim()));
+      }
+      for (const name of lineNames) bump(constDeclarations, name);
+      withoutConsts += code.slice(cursor, at) + code.slice(at, end).replace(/[^\n]/g, " ");
+      cursor = end;
     }
-    for (const block of code.matchAll(/(?:^|\n)[ \t]*const[ \t]*\(([^)]*)\)/g)) {
-      for (const line of (block[1] ?? "").split("\n")) {
-        const name = /^\s*(\w+)\b[^=\n]*=/.exec(line)?.[1];
-        if (name) constNames.add(name);
+    withoutConsts += code.slice(cursor);
+    // Function signatures: parameters, receivers and named results are bindings; every token in
+    // the signature counts (over-inclusive on purpose).
+    for (const match of withoutConsts.matchAll(/\bfunc\b/g)) {
+      const at = match.index ?? 0;
+      let depth = 0;
+      let index = at + 4;
+      for (; index < withoutConsts.length; index += 1) {
+        const char = withoutConsts[index];
+        if (char === "(" || char === "[") depth += 1;
+        else if (char === ")" || char === "]") depth -= 1;
+        else if (char === "\n" && depth === 0) break;
+        else if (char === "{" && depth === 0) {
+          if (/\b(?:interface|struct)\s*$/.test(withoutConsts.slice(at, index))) {
+            let inner = 0;
+            for (; index < withoutConsts.length; index += 1) {
+              if (withoutConsts[index] === "{") inner += 1;
+              else if (withoutConsts[index] === "}" && (inner -= 1) === 0) break;
+            }
+            continue;
+          }
+          break;
+        }
+      }
+      const signature = withoutConsts.slice(at + 4, index);
+      bumpTokens(signature);
+      if (withoutConsts[index] === "{") {
+        let braces = 0;
+        let close = index;
+        for (; close < withoutConsts.length; close += 1) {
+          if (withoutConsts[close] === "{") braces += 1;
+          else if (withoutConsts[close] === "}" && (braces -= 1) === 0) break;
+        }
+        functionSpans.push({ signature, start: index, end: close });
       }
     }
-    for (const match of code.matchAll(
-      /(^|\n)[ \t]*(?:var[ \t]+)?([\w, ]{1,200}?)(?:[ \t]+[\w.*[\]]{1,100})?[ \t]*(:=|=|\+=)[ \t]*([^\n]+)/g,
+    for (const match of withoutConsts.matchAll(
+      /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*(?::=|(?:[-+*/|&^%]|<<|>>|&\^)?=(?!=))/g,
     )) {
-      if (/^\s*const\b/.test(match[2] ?? "")) continue;
-      const isParse = /^strconv\.(?:Atoi|ParseInt|ParseUint|ParseFloat|ParseBool)\(/.test(
-        (match[4] ?? "").trim(),
-      );
-      for (const name of (match[2] ?? "").split(",").map((entry) => entry.trim())) {
-        if (!IDENTIFIER.test(name) || name === "_" || name === "err") continue;
-        if (isParse && match[3] !== "+=") inertNames.add(name);
-        else impure.add(name);
-        if (match[3] === ":=") shadowed.add(name);
+      const before = withoutConsts[(match.index ?? 0) - 1];
+      if (before === "." || before === "]") continue;
+      for (const name of (match[1] ?? "").split(",")) bump(bound, name.trim());
+    }
+    for (const match of withoutConsts.matchAll(/\bvar\b/g)) {
+      const at = (match.index ?? 0) + 3;
+      const tail = withoutConsts.slice(at);
+      if (/^[ \t]*\(/.test(tail)) {
+        let depth = 0;
+        let index = tail.indexOf("(");
+        const first = index;
+        for (; index < tail.length; index += 1) {
+          if (tail[index] === "(") depth += 1;
+          else if (tail[index] === ")" && (depth -= 1) === 0) break;
+        }
+        for (const line of tail.slice(first + 1, index).split("\n")) {
+          const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(line)?.[1];
+          if (names) for (const name of names.split(",")) bump(bound, name.trim());
+        }
+      } else {
+        const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(tail)?.[1];
+        if (names) for (const name of names.split(",")) bump(bound, name.trim());
       }
     }
-    for (const name of impure) inertNames.delete(name);
-    // Const block entries look like assignments, so they only lose trust when redeclared with :=.
-    for (const name of constNames) if (!shadowed.has(name)) inertNames.add(name);
+    for (const [name, count] of constDeclarations) {
+      if (count === 1 && !bound.has(name)) inertNames.add(name);
+    }
+    // `n, err := strconv.Atoi(...)`: a number, trusted only when this is the name's only binding.
+    for (const match of withoutConsts.matchAll(
+      /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*:=[ \t]*strconv\.(?:Atoi|ParseInt|ParseUint|ParseFloat|ParseBool)\(/g,
+    )) {
+      const names = (match[1] ?? "").split(",").map((name) => name.trim());
+      const [first] = names;
+      if (first && first !== "_" && bound.get(first) === 1 && !constDeclarations.has(first))
+        inertNames.add(first);
+    }
   }
   const splitTopLevelPlus = (text: string): string[] => {
     const parts: string[] = [];
@@ -164,7 +255,11 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     if (depth > 4 || trimmed === "") return false;
     if (LITERAL_PATTERN.test(trimmed) || /^\d+$/.test(trimmed)) return true;
     if (IDENTIFIER.test(trimmed)) return inertNames.has(trimmed);
-    if (/^strconv\.Itoa\(/.test(trimmed)) return true;
+    if (/^strconv\.Itoa\(/.test(trimmed)) {
+      // Only when the call is the whole expression: `strconv.Itoa(id) + clause` is not fixed.
+      const { end } = readCallArguments(trimmed, trimmed.indexOf("("));
+      return end === trimmed.length - 1;
+    }
     if (/^fmt\.Sprintf\(/.test(trimmed)) {
       const { args, end } = readCallArguments(trimmed, trimmed.indexOf("("));
       return (
@@ -308,11 +403,9 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
 
   /** `exec.Command("sh", args...)`: the slice holds the flag and script, so judge its elements. */
   const reportShellSlice = (slice: string, shell: string, offset: number, name: string) => {
-    const declaration = new RegExp(
-      `(?:^|\\n)[ \\t]*(?:var[ \\t]+)?${slice}[ \\t]*(?::=|=)[ \\t]*\\[\\]string[ \\t]*\\{`,
-    ).exec(code);
-    if (declaration === null) {
-      // Parameter or other origin: the shell receives arguments we cannot see. Keep a weak finding.
+    const unresolved = () =>
+      // Parameter, reassigned or other origin: the shell receives arguments we cannot see.
+      // Keep a weak finding instead of going silent.
       report(
         "PG-CMD-002",
         offset,
@@ -324,14 +417,49 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         },
         `${name}-shell-slice`,
       );
-      return;
-    }
-    const elements = readCallArguments(code, declaration.index + declaration[0].length - 1).args;
+    // Only the innermost function around the call is searched, and the name must be declared
+    // once there, not be a parameter, and never be indexed or reassigned.
+    const owner = functionSpans
+      .filter((span) => span.start <= offset && offset <= span.end)
+      .sort((a, b) => b.start - a.start)[0];
+    if (owner === undefined) return unresolved();
+    const body = code.slice(owner.start, owner.end);
+    const declarations = [
+      ...body.matchAll(
+        new RegExp(
+          `(?:^|\\n)[ \\t]*(?:var[ \\t]+)?${slice}[ \\t]*(?::=|=)[ \\t]*\\[\\]string[ \\t]*\\{`,
+          "g",
+        ),
+      ),
+    ];
+    const declaration = declarations[0];
+    const identifier = new RegExp(`\\b${slice}\\b`);
+    const writes = [
+      ...body.matchAll(
+        new RegExp(
+          `\\b${slice}\\b[ \\t]*(?:\\[[^\\]]*\\][ \\t]*)?(?::|[-+*/|&^%]|<<|>>)?=(?!=)`,
+          "g",
+        ),
+      ),
+    ];
+    const appends = [
+      ...body.matchAll(new RegExp(`\\b${slice}[ \\t]*=[ \\t]*append\\(\\s*${slice}\\s*,`, "g")),
+    ];
+    // Writes other than the declaration and `slice = append(slice, ...)` (indexing, reassignment).
+    const otherWrites = writes.length - declarations.length - appends.length;
+    if (
+      declarations.length !== 1 ||
+      declaration === undefined ||
+      identifier.test(owner.signature) ||
+      otherWrites > 0 ||
+      new RegExp(`\\b${slice}\\b[ \\t]*,[^=\\n]*:=`).test(body)
+    )
+      return unresolved();
+    const elementsStart = owner.start + (declaration.index ?? 0) + declaration[0].length - 1;
+    const elements = readCallArguments(code, elementsStart).args;
     const appended: string[] = [];
-    for (const append of code.matchAll(
-      new RegExp(`\\b${slice}[ \\t]*=[ \\t]*append\\(\\s*${slice}\\s*,`, "g"),
-    )) {
-      const open = (append.index ?? 0) + append[0].indexOf("(");
+    for (const append of appends) {
+      const open = owner.start + (append.index ?? 0) + append[0].indexOf("(");
       appended.push(...readCallArguments(code, open).args.slice(1));
     }
     const flag = literalValue(elements[0] ?? "", literals);
@@ -385,7 +513,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         literalValue(rest[1] ?? "", literals)?.match(/^[-/]c$/i)
       ) {
         const script = rest[2];
-        if (!script || LITERAL_PATTERN.test(script.trim())) return;
+        if (!script || LITERAL_PATTERN.test(script.trim()) || isInertExpr(script)) return;
         const isTainted = isTaintedExpr(script);
         report(
           "PG-CMD-002",

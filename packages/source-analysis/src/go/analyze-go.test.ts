@@ -279,44 +279,101 @@ describe("precision (#88)", () => {
 });
 
 describe("injection precision and recall (#242)", () => {
+  const sqlGo = (body: string, extra = "") =>
+    go(["database/sql", "fmt", "strconv", "net/http"], `${extra}\n${body}`);
+
   it("does not flag Sprintf of constants or strconv-parsed numbers", () => {
     expect(
       rulesIn(
-        go(
-          ["database/sql", "fmt", "strconv", "net/http"],
-          `const table = "t"
-
-func f(db *sql.DB, r *http.Request) {
+        sqlGo(
+          `func f(db *sql.DB, r *http.Request) {
 	n, _ := strconv.Atoi(r.FormValue("n"))
 	db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT %d", table, n))
 }`,
+          `const table = "t"`,
         ),
       ),
     ).toEqual([]);
   });
 
-  it("flags a shell started with a spread slice, resolved or not", () => {
-    const resolved = go(
-      ["os/exec"],
-      `func f(script string) {
-	args := []string{"-c", script}
-	exec.Command("sh", args...).Run()
-}`,
-    );
-    expect(rulesIn(resolved)).toEqual(["PG-CMD-002"]);
-    const fixed = go(
-      ["os/exec"],
-      `func f() {
+  it("does not trust a constant that a parameter, var or := of the same name shadows", () => {
+    const table = `const table = "users"`;
+    for (const body of [
+      `func f(db *sql.DB, table string) { db.Query("SELECT * FROM " + table) }`,
+      `func f(db *sql.DB, r *http.Request) { var table = r.FormValue("t"); db.Query("SELECT * FROM " + table) }`,
+      `func f(db *sql.DB, r *http.Request) { table := r.FormValue("t"); db.Query("SELECT * FROM " + table) }`,
+      `func f(db *sql.DB, r *http.Request) { if table, ok := r.URL.Query()["t"]; ok { db.Query("SELECT * FROM " + table[0]) } }`,
+      `func pick(r *http.Request) string { return r.FormValue("t") }
+func f(db *sql.DB, r *http.Request) { var table = pick(r); db.Query("SELECT * FROM " + table) }`,
+    ])
+      expect(rulesIn(sqlGo(body, table))).toEqual(["PG-SQL-003"]);
+    expect(
+      rulesIn(sqlGo(`func f(db *sql.DB) { db.Query("SELECT * FROM " + table) }`, table)),
+    ).toEqual([]);
+  });
+
+  it("treats strconv.Itoa as fixed only when it is the whole expression", () => {
+    expect(
+      rulesIn(sqlGo(`func f(db *sql.DB, id int) { db.Query("SELECT " + strconv.Itoa(id)) }`)),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        sqlGo(`func f(db *sql.DB, id int, clause string) { db.Query(strconv.Itoa(id) + clause) }`),
+      ),
+    ).toEqual(["PG-SQL-003"]);
+  });
+
+  describe("shell with an argument slice (PG-CMD-002)", () => {
+    const exec = (body: string) => go(["os/exec", "net/http"], body);
+
+    it("resolves a literal slice and flags a dynamic element", () => {
+      expect(
+        rulesIn(
+          exec(
+            `func f(script string) {\n\targs := []string{"-c", script}\n\texec.Command("sh", args...).Run()\n}`,
+          ),
+        ),
+      ).toEqual(["PG-CMD-002"]);
+      expect(
+        rulesIn(
+          exec(
+            `func f() {\n\targs := []string{"-c", "uptime"}\n\texec.Command("sh", args...).Run()\n}`,
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    it("only reads the declaration in the enclosing function", () => {
+      const source = exec(`func a() {
 	args := []string{"-c", "uptime"}
 	exec.Command("sh", args...).Run()
-}`,
-    );
-    expect(rulesIn(fixed)).toEqual([]);
-    const unresolved = go(
-      ["os/exec"],
-      `func f(args []string) { exec.Command("sh", args...).Run() }`,
-    );
-    const [finding] = analyzeGoSource(unresolved, "main.go").findings;
-    expect(finding).toMatchObject({ ruleId: "PG-CMD-002", confidence: "low" });
+}
+func b(r *http.Request) {
+	args := []string{"-c", "ping " + r.FormValue("h")}
+	exec.Command("sh", args...).Run()
+}`);
+      const findings = analyzeGoSource(source, "main.go").findings;
+      expect(findings).toHaveLength(1);
+      expect(findings[0]?.line).toBeGreaterThan(10);
+    });
+
+    it("keeps a low-confidence finding when the slice is indexed, reassigned or a parameter", () => {
+      for (const body of [
+        `func f(r *http.Request) {\n\targs := []string{"-c", "true"}\n\targs[1] = r.FormValue("c")\n\texec.Command("sh", args...).Run()\n}`,
+        `func f(r *http.Request) {\n\targs := []string{"-c", "true"}\n\targs = other(r)\n\texec.Command("sh", args...).Run()\n}`,
+        `func f(args []string) {\n\texec.Command("sh", args...).Run()\n}`,
+      ]) {
+        const [finding] = analyzeGoSource(exec(body), "main.go").findings;
+        expect(finding).toMatchObject({ ruleId: "PG-CMD-002", confidence: "low" });
+      }
+    });
+
+    it("does not flag a constant or parsed script", () => {
+      expect(
+        rulesIn(
+          exec(`const health = "uptime"\nfunc f() { exec.Command("sh", "-c", health).Run() }`),
+        ),
+      ).toEqual([]);
+    });
   });
 });

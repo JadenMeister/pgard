@@ -6,6 +6,7 @@ const ROOT = path.resolve("data");
 
 module.exports = (req, res) => {
   const safe = path.resolve(ROOT, "index.html");
+  const requested = path.resolve(ROOT, req.query.file);
   if (!safe.startsWith(ROOT + path.sep)) return res.sendStatus(403);
-  res.send(fs.readFileSync(path.resolve(ROOT, req.query.file)));
+  res.send(fs.readFileSync(requested));
 };

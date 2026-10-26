@@ -1055,10 +1055,12 @@ describe("precision (#88)", () => {
 });
 
 describe("injection precision and recall (#242)", () => {
+  const SQL_HEAD = "import { Pool } from 'pg'; const pool = new Pool();";
+
   it("treats numeric coercion, constants and literal allowlists as fixed SQL text", () => {
     expect(
       rulesIn(
-        "import { Pool } from 'pg'; const pool = new Pool(); const T = 'logs'; const M = new Map([['a','x ASC']]);" +
+        `${SQL_HEAD} const T = 'logs'; const M = new Map([['a','x ASC']]);` +
           "export const f = (req) => pool.query(`SELECT * FROM ${T} ORDER BY ${M.get(req.query.s) ?? 'id'} LIMIT ${Number.parseInt(req.query.n, 10) || 5}`);",
       ),
     ).toEqual([]);
@@ -1067,10 +1069,44 @@ describe("injection precision and recall (#242)", () => {
   it("still flags a request value next to an allowlisted one", () => {
     expect(
       rulesIn(
-        "import { Pool } from 'pg'; const pool = new Pool(); const M = new Map([['a','x']]);" +
+        `${SQL_HEAD} const M = new Map([['a','x']]);` +
           "export const f = (req) => pool.query('SELECT * FROM t WHERE n = ' + req.query.n + ' ORDER BY ' + M.get(req.query.s));",
       ),
     ).toEqual(["PG-SQL-001"]);
+  });
+
+  it("does not trust a constant that another binding of the same name shadows", () => {
+    const table = "const table = 'users';";
+    const query = "pool.query('SELECT * FROM ' + table)";
+    for (const shadow of [
+      `export const f = async (table) => ${query};`,
+      `export const f = async (req) => { const { table } = req.query; return ${query}; };`,
+      `export const f = async (req) => { try { x(); } catch (table) { return ${query}; } };`,
+      `export function table(req) { return ${query}; }`,
+      `export const f = async (req) => { const table = req.query.t; return ${query}; };`,
+    ])
+      expect(rulesIn(`${SQL_HEAD} ${table} ${shadow}`)).toContain("PG-SQL-001");
+    expect(rulesIn(`${SQL_HEAD} ${table} export const f = () => ${query};`)).toEqual([]);
+  });
+
+  it("does not trust an allowlist table that is written to or escapes", () => {
+    const head = `${SQL_HEAD} const T = { a: 'x' };`;
+    const query = "pool.query('SELECT * FROM t ORDER BY ' + T[req.query.k])";
+    expect(rulesIn(`${head} export const f = (req) => ${query};`)).toEqual([]);
+    for (const body of [
+      `T[req.query.k] = req.query.v; return ${query};`,
+      `T.a = req.query.v; return ${query};`,
+      `Object.assign(T, req.query); return ${query};`,
+      `register(T); return ${query};`,
+      `delete T.a; return ${query};`,
+    ])
+      expect(rulesIn(`${head} export const f = (req) => { ${body} };`)).toContain("PG-SQL-001");
+    // A Map is a table only when every value is fixed and nothing calls set().
+    const map = (entries: string, extra = "") =>
+      `${SQL_HEAD} const M = new Map(${entries}); export const f = (req) => { ${extra} return pool.query('SELECT * FROM t ORDER BY ' + M.get(req.query.k)); };`;
+    expect(rulesIn(map("[['a', 'x']]"))).toEqual([]);
+    expect(rulesIn(map("[['a', req.query.v]]"))).toContain("PG-SQL-001");
+    expect(rulesIn(map("[['a', 'x']]", "M.set('b', req.query.v);"))).toContain("PG-SQL-001");
   });
 
   it("flags Prisma.raw of an unresolved value at low confidence, not a literal", () => {
@@ -1085,42 +1121,184 @@ describe("injection precision and recall (#242)", () => {
     ).toEqual([]);
   });
 
-  it("trusts quote() only from shell-quote", () => {
+  it("trusts quote() only when it is the shell-quote import", () => {
     const body = "exec('git log ' + quote(req.query.ref));";
+    const head = "import { exec } from 'child_process';";
+    expect(rulesIn(`${head} import { quote } from 'shell-quote'; ${body}`)).toEqual([]);
+    expect(rulesIn(`${head} import { quote } from './q'; ${body}`)).toEqual(["PG-CMD-001"]);
     expect(
-      rulesIn(`import { exec } from 'child_process'; import { quote } from 'shell-quote'; ${body}`),
-    ).toEqual([]);
-    expect(
-      rulesIn(`import { exec } from 'child_process'; import { quote } from './q'; ${body}`),
+      rulesIn(
+        `${head} import { quote } from 'shell-quote'; export const f = (req) => { const quote = (a) => a.join(' '); ${body} };`,
+      ),
     ).toEqual(["PG-CMD-001"]);
     expect(
       rulesIn("import { exec } from 'child_process'; const V = '1'; exec(`npm view x@${V}`);"),
     ).toEqual([]);
   });
 
-  it("accepts a resolved path guard only with a separator", () => {
-    const code = (check: string) =>
-      `import fs from 'fs'; import path from 'path'; const ROOT = path.resolve('x');
-       export const f = (req, res) => { const p = path.resolve(ROOT, req.query.f);
-       if (!p.startsWith(${check})) return res.end(); res.sendFile(p); };`;
-    expect(rulesIn(code("ROOT + path.sep"))).toEqual([]);
-    expect(rulesIn(code("ROOT"))).toEqual(["PG-PATH-001"]);
+  describe("path guard (PG-PATH-001)", () => {
+    const code = (guard: string, sink = "res.sendFile(p);", prelude = "") =>
+      `import path from 'path'; const ROOT = path.resolve('x'); ${prelude}
+       export const f = (req, res) => { const p = path.resolve(ROOT, req.query.f); ${guard} ${sink} };`;
+    const exit = "return res.end();";
+
+    it("accepts an earlier top-level guard with a fixed root and a separator", () => {
+      expect(rulesIn(code(`if (!p.startsWith(ROOT + path.sep)) ${exit}`))).toEqual([]);
+      expect(rulesIn(code(`if (!p.startsWith(ROOT + '/')) throw new Error('x');`))).toEqual([]);
+      expect(rulesIn(code(`if (!p.startsWith(\`\${ROOT}\${path.sep}\`)) ${exit}`))).toEqual([]);
+      expect(rulesIn(code("", "if (p.startsWith(ROOT + path.sep)) { res.sendFile(p); }"))).toEqual(
+        [],
+      );
+    });
+
+    it("keeps the finding without a real separator or a fixed root", () => {
+      expect(rulesIn(code(`if (!p.startsWith(ROOT)) ${exit}`))).toEqual(["PG-PATH-001"]);
+      expect(rulesIn(code(`if (!p.startsWith(ROOT + 'x')) ${exit}`))).toEqual(["PG-PATH-001"]);
+      expect(rulesIn(code(`if (!p.startsWith(req.query.b + path.sep)) ${exit}`))).toEqual([
+        "PG-PATH-001",
+      ]);
+      expect(rulesIn(code(`if (!p.startsWith('/' )) ${exit}`))).toEqual(["PG-PATH-001"]);
+    });
+
+    it("keeps the finding when the checked value is not the resolved one that is opened", () => {
+      expect(rulesIn(code(`if (!ROOT.startsWith(ROOT + path.sep)) ${exit}`))).toEqual([
+        "PG-PATH-001",
+      ]);
+      expect(
+        rulesIn(
+          `import path from 'path'; const ROOT = path.resolve('x');
+           export const f = (req, res) => { const a = path.resolve(ROOT, 'i'); const b = path.resolve(ROOT, req.query.f);
+           if (!a.startsWith(ROOT + path.sep)) return res.end(); res.sendFile(b); };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+      // Not a resolve/realpath result: concatenation after resolving is not normalized.
+      expect(
+        rulesIn(
+          `import path from 'path'; const ROOT = path.resolve('x');
+           export const f = (req, res) => { const p = path.resolve('x') + '/' + req.query.f;
+           if (!p.startsWith(ROOT + path.sep)) return res.end(); res.sendFile(p); };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+      expect(
+        rulesIn(
+          `import path from 'path'; const ROOT = path.resolve('x');
+           export const f = (req, res) => { const p = path.join(ROOT, req.query.f);
+           if (!p.startsWith(ROOT + path.sep)) return res.end(); res.sendFile(p); };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+    });
+
+    it("requires the guard to dominate the file operation", () => {
+      const guard = `if (!p.startsWith(ROOT + path.sep))`;
+      for (const source of [
+        // after the sink
+        code("", `res.sendFile(p); ${guard} ${exit}`),
+        // a guard statement that is not an exit
+        code(`${guard} { console.log('x'); }`),
+        code(`${guard} console.log('x');`),
+        // nested in another condition, a loop, a try block, or an else branch
+        code(`if (req.query.strict) { ${guard} ${exit} }`),
+        code(`for (const x of [1]) { ${guard} ${exit} }`),
+        code(`try { ${guard} throw new Error('x'); } catch (e) { console.warn(e); }`),
+        code(`if (req.query.a) {} else { ${guard} ${exit} }`),
+        // the sink is in the else branch of a positive check
+        code("", "if (p.startsWith(ROOT + path.sep)) {} else { res.sendFile(p); }"),
+        // a guard in another function
+        `import path from 'path'; const ROOT = path.resolve('x');
+         function check(p) { if (!p.startsWith(ROOT + path.sep)) return false; return true; }
+         export const f = (req, res) => { const p = path.resolve(ROOT, req.query.f); check(p); res.sendFile(p); };`,
+      ])
+        expect(rulesIn(source)).toEqual(["PG-PATH-001"]);
+    });
+
+    it("does not trust a guard when the value changes after it", () => {
+      expect(
+        rulesIn(
+          `import path from 'path'; const ROOT = path.resolve('x');
+           export const f = (req, res) => { let p = path.resolve(ROOT, req.query.a);
+           if (!p.startsWith(ROOT + path.sep)) return res.end(); p = path.resolve(ROOT, req.query.b); res.sendFile(p); };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+    });
   });
 
-  it("requires hostname and protocol checks for an SSRF guard", () => {
-    const code = (guard: string) =>
-      `export const f = async (req) => { const u = new URL(req.query.u);
-       if (${guard}) throw new Error('no'); return fetch(u); };`;
-    expect(rulesIn(code("u.protocol !== 'https:' || u.hostname !== 'a.com'"))).toEqual([]);
-    expect(rulesIn(code("u.protocol !== 'https:'"))).toEqual(["PG-SSRF-001"]);
-    const [hostOnly] = findingsIn(code("u.hostname !== 'a.com'"));
-    expect(hostOnly).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+  describe("URL guard (PG-SSRF-001)", () => {
+    const code = (guard: string, sink = "fetch(u)", prelude = "const u = new URL(req.query.u);") =>
+      `export const f = async (req) => { ${prelude} ${guard} return ${sink}; };`;
+    const full = "if (u.protocol !== 'https:' || u.hostname !== 'a.com') throw new Error('no');";
+
+    it("accepts an exact host and protocol check that dominates the request", () => {
+      expect(rulesIn(code(full))).toEqual([]);
+      expect(
+        rulesIn(
+          code("if (u.protocol !== 'https:' || !new Set(['a.com']).has(u.hostname)) throw 1;"),
+        ),
+      ).toEqual([]);
+      expect(
+        rulesIn(code("", "u.protocol === 'https:' && u.hostname === 'a.com' ? fetch(u) : null")),
+      ).toEqual(["PG-SSRF-001"]); // a ternary guard is not recognised: stays a finding
+      expect(
+        rulesIn(
+          code(
+            "",
+            "null",
+            "const u = new URL(req.query.u); if (u.hostname === 'a.com' && u.protocol === 'https:') { return fetch(u); }",
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    it("keeps findings for host-only, protocol-only and a different URL", () => {
+      expect(rulesIn(code("if (u.protocol !== 'https:') throw 1;"))).toEqual(["PG-SSRF-001"]);
+      const [hostOnly] = findingsIn(code("if (u.hostname !== 'a.com') throw 1;"));
+      expect(hostOnly).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+      expect(
+        rulesIn(
+          code(
+            full.replaceAll("u.", "v."),
+            "fetch(u)",
+            "const u = new URL(req.query.u); const v = new URL('https://a.com');",
+          ),
+        ),
+      ).toEqual(["PG-SSRF-001"]);
+    });
+
+    it("requires the guard to dominate and the URL to stay unchanged", () => {
+      for (const source of [
+        code("", `fetch(u); ${full}`),
+        code(`if (req.query.s) { ${full} }`),
+        code(`if (req.query.s) {} else { ${full} }`),
+        code(`for (const x of [1]) { ${full} }`),
+        code(`try { ${full} } catch (e) {}`),
+        code(`${full} u.hostname = req.query.h;`),
+        code(`${full} Object.assign(u, { hostname: req.query.h });`),
+        code(`${full} u.href = req.query.h;`),
+        code("", "fetch(u)", `let u = new URL(req.query.u); ${full} u = new URL(req.query.v);`),
+      ])
+        expect(rulesIn(source)).toEqual(["PG-SSRF-001"]);
+    });
+
+    it("keeps a fixed-host request with a user path as a low-confidence finding", () => {
+      const [finding] = findingsIn(
+        "export const f = (req) => fetch('https://api.example.com/u/' + req.params.id);",
+      );
+      expect(finding).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+    });
   });
 
-  it("keeps a fixed-host request with a user path as a low-confidence finding", () => {
-    const [finding] = findingsIn(
-      "export const f = (req) => fetch('https://api.example.com/u/' + req.params.id);",
-    );
-    expect(finding).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
-  });
+  it("stays linear with thousands of guarded sinks in one function", () => {
+    const build = (count: number) => {
+      const lines = Array.from(
+        { length: count },
+        (_, index) =>
+          `const p${index} = path.resolve(ROOT, req.query.a${index}); if (!p${index}.startsWith(ROOT + path.sep)) return res.end(); res.send(fs.readFileSync(p${index}));`,
+      );
+      return `import fs from 'fs'; import path from 'path'; const ROOT = path.resolve('x');
+        export const f = (req, res) => {\n${lines.join("\n")}\n};`;
+    };
+    const small = bestTimeOf(3, () => analyzeJsSource(build(500), "a.ts"));
+    const large = bestTimeOf(3, () => analyzeJsSource(build(2500), "a.ts"));
+    expect(analyzeJsSource(build(50), "a.ts").findings).toEqual([]);
+    expect(large / Math.max(small, 1)).toBeLessThan(40);
+  }, 120_000);
 });

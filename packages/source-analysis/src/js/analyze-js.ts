@@ -644,9 +644,8 @@ export function analyzeJsSource(
     if (taint.taintOf(target) !== "request") return;
     // An exact hostname allowlist plus a protocol check on the same URL, before the request.
     const subject = canonicalSubject(target);
-    const facts = guardFactsAt(call).filter((fact) => fact.subject === subject);
-    const hasHost = facts.some((fact) => fact.kind === "host");
-    if (hasHost && facts.some((fact) => fact.kind === "protocol")) return;
+    const hasHost = subject.stable && guardHolds(call, "host", subject.text);
+    if (hasHost && guardHolds(call, "protocol", subject.text)) return;
     const evidence = classify(
       target,
       false,
@@ -725,17 +724,21 @@ export function analyzeJsSource(
         return; // express/send with `root` rejects paths that escape the root.
       }
     }
-    // `realpath`/`path.resolve` result checked with startsWith(ROOT + sep) before the file op.
+    // A `realpath`/`path.resolve` result checked with startsWith(<fixed root> + sep) on an earlier
+    // statement that dominates the file operation. The variable must be bound once and never
+    // changed, and its initializer must be the resolving call itself.
     const pathArgument = unwrap(first);
     if (ts.isIdentifier(pathArgument)) {
-      const init = singleConst(pathArgument.text);
+      const init = soleConst(pathArgument.text);
+      const initializer = init ? unwrap(init) : null;
       const isResolved =
-        init !== null && /\b(realpath(Sync)?|resolve)\s*\(/.test(init.getText(sourceFile));
+        initializer !== null &&
+        ts.isCallExpression(initializer) &&
+        /^(resolve|realpath|realpathSync)$/.test(calleeName(initializer) ?? "");
       if (
         isResolved &&
-        guardFactsAt(call).some(
-          (fact) => fact.kind === "prefix" && fact.subject === pathArgument.text,
-        )
+        isStableName(pathArgument.text, true) &&
+        guardHolds(call, "prefix", pathArgument.text)
       )
         return;
     }
@@ -981,16 +984,181 @@ export function analyzeJsSource(
     return list && list.length === 1 ? (list[0] ?? null) : null;
   };
 
+  // ---- Binding and mutation facts used to prove a value or guard sound (PG-SQL/CMD/PATH/SSRF). ----
+  // Every binding of a name anywhere in the file counts, so a parameter, destructured variable,
+  // catch variable or function with the same name makes a module constant unusable as evidence.
+  const bindingCount = new Map<string, number>();
+  const mutatedRoots = new Set<string>();
+  const tableMisuse = new Set<string>();
+  const countBinding = (name: string) => bindingCount.set(name, (bindingCount.get(name) ?? 0) + 1);
+  const rootName = (expression: ts.Expression): string | null => {
+    let current = unwrap(expression);
+    for (;;) {
+      if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current))
+        current = unwrap(current.expression);
+      else if (ts.isCallExpression(current)) current = unwrap(current.expression);
+      else break;
+    }
+    return ts.isIdentifier(current) ? current.text : null;
+  };
+  const isWriteTarget = (access: ts.Node): boolean => {
+    const parent = access.parent;
+    return (
+      (ts.isBinaryExpression(parent) &&
+        parent.left === access &&
+        parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+      ts.isDeleteExpression(parent) ||
+      ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
+        (parent.operator === ts.SyntaxKind.PlusPlusToken ||
+          parent.operator === ts.SyntaxKind.MinusMinusToken))
+    );
+  };
+  const MUTATING_METHOD =
+    /^(set|add|delete|clear|push|pop|shift|unshift|splice|sort|reverse|append|fill|copyWithin)/;
+  const READ_ONLY_METHODS = new Set(["get", "has", "includes", "indexOf"]);
+  const collectFacts = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) {
+      const names: string[] = [];
+      bindingNames(node.name, names);
+      names.forEach(countBinding);
+    } else if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isClassExpression(node) ||
+        ts.isEnumDeclaration(node) ||
+        ts.isImportSpecifier(node) ||
+        ts.isImportClause(node) ||
+        ts.isNamespaceImport(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name)
+    ) {
+      countBinding(node.name.text);
+    } else if (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name)) {
+      countBinding(node.name.text);
+    }
+    // Writes through a property or element, or a mutating call, change what a value holds.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      const left = unwrap(node.left);
+      if (!ts.isIdentifier(left)) {
+        const root = rootName(left);
+        if (root) mutatedRoots.add(root);
+      }
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken ||
+        node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      const root = rootName(node.operand);
+      if (root) mutatedRoots.add(root);
+    } else if (ts.isDeleteExpression(node)) {
+      const root = rootName(node.expression);
+      if (root) mutatedRoots.add(root);
+    } else if (ts.isCallExpression(node)) {
+      const callee = accessPath(node.expression);
+      if (
+        callee !== null &&
+        /^(Object\.(assign|defineProperty|defineProperties|setPrototypeOf)|Reflect\.(set|defineProperty|deleteProperty))$/.test(
+          callee,
+        ) &&
+        node.arguments[0]
+      ) {
+        const root = rootName(node.arguments[0]);
+        if (root) mutatedRoots.add(root);
+      }
+      const target = unwrap(node.expression);
+      if (ts.isPropertyAccessExpression(target) && MUTATING_METHOD.test(target.name.text)) {
+        const path = accessPath(target.expression) ?? "";
+        const root = rootName(target.expression);
+        if (root && !/(^|\.)searchParams$/.test(path)) mutatedRoots.add(root);
+      }
+    }
+    // A reference that is not a plain read (`T[k]`, `T.k`, `T.get(k)`, `k in T`) may change the
+    // table or let it escape, so it is not a fixed allowlist.
+    if (ts.isIdentifier(node) && node.parent) {
+      let current: ts.Node = node;
+      while (
+        current.parent &&
+        (ts.isParenthesizedExpression(current.parent) ||
+          ts.isAsExpression(current.parent) ||
+          ts.isNonNullExpression(current.parent) ||
+          ts.isSatisfiesExpression(current.parent)) &&
+        current.parent.expression === current
+      )
+        current = current.parent;
+      const parent = current.parent;
+      const isDeclaration =
+        (ts.isVariableDeclaration(parent) && parent.name === current) ||
+        (ts.isParameter(parent) && parent.name === current) ||
+        (ts.isPropertyAccessExpression(parent) && parent.name === current) ||
+        (ts.isPropertyAssignment(parent) && parent.name === current) ||
+        (ts.isBindingElement(parent) &&
+          (parent.name === current || parent.propertyName === current)) ||
+        ((ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent)) &&
+          parent.name === current) ||
+        ((ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent)) &&
+          parent.name === current) ||
+        ts.isTypeNode(parent) ||
+        ts.isQualifiedName(parent) ||
+        ts.isImportSpecifier(parent) ||
+        ts.isImportClause(parent) ||
+        ts.isNamespaceImport(parent);
+      if (!isDeclaration) {
+        let isRead = false;
+        if (ts.isPropertyAccessExpression(parent) && parent.expression === current) {
+          const grand = parent.parent;
+          isRead =
+            ts.isCallExpression(grand) && grand.expression === parent
+              ? READ_ONLY_METHODS.has(parent.name.text)
+              : !isWriteTarget(parent);
+        } else if (ts.isElementAccessExpression(parent) && parent.expression === current) {
+          isRead = !isWriteTarget(parent);
+        } else if (
+          ts.isBinaryExpression(parent) &&
+          parent.operatorToken.kind === ts.SyntaxKind.InKeyword &&
+          parent.right === current
+        ) {
+          isRead = true;
+        }
+        if (!isRead) tableMisuse.add(node.text);
+      }
+    }
+    ts.forEachChild(node, collectFacts);
+  };
+  collectFacts(sourceFile);
+  /** A module constant that no other binding of the same name can shadow. */
+  const soleConst = (name: string): ts.Expression | null =>
+    bindingCount.get(name) === 1 ? singleConst(name) : null;
+  const isConstDeclaration = (initializer: ts.Expression): boolean =>
+    ts.isVariableDeclaration(initializer.parent) &&
+    ts.isVariableDeclarationList(initializer.parent.parent) &&
+    (initializer.parent.parent.flags & ts.NodeFlags.Const) !== 0;
+  /** A binding no later assignment, property write or mutating call can change. */
+  const isStableName = (name: string, followed: boolean): boolean =>
+    !reassigned.has(name) && !mutatedRoots.has(name) && (!followed || bindingCount.get(name) === 1);
+
   /**
-   * A fixed lookup table: a `Map` of pairs, an object literal, or `Object.freeze` of either,
-   * where every value is itself inert. Indexing it with any key yields one of those values.
+   * A fixed lookup table: a `const` `Map` of pairs, object literal, or `Object.freeze` of either,
+   * where every value is inert and nothing ever writes to it or lets it escape. Indexing it with
+   * any key yields one of those values.
    */
   const isInertTable = (expression: ts.Expression, depth: number): boolean => {
     if (depth > 4) return false;
     const node = unwrap(expression);
     if (ts.isIdentifier(node)) {
-      const init = singleConst(node.text);
-      return init ? isInertTable(init, depth + 1) : false;
+      const init = soleConst(node.text);
+      return (
+        init !== null &&
+        isConstDeclaration(init) &&
+        !tableMisuse.has(node.text) &&
+        !mutatedRoots.has(node.text) &&
+        isInertTable(init, depth + 1)
+      );
     }
     if (ts.isCallExpression(node) && accessPath(node.expression) === "Object.freeze") {
       const inner = node.arguments[0];
@@ -1028,9 +1196,9 @@ export function analyzeJsSource(
 
   /**
    * True when an expression can only produce a fixed or numeric value, whatever the request holds:
-   * literals, module constants (through `singleConst`), numeric coercion, a value picked from a
-   * literal allowlist table, and, for commands, `shell-quote`'s `quote()`. Anything unresolved is
-   * not inert, so unclear evidence keeps its finding.
+   * literals, module constants no other binding shadows, numeric coercion, a value picked from a
+   * literal allowlist table, and, for commands, the `quote()` imported from `shell-quote`.
+   * Anything unresolved is not inert, so unclear evidence keeps its finding.
    */
   const isInertValue = (expression: ts.Expression, context: "sql" | "cmd", depth = 0): boolean => {
     if (depth > 6) return false;
@@ -1065,10 +1233,13 @@ export function analyzeJsSource(
     }
     if (ts.isConditionalExpression(node)) return inert(node.whenTrue) && inert(node.whenFalse);
     const fixedPath = accessPath(node);
-    if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) return true;
+    if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) {
+      const root = fixedPath.split(".")[0] ?? "";
+      return bindingCount.get(root) === undefined && !mutatedRoots.has(root);
+    }
     if (ts.isIdentifier(node)) {
-      if (node.text === "undefined") return true;
-      const init = singleConst(node.text);
+      if (node.text === "undefined") return bindingCount.get("undefined") === undefined;
+      const init = soleConst(node.text);
       return init !== null && inert(init);
     }
     if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node))
@@ -1077,14 +1248,25 @@ export function analyzeJsSource(
       const name = calleeName(node);
       const receiver = calleeReceiver(node);
       const receiverPath = receiver ? accessPath(receiver) : null;
-      if (name === "parseInt" || name === "parseFloat" || name === "Number")
-        return receiver === null || receiverPath === "Number";
-      if (receiverPath === "Math") return true;
+      if (name === "parseInt" || name === "parseFloat" || name === "Number") {
+        const root = (receiverPath ?? name).split(".")[0] ?? "";
+        return (
+          (receiver === null || receiverPath === "Number") && bindingCount.get(root) === undefined
+        );
+      }
+      if (receiverPath === "Math") return bindingCount.get("Math") === undefined;
       if (name === "get" && receiver && node.arguments.length === 1)
         return isInertTable(receiver, 0);
       if (context === "cmd" && name) {
         const resolved = moduleOfCall(node);
-        return resolved?.module === "shell-quote" && resolved.member === "quote";
+        const callee = accessPath(node.expression);
+        const root = callee ? (callee.split(".")[0] ?? "") : "";
+        // The binding must be the import itself: a local `quote` shadows it.
+        return (
+          resolved?.module === "shell-quote" &&
+          resolved.member === "quote" &&
+          bindingCount.get(root) === 1
+        );
       }
     }
     return false;
@@ -1097,6 +1279,7 @@ export function analyzeJsSource(
     return current ?? sourceFile;
   };
 
+  /** Control never continues past this statement (`return`, `throw`, or a block that does). */
   const exitsScope = (statement: ts.Statement): boolean =>
     ts.isReturnStatement(statement) ||
     ts.isThrowStatement(statement) ||
@@ -1109,10 +1292,23 @@ export function analyzeJsSource(
       : [node];
   };
 
+  interface Subject {
+    text: string;
+    /** Every name the value depends on is bound once and never reassigned or written through. */
+    stable: boolean;
+  }
+
   /** Canonical name of the value a URL/string variable carries, following `new URL(x)` and `.href`. */
-  const canonicalSubject = (expression: ts.Expression, depth = 0): string => {
+  const canonicalSubject = (expression: ts.Expression, depth = 0): Subject => {
     const node = unwrap(expression);
-    if (depth > 5) return node.getText(sourceFile);
+    const terminal = (): Subject => {
+      const root = accessPath(node) === null ? null : rootName(node);
+      return {
+        text: node.getText(sourceFile),
+        stable: root !== null && isStableName(root, false),
+      };
+    };
+    if (depth > 5) return { text: node.getText(sourceFile), stable: false };
     if (ts.isNewExpression(node) && calleeName(node) === "URL" && node.arguments?.[0])
       return canonicalSubject(node.arguments[0], depth + 1);
     if (ts.isCallExpression(node)) {
@@ -1125,7 +1321,7 @@ export function analyzeJsSource(
     if (ts.isPropertyAccessExpression(node) && node.name.text === "href")
       return canonicalSubject(node.expression, depth + 1);
     if (ts.isIdentifier(node)) {
-      const init = singleConst(node.text);
+      const init = soleConst(node.text);
       if (init) {
         const inner = unwrap(init);
         if (
@@ -1133,11 +1329,13 @@ export function analyzeJsSource(
           ts.isIdentifier(inner) ||
           ts.isPropertyAccessExpression(inner) ||
           ts.isCallExpression(inner)
-        )
-          return canonicalSubject(inner, depth + 1);
+        ) {
+          const resolved = canonicalSubject(inner, depth + 1);
+          return { text: resolved.text, stable: resolved.stable && isStableName(node.text, true) };
+        }
       }
     }
-    return node.getText(sourceFile);
+    return terminal();
   };
 
   /** `u.hostname` / `u.protocol` (also through one const alias) -> canonical subject of `u`. */
@@ -1145,7 +1343,7 @@ export function analyzeJsSource(
     expression: ts.Expression,
     part: "host" | "protocol",
     depth = 0,
-  ): string | null => {
+  ): Subject | null => {
     const node = unwrap(expression);
     if (depth > 3) return null;
     if (ts.isPropertyAccessExpression(node)) {
@@ -1157,8 +1355,11 @@ export function analyzeJsSource(
       return receiver ? urlPartSubject(receiver, part, depth + 1) : null;
     }
     if (ts.isIdentifier(node)) {
-      const init = singleConst(node.text);
-      return init ? urlPartSubject(init, part, depth + 1) : null;
+      const init = soleConst(node.text);
+      const resolved = init ? urlPartSubject(init, part, depth + 1) : null;
+      return resolved
+        ? { ...resolved, stable: resolved.stable && isStableName(node.text, true) }
+        : null;
     }
     return null;
   };
@@ -1166,15 +1367,22 @@ export function analyzeJsSource(
   interface GuardFact {
     kind: "host" | "protocol" | "prefix";
     subject: string;
+    stable: boolean;
   }
 
-  /** True for a literal list of strings: array literal, `new Set([...])`, frozen forms, consts. */
+  /** True for a literal list of strings that nothing ever changes or lets escape. */
   const isStringCollection = (expression: ts.Expression, depth = 0): boolean => {
     if (depth > 4) return false;
     const node = unwrap(expression);
     if (ts.isIdentifier(node)) {
-      const init = singleConst(node.text);
-      return init ? isStringCollection(init, depth + 1) : false;
+      const init = soleConst(node.text);
+      return (
+        init !== null &&
+        isConstDeclaration(init) &&
+        !tableMisuse.has(node.text) &&
+        !mutatedRoots.has(node.text) &&
+        isStringCollection(init, depth + 1)
+      );
     }
     if (ts.isNewExpression(node) && calleeName(node) === "Set" && node.arguments?.[0])
       return isStringCollection(node.arguments[0], depth + 1);
@@ -1207,6 +1415,44 @@ export function analyzeJsSource(
     return path !== null && /(^|\.)sep$/.test(path);
   };
 
+  /** A root that is a literal or a constant no request value reaches. */
+  const isFixedRoot = (expression: ts.Expression, depth = 0): boolean => {
+    if (depth > 4) return false;
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return true;
+    if (ts.isTemplateExpression(node))
+      return node.templateSpans.every((span) => isFixedRoot(span.expression, depth + 1));
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      return isFixedRoot(node.left, depth + 1) && isFixedRoot(node.right, depth + 1);
+    const fixedPath = accessPath(node);
+    if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) return true;
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text);
+      return (
+        init !== null &&
+        isStableName(node.text, true) &&
+        taint.taintOf(node) === null &&
+        taint.taintOf(init) === null
+      );
+    }
+    return false;
+  };
+
+  /** `ROOT + sep`, `${ROOT}${sep}`, or a literal ending in a separator, with a fixed root. */
+  const isFixedRootWithSeparator = (expression: ts.Expression): boolean => {
+    const base = unwrap(expression);
+    if (ts.isStringLiteralLike(base)) return base.text.length > 1 && endsWithSeparator(base);
+    if (ts.isBinaryExpression(base) && base.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      return endsWithSeparator(base.right) && isFixedRoot(base.left);
+    if (ts.isTemplateExpression(base)) {
+      const last = base.templateSpans[base.templateSpans.length - 1];
+      if (!last || !endsWithSeparator(base)) return false;
+      const rest = base.templateSpans.slice(0, last.literal.text === "" ? -1 : undefined);
+      return rest.every((span) => isFixedRoot(span.expression));
+    }
+    return false;
+  };
+
   const equalityFacts = (left: ts.Expression, right: ts.Expression): GuardFact[] => {
     const facts: GuardFact[] = [];
     for (const [value, other] of [
@@ -1216,8 +1462,9 @@ export function analyzeJsSource(
       if (!ts.isStringLiteralLike(unwrap(value))) continue;
       const host = urlPartSubject(other, "host");
       const protocol = urlPartSubject(other, "protocol");
-      if (host) facts.push({ kind: "host", subject: host });
-      if (protocol) facts.push({ kind: "protocol", subject: protocol });
+      if (host) facts.push({ kind: "host", subject: host.text, stable: host.stable });
+      if (protocol)
+        facts.push({ kind: "protocol", subject: protocol.text, stable: protocol.stable });
     }
     return facts;
   };
@@ -1245,23 +1492,23 @@ export function analyzeJsSource(
         const host = urlPartSubject(argument, "host");
         const protocol = urlPartSubject(argument, "protocol");
         return [
-          ...(host ? [{ kind: "host" as const, subject: host }] : []),
-          ...(protocol ? [{ kind: "protocol" as const, subject: protocol }] : []),
+          ...(host ? [{ kind: "host" as const, subject: host.text, stable: host.stable }] : []),
+          ...(protocol
+            ? [{ kind: "protocol" as const, subject: protocol.text, stable: protocol.stable }]
+            : []),
         ];
       }
       if (name === "startsWith") {
         const base = unwrap(argument);
-        if (ts.isStringLiteralLike(base) && /^https?:\/\//.test(base.text))
-          return [{ kind: "protocol", subject: canonicalSubject(receiver) }];
-        const hasSeparator =
-          (ts.isBinaryExpression(base) &&
-            base.operatorToken.kind === ts.SyntaxKind.PlusToken &&
-            endsWithSeparator(base.right)) ||
-          (ts.isTemplateExpression(base) && endsWithSeparator(base)) ||
-          (ts.isStringLiteralLike(base) && base.text.length > 1 && endsWithSeparator(base));
-        return hasSeparator
-          ? [{ kind: "prefix", subject: unwrap(receiver).getText(sourceFile) }]
-          : [];
+        if (ts.isStringLiteralLike(base) && /^https?:\/\//.test(base.text)) {
+          const subject = canonicalSubject(receiver);
+          return [{ kind: "protocol", subject: subject.text, stable: subject.stable }];
+        }
+        const subject = unwrap(receiver);
+        if (ts.isIdentifier(subject) && isFixedRootWithSeparator(base))
+          return [
+            { kind: "prefix", subject: subject.text, stable: isStableName(subject.text, true) },
+          ];
       }
     }
     return [];
@@ -1281,28 +1528,65 @@ export function analyzeJsSource(
       return [];
     });
 
-  /** Guard facts that hold at `node`: early-exit `if`s before it, or enclosing positive `if`s. */
-  const guardFactsAt = (node: ts.Node): GuardFact[] => {
-    const owner = enclosingFunction(node);
-    const facts: GuardFact[] = [];
-    const visit = (child: ts.Node): void => {
-      if (child !== owner && ts.isFunctionLike(child)) return;
-      if (ts.isIfStatement(child)) {
-        if (
-          !child.elseStatement &&
-          child.getEnd() <= node.getStart(sourceFile) &&
-          exitsScope(child.thenStatement)
-        )
-          facts.push(...factsWhenFalse(child.expression));
-        const inThen =
-          node.getStart(sourceFile) >= child.thenStatement.getStart(sourceFile) &&
-          node.getEnd() <= child.thenStatement.getEnd();
-        if (inThen) facts.push(...factsWhenTrue(child.expression));
+  // Facts are computed once per `if` and indexed once per block, so many sinks in one function
+  // stay linear: a sink asks one map lookup per enclosing block instead of re-walking the function.
+  const factKey = (kind: GuardFact["kind"], subject: string) => `${kind}\u0000${subject}`;
+  const ifFalseFacts = new Map<ts.IfStatement, GuardFact[]>();
+  const ifTrueFacts = new Map<ts.IfStatement, GuardFact[]>();
+  /** Per block: fact key -> end offset of the earliest early-exit `if` that establishes it. */
+  const exitGuardCache = new Map<ts.Node, Map<string, number>>();
+  const exitGuardsOf = (container: ts.Block | ts.SourceFile) => {
+    let guards = exitGuardCache.get(container);
+    if (guards === undefined) {
+      guards = new Map<string, number>();
+      for (const statement of container.statements) {
+        if (!ts.isIfStatement(statement) || statement.elseStatement) continue;
+        if (!exitsScope(statement.thenStatement)) continue;
+        let facts = ifFalseFacts.get(statement);
+        if (facts === undefined) {
+          facts = factsWhenFalse(statement.expression);
+          ifFalseFacts.set(statement, facts);
+        }
+        for (const fact of facts) {
+          if (!fact.stable) continue;
+          const key = factKey(fact.kind, fact.subject);
+          if (!guards.has(key)) guards.set(key, statement.getEnd());
+        }
       }
-      ts.forEachChild(child, visit);
-    };
-    visit(owner);
-    return facts;
+      exitGuardCache.set(container, guards);
+    }
+    return guards;
+  };
+
+  /**
+   * Whether a guard fact provably holds at `node`: an early-exit `if` that is an earlier statement
+   * of a block enclosing the node (so it dominates it), or an enclosing `if` whose then-branch
+   * holds the node. Guards inside other branches, loops, `try` blocks or other functions do not
+   * count, and neither do facts about a value that is reassigned or written through.
+   */
+  const guardHolds = (node: ts.Node, kind: GuardFact["kind"], subject: string): boolean => {
+    const owner = enclosingFunction(node);
+    const key = factKey(kind, subject);
+    let child: ts.Node = node;
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (ts.isBlock(current) || ts.isSourceFile(current)) {
+        const end = exitGuardsOf(current).get(key);
+        if (end !== undefined && end <= child.getStart(sourceFile)) return true;
+      } else if (ts.isIfStatement(current) && child === current.thenStatement) {
+        let when = ifTrueFacts.get(current);
+        if (when === undefined) {
+          when = factsWhenTrue(current.expression);
+          ifTrueFacts.set(current, when);
+        }
+        if (when.some((fact) => fact.stable && fact.kind === kind && fact.subject === subject))
+          return true;
+      }
+      if (current === owner) break;
+      child = current;
+      current = current.parent;
+    }
+    return false;
   };
 
   /**
