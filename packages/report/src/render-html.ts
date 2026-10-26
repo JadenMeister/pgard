@@ -13,7 +13,13 @@ import {
   ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
-  formatOutsideContexts,
+  formatNoFindings,
+  formatSuppressionReason,
+  reportSuppressionNotices,
+  BASELINE_FINDINGS_NOTE,
+  BASELINE_FINDINGS_TITLE,
+  SUPPRESSED_FINDINGS_NOTE,
+  SUPPRESSED_FINDINGS_TITLE,
   groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
@@ -66,6 +72,15 @@ function renderConfigNotices(coverage: readonly Coverage[]): string {
     .join("\n");
 }
 
+function renderSuppressionNotices(result: ScanResult): string {
+  return reportSuppressionNotices(result)
+    .map(
+      (text) =>
+        `<div class="status-banner status-partial"><strong>Note:</strong> ${escapeHtml(text)}</div>`,
+    )
+    .join("\n");
+}
+
 function renderCoverageRows(coverage: readonly Coverage[]): string {
   if (coverage.length === 0) {
     return `<tr><td colspan="4">No coverage was recorded.</td></tr>`;
@@ -89,16 +104,20 @@ function renderReferences(finding: Finding): string {
     : `<p class="refs">References: ${escapeHtml(parts.join(", "))}</p>`;
 }
 
-function renderFinding(finding: Finding, lang: RuleLocale): string {
+function renderFinding(finding: Finding, lang: RuleLocale, isNew = false): string {
   const labels = FINDING_LABELS[lang];
+  const reason =
+    finding.suppression === undefined
+      ? ""
+      : `\n  <p class="suppression"><strong>${escapeHtml(formatSuppressionReason(finding))}</strong></p>`;
   return `<article class="finding sev-${escapeHtml(finding.severity)}">
-  <header>
+  <header>${isNew ? '\n    <span class="new-badge">NEW</span>' : ""}
     <span class="sev" style="background:${severityColor(finding.severity)}">${escapeHtml(labelSeverity(finding.severity))}</span>
     <span class="status">${escapeHtml(finding.status)}</span>
     <span class="confidence">confidence: ${escapeHtml(finding.confidence)}</span>
     <h3>${escapeHtml(finding.title)}</h3>
   </header>
-  <p class="location"><code>${escapeHtml(formatLocation(finding.location))}</code> &middot; ${escapeHtml(finding.ruleId)} &middot; ${escapeHtml(finding.category)} &middot; source: ${escapeHtml(finding.sources.join(", "))}</p>
+  ${reason}<p class="location"><code>${escapeHtml(formatLocation(finding.location))}</code> &middot; ${escapeHtml(finding.ruleId)} &middot; ${escapeHtml(finding.category)} &middot; source: ${escapeHtml(finding.sources.join(", "))}</p>
   <dl>
     <dt>Evidence (redacted)</dt><dd><pre>${escapeHtml(finding.evidence)}</pre></dd>
     <dt>${labels.impact}</dt><dd>${escapeHtml(finding.impact)}</dd>
@@ -140,6 +159,9 @@ th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line
 .location code { overflow-wrap: anywhere; }
 dl { margin: 8px 0 0; } dt { font-weight: 600; margin-top: 6px; } dd { margin: 0; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); padding: 6px 8px; border-radius: 4px; margin: 2px 0; }
+.suppression { margin: 6px 0 0; }
+.new-badge { background: #0f172a; color: #fff; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+details.group > summary { cursor: pointer; font-size: 18px; font-weight: 600; margin: 32px 0 12px; }
 .refs { color: var(--muted); font-size: 12px; }
 .bar-label, .bar-value { font: 12px system-ui, sans-serif; fill: var(--fg); }
 .chart { overflow-x: auto; }
@@ -155,13 +177,14 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
   const result = prepareLocalizedReportResult(input, options);
   // Headline counts cover regular code; test and fixture findings get their own section, and
   // suggestions in vendored code come last.
-  const { primary, test, vendored } = groupReportFindings(result.findings);
+  const { primary, test, vendored, suppressed, baseline } = groupReportFindings(result.findings);
+  const hasBaseline = result.baseline !== undefined;
   const counts = countFindingsBySeverity(primary);
   const target = result.target;
   const findingsHtml =
     primary.length === 0
-      ? `<p>No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
-      : primary.map((finding) => renderFinding(finding, lang)).join("\n");
+      ? `<p>${escapeHtml(formatNoFindings({ test: test.length, vendored: vendored.length, suppressed }, hasBaseline))} This is not a statement that the project is secure; check coverage below.</p>`
+      : primary.map((finding) => renderFinding(finding, lang, hasBaseline)).join("\n");
   const testFindingsHtml =
     test.length === 0
       ? ""
@@ -170,6 +193,15 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
     vendored.length === 0
       ? ""
       : `\n<h2>${escapeHtml(VENDORED_FINDINGS_TITLE)} (${vendored.length})</h2>\n<p>${escapeHtml(VENDORED_FINDINGS_NOTE)}</p>\n<p class="meta">${escapeHtml(VENDORED_FINDINGS_DETAIL)}</p>\n${vendored.map((finding) => renderFinding(finding, lang)).join("\n")}\n`;
+
+  // Suppressed and baseline findings are collapsed sections, never omitted: the count is in the
+  // summary line, and a section holding a critical finding is open.
+  const collapsed = (title: string, note: string, members: readonly Finding[]): string =>
+    members.length === 0
+      ? ""
+      : `\n<details class="group"${members.some((finding) => finding.severity === "critical") ? " open" : ""}>\n<summary>${escapeHtml(title)} (${members.length})</summary>\n<p class="meta">${escapeHtml(note)}</p>\n${members.map((finding) => renderFinding(finding, lang)).join("\n")}\n</details>\n`;
+  const suppressedHtml = collapsed(SUPPRESSED_FINDINGS_TITLE, SUPPRESSED_FINDINGS_NOTE, suppressed);
+  const baselineHtml = collapsed(BASELINE_FINDINGS_TITLE, BASELINE_FINDINGS_NOTE, baseline);
 
   return `<!doctype html>
 <html lang="${lang}">
@@ -190,8 +222,9 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
 <div class="status-banner status-${escapeHtml(result.overallStatus)}"><strong>Overall status:</strong> ${escapeHtml(labelOverallStatus(result.overallStatus))}</div>
 
 ${renderConfigNotices(result.coverage)}
+${renderSuppressionNotices(result)}
 <h2>Summary</h2>
-<p>${escapeHtml(formatFindingSummary(result.findings))}</p>
+<p>${escapeHtml(formatFindingSummary(result.findings, result))}</p>
 <div class="chart">${renderSeverityBarChartSvg(counts)}</div>
 
 <h2>Coverage</h2>
@@ -202,9 +235,9 @@ ${renderCoverageRows(result.coverage)}
 </tbody>
 </table>
 
-<h2>Findings</h2>
+<h2>${hasBaseline ? "New findings (since the baseline)" : "Findings"}</h2>
 ${findingsHtml}
-${testFindingsHtml}${vendoredFindingsHtml}
+${testFindingsHtml}${vendoredFindingsHtml}${suppressedHtml}${baselineHtml}
 <h2>Authorization</h2>
 <p>Decision: ${escapeHtml(result.authorization.decision)}</p>
 ${renderAuthorization(result)}

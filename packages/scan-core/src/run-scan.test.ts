@@ -1,6 +1,6 @@
 import {
-  SCHEMA_VERSION,
   readScanResult,
+  SCHEMA_VERSION,
   type AnalyzerOutput,
   type Finding,
   type ScanRequest,

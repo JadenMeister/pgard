@@ -1,5 +1,12 @@
 import {
   SEVERITIES,
+  baselineNotices,
+  countBySeverity,
+  formatSeverityBreakdown,
+  formatSuppressedSuffix,
+  formatBaselineCounts,
+  partitionFindings,
+  suppressionNotices,
   countStandardStates,
   projectConfigNotices,
   configTestGroupNote,
@@ -204,6 +211,130 @@ export function formatConfigNotices(coverage: readonly Coverage[], style: Style)
   });
 }
 
+/**
+ * Prominent `!` lines for what the suppressions of pgard.config.json did (critical findings,
+ * wildcards, broad or expired entries), and for a baseline that is incomplete. Shown above the
+ * findings, like the config notices.
+ */
+export function formatSuppressionNotices(result: ScanResult, style: Style): string[] {
+  return [
+    ...suppressionNotices(result).map((notice) =>
+      notice.tone === "warning"
+        ? style.yellow(style.bold(`! ${safeText(notice.text, 400)}`))
+        : style.dim(`  ${safeText(notice.text, 400)}`),
+    ),
+    ...baselineNotices(result.baseline).map((notice) =>
+      notice.tone === "warning"
+        ? style.yellow(style.bold(`! ${safeText(notice.text, 400)}`))
+        : style.dim(`  ${safeText(notice.text, 400)}`),
+    ),
+  ];
+}
+
+/** " (1 critical, 5 high)", or "" when the list is empty. */
+function breakdownOf(findings: readonly Finding[]): string {
+  const text = formatSeverityBreakdown(countBySeverity(findings));
+  return text === "" ? "" : ` (${text})`;
+}
+
+/** The always-visible count lines: suppressed (with critical) and baseline. */
+export function formatSuppressionAndBaselineCounts(result: ScanResult, style: Style): string[] {
+  const lines: string[] = [];
+  if (result.suppressions !== undefined) {
+    lines.push(
+      style.bold(
+        `Suppressed by pgard.config.json: ${result.suppressions.suppressed}${breakdownOf(result.findings.filter((f) => f.suppression !== undefined))}`,
+      ),
+    );
+  }
+  if (result.baseline !== undefined) {
+    const when = result.baseline.setAt.slice(0, 10);
+    lines.push(
+      style.bold(
+        `Baseline (set ${safeText(when, 10)}): ${formatBaselineCounts(result.baseline, partitionFindings(result.findings).baseline)}`,
+      ),
+    );
+  }
+  return lines;
+}
+
+const SUPPRESSED_GROUP_TITLE = "Suppressed";
+const SUPPRESSED_GROUP_NOTE =
+  "These findings matched a suppression in pgard.config.json, a file of the scanned repository. They are still reported here and in the JSON result; the reasons are the file's own words, not PGARD's. Critical findings are always listed in full.";
+const BASELINE_GROUP_TITLE = "In baseline";
+const BASELINE_GROUP_NOTE =
+  "These findings were already in the baseline (pgard baseline). They are not new, but they are still reported. Critical findings are always listed in full.";
+
+const isCritical = (finding: Pick<Finding, "severity">): boolean => finding.severity === "critical";
+
+/** Suppressed findings in full, each bucket under the reason the config gave. */
+function formatSuppressedGroups(findings: readonly Finding[], style: Style, all: boolean): string {
+  const buckets = new Map<string, Finding[]>();
+  for (const finding of findings) {
+    const suppression = finding.suppression;
+    const key = `${suppression?.reason ?? ""}\u001f${suppression?.expires ?? ""}`;
+    const members = buckets.get(key);
+    if (members === undefined) buckets.set(key, [finding]);
+    else members.push(finding);
+  }
+  return [...buckets.values()]
+    .map((members) => {
+      const suppression = members[0]?.suppression;
+      const expires =
+        suppression?.expires === undefined ? "" : ` (expires ${safeText(suppression.expires, 10)})`;
+      return [
+        style.dim(
+          `  Reason from pgard.config.json: ${JSON.stringify(safeText(suppression?.reason ?? "", 300))}${expires}`,
+        ),
+        formatGroups(members, style, all),
+      ].join("\n");
+    })
+    .join("\n\n");
+}
+
+/** Counts by severity and rule, for a group that is not listed in full. */
+function formatGroupSummary(findings: readonly Finding[], style: Style): string[] {
+  const summary = summarizeCollapsed(findings);
+  const rules = summary.byRule.slice(0, MAX_SUMMARY_RULES);
+  const more = summary.byRule.length - rules.length;
+  return [
+    `  By rule: ${rules.map((entry) => `${safeText(entry.ruleId, 40)} x${entry.count}`).join(", ")}${more > 0 ? ` and ${more} more rules` : ""}`,
+    `  By severity: ${summary.bySeverity.map((entry) => `${entry.count} ${labelSeverity(entry.severity).toLowerCase()}`).join(", ")}`,
+    style.dim(`  ${SHOW_ALL_HINT}`),
+  ];
+}
+
+/**
+ * A group that is listed only on request, except critical findings, which are always listed:
+ * the count in the title is always shown, the rest as a summary.
+ */
+function formatOptionalGroup(
+  title: string,
+  note: string,
+  findings: readonly Finding[],
+  style: Style,
+  all: boolean,
+  list: (members: readonly Finding[]) => string,
+): string[] {
+  const critical = findings.filter(isCritical);
+  const others = findings.filter((finding) => !isCritical(finding));
+  const lines = ["", style.bold(`${title} (${findings.length})`), style.dim(`  ${note}`)];
+  if (all) {
+    lines.push(list(findings));
+    return lines;
+  }
+  if (critical.length > 0) lines.push(list(critical));
+  if (others.length > 0) {
+    lines.push(
+      style.dim(
+        `  ${others.length} not listed here${critical.length > 0 ? " (the critical ones are above)" : ""}.`,
+      ),
+      ...formatGroupSummary(others, style),
+    );
+  }
+  return lines;
+}
+
 const STANDARD_MARKS: Record<StandardCheckState, string> = {
   rules_ran: "[rules ran]",
   rules_partial: "[rules partial]",
@@ -297,28 +428,45 @@ export function formatScanResult(
   }
   const configNotices = formatConfigNotices(result.coverage, style);
   if (configNotices.length > 0) sections.push("", ...configNotices);
-  // Headline counts cover regular code; test and fixture findings follow in their own group and
+  const suppressionLines = formatSuppressionNotices(result, style);
+  if (suppressionLines.length > 0) sections.push("", ...suppressionLines);
+  const countLines = formatSuppressionAndBaselineCounts(result, style);
+  if (countLines.length > 0) sections.push("", ...countLines);
+  // Suppressed findings and findings in the baseline are listed in their own groups; headline
+  // counts cover the rest, where test and fixture findings follow in their own group and
   // suggestions in vendored code come last.
-  const { primary, test, vendored } = splitFindingsByContext(sortBySeverity(result.findings));
+  const partition = partitionFindings(sortBySeverity(result.findings));
+  const { primary, test, vendored } = splitFindingsByContext(partition.rest);
+  const hasBaseline = result.baseline !== undefined;
   const contextCounts = { test: test.length, vendored: vendored.length };
   const extra = [
     ...(test.length === 0 ? [] : [formatTestCount(test)]),
     ...(vendored.length === 0 ? [] : [formatVendoredSuggestions(vendored)]),
+    ...(partition.suppressed.length === 0
+      ? []
+      : [`${partition.suppressed.length} suppressed${breakdownOf(partition.suppressed)}`]),
+    ...(partition.baseline.length === 0 ? [] : [`${partition.baseline.length} in baseline`]),
   ];
   sections.push(
     "",
-    style.bold(`Findings by severity (${primary.length} total)`) +
-      (extra.length === 0 ? "" : style.dim(` - plus ${extra.join(", ")}`)),
+    style.bold(
+      `${hasBaseline ? "New findings" : "Findings"} by severity (${primary.length} total)`,
+    ) + (extra.length === 0 ? "" : style.dim(` - plus ${extra.join(", ")}`)),
     formatSeverityBars(primary, style),
   );
   if (primary.length > 0) {
-    sections.push("", style.bold(`Findings (${primary.length}): ${formatStatusCounts(primary)}`));
+    sections.push(
+      "",
+      style.bold(
+        `${hasBaseline ? "New findings since the baseline" : "Findings"} (${primary.length}): ${formatStatusCounts(primary)}`,
+      ),
+    );
     sections.push(formatGroups(primary, style, allFindings));
   }
   if (primary.length === 0) {
     sections.push(
       "",
-      `No findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; see coverage.`,
+      `No ${hasBaseline ? "new " : ""}${partition.suppressed.length > 0 ? "unsuppressed " : ""}findings${formatOutsideContexts(contextCounts)} in the areas that ran${formatSuppressedSuffix(partition.suppressed)}. This does not mean the project is secure; see coverage.`,
     );
   }
   const nonReal = [...test, ...vendored];
@@ -345,6 +493,30 @@ export function formatScanResult(
     );
   }
   if (collapsed.length > 0) sections.push("", formatCollapsed(collapsed, style));
+  if (partition.suppressed.length > 0) {
+    sections.push(
+      ...formatOptionalGroup(
+        SUPPRESSED_GROUP_TITLE,
+        SUPPRESSED_GROUP_NOTE,
+        partition.suppressed,
+        style,
+        allFindings,
+        (members) => formatSuppressedGroups(members, style, allFindings),
+      ),
+    );
+  }
+  if (partition.baseline.length > 0) {
+    sections.push(
+      ...formatOptionalGroup(
+        BASELINE_GROUP_TITLE,
+        BASELINE_GROUP_NOTE,
+        partition.baseline,
+        style,
+        allFindings,
+        (members) => formatGroups(members, style, allFindings),
+      ),
+    );
+  }
   const listed = [...primary, ...testShown, ...vendoredShown];
   if (!allFindings && hasShortenedGroup(listed)) {
     sections.push(

@@ -18,10 +18,12 @@ import {
   buildFindingsView,
   EMPTY_FILTERS,
   formatLocation,
+  formatSeverityBreakdown,
+  partitionFindings,
   type FindingFilters,
 } from "./filter-findings";
 
-function FindingItem({ finding }: { finding: Finding }) {
+function FindingItem({ finding, isNew = false }: { finding: Finding; isNew?: boolean }) {
   const { m } = useI18n();
   const statusLabels: Record<string, string> = m.status;
   const confidenceLabels: Record<string, string> = m.confidence;
@@ -29,6 +31,7 @@ function FindingItem({ finding }: { finding: Finding }) {
   return (
     <li className={`finding sev-${finding.severity}`}>
       <div className="finding-head">
+        {isNew && <span className="badge badge-new">{m.findings.newBadge}</span>}
         <span className={`badge sev-badge sev-${finding.severity}`}>
           {m.severity[finding.severity]}
         </span>
@@ -40,6 +43,14 @@ function FindingItem({ finding }: { finding: Finding }) {
         </span>
       </div>
       <h3>{finding.title}</h3>
+      {finding.suppression !== undefined && (
+        <p className="suppression-reason">
+          {m.findings.suppressedReason(
+            finding.suppression.reason,
+            finding.suppression.expires ?? "",
+          )}
+        </p>
+      )}
       <p className="location">
         <code title={location}>{location}</code> <span className="muted">{finding.ruleId}</span>
       </p>
@@ -101,6 +112,15 @@ export function FindingsDashboard({
           contextNote,
         )}
       </p>
+      {result.baseline !== undefined && (
+        <p className="muted">
+          {m.findings.baselineCount(
+            result.baseline.matched,
+            result.baseline.new,
+            formatSeverityBreakdown(partitionFindings(result.findings).baseline, m),
+          )}
+        </p>
+      )}
       <div className="charts">
         <SeverityBarChart
           counts={counts}
@@ -179,45 +199,74 @@ export function FindingsDashboard({
       ) : (
         <ul className="findings">
           {visible.map((finding) => (
-            <FindingItem key={finding.id} finding={finding} />
+            <FindingItem key={finding.id} finding={finding} isNew={result.baseline !== undefined} />
           ))}
         </ul>
       )}
-      {view.sections.map((section) => (
-        <section
-          key={section.kind}
-          className={section.kind === "test" ? "test-findings" : "test-findings vendored-findings"}
-          aria-label={section.kind === "test" ? m.findings.testAria : m.findings.vendoredAria}
-        >
-          <h3>{section.title}</h3>
-          {section.kind === "test" ? (
+      {view.sections.map((section) =>
+        section.kind === "suppressed" || section.kind === "baseline" ? (
+          // Collapsed, never omitted: the count is in the title and the headline, and a section
+          // holding a critical finding is open.
+          <details
+            key={section.kind}
+            className="test-findings collapsible-findings"
+            open={section.visible.some((finding) => finding.severity === "critical")}
+            aria-label={
+              section.kind === "suppressed" ? m.findings.suppressedAria : m.findings.baselineAria
+            }
+          >
+            <summary>{section.title}</summary>
             <p className="muted small">
-              {m.findings.testNote}
-              {configTestCount > 0 ? m.findings.testNoteConfig(configTestCount) : ""}
+              {section.kind === "suppressed" ? m.findings.suppressedNote : m.findings.baselineNote}
             </p>
-          ) : (
-            <>
-              <p>
-                {m.findings.vendoredIntro}
-                <code>git rm -r --cached &lt;directory&gt;</code>
-                {m.findings.vendoredThen}
-                <code>.gitignore</code>
-                {m.findings.vendoredEnd}
+            {section.visible.length === 0 ? (
+              <p className="muted">{m.findings.noMatch}</p>
+            ) : (
+              <ul className="findings">
+                {section.visible.map((finding) => (
+                  <FindingItem key={finding.id} finding={finding} />
+                ))}
+              </ul>
+            )}
+          </details>
+        ) : (
+          <section
+            key={section.kind}
+            className={
+              section.kind === "test" ? "test-findings" : "test-findings vendored-findings"
+            }
+            aria-label={section.kind === "test" ? m.findings.testAria : m.findings.vendoredAria}
+          >
+            <h3>{section.title}</h3>
+            {section.kind === "test" ? (
+              <p className="muted small">
+                {m.findings.testNote}
+                {configTestCount > 0 ? m.findings.testNoteConfig(configTestCount) : ""}
               </p>
-              <p className="muted small">{m.findings.vendoredNote}</p>
-            </>
-          )}
-          {section.visible.length === 0 ? (
-            <p className="muted">{m.findings.noMatch}</p>
-          ) : (
-            <ul className="findings">
-              {section.visible.map((finding) => (
-                <FindingItem key={finding.id} finding={finding} />
-              ))}
-            </ul>
-          )}
-        </section>
-      ))}
+            ) : (
+              <>
+                <p>
+                  {m.findings.vendoredIntro}
+                  <code>git rm -r --cached &lt;directory&gt;</code>
+                  {m.findings.vendoredThen}
+                  <code>.gitignore</code>
+                  {m.findings.vendoredEnd}
+                </p>
+                <p className="muted small">{m.findings.vendoredNote}</p>
+              </>
+            )}
+            {section.visible.length === 0 ? (
+              <p className="muted">{m.findings.noMatch}</p>
+            ) : (
+              <ul className="findings">
+                {section.visible.map((finding) => (
+                  <FindingItem key={finding.id} finding={finding} />
+                ))}
+              </ul>
+            )}
+          </section>
+        ),
+      )}
       <p className="muted small">{m.findings.noDatabase}</p>
     </Card>
   );

@@ -113,6 +113,21 @@ export interface FindingLocation {
 export type FindingContext = "test" | "vendored";
 export const FINDING_CONTEXTS = exhaustive<FindingContext>({ test: true, vendored: true });
 
+/** Where a suppression came from. Only the repository config file can suppress a finding. */
+export type SuppressionSource = "pgard.config.json";
+
+/**
+ * A finding that matched an active `suppressions` entry of `pgard.config.json`. The finding stays
+ * in the result: nothing is deleted, only grouped apart (and counted in `ScanResult.suppressions`).
+ */
+export interface FindingSuppression {
+  /** The entry's reason, as written in the (untrusted) config file. */
+  reason: string;
+  /** `YYYY-MM-DD`, when the entry has one. */
+  expires?: string;
+  source: SuppressionSource;
+}
+
 export interface FindingReferences {
   cwe: string[];
   owasp: string[];
@@ -141,6 +156,13 @@ export interface Finding {
    * (`vendored`); their confidence is capped at `low`.
    */
   context?: FindingContext;
+  /** Present only when an active suppression of `pgard.config.json` matched this finding. */
+  suppression?: FindingSuppression;
+  /**
+   * `true` only when the repository has a baseline (`pgard baseline set`) that contains this
+   * finding (same identity as the scan comparison). Absent: not in the baseline, or no baseline.
+   */
+  inBaseline?: true;
 }
 
 /**
@@ -291,6 +313,66 @@ export const OVERALL_STATUSES = exhaustive<OverallStatus>({
   failed: true,
 });
 
+export type SuppressionState = "active" | "expired";
+export const SUPPRESSION_STATES = exhaustive<SuppressionState>({ active: true, expired: true });
+
+/** One `suppressions` entry of the config and what it did in this scan. */
+export interface SuppressionEntryResult {
+  ruleId: string;
+  path: string;
+  reason: string;
+  expires?: string;
+  /** `expired`: past its date, not applied. */
+  state: SuppressionState;
+  /** Findings this entry matches (0 for an expired entry; findings matching it are not hidden). */
+  matched: number;
+  /** The path pattern matches every file (`**`, `*`), so the rule is suppressed everywhere. */
+  wildcard: boolean;
+  /** `expires` is more than a year ahead (`MAX_SUPPRESSION_HORIZON_DAYS`): flagged in the notices. */
+  farExpiry: boolean;
+}
+
+/**
+ * What `pgard.config.json` suppressed in this scan. Present whenever the config has at least one
+ * entry; absent otherwise. Counts are always shown by every front end.
+ */
+export interface SuppressionSummary {
+  source: SuppressionSource;
+  /** Findings carrying `suppression`. */
+  suppressed: number;
+  /** Of those, how many are critical (a critical finding may be suppressed, never silently). */
+  critical: number;
+  /** Suppressed findings per severity (adds up to `suppressed`). */
+  bySeverity: Record<Severity, number>;
+  entries: SuppressionEntryResult[];
+  /** True when the pattern work budget ran out: later findings were checked against no entry. */
+  incomplete: boolean;
+}
+
+/** The baseline this result was compared with (`pgard baseline set`). Local state, not config. */
+export interface BaselineSummary {
+  /** When the baseline was set (ISO 8601). */
+  setAt: string;
+  scanId: string;
+  revision: string | null;
+  /** Findings in the baseline scan. */
+  total: number;
+  /**
+   * Findings of this result that are in the baseline (flagged `inBaseline`) and not suppressed:
+   * the size of the "In baseline" group. A suppressed finding is counted under `suppressions` only.
+   */
+  matched: number;
+  /**
+   * Findings of this result that are neither in the baseline nor suppressed. Includes test and
+   * vendored findings, which the headline "New findings" count leaves out.
+   */
+  new: number;
+  /** Of `new`, how many sit in areas the baseline did not fully cover (they may be old). */
+  newInUncertainAreas: number;
+  /** PGARD was updated since the baseline: rules may differ, so read the counts with care. */
+  toolVersionChanged: boolean;
+}
+
 export interface ScanResult {
   schemaVersion: typeof SCHEMA_VERSION;
   scanId: string;
@@ -305,6 +387,10 @@ export interface ScanResult {
   findings: Finding[];
   /** Deprecated: always `{ version: null, updatedAt: null }`. */
   advisoryDb: AdvisoryDbInfo;
+  /** Present when `pgard.config.json` has suppressions (JSON v1.1, optional). */
+  suppressions?: SuppressionSummary;
+  /** Present when a baseline was applied (JSON v1.1, optional). */
+  baseline?: BaselineSummary;
   /** Added in 1.1. Absent in results written by 1.0. */
   ruleStats?: RuleStat[];
   /** Added in 1.1. Absent in results written by 1.0. */

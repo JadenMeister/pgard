@@ -4,6 +4,7 @@ import {
   SCAN_SCOPES,
   SCHEMA_VERSION,
   applyFindingContext,
+  applySuppressions,
   compilePathMatcher,
   computeStandardsCoverage,
   deriveOverallStatus,
@@ -21,6 +22,7 @@ import {
   type ScanRequest,
   type ScanResult,
   type ScanScope,
+  type SuppressionSummary,
 } from "@pgard/findings";
 import {
   AUTHORIZATION_CHECK_ORDER,
@@ -237,6 +239,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     outcome: AuthorizationOutcome | null;
     coverage: Coverage[];
     findings: Finding[];
+    suppressions?: SuppressionSummary | null;
     ruleStats?: RuleStat[];
     overallStatus?: ScanResult["overallStatus"];
   }): ScanResult => ({
@@ -279,6 +282,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     })),
     findings: sortFindings(mergeFindings(fields.findings)),
     advisoryDb: { ...NO_ADVISORY_DB },
+    ...(fields.suppressions ? { suppressions: fields.suppressions } : {}),
     ruleStats: fields.ruleStats ?? [],
     standardsCoverage: computeStandardsCoverage({
       rules: catalog,
@@ -364,6 +368,10 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   };
   const coverage: Coverage[] = [];
   const findings: Finding[] = [];
+  // The `source:config` entry is written once the suppressions are applied (it counts them).
+  let configIndex = -1;
+  let configTestFindings = 0;
+  let configBudgetWarning: string | null = null;
   const ruleStats: RuleStat[] = [];
 
   for (const scope of SCAN_SCOPES) {
@@ -417,12 +425,12 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
         const budgetWarning =
           budgetEntry?.note ?? (testPaths?.exhausted === true ? CONFIG_BUDGET_NOTE : null);
         coverage.push(...normalized.coverage.filter((entry) => entry.area !== "source:config"));
-        const configCoverage = describeProjectConfig(
-          configLoad,
-          normalized.configTestFindings,
-          budgetWarning,
-        );
-        if (configCoverage !== null) coverage.push(configCoverage);
+        configTestFindings = normalized.configTestFindings;
+        configBudgetWarning = budgetWarning;
+        if (configLoad.state !== "absent") {
+          configIndex = coverage.length;
+          coverage.push(scopeCoverage("code", "completed", null));
+        }
       } else {
         coverage.push(...normalized.coverage);
       }
@@ -444,11 +452,25 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     }
   }
 
+  // Suppressions only change where a finding is listed (`finding.suppression`); nothing is
+  // dropped, and neither the coverage nor the overall status depends on them.
+  const suppressed = applySuppressions(findings, projectConfig?.suppressions ?? [], now());
+  if (configIndex !== -1) {
+    const configCoverage = describeProjectConfig(
+      configLoad,
+      configTestFindings,
+      configBudgetWarning,
+      suppressed.summary,
+    );
+    if (configCoverage !== null) coverage[configIndex] = configCoverage;
+  }
+
   return finish({
     authorization: outcome.summary,
     outcome,
     coverage,
-    findings,
+    findings: suppressed.findings,
+    suppressions: suppressed.summary,
     ruleStats,
   });
 }

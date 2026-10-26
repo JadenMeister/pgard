@@ -98,11 +98,15 @@ describe("glob syntax", () => {
     expect(globProblem("caf\u00e9")).toBeNull();
   });
 
-  it("the control-character bound is exactly U+001F and U+007F", () => {
+  it("the control-character bound is U+001F, U+007F to U+009F, and the line and paragraph separators", () => {
     expect(globProblem("a\u001fb")).toContain("control");
     expect(globProblem("a\u007fb")).toContain("control");
+    expect(globProblem("a\u0080b")).toContain("control");
+    expect(globProblem("a\u009fb")).toContain("control");
+    expect(globProblem("a\u2028b")).toContain("control");
+    expect(globProblem("a\u2029b")).toContain("control");
     expect(globProblem("a b")).toBeNull(); // U+0020
-    expect(globProblem("a\u0080b")).toBeNull();
+    expect(globProblem("a\u00a0b")).toBeNull();
   });
 
   it("rejects non-strings", () => {

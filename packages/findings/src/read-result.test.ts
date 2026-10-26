@@ -72,6 +72,11 @@ function errorCode(input: unknown): string | undefined {
 }
 
 describe("readScanResult version compatibility", () => {
+  it("returns a valid current-version result unchanged", () => {
+    const outcome = readScanResult(raw());
+    expect(outcome).toEqual({ ok: true, result: sample(), sourceVersion: SCHEMA_VERSION });
+  });
+
   it("reads a result written by 1.0 (no ruleStats, no standardsCoverage), normalizing the version", () => {
     const old = raw();
     old.schemaVersion = "1.0";

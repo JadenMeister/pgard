@@ -85,9 +85,29 @@ export function formatContextCounts(
   return parts.length === 0 ? "" : m.findings.plus(parts.join(", "));
 }
 
-/** A separate group listed after the regular findings: test code, then vendored suggestions. */
+/**
+ * Splits off suppressed findings (they matched `suppressions` in pgard.config.json) and findings
+ * in the baseline; suppressed wins. Mirrors `partitionFindings` from @pgard/findings.
+ */
+export function partitionFindings(findings: readonly Finding[]): {
+  suppressed: Finding[];
+  baseline: Finding[];
+  rest: Finding[];
+} {
+  const suppressed: Finding[] = [];
+  const baseline: Finding[] = [];
+  const rest: Finding[] = [];
+  for (const finding of findings) {
+    if (finding.suppression !== undefined) suppressed.push(finding);
+    else if (finding.inBaseline === true) baseline.push(finding);
+    else rest.push(finding);
+  }
+  return { suppressed, baseline, rest };
+}
+
+/** A separate group listed after the regular findings: test code, vendored, suppressed, baseline. */
 export interface ContextSection {
-  kind: "test" | "vendored";
+  kind: "test" | "vendored" | "suppressed" | "baseline";
   title: string;
   /** Every finding in the group (shown in the title), before filters. */
   total: number;
@@ -100,12 +120,12 @@ export interface FindingsView {
   total: number;
   counts: Record<Severity, number>;
   statusCounts: Record<FindingStatus, number>;
-  /** "plus 1 in test or fixture code, 2 suggestions in vendored code (1 high)", or "". */
+  /** "plus 1 in test or fixture code, 2 suggestions in vendored code (1 high), 3 suppressed", or "". */
   contextNote: string;
   visible: Finding[];
   /** Shown instead of the regular list when it is empty; `null` when there is something to show. */
   emptyMessage: string | null;
-  /** Non-empty groups only, in display order (test or fixture code, then vendored suggestions). */
+  /** Non-empty groups only, in display order (test, vendored, suppressed, in baseline). */
   sections: ContextSection[];
 }
 
@@ -119,7 +139,8 @@ export function buildFindingsView(
   filters: FindingFilters,
   m: Messages = en,
 ): FindingsView {
-  const groups = splitByContext(findings);
+  const parts = partitionFindings(findings);
+  const groups = splitByContext(parts.rest);
   const statusCounts: Record<FindingStatus, number> = {
     confirmed: 0,
     suspected: 0,
@@ -143,21 +164,59 @@ export function buildFindingsView(
       total: groups.vendored.length,
       visible: filterFindings(groups.vendored, filters),
     },
+    {
+      kind: "suppressed" as const,
+      title: m.findings.suppressedTitle(parts.suppressed.length),
+      total: parts.suppressed.length,
+      visible: filterFindings(parts.suppressed, filters),
+    },
+    {
+      kind: "baseline" as const,
+      title: m.findings.baselineTitle(parts.baseline.length),
+      total: parts.baseline.length,
+      visible: filterFindings(parts.baseline, filters),
+    },
   ].filter((section) => section.total > 0);
+  const suppressedBreakdown = formatSeverityBreakdown(parts.suppressed, m);
+  const extraParts = [
+    ...(parts.suppressed.length === 0
+      ? []
+      : [m.findings.suppressedCount(parts.suppressed.length, suppressedBreakdown)]),
+    ...(parts.baseline.length === 0 ? [] : [m.findings.baselineInBaseline(parts.baseline.length)]),
+  ];
+  const baseNote = formatContextCounts({ test: groups.test.length, vendored: groups.vendored }, m);
+  const contextNote =
+    extraParts.length === 0
+      ? baseNote
+      : baseNote === ""
+        ? m.findings.plus(extraParts.join(", "))
+        : `${baseNote}, ${extraParts.join(", ")}`;
   return {
     total: groups.primary.length,
     counts: countBySeverity(groups.primary),
     statusCounts,
-    contextNote: formatContextCounts({ test: groups.test.length, vendored: groups.vendored }, m),
+    contextNote,
     visible,
     emptyMessage:
       visible.length > 0
         ? null
         : groups.primary.length === 0
-          ? m.findings.noFindings(formatOutsideContexts(contextCounts, m))
+          ? m.findings.noFindings(
+              formatOutsideContexts(contextCounts, m),
+              parts.suppressed.length,
+              suppressedBreakdown,
+            )
           : m.findings.noMatch,
     sections,
   };
+}
+
+/** "1 critical, 5 high": the non-zero severities, worst first; empty when there are none. */
+export function formatSeverityBreakdown(findings: readonly Finding[], m: Messages = en): string {
+  const counts = countBySeverity(findings);
+  return SEVERITY_ORDER.filter((severity) => counts[severity] > 0)
+    .map((severity) => `${counts[severity]} ${m.severityInline[severity]}`)
+    .join(", ");
 }
 
 /** Same wording as `formatOutsideContexts` in @pgard/report. */

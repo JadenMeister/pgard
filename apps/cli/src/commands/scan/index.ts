@@ -11,6 +11,7 @@ import {
   type AuthorizationOutcome,
   type ScanProgressEvent,
 } from "@pgard/scan-core";
+import { isAuthorizationAllowed } from "@pgard/scan-core";
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
 import { createSessionProvider } from "../../flows/authenticate.js";
@@ -22,6 +23,7 @@ import {
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
+import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
 import { storeScanResult } from "../../flows/store-result.js";
 import type { OutputFormat, ReportRequest, ScanVariant } from "../../options.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
@@ -47,6 +49,8 @@ export interface ScanCommand {
   allFindings?: boolean;
   /** `--no-store`. */
   noStore?: boolean;
+  /** `pgard baseline set --from-current`: after the scan, store it as the baseline. */
+  setBaseline?: boolean;
 }
 
 export const JSON_PORT_REQUIRED_MESSAGE =
@@ -221,7 +225,16 @@ async function runScanFlow(
           },
         },
       );
-      return { result: scanned, outcome: outcome as AuthorizationOutcome | null };
+      const finished = outcome as AuthorizationOutcome | null;
+      // The baseline only changes how findings are grouped; it runs after the gate and cannot
+      // change the status, the exit code or authorization.
+      const withBaseline = await applyStoredBaseline(
+        context,
+        scanned,
+        finished,
+        command.noStore === true,
+      );
+      return { result: withBaseline, outcome: finished };
     } catch (error) {
       if (error instanceof ScanCancelledError) throw new UserCancelledError();
       if (error instanceof ScanRequestError) {
@@ -261,12 +274,40 @@ async function runScanFlow(
     command.noStore === true,
     isJson,
   );
+  let isBaselineSaved = true;
+  if (command.setBaseline === true) {
+    isBaselineSaved = await setBaselineFromScan(context, result, scanned.outcome, projectRoot);
+  }
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
   } else if (context.isMenu) {
     isReportSaved = await offerReportExport(context, result, projectRoot);
   }
-  if (!isReportSaved && exitCode === EXIT_CODES.ok) exitCode = EXIT_CODES.partial;
+  if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
+    exitCode = EXIT_CODES.partial;
+  }
   return exitCode;
+}
+
+/** `baseline set --from-current`: the scan that just ran becomes the baseline. */
+async function setBaselineFromScan(
+  context: CommandContext,
+  result: ScanResult,
+  outcome: AuthorizationOutcome | null,
+  projectRoot: string,
+): Promise<boolean> {
+  const store = context.deps.openResultStore(context.io.env);
+  const repositoryId = outcome?.repositoryId;
+  if (
+    store === null ||
+    outcome === null ||
+    !isAuthorizationAllowed(outcome) ||
+    typeof repositoryId !== "number" ||
+    result.overallStatus === "failed"
+  ) {
+    err(context, context.errStyle.red("The baseline was not set: this scan cannot be stored."));
+    return false;
+  }
+  return (await storeBaseline(context, store, result, repositoryId, projectRoot, null)) === 0;
 }

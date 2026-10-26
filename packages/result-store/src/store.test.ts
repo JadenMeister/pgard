@@ -602,13 +602,13 @@ describe("clear", () => {
     await store.save(makeResult({ scanId: "a" }), { repositoryId: 1 });
     await store.save(makeResult({ scanId: "b" }), { repositoryId: 2 });
     const outcome = await store.clear();
-    expect(outcome).toEqual({ removed: 2, warnings: [] });
+    expect(outcome).toEqual({ removed: 2, baselinesRemoved: 0, warnings: [] });
     expect((await store.list(1)).scans).toEqual([]);
     await expect(stat(path.join(dir, "repos"))).rejects.toThrow();
   });
 
   it("is a no-op when the store does not exist", async () => {
-    expect(await store.clear()).toEqual({ removed: 0, warnings: [] });
+    expect(await store.clear()).toEqual({ removed: 0, baselinesRemoved: 0, warnings: [] });
     await expect(stat(dir)).rejects.toThrow();
   });
 
