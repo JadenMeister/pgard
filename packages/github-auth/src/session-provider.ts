@@ -392,9 +392,9 @@ export function createDeviceFlowSessionProvider(
   ): Promise<GitHubSession | null> => {
     const reused = await tryStored(current, record, false);
     if (reused === null) return null;
-    // The entry this session's token is (or would be) stored in.
-    let held: StoredSignInRecord | null = record;
-    if (reused.isRefreshed) held = await saveRefreshed(current, record, reused.tokens);
+    // When the refreshed tokens were not saved (the entry was removed by `pgard logout` or
+    // replaced by `pgard login` meanwhile), the keychain no longer holds this session's token.
+    if (reused.isRefreshed) await saveRefreshed(current, record, reused.tokens);
     const session = createSessionFromToken(
       reused.tokens.accessToken,
       reused.tokens.expiresAt,
@@ -424,8 +424,10 @@ export function createDeviceFlowSessionProvider(
       userId: user.id,
       isRefreshed: reused.isRefreshed,
     });
-    // Only a token that is actually in the keychain ties this session to the entry.
-    if (held !== null) markStored(myGeneration, reused.tokens.accessToken);
+    // Always tie the session to this token. If the keychain does not hold it (see above), the
+    // next `isStillStored` check sees the mismatch and the provider follows the keychain
+    // (the newer sign-in, or a new device flow after a removal) instead of serving this one.
+    markStored(myGeneration, reused.tokens.accessToken);
     return finish(session, reused.tokens.accessToken, myGeneration);
   };
 

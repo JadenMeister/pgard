@@ -1099,6 +1099,83 @@ describe("local web keychain sign-in", () => {
     expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(403);
   });
 
+  it("settles on the new account when pgard login replaced the sign-in during a refresh (#162)", async () => {
+    const tokenA = ["ghu", "accountAExpiredToken00000"].join("_");
+    const tokenARefreshed = ["ghu", "accountARefreshedToken000"].join("_");
+    const tokenB = ["ghu", "accountBLoginToken0000000"].join("_");
+    const store = createInMemoryCredentialStore();
+    const entry = JSON.parse(keychainEntry());
+    await store.set(
+      KEYCHAIN_KEY,
+      JSON.stringify({ ...entry, accessToken: tokenA, expiresAt: Date.UTC(2000, 0, 1) }),
+    );
+    const userOf: Record<string, { id: number; login: string }> = {
+      [tokenARefreshed]: { id: 7, login: "octo" },
+      [tokenB]: { id: 8, login: "hubot" },
+    };
+    const githubFetch = async (
+      url: string,
+      init: { body?: string; headers: Record<string, string> },
+    ) => {
+      const json = (body: unknown) => ({ status: 200, ok: true, json: async () => body });
+      if (url.endsWith("/login/oauth/access_token")) {
+        // `pgard login` (account B) saves its entry while GitHub rotates account A's token.
+        await store.set(
+          KEYCHAIN_KEY,
+          JSON.stringify({
+            ...entry,
+            accessToken: tokenB,
+            refreshToken: ["ghr", "accountBRefreshToken0000"].join("_"),
+            login: "hubot",
+            userId: 8,
+          }),
+        );
+        return json({ access_token: tokenARefreshed, refresh_token: GITHUB_REFRESH_TOKEN });
+      }
+      const user = userOf[(init.headers.Authorization ?? "").replace("Bearer ", "")];
+      return user
+        ? json({ ...user, name: null, email: null })
+        : { status: 401, ok: false, json: async () => ({}) };
+    };
+    let verifications = 0;
+    const deps = fakeDeps({
+      credentialStore: store,
+      createSessionProvider: (options) =>
+        createDeviceFlowSessionProvider({
+          ...options,
+          clientId: KEYCHAIN_CLIENT_ID,
+          credentialStore: store,
+          fetch: githubFetch,
+          sleep: async () => {},
+        }),
+      verifyProject: async (_root, authorization) => {
+        const session = await authorization.getGitHubSession();
+        await session.client.getAuthenticatedUser();
+        verifications += 1;
+        return outcome();
+      },
+    });
+    const running = await start(deps, null, KEYCHAIN_ENV);
+
+    // First check: refreshes account A while the keychain flips to B (A's session is not stored).
+    // Polling /api/auth would already reset it, so wait for the check to finish without polling.
+    await apiPost(running, "/api/auth/verify");
+    await waitFor(
+      async () => verifications,
+      (count) => count === 1,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The port route sees the keychain holds B, so A's check is reset...
+    expect((await apiGet(running, "/api/ports")).status).toBe(403);
+    // ...and the next check follows the keychain to B instead of reusing the cached A session.
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.status).toBe("done");
+    expect(auth.signInNotice).toContain("hubot");
+  });
+
   it("reuses the keychain sign-in on the server without a device code or sending the token", async () => {
     const store = createInMemoryCredentialStore();
     await store.set(KEYCHAIN_KEY, keychainEntry());

@@ -868,6 +868,52 @@ describe("keychain writes and removals are serialized (#143)", () => {
     expect(JSON.parse((await store.get(KEY)) ?? "{}").refreshToken).toBe(NEW_REFRESH);
   });
 
+  it("follows the keychain when pgard login replaced the entry during a refresh (#162)", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    const fetch: FetchLike = async (url, init) => {
+      if (new URLSearchParams(init.body ?? "").get("grant_type") === "refresh_token") {
+        // `pgard login` saves another sign-in while GitHub rotates the old one.
+        await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+      }
+      return github.fetch(url, init);
+    };
+    const { provider, userCodes } = makeProvider({ ...github, fetch }, store);
+    const first = await provider();
+    // The refreshed session is not what the keychain holds: the next call must not serve it.
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual([]);
+    const lastUserCall = github.calls.filter((call) => call.url.endsWith("/user")).at(-1);
+    expect(lastUserCall?.init.headers.Authorization).toBe(`Bearer ${NEW_TOKEN}`);
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  it("signs in again when pgard logout removed the entry during a refresh (#162)", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+      deviceTokens: [{ access_token: NEW_TOKEN }],
+    });
+    const fetch: FetchLike = async (url, init) => {
+      if (new URLSearchParams(init.body ?? "").get("grant_type") === "refresh_token") {
+        await store.delete(KEY); // `pgard logout` in another process
+      }
+      return github.fetch(url, init);
+    };
+    const { provider, userCodes } = makeProvider({ ...github, fetch }, store);
+    const first = await provider();
+    expect(store.size()).toBe(0);
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual(["ABCD-1234"]);
+  });
+
   it("saves rotated tokens even when a session-only sign-out aborts the /user check", async () => {
     const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
     const controller = new AbortController();
