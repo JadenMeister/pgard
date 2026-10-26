@@ -5,6 +5,9 @@ import { startLocalWebServer } from "./create-server.js";
 import { LauncherUsageError, parseLauncherArgs } from "./launcher.js";
 import { loadStaticAssets } from "./static-files.js";
 
+// Defence in depth on Windows: never search the current directory for executables.
+process.env.NoDefaultCurrentDirectoryInExePath = "1";
+
 /**
  * Dashboard process entry, started by `pgard dashboard` with this Node binary. Prints the
  * private session URL (token in the URL fragment, so it is not sent in requests or Referer headers).

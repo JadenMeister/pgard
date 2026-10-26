@@ -60,12 +60,54 @@ export function createStyle(isColorEnabled: boolean): Style {
   };
 }
 
-/** Colors only on a TTY and when NO_COLOR is not set. */
+/** Colors only on a TTY, when NO_COLOR is not set and the terminal is not `TERM=dumb`. */
 export function shouldUseColor(
   stream: { isTTY?: boolean },
   env: Readonly<Record<string, string | undefined>>,
 ): boolean {
-  return stream.isTTY === true && (env.NO_COLOR === undefined || env.NO_COLOR === "");
+  return (
+    stream.isTTY === true &&
+    (env.NO_COLOR === undefined || env.NO_COLOR === "") &&
+    env.TERM !== "dumb"
+  );
+}
+
+/**
+ * Whether the terminal can be expected to render Unicode punctuation. Windows consoles other
+ * than Windows Terminal, VS Code, ConEmu and similar still use legacy code pages; the Linux
+ * virtual console has no such glyphs either.
+ */
+export function isUnicodeTerminal(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== "win32") return env.TERM !== "linux" && env.TERM !== "dumb";
+  return (
+    Boolean(env.WT_SESSION) ||
+    Boolean(env.TERMINUS_SUBLIME) ||
+    env.ConEmuTask === "{cmd::Cmder}" ||
+    env.TERM_PROGRAM === "vscode" ||
+    env.TERM === "xterm-256color" ||
+    env.TERM === "alacritty" ||
+    env.TERMINAL_EMULATOR === "JetBrains-JediTerm"
+  );
+}
+
+const ASCII_FALLBACKS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\u2026/g, "..."],
+  [/[\u2013\u2014]/g, "-"],
+  [/[\u2018\u2019]/g, "'"],
+  [/[\u201c\u201d]/g, '"'],
+];
+
+/** Replaces the few Unicode punctuation marks PGARD emits with ASCII on consoles without them. */
+export function toTerminalText(
+  text: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (isUnicodeTerminal(env, platform)) return text;
+  return ASCII_FALLBACKS.reduce((out, [pattern, ascii]) => out.replace(pattern, ascii), text);
 }
 
 /**
@@ -73,5 +115,5 @@ export function shouldUseColor(
  * goes through this before reaching the terminal: no control characters, bounded length.
  */
 export function safeText(value: string, maxLength = 2000): string {
-  return sanitizeDisplayText(value, maxLength);
+  return toTerminalText(sanitizeDisplayText(value, maxLength));
 }

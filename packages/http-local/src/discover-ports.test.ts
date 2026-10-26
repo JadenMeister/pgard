@@ -9,6 +9,8 @@ import {
   parseLsofOutput,
   parseNetstatOutput,
   parseProcNetTcp,
+  parseWindowsNetstatOutput,
+  windowsNetstatPath,
   runCommandWithDeadline,
 } from "./discover-ports.js";
 
@@ -164,7 +166,7 @@ describe("discoverListeningPorts", () => {
   });
 
   it("marks other platforms unsupported", async () => {
-    const result = await discoverListeningPorts({ platform: "win32" });
+    const result = await discoverListeningPorts({ platform: "freebsd" });
     expect(result.method).toBe("unsupported");
     expect(result.isAvailable).toBe(false);
   });
@@ -245,15 +247,19 @@ describe("runCommandWithDeadline exit handling", () => {
     ).rejects.toThrow();
   });
 
-  it("rejects output from a child killed by a signal", async () => {
-    await expect(
-      runCommandWithDeadline(
-        node,
-        ["-e", "process.stdout.write('partial'); process.kill(process.pid, 'SIGTERM')"],
-        5000,
-      ),
-    ).rejects.toThrow();
-  });
+  // Windows has no signals: a self-kill exits with code 1, which this API accepts.
+  it.skipIf(process.platform === "win32")(
+    "rejects output from a child killed by a signal",
+    async () => {
+      await expect(
+        runCommandWithDeadline(
+          node,
+          ["-e", "process.stdout.write('partial'); process.kill(process.pid, 'SIGTERM')"],
+          5000,
+        ),
+      ).rejects.toThrow();
+    },
+  );
 
   it("rejects instead of truncating when output exceeds maxBuffer", async () => {
     await expect(
@@ -261,5 +267,77 @@ describe("runCommandWithDeadline exit handling", () => {
         maxBufferBytes: 100,
       }),
     ).rejects.toThrow();
+  });
+});
+
+const WINDOWS_NETSTAT = [
+  "",
+  "Active Connections",
+  "",
+  "  Proto  Local Address          Foreign Address        State           PID",
+  "  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1100",
+  "  TCP    127.0.0.1:3000         0.0.0.0:0              LISTENING       4242",
+  "  TCP    192.168.1.5:8080       0.0.0.0:0              LISTENING       4242",
+  "  TCP    127.0.0.1:3000         127.0.0.1:50000        ESTABLISHED     4242",
+  "  TCP    0.0.0.0:445            0.0.0.0:0              ÜBERWACHEND     4",
+  "  TCP    [::]:5173              [::]:0                 LISTENING       99",
+  "  TCP    [::1]:9229             [::]:0                 LISTENING       99",
+  "  TCP    0.0.0.0:70000          0.0.0.0:0              LISTENING       1",
+  "",
+].join("\r\n");
+
+describe("parseWindowsNetstatOutput", () => {
+  it("keeps IPv4 loopback and wildcard listeners, localized state included", () => {
+    expect(parseWindowsNetstatOutput(WINDOWS_NETSTAT).map((entry) => entry.port)).toEqual([
+      135, 445, 3000, 5173,
+    ]);
+  });
+
+  it("returns no process names", () => {
+    expect(parseWindowsNetstatOutput(WINDOWS_NETSTAT).every((e) => e.processName === null)).toBe(
+      true,
+    );
+  });
+});
+
+describe("Windows discovery", () => {
+  it("uses netstat and tolerates a failing IPv6 table", async () => {
+    const calls: string[] = [];
+    const result = await discoverListeningPorts({
+      platform: "win32",
+      runWindowsNetstat: async (protocol) => {
+        calls.push(protocol);
+        if (protocol === "TCPv6") throw new Error("boom");
+        return WINDOWS_NETSTAT;
+      },
+    });
+    expect(calls.sort()).toEqual(["TCP", "TCPv6"]);
+    expect(result.method).toBe("netstat");
+    expect(result.isAvailable).toBe(true);
+    expect(result.ports.map((p) => p.port)).toContain(3000);
+  });
+
+  it("reports unavailable when the IPv4 table fails", async () => {
+    const result = await discoverListeningPorts({
+      platform: "win32",
+      runWindowsNetstat: async () => {
+        throw new Error("boom");
+      },
+    });
+    expect(result.isAvailable).toBe(false);
+    expect(result.method).toBe("netstat");
+  });
+
+  it("resolves netstat.exe under SystemRoot only when SystemRoot is trusted", () => {
+    expect(windowsNetstatPath({ SystemRoot: "D:\\Windows" })).toBe(
+      "D:\\Windows\\System32\\netstat.exe",
+    );
+    expect(windowsNetstatPath({ SystemRoot: "..\\evil" })).toBe(
+      "C:\\Windows\\System32\\netstat.exe",
+    );
+    expect(windowsNetstatPath({ SystemRoot: "\\\\host\\share" })).toBe(
+      "C:\\Windows\\System32\\netstat.exe",
+    );
+    expect(windowsNetstatPath({})).toBe("C:\\Windows\\System32\\netstat.exe");
   });
 });
