@@ -34,6 +34,8 @@ export const en = {
     target: "Local web service (optional)",
     scan: "Scan",
     results: "Results",
+    standards: "Standards coverage (OWASP Top 10 2025)",
+    ruleStats: "Rule statistics",
     report: "Export report",
   },
   legal: {
@@ -333,6 +335,63 @@ export const en = {
       commit: (sha: string): string => `commit ${sha}`,
       unknownLocation: "(unknown location)",
     },
+  },
+  details: {
+    standards: "Standards",
+    viaCwe: (cwe: string): string => `via ${cwe}`,
+    examples: (count: number): string => `Examples (${count})`,
+    vulnerable: "Vulnerable",
+    safe: "Safe",
+    ruleRationale: "Why the rule matters",
+    ruleRemediation: "General fix",
+    opensExternally: "(opens the official page in a new tab)",
+  },
+  standardsPanel: {
+    note: 'The states say whether PGARD rules that map to an entry ran in this scan. "Rules ran" does not mean the project is safe or that the category is covered: see how many of its CWEs have rules (breadth). Only ids, titles and links are shown; see the linked pages for the standards themselves.',
+    columns: {
+      id: "ID",
+      category: "Category",
+      state: "State",
+      breadth: "Breadth",
+      rules: "Rules",
+      reason: "Reason",
+    },
+    states: {
+      rules_ran: "Rules ran",
+      rules_partial: "Rules partial",
+      not_run: "Not run",
+      no_rules: "No rules",
+    },
+    breadth: (withRules: number, inCategory: number): string =>
+      `${withRules} of ${inCategory} mapped CWEs have rules`,
+    cweTop25Title: "CWE Top 25 2025",
+    cweTop25Counts: (ran: number, partial: number, notRun: number, none: number): string =>
+      `${ran} rules ran, ${partial} rules partial, ${notRun} not run, ${none} no rules`,
+    cweColumns: { rank: "Rank", id: "CWE", name: "Weakness" },
+    notRecorded:
+      "Standards coverage and rule statistics were not recorded in this result (written by an older PGARD).",
+    attributionTitle: "Standards data and attribution",
+    attributionIntro:
+      "Only identifiers, titles and links of these standards are shown here; none of their text is copied.",
+    attributionOwasp:
+      "OWASP Top 10:2025, Copyright (c) 2003-2025 The OWASP Foundation, Inc., licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/).",
+    attributionCwe:
+      "CWE and the CWE Top 25: Copyright (c) 2006-2026, The MITRE Corporation, used under the CWE Terms of Use (https://cwe.mitre.org/about/termsofuse.html). CWE is a trademark of The MITRE Corporation.",
+    attributionCert:
+      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, licensed under CC BY 4.0. SEI CERT is a registered trademark of Carnegie Mellon University; this dashboard is not endorsed by Carnegie Mellon University or the SEI.",
+  },
+  ruleStats: {
+    note: "What each rule examined in each area it ran in. A count of 0 findings means the rule found nothing in what it examined, not that the project is free of that weakness.",
+    columns: {
+      rule: "Rule",
+      area: "Area",
+      targets: "Targets examined",
+      findings: "Findings",
+      status: "Status",
+    },
+    targetCount: (examined: number, unit: string): string => `${examined} ${unit}`,
+    targetUnknown: (reason: string): string => `unknown (${reason})`,
+    summary: (count: number): string => `Rule statistics (${count})`,
   },
   charts: {
     barAria: (summary: string): string => `Findings by severity: ${summary}`,

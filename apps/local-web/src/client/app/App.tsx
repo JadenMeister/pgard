@@ -15,6 +15,8 @@ import { LegalNotice } from "../features/legal/LegalNotice";
 import { AuthorizationPanel } from "../features/onboarding/AuthorizationPanel";
 import { ReportPanel } from "../features/reports/ReportPanel";
 import { ScanPanel } from "../features/scan/ScanPanel";
+import { RuleStatsPanel } from "../features/standards/RuleStatsPanel";
+import { StandardsCoveragePanel } from "../features/standards/StandardsCoveragePanel";
 import { TargetPanel } from "../features/target/TargetPanel";
 
 export function App() {
@@ -85,7 +87,13 @@ export function App() {
             />
             <ScanPanel target={target} scan={scan} onScan={setScan} />
             {scan?.result && <FindingsDashboard result={scan.result} ruleTexts={ruleTexts} />}
-            {scan?.result && scan.result.overallStatus !== "blocked" && <ReportPanel />}
+            {scan?.result && scan.result.overallStatus !== "blocked" && (
+              <>
+                <StandardsCoveragePanel result={scan.result} />
+                <RuleStatsPanel result={scan.result} ruleTexts={ruleTexts} />
+                <ReportPanel />
+              </>
+            )}
           </>
         )}
       </main>
