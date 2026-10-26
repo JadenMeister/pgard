@@ -11,6 +11,9 @@
       "path": "packages/policy"
     },
     {
+      "path": "packages/result-store"
+    },
+    {
       "path": "packages/github-auth"
     },
     {

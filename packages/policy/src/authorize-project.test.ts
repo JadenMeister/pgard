@@ -110,6 +110,8 @@ describe("authorizeProject: allowed paths", () => {
     expect(outcome.revision).toBe(mine);
     // The identity the gate ran with, for frontends that track account switches.
     expect(outcome.account).toEqual({ login: ME.login, userId: ME.id });
+    // GitHub's numeric repository id, the key a frontend may store results under.
+    expect(outcome.repositoryId).toBe(555);
   });
 
   it("allows a signature-verified commit committed by the user in the default branch", async () => {

@@ -55,6 +55,7 @@ export async function authorizeProject(
   let remedy: OwnerApprovalRemedy | null = null;
   let accessNote: AccessNote | null = null;
   let account: { login: string; userId: number } | null = null;
+  let repositoryId: number | null = null;
   const build = (repo: string | null, revision: string | null): AuthorizationOutcome => {
     const checks: AuthorizationCheck[] = AUTHORIZATION_CHECK_ORDER.map((id) => ({
       id,
@@ -68,6 +69,7 @@ export async function authorizeProject(
       remedy,
       accessNote,
       account,
+      repositoryId,
     };
   };
 
@@ -129,6 +131,7 @@ export async function authorizeProject(
   // From here on, report GitHub's canonical name (the remote may use an old or differently
   // cased name that GitHub redirects).
   const canonicalName = repository.fullName;
+  repositoryId = repository.id;
   const access = verifyCurrentAccess(repository);
   results.set("current_access", access);
   const ownerApproval = await evaluateOwnerApproval(client, repository, {
