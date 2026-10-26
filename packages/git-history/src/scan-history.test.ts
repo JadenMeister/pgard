@@ -420,6 +420,68 @@ describe("detectSecrets", () => {
     ]);
   });
 
+  it.each([
+    ["a $NAME with digits and no underscore", "U=postgres://u:$K9X2P7Q4M8@h/db", "$K9X2P7Q4M8"],
+    ["a :name with digits", "U=postgres://u::k9x2p7q4m8z@h/db", ":k9x2p7q4m8z"],
+    [
+      "a long lowercase word in braces",
+      "U=postgres://u:{qwertyuiopasdfgh}@h/db",
+      "{qwertyuiopasdfgh}",
+    ],
+    [
+      "a long lowercase word after a colon",
+      "U=postgres://u::qwertyuiopasdfgh@h/db",
+      ":qwertyuiopasdfgh",
+    ],
+  ])("reports %s in a URL (#163)", (_label, text, password) => {
+    const found = detectSecrets(text, { path: "config/app.env" });
+    expect(found.map((secret) => [secret.kind, secret.value])).toEqual([
+      ["url_credential", password],
+    ]);
+  });
+
+  it.each([
+    ["$DB_PASS", "U=postgres://u:$DB_PASS@h/db"],
+    ["$MYSQL_PASSWORD", "U=mysql://root:$MYSQL_PASSWORD@db/app"],
+    ["${db_password}", "U=mysql://root:${db_password}@db/app"],
+    ["{password}", "U=postgres://u:{password}@h/db"],
+    ["{db_password}", "U=postgres://u:{db_password}@h/db"],
+    ["::password", "U=redis://user::password@cache:6379"],
+    ["%s", "U=postgres://u:%s@h/db"],
+    ["***", "U=postgres://u:***@h/db"],
+  ])("still ignores the URL slot %s (#163)", (_label, text) => {
+    expect(detectSecrets(text, { path: "config/app.env" })).toEqual([]);
+  });
+
+  it("reports a long random password equal to the user name as weak (#163)", () => {
+    const name = "QwErTyUiOpAsDfGhJk";
+    const found = detectSecrets(`U=postgres://${name}:${name}@h/db`, { path: "a.env" });
+    expect(found.map((secret) => [secret.kind, secret.value])).toEqual([["url_credential", name]]);
+  });
+
+  it.each([
+    ["a long capitalized word", "Qwertyuiopasdf"],
+    ["an upper-case word", "GUESTADMIN"],
+  ])("reports %s equal to the user name (#163)", (_label, name) => {
+    const found = detectSecrets(`U=postgres://${name}:${name}@h/db`, { path: "a.env" });
+    expect(found.map((secret) => secret.value)).toEqual([name]);
+  });
+
+  it("keeps the secret after an AWS key id in one generic value (#163)", () => {
+    const id = join("AKIA", "ABCDEFGH", "IJKLMNOP");
+    const found = detectSecrets(`api_key=${id}:${C}`, { path: "app.env" });
+    expect(found.map((secret) => [secret.kind, secret.value])).toEqual([
+      ["aws_access_key_id", id],
+      ["generic_credential", `${id}:${C}`],
+    ]);
+  });
+
+  it("does not repeat a specific match as a generic one for trailing punctuation (#163)", () => {
+    const id = join("AKIA", "ABCDEFGH", "IJKLMNOP");
+    const kinds = detectSecrets(`api_key=${id})`, { path: "app.env" }).map((secret) => secret.kind);
+    expect(kinds).toEqual(["aws_access_key_id"]);
+  });
+
   it("reports a token in a URL once, as a password in a URL (#158)", () => {
     const token = "9f8a7b6c5d4e3f2a1b0c";
     const found = detectSecrets(`u = "https://x-access-token:${token}@github.com/o/r"`, {
