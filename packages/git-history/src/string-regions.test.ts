@@ -303,10 +303,10 @@ describe("createStringLookup (#145)", () => {
       const small = time(unit);
       const large = time(unit.repeat(8)); // 40 MB
       // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
-      // generous so a loaded machine does not fail it; the absolute bound is loose because CI
-      // runners are much slower than local machines.
+      // generous so a loaded machine does not fail it; the absolute bound is loose (a quadratic scan
+      // of 40 MB takes hours) because CI runners are several times slower than local machines.
       expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(10_000);
+      expect(large).toBeLessThan(30_000);
     }
-  }, 180_000);
+  }, 600_000);
 });
