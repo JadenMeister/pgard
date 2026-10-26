@@ -258,8 +258,9 @@ const recheckOwnerApproval: ApiHandler = async (context) => {
     throw new ApiError(409, "recheck_running", "Owner approval is already being checked.");
   }
   const last = state.ownerApprovalRecheckAt;
-  // A clock that moved back since the last re-check counts as too soon.
-  if (last !== null && (now < last || now - last < OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS)) {
+  // A clock that moved back since the last re-check gives a negative difference, which is also
+  // below the minimum interval, so it counts as too soon without a separate comparison.
+  if (last !== null && now - last < OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS) {
     throw new ApiError(429, "recheck_too_soon", "Wait 5 seconds between owner approval checks.");
   }
   state.ownerApprovalRecheckAt = now;
