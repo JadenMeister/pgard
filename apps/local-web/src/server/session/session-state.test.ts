@@ -3,7 +3,9 @@ import {
   ACCOUNT_CHANGED_NOTICE,
   clearSessionState,
   createSessionState,
+  isSameAccount,
   isWithinWindow,
+  resetAuthIfAccountChanged,
   setAuth,
 } from "./session-state.js";
 import { applySignInNotice } from "./stored-sign-in.js";
@@ -56,5 +58,27 @@ describe("session state", () => {
     expect(state.authAccount).toBeNull();
     expect(state.signInNotice).toBe(ACCOUNT_CHANGED_NOTICE);
     expect(state.sessionAccount).toEqual({ login: "octo", userId: 8 });
+  });
+
+  it("keeps the check when the login was renamed but the account id is the same", () => {
+    const state = createSessionState();
+    setAuth(state, { status: "done", outcome: null, finishedAt: 1, message: null });
+    state.authAccount = { login: "octo", userId: 7 };
+    expect(resetAuthIfAccountChanged(state, { login: "octo-renamed", userId: 7 })).toBe(false);
+    expect(state.auth.status).toBe("done");
+    expect(isSameAccount({ login: "a", userId: 7 }, { login: "b", userId: 7 })).toBe(true);
+  });
+
+  it("treats an account without a usable id as different (fails closed)", () => {
+    const missing = { login: "octo" } as unknown as { login: string; userId: number };
+    expect(isSameAccount(missing, missing)).toBe(false);
+    expect(
+      isSameAccount({ login: "octo", userId: Number.NaN }, { login: "octo", userId: NaN }),
+    ).toBe(false);
+    const state = createSessionState();
+    setAuth(state, { status: "done", outcome: null, finishedAt: 1, message: null });
+    state.authAccount = missing;
+    expect(resetAuthIfAccountChanged(state, { login: "octo", userId: 7 })).toBe(true);
+    expect(state.auth.status).toBe("idle");
   });
 });
