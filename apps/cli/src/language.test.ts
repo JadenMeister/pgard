@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RULE_TITLES_KO } from "@pgard/findings";
 import { WEB_RULE_LIST } from "@pgard/http-local";
 import { listSupportedRules } from "@pgard/scan-core";
@@ -61,6 +64,14 @@ describe("resolveLanguage", () => {
     expect(
       resolveLanguage({ flag: null, env: { LANG: "en_US" }, platformLocale: () => "ko-KR" }),
     ).toBe("en");
+  });
+
+  it("accepts PGARD_LANG and --lang values in any letter case", () => {
+    expect(resolveLanguage({ flag: null, env: { PGARD_LANG: "KO" } })).toBe("ko");
+    expect(resolveLanguage({ flag: null, env: { PGARD_LANG: " En " }, platformLocale: none })).toBe(
+      "en",
+    );
+    expect(parseCommandLine(["rules", "list", "--lang", "KO"])).toMatchObject({ lang: "ko" });
   });
 
   it("rejects an invalid PGARD_LANG as a usage error", () => {
@@ -140,6 +151,16 @@ describe("rule titles", () => {
   });
 });
 
+describe("PGARD_LANG scope", () => {
+  it("does not stop commands that show no rule text", async () => {
+    for (const argv of [["doctor"], ["logout"], ["history", "clear", "--all"]]) {
+      const captured = createTestIo({ env: { PGARD_LANG: "fr" } });
+      await main(argv, captured.io, { deps: createTestDeps(), interrupts: noInterrupts });
+      expect(captured.stderr(), argv.join(" ")).not.toMatch(/PGARD_LANG/);
+    }
+  });
+});
+
 describe("Korean CLI output", () => {
   const sql = listSupportedRules().find((rule) => rule.id === "PG-SQL-001");
   if (sql === undefined) throw new Error("PG-SQL-001 is missing");
@@ -171,7 +192,7 @@ describe("Korean CLI output", () => {
 
   it("prints the rule title and fix in Korean", async () => {
     const stdout = await scanOutput("ko", [ruleFinding()]);
-    expect(stdout).toContain("pg/mysql2 query에 동적 문자열로 만든 SQL");
+    expect(stdout).toContain("pg/mysql2 쿼리에 동적 문자열로 만든 SQL");
     expect(stdout).toContain("SQL 문자열은 고정해 두고 값은 바인딩된 매개변수로 전달하세요");
     expect(stdout).not.toContain("Keep the SQL text constant");
   });
@@ -187,7 +208,7 @@ describe("Korean CLI output", () => {
     const stdout = await scanOutput("ko", [ruleFinding({ recommendation: own })]);
     expect(stdout).toContain(own);
     expect(stdout).not.toContain("SQL 문자열은 고정해 두고");
-    expect(stdout).toContain("pg/mysql2 query에 동적 문자열로 만든 SQL");
+    expect(stdout).toContain("pg/mysql2 쿼리에 동적 문자열로 만든 SQL");
   });
 
   it("does not change the JSON output", async () => {
@@ -214,7 +235,7 @@ describe("Korean CLI output", () => {
     });
     expect(code).toBe(0);
     expect(captured.stdout()).toContain("PG-SQL-001");
-    expect(captured.stdout()).toContain("pg/mysql2 query에 동적 문자열로 만든 SQL");
+    expect(captured.stdout()).toContain("pg/mysql2 쿼리에 동적 문자열로 만든 SQL");
     expect(captured.stdout()).toContain("HTTP로 제공되는 .env 파일");
     expect(captured.stdout()).not.toContain(sql.title);
   });
@@ -228,7 +249,7 @@ describe("Korean CLI output", () => {
         deps: createTestDeps(),
         interrupts: noInterrupts,
       });
-      expect(captured.stdout()).toContain("pg/mysql2 query에 동적 문자열로 만든 SQL");
+      expect(captured.stdout()).toContain("pg/mysql2 쿼리에 동적 문자열로 만든 SQL");
     }
     const english = createTestIo();
     await main(["rules", "list"], english.io, { deps: createTestDeps(), interrupts: noInterrupts });
@@ -257,6 +278,37 @@ describe("Korean CLI output", () => {
     };
     expect(await saveReports(context, testResult(), "html", "/tmp/out")).toBe(true);
     expect(calls).toEqual([{ lang: "ko", hasTexts: true }]);
+  });
+
+  it("writes reports in --report-lang, independent of --lang, end to end through main", async () => {
+    const outDir = mkdtempSync(join(tmpdir(), "pgard-lang-"));
+    const seen: Array<{ lang?: string }> = [];
+    for (const [argv, expected] of [
+      [
+        ["scan", "--lang", "en", "--report", "html", "--output-dir", outDir, "--report-lang", "ko"],
+        "ko",
+      ],
+      [["scan", "--lang", "ko", "--report", "html", "--output-dir", outDir], "ko"],
+      [
+        ["scan", "--lang", "ko", "--report", "html", "--output-dir", outDir, "--report-lang", "en"],
+        "en",
+      ],
+    ] as const) {
+      const captured = createTestIo();
+      await main(argv, captured.io, {
+        deps: createTestDeps({
+          runScan: async () => testResult(),
+          writeReports: (async (_result: unknown, options: { lang?: string }) => {
+            seen.push({ lang: options.lang });
+            return [];
+          }) as never,
+        }),
+        interrupts: noInterrupts,
+      });
+      expect(seen.at(-1)?.lang).toBe(expected);
+    }
+    expect(seen).toHaveLength(3);
+    rmSync(outDir, { recursive: true, force: true });
   });
 
   it("runRulesList stays English without a locale", async () => {
