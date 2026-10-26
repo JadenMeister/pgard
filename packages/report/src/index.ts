@@ -38,6 +38,7 @@ export {
   buildReportBaseName,
   isPathInsideDirectory,
   isReportFormat,
+  renderReport,
   REPORT_FORMATS,
   ReportWriteError,
   writeReports,

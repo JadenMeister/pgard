@@ -1,13 +1,12 @@
-import { stat } from "node:fs/promises";
 import path from "node:path";
-import { SCAN_SCOPES, type ScanScope } from "@pgard/findings";
+import { SCAN_SCOPES, type ScanResult, type ScanScope } from "@pgard/findings";
 import {
   createConfirmedWebTarget,
   isValidPort,
   sanitizeDisplayText,
   type ServiceIdentity,
 } from "@pgard/http-local";
-import { isReportFormat, ReportWriteError } from "@pgard/report";
+import { ReportWriteError } from "@pgard/report";
 import {
   GITHUB_APP_AUTHORIZATIONS_URL,
   guidedInstallRemedy,
@@ -27,7 +26,6 @@ import type {
   InstallRemedyDto,
   OwnerApprovalRecheckDto,
   PortListResponse,
-  ReportResponse,
   ScanStatus,
   ServiceIdentityDto,
   SessionInfo,
@@ -544,47 +542,60 @@ const cancelScan: ApiHandler = async (context) => {
   return scanStatus(state);
 };
 
-const INSIDE_REPO_WARNING =
-  "This directory is inside the Git repository. A report there could be committed and shared by mistake.";
+/** A binary response (a report download) instead of JSON. */
+export class ApiDownload {
+  readonly contentType: string;
+  readonly filename: string;
+  readonly body: string | Buffer;
+  constructor(contentType: string, filename: string, body: string | Buffer) {
+    this.contentType = contentType;
+    this.filename = filename;
+    this.body = body;
+  }
+}
 
-/** Exports the current result server-side via @pgard/report (no overwrite, existing dir only). */
-const exportReport: ApiHandler = async (context, body) => {
-  const record = asRecord(body);
-  const result = context.state.scan.result;
-  if (result === null || result.overallStatus === "blocked") {
-    throw new ApiError(409, "no_result", "There is no scan result to export.");
-  }
-  const { format, outputDir, isInsideRepositoryConfirmed } = record;
-  if (typeof format !== "string" || !isReportFormat(format)) {
-    throw new ApiError(400, "bad_format", "format must be html, pdf or both.");
-  }
-  if (typeof outputDir !== "string" || outputDir.length > 4096 || !path.isAbsolute(outputDir)) {
-    throw new ApiError(400, "bad_output_dir", "Enter the absolute path of an existing directory.");
-  }
-  try {
-    if (!(await stat(outputDir)).isDirectory()) throw new Error("not a directory");
-  } catch {
-    throw new ApiError(400, "bad_output_dir", "The directory does not exist.");
-  }
-  if (
-    (await context.deps.isPathInsideDirectory(outputDir, context.projectRoot)) &&
-    isInsideRepositoryConfirmed !== true
-  ) {
-    const response: ReportResponse = { status: "needs_confirmation", warning: INSIDE_REPO_WARNING };
-    return response;
-  }
-  try {
-    const written = await context.deps.writeReports(result, { format, outputDir });
-    const response: ReportResponse = {
-      status: "saved",
-      files: written.map((entry) => entry.filePath),
-    };
-    return response;
-  } catch (error) {
-    if (error instanceof ReportWriteError) throw new ApiError(409, error.code, error.message);
-    throw error;
-  }
-};
+const REPORT_CONTENT_TYPES = {
+  html: "text/html; charset=utf-8",
+  pdf: "application/pdf",
+} as const;
+
+/**
+ * `pgard-report-<repo>-<timestamp>.<ext>`, ASCII only: "/" in the repo becomes "-" and every
+ * other character outside [A-Za-z0-9._-] is dropped, so the name is safe in a header and on disk.
+ */
+export function reportDownloadName(result: ScanResult, format: "html" | "pdf"): string {
+  const repo = (result.target.repo ?? "local")
+    .replace(/\//g, "-")
+    .replace(/[^A-Za-z0-9._-]/g, "")
+    .replace(/^\.+/, "")
+    .slice(0, 80);
+  const stamp = result.startedAt.replace(/[^0-9]/g, "").slice(0, 14) || "unknown";
+  return `pgard-report-${repo === "" ? "local" : repo}-${stamp}.${format}`;
+}
+
+/**
+ * Renders the current (already redacted) result with the same renderers the CLI file export uses
+ * and returns it as a download. Nothing is written to disk.
+ */
+function downloadReport(format: "html" | "pdf"): ApiHandler {
+  return async (context) => {
+    const result = context.state.scan.result;
+    if (result === null || result.overallStatus === "blocked") {
+      throw new ApiError(409, "no_result", "There is no scan result to export.");
+    }
+    try {
+      const body = await context.deps.renderReport(result, format);
+      return new ApiDownload(
+        REPORT_CONTENT_TYPES[format],
+        reportDownloadName(result, format),
+        body,
+      );
+    } catch (error) {
+      if (error instanceof ReportWriteError) throw new ApiError(500, error.code, error.message);
+      throw error;
+    }
+  };
+}
 
 /** The complete API. Anything not listed here is a 404; there is no file-reading route. */
 export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
@@ -601,5 +612,6 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "GET /api/scan": getScan,
   "POST /api/scan": startScan,
   "POST /api/scan/cancel": cancelScan,
-  "POST /api/reports": exportReport,
+  "GET /api/reports/html": downloadReport("html"),
+  "GET /api/reports/pdf": downloadReport("pdf"),
 };

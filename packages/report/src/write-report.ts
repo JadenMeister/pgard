@@ -100,7 +100,11 @@ async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-async function renderContent(result: ScanResult, format: "html" | "pdf"): Promise<string | Buffer> {
+/** Renders one report format. Used by the file export and by the dashboard's browser download. */
+export async function renderReport(
+  result: ScanResult,
+  format: "html" | "pdf",
+): Promise<string | Buffer> {
   try {
     return format === "html" ? renderHtmlReport(result) : await renderPdfReport(result);
   } catch {
@@ -131,7 +135,7 @@ export async function writeReports(
     planned.push({
       format,
       filePath: path.join(directory, `${baseName}.${format}`),
-      content: await renderContent(result, format),
+      content: await renderReport(result, format),
     });
   }
   for (const entry of planned) {

@@ -53,6 +53,39 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown):
   return payload as T;
 }
 
+/** `filename="..."` from a Content-Disposition header, or null. */
+export function filenameFromDisposition(header: string | null): string | null {
+  const match = /filename="([A-Za-z0-9._-]{1,200})"/.exec(header ?? "");
+  return match?.[1] ?? null;
+}
+
+/** GET with the session token, returning the body as a Blob (used for report downloads). */
+export async function apiDownload(
+  path: string,
+  fallbackName: string,
+): Promise<{ blob: Blob; filename: string }> {
+  if (sessionToken === null) throw new ApiRequestError(401, "missing_token", "No session token.");
+  const response = await fetch(path, {
+    method: "GET",
+    headers: { [SESSION_TOKEN_HEADER]: sessionToken },
+    credentials: "omit",
+    cache: "no-store",
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as ApiError | null;
+    throw new ApiRequestError(
+      response.status,
+      payload?.error?.code ?? "error",
+      payload?.error?.message ?? "Request failed.",
+    );
+  }
+  return {
+    // Never keep the response's own type: a report must not be renderable in this origin.
+    blob: new Blob([await response.arrayBuffer()], { type: "application/octet-stream" }),
+    filename: filenameFromDisposition(response.headers.get("content-disposition")) ?? fallbackName,
+  };
+}
+
 export const apiGet = <T>(path: string): Promise<T> => request<T>("GET", path);
 export const apiPost = <T>(path: string, body?: unknown): Promise<T> =>
   request<T>("POST", path, body);

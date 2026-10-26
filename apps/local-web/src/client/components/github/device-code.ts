@@ -1,3 +1,6 @@
+import { en } from "../../i18n/en";
+import type { Messages } from "../../i18n/types";
+
 /** Only https links to github.com become clickable; anything else is shown as text. */
 export function isGitHubUrl(value: string): boolean {
   try {
@@ -8,6 +11,6 @@ export function isGitHubUrl(value: string): boolean {
   }
 }
 
-export function formatExpiry(expiresInSeconds: number): string {
-  return `Expires in about ${Math.max(1, Math.round(expiresInSeconds / 60))} min.`;
+export function formatExpiry(expiresInSeconds: number, m: Messages = en): string {
+  return m.deviceCode.expiry(Math.max(1, Math.round(expiresInSeconds / 60)));
 }

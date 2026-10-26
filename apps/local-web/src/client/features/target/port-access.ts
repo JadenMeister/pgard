@@ -1,4 +1,6 @@
 import type { AuthStatus } from "../../../shared/api-types";
+import { en } from "../../i18n/en";
+import type { Messages } from "../../i18n/types";
 
 /**
  * Port discovery and identity probes contact local services, so the dashboard asks for them only
@@ -9,8 +11,7 @@ export function isPortAccessAllowed(auth: AuthStatus | null): boolean {
   return auth?.status === "done" && auth.summary?.decision === "allowed";
 }
 
-export const PORT_ACCESS_EXPIRED_MESSAGE =
-  "Port access has expired: PGARD contacts local services only within 30 minutes of a passing authorization check. Use Check again above to continue.";
+export const PORT_ACCESS_EXPIRED_MESSAGE = en.target.access.expired;
 
 /** True once the allowed check's `expiresAt` has passed (the server refuses from then on). */
 export function isPortAccessExpired(auth: AuthStatus | null, now: number): boolean {
@@ -41,20 +42,15 @@ export function isAuthorizationRequiredError(error: unknown): boolean {
 export function portAccessMessage(
   auth: AuthStatus | null,
   now: number = Date.now(),
+  m: Messages = en,
 ): string | null {
   if (isPortAccessAllowed(auth)) {
-    return isPortAccessExpired(auth, now) ? PORT_ACCESS_EXPIRED_MESSAGE : null;
+    return isPortAccessExpired(auth, now) ? m.target.access.expired : null;
   }
-  if (auth?.status === "running") {
-    return "Waiting for the authorization check. PGARD does not contact local services until it passes.";
-  }
-  if (auth?.status === "done") {
-    return "Authorization was blocked, so PGARD will not discover or probe local services. See the reasons above.";
-  }
-  if (auth?.status === "failed") {
-    return "The authorization check did not complete, so PGARD will not contact local services. Check again above.";
-  }
-  return "Verify the project above first. PGARD discovers and probes local services only after authorization passes.";
+  if (auth?.status === "running") return m.target.access.running;
+  if (auth?.status === "done") return m.target.access.blocked;
+  if (auth?.status === "failed") return m.target.access.failed;
+  return m.target.access.idle;
 }
 
 export interface PortRequests {

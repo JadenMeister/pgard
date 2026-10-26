@@ -3,6 +3,7 @@ import type { InstallRemedyDto, OwnerApprovalRecheckDto } from "../../../shared/
 import { apiPost, ApiRequestError } from "../../api/client";
 import { Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
+import { useI18n } from "../../i18n/I18nProvider";
 import {
   describeInstallRemedy,
   INSTALL_POLL_INTERVAL_MS,
@@ -36,8 +37,9 @@ export function InstallAppNotice({
   waitEndsAt,
   onInstalled,
 }: InstallAppNoticeProps) {
-  const view = describeInstallRemedy(remedy, repo);
-  const texts = installTexts(remedy);
+  const { m } = useI18n();
+  const view = describeInstallRemedy(remedy, repo, m);
+  const texts = installTexts(remedy, m);
   const canWait = view.kind === "install" && !isInstallWaitOver(waitEndsAt, Date.now());
   const [isWaiting, setIsWaiting] = useState(canWait);
   const [isTimedOut, setIsTimedOut] = useState(view.kind === "install" && !canWait);
