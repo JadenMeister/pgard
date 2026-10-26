@@ -65,4 +65,4 @@ export {
   type SignInNotice,
   type StoredSignInStatus,
 } from "@pgard/github-auth";
-export { findGitRoot } from "@pgard/git-history";
+export { findGitRoot, resolveGitExecutable } from "@pgard/git-history";

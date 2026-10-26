@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { resolveGitExecutable } from "./git-executable.js";
 
 export interface GitRunOptions {
   cwd: string;
@@ -172,6 +173,12 @@ function isFlagAllowed(subcommand: GitSubcommand, flag: string): boolean {
 }
 
 /**
+ * Git's null device. Not `os.devNull`: on Windows that is a `\\.\nul` device path, which git
+ * rejects as a config path ("unable to access ... Invalid argument"), whereas `NUL` works.
+ */
+const GIT_NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
+
+/**
  * Config overrides that stop a scanned repository's own config from making read-only commands
  * execute programs: fsmonitor hooks, pagers, external diff, signature verification programs,
  * and network helpers.
@@ -182,7 +189,7 @@ const BASE_HARDENING_ARGS: readonly string[] = [
   "-c",
   "core.pager=cat",
   "-c",
-  "core.hooksPath=/dev/null",
+  `core.hooksPath=${GIT_NULL_DEVICE}`,
   "-c",
   "core.untrackedCache=false",
   "-c",
@@ -211,12 +218,6 @@ const DRIVER_PROGRAM_KEYS: Record<string, readonly string[]> = {
   diff: ["textconv", "command"],
   merge: ["driver"],
 };
-
-/**
- * Git's null device. Not `os.devNull`: on Windows that is a `\\.\nul` device path, which git
- * rejects as a config path ("unable to access ... Invalid argument"), whereas `NUL` works.
- */
-const GIT_NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
 
 /**
  * Environment for git: allowlisted variables only, so GIT_DIR/GIT_CONFIG_* never leak in.
@@ -291,7 +292,13 @@ export function buildGitArgs(
 function execGit(args: readonly string[], options: GitRunOptions): Promise<string> {
   const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
-    const child = spawn("git", [...args], {
+    // An absolute path on Windows, so a `git.exe` inside the scanned repository never runs.
+    const gitProgram = resolveGitExecutable({ cwd: options.cwd });
+    if (gitProgram === null) {
+      reject(new GitCommandError("git could not be started", null));
+      return;
+    }
+    const child = spawn(gitProgram, [...args], {
       cwd: options.cwd,
       env: buildGitEnv(),
       shell: false,

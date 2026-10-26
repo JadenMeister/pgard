@@ -61,7 +61,7 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 - Node.js 22.23.4, 24.22.1, 26.12.1 이상(같은 버전 라인의 더 새로운 패치 포함). [2026년 10월 21일 Node.js 보안 릴리스](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)에서 고친 취약점이 반영된 버전입니다. 원격 코드 실행으로 이어질 수 있는 Brotli 디코더 범위 밖 쓰기(CVE-2026-111497)와 TLS 호스트 이름 검증 우회가 여기에 포함됩니다. PGARD는 `fetch`와 TLS로 GitHub API를 호출하므로 이전 버전은 지원하지 않으며, `pgard doctor`의 Node.js 검사도 실패합니다. Node.js 20 이하와 홀수 버전 라인은 수정이 제공되지 않습니다. 버전은 `node --version`으로 확인하세요.
 - Git
 - macOS, Linux 또는 Windows. CI가 세 운영체제 모두에서 전체 테스트를 실행합니다. 로컬 포트 탐지는 macOS에서 `lsof`(실패하면 `netstat`으로 대체), Linux에서 `/proc/net/tcp*`, Windows에서 `%SystemRoot%\System32\netstat.exe`를 사용합니다. 포트는 언제든 직접 입력할 수 있습니다.
-- Windows 참고: 로그인은 Windows 자격 증명 관리자에 보관되고, 브라우저는 `explorer.exe`로 열립니다. Windows에는 `0600` 같은 권한 모드가 없어 보고서를 그 모드로 만들 수 없습니다. 보고서는 선택한 폴더의 기본 권한을 따르므로 본인만 읽을 수 있는 폴더를 고르세요. Unicode나 색상을 지원하지 않는 콘솔(오래된 `cmd.exe`, `TERM=dumb`, `NO_COLOR`)에서는 ASCII 출력만 사용합니다.
+- Windows 참고: 로그인은 Windows 자격 증명 관리자에 보관되고, 브라우저는 `explorer.exe`로 열립니다. Windows에는 `0600` 같은 권한 모드가 없어 보고서를 그 모드로 만들 수 없습니다. 보고서는 선택한 폴더의 기본 권한을 따르므로 본인만 읽을 수 있는 폴더를 고르세요. 터미널 출력: `NO_COLOR`는 색상만 끕니다. `TERM=dumb`는 색상을 끄고, Windows가 아닌 시스템에서는 텍스트도 ASCII로 바꿉니다. Windows에서는 호스트가 Windows Terminal, VS Code 또는 비슷한 터미널이 아니면 텍스트가 ASCII이고, 색상은 호스트와 관계없이 켜진 상태로 유지됩니다.
 - GitHub 계정([GitHub App과 로그인](#github-app과-로그인) 참고)
 
 ## 설치와 빌드
