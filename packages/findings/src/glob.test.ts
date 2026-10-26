@@ -220,3 +220,66 @@ describe("glob matching is not exponential", () => {
     expect(elapsed).toBeLessThan(15_000);
   });
 });
+
+describe("glob prefilter and work budget", () => {
+  it("the length prefilter keeps a*b matching ab and does not let prefix and suffix overlap", () => {
+    expect(globMatches(compileGlob("a*b"), "ab")).toBe(true);
+    expect(globMatches(compileGlob("a*b"), "axb")).toBe(true);
+    expect(globMatches(compileGlob("a*a"), "a")).toBe(false);
+    expect(globMatches(compileGlob("ab*ba"), "aba")).toBe(false);
+    expect(globMatches(compileGlob("ab*ba"), "abba")).toBe(true);
+    expect(globMatches(compileGlob("a?b"), "ab")).toBe(false);
+    expect(globMatches(compileGlob("*.ts"), ".ts")).toBe(true);
+  });
+
+  it("past the work budget the matcher answers false, even for a pattern that would match", () => {
+    const hostile = Array.from({ length: 30 }, (_, i) => `*${"?x".repeat(20)}${"?".repeat(i)}*`);
+    const matcher = compilePathMatcher(["secret", ...hostile], 20_000);
+    expect(matcher.exhausted).toBe(false);
+    expect(matcher.matches("src/secret/a.ts")).toBe(true); // matched by the first pattern, within budget
+    for (let i = 0; i < 200; i += 1) matcher.matches(`src/dir${i}/${"y".repeat(60)}.ts`);
+    expect(matcher.exhausted).toBe(true);
+    // Fail-safe: nothing matches any more, so nothing is excluded or demoted.
+    expect(matcher.matches("secret/a.ts")).toBe(false);
+    expect(compilePathMatcher(["secret"]).matches("secret/a.ts")).toBe(true);
+  });
+
+  it("an ordinary configuration never comes near the default budget", () => {
+    const matcher = compilePathMatcher([
+      "legacy",
+      "*.generated.ts",
+      "**/*.gen.*",
+      "docs/*/draft",
+      "tools/??-old",
+    ]);
+    for (let i = 0; i < 20_000; i += 1) matcher.matches(`src/pkg${i % 50}/dir/file${i}.ts`);
+    expect(matcher.exhausted).toBe(false);
+  });
+
+  it("200 hostile ?-pattern globs on 10 000 typical paths stop at the budget in about a second", () => {
+    const patterns = Array.from({ length: 200 }, (_, i) => {
+      const letter = String.fromCharCode(98 + (i % 25));
+      return `*${"?".repeat(Math.floor(i / 25))}${`?${letter}`.repeat(60)}*`;
+    });
+    const matcher = compilePathMatcher(patterns);
+    const start = performance.now();
+    for (let i = 0; i < 10_000; i += 1) matcher.matches(`src/p${i % 40}/${"a".repeat(20)}${i % 7}`);
+    const elapsed = performance.now() - start;
+    console.info(`glob budget: 200 hostile ?-patterns x 10000 paths = ${Math.round(elapsed)} ms`);
+    expect(matcher.exhausted).toBe(true);
+    expect(elapsed).toBeLessThan(15_000);
+  }, 60_000);
+
+  it("identical patterns are matched once", () => {
+    const one = compilePathMatcher(["*a*b*"], 10_000);
+    const many = compilePathMatcher(
+      Array.from({ length: 50 }, () => "*a*b*"),
+      10_000,
+    );
+    for (let i = 0; i < 20; i += 1) {
+      one.matches(`dir/zzzzzzzz${i}`);
+      many.matches(`dir/zzzzzzzz${i}`);
+    }
+    expect(many.exhausted).toBe(one.exhausted);
+  });
+});

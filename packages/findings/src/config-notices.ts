@@ -10,6 +10,13 @@ import type { Coverage } from "./contract.js";
  * - `source:config` also carries how many findings `testDirectories` moved into the test group.
  */
 export interface ConfigNotice {
+  /**
+   * What the notice is about, so a front end can translate its framing while the detail (the
+   * coverage note: counts, quoted patterns) stays as written: `excluded` files, a `config`
+   * problem, a `test` directory warning, or `demoted` findings (then `count` is set).
+   */
+  kind: "excluded" | "config" | "test" | "demoted";
+  count?: number;
   text: string;
   /** `warning` is shown prominently; `info` only records that a config was read. */
   tone: "warning" | "info";
@@ -38,6 +45,7 @@ export function projectConfigNotices(coverage: readonly Coverage[]): ConfigNotic
     if (entry.area === "source:config-excluded") {
       const isNone = /^0 files /.test(entry.note);
       notices.push({
+        kind: "excluded",
         text: entry.note,
         tone: entry.status === "partial" || !isNone ? "warning" : "info",
       });
@@ -45,12 +53,18 @@ export function projectConfigNotices(coverage: readonly Coverage[]): ConfigNotic
       (entry.area === "source:config" || entry.area === "source:config-test") &&
       entry.status === "partial"
     ) {
-      notices.push({ text: entry.note, tone: "warning" });
+      notices.push({
+        kind: entry.area === "source:config" ? "config" : "test",
+        text: entry.note,
+        tone: "warning",
+      });
     }
   }
   const count = configTestFindingCount(coverage);
   if (count > 0) {
     notices.push({
+      kind: "demoted",
+      count,
       text: `${count} finding${count === 1 ? " was" : "s were"} classified as test code by the testDirectories setting of pgard.config.json (listed apart, confidence capped at low). Review ${count === 1 ? "it" : "them"}.`,
       tone: "warning",
     });

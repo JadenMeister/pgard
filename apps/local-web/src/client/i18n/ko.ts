@@ -175,6 +175,13 @@ export const ko: Messages = {
     },
     noWebTarget:
       "확인한 웹 대상이 없습니다. 웹 범위는 미검사로 기록되고 검사 결과는 부분 완료가 됩니다.",
+    configNotice: {
+      excluded: (detail) => `pgard.config.json으로 제외된 파일이 있습니다 (상세, 영문): ${detail}`,
+      config: (detail) => `pgard.config.json 경고 (상세, 영문): ${detail}`,
+      test: (detail) => `pgard.config.json의 testDirectories 경고 (상세, 영문): ${detail}`,
+      demoted: (count) =>
+        `pgard.config.json의 testDirectories 설정이 발견 항목 ${count}건을 테스트 코드로 분류했습니다(따로 나열되고 신뢰도는 최대 낮음으로 제한). 검토하세요.`,
+    },
     run: "검사 실행",
     cancel: "취소",
   },
@@ -239,6 +246,8 @@ export const ko: Messages = {
     testAria: "테스트·fixture 코드의 발견 항목",
     testNote:
       "경로만으로 테스트·fixture 코드로 분류된 파일의 항목이며 신뢰도는 최대 낮음으로 제한됩니다. 위 개수에는 포함되지 않지만 검토하세요. 테스트에 커밋된 실제 값도 노출된 것입니다.",
+    testNoteConfig: (count) =>
+      ` 그중 ${count}건은 기본 규칙이 아니라 pgard.config.json의 testDirectories 설정으로 분류되었습니다.`,
     vendoredTitle: (count) => `제안: 서드파티/vendored 코드 (${count})`,
     vendoredAria: "서드파티·vendored 코드의 제안",
     vendoredIntro:

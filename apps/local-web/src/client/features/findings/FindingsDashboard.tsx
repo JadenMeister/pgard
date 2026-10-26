@@ -1,5 +1,12 @@
 import { useMemo, useState } from "react";
-import type { Finding, FindingStatus, ScanResult, ScanScope, Severity } from "@pgard/findings";
+import {
+  configTestFindingCount,
+  type Finding,
+  type FindingStatus,
+  type ScanResult,
+  type ScanScope,
+  type Severity,
+} from "@pgard/findings";
 import { SeverityBarChart } from "../../components/charts/SeverityBarChart";
 import { SeverityDonutChart } from "../../components/charts/SeverityDonutChart";
 import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
@@ -69,6 +76,7 @@ export function FindingsDashboard({
   );
   const view = useMemo(() => buildFindingsView(findings, filters, m), [findings, filters, m]);
   const { counts, statusCounts, contextNote, visible } = view;
+  const configTestCount = configTestFindingCount(result.coverage);
   const overallLabels: Record<string, string> = m.findings.overall;
 
   if (result.overallStatus === "blocked") {
@@ -183,7 +191,10 @@ export function FindingsDashboard({
         >
           <h3>{section.title}</h3>
           {section.kind === "test" ? (
-            <p className="muted small">{m.findings.testNote}</p>
+            <p className="muted small">
+              {m.findings.testNote}
+              {configTestCount > 0 ? m.findings.testNoteConfig(configTestCount) : ""}
+            </p>
           ) : (
             <>
               <p>

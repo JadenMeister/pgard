@@ -118,6 +118,7 @@ const MAX_PROBLEM_NOTE = 220;
 export function describeProjectConfig(
   load: ProjectConfigLoad,
   testFindings: number,
+  budgetWarning: string | null = null,
 ): Coverage | null {
   if (load.state === "absent") return null;
   if (load.state === "invalid") {
@@ -144,8 +145,8 @@ export function describeProjectConfig(
   return {
     area: "source:config",
     scope: "code",
-    status: warning === "" ? "completed" : "partial",
+    status: warning === "" && budgetWarning === null ? "completed" : "partial",
     ruleIds: [],
-    note: `${PROJECT_CONFIG_FILE} read (version ${config.version}): ${count(config.exclude.length, "exclude pattern")}, ${count(config.testDirectories.length, "test directory pattern")} (${count(testFindings, "finding")} classified as test code by it), ${count(config.suppressions.length, "suppression")} parsed, not yet applied.${warning}`,
+    note: `${budgetWarning === null ? "" : `${budgetWarning} `}${PROJECT_CONFIG_FILE} read (version ${config.version}): ${count(config.exclude.length, "exclude pattern")}, ${count(config.testDirectories.length, "test directory pattern")} (${count(testFindings, "finding")} classified as test code by it), ${count(config.suppressions.length, "suppression")} parsed, not yet applied.${warning}`,
   };
 }

@@ -27,6 +27,7 @@ import {
   type AuthorizationOutcome,
 } from "@pgard/policy";
 import { createDefaultAnalyzers } from "./analyzers.js";
+import { CONFIG_BUDGET_NOTE } from "@pgard/source-analysis";
 import { normalizeFindingPaths } from "./paths.js";
 import {
   describeProjectConfig,
@@ -345,10 +346,21 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
         request.projectRoot,
         scope === "code" ? testPaths : null,
       );
-      coverage.push(...normalized.coverage);
       if (scope === "code") {
-        const configCoverage = describeProjectConfig(configLoad, normalized.configTestFindings);
+        // The source scan reports a `source:config` entry only when its own pattern matching ran
+        // out of work budget; merge it with ours so the area appears once.
+        const budgetEntry = normalized.coverage.find((entry) => entry.area === "source:config");
+        const budgetWarning =
+          budgetEntry?.note ?? (testPaths?.exhausted === true ? CONFIG_BUDGET_NOTE : null);
+        coverage.push(...normalized.coverage.filter((entry) => entry.area !== "source:config"));
+        const configCoverage = describeProjectConfig(
+          configLoad,
+          normalized.configTestFindings,
+          budgetWarning,
+        );
         if (configCoverage !== null) coverage.push(configCoverage);
+      } else {
+        coverage.push(...normalized.coverage);
       }
       findings.push(...normalized.findings);
       emit({ stage: scope, status: "completed", message: `Finished ${scope} analysis.` });
