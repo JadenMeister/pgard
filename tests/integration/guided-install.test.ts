@@ -111,6 +111,7 @@ function harness(state: MockGitHubState, onSleep: (count: number) => void = () =
   const provider = Object.assign(async () => session, {
     invalidate: () => undefined,
     signOut: () => undefined,
+    existing: async () => session,
   });
   let clock = 1_000_000;
   let sleeps = 0;
@@ -284,6 +285,49 @@ describe("guided install: waiting ends", () => {
     expect(result.stderr).toContain("No PGARD GitHub App installation");
   }, 60_000);
 
+  it("ends the wait without a new sign-in when the session is gone, then re-authorizes", async () => {
+    const { head } = project();
+    const state = notInstalled(head);
+    const h = harness(state);
+    const { session } = createMockGitHub(state);
+    // `interactive` stands for the device flow; the re-check may only use `existing`.
+    const interactive = vi.fn(async () => session);
+    const existing = vi.fn(async () => null);
+    h.deps.createSessionProvider = () =>
+      Object.assign(interactive, {
+        invalidate: () => undefined,
+        signOut: () => undefined,
+        existing,
+      });
+    const result = await run(["project", "verify"], h.deps);
+    expect(result.exitCode).toBe(3);
+    expect(existing).toHaveBeenCalledTimes(1);
+    expect(h.rechecks()).toBe(1);
+    // One sign-in per full authorization (the blocked one and the fresh one), none for the wait.
+    expect(h.verifyCalls()).toBe(2);
+    expect(interactive).toHaveBeenCalledTimes(2);
+    expect(result.stderr).toContain(
+      "Owner approval could not be confirmed. Running the full authorization again...",
+    );
+    expect(result.stderr).not.toContain("Owner approval changed");
+  });
+
+  it("says owner approval could not be confirmed (not changed) on a rate limit", async () => {
+    const { head } = project();
+    const state = notInstalled(head);
+    const h = harness(state, () => {
+      state.failWith = new GitHubAuthError("rate_limited", "rate limited", 429);
+    });
+    const result = await run(["project", "verify"], h.deps);
+    expect(result.exitCode).toBe(3);
+    expect(h.rechecks()).toBe(1);
+    expect(h.verifyCalls()).toBe(2);
+    expect(result.stderr).toContain(
+      "Owner approval could not be confirmed. Running the full authorization again...",
+    );
+    expect(result.stderr).not.toContain("Owner approval changed");
+  });
+
   it("cancels with exit 130 when Ctrl+C is confirmed while waiting", async () => {
     const { head } = project();
     const listeners: (() => void)[] = [];
@@ -347,7 +391,7 @@ describe("guided install: organizations and configuration", () => {
     const result = await run(["project", "verify"], h.deps);
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toContain(
-      `If you are an owner of acme, install the App on the page that opened; otherwise ask an owner: ${ORG_INSTALL_URL}`,
+      `If you are an owner of acme, install the App on the install page; otherwise ask an owner to install it there: ${ORG_INSTALL_URL}`,
     );
     expect(result.stderr).toContain(WAITING_FOR_INSTALL_MESSAGE);
     expect(h.openBrowser).toHaveBeenCalledExactlyOnceWith(ORG_INSTALL_URL);
@@ -380,6 +424,50 @@ describe("guided install: organizations and configuration", () => {
     const provider = Object.assign(async () => session, {
       invalidate: () => undefined,
       signOut: () => undefined,
+      existing: async () => session,
+    });
+    // The server allows one re-check per 5 s; a fake clock steps over that.
+    let clock = Date.now();
+    const server = await startLocalWebServer({
+      projectRoot: root,
+      presetTargetPort: null,
+      env: {},
+      assets: new Map(),
+      deps: {
+        ...createDefaultServerDeps(),
+        createSessionProvider: () => provider,
+        now: () => clock,
+      },
+      token: WEB_TOKEN,
+    });
+    try {
+      const blocked = await webVerify(server.port);
+      expect(blocked.remedy).toMatchObject({ canApprove: "unknown", url: ORG_INSTALL_URL });
+      const waiting = await webRequest(server.port, "POST", "/api/auth/owner-approval");
+      expect(waiting.status).toBe(200);
+      expect(waiting.json).toMatchObject({ status: "failed", remedy: { canApprove: "unknown" } });
+      installOnOrg(state, "member");
+      clock += 5_000;
+      const recheck = await webRequest(server.port, "POST", "/api/auth/owner-approval");
+      expect(recheck.json).toMatchObject({ status: "failed", remedy: null });
+      const after = await webVerify(server.port);
+      expect(after.summary.decision).toBe("blocked");
+      expect(after.remedy).toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("dashboard: the re-check never starts a sign-in when the session is gone", async () => {
+    const { root, head } = project();
+    const { session } = createMockGitHub(notInstalled(head));
+    // `interactive` stands for the device flow; the re-check may only use `existing`.
+    const interactive = vi.fn(async () => session);
+    const existing = vi.fn(async () => null);
+    const provider = Object.assign(interactive, {
+      invalidate: () => undefined,
+      signOut: () => undefined,
+      existing,
     });
     const server = await startLocalWebServer({
       projectRoot: root,
@@ -391,16 +479,19 @@ describe("guided install: organizations and configuration", () => {
     });
     try {
       const blocked = await webVerify(server.port);
-      expect(blocked.remedy).toMatchObject({ canApprove: "unknown", url: ORG_INSTALL_URL });
-      const waiting = await webRequest(server.port, "POST", "/api/auth/owner-approval");
-      expect(waiting.status).toBe(200);
-      expect(waiting.json).toMatchObject({ status: "failed", remedy: { canApprove: "unknown" } });
-      installOnOrg(state, "member");
+      expect(blocked.remedy).toMatchObject({ canApprove: "yes" });
+      expect(interactive).toHaveBeenCalledTimes(1);
       const recheck = await webRequest(server.port, "POST", "/api/auth/owner-approval");
-      expect(recheck.json).toMatchObject({ status: "failed", remedy: null });
-      const after = await webVerify(server.port);
-      expect(after.summary.decision).toBe("blocked");
-      expect(after.remedy).toBeNull();
+      expect(recheck.status).toBe(200);
+      // Unverifiable with no remedy: the panel ends the wait and runs the full check.
+      expect(recheck.json).toEqual({
+        status: "unverifiable",
+        reason:
+          "The GitHub sign-in is no longer available, so owner approval was not checked again.",
+        remedy: null,
+      });
+      expect(existing).toHaveBeenCalledTimes(1);
+      expect(interactive).toHaveBeenCalledTimes(1);
     } finally {
       await server.close();
     }
@@ -527,6 +618,7 @@ describe("guided install: CLI and dashboard parity", () => {
     const provider = Object.assign(async () => session, {
       invalidate: () => undefined,
       signOut: () => undefined,
+      existing: async () => session,
     });
 
     // CLI: the remedy the gate produced for `pgard project verify` (not a terminal: no waiting).
@@ -540,6 +632,7 @@ describe("guided install: CLI and dashboard parity", () => {
         return outcome;
       },
     });
+    let clock = Date.now();
     const cli = await run(["project", "verify"], cliDeps, { stdoutIsTTY: false });
     expect(cli.exitCode).toBe(3);
     const cliRemedy = guidedInstallRemedy(cliOutcomes[0]!);
@@ -552,7 +645,12 @@ describe("guided install: CLI and dashboard parity", () => {
       presetTargetPort: null,
       env: {},
       assets: new Map(),
-      deps: { ...createDefaultServerDeps(), createSessionProvider: () => provider },
+      // The server allows one re-check per 5 s; a fake clock steps over that.
+      deps: {
+        ...createDefaultServerDeps(),
+        createSessionProvider: () => provider,
+        now: () => clock,
+      },
       token: WEB_TOKEN,
     });
     const blocked = await webVerify(web.port);
@@ -568,6 +666,7 @@ describe("guided install: CLI and dashboard parity", () => {
     state.repository = userRepository({
       permissions: { admin: false, maintain: false, push: false, triage: false, pull: false },
     });
+    clock += 5_000;
     const recheck = await webRequest(web.port, "POST", "/api/auth/owner-approval");
     expect(recheck.json).toMatchObject({ status: "passed", remedy: null });
     const after = await webVerify(web.port);
