@@ -1,4 +1,8 @@
 import {
+  buildSarif,
+  countSarifOmitted,
+  sarifScanDidNotRun,
+  sarifScanIncomplete,
   localizeFindings,
   type ConfirmedWebTarget,
   type ScanResult,
@@ -22,6 +26,7 @@ import {
   saveReports,
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
+import { getRuleTextCatalog } from "../../rule-texts.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
 import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
 import { loadPreviousScan, scanDiffOf, storeScanResult } from "../../flows/store-result.js";
@@ -45,7 +50,7 @@ export interface ScanCommand {
   variant: ScanVariant;
   port: number | null;
   report: ReportRequest | null;
-  /** `json`: stdout carries only the redacted ScanResult; everything else goes to stderr. */
+  /** `json`: stdout carries only the redacted ScanResult, `sarif` only its SARIF 2.1.0 form; everything else goes to stderr. */
   format?: OutputFormat;
   /** List every finding and location in the text result. */
   allFindings?: boolean;
@@ -53,6 +58,11 @@ export interface ScanCommand {
   noStore?: boolean;
   /** `pgard baseline set --from-current`: after the scan, store it as the baseline. */
   setBaseline?: boolean;
+}
+
+/** `json` and `sarif` both keep stdout for one document; everything else goes to stderr. */
+export function isMachineFormat(format: OutputFormat | undefined): boolean {
+  return format === "json" || format === "sarif";
 }
 
 export const JSON_PORT_REQUIRED_MESSAGE =
@@ -85,10 +95,17 @@ export async function runScanCommand(
   context: CommandContext,
   command: ScanCommand,
 ): Promise<ExitCode> {
-  const isJson = command.format === "json";
+  const isJson = isMachineFormat(command.format);
   if (isJson && SCOPES_BY_VARIANT[command.variant].includes("web") && command.port === null) {
     // Fail before any network activity: the only way to choose a port is a prompt.
-    err(context, context.errStyle.red(JSON_PORT_REQUIRED_MESSAGE));
+    err(
+      context,
+      context.errStyle.red(
+        command.format === "sarif"
+          ? JSON_PORT_REQUIRED_MESSAGE.replace("--format json", "--format sarif")
+          : JSON_PORT_REQUIRED_MESSAGE,
+      ),
+    );
     return EXIT_CODES.usage;
   }
   if (!isJson) {
@@ -110,9 +127,34 @@ export async function runScanCommand(
   return runScanFlow(flowContext, command, {
     show: () => undefined,
     finish: (result) => {
-      context.io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (command.format === "sarif") warnAboutSarif(context, result);
+      const document =
+        command.format === "sarif" ? buildSarif(result, getRuleTextCatalog()) : result;
+      context.io.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
     },
   });
+}
+
+function warnAboutSarif(context: CommandContext, result: ScanResult): void {
+  const omitted = countSarifOmitted(result);
+  if (omitted > 0) {
+    err(
+      context,
+      context.errStyle.yellow(
+        `${omitted} findings without a file location (web, ...) are not in SARIF; see the text/JSON output or report.`,
+      ),
+    );
+  }
+  if (sarifScanDidNotRun(result)) {
+    err(context, context.errStyle.red("Do not upload this SARIF: the scan did not run."));
+  } else if (sarifScanIncomplete(result)) {
+    err(
+      context,
+      context.errStyle.red(
+        "Do not upload this SARIF: some requested areas did not complete (their alerts would be closed).",
+      ),
+    );
+  }
 }
 
 /** Rule texts in the terminal language; the stored and JSON result stay English. */
@@ -153,8 +195,8 @@ async function runScanFlow(
   command: ScanCommand,
   { show, finish }: ResultOutput,
 ): Promise<ExitCode> {
-  const isJson = command.format === "json";
-  // Fixed screen text in the terminal language; `--format json` output is never translated.
+  const isJson = isMachineFormat(command.format);
+  // Fixed screen text in the terminal language; machine-format output is never translated.
   const text = cliText(context.ruleLocale);
   const scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);

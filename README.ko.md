@@ -173,11 +173,13 @@ Options:
                            summarized, and groups show up to 3 locations
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
-                           then en). JSON output is always English
+                           then en). JSON and SARIF output are always English
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)
-  --format text|json       json prints only the redacted result (schema in
-                           docs/RESULT_SCHEMA.md) to stdout; progress and
+  --format text|json|sarif json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; sarif prints the
+                           same result as SARIF 2.1.0 (for GitHub code
+                           scanning; PGARD uploads nothing). Progress and
                            messages go to stderr. With web checks it needs --port
                            (prompts go to stderr). Exit codes are unchanged
   --no-browser             do not open GitHub pages (device sign-in, App
@@ -196,7 +198,7 @@ authorization and continues the scan.
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
 - `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 각자의 근거와 함께 나열하며 아무것도 접지 않습니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고). 억제된 발견 항목과 기준선에 있는 발견 항목도 모두 나열합니다([억제](#억제suppressions), [기준선](#기준선baseline) 참고).
-- `--format text|json`(모든 `scan`, 기본값 `text`): `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
+- `--format text|json|sarif`(모든 `scan`, 기본값 `text`): `sarif`는 대신 SARIF 2.1.0을 출력합니다([SARIF 출력](#sarif-출력) 참고). stdout, stderr, `--port`, 종료 코드는 `json`과 같은 규칙을 따릅니다. `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
 - `--lang en|ko`(모든 `scan`, `rules list`): 터미널에 표시되는 규칙 문구(제목, 영향, 조치)의 언어입니다. [규칙 문구의 언어](#규칙-문구의-언어) 참고.
 - `--report-lang en|ko`(`--report`와 함께 쓰는 모든 `scan`): 저장되는 HTML·PDF 보고서 전체(규칙 문구만이 아님)의 언어이며, 기본값은 `--lang` 언어입니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
@@ -530,6 +532,34 @@ pgard baseline clear
 - **저장.** 결과 저장소의 `repos/<저장소 id>/baseline.json`이며 저장된 결과와 같은 규칙을 따릅니다. macOS·Linux에서 디렉터리 `0700`, 파일 `0600`, 심볼릭 링크 거부(파일 자리의 링크는 따라가거나 통해 쓰거나 읽지 않음), 원자적 쓰기, 크기 상한, 더 새로운 PGARD가 쓴 파일은 덮어쓰지 않음, 로컬 경로가 든 결과는 저장하지 않음. 민감정보를 가린 검사 사본을 담고, 20회·90일 보관 정책의 대상이 아니며, `readScanResult`로 읽습니다. 파일에는 기준선을 설정한 저장소 ID가 기록되며, 다른 저장소의 기준선이나 다른 사용자가 쓸 수 있는 파일(macOS·Linux에서 그룹 또는 전체 쓰기 비트)은 경고와 함께 거부합니다. 손상된 기준선은 오류입니다(`pgard scan`은 경고하고 아무것도 적용하지 않고 모든 항목을 보여 줍니다). 조용히 "기준선 없음"이 되지 않습니다.
 - **끄기.** `pgard scan --no-store`와 `PGARD_NO_STORE=1`은 기준선을 읽지도 적용하지도 않습니다(모든 발견 항목이 평소처럼 나열됩니다). `PGARD_NO_STORE=1`이면 `baseline` 명령은 실행을 거부합니다(종료 코드 2). 대시보드 검사는 저장소를 읽지 않으므로 대시보드는 기준선을 적용하지 않습니다.
 - **`pgard history clear`는 기준선도 삭제합니다**(`--all`, `--repo owner/name`. 메시지에 몇 개인지 나옵니다). 기준선은 저장된 검사 데이터이며, 남겨 두면 전부 지우라고 한 뒤에도 발견 항목을 계속 묶게 됩니다.
+
+### SARIF 출력
+
+`pgard scan --format sarif > pgard.sarif`는 가려진 결과를 [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) 형식으로 stdout에 출력합니다(진행 상황과 안내는 stderr, 종료 코드는 그대로). 파일로 저장하려면 stdout을 리다이렉트하세요. SARIF용 출력 파일 옵션은 없으며 `--report`/`--output-dir`는 여전히 HTML과 PDF 보고서만 씁니다. **PGARD는 아무것도 업로드하지 않습니다.** 파일을 GitHub이나 IDE로 보내는 것은 사용자의 몫입니다.
+
+**업로드하면 안 되는 경우.** GitHub 코드 스캐닝은 PGARD의 `toolExecutionNotifications`를 표시하지 않으며, 업로드에 없는 기존 알림을 닫습니다. 완전히 실행되지 않은 스캔의 SARIF를 올리면 검사된 적 없는 영역의 알림이 닫힙니다. 종료 코드가 `0`일 때만 업로드하세요. 종료 코드 `3`(blocked), `4`(partial), `5`(failed)이면 업로드하지 마세요. 이때 PGARD는 stderr에 "Do not upload this SARIF"도 출력합니다. 이런 파일은 `executionSuccessful: false`이기도 하며, GitHub가 이를 실패한 실행으로 거부할 것으로 예상되지만 GitHub 문서에는 없으므로 종료 코드가 주된 안전장치입니다. PGARD가 분석하지 않는 ORM이나 쿼리 빌더(TypeORM, Sequelize, Knex, Drizzle, MikroORM, Objection, Kysely, Go의 ent, Bun, XORM, SQLBoiler, go-pg)를 import하는 프로젝트는 항상 partial 결과(종료 코드 4)를 받으므로, 그 SARIF는 설계상 업로드할 수 없습니다. CI 워크플로 예시는 없습니다. 권한 확인에 필요한 GitHub 로그인이 현재 CI 러너에는 없어서, 러너에서는 blocked 상태의 빈 SARIF가 만들어지기 때문입니다. 로컬 흐름 예시:
+
+```sh
+pgard scan --format sarif > pgard.sarif && \
+  gzip -c pgard.sarif | base64 | tr -d '\n' > pgard.sarif.b64 && \
+  gh api -X POST repos/OWNER/REPO/code-scanning/sarifs \
+    -f commit_sha="$(git rev-parse HEAD)" -f ref="$(git symbolic-ref HEAD)" \
+    -F sarif=@pgard.sarif.b64
+```
+
+(`&&` 덕분에 종료 코드 0일 때만 업로드합니다. 커밋이 이미 push되어 있어야 하고, HEAD가 detached 상태이면 안 되며, 토큰에 `security_events` 권한이 필요합니다(`gh auth refresh -s security_events`). 큰 보고서가 인수 길이 제한에 걸리지 않도록 `-F sarif=@file`로 파일을 넘깁니다. 대신 `github/codeql-action/upload-sarif`를 쓰면 결과마다 지문 불일치 경고가 한 번씩 로그에 남지만 정상입니다.)
+
+**카테고리.** 각 실행에는 `automationDetails.id` `pgard/<범위>/`가 들어 있습니다(기본 스캔은 `pgard/code+history/`, `scan code`는 `pgard/code/`). GitHub는 id마다 별도 카테고리로 취급하고 같은 종류의 스캔을 다시 업로드할 때만 알림을 닫으므로, `scan code`를 올려도 기본 `scan`의 알림은 닫히지 않습니다.
+
+매핑 방식:
+
+- **규칙.** 실행되었거나 발견 항목을 만든 규칙마다 `tool.driver.rules`에 항목이 하나씩 있습니다. 짧은 설명(제목), 전체 설명(근거), `help.text`(해결 방법), `helpUri`(공식 CWE 페이지, 없으면 첫 번째 표준 링크), `properties.tags`(`security`, `CWE-n`, `external/cwe/cwe-n`, `OWASP-A0x:2025`)가 들어 있습니다.
+- **심각도.** `level`: critical과 high는 `error`, medium은 `warning`, low와 info는 `note`입니다. `security-severity`는 숫자 문자열입니다. critical `9.5`, high `8.0`, medium `5.5`, low `3.0`, info `1.0`. GitHub는 규칙에 있는 값만 읽으며, PGARD는 이번 실행에서 그 규칙의 발견 항목 중 가장 높은 심각도를 규칙에 넣습니다. 따라서 GitHub가 낮은 심각도 결과를 규칙의 더 높은 심각도로 보여 줄 수 있습니다. 다른 도구를 위해 각 결과에도 자체 값이 들어 있습니다.
+- **위치.** 저장소 파일 경로가 있는 발견 항목만 파일에 들어갑니다(물리적 위치가 없는 결과는 GitHub가 거부함). 각 항목은 저장소 기준 상대 경로 `artifactLocation.uri`(`uriBaseId` `%SRCROOT%`)와 시작·끝 줄이 있는 region을 가집니다(줄이 없으면 region도 없음). 이력 발견 항목은 커밋도 `properties.pgard.commit`에 담습니다. **웹 발견 항목은 제외됩니다**(파일이 없고 PGARD는 경로를 지어내지 않습니다). 몇 건이 어떤 규칙에서 제외되었는지는 `error` 알림과 `runs[0].properties.pgard.omittedFindings`에 기록되고, CLI는 stderr에 경고를 출력합니다. 해당 항목은 텍스트나 JSON 출력, 또는 보고서로 확인하세요.
+- **지문.** `partialFingerprints["pgardFindingIdentity/v1"]`는 기준선과 스캔 비교가 쓰는 줄 번호와 무관한 식별자와 같으므로, 위치만 옮겨진 발견 항목은 지문이 유지됩니다. GitHub가 쓰는 유일한 지문인 `primaryLocationLineHash`는 이 식별자 뒤에 `:n`을 붙인 값이며, n은 파일 안에서 같은 식별자를 가진 결과의 순번이라 서로 다른 줄의 동일한 발견 항목이 충돌하지 않습니다. 이력의 발견 항목은 파일이 나중에 삭제되어도 식별자가 안정적으로 유지됩니다.
+- **숨김 처리된 항목과 기준선.** `pgard.config.json`에서 숨김 처리한 발견 항목은 `suppressions: [{kind: "external", justification}]`와 함께 파일에 그대로 남아 집계됩니다. 기준선이 있으면 `baselineState`는 기준선에 있는 항목에 `unchanged`, 나머지에 `new`입니다. 숨김 처리된 항목에는 `baselineState`가 없습니다. 기준선이 없으면 설정하지 않습니다.
+- **실행되지 않은 영역.** `partial` 또는 `not_tested` 영역마다 `runs[0].invocations[0].toolExecutionNotifications`에 `warning`이 하나씩 들어갑니다. `executionSuccessful`은 스캔이 blocked나 failed이거나 요청한 영역 중 하나라도 `partial` 또는 `not_tested`이면(예: 확인된 대상 없이 `scan web`) `false`이며, 이때 `error` 알림도 추가됩니다. GitHub는 `executionSuccessful: false`인 파일을 거부할 것으로 예상됩니다(GitHub 문서에는 없으며, 종료 코드가 주된 안전장치입니다). 선택하지 않은 영역은 나열하지 않습니다. 다른 도구는 이 알림을 보여 줄 수 있지만 GitHub는 보여 주지 않습니다.
+- **가림 처리.** 텍스트는 JSON 출력과 똑같이 가려지며 비밀 값은 나타나지 않습니다.
 
 ### 저장된 결과
 

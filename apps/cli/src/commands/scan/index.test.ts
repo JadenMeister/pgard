@@ -599,6 +599,133 @@ describe("runScanCommand reports", () => {
     expect(writeReports).not.toHaveBeenCalled();
   });
 
+  describe("--format sarif", () => {
+    const SARIF_SCAN = { variant: "code", port: null, report: null, format: "sarif" } as const;
+    const TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
+
+    it("prints only a SARIF 2.1.0 document with the real rule metadata, and the rest on stderr", async () => {
+      const captured = createTestIo();
+      const result = testResult({
+        findings: [
+          testFinding({
+            id: "s1",
+            ruleId: "PG-SECRET-002",
+            category: "secret_exposure",
+            title: "Secret in a tracked file",
+            evidence: `token = "${TOKEN}"`,
+          }),
+        ],
+      });
+      const code = await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => result })),
+        SARIF_SCAN,
+      );
+      expect(code).toBe(0);
+      const log = JSON.parse(captured.stdout());
+      expect(log.version).toBe("2.1.0");
+      expect(log.runs[0].tool.driver.name).toBe("pgard");
+      const rule = log.runs[0].tool.driver.rules[0];
+      expect(rule.id).toBe("PG-SECRET-002");
+      expect(rule.helpUri).toMatch(/^https:\/\//);
+      expect(rule.properties.tags).toContain("security");
+      expect(rule.help.text.length).toBeGreaterThan(0);
+      expect(captured.stdout()).not.toContain(TOKEN);
+      expect(captured.stdout()).not.toContain("PGARD scan result");
+      expect(captured.stderr()).toContain("Scanning (code)");
+    });
+
+    it("keeps the exit code and prints a blocked scan as an unsuccessful invocation", async () => {
+      const captured = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({
+            runScan: async () =>
+              testResult({ overallStatus: "blocked", authorization: BLOCKED, findings: [] }),
+          }),
+        ),
+        SARIF_SCAN,
+      );
+      expect(code).toBe(3);
+      const log = JSON.parse(captured.stdout());
+      expect(log.runs[0].invocations[0].executionSuccessful).toBe(false);
+      expect(log.runs[0].results).toEqual([]);
+      expect(captured.stderr()).toContain("Do not upload this SARIF: the scan did not run");
+    });
+
+    it("warns on stderr about findings without a file location", async () => {
+      const captured = createTestIo();
+      const web = testFinding({
+        id: "w",
+        ruleId: "PG-WEB-001",
+        location: {
+          kind: "url",
+          path: null,
+          line: null,
+          url: "http://127.0.0.1:3000/",
+          commit: null,
+        },
+      });
+      await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({ runScan: async () => testResult({ findings: [web, testFinding()] }) }),
+        ),
+        SARIF_SCAN,
+      );
+      expect(captured.stderr()).toContain("1 findings without a file location");
+      expect(JSON.parse(captured.stdout()).runs[0].results).toHaveLength(1);
+    });
+
+    it("tells you not to upload a partial scan, and stays quiet for a complete one", async () => {
+      const partial = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          partial,
+          createTestDeps({
+            runScan: async () =>
+              testResult({
+                overallStatus: "partial",
+                coverage: [
+                  {
+                    area: "history:commits",
+                    scope: "history",
+                    status: "partial",
+                    ruleIds: [],
+                    note: null,
+                  },
+                ],
+              }),
+          }),
+        ),
+        SARIF_SCAN,
+      );
+      expect(code).toBe(4);
+      expect(partial.stderr()).toContain("some requested areas did not complete");
+      const complete = createTestIo();
+      await runScanCommand(
+        createTestContext(complete, createTestDeps({ runScan: async () => testResult() })),
+        SARIF_SCAN,
+      );
+      expect(complete.stderr()).not.toContain("Do not upload");
+    });
+
+    it("is a usage error, before any scan, when web checks would need a port prompt", async () => {
+      const captured = createTestIo();
+      const runScan = vi.fn();
+      const code = await runScanCommand(createTestContext(captured, createTestDeps({ runScan })), {
+        variant: "web",
+        port: null,
+        report: null,
+        format: "sarif",
+      });
+      expect(code).toBe(2);
+      expect(runScan).not.toHaveBeenCalled();
+      expect(captured.stdout()).toBe("");
+      expect(captured.stderr()).toContain("--format sarif");
+    });
+  });
+
   describe("--format json", () => {
     const JSON_SCAN = { variant: "code", port: null, report: null, format: "json" } as const;
 

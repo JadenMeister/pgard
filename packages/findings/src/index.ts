@@ -16,3 +16,4 @@ export * from "./config-notices.js";
 export * from "./suppressions.js";
 export * from "./baseline.js";
 export * from "./standards-coverage.js";
+export * from "./sarif.js";
