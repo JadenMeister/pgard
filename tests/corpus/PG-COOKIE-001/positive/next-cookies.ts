@@ -1,4 +1,4 @@
-// corpus: expect=PG-COOKIE-001; known=miss:PG-COOKIE-001:the Next.js cookies().set() API is not recognised
+// corpus: expect=PG-COOKIE-001
 import { cookies } from "next/headers";
 
 export async function POST() {

@@ -19,7 +19,7 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
     rationale: {
-      en: "When a request value is concatenated into the SQL text passed to a pg or mysql2 `query()`, an attacker can send input such as `' OR '1'='1` or `' UNION SELECT password FROM users -- ` that changes the statement itself. That can read other users' rows or other tables and skip a login check; where the driver allows multiple statements (pg does, mysql2 only with `multipleStatements: true`) it can also modify or delete data. It applies whenever the value comes from a request, a file or any other untrusted source.",
+      en: "When a request value is concatenated into the SQL text passed to a pg or mysql2 `query()`, an attacker can send input such as `' OR '1'='1` or `' UNION SELECT password FROM users -- ` that changes the statement itself. That can read other users' rows or other tables and skip a login check; where the driver allows multiple statements (pg does, mysql2 only with `multipleStatements: true`) it can also modify or delete data.",
       ko: "pg나 mysql2의 `query()`에 넘기는 SQL 문자열에 요청 값을 이어 붙이면, 공격자가 `' OR '1'='1`이나 `' UNION SELECT password FROM users -- ` 같은 입력으로 SQL 문 자체를 바꿀 수 있습니다. 그러면 다른 사용자의 행이나 다른 테이블을 조회하고 로그인 확인을 건너뛸 수 있으며, 드라이버가 여러 문장을 허용하면(pg는 허용, mysql2는 `multipleStatements: true`일 때만) 데이터를 수정·삭제할 수도 있습니다. 값이 요청, 파일 등 신뢰할 수 없는 출처에서 오면 언제나 해당됩니다.",
     },
     remediation: {
@@ -372,8 +372,8 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A06:2025"], cwe: ["CWE-256"], cert: [] },
     rationale: {
-      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too.",
-      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다.",
+      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too. PGARD also flags password-named values passed to repository or ORM calls without a hash call in the same function, at low confidence when the value is not read from a request.",
+      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다. PGARD는 같은 함수에 해시 호출 없이 저장소·ORM 호출로 넘어가는 비밀번호 이름의 값도 보고하며, 값이 요청에서 읽은 것이 아니면 낮은 신뢰도로 보고합니다.",
     },
     remediation: {
       en: "Never store the password itself. Store a hash from a password hashing function with a per-user salt: Argon2id (preferred), scrypt or bcrypt, for example `await argon2.hash(password)` when the user signs up and `argon2.verify(hash, password)` at login.",
@@ -400,8 +400,8 @@ export const SOURCE_RULES = [
       cert: [],
     },
     rationale: {
-      en: "A session cookie without HttpOnly can be read by any injected script, so an XSS flaw becomes a stolen session. Without Secure it can be sent over plain HTTP and captured on the network. Without SameSite the browser may attach it to requests started by other sites, which enables CSRF.",
-      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다.",
+      en: "A session cookie without HttpOnly can be read by injected script, so XSS becomes session theft. Without Secure it can travel over plain HTTP. Without SameSite other sites can make the browser attach it, enabling CSRF. Only cookies that look like session or auth cookies are judged: a name with sess, sid, token, auth, jwt, login, remember, refresh or access, or a session or token value. Theme or locale cookies are not reported.",
+      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다. PGARD는 세션·인증 쿠키처럼 보이는 쿠키만 판단합니다. 이름에 sess, sid, token, auth, jwt, login, remember, refresh, access가 들어가거나 값이 세션·토큰인 경우입니다. 테마나 언어 같은 다른 쿠키는 보고하지 않습니다.",
     },
     remediation: {
       en: "Set all three on session and authentication cookies: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, or in Go `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. Use `strict` when the site is not entered through cross-site links. Secure needs HTTPS, but browsers such as Chrome and Firefox also accept Secure cookies on `http://localhost`, so development there can keep it on.",
@@ -424,8 +424,8 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A01:2025"], cwe: ["CWE-352"], cert: [] },
     rationale: {
-      en: "A route that changes state and authenticates only by cookie can be triggered by any website the logged-in user visits: the browser attaches the cookie to a forged form post or fetch. An attacker can then change the account email, move money or delete data as the victim.",
-      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다.",
+      en: "A route that changes state and authenticates only by cookie can be triggered by any website the user visits: the browser attaches the cookie to a forged form post or fetch. PGARD counts POST routes. PUT, PATCH and DELETE need a CORS preflight, so they count unless CORS is provably restrictive (none, or a fixed origin list); unresolvable CORS options, hand-set credentials headers and method-override keep them in.",
+      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다. PGARD는 POST 라우트를 대상으로 합니다. PUT, PATCH, DELETE는 CORS preflight가 필요하므로 CORS가 확실히 제한적(없거나 고정 출처 목록)이지 않으면 포함합니다. 해석할 수 없는 CORS 옵션, 직접 설정한 credentials 헤더, method-override가 있으면 계속 포함합니다.",
     },
     remediation: {
       en: "Add a CSRF token to every state-changing request (a synchronizer token or double-submit cookie from a maintained middleware), set session cookies to `SameSite=Lax` or `Strict`, and check the `Origin` or `Sec-Fetch-Site` header. Never change state on GET requests.",

@@ -321,20 +321,40 @@ export async function scanSourceCode(
   ]);
   const hasCsrfProtection = matchesModule(allImports, CSRF_MODULES);
   const hasRateLimiter = matchesModule(allImports, RATE_LIMIT_MODULES);
+  // SameSite=Strict sessions keep the cookie off cross-site requests, so their mere import is not
+  // enough; any other cookie-session library or configuration still counts.
+  const strictSession = jsFacts.some((entry) => entry.facts.strictSession);
   const usesCookieSession =
     jsFacts.some((entry) => entry.facts.usesCookieSession) ||
-    matchesModule(allImports, ["express-session", "cookie-session", "cookie-parser"]);
-  const firstRoute = jsFacts.find((entry) => entry.facts.stateChangingRoutes.length > 0);
+    matchesModule(allImports, ["cookie-parser", "@fastify/session", "@fastify/secure-session"]) ||
+    (!strictSession && matchesModule(allImports, ["express-session", "cookie-session"]));
+  // PUT/PATCH/DELETE need a CORS preflight: they count unless CORS is provably restrictive (no
+  // CORS, a fixed origin list, no credentials). Unresolvable CORS, hand-set credential headers and
+  // method-override (a form POST reaches DELETE) keep them in, as the preflight cannot be assumed.
+  const preflightExposure = jsFacts.some((entry) => entry.facts.preflightExposure === "permissive")
+    ? "permissive"
+    : jsFacts.some((entry) => entry.facts.preflightExposure === "unknown") ||
+        matchesModule(allImports, ["method-override"])
+      ? "unknown"
+      : null;
+  const csrfRoutesOf = (facts: (typeof jsFacts)[number]["facts"]) => [
+    ...facts.stateChangingRoutes,
+    ...(preflightExposure ? facts.preflightRoutes : []),
+  ];
+  const firstRoute = jsFacts.find((entry) => csrfRoutesOf(entry.facts).length > 0);
   if (usesCookieSession && !hasCsrfProtection && firstRoute) {
     raw.push({
       ruleId: "PG-CSRF-001",
       path: firstRoute.path,
-      line: firstRoute.facts.stateChangingRoutes[0] ?? 1,
+      line: Math.min(...csrfRoutesOf(firstRoute.facts)),
       severity: "medium",
       status: "suspected",
       confidence: "low",
-      evidence:
-        "cookie-based session + state-changing route; no CSRF middleware import found in the project (a proxy or framework default may still protect it)",
+      evidence: `cookie-based session + state-changing route${
+        firstRoute.facts.stateChangingRoutes.length === 0
+          ? ` (PUT/PATCH/DELETE counted: CORS ${preflightExposure === "permissive" ? "allows any origin with credentials" : "or method-override cannot be shown to block cross-site requests"})`
+          : ""
+      }; no CSRF middleware import found in the project (a proxy or framework default may still protect it)`,
       cause: "csrf-project",
     });
   }

@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-CSRF-001:DELETE is not a simple cross-site method (it needs a CORS preflight), so a cookie-parser app with only a DELETE route has no realistic CSRF path
+// corpus: expect=none
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const app = express();
