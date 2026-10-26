@@ -16,8 +16,9 @@ export interface CommandContext {
   /** Aborted when the user confirms cancellation during a running scan. */
   signal: AbortSignal;
   /**
-   * Open GitHub pages (device sign-in, App install) in the browser automatically: stdout is a TTY
-   * and `--no-browser` was not given. The URL is always printed as well.
+   * May offer to open GitHub pages (device sign-in, App install) in the browser: stdout is a TTY
+   * and `--no-browser` was not given. Pages open only after the user presses Enter
+   * (`offerBrowserOpen`). The URL is always printed as well.
    */
   canOpenBrowser: boolean;
   /** True inside the arrow-key menu (enables follow-up prompts such as report export). */

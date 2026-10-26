@@ -8,6 +8,7 @@ import {
   createTestIo,
 } from "../../test-support.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
+import { OPEN_PROMPT } from "../../flows/browser.js";
 import { runProjectVerify } from "./verify.js";
 
 describe("runProjectVerify", () => {
@@ -102,7 +103,7 @@ describe("runProjectVerify: private repository outside the App installation", ()
     return { captured, canOpen: options.canOpenBrowser ?? true };
   }
 
-  it("opens the install page, keeps waiting on not_found, then re-runs the FULL authorization", async () => {
+  it("asks for Enter, opens the install page only then, keeps waiting on not_found, then re-runs the FULL authorization", async () => {
     const { captured, canOpen } = tty();
     const verifyProject = vi
       .fn<() => Promise<AuthorizationOutcome>>()
@@ -114,19 +115,68 @@ describe("runProjectVerify: private repository outside the App installation", ()
       .mockResolvedValueOnce(STILL_HIDDEN)
       .mockResolvedValueOnce({ status: "passed", reason: "installed", remedy: null });
     const openBrowser = vi.fn(async () => true);
+    let clock = 0;
+    let sleeps = 0;
     const context = {
       ...createTestContext(
         captured,
-        createTestDeps({ verifyProject, recheckOwnerApproval: recheck, openBrowser }),
+        createTestDeps({
+          verifyProject,
+          recheckOwnerApproval: recheck,
+          openBrowser,
+          now: () => (clock += 100),
+          sleep: async () => {
+            sleeps += 1;
+            if (sleeps === 1) {
+              expect(openBrowser).not.toHaveBeenCalled();
+              captured.stdin.write("\n");
+              await new Promise((resolve) => setImmediate(resolve));
+            }
+          },
+        }),
       ),
       canOpenBrowser: canOpen,
     };
     expect(await runProjectVerify(context)).toBe(0);
-    expect(openBrowser).toHaveBeenCalledWith(INSTALL_URL);
+    expect(captured.stderr()).toContain(OPEN_PROMPT);
+    expect(openBrowser).toHaveBeenCalledExactlyOnceWith(INSTALL_URL);
+    expect(captured.stdin.listenerCount("data")).toBe(0);
     expect(recheck).toHaveBeenCalledTimes(3);
     // The recheck passing is not an authorization: the whole gate ran a second time.
     expect(verifyProject).toHaveBeenCalledTimes(2);
     expect(captured.stderr()).toContain("GitHub shows no access to me/app");
+  });
+
+  it("abandons the Enter prompt when the poll ends first: nothing opens, stdin is released", async () => {
+    const { captured, canOpen } = tty();
+    const verifyProject = vi
+      .fn<() => Promise<AuthorizationOutcome>>()
+      .mockResolvedValue({ summary: ALLOWED, repo: "me/app", revision: "abc" })
+      .mockResolvedValueOnce(HIDDEN_REPO);
+    const recheck = vi
+      .fn<() => Promise<OwnerApprovalRecheck>>()
+      .mockResolvedValue({ status: "passed", reason: "installed", remedy: null });
+    const openBrowser = vi.fn(async () => true);
+    let clock = 0;
+    const context = {
+      ...createTestContext(
+        captured,
+        createTestDeps({
+          verifyProject,
+          recheckOwnerApproval: recheck,
+          openBrowser,
+          now: () => (clock += 100),
+        }),
+      ),
+      canOpenBrowser: canOpen,
+    };
+    expect(await runProjectVerify(context)).toBe(0);
+    expect(captured.stderr()).toContain(OPEN_PROMPT);
+    expect(captured.stdin.listenerCount("data")).toBe(0);
+    expect(captured.stdin.isPaused()).toBe(true);
+    captured.stdin.write("\n");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(openBrowser).not.toHaveBeenCalled();
   });
 
   it("does not open a browser with --no-browser, but still waits and re-checks", async () => {
@@ -149,6 +199,7 @@ describe("runProjectVerify: private repository outside the App installation", ()
     // Still blocked after the re-run: the gate, not the install, decides.
     expect(await runProjectVerify(context)).toBe(3);
     expect(openBrowser).not.toHaveBeenCalled();
+    expect(captured.stderr()).not.toContain(OPEN_PROMPT);
     expect(captured.stderr()).toContain(INSTALL_URL);
     expect(verifyProject).toHaveBeenCalledTimes(2);
   });

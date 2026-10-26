@@ -100,3 +100,34 @@ export function createKeyReader(stdin: InputStream, now: () => number = Date.now
     close: deactivate,
   };
 }
+
+/**
+ * Waits for the Enter key in the terminal's normal line mode, so Ctrl+C still arrives as SIGINT
+ * (and the CLI's "press Ctrl+C twice" handling is unchanged). Any other typed text is ignored;
+ * only a line break counts. A line break already buffered when the wait starts (type-ahead)
+ * arrives within `TYPE_AHEAD_DISCARD_MS` and is discarded. Returns a function that stops
+ * waiting: it removes the listener and pauses stdin again so the process can exit.
+ */
+export function waitForEnter(
+  stdin: InputStream,
+  onEnter: () => void,
+  now: () => number = Date.now,
+): () => void {
+  const startedAt = now();
+  let isWaiting = true;
+  const onData = (chunk: Buffer | string): void => {
+    if (!isWaiting || now() - startedAt < TYPE_AHEAD_DISCARD_MS) return;
+    if (!/[\r\n]/.test(chunk.toString())) return;
+    stop();
+    onEnter();
+  };
+  const stop = (): void => {
+    if (!isWaiting) return;
+    isWaiting = false;
+    stdin.off("data", onData);
+    stdin.pause();
+  };
+  stdin.on("data", onData);
+  stdin.resume();
+  return stop;
+}
