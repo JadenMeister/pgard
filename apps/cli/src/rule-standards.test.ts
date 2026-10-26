@@ -1,7 +1,9 @@
 import {
   CWE_ID_PATTERN,
+  cweMappingEntry,
   getOwaspCategory,
   isCweTop25,
+  owaspCategoryForCwe,
   validateRuleMetadata,
   type RuleMetadata,
 } from "@pgard/findings";
@@ -15,6 +17,11 @@ interface Refs {
   cwe: readonly string[];
   owasp: readonly string[];
 }
+
+const certRefs = (rule: Refs): string[] =>
+  rule.metadata.standards.cert.map((ref) =>
+    ref.kind === "via-cwe" ? `${ref.id} via ${ref.cwe}` : ref.id,
+  );
 
 const allRules = (): Refs[] => [
   ...listSupportedRules(),
@@ -49,13 +56,15 @@ describe("rule references against bundled standards data", () => {
       "CWE-256": ["PG-AUTH-001"],
       "CWE-1004": ["PG-COOKIE-001", "PG-WEB-005"],
       "CWE-614": ["PG-COOKIE-001", "PG-WEB-007"],
+      "CWE-1275": ["PG-COOKIE-001", "PG-WEB-006"],
+      "CWE-201": ["PG-WEB-004"],
+      "CWE-497": ["PG-WEB-010"],
       "CWE-307": ["PG-BRUTE-001"],
       "CWE-538": ["PG-SECRET-001", "PG-WEB-012", "PG-WEB-013"],
       "CWE-540": ["PG-SECRET-003"],
       "CWE-1104": ["PG-HYGIENE-001"],
       "CWE-693": ["PG-WEB-001", "PG-WEB-003"],
       "CWE-1021": ["PG-WEB-002"],
-      "CWE-1275": ["PG-WEB-006"],
       "CWE-942": ["PG-WEB-008", "PG-WEB-009"],
       "CWE-548": ["PG-WEB-011"],
     });
@@ -67,6 +76,65 @@ describe("rule references against bundled standards data", () => {
       for (const id of rule.owasp) if (!getOwaspCategory(id)) unknown.push(`${rule.id}: ${id}`);
     }
     expect(unknown).toEqual([]);
+  });
+
+  it("maps every rule's OWASP categories from its CWEs, unless the rule documents a departure", () => {
+    const departures: string[] = [];
+    for (const rule of allRules()) {
+      const fromCwes = [
+        ...new Set(rule.cwe.flatMap((cwe) => owaspCategoryForCwe(cwe) ?? [])),
+      ].sort();
+      const owasp = [...rule.owasp].sort();
+      if (JSON.stringify(owasp) !== JSON.stringify(fromCwes)) {
+        expect(
+          rule.metadata.standards.mappingNote,
+          `${rule.id} departs from its CWEs' categories without a mappingNote`,
+        ).toBeDefined();
+        departures.push(rule.id);
+      }
+    }
+    // A change here is deliberate: a rule that departs from the mapped-CWE lists needs a reason.
+    expect(departures).toEqual([]);
+  });
+
+  it("uses a mappingNote only for DISCOURAGED CWEs, and every such CWE has one", () => {
+    const withNote = allRules()
+      .filter((rule) => rule.metadata.standards.mappingNote !== undefined)
+      .map((rule) => rule.id);
+    const discouraged = allRules()
+      .filter((rule) => rule.cwe.some((cwe) => cweMappingEntry(cwe)?.usage === "DISCOURAGED"))
+      .map((rule) => rule.id);
+    expect(withNote).toEqual(["PG-WEB-001", "PG-WEB-003"]);
+    expect(discouraged).toEqual(withNote);
+  });
+
+  it("prefers Base and Variant CWEs: the only Pillar or Class CWEs are the documented ones", () => {
+    const broad = new Set<string>();
+    for (const rule of allRules()) {
+      for (const cwe of rule.cwe) {
+        const entry = cweMappingEntry(cwe);
+        if (entry?.abstraction === "Pillar" || entry?.abstraction === "Class") broad.add(cwe);
+      }
+    }
+    // CWE-693 (Pillar, DISCOURAGED) has a note; CWE-327 (Class, ALLOWED-WITH-REVIEW) is MITRE's
+    // entry for a broken cipher and no more specific entry covers "any broken cipher".
+    expect([...broad].sort()).toEqual(["CWE-327", "CWE-693"]);
+  });
+
+  it("keeps CERT links only where SEI lists the CWE and the topic matches", () => {
+    const certs = Object.fromEntries(
+      allRules()
+        .map((rule): [string, string[]] => [rule.id, certRefs(rule)])
+        .filter(([, refs]) => refs.length > 0),
+    );
+    expect(certs).toEqual({
+      "PG-CMD-001": ["IDS07-J via CWE-78"],
+      "PG-CMD-002": ["IDS07-J via CWE-78"],
+      "PG-CRYPTO-002": ["MSC03-J via CWE-798"],
+      "PG-SECRET-001": ["MSC03-J via CWE-798"],
+      "PG-SECRET-002": ["MSC03-J via CWE-798"],
+      "PG-SECRET-003": ["MSC03-J via CWE-798"],
+    });
   });
 
   it("has valid metadata with Korean text for every rule", () => {

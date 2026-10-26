@@ -19,7 +19,7 @@ const HISTORY_RULE_DEFINITIONS = [
     scope: "history",
     languages: ["any"],
     standards: {
-      owasp: ["A07:2025"],
+      owasp: ["A01:2025", "A07:2025"],
       cwe: ["CWE-538", "CWE-798"],
       cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
     },
@@ -58,7 +58,7 @@ const HISTORY_RULE_DEFINITIONS = [
     scope: "history",
     languages: ["any"],
     standards: {
-      owasp: ["A07:2025"],
+      owasp: ["A01:2025", "A07:2025"],
       cwe: ["CWE-798", "CWE-540"],
       cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
     },

@@ -1,9 +1,11 @@
 import {
   CERT_JAVA_ID_PATTERN,
   CWE_ID_PATTERN,
+  cweMappingEntry,
   getCertJavaRule,
   getOwaspCategory,
   OWASP_ID_PATTERN,
+  owaspCategoryForCwe,
   type OwaspId,
 } from "./standards/index.js";
 
@@ -41,6 +43,12 @@ export interface RuleStandards {
   /** CWE ids, for example `CWE-89`. */
   cwe: readonly string[];
   cert: readonly CertReference[];
+  /**
+   * Why the rule departs from the mapping policy (docs/RULE_MAPPING.md): its OWASP categories
+   * differ from the ones its CWEs map to, or it keeps a CWE that MITRE marks DISCOURAGED. Required
+   * in exactly those cases and absent otherwise.
+   */
+  mappingNote?: LocalizedText;
 }
 
 /** A vulnerable and a safe snippet. The code is not translated; the optional note is. */
@@ -83,8 +91,36 @@ export function validateRuleMetadata(rule: { id: string; metadata: RuleMetadata 
   }
   for (const id of standards.cwe) {
     if (!CWE_ID_PATTERN.test(id)) fail(`CWE id ${id} is malformed`);
+    else if (cweMappingEntry(id) === undefined) {
+      fail(`${id} has no recorded MITRE mapping usage; read its Vulnerability Mapping Notes`);
+    }
   }
   if (new Set(standards.cwe).size !== standards.cwe.length) fail("duplicate CWE ids");
+
+  const derived = new Set(
+    standards.cwe.flatMap((id) => {
+      const category = owaspCategoryForCwe(id);
+      return category === undefined ? [] : [category];
+    }),
+  );
+  // Ids that are not in the 2025 list were reported above; they do not also count as a mismatch.
+  const listed = new Set(standards.owasp.filter((id) => getOwaspCategory(id) !== undefined));
+  const sameCategories = derived.size === listed.size && [...listed].every((id) => derived.has(id));
+  const discouraged = standards.cwe.filter((id) => cweMappingEntry(id)?.usage === "DISCOURAGED");
+  const needsNote = !sameCategories || discouraged.length > 0;
+  if (!sameCategories && standards.mappingNote === undefined) {
+    fail(
+      `OWASP ${standards.owasp.join(", ") || "(none)"} does not match the categories of its CWEs (${[...derived].join(", ") || "none"}); fix the mapping or add standards.mappingNote`,
+    );
+  }
+  if (discouraged.length > 0 && standards.mappingNote === undefined) {
+    fail(
+      `${discouraged.join(", ")} is DISCOURAGED by MITRE; use a specific CWE or add standards.mappingNote`,
+    );
+  }
+  if (!needsNote && standards.mappingNote !== undefined) {
+    fail("standards.mappingNote is set but the rule follows the mapping policy");
+  }
 
   for (const ref of standards.cert) {
     if (!CERT_JAVA_ID_PATTERN.test(ref.id)) {
@@ -106,6 +142,9 @@ export function validateRuleMetadata(rule: { id: string; metadata: RuleMetadata 
   const prose: Array<[string, LocalizedText]> = [
     ["rationale", rationale],
     ["remediation", remediation],
+    ...(standards.mappingNote === undefined
+      ? []
+      : ([["standards.mappingNote", standards.mappingNote]] as Array<[string, LocalizedText]>)),
     ...(examples ?? []).flatMap((example, index): Array<[string, LocalizedText]> =>
       example.note === undefined ? [] : [[`examples[${index}].note`, example.note]],
     ),

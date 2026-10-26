@@ -14,6 +14,15 @@ export { OWASP_IDS } from "./types.js";
 export { OWASP_TOP10_2025, OWASP_TOP10_2025_PROVENANCE } from "./owasp-top10-2025.js";
 export { CWE_TOP25, CWE_TOP25_PROVENANCE } from "./cwe-top25.js";
 export { CERT_JAVA_RULES } from "./cert-java.js";
+export {
+  CWE_MAPPING_USAGE,
+  CWE_MAPPING_USAGE_PROVENANCE,
+  OWASP_MAPPED_CWES,
+  OWASP_MAPPED_CWES_PROVENANCE,
+  cweMappingEntry,
+  owaspCategoryForCwe,
+} from "./owasp-mapped-cwes.js";
+export type { CweAbstraction, CweMappingEntry, CweMappingUsage } from "./owasp-mapped-cwes.js";
 
 const CERT_BASE =
   "https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/";

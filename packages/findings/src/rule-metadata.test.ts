@@ -97,14 +97,16 @@ describe("validateRuleMetadata", () => {
     expect(problems({ standards: { owasp: [], cwe: ["79"], cert: [] } })).toEqual([
       "PG-TEST-001: CWE id 79 is malformed",
     ]);
-    expect(problems({ standards: { owasp: [], cwe: ["CWE-79", "CWE-79"], cert: [] } })).toEqual([
-      "PG-TEST-001: duplicate CWE ids",
-    ]);
+    expect(
+      problems({ standards: { owasp: ["A05:2025"], cwe: ["CWE-79", "CWE-79"], cert: [] } }),
+    ).toEqual(["PG-TEST-001: duplicate CWE ids"]);
   });
 
   it("rejects malformed, unknown and duplicate CERT references", () => {
-    const cert = (...refs: NonNullable<RuleDefinition["standards"]>["cert"]) => ({
-      standards: { owasp: [], cwe: ["CWE-78"], cert: refs },
+    const cert = (
+      ...refs: NonNullable<RuleDefinition["standards"]>["cert"]
+    ): Partial<RuleDefinition> => ({
+      standards: { owasp: ["A05:2025"], cwe: ["CWE-78"], cert: refs },
     });
     expect(problems(cert({ kind: "direct", id: "ids00-j" }))).toEqual([
       "PG-TEST-001: CERT id ids00-j is malformed",
@@ -131,7 +133,7 @@ describe("validateRuleMetadata", () => {
     expect(
       problems({
         standards: {
-          owasp: [],
+          owasp: ["A05:2025"],
           cwe: ["CWE-89"],
           cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-89" }],
         },
@@ -141,7 +143,7 @@ describe("validateRuleMetadata", () => {
     expect(
       problems({
         standards: {
-          owasp: [],
+          owasp: ["A05:2025"],
           cwe: ["CWE-89"],
           cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
         },
@@ -174,6 +176,68 @@ describe("validateRuleMetadata", () => {
     expect(problems({ examples: [{ ...example, note: { en: "", ko: "메모" } }] })).toEqual([
       "PG-TEST-001: examples[0].note.en is empty",
     ]);
+  });
+
+  describe("mapping policy", () => {
+    const standards = (
+      owasp: readonly string[],
+      cwe: readonly string[],
+      mappingNote?: LocalizedText,
+    ): RuleDefinition["standards"] =>
+      ({ owasp, cwe, cert: [], ...(mappingNote === undefined ? {} : { mappingNote }) }) as never;
+    const note = { en: "Reason.", ko: "이유입니다." };
+
+    it("requires the OWASP categories to be the ones the CWEs map to", () => {
+      expect(problems({ standards: standards(["A02:2025"], ["CWE-89"]) })).toEqual([
+        "PG-TEST-001: OWASP A02:2025 does not match the categories of its CWEs (A05:2025); fix the mapping or add standards.mappingNote",
+      ]);
+      expect(problems({ standards: standards([], ["CWE-89"]) })).toHaveLength(1);
+    });
+
+    it("accepts several categories when the CWEs map to several", () => {
+      expect(
+        problems({ standards: standards(["A01:2025", "A07:2025"], ["CWE-538", "CWE-798"]) }),
+      ).toEqual([]);
+      expect(problems({ standards: standards(["A07:2025"], ["CWE-538", "CWE-798"]) })).toHaveLength(
+        1,
+      );
+    });
+
+    it("accepts a documented departure, and rejects a note that is not needed", () => {
+      expect(problems({ standards: standards(["A02:2025"], ["CWE-89"], note) })).toEqual([]);
+      expect(problems({ standards: standards(["A05:2025"], ["CWE-89"], note) })).toEqual([
+        "PG-TEST-001: standards.mappingNote is set but the rule follows the mapping policy",
+      ]);
+    });
+
+    it("requires a note for a CWE that MITRE marks DISCOURAGED", () => {
+      expect(problems({ standards: standards(["A06:2025"], ["CWE-693"]) })).toEqual([
+        "PG-TEST-001: CWE-693 is DISCOURAGED by MITRE; use a specific CWE or add standards.mappingNote",
+      ]);
+      expect(problems({ standards: standards(["A06:2025"], ["CWE-693"], note) })).toEqual([]);
+    });
+
+    it("checks the note like any other prose", () => {
+      expect(
+        problems({ standards: standards(["A06:2025"], ["CWE-693"], { en: "Reason.", ko: "" }) }),
+      ).toEqual([
+        "PG-TEST-001: standards.mappingNote.ko is empty",
+        "PG-TEST-001: standards.mappingNote.ko contains no Korean",
+      ]);
+    });
+
+    it("requires a recorded MITRE mapping usage for every CWE", () => {
+      expect(problems({ standards: standards([], ["CWE-9999"]) })).toEqual([
+        "PG-TEST-001: CWE-9999 has no recorded MITRE mapping usage; read its Vulnerability Mapping Notes",
+      ]);
+    });
+
+    it("copies the note so callers cannot mutate the definition", () => {
+      const def = definition({ standards: standards(["A06:2025"], ["CWE-693"], note) });
+      const rule = defineRule(def);
+      expect(rule.metadata.standards.mappingNote).toEqual(note);
+      expect(rule.metadata.standards.mappingNote).not.toBe(note);
+    });
   });
 
   it("rejects a mistyped OWASP id at compile time", () => {
