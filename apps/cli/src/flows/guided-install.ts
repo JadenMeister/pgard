@@ -7,7 +7,7 @@ import {
 } from "@pgard/scan-core";
 import { err, type CommandContext } from "../context.js";
 import { safeText } from "../ui/formatters/style.js";
-import { openInBrowser } from "./browser.js";
+import { offerBrowserOpen } from "./browser.js";
 
 /** How often owner approval is checked again while the user installs the App. */
 export const INSTALL_POLL_INTERVAL_MS = 5_000;
@@ -114,7 +114,7 @@ function formatInstallSteps(
  *   pending organization membership): prints "Ask an owner of <account> ..." with the link; no
  *   browser, no waiting;
  * - the user can install it, or the organization membership could not be read yet: prints the
- *   steps, opens the install page (when allowed) and, on a terminal, re-checks owner approval
+ *   steps, offers to open the install page after Enter (when allowed) and, on a terminal, re-checks owner approval
  *   every 5 s for up to 10 minutes. The re-check uses only the existing sign-in
  *   (`getGitHubSession.existing()`), never a new device flow; without one it ends the wait and the
  *   caller's full authorization signs in as usual.
@@ -171,65 +171,70 @@ export async function offerGuidedInstall(
     );
     return "blocked";
   }
-  await openInBrowser(context, remedy.url);
+  const stopOffer = offerBrowserOpen(context, remedy.url);
   err(context, errStyle.dim(waitingMessage(remedy.missing, outcome.repo)));
 
   const deadline = context.deps.now() + INSTALL_WAIT_LIMIT_MS;
-  for (;;) {
-    try {
-      await context.deps.sleep(INSTALL_POLL_INTERVAL_MS, context.signal);
-    } catch {
-      // Only an abort ends the sleep early.
+  try {
+    for (;;) {
+      try {
+        await context.deps.sleep(INSTALL_POLL_INTERVAL_MS, context.signal);
+      } catch {
+        // Only an abort ends the sleep early.
+      }
+      if (context.signal.aborted) {
+        err(context, errStyle.yellow("Stopped waiting for the PGARD GitHub App installation."));
+        return "cancelled";
+      }
+      let recheck;
+      try {
+        recheck = await context.deps.recheckOwnerApproval(projectRoot, authorization);
+      } catch {
+        recheck = null;
+      }
+      if (context.signal.aborted) {
+        err(context, errStyle.yellow("Stopped waiting for the PGARD GitHub App installation."));
+        return "cancelled";
+      }
+      if (recheck === null) {
+        err(context, errStyle.red("Owner approval could not be checked again."));
+        return "blocked";
+      }
+      if (recheck.status === "passed") {
+        err(
+          context,
+          errStyle.green(
+            "The PGARD GitHub App installation was found. Running the full authorization again...",
+          ),
+        );
+        return "reauthorize";
+      }
+      if (recheck.remedy === null) {
+        // Owner approval now fails for another reason (e.g. the installation exists but the
+        // membership cannot be read), or could not be evaluated (rate limit, API error, sign-in
+        // gone). The full authorization reports the current reasons.
+        err(
+          context,
+          errStyle.yellow(
+            recheck.status === "unverifiable"
+              ? "Owner approval could not be confirmed. Running the full authorization again..."
+              : "Owner approval changed. Running the full authorization again...",
+          ),
+        );
+        return "reauthorize";
+      }
+      if (context.deps.now() >= deadline) {
+        err(
+          context,
+          errStyle.red(
+            `Stopped waiting after ${INSTALL_WAIT_LIMIT_MS / 60_000} minutes. ${safeText(recheck.reason, 300)}`,
+          ),
+        );
+        return "blocked";
+      }
     }
-    if (context.signal.aborted) {
-      err(context, errStyle.yellow("Stopped waiting for the PGARD GitHub App installation."));
-      return "cancelled";
-    }
-    let recheck;
-    try {
-      recheck = await context.deps.recheckOwnerApproval(projectRoot, authorization);
-    } catch {
-      recheck = null;
-    }
-    if (context.signal.aborted) {
-      err(context, errStyle.yellow("Stopped waiting for the PGARD GitHub App installation."));
-      return "cancelled";
-    }
-    if (recheck === null) {
-      err(context, errStyle.red("Owner approval could not be checked again."));
-      return "blocked";
-    }
-    if (recheck.status === "passed") {
-      err(
-        context,
-        errStyle.green(
-          "The PGARD GitHub App installation was found. Running the full authorization again...",
-        ),
-      );
-      return "reauthorize";
-    }
-    if (recheck.remedy === null) {
-      // Owner approval now fails for another reason (e.g. the installation exists but the
-      // membership cannot be read), or could not be evaluated (rate limit, API error, sign-in
-      // gone). The full authorization reports the current reasons.
-      err(
-        context,
-        errStyle.yellow(
-          recheck.status === "unverifiable"
-            ? "Owner approval could not be confirmed. Running the full authorization again..."
-            : "Owner approval changed. Running the full authorization again...",
-        ),
-      );
-      return "reauthorize";
-    }
-    if (context.deps.now() >= deadline) {
-      err(
-        context,
-        errStyle.red(
-          `Stopped waiting after ${INSTALL_WAIT_LIMIT_MS / 60_000} minutes. ${safeText(recheck.reason, 300)}`,
-        ),
-      );
-      return "blocked";
-    }
+  } finally {
+    // Whatever ended the poll, the Enter prompt is no longer wanted.
+    stopOffer();
   }
 }

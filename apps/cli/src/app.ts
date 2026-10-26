@@ -1,3 +1,4 @@
+import { stopBrowserOffers } from "./flows/browser.js";
 import { PGARD_VERSION } from "@pgard/scan-core";
 import { createCancelController, type InterruptSource } from "./adapters/cancel.js";
 import { createKeyReader, isInteractive, type CliIo } from "./adapters/terminal.js";
@@ -184,6 +185,7 @@ export async function main(
     }
     return EXIT_CODES.internal;
   } finally {
+    stopBrowserOffers(context);
     keys?.close();
     cancel.dispose();
   }

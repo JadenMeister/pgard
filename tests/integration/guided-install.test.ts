@@ -95,6 +95,9 @@ function installForOwner(state: MockGitHubState): void {
   state.installationRepositories = { 77: [555] };
 }
 
+/** The stdin of the run in progress, where the harness types Enter. */
+let terminalStdin: { write: (text: string) => unknown } | null = null;
+
 interface Harness {
   deps: CliDeps;
   openBrowser: ReturnType<typeof vi.fn>;
@@ -143,6 +146,11 @@ function harness(state: MockGitHubState, onSleep: (count: number) => void = () =
       expect(ms).toBe(INSTALL_POLL_INTERVAL_MS);
       sleeps += 1;
       clock += ms;
+      if (sleeps === 1) {
+        // The user presses Enter at the "Press Enter to open github.com" prompt.
+        terminalStdin?.write("\n");
+        await new Promise((resolve) => setImmediate(resolve));
+      }
       onSleep(sleeps);
     },
   });
@@ -167,6 +175,9 @@ async function run(
 ) {
   const captured = createTestIo({ cwd: fixture?.root ?? "/", env: options.env ?? {} });
   (captured.io.stdout as { isTTY?: boolean }).isTTY = options.stdoutIsTTY ?? true;
+  // A real terminal has a TTY stdin too; the install page opens after Enter on it.
+  captured.stdin.isTTY = true;
+  terminalStdin = captured.stdin;
   const exitCode = await main(argv, captured.io, {
     deps,
     interrupts: options.interrupts ?? noInterrupts,

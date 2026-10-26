@@ -127,11 +127,11 @@ Options:
                            Git repository needs explicit confirmation
   --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
-                           Pages open automatically only when stdout is a
-                           terminal
+                           In a terminal, PGARD asks you to press Enter
+                           before opening a page
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to
-be installed, PGARD opens the install page, waits for it, re-runs the full
+be installed, PGARD prints the install page link (in a terminal it opens after you press Enter), waits for it, re-runs the full
 authorization and continues the scan.
 ```
 
@@ -141,7 +141,7 @@ authorization and continues the scan.
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
-- `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 stdout이 터미널일 때만 자동으로 엽니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
+- `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 터미널(stdin과 stdout 모두)에서 링크를 출력한 뒤 `Press Enter to open github.com in your browser...`라고 묻고, Enter를 눌러야 페이지를 엽니다(다른 키는 무시). 로그인·설치 대기는 이 질문과 무관하게 진행되며, 대기가 끝나면 질문은 사라집니다. 터미널이 아니면 열지도 묻지도 않습니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
 - `--help` / `-h`, `pgard --version` / `-V`.
 
 알 수 없는 명령·옵션, 잘못된 값과 조합은 Git·GitHub·네트워크 작업 전에 거부됩니다. 알 수 없는 검사 종류(예: `dependencies`)는 종료 코드 2로 끝나며 올바른 값 `code`, `history`, `web`, `all`을 알려 줍니다.
@@ -187,8 +187,8 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 
 저장소에서 처음 `pgard scan`(또는 `pgard project verify`, 대시보드)을 실행하면 다음과 같이 진행됩니다.
 
-1. **로그인.** PGARD가 코드를 출력하고 브라우저에서 `https://github.com/login/device`를 엽니다(`--no-browser` 참고). 코드를 입력하고 PGARD GitHub App을 승인합니다.
-2. **빠진 것이 App 설치뿐이면 설치.** owner 승인만 실패했고, 그 이유가 PGARD GitHub App이 owner 계정에 설치되어 있지 않거나 설치에 이 저장소가 포함되지 않았기 때문이며, 본인이 승인할 수 있는 사람일 수 있으면(개인 저장소는 본인이 owner, 조직은 GitHub가 본인을 활성 owner로 보여 주거나 아직 역할을 보여 주지 못하는 경우), PGARD가 owner 계정과 이 저장소가 미리 선택된 App 설치 페이지를 출력하고 엽니다.
+1. **로그인.** PGARD가 코드와 `https://github.com/login/device` 링크를 출력하고, 터미널에서는 Enter를 누르면 브라우저에서 엽니다(`--no-browser` 참고). 코드를 입력하고 PGARD GitHub App을 승인합니다.
+2. **빠진 것이 App 설치뿐이면 설치.** owner 승인만 실패했고, 그 이유가 PGARD GitHub App이 owner 계정에 설치되어 있지 않거나 설치에 이 저장소가 포함되지 않았기 때문이며, 본인이 승인할 수 있는 사람일 수 있으면(개인 저장소는 본인이 owner, 조직은 GitHub가 본인을 활성 owner로 보여 주거나 아직 역할을 보여 주지 못하는 경우), PGARD가 owner 계정과 이 저장소가 미리 선택된 App 설치 페이지를 출력하고(터미널에서는 Enter를 누르면 엽니다).
 
    ```text
    https://github.com/apps/<slug>/installations/new/permissions?suggested_target_id=<owner account id>&repository_ids[]=<repository id>
@@ -239,7 +239,7 @@ export PGARD_GITHUB_APP_CLIENT_ID=<직접 등록한 GitHub App의 client id>
 export PGARD_GITHUB_APP_SLUG=<직접 등록한 GitHub App의 slug>
 ```
 
-로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 주고, stdout이 터미널이면(`--no-browser`가 없을 때) 브라우저에서 주소를 엽니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
+로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 주고, 터미널이면(`--no-browser`가 없을 때) Enter를 누르면 브라우저에서 주소를 엽니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
 
 #### 저장된 로그인(OS 키체인)
 

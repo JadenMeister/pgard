@@ -9,6 +9,7 @@ import {
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { formatGitHubAppOverride, showDeviceCode } from "../flows/authenticate.js";
+import { stopBrowserOffers } from "../flows/browser.js";
 import { safeText } from "../ui/formatters/style.js";
 
 export const REVOKE_HINT = `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${GITHUB_APP_AUTHORIZATIONS_URL} and revoke the PGARD app.`;
@@ -48,12 +49,14 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
       signal: context.signal,
     });
   } catch (error) {
+    stopBrowserOffers(context);
     throwIfCancelled(context);
     // GitHubAuthError messages are fixed text without tokens; anything else stays generic.
     const reason = isGitHubAuthError(error) ? safeText(error.message, 200) : "unexpected error";
     err(context, errStyle.red(`GitHub sign-in failed: ${reason}`));
     return EXIT_CODES.blocked;
   }
+  stopBrowserOffers(context);
   const login = safeText(result.login, 40);
   if (result.savedError !== null) {
     err(

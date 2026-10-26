@@ -10,8 +10,8 @@ const EXIT_CODE_HELP = `Exit codes:
 
 const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
-                           Pages open automatically only when stdout is a
-                           terminal`;
+                           In a terminal, PGARD asks you to press Enter
+                           before opening a page`;
 
 const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output-dir)
   --output-dir <dir>       existing directory for the report (requires --report);

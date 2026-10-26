@@ -127,11 +127,11 @@ Options:
                            Git repository needs explicit confirmation
   --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
-                           Pages open automatically only when stdout is a
-                           terminal
+                           In a terminal, PGARD asks you to press Enter
+                           before opening a page
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to
-be installed, PGARD opens the install page, waits for it, re-runs the full
+be installed, PGARD prints the install page link (in a terminal it opens after you press Enter), waits for it, re-runs the full
 authorization and continues the scan.
 ```
 
@@ -141,7 +141,7 @@ authorization and continues the scan.
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
-- `--no-browser` (`scan`, `project verify`, `login`, `dashboard`): do not open GitHub pages (the device sign-in page, the App install page) in the browser; the links are only printed. Without it, PGARD opens them automatically only when stdout is a terminal. The links are always printed too, and a browser that fails to open is not an error.
+- `--no-browser` (`scan`, `project verify`, `login`, `dashboard`): do not open GitHub pages (the device sign-in page, the App install page) in the browser; the links are only printed. Without it, in a terminal (stdin and stdout) PGARD prints the link and asks `Press Enter to open github.com in your browser...`; the page opens only after you press Enter (other keys are ignored). Waiting for sign-in or installation never depends on that prompt, and it is dropped as soon as the wait ends. Outside a terminal nothing is opened and nothing is asked. The links are always printed too, and a browser that fails to open is not an error.
 - `--help` / `-h`, and `pgard --version` / `-V`.
 
 Unknown commands and options, invalid values and invalid combinations are rejected before any Git, GitHub or network activity. An unknown scan type such as `dependencies` exits with code 2 and names the valid ones: `code`, `history`, `web`, `all`.
@@ -187,8 +187,8 @@ Each check is `passed`, `failed` or `unverifiable`, with a reason. The checks ar
 
 The first `pgard scan` (or `pgard project verify`, or the dashboard) in a repository goes like this:
 
-1. **Sign in.** PGARD prints the code and opens `https://github.com/login/device` in your browser (see `--no-browser`). You enter the code and authorize the PGARD GitHub App.
-2. **Install the App, if that is all that is missing.** When owner approval is the only failed check, and it failed only because the PGARD GitHub App is not installed on the owner account or its installation does not include this repository, and you may be the one who can approve (for a personal repository you are the owner; for an organization GitHub shows you as an active owner, or cannot show your role yet), PGARD prints and opens the App's install page, preselected for the owner account and this repository:
+1. **Sign in.** PGARD prints the code and the link `https://github.com/login/device`, and in a terminal opens it in your browser after you press Enter (see `--no-browser`). You enter the code and authorize the PGARD GitHub App.
+2. **Install the App, if that is all that is missing.** When owner approval is the only failed check, and it failed only because the PGARD GitHub App is not installed on the owner account or its installation does not include this repository, and you may be the one who can approve (for a personal repository you are the owner; for an organization GitHub shows you as an active owner, or cannot show your role yet), PGARD prints the App's install page (and, in a terminal, opens it after you press Enter), preselected for the owner account and this repository:
 
    ```text
    https://github.com/apps/<slug>/installations/new/permissions?suggested_target_id=<owner account id>&repository_ids[]=<repository id>
@@ -239,7 +239,7 @@ An empty or whitespace-only value counts as unset. A value that is not a valid c
 export PGARD_GITHUB_APP_SLUG=<slug of your own GitHub App>
 ```
 
-When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code, and opens the URL in your browser when stdout is a terminal (unless `--no-browser`). You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
+When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code, and in a terminal (unless `--no-browser`) opens the URL in your browser after you press Enter. You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
 
 #### Saved sign-in (OS keychain)
 

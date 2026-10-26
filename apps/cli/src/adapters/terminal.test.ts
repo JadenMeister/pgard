@@ -1,6 +1,7 @@
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
-import { createKeyReader, type InputStream } from "./terminal.js";
+import { UserCancelledError } from "../ui/components/prompts.js";
+import { createKeyReader, waitForEnter, type InputStream } from "./terminal.js";
 
 function fakeTty(): InputStream & PassThrough & { rawModes: boolean[] } {
   const stream = new PassThrough() as PassThrough & InputStream & { rawModes: boolean[] };
@@ -72,5 +73,63 @@ describe("createKeyReader", () => {
     stdin.write("n");
     expect((await pending).name).toBe("n");
     keys.close();
+  });
+});
+
+describe("end of input", () => {
+  const ended = (stream: PassThrough) =>
+    new Promise<void>((resolve) => {
+      stream.once("end", () => resolve());
+      stream.resume();
+      stream.end();
+    });
+
+  it("rejects readKey with the cancel error once stdin has ended", async () => {
+    const stdin = fakeTty();
+    const keys = createKeyReader(stdin);
+    await ended(stdin);
+    await expect(keys.readKey()).rejects.toBeInstanceOf(UserCancelledError);
+  });
+
+  it("rejects a readKey that is already waiting when stdin ends", async () => {
+    const stdin = fakeTty();
+    const keys = createKeyReader(stdin);
+    const pending = keys.readKey();
+    stdin.end();
+    stdin.resume();
+    await expect(pending).rejects.toBeInstanceOf(UserCancelledError);
+  });
+
+  it("rejects readKey on a stream that had ended before the reader was made", async () => {
+    const stdin = fakeTty();
+    await ended(stdin);
+    await expect(createKeyReader(stdin).readKey()).rejects.toBeInstanceOf(UserCancelledError);
+  });
+
+  it("waitForEnter stops quietly on end and never calls onEnter", async () => {
+    const stdin = fakeTty();
+    let entered = 0;
+    waitForEnter(
+      stdin,
+      () => (entered += 1),
+      () => 1000,
+    );
+    await ended(stdin);
+    expect(entered).toBe(0);
+    expect(stdin.listenerCount("data")).toBe(0);
+  });
+
+  it("opens only once: a second Enter does nothing", () => {
+    const stdin = fakeTty();
+    let entered = 0;
+    let clock = 0;
+    waitForEnter(
+      stdin,
+      () => (entered += 1),
+      () => (clock += 100),
+    );
+    stdin.write("\n");
+    stdin.write("\n");
+    expect(entered).toBe(1);
   });
 });

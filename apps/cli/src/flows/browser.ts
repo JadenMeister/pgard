@@ -1,4 +1,5 @@
 import { isOpenableGitHubUrl } from "@pgard/scan-core";
+import { waitForEnter } from "../adapters/terminal.js";
 import { err, type CommandContext } from "../context.js";
 
 /**
@@ -18,4 +19,47 @@ export async function openInBrowser(context: CommandContext, url: string): Promi
     err(context, context.errStyle.dim("Could not open a browser; open the link above yourself."));
   }
   return isOpened;
+}
+
+export const OPEN_PROMPT = "Press Enter to open github.com in your browser...";
+
+const activeOffers = new WeakMap<CommandContext, Set<() => void>>();
+
+/**
+ * In a terminal, prints the prompt and opens `url` only after the user presses Enter (through
+ * `openInBrowser`, so the github.com check still applies). Never blocks: the caller keeps
+ * working (polling) and calls the returned `stop` when the page is no longer needed (sign-in or
+ * installation done, cancelled, failed); the prompt is then abandoned and stdin released. Other
+ * keys are ignored. Does nothing (returns a no-op) without `canOpenBrowser`, for a URL that is
+ * not an openable github.com page, or when stdin is not a terminal (nobody can press Enter).
+ */
+export function offerBrowserOpen(context: CommandContext, url: string): () => void {
+  if (!context.canOpenBrowser || !isOpenableGitHubUrl(url) || context.io.stdin.isTTY !== true) {
+    return () => undefined;
+  }
+  // Backstop (callers already suspend before long work): leave raw mode if a prompt left it on: Ctrl+C must stay a SIGINT while we wait.
+  context.keys?.suspend();
+  err(context, context.errStyle.dim(OPEN_PROMPT));
+  let stopWaiting = (): void => undefined;
+  const offers = activeOffers.get(context) ?? new Set<() => void>();
+  activeOffers.set(context, offers);
+  const stop = (): void => {
+    offers.delete(stop);
+    stopWaiting();
+  };
+  offers.add(stop);
+  stopWaiting = waitForEnter(
+    context.io.stdin,
+    () => {
+      offers.delete(stop);
+      void openInBrowser(context, url);
+    },
+    context.deps.now,
+  );
+  return stop;
+}
+
+/** Abandons every Enter prompt still shown for this command. */
+export function stopBrowserOffers(context: CommandContext): void {
+  for (const stop of [...(activeOffers.get(context) ?? [])]) stop();
 }

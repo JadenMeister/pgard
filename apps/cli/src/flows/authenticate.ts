@@ -7,7 +7,7 @@ import {
   type SignInNotice,
 } from "@pgard/scan-core";
 import { err, type CommandContext } from "../context.js";
-import { openInBrowser } from "./browser.js";
+import { offerBrowserOpen, stopBrowserOffers } from "./browser.js";
 import { safeText } from "../ui/formatters/style.js";
 
 /**
@@ -51,12 +51,14 @@ export function formatGitHubAppOverride(clientId: string): string {
 }
 
 /**
- * Prints the device-flow instructions (always) and opens the verification page in the browser
- * when allowed. The code itself is typed by the user; it is never passed to the browser.
+ * Prints the device-flow instructions (always) and, in a terminal, offers to open the
+ * verification page after Enter. Returns at once so polling starts right away; the offer ends
+ * when the sign-in does (`stopBrowserOffers`). The code is typed by the user; it is never passed
+ * to the browser.
  */
 export function showDeviceCode(context: CommandContext, code: DeviceUserCode): void {
   err(context, context.errStyle.bold(formatDeviceCode(code)));
-  void openInBrowser(context, code.verificationUri);
+  offerBrowserOpen(context, code.verificationUri);
 }
 
 /**
@@ -70,7 +72,7 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
   // Once per command: an overridden slug with the built-in client id can never approve PGARD.
   const mixed = mixedAppOverrideWarning(context.io.env);
   if (mixed !== null) err(context, context.errStyle.yellow(mixed));
-  return context.deps.createSessionProvider({
+  const provider = context.deps.createSessionProvider({
     env: context.io.env,
     onUserCode: (code) => showDeviceCode(context, code),
     onNotice: (notice) => {
@@ -82,4 +84,20 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
     },
     signal: context.signal,
   });
+  // The sign-in call ending (approved, denied, expired, cancelled) ends the Enter prompt.
+  // `existing()` is a background re-check and must not touch it.
+  return Object.assign(
+    async () => {
+      try {
+        return await provider();
+      } finally {
+        stopBrowserOffers(context);
+      }
+    },
+    {
+      invalidate: () => provider.invalidate(),
+      signOut: () => provider.signOut(),
+      existing: () => provider.existing(),
+    },
+  );
 }
