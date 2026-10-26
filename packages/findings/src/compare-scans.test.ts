@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compareScans, findingIdentity, notComparableAreas } from "./compare-scans.js";
-import type { Coverage, Finding, ScanResult } from "./contract.js";
+import { SCHEMA_VERSION, type Coverage, type Finding, type ScanResult } from "./contract.js";
 
 function finding(overrides: Partial<Finding> & { line?: number | null } = {}): Finding {
   const { line, ...rest } = overrides;
@@ -71,7 +71,7 @@ function scan(
   extra: Partial<ScanResult> = {},
 ): ScanResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: SCHEMA_VERSION,
     scanId: "s",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",

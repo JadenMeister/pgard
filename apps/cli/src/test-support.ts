@@ -1,6 +1,11 @@
 import { PassThrough } from "node:stream";
 import { readAdvisoryStatus } from "@pgard/dependencies";
-import type { AuthorizationSummary, Finding, ScanResult } from "@pgard/findings";
+import {
+  SCHEMA_VERSION,
+  type AuthorizationSummary,
+  type Finding,
+  type ScanResult,
+} from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
 import { createInMemoryCredentialStore } from "@pgard/scan-core";
 import type { InterruptSource } from "./adapters/cancel.js";
@@ -128,7 +133,7 @@ export function testFinding(overrides: Partial<Finding> = {}): Finding {
 
 export function testResult(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: SCHEMA_VERSION,
     scanId: "scan-1234abcd",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",

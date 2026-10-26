@@ -1,6 +1,7 @@
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { SCHEMA_VERSION } from "@pgard/findings";
 import { createResultStore, type ResultStore } from "@pgard/result-store";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -339,7 +340,7 @@ describe("comparison with the previous stored scan", () => {
     const [name] = await readdir(repoDir());
     const file = path.join(repoDir(), name as string);
     const text = (await readFile(file, "utf8")).replace(
-      '"schemaVersion":"1.0"',
+      `"schemaVersion":"${SCHEMA_VERSION}"`,
       '"schemaVersion":"1.9"',
     );
     expect(text).toContain('"1.9"');
