@@ -295,13 +295,25 @@ export async function scanSourceCode(
   const hasRateLimiter = matchesModule(allImports, RATE_LIMIT_MODULES);
   const usesCookieSession =
     jsFacts.some((entry) => entry.facts.usesCookieSession) ||
-    matchesModule(allImports, ["express-session", "cookie-session", "cookie-parser"]);
-  const firstRoute = jsFacts.find((entry) => entry.facts.stateChangingRoutes.length > 0);
+    matchesModule(allImports, [
+      "express-session",
+      "cookie-session",
+      "cookie-parser",
+      "@fastify/session",
+      "@fastify/secure-session",
+    ]);
+  // PUT/PATCH/DELETE need a CORS preflight, so they only count with credentialed permissive CORS.
+  const corsCredentials = jsFacts.some((entry) => entry.facts.corsCredentials);
+  const csrfRoutesOf = (facts: (typeof jsFacts)[number]["facts"]) => [
+    ...facts.stateChangingRoutes,
+    ...(corsCredentials ? facts.preflightRoutes : []),
+  ];
+  const firstRoute = jsFacts.find((entry) => csrfRoutesOf(entry.facts).length > 0);
   if (usesCookieSession && !hasCsrfProtection && firstRoute) {
     raw.push({
       ruleId: "PG-CSRF-001",
       path: firstRoute.path,
-      line: firstRoute.facts.stateChangingRoutes[0] ?? 1,
+      line: Math.min(...csrfRoutesOf(firstRoute.facts)),
       severity: "medium",
       status: "suspected",
       confidence: "low",

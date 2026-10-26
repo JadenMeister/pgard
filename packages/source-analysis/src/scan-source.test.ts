@@ -201,6 +201,36 @@ describe("scanSourceCode", () => {
     expect(protectedRules).not.toContain("PG-BRUTE-001");
   });
 
+  it("treats PUT/DELETE as CSRF-able only with credentialed permissive CORS, and a cookie-set alone is no session", async () => {
+    const csrfIn = async (files: Record<string, string>) =>
+      (await scanSourceCode(project(files))).findings.some((f) => f.ruleId === "PG-CSRF-001");
+    const head =
+      "const express = require('express');\nconst cookieParser = require('cookie-parser');\nconst cors = require('cors');\nconst app = express();\napp.use(cookieParser());\n";
+    const route = "app.delete('/account', (req, res) => res.sendStatus(204));\n";
+    expect(await csrfIn({ "s.js": `${head}${route}` })).toBe(false);
+    expect(
+      await csrfIn({
+        "s.js": `${head}app.use(cors({ origin: true, credentials: true }));\n${route}`,
+      }),
+    ).toBe(true);
+    expect(
+      await csrfIn({ "s.js": `${head}app.post('/account', (req, res) => res.end());\n` }),
+    ).toBe(true);
+    // Only setting a cookie, with no session library.
+    expect(
+      await csrfIn({
+        "s.js": "app.post('/x', (req, res) => { res.cookie('sid', 'v', {}); res.end(); });\n",
+      }),
+    ).toBe(false);
+    // Fastify sessions count as cookie sessions.
+    expect(
+      await csrfIn({
+        "s.js":
+          "const fastify = require('fastify')();\nfastify.register(require('@fastify/secure-session'), {});\nfastify.post('/x', async () => ({}));\n",
+      }),
+    ).toBe(true);
+  });
+
   it("produces stable ids across runs", async () => {
     const root = project({ "src/db.ts": SQL_VULN });
     const first = await scanSourceCode(root);

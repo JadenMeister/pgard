@@ -400,8 +400,8 @@ export const SOURCE_RULES = [
       cert: [],
     },
     rationale: {
-      en: "A session cookie without HttpOnly can be read by any injected script, so an XSS flaw becomes a stolen session. Without Secure it can be sent over plain HTTP and captured on the network. Without SameSite the browser may attach it to requests started by other sites, which enables CSRF.",
-      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다.",
+      en: "A session cookie without HttpOnly can be read by any injected script, so an XSS flaw becomes a stolen session. Without Secure it can be sent over plain HTTP and captured on the network. Without SameSite the browser may attach it to requests started by other sites, which enables CSRF. PGARD only judges cookies that look like a session or auth cookie, meaning a name containing sess, sid, token, auth, jwt, login or remember, or a value that is a session or token. Other cookies (a theme or locale preference) are not reported.",
+      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다. PGARD는 세션·인증 쿠키처럼 보이는 쿠키만 판단합니다. 이름에 sess, sid, token, auth, jwt, login, remember가 들어가거나 값이 세션·토큰인 경우입니다. 테마나 언어 같은 다른 쿠키는 보고하지 않습니다.",
     },
     remediation: {
       en: "Set all three on session and authentication cookies: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, or in Go `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. Use `strict` when the site is not entered through cross-site links. Secure needs HTTPS, but browsers such as Chrome and Firefox also accept Secure cookies on `http://localhost`, so development there can keep it on.",
@@ -424,8 +424,8 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A01:2025"], cwe: ["CWE-352"], cert: [] },
     rationale: {
-      en: "A route that changes state and authenticates only by cookie can be triggered by any website the logged-in user visits: the browser attaches the cookie to a forged form post or fetch. An attacker can then change the account email, move money or delete data as the victim.",
-      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다.",
+      en: "A route that changes state and authenticates only by cookie can be triggered by any website the logged-in user visits: the browser attaches the cookie to a forged form post or fetch. An attacker can then change the account email, move money or delete data as the victim. PGARD counts POST routes, which a cross-site form can send with the cookie. PUT, PATCH and DELETE need a CORS preflight, so they are counted only when the project allows credentialed CORS from any origin (a reflected or pattern origin together with the credentials option).",
+      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다. PGARD는 다른 사이트의 폼이 쿠키와 함께 보낼 수 있는 POST 라우트를 대상으로 합니다. PUT, PATCH, DELETE는 CORS preflight가 필요하므로, 프로젝트가 모든 출처에 자격 증명 포함 CORS를 허용할 때(출처 반사·정규식·함수 origin과 credentials 옵션 조합)만 포함합니다.",
     },
     remediation: {
       en: "Add a CSRF token to every state-changing request (a synchronizer token or double-submit cookie from a maintained middleware), set session cookies to `SameSite=Lax` or `Strict`, and check the `Origin` or `Sec-Fetch-Site` header. Never change state on GET requests.",

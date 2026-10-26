@@ -1,4 +1,4 @@
-// corpus: expect=PG-AUTH-001; known=miss:PG-AUTH-001:only ORM-style create/save with a password field is recognised, not a raw SQL INSERT
+// corpus: expect=PG-AUTH-001
 const { Pool } = require("pg");
 const pool = new Pool();
 

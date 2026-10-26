@@ -82,6 +82,8 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
             ...facts.stateChangingRoutes,
             ...analysis.facts.stateChangingRoutes,
           ],
+          preflightRoutes: [...facts.preflightRoutes, ...analysis.facts.preflightRoutes],
+          corsCredentials: facts.corsCredentials || analysis.facts.corsCredentials,
           authRoutes: [...facts.authRoutes, ...analysis.facts.authRoutes],
           usesCookieSession: facts.usesCookieSession || analysis.facts.usesCookieSession,
           hasJsx: facts.hasJsx || analysis.facts.hasJsx,

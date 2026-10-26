@@ -419,6 +419,165 @@ describe("PG-AUTH-001 plaintext password storage", () => {
   });
 });
 
+describe("PG-AUTH-001 instance and raw SQL storage", () => {
+  it("flags assign-then-save and new Model({password}).save()", () => {
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User(); u.password = req.body.password; await u.save(); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User({ password: req.body.password }); await u.save(); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn("async function f(req) { await new User({ password: req.body.password }).save(); }"),
+    ).toEqual(["PG-AUTH-001"]);
+  });
+
+  it("does not flag hashed, unsaved or non-request assignments", () => {
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User(); u.password = await argon2.hash(req.body.password); await u.save(); }",
+      ),
+    ).toEqual([]);
+    expect(rulesIn("function f(req) { const v = {}; v.password = req.body.password; }")).toEqual(
+      [],
+    );
+    expect(
+      rulesIn("async function f() { const u = new User(); u.password = 'x'; await u.save(); }"),
+    ).toEqual([]);
+    expect(
+      rulesIn("function f(req) { const u = new User({ password: req.body.password }); }"),
+    ).toEqual([]);
+  });
+
+  it("flags a raw SQL INSERT/UPDATE bound to the password column only", () => {
+    expect(
+      rulesIn(
+        'async function f(req) { await pool.query("INSERT INTO users (email, password) VALUES ($1, $2)", [req.body.email, req.body.password]); }',
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        'async function f(req) { await db.run("INSERT INTO users (email, password) VALUES (?, ?)", [req.body.email, req.body.password]); }',
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        'async function f(req) { await db.query("UPDATE users SET password = $1 WHERE id = $2", [req.body.password, 1]); }',
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    // The request value sits in the email column, not the password column.
+    expect(
+      rulesIn(
+        'async function f(req) { await pool.query("INSERT INTO users (password, email) VALUES ($1, $2)", [gen, req.body.email]); }',
+      ),
+    ).toEqual([]);
+    // Hashing inside the SQL text.
+    expect(
+      rulesIn(
+        "async function f(req) { await pool.query(\"INSERT INTO users (email, password) VALUES ($1, crypt($2, gen_salt('bf')))\", [req.body.email, req.body.password]); }",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("PG-COOKIE-001 option resolution and name filter", () => {
+  it("resolves options held in a same-file const", () => {
+    expect(
+      rulesIn("const o = { httpOnly: true }; function f(res) { res.cookie('sid', t, o); }"),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        "const o = { httpOnly: true, secure: true, sameSite: 'lax' }; function f(res) { res.cookie('sid', t, o); }",
+      ),
+    ).toEqual([]);
+    // A reassignable binding or an imported object is unknown: no finding.
+    expect(rulesIn("let o = {}; function f(res) { res.cookie('sid', t, o); }")).toEqual([]);
+    expect(rulesIn("function f(res) { res.cookie('sid', t, imported); }")).toEqual([]);
+  });
+
+  it("resolves object spreads of local consts and skips unknown spreads", () => {
+    expect(
+      rulesIn(
+        "const S = { httpOnly: true, secure: true, sameSite: 'lax' }; function f(res) { res.cookie('sid', t, { ...S, maxAge: 1 }); }",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "const S = { httpOnly: true }; function f(res) { res.cookie('sid', t, { ...S, secure: true }); }",
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(rulesIn("function f(res) { res.cookie('sid', t, { ...other }); }")).toEqual([]);
+  });
+
+  it("only judges session or auth looking cookies", () => {
+    expect(rulesIn("res.cookie('theme', 'dark');")).toEqual([]);
+    expect(rulesIn("res.cookie('lang', 'ko', { path: '/' });")).toEqual([]);
+    expect(findingsIn("res.cookie('app', accessToken);")[0]).toMatchObject({
+      ruleId: "PG-COOKIE-001",
+      confidence: "low",
+    });
+    expect(findingsIn("res.cookie('connect.sid', v);")[0]).toMatchObject({ severity: "medium" });
+  });
+
+  it("recognises the Next.js cookies().set() API", () => {
+    const next = "import { cookies } from 'next/headers';";
+    expect(
+      rulesIn(
+        `${next} async function f() { (await cookies()).set('auth_token', 'x', { path: '/' }); }`,
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        `${next} async function f() { const s = await cookies(); s.set({ name: 'session', value: 'x' }); }`,
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        `${next} async function f() { (await cookies()).set('auth_token', 'x', { httpOnly: true, secure: true, sameSite: 'lax' }); }`,
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(`${next} async function f() { (await cookies()).set('theme', 'dark'); }`),
+    ).toEqual([]);
+    // `cookies` from somewhere else is not the Next.js API.
+    expect(rulesIn("import { cookies } from './jar'; cookies().set('session', 'x');")).toEqual([]);
+  });
+});
+
+describe("CSRF facts", () => {
+  it("separates POST from preflighted methods and detects credentialed permissive CORS", () => {
+    const base = "import express from 'express'; import cors from 'cors'; const app = express();";
+    const factsFor = (setup: string) =>
+      analyzeJsSource(`${base} ${setup} app.put('/a', h); app.post('/b', h);`, "s.ts").facts;
+    expect(factsFor("").corsCredentials).toBe(false);
+    expect(factsFor("app.use(cors({ origin: true, credentials: true }));").corsCredentials).toBe(
+      true,
+    );
+    expect(
+      factsFor("app.use(cors({ origin: /example/, credentials: true }));").corsCredentials,
+    ).toBe(true);
+    expect(
+      factsFor("app.use(cors({ origin: ['https://a.example'], credentials: true }));")
+        .corsCredentials,
+    ).toBe(false);
+    expect(factsFor("app.use(cors({ origin: true }));").corsCredentials).toBe(false);
+    expect(factsFor("").stateChangingRoutes).toHaveLength(1);
+    expect(factsFor("").preflightRoutes).toHaveLength(1);
+  });
+
+  it("detects @fastify/cors registered with credentials", () => {
+    const { facts } = analyzeJsSource(
+      "import cors from '@fastify/cors'; app.register(cors, { origin: true, credentials: true });",
+      "s.ts",
+    );
+    expect(facts.corsCredentials).toBe(true);
+  });
+});
+
 describe("PG-COOKIE-001", () => {
   it("flags session cookies without flags", () => {
     const [finding] = findingsIn("res.cookie('session', token);");
@@ -456,8 +615,10 @@ describe("facts and robustness", () => {
     );
     expect(facts.imports).toContain("express");
     expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login" }]);
-    expect(facts.stateChangingRoutes).toHaveLength(2);
-    expect(facts.usesCookieSession).toBe(true);
+    expect(facts.stateChangingRoutes).toHaveLength(1);
+    expect(facts.preflightRoutes).toHaveLength(1);
+    // Setting a cookie is not a cookie-authenticated session.
+    expect(facts.usesCookieSession).toBe(false);
   });
 
   it("reports syntax errors without throwing", () => {
