@@ -65,7 +65,9 @@ import { redactEvidence } from "./redact.js";
  *   that ran), and
  * - skip signals in its scope: an area with no `ruleIds` that is `partial` (files over the size
  *   limit, unsupported ORMs, manifests), or that is `completed` but present in only one scan or
- *   with a different note (skipped dependency directories, symbolic links). A `not_tested`
+ *   with a different note (skipped dependency directories, symbolic links, and files left out by
+ *   `pgard.config.json`: `source:config-excluded` carries a hash of the patterns and of the excluded
+ *   file set, so a newly excluded file is never "no longer reported"). A `not_tested`
  *   area with no rules (a language PGARD detects but cannot analyze yet) blocks nothing.
  * It is also blocked when `tool.version` differs, since rules may have changed.
  * A pair found in both scans is always reported as unchanged or moved. Unpaired current findings

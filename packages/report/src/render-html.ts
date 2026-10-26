@@ -1,5 +1,7 @@
 import {
   SEVERITIES,
+  configTestGroupNote,
+  projectConfigNotices,
   type Coverage,
   type Finding,
   type RuleLocale,
@@ -52,6 +54,16 @@ export function renderSeverityBarChartSvg(counts: SeverityCounts): string {
     (severity) => `${labelSeverity(severity)} ${counts[severity]}`,
   ).join(", ");
   return `<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Findings by severity: ${escapeHtml(summary)}" width="${BAR_CHART_WIDTH}" height="${height}" viewBox="0 0 ${BAR_CHART_WIDTH} ${height}">${rows}</svg>`;
+}
+
+function renderConfigNotices(coverage: readonly Coverage[]): string {
+  return projectConfigNotices(coverage)
+    .filter((notice) => notice.tone === "warning")
+    .map(
+      (notice) =>
+        `<div class="status-banner status-partial"><strong>Note:</strong> ${escapeHtml(notice.text)}</div>`,
+    )
+    .join("\n");
 }
 
 function renderCoverageRows(coverage: readonly Coverage[]): string {
@@ -153,7 +165,7 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
   const testFindingsHtml =
     test.length === 0
       ? ""
-      : `\n<h2>${escapeHtml(TEST_FINDINGS_TITLE)} (${test.length})</h2>\n<p class="meta">${escapeHtml(TEST_FINDINGS_NOTE)}</p>\n${test.map((finding) => renderFinding(finding, lang)).join("\n")}\n`;
+      : `\n<h2>${escapeHtml(TEST_FINDINGS_TITLE)} (${test.length})</h2>\n<p class="meta">${escapeHtml(`${TEST_FINDINGS_NOTE}${configTestGroupNote(result.coverage)}`)}</p>\n${test.map((finding) => renderFinding(finding, lang)).join("\n")}\n`;
   const vendoredFindingsHtml =
     vendored.length === 0
       ? ""
@@ -177,6 +189,7 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
 <p class="meta">Requested scopes: ${escapeHtml(result.requestedScopes.join(", ") || "none")}</p>
 <div class="status-banner status-${escapeHtml(result.overallStatus)}"><strong>Overall status:</strong> ${escapeHtml(labelOverallStatus(result.overallStatus))}</div>
 
+${renderConfigNotices(result.coverage)}
 <h2>Summary</h2>
 <p>${escapeHtml(formatFindingSummary(result.findings))}</p>
 <div class="chart">${renderSeverityBarChartSvg(counts)}</div>

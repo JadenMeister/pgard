@@ -1,4 +1,11 @@
-import { SEVERITIES, type Finding, type RuleLocale, type ScanResult } from "@pgard/findings";
+import {
+  SEVERITIES,
+  configTestGroupNote,
+  projectConfigNotices,
+  type Finding,
+  type RuleLocale,
+  type ScanResult,
+} from "@pgard/findings";
 import PDFDocument from "pdfkit";
 import {
   countFindingsBySeverity,
@@ -208,6 +215,11 @@ export function renderPdfReport(
     // Headline counts cover regular code; test and fixture findings get their own section, and
     // suggestions in vendored code come last.
     const { primary, test, vendored } = groupReportFindings(result.findings);
+    for (const notice of projectConfigNotices(result.coverage)) {
+      if (notice.tone !== "warning") continue;
+      doc.moveDown(0.3);
+      line(doc, style, `Note: ${notice.text}`, "#b45309");
+    }
     heading(doc, style, "Summary");
     line(doc, style, formatFindingSummary(result.findings));
     doc.moveDown(0.5);
@@ -234,7 +246,7 @@ export function renderPdfReport(
     for (const finding of primary) writeFinding(doc, style, finding, lang);
     if (test.length > 0) {
       heading(doc, style, `${TEST_FINDINGS_TITLE} (${test.length})`);
-      line(doc, style, TEST_FINDINGS_NOTE, MUTED);
+      line(doc, style, `${TEST_FINDINGS_NOTE}${configTestGroupNote(result.coverage)}`, MUTED);
       for (const finding of test) writeFinding(doc, style, finding, lang);
     }
     if (vendored.length > 0) {

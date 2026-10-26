@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ScanScope } from "@pgard/findings";
+import { projectConfigNotices, type ScanScope } from "@pgard/findings";
 import type { ScanStatus, TargetInfo } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
@@ -94,6 +94,14 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
       {scan?.message && (
         <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>{scan.message}</Notice>
       )}
+      {scan?.result &&
+        projectConfigNotices(scan.result.coverage)
+          .filter((notice) => notice.tone === "warning")
+          .map((notice) => (
+            <Notice key={notice.text} tone="warning">
+              {notice.text}
+            </Notice>
+          ))}
       {scan?.result && <CoverageTable coverage={scan.result.coverage} />}
       {error && <Notice tone="error">{error}</Notice>}
     </Card>
