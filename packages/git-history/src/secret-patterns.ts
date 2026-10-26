@@ -162,6 +162,8 @@ const CODE_BEFORE_KEY =
   /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({[,]\s*$/;
 /** Code right after a value: `)`, `,`, `;`, `{` or `=>`. */
 const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
+/** Characters of the line read before a key and after a value to judge whether it is code. */
+const CODE_WINDOW = 200;
 
 /** Per-text state shared by the matches of one `detectSecrets` call. */
 interface DetectContext {
@@ -197,11 +199,18 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
  */
 function looksLikeCode(text: string, keyStart: number, end: number, separator: string): boolean {
   if (separator === ":=") return true;
-  const lineStart = text.lastIndexOf("\n", keyStart - 1) + 1;
-  const before = text.slice(lineStart, keyStart);
+  // Only a bounded window around the match is read, so a very long line with many matches stays
+  // linear. A window cut short of the line start begins with a non-space marker: neither `^`
+  // nor an empty `before` can then match at the cut, so a long line is not taken as code there.
+  const windowStart = Math.max(0, keyStart - CODE_WINDOW);
+  const window = text.slice(windowStart, keyStart);
+  const newline = window.lastIndexOf("\n");
+  const before =
+    newline !== -1 ? window.slice(newline + 1) : windowStart > 0 ? `x${window}` : window;
   if (CODE_BEFORE_KEY.test(before)) return true;
-  const lineEnd = text.indexOf("\n", end);
-  const after = text.slice(end, lineEnd === -1 ? text.length : lineEnd);
+  const afterWindow = text.slice(end, end + CODE_WINDOW);
+  const lineEnd = afterWindow.indexOf("\n");
+  const after = lineEnd === -1 ? afterWindow : afterWindow.slice(0, lineEnd);
   return separator === ":" && before.trim() === "" && CODE_AFTER_VALUE.test(after);
 }
 

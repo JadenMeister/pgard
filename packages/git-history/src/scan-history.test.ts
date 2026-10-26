@@ -312,6 +312,29 @@ describe("detectSecrets", () => {
     }
   }, 120_000);
 
+  it("stays linear on one very long line with many matches (#158)", () => {
+    // Each match used to slice and test the whole line around it: a 1 MB line took ~19 s.
+    const time = (text: string) => {
+      let best = Infinity;
+      for (let run = 0; run < 3; run += 1) {
+        const start = performance.now();
+        detectSecrets(text, { path: "big.ts" });
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
+    };
+    for (const unit of ["x password: Ab1Cd2Ef3Gh4 }", "x password=Ab1Cd2Ef3Gh4 "]) {
+      const line = (size: number) => unit.repeat(Math.ceil(size / unit.length));
+      time(line(50_000)); // warm up
+      const small = time(line(250_000));
+      const large = time(line(1_000_000));
+      // 4x the input should take roughly 4x the time (16x if quadratic).
+      expect(large / Math.max(small, 1)).toBeLessThan(12);
+      expect(large).toBeLessThan(5_000);
+      expect(detectSecrets(line(1_000_000), { path: "big.ts" })).toHaveLength(1);
+    }
+  }, 60_000);
+
   it("ignores bare identifiers only where the line clearly is code", () => {
     expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);
     expect(detectSecrets("const x = { password: passwordFromVault };", { path: "a.ts" })).toEqual(
