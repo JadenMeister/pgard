@@ -1,7 +1,4 @@
 import http from "node:http";
-import { mkdtemp, rm } from "node:fs/promises";
-import os from "node:os";
-import path from "node:path";
 import type { AuthorizationCheckId, ScanRequest, ScanResult } from "@pgard/findings";
 import type { PortDiscoveryResult, ServiceIdentity } from "@pgard/http-local";
 import {
@@ -15,7 +12,9 @@ import {
   type SignInNotice,
 } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { renderHtmlReport, renderReport } from "@pgard/report";
 import type { ServerDeps } from "./deps.js";
+import { reportDownloadName } from "./routes/api.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnop";
@@ -96,8 +95,7 @@ function fakeDeps(
       isAvailable: true,
       note: null,
     }),
-    writeReports: async () => [],
-    isPathInsideDirectory: async () => false,
+    renderReport,
     now: () => 1_000_000,
     ...overrides,
     signOut,
@@ -837,59 +835,102 @@ describe("local web scans", () => {
   });
 });
 
-describe("local web reports", () => {
-  it("requires an absolute existing directory and confirmation inside the repository", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "pgard-web-report-"));
-    try {
-      const writeReports = vi.fn(async () => [
-        { format: "html" as const, filePath: path.join(directory, "r.html") },
-      ]);
-      let isInside = true;
-      const running = await start(
-        fakeDeps({ writeReports, isPathInsideDirectory: async () => isInside }),
-      );
-      expect(
-        (await apiPost(running, "/api/reports", { format: "html", outputDir: directory })).status,
-      ).toBe(409);
-      await apiPost(running, "/api/scan", { scopes: ["code"] });
-      await waitFor(
-        () => apiGet(running, "/api/scan"),
-        (response) => JSON.parse(response.body).status === "done",
-      );
-      expect(
-        (await apiPost(running, "/api/reports", { format: "html", outputDir: "relative/dir" }))
-          .status,
-      ).toBe(400);
-      expect(
-        (
-          await apiPost(running, "/api/reports", {
-            format: "html",
-            outputDir: path.join(directory, "missing"),
-          })
-        ).status,
-      ).toBe(400);
-      expect(
-        (await apiPost(running, "/api/reports", { format: "docx", outputDir: directory })).status,
-      ).toBe(400);
-      const needsConfirmation = await apiPost(running, "/api/reports", {
-        format: "html",
-        outputDir: directory,
-      });
-      expect(JSON.parse(needsConfirmation.body).status).toBe("needs_confirmation");
-      expect(writeReports).not.toHaveBeenCalled();
-      const saved = await apiPost(running, "/api/reports", {
-        format: "html",
-        outputDir: directory,
-        isInsideRepositoryConfirmed: true,
-      });
-      expect(JSON.parse(saved.body)).toEqual({
-        status: "saved",
-        files: [path.join(directory, "r.html")],
-      });
-      isInside = false;
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
+describe("local web report download", () => {
+  async function runScan(running: LocalWebServer): Promise<void> {
+    await apiPost(running, "/api/scan", { scopes: ["code"] });
+    await waitFor(
+      () => apiGet(running, "/api/scan"),
+      (response) => JSON.parse(response.body).status === "done",
+    );
+  }
+
+  it("downloads the same HTML the file export renders, as an attachment", async () => {
+    const scanResult = result({
+      findings: [
+        {
+          id: "f1",
+          ruleId: "PG-SECRET-002",
+          title: "Secret in a tracked file",
+          severity: "high",
+          status: "suspected",
+          category: "injection",
+          references: { cwe: [], owasp: [], cve: [] },
+          confidence: "low",
+          location: { kind: "file", path: "src/a.ts", line: 3, commit: null, url: null },
+          evidence: "credential assignment in a tracked file (value redacted)",
+          impact: "impact",
+          recommendation: "rotate",
+          sources: ["code"],
+        },
+      ],
+    });
+    const running = await start(fakeDeps({ runScan: async () => scanResult }));
+    await runScan(running);
+    const response = await apiGet(running, "/api/reports/html");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toBe("text/html; charset=utf-8");
+    expect(response.headers["content-disposition"]).toBe(
+      'attachment; filename="pgard-report-owner-name-20261024000000.html"',
+    );
+    expect(response.headers["cache-control"]).toBe("no-store");
+    expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
+    expect(response.headers["x-content-type-options"]).toBe("nosniff");
+    expect(response.body).toBe(renderHtmlReport(scanResult));
+    // Redaction is preserved: the evidence is the already redacted text.
+    expect(response.body).toContain("credential assignment in a tracked file (value redacted)");
+  });
+
+  it("downloads a PDF with the PDF content type", async () => {
+    const running = await start(fakeDeps());
+    await runScan(running);
+    const response = await apiGet(running, "/api/reports/pdf");
+    expect(response.status).toBe(200);
+    expect(response.headers["content-type"]).toBe("application/pdf");
+    expect(response.headers["content-disposition"]).toMatch(
+      /^attachment; filename="pgard-report-owner-name-\d{14}\.pdf"$/,
+    );
+    expect(response.body.startsWith("%PDF-")).toBe(true);
+  });
+
+  it("needs the session token (and our Host) like every API call", async () => {
+    const running = await start(fakeDeps());
+    await runScan(running);
+    const noToken = await send(running, "GET", "/api/reports/html");
+    expect(noToken.status).toBe(401);
+    expect(noToken.body).not.toContain("<html");
+    const badToken = await send(running, "GET", "/api/reports/pdf", {
+      headers: { "x-pgard-token": "wrong" },
+    });
+    expect(badToken.status).toBe(401);
+    const badHost = await send(running, "GET", "/api/reports/html", {
+      headers: { host: "evil.test", "x-pgard-token": TOKEN },
+    });
+    expect(badHost.status).toBe(421);
+  });
+
+  it("refuses without a scan result and for unknown formats; the path-writing route is gone", async () => {
+    const running = await start(fakeDeps());
+    expect((await apiGet(running, "/api/reports/html")).status).toBe(409);
+    await runScan(running);
+    expect((await apiGet(running, "/api/reports/docx")).status).toBe(404);
+    expect(
+      (await apiPost(running, "/api/reports", { format: "html", outputDir: "/tmp" })).status,
+    ).toBe(404);
+  });
+
+  it("names the file with ASCII-safe characters only", () => {
+    const named = (repo: string | null): string =>
+      reportDownloadName(result({ target: { repo, revision: null, webOrigin: null } }), "html");
+    expect(named("owner/na me")).toBe("pgard-report-owner-name-20261024000000.html");
+    expect(named('own\u00e9r/\u00fcber"x\r\n.git')).toBe(
+      "pgard-report-ownr-berx.git-20261024000000.html",
+    );
+    expect(named("../../etc/passwd")).toBe("pgard-report--..-etc-passwd-20261024000000.html");
+    expect(named(null)).toBe("pgard-report-local-20261024000000.html");
+    expect(named("\u20ac\u20ac")).toBe("pgard-report-local-20261024000000.html");
+    expect(named("a".repeat(500))).toHaveLength(
+      "pgard-report-".length + 80 + "-20261024000000.html".length,
+    );
   });
 });
 

@@ -1,88 +1,64 @@
 import { useState } from "react";
-import type { ReportFormatDto, ReportResponse } from "../../../shared/api-types";
-import { apiPost } from "../../api/client";
+import type { ReportFormatDto } from "../../../shared/api-types";
+import { apiDownload } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
 import { useI18n } from "../../i18n/I18nProvider";
+import { triggerDownload } from "./download";
 
-/** Exports the current result as HTML/PDF via the server; never overwrites existing files. */
+/**
+ * Downloads the current result as HTML or PDF through the browser's normal download. The server
+ * renders it from the redacted result; the dashboard never writes files on disk.
+ */
 export function ReportPanel() {
   const { m } = useI18n();
-  const [format, setFormat] = useState<ReportFormatDto>("html");
-  const [outputDir, setOutputDir] = useState("");
-  const [warning, setWarning] = useState<string | null>(null);
-  const [saved, setSaved] = useState<string[]>([]);
+  const [busy, setBusy] = useState<ReportFormatDto | null>(null);
+  const [downloaded, setDownloaded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const save = async (isInsideRepositoryConfirmed: boolean): Promise<void> => {
+  const download = async (format: ReportFormatDto): Promise<void> => {
     setError(null);
-    setSaved([]);
+    setDownloaded(null);
+    setBusy(format);
     try {
-      const response = await apiPost<ReportResponse>("/api/reports", {
-        format,
-        outputDir: outputDir.trim(),
-        isInsideRepositoryConfirmed,
-      });
-      if (response.status === "needs_confirmation") {
-        setWarning(response.warning);
-        return;
-      }
-      setWarning(null);
-      setSaved(response.files);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : m.common.requestFailed);
+      const file = await apiDownload(`/api/reports/${format}`, `pgard-report.${format}`);
+      triggerDownload(file.blob, file.filename);
+      setDownloaded(file.filename);
+    } catch {
+      setError(m.report.failed);
+    } finally {
+      setBusy(null);
     }
   };
 
   return (
     <Card title={m.cards.report} step={5}>
-      <form
-        className="inline-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save(false);
-        }}
-      >
-        <label>
-          {m.report.format}
-          <select
-            value={format}
-            onChange={(event) => setFormat(event.target.value as ReportFormatDto)}
-          >
-            <option value="html">{m.report.html}</option>
-            <option value="pdf">{m.report.pdf}</option>
-            <option value="both">{m.report.both}</option>
-          </select>
-        </label>
-        <label className="grow">
-          {m.report.outputDir}
-          <input
-            value={outputDir}
-            onChange={(event) => setOutputDir(event.target.value)}
-            spellCheck={false}
-          />
-        </label>
-        <button type="submit" className="button primary" disabled={outputDir.trim() === ""}>
-          {m.report.save}
+      <div className="button-row">
+        <button
+          type="button"
+          className="button primary"
+          disabled={busy !== null}
+          onClick={() => void download("html")}
+        >
+          {m.report.downloadHtml}
         </button>
-      </form>
+        <button
+          type="button"
+          className="button primary"
+          disabled={busy !== null}
+          onClick={() => void download("pdf")}
+        >
+          {m.report.downloadPdf}
+        </button>
+      </div>
       <p className="muted small">{m.report.note}</p>
-      {warning && (
-        <div className="confirm-row">
-          <Notice tone="warning">{warning}</Notice>
-          <button type="button" className="button" onClick={() => void save(true)}>
-            {m.report.saveInside}
-          </button>
-          <button type="button" className="button" onClick={() => setWarning(null)}>
-            {m.report.chooseOther}
-          </button>
-        </div>
+      {busy !== null && (
+        <p className="muted" role="status">
+          {m.report.preparing(busy.toUpperCase())}
+        </p>
       )}
-      {saved.length > 0 && (
+      {downloaded !== null && (
         <Notice tone="info">
-          {m.report.saved}{" "}
-          {saved.map((file) => (
-            <code key={file}>{file} </code>
-          ))}
+          <span title={downloaded}>{m.report.downloaded(downloaded)}</span>
         </Notice>
       )}
       {error && <Notice tone="error">{error}</Notice>}

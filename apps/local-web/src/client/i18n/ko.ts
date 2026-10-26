@@ -234,15 +234,12 @@ export const ko: Messages = {
     findings: "발견 항목",
   },
   report: {
-    format: "형식",
-    html: "HTML",
-    pdf: "PDF",
-    both: "HTML과 PDF",
-    outputDir: "출력 디렉터리 (절대 경로, 이미 존재해야 함)",
-    save: "저장",
-    note: "기존 파일은 덮어쓰지 않습니다. 보고서에는 민감한 취약점 내용이 포함될 수 있습니다.",
-    saveInside: "저장소 안이어도 저장",
-    chooseOther: "다른 디렉터리 선택",
-    saved: "저장됨:",
+    downloadHtml: "HTML 다운로드",
+    downloadPdf: "PDF 다운로드",
+    preparing: (format) => `${format} 보고서를 준비하는 중...`,
+    downloaded: (filename) =>
+      `${filename}을(를) 다운로드했습니다. 브라우저의 다운로드 폴더에 저장됩니다.`,
+    failed: "보고서를 다운로드하지 못했습니다. 검사를 다시 실행한 뒤 재시도하세요.",
+    note: "보고서에는 민감한 취약점 내용이 포함될 수 있습니다. 다운로드한 파일은 안전한 곳에 보관하세요.",
   },
 };

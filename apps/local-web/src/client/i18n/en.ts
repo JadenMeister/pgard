@@ -256,15 +256,12 @@ export const en = {
     findings: "findings",
   },
   report: {
-    format: "Format",
-    html: "HTML",
-    pdf: "PDF",
-    both: "HTML and PDF",
-    outputDir: "Output directory (absolute path, must exist)",
-    save: "Save",
-    note: "Existing files are never overwritten. Reports may describe sensitive weaknesses.",
-    saveInside: "Save inside the repository anyway",
-    chooseOther: "Choose another directory",
-    saved: "Saved:",
+    downloadHtml: "Download HTML",
+    downloadPdf: "Download PDF",
+    preparing: (format: string): string => `Preparing the ${format} report...`,
+    downloaded: (filename: string): string =>
+      `Downloaded ${filename}. Your browser saved it in its download folder.`,
+    failed: "The report could not be downloaded. Run the scan again and retry.",
+    note: "Reports may describe sensitive weaknesses. Keep the downloaded file somewhere private.",
   },
 } as const;
