@@ -9,7 +9,10 @@ import type { ServerDeps } from "../deps.js";
 export interface GitHubSessionManager {
   /** Stable provider handed to verifyProject/runScan; delegates to the current provider. */
   getGitHubSession: GitHubSessionProvider;
-  /** Stops a device flow that is still waiting for the user; a signed-in session is kept. */
+  /**
+   * Stops a device flow that is still waiting for the user, or a token refresh a non-interactive
+   * re-check (`existing()`) has in flight; a signed-in session is kept.
+   */
   abortPendingSignIn: () => void;
   /**
    * Ends this dashboard's GitHub session and stops any pending sign-in. A sign-in saved in the
@@ -60,9 +63,16 @@ export function createGitHubSessionManager(
     invalidate: () => provider.invalidate(),
     signOut: () => reset(),
     // Non-interactive (owner-approval re-check): never starts a device flow.
+    // Tracked like `call`, so a scan cancel or shutdown aborts a token refresh it started.
     existing: async () => {
       if (isDisposed) throw new Error("The dashboard is shutting down.");
-      return provider.existing();
+      const current = provider;
+      pendingSignIns += 1;
+      try {
+        return await current.existing();
+      } finally {
+        if (current === provider) pendingSignIns = Math.max(0, pendingSignIns - 1);
+      }
     },
   }) as GitHubSessionProvider;
 
