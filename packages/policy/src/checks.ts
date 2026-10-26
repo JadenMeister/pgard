@@ -324,6 +324,21 @@ export function notFoundAccessReason(repoName: string): string {
 }
 
 /**
+ * The 404 reason when the signed-in user's installation on the owner account covers all
+ * repositories: adding the repository to the App cannot help, so the cause is elsewhere.
+ */
+export function notFoundAllRepositoriesReason(repoName: string): string {
+  return `GitHub returned no access to github.com/${repoName}. The PGARD GitHub App is already installed on the owner account for all repositories, so adding the repository will not help: your account probably has no access, the repository does not exist, or the git remote is wrong.`;
+}
+
+/** What `inspectNotFoundAccess` found out about a 404 repository. */
+export interface NotFoundAccessInspection {
+  remedy: OwnerApprovalRemedy | null;
+  /** True only when the user's installation on the owner account is `all` repositories. */
+  isCoveredByAllRepositories: boolean;
+}
+
+/**
  * The install remedy offered when `getRepository` answered 404 (the repository id is unknown).
  * Looks up the remote owner's account id with the public `GET /users/{owner}`. Returns `null`
  * (no remedy) when that lookup fails, returns another login than the remote names, or reports an
@@ -338,6 +353,32 @@ export async function evaluateAccessRemedy(
   remoteOwner: string,
   appSlug: string | null | undefined,
 ): Promise<OwnerApprovalRemedy | null> {
+  return (await inspectNotFoundAccess(client, user, remoteOwner, appSlug)).remedy;
+}
+
+/**
+ * Like `evaluateAccessRemedy`, and also reports whether the existing installation on the owner
+ * account covers all repositories. In that case no remedy is offered (adding the repository does
+ * not apply). A missing or unrecognized `repository_selection` also offers no remedy: it is not
+ * guessed, and the generic reason stays.
+ */
+export async function inspectNotFoundAccess(
+  client: GitHubClient,
+  user: GitHubUser,
+  remoteOwner: string,
+  appSlug: string | null | undefined,
+): Promise<NotFoundAccessInspection> {
+  const found = await findAccessRemedy(client, user, remoteOwner, appSlug);
+  if (found === "all") return { remedy: null, isCoveredByAllRepositories: true };
+  return { remedy: found, isCoveredByAllRepositories: false };
+}
+
+async function findAccessRemedy(
+  client: GitHubClient,
+  user: GitHubUser,
+  remoteOwner: string,
+  appSlug: string | null | undefined,
+): Promise<OwnerApprovalRemedy | "all" | null> {
   let account;
   try {
     account = await client.getAccount(remoteOwner);
@@ -368,6 +409,9 @@ export async function evaluateAccessRemedy(
       installation.account.id === account.id && installation.targetType === account.type,
   );
   if (existing !== undefined) {
+    if (existing.repositorySelection === "all") return "all";
+    // Only a confirmed `selected` installation can be missing this repository.
+    if (existing.repositorySelection !== "selected") return null;
     const configureUrl =
       account.type === "Organization"
         ? `https://github.com/organizations/${encodeURIComponent(account.login)}/settings/installations/${existing.id}`

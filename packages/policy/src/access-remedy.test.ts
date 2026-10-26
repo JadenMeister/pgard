@@ -5,6 +5,7 @@ import {
   type GitFixture,
 } from "../../git-history/src/test-support/git-fixture.js";
 import {
+  accessNoteFor,
   authorizeProject,
   guidedInstallRemedy,
   isAuthorizationAllowed,
@@ -240,6 +241,75 @@ describe("404 when the App is already installed on the owner account", () => {
     const wrong = structuredClone(outcome);
     wrong.summary.checks[3]!.status = "passed";
     expect(guidedInstallRemedy(wrong)).toBeNull();
+  });
+});
+
+describe("404 when the installation covers all repositories", () => {
+  const ALL_REASON =
+    "GitHub returned no access to github.com/me/app. The PGARD GitHub App is already installed on the owner account for all repositories, so adding the repository will not help: your account probably has no access, the repository does not exist, or the git remote is wrong.";
+  const allInstallation = { ...ownerInstallation(), repositorySelection: "all" as const };
+
+  it("offers no add-repo remedy, stays failed, and says the App covers all repositories", async () => {
+    const { root, head } = project();
+    const { deps: d } = deps(hiddenState(head, { installations: [allInstallation] }));
+    const outcome = await authorizeProject(root, d);
+    expect(status(outcome, "current_access")).toMatchObject({
+      status: "failed",
+      reason: ALL_REASON,
+    });
+    expect(outcome.remedy ?? null).toBeNull();
+    expect(guidedInstallRemedy(outcome)).toBeNull();
+    expect(accessNoteFor(outcome)).toBe("app_covers_all_repositories");
+    expect(outcome.summary.decision).toBe("blocked");
+    expect(isAuthorizationAllowed(outcome)).toBe(false);
+    const recheck = await recheckOwnerApproval(root, d);
+    expect(recheck).toMatchObject({ status: "failed", reason: ALL_REASON, remedy: null });
+  });
+
+  it("keeps the repository_access remedy for a selected installation", async () => {
+    const { root, head } = project();
+    const { deps: d } = deps(hiddenState(head, { installations: [ownerInstallation()] }));
+    const outcome = await authorizeProject(root, d);
+    expect(status(outcome, "current_access")).toMatchObject({ reason: REASON });
+    expect(outcome.remedy).toMatchObject({ missing: "repository_access", url: CONFIGURE_URL });
+    expect(accessNoteFor(outcome)).toBeNull();
+  });
+
+  it("offers no remedy and keeps the generic reason for a missing or invalid selection", async () => {
+    const { root, head } = project();
+    for (const repositorySelection of [null, "everything", undefined, 1]) {
+      const installation = { ...ownerInstallation(), repositorySelection } as never;
+      const { deps: d } = deps(hiddenState(head, { installations: [installation] }));
+      const outcome = await authorizeProject(root, d);
+      expect(status(outcome, "current_access")).toMatchObject({ status: "failed", reason: REASON });
+      expect(outcome.remedy ?? null).toBeNull();
+      expect(guidedInstallRemedy(outcome)).toBeNull();
+      expect(accessNoteFor(outcome)).toBeNull();
+    }
+  });
+
+  it("shows the note only for the exact check shape", async () => {
+    const { root, head } = project();
+    const { deps: d } = deps(hiddenState(head, { installations: [allInstallation] }));
+    const outcome = await authorizeProject(root, d);
+    const extra = structuredClone(outcome);
+    extra.summary.checks.push({ id: "contribution", status: "unverifiable", reason: "x" });
+    expect(accessNoteFor(extra)).toBeNull();
+    const wrong = structuredClone(outcome);
+    wrong.summary.checks[3]!.status = "passed";
+    expect(accessNoteFor(wrong)).toBeNull();
+    const allowed = structuredClone(outcome);
+    allowed.summary.decision = "allowed";
+    expect(accessNoteFor(allowed)).toBeNull();
+  });
+
+  it("ignores another account's all-repositories installation", async () => {
+    const { root, head } = project();
+    const other = { ...ownerInstallation(9999, "someone"), repositorySelection: "all" as const };
+    const { deps: d } = deps(hiddenState(head, { installations: [other] }));
+    const outcome = await authorizeProject(root, d);
+    expect(status(outcome, "current_access")).toMatchObject({ reason: REASON });
+    expect(outcome.remedy).toMatchObject({ missing: "access", url: PERSONAL_URL });
   });
 });
 

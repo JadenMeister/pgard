@@ -114,6 +114,9 @@ export const en = {
     owner: (account: string): string =>
       `Owner approval: install the PGARD GitHub App on ${account}. On GitHub, choose "Only select repositories" (this repository) or "All repositories", then click Install. Installing the App is the owner approval; PGARD cannot install it for you.`,
     thisRepository: "this repository",
+    // The repository is hidden but the App already covers all repositories of the owner account.
+    allRepositoriesNote: (target: string): string =>
+      `GitHub shows no access to ${target}. The PGARD GitHub App is already installed on the owner account for all repositories, so adding the repository will not help: your account probably has no access, the repository does not exist, or the git remote is wrong.`,
     // The repository is hidden (GitHub answered 404) and the App is not installed on the owner.
     accessLead:
       "GitHub shows no access to this repository. If it is private, the PGARD GitHub App must be installed for it; PGARD cannot tell this from missing account access.",

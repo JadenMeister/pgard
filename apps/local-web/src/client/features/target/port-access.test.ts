@@ -20,6 +20,7 @@ function auth(overrides: Partial<AuthStatus>): AuthStatus {
     message: null,
     storedSignIn: { status: "unknown" },
     remedy: null,
+    accessNote: null,
     signInNotice: null,
     expiresAt: null,
     installWaitEndsAt: null,

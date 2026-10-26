@@ -120,6 +120,34 @@ describe("createGitHubClient", () => {
     });
   });
 
+  it("reads repository_selection of installations, null unless exactly all or selected", async () => {
+    const base = { target_type: "User", account: { id: 1, login: "me" } };
+    const { fetch } = routeFetch({
+      "/user/installations?per_page=100&page=1": [
+        200,
+        {
+          total_count: 5,
+          installations: [
+            { ...base, id: 1, repository_selection: "all" },
+            { ...base, id: 2, repository_selection: "selected" },
+            { ...base, id: 3 },
+            { ...base, id: 4, repository_selection: "ALL" },
+            { ...base, id: 5, repository_selection: 7 },
+          ],
+        },
+      ],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    const installations = await client.listUserInstallations();
+    expect(installations.map((item) => item.repositorySelection)).toEqual([
+      "all",
+      "selected",
+      null,
+      null,
+      null,
+    ]);
+  });
+
   it("paginates installations and repositories with a bound", async () => {
     const page = Array.from({ length: 100 }, (_, index) => ({ id: index + 1 }));
     const { fetch, urls } = routeFetch({

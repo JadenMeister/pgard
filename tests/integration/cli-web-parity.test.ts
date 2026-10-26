@@ -533,7 +533,14 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
         fullName: "maintainer/app",
         owner: { id: 3003, login: "maintainer", type: "User" },
       }),
-      installations: [{ id: 77, targetType: "User", account: { id: 3003, login: "maintainer" } }],
+      installations: [
+        {
+          id: 77,
+          targetType: "User",
+          account: { id: 3003, login: "maintainer" },
+          repositorySelection: "selected",
+        },
+      ],
       installationRepositories: { 77: [555] },
       pulls: {},
       commits: {},

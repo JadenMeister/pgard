@@ -77,6 +77,9 @@ export interface OwnerApprovalRemedy {
   unavailableReason: string | null;
 }
 
+/** Why a 404 is not a missing grant: the App already covers all repositories of the owner. */
+export type AccessNote = "app_covers_all_repositories";
+
 export interface AuthorizationOutcome {
   /** Always lists all five checks in `AUTHORIZATION_CHECK_ORDER`. */
   summary: AuthorizationSummary;
@@ -89,6 +92,12 @@ export interface AuthorizationOutcome {
    * `guidedInstallRemedy` for when frontends offer it). Absent or `null` otherwise.
    */
   remedy?: OwnerApprovalRemedy | null;
+  /**
+   * Set when GitHub showed no repository although the App is installed on the owner account for
+   * all repositories (see `accessNoteFor` for when frontends show it). Not a remedy and never a
+   * pass. Absent or `null` otherwise.
+   */
+  accessNote?: AccessNote | null;
   /**
    * The GitHub account (login and numeric id, never a token) this run's `github_identity` check
    * signed in with. Absent or `null` when that check did not pass. Frontends use it to tell
