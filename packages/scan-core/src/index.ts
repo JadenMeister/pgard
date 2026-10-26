@@ -1,4 +1,9 @@
 export { runScan, ScanRequestError, isValidConfirmedWebTarget } from "./run-scan.js";
+export {
+  describeProjectConfig,
+  loadProjectConfig,
+  type ProjectConfigLoad,
+} from "./project-config.js";
 export { toRepositoryRelativePath } from "./paths.js";
 export { PGARD_VERSION } from "./version.js";
 export { verifyProject } from "./verify-project.js";

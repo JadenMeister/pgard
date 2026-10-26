@@ -1,4 +1,4 @@
-import type { Finding } from "@pgard/findings";
+import type { Coverage, Finding } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
 import { testFinding, testResult } from "../../test-support.js";
 import { COLLAPSE_THRESHOLD, groupFindings, sortBySeverity } from "./result-groups.js";
@@ -260,5 +260,116 @@ describe("headline status counts", () => {
       plain,
     );
     expect(text).toContain("Findings (3): 1 confirmed, 2 suspected (needs review)");
+  });
+});
+
+describe("project configuration notices", () => {
+  const withCoverage = (...entries: Coverage[]) =>
+    testResult({ overallStatus: "partial", coverage: entries });
+  const area = (name: string, status: Coverage["status"], note: string): Coverage => ({
+    area: name,
+    scope: "code",
+    status,
+    ruleIds: [],
+    note,
+  });
+
+  it("shows a prominent line above the findings when files were excluded", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area(
+          "source:config-excluded",
+          "completed",
+          "3 files excluded by pgard.config.json (of 9).",
+        ),
+      ),
+      plain,
+    );
+    const line = text
+      .split("\n")
+      .findIndex((l) => l.startsWith("! 3 files excluded by pgard.config.json"));
+    expect(line).toBeGreaterThan(0);
+    expect(line).toBeLessThan(
+      text.split("\n").findIndex((l) => l.startsWith("Findings by severity")),
+    );
+  });
+
+  it("shows warnings and an ignored invalid config prominently", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area(
+          "source:config-excluded",
+          "partial",
+          "9 files excluded by pgard.config.json. WARNING: x",
+        ),
+        area("source:config", "partial", "pgard.config.json is invalid and was ignored; reason."),
+      ),
+      plain,
+    );
+    expect(text).toContain("! 9 files excluded by pgard.config.json. WARNING: x");
+    expect(text).toContain("! pgard.config.json is invalid and was ignored; reason.");
+  });
+
+  it("is quiet when nothing was excluded and the config is fine", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area("source:config-excluded", "completed", "0 files excluded by pgard.config.json."),
+        area("source:config", "completed", "pgard.config.json read."),
+      ),
+      plain,
+    );
+    expect(text).not.toContain("! ");
+  });
+
+  it("strips terminal control characters from hostile patterns in the note", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area(
+          "source:config-excluded",
+          "completed",
+          "1 file excluded by pgard.config.json: \u001b[2J\u001b]0;pwned\u0007",
+        ),
+      ),
+      plain,
+    );
+    expect(text).not.toContain("\u001b");
+    expect(text).not.toContain("\u0007");
+  });
+});
+
+describe("testDirectories notices", () => {
+  const coverage: Coverage[] = [
+    {
+      area: "source:config",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: "pgard.config.json read (version 1): 0 exclude patterns, 1 test directory pattern (3 findings classified as test code by it), 0 suppressions parsed, not yet applied.",
+    },
+  ];
+
+  it("says so with a ! line whenever the config reclassified findings, even when completed", () => {
+    const findings = testCode(3);
+    const text = formatScanResult(testResult({ coverage, findings }), plain);
+    expect(text).toContain(
+      "! 3 findings were classified as test code by the testDirectories setting of pgard.config.json",
+    );
+    expect(text).toContain("3 of them were classified by the testDirectories setting");
+  });
+
+  it("keeps the notice when the test findings are collapsed into a count", () => {
+    const text = formatScanResult(testResult({ coverage, findings: testCode(8) }), plain);
+    expect(text).toContain("lower-severity findings not listed");
+    expect(text).toContain("! 3 findings were classified as test code");
+  });
+
+  it("no notice when the config reclassified nothing", () => {
+    const quiet = coverage.map((entry) => ({
+      ...entry,
+      note: (entry.note ?? "").replace("3 findings", "0 findings"),
+    }));
+    expect(
+      formatScanResult(testResult({ coverage: quiet, findings: testCode(2) }), plain),
+    ).not.toContain("! ");
   });
 });

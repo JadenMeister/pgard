@@ -1,4 +1,4 @@
-import type { AnalyzerOutput, ConfirmedWebTarget } from "@pgard/findings";
+import type { AnalyzerOutput, ConfirmedWebTarget, ProjectConfig } from "@pgard/findings";
 import type { AuthorizationDependencies, AuthorizationOutcome } from "@pgard/policy";
 
 export interface WebScanProgress {
@@ -44,6 +44,11 @@ export interface AnalyzerContext {
   signal?: AbortSignal;
   env: Readonly<Record<string, string | undefined>>;
   now: () => Date;
+  /**
+   * The validated `pgard.config.json`, or null when there is none or it was invalid (an invalid
+   * file is ignored as a whole, never partly applied).
+   */
+  projectConfig: ProjectConfig | null;
 }
 
 export type LocalAnalyzerOutput = AnalyzerOutput;
