@@ -43,7 +43,7 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 
 ## 정책
 
-PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하고, 전체 내용이 적힌 곳으로 연결합니다. 이 README와 [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md)는 현재 동작을 설명합니다. [`docs/`](docs/README.md)의 한국어 기획 문서는 MVP 기획 기록이며, 내용이 다르면(예를 들어 기획 문서에는 advisory 데이터베이스가 나오지만 PGARD에는 없습니다) 이 README가 맞습니다.
+PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하고, 전체 내용이 적힌 곳으로 연결합니다. 이 README와 [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)는 현재 동작을 설명합니다. [`docs/`](docs/README.ko.md)의 한국어 기획 문서는 MVP 기획 기록이며, 내용이 다르면(예를 들어 기획 문서에는 advisory 데이터베이스가 나오지만 PGARD에는 없습니다) 이 README가 맞습니다.
 
 - **권한 확인 게이트.** 저장소, GitHub 신원, owner 승인, 현재 접근, 기여의 다섯 가지 확인을 검사할 때마다 다시 실행합니다. 건너뛰거나 이전 결과를 재사용하는 옵션은 없으며, 근거가 없거나 불분명하면 검사를 차단합니다(종료 코드 3). [권한 확인 모델](#권한-확인-모델) 참고.
 - **조직 저장소.** 조직 저장소는 조직의 활성 owner만 검사할 수 있으며, PGARD GitHub App이 조직에 설치되어 해당 저장소를 포함해야 합니다. [조직 저장소](#조직-저장소) 참고.
@@ -52,7 +52,7 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 - **민감정보 가림.** 비밀 값은 터미널 출력, 발견 항목, HTML/PDF 보고서, 대시보드 어디에도 나타나지 않으며 비밀의 종류만 표시합니다. [Git 이력 검사](#git-이력-검사)와 [결과와 보고서](#결과와-보고서) 참고.
 - **로컬 웹 대시보드 보안.** `127.0.0.1`에서만 수신하고, 세션마다 토큰을 요구하며, `Host`와 `Origin` 헤더를 검사하고, 엄격한 Content-Security-Policy를 적용하며, 보고서는 파일을 쓰지 않고 브라우저 다운로드로 제공합니다. [대시보드 보호 방식](#대시보드-보호-방식) 참고.
 - **웹 검사.** 사용자가 확인한 `127.0.0.1`의 로컬 서비스만 익명 `GET`/`HEAD` 요청으로 검사하며, 상태를 바꾸는 요청은 보내지 않습니다. [로컬 웹 검사](#로컬-웹-검사) 참고.
-- **결과 스키마 버전 관리.** 검사 결과는 `major.minor` 형식의 `schemaVersion`을 가지며, 읽는 쪽은 다른 major 버전을 거부합니다. [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) 참고.
+- **결과 스키마 버전 관리.** 검사 결과는 `major.minor` 형식의 `schemaVersion`을 가지며, 읽는 쪽은 다른 major 버전을 거부합니다. [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md) 참고.
 - **범위 밖.** 원격 서비스, 공격 요청이나 상태를 바꾸는 요청, 로그인한 상태의 웹 탐색, 의존성 취약점 조회 등은 지원하지 않습니다. [범위 밖](#범위-밖) 참고.
 - **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 병합 전 리뷰는 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
 
@@ -461,13 +461,13 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 
 ### `docs/`의 문서
 
-[`docs/README.md`](docs/README.md)는 [`docs/`](docs/)의 문서를 안내하며, 어느 문서가 현재 정책이고 어느 문서가 과거 기록인지 알려 줍니다. PGARD는 MVP 기획 기록인 한국어 기획 문서 세 개를 바탕으로 구현했습니다.
+[`docs/README.ko.md`](docs/README.ko.md)는 [`docs/`](docs/)의 문서를 안내하며, 어느 문서가 현재 정책이고 어느 문서가 과거 기록인지 알려 줍니다. PGARD는 MVP 기획 기록인 한국어 기획 문서 세 개를 바탕으로 구현했습니다.
 
 - [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): 구현 브리프입니다. 제품 범위, 권한 게이트, 검사 경계, 완료 조건을 정했습니다.
 - [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): CLI 명령 체계와 앱·패키지 구조를 정했습니다.
 - [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙을 정했습니다.
 
-영문으로 쓴 문서가 하나 더 있으며 현재 동작을 설명합니다. [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
+현재 동작을 설명하는 문서가 하나 더 있습니다(기준은 영문판입니다). [`RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
 
 구현하면서 나중에 바뀐 결정이 있어서, 기획 문서와 README가 다르면 README와 코드가 맞습니다.
 

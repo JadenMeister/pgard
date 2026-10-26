@@ -43,7 +43,7 @@ PGARD is released under the [MIT License](LICENSE).
 
 ## Policies
 
-These are the rules PGARD follows. Each entry says what the policy is and links to where it is written down in full. This README and [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) describe current behaviour. The Korean planning documents in [`docs/`](docs/README.md) are the MVP planning record: where they differ (for example, they mention an advisory database, which PGARD does not have), this README wins.
+These are the rules PGARD follows. Each entry says what the policy is and links to where it is written down in full. This README and [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) describe current behaviour. The planning documents in [`docs/`](docs/README.md) (Korean originals with English translations) are the MVP planning record: where they differ (for example, they mention an advisory database, which PGARD does not have), this README wins.
 
 - **Authorization gate.** Five checks (repository, GitHub identity, owner approval, current access, contribution) run again on every scan. There is no option to skip them or to reuse an earlier result, and if evidence is missing or unclear the scan is blocked (exit code 3). See [Authorization model](#authorization-model).
 - **Organization repositories.** Only an active owner of the organization can scan an organization repository, and the PGARD GitHub App must be installed on the organization with access to the repository. See [Organization repositories](#organization-repositories).
@@ -54,7 +54,7 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 - **Web checks.** Only a local service on `127.0.0.1` that you confirm is checked, with anonymous `GET`/`HEAD` requests and no state-changing requests. See [Local web checks](#local-web-checks).
 - **Result schema versioning.** The scan result carries a `major.minor` `schemaVersion`; readers refuse another major version. See [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md).
 - **Out of scope.** Remote services, attack or state-changing requests, logged-in web browsing, dependency vulnerability lookups and more are not supported. See [Out of scope](#out-of-scope).
-- **Development conventions.** Commit units and messages, branch and pull request boundaries, and reviews before merge are described in the Korean [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md). See also [Development](#development).
+- **Development conventions.** Commit units and messages, branch and pull request boundaries, and reviews before merge are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
 
 ## Requirements
 
@@ -461,11 +461,11 @@ CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull
 
 ### Documents in `docs/`
 
-[`docs/README.md`](docs/README.md) indexes the documents in [`docs/`](docs/) and says which are current policy and which are historical. PGARD was built from three Korean planning documents, the MVP planning record:
+[`docs/README.md`](docs/README.md) indexes the documents in [`docs/`](docs/) and says which are current policy and which are historical. PGARD was built from three planning documents, the MVP planning record (written in Korean; these are the English translations):
 
-- [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
-- [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): the command set and the layout of the apps and packages.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): the rules for commit units, messages, naming, verification and pull requests.
+- [`PGARD_AGENT_BRIEF_EN.md`](docs/PGARD_AGENT_BRIEF_EN.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
+- [`PGARD_CLI_AND_STRUCTURE_EN.md`](docs/PGARD_CLI_AND_STRUCTURE_EN.md): the command set and the layout of the apps and packages.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests.
 
 One further document is written in English and describes current behaviour: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
 

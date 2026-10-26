@@ -1,6 +1,6 @@
 # PGARD CLI·저장소 구조 상세 명세
 
-> **참고:** 이 문서는 MVP 기획 기록입니다. 현재 동작은 [README.ko.md](../README.ko.md)([English](../README.md))가 설명하며, 내용이 다르면 README가 맞습니다.
+> **참고:** 이 문서는 MVP 기획 기록입니다. 현재 동작은 [README.ko.md](../README.ko.md)([English](../README.md))가 설명하며, 내용이 다르면 README가 맞습니다. 이 문서의 영어 번역: [PGARD_CLI_AND_STRUCTURE_EN.md](PGARD_CLI_AND_STRUCTURE_EN.md).
 
 이 문서는 PGARD 통합 브리프의 상세 부속 문서다. `pgard` 제품명, 로컬 실행, owner 승인·현재 접근·실제 반영 기여의 권한 게이트, 일회성 결과 처리는 확정된 제품 조건이다. 구현 언어 TypeScript/Node.js/React와 아래 폴더 구조는 추천안이다.
 
