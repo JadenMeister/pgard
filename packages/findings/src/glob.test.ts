@@ -178,20 +178,23 @@ describe("glob matching is not exponential", () => {
     expect(elapsed).toBeLessThan(1500);
   });
 
-  it("scales about linearly in the path length for a fixed pattern", () => {
-    const glob = compileGlob("**/a*a*a*a*a/**/c");
-    const run = (segments: number) => {
+  it("does work proportional to the path length for a fixed pattern (counted, not timed)", () => {
+    // The matcher's work budget counts table cells, so the number of matches that fit in a fixed
+    // budget is inversely proportional to the cost of one match: linear work gives a ratio near 4
+    // for a 4x longer path, quadratic work would give about 16.
+    const matchesInBudget = (segments: number) => {
+      const matcher = compilePathMatcher(["**/a*a*a*a*a/**/c"], 20_000_000);
       const filePath = `${"aaaa/".repeat(segments)}x`;
-      const start = performance.now();
-      for (let i = 0; i < 40; i += 1) globMatches(glob, filePath);
-      return performance.now() - start;
+      let count = 0;
+      while (!matcher.exhausted && count < 1_000_000) {
+        matcher.matches(filePath);
+        count += 1;
+      }
+      return count;
     };
-    const best = (segments: number) => Math.min(run(segments), run(segments), run(segments));
-    run(100); // warm up
-    const small = Math.max(best(200), 0.05);
-    const large = best(800); // 4x the path
-    // Linear would be about 4x; a quadratic matcher would be 16x and an exponential one far more.
-    expect(large / small).toBeLessThan(10);
+    const ratio = matchesInBudget(200) / matchesInBudget(800);
+    expect(ratio).toBeGreaterThan(2.5);
+    expect(ratio).toBeLessThan(6);
   });
 
   it("200 patterns with 10 stars against 10 000 files stay small", () => {
