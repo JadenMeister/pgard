@@ -11,7 +11,7 @@ import {
   checkSessionToken,
   type RequestCheck,
 } from "./middleware/security.js";
-import { API_ROUTES, ApiError, type ApiContext } from "./routes/api.js";
+import { API_ROUTES, ApiDownload, ApiError, type ApiContext } from "./routes/api.js";
 import { createGitHubSessionManager } from "./session/github-session.js";
 import { applySignInNotice } from "./session/stored-sign-in.js";
 import {
@@ -147,7 +147,17 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
       void (async () => {
         try {
           const body = isStateChanging ? await readJsonBody(request) : undefined;
-          sendJson(response, 200, await handler(context, body));
+          const payload = await handler(context, body);
+          if (payload instanceof ApiDownload) {
+            const content = Buffer.from(payload.body);
+            response.statusCode = 200;
+            response.setHeader("Content-Type", payload.contentType);
+            response.setHeader("Content-Disposition", `attachment; filename="${payload.filename}"`);
+            response.setHeader("Content-Length", content.length);
+            response.end(content);
+            return;
+          }
+          sendJson(response, 200, payload);
         } catch (error) {
           if (error instanceof ApiError)
             return sendError(response, error.status, error.code, error.message);

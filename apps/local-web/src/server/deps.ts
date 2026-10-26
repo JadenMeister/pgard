@@ -5,7 +5,7 @@ import {
   type PortDiscoveryResult,
   type ServiceIdentity,
 } from "@pgard/http-local";
-import { isPathInsideDirectory, writeReports } from "@pgard/report";
+import { renderReport } from "@pgard/report";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
@@ -42,8 +42,8 @@ export interface ServerDeps {
   /** `signal` aborts when sign-out or a new check replaces the authorization it ran under. */
   probeLocalService: (port: number, options: { signal: AbortSignal }) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
-  writeReports: typeof writeReports;
-  isPathInsideDirectory: typeof isPathInsideDirectory;
+  /** Renders the same HTML or PDF the CLI file export writes; the dashboard never writes files. */
+  renderReport: typeof renderReport;
   now: () => number;
 }
 
@@ -77,8 +77,7 @@ export function createDefaultServerDeps(): ServerDeps {
     webScanner: scanLocalWeb,
     probeLocalService: (port, { signal }) => probeLocalService(port, { signal }),
     discoverListeningPorts: () => discoverListeningPorts(),
-    writeReports,
-    isPathInsideDirectory,
+    renderReport,
     now: Date.now,
   };
 }

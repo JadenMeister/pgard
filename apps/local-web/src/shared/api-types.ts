@@ -156,14 +156,5 @@ export interface ScanStatus {
   deviceCode: DeviceCodeInfo | null;
 }
 
-export type ReportFormatDto = "html" | "pdf" | "both";
-
-export interface ReportRequestDto {
-  format: ReportFormatDto;
-  /** Absolute path of an existing directory chosen by the user. */
-  outputDir: string;
-  isInsideRepositoryConfirmed: boolean;
-}
-
-export type ReportResponse =
-  { status: "saved"; files: string[] } | { status: "needs_confirmation"; warning: string };
+/** Formats the browser can download from `GET /api/reports/<format>`. */
+export type ReportFormatDto = "html" | "pdf";

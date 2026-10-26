@@ -156,10 +156,6 @@ select:focus-visible,
   color: var(--text-secondary);
 }
 
-.inline-form .grow {
-  flex: 1 1 280px;
-}
-
 input,
 select {
   font: inherit;

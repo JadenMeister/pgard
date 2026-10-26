@@ -156,12 +156,19 @@ export const ko: Messages = {
     cancel: "취소",
   },
   coverage: {
-    caption: "Coverage",
+    caption: "검사 범위",
     area: "영역",
     status: "상태",
     note: "비고",
   },
   severity: {
+    critical: "치명적",
+    high: "높음",
+    medium: "보통",
+    low: "낮음",
+    info: "정보",
+  },
+  severityInline: {
     critical: "치명적",
     high: "높음",
     medium: "보통",
@@ -185,6 +192,11 @@ export const ko: Messages = {
     headline: (overall, total, confirmed, suspected, informational, contextNote) =>
       `${overall} - 발견 항목 ${total}건: 확인됨 ${confirmed}, 의심 ${suspected}, 참고 ${informational}${contextNote === "" ? "" : ` - ${contextNote}`}`,
     filters: "필터",
+    statusOptions: {
+      confirmed: "확인됨",
+      suspected: "의심",
+      informational: "참고",
+    },
     severity: "심각도",
     status: "상태",
     source: "출처",
@@ -234,15 +246,15 @@ export const ko: Messages = {
     findings: "발견 항목",
   },
   report: {
-    format: "형식",
-    html: "HTML",
-    pdf: "PDF",
-    both: "HTML과 PDF",
-    outputDir: "출력 디렉터리 (절대 경로, 이미 존재해야 함)",
-    save: "저장",
-    note: "기존 파일은 덮어쓰지 않습니다. 보고서에는 민감한 취약점 내용이 포함될 수 있습니다.",
-    saveInside: "저장소 안이어도 저장",
-    chooseOther: "다른 디렉터리 선택",
-    saved: "저장됨:",
+    downloadHtml: "HTML 다운로드",
+    downloadPdf: "PDF 다운로드",
+    preparing: (format) => `${format} 보고서를 준비하는 중...`,
+    downloaded: (filename) =>
+      `${filename}을(를) 다운로드했습니다. 브라우저의 다운로드 폴더에 저장됩니다.`,
+    failed: "보고서를 다운로드하지 못했습니다. 검사를 다시 실행한 뒤 재시도하세요.",
+    sessionExpired:
+      "대시보드 세션이 더 이상 유효하지 않습니다. `pgard dashboard`가 출력한 개인 세션 URL을 다시 여세요.",
+    noResult: "내보낼 검사 결과가 아직 없습니다. 먼저 검사를 실행하세요.",
+    note: "보고서에는 민감한 취약점 내용이 포함될 수 있습니다. 다운로드한 파일은 안전한 곳에 보관하세요.",
   },
 };
