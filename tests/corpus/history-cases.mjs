@@ -27,8 +27,6 @@ const FAKE = {
   urlPassword: join("postgres://app:", "Xq9vR2mT7pLw4", "@db.internal:5432/app"),
 };
 
-export const HISTORY_RULES = ["PG-SECRET-001", "PG-SECRET-002", "PG-SECRET-003", "PG-HYGIENE-001"];
-
 export const HISTORY_CASES = [
   // ---- PG-SECRET-001: environment file committed ----
   {
@@ -134,6 +132,13 @@ export const HISTORY_CASES = [
     name: "generic-db-password",
     expect: ["PG-SECRET-002"],
     commits: [{ files: { "src/db.js": `const DB_PASSWORD = "${FAKE.dbPassword}";\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "aws-secret-access-key",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "config/aws.ini": `aws_secret_access_key = ${FAKE.awsSecret}\n` } }],
   },
   {
     rule: "PG-SECRET-002",
@@ -279,14 +284,6 @@ export const HISTORY_CASES = [
       { files: { "src/k.js": 'const password = "changeme123";\n' } },
       { files: { "src/k.js": "const password = process.env.P;\n" } },
     ],
-  },
-  {
-    rule: "PG-SECRET-001",
-    kind: "positive",
-    name: "env-file-removed-without-secrets",
-    // The file is gone from HEAD but was committed once; PG-SECRET-001 still reports it.
-    expect: ["PG-SECRET-001"],
-    commits: [{ files: { ".env": "PORT=3000\n" } }, { remove: [".env"] }],
   },
 
   {

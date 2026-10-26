@@ -8,11 +8,6 @@
 // `headers` are merged over HARDENED (a null value removes a header). `cors(origin)` returns extra
 // headers for a request that carries an Origin. `routes` maps a path to { status, headers, body }.
 
-export const WEB_RULE_IDS_EXPECTED = Array.from(
-  { length: 13 },
-  (_, index) => `PG-WEB-${String(index + 1).padStart(3, "0")}`,
-);
-
 export const HARDENED = {
   "content-type": "text/html; charset=utf-8",
   "content-security-policy": "default-src 'self'; frame-ancestors 'none'",

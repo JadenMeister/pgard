@@ -539,7 +539,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 ## 정확도
 
-각 규칙은 [`tests/corpus/`](tests/corpus/)의 라벨이 붙은 코퍼스로 측정합니다. 소스 규칙에는 취약한 샘플(`positive`)과 안전한 샘플(`negative`)을, 이력 규칙에는 생성한 Git 저장소를, 웹 규칙에는 루프백 서버를 사용합니다. `npm run corpus`는 이를 모두 검사하고 규칙별 true positive, false positive, false negative, 정밀도(precision), 재현율(recall)을 출력하며, 표를 [`tests/corpus/RESULTS.md`](tests/corpus/RESULTS.md)에 씁니다. CI는 규칙이 기록된 임계값 아래로 떨어지거나, 예상 실패 목록을 갱신하지 않은 채 샘플의 결과가 바뀌거나, `RESULTS.md`가 최신이 아니면 실패합니다.
+각 규칙은 [`tests/corpus/`](tests/corpus/)의 라벨이 붙은 코퍼스로 측정합니다. 소스 규칙에는 취약한 샘플(`positive`)과 안전한 샘플(`negative`)을, 이력 규칙에는 생성한 Git 저장소를, 웹 규칙에는 루프백 서버를 사용합니다. `npm run build && npm run corpus`는(실행기는 빌드된 패키지를 사용합니다) 이를 모두 검사하고 규칙별 true positive, false positive, false negative, 정밀도(precision), 재현율(recall)을 출력하며, 표를 [`tests/corpus/RESULTS.md`](tests/corpus/RESULTS.md)에 씁니다. CI는 규칙이 기록된 임계값 아래로 떨어지거나, 예상 실패 목록을 갱신하지 않은 채 샘플의 결과가 바뀌거나, `RESULTS.md`가 최신이 아니면 실패합니다.
 
 숫자는 조심해서 읽으세요. 코퍼스는 작고(규칙마다 샘플이 열 개 안팎) PGARD 작성자들이 직접 만들었으므로, 우리가 떠올린 경우에서 규칙이 어떻게 동작하는지를 보여 줄 뿐 여러분의 코드에서 얼마나 자주 맞는지를 뜻하지 않습니다. 규칙이 놓치거나 잘못 보고하는 어려운 사례도 일부러 넣었으며, 이런 사례는 코퍼스에서 지우지 않고 이유와 함께 `RESULTS.md`에 남깁니다. 여기서 점수가 높다고 프로젝트가 안전한 것은 아닙니다.
 

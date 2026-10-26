@@ -26,11 +26,11 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanGitHistory } from "@pgard/git-history";
-import { scanLocalWeb } from "@pgard/http-local";
+import { HISTORY_RULES, scanGitHistory } from "@pgard/git-history";
+import { scanLocalWeb, WEB_RULE_IDS } from "@pgard/http-local";
 import { scanSourceCode, SOURCE_RULES } from "@pgard/source-analysis";
-import { HISTORY_CASES, HISTORY_RULES } from "./history-cases.mjs";
-import { HARDENED, WEB_CASES, WEB_RULE_IDS_EXPECTED } from "./web-cases.mjs";
+import { HISTORY_CASES } from "./history-cases.mjs";
+import { HARDENED, WEB_CASES } from "./web-cases.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const RESULTS_PATH = path.join(here, "RESULTS.md");
@@ -135,6 +135,12 @@ function runGit(cwd, args) {
     encoding: "utf8",
     env: {
       PATH: process.env.PATH ?? "",
+      // Windows needs these for git to start and resolve its profile.
+      ...Object.fromEntries(
+        ["SYSTEMROOT", "SystemRoot", "COMSPEC", "TEMP", "TMP", "USERPROFILE"]
+          .filter((name) => process.env[name] !== undefined)
+          .map((name) => [name, process.env[name]]),
+      ),
       HOME: cwd,
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_TERMINAL_PROMPT: "0",
@@ -258,8 +264,8 @@ for (const sample of samples) {
 
 const RULES = {
   source: SOURCE_RULES.map((rule) => rule.id),
-  history: HISTORY_RULES,
-  web: WEB_RULE_IDS_EXPECTED,
+  history: HISTORY_RULES.map((rule) => rule.id),
+  web: [...WEB_RULE_IDS],
 };
 
 // ---------------------------------------------------------------- run
@@ -316,6 +322,7 @@ for (const deviation of deviations) {
 
 // ---------------------------------------------------------------- report
 
+const compare = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 const ratio = (numerator, denominator) => (denominator === 0 ? null : numerator / denominator);
 const pct = (value) => (value === null ? "n/a" : `${(value * 100).toFixed(1)}%`);
 const rows = [...stats.entries()].map(([rule, s]) => ({
@@ -329,7 +336,7 @@ let thresholds = { rules: {} };
 if (process.argv.includes("--update-thresholds")) {
   // Records the current numbers as the new floor. Use it only on purpose, in a reviewed change:
   // lowering a threshold hides a regression.
-  const floor = (value) => Math.floor((value ?? 1) * 1000) / 1000;
+  const floor = (value) => Math.floor((value ?? 0) * 1000) / 1000;
   thresholds = {
     rules: Object.fromEntries(
       rows.map((row) => [row.rule, { precision: floor(row.precision), recall: floor(row.recall) }]),
@@ -349,12 +356,16 @@ for (const row of rows) {
     fail(`${row.rule}: no entry in thresholds.json`);
     continue;
   }
-  if ((row.precision ?? 1) < limit.precision) {
+  if (row.tp + row.fn === 0) {
+    fail(`${row.rule}: the corpus has no positive sample for this rule, so recall is undefined`);
+    continue;
+  }
+  if ((row.precision ?? 0) < limit.precision) {
     fail(
       `${row.rule}: precision ${pct(row.precision)} is below the threshold ${pct(limit.precision)}`,
     );
   }
-  if ((row.recall ?? 1) < limit.recall) {
+  if ((row.recall ?? 0) < limit.recall) {
     fail(`${row.rule}: recall ${pct(row.recall)} is below the threshold ${pct(limit.recall)}`);
   }
 }
@@ -404,7 +415,7 @@ if (deviations.length === 0) {
 } else {
   lines.push("| Rule | Kind | Sample | Reason |", "| --- | --- | --- | --- |");
   for (const deviation of deviations.sort(
-    (a, b) => a.rule.localeCompare(b.rule) || a.sample.id.localeCompare(b.sample.id),
+    (a, b) => compare(a.rule, b.rule) || compare(a.sample.id, b.sample.id),
   )) {
     lines.push(
       `| ${deviation.rule} | ${deviation.type === "miss" ? "miss (FN)" : "false positive (FP)"} | \`${deviation.sample.id}\` | ${deviation.reason ?? "UNRECORDED"} |`,

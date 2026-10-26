@@ -1,4 +1,5 @@
 // corpus: expect=PG-CSRF-001
+// Note: sameSite lax blocks cross-site POST, but same-site attackers (a sibling subdomain) remain.
 const express = require("express");
 const session = require("express-session");
 const app = express();

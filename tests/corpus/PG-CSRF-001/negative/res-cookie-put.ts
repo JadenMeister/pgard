@@ -1,4 +1,4 @@
-// corpus: expect=PG-CSRF-001
+// corpus: expect=none; known=fp:PG-CSRF-001:a PUT route that only sets a cookie, with no cookie session, and a cross-site PUT also needs a CORS preflight
 import express from "express";
 const app = express();
 

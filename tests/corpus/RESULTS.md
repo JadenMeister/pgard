@@ -12,28 +12,28 @@ TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).
 
 ## Source rules (scanSourceCode)
 
-188 samples.
+190 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall |
 | --- | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 7 | 3 | 0 | 178 | 70.0% | 100.0% |
-| PG-SQL-002 | 3 | 0 | 1 | 184 | 100.0% | 75.0% |
-| PG-SQL-003 | 5 | 1 | 0 | 182 | 83.3% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 183 | 100.0% | 100.0% |
-| PG-XSS-001 | 6 | 2 | 1 | 179 | 75.0% | 85.7% |
-| PG-XSS-002 | 4 | 0 | 1 | 183 | 100.0% | 80.0% |
-| PG-XSS-003 | 4 | 1 | 0 | 183 | 80.0% | 100.0% |
-| PG-SSRF-001 | 7 | 2 | 0 | 179 | 77.8% | 100.0% |
-| PG-CMD-001 | 6 | 2 | 0 | 180 | 75.0% | 100.0% |
-| PG-CMD-002 | 4 | 0 | 1 | 183 | 100.0% | 80.0% |
-| PG-PATH-001 | 6 | 1 | 0 | 181 | 85.7% | 100.0% |
-| PG-CRYPTO-001 | 4 | 0 | 1 | 183 | 100.0% | 80.0% |
-| PG-CRYPTO-002 | 4 | 0 | 2 | 182 | 100.0% | 66.7% |
-| PG-CRYPTO-003 | 4 | 0 | 1 | 183 | 100.0% | 80.0% |
-| PG-AUTH-001 | 2 | 0 | 3 | 183 | 100.0% | 40.0% |
-| PG-COOKIE-001 | 4 | 2 | 2 | 180 | 66.7% | 66.7% |
-| PG-CSRF-001 | 4 | 0 | 1 | 183 | 100.0% | 80.0% |
-| PG-BRUTE-001 | 6 | 0 | 0 | 182 | 100.0% | 100.0% |
+| PG-SQL-001 | 7 | 3 | 0 | 180 | 70.0% | 100.0% |
+| PG-SQL-002 | 3 | 0 | 1 | 186 | 100.0% | 75.0% |
+| PG-SQL-003 | 5 | 1 | 0 | 184 | 83.3% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 185 | 100.0% | 100.0% |
+| PG-XSS-001 | 6 | 2 | 1 | 181 | 75.0% | 85.7% |
+| PG-XSS-002 | 4 | 0 | 1 | 185 | 100.0% | 80.0% |
+| PG-XSS-003 | 4 | 1 | 0 | 185 | 80.0% | 100.0% |
+| PG-SSRF-001 | 7 | 2 | 0 | 181 | 77.8% | 100.0% |
+| PG-CMD-001 | 6 | 2 | 0 | 182 | 75.0% | 100.0% |
+| PG-CMD-002 | 4 | 0 | 1 | 185 | 100.0% | 80.0% |
+| PG-PATH-001 | 6 | 1 | 0 | 183 | 85.7% | 100.0% |
+| PG-CRYPTO-001 | 4 | 0 | 1 | 185 | 100.0% | 80.0% |
+| PG-CRYPTO-002 | 4 | 0 | 2 | 184 | 100.0% | 66.7% |
+| PG-CRYPTO-003 | 4 | 0 | 1 | 185 | 100.0% | 80.0% |
+| PG-AUTH-001 | 2 | 0 | 3 | 185 | 100.0% | 40.0% |
+| PG-COOKIE-001 | 5 | 2 | 2 | 181 | 71.4% | 71.4% |
+| PG-CSRF-001 | 4 | 2 | 1 | 183 | 66.7% | 80.0% |
+| PG-BRUTE-001 | 6 | 0 | 0 | 184 | 100.0% | 100.0% |
 
 ## History rules (scanGitHistory on generated git repositories)
 
@@ -41,8 +41,8 @@ TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).
 
 | Rule | TP | FP | FN | TN | Precision | Recall |
 | --- | --: | --: | --: | --: | --: | --: |
-| PG-SECRET-001 | 6 | 0 | 0 | 34 | 100.0% | 100.0% |
-| PG-SECRET-002 | 10 | 0 | 0 | 30 | 100.0% | 100.0% |
+| PG-SECRET-001 | 5 | 0 | 0 | 35 | 100.0% | 100.0% |
+| PG-SECRET-002 | 11 | 0 | 0 | 29 | 100.0% | 100.0% |
 | PG-SECRET-003 | 4 | 0 | 0 | 36 | 100.0% | 100.0% |
 | PG-HYGIENE-001 | 4 | 0 | 0 | 36 | 100.0% | 100.0% |
 
@@ -87,14 +87,16 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/const-secret.ts` | a hardcoded secret held in a constant and passed by name to jwt.sign is not followed |
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/go-jwt.go` | a hardcoded key held in a package variable and passed to SignedString is not followed |
 | PG-CRYPTO-003 | miss (FN) | `PG-CRYPTO-003/positive/hard-algorithm-variable.js` | a cipher name held in a constant is not resolved |
-| PG-CSRF-001 | miss (FN) | `PG-CSRF-001/positive/hard-fastify.js` | only express-session, cookie-session and cookie-parser count as a cookie session, so @fastify/cookie does not |
+| PG-CSRF-001 | false positive (FP) | `PG-CSRF-001/negative/cookie-parser-delete.js` | DELETE is not a simple cross-site method (it needs a CORS preflight), so a cookie-parser app with only a DELETE route has no realistic CSRF path |
+| PG-CSRF-001 | false positive (FP) | `PG-CSRF-001/negative/res-cookie-put.ts` | a PUT route that only sets a cookie, with no cookie session, and a cross-site PUT also needs a CORS preflight |
+| PG-CSRF-001 | miss (FN) | `PG-CSRF-001/positive/hard-fastify.js` | only express-session, cookie-session and cookie-parser count as a cookie session, so @fastify/session and @fastify/cookie do not |
 | PG-PATH-001 | false positive (FP) | `PG-PATH-001/negative/hard-realpath-check.js` | a realpath plus prefix check is not recognised as a path guard |
 | PG-SQL-001 | false positive (FP) | `PG-SQL-001/negative/allowlisted-column.js` | a value picked from an allowlist map is still concatenated, and the analyzer does not see that it is constant |
 | PG-SQL-001 | false positive (FP) | `PG-SQL-001/negative/number-coerced.js` | a value coerced with Number.parseInt is still treated as tainted |
 | PG-SQL-001 | false positive (FP) | `PG-SQL-001/negative/static-template.js` | interpolating a module-level string constant is reported as dynamic SQL |
 | PG-SQL-002 | miss (FN) | `PG-SQL-002/positive/sql-raw-helper.ts` | Prisma.raw() spliced into a Prisma.sql template is not recognised as unsafe |
 | PG-SQL-003 | false positive (FP) | `PG-SQL-003/negative/constant-sprintf.go` | fmt.Sprintf with only a package constant is reported as dynamic SQL |
-| PG-SSRF-001 | false positive (FP) | `PG-SSRF-001/negative/hard-fixed-host-path-param.js` | a request value placed in the path of a fixed https host is reported as if it chose the host |
+| PG-SSRF-001 | false positive (FP) | `PG-SSRF-001/negative/hard-fixed-host-path-param.js` | path only, host fixed, and `..` can reach other paths on the same host |
 | PG-SSRF-001 | false positive (FP) | `PG-SSRF-001/negative/host-allowlist.js` | a URL checked against a hostname allowlist before fetch is still reported |
 | PG-WEB-009 | miss (FN) | `web/cors-null-origin-with-credentials` | the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/escaped-helper.js` | an escape-html call is not recognised as a sanitizer |
