@@ -16,6 +16,13 @@ export const MAX_PROGRESS_EVENTS = 200;
  * on every run; this keeps the dashboard from contacting local services hours after a check.
  */
 export const PORT_ACCESS_WINDOW_MS = 30 * 60 * 1000;
+/**
+ * Owner-approval re-checks (waiting for a PGARD GitHub App install) are accepted only this long
+ * after the check that offered the install finished, and at most once per
+ * `OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS`. Same timing as the CLI.
+ */
+export const INSTALL_WAIT_WINDOW_MS = 10 * 60 * 1000;
+export const OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS = 5_000;
 
 /**
  * True while `now` lies in `[since, since + windowMs]`. `deps.now()` is wall-clock time, so a
@@ -60,6 +67,8 @@ export interface SessionState {
   confirmedTarget: ConfirmedWebTarget | null;
   /** True while an owner-approval re-check (waiting for an App install) is in flight. */
   ownerApprovalRecheck: boolean;
+  /** When the last owner-approval re-check was accepted (`deps.now()`), or null. */
+  ownerApprovalRecheckAt: number | null;
   scan: {
     status: JobStatus | "cancelled";
     scopes: ScanScope[];
@@ -80,6 +89,7 @@ export function createSessionState(): SessionState {
     lastProbe: null,
     confirmedTarget: null,
     ownerApprovalRecheck: false,
+    ownerApprovalRecheckAt: null,
     scan: {
       status: "idle",
       scopes: [],

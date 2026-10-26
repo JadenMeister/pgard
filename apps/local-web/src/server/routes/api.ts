@@ -13,8 +13,10 @@ import {
   guidedInstallRemedy,
   isAuthorizationAllowed,
   isOpenableGitHubUrl,
+  mixedAppOverrideWarning,
   PGARD_VERSION,
   resolveGitHubAppClientId,
+  resolveKeychainClientId,
   removeStoredSignIn,
   ScanCancelledError,
   type AuthorizationDependencies,
@@ -35,8 +37,10 @@ import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import { readStoredSignInDto } from "../session/stored-sign-in.js";
 import {
+  INSTALL_WAIT_WINDOW_MS,
   isWithinWindow,
   MAX_PROGRESS_EVENTS,
+  OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS,
   PORT_ACCESS_WINDOW_MS,
   PROBE_CONFIRM_WINDOW_MS,
   setAuth,
@@ -121,9 +125,16 @@ function toRemedyDto(remedy: OwnerApprovalRemedy | null): InstallRemedyDto | nul
   };
 }
 
+/** The install remedy the latest finished check offers, as the browser may see it, or `null`. */
+function pendingInstallRemedy(state: SessionState): InstallRemedyDto | null {
+  const { status, outcome } = state.auth;
+  return status === "done" && outcome !== null ? toRemedyDto(guidedInstallRemedy(outcome)) : null;
+}
+
 function authStatus(state: SessionState): AuthStatus {
   const { status, outcome, finishedAt, message } = state.auth;
   const isAllowed = status === "done" && outcome !== null && isAuthorizationAllowed(outcome);
+  const remedy = pendingInstallRemedy(state);
   return {
     status,
     deviceCode: state.deviceCode,
@@ -131,11 +142,15 @@ function authStatus(state: SessionState): AuthStatus {
     repo: outcome?.repo ?? null,
     message,
     storedSignIn: state.storedSignIn,
-    remedy:
-      status === "done" && outcome !== null ? toRemedyDto(guidedInstallRemedy(outcome)) : null,
+    remedy,
     signInNotice: state.signInNotice,
     // Same window `requirePortAccessAuthorized` enforces; only shown, never trusted back.
     expiresAt: isAllowed && finishedAt !== null ? finishedAt + PORT_ACCESS_WINDOW_MS : null,
+    // Same window `recheckOwnerApproval` enforces; only shown, never trusted back.
+    installWaitEndsAt:
+      remedy !== null && remedy.canApprove !== "no" && finishedAt !== null
+        ? finishedAt + INSTALL_WAIT_WINDOW_MS
+        : null,
   };
 }
 
@@ -161,6 +176,7 @@ const getSession: ApiHandler = async (context) => {
     projectName: sanitizeDisplayText(path.basename(context.projectRoot), 120),
     presetTargetPort: context.presetTargetPort,
     githubApp: githubAppInfo(context.env),
+    githubAppWarning: mixedAppOverrideWarning(context.env),
   };
   return info;
 };
@@ -202,16 +218,15 @@ const getAuth: ApiHandler = async (context) => authStatus(context.state);
 /**
  * Checks owner approval alone again while the user installs the PGARD GitHub App, so the panel
  * can start the full check (`POST /api/auth/verify`) as soon as the installation exists. Only
- * available while the latest check offers the guided install to this user, one at a time. The
- * result is never an authorization and changes no server state: port access still requires a
- * new, allowed full check.
+ * available while the latest check offers the guided install to this user, within
+ * `INSTALL_WAIT_WINDOW_MS` of that check finishing (409 after), at most once per
+ * `OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS` (429 sooner) and one at a time (409). It uses only the
+ * existing sign-in and never starts a device flow. The result is never an authorization and
+ * opens nothing: port access still requires a new, allowed full check.
  */
 const recheckOwnerApproval: ApiHandler = async (context) => {
   const { state } = context;
-  const remedy =
-    state.auth.status === "done" && state.auth.outcome !== null
-      ? toRemedyDto(guidedInstallRemedy(state.auth.outcome))
-      : null;
+  const remedy = pendingInstallRemedy(state);
   if (remedy === null || remedy.canApprove === "no") {
     throw new ApiError(
       409,
@@ -219,9 +234,24 @@ const recheckOwnerApproval: ApiHandler = async (context) => {
       "There is no PGARD GitHub App installation to wait for. Check again.",
     );
   }
+  const now = context.deps.now();
+  // Fail closed on a clock that moved back, like the other windows.
+  if (!isWithinWindow(now, state.auth.finishedAt, INSTALL_WAIT_WINDOW_MS)) {
+    throw new ApiError(
+      409,
+      "install_wait_expired",
+      "Stopped waiting for the PGARD GitHub App installation after 10 minutes. Install it, then check again.",
+    );
+  }
   if (state.ownerApprovalRecheck) {
     throw new ApiError(409, "recheck_running", "Owner approval is already being checked.");
   }
+  const last = state.ownerApprovalRecheckAt;
+  // A clock that moved back since the last re-check counts as too soon.
+  if (last !== null && (now < last || now - last < OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS)) {
+    throw new ApiError(429, "recheck_too_soon", "Wait 5 seconds between owner approval checks.");
+  }
+  state.ownerApprovalRecheckAt = now;
   state.ownerApprovalRecheck = true;
   try {
     const recheck = await context.deps.recheckOwnerApproval(
@@ -261,9 +291,10 @@ const signOut: ApiHandler = async (context, body) => {
         : "Signed out of this dashboard session.";
     return authStatus(state);
   }
-  const app = resolveGitHubAppClientId(context.env);
-  if (app.source === "invalid") {
-    // Never remove the built-in App's entry on behalf of a malformed override.
+  // Only the client id names the entry, so a malformed slug override does not block removal.
+  const app = resolveKeychainClientId(context.env);
+  if (app.clientId === null) {
+    // Never remove the built-in App's entry on behalf of a malformed client id override.
     state.signInNotice = `Signed out of this dashboard session. Nothing was removed from the OS keychain: ${app.message}`;
     return authStatus(state);
   }

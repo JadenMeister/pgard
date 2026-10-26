@@ -1,9 +1,11 @@
 import type { InstallRemedyDto, OwnerApprovalRecheckDto } from "../../../shared/api-types";
 import { isGitHubUrl } from "../../components/github/device-code";
 
-/** Same timing as the CLI: re-check every 5 s, for up to 10 minutes. */
+/**
+ * Same timing as the CLI: re-check every 5 s, for up to 10 minutes. The server enforces both (at
+ * most one re-check per 5 s, only within 10 minutes of the check that offered the install).
+ */
 export const INSTALL_POLL_INTERVAL_MS = 5_000;
-export const INSTALL_WAIT_LIMIT_MS = 10 * 60_000;
 
 export const INSTALL_BUTTON_LABEL = "Install the PGARD GitHub App";
 export const WAITING_FOR_INSTALL_TEXT =
@@ -40,7 +42,7 @@ export function describeInstallRemedy(remedy: InstallRemedyDto): InstallRemedyVi
     return {
       kind: "install",
       url: remedy.url,
-      text: `If you are an owner of ${account}, install the App on the page that opened; otherwise ask an owner: ${remedy.url}`,
+      text: `If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${remedy.url}`,
     };
   }
   return {
@@ -56,4 +58,12 @@ export function describeInstallRemedy(remedy: InstallRemedyDto): InstallRemedyVi
  */
 export function nextInstallStep(recheck: OwnerApprovalRecheckDto): "reverify" | "keep_waiting" {
   return recheck.status === "passed" || recheck.remedy === null ? "reverify" : "keep_waiting";
+}
+
+/**
+ * True once the server's re-check window (`AuthStatus.installWaitEndsAt`) has ended, or when
+ * there is none.
+ */
+export function isInstallWaitOver(waitEndsAt: number | null, now: number): boolean {
+  return waitEndsAt === null || now >= waitEndsAt;
 }

@@ -22,6 +22,7 @@ function auth(overrides: Partial<AuthStatus>): AuthStatus {
     remedy: null,
     signInNotice: null,
     expiresAt: null,
+    installWaitEndsAt: null,
     ...overrides,
   };
 }

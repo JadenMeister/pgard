@@ -32,6 +32,11 @@ export interface SessionInfo {
      * scan is blocked. `message` is fixed text naming the override, never its value.
      */
     | { clientId: null; slug: null; source: "invalid"; message: string };
+  /**
+   * Fixed warning when `PGARD_GITHUB_APP_SLUG` is overridden but the built-in client id is used
+   * (the install link would point to another App); otherwise `null`.
+   */
+  githubAppWarning: string | null;
 }
 
 export interface DeviceCodeInfo {
@@ -99,6 +104,12 @@ export interface AuthStatus {
    * enforces it; this lets the panel say so). `null` unless the latest check is allowed.
    */
   expiresAt: number | null;
+  /**
+   * Epoch ms until which the server accepts owner-approval re-checks for the offered install
+   * (10 minutes from when the check finished). Set only while the panel can wait for an install;
+   * the server enforces it, so reloading or remounting the panel never extends the wait.
+   */
+  installWaitEndsAt: number | null;
 }
 
 export interface SignOutRequestDto {

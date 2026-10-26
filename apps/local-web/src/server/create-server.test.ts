@@ -310,6 +310,23 @@ describe("local web server security", () => {
       source: "default",
     });
   });
+
+  it("warns when an overridden slug is mixed with the built-in client id", async () => {
+    const warning = async (env: Record<string, string>) => {
+      const running = await start(fakeDeps(), null, env);
+      const info = JSON.parse((await apiGet(running, "/api/session")).body).githubAppWarning;
+      await running.close();
+      server = null;
+      return info;
+    };
+    expect(await warning({ PGARD_GITHUB_APP_SLUG: "my-fork" })).toContain(
+      "PGARD_GITHUB_APP_SLUG is set but PGARD_GITHUB_APP_CLIENT_ID is not",
+    );
+    expect(await warning({})).toBeNull();
+    expect(
+      await warning({ PGARD_GITHUB_APP_SLUG: "my-fork", PGARD_GITHUB_APP_CLIENT_ID: "Iv23liFork" }),
+    ).toBeNull();
+  });
 });
 
 const ALLOWED_VERIFY: ServerDeps["verifyProject"] = async () => outcome();
@@ -1174,6 +1191,33 @@ describe("local web keychain sign-in", () => {
   });
 });
 
+it("still shows and removes the keychain entry when only the slug override is malformed", async () => {
+  const builtInKey = {
+    service: "pgard",
+    account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+  };
+  const store = createInMemoryCredentialStore();
+  await store.set(
+    builtInKey,
+    keychainEntry().replace(KEYCHAIN_CLIENT_ID, DEFAULT_GITHUB_APP_CLIENT_ID),
+  );
+  const running = await start(fakeDeps({ credentialStore: store }), null, {
+    PGARD_GITHUB_APP_SLUG: "Not A Slug!",
+  });
+  // Sign-in still blocks on the malformed slug...
+  expect(JSON.parse((await apiGet(running, "/api/session")).body).githubApp.source).toBe("invalid");
+  // ...but the slug plays no part in which keychain entry is shown or removed.
+  expect(JSON.parse((await apiGet(running, "/api/auth")).body).storedSignIn).toEqual({
+    status: "stored",
+    login: "octo",
+  });
+  const removed = JSON.parse(
+    (await apiPost(running, "/api/auth/sign-out", { removeStored: true })).body,
+  );
+  expect(removed.storedSignIn).toEqual({ status: "none" });
+  expect(await store.get(builtInKey)).toBeNull();
+});
+
 const INSTALL_URL =
   "https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555";
 
@@ -1289,5 +1333,96 @@ describe("local web guided App install", () => {
     expect(noToken.status).toBe(401);
     expect((await apiGet(running, "/api/auth/owner-approval")).status).toBe(404);
     expect(recheck).not.toHaveBeenCalled();
+  });
+
+  it("bounds re-checks: at most one per 5 s, only within 10 minutes of the check", async () => {
+    let clock = 1_000_000;
+    const recheck = vi.fn<ServerDeps["recheckOwnerApproval"]>(async () => ({
+      status: "failed",
+      reason: "No PGARD GitHub App installation.",
+      remedy: needsInstall().remedy ?? null,
+    }));
+    const running = await start(
+      fakeDeps({
+        verifyProject: async () => needsInstall(),
+        recheckOwnerApproval: recheck,
+        now: () => clock,
+      }),
+    );
+    await authorize(running);
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.installWaitEndsAt).toBe(1_000_000 + 10 * 60_000);
+
+    const post = async () => {
+      const response = await apiPost(running, "/api/auth/owner-approval");
+      return { status: response.status, code: JSON.parse(response.body).error?.code };
+    };
+    expect((await post()).status).toBe(200);
+    clock += 4_999;
+    expect(await post()).toEqual({ status: 429, code: "recheck_too_soon" });
+    clock += 1;
+    expect((await post()).status).toBe(200);
+    // A clock that moved back since the last re-check counts as too soon.
+    clock -= 1_000;
+    expect(await post()).toEqual({ status: 429, code: "recheck_too_soon" });
+    expect(recheck).toHaveBeenCalledTimes(2);
+
+    // The window is measured from when the check finished, inclusive, and fails closed.
+    clock = 1_000_000 + 10 * 60_000;
+    expect((await post()).status).toBe(200);
+    clock += 1;
+    expect(await post()).toEqual({ status: 409, code: "install_wait_expired" });
+    clock = 999_999;
+    expect(await post()).toEqual({ status: 409, code: "install_wait_expired" });
+    expect(recheck).toHaveBeenCalledTimes(3);
+
+    // A new check opens a new window.
+    clock = 2_000_000;
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).installWaitEndsAt).toBe(
+      2_000_000 + 10 * 60_000,
+    );
+    expect((await post()).status).toBe(200);
+    expect(recheck).toHaveBeenCalledTimes(4);
+  });
+
+  it("runs one re-check at a time and releases the lock afterwards", async () => {
+    let clock = 1_000_000;
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const recheck = vi.fn<ServerDeps["recheckOwnerApproval"]>(async () => {
+      await gate;
+      return { status: "passed", reason: "Installed.", remedy: null };
+    });
+    const running = await start(
+      fakeDeps({
+        verifyProject: async () => needsInstall(),
+        recheckOwnerApproval: recheck,
+        now: () => clock,
+      }),
+    );
+    await authorize(running);
+    const first = apiPost(running, "/api/auth/owner-approval");
+    await waitFor(
+      async () => recheck.mock.calls.length,
+      (calls) => calls === 1,
+    );
+    clock += 5_000;
+    const second = await apiPost(running, "/api/auth/owner-approval");
+    expect(second.status).toBe(409);
+    expect(JSON.parse(second.body).error.code).toBe("recheck_running");
+    release();
+    expect((await first).status).toBe(200);
+    clock += 5_000;
+    expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(200);
+    expect(recheck).toHaveBeenCalledTimes(2);
+  });
+
+  it("offers no wait deadline when nothing can be waited for", async () => {
+    const running = await start(
+      fakeDeps({ verifyProject: async () => needsInstall({ canApprove: "no" }) }),
+    );
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).installWaitEndsAt).toBeNull();
   });
 });

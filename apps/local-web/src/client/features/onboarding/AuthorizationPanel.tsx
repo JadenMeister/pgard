@@ -112,6 +112,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
       </p>
       {githubAppLine?.tone === "info" && <p className="muted">{githubAppLine.text}</p>}
       {githubAppLine?.tone === "warning" && <Notice tone="warning">{githubAppLine.text}</Notice>}
+      {session.githubAppWarning && <Notice tone="warning">{session.githubAppWarning}</Notice>}
       {signInLine && <p className="muted">{signInLine}</p>}
       {(canEndSession || canRemoveStored) && (
         <p className="muted">
@@ -157,7 +158,11 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
             </tbody>
           </table>
           {status.status === "done" && status.remedy && (
-            <InstallAppNotice remedy={status.remedy} onInstalled={() => void verify()} />
+            <InstallAppNotice
+              remedy={status.remedy}
+              waitEndsAt={status.installWaitEndsAt}
+              onInstalled={() => void verify()}
+            />
           )}
           <p className="muted">This result is not stored; every scan checks again.</p>
           {typeof status.expiresAt === "number" && (
