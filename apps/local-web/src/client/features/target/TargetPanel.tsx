@@ -7,11 +7,11 @@ import type {
 } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
+import { useI18n } from "../../i18n/I18nProvider";
 import {
   isAuthorizationRequiredError,
   isPortAccessExpired,
   msUntilPortAccessExpires,
-  PORT_ACCESS_EXPIRED_MESSAGE,
   portAccessMessage,
 } from "./port-access";
 import { usePortAccess } from "./use-port-access";
@@ -35,6 +35,7 @@ function parsePortInput(value: string): number | null {
  * user confirm it. The browser never builds the target itself.
  */
 export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelProps) {
+  const { m } = useI18n();
   const [services, setServices] = useState<PortListResponse | null>(null);
   const [otherPort, setOtherPort] = useState(presetPort === null ? "" : String(presetPort));
   const [identity, setIdentity] = useState<ServiceIdentityDto | null>(null);
@@ -51,13 +52,13 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
     return () => clearTimeout(timer);
   }, [auth]);
   const blockedMessage =
-    portAccessMessage(auth) ?? (isExpired ? PORT_ACCESS_EXPIRED_MESSAGE : null);
+    portAccessMessage(auth, Date.now(), m) ?? (isExpired ? m.target.access.expired : null);
   const showError = (caught: unknown): void => {
     if (isAuthorizationRequiredError(caught)) {
       setIsExpired(true);
       return;
     }
-    setError(caught instanceof Error ? caught.message : "Request failed.");
+    setError(caught instanceof Error ? caught.message : m.common.requestFailed);
   };
   // Requests start once per allowed authorization; the preset port still needs explicit
   // confirmation. Each response is kept only if that authorization is still the current one.
@@ -128,15 +129,15 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
   const otherPortValue = parsePortInput(otherPort.trim());
 
   return (
-    <Card title="Local web service (optional)" step={2}>
+    <Card title={m.cards.target} step={2}>
       {target !== null ? (
         <div className="target-confirmed">
           <p>
-            Confirmed target: <code>{target.origin}</code>
+            {m.target.confirmedTarget} <code>{target.origin}</code>
             {target.title ? ` - ${target.title}` : ""}
           </p>
           <button type="button" className="button" onClick={() => void clear()}>
-            Choose another service
+            {m.target.chooseAnother}
           </button>
         </div>
       ) : blockedMessage !== null ? (
@@ -145,10 +146,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
         </Notice>
       ) : (
         <>
-          <p className="muted">
-            Pick the project's service on 127.0.0.1. The list can be incomplete; you can always
-            enter a port. The port number alone says nothing about which project it belongs to.
-          </p>
+          <p className="muted">{m.target.intro}</p>
           <div className="service-list">
             {services?.services.map((service) => (
               <button
@@ -166,9 +164,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
               </button>
             ))}
             {services !== null && services.services.length === 0 && (
-              <p className="muted">
-                No local HTTP services found{services.note ? ` (${services.note})` : ""}.
-              </p>
+              <p className="muted">{m.target.noServices(services.note || null)}</p>
             )}
           </div>
           <form
@@ -179,7 +175,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
             }}
           >
             <label>
-              Other port
+              {m.target.otherPort}
               <input
                 inputMode="numeric"
                 value={otherPort}
@@ -189,7 +185,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
               />
             </label>
             <button type="submit" className="button" disabled={otherPortValue === null || isBusy}>
-              Check
+              {m.target.check}
             </button>
             <button
               type="button"
@@ -197,42 +193,42 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
               disabled={isBusy}
               onClick={() => void refresh()}
             >
-              Refresh list
+              {m.target.refresh}
             </button>
           </form>
           {identity !== null && (
-            <div className="identity" role="group" aria-label="Service identity">
+            <div className="identity" role="group" aria-label={m.target.identityLabel}>
               <dl>
-                <dt>URL</dt>
+                <dt>{m.target.url}</dt>
                 <dd>
                   <code>{identity.url}</code>
                 </dd>
-                <dt>Status</dt>
+                <dt>{m.target.status}</dt>
                 <dd>
                   {identity.isHttp
                     ? identity.status
-                    : `No HTTP response (${identity.error ?? "unknown"})`}
+                    : m.target.noHttp(identity.error ?? m.common.unknown)}
                 </dd>
-                <dt>Title</dt>
-                <dd>{identity.title ?? "(none)"}</dd>
-                <dt>Technology (inferred, not verified)</dt>
-                <dd>{identity.inferredTechnologies.join(", ") || "unknown"}</dd>
+                <dt>{m.target.title}</dt>
+                <dd>{identity.title ?? m.common.none}</dd>
+                <dt>{m.target.technology}</dt>
+                <dd>{identity.inferredTechnologies.join(", ") || m.common.unknown}</dd>
               </dl>
               {identity.hasUnfollowedRedirect && (
-                <Notice tone="warning">/ redirects to a location PGARD will not follow.</Notice>
+                <Notice tone="warning">{m.target.redirect}</Notice>
               )}
               {identity.isHttp ? (
                 <div className="confirm-row">
-                  <p>Is this the current project's service?</p>
+                  <p>{m.target.question}</p>
                   <button type="button" className="button primary" onClick={() => void confirm()}>
-                    Yes, this is the project's service
+                    {m.target.yes}
                   </button>
                   <button type="button" className="button" onClick={() => setIdentity(null)}>
-                    No
+                    {m.target.no}
                   </button>
                 </div>
               ) : (
-                <Notice tone="warning">This port did not answer HTTP. Choose another port.</Notice>
+                <Notice tone="warning">{m.target.notHttp}</Notice>
               )}
             </div>
           )}

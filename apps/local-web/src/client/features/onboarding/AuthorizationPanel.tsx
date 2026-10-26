@@ -4,21 +4,9 @@ import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
+import { useI18n } from "../../i18n/I18nProvider";
 import { InstallAppNotice } from "./InstallAppNotice";
-import {
-  describeGitHubApp,
-  describeStoredSignIn,
-  SIGN_OUT_HINTS,
-  SIGN_OUT_LABELS,
-} from "./sign-in-text";
-
-const CHECK_LABELS: Record<string, string> = {
-  repository: "Repository",
-  github_identity: "GitHub identity",
-  owner_approval: "Owner approval",
-  current_access: "Current access",
-  contribution: "Merged contribution",
-};
+import { describeGitHubApp, describeStoredSignIn, signOutTexts } from "./sign-in-text";
 
 interface AuthorizationPanelProps {
   session: SessionInfo;
@@ -27,6 +15,10 @@ interface AuthorizationPanelProps {
 
 /** Runs the same authorization gate a scan runs and shows each check's reason. */
 export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProps) {
+  const { m } = useI18n();
+  const { labels: SIGN_OUT_LABELS, hints: SIGN_OUT_HINTS } = signOutTexts(m);
+  const checkLabels: Record<string, string> = m.auth.checks;
+  const statusLabels: Record<string, string> = m.status;
   const [status, setStatus] = useState<AuthStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,7 +41,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
     try {
       update(await apiPost<AuthStatus>("/api/auth/verify"));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      setError(caught instanceof Error ? caught.message : m.common.requestFailed);
     }
   };
 
@@ -66,18 +58,18 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
       const body: SignOutRequestDto = { removeStored };
       update(await apiPost<AuthStatus>("/api/auth/sign-out", body));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      setError(caught instanceof Error ? caught.message : m.common.requestFailed);
     }
   };
 
-  const signInLine = status ? describeStoredSignIn(status.storedSignIn) : null;
-  const githubAppLine = describeGitHubApp(session.githubApp);
+  const signInLine = status ? describeStoredSignIn(status.storedSignIn, m) : null;
+  const githubAppLine = describeGitHubApp(session.githubApp, m);
   const canEndSession = status?.status === "done" || status?.storedSignIn.status === "stored";
   const canRemoveStored = status?.storedSignIn.status === "stored";
 
   return (
     <Card
-      title="Authorization"
+      title={m.cards.authorization}
       step={1}
       actions={
         canEndSession || canRemoveStored ? (
@@ -107,8 +99,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
       }
     >
       <p className="muted">
-        Project <strong>{session.projectName}</strong>. PGARD checks owner approval, your current
-        access and a merged contribution before every scan.
+        {m.auth.projectLabel} <strong>{session.projectName}</strong>. {m.auth.intro}
       </p>
       {githubAppLine?.tone === "info" && <p className="muted">{githubAppLine.text}</p>}
       {githubAppLine?.tone === "warning" && <Notice tone="warning">{githubAppLine.text}</Notice>}
@@ -126,7 +117,9 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
       )}
       {status?.signInNotice && <Notice tone="info">{status.signInNotice}</Notice>}
       {status?.deviceCode && <DeviceCodeNotice deviceCode={status.deviceCode} />}
-      {status?.status === "running" && !status.deviceCode && <p className="muted">Checking...</p>}
+      {status?.status === "running" && !status.deviceCode && (
+        <p className="muted">{m.auth.checking}</p>
+      )}
       {status?.summary && (
         <>
           <p
@@ -134,25 +127,27 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
               status.summary.decision === "allowed" ? "decision allowed" : "decision blocked"
             }
           >
-            {status.summary.decision === "allowed" ? "Allowed" : "Blocked - no analysis will run"}
+            {status.summary.decision === "allowed" ? m.auth.allowed : m.auth.blocked}
             {status.repo ? ` - ${status.repo}` : ""}
           </p>
           <table className="table">
             <thead>
               <tr>
-                <th>Check</th>
-                <th>Status</th>
-                <th>Reason</th>
+                <th>{m.auth.columns.check}</th>
+                <th>{m.auth.columns.status}</th>
+                <th>{m.auth.columns.reason}</th>
               </tr>
             </thead>
             <tbody>
               {status.summary.checks.map((check) => (
                 <tr key={check.id}>
-                  <td data-label="Check">{CHECK_LABELS[check.id] ?? check.id}</td>
-                  <td data-label="Status">
-                    <span className={`badge badge-${check.status}`}>{check.status}</span>
+                  <td data-label={m.auth.columns.check}>{checkLabels[check.id] ?? check.id}</td>
+                  <td data-label={m.auth.columns.status}>
+                    <span className={`badge badge-${check.status}`}>
+                      {statusLabels[check.status] ?? check.status}
+                    </span>
                   </td>
-                  <td data-label="Reason">{check.reason}</td>
+                  <td data-label={m.auth.columns.reason}>{check.reason}</td>
                 </tr>
               ))}
             </tbody>
@@ -164,11 +159,10 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
               onInstalled={() => void verify()}
             />
           )}
-          <p className="muted">This result is not stored; every scan checks again.</p>
+          <p className="muted">{m.auth.notStored}</p>
           {typeof status.expiresAt === "number" && (
             <p className="muted">
-              Local service discovery and probes stay open until{" "}
-              {new Date(status.expiresAt).toLocaleTimeString()}; check again after that.
+              {m.auth.expiresAt(new Date(status.expiresAt).toLocaleTimeString())}
             </p>
           )}
         </>
@@ -181,7 +175,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
         disabled={status?.status === "running"}
         onClick={() => void verify()}
       >
-        {status?.summary ? "Check again" : "Verify project"}
+        {status?.summary ? m.auth.recheck : m.auth.verify}
       </button>
     </Card>
   );

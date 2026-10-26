@@ -1,36 +1,32 @@
 import type { Coverage } from "@pgard/findings";
-
-const COVERAGE_LABELS: Record<string, string> = {
-  completed: "Completed",
-  partial: "Partial",
-  not_tested: "Not tested",
-  not_selected: "Not selected",
-};
+import { useI18n } from "../../i18n/I18nProvider";
 
 /** What ran and what did not. "No findings" is never shown as "safe". */
 export function CoverageTable({ coverage }: { coverage: readonly Coverage[] }) {
+  const { m } = useI18n();
+  const labels: Record<string, string> = m.status;
   return (
     <table className="table coverage">
-      <caption>Coverage</caption>
+      <caption>{m.coverage.caption}</caption>
       <thead>
         <tr>
-          <th>Area</th>
-          <th>Status</th>
-          <th>Note</th>
+          <th>{m.coverage.area}</th>
+          <th>{m.coverage.status}</th>
+          <th>{m.coverage.note}</th>
         </tr>
       </thead>
       <tbody>
         {coverage.map((entry) => (
           <tr key={entry.area}>
-            <td data-label="Area">
+            <td data-label={m.coverage.area}>
               <code>{entry.area}</code>
             </td>
-            <td data-label="Status">
+            <td data-label={m.coverage.status}>
               <span className={`badge badge-${entry.status}`}>
-                {COVERAGE_LABELS[entry.status] ?? "Unknown"}
+                {labels[entry.status] ?? m.status.unknownStatus}
               </span>
             </td>
-            <td data-label="Note">{entry.note ?? ""}</td>
+            <td data-label={m.coverage.note}>{entry.note ?? ""}</td>
           </tr>
         ))}
       </tbody>

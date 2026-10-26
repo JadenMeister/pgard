@@ -1,5 +1,6 @@
 import type { Severity } from "@pgard/findings";
-import { SEVERITY_COLOR_VARS, SEVERITY_LABELS, SEVERITY_ORDER } from "./severity-scale";
+import { useI18n } from "../../i18n/I18nProvider";
+import { SEVERITY_COLOR_VARS, SEVERITY_ORDER } from "./severity-scale";
 
 const ROW_HEIGHT = 30;
 const LABEL_WIDTH = 72;
@@ -15,6 +16,7 @@ interface SeverityBarChartProps {
 
 /** Horizontal bars, one per severity, direct-labeled with counts; click filters the list. */
 export function SeverityBarChart({ counts, activeSeverity, onSelect }: SeverityBarChartProps) {
+  const { m } = useI18n();
   const maxCount = Math.max(1, ...SEVERITY_ORDER.map((severity) => counts[severity]));
   const barSpace = WIDTH - LABEL_WIDTH - VALUE_WIDTH;
   return (
@@ -22,7 +24,9 @@ export function SeverityBarChart({ counts, activeSeverity, onSelect }: SeverityB
       className="chart"
       viewBox={`0 0 ${WIDTH} ${SEVERITY_ORDER.length * ROW_HEIGHT}`}
       role="img"
-      aria-label={`Findings by severity: ${SEVERITY_ORDER.map((s) => `${SEVERITY_LABELS[s]} ${counts[s]}`).join(", ")}`}
+      aria-label={m.charts.barAria(
+        SEVERITY_ORDER.map((s) => `${m.severity[s]} ${counts[s]}`).join(", "),
+      )}
     >
       {SEVERITY_ORDER.map((severity, index) => {
         const y = index * ROW_HEIGHT;
@@ -35,11 +39,11 @@ export function SeverityBarChart({ counts, activeSeverity, onSelect }: SeverityB
             className={`bar-row${isDimmed ? " is-dimmed" : ""}`}
             onClick={() => onSelect(activeSeverity === severity ? null : severity)}
           >
-            <title>{`${SEVERITY_LABELS[severity]}: ${count} finding(s)`}</title>
+            <title>{m.charts.barTitle(m.severity[severity], count)}</title>
             {/* Hit target spans the whole row, larger than the bar. */}
             <rect x={0} y={y} width={WIDTH} height={ROW_HEIGHT} className="hit-target" />
             <text x={0} y={y + ROW_HEIGHT / 2 + 4} className="chart-label">
-              {SEVERITY_LABELS[severity]}
+              {m.severity[severity]}
             </text>
             {width > 0 && (
               <rect

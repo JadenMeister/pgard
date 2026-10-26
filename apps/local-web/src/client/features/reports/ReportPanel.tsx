@@ -2,9 +2,11 @@ import { useState } from "react";
 import type { ReportFormatDto, ReportResponse } from "../../../shared/api-types";
 import { apiPost } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
+import { useI18n } from "../../i18n/I18nProvider";
 
 /** Exports the current result as HTML/PDF via the server; never overwrites existing files. */
 export function ReportPanel() {
+  const { m } = useI18n();
   const [format, setFormat] = useState<ReportFormatDto>("html");
   const [outputDir, setOutputDir] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
@@ -27,12 +29,12 @@ export function ReportPanel() {
       setWarning(null);
       setSaved(response.files);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      setError(caught instanceof Error ? caught.message : m.common.requestFailed);
     }
   };
 
   return (
-    <Card title="Export report" step={5}>
+    <Card title={m.cards.report} step={5}>
       <form
         className="inline-form"
         onSubmit={(event) => {
@@ -41,18 +43,18 @@ export function ReportPanel() {
         }}
       >
         <label>
-          Format
+          {m.report.format}
           <select
             value={format}
             onChange={(event) => setFormat(event.target.value as ReportFormatDto)}
           >
-            <option value="html">HTML</option>
-            <option value="pdf">PDF</option>
-            <option value="both">HTML and PDF</option>
+            <option value="html">{m.report.html}</option>
+            <option value="pdf">{m.report.pdf}</option>
+            <option value="both">{m.report.both}</option>
           </select>
         </label>
         <label className="grow">
-          Output directory (absolute path, must exist)
+          {m.report.outputDir}
           <input
             value={outputDir}
             onChange={(event) => setOutputDir(event.target.value)}
@@ -60,26 +62,24 @@ export function ReportPanel() {
           />
         </label>
         <button type="submit" className="button primary" disabled={outputDir.trim() === ""}>
-          Save
+          {m.report.save}
         </button>
       </form>
-      <p className="muted small">
-        Existing files are never overwritten. Reports may describe sensitive weaknesses.
-      </p>
+      <p className="muted small">{m.report.note}</p>
       {warning && (
         <div className="confirm-row">
           <Notice tone="warning">{warning}</Notice>
           <button type="button" className="button" onClick={() => void save(true)}>
-            Save inside the repository anyway
+            {m.report.saveInside}
           </button>
           <button type="button" className="button" onClick={() => setWarning(null)}>
-            Choose another directory
+            {m.report.chooseOther}
           </button>
         </div>
       )}
       {saved.length > 0 && (
         <Notice tone="info">
-          Saved:{" "}
+          {m.report.saved}{" "}
           {saved.map((file) => (
             <code key={file}>{file} </code>
           ))}

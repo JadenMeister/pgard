@@ -373,6 +373,8 @@ When a device code is needed, the dashboard shows an **Open the GitHub sign-in p
 
 Port discovery, identity probes and target confirmation are allowed only after the dashboard's latest authorization check for this project passed, and only for 30 minutes after that check finished. The dashboard shows when this window ends; after that (or if the system clock moves back), you must check again before it contacts local services. A new check or a sign-out closes the window at once and aborts probes that are still running, and the page drops port lists and probe results from an earlier check. Each scan runs the full authorization check again regardless of this window.
 
+The dashboard is available in Korean and English. It follows the browser language (any Korean setting picks Korean, otherwise English) and has a **한국어 / English** toggle in the header; the choice is remembered in the browser. Text that comes from the scan itself (finding titles, rule descriptions, authorization reasons) stays in English for now.
+
 How the dashboard protects itself:
 
 - It binds to `127.0.0.1` only, on a free port.
