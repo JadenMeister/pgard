@@ -33,7 +33,7 @@ PGARD is released under the [MIT License](LICENSE).
 
 ## Requirements
 
-- Node.js 22.12 or newer
+- Node.js 22.23.4, 24.22.1 or 26.12.1, or a newer patch on the same line. These are the releases that fix the vulnerabilities in the [Node.js security release of 21 October 2026](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), including a Brotli decoder out-of-bounds write that can lead to remote code execution (CVE-2026-111497) and TLS hostname check bypasses. PGARD uses `fetch` and TLS to call the GitHub API, so older releases are not supported: `pgard doctor` fails the Node.js check on them. Node.js 20 and earlier and the odd-numbered lines get no fixes. Check your version with `node --version`.
 - Git
 - macOS or Linux for local port discovery (`lsof` on macOS, `/proc/net/tcp*` on Linux). You can always type a port by hand.
 - A GitHub account (see [GitHub App and sign-in](#github-app-and-sign-in))

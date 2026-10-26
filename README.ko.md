@@ -33,7 +33,7 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 
 ## 요구 사항
 
-- Node.js 22.12 이상
+- Node.js 22.23.4, 24.22.1, 26.12.1 이상(같은 버전 라인의 더 새로운 패치 포함). [2026년 10월 21일 Node.js 보안 릴리스](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)에서 고친 취약점이 반영된 버전입니다. 원격 코드 실행으로 이어질 수 있는 Brotli 디코더 범위 밖 쓰기(CVE-2026-111497)와 TLS 호스트 이름 검증 우회가 여기에 포함됩니다. PGARD는 `fetch`와 TLS로 GitHub API를 호출하므로 이전 버전은 지원하지 않으며, `pgard doctor`의 Node.js 검사도 실패합니다. Node.js 20 이하와 홀수 버전 라인은 수정이 제공되지 않습니다. 버전은 `node --version`으로 확인하세요.
 - Git
 - 로컬 포트 탐지를 위한 macOS 또는 Linux(macOS는 `lsof`, Linux는 `/proc/net/tcp*`). 포트는 언제든 직접 입력할 수 있습니다.
 - GitHub 계정([GitHub App과 로그인](#github-app과-로그인) 참고)

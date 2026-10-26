@@ -60,10 +60,23 @@ describe("runDoctor", () => {
     expect(stdout).toContain("All required checks passed.");
   });
 
-  it("checks the Node.js version", () => {
-    expect(isSupportedNodeVersion("22.12.0")).toBe(true);
-    expect(isSupportedNodeVersion("22.11.9")).toBe(false);
-    expect(isSupportedNodeVersion("26.3.0")).toBe(true);
-    expect(isSupportedNodeVersion("20.0.0")).toBe(false);
+  it("requires a Node.js release with the October 2026 security fixes", () => {
+    for (const ok of ["22.23.4", "22.24.0", "24.22.1", "24.23.0", "26.12.1", "26.13.0", "28.0.0"]) {
+      expect(isSupportedNodeVersion(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      "22.12.0",
+      "22.23.3",
+      "23.11.0",
+      "24.22.0",
+      "24.9.9",
+      "25.9.0",
+      "26.12.0",
+      "26.3.0",
+      "20.19.0",
+      "",
+    ]) {
+      expect(isSupportedNodeVersion(bad), bad).toBe(false);
+    }
   });
 });
