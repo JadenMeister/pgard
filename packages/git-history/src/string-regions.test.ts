@@ -82,8 +82,77 @@ describe("createStringLookup (#145)", () => {
     ["an unterminated Python block", 'a = """\nMARK', "a.py"],
     ["an unterminated heredoc", "a = <<~EOS\nMARK", "a.rb"],
     ["an unterminated quote on the same line", "it's MARK", "a.ts"],
+    ["an unterminated quote, past a closed string", 'it\'s "q" MARK', "a.ts"],
   ])("treats the rest after %s as inside a string (reported)", (_label, text, path) => {
     expect(inside(text, path)).toBe(true);
+  });
+
+  it.each([
+    [
+      "a template after a regex that follows if (…)",
+      "if (x) /`/.test(s);\nconst a = `\nMARK`;",
+      "a.ts",
+    ],
+    [
+      "a template after a regex that follows while (…)",
+      "while (f(x)) /`/.exec(s);\nconst a = `\nMARK`;",
+      "a.ts",
+    ],
+    ["a template after a BOM and a regex", "﻿/`/.test(x);\nconst a = `\nMARK`;", "a.ts"],
+    [
+      "a template after a regex over 512 characters",
+      `const r = /${"x".repeat(600)}\`/;\nconst a = \`\nMARK\`;`,
+      "a.ts",
+    ],
+    [
+      "a template after an apostrophe in JSX text",
+      "const x = <p>Don't</p>; const a = `\nMARK`;",
+      "a.tsx",
+    ],
+    ["a lowercase Ruby heredoc", "a = <<~eos\n  MARK\neos", "a.rb"],
+    ["a lowercase Ruby heredoc with a dash", "a = <<-eos\n  MARK\n  eos", "a.rb"],
+    ["a quoted lowercase Ruby heredoc", "a = <<'eos'\n  MARK\neos", "a.rb"],
+    [
+      "a C# interpolated verbatim string with quotes in a hole",
+      'var a = $@"{(b ? "x" : "y")}\nMARK\n";',
+      "a.cs",
+    ],
+    ["a C# @$ interpolated verbatim string", 'var a = @$"{f("}")} {{\nMARK\n";', "a.cs"],
+    [
+      "a Rust raw string with more than 8 #",
+      'let a = r##########"\n"#; MARK\n"##########;',
+      "a.rs",
+    ],
+    [
+      "a Swift raw string with more than 8 #",
+      'let a = ##########"\n"#; MARK\n"##########',
+      "a.swift",
+    ],
+  ])("finds text inside %s (#158)", (_label, text, path) => {
+    expect(inside(text, path)).toBe(true);
+  });
+
+  it.each([
+    [
+      "code after a division by a parenthesized value",
+      'const r = (a) / b / c; const s = "/";\nMARK',
+      "a.ts",
+    ],
+    ["code after a call divided twice", "const r = f(a) / 2 / g(b);\nMARK", "a.ts"],
+    [
+      "code after a closed C# interpolated verbatim string",
+      'var a = $@"{(b ? "x" : "y")}\n";\nMARK',
+      "a.cs",
+    ],
+    ["code after a closed lowercase Ruby heredoc", "a = <<~eos\n  x\neos\nMARK", "a.rb"],
+    ["code after a Ruby shift into a lowercase name", "list <<item\nMARK", "a.rb"],
+    [
+      "code after a Rust raw string with more than 8 #",
+      'let a = r##########"\n"#;\n"##########;\nMARK',
+      "a.rs",
+    ],
+  ])("finds %s outside strings (#158)", (_label, text, path) => {
+    expect(inside(text, path)).toBe(false);
   });
 
   it("stays linear on large and pathological inputs", () => {

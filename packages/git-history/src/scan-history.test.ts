@@ -203,6 +203,42 @@ describe("detectSecrets", () => {
 
   it.each([
     [
+      "a template after a regex that follows if (…)",
+      "if (x) /`/.test(s);\nconst c = `\n{password: C9}\n`;",
+      "a.ts",
+    ],
+    [
+      "a template after an apostrophe in JSX text",
+      "const x = <p>Don't</p>; const c = `\n{password: C9}\n`;",
+      "a.tsx",
+    ],
+    ["a lowercase Ruby heredoc", "cfg = <<~eos\n  {password: C9}\neos", "app.rb"],
+    [
+      "a C# interpolated verbatim string",
+      'var c = $@"{(a ? "x" : "y")}\n{password: C9}\n";',
+      "App.cs",
+    ],
+    [
+      "a template after a BOM and a regex",
+      "﻿/`/.test(x);\nconst c = `\n{password: C9}\n`;",
+      "a.ts",
+    ],
+    [
+      "a template after a long regex",
+      `const r = /${"x".repeat(600)}\`/;\nconst c = \`\n{password: C9}\n\`;`,
+      "a.ts",
+    ],
+    [
+      "a Rust raw string with more than 8 #",
+      'let c = r#########"\n"#;\n{password: C9}\n"#########;',
+      "main.rs",
+    ],
+  ])("detects %s: tracker gaps (#158)", (_label, text, path) => {
+    expectCredential(text.replace("C9", C), path);
+  });
+
+  it.each([
+    [
       "after a Rust lifetime",
       'const X: &\'static str = "a";\nlet x = Cfg { password: passwordFromVault };',
     ],
