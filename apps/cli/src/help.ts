@@ -37,7 +37,7 @@ Usage:
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and unsupported areas
-  pgard history clear [--repo owner/name]
+  pgard history clear --all | --repo owner/name
                                 delete stored scan results (all, or one repository)
   pgard doctor                  diagnose the environment (not an authorization)
   pgard login                   sign in to GitHub once and save it in the OS keychain
@@ -96,7 +96,7 @@ ${NO_BROWSER_HELP}
 
 A finished scan of a repository the gate allowed is stored in this computer's
 app-data folder (owner-only, never uploaded): the last 20 scans per repository
-for 90 days. Delete them with pgard history clear.
+for 90 days. Delete them with pgard history clear --all.
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to
 be installed, PGARD opens the install page, waits for it, re-runs the full
@@ -134,17 +134,18 @@ Lists supported rules and unsupported areas.
 --language react and vue also include the JavaScript/TypeScript rules.
 Works outside a project.`,
   history: `Usage:
-  pgard history clear [--repo owner/name]
+  pgard history clear --all | --repo owner/name
 
 Subcommands:
   clear   delete stored scan results`,
   "history clear": `Usage:
-  pgard history clear [--all | --repo owner/name]
+  pgard history clear --all | --repo owner/name
 
 Deletes the scan results that pgard scan stored in this computer's app-data
-folder. Without options (or with --all) every repository's results are deleted;
---repo deletes the results of one repository, matched by the owner/name stored in
-them. Nothing is uploaded and no sign-in is needed. Stop storing with --no-store
+folder. One of the two options is required: --all deletes every repository's
+results; --repo deletes the results of one repository, matched by the owner/name
+stored in them (after a rename or transfer, give the name the results were
+stored under). Nothing is uploaded and no sign-in is needed. Stop storing with --no-store
 on pgard scan or PGARD_NO_STORE=1.
 
 ${EXIT_CODE_HELP}`,

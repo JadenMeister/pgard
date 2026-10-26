@@ -287,15 +287,95 @@ describe.skipIf(!isPosix)("symlink refusal", () => {
     expect(listed.warnings).toHaveLength(1);
   });
 
-  it("clear removes a planted link but never what it points to", async () => {
-    const elsewhere = path.join(base, "elsewhere");
-    await mkdir(elsewhere);
-    await writeFile(path.join(elsewhere, "keep.txt"), "keep");
-    await mkdir(dir, { mode: 0o700 });
-    await symlink(elsewhere, path.join(dir, "repos"));
-    await store.clear();
-    expect(await readFile(path.join(elsewhere, "keep.txt"), "utf8")).toBe("keep");
-    await expect(lstat(path.join(dir, "repos"))).rejects.toThrow();
+  describe("clear never follows links", () => {
+    let elsewhere: string;
+    let victim: string;
+    beforeEach(async () => {
+      elsewhere = path.join(base, "elsewhere");
+      victim = path.join(elsewhere, "1111111111111-aaaaaaaaaaaaaaaa.json");
+      await mkdir(elsewhere);
+      await writeFile(victim, JSON.stringify(makeResult()), { mode: 0o600 });
+    });
+
+    it("a symlinked store root", async () => {
+      await symlink(elsewhere, dir);
+      const outcome = await store.clear();
+      expect(outcome.removed).toBe(0);
+      expect(outcome.warnings).toHaveLength(1);
+      expect(await readFile(victim, "utf8")).toContain("scan-1");
+    });
+
+    it("a symlinked repos directory", async () => {
+      await mkdir(dir, { mode: 0o700 });
+      await symlink(elsewhere, path.join(dir, "repos"));
+      const outcome = await store.clear();
+      expect(outcome.removed).toBe(0);
+      expect(outcome.warnings).toHaveLength(1);
+      expect(await readFile(victim, "utf8")).toContain("scan-1");
+    });
+
+    it("a symlinked repository directory, by id and for all", async () => {
+      await mkdir(path.join(dir, "repos"), { recursive: true, mode: 0o700 });
+      await symlink(elsewhere, path.join(dir, "repos", String(REPO_ID)));
+      for (const options of [{}, { repositoryId: REPO_ID }, { repoName: "owner/name" }]) {
+        const outcome = await store.clear(options);
+        expect(outcome.removed).toBe(0);
+        expect(outcome.warnings).toHaveLength(1);
+        expect(await readFile(victim, "utf8")).toContain("scan-1");
+      }
+    });
+
+    it("a directory owned by another user", async () => {
+      await store.save(makeResult(), { repositoryId: REPO_ID });
+      const foreign = createResultStore({ dir, now: () => clock, getuid: () => 0x7ffffff0 });
+      const outcome = await foreign.clear();
+      expect(outcome.removed).toBe(0);
+      expect(outcome.warnings).toHaveLength(1);
+      expect(await repoFiles()).toHaveLength(1);
+      expect(await foreign.save(makeResult(), { repositoryId: REPO_ID })).toMatchObject({
+        ok: false,
+        error: { code: "wrong_owner" },
+      });
+    });
+  });
+
+  it("clear by id only touches that id, and ignores non-numeric directories", async () => {
+    await store.save(makeResult({ scanId: "a" }), { repositoryId: 1 });
+    await store.save(makeResult({ scanId: "b" }), { repositoryId: 2 });
+    const stray = path.join(dir, "repos", "notes");
+    await mkdir(stray, { mode: 0o700 });
+    await writeFile(path.join(stray, "keep.txt"), "keep");
+    expect(await store.clear({ repositoryId: 2 })).toMatchObject({ removed: 1 });
+    expect((await store.list(1)).scans).toHaveLength(1);
+    expect(await store.clear()).toMatchObject({ removed: 1 });
+    expect(await readFile(path.join(stray, "keep.txt"), "utf8")).toBe("keep");
+  });
+
+  it("clear with a bad id deletes nothing", async () => {
+    await store.save(makeResult(), { repositoryId: 1 });
+    const outcome = await store.clear({ repositoryId: -3 });
+    expect(outcome.removed).toBe(0);
+    expect(outcome.warnings).toHaveLength(1);
+    expect((await store.list(1)).scans).toHaveLength(1);
+  });
+
+  it("clear by name deletes only matched result files, not other files in the directory", async () => {
+    await store.save(makeResult({ scanId: "a" }), { repositoryId: 1 });
+    await store.save(
+      makeResult({
+        scanId: "b",
+        target: { repo: "other/repo", revision: null, webOrigin: null },
+      }),
+      { repositoryId: 2 },
+    );
+    const other = path.join(dir, "repos", "2", "note.txt");
+    const tmp = path.join(dir, "repos", "2", ".tmp-1-x");
+    await writeFile(other, "keep");
+    await writeFile(tmp, "keep");
+    expect(await store.clear({ repoName: "owner/name" })).toMatchObject({ removed: 1 });
+    expect(await readFile(other, "utf8")).toBe("keep");
+    expect(await readFile(tmp, "utf8")).toBe("keep");
+    expect((await store.list(2)).scans).toHaveLength(1);
   });
 
   it("refuses a store path that is a regular file", async () => {
@@ -331,6 +411,24 @@ describe("retention", () => {
     expect(saved).toMatchObject({ ok: true, pruned: 1 });
     const ids = (await store.list(REPO_ID)).scans.map((s) => s.result.scanId);
     expect(ids).toEqual(["new", "mid"]);
+  });
+
+  it("never prunes the file just written, even with 20 future-dated files", async () => {
+    const repoDir = path.join(dir, "repos", String(REPO_ID));
+    await mkdir(repoDir, { recursive: true, mode: 0o700 });
+    for (let i = 0; i < RETENTION_MAX_SCANS_PER_REPO; i += 1) {
+      const future = String(clock + 400 * DAY + i).padStart(13, "0");
+      await writeFile(
+        path.join(repoDir, `${future}-ffffffffffff${i.toString(16).padStart(4, "0")}.json`),
+        JSON.stringify(makeResult({ scanId: `future-${i}` })),
+        { mode: 0o600 },
+      );
+    }
+    const saved = await store.save(makeResult({ scanId: "fresh" }), { repositoryId: REPO_ID });
+    expect(saved).toMatchObject({ ok: true, pruned: 1 });
+    if (!saved.ok) return;
+    expect(await repoFiles()).toContain(saved.file);
+    expect(await repoFiles()).toHaveLength(RETENTION_MAX_SCANS_PER_REPO);
   });
 
   it("keeps a scan exactly at the age limit", async () => {

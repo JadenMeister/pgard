@@ -295,6 +295,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       if (repo !== null && split.all) {
         throw new UsageError("--repo and --all cannot be used together.", topic);
       }
+      if (repo === null && !split.all) {
+        throw new UsageError(
+          "history clear deletes stored results: pass --all or --repo owner/name.",
+          topic,
+        );
+      }
       if (repo !== null && !/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/.test(repo)) {
         throw new UsageError("--repo must look like owner/name.", topic);
       }

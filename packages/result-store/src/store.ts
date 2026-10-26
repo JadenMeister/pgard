@@ -125,6 +125,8 @@ export interface ResultStoreOptions {
   maxAgeDays?: number;
   /** For tests; defaults to the platform. */
   platform?: NodeJS.Platform;
+  /** For tests; defaults to `process.getuid`. Directories owned by another uid are refused. */
+  getuid?: () => number | undefined;
 }
 
 export interface ResultStore {
@@ -184,6 +186,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
   const maxScans = options.maxScansPerRepo ?? RETENTION_MAX_SCANS_PER_REPO;
   const maxAgeMs = (options.maxAgeDays ?? RETENTION_MAX_AGE_DAYS) * MS_PER_DAY;
   const isPosix = (options.platform ?? process.platform) !== "win32";
+  const getuid = options.getuid ?? (() => process.getuid?.());
   const reposDir = path.join(root, REPOS_DIRECTORY);
 
   /** Creates (owner-only) or validates a directory: no symlink, ours, 0700. */
@@ -218,7 +221,8 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         throw new StoreFailure("symlink", "A result directory changed while it was opened.");
       }
       if (isPosix) {
-        if (typeof process.getuid === "function" && stat.uid !== process.getuid()) {
+        const uid = getuid();
+        if (uid !== undefined && stat.uid !== uid) {
           throw new StoreFailure("wrong_owner", "A result directory is owned by another user.");
         }
         if ((stat.mode & 0o777) !== DIRECTORY_MODE) await handle.chmod(DIRECTORY_MODE);
@@ -365,16 +369,27 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     }
   }
 
-  async function pruneDirectory(dir: string): Promise<number> {
+  async function pruneDirectory(dir: string, keep: string | null = null): Promise<number> {
     const names = await listFiles(dir);
     const timestamp = now();
     const results = names
       .map((name) => ({ name, match: RESULT_FILE_PATTERN.exec(name) }))
       .filter((entry): entry is { name: string; match: RegExpExecArray } => entry.match !== null)
-      .map((entry) => ({ name: entry.name, savedAt: Number(entry.match[1]) }))
-      .sort((a, b) => b.savedAt - a.savedAt || (a.name < b.name ? 1 : -1));
+      // A file dated in the future (clock skew) counts as saved now, so it cannot crowd out
+      // newer scans forever.
+      .map((entry) => ({ name: entry.name, savedAt: Math.min(Number(entry.match[1]), timestamp) }))
+      // The file just written always comes first, so it is never the one pruned.
+      .sort(
+        (a, b) =>
+          Number(b.name === keep) - Number(a.name === keep) ||
+          b.savedAt - a.savedAt ||
+          (a.name < b.name ? 1 : -1),
+      );
     const doomed = results
-      .filter((entry, index) => index >= maxScans || timestamp - entry.savedAt > maxAgeMs)
+      .filter(
+        (entry, index) =>
+          entry.name !== keep && (index >= maxScans || timestamp - entry.savedAt > maxAgeMs),
+      )
       .map((entry) => entry.name);
     for (const name of names) {
       if (!name.startsWith(TEMP_PREFIX)) continue;
@@ -432,7 +447,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         const dir = await ensureRepoDirectory(saveOptions.repositoryId);
         const file = fileNameFor(checked.result, now());
         await writeAtomically(dir, file, text);
-        const pruned = await pruneDirectory(dir).catch(() => 0);
+        const pruned = await pruneDirectory(dir, file).catch(() => 0);
         return { ok: true, file, pruned };
       } catch (error) {
         return { ok: false, error: toStoreError(error) };
@@ -494,23 +509,13 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     async clear(clearOptions = {}) {
       const outcome: ClearOutcome = { removed: 0, warnings: [] };
       try {
-        let rootStat: Stats;
+        // Same checks as every other operation: no symlink, ours, 0700. Nothing is created.
         try {
-          rootStat = await lstat(root);
+          await ensureDirectory(root, false);
+          await ensureDirectory(reposDir, false);
         } catch (error) {
           if (errnoOf(error) === "ENOENT") return outcome;
           throw error;
-        }
-        if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-          throw new StoreFailure("symlink", "The result store path is not a real directory.");
-        }
-        const reposStat = await lstat(reposDir).catch(() => null);
-        if (reposStat === null) return outcome;
-        if (reposStat.isSymbolicLink() || !reposStat.isDirectory()) {
-          // Remove the link itself; its target is never touched.
-          await unlink(reposDir);
-          outcome.warnings.push("Removed an unexpected link in the result store.");
-          return outcome;
         }
         const wantedName = clearOptions.repoName?.toLowerCase();
         if (clearOptions.repositoryId !== undefined && !isRepositoryId(clearOptions.repositoryId)) {
@@ -522,15 +527,19 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
             continue;
           }
           const dir = path.join(reposDir, id);
-          const dirStat = await lstat(dir).catch(() => null);
-          if (dirStat === null) continue;
-          if (dirStat.isSymbolicLink() || !dirStat.isDirectory()) {
-            await unlink(dir).catch(() => undefined);
+          try {
+            await ensureDirectory(dir, false);
+          } catch (error) {
+            if (errnoOf(error) !== "ENOENT") {
+              outcome.warnings.push(`Skipped repository ${id}: ${toStoreError(error).message}`);
+            }
             continue;
           }
           for (const name of await listFiles(dir)) {
             const file = path.join(dir, name);
             const isResult = RESULT_FILE_PATTERN.test(name);
+            // A name-scoped clear only ever deletes result files it has matched.
+            if (wantedName !== undefined && !isResult) continue;
             if (isResult && wantedName !== undefined) {
               try {
                 const scan = parseStored(name, await readCapped(file));

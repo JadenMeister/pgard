@@ -141,7 +141,6 @@ describe("parseCommandLine", () => {
     ]) {
       expect(() => parseCommandLine(argv), argv.join(" ")).toThrow(UsageError);
     }
-    expect(parseCommandLine(["history", "clear"])).toEqual({ kind: "history-clear", repo: null });
     expect(parseCommandLine(["history", "clear", "--all"])).toEqual({
       kind: "history-clear",
       repo: null,
@@ -153,6 +152,7 @@ describe("parseCommandLine", () => {
     for (const argv of [
       ["history"],
       ["history", "list"],
+      ["history", "clear"],
       ["history", "clear", "--repo", "noslash"],
       ["history", "clear", "--repo", "a/b", "--all"],
       ["history", "clear", "extra"],

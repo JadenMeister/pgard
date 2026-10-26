@@ -7,7 +7,7 @@ export async function runHistoryClear(
   context: CommandContext,
   repo: string | null,
 ): Promise<ExitCode> {
-  const store = context.deps.resultStore;
+  const store = context.deps.openResultStore(context.io.env);
   if (store === null) {
     err(
       context,

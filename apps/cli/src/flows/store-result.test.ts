@@ -14,7 +14,7 @@ import {
   createTestIo,
   testResult,
 } from "../test-support.js";
-import { NO_STORE_ENV } from "./store-result.js";
+import { NO_STORE_ENV, firstRunNotice } from "./store-result.js";
 
 const REPO_ID = 777;
 const ALLOWED_OUTCOME: AuthorizationOutcome = {
@@ -42,7 +42,7 @@ function depsWith(
   resultStore: ResultStore | null = store,
 ) {
   return createTestDeps({
-    resultStore,
+    openResultStore: () => resultStore,
     runScan: async (_request, deps) => {
       if (outcome !== null) deps?.onAuthorization?.(outcome);
       return result;
@@ -76,6 +76,40 @@ describe("storing a finished scan", () => {
     const second = await run(depsWith(ALLOWED_OUTCOME, testResult({ scanId: "scan-2" })));
     expect(second.captured.stderr()).not.toContain("PGARD now keeps");
     expect((await store.list(REPO_ID)).scans).toHaveLength(2);
+  });
+
+  it("claims the notice only after a successful save, and keeps it on stderr", async () => {
+    const broken: ResultStore = {
+      ...store,
+      save: async () => ({ ok: false, error: { code: "io", message: "disk full" } }),
+    };
+    await run(depsWith(ALLOWED_OUTCOME, testResult(), broken));
+    // The failed save did not use up the notice: the next successful save shows it.
+    const next = await run(depsWith(ALLOWED_OUTCOME));
+    expect(next.captured.stderr()).toContain("PGARD now keeps");
+    expect(next.captured.stdout()).not.toContain("PGARD now keeps");
+  });
+
+  it("words the notice for the platform", () => {
+    expect(firstRunNotice("/d", "linux")).toContain("readable only by you");
+    expect(firstRunNotice("C:\\d", "win32")).not.toContain("readable only by you");
+    expect(firstRunNotice("C:\\d", "win32")).toContain("Windows profile");
+  });
+
+  it("refuses a result that carries the home directory", async () => {
+    const leaky = testResult({
+      coverage: [
+        {
+          area: "a",
+          scope: "code",
+          status: "completed",
+          ruleIds: [],
+          note: `in ${os.homedir()}/x`,
+        },
+      ],
+    });
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, leaky));
+    expect(captured.stderr()).toContain("was not stored");
   });
 
   it("stores nothing with --no-store, and does not print the notice or create the directory", async () => {
