@@ -429,6 +429,16 @@ npm run check         # typecheck + format:check + test
 
 CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull requests and pushes to `main`.
 
+### Design documents
+
+PGARD was built from three Korean planning documents in [`docs/`](docs/):
+
+- [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
+- [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): the command set and the layout of the apps and packages.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): the rules for commit units, messages, naming, verification and pull requests.
+
+Where these documents and this README disagree, this README and the code are correct, because they reflect decisions made later.
+
 ## License
 
 [MIT](LICENSE)
