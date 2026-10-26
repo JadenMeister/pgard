@@ -25,12 +25,12 @@ function FindingItem({ finding }: { finding: Finding }) {
         <span className={`badge sev-badge sev-${finding.severity}`}>
           {SEVERITY_LABELS[finding.severity]}
         </span>
-        <span className="badge">{finding.status}</span>
+        <span className={`badge badge-${finding.status}`}>{finding.status}</span>
         <span className="muted">confidence {finding.confidence}</span>
       </div>
       <h3>{finding.title}</h3>
       <p className="location">
-        <code>{formatLocation(finding.location)}</code>{" "}
+        <code title={formatLocation(finding.location)}>{formatLocation(finding.location)}</code>{" "}
         <span className="muted">{finding.ruleId}</span>
       </p>
       <dl>

@@ -22,15 +22,15 @@ export function CoverageTable({ coverage }: { coverage: readonly Coverage[] }) {
       <tbody>
         {coverage.map((entry) => (
           <tr key={entry.area}>
-            <td>
+            <td data-label="Area">
               <code>{entry.area}</code>
             </td>
-            <td>
+            <td data-label="Status">
               <span className={`badge badge-${entry.status}`}>
                 {COVERAGE_LABELS[entry.status] ?? "Unknown"}
               </span>
             </td>
-            <td>{entry.note ?? ""}</td>
+            <td data-label="Note">{entry.note ?? ""}</td>
           </tr>
         ))}
       </tbody>
