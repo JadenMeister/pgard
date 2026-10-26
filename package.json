@@ -17,10 +17,13 @@
     "test": "vitest run --passWithNoTests",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "npm run typecheck && npm run format:check && npm test"
+    "check": "npm run typecheck && npm run format:check && npm test",
+    "pack:pgard": "npm run build && node scripts/pack-pgard.mjs",
+    "smoke:pack": "node scripts/smoke-pack.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
+    "esbuild": "0.28.2",
     "prettier": "^3.9.10",
     "typescript": "^7.0.2",
     "vitest": "^5.0.5"

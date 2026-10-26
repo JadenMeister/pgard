@@ -82,6 +82,17 @@ npm link -w @pgard/cli # 선택: PATH에 `pgard` 등록
 
 `npm link` 없이 실행하려면 저장소에서 `node apps/cli/dist/bin/pgard.js <명령>`을 사용합니다.
 
+### 패키지를 로컬에서 빌드하기
+
+배포물은 CLI, 대시보드, PDF 글꼴, tree-sitter 문법을 하나로 묶은 npm 패키지 `pgard`입니다. 아직 배포하지 않았습니다. 빌드하고, 설치했을 때 동작하는지 확인하려면 다음을 실행합니다.
+
+```sh
+npm run pack:pgard   # 빌드 후 .pack/pgard-<버전>.tgz 생성(git 추적 제외)
+npm run smoke:pack   # 그 tarball을 임시 디렉터리에 설치해 실행
+```
+
+`smoke:pack`은 `pgard --version`, `--help`, `rules list`, `doctor`를 실행하고, 내장 글꼴로 한국어 PDF를 만들며(대체 글꼴이면 실패), 문법 하나를 불러오고, 대시보드 서버를 시작합니다. CI도 Linux, macOS, Windows에서 같은 단계를 실행합니다.
+
 그다음 검사할 프로젝트의 루트에서 PGARD를 실행합니다.
 
 ```sh
@@ -110,7 +121,7 @@ Usage:
   pgard scan all [--port N]     code + history + local HTTP service
   pgard dashboard [--target-port N]
                                 start the local web dashboard
-  pgard rules list [--language js|ts|react|vue|go]
+  pgard rules list [--language js|ts|react|vue|go] [--lang en|ko]
                                 supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
                                 delete stored scan results (all, or one repository)
@@ -155,6 +166,11 @@ Options:
   --all-findings           list every finding and location; by default more than
                            5 findings in test, fixture or vendored code are
                            summarized, and groups show up to 3 locations
+  --lang en|ko             language of rule titles, impact and fix texts in the
+                           result (default: PGARD_LANG, then the system locale,
+                           then en). JSON output is always English
+  --report-lang en|ko      language of rule texts in saved reports (default: the
+                           --lang language)
   --format text|json       json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
@@ -176,6 +192,8 @@ authorization and continues the scan.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
 - `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 각자의 근거와 함께 나열하며 아무것도 접지 않습니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고).
 - `--format text|json`(모든 `scan`, 기본값 `text`): `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
+- `--lang en|ko`(모든 `scan`, `rules list`): 터미널에 표시되는 규칙 문구(제목, 영향, 조치)의 언어입니다. [규칙 문구의 언어](#규칙-문구의-언어) 참고.
+- `--report-lang en|ko`(`--report`와 함께 쓰는 모든 `scan`): 저장되는 HTML·PDF 보고서의 규칙 문구 언어이며, 기본값은 `--lang` 언어입니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 - `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 터미널(stdin과 stdout 모두)에서 링크를 출력한 뒤 `Press Enter to open github.com in your browser...`라고 묻고, Enter를 눌러야 페이지를 엽니다(다른 키는 무시). 로그인·설치 대기는 이 질문과 무관하게 진행되며, 대기가 끝나면 질문은 사라집니다. 터미널이 아니면 열지도 묻지도 않습니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
 - `--no-store`(`scan`만) 또는 환경 변수 `PGARD_NO_STORE=1`: 이번 검사 결과를 이 컴퓨터에 보관하지 않습니다. 값이 정확히 `1`일 때만 적용됩니다. 이 경우 폴더도 안내문도 만들지 않습니다. [저장된 결과](#저장된-결과) 참고.
@@ -404,6 +422,16 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 터미널 결과는 심각도 차트, `파일:줄` 또는 URL이 붙은 발견 항목(확정·의심·정보), 가려진 근거, 가이드, 영역별 coverage를 보여 줍니다.
 
+### 규칙 문구의 언어
+
+규칙 제목, 영향 설명, 조치 설명을 한국어나 영어로 볼 수 있습니다. 언어는 `--lang en|ko`, 환경 변수 `PGARD_LANG`(`en` 또는 `ko`), 시스템 로케일(`LC_ALL`, `LC_MESSAGES`, `LANG` 중 먼저 값이 있는 것이 결정하며 `ko`로 시작하면 한국어, 보통 이 변수가 없는 Windows에서는 런타임 로케일 사용), 마지막으로 영어 순서로 정해집니다. `--lang`, `--report-lang`, `PGARD_LANG`에 잘못된 값을 주면 사용법 오류(종료 코드 2)입니다.
+
+- **터미널:** 검사 결과(제목과 조치 줄)와 `pgard rules list`의 제목이 해당 언어로 표시됩니다. 고정 인터페이스 문구(제목줄, 라벨, coverage, 메시지)는 아직 영어입니다.
+- **보고서:** `--report-lang en|ko`(기본값: 터미널 언어)가 규칙 제목, 영향, 조치 문구와 발견 항목별 "Impact"·"Recommendation" 라벨(`영향`, `권장 조치`)의 언어를 정하며 `<html lang>`도 이를 따릅니다. PDF는 내장 한국어 글꼴을 씁니다. 보고서의 나머지(제목, 요약, coverage, 권한 확인 표, 안내문, 면책 문구)는 아직 영어이며 근거, 위치, 사유도 그대로입니다.
+- **대시보드:** 규칙 제목, 영향, 조치 문구가 대시보드의 언어 토글을 따르며, 보고서 다운로드도 같은 언어를 씁니다. 서버는 두 언어의 규칙 문구만 보내며(`/api/rule-texts`) 다른 데이터는 추가되지 않습니다.
+- **JSON 출력**(`--format json`)과 저장된 결과는 바뀌지 않으며 항상 영어입니다.
+- **발견 항목 고유 문구:** 일부 발견 항목은 규칙 기본 문구 대신 자체 문구를 가집니다(예: 커밋된 의존성 디렉터리의 권장 조치). 이 문구는 영어 그대로 표시되며 규칙 기본 문구가 그 옆에 함께 표시되지는 않습니다. 의존성 권고에서 온 발견 항목도 그대로 표시됩니다.
+
 ### 그룹화와 접기
 
 발견 항목은 심각도(critical, high, medium, low, info) 순, 같으면 확정 → 의심 → 정보 순, 그다음 위치 순으로 정렬됩니다. 같은 규칙과 원인의 항목은 한 그룹이 됩니다. 제목에 위치 개수가 표시되고 줄에는 최대 3개의 위치가 나옵니다(`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`). 근거는 모든 항목이 같을 때 그대로 보여 주고, 다르면 `Evidence: varies by location`이라고 표시합니다. 결과에는 원인 문장이 없고(줄이 포함된 fingerprint만 있음) "같은 원인"은 규칙, 제목, 심각도, 상태, 신뢰도, 위치 종류, context가 같다는 뜻입니다.
@@ -476,7 +504,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 포트 탐지, 서비스 정체 확인 요청, 대상 확인은 이 프로젝트에 대한 대시보드의 가장 최근 권한 확인이 통과한 뒤에만, 그리고 그 확인이 끝난 뒤 30분 동안만 허용됩니다. 대시보드는 이 시간이 언제 끝나는지 보여 주며, 그 뒤에는(또는 시스템 시계가 뒤로 가면) 다시 확인해야 로컬 서비스에 접근합니다. 새 확인이나 로그아웃은 즉시 이 시간을 끝내고 진행 중인 요청을 중단하며, 페이지는 이전 확인 때의 포트 목록과 확인 결과를 버립니다. 이 시간과 관계없이 모든 검사는 권한 확인 전체를 다시 실행합니다.
 
-대시보드는 한국어와 영어를 지원합니다. 브라우저 언어를 따르며(한국어 설정이면 한국어, 그 외에는 영어) 헤더의 **한국어 / English** 토글로 바꿀 수 있고, 선택은 브라우저에 기억됩니다. 검사 결과에서 오는 문구(발견 항목 제목, 규칙 설명, 권한 확인 이유)는 아직 영어로 표시됩니다.
+대시보드는 한국어와 영어를 지원합니다. 브라우저 언어를 따르며(한국어 설정이면 한국어, 그 외에는 영어) 헤더의 **한국어 / English** 토글로 바꿀 수 있고, 선택은 브라우저에 기억됩니다. 발견 항목 상세의 규칙 문구(제목, 영향, 조치)는 같은 토글을 따르고, 그 밖에 검사 결과에서 오는 문구(근거, 권한 확인 이유, coverage 설명)는 아직 영어로 표시됩니다.
 
 ### 대시보드 보호 방식
 
@@ -511,7 +539,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 - PDF 보고서에는 Noto Sans KR 서브셋이 포함되어 한국어와 영어가 모두 표시됩니다. 폰트에 없는 문자(한자, 이모지, 다른 문자 체계)는 `?`로 바뀌고 PDF에 그 사실이 표시됩니다. 전체 텍스트는 HTML 보고서에 있습니다. 포함된 폰트를 불러오지 못하면 PDF는 내장 Latin-1 폰트로 대체되고(한국어는 `?`), PDF 안에 이를 알리며 CLI도 경고를 출력합니다.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. 범위 밖입니다([범위 밖](#범위-밖) 참고).
 - 검증된 owner가 아닌 사용자의 기여는 보수적으로 확인합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않으므로, 커밋을 공동 작성만 했거나 서명 없이 push한 협력자는 본인의 pull request가 merge되거나 서명된 커밋을 push할 때까지 기여에서 차단됩니다.
-- 대시보드의 검사 결과 문구(발견 항목 제목, 규칙 설명, 권한 확인 이유)는 영어로만 표시됩니다. 나머지 대시보드는 한국어와 영어를 지원합니다.
+- 대시보드의 규칙 문구는 한국어와 영어를 지원합니다. 검사에서 오는 근거, 권한 확인 이유, coverage 설명은 영어로만 표시되며 내보낸 보고서의 제목과 안내문도 영어입니다.
 - 탐지는 완전하지 않습니다. 발견 항목이 없다고 프로젝트가 안전한 것은 아닙니다.
 - 포트 탐지는 불완전하거나 사용할 수 없을 수 있습니다. 그럴 때는 포트를 직접 입력하세요.
 

@@ -43,17 +43,39 @@ jobs:
           PGARD_KEYCHAIN_CI: "1"
         run: npx vitest run packages/github-auth/src/os-keychain.ci.test.ts
 
+  # Builds the single `pgard` package, installs the tarball into a temporary prefix and runs it
+  # (version, help, rules, doctor, Korean PDF font, tree-sitter grammar, dashboard server). Nothing
+  # is published. `pgard doctor` needs no sign-in and always exits 0, reporting state instead.
+  pack-smoke:
+    name: pack smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          check-latest: true
+          cache: npm
+      - run: npm ci
+      - run: npm run pack:pgard
+      - run: npm run smoke:pack
+
   # Branch protection requires a check named `check`. This job keeps that name and passes only
   # when every OS in the matrix passed (`always()` so a failed matrix cannot leave it skipped).
   check:
     name: check
-    needs: check-os
+    needs: [check-os, pack-smoke]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every OS to pass
         run: |
-          if [ "${{ needs.check-os.result }}" != "success" ]; then
+          if [ "${{ needs.check-os.result }}" != "success" ] || [ "${{ needs.pack-smoke.result }}" != "success" ]; then
             echo "check-os result: ${{ needs.check-os.result }}"
+            echo "pack-smoke result: ${{ needs.pack-smoke.result }}"
             exit 1
           fi

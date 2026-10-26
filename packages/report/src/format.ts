@@ -4,7 +4,10 @@ import {
   type CoverageStatus,
   type Finding,
   type FindingLocation,
+  localizeFindings,
   type OverallStatus,
+  type RuleLocale,
+  type RuleTextCatalog,
   type ScanResult,
   type Severity,
 } from "@pgard/findings";
@@ -54,6 +57,33 @@ function capStrings(value: unknown, key: string | null): unknown {
  */
 export function prepareReportResult(result: ScanResult): ScanResult {
   return capStrings(result, null) as ScanResult;
+}
+
+/** Language of the rule texts in a report. The rest of the report chrome stays English for now. */
+export interface ReportLanguageOptions {
+  /** Language of rule titles, impact and recommendation texts. Default `en`. */
+  lang?: RuleLocale;
+  /** Rule texts to translate from; without it (or for `en`) findings render as stored. */
+  ruleTexts?: RuleTextCatalog;
+}
+
+/** The per-finding labels that follow the report language. */
+export const FINDING_LABELS: Record<RuleLocale, { impact: string; recommendation: string }> = {
+  en: { impact: "Impact", recommendation: "Recommendation" },
+  ko: { impact: "영향", recommendation: "권장 조치" },
+};
+
+/** Applies the rule-text language, then the same capping as `prepareReportResult`. */
+export function prepareLocalizedReportResult(
+  result: ScanResult,
+  options: ReportLanguageOptions,
+): ScanResult {
+  const lang = options.lang ?? "en";
+  const localized =
+    lang === "en" || options.ruleTexts === undefined
+      ? result
+      : { ...result, findings: localizeFindings(result.findings, options.ruleTexts, lang) };
+  return prepareReportResult(localized);
 }
 
 function isSeverity(value: unknown): value is Severity {

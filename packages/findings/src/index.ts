@@ -10,3 +10,4 @@ export * from "./rule-metadata.js";
 export * from "./compare-scans.js";
 export * from "./glob.js";
 export * from "./project-config.js";
+export * from "./rule-text.js";

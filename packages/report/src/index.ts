@@ -25,6 +25,8 @@ export {
   VENDORED_FINDINGS_DETAIL,
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
+  FINDING_LABELS,
+  type ReportLanguageOptions,
   type SeverityCounts,
 } from "./format.js";
 export { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";

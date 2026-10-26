@@ -1,4 +1,4 @@
-import type { Finding, ScanResult } from "@pgard/findings";
+import type { Finding, RuleTextCatalog, ScanResult } from "@pgard/findings";
 
 export const XSS = `<script>alert("x")</script><img src=x onerror=alert(1)>`;
 
@@ -82,3 +82,15 @@ export function scanResult(overrides: Partial<ScanResult> = {}): ScanResult {
     ...overrides,
   };
 }
+
+/** Rule texts for the fixture finding's rule, so report tests can render another language. */
+export const FIXTURE_RULE_TEXTS: RuleTextCatalog = new Map([
+  [
+    "PG-SQL-001",
+    {
+      title: { en: "User input concatenated into SQL", ko: "SQL에 이어 붙인 사용자 입력" },
+      impact: { en: "Query structure may change", ko: "쿼리 구조가 바뀔 수 있습니다" },
+      recommendation: { en: "Use parameters", ko: "매개변수를 사용하세요" },
+    },
+  ],
+]);

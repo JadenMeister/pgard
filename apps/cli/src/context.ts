@@ -1,3 +1,4 @@
+import type { RuleLocale, RuleTextCatalog } from "@pgard/findings";
 import type { CliIo, KeyReader } from "./adapters/terminal.js";
 import type { CliDeps } from "./deps.js";
 import { UserCancelledError, type PromptContext } from "./ui/components/prompts.js";
@@ -23,6 +24,12 @@ export interface CommandContext {
   canOpenBrowser: boolean;
   /** True inside the arrow-key menu (enables follow-up prompts such as report export). */
   isMenu: boolean;
+  /** Language of rule texts in the terminal. Unset means English. */
+  ruleLocale?: RuleLocale;
+  /** Language of rule texts in saved reports. Unset means English. */
+  reportLocale?: RuleLocale;
+  /** Rule texts to translate from. Unset means no translation. */
+  ruleTexts?: RuleTextCatalog;
   /** Stops listening for SIGINT (e.g. before handing the terminal to the dashboard process). */
   releaseInterrupts: () => void;
 }

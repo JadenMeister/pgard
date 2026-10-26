@@ -1,3 +1,4 @@
+import { localizedRuleTitle } from "@pgard/findings";
 import { WEB_RULE_LIST } from "@pgard/http-local";
 import {
   PGARD_VERSION,
@@ -86,8 +87,8 @@ export function filterRulesByLanguage(
   );
 }
 
-function formatRule(rule: RuleDescriptor): string {
-  return `  ${rule.id.padEnd(14)} ${rule.defaultSeverity.padEnd(8)} ${rule.title} [${rule.languages.join(", ")}]`;
+function formatRule(rule: RuleDescriptor, title: string): string {
+  return `  ${rule.id.padEnd(14)} ${rule.defaultSeverity.padEnd(8)} ${title} [${rule.languages.join(", ")}]`;
 }
 
 /** `pgard rules list`: works outside a project; never touches GitHub or the network. */
@@ -96,6 +97,10 @@ export async function runRulesList(
   language: RuleLanguage | null,
 ): Promise<ExitCode> {
   const { style } = context;
+  const titleOf = (id: string, fallback: string): string =>
+    context.ruleTexts === undefined
+      ? fallback
+      : localizedRuleTitle(context.ruleTexts, id, context.ruleLocale ?? "en", fallback);
   out(context, style.bold(`pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`));
   if (language !== null) {
     out(context, style.dim(describeLanguageFilter(language)));
@@ -105,12 +110,15 @@ export async function runRulesList(
     out(context, "");
     out(context, style.bold(group.heading));
     if (group.rules.length === 0) out(context, style.dim("  No rules for this language."));
-    for (const rule of group.rules) out(context, formatRule(rule));
+    for (const rule of group.rules) out(context, formatRule(rule, titleOf(rule.id, rule.title)));
   }
   out(context, "");
   out(context, style.bold("Local HTTP rules (anonymous GET, any language)"));
   for (const rule of WEB_RULE_LIST) {
-    out(context, `  ${rule.id.padEnd(14)} ${rule.severity.padEnd(8)} ${rule.title}`);
+    out(
+      context,
+      `  ${rule.id.padEnd(14)} ${rule.severity.padEnd(8)} ${titleOf(rule.id, rule.title)}`,
+    );
   }
   out(context, "");
   out(context, style.bold("Not covered in this version"));
