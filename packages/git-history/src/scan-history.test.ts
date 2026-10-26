@@ -181,6 +181,36 @@ describe("detectSecrets", () => {
     expectCredential(text, path);
   });
 
+  it.each([
+    [
+      "Rust string after a 'static lifetime",
+      `const C: &'static str = "\n{password: ${C}}\n";`,
+      "main.rs",
+    ],
+    [
+      "Rust string after lifetimes",
+      `fn f<'a>(x: &'a str) -> &'a str { "\n{password: ${C}}\n" }`,
+      "main.rs",
+    ],
+    [
+      "Rust string after a char literal",
+      `let q = '\\n'; let c = "\n{password: ${C}}\n";`,
+      "main.rs",
+    ],
+  ])("detects %s (#158)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    [
+      "after a Rust lifetime",
+      'const X: &\'static str = "a";\nlet x = Cfg { password: passwordFromVault };',
+    ],
+    ["after a Rust char literal", "let q = 'a';\nlet x = Cfg { password: passwordFromVault };"],
+  ])("ignores code %s (#158)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/main.rs" })).toEqual([]);
+  });
+
   // #142 false positives must stay fixed with the whole-file string tracking (#145).
   it.each([
     ["after a closed template", "const t = `x`;\nconst x = { password: passwordFromVault };"],

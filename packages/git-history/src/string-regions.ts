@@ -264,6 +264,7 @@ class Scanner {
       if (syntax.backtick === "template") return this.templateEnd(index + 1, depth);
     }
     if (char !== '"' && char !== "'") return -1;
+    if (syntax.rawStrings === "rust" && char === "'" && this.isRustLifetime(index)) return -1;
     if (syntax.tripleQuotes && text.startsWith(char.repeat(3), index)) {
       return this.quotedEnd(index + 3, char.repeat(3), true);
     }
@@ -282,6 +283,20 @@ class Scanner {
       }
     }
     return this.quotedEnd(index + 1, char, syntax.multiLineQuotes.includes(char));
+  }
+
+  /**
+   * Whether the `'` at `index` starts a Rust lifetime or loop label (`&'static`, `<'a>`,
+   * `'outer:`) rather than a char literal (`'a'`, `'\n'`, `'\u{1F600}'`, `'"'`): an identifier
+   * follows and no `'` closes it as a single character.
+   */
+  private isRustLifetime(index: number): boolean {
+    const { text } = this;
+    const next = text.codePointAt(index + 1);
+    if (next === undefined) return false;
+    const width = next > 0xffff ? 2 : 1;
+    if (text[index + 1 + width] === "'") return false; // a one-character literal
+    return /[A-Za-z_]/.test(text[index + 1] as string);
   }
 
   /** End (exclusive) of a quoted string whose body starts at `start`. */

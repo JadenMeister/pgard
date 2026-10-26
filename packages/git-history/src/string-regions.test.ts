@@ -36,6 +36,13 @@ describe("createStringLookup (#145)", () => {
     ["a C# verbatim string", 'var a = @"\n""q"" MARK\n";', "a.cs"],
     ["a Rust raw string", 'let a = r#"\n"q" MARK\n"#;', "a.rs"],
     ["a Rust multi-line string", 'let a = "\nMARK\n";', "a.rs"],
+    ["a Rust string after a 'static lifetime", 'const A: &\'static str = "\nMARK\n";', "a.rs"],
+    ["a Rust string after lifetimes", "fn f<'a>(x: &'a str) -> &'a str { \"\nMARK\n\" }", "a.rs"],
+    ["a Rust string after a char literal", "let q = 'a'; let a = \"\nMARK\n\";", "a.rs"],
+    ["a Rust string after an escaped char", "let q = '\\n'; let a = \"\nMARK\n\";", "a.rs"],
+    ["a Rust string after a quote char", 'let q = \'"\'; let a = "\nMARK\n";', "a.rs"],
+    ["a Rust string after a byte char", 'let q = b\'"\'; let a = "\nMARK\n";', "a.rs"],
+    ["a Rust string after a unicode char", "let q = '😀'; let a = \"\nMARK\n\";", "a.rs"],
     ["a C++ raw string", 'auto a = R"x(\n")" MARK\n)x";', "a.cpp"],
     ["a Swift multi-line string", 'let a = """\nMARK\n"""', "a.swift"],
     ["a string with an escaped quote", 'const a = "x\\" MARK";', "a.ts"],
@@ -57,6 +64,13 @@ describe("createStringLookup (#145)", () => {
     ["code after a Ruby heredoc", "a = <<~EOS\n  x\nEOS\nMARK", "a.rb"],
     ["code after a Go raw string", "a := `\nx\n`\nMARK", "a.go"],
     ["a Rust lifetime's next line", "fn f<'a>(x: &'a str) {}\nMARK", "a.rs"],
+    [
+      "code after a closed string with a 'static lifetime",
+      'const A: &\'static str = "\nx\n";\nMARK',
+      "a.rs",
+    ],
+    ["code after a Rust loop label", "'outer: loop { break 'outer; }\nMARK", "a.rs"],
+    ["code after a Rust char literal", "let q = 'a'; MARK", "a.rs"],
     ["a JS string's next line (strings end at a newline)", "const a = 'it\nMARK", "a.ts"],
   ])("finds %s outside strings", (_label, text, path) => {
     expect(inside(text, path)).toBe(false);
