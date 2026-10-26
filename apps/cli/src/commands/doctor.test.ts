@@ -51,13 +51,50 @@ describe("runDoctor", () => {
     expect(stdout).toContain("1 required check(s) need attention");
   });
 
-  it("has no advisory database row and never reads PGARD_ADVISORY_DB", async () => {
+  it("shows no advisory data as a warning with the fix, never reads PGARD_ADVISORY_DB", async () => {
     const captured = createTestIo({ env: { PGARD_ADVISORY_DB: "/home/user/private/osv" } });
     expect(await runDoctor(createTestContext(captured, createTestDeps()))).toBe(0);
     const stdout = captured.stdout();
-    expect(stdout).not.toMatch(/advisory/i);
+    expect(stdout).toContain(
+      "[warn] Advisory data (OSV): none: npm none, Go none; run `pgard advisories update`",
+    );
     expect(stdout).not.toContain("/home/user/private/osv");
     expect(stdout).toContain("All required checks passed.");
+  });
+
+  it("shows the date for fresh data and marks old data stale", async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const status = (ageDays: number) => async () => ({
+      overall: ageDays >= 7 ? ("stale" as const) : ("fresh" as const),
+      ecosystems: (["npm", "Go"] as const).map((ecosystem) => ({
+        ecosystem,
+        state: ageDays >= 7 ? ("stale" as const) : ("fresh" as const),
+        fetchedAt: "2026-10-20T08:00:00.000Z",
+        ageDays,
+        modifiedMax: null,
+      })),
+    });
+    const fresh = createTestIo();
+    await runDoctor(createTestContext(fresh, createTestDeps({ readAdvisoryStatus: status(2) })));
+    expect(fresh.stdout()).toContain(
+      "[ok]   Advisory data (OSV): npm 2026-10-20 (2 days old), Go 2026-10-20 (2 days old)",
+    );
+    const stale = createTestIo();
+    await runDoctor(
+      createTestContext(
+        stale,
+        createTestDeps({ readAdvisoryStatus: status(9), now: () => 9 * day }),
+      ),
+    );
+    expect(stale.stdout()).toContain(
+      "[warn] Advisory data (OSV): stale: npm 2026-10-20 (9 days old)",
+    );
+  });
+
+  it("says where advisory data cannot be stored when there is no home directory", async () => {
+    const captured = createTestIo();
+    await runDoctor(createTestContext(captured, createTestDeps({ appDataDir: null })));
+    expect(captured.stdout()).toContain("[warn] Advisory data (OSV): no home directory found");
   });
 
   it("requires a Node.js release with the October 2026 security fixes", () => {

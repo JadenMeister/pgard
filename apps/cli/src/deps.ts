@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { readAdvisoryStatus, updateOsvData } from "@pgard/dependencies";
 import {
   discoverListeningPorts,
   probeLocalService,
@@ -76,6 +77,12 @@ export interface CliDeps {
   readGitVersion: () => Promise<string | null>;
   checkGitHubReachable: () => Promise<boolean>;
   nodeVersion: string;
+  /** Per-user data directory (downloaded advisory data lives under it). */
+  appDataDir: string | null;
+  /** `pgard advisories update`: the only place advisory data is downloaded. */
+  updateAdvisories: typeof updateOsvData;
+  /** Age of the downloaded data, from local metadata only. */
+  readAdvisoryStatus: typeof readAdvisoryStatus;
 }
 
 /** Package specifier of the dashboard launcher. Only its file path is resolved, never imported. */
@@ -171,11 +178,18 @@ function deviceFlowApp(env: Readonly<Record<string, string | undefined>>): {
     : { clientId: app.clientId };
 }
 
+/**
+ * The per-user data directory, shared by the result store and the advisory data (one resolver).
+ * An empty home (not absolute) means "unknown": no fallback to the real home directory.
+ */
+function resolveDataDirectory(env: Readonly<Record<string, string | undefined>>): string | null {
+  return resolveStoreDirectory({ env, homeDir: env.HOME ?? env.USERPROFILE ?? "" });
+}
+
 function openResultStoreDefault(
   env: Readonly<Record<string, string | undefined>>,
 ): ResultStore | null {
-  // An empty home (not absolute) means "unknown": no fallback to the real home directory.
-  const dir = resolveStoreDirectory({ env, homeDir: env.HOME ?? env.USERPROFILE ?? "" });
+  const dir = resolveDataDirectory(env);
   return dir === null ? null : createResultStore({ dir });
 }
 
@@ -211,5 +225,8 @@ export function createDefaultDeps(): CliDeps {
     readGitVersion: readGitVersionDefault,
     checkGitHubReachable: checkGitHubReachableDefault,
     nodeVersion: process.versions.node,
+    appDataDir: resolveDataDirectory(process.env),
+    updateAdvisories: updateOsvData,
+    readAdvisoryStatus,
   };
 }

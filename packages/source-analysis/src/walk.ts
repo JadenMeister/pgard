@@ -1,7 +1,16 @@
-import { constants, type Dirent } from "node:fs";
+import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
+import {
+  SKIPPED_DEPENDENCY_DIRECTORIES,
+  SKIPPED_DIRECTORIES,
+  generatedDirectoryReason,
+  isVirtualenvDirectory,
+  type GeneratedDirectoryReason,
+} from "./walk-rules.js";
+
+export type { GeneratedDirectoryReason };
 
 import {
   TREE_SITTER_EXTENSIONS,
@@ -20,10 +29,6 @@ export interface SourceFile {
   relativePath: string;
   language: SourceLanguage;
 }
-
-/** Why a directory other than `node_modules` was skipped as generated or third-party. */
-export type GeneratedDirectoryReason =
-  "Python virtual environment" | "Python site-packages" | "Maven build output" | "Gradle cache";
 
 export interface SkippedDependencyDirectory {
   /** Repository-relative POSIX path of the directory, e.g. `node_modules` or `api/vendor`. */
@@ -61,80 +66,6 @@ export interface WalkResult {
   /** Dependency directories that were not entered, in walk order. */
   skippedDependencyDirectories: SkippedDependencyDirectory[];
   isTruncated: boolean;
-}
-
-/** Build output, caches and VCS metadata: never entered, at any depth. */
-export const SKIPPED_DIRECTORIES = new Set([
-  "dist",
-  "build",
-  "out",
-  ".git",
-  ".next",
-  ".nuxt",
-  ".output",
-  ".svelte-kit",
-  "coverage",
-  ".turbo",
-  ".cache",
-]);
-
-/** Dependency directories that are never entered, at any depth, and listed in coverage. */
-export const SKIPPED_DEPENDENCY_DIRECTORIES = new Set(["node_modules", "bower_components"]);
-
-/**
- * `site-packages` is third-party only where Python puts it: under `lib/python3.x/` (or `lib64`).
- * A first-party package that happens to be called `site-packages` is analyzed.
- */
-function isPythonSitePackages(relativePath: string): boolean {
-  const segments = relativePath.split("/");
-  const [name, parent, grandparent] = [segments.at(-1), segments.at(-2), segments.at(-3)];
-  return (
-    name === "site-packages" &&
-    /^python\d[\d.]*$/i.test(parent ?? "") &&
-    /^lib(64)?$/i.test(grandparent ?? "")
-  );
-}
-
-/**
- * A virtualenv has `pyvenv.cfg` plus an activate script (`bin/activate`, `Scripts/activate`) or a
- * `site-packages` directory (`lib/python3.x/site-packages`, `Lib/site-packages`). An empty
- * `pyvenv.cfg` alone must not hide first-party code.
- */
-async function looksLikeVirtualenv(
-  directory: string,
-  entries: readonly Dirent[],
-): Promise<boolean> {
-  const isFile = async (...parts: string[]) =>
-    (await lstat(path.join(directory, ...parts)).catch(() => null))?.isFile() === true;
-  const isDirectory = async (...parts: string[]) =>
-    (await lstat(path.join(directory, ...parts)).catch(() => null))?.isDirectory() === true;
-  if ((await isFile("bin", "activate")) || (await isFile("Scripts", "activate"))) return true;
-  for (const entry of entries) {
-    if (!entry.isDirectory() || !/^lib(64)?$/i.test(entry.name)) continue;
-    if (await isDirectory(entry.name, "site-packages")) return true;
-    const children = await readdir(path.join(directory, entry.name)).catch(() => [] as string[]);
-    for (const child of children) {
-      if (/^python\d/i.test(child) && (await isDirectory(entry.name, child, "site-packages"))) {
-        return true;
-      }
-    }
-  }
-  return false;
-}
-
-const GRADLE_FILES = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
-
-function generatedDirectoryReason(
-  name: string,
-  relativePath: string,
-  siblingFiles: ReadonlySet<string>,
-): GeneratedDirectoryReason | null {
-  if (isPythonSitePackages(relativePath)) return "Python site-packages";
-  if (name === "target" && siblingFiles.has("pom.xml")) return "Maven build output";
-  if (name === ".gradle" && GRADLE_FILES.some((file) => siblingFiles.has(file))) {
-    return "Gradle cache";
-  }
-  return null;
 }
 
 export const MAX_FILE_BYTES = 1024 * 1024;
@@ -189,11 +120,7 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     // A directory is a Python virtual environment only if it holds `pyvenv.cfg` (written by
     // `python -m venv` and virtualenv) and the layout of an environment (see looksLikeVirtualenv). The name alone proves nothing: `app/venv/server.js` and
     // `Lib/venv/__init__.py` are first-party. Its contents are third-party and not analyzed.
-    if (
-      directory !== root &&
-      entries.some((entry) => entry.name === "pyvenv.cfg" && entry.isFile()) &&
-      (await looksLikeVirtualenv(directory, entries))
-    ) {
+    if (directory !== root && (await isVirtualenvDirectory(directory, entries))) {
       result.skippedDependencyDirectories.push({
         path: path.relative(root, directory).split(path.sep).join("/"),
         reason: "Python virtual environment",

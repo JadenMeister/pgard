@@ -7,6 +7,7 @@ import {
   isInteractiveOnStderr,
   type CliIo,
 } from "./adapters/terminal.js";
+import { runAdvisoriesUpdate } from "./commands/advisories.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistoryClear } from "./commands/history.js";
@@ -50,6 +51,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runHistoryClear(context, command.repo);
     case "doctor":
       return runDoctor(context);
+    case "advisories-update":
+      return runAdvisoriesUpdate(context);
     case "login":
       return runLogin(context);
     case "logout":

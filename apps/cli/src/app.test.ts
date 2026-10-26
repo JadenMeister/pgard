@@ -58,7 +58,7 @@ describe("main", () => {
     );
   });
 
-  it("documents code-based analysis in help, without dependency advisories", async () => {
+  it("documents that scans never download advisory data and the update command is user-run", async () => {
     for (const argv of [
       ["--help"],
       ["scan", "--help"],
@@ -69,11 +69,18 @@ describe("main", () => {
       expect(
         await main(argv, captured.io, { deps: createTestDeps(), interrupts: noInterrupts }),
       ).toBe(0);
-      expect(captured.stdout()).not.toMatch(/advisory|dependencies|PGARD_ADVISORY_DB/i);
+      expect(captured.stdout()).not.toMatch(/PGARD_ADVISORY_DB/i);
     }
     const scan = createTestIo();
     await main(["scan", "--help"], scan.io, { deps: createTestDeps(), interrupts: noInterrupts });
-    expect(scan.stdout()).toContain("PGARD does not ship or query a vulnerability");
+    expect(scan.stdout()).toContain("Scans never download advisory data");
+    const update = createTestIo();
+    await main(["advisories", "update", "--help"], update.io, {
+      deps: createTestDeps(),
+      interrupts: noInterrupts,
+    });
+    expect(update.stdout()).toContain("osv-vulnerabilities.storage.googleapis.com");
+    expect(update.stdout()).toContain("Nothing is uploaded");
   });
 
   it("strips control characters from echoed invalid input", async () => {
