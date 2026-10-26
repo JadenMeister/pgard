@@ -8,20 +8,9 @@ import {
   VENDORED_FINDINGS_TITLE,
 } from "./format.js";
 import { finding, scanResult } from "./test-fixtures.js";
+import { extractEmbeddedFontText } from "./test-pdf-text.js";
 
-/**
- * Text drawn into an uncompressed PDF, one entry per `TJ` operation (a wrapped line or a chart
- * label). PDFKit writes the built-in fonts' WinAnsi bytes as hex strings, split for kerning.
- */
-function pdfTextLines(pdf: Buffer): string[] {
-  const source = pdf.toString("latin1");
-  return [...source.matchAll(/\[((?:<[0-9a-fA-F]*>|[^\]])*)\]\s*TJ/g)].map((match) =>
-    [...(match[1] ?? "").matchAll(/<([0-9a-fA-F]*)>/g)]
-      .map((hex) => Buffer.from(hex[1] ?? "", "hex").toString("latin1"))
-      .join("")
-      .trimEnd(),
-  );
-}
+const pdfTextLines = extractEmbeddedFontText;
 
 describe("renderPdfReport", () => {
   it("produces a PDF document", async () => {
