@@ -5,7 +5,7 @@ import { pickText, type RuleLocale, type RuleMetadata } from "./rule-metadata.js
 export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-SECRET-001": "Git에 커밋된 환경 파일",
   "PG-SECRET-002": "추적되는 파일 안의 비밀 값",
-  "PG-SECRET-003": "Git 기록에서 발견된 비밀 값",
+  "PG-SECRET-003": "Git 이력에서 발견된 비밀정보",
   "PG-HYGIENE-001": "Git에 커밋된 의존성 디렉터리",
   "PG-SQL-001": "pg/mysql2 쿼리에 동적 문자열로 만든 SQL",
   "PG-SQL-002": "동적 SQL을 쓰는 Prisma unsafe raw 쿼리",
