@@ -45,7 +45,7 @@ const HISTORY_RULE_DEFINITIONS = [
   },
   {
     id: "PG-SECRET-003",
-    title: "Secret in Git history (no longer in the current files)",
+    title: "Secret found in Git history",
     category: "secret_exposure",
     defaultSeverity: "high",
     scope: "history",

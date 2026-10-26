@@ -18,21 +18,38 @@ import { TargetPanel } from "../features/target/TargetPanel";
 
 export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
-  const { m } = useI18n();
+  const { m, language } = useI18n();
   const [error, setError] = useState<"token" | "session" | null>(null);
   const [hasAcceptedNotice, setHasAcceptedNotice] = useState(false);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [target, setTarget] = useState<TargetInfo | null>(null);
   const [scan, setScan] = useState<ScanStatus | null>(null);
   const [ruleTexts, setRuleTexts] = useState<RuleTextsResponse | null>(null);
+  const [ruleTextsFailed, setRuleTextsFailed] = useState(false);
   const hasResult = scan?.result != null;
 
   // Rule texts in both languages, fetched once when a result is first shown.
   useEffect(() => {
     if (!hasResult || ruleTexts !== null) return;
-    apiGet<RuleTextsResponse>("/api/rule-texts")
-      .then(setRuleTexts)
-      .catch(() => undefined);
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Up to three tries (0 s, 1 s, 2 s), then tell the person the texts stay in English.
+    const attempt = (n: number): void => {
+      apiGet<RuleTextsResponse>("/api/rule-texts")
+        .then((texts) => {
+          if (!cancelled) setRuleTexts(texts);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          if (n >= 3) setRuleTextsFailed(true);
+          else timer = setTimeout(() => attempt(n + 1), n * 1000);
+        });
+    };
+    attempt(1);
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) clearTimeout(timer);
+    };
   }, [hasResult, ruleTexts]);
 
   useEffect(() => {
@@ -62,6 +79,9 @@ export function App() {
           <Notice tone="error">
             {error === "token" ? m.app.errorNoToken : m.app.errorSession}
           </Notice>
+        )}
+        {ruleTextsFailed && language === "ko" && (
+          <Notice tone="error">{m.app.errorRuleTexts}</Notice>
         )}
         {session !== null && !hasAcceptedNotice && (
           <LegalNotice onAccept={() => setHasAcceptedNotice(true)} />

@@ -25,6 +25,8 @@ export const en = {
     errorNoToken:
       "This page needs the private session URL printed by `pgard dashboard`. Open that URL again.",
     errorSession: "The dashboard session is not available. Restart `pgard dashboard`.",
+    errorRuleTexts:
+      "Could not load the Korean rule texts. Rule titles and fix texts stay in English; reload the page to try again.",
   },
   cards: {
     legal: "Before you start",

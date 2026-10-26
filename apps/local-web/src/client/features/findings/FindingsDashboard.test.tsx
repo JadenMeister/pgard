@@ -92,6 +92,15 @@ describe("dashboard rule texts", () => {
 });
 
 describe("localizeFindingText", () => {
+  it("keeps a finding's own title and impact, and ignores inherited property names", () => {
+    const own = { ...FINDING, title: "Own title", impact: "Own impact" };
+    const output = localizeFindingText(own, TEXTS, "ko");
+    expect(output.title).toBe("Own title");
+    expect(output.impact).toBe("Own impact");
+    const proto = { ...FINDING, ruleId: "constructor" };
+    expect(localizeFindingText(proto, TEXTS, "ko")).toBe(proto);
+  });
+
   it("ignores unknown rules and English", () => {
     const unknown = { ...FINDING, ruleId: "PG-X" };
     expect(localizeFindingText(unknown, TEXTS, "ko")).toEqual(unknown);

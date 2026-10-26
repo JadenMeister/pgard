@@ -57,6 +57,17 @@ describe("localizeFinding", () => {
     expect(output.impact).toBe("한국어 영향");
   });
 
+  it("keeps a finding's own title and impact", () => {
+    const output = localizeFinding(
+      finding({ title: "node_modules is tracked", impact: "Own impact text" }),
+      catalog,
+      "ko",
+    );
+    expect(output.title).toBe("node_modules is tracked");
+    expect(output.impact).toBe("Own impact text");
+    expect(output.recommendation).toBe("한국어 조치");
+  });
+
   it("leaves findings of unknown rules alone", () => {
     const input = finding({ ruleId: "PG-DEP-OSV" });
     expect(localizeFinding(input, catalog, "ko")).toBe(input);
