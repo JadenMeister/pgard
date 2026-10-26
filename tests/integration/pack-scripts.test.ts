@@ -3,7 +3,13 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { findExternalViolations, packageNameOf, shippedNotice } from "../../scripts/pack-lib.mjs";
+import {
+  findDynamicCodeUses,
+  findExternalViolations,
+  packageNameOf,
+  shippedGrammarsReadme,
+  shippedNotice,
+} from "../../scripts/pack-lib.mjs";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -95,5 +101,37 @@ describe("shipped NOTICE.md", () => {
     expect(() => shippedNotice(`${repoNotice}\nSee \`docs/NEW.md\`.\n`)).toThrow(
       /repository-only path/,
     );
+  });
+});
+
+describe("unverifiable module loading", () => {
+  it("accepts literal dynamic imports", () => {
+    expect(
+      findDynamicCodeUses("a.js", 'const m = () => import("@napi-rs/keyring"); import(`x`);'),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ["import(process.env.X)", "non-literal"],
+    ['import("@vue/" + x)', "non-literal"],
+    ["import(`@vue/${x}`)", "non-literal"],
+    ['createRequire(import.meta.url)("left-pad")', "createRequire"],
+  ])("mutation: %s is reported", (code, what) => {
+    const found = findDynamicCodeUses("a.js", `\n${code};`);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toContain("a.js:2");
+    expect(found[0]).toContain(what);
+  });
+});
+
+describe("shipped grammars README", () => {
+  it("labels the source file as a repository path", () => {
+    const readme = readFileSync(
+      path.join(import.meta.dirname, "../../packages/source-analysis/grammars/README.md"),
+      "utf8",
+    );
+    const shipped = shippedGrammarsReadme(readme);
+    expect(shipped).toContain("in the source repository");
+    expect(shipped).not.toContain("(`src/tree-sitter/languages.ts`)");
   });
 });

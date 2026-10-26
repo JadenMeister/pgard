@@ -368,6 +368,9 @@ export async function scanSourceCode(
     "syntax-level heuristics (lexer and patterns, no type information or cross-file data flow)",
   );
   // Java, Kotlin, Python and PHP: detected only; no grammar is loaded until rules exist.
+  // When language rules are wired here, parse through parseTrackFiles and report with
+  // parseCoverage: a grammar that fails its checksum surfaces as `unavailable` there and becomes
+  // a not_tested coverage entry. Do not call TreeSitterRuntime.parse directly and drop it.
   coverage.push(...languageTrackCoverage(await detectLanguageTrack(walk)));
   if (walk.skippedLarge > 0) {
     coverage.push({

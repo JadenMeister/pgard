@@ -16,7 +16,6 @@ export function npmCommand() {
   const candidates = [
     ...(fromEnv && /npm-cli\.js$/.test(fromEnv) ? [fromEnv] : []),
     join(nodeDir, "node_modules", "npm", "bin", "npm-cli.js"),
-    join(nodeDir, "..", "lib", "node_modules", "npm", "bin", "npm-cli.js"),
   ];
   const cli = candidates.find((candidate) => existsSync(candidate));
   if (cli === undefined) {
@@ -35,8 +34,8 @@ export function packageNameOf(specifier) {
  * Checks an esbuild metafile: every external import of every output file (static, dynamic and
  * `require`) must be a `node:` built-in or a package listed in `dependencies`. Returns one
  * message per violation; empty means the bundle only needs what the package declares.
- * (A dynamic import whose specifier is not a string literal is invisible here; the build fails
- * on any esbuild warning instead.)
+ * Imports whose specifier is not a string literal are invisible to the metafile; those are
+ * caught by `findDynamicCodeUses` on the bundle text.
  */
 export function findExternalViolations(metafile, dependencies) {
   const allowed = new Set(Object.keys(dependencies));
@@ -60,6 +59,42 @@ export function findExternalViolations(metafile, dependencies) {
     }
   }
   return violations;
+}
+
+/**
+ * Scans bundle text for module loading the metafile cannot see: `import(` with a non-literal
+ * argument and `createRequire`. Either could load a package that is not a declared dependency.
+ * The current bundle has no such use; if one becomes legitimate, allowlist it by exact location.
+ */
+export function findDynamicCodeUses(file, code) {
+  const found = [];
+  for (const match of code.matchAll(/\bimport\s*\(/g)) {
+    const rest = code.slice(match.index + match[0].length);
+    if (!/^\s*(?:"[^"\\\n]*"|'[^'\\\n]*'|`[^`$\\]*`)\s*[,)]/.test(rest)) {
+      const line = code.slice(0, match.index).split("\n").length;
+      found.push(`${file}:${line} has import() with a non-literal specifier`);
+    }
+  }
+  for (const match of code.matchAll(/\bcreateRequire\b/g)) {
+    const line = code.slice(0, match.index).split("\n").length;
+    found.push(`${file}:${line} uses createRequire`);
+  }
+  return found;
+}
+
+/**
+ * Rewrites the grammars README for the packed layout: the pinned checksums live in the code
+ * (`GRAMMAR_SHA256`), which is compiled into dist/, not in a source file the package ships.
+ */
+export function shippedGrammarsReadme(text) {
+  const from = "(`src/tree-sitter/languages.ts`)";
+  if (!text.includes(from)) throw new Error("grammars README no longer names languages.ts");
+  const out = text
+    .split(from)
+    .join(
+      "(compiled into `dist/`; source: `packages/source-analysis/src/tree-sitter/languages.ts` in the source repository)",
+    );
+  return out;
 }
 
 /**

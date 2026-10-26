@@ -12,7 +12,6 @@ import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
-  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -23,7 +22,13 @@ import {
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { findExternalViolations, npmCommand, shippedNotice } from "./pack-lib.mjs";
+import {
+  findDynamicCodeUses,
+  findExternalViolations,
+  npmCommand,
+  shippedGrammarsReadme,
+  shippedNotice,
+} from "./pack-lib.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packDir = join(root, ".pack");
@@ -73,27 +78,10 @@ for (const [dep, range] of Object.entries(template.dependencies)) {
 }
 if (template.scripts) fail("the package must not define install scripts");
 
-// The shrinkwrap pins the transitive tree; it must describe exactly this package's dependencies.
-const shrinkwrapPath = join(root, "packaging/pgard/npm-shrinkwrap.json");
-if (!existsSync(shrinkwrapPath))
-  fail('npm-shrinkwrap.json is missing; run "npm run pack:shrinkwrap"');
-const shrinkwrap = JSON.parse(readFileSync(shrinkwrapPath, "utf8"));
-const shrinkwrapRoot = shrinkwrap.packages?.[""] ?? {};
-if (
-  shrinkwrap.name !== template.name ||
-  shrinkwrap.version !== template.version ||
-  JSON.stringify(Object.entries(shrinkwrapRoot.dependencies ?? {}).sort()) !==
-    JSON.stringify(Object.entries(template.dependencies).sort())
-) {
-  fail(
-    'npm-shrinkwrap.json is out of date with packaging/pgard/package.json; run "npm run pack:shrinkwrap"',
-  );
-}
-for (const [location, entry] of Object.entries(shrinkwrap.packages)) {
-  if (location !== "" && (!entry.resolved || !entry.integrity)) {
-    fail(`npm-shrinkwrap.json entry ${location} has no resolved URL or integrity hash`);
-  }
-}
+// No npm-shrinkwrap.json on purpose (evaluated for #228, rejected for now): npm ignores it for
+// installs from a tarball, and for registry installs it nests every dependency under the package
+// and installs all 12 platform binaries of @napi-rs/keyring (about 25 MB instead of 588 KB). The
+// direct dependencies are exact pins (checked above); transitive ones float within their ranges.
 
 // --- Rewrites of workspace-layout asset lookups (each must match exactly once). ---
 const rewrites = [
@@ -172,6 +160,13 @@ for (const rule of rewrites) if (!rule.done) fail(`rewrite for ${rule.file} was 
 // Everything the bundle imports from outside itself (static, dynamic, require) must be a node:
 // built-in or a declared dependency; otherwise the installed package would crash at runtime.
 if (result.warnings.length > 0) fail("esbuild reported warnings (see above)");
+const dynamicUses = readdirSync(join(stage, "dist"))
+  .filter((name) => name.endsWith(".js"))
+  .flatMap((name) =>
+    findDynamicCodeUses(`dist/${name}`, readFileSync(join(stage, "dist", name), "utf8")),
+  );
+if (dynamicUses.length > 0)
+  fail(`unverifiable module loading in the bundle:\n  ${dynamicUses.join("\n  ")}`);
 const violations = findExternalViolations(result.metafile, template.dependencies);
 if (violations.length > 0)
   fail(`undeclared externals in the bundle:\n  ${violations.join("\n  ")}`);
@@ -186,7 +181,14 @@ for (const name of readdirSync(join(root, "packages/report/fonts"))) {
 }
 mkdirSync(join(stage, "assets/grammars"), { recursive: true });
 for (const name of readdirSync(join(root, "packages/source-analysis/grammars"))) {
-  copy(`packages/source-analysis/grammars/${name}`, `assets/grammars/${name}`);
+  name === "README.md"
+    ? writeFileSync(
+        join(stage, "assets/grammars/README.md"),
+        shippedGrammarsReadme(
+          readFileSync(join(root, "packages/source-analysis/grammars", name), "utf8"),
+        ),
+      )
+    : copy(`packages/source-analysis/grammars/${name}`, `assets/grammars/${name}`);
 }
 for (const name of ["LICENSE", "README.md"]) copy(name, name);
 // NOTICE.md names repository paths; the package layout differs (assets/fonts, assets/grammars).
@@ -194,7 +196,6 @@ writeFileSync(
   join(stage, "NOTICE.md"),
   shippedNotice(readFileSync(join(root, "NOTICE.md"), "utf8")),
 );
-copyFileSync(shrinkwrapPath, join(stage, "npm-shrinkwrap.json"));
 writeFileSync(join(stage, "package.json"), `${JSON.stringify(template, null, 2)}\n`);
 
 // The copied binaries must be byte-identical to the checksum-pinned sources.

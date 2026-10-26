@@ -6,4 +6,6 @@ export function findExternalViolations(
   },
   dependencies: Record<string, string>,
 ): string[];
+export function findDynamicCodeUses(file: string, code: string): string[];
+export function shippedGrammarsReadme(text: string): string;
 export function shippedNotice(text: string): string;

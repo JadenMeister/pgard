@@ -68,6 +68,19 @@ try {
   check("bin shim exists", existsSync(shim), shim);
   // The shim is a .cmd file on Windows and needs a shell; run the bin target with this Node
   // instead, which is what the shim does.
+  if (process.platform === "win32") {
+    // The real shim once, through cmd.exe with the quoting cmd expects (the path has a space).
+    const viaShim = run(
+      process.env.ComSpec ?? "cmd.exe",
+      ["/d", "/s", "/c", `""${shim}" --version"`],
+      { windowsVerbatimArguments: true },
+    );
+    check(
+      "pgard.cmd shim runs --version",
+      viaShim.stdout.trim() === `pgard ${manifest.version}`,
+      viaShim.stdout + viaShim.stderr,
+    );
+  }
   const binTarget = join(pkgDir, manifest.bin.pgard);
   const pgard = (args, options) => run(process.execPath, [binTarget, ...args], options);
 
@@ -215,24 +228,6 @@ try {
       notice.includes("`assets/grammars/`") &&
       !notice.includes("`packages/report/fonts/OFL.txt`") &&
       existsSync(join(pkgDir, "assets", "fonts", "OFL.txt")),
-  );
-
-  // The shrinkwrap pins the transitive tree: what npm installed must be exactly what it lists.
-  const shrinkwrap = JSON.parse(readFileSync(join(pkgDir, "npm-shrinkwrap.json"), "utf8"));
-  const mismatched = [];
-  let compared = 0;
-  for (const [location, entry] of Object.entries(shrinkwrap.packages)) {
-    if (location === "") continue;
-    const installed = join(prefix, location, "package.json");
-    if (!existsSync(installed)) continue; // optional platform packages for other systems
-    compared += 1;
-    const version = JSON.parse(readFileSync(installed, "utf8")).version;
-    if (version !== entry.version) mismatched.push(`${location} ${version} != ${entry.version}`);
-  }
-  check(
-    "installed dependency tree matches npm-shrinkwrap.json",
-    compared > 20 && mismatched.length === 0,
-    `${compared} compared; ${mismatched.join(", ")}`,
   );
 
   // Dashboard server: started the way `pgard dashboard` starts it, no sign-in and no network.
