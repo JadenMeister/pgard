@@ -127,6 +127,11 @@ const REGEX_BEFORE_WORDS = new Set([
 ]);
 /** Keywords whose `( … )` condition may be followed by a regex literal. */
 const CONTROL_WORDS = new Set(["if", "while", "for", "with", "unless", "until", "elsif"]);
+/**
+ * A line ending in one of these continues on the next line (a backslash, a binary operator), so a
+ * `<<` starting that line is a shift, not a heredoc.
+ */
+const CONTINUES_LINE = "\\+-*/%^>.~";
 const IDENTIFIER_CHAR = /[\w$]/;
 
 class Scanner {
@@ -161,6 +166,8 @@ class Scanner {
     const record = depth === 0;
     let braces = 0;
     let last = ""; // last significant code character
+    let lineStart = true; // only whitespace or comments so far on this line
+    let sawQuestion = false; // a `?` in code earlier on this line (a ternary may be open)
     /** Per open `(`: whether a control keyword (`if (`, `while (`) comes before it. */
     const parens: boolean[] = [];
     let closedControlParen = false; // the last `)` closed `if (…)`, `while (…)`...
@@ -170,8 +177,12 @@ class Scanner {
       if (char === "\n") {
         if (this.pendingHeredocs.length > 0) {
           index = this.scanHeredocs(index + 1, record);
+          lineStart = true;
+          sawQuestion = false;
           continue;
         }
+        lineStart = true;
+        sawQuestion = last === "?"; // a ternary may continue on the next line
         index += 1;
         continue;
       }
@@ -193,6 +204,8 @@ class Scanner {
         index = end + 2;
         continue;
       }
+      const atLineStart = lineStart;
+      lineStart = false;
       if (
         syntax.regexLiterals &&
         char === "/" &&
@@ -206,7 +219,15 @@ class Scanner {
           continue;
         }
       }
-      if (syntax.heredoc !== "none" && char === "<" && this.readHeredoc(index, last)) {
+      if (
+        syntax.heredoc !== "none" &&
+        char === "<" &&
+        this.readHeredoc(
+          index,
+          atLineStart && (last === "" || !CONTINUES_LINE.includes(last)) ? "" : last,
+          sawQuestion,
+        )
+      ) {
         index += 2;
         last = "<";
         continue;
@@ -233,6 +254,7 @@ class Scanner {
           braces -= 1;
         }
       }
+      if (char === "?") sawQuestion = true;
       last = char;
       index += 1;
     }
@@ -419,13 +441,24 @@ class Scanner {
   }
 
   /** Records a heredoc opened at `index` (`<<~EOS`, `<<-EOS`, `<<<EOT`), if there is one. */
-  private readHeredoc(index: number, last: string): boolean {
+  private readHeredoc(index: number, last: string, sawQuestion: boolean): boolean {
     const php = this.syntax.heredoc === "php";
     const opener = php
       ? /^<<<[ \t]{0,4}(["']?)([A-Za-z_]\w{0,63})\1/
       : /^<<([~-]?)(["'`]?)([A-Za-z_][A-Za-z0-9_]{0,63})\2/;
     const match = opener.exec(this.text.slice(index, index + 80));
     if (!match) return false;
+    // `send :<<'x'` is the symbol `:<<`, not a heredoc.
+    // (A label right before it, `{sql:<<~SQL}` or `f(text:<<~EOS)`, is a heredoc, and so is the
+    // body after a ternary colon, `ok ? 1 :<<~EOS`: a `?` earlier on the line may be the ternary.)
+    if (
+      !php &&
+      !sawQuestion &&
+      this.text[index - 1] === ":" &&
+      !/[A-Za-z0-9_?!]/.test(this.text[index - 2] ?? "")
+    ) {
+      return false;
+    }
     // A lowercase name is a heredoc only where a value can start (`x = <<~eos`, `f(<<~eos`,
     // `a, <<~eos`) and not after an operand (`list <<'x'`, `a <<-n` are shifts). A bare `<<name`
     // is always a shift. A wrong guess could hide a later string, so doubtful cases are code.

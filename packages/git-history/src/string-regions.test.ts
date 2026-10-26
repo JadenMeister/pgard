@@ -133,6 +133,49 @@ describe("createStringLookup (#145)", () => {
       "a.ts",
     ],
     ["a lowercase Ruby heredoc", "a = <<~eos\n  MARK\neos", "a.rb"],
+    ["a heredoc opened at the start of a line (#163)", "foo\n<<~eos\n  MARK\neos", "a.rb"],
+    [
+      "a heredoc opened at the start of an indented line (#163)",
+      "foo\n  <<-eos\n MARK\n eos",
+      "a.rb",
+    ],
+    [
+      "a heredoc at the start of a line right after a heredoc body (#163)",
+      "a = <<~EOS\n  x\nEOS\n<<~eos\n  MARK\neos",
+      "a.rb",
+    ],
+    ["a heredoc after a comment line (#163)", "# note <<~eos\n<<~eos\n  MARK\neos", "a.rb"],
+    ["a heredoc after a label in a hash (#163)", "h = {sql:<<~SQL}\n  select 1\nMARK\nSQL", "a.rb"],
+    ["a heredoc after a label in a call (#163)", "post(text:<<~EOS)\n  hi\nMARK\nEOS", "a.rb"],
+    [
+      "a heredoc after a ternary colon (#163)",
+      'ok = a ? 1 :<<~EOS\n  say "hi\nEOS\nq = "\nMARK\n"',
+      "a.rb",
+    ],
+    [
+      "a heredoc after a ternary colon, plain body (#163)",
+      "ok = a ? 1 :<<~EOS\n  hi\nMARK\nEOS",
+      "a.rb",
+    ],
+    [
+      "a heredoc after a ternary colon with a call (#163)",
+      'q = f(a) ? g(b) :<<-SQL\n  select "id\n  SQL\nw = "\nMARK\n"',
+      "a.rb",
+    ],
+    ["a heredoc after a label ending in a digit (#163)", "h = {a1:<<~X}\n  hi\nMARK\nX", "a.rb"],
+    ["a heredoc after a label ending in ? (#163)", "h = {ok?:<<~X}\n  hi\nMARK\nX", "a.rb"],
+    ["a heredoc after a label ending in ! (#163)", "f(go!:<<~X)\n  hi\nMARK\nX", "a.rb"],
+    ["a PHP heredoc right after a colon (#163)", "$a = $c ? 1 :<<<EOT\nMARK\nEOT;", "a.php"],
+    [
+      "a string after a shift on a backslash-continued line (#163)",
+      "out = buf \\\n  <<'x'\nq = \"\nx\nMARK\n\"",
+      "a.rb",
+    ],
+    [
+      "a string after a shift on a line continued by an operator (#163)",
+      "out = buf +\n  <<'x'\nq = \"\nx\nMARK\n\"",
+      "a.rb",
+    ],
     ["a lowercase Ruby heredoc with a dash", "a = <<-eos\n  MARK\n  eos", "a.rb"],
     ["a quoted lowercase Ruby heredoc", "a = <<'eos'\n  MARK\neos", "a.rb"],
     [
@@ -169,6 +212,9 @@ describe("createStringLookup (#145)", () => {
     ],
     ["code after a closed lowercase Ruby heredoc", "a = <<~eos\n  x\neos\nMARK", "a.rb"],
     ["code after a Ruby shift into a lowercase name", "list <<item\nMARK", "a.rb"],
+    ["code after a symbol that looks like a shift (#163)", "send :<<'x'\nMARK", "a.rb"],
+    ["code after a bare shift at the start of a line (#163)", "x = a\n<<b\nMARK", "a.rb"],
+    ["code after a shift later on a line (#163)", "foo\nx <<~eos\nMARK", "a.rb"],
     [
       "code after a Rust raw string with more than 8 #",
       'let a = r##########"\n"#;\n"##########;\nMARK',
@@ -176,6 +222,34 @@ describe("createStringLookup (#145)", () => {
     ],
   ])("finds %s outside strings (#158)", (_label, text, path) => {
     expect(inside(text, path)).toBe(false);
+  });
+
+  it("finds a heredoc after a ternary broken after the question mark (#163)", () => {
+    const text = 'msg = ok ?\n  1 :<<~EOS\n  say "hi\nEOS\nq = "\nMARK\n"';
+    expect(inside(text, "a.rb")).toBe(true);
+  });
+
+  it("does not carry a question mark inside a string over a line break (#163)", () => {
+    expect(inside("x = 'why?'\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+    expect(inside("x = \"why?\"\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+  });
+
+  it("code after a symbol on a later line than a ternary stays code (#163)", () => {
+    expect(inside("ok = a ? 1 : 2\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+    expect(inside("ok = a ? 1 :<<~E\n  hi\nE\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+  });
+
+  it("stays linear on a long line of ? and :<< (#163)", () => {
+    const line = (n: number) => "a ? b :<<~x ".repeat(n);
+    const time = (n: number) => {
+      const text = `${line(n)}\nMARK`;
+      const start = performance.now();
+      createStringLookup(text, "a.rb")(text.length - 1);
+      return performance.now() - start;
+    };
+    time(20_000);
+    const small = Math.max(time(100_000), 1);
+    expect(time(800_000) / small).toBeLessThan(40);
   });
 
   it("stays linear on long lines with many quotes (#158)", () => {
@@ -229,10 +303,10 @@ describe("createStringLookup (#145)", () => {
       const small = time(unit);
       const large = time(unit.repeat(8)); // 40 MB
       // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
-      // generous so a loaded machine does not fail it; the absolute bound is loose because CI
-      // runners are much slower than local machines.
+      // generous so a loaded machine does not fail it; the absolute bound is loose (a quadratic scan
+      // of 40 MB takes hours) because CI runners are several times slower than local machines.
       expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(10_000);
+      expect(large).toBeLessThan(30_000);
     }
-  }, 180_000);
+  }, 600_000);
 });
