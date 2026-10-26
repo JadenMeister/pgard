@@ -30,13 +30,17 @@ export interface CliText {
     elapsed: string;
     sinceLast: string;
   };
-  areasValue: (counts: {
-    total: number;
-    completed: number;
-    partial: number;
-    notTested: number;
-    notSelected: number;
-  }) => string;
+  /** `warn` colours the partial and not-tested counts, as the coverage list does. */
+  areasValue: (
+    counts: {
+      requested: number;
+      completed: number;
+      partial: number;
+      notTested: number;
+      notSelected: number;
+    },
+    warn: (text: string) => string,
+  ) => string;
   rulesValue: (ran: number, partial: number) => string;
   targetValue: (sizes: {
     files: number | null;
@@ -46,6 +50,8 @@ export interface CliText {
   elapsedValue: (milliseconds: number) => string;
   /** "+2 new / -1 no longer reported" */
   diffCompact: (added: number, gone: number, unclear: boolean) => string;
+  /** A reason or note written by the scan (English) next to this language's text. */
+  scanText: (text: string) => string;
 
   // --- Charts ----------------------------------------------------------------------------
   chartBySeverity: (isNew: boolean, total: number) => string;
@@ -159,6 +165,8 @@ export interface CliText {
     stage: Record<string, string>;
     status: Record<string, string>;
     message: Record<string, string>;
+    /** Messages that carry the scope ("Running code analysis."); undefined when not one. */
+    scoped: (message: string, stageNames: Record<string, string>) => string | undefined;
   };
   notices: {
     /** Info notice about suppressions without an expiry date. */
@@ -194,15 +202,15 @@ const EN: CliText = {
   summaryLabels: {
     areas: "Areas",
     rules: "Rules",
-    target: "Target size",
+    target: "Max per rule",
     elapsed: "Elapsed",
     sinceLast: "Since last scan",
   },
-  areasValue: (c) =>
-    `${c.total} scanned: ${[
+  areasValue: (c, warn) =>
+    `${c.requested} requested \u2014 ${[
       c.completed > 0 ? `${c.completed} completed` : null,
-      c.partial > 0 ? `${c.partial} partial` : null,
-      c.notTested > 0 ? `${c.notTested} not tested` : null,
+      c.partial > 0 ? warn(`${c.partial} partial`) : null,
+      c.notTested > 0 ? warn(`${c.notTested} not tested`) : null,
     ]
       .filter((part) => part !== null)
       .join(", ")}${c.notSelected > 0 ? ` (${c.notSelected} not selected)` : ""}`,
@@ -219,6 +227,7 @@ const EN: CliText = {
   elapsedValue: (ms) => formatElapsed(ms, "m", "s"),
   diffCompact: (added, gone, unclear) =>
     `+${added} new / -${gone} no longer reported${unclear ? " (some areas not fully compared)" : ""}`,
+  scanText: (text) => text,
   chartBySeverity: (isNew, total) =>
     `${isNew ? "New findings" : "Findings"} by severity (${total} total)`,
   chartByOwasp: "By OWASP Top 10 2025 category",
@@ -364,6 +373,7 @@ const EN: CliText = {
     stage: {},
     status: {},
     message: {},
+    scoped: (_message, _names) => undefined,
   },
   notices: {
     noExpiry: (count) =>
@@ -402,15 +412,15 @@ const KO: CliText = {
   summaryLabels: {
     areas: "영역",
     rules: "규칙",
-    target: "대상 크기",
+    target: "규칙별 최대 검사 대상",
     elapsed: "소요 시간",
     sinceLast: "지난 검사 대비",
   },
-  areasValue: (c) =>
-    `${c.total}개 검사: ${[
+  areasValue: (c, warn) =>
+    `요청 ${c.requested} \u2014 ${[
       c.completed > 0 ? `완료 ${c.completed}` : null,
-      c.partial > 0 ? `부분 완료 ${c.partial}` : null,
-      c.notTested > 0 ? `미검사 ${c.notTested}` : null,
+      c.partial > 0 ? warn(`부분 완료 ${c.partial}`) : null,
+      c.notTested > 0 ? warn(`미검사 ${c.notTested}`) : null,
     ]
       .filter((part) => part !== null)
       .join(", ")}${c.notSelected > 0 ? ` (선택 안 함 ${c.notSelected})` : ""}`,
@@ -426,9 +436,10 @@ const KO: CliText = {
       .join(", "),
   elapsedValue: (ms) => formatElapsed(ms, "분", "초"),
   diffCompact: (added, gone, unclear) =>
-    `+${added} 신규 / -${gone} 더 이상 보고되지 않음${unclear ? " (일부 영역은 완전히 비교하지 못함)" : ""}`,
+    `신규 ${added}건 / 더 이상 보고되지 않음 ${gone}건${unclear ? " (일부 영역은 완전히 비교하지 못함)" : ""}`,
+  scanText: (text) => `(${text})`,
   chartBySeverity: (isNew, total) =>
-    `${isNew ? "새 발견 항목" : "발견 항목"} 심각도별 (총 ${total}건)`,
+    `${isNew ? KO_REPORT.newSinceBaseline : "발견 항목"} 심각도별 (총 ${total}건)`,
   chartByOwasp: "OWASP Top 10 2025 분류별",
   chartByArea: "영역별",
   chartUnmapped: "OWASP 매핑 없음",
@@ -455,7 +466,7 @@ const KO: CliText = {
       .filter((part) => part !== null)
       .join(", "),
   findingsHeading: (isNew, total, statuses) =>
-    `${isNew ? "기준선 이후 새 발견 항목" : "발견 항목"} (${total}건): ${statuses}`,
+    `${isNew ? `${KO_REPORT.newSinceBaseline} 발견 항목` : "발견 항목"} (${total}건): ${statuses}`,
   noFindings: ({ isNew, hasUnsuppressed, outside, suppressed, suppressedBreakdown }) =>
     `실행된 영역에서${
       outside === "both"
@@ -500,7 +511,7 @@ const KO: CliText = {
     `pgard.config.json으로 억제됨: ${count}건${breakdown === "" ? "" : ` (${breakdown})`}`,
   baselineCountLine: (matched, fresh, breakdown, setOn) =>
     `기준선 (${setOn} 설정): 기준선에 있음 ${matched}건${breakdown === "" ? "" : ` (${breakdown})`}, 새 항목 ${fresh}건`,
-  newFindingsSinceBaseline: "새 발견 항목",
+  newFindingsSinceBaseline: KO_REPORT.newSinceBaseline,
   coverageTitle: "검사 범위",
   coverageMark: {
     completed: "완료",
@@ -576,9 +587,23 @@ const KO: CliText = {
       skipped: "건너뜀",
     },
     message: {
+      "Verifying repository authorization.": "저장소 권한을 확인하는 중입니다.",
+      "Authorization check failed.": "권한 확인에 실패했습니다.",
+      "Scan blocked by authorization gate.": "권한 확인에서 검사가 차단되었습니다.",
+      "Authorization verified.": "권한이 확인되었습니다.",
       "No confirmed local web target.": "확인된 로컬 웹 대상이 없습니다.",
       "Web scanner unavailable.": "웹 검사기를 사용할 수 없습니다.",
-      "Authorization check failed.": "권한 확인에 실패했습니다.",
+      "Checking local web pages.": "로컬 웹 페이지를 확인하는 중입니다.",
+    },
+    scoped: (message, names) => {
+      const name = (scope: string): string => names[scope] ?? scope;
+      const running = /^Running (\w+) analysis\.$/.exec(message);
+      if (running !== null) return `${name(running[1] ?? "")} 분석을 실행하는 중입니다.`;
+      const finished = /^Finished (\w+) analysis\.$/.exec(message);
+      if (finished !== null) return `${name(finished[1] ?? "")} 분석을 마쳤습니다.`;
+      const failed = /^The (\w+) analysis failed\.$/.exec(message);
+      if (failed !== null) return `${name(failed[1] ?? "")} 분석이 실패했습니다.`;
+      return undefined;
     },
   },
   notices: {
@@ -616,13 +641,13 @@ export function cliText(locale: RuleLocale | undefined): CliText {
 /** "5 s", "1 m 5 s" (English) or "5초", "1분 5초" (Korean). */
 function formatElapsed(milliseconds: number, minuteWord: string, secondWord: string): string {
   const total = Math.max(0, milliseconds) / 1000;
-  const isKorean = secondWord === "초";
+  const isKorean = secondWord === "\ucd08";
   const join = (value: string, unit: string): string =>
     isKorean ? `${value}${unit}` : `${value} ${unit}`;
-  if (total < 60) {
-    return join(total < 10 ? total.toFixed(1) : String(Math.round(total)), secondWord);
-  }
-  const minutes = Math.floor(total / 60);
-  const seconds = Math.round(total - minutes * 60);
-  return `${join(String(minutes), minuteWord)} ${join(String(seconds), secondWord)}`;
+  if (total < 10) return join(total.toFixed(1), secondWord);
+  // Round once, before splitting, so 119.6 s is "2 m 0 s" and never "1 m 60 s".
+  const whole = Math.round(total);
+  if (whole < 60) return join(String(whole), secondWord);
+  const minutes = Math.floor(whole / 60);
+  return `${join(String(minutes), minuteWord)} ${join(String(whole % 60), secondWord)}`;
 }

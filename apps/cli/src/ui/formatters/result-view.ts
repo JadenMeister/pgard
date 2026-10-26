@@ -209,13 +209,15 @@ export function formatCoverage(
   return coverage
     .map((entry) => {
       const mark = formatCoverageMark(entry.status, t);
+      // Never green: a completed area is not a pass. Neutral when completed.
       const colored =
         entry.status === "completed"
-          ? style.green(mark)
+          ? mark
           : entry.status === "not_selected"
             ? style.dim(mark)
             : style.yellow(mark);
-      const note = entry.note === null ? "" : style.dim(` - ${safeText(entry.note, 300)}`);
+      const note =
+        entry.note === null ? "" : style.dim(` - ${t.scanText(safeText(entry.note, 300))}`);
       const label = (t.report.coverageStatus as Record<string, string>)[entry.status] ?? "?";
       return `  ${colored} ${safeText(entry.area, 80)} (${label})${note}`;
     })
@@ -464,9 +466,15 @@ export function formatStandardsCoverage(
         : t.standardsBreadth(entry.breadth.cwesWithRules, entry.breadth.cwesInCategory);
     // Rule ids come before the reason, so a long reason is what gets cut, never the rules.
     const head = entry.state === "no_rules" ? entry.reason : `${breadth}${rules}`;
+    // In Korean the scan's English reason is parenthesised, so the two languages do not run on.
     const tail =
-      entry.state === "rules_ran" || entry.state === "no_rules" ? "" : `; ${entry.reason}`;
-    const detail = `${head}${tail}`;
+      entry.state === "rules_ran" || entry.state === "no_rules"
+        ? ""
+        : t.locale === "en"
+          ? `; ${entry.reason}`
+          : ` ${t.scanText(entry.reason)}`;
+    const detail =
+      entry.state === "no_rules" && t.locale !== "en" ? t.scanText(head) : `${head}${tail}`;
     return `  ${colored} ${safeText(entry.id.replace(":2025", ""), 8)} ${safeText(entry.title, 60)} ${style.dim(`- ${safeText(detail, 240)}`)}`;
   });
   lines.push(`  ${t.cweTop25Line(countStandardStates(standards.cweTop25))}`);
@@ -487,7 +495,9 @@ export function formatAuthorization(
     const mark = word === undefined ? "[?]" : `[${word}]`;
     const colored = check.status === "passed" ? style.green(mark) : style.red(mark);
     const name = t.checkName[check.id] ?? check.id.replace(/_/g, " ");
-    return `  ${colored} ${name}: ${safeText(check.reason, AUTHORIZATION_REASON_MAX_LENGTH)}`;
+    return t.locale === "en"
+      ? `  ${colored} ${name}: ${safeText(check.reason, AUTHORIZATION_REASON_MAX_LENGTH)}`
+      : `  ${colored} ${name} ${t.scanText(safeText(check.reason, AUTHORIZATION_REASON_MAX_LENGTH))}`;
   });
   const decision =
     summary.decision === "allowed"

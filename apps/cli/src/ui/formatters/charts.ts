@@ -54,7 +54,7 @@ export function renderChart(rows: readonly ChartRow[], options: ChartOptions): s
   return rows.map((row, index) => {
     const length = row.count === 0 ? 0 : Math.max(1, Math.round((row.count / maxCount) * barMax));
     const bar = barCharacter.repeat(length);
-    const painted = options.isColor && row.paint !== undefined ? row.paint(bar) : bar;
+    const painted = length > 0 && options.isColor && row.paint !== undefined ? row.paint(bar) : bar;
     return `${lead}${padEndWidth(labels[index] ?? "", labelWidth)} ${painted}${length === 0 ? "" : " "}${row.count}`;
   });
 }

@@ -1,5 +1,6 @@
 import {
   compareScans,
+  notComparableAreas,
   computeStandardsCoverage,
   type Coverage,
   type Finding,
@@ -9,9 +10,11 @@ import {
 import { listSupportedRules } from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 import { getRuleTextCatalog } from "../../rule-texts.js";
-import { testFinding, testResult } from "../../test-support.js";
+import { BLOCKED, testFinding, testResult } from "../../test-support.js";
+import { CLI_TEXT } from "../i18n/cli-text.js";
 import { displayWidth } from "../i18n/display-width.js";
 import { formatScanResult, type ScanResultOptions } from "./result-view.js";
+import { compactDiff, formatSummaryBlock } from "./result-summary.js";
 import { createStyle } from "./style.js";
 
 const plain = createStyle(false);
@@ -154,9 +157,10 @@ describe("result screen, English", () => {
 
   it("opens with a summary of areas, rules, target size, time and the last scan", () => {
     expect(text).toContain("Summary");
-    expect(text).toMatch(/Areas +2 scanned: 1 completed, 1 partial \(1 not selected\)/);
+    expect(text).toMatch(/Areas +2 requested \u2014 1 completed, 1 partial \(1 not selected\)/);
+    expect(text).not.toContain("scanned:");
     expect(text).toMatch(/Rules +3 rules ran \(1 in partially scanned areas\)/);
-    expect(text).toMatch(/Target size +152 files, 340 commits/);
+    expect(text).toMatch(/Max per rule +152 files, 340 commits/);
     expect(text).toMatch(/Elapsed +5\.0 s/);
     expect(text).toMatch(/Since last scan +\+2 new \/ -1 no longer reported/);
   });
@@ -207,7 +211,7 @@ describe("result screen, Korean", () => {
       "저장소 owner/name",
       "요약",
       "소요 시간",
-      "+2 신규 / -1 더 이상 보고되지 않음",
+      "신규 2건 / 더 이상 보고되지 않음 1건",
       "OWASP Top 10 2025 분류별",
       "영역별",
       "근거: ",
@@ -367,9 +371,9 @@ describe("last scan", () => {
       comparison: compareScans(partialPrevious, result),
       previousSavedAt: new Date(2026, 9, 25, 14, 2),
     };
-    expect(formatScanResult(result, plain, options({ diff }))).toContain("not fully compared");
-    expect(formatScanResult(result, plain, options({ diff, locale: "ko" }))).toContain(
-      "완전히 비교하지 못함",
+    expect(formatScanResult(result, plain, options({ diff }))).toMatch(/not fully\s+compared/);
+    expect(formatScanResult(result, plain, options({ diff, locale: "ko" }))).toMatch(
+      /완전히\s+비교하지 못함/,
     );
   });
 });
@@ -382,5 +386,131 @@ describe("older results", () => {
     expect(text).not.toContain("Rules ");
     expect(text).not.toContain("Target size");
     expect(text).not.toContain("Standards coverage");
+  });
+});
+
+describe("summary wording and colour", () => {
+  const result = fixture();
+
+  it("says requested, never scanned, and counts a partial config area", () => {
+    const invalid: Coverage = {
+      area: "source:config",
+      scope: "code",
+      status: "partial",
+      ruleIds: [],
+      note: "pgard.config.json is not valid JSON",
+    };
+    const text = formatScanResult(fixture({ coverage: [...coverage, invalid] }), plain, options());
+    expect(text).toMatch(/Areas +3 requested — 1 completed, 2 partial/);
+    expect(text).not.toMatch(/\d scanned/);
+    const ko = formatScanResult(
+      fixture({ coverage: [...coverage, invalid] }),
+      plain,
+      options({ locale: "ko" }),
+    );
+    expect(ko).toMatch(/영역 +요청 3 — 완료 1, 부분 완료 2/);
+    expect(ko).not.toContain("개 검사");
+    const valid = { ...invalid, status: "completed" as const };
+    expect(formatScanResult(fixture({ coverage: [...coverage, valid] }), plain, options())).toMatch(
+      /Areas +2 requested/,
+    );
+  });
+
+  it("colours partial and not-tested counts yellow, like the coverage list", () => {
+    const notTested: Coverage = {
+      ...(coverage[0] as Coverage),
+      area: "source:go",
+      status: "not_tested",
+    };
+    const text = formatScanResult(
+      fixture({ coverage: [...coverage, notTested] }),
+      colored,
+      options(),
+    );
+    expect(text).toContain(`${ESC}[33m1 partial${ESC}[39m`);
+    expect(text).toContain(`${ESC}[33m1 not tested${ESC}[39m`);
+    expect(text).not.toContain(`${ESC}[33m1 completed`);
+  });
+
+  it("does not make the target size look like the size of the repository", () => {
+    const text = formatScanResult(result, plain, options());
+    expect(text).not.toMatch(/Target size/);
+    expect(text).toMatch(/Max per rule +152 files, 340 commits/);
+    expect(formatScanResult(result, plain, options({ locale: "ko" }))).toContain(
+      "규칙별 최대 검사 대상",
+    );
+  });
+
+  it("keeps coverage and zero rows free of green and empty colour codes", () => {
+    const text = formatScanResult(result, colored, options());
+    const coverageSection = text.slice(
+      text.indexOf("Coverage"),
+      text.indexOf("Standards coverage"),
+    );
+    expect(coverageSection).not.toContain(GREEN);
+    const lowRow = text.split("\n").find((line) => /^ {2}.*Low .*0$/.test(line)) ?? "";
+    expect(lowRow).not.toContain(ESC);
+  });
+
+  it("strips control characters from summary values", () => {
+    const hostile = { ...CLI_TEXT.en, elapsedValue: () => `5 s${ESC}[31m evil` };
+    const lines = formatSummaryBlock(result, null, {
+      style: plain,
+      t: hostile,
+      width: 80,
+      allFindings: false,
+    });
+    expect(lines.join("\n")).not.toContain(ESC);
+    expect(lines.join("\n")).toContain("evil");
+  });
+
+  it("keeps summary rows inside 40 and 60 columns, and drops the time when narrow", () => {
+    const diff = withDiff(result);
+    for (const locale of ["en", "ko"] as const) {
+      for (const width of [40, 60]) {
+        const text = formatScanResult(result, plain, options({ locale, width, diff }));
+        const start = text.indexOf(locale === "en" ? "Summary" : "요약");
+        const end = text.indexOf("\n\n", start);
+        const rows = text.slice(start, end).split("\n");
+        expect(rows.length).toBeGreaterThan(4);
+        for (const row of rows) expect(displayWidth(row), row).toBeLessThanOrEqual(width);
+      }
+    }
+    expect(formatScanResult(result, plain, options({ width: 40, diff }))).not.toMatch(
+      /\d{4}-\d\d-\d\d/,
+    );
+    expect(formatScanResult(result, plain, options({ width: 80, diff }))).toMatch(
+      /\d{4}-\d\d-\d\d/,
+    );
+  });
+
+  it("flags areas that could not be compared in the compact line too", () => {
+    const extra: Coverage = {
+      area: "source:go",
+      scope: "code",
+      status: "completed",
+      ruleIds: ["PG-SQL-001"],
+      note: null,
+    };
+    const earlier = testResult({
+      scanId: "scan-0",
+      coverage: [...coverage, extra],
+      findings: [],
+    });
+    const comparison = compareScans(earlier, result);
+    expect(notComparableAreas(comparison).length).toBeGreaterThan(0);
+    expect(compactDiff({ comparison, previousSavedAt: new Date() }, CLI_TEXT.en)).toContain(
+      "some areas not fully compared",
+    );
+  });
+
+  it("puts the scan's English reasons in parentheses in Korean", () => {
+    const ko = formatScanResult(result, plain, options({ locale: "ko" }));
+    const line = ko.split("\n").find((entry) => entry.includes("A02 Security")) ?? "";
+    expect(line).toMatch(/\(no mapped rule ran/);
+    const blocked = testResult({ overallStatus: "blocked", authorization: BLOCKED });
+    const text = formatScanResult(blocked, plain, options({ locale: "ko" }));
+    expect(text).toContain("권한 확인: 차단됨");
+    expect(text).toMatch(/\[확인 불가\] GitHub 계정 \(GitHub sign-in was denied\.\)/);
   });
 });

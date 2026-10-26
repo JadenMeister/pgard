@@ -25,7 +25,21 @@ describe("renderChart", () => {
 
   it("falls back to ASCII bars when the terminal has no Unicode", () => {
     const lines = renderChart(rows, { width: 80, isColor: true, unicode: false });
-    expect(lines[0]).toContain("#");
+    expect(lines[0]).toContain("#".repeat(30));
+    expect(lines.join("")).not.toContain("\u2588");
+  });
+
+  it("paints bars only, and leaves a zero row without colour codes", () => {
+    const paint = (text: string): string => `<${text}>`;
+    const lines = renderChart(
+      [
+        { label: "A", count: 2, paint },
+        { label: "B", count: 0, paint },
+      ],
+      { width: 80, isColor: true, unicode: true },
+    );
+    expect(lines[0]).toContain("<");
+    expect(lines[1]).toBe("  B 0");
   });
 
   it("shrinks bars when long labels leave less room", () => {

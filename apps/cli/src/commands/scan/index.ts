@@ -72,7 +72,8 @@ export function formatProgress(
   // Korean: stage and status words; only messages with a known translation are added.
   const stage = t.progress.stage[event.stage] ?? event.stage;
   const status = t.progress.status[event.status] ?? event.status;
-  const message = t.progress.message[event.message];
+  const message =
+    t.progress.message[event.message] ?? t.progress.scoped(event.message, t.progress.stage);
   return `  ${stage}: ${status}${message === undefined ? "" : ` - ${message}`}`;
 }
 

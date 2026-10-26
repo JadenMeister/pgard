@@ -143,7 +143,7 @@ describe("plain output", () => {
       Repository owner/name @ abcdef123456 - scopes: code, history
 
       Summary
-        Areas    2 scanned: 2 completed
+        Areas    2 requested — 2 completed
         Elapsed  5.0 s
 
       Findings by severity (2 total) - plus 6 in test or fixture code

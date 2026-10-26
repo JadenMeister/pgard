@@ -78,3 +78,22 @@ export function truncateWidth(text: string, width: number, ellipsis = "..."): st
 export function maxDisplayWidth(texts: readonly string[]): number {
   return texts.reduce((max, text) => Math.max(max, displayWidth(text)), 0);
 }
+
+/**
+ * Breaks text at spaces into lines of at most `width` columns (a single longer word stays whole).
+ * Used for summary rows, so a long value continues under itself instead of wrapping to column 0.
+ */
+export function wrapWidth(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line === "") line = word;
+    else if (displayWidth(line) + 1 + displayWidth(word) <= width) line += ` ${word}`;
+    else {
+      lines.push(line);
+      line = word;
+    }
+  }
+  lines.push(line);
+  return lines;
+}

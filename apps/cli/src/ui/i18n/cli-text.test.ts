@@ -90,5 +90,10 @@ describe("CLI text catalogs", () => {
     expect(CLI_TEXT.ko.elapsedValue(65_000)).toBe("1분 5초");
     expect(CLI_TEXT.en.elapsedValue(2_400)).toBe("2.4 s");
     expect(CLI_TEXT.ko.elapsedValue(2_400)).toBe("2.4초");
+    // Rounded once before splitting: never "1 m 60 s" or "60 s".
+    expect(CLI_TEXT.en.elapsedValue(119_600)).toBe("2 m 0 s");
+    expect(CLI_TEXT.en.elapsedValue(59_960)).toBe("1 m 0 s");
+    expect(CLI_TEXT.ko.elapsedValue(119_600)).toBe("2분 0초");
+    expect(CLI_TEXT.en.elapsedValue(30_400)).toBe("30 s");
   });
 });

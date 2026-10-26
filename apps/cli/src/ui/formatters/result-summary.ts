@@ -1,6 +1,7 @@
 import {
   SEVERITIES,
   getOwaspCategory,
+  notComparableAreas,
   OWASP_ID_PATTERN,
   summarizeBySeverity,
   type Finding,
@@ -9,10 +10,10 @@ import {
   type ScanResult,
 } from "@pgard/findings";
 import { formatScanTime } from "../../flows/scan-diff-summary.js";
-import { padEndWidth, maxDisplayWidth } from "../i18n/display-width.js";
+import { maxDisplayWidth, padEndWidth, wrapWidth } from "../i18n/display-width.js";
 import type { CliText } from "../i18n/cli-text.js";
 import { renderChart, type ChartRow } from "./charts.js";
-import { safeText, type Style } from "./style.js";
+import { MIN_CHART_WIDTH, safeText, type Style } from "./style.js";
 
 /** What every section renderer needs: colours, language, width and the rule catalog. */
 export interface RenderContext {
@@ -32,7 +33,10 @@ export interface ScanDiff {
   previousSavedAt: Date;
 }
 
-/** Areas that report a scan setting rather than analysis, not counted as scanned areas. */
+/**
+ * Areas that report a scan setting rather than analysis. They are not counted as areas, except
+ * when partial: an invalid configuration file is something the reader must see.
+ */
 const CONFIG_AREA = /^source:config(-|$)/;
 
 function distinct<T>(values: Iterable<T>): Set<T> {
@@ -59,10 +63,19 @@ function elapsedMilliseconds(result: ScanResult): number | null {
   return Number.isNaN(start) || Number.isNaN(end) || end < start ? null : end - start;
 }
 
-export function compactDiff(diff: ScanDiff, t: CliText): string {
+/**
+ * "+2 new / -1 no longer reported", with the caveat whenever the full line after the result has
+ * one (areas that could not be compared, findings that could not be checked) and, unless the
+ * terminal is narrow, the time of the earlier scan.
+ */
+export function compactDiff(diff: ScanDiff, t: CliText, withTime = true): string {
   const comparison = diff.comparison;
-  const unclear = comparison.uncertainAreas.length > 0 || comparison.notComparable.length > 0;
-  return `${t.diffCompact(comparison.new.length, comparison.noLongerReported.length, unclear)} (${formatScanTime(diff.previousSavedAt)})`;
+  const unclear =
+    comparison.uncertainAreas.length > 0 ||
+    comparison.notComparable.length > 0 ||
+    notComparableAreas(comparison).length > 0;
+  const line = t.diffCompact(comparison.new.length, comparison.noLongerReported.length, unclear);
+  return withTime ? `${line} (${formatScanTime(diff.previousSavedAt)})` : line;
 }
 
 /**
@@ -76,20 +89,28 @@ export function formatSummaryBlock(
   ctx: RenderContext,
 ): string[] {
   const { t, style } = ctx;
-  const rows: Array<[string, string]> = [];
-  const areas = result.coverage.filter((entry) => !CONFIG_AREA.test(entry.area));
+  // `safe` is false for values built here from fixed words, numbers and colour codes.
+  const rows: Array<[string, string, boolean]> = [];
+  const areas = result.coverage.filter(
+    (entry) => !CONFIG_AREA.test(entry.area) || entry.status === "partial",
+  );
   const count = (status: string): number => areas.filter((entry) => entry.status === status).length;
-  const scanned = areas.filter((entry) => entry.status !== "not_selected");
+  // "Requested", not "scanned": a not-tested area was asked for but did not run.
+  const requested = areas.filter((entry) => entry.status !== "not_selected");
   if (areas.length > 0) {
     rows.push([
       t.summaryLabels.areas,
-      t.areasValue({
-        total: scanned.length,
-        completed: count("completed"),
-        partial: count("partial"),
-        notTested: count("not_tested"),
-        notSelected: count("not_selected"),
-      }),
+      t.areasValue(
+        {
+          requested: requested.length,
+          completed: count("completed"),
+          partial: count("partial"),
+          notTested: count("not_tested"),
+          notSelected: count("not_selected"),
+        },
+        style.yellow,
+      ),
+      false,
     ]);
   }
   const stats = result.ruleStats;
@@ -98,22 +119,42 @@ export function formatSummaryBlock(
     const partial = distinct(
       stats.filter((stat) => stat.status === "partial").map((stat) => stat.ruleId),
     );
-    rows.push([t.summaryLabels.rules, t.rulesValue(ran.size, partial.size)]);
+    rows.push([t.summaryLabels.rules, t.rulesValue(ran.size, partial.size), true]);
   }
   const files = targetSize(result, "files");
   const commits = targetSize(result, "commits");
   const pages = targetSize(result, "pages");
   if (files !== null || commits !== null || pages !== null) {
-    rows.push([t.summaryLabels.target, t.targetValue({ files, commits, pages })]);
+    rows.push([t.summaryLabels.target, t.targetValue({ files, commits, pages }), true]);
   }
   const elapsed = elapsedMilliseconds(result);
-  if (elapsed !== null) rows.push([t.summaryLabels.elapsed, t.elapsedValue(elapsed)]);
-  if (diff !== null) rows.push([t.summaryLabels.sinceLast, compactDiff(diff, t)]);
+  if (elapsed !== null) rows.push([t.summaryLabels.elapsed, t.elapsedValue(elapsed), true]);
+  if (diff !== null) {
+    rows.push([
+      t.summaryLabels.sinceLast,
+      compactDiff(diff, t, ctx.width >= MIN_CHART_WIDTH),
+      true,
+    ]);
+  }
   if (rows.length === 0) return [];
   const labelWidth = maxDisplayWidth(rows.map(([label]) => label));
+  const columns = 2 + labelWidth + 2;
+  // With a wide label column on a narrow terminal the label gets its own line and the value
+  // continues under it, so no row runs past the terminal width.
+  const isStacked = ctx.width - columns < 24;
+  const indent = isStacked ? 4 : columns;
+  const room = Math.max(10, ctx.width - indent);
   return [
     style.bold(t.summaryTitle),
-    ...rows.map(([label, value]) => `  ${padEndWidth(label, labelWidth)}  ${safeText(value, 300)}`),
+    ...rows.flatMap(([label, value, isUntrusted]) => {
+      const [first = "", ...rest] = wrapWidth(isUntrusted ? safeText(value, 300) : value, room);
+      return [
+        ...(isStacked
+          ? [`  ${label}`, `${" ".repeat(indent)}${first}`]
+          : [`  ${padEndWidth(label, labelWidth)}  ${first}`]),
+        ...rest.map((line) => `${" ".repeat(indent)}${line}`),
+      ];
+    }),
   ];
 }
 

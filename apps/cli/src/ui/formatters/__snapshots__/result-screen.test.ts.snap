@@ -5,11 +5,12 @@ exports[`result screen, English > matches the reviewed layout 1`] = `
 Repository owner/name @ abcdef123456 - scopes: code, history
 
 Summary
-  Areas            2 scanned: 1 completed, 1 partial (1 not selected)
+  Areas            2 requested — 1 completed, 1 partial (1 not selected)
   Rules            3 rules ran (1 in partially scanned areas)
-  Target size      152 files, 340 commits
+  Max per rule     152 files, 340 commits
   Elapsed          5.0 s
-  Since last scan  +2 new / -1 no longer reported (some areas not fully compared) (<time>)
+  Since last scan  +2 new / -1 no longer reported (some areas not fully
+                   compared) (<time>)
 
 Findings by severity (3 total)
   Critical ############################## 1
@@ -81,11 +82,12 @@ exports[`result screen, Korean > matches the reviewed layout 1`] = `
 저장소 owner/name @ abcdef123456 - 범위: code, history
 
 요약
-  영역            2개 검사: 완료 1, 부분 완료 1 (선택 안 함 1)
-  규칙            규칙 3개 실행됨 (부분 완료 영역에서 1개)
-  대상 크기       파일 152개, 커밋 340개
-  소요 시간       5.0초
-  지난 검사 대비  +2 신규 / -1 더 이상 보고되지 않음 (일부 영역은 완전히 비교하지 못함) (<time>)
+  영역                   요청 2 — 완료 1, 부분 완료 1 (선택 안 함 1)
+  규칙                   규칙 3개 실행됨 (부분 완료 영역에서 1개)
+  규칙별 최대 검사 대상  파일 152개, 커밋 340개
+  소요 시간              5.0초
+  지난 검사 대비         신규 2건 / 더 이상 보고되지 않음 1건 (일부 영역은
+                         완전히 비교하지 못함) (<time>)
 
 발견 항목 심각도별 (총 3건)
   치명적 ############################## 1
@@ -136,16 +138,16 @@ OWASP Top 10 2025 분류별
   [선택 안 함] web:anonymous (선택 안 함)
 
 표준 매핑 현황 (OWASP Top 10 2025)
-  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 6개에 규칙이 있음 (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config....
-  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 2개에 규칙이 있음; no mapped rule ran (PG-COOKIE-001: code areas could not run)
-  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 1개에 규칙이 있음; no mapped rule ran (PG-HYGIENE-001: history areas could not run)
-  [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음; no mapped rule ran (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run)
+  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 6개에 규칙이 있음 (PG-SECRET-003) (partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config....
+  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 2개에 규칙이 있음 (no mapped rule ran (PG-COOKIE-001: code areas could not run))
+  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 1개에 규칙이 있음 (no mapped rule ran (PG-HYGIENE-001: history areas could not run))
+  [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음 (no mapped rule ran (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
   [규칙 실행됨]    A05 Injection - 매핑된 CWE 37개 중 3개에 규칙이 있음 (PG-SQL-001, PG-XSS-001)
-  [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에 규칙이 있음; no mapped rule ran (PG-AUTH-001: code areas could not run)
-  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config....
-  [규칙 없음]      A08 Software or Data Integrity Failures - no rules
-  [규칙 없음]      A09 Security Logging & Alerting Failures - no rules
-  [규칙 없음]      A10 Mishandling of Exceptional Conditions - no rules
+  [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에 규칙이 있음 (no mapped rule ran (PG-AUTH-001: code areas could not run))
+  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003) (partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config....
+  [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
+  [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
+  [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
   CWE Top 25 2025: 규칙 실행됨 2, 규칙 일부 실행 0, 실행 안 됨 4, 규칙 없음 19
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json (standardsCoverage, ruleStats).
 

@@ -101,7 +101,7 @@ describe("terminal language of the scan screens", () => {
 
     const third = testResult({ scanId: "scan-3", findings: [testFinding({ id: "a" })] });
     const korean = await run("ko", SCAN, deps(third, true));
-    expect(korean.stdout).toMatch(/지난 검사 대비 +\+\d+ 신규 \/ -\d+ 더 이상 보고되지 않음/);
+    expect(korean.stdout).toMatch(/지난 검사 대비 +신규 \d+건 \/ 더 이상 보고되지 않음 \d+건/);
     expect(korean.stdout).toContain("지난 검사 이후 (");
     expect(korean.stdout).not.toContain("Since the last scan");
   });
@@ -128,5 +128,46 @@ describe("progress lines", () => {
         ko,
       ),
     ).toBe("  웹: 페이지 3개 확인함");
+  });
+});
+
+describe("Korean progress messages", () => {
+  const ko = cliText("ko");
+  const messages = [
+    ["authorization", "started", "Verifying repository authorization."],
+    ["authorization", "failed", "Authorization check failed."],
+    ["authorization", "failed", "Scan blocked by authorization gate."],
+    ["authorization", "completed", "Authorization verified."],
+    ["web", "skipped", "No confirmed local web target."],
+    ["web", "skipped", "Web scanner unavailable."],
+    ["web", "started", "Checking local web pages."],
+    ["code", "started", "Running code analysis."],
+    ["history", "completed", "Finished history analysis."],
+    ["web", "failed", "The web analysis failed."],
+  ] as const;
+
+  it("translates every fixed message of the scan", () => {
+    for (const [stage, status, message] of messages) {
+      const line = formatProgress({ stage, status, message } as never, ko) ?? "";
+      expect(line, message).not.toMatch(/[A-Za-z]{4,} [a-z]+/);
+      expect(line, message).toContain(" - ");
+    }
+  });
+
+  it("says a blocked scan was blocked, not that it failed generically", () => {
+    const blocked = formatProgress(
+      {
+        stage: "authorization",
+        status: "failed",
+        message: "Scan blocked by authorization gate.",
+      } as never,
+      ko,
+    );
+    expect(blocked).toContain("권한 확인에서 검사가 차단되었습니다");
+    const failed = formatProgress(
+      { stage: "authorization", status: "failed", message: "Authorization check failed." } as never,
+      ko,
+    );
+    expect(failed).toContain("권한 확인에 실패했습니다");
   });
 });
