@@ -137,6 +137,21 @@ describe("rule references against bundled standards data", () => {
     });
   });
 
+  it("gives every rule concrete guidance in both languages, and examples that differ", () => {
+    for (const rule of allRules()) {
+      const { rationale, remediation, examples } = rule.metadata;
+      for (const text of [rationale, remediation]) {
+        expect(text.en.length, `${rule.id} English text is too short`).toBeGreaterThan(80);
+        expect(text.ko.length, `${rule.id} Korean text is too short`).toBeGreaterThan(40);
+      }
+      for (const example of examples ?? []) {
+        expect(example.vulnerable, rule.id).not.toBe(example.safe);
+        expect(example.vulnerable.length, rule.id).toBeGreaterThan(0);
+      }
+    }
+    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(16);
+  });
+
   it("has valid metadata with Korean text for every rule", () => {
     const rules = allRules();
     expect(rules.flatMap((rule) => validateRuleMetadata(rule))).toEqual([]);
