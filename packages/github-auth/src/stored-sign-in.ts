@@ -116,15 +116,18 @@ async function deleteMalformedEntry(
   store: CredentialStore,
   key: CredentialKey,
   unreadable: string,
-): Promise<void> {
-  await withKeychainLock(store, async () => {
+): Promise<"deleted" | "gone" | "replaced"> {
+  return withKeychainLock(store, async () => {
     let current: string | null;
     try {
       current = await store.get(key);
     } catch {
-      return;
+      return "gone";
     }
-    if (current === unreadable) await store.delete(key).catch(() => false);
+    if (current === null) return "gone";
+    if (current !== unreadable) return "replaced";
+    await store.delete(key).catch(() => false);
+    return "deleted";
   });
 }
 
@@ -144,8 +147,12 @@ export async function loadStoredSignIn(
   if (text === null) return { kind: "none", wasMalformed: false };
   const record = parseRecord(text, host, clientId);
   if (record === null) {
-    if (options.deleteMalformed !== false) await deleteMalformedEntry(store, key, text);
-    return { kind: "none", wasMalformed: true };
+    if (options.deleteMalformed === false) return { kind: "none", wasMalformed: true };
+    const outcome = await deleteMalformedEntry(store, key, text);
+    // Replaced before the locked delete (e.g. by `pgard login`): read what is there now instead
+    // of reporting a removal that did not happen.
+    if (outcome === "replaced") return loadStoredSignIn(store, host, clientId, options);
+    return { kind: "none", wasMalformed: outcome === "deleted" };
   }
   return { kind: "found", record };
 }
