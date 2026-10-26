@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 import { Prisma, PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const COLUMNS: Record<string, string> = { new: '"createdAt"', name: '"name"' };

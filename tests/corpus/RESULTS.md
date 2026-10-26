@@ -11,9 +11,10 @@ TP: expected and reported. FP: reported but not expected. FN: expected but not r
 TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).
 
 Confidence: a finding at any confidence counts for recall. A safe sample that is only safe through
-a recognised guard, allowlist table or constant is labelled `allow=low`: a finding capped at low
-confidence on it is accepted (counted as TN), because guards lower confidence and never hide a
-finding. Precision (medium+) counts only medium and high confidence findings, on every sample.
+a recognised guard, allowlist table or constant is labelled `expect=low`: its rule must report a
+finding capped at low confidence (counted as TN); silence or a medium/high finding fails the
+check, because guards lower confidence and never hide a finding. Precision (medium+) counts only
+medium and high confidence findings, on every sample.
 
 ## Source rules (scanSourceCode)
 

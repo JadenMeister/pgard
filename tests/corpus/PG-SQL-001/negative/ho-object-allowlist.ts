@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 import { Pool } from "pg";
 const pool = new Pool();
 const COLUMNS = { newest: "created_at", title: "title" } as const;

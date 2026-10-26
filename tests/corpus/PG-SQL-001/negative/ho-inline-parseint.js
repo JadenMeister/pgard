@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 const mysql = require("mysql2/promise");
 
 module.exports = async function page(req, res) {

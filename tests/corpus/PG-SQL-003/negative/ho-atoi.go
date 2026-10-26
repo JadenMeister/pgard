@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 package store
 
 import (

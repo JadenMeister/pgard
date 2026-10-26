@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 package ops
 
 import "os/exec"

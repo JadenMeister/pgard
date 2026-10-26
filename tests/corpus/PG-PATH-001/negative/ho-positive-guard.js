@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 const fs = require("fs");
 const path = require("path");
 const { sep } = path;

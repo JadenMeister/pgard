@@ -1093,6 +1093,36 @@ describe("injection precision and recall (#242)", () => {
     expectSuppressed(`${SQL_HEAD} export const f = () => pool.query(\`SELECT * FROM t\`);`);
   });
 
+  it("does not suppress numeric coercion when a built-in is shadowed or monkeypatched", () => {
+    const query = (expression: string, prelude = "") =>
+      `${SQL_HEAD} ${prelude} export const f = (req) => pool.query(\`SELECT * FROM t LIMIT \${${expression}}\`);`;
+    expectSuppressed(query("Number(req.query.n)"));
+    expectSuppressed(query("parseInt(req.query.n, 10)"));
+    expectSuppressed(query("Math.min(Number(req.query.n), 5)"));
+    for (const [expression, prelude] of [
+      ["Number(req.query.n)", "function Number(x) { return x; }"],
+      ["Number(req.query.n)", "const Number = (x) => x;"],
+      ["parseInt(req.query.n, 10)", "const parseInt = (x) => x;"],
+      ["parseInt(req.query.n, 10)", "parseInt = (x) => x;"],
+      ["Number.parseInt(req.query.n, 10)", "Number.parseInt = (x) => x;"],
+      ["Math.max(0, req.query.n)", "Math.max = (a, b) => b;"],
+    ] as const)
+      expect(allRules(query(expression, prelude)), `${prelude} ${expression}`).toContain(
+        "PG-SQL-001",
+      );
+  });
+
+  it("demotes, and does not suppress, a command taken from a lookup table", () => {
+    const head = "import { exec } from 'child_process'; const TOOLS = new Map([['a', 'ls']]);";
+    expectDemoted(
+      `${head} export const f = (req) => exec(\`\${TOOLS.get(req.query.k)} -l\`);`,
+      "PG-CMD-001",
+    );
+    expectSuppressed(
+      "import { exec } from 'child_process'; import { quote } from 'shell-quote'; export const f = (req) => exec('ls ' + quote([req.query.d]));",
+    );
+  });
+
   it("demotes values that are only inferred to be fixed", () => {
     // allowlist Map / object / ternary
     expectDemoted(

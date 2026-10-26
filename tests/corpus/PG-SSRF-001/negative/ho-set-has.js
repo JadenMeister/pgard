@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 const ALLOWED_HOSTS = new Set(["api.example.com", "files.example.com"]);
 
 module.exports = async (req, res) => {

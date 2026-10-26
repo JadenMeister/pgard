@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 const { Pool } = require("pg");
 const pool = new Pool();
 const SORTABLE = new Map([["new", "created_at DESC"], ["name", "name ASC"]]);

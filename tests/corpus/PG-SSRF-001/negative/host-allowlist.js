@@ -1,4 +1,4 @@
-// corpus: expect=none; allow=low
+// corpus: expect=low
 const ALLOWED = new Set(["images.example.com", "cdn.example.com"]);
 
 // Residual risk: fetch follows redirects, so an open redirect on an allowed host still leads elsewhere.

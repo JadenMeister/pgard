@@ -781,7 +781,7 @@ export function analyzeJsSource(
         pathGuard
           ? demote(
               evidence,
-              `guard recognised at L${lineOf(pathGuard)} (startsWith(<root> + sep)); verify it dominates the file operation`,
+              `guard recognised at L${lineOf(pathGuard)} (startsWith(<root> + sep)); verify it dominates the file operation, and that the guard root is not wider than the resolve base (it is not compared with it)`,
             )
           : evidence,
         name,
@@ -1470,6 +1470,21 @@ export function analyzeJsSource(
    * literal allowlist table, and, for commands, the `quote()` imported from `shell-quote`.
    * Anything unresolved is not inert, so unclear evidence keeps its finding.
    */
+  /** `quote()` imported from `shell-quote` (the only binding of that name; a local one shadows it). */
+  const isShellQuoteCall = (call: ts.CallExpression): boolean => {
+    const resolved = moduleOfCall(call);
+    const callee = accessPath(call.expression);
+    const root = callee ? (callee.split(".")[0] ?? "") : "";
+    return (
+      resolved?.module === "shell-quote" &&
+      resolved.member === "quote" &&
+      bindingCount.get(root) === 1
+    );
+  };
+  /** A built-in nothing in the file shadows, reassigns or writes a member of (`Math.max = …`). */
+  const isPristineGlobal = (root: string): boolean =>
+    bindingCount.get(root) === undefined && !reassigned.has(root) && !mutatedRoots.has(root);
+
   const isInertValue = (expression: ts.Expression, context: "sql" | "cmd", depth = 0): boolean => {
     if (depth > 6) return false;
     const node = unwrap(expression);
@@ -1505,7 +1520,7 @@ export function analyzeJsSource(
     const fixedPath = accessPath(node);
     if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) {
       const root = fixedPath.split(".")[0] ?? "";
-      return bindingCount.get(root) === undefined && !mutatedRoots.has(root);
+      return isPristineGlobal(root);
     }
     if (ts.isIdentifier(node)) {
       if (node.text === "undefined") return bindingCount.get("undefined") === undefined;
@@ -1520,24 +1535,12 @@ export function analyzeJsSource(
       const receiverPath = receiver ? accessPath(receiver) : null;
       if (name === "parseInt" || name === "parseFloat" || name === "Number") {
         const root = (receiverPath ?? name).split(".")[0] ?? "";
-        return (
-          (receiver === null || receiverPath === "Number") && bindingCount.get(root) === undefined
-        );
+        return (receiver === null || receiverPath === "Number") && isPristineGlobal(root);
       }
-      if (receiverPath === "Math") return bindingCount.get("Math") === undefined;
+      if (receiverPath === "Math") return isPristineGlobal("Math");
       if (name === "get" && receiver && node.arguments.length === 1)
         return isInertTable(receiver, 0);
-      if (context === "cmd" && name) {
-        const resolved = moduleOfCall(node);
-        const callee = accessPath(node.expression);
-        const root = callee ? (callee.split(".")[0] ?? "") : "";
-        // The binding must be the import itself: a local `quote` shadows it.
-        return (
-          resolved?.module === "shell-quote" &&
-          resolved.member === "quote" &&
-          bindingCount.get(root) === 1
-        );
-      }
+      if (context === "cmd" && name) return isShellQuoteCall(node);
     }
     return false;
   };
@@ -1596,12 +1599,11 @@ export function analyzeJsSource(
       const receiverPath = receiver ? accessPath(receiver) : null;
       if (name === "parseInt" || name === "parseFloat" || name === "Number") {
         const root = (receiverPath ?? name).split(".")[0] ?? "";
-        return (
-          (receiver === null || receiverPath === "Number") && bindingCount.get(root) === undefined
-        );
+        return (receiver === null || receiverPath === "Number") && isPristineGlobal(root);
       }
-      if (receiverPath === "Math") return bindingCount.get("Math") === undefined;
-      if (context === "cmd") return isInertValue(node, "cmd");
+      if (receiverPath === "Math") return isPristineGlobal("Math");
+      // Only `quote()` is fixed by the expression itself; command tables are demoted, not dropped.
+      if (context === "cmd") return isShellQuoteCall(node);
     }
     return false;
   };
