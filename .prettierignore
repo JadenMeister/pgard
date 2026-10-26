@@ -5,3 +5,5 @@ coverage/
 docs/PGARD_*_KO.md
 docs/PGARD_*_EN.md
 .pack/
+tests/corpus/PG-*/
+tests/corpus/RESULTS.md

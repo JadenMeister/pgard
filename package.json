@@ -19,7 +19,9 @@
     "format:check": "prettier --check .",
     "check": "npm run typecheck && npm run format:check && npm test",
     "pack:pgard": "npm run build && node scripts/pack-pgard.mjs",
-    "smoke:pack": "node scripts/smoke-pack.mjs"
+    "smoke:pack": "node scripts/smoke-pack.mjs",
+    "corpus": "node tests/corpus/run.mjs",
+    "corpus:check": "node tests/corpus/run.mjs --check"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
