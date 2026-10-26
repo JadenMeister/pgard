@@ -7,6 +7,10 @@ import {
   CWE_ID_PATTERN,
   CWE_TOP25,
   CWE_TOP25_PROVENANCE,
+  CWE_MAPPING_USAGE,
+  CWE_MAPPING_USAGE_PROVENANCE,
+  OWASP_MAPPED_CWES,
+  OWASP_MAPPED_CWES_PROVENANCE,
   OWASP_ID_PATTERN,
   OWASP_TOP10_2025,
   OWASP_TOP10_2025_PROVENANCE,
@@ -17,6 +21,7 @@ import {
   getCweTop25Entry,
   getOwaspCategory,
   isCweTop25,
+  owaspCategoryForCwe,
 } from "./index.js";
 
 const unique = (values: readonly string[]) => new Set(values).size === values.length;
@@ -132,4 +137,40 @@ describe("provenance", () => {
       expect(p.attribution.length).toBeGreaterThan(0);
     },
   );
+});
+
+describe("OWASP mapped-CWE lists", () => {
+  it("has a list for each of the 10 categories, with well-formed ids and no CWE in two categories", () => {
+    expect(Object.keys(OWASP_MAPPED_CWES)).toEqual(OWASP_TOP10_2025.map((c) => c.id));
+    const all = Object.values(OWASP_MAPPED_CWES).flat();
+    expect(all.length).toBe(249);
+    expect(unique(all)).toBe(true);
+    for (const id of all) expect(id).toMatch(CWE_ID_PATTERN);
+    for (const list of Object.values(OWASP_MAPPED_CWES)) expect(list.length).toBeGreaterThan(0);
+  });
+
+  it("answers the category of a CWE as listed by OWASP", () => {
+    expect(owaspCategoryForCwe("CWE-89")).toBe("A05:2025");
+    expect(owaspCategoryForCwe("CWE-1275")).toBe("A01:2025");
+    expect(owaspCategoryForCwe("CWE-548")).toBe("A01:2025");
+    expect(owaspCategoryForCwe("CWE-538")).toBe("A01:2025");
+    expect(owaspCategoryForCwe("CWE-256")).toBe("A06:2025");
+    expect(owaspCategoryForCwe("CWE-1021")).toBe("A06:2025");
+    expect(owaspCategoryForCwe("CWE-693")).toBe("A06:2025");
+    expect(owaspCategoryForCwe("CWE-798")).toBe("A07:2025");
+    expect(owaspCategoryForCwe("CWE-942")).toBe("A02:2025");
+    expect(owaspCategoryForCwe("CWE-1")).toBeUndefined();
+  });
+
+  it("records provenance, and MITRE mapping usage for the CWEs rules use", () => {
+    for (const provenance of [OWASP_MAPPED_CWES_PROVENANCE, CWE_MAPPING_USAGE_PROVENANCE]) {
+      expect(provenance.sourceUrl).toMatch(/^https:\/\//);
+      expect(provenance.retrievedAt).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(provenance.license.length).toBeGreaterThan(0);
+    }
+    expect(CWE_MAPPING_USAGE["CWE-693"]).toEqual({ abstraction: "Pillar", usage: "DISCOURAGED" });
+    expect(CWE_MAPPING_USAGE["CWE-200"]).toEqual({ abstraction: "Class", usage: "DISCOURAGED" });
+    expect(CWE_MAPPING_USAGE["CWE-89"]?.usage).toBe("ALLOWED");
+    for (const id of Object.keys(CWE_MAPPING_USAGE)) expect(id).toMatch(CWE_ID_PATTERN);
+  });
 });

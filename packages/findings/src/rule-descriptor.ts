@@ -38,6 +38,7 @@ export function copyRuleMetadata(metadata: RuleMetadata): RuleMetadata {
       owasp: [...standards.owasp],
       cwe: [...standards.cwe],
       cert: standards.cert.map((ref) => ({ ...ref })),
+      ...(standards.mappingNote === undefined ? {} : { mappingNote: { ...standards.mappingNote } }),
     },
     rationale: { ...rationale },
     remediation: { ...remediation },

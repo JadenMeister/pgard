@@ -230,7 +230,7 @@ export const SOURCE_RULES = [
     scope: "code",
     languages: ["javascript", "typescript", "go"],
     standards: {
-      owasp: ["A04:2025"],
+      owasp: ["A04:2025", "A07:2025"],
       cwe: ["CWE-321", "CWE-798"],
       cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
     },
@@ -250,11 +250,7 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: JS_TS,
-    standards: {
-      owasp: ["A04:2025"],
-      cwe: ["CWE-327"],
-      cert: [{ kind: "via-cwe", id: "MSC02-J", cwe: "CWE-327" }],
-    },
+    standards: { owasp: ["A04:2025"], cwe: ["CWE-327"], cert: [] },
     rationale: {
       en: "Encrypted data may be recoverable or tampered with.",
       ko: "암호화된 데이터가 복호화되거나 변조될 수 있습니다.",
@@ -271,7 +267,7 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    standards: { owasp: ["A04:2025"], cwe: ["CWE-256"], cert: [] },
+    standards: { owasp: ["A06:2025"], cwe: ["CWE-256"], cert: [] },
     rationale: {
       en: "A database leak exposes every user's password.",
       ko: "데이터베이스가 유출되면 모든 사용자의 비밀번호가 노출됩니다.",
@@ -288,7 +284,11 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    standards: { owasp: ["A02:2025"], cwe: ["CWE-1004", "CWE-614"], cert: [] },
+    standards: {
+      owasp: ["A01:2025", "A02:2025"],
+      cwe: ["CWE-1004", "CWE-614", "CWE-1275"],
+      cert: [],
+    },
     rationale: {
       en: "Cookies may be read by scripts, sent over plain HTTP or sent cross-site.",
       ko: "스크립트가 쿠키를 읽거나, 쿠키가 평문 HTTP로 전송되거나, 다른 사이트에서 보낸 요청에 함께 실릴 수 있습니다.",

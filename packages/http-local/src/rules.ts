@@ -35,8 +35,6 @@ export interface WebRule {
   metadata: RuleMetadata;
 }
 
-const MISCONFIGURATION = "A02:2025";
-
 function rule(definition: WebRuleDefinition): WebRule {
   const { standards, rationale, remediation, examples, ...identity } = definition;
   const metadata = copyRuleMetadata({
@@ -70,7 +68,15 @@ export const WEB_RULES = {
     severity: "low",
     status: "informational",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-693"], cert: [] },
+    standards: {
+      owasp: ["A06:2025"],
+      cwe: ["CWE-693"],
+      cert: [],
+      mappingNote: {
+        en: "CWE-693 is a Pillar that MITRE marks DISCOURAGED for mapping. No specific CWE describes a missing Content-Security-Policy header, so it is kept and its OWASP category (A06) follows the OWASP mapped-CWE list.",
+        ko: "CWE-693은 MITRE가 매핑에 쓰지 말라고(DISCOURAGED) 표시한 Pillar입니다. Content-Security-Policy 헤더 누락을 정확히 설명하는 CWE가 없어 유지하며, OWASP 범주(A06)는 OWASP 매핑 CWE 목록을 따릅니다.",
+      },
+    },
     rationale: {
       en: "Without a CSP, an XSS flaw elsewhere is easier to exploit. This alone is not a vulnerability.",
       ko: "CSP가 없으면 다른 곳의 XSS 결함을 악용하기 더 쉬워집니다. 이것만으로는 취약점이 아닙니다.",
@@ -87,7 +93,7 @@ export const WEB_RULES = {
     severity: "low",
     status: "informational",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-1021"], cert: [] },
+    standards: { owasp: ["A06:2025"], cwe: ["CWE-1021"], cert: [] },
     rationale: {
       en: "Pages may be framed by other sites, which can enable clickjacking on sensitive actions.",
       ko: "다른 사이트가 이 페이지를 프레임으로 삽입할 수 있어, 민감한 동작에 클릭재킹이 가능해질 수 있습니다.",
@@ -104,7 +110,15 @@ export const WEB_RULES = {
     severity: "info",
     status: "informational",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-693"], cert: [] },
+    standards: {
+      owasp: ["A06:2025"],
+      cwe: ["CWE-693"],
+      cert: [],
+      mappingNote: {
+        en: "CWE-693 is a Pillar that MITRE marks DISCOURAGED for mapping. No specific CWE describes a missing X-Content-Type-Options header, so it is kept and its OWASP category (A06) follows the OWASP mapped-CWE list.",
+        ko: "CWE-693은 MITRE가 매핑에 쓰지 말라고(DISCOURAGED) 표시한 Pillar입니다. X-Content-Type-Options 헤더 누락을 정확히 설명하는 CWE가 없어 유지하며, OWASP 범주(A06)는 OWASP 매핑 CWE 목록을 따릅니다.",
+      },
+    },
     rationale: {
       en: "Browsers may MIME-sniff responses, which can turn uploaded content into script.",
       ko: "브라우저가 응답의 MIME 타입을 추측(sniffing)해 업로드된 콘텐츠를 스크립트로 실행할 수 있습니다.",
@@ -121,7 +135,7 @@ export const WEB_RULES = {
     severity: "info",
     status: "informational",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-200"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-201"], cert: [] },
     rationale: {
       en: "Full URLs (possibly with identifiers) may leak to third parties via the Referer header.",
       ko: "전체 URL(식별자가 포함될 수 있음)이 Referer 헤더를 통해 제3자에게 유출될 수 있습니다.",
@@ -138,7 +152,7 @@ export const WEB_RULES = {
     severity: "low",
     status: "suspected",
     confidence: "medium",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-1004"], cert: [] },
+    standards: { owasp: ["A02:2025"], cwe: ["CWE-1004"], cert: [] },
     rationale: {
       en: "If the cookie carries a session, script injected through XSS can read it.",
       ko: "쿠키가 세션을 담고 있다면 XSS로 주입된 스크립트가 이를 읽을 수 있습니다.",
@@ -155,7 +169,7 @@ export const WEB_RULES = {
     severity: "low",
     status: "suspected",
     confidence: "medium",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-1275"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-1275"], cert: [] },
     rationale: {
       en: "Browser defaults vary; without SameSite, cross-site requests may carry the cookie.",
       ko: "브라우저마다 기본값이 달라서, SameSite가 없으면 다른 사이트의 요청에 쿠키가 실릴 수 있습니다.",
@@ -172,7 +186,7 @@ export const WEB_RULES = {
     severity: "info",
     status: "informational",
     confidence: "medium",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-614"], cert: [] },
+    standards: { owasp: ["A02:2025"], cwe: ["CWE-614"], cert: [] },
     rationale: {
       en: "Expected on plain-http loopback; make sure production (HTTPS) sets Secure so the cookie is never sent over HTTP.",
       ko: "평문 HTTP loopback에서는 예상되는 결과입니다. 운영 환경(HTTPS)에서는 쿠키가 HTTP로 절대 전송되지 않도록 Secure를 설정했는지 확인하세요.",
@@ -189,7 +203,7 @@ export const WEB_RULES = {
     severity: "medium",
     status: "suspected",
     confidence: "medium",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-942"], cert: [] },
+    standards: { owasp: ["A02:2025"], cwe: ["CWE-942"], cert: [] },
     rationale: {
       en: "Indicates a permissive CORS setup; combined with origin reflection it can expose user data.",
       ko: "느슨한 CORS 설정을 뜻하며, 요청의 Origin을 그대로 반영(reflect)하는 설정과 함께 쓰이면 사용자 데이터가 노출될 수 있습니다.",
@@ -206,7 +220,7 @@ export const WEB_RULES = {
     severity: "high",
     status: "suspected",
     confidence: "medium",
-    standards: { owasp: ["A01:2025"], cwe: ["CWE-942"], cert: [] },
+    standards: { owasp: ["A02:2025"], cwe: ["CWE-942"], cert: [] },
     rationale: {
       en: "Any website a logged-in user visits may read authenticated responses from this service.",
       ko: "로그인한 사용자가 방문한 아무 웹사이트나 이 서비스의 인증된 응답을 읽을 수 있습니다.",
@@ -223,7 +237,7 @@ export const WEB_RULES = {
     severity: "low",
     status: "confirmed",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-200"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-497"], cert: [] },
     rationale: {
       en: "Exact versions help attackers pick known exploits.",
       ko: "정확한 버전을 알면 공격자가 알려진 익스플로잇을 고르기 쉬워집니다.",
@@ -240,7 +254,7 @@ export const WEB_RULES = {
     severity: "medium",
     status: "confirmed",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-548"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-548"], cert: [] },
     rationale: {
       en: "File names and unintended files may be browsed and downloaded.",
       ko: "파일 이름과 의도하지 않은 파일을 둘러보고 내려받을 수 있습니다.",
@@ -257,7 +271,7 @@ export const WEB_RULES = {
     severity: "high",
     status: "confirmed",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-538"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-538"], cert: [] },
     rationale: {
       en: "Configuration secrets in .env can be downloaded by anyone who can reach the service.",
       ko: ".env에 든 설정 비밀정보를 서비스에 접근할 수 있는 누구나 내려받을 수 있습니다.",
@@ -274,7 +288,7 @@ export const WEB_RULES = {
     severity: "high",
     status: "confirmed",
     confidence: "high",
-    standards: { owasp: [MISCONFIGURATION], cwe: ["CWE-538"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-538"], cert: [] },
     rationale: {
       en: "Source code and history (including past secrets) can be reconstructed from the .git directory.",
       ko: ".git 디렉터리에서 소스 코드와 이력(과거의 비밀정보 포함)을 복원할 수 있습니다.",
