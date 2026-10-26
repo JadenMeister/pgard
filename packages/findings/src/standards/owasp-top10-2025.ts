@@ -1,4 +1,4 @@
-import type { OwaspCategory, StandardProvenance } from "./types.js";
+import type { OwaspCategory, OwaspId, StandardProvenance } from "./types.js";
 
 export const OWASP_TOP10_2025_PROVENANCE: StandardProvenance = {
   name: "OWASP Top 10",
@@ -12,7 +12,7 @@ export const OWASP_TOP10_2025_PROVENANCE: StandardProvenance = {
 
 const BASE = "https://top10.owasp.org/2025/";
 
-const category = (id: string, title: string, slug: string): OwaspCategory => ({
+const category = (id: OwaspId, title: string, slug: string): OwaspCategory => ({
   id,
   title,
   url: `${BASE}${slug}/`,
