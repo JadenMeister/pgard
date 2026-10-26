@@ -74,7 +74,7 @@ const LATIN_STYLE: PdfStyle = { regular: "Helvetica", bold: "Helvetica-Bold", te
 const FONT_STYLE: PdfStyle = { regular: "PgardSans", bold: "PgardSans-Bold", text: toFontText };
 
 function fontFallbackMessage(reason: string): string {
-  return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font.`;
+  return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font, so a Korean report is rendered in English.`;
 }
 
 function heading(doc: PDFKit.PDFDocument, style: PdfStyle, text: string): void {
@@ -190,6 +190,9 @@ function writeFinding(
     line(doc, style, `${t.ruleRemediation}: ${guidance.remediation}`);
   if (details !== undefined && details.standards.length > 0) {
     linkLine(doc, style, t.standards, details.standards);
+  }
+  if (details !== undefined && details.examples.length > 0) {
+    line(doc, style, t.examplesInAppendix, MUTED);
   }
   const references = [
     ...finding.references.cwe,

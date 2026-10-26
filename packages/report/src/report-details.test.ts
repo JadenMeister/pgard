@@ -64,13 +64,23 @@ describe("HTML hardening and size", () => {
     expect(html.match(/class="guidance"/g) ?? []).toHaveLength(1);
     expect(html.match(/<article class="finding/g)).toHaveLength(5);
     expect(html.match(/<div class="standards">/g)).toHaveLength(5);
+    // The first finding is the anchor; the other four link to it, in both languages.
+    expect(html.match(/ id="rule-PG-SQL-001"/g)).toHaveLength(1);
+    expect(html.match(/href="#rule-PG-SQL-001"/g)).toHaveLength(4);
+    expect(html).toContain("Examples and guidance: see the first PG-SQL-001 finding");
+    const ko = renderHtmlReport({ ...base, findings }, KO);
+    expect(ko).toContain("예시와 안내: 첫 번째 PG-SQL-001 발견 항목을 참고하세요");
+    expect(ko.match(/href="#rule-PG-SQL-001"/g)).toHaveLength(4);
+    // The anchor comes before every link to it.
+    expect(html.indexOf(' id="rule-PG-SQL-001"')).toBeLessThan(html.indexOf('href="#rule-'));
   });
 
   it("names the licence of the CERT rules by URL and uses the upstream trademark wording", () => {
     for (const lang of ["en", "ko"] as const) {
       const text = REPORT_TEXT[lang].licenseCert;
       expect(text).toContain("https://creativecommons.org/licenses/by/4.0/");
-      expect(text).toContain("Carnegie Mellon(R), CERT(R)");
+      expect(text).toMatch(/Carnegie Mellon( and |과 ?)CERT/);
+      expect(text).not.toContain("SEI CERT are registered");
     }
   });
 });
