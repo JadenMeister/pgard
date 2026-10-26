@@ -142,12 +142,23 @@ describe("plain output", () => {
       "PGARD scan result - Completed
       Repository owner/name @ abcdef123456 - scopes: code, history
 
+      Summary
+        Areas    2 scanned: 2 completed
+        Elapsed  5.0 s
+
       Findings by severity (2 total) - plus 6 in test or fixture code
-        Critical  ############################## 1
-        High      ############################## 1
-        Medium    0
-        Low       0
-        Info      0
+        Critical ############################## 1
+        High     ############################## 1
+        Medium   0
+        Low      0
+        Info     0
+
+      By OWASP Top 10 2025 category
+        No OWASP mapping ############################## 2
+
+      By area
+        code    ############################## 2
+        history 0
 
       Findings (2): 1 confirmed, 1 suspected (needs review)
         [CRITICAL] Leaked key (confirmed)
@@ -164,7 +175,7 @@ describe("plain output", () => {
         Collapsed because there are more than 5 in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.
         By context: test 6
         By rule: PG-SQL-001 x6
-        By severity: 6 low
+        By severity: Low 6
         Run again with --all-findings to list everything, or save a report (--report html --output-dir <dir>).
 
       Coverage
