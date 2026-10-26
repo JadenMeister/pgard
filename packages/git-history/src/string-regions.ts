@@ -141,8 +141,6 @@ class Scanner {
    * stretch of text is searched for a closing `/` twice (keeps the scan linear).
    */
   private failedRegexUntil = -1;
-  /** Set by `quotedEnd` when a single-line quote is still open at the end of its line. */
-  private unterminatedQuote = false;
 
   constructor(text: string, syntax: Syntax) {
     this.text = text;
@@ -150,16 +148,7 @@ class Scanner {
   }
 
   private add(start: number, end: number, record: boolean): void {
-    if (!record || end <= start) return;
-    const { regions } = this;
-    const lastEnd = regions[regions.length - 1];
-    // Regions come in start order; one starting inside the last region (a string on the rest of
-    // the line after an unterminated quote) extends it, so the regions stay disjoint.
-    if (lastEnd !== undefined && start < lastEnd) {
-      regions[regions.length - 1] = Math.max(lastEnd, end);
-      return;
-    }
-    regions.push(start, end);
+    if (record && end > start) this.regions.push(start, end);
   }
 
   /**
@@ -217,20 +206,20 @@ class Scanner {
           continue;
         }
       }
-      if (syntax.heredoc !== "none" && char === "<" && this.readHeredoc(index)) {
+      if (syntax.heredoc !== "none" && char === "<" && this.readHeredoc(index, last)) {
         index += 2;
         last = "<";
         continue;
       }
-      this.unterminatedQuote = false;
       const stringEnd = this.stringAt(index, depth);
       if (stringEnd !== -1) {
-        this.add(index, stringEnd, record);
-        last = '"';
         // A quote left open at the end of its line (an apostrophe in JSX text, `it's`) is
-        // confusion: the rest of the line stays a string region (reported), but scanning goes on
-        // right after the quote, so a string opened later on the line still counts.
-        index = this.unterminatedQuote ? index + 1 : stringEnd;
+        // confusion: the rest of the line is a string region (reported) and is not scanned. The
+        // scan must not resume inside it: after a stray quote, a backtick or `/*` may be stray
+        // too, and reading it as an opener would hide a later real template.
+        this.add(index, stringEnd, record);
+        index = stringEnd;
+        last = '"';
         continue;
       }
       if (syntax.regexLiterals) {
@@ -292,9 +281,7 @@ class Scanner {
         return end === -1 ? text.length : end + 1;
       }
       if (syntax.backtick === "template") {
-        const end = this.templateEnd(index + 1, depth);
-        this.unterminatedQuote = false; // only a quote inside an interpolation was left open
-        return end;
+        return this.templateEnd(index + 1, depth);
       }
     }
     if (char !== '"' && char !== "'") return -1;
@@ -307,9 +294,7 @@ class Scanner {
       char === '"' &&
       (before === "@" || (before === "$" && text[index - 2] === "@"))
     ) {
-      const end = this.verbatimEnd(index + 1, before === "$" || text[index - 2] === "$", depth);
-      this.unterminatedQuote = false; // only a quote inside an interpolation was left open
-      return end;
+      return this.verbatimEnd(index + 1, before === "$" || text[index - 2] === "$", depth);
     }
     return this.quotedEnd(index + 1, char, syntax.multiLineQuotes.includes(char));
   }
@@ -362,10 +347,9 @@ class Scanner {
     for (let cursor = start; cursor < text.length; cursor += 1) {
       const char = text[cursor];
       if (char === "\\") cursor += 1;
-      else if (char === "\n" && !multiLine) {
-        this.unterminatedQuote = true;
+      else if (char === "\n" && !multiLine)
         return cursor; // unterminated: the rest of the line
-      } else if (char === close[0] && text.startsWith(close, cursor)) return cursor + close.length;
+      else if (char === close[0] && text.startsWith(close, cursor)) return cursor + close.length;
     }
     return text.length;
   }
@@ -435,17 +419,19 @@ class Scanner {
   }
 
   /** Records a heredoc opened at `index` (`<<~EOS`, `<<-EOS`, `<<<EOT`), if there is one. */
-  private readHeredoc(index: number): boolean {
+  private readHeredoc(index: number, last: string): boolean {
     const php = this.syntax.heredoc === "php";
     const opener = php
       ? /^<<<[ \t]{0,4}(["']?)([A-Za-z_]\w{0,63})\1/
       : /^<<([~-]?)(["'`]?)([A-Za-z_][A-Za-z0-9_]{0,63})\2/;
     const match = opener.exec(this.text.slice(index, index + 80));
     if (!match) return false;
-    // A bare lowercase name (`list <<item`) is a shift; `<<~eos`, `<<-eos` and `<<'eos'` are
-    // heredocs. An unclosed heredoc marks the rest as a string, so a wrong guess reports.
-    if (!php && /^[a-z]/.test(match[3] as string) && match[1] === "" && match[2] === "") {
-      return false;
+    // A lowercase name is a heredoc only where a value can start (`x = <<~eos`, `f(<<~eos`,
+    // `a, <<~eos`) and not after an operand (`list <<'x'`, `a <<-n` are shifts). A bare `<<name`
+    // is always a shift. A wrong guess could hide a later string, so doubtful cases are code.
+    if (!php && /^[a-z]/.test(match[3] as string)) {
+      if (match[1] === "" && match[2] === "") return false;
+      if (last !== "" && !"=(,[{|&:?".includes(last)) return false;
     }
     this.pendingHeredocs.push({ id: (php ? match[2] : match[3]) as string, php });
     return true;

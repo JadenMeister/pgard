@@ -105,9 +105,32 @@ describe("createStringLookup (#145)", () => {
       "a.ts",
     ],
     [
-      "a template after an apostrophe in JSX text",
-      "const x = <p>Don't</p>; const a = `\nMARK`;",
+      "a template after an apostrophe and a stray backtick in JSX text",
+      "const x = <p>Don't press the ` key</p>;\nconst a = `\nMARK`;",
       "a.tsx",
+    ],
+    [
+      "a template after an apostrophe and a stray /* in JSX text",
+      "const x = <p>Don't type /* here</p>;\nconst a = `\nMARK`;\n// */",
+      "a.tsx",
+    ],
+    [
+      "a template in a Vue file after an apostrophe and a backtick",
+      "<template><p>Don't press `</p></template>\n<script>const a = `\nMARK`</script>",
+      "a.vue",
+    ],
+    [
+      "a Python block after an apostrophe and a triple quote",
+      'y = \'it"""\nDSN = """\nMARK\n"""',
+      "a.py",
+    ],
+    ["a Ruby string after a shift of a quoted string", "items <<'x'\nq = \"\nx\nMARK\n\"", "a.rb"],
+    ["a Ruby string after a bare lowercase shift", 'x = <<item\nq = "\nitem\nMARK\n"', "a.rb"],
+    ["a Ruby string after a shift of a negative name", 'y = a <<-n\nq = "\nn\nMARK\n"', "a.rb"],
+    [
+      "a template after a division by a parenthesized value and a quote",
+      'const r = (a) / "/"; const t = `\nMARK`;',
+      "a.ts",
     ],
     ["a lowercase Ruby heredoc", "a = <<~eos\n  MARK\neos", "a.rb"],
     ["a lowercase Ruby heredoc with a dash", "a = <<-eos\n  MARK\n  eos", "a.rb"],
@@ -155,6 +178,30 @@ describe("createStringLookup (#145)", () => {
     expect(inside(text, path)).toBe(false);
   });
 
+  it("stays linear on long lines with many quotes (#158)", () => {
+    const text = (shape: string, prefix: string, suffix: string) =>
+      prefix + shape.repeat(Math.ceil(1_000_000 / shape.length)) + suffix;
+    const inputs: [string, string][] = [
+      // A stray apostrophe in JSX text, then JSON escaped inside a single-quoted string.
+      [
+        text('\\"k\\":\\"v\\",', "const a = <p>Don't</p>, j = JSON.parse('{", "}');\n"),
+        "bundle.js",
+      ],
+      [text('\\"', '"', "\nconst z = 1;\n"), "a.ts"],
+      [text('\\"', '"', "\nz = 1\n"), "a.py"],
+      [text("\\'", "'", "\nlet z = 1;\n"), "a.rs"],
+      [text("'\\", "'", "\nconst z = 1;\n"), "a.ts"],
+      [text("it's ", "x = 1\n", "\n"), "a.ts"],
+    ];
+    for (const [input, path] of inputs) {
+      const start = performance.now();
+      const lookup = createStringLookup(input, path);
+      lookup(input.length - 1);
+      // Quadratic scanning of a 1 MB line takes minutes; linear takes tens of milliseconds.
+      expect(performance.now() - start).toBeLessThan(2_000);
+    }
+  }, 180_000);
+
   it("stays linear on large and pathological inputs", () => {
     const shapes = [
       "const x = { a: `${`${'\"/[",
@@ -177,15 +224,15 @@ describe("createStringLookup (#145)", () => {
       return best;
     };
     for (const shape of shapes) {
-      const unit = shape.repeat(Math.ceil(625_000 / shape.length)).slice(0, 625_000);
+      const unit = shape.repeat(Math.ceil(5_000_000 / shape.length)).slice(0, 5_000_000);
       time(unit.slice(0, 100_000)); // warm up
       const small = time(unit);
-      const large = time(unit.repeat(8)); // 5 MB
+      const large = time(unit.repeat(8)); // 40 MB
       // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
       // generous so a loaded machine does not fail it; the absolute bound is loose because CI
       // runners are much slower than local machines.
-      expect(large / Math.max(small, 1)).toBeLessThan(24);
+      expect(large / Math.max(small, 1)).toBeLessThan(40);
       expect(large).toBeLessThan(10_000);
     }
-  }, 120_000);
+  }, 180_000);
 });
