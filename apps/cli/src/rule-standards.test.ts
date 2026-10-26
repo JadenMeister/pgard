@@ -4,6 +4,7 @@ import {
   getOwaspCategory,
   isCweTop25,
   owaspCategoryForCwe,
+  redactEvidence,
   validateRuleMetadata,
   type RuleMetadata,
 } from "@pgard/findings";
@@ -61,6 +62,7 @@ describe("rule references against bundled standards data", () => {
       "CWE-497": ["PG-WEB-010"],
       "CWE-307": ["PG-BRUTE-001"],
       "CWE-538": ["PG-SECRET-001", "PG-WEB-012", "PG-WEB-013"],
+      "CWE-527": ["PG-WEB-013"],
       "CWE-540": ["PG-SECRET-003"],
       "CWE-1104": ["PG-HYGIENE-001"],
       "CWE-693": ["PG-WEB-001", "PG-WEB-003"],
@@ -87,8 +89,8 @@ describe("rule references against bundled standards data", () => {
       const owasp = [...rule.owasp].sort();
       if (JSON.stringify(owasp) !== JSON.stringify(fromCwes)) {
         expect(
-          rule.metadata.standards.mappingNote,
-          `${rule.id} departs from its CWEs' categories without a mappingNote`,
+          rule.metadata.standards.mappingNote?.owaspDeparture,
+          `${rule.id} departs from its CWEs' categories without a mappingNote.owaspDeparture`,
         ).toBeDefined();
         departures.push(rule.id);
       }
@@ -97,9 +99,9 @@ describe("rule references against bundled standards data", () => {
     expect(departures).toEqual([]);
   });
 
-  it("uses a mappingNote only for DISCOURAGED CWEs, and every such CWE has one", () => {
+  it("uses a discouragedCwe note only for DISCOURAGED CWEs, and every such CWE has one", () => {
     const withNote = allRules()
-      .filter((rule) => rule.metadata.standards.mappingNote !== undefined)
+      .filter((rule) => rule.metadata.standards.mappingNote?.discouragedCwe !== undefined)
       .map((rule) => rule.id);
     const discouraged = allRules()
       .filter((rule) => rule.cwe.some((cwe) => cweMappingEntry(cwe)?.usage === "DISCOURAGED"))
@@ -135,6 +137,37 @@ describe("rule references against bundled standards data", () => {
       "PG-SECRET-002": ["MSC03-J via CWE-798"],
       "PG-SECRET-003": ["MSC03-J via CWE-798"],
     });
+  });
+
+  it("gives every rule concrete guidance in both languages, and examples that differ", () => {
+    for (const rule of allRules()) {
+      const { rationale, remediation, examples } = rule.metadata;
+      for (const text of [rationale, remediation]) {
+        expect(text.en.length, `${rule.id} English text is too short`).toBeGreaterThan(80);
+        expect(text.ko.length, `${rule.id} Korean text is too short`).toBeGreaterThan(40);
+      }
+      for (const example of examples ?? []) {
+        expect(example.vulnerable, rule.id).not.toBe(example.safe);
+        expect(example.vulnerable.length, rule.id).toBeGreaterThan(0);
+      }
+    }
+    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(16);
+  });
+
+  it("survives output redaction unchanged: findings carry impact and recommendation through redactEvidence", () => {
+    for (const rule of allRules()) {
+      const { rationale, remediation } = rule.metadata;
+      for (const text of [rationale.en, rationale.ko, remediation.en, remediation.ko]) {
+        expect(redactEvidence(text, { maxLength: 1000 }), rule.id).toBe(text);
+      }
+    }
+  });
+
+  it("keeps every recommendation within the 500-character limit, in both languages", () => {
+    for (const rule of allRules()) {
+      expect(rule.metadata.remediation.en.length, `${rule.id} en`).toBeLessThanOrEqual(500);
+      expect(rule.metadata.remediation.ko.length, `${rule.id} ko`).toBeLessThanOrEqual(500);
+    }
   });
 
   it("has valid metadata with Korean text for every rule", () => {
