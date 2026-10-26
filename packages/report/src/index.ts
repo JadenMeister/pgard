@@ -30,6 +30,7 @@ export {
 export { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";
 export {
   hasUnsupportedPdfCharacters,
+  PDF_FONT_REPLACEMENT_NOTICE,
   PDF_REPLACEMENT_NOTICE,
   renderPdfReport,
   toPdfText,
