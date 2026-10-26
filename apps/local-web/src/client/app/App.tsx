@@ -1,5 +1,11 @@
 import { useEffect, useState } from "react";
-import type { AuthStatus, ScanStatus, SessionInfo, TargetInfo } from "../../shared/api-types";
+import type {
+  AuthStatus,
+  RuleTextsResponse,
+  ScanStatus,
+  SessionInfo,
+  TargetInfo,
+} from "../../shared/api-types";
 import { apiGet, hasSessionToken } from "../api/client";
 import { Notice } from "../components/ui/Card";
 import { LanguageToggle, useI18n } from "../i18n/I18nProvider";
@@ -18,6 +24,16 @@ export function App() {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [target, setTarget] = useState<TargetInfo | null>(null);
   const [scan, setScan] = useState<ScanStatus | null>(null);
+  const [ruleTexts, setRuleTexts] = useState<RuleTextsResponse | null>(null);
+  const hasResult = scan?.result != null;
+
+  // Rule texts in both languages, fetched once when a result is first shown.
+  useEffect(() => {
+    if (!hasResult || ruleTexts !== null) return;
+    apiGet<RuleTextsResponse>("/api/rule-texts")
+      .then(setRuleTexts)
+      .catch(() => undefined);
+  }, [hasResult, ruleTexts]);
 
   useEffect(() => {
     if (!hasSessionToken()) {
@@ -60,7 +76,7 @@ export function App() {
               onTarget={setTarget}
             />
             <ScanPanel target={target} scan={scan} onScan={setScan} />
-            {scan?.result && <FindingsDashboard result={scan.result} />}
+            {scan?.result && <FindingsDashboard result={scan.result} ruleTexts={ruleTexts} />}
             {scan?.result && scan.result.overallStatus !== "blocked" && <ReportPanel />}
           </>
         )}

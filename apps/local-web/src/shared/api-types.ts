@@ -166,5 +166,15 @@ export interface ScanStatus {
   deviceCode: DeviceCodeInfo | null;
 }
 
+/** One rule's texts in each dashboard language. Same shape as `RuleTexts` in `@pgard/findings`. */
+export interface RuleTextsDto {
+  title: { en: string; ko: string };
+  impact: { en: string; ko: string };
+  recommendation: { en: string; ko: string };
+}
+
+/** `GET /api/rule-texts`: rule id -> texts. Only the rule texts; no result data. */
+export type RuleTextsResponse = Record<string, RuleTextsDto>;
+
 /** Formats the browser can download from `GET /api/reports/<format>`. */
 export type ReportFormatDto = "html" | "pdf";

@@ -880,6 +880,52 @@ describe("local web report download", () => {
     expect(response.body).toContain("credential assignment in a tracked file (value redacted)");
   });
 
+  it("serves only rule texts on /api/rule-texts and needs the token", async () => {
+    const running = await start(fakeDeps());
+    const response = await apiGet(running, "/api/rule-texts");
+    expect(response.status).toBe(200);
+    const texts = JSON.parse(response.body) as Record<string, { title: { ko: string } }>;
+    expect(Object.keys(texts)).toContain("PG-SQL-001");
+    expect(Object.keys(texts)).toContain("PG-WEB-013");
+    expect(texts["PG-SQL-001"]?.title.ko).toMatch(/[가-힣]/);
+    expect(Object.keys(texts["PG-SQL-001"] ?? {}).sort()).toEqual([
+      "impact",
+      "recommendation",
+      "title",
+    ]);
+    expect((await send(running, "GET", "/api/rule-texts")).status).toBe(401);
+  });
+
+  it("renders the HTML report in Korean for ?lang=ko and rejects other languages", async () => {
+    const scanResult = result({
+      findings: [
+        {
+          id: "f1",
+          ruleId: "PG-SQL-001",
+          title: "SQL built from dynamic strings in pg/mysql2 query",
+          severity: "high",
+          status: "suspected",
+          category: "injection",
+          references: { cwe: [], owasp: [], cve: [] },
+          confidence: "low",
+          location: { kind: "file", path: "src/a.ts", line: 3, commit: null, url: null },
+          evidence: "concat (value redacted)",
+          impact: "x",
+          recommendation: "y",
+          sources: ["code"],
+        },
+      ],
+    });
+    const running = await start(fakeDeps({ runScan: async () => scanResult }));
+    await runScan(running);
+    const korean = await apiGet(running, "/api/reports/html?lang=ko");
+    expect(korean.status).toBe(200);
+    expect(korean.body).toContain('<html lang="ko">');
+    expect(korean.body).toContain("pg/mysql2 query에 동적 문자열로 만든 SQL");
+    expect((await apiGet(running, "/api/reports/html?lang=fr")).status).toBe(400);
+    expect((await apiGet(running, "/api/reports/html")).body).toContain('<html lang="en">');
+  });
+
   it("downloads a PDF with the PDF content type", async () => {
     const running = await start(fakeDeps());
     await runScan(running);

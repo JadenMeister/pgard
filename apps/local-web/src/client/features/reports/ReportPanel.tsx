@@ -20,7 +20,7 @@ export function reportErrorMessage(caught: unknown, m: Messages): string {
  * renders it from the redacted result; the dashboard never writes files on disk.
  */
 export function ReportPanel() {
-  const { m } = useI18n();
+  const { m, language } = useI18n();
   const [busy, setBusy] = useState<ReportFormatDto | null>(null);
   const [downloaded, setDownloaded] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +30,10 @@ export function ReportPanel() {
     setDownloaded(null);
     setBusy(format);
     try {
-      const file = await apiDownload(`/api/reports/${format}`, `pgard-report.${format}`);
+      const file = await apiDownload(
+        `/api/reports/${format}?lang=${language}`,
+        `pgard-report.${format}`,
+      );
       triggerDownload(file.blob, file.filename);
       setDownloaded(file.filename);
     } catch (caught) {
