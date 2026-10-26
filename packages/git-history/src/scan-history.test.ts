@@ -367,6 +367,20 @@ describe("detectSecrets", () => {
     expect(found).toEqual([{ kind: "url_credential", line: 1, value: password, weak: true }]);
   });
 
+  it("reports a token in a URL once, as a password in a URL (#158)", () => {
+    const token = "9f8a7b6c5d4e3f2a1b0c";
+    const found = detectSecrets(`u = "https://x-access-token:${token}@github.com/o/r"`, {
+      path: "a.ts",
+    });
+    expect(found).toEqual([{ kind: "url_credential", line: 1, value: token }]);
+  });
+
+  it("still reports a generic credential next to a URL on the same line (#158)", () => {
+    const text = `password = "${L}"; url = "postgres://app:${C}@db/app"`;
+    const kinds = detectSecrets(text, { path: "config/app.yml" }).map((secret) => secret.kind);
+    expect(kinds.sort()).toEqual(["generic_credential", "url_credential"]);
+  });
+
   it("keeps a random password in a URL at full strength (#158)", () => {
     const [found] = detectSecrets(`u = "redis://default:${L}@cache:6379"`, { path: "a.ts" });
     expect(found).toMatchObject({ kind: "url_credential", value: L });

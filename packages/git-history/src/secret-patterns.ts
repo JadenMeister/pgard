@@ -95,6 +95,15 @@ const PATTERNS: Pattern[] = [
     group: 0,
   },
   {
+    kind: "url_credential",
+    // `scheme://user:password@host`: the value is the password only.
+    pattern:
+      /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/[^\s:/?#@"'`<>]{0,128}:(?<value>[^\s/?#@"'`<>]{1,256})@(?=[A-Za-z0-9[])/g,
+    group: "value",
+  },
+  // The generic patterns come last: a value a specific pattern above already reported is not
+  // reported again as a generic credential (see `detectSecrets`).
+  {
     kind: "generic_credential",
     // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
     pattern: new RegExp(
@@ -112,13 +121,6 @@ const PATTERNS: Pattern[] = [
       `${CREDENTIAL_KEY}["']?\\??(?:[ \\t]{0,8}:[ \\t]{0,8}[A-Za-z_$][\\w$.]{0,40}(?:<[^<>\\n]{0,80}>)?(?:\\[\\])?\\??[ \\t]{0,8}(?::=|=(?![=>]))|[ \\t]{1,8}[A-Za-z_*[\\]][\\w$.*[\\]]{0,40}[ \\t]{0,8}=(?![=>])|[ \\t]{0,8}(?::=|=(?![=>]))[ \\t]{0,8}!?[\\w$.!()[\\]]{1,80}[ \\t]{0,8}(?:\\?\\?|\\|\\||\\?(?![.?])))[ \\t]{0,8}${QUOTED_VALUE}`,
       "gi",
     ),
-    group: "value",
-  },
-  {
-    kind: "url_credential",
-    // `scheme://user:password@host`: the value is the password only.
-    pattern:
-      /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/[^\s:/?#@"'`<>]{0,128}:(?<value>[^\s/?#@"'`<>]{1,256})@(?=[A-Za-z0-9[])/g,
     group: "value",
   },
 ];
@@ -329,12 +331,21 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
   const context = createContext(text, options);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
+  /** `[start, end)` value spans reported by the specific patterns, in report order. */
+  const claimed: number[] = [];
+  let isClaimedAt: ((start: number, end: number) => boolean) | null = null;
   for (const { kind: patternKind, pattern, group } of PATTERNS) {
+    if (patternKind === "generic_credential") isClaimedAt ??= createSpanLookup(claimed);
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
       let kind = patternKind;
       let value = (typeof group === "number" ? match[group] : match.groups?.[group]) ?? "";
       if (value.length === 0) continue;
+      // The value ends the match (only a closing quote or `@` may follow it).
+      const valueStart = (match.index ?? 0) + match[0].lastIndexOf(value);
+      const valueEnd = valueStart + value.length;
+      // `https://x-access-token:<token>@host`: the URL password, not also a generic credential.
+      if (kind === "generic_credential" && isClaimedAt?.(valueStart, valueEnd)) continue;
       if (kind === "private_key" && !hasPrivateKeyBody(value)) {
         kind = "private_key_header";
         // No key material to compare: keep nearby text so distinct headers stay distinct.
@@ -355,9 +366,37 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
       if (seen.has(key)) continue; // a specific pattern already reported this value
       seen.add(key);
       results.push(strength === "weak" ? { kind, line, value, weak: true } : { kind, line, value });
+      if (kind !== "generic_credential") claimed.push(valueStart, valueEnd);
     }
   }
   return results;
+}
+
+/** Whether `[start, end)` overlaps any of the flat `[start, end)` pairs in `spans`. */
+function createSpanLookup(spans: number[]): (start: number, end: number) => boolean {
+  const pairs: [number, number][] = [];
+  for (let index = 0; index < spans.length; index += 2) {
+    pairs.push([spans[index] as number, spans[index + 1] as number]);
+  }
+  pairs.sort((a, b) => a[0] - b[0]);
+  // Merge into disjoint, sorted spans.
+  const merged: [number, number][] = [];
+  for (const pair of pairs) {
+    const last = merged[merged.length - 1];
+    if (last && pair[0] <= last[1]) last[1] = Math.max(last[1], pair[1]);
+    else merged.push([pair[0], pair[1]]);
+  }
+  return (start, end) => {
+    // Last span starting before `end`.
+    let low = 0;
+    let high = merged.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((merged[middle] as [number, number])[0] < end) low = middle + 1;
+      else high = middle;
+    }
+    return low > 0 && (merged[low - 1] as [number, number])[1] > start;
+  };
 }
 
 const ENV_EXAMPLE = /\.(example|sample|template|dist|defaults?)$/i;
