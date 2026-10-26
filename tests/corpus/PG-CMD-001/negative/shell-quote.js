@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-CMD-001:a shell-quote quote() call is not recognised as escaping
+// corpus: expect=none
 const { exec } = require("node:child_process");
 const { quote } = require("shell-quote");
 

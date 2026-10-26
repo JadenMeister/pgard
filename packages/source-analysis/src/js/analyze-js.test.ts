@@ -1053,3 +1053,483 @@ describe("precision (#88)", () => {
     ).toEqual([]);
   });
 });
+
+describe("injection precision and recall (#242)", () => {
+  // Full suppression is only for values fixed by the expression itself. Anything inferred (guards,
+  // allowlist tables, aliases, local constants) stays a finding at low confidence.
+  const strongRules = (code: string) =>
+    findingsIn(code)
+      .filter((finding) => finding.confidence !== "low")
+      .map((finding) => finding.ruleId);
+  const allRules = (code: string) => findingsIn(code).map((finding) => finding.ruleId);
+  /** No finding at all: the value is fixed by the expression itself. */
+  const expectSuppressed = (code: string) => expect(allRules(code)).toEqual([]);
+  /** Kept, but only at low confidence (recognised, not proven). */
+  const expectDemoted = (code: string, rule: string) => {
+    expect(allRules(code)).toEqual([rule]);
+    expect(strongRules(code)).toEqual([]);
+    const [finding] = findingsIn(code);
+    expect(finding?.severity).not.toBe("high");
+    expect(finding?.severity).not.toBe("critical");
+  };
+  /** Kept without being demoted: no "inferred" or "recognised guard" excuse was applied. */
+  const expectNotDemoted = (code: string, rule: string) => {
+    const mine = findingsIn(code).filter((finding) => finding.ruleId === rule);
+    expect(mine.length).toBeGreaterThan(0);
+    expect(
+      mine.some((finding) => !/inferred to be fixed|guard recognised/.test(finding.evidence)),
+    ).toBe(true);
+  };
+  /** Reported at medium or high confidence. */
+  const expectFires = (code: string, rule: string) => expect(strongRules(code)).toContain(rule);
+
+  const SQL_HEAD = "import { Pool } from 'pg'; const pool = new Pool();";
+
+  it("fully suppresses only values fixed by the expression itself", () => {
+    expectSuppressed(
+      `${SQL_HEAD} const T = 'logs';
+       export const f = (req) => pool.query(\`SELECT * FROM \${T} LIMIT \${Number.parseInt(req.query.n, 10) || 5} OFFSET \${+req.query.o}\`);`,
+    );
+    expectSuppressed(`${SQL_HEAD} export const f = () => pool.query(\`SELECT * FROM t\`);`);
+  });
+
+  it("does not suppress numeric coercion when a built-in is shadowed or monkeypatched", () => {
+    const query = (expression: string, prelude = "") =>
+      `${SQL_HEAD} ${prelude} export const f = (req) => pool.query(\`SELECT * FROM t LIMIT \${${expression}}\`);`;
+    expectSuppressed(query("Number(req.query.n)"));
+    expectSuppressed(query("parseInt(req.query.n, 10)"));
+    expectSuppressed(query("Math.min(Number(req.query.n), 5)"));
+    for (const [expression, prelude] of [
+      ["Number(req.query.n)", "function Number(x) { return x; }"],
+      ["Number(req.query.n)", "const Number = (x) => x;"],
+      ["parseInt(req.query.n, 10)", "const parseInt = (x) => x;"],
+      ["parseInt(req.query.n, 10)", "parseInt = (x) => x;"],
+      ["Number.parseInt(req.query.n, 10)", "Number.parseInt = (x) => x;"],
+      ["Math.max(0, req.query.n)", "Math.max = (a, b) => b;"],
+    ] as const)
+      expect(allRules(query(expression, prelude)), `${prelude} ${expression}`).toContain(
+        "PG-SQL-001",
+      );
+  });
+
+  it("demotes, and does not suppress, a command taken from a lookup table", () => {
+    const head = "import { exec } from 'child_process'; const TOOLS = new Map([['a', 'ls']]);";
+    expectDemoted(
+      `${head} export const f = (req) => exec(\`\${TOOLS.get(req.query.k)} -l\`);`,
+      "PG-CMD-001",
+    );
+    expectSuppressed(
+      "import { exec } from 'child_process'; import { quote } from 'shell-quote'; export const f = (req) => exec('ls ' + quote([req.query.d]));",
+    );
+  });
+
+  it("demotes values that are only inferred to be fixed", () => {
+    // allowlist Map / object / ternary
+    expectDemoted(
+      `${SQL_HEAD} const M = new Map([['a','x ASC']]);
+       export const f = (req) => pool.query(\`SELECT * FROM t ORDER BY \${M.get(req.query.s) ?? 'id'}\`);`,
+      "PG-SQL-001",
+    );
+    // a constant that is local to the function, and one built from another constant
+    expectDemoted(
+      `${SQL_HEAD} export const f = (req) => { const limit = Number(req.query.n) || 5;
+       return pool.query(\`SELECT * FROM t LIMIT \${limit}\`); };`,
+      "PG-SQL-001",
+    );
+    expectDemoted(
+      `${SQL_HEAD} const S = 'a'; const U = \`\${S}.users\`;
+       export const f = () => pool.query(\`SELECT * FROM \${U}\`);`,
+      "PG-SQL-001",
+    );
+  });
+
+  it("still flags a request value next to an allowlisted one", () => {
+    expectFires(
+      `${SQL_HEAD} const M = new Map([['a','x']]);
+       export const f = (req) => pool.query('SELECT * FROM t WHERE n = ' + req.query.n + ' ORDER BY ' + M.get(req.query.s));`,
+      "PG-SQL-001",
+    );
+  });
+
+  it("does not trust a constant that another binding of the same name shadows", () => {
+    const table = "const table = 'users';";
+    const query = "pool.query('SELECT * FROM ' + table)";
+    for (const shadow of [
+      `export const f = async (table) => ${query};`,
+      `export const f = async (req) => { const { table } = req.query; return ${query}; };`,
+      `export const f = async (req) => { try { x(); } catch (table) { return ${query}; } };`,
+      `export function table(req) { return ${query}; }`,
+      `export const f = async (req) => { const table = req.query.t; return ${query}; };`,
+    ])
+      expectNotDemoted(`${SQL_HEAD} ${table} ${shadow}`, "PG-SQL-001");
+    expectSuppressed(`${SQL_HEAD} ${table} export const f = () => ${query};`);
+  });
+
+  it("sees every write form that changes a constant", () => {
+    const head = `${SQL_HEAD} const table = 'users';`;
+    const query = "pool.query('SELECT * FROM ' + table)";
+    for (const write of [
+      "table = req.query.t;",
+      "for (table of req.body.tables) {}",
+      "for (table in req.body.tables) {}",
+      "({ table } = req.query);",
+      "({ a: table = 'x' } = req.query);",
+      "[table] = req.body.tables;",
+      "[...table] = req.body.tables;",
+    ])
+      expectNotDemoted(
+        `${head} export const f = (req) => { ${write} return ${query}; };`,
+        "PG-SQL-001",
+      );
+  });
+
+  it("does not trust an allowlist table that is written to or escapes", () => {
+    const head = `${SQL_HEAD} const T = { a: 'x' };`;
+    const query = "pool.query('SELECT * FROM t ORDER BY ' + T[req.query.k])";
+    expectDemoted(`${head} export const f = (req) => ${query};`, "PG-SQL-001");
+    for (const body of [
+      `T[req.query.k] = req.query.v; return ${query};`,
+      `T.a = req.query.v; return ${query};`,
+      `Object.assign(T, req.query); return ${query};`,
+      `register(T); return ${query};`,
+      `delete T.a; return ${query};`,
+    ])
+      expectNotDemoted(`${head} export const f = (req) => { ${body} };`, "PG-SQL-001");
+    const map = (entries: string, extra = "") =>
+      `${SQL_HEAD} const M = new Map(${entries}); export const f = (req) => { ${extra} return pool.query('SELECT * FROM t ORDER BY ' + M.get(req.query.k)); };`;
+    expectDemoted(map("[['a', 'x']]"), "PG-SQL-001");
+    expectNotDemoted(map("[['a', req.query.v]]"), "PG-SQL-001");
+    expectNotDemoted(map("[['a', 'x']]", "M.set('b', req.query.v);"), "PG-SQL-001");
+  });
+
+  it("does not trust an exported allowlist table", () => {
+    const query = "pool.query('SELECT * FROM t ORDER BY ' + T[req.query.k])";
+    expectDemoted(
+      `${SQL_HEAD} const T = { a: 'x' }; export const f = (req) => ${query};`,
+      "PG-SQL-001",
+    );
+    expectNotDemoted(
+      `${SQL_HEAD} export const T = { a: 'x' }; export const f = (req) => ${query};`,
+      "PG-SQL-001",
+    );
+  });
+
+  it("flags Prisma.raw of an unresolved value at low confidence, not a literal", () => {
+    const [finding] = findingsIn(
+      "import { Prisma } from '@prisma/client'; export const f = (col: string) => Prisma.sql`SELECT * FROM t ORDER BY ${Prisma.raw(col)}`;",
+    );
+    expect(finding).toMatchObject({ ruleId: "PG-SQL-002", confidence: "low" });
+    expectSuppressed(
+      "import { Prisma } from '@prisma/client'; export const f = () => Prisma.sql`SELECT * FROM t ORDER BY a ${Prisma.raw('DESC')}`;",
+    );
+  });
+
+  it("trusts quote() only when it is the shell-quote import", () => {
+    const body = "exec('git log ' + quote(req.query.ref));";
+    const head = "import { exec } from 'child_process';";
+    expectSuppressed(`${head} import { quote } from 'shell-quote'; ${body}`);
+    expectFires(`${head} import { quote } from './q'; ${body}`, "PG-CMD-001");
+    expectFires(
+      `${head} import { quote } from 'shell-quote'; export const f = (req) => { const quote = (a) => a.join(' '); ${body} };`,
+      "PG-CMD-001",
+    );
+    expectSuppressed(
+      "import { exec } from 'child_process'; const V = '1'; exec(`npm view x@${V}`);",
+    );
+  });
+
+  describe("path guard (PG-PATH-001)", () => {
+    const code = (guard: string, sink = "res.sendFile(p);", prelude = "") =>
+      `import path from 'path'; const ROOT = path.resolve('x'); ${prelude}
+       export const f = (req, res) => { const p = path.resolve(ROOT, req.query.f); ${guard} ${sink} };`;
+    const exit = "return res.end();";
+
+    it("demotes a recognised early-exit guard with a fixed root and a separator", () => {
+      expectDemoted(code(`if (!p.startsWith(ROOT + path.sep)) ${exit}`), "PG-PATH-001");
+      expectDemoted(code(`if (!p.startsWith(ROOT + '/')) throw new Error('x');`), "PG-PATH-001");
+      expectDemoted(code(`if (!p.startsWith(\`\${ROOT}\${path.sep}\`)) ${exit}`), "PG-PATH-001");
+      expectDemoted(
+        code("", "if (p.startsWith(ROOT + path.sep)) { res.sendFile(p); }"),
+        "PG-PATH-001",
+      );
+      expect(findingsIn(code(`if (!p.startsWith(ROOT + path.sep)) ${exit}`))[0]?.evidence).toMatch(
+        /guard recognised at L\d+/,
+      );
+    });
+
+    it("keeps full confidence without a real separator or a fixed root", () => {
+      for (const guard of [
+        `if (!p.startsWith(ROOT)) ${exit}`,
+        `if (!p.startsWith(ROOT + 'x')) ${exit}`,
+        `if (!p.startsWith(req.query.b + path.sep)) ${exit}`,
+        `if (!p.startsWith('/' )) ${exit}`,
+        `if (!ROOT.startsWith(ROOT + path.sep)) ${exit}`,
+      ])
+        expectFires(code(guard), "PG-PATH-001");
+    });
+
+    it("keeps full confidence when the checked value is not the resolved one that is opened", () => {
+      expectFires(
+        `import path from 'path'; const ROOT = path.resolve('x');
+         export const f = (req, res) => { const a = path.resolve(ROOT, 'i'); const b = path.resolve(ROOT, req.query.f);
+         if (!a.startsWith(ROOT + path.sep)) return res.end(); res.sendFile(b); };`,
+        "PG-PATH-001",
+      );
+      expectFires(
+        `import path from 'path'; const ROOT = path.resolve('x');
+         export const f = (req, res) => { const p = path.resolve('x') + '/' + req.query.f;
+         if (!p.startsWith(ROOT + path.sep)) return res.end(); res.sendFile(p); };`,
+        "PG-PATH-001",
+      );
+      expectFires(
+        `import path from 'path'; const ROOT = path.resolve('x');
+         export const f = (req, res) => { const p = path.join(ROOT, req.query.f);
+         if (!p.startsWith(ROOT + path.sep)) return res.end(); res.sendFile(p); };`,
+        "PG-PATH-001",
+      );
+    });
+
+    it("requires the guard to dominate the file operation", () => {
+      const guard = `if (!p.startsWith(ROOT + path.sep))`;
+      for (const source of [
+        code("", `res.sendFile(p); ${guard} ${exit}`),
+        code(`${guard} { console.log('x'); }`),
+        code(`${guard} console.log('x');`),
+        code(`if (req.query.strict) { ${guard} ${exit} }`),
+        code(`for (const x of [1]) { ${guard} ${exit} }`),
+        code(`try { ${guard} throw new Error('x'); } catch (e) { console.warn(e); }`),
+        code(`if (req.query.a) {} else { ${guard} ${exit} }`),
+        code("", "if (p.startsWith(ROOT + path.sep)) {} else { res.sendFile(p); }"),
+        `import path from 'path'; const ROOT = path.resolve('x');
+         function check(p) { if (!p.startsWith(ROOT + path.sep)) return false; return true; }
+         export const f = (req, res) => { const p = path.resolve(ROOT, req.query.f); check(p); res.sendFile(p); };`,
+      ])
+        expectFires(source, "PG-PATH-001");
+    });
+
+    it("does not trust a guard when the value changes after it", () => {
+      for (const change of [
+        "p = path.resolve(ROOT, req.query.b);",
+        "for (p of req.body.paths) {}",
+        "[p] = req.body.paths;",
+        "({ p } = req.body);",
+        "p += req.query.b;",
+      ])
+        expectFires(
+          `import path from 'path'; const ROOT = path.resolve('x');
+           export const f = (req, res) => { let p = path.resolve(ROOT, req.query.a);
+           if (!p.startsWith(ROOT + path.sep)) return res.end(); ${change} res.sendFile(p); };`,
+          "PG-PATH-001",
+        );
+    });
+
+    it("trusts only the real path/fs normalizers, not a local resolve", () => {
+      const body = `const full = resolve(ROOT, req.query.name);
+        if (!full.startsWith(ROOT + path.sep)) return res.end(); fs.readFileSync(full);`;
+      const head = "import fs from 'fs'; import path from 'path'; const ROOT = '/srv';";
+      expectFires(
+        `${head} const resolve = (b, n) => b + '/' + n; export const f = (req, res) => { ${body} };`,
+        "PG-PATH-001",
+      );
+      expectDemoted(
+        `${head} import { resolve } from 'path'; export const f = (req, res) => { ${body} };`,
+        "PG-PATH-001",
+      );
+      expectFires(
+        `${head} import { resolve } from './mine'; export const f = (req, res) => { ${body} };`,
+        "PG-PATH-001",
+      );
+      expectFires(
+        `${head} import { resolve } from 'path'; export const f = (req, res) => { const resolve = (b, n) => b + n; ${body} };`,
+        "PG-PATH-001",
+      );
+      // an awaited realpath is a normalizer too
+      expectDemoted(
+        `import { realpath, readFile } from 'node:fs/promises'; import path from 'path'; const ROOT = '/srv';
+         export const f = async (req) => { const full = await realpath(path.join(ROOT, req.query.n));
+         if (!full.startsWith(ROOT + path.sep)) throw new Error('x'); return readFile(full); };`,
+        "PG-PATH-001",
+      );
+    });
+  });
+
+  describe("URL guard (PG-SSRF-001)", () => {
+    const code = (guard: string, sink = "fetch(u)", prelude = "const u = new URL(req.query.u);") =>
+      `export const f = async (req) => { ${prelude} ${guard} return ${sink}; };`;
+    const full = "if (u.protocol !== 'https:' || u.hostname !== 'a.com') throw new Error('no');";
+
+    it("demotes an exact host and protocol check that dominates the request", () => {
+      expectDemoted(code(full), "PG-SSRF-001");
+      expect(findingsIn(code(full))[0]?.evidence).toMatch(/guard recognised at L\d+/);
+      expectDemoted(
+        code("if (u.protocol !== 'https:' || !new Set(['a.com']).has(u.hostname)) throw 1;"),
+        "PG-SSRF-001",
+      );
+      expectDemoted(
+        code(
+          "",
+          "null",
+          "const u = new URL(req.query.u); if (u.hostname === 'a.com' && u.protocol === 'https:') { return fetch(u); }",
+        ),
+        "PG-SSRF-001",
+      );
+    });
+
+    it("keeps full confidence for protocol-only, and low for host-only, or a different URL", () => {
+      expectFires(code("if (u.protocol !== 'https:') throw 1;"), "PG-SSRF-001");
+      const [hostOnly] = findingsIn(code("if (u.hostname !== 'a.com') throw 1;"));
+      expect(hostOnly).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+      expectFires(
+        code(
+          full.replaceAll("u.", "v."),
+          "fetch(u)",
+          "const u = new URL(req.query.u); const v = new URL('https://a.com');",
+        ),
+        "PG-SSRF-001",
+      );
+    });
+
+    it("requires the guard to dominate and the URL to stay unchanged", () => {
+      for (const source of [
+        code("", `fetch(u); ${full}`),
+        code(`if (req.query.s) { ${full} }`),
+        code(`if (req.query.s) {} else { ${full} }`),
+        code(`for (const x of [1]) { ${full} }`),
+        code(`try { ${full} } catch (e) {}`),
+        code(`${full} u.hostname = req.query.h;`),
+        code(`${full} Object.assign(u, { hostname: req.query.h });`),
+        code(`${full} u.href = req.query.h;`),
+        code("", "fetch(u)", `let u = new URL(req.query.u); ${full} u = new URL(req.query.v);`),
+      ])
+        expectFires(source, "PG-SSRF-001");
+    });
+
+    const url = (rest: string) =>
+      `export async function f(req: any) { const u = new URL(req.query.u);
+       if (u.hostname !== 'a.com' || u.protocol !== 'https:') throw 1; ${rest} }`;
+
+    it("keeps full confidence when an inner binding shadows the guarded URL", () => {
+      expectDemoted(url("return fetch(u);"), "PG-SSRF-001");
+      expectFires(url("for (const u of req.body.m) { await fetch(u); }"), "PG-SSRF-001");
+      expectFires(url("{ const u = new URL(req.query.b); return fetch(u); }"), "PG-SSRF-001");
+      expectFires(
+        url(
+          "switch (req.query.k) { case 'a': { const u = new URL(req.query.b); return fetch(u); } }",
+        ),
+        "PG-SSRF-001",
+      );
+      expectFires(
+        url("switch (req.query.k) { case 'a': let u = new URL(req.query.b); return fetch(u); }"),
+        "PG-SSRF-001",
+      );
+    });
+
+    it("treats a repeated var as the same binding that is reassigned", () => {
+      expectFires(
+        `export async function f(req: any) { var u = new URL(req.query.u);
+         if (u.hostname !== 'a.com' || u.protocol !== 'https:') throw 1;
+         if (req.query.x) { var u = new URL(req.query.b); } return fetch(u); }`,
+        "PG-SSRF-001",
+      );
+    });
+
+    it("keeps full confidence when the URL is mutated through an alias or a helper", () => {
+      expectFires(url("const v = u; v.hostname = req.query.h; return fetch(u);"), "PG-SSRF-001");
+      expectFires(url("retarget(u, req.query.h); return fetch(u);"), "PG-SSRF-001");
+      // a local helper that happens to be named like an HTTP verb is not a request
+      expectFires(
+        `const patch = (x: URL) => { x.host = 'evil'; };
+         ${url("patch(u); return fetch(u);")}`,
+        "PG-SSRF-001",
+      );
+      // property-path subject: handing the request root to a function invalidates the guard
+      expectFires(
+        `export async function f(req: any) {
+         if (new URL(req.query.u).hostname !== 'a.com' || new URL(req.query.u).protocol !== 'https:') throw 1;
+         normalize(req); return fetch(req.query.u); }`,
+        "PG-SSRF-001",
+      );
+    });
+
+    it("lets a logger, console or real HTTP client read the URL without invalidating the guard", () => {
+      expectDemoted(url("console.log(u); return fetch(u);"), "PG-SSRF-001");
+      expectDemoted(
+        `import pino from 'pino'; const log = pino();
+         ${url("log.info({ u }, 'go'); return fetch(u);")}`,
+        "PG-SSRF-001",
+      );
+      expectDemoted(`import axios from 'axios'; ${url("return axios.get(u);")}`, "PG-SSRF-001");
+    });
+
+    it("requires the sink side of the subject to be stable too", () => {
+      expectFires(
+        `export async function f(req: any) { const v = new URL(req.query.u);
+         if (v.hostname !== 'a.com' || v.protocol !== 'https:') throw 1;
+         const w = new URL(v.href); register(w); return fetch(w); }`,
+        "PG-SSRF-001",
+      );
+      expectDemoted(
+        `export async function f(req: any) { const v = new URL(req.query.u);
+         if (v.hostname !== 'a.com' || v.protocol !== 'https:') throw 1;
+         const w = new URL(v.href); return fetch(w); }`,
+        "PG-SSRF-001",
+      );
+    });
+
+    it("keeps full confidence when a destructured URL object is passed to a helper", () => {
+      const source = (middle: string) =>
+        `export async function f(req: any) { const { u } = req.body;
+         if (u.hostname !== 'a.com' || u.protocol !== 'https:') throw 1; ${middle} return fetch(u); }`;
+      expectDemoted(source(""), "PG-SSRF-001");
+      expectFires(source("retarget(u);"), "PG-SSRF-001");
+    });
+
+    it("keeps a fixed-host request with a user path as a low-confidence finding", () => {
+      const [finding] = findingsIn(
+        "export const f = (req) => fetch('https://api.example.com/u/' + req.params.id);",
+      );
+      expect(finding).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+    });
+  });
+
+  it("does not resolve a const that is local to another function or assigned elsewhere", () => {
+    const head = "import { exec } from 'child_process';";
+    expectFires(
+      `${head} function setup() { const dir = '/var/log'; return dir; }
+       export const f = (req) => { exec('du -sh ' + dir); };
+       export const g = (req) => { dir = req.query.d; };`,
+      "PG-CMD-001",
+    );
+    expectFires(
+      `${head} function setup() { const dir = '/var/log'; return dir; }
+       export const f = (req) => { exec('du -sh ' + dir); }; globalThis.dir = req.query.d;`,
+      "PG-CMD-001",
+    );
+    // a function-local constant used where it is declared is only inferred: demoted, not dropped
+    expectDemoted(
+      `${head} export function f() { const dir = '/var/log'; exec('du -sh ' + dir); }`,
+      "PG-CMD-001",
+    );
+  });
+
+  it("stays linear with thousands of guarded sinks in one function", () => {
+    const build = (count: number) => {
+      const lines = Array.from(
+        { length: count },
+        (_, index) =>
+          `const p${index} = path.resolve(ROOT, req.query.a${index}); if (!p${index}.startsWith(ROOT + path.sep)) return res.end(); res.send(fs.readFileSync(p${index}));`,
+      );
+      return `import fs from 'fs'; import path from 'path'; const ROOT = path.resolve('x');
+        export const f = (req, res) => {\n${lines.join("\n")}\n};`;
+    };
+    const small = bestTimeOf(3, () => analyzeJsSource(build(500), "a.ts"));
+    const large = bestTimeOf(3, () => analyzeJsSource(build(2500), "a.ts"));
+    // Every sink is guarded: each is kept at low confidence, none is silent.
+    const findings = analyzeJsSource(build(20), "a.ts").findings;
+    expect(findings).toHaveLength(20);
+    expect(findings.every((finding) => finding.confidence === "low")).toBe(true);
+    // 5x the input: linear is about 5, quadratic about 25. The floor keeps a loaded runner from
+    // turning a tiny baseline into a noisy ratio.
+    expect(large / Math.max(small, 20)).toBeLessThan(12);
+  }, 120_000);
+});

@@ -90,6 +90,8 @@ const HTTP_CLIENT_MODULES = new Set([
   "node:http",
   "node:https",
 ]);
+/** Process-level values that a request cannot influence. */
+const TRUSTED_PATHS = new Set(["process.execPath", "process.platform", "__dirname", "__filename"]);
 const SANITIZER_CALLS =
   /^(sanitize|sanitizeHtml|purify|escape|escapeHtml|encode|xss|filterXSS|htmlEscape)$/i;
 const PASSWORD_NAME = /^(password|passwd|pwd|pass|userPassword|newPassword|plainPassword)$/i;
@@ -425,6 +427,9 @@ export function analyzeJsSource(
     return ts.isIdentifier(node) ? `${own} ${taint.assignedText(node.text, sourceFile)}` : own;
   };
 
+  const INFERRED_NOTE =
+    "value inferred to be fixed through a constant, allowlist or alias; verify it cannot hold request input";
+
   const checkSql = (call: ts.CallExpression, name: string) => {
     if (
       name === "$queryRawUnsafe" ||
@@ -432,22 +437,38 @@ export function analyzeJsSource(
       (name === "raw" && accessPath(calleeReceiver(call) ?? call.expression) === "Prisma")
     ) {
       const argument = call.arguments[0];
+      if (argument && isStrictInert(argument, "sql")) return;
+      const inferred = argument !== undefined && isInertValue(argument, "sql");
+      // Prisma.raw() splices its text into the statement as-is, so a value that cannot be shown
+      // to be fixed is reported at low confidence (the caller may well pass user input).
+      const isRawHelper = name === "raw";
       // Request input passed straight in is as dangerous as a string built from it.
-      if (argument && (taint.isDynamicString(argument) || taint.taintOf(argument) === "request")) {
+      if (
+        argument &&
+        (isRawHelper || taint.isDynamicString(argument) || taint.taintOf(argument) === "request")
+      ) {
         const evidence = classify(
           argument,
           false,
           { severity: "high", status: "confirmed", confidence: "high" },
-          { severity: "high", status: "suspected", confidence: "medium" },
+          isRawHelper && !taint.isDynamicString(argument)
+            ? { severity: "medium", status: "suspected", confidence: "low" }
+            : { severity: "high", status: "suspected", confidence: "medium" },
           name,
         );
-        if (evidence) report("PG-SQL-002", call, evidence, name);
+        if (evidence)
+          report("PG-SQL-002", call, inferred ? demote(evidence, INFERRED_NOTE) : evidence, name);
       }
       return;
     }
     if (name !== "query" && name !== "execute") return;
     const argument = sqlArgument(call);
     if (!argument) return;
+    // Fixed text (literals, numeric coercion, a literal module constant) is not reported. Values
+    // that are only inferred to be fixed (allowlist tables, aliases, local constants) are kept at
+    // low confidence.
+    if (isStrictInert(argument, "sql")) return;
+    const inferred = isInertValue(argument, "sql");
     const isTaintedInput = taint.taintOf(argument) === "request";
     if (!taint.isDynamicString(argument) && !isTaintedInput) return;
     const receiver = calleeReceiver(call);
@@ -467,7 +488,8 @@ export function analyzeJsSource(
       { severity: "medium", status: "suspected", confidence: "low" },
       label,
     );
-    if (evidence) report("PG-SQL-001", call, evidence, label);
+    if (evidence)
+      report("PG-SQL-001", call, inferred ? demote(evidence, INFERRED_NOTE) : evidence, label);
   };
 
   const checkHtmlSink = (
@@ -501,7 +523,8 @@ export function analyzeJsSource(
     const first = call.arguments[0];
     if (!first) return;
     if (member === "exec" || member === "execSync") {
-      if (isStaticString(first)) return;
+      if (isStaticString(first) || isStrictInert(first, "cmd")) return;
+      const inferred = isInertValue(first, "cmd");
       const evidence = classify(
         first,
         false,
@@ -511,7 +534,8 @@ export function analyzeJsSource(
           : null,
         `child_process.${member}`,
       );
-      if (evidence) report("PG-CMD-001", call, evidence, member);
+      if (evidence)
+        report("PG-CMD-001", call, inferred ? demote(evidence, INFERRED_NOTE) : evidence, member);
       return;
     }
     if (["spawn", "spawnSync", "execFile", "execFileSync"].includes(member)) {
@@ -552,8 +576,10 @@ export function analyzeJsSource(
         /^[-/]c$/i.test(flag.text) &&
         script &&
         !ts.isSpreadElement(script) &&
-        !isStaticString(script)
+        !isStaticString(script) &&
+        !isStrictInert(script, "cmd")
       ) {
+        const inferred = isInertValue(script, "cmd");
         const evidence = classify(
           script,
           false,
@@ -561,7 +587,13 @@ export function analyzeJsSource(
           { severity: "high", status: "suspected", confidence: "medium" },
           `child_process.${member}("${program.text}", ["${flag.text}", ...])`,
         );
-        if (evidence) report("PG-CMD-001", call, evidence, `${member}-shell-c`);
+        if (evidence)
+          report(
+            "PG-CMD-001",
+            call,
+            inferred ? demote(evidence, INFERRED_NOTE) : evidence,
+            `${member}-shell-c`,
+          );
         return;
       }
       if (usesShell && (taintedPart || dynamicParts.some((part) => taint.isDynamicString(part)))) {
@@ -585,6 +617,19 @@ export function analyzeJsSource(
         if (evidence) report("PG-CMD-001", call, evidence, `${member}-program`);
       }
     }
+  };
+
+  /** `"https://api.example.com/" + x` or a template starting with a fixed scheme and host. */
+  const hasFixedHost = (target: ts.Expression): boolean => {
+    let head: ts.Node = unwrap(target);
+    while (ts.isBinaryExpression(head) && head.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      head = unwrap(head.left);
+    const text = ts.isTemplateExpression(head)
+      ? head.head.text
+      : ts.isStringLiteralLike(head)
+        ? head.text
+        : "";
+    return /^https?:\/\/[^/$\s{}]+\//.test(text);
   };
 
   const checkSsrf = (call: ts.CallExpression, name: string) => {
@@ -615,6 +660,11 @@ export function analyzeJsSource(
       target = urlProperty.initializer;
     }
     if (taint.taintOf(target) !== "request") return;
+    // An exact hostname allowlist plus a protocol check on the same URL, before the request.
+    const subject = canonicalSubject(target);
+    const hostGuard = subject.stable ? guardHolds(call, "host", subject.text) : null;
+    const protocolGuard = subject.stable ? guardHolds(call, "protocol", subject.text) : null;
+    const hasHost = hostGuard !== null;
     const evidence = classify(
       target,
       false,
@@ -622,7 +672,46 @@ export function analyzeJsSource(
       null,
       `${name}() request URL`,
     );
-    if (evidence) report("PG-SSRF-001", call, evidence, name);
+    if (!evidence) return;
+    if (hostGuard !== null && protocolGuard !== null) {
+      // Recognised, not proven: keep the finding at low confidence.
+      report(
+        "PG-SSRF-001",
+        call,
+        demote(
+          evidence,
+          `hostname guard recognised at L${lineOf(hostGuard)} and protocol guard at L${lineOf(protocolGuard)}; verify they dominate the request`,
+        ),
+        name,
+      );
+    } else if (hasHost) {
+      // Fail closed: the host is checked but the protocol is not, so keep a weaker finding.
+      report(
+        "PG-SSRF-001",
+        call,
+        {
+          ...evidence,
+          severity: "medium",
+          confidence: "low",
+          flow: `${evidence.flow} (hostname checked, protocol not checked)`,
+        },
+        name,
+      );
+    } else if (hasFixedHost(target)) {
+      report(
+        "PG-SSRF-001",
+        call,
+        {
+          ...evidence,
+          severity: "medium",
+          confidence: "low",
+          flow: `${evidence.flow} (host is fixed; only the path is user-controlled)`,
+        },
+        name,
+      );
+    } else {
+      report("PG-SSRF-001", call, evidence, name);
+    }
   };
 
   const checkPath = (call: ts.CallExpression, name: string) => {
@@ -665,6 +754,19 @@ export function analyzeJsSource(
         return; // express/send with `root` rejects paths that escape the root.
       }
     }
+    // A `realpath`/`path.resolve` result checked with startsWith(<fixed root> + sep) on an earlier
+    // statement that dominates the file operation. The variable must be bound once and never
+    // changed, and its initializer must be the resolving call itself.
+    const pathArgument = unwrap(first);
+    let pathGuard: ts.Node | null = null;
+    if (ts.isIdentifier(pathArgument)) {
+      const init = soleConst(pathArgument.text, pathArgument);
+      const initializer = init ? unwrap(init) : null;
+      const isResolved =
+        initializer !== null && ts.isCallExpression(initializer) && isNormalizingCall(initializer);
+      if (isResolved && isStableName(pathArgument.text, true))
+        pathGuard = guardHolds(call, "prefix", pathArgument.text);
+    }
     const evidence = classify(
       first,
       false,
@@ -672,7 +774,18 @@ export function analyzeJsSource(
       null,
       `${isResponseFile ? "res" : "fs"}.${name}`,
     );
-    if (evidence) report("PG-PATH-001", call, evidence, name);
+    if (evidence)
+      report(
+        "PG-PATH-001",
+        call,
+        pathGuard
+          ? demote(
+              evidence,
+              `guard recognised at L${lineOf(pathGuard)} (startsWith(<root> + sep)); verify it dominates the file operation, and that the guard root is not wider than the resolve base (it is not compared with it)`,
+            )
+          : evidence,
+        name,
+      );
   };
 
   // Per-function facts are computed once per function (not once per call site), so files with
@@ -852,14 +965,46 @@ export function analyzeJsSource(
   /** Names of destructured handler parameters that carry request data: `({ body }) => ...`. */
   const requestAliases = new Set<string>();
   const reassigned = new Set<string>();
+  /** Marks every identifier a write target names: `x =`, `[x] =`, `({ a, b: c = 1 } =`, `for (x of`. */
+  const markWrite = (target: ts.Node): void => {
+    const node = ts.isExpression(target) ? unwrap(target) : target;
+    if (ts.isIdentifier(node)) {
+      reassigned.add(node.text);
+    } else if (ts.isArrayLiteralExpression(node)) {
+      for (const element of node.elements)
+        markWrite(ts.isSpreadElement(element) ? element.expression : element);
+    } else if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (ts.isPropertyAssignment(property)) markWrite(property.initializer);
+        else if (ts.isShorthandPropertyAssignment(property)) reassigned.add(property.name.text);
+        else if (ts.isSpreadAssignment(property)) markWrite(property.expression);
+      }
+    } else if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind === ts.SyntaxKind.EqualsToken
+    ) {
+      markWrite(node.left);
+    }
+  };
   const collectAssignments = (node: ts.Node): void => {
     if (
       ts.isBinaryExpression(node) &&
       node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
-      ts.isIdentifier(node.left)
-    )
-      reassigned.add(node.left.text);
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      markWrite(node.left);
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken ||
+        node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      markWrite(node.operand);
+    } else if (
+      (ts.isForOfStatement(node) || ts.isForInStatement(node)) &&
+      !ts.isVariableDeclarationList(node.initializer)
+    ) {
+      markWrite(node.initializer);
+    }
     ts.forEachChild(node, collectAssignments);
   };
   collectAssignments(sourceFile);
@@ -905,6 +1050,904 @@ export function analyzeJsSource(
   const singleConst = (name: string): ts.Expression | null => {
     const list = constInits.get(name);
     return list && list.length === 1 ? (list[0] ?? null) : null;
+  };
+
+  // ---- Binding and mutation facts used to prove a value or guard sound (PG-SQL/CMD/PATH/SSRF). ----
+  // Every binding of a name anywhere in the file counts, so a parameter, destructured variable,
+  // catch variable or function with the same name makes a module constant unusable as evidence.
+  const bindingCount = new Map<string, number>();
+  const mutatedRoots = new Set<string>();
+  const tableMisuse = new Set<string>();
+  /** Names used as more than a property read or a request argument: aliased, passed on, assigned. */
+  const nonReadUses = new Map<string, ts.Node[]>();
+  const seenVars = new Map<ts.Node, Set<string>>();
+  const countBinding = (name: string) => bindingCount.set(name, (bindingCount.get(name) ?? 0) + 1);
+  const rootName = (expression: ts.Expression): string | null => {
+    let current = unwrap(expression);
+    for (;;) {
+      if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current))
+        current = unwrap(current.expression);
+      else if (ts.isCallExpression(current)) current = unwrap(current.expression);
+      else break;
+    }
+    return ts.isIdentifier(current) ? current.text : null;
+  };
+  const rootIdentifier = (expression: ts.Expression): ts.Identifier | null => {
+    let current = unwrap(expression);
+    for (;;) {
+      if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current))
+        current = unwrap(current.expression);
+      else if (ts.isCallExpression(current)) current = unwrap(current.expression);
+      else break;
+    }
+    return ts.isIdentifier(current) ? current : null;
+  };
+  const isWriteTarget = (access: ts.Node): boolean => {
+    const parent = access.parent;
+    return (
+      (ts.isBinaryExpression(parent) &&
+        parent.left === access &&
+        parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment) ||
+      ts.isDeleteExpression(parent) ||
+      ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) &&
+        (parent.operator === ts.SyntaxKind.PlusPlusToken ||
+          parent.operator === ts.SyntaxKind.MinusMinusToken))
+    );
+  };
+  const MUTATING_METHOD =
+    /^(set|add|delete|clear|push|pop|shift|unshift|splice|sort|reverse|append|fill|copyWithin)/;
+  const READ_ONLY_METHODS = new Set(["get", "has", "includes", "indexOf"]);
+  const collectFacts = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) || ts.isParameter(node)) {
+      const names: string[] = [];
+      bindingNames(node.name, names);
+      names.forEach(countBinding);
+      if (
+        ts.isVariableDeclaration(node) &&
+        ts.isVariableDeclarationList(node.parent) &&
+        (node.parent.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+      ) {
+        // `var` declared again in the same function: the repeat with a value is a reassignment.
+        let owner: ts.Node | undefined = node.parent;
+        while (owner && !ts.isFunctionLike(owner) && !ts.isSourceFile(owner)) owner = owner.parent;
+        const seen = seenVars.get(owner ?? sourceFile) ?? new Set<string>();
+        seenVars.set(owner ?? sourceFile, seen);
+        for (const name of names) {
+          if (seen.has(name) && node.initializer) reassigned.add(name);
+          seen.add(name);
+        }
+      }
+    } else if (
+      (ts.isFunctionDeclaration(node) ||
+        ts.isFunctionExpression(node) ||
+        ts.isClassDeclaration(node) ||
+        ts.isClassExpression(node) ||
+        ts.isEnumDeclaration(node) ||
+        ts.isImportSpecifier(node) ||
+        ts.isImportClause(node) ||
+        ts.isNamespaceImport(node)) &&
+      node.name &&
+      ts.isIdentifier(node.name)
+    ) {
+      countBinding(node.name.text);
+    } else if (ts.isModuleDeclaration(node) && ts.isIdentifier(node.name)) {
+      countBinding(node.name.text);
+    }
+    // Writes through a property or element, or a mutating call, change what a value holds.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+    ) {
+      const left = unwrap(node.left);
+      if (!ts.isIdentifier(left)) {
+        const root = rootName(left);
+        if (root) mutatedRoots.add(root);
+      }
+    } else if (
+      (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+      (node.operator === ts.SyntaxKind.PlusPlusToken ||
+        node.operator === ts.SyntaxKind.MinusMinusToken)
+    ) {
+      const root = rootName(node.operand);
+      if (root) mutatedRoots.add(root);
+    } else if (ts.isDeleteExpression(node)) {
+      const root = rootName(node.expression);
+      if (root) mutatedRoots.add(root);
+    } else if (ts.isCallExpression(node)) {
+      const callee = accessPath(node.expression);
+      if (
+        callee !== null &&
+        /^(Object\.(assign|defineProperty|defineProperties|setPrototypeOf)|Reflect\.(set|defineProperty|deleteProperty))$/.test(
+          callee,
+        ) &&
+        node.arguments[0]
+      ) {
+        const root = rootName(node.arguments[0]);
+        if (root) mutatedRoots.add(root);
+      }
+      const target = unwrap(node.expression);
+      if (ts.isPropertyAccessExpression(target) && MUTATING_METHOD.test(target.name.text)) {
+        const path = accessPath(target.expression) ?? "";
+        const root = rootName(target.expression);
+        if (root && !/(^|\.)searchParams$/.test(path)) mutatedRoots.add(root);
+      }
+    }
+    // A reference that is not a plain read (`T[k]`, `T.k`, `T.get(k)`, `k in T`) may change the
+    // table or let it escape, so it is not a fixed allowlist.
+    if (ts.isIdentifier(node) && node.parent) {
+      let current: ts.Node = node;
+      while (
+        current.parent &&
+        (ts.isParenthesizedExpression(current.parent) ||
+          ts.isAsExpression(current.parent) ||
+          ts.isNonNullExpression(current.parent) ||
+          ts.isSatisfiesExpression(current.parent)) &&
+        current.parent.expression === current
+      )
+        current = current.parent;
+      const parent = current.parent;
+      const isDeclaration =
+        (ts.isVariableDeclaration(parent) && parent.name === current) ||
+        (ts.isParameter(parent) && parent.name === current) ||
+        (ts.isPropertyAccessExpression(parent) && parent.name === current) ||
+        (ts.isPropertyAssignment(parent) && parent.name === current) ||
+        (ts.isBindingElement(parent) &&
+          (parent.name === current || parent.propertyName === current)) ||
+        ((ts.isFunctionDeclaration(parent) || ts.isFunctionExpression(parent)) &&
+          parent.name === current) ||
+        ((ts.isMethodDeclaration(parent) || ts.isPropertyDeclaration(parent)) &&
+          parent.name === current) ||
+        ts.isTypeNode(parent) ||
+        ts.isQualifiedName(parent) ||
+        ts.isImportSpecifier(parent) ||
+        ts.isImportClause(parent) ||
+        ts.isNamespaceImport(parent);
+      if (!isDeclaration) {
+        let isRead = false;
+        if (ts.isPropertyAccessExpression(parent) && parent.expression === current) {
+          const grand = parent.parent;
+          isRead =
+            ts.isCallExpression(grand) && grand.expression === parent
+              ? READ_ONLY_METHODS.has(parent.name.text)
+              : !isWriteTarget(parent);
+        } else if (ts.isElementAccessExpression(parent) && parent.expression === current) {
+          isRead = !isWriteTarget(parent);
+        } else if (
+          ts.isBinaryExpression(parent) &&
+          parent.operatorToken.kind === ts.SyntaxKind.InKeyword &&
+          parent.right === current
+        ) {
+          isRead = true;
+        }
+        if (!isRead) tableMisuse.add(node.text);
+        if (!isRead) {
+          const uses = nonReadUses.get(node.text) ?? [];
+          uses.push(current);
+          nonReadUses.set(node.text, uses);
+        }
+      }
+    }
+    ts.forEachChild(node, collectFacts);
+  };
+  collectFacts(sourceFile);
+  const HTTP_CLIENTS = new Set([...HTTP_CLIENT_MODULES, "ky", "ofetch", "cross-fetch"]);
+  const LOG_METHODS = /^(log|info|warn|error|debug|trace)$/;
+  /** A call that only reads its arguments: a real HTTP client, a logger, or a lookup in a literal list. */
+  const isTrustedReadCall = (call: ts.CallExpression): boolean => {
+    const callee = unwrap(call.expression);
+    if (ts.isIdentifier(callee)) {
+      if (callee.text === "fetch" || callee.text === "String")
+        return bindingCount.get(callee.text) === undefined;
+      const module = namespaceImports.get(callee.text);
+      if (module !== undefined && HTTP_CLIENTS.has(module))
+        return bindingCount.get(callee.text) === 1;
+    }
+    const resolved = moduleOfCall(call);
+    if (resolved !== null && HTTP_CLIENTS.has(resolved.module.split("/")[0] ?? "")) return true;
+    if (ts.isPropertyAccessExpression(callee)) {
+      const path = accessPath(callee.expression);
+      if (path === "console" && bindingCount.get("console") === undefined) return true;
+      if (path !== null && /^(log|logger)$/i.test(path) && LOG_METHODS.test(callee.name.text))
+        return true;
+      if (/^(has|includes|indexOf)$/.test(callee.name.text))
+        return isStringCollection(callee.expression);
+    }
+    return false;
+  };
+  const isReadOnlyUse = (use: ts.Node): boolean => {
+    let parent = use.parent;
+    // `log.info({ url }, "msg")`: the value is only placed in an object handed to a logger.
+    if (
+      (ts.isShorthandPropertyAssignment(parent) ||
+        (ts.isPropertyAssignment(parent) && parent.initializer === use)) &&
+      ts.isObjectLiteralExpression(parent.parent)
+    ) {
+      const object = parent.parent;
+      const call = object.parent;
+      return (
+        ts.isCallExpression(call) &&
+        call.arguments.some((argument) => argument === object) &&
+        isTrustedReadCall(call)
+      );
+    }
+    parent = use.parent;
+    if (ts.isCallExpression(parent) && parent.arguments.some((argument) => argument === use))
+      return isTrustedReadCall(parent);
+    if (
+      ts.isNewExpression(parent) &&
+      calleeName(parent) === "URL" &&
+      parent.arguments?.some((argument) => argument === use)
+    )
+      return bindingCount.get("URL") === undefined;
+    return (
+      ts.isPropertyAccessExpression(parent) &&
+      parent.expression === use &&
+      /^(toString|valueOf)$/.test(parent.name.text)
+    );
+  };
+  const escapeCache = new Map<string, boolean>();
+  /** The value is aliased, passed to an unknown function, or assigned: it may be changed there. */
+  const escapesAsSubject = (name: string): boolean => {
+    let escaped = escapeCache.get(name);
+    if (escaped === undefined) {
+      escaped = (nonReadUses.get(name) ?? []).some((use) => !isReadOnlyUse(use));
+      escapeCache.set(name, escaped);
+    }
+    return escaped;
+  };
+  /** A module constant that no other binding of the same name can shadow. */
+  const soleConst = (name: string, use: ts.Node): ts.Expression | null => {
+    if (bindingCount.get(name) !== 1 || reassigned.has(name)) return null;
+    const init = singleConst(name);
+    if (!init) return null;
+    // Block scope: the declaring block must enclose the use (module level encloses everything).
+    let container: ts.Node | undefined = init.parent;
+    while (
+      container &&
+      !ts.isBlock(container) &&
+      !ts.isSourceFile(container) &&
+      !ts.isModuleBlock(container) &&
+      !ts.isCaseBlock(container)
+    )
+      container = container.parent;
+    if (!container) return null;
+    if (ts.isSourceFile(container)) return init;
+    return container.pos <= use.pos && use.end <= container.end ? init : null;
+  };
+  const isExported = (initializer: ts.Expression): boolean => {
+    const statement = initializer.parent.parent.parent;
+    return (
+      ts.isVariableStatement(statement) &&
+      (ts.getCombinedModifierFlags(statement.declarationList.declarations[0] as ts.Declaration) &
+        ts.ModifierFlags.Export) !==
+        0
+    );
+  };
+  /** Names of the scope's own bindings, for resolving an identifier to its declaration. */
+  const scopeNames = new Map<ts.Node, Map<string, ts.Node>>();
+  const namesDeclaredBy = (scope: ts.Node): Map<string, ts.Node> => {
+    let names = scopeNames.get(scope);
+    if (names) return names;
+    const own = new Map<string, ts.Node>();
+    names = own;
+    const add = (binding: ts.BindingName, declaration: ts.Node) => {
+      const found: string[] = [];
+      bindingNames(binding, found);
+      for (const name of found) own.set(name, declaration);
+    };
+    const isBlockScoped = (list: ts.VariableDeclarationList) =>
+      (list.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
+    // `var` hoists to the enclosing function (or the file): it is the same binding in nested blocks.
+    const hoistVars = (node: ts.Node): void => {
+      if (ts.isVariableDeclarationList(node) && !isBlockScoped(node))
+        for (const declaration of node.declarations) add(declaration.name, declaration);
+      if (node !== scope && ts.isFunctionLike(node)) return;
+      ts.forEachChild(node, hoistVars);
+    };
+    if (ts.isFunctionLike(scope)) {
+      for (const parameter of scope.parameters) add(parameter.name, parameter);
+      const body = (scope as ts.FunctionLikeDeclaration).body;
+      if (body) hoistVars(body);
+    }
+    if (ts.isSourceFile(scope)) hoistVars(scope);
+    const addStatements = (statements: readonly ts.Statement[]) => {
+      for (const statement of statements) {
+        if (ts.isVariableStatement(statement)) {
+          if (isBlockScoped(statement.declarationList))
+            for (const declaration of statement.declarationList.declarations)
+              add(declaration.name, declaration);
+        } else if (
+          (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+          statement.name
+        )
+          own.set(statement.name.text, statement);
+      }
+    };
+    if (ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope))
+      addStatements(scope.statements);
+    if (ts.isCaseBlock(scope)) for (const clause of scope.clauses) addStatements(clause.statements);
+    if (
+      (ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope)) &&
+      scope.initializer &&
+      ts.isVariableDeclarationList(scope.initializer) &&
+      isBlockScoped(scope.initializer)
+    )
+      for (const declaration of scope.initializer.declarations) add(declaration.name, declaration);
+    if (ts.isCatchClause(scope) && scope.variableDeclaration)
+      add(scope.variableDeclaration.name, scope.variableDeclaration);
+    scopeNames.set(scope, own);
+    return own;
+  };
+  /** Identity of the binding an identifier refers to ("g" when it is not declared in a scope). */
+  const bindingIdentity = (identifier: ts.Identifier): string => {
+    let current: ts.Node | undefined = identifier.parent;
+    while (current) {
+      const declaration = namesDeclaredBy(current).get(identifier.text);
+      if (declaration) return String(declaration.pos);
+      current = current.parent;
+    }
+    return "g";
+  };
+  /** A call that normalizes a path: `path.resolve` or `fs.realpath*` reached through an import. */
+  const isNormalizingCall = (call: ts.CallExpression): boolean => {
+    const resolved = moduleOfCall(call);
+    if (!resolved) return false;
+    const callee = accessPath(call.expression);
+    // A local binding of the same name shadows the import.
+    if (bindingCount.get(callee ? (callee.split(".")[0] ?? "") : "") !== 1) return false;
+    const module = resolved.module.replace(/^node:/, "");
+    if (/^path(\/(posix|win32))?$/.test(module)) return resolved.member === "resolve";
+    if (/^fs(\/promises)?$/.test(module))
+      return resolved.member === "realpath" || resolved.member === "realpathSync";
+    return false;
+  };
+  const isConstDeclaration = (initializer: ts.Expression): boolean =>
+    ts.isVariableDeclaration(initializer.parent) &&
+    ts.isVariableDeclarationList(initializer.parent.parent) &&
+    (initializer.parent.parent.flags & ts.NodeFlags.Const) !== 0;
+  /** A binding no later assignment, property write or mutating call can change. */
+  const isStableName = (name: string, followed: boolean): boolean =>
+    !reassigned.has(name) && !mutatedRoots.has(name) && (!followed || bindingCount.get(name) === 1);
+
+  /**
+   * A fixed lookup table: a `const` `Map` of pairs, object literal, or `Object.freeze` of either,
+   * where every value is inert and nothing ever writes to it or lets it escape. Indexing it with
+   * any key yields one of those values.
+   */
+  const isInertTable = (expression: ts.Expression, depth: number): boolean => {
+    if (depth > 4) return false;
+    const node = unwrap(expression);
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return (
+        init !== null &&
+        isConstDeclaration(init) &&
+        !isExported(init) &&
+        !tableMisuse.has(node.text) &&
+        !mutatedRoots.has(node.text) &&
+        isInertTable(init, depth + 1)
+      );
+    }
+    if (ts.isCallExpression(node) && accessPath(node.expression) === "Object.freeze") {
+      const inner = node.arguments[0];
+      return inner ? isInertTable(inner, depth + 1) : false;
+    }
+    if (ts.isNewExpression(node) && calleeName(node) === "Map") {
+      const entries = node.arguments?.[0] ? unwrap(node.arguments[0]) : null;
+      return (
+        entries !== null &&
+        ts.isArrayLiteralExpression(entries) &&
+        entries.elements.every((entry) => {
+          const pair = ts.isSpreadElement(entry) ? null : unwrap(entry);
+          const value =
+            pair && ts.isArrayLiteralExpression(pair) && pair.elements.length === 2
+              ? pair.elements[1]
+              : undefined;
+          return (
+            value !== undefined &&
+            !ts.isSpreadElement(value) &&
+            isInertValue(value, "sql", depth + 1)
+          );
+        })
+      );
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      return node.properties.every(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          !ts.isComputedPropertyName(property.name) &&
+          isInertValue(property.initializer, "sql", depth + 1),
+      );
+    }
+    return false;
+  };
+
+  /**
+   * True when an expression can only produce a fixed or numeric value, whatever the request holds:
+   * literals, module constants no other binding shadows, numeric coercion, a value picked from a
+   * literal allowlist table, and, for commands, the `quote()` imported from `shell-quote`.
+   * Anything unresolved is not inert, so unclear evidence keeps its finding.
+   */
+  /** `quote()` imported from `shell-quote` (the only binding of that name; a local one shadows it). */
+  const isShellQuoteCall = (call: ts.CallExpression): boolean => {
+    const resolved = moduleOfCall(call);
+    const callee = accessPath(call.expression);
+    const root = callee ? (callee.split(".")[0] ?? "") : "";
+    return (
+      resolved?.module === "shell-quote" &&
+      resolved.member === "quote" &&
+      bindingCount.get(root) === 1
+    );
+  };
+  /** A built-in nothing in the file shadows, reassigns or writes a member of (`Math.max = …`). */
+  const isPristineGlobal = (root: string): boolean =>
+    bindingCount.get(root) === undefined && !reassigned.has(root) && !mutatedRoots.has(root);
+
+  const isInertValue = (expression: ts.Expression, context: "sql" | "cmd", depth = 0): boolean => {
+    if (depth > 6) return false;
+    const node = unwrap(expression);
+    if (
+      ts.isStringLiteralLike(node) ||
+      ts.isNumericLiteral(node) ||
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword ||
+      node.kind === ts.SyntaxKind.NullKeyword
+    )
+      return true;
+    const inert = (child: ts.Expression) => isInertValue(child, context, depth + 1);
+    if (ts.isTemplateExpression(node)) return node.templateSpans.every((s) => inert(s.expression));
+    if (ts.isPrefixUnaryExpression(node)) return true; // +x, -x, ~x, !x are numbers or booleans
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind;
+      if (
+        kind === ts.SyntaxKind.PlusToken ||
+        kind === ts.SyntaxKind.BarBarToken ||
+        kind === ts.SyntaxKind.QuestionQuestionToken ||
+        kind === ts.SyntaxKind.AmpersandAmpersandToken
+      )
+        return inert(node.left) && inert(node.right);
+      return (
+        kind === ts.SyntaxKind.MinusToken ||
+        kind === ts.SyntaxKind.AsteriskToken ||
+        kind === ts.SyntaxKind.SlashToken ||
+        kind === ts.SyntaxKind.PercentToken ||
+        kind === ts.SyntaxKind.AsteriskAsteriskToken
+      );
+    }
+    if (ts.isConditionalExpression(node)) return inert(node.whenTrue) && inert(node.whenFalse);
+    const fixedPath = accessPath(node);
+    if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) {
+      const root = fixedPath.split(".")[0] ?? "";
+      return isPristineGlobal(root);
+    }
+    if (ts.isIdentifier(node)) {
+      if (node.text === "undefined") return bindingCount.get("undefined") === undefined;
+      const init = soleConst(node.text, node);
+      return init !== null && inert(init);
+    }
+    if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node))
+      return isInertTable(node.expression, 0);
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node);
+      const receiver = calleeReceiver(node);
+      const receiverPath = receiver ? accessPath(receiver) : null;
+      if (name === "parseInt" || name === "parseFloat" || name === "Number") {
+        const root = (receiverPath ?? name).split(".")[0] ?? "";
+        return (receiver === null || receiverPath === "Number") && isPristineGlobal(root);
+      }
+      if (receiverPath === "Math") return isPristineGlobal("Math");
+      if (name === "get" && receiver && node.arguments.length === 1)
+        return isInertTable(receiver, 0);
+      if (context === "cmd" && name) return isShellQuoteCall(node);
+    }
+    return false;
+  };
+
+  /**
+   * Full suppression is reserved for values that are fixed by the expression itself: literals,
+   * numeric coercion, a module-level constant initialised to a literal (sole binding, never
+   * assigned), and `shell-quote`'s `quote()`. Everything else `isInertValue` accepts is only
+   * inferred (allowlist tables, aliases, local constants) and is demoted instead of dropped.
+   */
+  const isStrictInert = (expression: ts.Expression, context: "sql" | "cmd", depth = 0): boolean => {
+    if (depth > 6) return false;
+    const node = unwrap(expression);
+    if (
+      ts.isStringLiteralLike(node) ||
+      ts.isNumericLiteral(node) ||
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword ||
+      node.kind === ts.SyntaxKind.NullKeyword
+    )
+      return true;
+    const strict = (child: ts.Expression) => isStrictInert(child, context, depth + 1);
+    if (ts.isTemplateExpression(node)) return node.templateSpans.every((s) => strict(s.expression));
+    if (ts.isPrefixUnaryExpression(node)) return true;
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind;
+      if (
+        kind === ts.SyntaxKind.PlusToken ||
+        kind === ts.SyntaxKind.BarBarToken ||
+        kind === ts.SyntaxKind.QuestionQuestionToken
+      )
+        return strict(node.left) && strict(node.right);
+      return (
+        kind === ts.SyntaxKind.MinusToken ||
+        kind === ts.SyntaxKind.AsteriskToken ||
+        kind === ts.SyntaxKind.SlashToken ||
+        kind === ts.SyntaxKind.PercentToken
+      );
+    }
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      if (init === null) return false;
+      let container: ts.Node | undefined = init.parent;
+      while (container && !ts.isBlock(container) && !ts.isSourceFile(container))
+        container = container.parent;
+      const value = unwrap(init);
+      return (
+        container !== undefined &&
+        ts.isSourceFile(container) &&
+        (ts.isStringLiteralLike(value) || ts.isNumericLiteral(value))
+      );
+    }
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node);
+      const receiver = calleeReceiver(node);
+      const receiverPath = receiver ? accessPath(receiver) : null;
+      if (name === "parseInt" || name === "parseFloat" || name === "Number") {
+        const root = (receiverPath ?? name).split(".")[0] ?? "";
+        return (receiver === null || receiverPath === "Number") && isPristineGlobal(root);
+      }
+      if (receiverPath === "Math") return isPristineGlobal("Math");
+      // Only `quote()` is fixed by the expression itself; command tables are demoted, not dropped.
+      if (context === "cmd") return isShellQuoteCall(node);
+    }
+    return false;
+  };
+
+  /** Keep the finding but cap it at low confidence and medium severity, saying why. */
+  const demote = (evidence: Evidence, note: string): Evidence => ({
+    ...evidence,
+    severity:
+      evidence.severity === "critical" || evidence.severity === "high"
+        ? "medium"
+        : evidence.severity,
+    status: "suspected",
+    confidence: "low",
+    flow: `${evidence.flow} (${note})`,
+  });
+
+  const enclosingFunction = (node: ts.Node): ts.Node => {
+    let current: ts.Node | undefined = node.parent;
+    while (current && !ts.isFunctionLike(current) && !ts.isSourceFile(current))
+      current = current.parent;
+    return current ?? sourceFile;
+  };
+
+  /** Control never continues past this statement (`return`, `throw`, or a block that does). */
+  const exitsScope = (statement: ts.Statement): boolean =>
+    ts.isReturnStatement(statement) ||
+    ts.isThrowStatement(statement) ||
+    (ts.isBlock(statement) && statement.statements.some((inner) => exitsScope(inner)));
+
+  const splitOn = (expression: ts.Expression, operator: ts.SyntaxKind): ts.Expression[] => {
+    const node = unwrap(expression);
+    return ts.isBinaryExpression(node) && node.operatorToken.kind === operator
+      ? [...splitOn(node.left, operator), ...splitOn(node.right, operator)]
+      : [node];
+  };
+
+  interface Subject {
+    text: string;
+    /** Every name the value depends on is bound once and never reassigned or written through. */
+    stable: boolean;
+  }
+
+  /** Canonical name of the value a URL/string variable carries, following `new URL(x)` and `.href`. */
+  const canonicalSubject = (expression: ts.Expression, depth = 0): Subject => {
+    const node = unwrap(expression);
+    const terminal = (): Subject => {
+      const root = accessPath(node) === null ? null : rootIdentifier(node);
+      return {
+        // The binding's identity keeps an inner `u` (loop variable, nested block) apart from the
+        // outer `u` the guard checked.
+        text: root
+          ? `${bindingIdentity(root)}:${node.getText(sourceFile)}`
+          : node.getText(sourceFile),
+        stable: root !== null && isStableName(root.text, false) && !escapesAsSubject(root.text),
+      };
+    };
+    if (depth > 5) return { text: node.getText(sourceFile), stable: false };
+    if (ts.isNewExpression(node) && calleeName(node) === "URL" && node.arguments?.[0])
+      return canonicalSubject(node.arguments[0], depth + 1);
+    if (ts.isCallExpression(node)) {
+      const receiver = calleeReceiver(node);
+      if (calleeName(node) === "toString" && receiver && node.arguments.length === 0)
+        return canonicalSubject(receiver, depth + 1);
+      if (calleeName(node) === "String" && !receiver && node.arguments[0])
+        return canonicalSubject(node.arguments[0], depth + 1);
+    }
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "href")
+      return canonicalSubject(node.expression, depth + 1);
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      if (init) {
+        const inner = unwrap(init);
+        if (
+          ts.isNewExpression(inner) ||
+          ts.isIdentifier(inner) ||
+          ts.isPropertyAccessExpression(inner) ||
+          ts.isCallExpression(inner)
+        ) {
+          const resolved = canonicalSubject(inner, depth + 1);
+          return {
+            text: resolved.text,
+            stable:
+              resolved.stable && isStableName(node.text, true) && !escapesAsSubject(node.text),
+          };
+        }
+      }
+    }
+    return terminal();
+  };
+
+  /** `u.hostname` / `u.protocol` (also through one const alias) -> canonical subject of `u`. */
+  const urlPartSubject = (
+    expression: ts.Expression,
+    part: "host" | "protocol",
+    depth = 0,
+  ): Subject | null => {
+    const node = unwrap(expression);
+    if (depth > 3) return null;
+    if (ts.isPropertyAccessExpression(node)) {
+      const names = part === "host" ? ["hostname", "host"] : ["protocol"];
+      return names.includes(node.name.text) ? canonicalSubject(node.expression) : null;
+    }
+    if (ts.isCallExpression(node) && calleeName(node) === "toLowerCase") {
+      const receiver = calleeReceiver(node);
+      return receiver ? urlPartSubject(receiver, part, depth + 1) : null;
+    }
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      const resolved = init ? urlPartSubject(init, part, depth + 1) : null;
+      return resolved
+        ? {
+            ...resolved,
+            stable:
+              resolved.stable && isStableName(node.text, true) && !escapesAsSubject(node.text),
+          }
+        : null;
+    }
+    return null;
+  };
+
+  interface GuardFact {
+    kind: "host" | "protocol" | "prefix";
+    subject: string;
+    stable: boolean;
+  }
+
+  /** True for a literal list of strings that nothing ever changes or lets escape. */
+  const isStringCollection = (expression: ts.Expression, depth = 0): boolean => {
+    if (depth > 4) return false;
+    const node = unwrap(expression);
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return (
+        init !== null &&
+        isConstDeclaration(init) &&
+        !isExported(init) &&
+        !tableMisuse.has(node.text) &&
+        !mutatedRoots.has(node.text) &&
+        isStringCollection(init, depth + 1)
+      );
+    }
+    if (ts.isNewExpression(node) && calleeName(node) === "Set" && node.arguments?.[0])
+      return isStringCollection(node.arguments[0], depth + 1);
+    if (
+      ts.isCallExpression(node) &&
+      accessPath(node.expression) === "Object.freeze" &&
+      node.arguments[0]
+    )
+      return isStringCollection(node.arguments[0], depth + 1);
+    return (
+      ts.isArrayLiteralExpression(node) &&
+      node.elements.length > 0 &&
+      node.elements.every(
+        (element) => !ts.isSpreadElement(element) && ts.isStringLiteralLike(unwrap(element)),
+      )
+    );
+  };
+
+  const endsWithSeparator = (expression: ts.Expression): boolean => {
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return node.text.endsWith("/") || node.text.endsWith("\\");
+    if (ts.isTemplateExpression(node)) {
+      const last = node.templateSpans[node.templateSpans.length - 1];
+      if (!last) return false;
+      return last.literal.text === ""
+        ? endsWithSeparator(last.expression)
+        : /[/\\]$/.test(last.literal.text);
+    }
+    const path = accessPath(node);
+    return path !== null && /(^|\.)sep$/.test(path);
+  };
+
+  /** A root that is a literal or a constant no request value reaches. */
+  const isFixedRoot = (expression: ts.Expression, depth = 0): boolean => {
+    if (depth > 4) return false;
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return true;
+    if (ts.isTemplateExpression(node))
+      return node.templateSpans.every((span) => isFixedRoot(span.expression, depth + 1));
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      return isFixedRoot(node.left, depth + 1) && isFixedRoot(node.right, depth + 1);
+    const fixedPath = accessPath(node);
+    if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) return true;
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return (
+        init !== null &&
+        isStableName(node.text, true) &&
+        taint.taintOf(node) === null &&
+        taint.taintOf(init) === null
+      );
+    }
+    return false;
+  };
+
+  /** `ROOT + sep`, `${ROOT}${sep}`, or a literal ending in a separator, with a fixed root. */
+  const isFixedRootWithSeparator = (expression: ts.Expression): boolean => {
+    const base = unwrap(expression);
+    if (ts.isStringLiteralLike(base)) return base.text.length > 1 && endsWithSeparator(base);
+    if (ts.isBinaryExpression(base) && base.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      return endsWithSeparator(base.right) && isFixedRoot(base.left);
+    if (ts.isTemplateExpression(base)) {
+      const last = base.templateSpans[base.templateSpans.length - 1];
+      if (!last || !endsWithSeparator(base)) return false;
+      const rest = base.templateSpans.slice(0, last.literal.text === "" ? -1 : undefined);
+      return rest.every((span) => isFixedRoot(span.expression));
+    }
+    return false;
+  };
+
+  const equalityFacts = (left: ts.Expression, right: ts.Expression): GuardFact[] => {
+    const facts: GuardFact[] = [];
+    for (const [value, other] of [
+      [left, right],
+      [right, left],
+    ] as const) {
+      if (!ts.isStringLiteralLike(unwrap(value))) continue;
+      const host = urlPartSubject(other, "host");
+      const protocol = urlPartSubject(other, "protocol");
+      if (host) facts.push({ kind: "host", subject: host.text, stable: host.stable });
+      if (protocol)
+        facts.push({ kind: "protocol", subject: protocol.text, stable: protocol.stable });
+    }
+    return facts;
+  };
+
+  /** What must hold when `expression` evaluates to true. */
+  const factsWhenTrue = (expression: ts.Expression): GuardFact[] => {
+    const node = unwrap(expression);
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind;
+      if (kind === ts.SyntaxKind.AmpersandAmpersandToken)
+        return [...factsWhenTrue(node.left), ...factsWhenTrue(node.right)];
+      if (
+        kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        kind === ts.SyntaxKind.EqualsEqualsToken
+      )
+        return equalityFacts(node.left, node.right);
+      return [];
+    }
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node);
+      const receiver = calleeReceiver(node);
+      const argument = node.arguments[0];
+      if (!receiver || !argument || node.arguments.length !== 1) return [];
+      if ((name === "has" || name === "includes") && isStringCollection(receiver)) {
+        const host = urlPartSubject(argument, "host");
+        const protocol = urlPartSubject(argument, "protocol");
+        return [
+          ...(host ? [{ kind: "host" as const, subject: host.text, stable: host.stable }] : []),
+          ...(protocol
+            ? [{ kind: "protocol" as const, subject: protocol.text, stable: protocol.stable }]
+            : []),
+        ];
+      }
+      if (name === "startsWith") {
+        const base = unwrap(argument);
+        if (ts.isStringLiteralLike(base) && /^https?:\/\//.test(base.text)) {
+          const subject = canonicalSubject(receiver);
+          return [{ kind: "protocol", subject: subject.text, stable: subject.stable }];
+        }
+        const subject = unwrap(receiver);
+        if (ts.isIdentifier(subject) && isFixedRootWithSeparator(base))
+          return [
+            { kind: "prefix", subject: subject.text, stable: isStableName(subject.text, true) },
+          ];
+      }
+    }
+    return [];
+  };
+
+  /** What must hold after `if (expression) <exit>` falls through (every `||` operand was false). */
+  const factsWhenFalse = (expression: ts.Expression): GuardFact[] =>
+    splitOn(expression, ts.SyntaxKind.BarBarToken).flatMap((part) => {
+      if (ts.isPrefixUnaryExpression(part) && part.operator === ts.SyntaxKind.ExclamationToken)
+        return factsWhenTrue(part.operand);
+      if (
+        ts.isBinaryExpression(part) &&
+        (part.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+          part.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken)
+      )
+        return equalityFacts(part.left, part.right);
+      return [];
+    });
+
+  // Facts are computed once per `if` and indexed once per block, so many sinks in one function
+  // stay linear: a sink asks one map lookup per enclosing block instead of re-walking the function.
+  const factKey = (kind: GuardFact["kind"], subject: string) => `${kind}\u0000${subject}`;
+  const ifFalseFacts = new Map<ts.IfStatement, GuardFact[]>();
+  const ifTrueFacts = new Map<ts.IfStatement, GuardFact[]>();
+  /** Per block: fact key -> end offset of the earliest early-exit `if` that establishes it. */
+  const exitGuardCache = new Map<ts.Node, Map<string, { end: number; node: ts.Node }>>();
+  const exitGuardsOf = (container: ts.Block | ts.SourceFile) => {
+    let guards = exitGuardCache.get(container);
+    if (guards === undefined) {
+      guards = new Map<string, { end: number; node: ts.Node }>();
+      for (const statement of container.statements) {
+        if (!ts.isIfStatement(statement) || statement.elseStatement) continue;
+        if (!exitsScope(statement.thenStatement)) continue;
+        let facts = ifFalseFacts.get(statement);
+        if (facts === undefined) {
+          facts = factsWhenFalse(statement.expression);
+          ifFalseFacts.set(statement, facts);
+        }
+        for (const fact of facts) {
+          if (!fact.stable) continue;
+          const key = factKey(fact.kind, fact.subject);
+          if (!guards.has(key)) guards.set(key, { end: statement.getEnd(), node: statement });
+        }
+      }
+      exitGuardCache.set(container, guards);
+    }
+    return guards;
+  };
+
+  /**
+   * Whether a guard fact provably holds at `node`: an early-exit `if` that is an earlier statement
+   * of a block enclosing the node (so it dominates it), or an enclosing `if` whose then-branch
+   * holds the node. Guards inside other branches, loops, `try` blocks or other functions do not
+   * count, and neither do facts about a value that is reassigned or written through.
+   */
+  const guardHolds = (node: ts.Node, kind: GuardFact["kind"], subject: string): ts.Node | null => {
+    const owner = enclosingFunction(node);
+    const key = factKey(kind, subject);
+    let child: ts.Node = node;
+    let current: ts.Node | undefined = node.parent;
+    while (current) {
+      if (ts.isBlock(current) || ts.isSourceFile(current)) {
+        const guard = exitGuardsOf(current).get(key);
+        if (guard !== undefined && guard.end <= child.getStart(sourceFile)) return guard.node;
+      } else if (ts.isIfStatement(current) && child === current.thenStatement) {
+        let when = ifTrueFacts.get(current);
+        if (when === undefined) {
+          when = factsWhenTrue(current.expression);
+          ifTrueFacts.set(current, when);
+        }
+        if (when.some((fact) => fact.stable && fact.kind === kind && fact.subject === subject))
+          return current;
+      }
+      if (current === owner) break;
+      child = current;
+      current = current.parent;
+    }
+    return null;
   };
 
   /**

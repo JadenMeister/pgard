@@ -10,61 +10,67 @@ sample that does not list it counts as a false positive for that other rule).
 TP: expected and reported. FP: reported but not expected. FN: expected but not reported.
 TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).
 
+Confidence: a finding at any confidence counts for recall. A safe sample that is only safe through
+a recognised guard, allowlist table or constant is labelled `expect=low`: its rule must report a
+finding capped at low confidence (counted as TN); silence or a medium/high finding fails the
+check, because guards lower confidence and never hide a finding. Precision (medium+) counts only
+medium and high confidence findings, on every sample.
+
 ## Source rules (scanSourceCode)
 
-238 samples.
+333 samples.
 
-| Rule | TP | FP | FN | TN | Precision | Recall |
-| --- | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 7 | 3 | 0 | 228 | 70.0% | 100.0% |
-| PG-SQL-002 | 3 | 0 | 1 | 234 | 100.0% | 75.0% |
-| PG-SQL-003 | 5 | 1 | 0 | 232 | 83.3% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 233 | 100.0% | 100.0% |
-| PG-XSS-001 | 6 | 2 | 1 | 229 | 75.0% | 85.7% |
-| PG-XSS-002 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
-| PG-XSS-003 | 4 | 1 | 0 | 233 | 80.0% | 100.0% |
-| PG-SSRF-001 | 7 | 2 | 0 | 229 | 77.8% | 100.0% |
-| PG-CMD-001 | 6 | 2 | 0 | 230 | 75.0% | 100.0% |
-| PG-CMD-002 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
-| PG-PATH-001 | 6 | 1 | 0 | 231 | 85.7% | 100.0% |
-| PG-CRYPTO-001 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
-| PG-CRYPTO-002 | 4 | 0 | 2 | 232 | 100.0% | 66.7% |
-| PG-CRYPTO-003 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
-| PG-AUTH-001 | 15 | 0 | 2 | 221 | 100.0% | 88.2% |
-| PG-COOKIE-001 | 16 | 0 | 2 | 220 | 100.0% | 88.9% |
-| PG-CSRF-001 | 13 | 0 | 0 | 225 | 100.0% | 100.0% |
-| PG-BRUTE-001 | 6 | 0 | 0 | 232 | 100.0% | 100.0% |
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-SQL-001 | 17 | 0 | 0 | 316 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-002 | 12 | 0 | 0 | 321 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-003 | 13 | 0 | 0 | 320 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 328 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-001 | 6 | 2 | 1 | 324 | 75.0% | 85.7% | 100.0% |
+| PG-XSS-002 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
+| PG-XSS-003 | 4 | 1 | 0 | 328 | 80.0% | 100.0% | 100.0% |
+| PG-SSRF-001 | 26 | 0 | 0 | 307 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-001 | 15 | 0 | 0 | 318 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-002 | 12 | 0 | 0 | 321 | 100.0% | 100.0% | 100.0% |
+| PG-PATH-001 | 18 | 0 | 0 | 315 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-001 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
+| PG-CRYPTO-002 | 4 | 0 | 2 | 327 | 100.0% | 66.7% | 100.0% |
+| PG-CRYPTO-003 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
+| PG-AUTH-001 | 15 | 0 | 2 | 316 | 100.0% | 88.2% | 100.0% |
+| PG-COOKIE-001 | 16 | 0 | 2 | 315 | 100.0% | 88.9% | 100.0% |
+| PG-CSRF-001 | 13 | 0 | 0 | 320 | 100.0% | 100.0% | n/a |
+| PG-BRUTE-001 | 6 | 0 | 0 | 327 | 100.0% | 100.0% | n/a |
 
 ## History rules (scanGitHistory on generated git repositories)
 
 40 samples.
 
-| Rule | TP | FP | FN | TN | Precision | Recall |
-| --- | --: | --: | --: | --: | --: | --: |
-| PG-SECRET-001 | 5 | 0 | 0 | 35 | 100.0% | 100.0% |
-| PG-SECRET-002 | 11 | 0 | 0 | 29 | 100.0% | 100.0% |
-| PG-SECRET-003 | 4 | 0 | 0 | 36 | 100.0% | 100.0% |
-| PG-HYGIENE-001 | 4 | 0 | 0 | 36 | 100.0% | 100.0% |
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-SECRET-001 | 5 | 0 | 0 | 35 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-002 | 11 | 0 | 0 | 29 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-003 | 4 | 0 | 0 | 36 | 100.0% | 100.0% | 100.0% |
+| PG-HYGIENE-001 | 4 | 0 | 0 | 36 | 100.0% | 100.0% | 100.0% |
 
 ## Web rules (scanLocalWeb against loopback servers)
 
 53 samples.
 
-| Rule | TP | FP | FN | TN | Precision | Recall |
-| --- | --: | --: | --: | --: | --: | --: |
-| PG-WEB-001 | 5 | 0 | 0 | 48 | 100.0% | 100.0% |
-| PG-WEB-002 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-003 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-004 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-005 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-006 | 5 | 0 | 0 | 48 | 100.0% | 100.0% |
-| PG-WEB-007 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-008 | 3 | 0 | 0 | 50 | 100.0% | 100.0% |
-| PG-WEB-009 | 2 | 0 | 1 | 50 | 100.0% | 66.7% |
-| PG-WEB-010 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-011 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-012 | 5 | 0 | 0 | 48 | 100.0% | 100.0% |
-| PG-WEB-013 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-WEB-001 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-002 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-003 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-004 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-005 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-006 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-007 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-008 | 3 | 0 | 0 | 50 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-009 | 2 | 0 | 1 | 50 | 100.0% | 66.7% | 100.0% |
+| PG-WEB-010 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-011 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-012 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-013 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
 
 ## Known misses and false positives
 
@@ -75,23 +81,12 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 | --- | --- | --- | --- |
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-mysql-set-object.js` | mysql "SET ?" with an object of column values is not parsed |
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-pgp-named-placeholders.js` | pg-promise ${name} placeholders with db.none are not recognised |
-| PG-CMD-001 | false positive (FP) | `PG-CMD-001/negative/hard-literal-only-template.js` | a template literal that interpolates only a module constant is reported as dynamic |
-| PG-CMD-001 | false positive (FP) | `PG-CMD-001/negative/shell-quote.js` | a shell-quote quote() call is not recognised as escaping |
-| PG-CMD-002 | miss (FN) | `PG-CMD-002/positive/hard-args-slice.go` | arguments passed as a spread slice (args...) are not inspected for a shell invocation |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-fastify-reply-setcookie.js` | Fastify reply.setCookie() is not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-raw-set-cookie-header.js` | a raw Set-Cookie header string is not parsed |
 | PG-CRYPTO-001 | miss (FN) | `PG-CRYPTO-001/positive/hard-algorithm-variable.js` | an algorithm name held in a constant is not resolved |
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/const-secret.ts` | a hardcoded secret held in a constant and passed by name to jwt.sign is not followed |
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/go-jwt.go` | a hardcoded key held in a package variable and passed to SignedString is not followed |
 | PG-CRYPTO-003 | miss (FN) | `PG-CRYPTO-003/positive/hard-algorithm-variable.js` | a cipher name held in a constant is not resolved |
-| PG-PATH-001 | false positive (FP) | `PG-PATH-001/negative/hard-realpath-check.js` | a realpath plus prefix check is not recognised as a path guard |
-| PG-SQL-001 | false positive (FP) | `PG-SQL-001/negative/allowlisted-column.js` | a value picked from an allowlist map is still concatenated, and the analyzer does not see that it is constant |
-| PG-SQL-001 | false positive (FP) | `PG-SQL-001/negative/number-coerced.js` | a value coerced with Number.parseInt is still treated as tainted |
-| PG-SQL-001 | false positive (FP) | `PG-SQL-001/negative/static-template.js` | interpolating a module-level string constant is reported as dynamic SQL |
-| PG-SQL-002 | miss (FN) | `PG-SQL-002/positive/sql-raw-helper.ts` | Prisma.raw() spliced into a Prisma.sql template is not recognised as unsafe |
-| PG-SQL-003 | false positive (FP) | `PG-SQL-003/negative/constant-sprintf.go` | fmt.Sprintf with only a package constant is reported as dynamic SQL |
-| PG-SSRF-001 | false positive (FP) | `PG-SSRF-001/negative/hard-fixed-host-path-param.js` | path only, host fixed, and `..` can reach other paths on the same host |
-| PG-SSRF-001 | false positive (FP) | `PG-SSRF-001/negative/host-allowlist.js` | a URL checked against a hostname allowlist before fetch is still reported |
 | PG-WEB-009 | miss (FN) | `web/cors-null-origin-with-credentials` | the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/escaped-helper.js` | an escape-html call is not recognised as a sanitizer |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/hard-trusted-template.js` | assigning an imported (bundled) template string to innerHTML is reported |

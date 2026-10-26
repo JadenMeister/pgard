@@ -277,3 +277,169 @@ describe("precision (#88)", () => {
     ).toEqual(["PG-SQL-003"]);
   });
 });
+
+describe("injection precision and recall (#242)", () => {
+  const sqlGo = (body: string, extra = "") =>
+    go(["database/sql", "fmt", "strconv", "net/http"], `${extra}\n${body}`);
+  const found = (source: string) => analyzeGoSource(source, "main.go").findings;
+  const strong = (source: string) =>
+    found(source)
+      .filter((finding) => finding.confidence !== "low")
+      .map((finding) => finding.ruleId);
+
+  it("fully suppresses package constants and strconv.Itoa of the whole expression", () => {
+    expect(
+      rulesIn(
+        sqlGo(
+          `func f(db *sql.DB) { db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT %d", table, limit)) }`,
+          `const (\n\ttable = "t"\n\tlimit = 5\n)`,
+        ),
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(sqlGo(`func f(db *sql.DB, id int) { db.Query("SELECT " + strconv.Itoa(id)) }`)),
+    ).toEqual([]);
+  });
+
+  it("demotes block-local constants and parsed numbers to low confidence", () => {
+    for (const body of [
+      `func f(db *sql.DB, r *http.Request) {
+	n, _ := strconv.Atoi(r.FormValue("n"))
+	db.Query(fmt.Sprintf("SELECT * FROM t LIMIT %d", n))
+}`,
+      `func f(db *sql.DB) {
+	const table = "t"
+	db.Query("SELECT * FROM " + table)
+}`,
+    ]) {
+      expect(rulesIn(sqlGo(body))).toEqual(["PG-SQL-003"]);
+      expect(strong(sqlGo(body))).toEqual([]);
+    }
+  });
+
+  it("does not trust a constant that a parameter, var or := of the same name shadows", () => {
+    const table = `const table = "users"`;
+    for (const body of [
+      `func f(db *sql.DB, table string) { db.Query("SELECT * FROM " + table) }`,
+      `func f(db *sql.DB, r *http.Request) { var table = r.FormValue("t"); db.Query("SELECT * FROM " + table) }`,
+      `func f(db *sql.DB, r *http.Request) { table := r.FormValue("t"); db.Query("SELECT * FROM " + table) }`,
+      `func f(db *sql.DB, r *http.Request) { if table, ok := r.URL.Query()["t"]; ok { db.Query("SELECT * FROM " + table[0]) } }`,
+      `func pick(r *http.Request) string { return r.FormValue("t") }
+func f(db *sql.DB, r *http.Request) { var table = pick(r); db.Query("SELECT * FROM " + table) }`,
+    ])
+      expect(rulesIn(sqlGo(body, table))).toEqual(["PG-SQL-003"]);
+    expect(
+      rulesIn(sqlGo(`func f(db *sql.DB) { db.Query("SELECT * FROM " + table) }`, table)),
+    ).toEqual([]);
+  });
+
+  it("scopes a block-local const to its innermost block", () => {
+    const source = sqlGo(`func f(db *sql.DB, r *http.Request) {
+	if r.Method == "GET" {
+		const table = "a"
+		db.Query("SELECT * FROM " + table)
+	} else {
+		db.Query("SELECT * FROM " + table)
+	}
+}`);
+    const findings = found(source);
+    expect(findings).toHaveLength(2);
+    // a use outside the declaring block makes the name untrusted everywhere
+    expect(strong(source)).toEqual(["PG-SQL-003", "PG-SQL-003"]);
+  });
+
+  it("treats strconv.Itoa as fixed only when it is the whole expression", () => {
+    expect(
+      rulesIn(
+        sqlGo(`func f(db *sql.DB, id int, clause string) { db.Query(strconv.Itoa(id) + clause) }`),
+      ),
+    ).toEqual(["PG-SQL-003"]);
+    expect(
+      strong(
+        sqlGo(`func f(db *sql.DB, id int, clause string) { db.Query(strconv.Itoa(id) + clause) }`),
+      ),
+    ).toEqual(["PG-SQL-003"]);
+  });
+
+  describe("shell with an argument slice (PG-CMD-002)", () => {
+    const exec = (body: string) => go(["os/exec", "net/http"], body);
+
+    it("resolves a literal slice and flags a dynamic element", () => {
+      const dynamic = exec(
+        `func f(script string) {\n\targs := []string{"-c", script}\n\texec.Command("sh", args...).Run()\n}`,
+      );
+      expect(strong(dynamic)).toEqual(["PG-CMD-002"]);
+      const fixed = exec(
+        `func f() {\n\targs := []string{"-c", "uptime"}\n\texec.Command("sh", args...).Run()\n}`,
+      );
+      // resolved through the declaration only: kept at low confidence
+      expect(rulesIn(fixed)).toEqual(["PG-CMD-002"]);
+      expect(strong(fixed)).toEqual([]);
+    });
+
+    it("only reads the declaration in the enclosing function", () => {
+      const source = exec(`func a() {
+	args := []string{"-c", "uptime"}
+	exec.Command("sh", args...).Run()
+}
+func b(r *http.Request) {
+	args := []string{"-c", "ping " + r.FormValue("h")}
+	exec.Command("sh", args...).Run()
+}`);
+      const findings = found(source);
+      expect(findings).toHaveLength(2);
+      expect(findings.filter((finding) => finding.confidence !== "low")).toHaveLength(1);
+      expect(findings.find((finding) => finding.confidence !== "low")?.line).toBeGreaterThan(5);
+    });
+
+    it("keeps a low-confidence finding when the slice is indexed, reassigned or a parameter", () => {
+      for (const body of [
+        `func f(r *http.Request) {\n\targs := []string{"-c", "true"}\n\targs[1] = r.FormValue("c")\n\texec.Command("sh", args...).Run()\n}`,
+        `func f(r *http.Request) {\n\targs := []string{"-c", "true"}\n\targs = other(r)\n\texec.Command("sh", args...).Run()\n}`,
+        `func f(args []string) {\n\texec.Command("sh", args...).Run()\n}`,
+      ]) {
+        const [finding] = found(exec(body));
+        expect(finding).toMatchObject({ ruleId: "PG-CMD-002", confidence: "low" });
+      }
+    });
+
+    it("reads items appended to the slice", () => {
+      expect(
+        strong(
+          exec(
+            `func f(r *http.Request) {\n\targs := []string{"-c"}\n\targs = append(args, r.FormValue("c"))\n\texec.Command("sh", args...).Run()\n}`,
+          ),
+        ),
+      ).toEqual(["PG-CMD-002"]);
+      expect(
+        strong(
+          exec(
+            `func f() {\n\targs := []string{"-c"}\n\targs = append(args, "uptime")\n\texec.Command("sh", args...).Run()\n}`,
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    it("does not trust a block-local const used in another function", () => {
+      const source = exec(`func defaults() string {
+	const hookCmd = "true"
+	return hookCmd
+}
+func run() { exec.Command("sh", "-c", hookCmd).Run() }`);
+      expect(strong(source)).toEqual(["PG-CMD-002"]);
+      const same = exec(
+        `func run() {\n\tconst hookCmd = "true"\n\texec.Command("sh", "-c", hookCmd).Run()\n}`,
+      );
+      expect(rulesIn(same)).toEqual(["PG-CMD-002"]);
+      expect(strong(same)).toEqual([]);
+    });
+
+    it("does not flag a package constant script", () => {
+      expect(
+        rulesIn(
+          exec(`const health = "uptime"\nfunc f() { exec.Command("sh", "-c", health).Run() }`),
+        ),
+      ).toEqual([]);
+    });
+  });
+});

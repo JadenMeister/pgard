@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-SQL-001:a value coerced with Number.parseInt is still treated as tainted
+// corpus: expect=low
 const { Pool } = require("pg");
 const pool = new Pool();
 

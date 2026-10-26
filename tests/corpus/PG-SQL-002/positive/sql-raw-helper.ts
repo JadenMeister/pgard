@@ -1,4 +1,4 @@
-// corpus: expect=PG-SQL-002; known=miss:PG-SQL-002:Prisma.raw() spliced into a Prisma.sql template is not recognised as unsafe
+// corpus: expect=PG-SQL-002
 import { Prisma, PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 
