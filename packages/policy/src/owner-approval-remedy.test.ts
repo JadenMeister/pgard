@@ -1,5 +1,5 @@
 import { GitHubAuthError, GUIDED_INSTALL_NEEDS_SLUG_MESSAGE } from "@pgard/github-auth";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createGitFixture,
   type GitFixture,
@@ -271,5 +271,36 @@ describe("recheckOwnerApproval", () => {
       reason: "GitHub sign-in was denied.",
       remedy: null,
     });
+  });
+
+  it("uses only an existing sign-in and never starts an interactive one", async () => {
+    const { root, head } = project();
+    const { session } = createMockGitHub(personalState(head));
+    // The interactive provider would start a device flow; the re-check must not call it.
+    const interactive = vi.fn(async () => session);
+    const existing = vi.fn(async () => session);
+    const result = await recheckOwnerApproval(root, {
+      getGitHubSession: sessionProvider(interactive, existing),
+      appSlug: SLUG,
+    });
+    expect(result).toMatchObject({ status: "failed", remedy: { url: PERSONAL_URL } });
+    expect(existing).toHaveBeenCalledTimes(1);
+    expect(interactive).not.toHaveBeenCalled();
+  });
+
+  it("returns unverifiable with no remedy when the sign-in is gone, without signing in", async () => {
+    const { root, head } = project();
+    const { session } = createMockGitHub(personalState(head));
+    const interactive = vi.fn(async () => session);
+    const result = await recheckOwnerApproval(root, {
+      getGitHubSession: sessionProvider(interactive, async () => null),
+      appSlug: SLUG,
+    });
+    expect(result).toEqual({
+      status: "unverifiable",
+      reason: "The GitHub sign-in is no longer available, so owner approval was not checked again.",
+      remedy: null,
+    });
+    expect(interactive).not.toHaveBeenCalled();
   });
 });

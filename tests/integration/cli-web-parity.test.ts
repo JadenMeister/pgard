@@ -153,6 +153,7 @@ function mockSessionProvider(state: MockGitHubState): {
   const provider = Object.assign(async () => session, {
     invalidate: () => undefined,
     signOut: () => undefined,
+    existing: async () => session,
   });
   return { provider, calls };
 }

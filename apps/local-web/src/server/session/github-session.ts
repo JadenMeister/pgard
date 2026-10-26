@@ -59,6 +59,11 @@ export function createGitHubSessionManager(
   const getGitHubSession = Object.assign(call, {
     invalidate: () => provider.invalidate(),
     signOut: () => reset(),
+    // Non-interactive (owner-approval re-check): never starts a device flow.
+    existing: async () => {
+      if (isDisposed) throw new Error("The dashboard is shutting down.");
+      return provider.existing();
+    },
   }) as GitHubSessionProvider;
 
   return {

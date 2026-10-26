@@ -175,11 +175,21 @@ export function guidedInstallRemedy(outcome: AuthorizationOutcome): OwnerApprova
   return isOnlyOwnerApproval ? remedy : null;
 }
 
+/** Re-check result when no signed-in session exists any more (no remedy: re-authorize). */
+const NO_EXISTING_SESSION: CheckResult = {
+  status: "unverifiable",
+  reason: "The GitHub sign-in is no longer available, so owner approval was not checked again.",
+};
+
 /**
  * Evaluates only the owner_approval check again, with the same code the gate uses (repository,
  * sign-in and repository lookup first). Used to notice that the App was installed while the
  * user was on GitHub. A `passed` result here is NOT an authorization: callers must run
  * `authorizeProject` again from scratch before any scan.
+ *
+ * It uses only `deps.getGitHubSession.existing()` and never starts a sign-in: when the session is
+ * gone it returns `unverifiable` with no remedy, so the caller ends the wait and runs the full
+ * authorization (which signs in interactively, as usual).
  */
 export async function recheckOwnerApproval(
   projectRoot: string,
@@ -192,10 +202,13 @@ export async function recheckOwnerApproval(
   if (repositoryResult.check.status !== "passed" || repo === null) {
     return notChecked(notEvaluated("repository"));
   }
-  let session: GitHubSession;
+  let session: GitHubSession | null;
   let user: GitHubUser;
   try {
-    session = await deps.getGitHubSession();
+    // Only an existing sign-in (cached or in the OS keychain): a background re-check must never
+    // start an interactive device flow. Without one, the caller's full authorization signs in.
+    session = await deps.getGitHubSession.existing();
+    if (session === null) return notChecked(NO_EXISTING_SESSION);
     user = await session.client.getAuthenticatedUser();
   } catch (error) {
     return notChecked(describeIdentityError(error));

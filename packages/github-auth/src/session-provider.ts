@@ -29,10 +29,15 @@ import {
  * - `invalidate()` forgets the cached session so the next call signs in again.
  * - `signOut()` does the same; it is the explicit user action. It only ends the session held by
  *   this provider: a sign-in stored in the OS keychain is kept (see `removeStoredSignIn`).
+ * - `existing()` is the non-interactive variant for background re-checks: it returns the cached
+ *   session, or reuses (and if needed refreshes) the sign-in stored in the keychain, and resolves
+ *   `null` when there is neither. It never starts a device flow and never waits for a sign-in
+ *   that is still running.
  */
 export type GitHubSessionProvider = (() => Promise<GitHubSession>) & {
   invalidate(): void;
   signOut(): void;
+  existing(): Promise<GitHubSession | null>;
 };
 
 /**
@@ -205,6 +210,10 @@ export function createDeviceFlowSessionProvider(
   const notify = (notice: SignInNotice): void => options.onNotice?.(notice);
   let store: CredentialStore | null = options.credentialStore ?? null;
   let pending: Promise<GitHubSession> | null = null;
+  /** Sign-ins (`pending` values) that have finished, successfully or not. */
+  const settled = new WeakSet<Promise<GitHubSession>>();
+  /** The `existing()` call in flight, so concurrent background re-checks refresh only once. */
+  let reusing: Promise<GitHubSession | null> | null = null;
   let generation = 0;
   /**
    * The access token of the cached session when it is also the one in the keychain (reused or
@@ -452,13 +461,17 @@ export function createDeviceFlowSessionProvider(
   const startSignIn = (clientId: string): Promise<GitHubSession> => {
     const myGeneration = generation;
     const promise = acquire(clientId, myGeneration);
-    promise.catch(() => {
-      if (generation === myGeneration) forget();
-    });
+    promise.then(
+      () => settled.add(promise),
+      () => {
+        settled.add(promise);
+        if (generation === myGeneration) forget();
+      },
+    );
     return promise;
   };
 
-  const provider = async (): Promise<GitHubSession> => {
+  const requireClientId = (): string => {
     const { clientId } = options;
     if (clientId === null) {
       throw new GitHubAuthError(
@@ -466,25 +479,79 @@ export function createDeviceFlowSessionProvider(
         options.invalidClientIdMessage ?? INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
       );
     }
+    return clientId;
+  };
+
+  /**
+   * The session `current` resolved to, while it is still the cached one, fresh and (for a
+   * keychain session) still stored; otherwise forgets it and returns `null`.
+   */
+  const reuseCached = async (
+    clientId: string,
+    current: Promise<GitHubSession>,
+  ): Promise<GitHubSession | null> => {
+    const session = await current.catch(() => null);
+    if (
+      session !== null &&
+      pending === current &&
+      isFresh(session.expiresAt) &&
+      (await isStillStored(clientId)) &&
+      pending === current
+    ) {
+      return session;
+    }
+    if (pending === current) {
+      forget();
+    }
+    return null;
+  };
+
+  const provider = async (): Promise<GitHubSession> => {
+    const clientId = requireClientId();
     if (pending !== null) {
-      const current = pending;
-      const session = await current.catch(() => null);
-      if (
-        session !== null &&
-        pending === current &&
-        isFresh(session.expiresAt) &&
-        (await isStillStored(clientId)) &&
-        pending === current
-      ) {
-        return session;
-      }
-      if (pending === current) {
-        forget();
-      }
+      const session = await reuseCached(clientId, pending);
+      if (session !== null) return session;
     }
     pending ??= startSignIn(clientId);
     return pending;
   };
 
-  return Object.assign(provider, { invalidate: forget, signOut: forget });
+  /** See `GitHubSessionProvider.existing`: never runs the device flow. */
+  const reuseExisting = async (clientId: string): Promise<GitHubSession | null> => {
+    if (pending !== null) {
+      const current = pending;
+      // A sign-in that is still running may be a device flow waiting for the user: do not wait.
+      if (!settled.has(current)) return null;
+      const session = await reuseCached(clientId, current);
+      if (session !== null) return session;
+      if (pending !== null) return null;
+    }
+    const current = store;
+    if (current === null) return null;
+    const myGeneration = generation;
+    const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
+    if (loaded.kind !== "found" || isStale(myGeneration)) return null;
+    const session = await reuseStored(current, loaded.record, myGeneration, true);
+    if (session === null || isStale(myGeneration)) return null;
+    if (pending === null) {
+      const cached = Promise.resolve(session);
+      settled.add(cached);
+      pending = cached;
+    }
+    return session;
+  };
+
+  const existing = async (): Promise<GitHubSession | null> => {
+    const clientId = requireClientId();
+    if (reusing !== null) return reusing;
+    const attempt = reuseExisting(clientId);
+    reusing = attempt;
+    try {
+      return await attempt;
+    } finally {
+      if (reusing === attempt) reusing = null;
+    }
+  };
+
+  return Object.assign(provider, { invalidate: forget, signOut: forget, existing });
 }

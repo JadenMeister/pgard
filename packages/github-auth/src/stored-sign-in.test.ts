@@ -655,3 +655,68 @@ describe("login, logout and status helpers", () => {
     });
   });
 });
+
+describe("existing() (non-interactive session for background re-checks)", () => {
+  it("resolves null without a device flow when nothing is cached or stored", async () => {
+    const store = await storeWith(null);
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider, userCodes } = makeProvider(github, store);
+    expect(await provider.existing()).toBeNull();
+    expect(userCodes).toEqual([]);
+    expect(github.count("device")).toBe(0);
+    // Memory only: still no device flow.
+    const memory = makeProvider(github, null);
+    expect(await memory.provider.existing()).toBeNull();
+    expect(github.count("device")).toBe(0);
+  });
+
+  it("reuses the keychain sign-in and caches it for the next interactive call", async () => {
+    const store = await storeWith(storedRecord());
+    const github = fakeGitHub();
+    const { provider, userCodes, notices } = makeProvider(github, store);
+    const session = await provider.existing();
+    expect(session).not.toBeNull();
+    expect(await provider()).toBe(session);
+    expect(await provider.existing()).toBe(session);
+    expect(userCodes).toEqual([]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(github.count("device")).toBe(0);
+  });
+
+  it("returns the cached session, and null once the entry was removed elsewhere", async () => {
+    const store = await storeWith(storedRecord());
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider, userCodes } = makeProvider(github, store);
+    const first = await provider();
+    expect(await provider.existing()).toBe(first);
+    await store.delete(KEY);
+    expect(await provider.existing()).toBeNull();
+    expect(userCodes).toEqual([]);
+    expect(github.count("device")).toBe(0);
+  });
+
+  it("does not wait for a sign-in that is still running", async () => {
+    const store = await storeWith(null);
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const { provider } = makeProvider(github, store, { sleep: () => gate });
+    const interactive = provider();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(await provider.existing()).toBeNull();
+    release();
+    await interactive;
+    expect(github.count("device")).toBe(1);
+  });
+
+  it("refuses a malformed override like the interactive call", async () => {
+    const provider = createDeviceFlowSessionProvider({
+      clientId: null,
+      onUserCode: () => {},
+      credentialStore: await storeWith(storedRecord()),
+    });
+    await expect(provider.existing()).rejects.toMatchObject({
+      code: "invalid_client_id_override",
+    });
+  });
+});
