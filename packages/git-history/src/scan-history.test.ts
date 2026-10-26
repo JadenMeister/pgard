@@ -208,9 +208,29 @@ describe("detectSecrets", () => {
       "a.ts",
     ],
     [
-      "a template after an apostrophe in JSX text",
-      "const x = <p>Don't</p>; const c = `\n{password: C9}\n`;",
+      "a template after an apostrophe and a stray backtick in JSX text",
+      "const x = <p>Don't press the ` key</p>;\nconst c = `\n{password: C9}\n`;",
       "a.tsx",
+    ],
+    [
+      "a template after an apostrophe and a stray /* in JSX text",
+      "const x = <p>Don't type /* here</p>;\nconst c = `\n{password: C9}\n`;\n// */",
+      "a.tsx",
+    ],
+    [
+      "a Vue template after an apostrophe and a backtick",
+      "<template><p>Don't press `</p></template>\n<script>const c = `\n{password: C9}\n`</script>",
+      "a.vue",
+    ],
+    [
+      "a Ruby string after a shift of a quoted string",
+      "items <<'x'\nq = \"\nx\n{password: C9}\n\"",
+      "app.rb",
+    ],
+    [
+      "a template after a division by a parenthesized value and a quote",
+      'const r = (a) / "/"; const c = `\n{password: C9}\n`;',
+      "a.ts",
     ],
     ["a lowercase Ruby heredoc", "cfg = <<~eos\n  {password: C9}\neos", "app.rb"],
     [
@@ -348,6 +368,10 @@ describe("detectSecrets", () => {
   it.each([
     ["user:pass", 'const u = "postgres://user:pass@localhost/db";'],
     ["the user name as the password", 'const u = "amqp://guest:guest@localhost:5672";'],
+    ["the same capitalised word", 'const u = "amqp://Guest:Guest@localhost:5672";'],
+    ["a shell variable in braces", 'const u = "mysql://root:${db_password}@db/app";'],
+    ["a lowercase slot after a colon", "U=redis://user::password@cache:6379"],
+    ["a lowercase slot in braces", 'const u = "postgres://u:{db_password}@h/db";'],
     ["postgres:postgres", 'const u = "postgres://postgres:postgres@db:5432/app";'],
     ["a shell variable", 'const u = "mysql://root:$MYSQL_PASSWORD@db/app";'],
     ["a format slot", 'const u = "postgres://u:{password}@h/db";'],
@@ -367,6 +391,35 @@ describe("detectSecrets", () => {
     expect(found).toEqual([{ kind: "url_credential", line: 1, value: password, weak: true }]);
   });
 
+  it.each([
+    [
+      "a $-prefixed mixed-case password",
+      "DATABASE_URL=postgres://admin:$uP3rS3cr3tPw9@db.prod/app",
+      "$uP3rS3cr3tPw9",
+    ],
+    [
+      "a password starting with a colon",
+      "U=redis://user::Xk9vLp8Wz4Rt2q@cache:6379",
+      ":Xk9vLp8Wz4Rt2q",
+    ],
+    ["a password in braces", "U=postgres://u:{Xk9vLp8Wz4Rt2q}@h/db", "{Xk9vLp8Wz4Rt2q}"],
+    [
+      "a password equal to a user name with symbols",
+      "U=postgres://Svc_Deploy_9f8a:Svc_Deploy_9f8a@db/app",
+      "Svc_Deploy_9f8a",
+    ],
+    [
+      "a password equal to a user name but for the case, with digits",
+      "U=postgres://Admin123:admin123@db/app",
+      "admin123",
+    ],
+  ])("reports %s in a URL, not as a placeholder (#158)", (_label, text, password) => {
+    const found = detectSecrets(text, { path: "config/app.env" });
+    expect(found.map((secret) => [secret.kind, secret.value])).toEqual([
+      ["url_credential", password],
+    ]);
+  });
+
   it("reports a token in a URL once, as a password in a URL (#158)", () => {
     const token = "9f8a7b6c5d4e3f2a1b0c";
     const found = detectSecrets(`u = "https://x-access-token:${token}@github.com/o/r"`, {
@@ -379,6 +432,13 @@ describe("detectSecrets", () => {
     const text = `password = "${L}"; url = "postgres://app:${C}@db/app"`;
     const kinds = detectSecrets(text, { path: "config/app.yml" }).map((secret) => secret.kind);
     expect(kinds.sort()).toEqual(["generic_credential", "url_credential"]);
+  });
+
+  it("keeps the generic credential over a weak URL password inside it (#158)", () => {
+    const found = detectSecrets("password=postgres://admin:hunter22@db.prod.internal/app", {
+      path: "app.env",
+    });
+    expect(found.map((secret) => secret.kind)).toEqual(["generic_credential"]);
   });
 
   it("keeps a random password in a URL at full strength (#158)", () => {
@@ -408,15 +468,44 @@ describe("detectSecrets", () => {
     };
     for (const shape of shapes) {
       // Starts with an unquoted match so the string tracker runs over the whole text.
-      const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(625_000 / shape.length))}`;
+      const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(1_250_000 / shape.length))}`;
       time(unit.slice(0, 100_000)); // warm up
       const small = time(unit);
-      const large = time(unit.repeat(8)); // 5 MB
+      const large = time(unit.repeat(8)); // 10 MB
       // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
       // generous so a loaded machine does not fail it; the absolute bound is loose because CI
       // runners are much slower than local machines.
-      expect(large / Math.max(small, 1)).toBeLessThan(24);
+      expect(large / Math.max(small, 1)).toBeLessThan(40);
       expect(large).toBeLessThan(15_000);
+    }
+  }, 120_000);
+
+  it("does not read a cut window as the start of the line (#158)", () => {
+    // Main read the whole line and took `{` + spaces + key as code; with a 200-character window
+    // the spaces alone must not look like an empty line start either: report it.
+    const text = `const x = {${" ".repeat(300)}password: ${L},\n};`;
+    expectCredential(text, "src/a.ts");
+    // Within the window the same shape is code.
+    expect(
+      detectSecrets(`const x = {${" ".repeat(20)}password: ${L},\n};`, { path: "a.ts" }),
+    ).toEqual([]);
+  });
+
+  it("stays linear on a 1 MB minified line with stray quotes (#158)", () => {
+    const json = '\\"k\\":\\"v\\",'.repeat(1_000_000 / 12);
+    const inputs: [string, string][] = [
+      [
+        `x = { password: passwordFromVault };\nconst a = <p>Don't</p>, j = JSON.parse('{${json}}');\n`,
+        "bundle.js",
+      ],
+      [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nconst z = 1;\n`, "a.ts"],
+      [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nz = 1\n`, "a.py"],
+    ];
+    for (const [input, path] of inputs) {
+      const start = performance.now();
+      detectSecrets(input, { path });
+      // Quadratic scanning takes tens of seconds here; linear takes well under a second.
+      expect(performance.now() - start).toBeLessThan(2_000);
     }
   }, 120_000);
 

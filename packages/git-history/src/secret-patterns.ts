@@ -280,10 +280,12 @@ function isLikelySecretValue(value: string): boolean {
 }
 
 /**
- * Passwords in URLs that are template slots rather than values: `$DB_PASSWORD`, `{password}`,
- * `%s`, `:password`, `***`.
+ * Passwords in URLs that are template slots shaped like variable names: `$DB_PASSWORD`,
+ * `${db_password}`, `{password}`, `%s`, `:password`, `***`. A value with mixed case or digits
+ * after the marker (`$uP3rS3cr3t`, `{Xk9vLp8Wz4Rt2q}`) is a real password.
  */
-const URL_PLACEHOLDER = /^(?:\$\w+|\{\w+\}|%\w|:\w+|\*+)$/;
+const URL_PLACEHOLDER =
+  /^(?:\$[A-Z_][A-Z0-9_]*|\$\{[A-Za-z_]\w*\}|\{[a-z_]+\}|%[sdv]|:[a-z_][a-z0-9_]*|\*+)$/;
 
 /**
  * Judges the password of a `scheme://user:password@host` match: `null` for a placeholder (see
@@ -296,7 +298,9 @@ function urlPasswordStrength(match: RegExpMatchArray, value: string): "strong" |
   if (/^[a-z]+$/.test(value) && value.length < 16) return null;
   const authority = match[0].slice(match[0].indexOf("//") + 2);
   const user = authority.slice(0, authority.indexOf(":"));
-  if (user.toLowerCase() === value.toLowerCase()) return null;
+  // The user name repeated is a default only when it is a plain word (`guest:guest`); with
+  // digits or symbols (`Svc_Deploy_9f8a:Svc_Deploy_9f8a`) it is a chosen password.
+  if (/^[A-Za-z]+$/.test(value) && user.toLowerCase() === value.toLowerCase()) return null;
   // `http://localhost:8080@host`: a host and port, not a user and password.
   if (/^\d{1,5}$/.test(value) && (user.includes(".") || user.toLowerCase() === "localhost")) {
     return null;
@@ -331,8 +335,12 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
   const context = createContext(text, options);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
-  /** `[start, end)` value spans reported by the specific patterns, in report order. */
+  /** `[start, end)` value spans reported by the specific patterns (not weak URL passwords). */
   const claimed: number[] = [];
+  /** Weak URL passwords: result index and `[start, end)`; a generic match over one replaces it. */
+  const weakUrls: { index: number; start: number; end: number }[] = [];
+  /** `[start, end)` spans of the generic credentials reported. */
+  const genericSpans: number[] = [];
   let isClaimedAt: ((start: number, end: number) => boolean) | null = null;
   for (const { kind: patternKind, pattern, group } of PATTERNS) {
     if (patternKind === "generic_credential") isClaimedAt ??= createSpanLookup(claimed);
@@ -365,11 +373,20 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
       const key = `${line}:${value}`;
       if (seen.has(key)) continue; // a specific pattern already reported this value
       seen.add(key);
+      if (strength === "weak")
+        weakUrls.push({ index: results.length, start: valueStart, end: valueEnd });
       results.push(strength === "weak" ? { kind, line, value, weak: true } : { kind, line, value });
-      if (kind !== "generic_credential") claimed.push(valueStart, valueEnd);
+      if (kind === "generic_credential") genericSpans.push(valueStart, valueEnd);
+      else if (strength !== "weak") claimed.push(valueStart, valueEnd);
     }
   }
-  return results;
+  // A weak URL password inside a reported generic value (a URL assigned to a credential key) is
+  // the same finding: keep the generic one, which carries the higher confidence.
+  const covered = weakUrls.length > 0 ? createSpanLookup(genericSpans) : null;
+  const dropped = new Set(
+    weakUrls.filter(({ start, end }) => covered?.(start, end)).map(({ index }) => index),
+  );
+  return dropped.size > 0 ? results.filter((_, index) => !dropped.has(index)) : results;
 }
 
 /** Whether `[start, end)` overlaps any of the flat `[start, end)` pairs in `spans`. */
