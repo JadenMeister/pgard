@@ -293,6 +293,29 @@ describe("pgard logout", () => {
     expect(captured.stdout()).not.toContain("Removed");
   });
 
+  it("still removes the entry when only the slug override is malformed", async () => {
+    const builtInKey = {
+      service: "pgard",
+      account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}`,
+    };
+    const store = await storeWith(null);
+    await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
+    const captured = createTestIo({ env: { PGARD_GITHUB_APP_SLUG: "Not A Slug!" } });
+    expect(
+      await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
+    ).toBe(0);
+    expect(await store.get(builtInKey)).toBeNull();
+    expect(captured.stdout()).toContain("Removed the GitHub sign-in for octo");
+
+    // With an overridden client id, the slug is ignored the same way.
+    await store.set(KEY, storedEntry());
+    const fork = createTestIo({ env: { ...ENV, PGARD_GITHUB_APP_SLUG: "Not A Slug!" } });
+    expect(
+      await runLogout(createTestContext(fork, createTestDeps({ credentialStore: store }))),
+    ).toBe(0);
+    expect(store.size()).toBe(0);
+  });
+
   it("exits 4 when no keychain is available", async () => {
     const captured = createTestIo({ env: ENV });
     const deps = createTestDeps({ credentialStore: createUnavailableCredentialStore("locked") });
@@ -369,6 +392,27 @@ describe("scan sign-in reuse", () => {
     expect(github.deviceCodes()).toBe(1);
     expectNoSecret(firstRun);
     expectNoSecret(secondRun);
+  });
+
+  it("warns once when an overridden slug is mixed with the built-in client id", async () => {
+    const deps = createTestDeps({
+      createSessionProvider: () => Object.assign(async () => ({}) as never, {}) as never,
+    });
+    const mixed = createTestIo({ env: { PGARD_GITHUB_APP_SLUG: "my-fork" } });
+    createSessionProvider(createTestContext(mixed, deps));
+    const warnings = mixed
+      .stderr()
+      .split("\n")
+      .filter((line) =>
+        line.includes("PGARD_GITHUB_APP_SLUG is set but PGARD_GITHUB_APP_CLIENT_ID is not"),
+      );
+    expect(warnings).toHaveLength(1);
+
+    const consistent = createTestIo({
+      env: { PGARD_GITHUB_APP_SLUG: "my-fork", PGARD_GITHUB_APP_CLIENT_ID: CLIENT_ID },
+    });
+    createSessionProvider(createTestContext(consistent, deps));
+    expect(consistent.stderr()).not.toContain("PGARD_GITHUB_APP_SLUG is set but");
   });
 
   it("explains a memory-only fallback when no keychain is available", async () => {

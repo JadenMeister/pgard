@@ -97,3 +97,36 @@ export function resolveGitHubAppClientId(
   }
   return { clientId: value, slug: slugValue || null, source: "env" };
 }
+
+/**
+ * The client id whose keychain entry `pgard logout` and the dashboard's "remove from OS keychain"
+ * act on. Only the client id names the entry, so a malformed `PGARD_GITHUB_APP_SLUG` is ignored
+ * here; a malformed client id override still resolves to `invalid` (never the built-in App's
+ * entry on behalf of another App).
+ */
+export function resolveKeychainClientId(
+  env: Readonly<Record<string, string | undefined>>,
+): { clientId: string; message: null } | { clientId: null; message: string } {
+  const app = resolveGitHubAppClientId({ ...env, [GITHUB_APP_SLUG_ENV]: undefined });
+  return app.source === "invalid"
+    ? { clientId: null, message: app.message }
+    : { clientId: app.clientId, message: null };
+}
+
+/** Said once when an overridden slug is combined with the built-in client id. */
+export const MIXED_APP_OVERRIDE_MESSAGE = `${GITHUB_APP_SLUG_ENV} is set but ${GITHUB_APP_CLIENT_ID_ENV} is not: sign-in uses the built-in PGARD App while the install link points to another App, so installing it cannot approve PGARD. Set both, or unset ${GITHUB_APP_SLUG_ENV}.`;
+
+/**
+ * `MIXED_APP_OVERRIDE_MESSAGE` when a valid slug override other than the built-in slug is used
+ * with the built-in client id; otherwise `null`. Display only: owner approval is checked against
+ * the signed-in App's installations either way, so a mismatch can only fail.
+ */
+export function mixedAppOverrideWarning(
+  env: Readonly<Record<string, string | undefined>>,
+): string | null {
+  const app = resolveGitHubAppClientId(env);
+  const slugValue = env[GITHUB_APP_SLUG_ENV]?.trim();
+  return app.source === "default" && slugValue && slugValue !== DEFAULT_GITHUB_APP_SLUG
+    ? MIXED_APP_OVERRIDE_MESSAGE
+    : null;
+}
