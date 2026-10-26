@@ -59,6 +59,21 @@ try {
 
   const pkgDir = join(prefix, "node_modules", "pgard");
   const manifest = JSON.parse(readFileSync(join(pkgDir, "package.json"), "utf8"));
+  // The manifest of THIS tarball must carry the publishing metadata (see docs/RELEASING.md).
+  check(
+    "packed manifest is publishable",
+    manifest.name === "pgard" &&
+      manifest.private !== true &&
+      manifest.license === "MIT" &&
+      manifest.repository?.url === "git+https://github.com/JadenMeister/pgard.git" &&
+      typeof manifest.homepage === "string" &&
+      typeof manifest.bugs?.url === "string" &&
+      typeof manifest.engines?.node === "string" &&
+      Array.isArray(manifest.files) &&
+      manifest.publishConfig?.access === "public" &&
+      manifest.publishConfig?.provenance === true,
+    JSON.stringify(manifest.publishConfig),
+  );
   const shim = join(
     prefix,
     "node_modules",
