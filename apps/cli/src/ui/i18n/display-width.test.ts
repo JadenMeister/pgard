@@ -64,4 +64,19 @@ describe("wrapWidth and colour", () => {
     expect(lines[1]).toBe(`${ESC}[1m${ESC}[33mb${ESC}[39m${ESC}[0m`);
     expect(lines[2]).toBe(`${ESC}[1mc${ESC}[22m`);
   });
+
+  it("carries compound and extended colour codes across lines", () => {
+    const boldRed = `${ESC}[1;31ma b${ESC}[0m`;
+    const lines = wrapWidth(boldRed, 1);
+    expect(lines.map(stripAnsi)).toEqual(["a", "b"]);
+    expect(lines[1]).toBe(`${ESC}[1m${ESC}[31mb${ESC}[0m`);
+    const indexed = wrapWidth(`${ESC}[38;5;208mx y${ESC}[39m`, 1);
+    expect(indexed[0]).toBe(`${ESC}[38;5;208mx${ESC}[0m`);
+    expect(indexed[1]).toBe(`${ESC}[38;5;208my${ESC}[39m`);
+    const truecolor = wrapWidth(`${ESC}[48;2;1;2;3mx y${ESC}[49m`, 1);
+    expect(truecolor[1]).toBe(`${ESC}[48;2;1;2;3my${ESC}[49m`);
+    // A reset inside a compound sequence ends everything before it.
+    const reset = wrapWidth(`${ESC}[31;0;1mx y${ESC}[22m`, 1);
+    expect(reset[1]).toBe(`${ESC}[1my${ESC}[22m`);
+  });
 });

@@ -1,7 +1,11 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createInMemoryCredentialStore, type SignInNotice } from "@pgard/scan-core";
+import {
+  createInMemoryCredentialStore,
+  DEFAULT_GITHUB_APP_CLIENT_ID,
+  type SignInNotice,
+} from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 import { main } from "./app.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -164,6 +168,8 @@ describe("pgard doctor in Korean", () => {
     const bad = createTestIo({ env: { PGARD_LANG: "fr" } });
     expect(await main(["doctor"], bad.io, { deps: createTestDeps() })).toBe(0);
     expect(bad.stdout()).toContain("diagnosis only");
+    expect(bad.stderr()).toContain("PGARD_LANG is not en or ko; using the system language");
+    expect(ko.stderr()).toBe("");
     const plain = createTestIo({ env: { LC_ALL: "C" } });
     expect(await main(["doctor"], plain.io, { deps: createTestDeps() })).toBe(0);
     expect(plain.stdout()).toContain("diagnosis only");
@@ -195,5 +201,52 @@ describe("pgard rules list in Korean", () => {
     expect(KO.commands.rulesList.unsupportedAreas).toHaveLength(
       CLI_TEXT.en.commands.rulesList.unsupportedAreas.length,
     );
+  });
+});
+
+describe("control characters in names stay out of the Korean text", () => {
+  const ESC = String.fromCharCode(27);
+  const hostile = `evil${ESC}[31m`;
+
+  it("strips them from the sign-in notice, the install lines and the waiting line", () => {
+    const texts = [
+      formatSignInNotice({ kind: "reused", login: hostile, userId: 1, isRefreshed: false }, KO),
+      formatSignInNotice({ kind: "saved", login: hostile, userId: 1 }, KO),
+      formatAskOwner(hostile, "https://example.test/x", KO),
+      formatOwnerOrAsk(hostile, "https://example.test/x", KO),
+      formatAskOwnerToAddRepository(hostile, `${hostile}/app`, "https://example.test/x", KO),
+      waitingMessage("repository_access", `${hostile}/app`, KO),
+    ];
+    for (const text of texts) {
+      expect(text).toMatch(HANGUL);
+      expect(text).not.toContain(ESC);
+      expect(text).toContain("evil");
+    }
+  });
+
+  it("strips them from the login named by logout", async () => {
+    const store = createInMemoryCredentialStore();
+    await store.set(
+      { service: "pgard", account: `github:github.com:${DEFAULT_GITHUB_APP_CLIENT_ID}` },
+      JSON.stringify({
+        version: 1,
+        host: "github.com",
+        clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+        accessToken: "ghu_testtokenvalue000000000000000000",
+        expiresAt: Date.UTC(2099, 0, 1),
+        refreshToken: null,
+        refreshTokenExpiresAt: null,
+        login: hostile,
+        userId: 7,
+        savedAt: 0,
+      }),
+    );
+    const captured = createTestIo();
+    expect(await runLogout(koContext(captured, createTestDeps({ credentialStore: store })))).toBe(
+      0,
+    );
+    expect(captured.stdout()).toContain("로그인을 삭제했습니다");
+    expect(captured.stdout()).not.toContain(ESC);
+    expect(captured.stdout()).toContain("PGARD 앱의 승인을 취소(Revoke)하세요");
   });
 });

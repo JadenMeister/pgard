@@ -318,7 +318,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
 export const COMMAND_TEXT_KO: CommandText = {
   signIn: {
     revokeHint: (url) =>
-      `PGARD는 GitHub에서 토큰을 직접 폐기할 수 없습니다(App의 client secret이 필요한데 PGARD에는 없습니다). 토큰은 만료될 때까지 유효합니다. 지금 폐기하려면 ${url} 을 열어 PGARD 앱을 폐기하세요.`,
+      `PGARD는 GitHub에서 토큰을 직접 폐기할 수 없습니다(App의 client secret이 필요한데 PGARD에는 없습니다). 토큰은 만료될 때까지 유효합니다. 지금 폐기하려면 ${url} 에서 PGARD 앱의 승인을 취소(Revoke)하세요.`,
     keychainUnavailableOnLogin: (reason) =>
       `사용할 수 있는 OS 키체인이 없습니다: ${reason}. 아무것도 저장하지 않았습니다. 검사와 대시보드는 실행할 때마다 기기 코드를 요청합니다.`,
     failed: (reason) => `GitHub 로그인에 실패했습니다: ${reason}`,
@@ -336,8 +336,8 @@ export const COMMAND_TEXT_KO: CommandText = {
     deviceCode: (verificationUri, userCode, minutes) =>
       [
         "신원과 저장소 접근 권한을 확인하려면 GitHub 로그인이 필요합니다.",
-        `  1. ${verificationUri} 을 여세요`,
-        `  2. 코드 ${userCode} 를 입력하세요 (약 ${minutes}분 후 만료)`,
+        `  1. 다음 주소를 여세요: ${verificationUri}`,
+        `  2. 다음 코드를 입력하세요: ${userCode} (약 ${minutes}분 후 만료)`,
         "승인을 기다리는 중... (취소: Ctrl+C)",
       ].join("\n"),
     removedReason: {
@@ -354,36 +354,36 @@ export const COMMAND_TEXT_KO: CommandText = {
       `저장된 GitHub 로그인이 사용할 수 없는 상태입니다(${reason}). OS 키체인에서 삭제했으니 아래에서 다시 로그인하세요.`,
     memoryOnly: (reason) => `GitHub 로그인은 이번 실행 동안만 메모리에 보관됩니다: ${reason}.`,
     appOverride: (clientId, envName) =>
-      `${envName}의 GitHub App ${clientId} 을 사용합니다 (재정의).`,
+      `${envName}에서 재정의한 GitHub App을 사용합니다: ${clientId}`,
   },
   install: {
     thisRepository: "이 저장소",
     waitingInstall: "PGARD GitHub App 설치를 기다리는 중... (취소: Ctrl+C를 두 번 누르세요)",
     waitingRepositoryAccess: (target) =>
-      `${target} 이(가) PGARD GitHub App의 저장소 접근 권한에 추가되기를 기다리는 중... (취소: Ctrl+C를 두 번 누르세요)`,
+      `${target}이(가) PGARD GitHub App의 저장소 접근 권한에 추가되기를 기다리는 중... (취소: Ctrl+C를 두 번 누르세요)`,
     askOwner: (account, url) =>
       `${account}의 소유자에게 PGARD GitHub App을 설치해 달라고 요청하세요: ${url}`,
     ownerOrAsk: (account, url) =>
       `${account}의 소유자라면 설치 페이지에서 App을 설치하세요. 아니라면 소유자에게 설치를 요청하세요: ${url}`,
     askOwnerToAdd: (account, target, url) =>
-      `${account}의 소유자에게 ${target} 을(를) PGARD GitHub App의 저장소 접근 권한에 추가해 달라고 요청하세요: ${url}`,
+      `${account}의 소유자에게 ${target}을(를) PGARD GitHub App의 저장소 접근 권한에 추가해 달라고 요청하세요: ${url}`,
     repositoryAccessIntro: (target, account) =>
-      `GitHub에서 ${target} 에 대한 접근 권한이 보이지 않습니다. PGARD GitHub App은 ${account}에 이미 설치되어 있지만, 저장소 접근 권한에 이 저장소가 포함되어 있지 않습니다(또는 내 계정에 접근 권한이 없습니다).`,
+      `GitHub에서 ${target}에 대한 접근 권한이 보이지 않습니다. PGARD GitHub App은 ${account}에 이미 설치되어 있지만, 저장소 접근 권한에 이 저장소가 포함되어 있지 않습니다(또는 내 계정에 접근 권한이 없습니다).`,
     ownerApprovalAdd: (target) =>
-      `소유자 승인: ${target} 을(를) PGARD GitHub App의 저장소 접근 권한에 추가하세요.`,
+      `소유자 승인: ${target}을(를) PGARD GitHub App의 저장소 접근 권한에 추가하세요.`,
     ownerOrAskToAdd: (account, target, url) =>
-      `${account}의 소유자라면 App 설정 페이지에서 ${target} 을(를) PGARD GitHub App의 저장소 접근 권한에 추가하세요. 아니라면 소유자에게 추가를 요청하세요: ${url}`,
-    open: (url) => `  1. ${url} 을 여세요`,
+      `${account}의 소유자라면 App 설정 페이지에서 ${target}을(를) PGARD GitHub App의 저장소 접근 권한에 추가하세요. 아니라면 소유자에게 추가를 요청하세요: ${url}`,
+    open: (url) => `  1. 다음 주소를 여세요: ${url}`,
     repositoryAccessStep: (target) =>
-      `  2. "Repository access"에서 "Only select repositories"를 선택하고 ${target} 을(를) 추가한 뒤 Save를 누르세요.`,
+      `  2. "Repository access"에서 "Only select repositories"를 선택하고 ${target}을(를) 추가한 뒤 Save를 누르세요.`,
     repositoryAccessFooter:
       "App의 저장소 접근 권한을 바꾸는 것이 소유자 승인입니다. PGARD가 대신 바꿀 수는 없습니다.",
     accessIntro: (target) =>
-      `GitHub에서 ${target} 에 대한 접근 권한이 보이지 않습니다. 비공개 저장소라면 PGARD GitHub App이 설치되어 있어야 합니다(PGARD는 이것을 계정 접근 권한 부족과 구분할 수 없습니다).`,
+      `GitHub에서 ${target}에 대한 접근 권한이 보이지 않습니다. 비공개 저장소라면 PGARD GitHub App이 설치되어 있어야 합니다(PGARD는 이것을 계정 접근 권한 부족과 구분할 수 없습니다).`,
     ownerApprovalInstall: (account, target) =>
-      `소유자 승인: ${target} 에 대해 PGARD를 승인하려면 ${account}에 PGARD GitHub App을 설치하세요.`,
+      `소유자 승인: ${target}에 대해 PGARD를 승인하려면 ${account}에 PGARD GitHub App을 설치하세요.`,
     accessStep: (target) =>
-      `  2. 이 페이지는 "All repositories"를 미리 선택해 둡니다. PGARD를 이 저장소로 제한하려면 "Only select repositories"를 선택하고 ${target} 을(를) 고른 뒤 Install을 누르세요.`,
+      `  2. 이 페이지는 "All repositories"를 미리 선택해 둡니다. PGARD를 이 저장소로 제한하려면 "Only select repositories"를 선택하고 ${target}을(를) 고른 뒤 Install을 누르세요.`,
     installStep: (target) =>
       `  2. "Only select repositories"(${target}) 또는 "All repositories"를 선택한 뒤 Install을 누르세요.`,
     installFooter: "App을 설치하는 것이 소유자 승인입니다. PGARD가 대신 설치할 수는 없습니다.",
@@ -397,7 +397,7 @@ export const COMMAND_TEXT_KO: CommandText = {
     found: "PGARD GitHub App 설치를 확인했습니다. 전체 권한 확인을 다시 실행합니다...",
     unconfirmed: "소유자 승인을 확인하지 못했습니다. 전체 권한 확인을 다시 실행합니다...",
     changed: "소유자 승인 상태가 바뀌었습니다. 전체 권한 확인을 다시 실행합니다...",
-    stoppedAfter: (minutes, reason) => `${minutes}분 동안 기다렸으나 중단했습니다. ${reason}`,
+    stoppedAfter: (minutes, reason) => `${minutes}분 동안 기다린 뒤 대기를 중단했습니다. ${reason}`,
   },
   report: {
     help: `보고서는 입력한 디렉터리에만 저장합니다. 기존 파일은 절대 덮어쓰지 않습니다.

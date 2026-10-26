@@ -199,14 +199,21 @@ export async function main(
       const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
       ruleLocale = resolveLanguage({ flag, env: io.env });
       reportLocale = command.kind === "scan" ? (command.reportLang ?? ruleLocale) : ruleLocale;
-    } else {
-      // The other commands only have fixed text. A bad PGARD_LANG must not break doctor, login,
-      // logout or history clear, so it falls back to the system language instead of failing.
+    } else if (command.kind === "doctor" || command.kind === "login" || command.kind === "logout") {
+      // These commands only have fixed text, and it is fully translated. A bad PGARD_LANG must
+      // not break them, so it falls back to the system language, with a one-line hint. The other
+      // commands (project verify, dashboard, advisories update, history clear, baseline) have
+      // mostly English screens, so they stay English rather than mixing the two languages.
       try {
         ruleLocale = resolveLanguage({ flag: null, env: io.env });
       } catch (error) {
         if (!(error instanceof UsageError)) throw error;
         ruleLocale = resolveLanguage({ flag: null, env: { ...io.env, PGARD_LANG: undefined } });
+        io.stderr.write(
+          ruleLocale === "ko"
+            ? "PGARD_LANG 값이 en 또는 ko가 아니어서 시스템 언어를 사용합니다.\n"
+            : "PGARD_LANG is not en or ko; using the system language instead.\n",
+        );
       }
       reportLocale = ruleLocale;
     }

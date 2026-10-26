@@ -90,9 +90,8 @@ export function wrapWidth(text: string, width: number): string[] {
 const SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[([0-9;]*)m`, "g");
 const RESET = `${String.fromCharCode(27)}[0m`;
 
-/** The attribute family a colour code belongs to: its close code resets the family. */
-function attributeFamily(code: string): string | null {
-  const value = Number(code);
+/** The attribute family a single SGR code belongs to: its close code resets the family. */
+function attributeFamily(value: number): string | null {
   if (value === 1 || value === 2 || value === 22) return "weight";
   if (value === 3 || value === 23) return "italic";
   if (value === 4 || value === 24) return "underline";
@@ -100,6 +99,35 @@ function attributeFamily(code: string): string | null {
   if ((value >= 30 && value <= 39) || (value >= 90 && value <= 97)) return "foreground";
   if ((value >= 40 && value <= 49) || (value >= 100 && value <= 107)) return "background";
   return null;
+}
+
+const CLOSE_CODES = new Set([22, 23, 24, 27, 39, 49]);
+
+/**
+ * Applies one `ESC[...m` sequence to the set of open attributes. Compound sequences work:
+ * `1;31` is two codes, and the extended colours `38;5;n` and `38;2;r;g;b` (and `48;...`) are
+ * one attribute with their arguments.
+ */
+function applySgr(open: Map<string, string>, params: string): void {
+  const tokens = params === "" ? ["0"] : params.split(";");
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = Number(tokens[index]);
+    if (value === 0) {
+      open.clear();
+    } else if (value === 38 || value === 48) {
+      const length = tokens[index + 1] === "5" ? 3 : tokens[index + 1] === "2" ? 5 : 1;
+      open.set(
+        value === 38 ? "foreground" : "background",
+        tokens.slice(index, index + length).join(";"),
+      );
+      index += length - 1;
+    } else {
+      const family = attributeFamily(value);
+      if (family === null) continue;
+      if (CLOSE_CODES.has(value)) open.delete(family);
+      else open.set(family, String(value));
+    }
+  }
 }
 
 /**
@@ -110,18 +138,7 @@ function carryColour(lines: string[]): string[] {
   const open = new Map<string, string>();
   return lines.map((line) => {
     const reopened = [...open.values()].map((code) => `${String.fromCharCode(27)}[${code}m`);
-    for (const match of line.matchAll(SGR_PATTERN)) {
-      const code = match[1] ?? "";
-      if (code === "" || code === "0") {
-        open.clear();
-        continue;
-      }
-      const family = attributeFamily(code);
-      if (family === null) continue;
-      const isClose = ["22", "23", "24", "27", "39", "49"].includes(code);
-      if (isClose) open.delete(family);
-      else open.set(family, code);
-    }
+    for (const match of line.matchAll(SGR_PATTERN)) applySgr(open, match[1] ?? "");
     return `${reopened.join("")}${line}${open.size > 0 ? RESET : ""}`;
   });
 }
