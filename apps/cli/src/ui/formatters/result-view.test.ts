@@ -135,6 +135,8 @@ describe("plain output", () => {
         ],
       }),
       plain,
+      // The Areas row has an em dash, which a legacy Windows console would show as "-".
+      { unicode: true },
     );
     expect(text).not.toContain("\u001b");
     expect(text.indexOf("Leaked key")).toBeLessThan(text.indexOf("User input concatenated"));
