@@ -161,6 +161,7 @@ class Scanner {
     const record = depth === 0;
     let braces = 0;
     let last = ""; // last significant code character
+    let lineStart = true; // only whitespace or comments so far on this line
     /** Per open `(`: whether a control keyword (`if (`, `while (`) comes before it. */
     const parens: boolean[] = [];
     let closedControlParen = false; // the last `)` closed `if (…)`, `while (…)`...
@@ -170,8 +171,10 @@ class Scanner {
       if (char === "\n") {
         if (this.pendingHeredocs.length > 0) {
           index = this.scanHeredocs(index + 1, record);
+          lineStart = true;
           continue;
         }
+        lineStart = true;
         index += 1;
         continue;
       }
@@ -193,6 +196,8 @@ class Scanner {
         index = end + 2;
         continue;
       }
+      const atLineStart = lineStart;
+      lineStart = false;
       if (
         syntax.regexLiterals &&
         char === "/" &&
@@ -206,7 +211,11 @@ class Scanner {
           continue;
         }
       }
-      if (syntax.heredoc !== "none" && char === "<" && this.readHeredoc(index, last)) {
+      if (
+        syntax.heredoc !== "none" &&
+        char === "<" &&
+        this.readHeredoc(index, atLineStart ? "" : last)
+      ) {
         index += 2;
         last = "<";
         continue;
@@ -426,6 +435,8 @@ class Scanner {
       : /^<<([~-]?)(["'`]?)([A-Za-z_][A-Za-z0-9_]{0,63})\2/;
     const match = opener.exec(this.text.slice(index, index + 80));
     if (!match) return false;
+    // `send :<<'x'` is the symbol `:<<`, not a heredoc.
+    if (!php && this.text[index - 1] === ":") return false;
     // A lowercase name is a heredoc only where a value can start (`x = <<~eos`, `f(<<~eos`,
     // `a, <<~eos`) and not after an operand (`list <<'x'`, `a <<-n` are shifts). A bare `<<name`
     // is always a shift. A wrong guess could hide a later string, so doubtful cases are code.

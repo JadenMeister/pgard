@@ -133,6 +133,12 @@ describe("createStringLookup (#145)", () => {
       "a.ts",
     ],
     ["a lowercase Ruby heredoc", "a = <<~eos\n  MARK\neos", "a.rb"],
+    ["a heredoc opened at the start of a line (#163)", "foo\n<<~eos\n  MARK\neos", "a.rb"],
+    [
+      "a heredoc opened at the start of an indented line (#163)",
+      "foo\n  <<-eos\n MARK\n eos",
+      "a.rb",
+    ],
     ["a lowercase Ruby heredoc with a dash", "a = <<-eos\n  MARK\n  eos", "a.rb"],
     ["a quoted lowercase Ruby heredoc", "a = <<'eos'\n  MARK\neos", "a.rb"],
     [
@@ -169,6 +175,9 @@ describe("createStringLookup (#145)", () => {
     ],
     ["code after a closed lowercase Ruby heredoc", "a = <<~eos\n  x\neos\nMARK", "a.rb"],
     ["code after a Ruby shift into a lowercase name", "list <<item\nMARK", "a.rb"],
+    ["code after a symbol that looks like a shift (#163)", "send :<<'x'\nMARK", "a.rb"],
+    ["code after a bare shift at the start of a line (#163)", "x = a\n<<b\nMARK", "a.rb"],
+    ["code after a shift later on a line (#163)", "foo\nx <<~eos\nMARK", "a.rb"],
     [
       "code after a Rust raw string with more than 8 #",
       'let a = r##########"\n"#;\n"##########;\nMARK',
