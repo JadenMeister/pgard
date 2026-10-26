@@ -144,6 +144,7 @@ describe("exclude patterns in the source scan", () => {
     const root = project({ "gen/big.ts": "x".repeat(2 * 1024 * 1024), "src/a.ts": SQL_VULN });
     const walk = await walkSourceTree(root, { isExcluded: (p) => p.startsWith("gen/") });
     expect(walk.excluded.count).toBe(1);
+    expect(walk.excluded.digest).toMatch(/^[0-9a-f]{16}$/);
     expect(walk.skippedLarge).toBe(0);
     expect(walk.files.map((f) => f.relativePath)).toEqual(["src/a.ts"]);
   });
