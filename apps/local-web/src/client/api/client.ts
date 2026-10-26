@@ -80,7 +80,8 @@ export async function apiDownload(
     );
   }
   return {
-    blob: await response.blob(),
+    // Never keep the response's own type: a report must not be renderable in this origin.
+    blob: new Blob([await response.arrayBuffer()], { type: "application/octet-stream" }),
     filename: filenameFromDisposition(response.headers.get("content-disposition")) ?? fallbackName,
   };
 }

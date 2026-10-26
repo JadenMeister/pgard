@@ -1,3 +1,6 @@
+/** How long the object URL stays valid after the click. */
+export const REVOKE_DELAY_MS = 30_000;
+
 /** What `triggerDownload` needs from the page; tests pass fakes. */
 export interface DownloadEnvironment {
   createObjectUrl: (blob: Blob) => string;
@@ -40,7 +43,7 @@ export function triggerDownload(
     anchor.click();
   } finally {
     anchor.remove();
-    // Give the browser a moment to start reading the blob before it is released.
-    setTimeout(() => environment.revokeObjectUrl(url), 0);
+    // Safari and Firefox read the blob after the click returns; release it only after a delay.
+    setTimeout(() => environment.revokeObjectUrl(url), REVOKE_DELAY_MS);
   }
 }

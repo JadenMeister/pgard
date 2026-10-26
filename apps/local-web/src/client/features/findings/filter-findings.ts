@@ -62,7 +62,7 @@ export function formatVendoredSuggestions(
       count: vendored.filter((finding) => finding.severity === severity).length,
     }))
     .filter((entry) => entry.count > 0)
-    .map((entry) => `${entry.count} ${entry.severity}`);
+    .map((entry) => `${entry.count} ${m.severityInline[entry.severity]}`);
   return m.findings.vendoredSuggestions(count, severe.join(", "));
 }
 

@@ -1,9 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { apiDownload, filenameFromDisposition, takeTokenFromLocation } from "../../api/client";
+import {
+  apiDownload,
+  ApiRequestError,
+  filenameFromDisposition,
+  takeTokenFromLocation,
+} from "../../api/client";
+import { en } from "../../i18n/en";
 import { ko } from "../../i18n/ko";
-import { triggerDownload, type DownloadEnvironment } from "./download";
-import { ReportPanel } from "./ReportPanel";
+import { REVOKE_DELAY_MS, triggerDownload, type DownloadEnvironment } from "./download";
+import { ReportPanel, reportErrorMessage } from "./ReportPanel";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -61,6 +67,32 @@ describe("triggerDownload", () => {
   });
 });
 
+describe("revoking the object URL", () => {
+  it("waits tens of seconds so Safari and Firefox can read the blob, then revokes", () => {
+    vi.useFakeTimers();
+    const revoked: string[] = [];
+    const anchor = {
+      href: "",
+      download: "",
+      rel: "",
+      click: () => undefined,
+      remove: () => undefined,
+    };
+    const environment: DownloadEnvironment = {
+      createObjectUrl: () => "blob:late",
+      revokeObjectUrl: (url) => revoked.push(url),
+      createAnchor: () => anchor,
+      appendAnchor: () => undefined,
+    };
+    triggerDownload(new Blob(["x"]), "f.html", environment);
+    expect(REVOKE_DELAY_MS).toBeGreaterThanOrEqual(30_000);
+    vi.advanceTimersByTime(REVOKE_DELAY_MS - 1);
+    expect(revoked).toEqual([]);
+    vi.advanceTimersByTime(1);
+    expect(revoked).toEqual(["blob:late"]);
+  });
+});
+
 describe("apiDownload", () => {
   const TOKEN = "abcdefghijklmnopqrstuvwxyz012345";
   function signIn(): void {
@@ -85,6 +117,8 @@ describe("apiDownload", () => {
     const file = await apiDownload("/api/reports/html", "fallback.html");
     expect(file.filename).toBe("pgard-report-o-n-20261024000000.html");
     expect(await file.blob.text()).toBe("<html></html>");
+    // Whatever the server said, the blob is opaque so it can never render in the dashboard origin.
+    expect(file.blob.type).toBe("application/octet-stream");
     const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(path).toBe("/api/reports/html");
     expect((init.headers as Record<string, string>)["x-pgard-token"]).toBe(TOKEN);
@@ -112,6 +146,19 @@ describe("apiDownload", () => {
     expect(filenameFromDisposition('attachment; filename="a-b_c.1.pdf"')).toBe("a-b_c.1.pdf");
     expect(filenameFromDisposition('attachment; filename="../x"')).toBeNull();
     expect(filenameFromDisposition(null)).toBeNull();
+  });
+});
+
+describe("report errors", () => {
+  it("tells an expired session, a missing result and anything else apart", () => {
+    const failure = (status: number): ApiRequestError => new ApiRequestError(status, "x", "y");
+    expect(reportErrorMessage(failure(401), en)).toBe(en.report.sessionExpired);
+    expect(reportErrorMessage(failure(403), en)).toBe(en.report.sessionExpired);
+    expect(reportErrorMessage(failure(409), en)).toBe(en.report.noResult);
+    expect(reportErrorMessage(failure(500), en)).toBe(en.report.failed);
+    expect(reportErrorMessage(new TypeError("network"), en)).toBe(en.report.failed);
+    expect(reportErrorMessage(failure(401), ko)).toBe(ko.report.sessionExpired);
+    expect(new Set([en.report.sessionExpired, en.report.noResult, en.report.failed]).size).toBe(3);
   });
 });
 

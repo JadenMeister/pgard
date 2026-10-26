@@ -1,9 +1,19 @@
 import { useState } from "react";
 import type { ReportFormatDto } from "../../../shared/api-types";
-import { apiDownload } from "../../api/client";
+import { apiDownload, ApiRequestError } from "../../api/client";
 import { Card, Notice } from "../../components/ui/Card";
 import { useI18n } from "../../i18n/I18nProvider";
+import type { Messages } from "../../i18n/types";
 import { triggerDownload } from "./download";
+
+/** A distinct, translated message per failure kind. */
+export function reportErrorMessage(caught: unknown, m: Messages): string {
+  if (caught instanceof ApiRequestError) {
+    if (caught.status === 401 || caught.status === 403) return m.report.sessionExpired;
+    if (caught.status === 409) return m.report.noResult;
+  }
+  return m.report.failed;
+}
 
 /**
  * Downloads the current result as HTML or PDF through the browser's normal download. The server
@@ -23,8 +33,8 @@ export function ReportPanel() {
       const file = await apiDownload(`/api/reports/${format}`, `pgard-report.${format}`);
       triggerDownload(file.blob, file.filename);
       setDownloaded(file.filename);
-    } catch {
-      setError(m.report.failed);
+    } catch (caught) {
+      setError(reportErrorMessage(caught, m));
     } finally {
       setBusy(null);
     }

@@ -11,6 +11,7 @@ import {
   type LanguageStorage,
 } from "./language";
 import { ko } from "./ko";
+import { formatVendoredSuggestions } from "../features/findings/filter-findings";
 
 /** Every path to a leaf (string, function or array item) in a catalog, with its kind. */
 function leaves(value: unknown, prefix = ""): string[] {
@@ -52,6 +53,27 @@ describe("message catalogs", () => {
   it("translate the legal notice (same number of points, different text)", () => {
     expect(ko.legal.points).toHaveLength(en.legal.points.length);
     expect(ko.legal.points[0]).not.toBe(en.legal.points[0]);
+  });
+});
+
+describe("catalog wording", () => {
+  it("keeps English words out of Korean inline text", () => {
+    const vendored = [{ severity: "critical" as const }, { severity: "high" as const }];
+    expect(formatVendoredSuggestions(vendored, ko)).toBe(
+      "vendored 코드의 제안 2건 (1 치명적, 1 높음)",
+    );
+    expect(formatVendoredSuggestions(vendored, en)).toBe(
+      "2 suggestions in vendored code (1 critical, 1 high)",
+    );
+  });
+
+  it("labels the coverage table in Korean and capitalises English status options", () => {
+    expect(ko.coverage.caption).toBe("검사 범위");
+    expect(en.findings.statusOptions).toEqual({
+      confirmed: "Confirmed",
+      suspected: "Suspected",
+      informational: "Informational",
+    });
   });
 });
 

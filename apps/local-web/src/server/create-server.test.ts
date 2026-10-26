@@ -908,6 +908,55 @@ describe("local web report download", () => {
     expect(badHost.status).toBe(421);
   });
 
+  it("does not accept the token from the query string or a cookie", async () => {
+    const running = await start(fakeDeps());
+    await runScan(running);
+    for (const format of ["html", "pdf"]) {
+      const query = await send(running, "GET", `/api/reports/${format}?token=${TOKEN}`);
+      expect(query.status).toBe(401);
+      const cookie = await send(running, "GET", `/api/reports/${format}`, {
+        headers: { cookie: `x-pgard-token=${TOKEN}; token=${TOKEN}` },
+      });
+      expect(cookie.status).toBe(401);
+      expect(cookie.headers["content-disposition"]).toBeUndefined();
+    }
+  });
+
+  it("refuses a foreign Origin and cross-site fetches even with the token", async () => {
+    const running = await start(fakeDeps());
+    await runScan(running);
+    const foreign = await send(running, "GET", "/api/reports/html", {
+      headers: { "x-pgard-token": TOKEN, origin: "http://evil.test" },
+    });
+    expect(foreign.status).toBe(403);
+    expect(foreign.headers["content-disposition"]).toBeUndefined();
+    const crossSite = await send(running, "GET", "/api/reports/pdf", {
+      headers: { "x-pgard-token": TOKEN, "sec-fetch-site": "cross-site" },
+    });
+    expect(crossSite.status).toBe(403);
+    const sameOrigin = await send(running, "GET", "/api/reports/html", {
+      headers: {
+        "x-pgard-token": TOKEN,
+        origin: `http://127.0.0.1:${running.port}`,
+        "sec-fetch-site": "same-origin",
+      },
+    });
+    expect(sameOrigin.status).toBe(200);
+  });
+
+  it("refuses to export a blocked result", async () => {
+    const running = await start(
+      fakeDeps({ runScan: async () => result({ overallStatus: "blocked" }) }),
+    );
+    await runScan(running);
+    for (const format of ["html", "pdf"]) {
+      const response = await apiGet(running, `/api/reports/${format}`);
+      expect(response.status).toBe(409);
+      expect(JSON.parse(response.body).error.code).toBe("no_result");
+      expect(response.headers["content-disposition"]).toBeUndefined();
+    }
+  });
+
   it("refuses without a scan result and for unknown formats; the path-writing route is gone", async () => {
     const running = await start(fakeDeps());
     expect((await apiGet(running, "/api/reports/html")).status).toBe(409);

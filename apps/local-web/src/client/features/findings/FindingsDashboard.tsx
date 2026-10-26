@@ -123,9 +123,9 @@ export function FindingsDashboard({ result }: { result: ScanResult }) {
             }
           >
             <option value="">{m.common.all}</option>
-            <option value="confirmed">{m.status.confirmed}</option>
-            <option value="suspected">{m.status.suspected}</option>
-            <option value="informational">{m.status.informational}</option>
+            <option value="confirmed">{m.findings.statusOptions.confirmed}</option>
+            <option value="suspected">{m.findings.statusOptions.suspected}</option>
+            <option value="informational">{m.findings.statusOptions.informational}</option>
           </select>
         </label>
         <label>

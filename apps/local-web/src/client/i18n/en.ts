@@ -181,6 +181,13 @@ export const en = {
     low: "Low",
     info: "Info",
   },
+  severityInline: {
+    critical: "critical",
+    high: "high",
+    medium: "medium",
+    low: "low",
+    info: "info",
+  },
   confidence: {
     low: "low",
     medium: "medium",
@@ -205,6 +212,11 @@ export const en = {
     ): string =>
       `${overall} - ${total} finding(s): ${confirmed} confirmed, ${suspected} suspected, ${informational} informational${contextNote === "" ? "" : ` - ${contextNote}`}`,
     filters: "Filters",
+    statusOptions: {
+      confirmed: "Confirmed",
+      suspected: "Suspected",
+      informational: "Informational",
+    },
     severity: "Severity",
     status: "Status",
     source: "Source",
@@ -262,6 +274,9 @@ export const en = {
     downloaded: (filename: string): string =>
       `Downloaded ${filename}. Your browser saved it in its download folder.`,
     failed: "The report could not be downloaded. Run the scan again and retry.",
+    sessionExpired:
+      "The dashboard session is no longer valid. Open the private session URL printed by `pgard dashboard` again.",
+    noResult: "There is no scan result to export yet. Run a scan first.",
     note: "Reports may describe sensitive weaknesses. Keep the downloaded file somewhere private.",
   },
 } as const;
