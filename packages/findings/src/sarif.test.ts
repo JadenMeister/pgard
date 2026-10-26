@@ -418,13 +418,54 @@ describe("buildSarif", () => {
     expectValidSarif(log);
     const invocation = log.runs[0].invocations[0];
     expect(log.runs[0].results).toEqual([]);
-    expect(invocation.executionSuccessful).toBe(true);
+    expect(invocation.executionSuccessful).toBe(false);
     const notes = invocation.toolExecutionNotifications as Obj[];
-    expect(notes.map((n) => n.level)).toEqual(["warning", "warning"]);
+    expect(notes.map((n) => n.level)).toEqual(["warning", "warning", "error"]);
     expect(notes[0]?.message.text).toContain("history:commits");
     expect(notes[0]?.message.text).toContain("Stopped at the time budget.");
     expect(notes[1]?.message.text).toContain("web:anonymous");
     expect(JSON.stringify(notes)).not.toContain("web:authenticated");
+  });
+
+  it("is successful only when every requested area completed", () => {
+    const ok = buildSarif(result(), CATALOG) as Obj;
+    expect(ok.runs[0].invocations[0].executionSuccessful).toBe(true);
+    for (const status of ["partial", "not_tested"] as const) {
+      const log = buildSarif(
+        result({
+          overallStatus: "partial",
+          coverage: [
+            { area: "a", scope: "code", status: "completed", ruleIds: [], note: null },
+            { area: "b", scope: "history", status, ruleIds: [], note: null },
+          ],
+        }),
+        CATALOG,
+      ) as Obj;
+      expect(log.runs[0].invocations[0].executionSuccessful).toBe(false);
+    }
+  });
+
+  it("puts each scan variant in its own automation category", () => {
+    const id = (scopes: ScanResult["requestedScopes"]) =>
+      (buildSarif(result({ requestedScopes: scopes }), CATALOG) as Obj).runs[0].automationDetails
+        .id;
+    expect(id(["history", "code"])).toBe("pgard/code+history/");
+    expect(id(["code"])).toBe("pgard/code/");
+    expect(id(["code", "history", "web"])).toBe("pgard/code+history+web/");
+  });
+
+  it("treats an empty or blank path as having no location", () => {
+    const log = buildSarif(
+      result({
+        findings: [
+          finding({ id: "a", location: { ...finding().location, path: "" } }),
+          finding({ id: "b", location: { ...finding().location, path: "  " } }),
+        ],
+      }),
+      CATALOG,
+    ) as Obj;
+    expect(log.runs[0].results).toEqual([]);
+    expect(log.runs[0].properties.pgard.omittedFindings.total).toBe(2);
   });
 
   it("marks a blocked or failed scan as unsuccessful with an error notification", () => {

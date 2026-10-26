@@ -2,6 +2,7 @@ import {
   buildSarif,
   countSarifOmitted,
   sarifScanDidNotRun,
+  sarifScanIncomplete,
   localizeFindings,
   type ConfirmedWebTarget,
   type ScanResult,
@@ -126,12 +127,19 @@ function warnAboutSarif(context: CommandContext, result: ScanResult): void {
     err(
       context,
       context.errStyle.yellow(
-        `${omitted} web findings are not in SARIF (no file location); see the text/JSON output or report.`,
+        `${omitted} findings without a file location (web, ...) are not in SARIF; see the text/JSON output or report.`,
       ),
     );
   }
   if (sarifScanDidNotRun(result)) {
     err(context, context.errStyle.red("Do not upload this SARIF: the scan did not run."));
+  } else if (sarifScanIncomplete(result)) {
+    err(
+      context,
+      context.errStyle.red(
+        "Do not upload this SARIF: some requested areas did not complete (their alerts would be closed).",
+      ),
+    );
   }
 }
 

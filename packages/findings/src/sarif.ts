@@ -31,9 +31,11 @@ import type { RuleTextCatalog } from "./rule-text.js";
  * - `baselineState` is set only when the result was compared with a baseline: `unchanged` for a
  *   finding that is in it, `new` for one that is not. A suppressed finding gets neither (it is
  *   counted under suppressions only, as in the result).
+ * - `automationDetails.id` is `pgard/<requested scopes sorted, joined with +>/`: GitHub closes
+ *   alerts missing from a later upload of the same category, so each scan variant is its own.
  * - Areas that are `partial` or `not_tested` become warning notifications in
- *   `invocations[0].toolExecutionNotifications`; a `blocked` or `failed` scan, or one where
- *   no requested area completed, also gets an error notification and `executionSuccessful: false`. `not_selected` areas were not requested and
+ *   `invocations[0].toolExecutionNotifications`; a `blocked` or `failed` scan, or one with any `partial` or
+ *   `not_tested` area, also gets an error notification and `executionSuccessful: false`. `not_selected` areas were not requested and
  *   are not reported. An empty `results` array therefore never stands for "clean" by itself.
  */
 
@@ -95,7 +97,8 @@ function messageText(finding: Finding): string {
  * whole upload when a result has no physical location, and PGARD does not invent file paths.
  */
 export function hasSarifLocation(finding: Finding): boolean {
-  return finding.location.kind !== "url" && finding.location.path !== null;
+  const { kind, path } = finding.location;
+  return kind !== "url" && path !== null && path.trim() !== "";
 }
 
 /** Findings that `buildSarif` leaves out because they have no repository file path. */
@@ -108,6 +111,17 @@ export function sarifScanDidNotRun(result: ScanResult): boolean {
   return (
     (result.overallStatus !== "completed" && result.overallStatus !== "partial") ||
     !result.coverage.some((c) => c.status === "completed" || c.status === "partial")
+  );
+}
+
+/**
+ * True when some requested area did not complete (or the scan is not `completed`): the SARIF
+ * lacks results for it, and uploading it would close that area's existing alerts.
+ */
+export function sarifScanIncomplete(result: ScanResult): boolean {
+  return (
+    result.overallStatus !== "completed" ||
+    result.coverage.some((c) => c.status === "partial" || c.status === "not_tested")
   );
 }
 
@@ -259,19 +273,21 @@ export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifL
   const hasBaseline = result.baseline !== undefined;
 
   const notifications = coverageNotifications(result.coverage);
-  const executionSuccessful = !sarifScanDidNotRun(result);
+  const executionSuccessful = !sarifScanIncomplete(result);
   if (!executionSuccessful) {
     const what =
       result.overallStatus === "blocked"
         ? "was blocked by the authorization gate"
         : result.overallStatus === "failed"
           ? "failed"
-          : "analyzed none of the requested areas";
+          : sarifScanDidNotRun(result)
+            ? "analyzed none of the requested areas"
+            : "did not complete some requested areas";
     notifications.push({
       level: "error",
       descriptor: { id: `pgard/scan/${result.overallStatus}` },
       message: {
-        text: `The scan ${what}. An empty result is not a clean scan; do not upload this file to code scanning, it would close existing alerts.`,
+        text: `The scan ${what}. This result is not a clean scan; do not upload this file to code scanning, it would close existing alerts for areas that did not complete.`,
       },
     });
   }
@@ -304,6 +320,7 @@ export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifL
         rules: orderedIds.map((id) => buildRule(id, catalog, byRule.get(id) ?? [])),
       },
     },
+    automationDetails: { id: `pgard/${[...result.requestedScopes].sort().join("+")}/` },
     originalUriBaseIds: {
       [SARIF_SRCROOT]: { description: { text: "Root of the scanned Git repository." } },
     },

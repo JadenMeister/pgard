@@ -653,6 +653,63 @@ describe("runScanCommand reports", () => {
       expect(captured.stderr()).toContain("Do not upload this SARIF: the scan did not run");
     });
 
+    it("warns on stderr about findings without a file location", async () => {
+      const captured = createTestIo();
+      const web = testFinding({
+        id: "w",
+        ruleId: "PG-WEB-001",
+        location: {
+          kind: "url",
+          path: null,
+          line: null,
+          url: "http://127.0.0.1:3000/",
+          commit: null,
+        },
+      });
+      await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({ runScan: async () => testResult({ findings: [web, testFinding()] }) }),
+        ),
+        SARIF_SCAN,
+      );
+      expect(captured.stderr()).toContain("1 findings without a file location");
+      expect(JSON.parse(captured.stdout()).runs[0].results).toHaveLength(1);
+    });
+
+    it("tells you not to upload a partial scan, and stays quiet for a complete one", async () => {
+      const partial = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          partial,
+          createTestDeps({
+            runScan: async () =>
+              testResult({
+                overallStatus: "partial",
+                coverage: [
+                  {
+                    area: "history:commits",
+                    scope: "history",
+                    status: "partial",
+                    ruleIds: [],
+                    note: null,
+                  },
+                ],
+              }),
+          }),
+        ),
+        SARIF_SCAN,
+      );
+      expect(code).toBe(4);
+      expect(partial.stderr()).toContain("some requested areas did not complete");
+      const complete = createTestIo();
+      await runScanCommand(
+        createTestContext(complete, createTestDeps({ runScan: async () => testResult() })),
+        SARIF_SCAN,
+      );
+      expect(complete.stderr()).not.toContain("Do not upload");
+    });
+
     it("is a usage error, before any scan, when web checks would need a port prompt", async () => {
       const captured = createTestIo();
       const runScan = vi.fn();

@@ -525,15 +525,19 @@ pgard baseline clear
 
 `pgard scan --format sarif > pgard.sarif` writes the redacted result as [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) to stdout (progress and messages go to stderr, exit codes are unchanged). To keep a file, redirect stdout; PGARD has no output-file option for SARIF, and `--report`/`--output-dir` still only write HTML and PDF reports. **PGARD never uploads anything**: sending the file to GitHub or an IDE is your step.
 
-**When not to upload.** GitHub code scanning does not display PGARD's `toolExecutionNotifications` or `executionSuccessful`, and it closes existing alerts that are missing from an upload. A SARIF of a scan that did not fully run would therefore close alerts for areas that were never checked. Upload only when the exit code is `0`. Exit code `3` (blocked), `4` (partial) or `5` (failed) means do not upload (for blocked and failed scans PGARD also prints "Do not upload this SARIF: the scan did not run" on stderr). There is no CI workflow example: the authorization gate needs a GitHub sign-in that a CI runner does not have today, so a runner would produce a blocked, empty SARIF. A local flow:
+**When not to upload.** GitHub code scanning does not display PGARD's `toolExecutionNotifications`, and it closes existing alerts that are missing from an upload. A SARIF of a scan that did not fully run would therefore close alerts for areas that were never checked. Upload only when the exit code is `0`. Exit code `3` (blocked), `4` (partial) or `5` (failed) means do not upload; PGARD also prints "Do not upload this SARIF" on stderr for them. As a safeguard, such a file has `executionSuccessful: false`, which GitHub rejects as an unsuccessful execution. There is no CI workflow example: the authorization gate needs a GitHub sign-in that a CI runner does not have today, so a runner would produce a blocked, empty SARIF. A local flow:
 
 ```sh
-pgard scan --format sarif > pgard.sarif && gh api -X POST repos/OWNER/REPO/code-scanning/sarifs \
-  -f commit_sha="$(git rev-parse HEAD)" -f ref="$(git symbolic-ref HEAD)" \
-  -f sarif="$(gzip -c pgard.sarif | base64 | tr -d '\n')"
+pgard scan --format sarif > pgard.sarif && \
+  gzip -c pgard.sarif | base64 | tr -d '\n' > pgard.sarif.b64 && \
+  gh api -X POST repos/OWNER/REPO/code-scanning/sarifs \
+    -f commit_sha="$(git rev-parse HEAD)" -f ref="$(git symbolic-ref HEAD)" \
+    -F sarif=@pgard.sarif.b64
 ```
 
-(`&&` uploads only after exit code 0. It needs a token with the `security_events` scope; `github/codeql-action/upload-sarif` does the same in a workflow you run yourself.)
+(`&&` uploads only after exit code 0. The commit must already be pushed, HEAD must not be detached, and the token needs the `security_events` scope: `gh auth refresh -s security_events`. The file is passed with `-F sarif=@file` so a large report does not hit the argument-length limit. If you use `github/codeql-action/upload-sarif` instead, it logs one fingerprint-mismatch warning per result; that is expected.)
+
+**Categories.** Each result carries `automationDetails.id` `pgard/<scopes>/` (for example `pgard/code+history/` for a default scan, `pgard/code/` for `scan code`). GitHub treats each id as its own category and closes alerts only when the same variant is uploaded again, so uploading `scan code` never closes the alerts of a default `scan`.
 
 How the result maps:
 
@@ -542,7 +546,7 @@ How the result maps:
 - **Locations.** Only findings with a repository file path are in the file (GitHub rejects a result without a physical location). Each has a repository-relative `artifactLocation.uri` (`uriBaseId` `%SRCROOT%`) and a region with start and end line (no region when it has no line). A history finding also has its commit in `properties.pgard.commit`. **Web findings are left out** (they have no file, and PGARD does not invent paths): the file says how many and for which rules in an `error` notification and in `runs[0].properties.pgard.omittedFindings`, and the CLI prints a warning on stderr. Use the text or JSON output or a report for them.
 - **Fingerprints.** `partialFingerprints["pgardFindingIdentity/v1"]` is the same line-insensitive identity the baseline and scan comparison use, so a finding that only moves keeps its fingerprint. `primaryLocationLineHash` (the only one GitHub uses) is that identity plus `:n`, where n counts results with the same identity in the file, so identical findings on different lines do not collide. Findings in history keep a stable identity even when the file was later deleted.
 - **Suppressed and baseline findings.** A finding suppressed in `pgard.config.json` stays in the file with `suppressions: [{kind: "external", justification}]`, so it stays counted. When a baseline exists, `baselineState` is `unchanged` for findings in it and `new` for the others; suppressed findings get no `baselineState`. Without a baseline it is never set.
-- **Areas that did not run.** Each `partial` or `not_tested` area is a `warning` in `runs[0].invocations[0].toolExecutionNotifications`. `executionSuccessful` is `false` for a blocked or failed scan and when no requested area ran at all (for example `scan web` without a confirmed target); those also get an `error` notification. Areas you did not select are not listed. Other tools may show these notifications; GitHub does not.
+- **Areas that did not run.** Each `partial` or `not_tested` area is a `warning` in `runs[0].invocations[0].toolExecutionNotifications`. `executionSuccessful` is `false` whenever the scan is blocked or failed or any requested area is `partial` or `not_tested` (for example `scan web` without a confirmed target); those also get an `error` notification. GitHub rejects a file with `executionSuccessful: false`, which keeps an incomplete scan from closing alerts. Areas you did not select are not listed. Other tools may show the notifications; GitHub does not.
 - **Redaction.** The text is redacted exactly like the JSON output; secret values never appear.
 
 ### Stored results
