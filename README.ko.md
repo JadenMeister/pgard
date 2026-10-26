@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/github/license/JadenMeister/pgard?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#요구-사항)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#요구-사항)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#요구-사항)
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#알려진-제한-사항)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#개인정보와-네트워크-통신)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
@@ -54,13 +54,14 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 - **웹 검사.** 검사는 `127.0.0.1`에 익명 `GET`/`HEAD` 요청만 보내며, 사용자가 확인한 서비스에만 보냅니다(권한 확인 후 발견한 각 로컬 포트에는 정체를 확인하는 `GET /` 한 번만 보냅니다). PGARD는 POST/PUT/DELETE 요청이나 폼 제출을 보내지 않지만, 잘못 만들어진 앱은 `GET` 요청에도 상태가 바뀔 수 있습니다. [로컬 웹 검사](#로컬-웹-검사) 참고.
 - **결과 스키마 버전 관리.** 검사 결과는 `major.minor` 형식의 `schemaVersion`을 가지며, 읽는 쪽은 다른 major 버전을 거부합니다. [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md) 참고.
 - **범위 밖.** 원격 서비스, 공격 요청이나 상태를 바꾸는 요청, 로그인한 상태의 웹 탐색, 의존성을 취약점 데이터와 대조하는 기능 등은 아직 지원하지 않습니다. [범위 밖](#범위-밖) 참고.
-- **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 병합 전 리뷰는 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
+- **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 이슈·프로젝트 보드·병합 전 리뷰 운영은 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
 
 ## 요구 사항
 
 - Node.js 22.23.4, 24.22.1, 26.12.1 이상(같은 버전 라인의 더 새로운 패치 포함). [2026년 10월 21일 Node.js 보안 릴리스](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)에서 고친 취약점이 반영된 버전입니다. 원격 코드 실행으로 이어질 수 있는 Brotli 디코더 범위 밖 쓰기(CVE-2026-111497)와 TLS 호스트 이름 검증 우회가 여기에 포함됩니다. PGARD는 `fetch`와 TLS로 GitHub API를 호출하므로 이전 버전은 지원하지 않으며, `pgard doctor`의 Node.js 검사도 실패합니다. Node.js 20 이하와 홀수 버전 라인은 수정이 제공되지 않습니다. 버전은 `node --version`으로 확인하세요.
 - Git
-- 로컬 포트 탐지를 위한 macOS 또는 Linux(macOS는 `lsof`이며 실패하면 `netstat`으로 대체, Linux는 `/proc/net/tcp*`). 포트는 언제든 직접 입력할 수 있습니다.
+- macOS, Linux 또는 Windows. CI가 세 운영체제 모두에서 전체 테스트를 실행합니다. 로컬 포트 탐지는 macOS에서 `lsof`(실패하면 `netstat`으로 대체), Linux에서 `/proc/net/tcp*`, Windows에서 `%SystemRoot%\System32\netstat.exe`를 사용합니다. 포트는 언제든 직접 입력할 수 있습니다.
+- Windows 참고: 로그인은 Windows 자격 증명 관리자에 보관되고, 브라우저는 `explorer.exe`로 열립니다. Windows에는 `0600` 같은 권한 모드가 없어 보고서를 그 모드로 만들 수 없습니다. 보고서는 선택한 폴더의 기본 권한을 따르므로 본인만 읽을 수 있는 폴더를 고르세요. 터미널 출력: `NO_COLOR`는 색상만 끕니다. `TERM=dumb`는 색상을 끄고, Windows가 아닌 시스템에서는 텍스트도 ASCII로 바꿉니다. Windows에서는 호스트가 Windows Terminal, VS Code 또는 비슷한 터미널이 아니면 텍스트가 ASCII이고, 색상은 호스트와 관계없이 켜진 상태로 유지됩니다.
 - GitHub 계정([GitHub App과 로그인](#github-app과-로그인) 참고)
 
 ## 설치와 빌드
@@ -380,7 +381,7 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 - `dist/`, `build/` 같은 빌드 결과물은 사용자 자신의 산출물이므로 vendored가 아닙니다.
 - vendored이면서 테스트 코드이기도 한 경로(`node_modules/pkg/test/a.js`)는 vendored로 봅니다.
 
-HTML·PDF 보고서는 같은 가려진 결과로 만듭니다. HTML 보고서는 스크립트가 없고 엄격한 CSP를 쓰는 단일 파일입니다. 보고서는 사용자가 지정한 디렉터리에만 저장되고, 기존 파일을 덮어쓰지 않으며, 권한 `0600`으로 만들어집니다. 실수로 커밋되지 않도록 보고서는 저장소 밖에 보관하세요.
+HTML·PDF 보고서는 같은 가려진 결과로 만듭니다. HTML 보고서는 스크립트가 없고 엄격한 CSP를 쓰는 단일 파일입니다. 보고서는 사용자가 지정한 디렉터리에만 저장되고, 기존 파일을 덮어쓰지 않으며, 권한 `0600`으로 만들어집니다(Windows에서는 불가능합니다. [요구 사항](#요구-사항) 참고). 실수로 커밋되지 않도록 보고서는 저장소 밖에 보관하세요.
 
 ## 대시보드
 
@@ -428,7 +429,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 ## 알려진 제한 사항
 
-- [#44](https://github.com/JadenMeister/pgard/issues/44) PDF 보고서는 Latin-1 밖의 문자(예: 한국어)를 `?`로 바꿉니다. 전체 텍스트는 HTML 보고서를 사용하세요.
+- PDF 보고서에는 Noto Sans KR 서브셋이 포함되어 한국어와 영어가 모두 표시됩니다. 폰트에 없는 문자(한자, 이모지, 다른 문자 체계)는 `?`로 바뀌고 PDF에 그 사실이 표시됩니다. 전체 텍스트는 HTML 보고서에 있습니다. 포함된 폰트를 불러오지 못하면 PDF는 내장 Latin-1 폰트로 대체되고(한국어는 `?`), PDF 안에 이를 알리며 CLI도 경고를 출력합니다.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) 로그인한 상태의 웹 탐색은 지원하지 않습니다. 범위 밖입니다([범위 밖](#범위-밖) 참고).
 - 검증된 owner가 아닌 사용자의 기여는 보수적으로 확인합니다. co-author trailer와 서명 없는 직접 push는 기여로 인정하지 않으므로, 커밋을 공동 작성만 했거나 서명 없이 push한 협력자는 본인의 pull request가 merge되거나 서명된 커밋을 push할 때까지 기여에서 차단됩니다.
 - 대시보드의 검사 결과 문구(발견 항목 제목, 규칙 설명, 권한 확인 이유)는 영어로만 표시됩니다. 나머지 대시보드는 한국어와 영어를 지원합니다.
@@ -471,7 +472,7 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 
 - [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): 구현 브리프입니다. 제품 범위, 권한 게이트, 검사 경계, 완료 조건을 정했습니다.
 - [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): CLI 명령 체계와 앱·패키지 구조를 정했습니다.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙을 정했습니다.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙과 현행 이슈·보드·리뷰 운영을 정했습니다.
 
 현재 동작을 설명하는 문서가 하나 더 있습니다(기준은 영문판입니다). [`RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
 
@@ -480,3 +481,7 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 ## 라이선스
 
 [MIT](LICENSE)
+
+PDF 보고서에는 SIL Open Font License 1.1로 배포되는 Noto Sans KR 서브셋이 포함됩니다. [NOTICE](NOTICE.md)와 `packages/report/fonts/OFL.txt`를 참고하세요.
+
+PGARD는 참조 목록(OWASP Top 10 2025, CWE Top 25 2025, SEI CERT Java의 규칙 id와 제목)도 포함합니다. 이 데이터는 각각의 라이선스(CC BY-SA 4.0, MITRE CWE 이용 약관, CC BY 4.0)를 따르는 제3자 데이터이며 MIT 라이선스의 적용 대상이 아닙니다. [NOTICE](NOTICE.md)를 참고하세요.

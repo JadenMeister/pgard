@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/github/license/JadenMeister/pgard?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#requirements)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#requirements)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#requirements)
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#known-limitations)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#privacy-and-network-traffic)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
@@ -54,13 +54,14 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 - **Web checks.** Checks send only anonymous `GET`/`HEAD` requests to `127.0.0.1`, and only to the service you confirm (after authorization, one identity `GET /` goes to each discovered local port). PGARD sends no POST/PUT/DELETE requests or form submissions, but a badly built app can still change state on a `GET`. See [Local web checks](#local-web-checks).
 - **Result schema versioning.** The scan result carries a `major.minor` `schemaVersion`; readers refuse another major version. See [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md).
 - **Out of scope.** Remote services, attack or state-changing requests, logged-in web browsing, matching dependencies against vulnerability data and more are not supported yet. See [Out of scope](#out-of-scope).
-- **Development conventions.** Commit units and messages, branch and pull request boundaries, and reviews before merge are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
+- **Development conventions.** Commit units and messages, branch and pull request boundaries, and the issue, project board and review-before-merge workflow are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
 
 ## Requirements
 
 - Node.js 22.23.4, 24.22.1 or 26.12.1, or a newer patch on the same line. These are the releases that fix the vulnerabilities in the [Node.js security release of 21 October 2026](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), including a Brotli decoder out-of-bounds write that can lead to remote code execution (CVE-2026-111497) and TLS hostname check bypasses. PGARD uses `fetch` and TLS to call the GitHub API, so older releases are not supported: `pgard doctor` fails the Node.js check on them. Node.js 20 and earlier and the odd-numbered lines get no fixes. Check your version with `node --version`.
 - Git
-- macOS or Linux for local port discovery (`lsof` on macOS, falling back to `netstat`; `/proc/net/tcp*` on Linux). You can always type a port by hand.
+- macOS, Linux or Windows. CI runs the full test suite on all three. Local port discovery uses `lsof` on macOS (falling back to `netstat`), `/proc/net/tcp*` on Linux and `%SystemRoot%\System32\netstat.exe` on Windows. You can always type a port by hand.
+- Windows notes: the sign-in is kept in Windows Credential Manager, the browser opens through `explorer.exe`, and reports cannot be created with mode `0600` because Windows has no such mode. A report there gets the default permissions of the folder you choose, so pick a folder only you can read. Terminal output: `NO_COLOR` turns off colour only. `TERM=dumb` turns off colour and, on non-Windows systems, also gives ASCII text. On Windows, text is ASCII unless the host is Windows Terminal, VS Code or a similar terminal; colour stays on there regardless of the host.
 - A GitHub account (see [GitHub App and sign-in](#github-app-and-sign-in))
 
 ## Install and build
@@ -380,7 +381,7 @@ Also:
 - Build output such as `dist/` or `build/` is your own output and is not vendored.
 - A path that is both vendored and test code (`node_modules/pkg/test/a.js`) is vendored.
 
-HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600`. Keep reports outside the repository so they are not committed by mistake.
+HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600` (not possible on Windows, see [Requirements](#requirements)). Keep reports outside the repository so they are not committed by mistake.
 
 ## Dashboard
 
@@ -428,7 +429,7 @@ The dashboard is available in Korean and English. It follows the browser languag
 
 ## Known limitations
 
-- [#44](https://github.com/JadenMeister/pgard/issues/44) PDF reports replace text outside Latin-1 (for example Korean) with `?`. Use the HTML report for the full text.
+- PDF reports embed a subset of Noto Sans KR, so Korean and English text both render. Characters the font does not have (Hanja, emoji, other scripts) are replaced with `?` and the PDF says so; the HTML report has the full text. If the bundled font cannot be loaded, the PDF falls back to a built-in Latin-1 font (Korean becomes `?`), notes this in the PDF itself, and the CLI prints a warning.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope (see [Out of scope](#out-of-scope)).
 - Contribution is checked conservatively for users who are not the verified owner: co-author trailers and unsigned direct pushes do not count, so a collaborator who only co-authored commits or pushed unsigned commits is blocked at contribution until a pull request of theirs is merged or they push signed commits.
 - The dashboard's scan text (finding titles, rule descriptions, authorization reasons) is English only; the rest of the dashboard is available in Korean and English.
@@ -471,7 +472,7 @@ CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull
 
 - [`PGARD_AGENT_BRIEF_EN.md`](docs/PGARD_AGENT_BRIEF_EN.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
 - [`PGARD_CLI_AND_STRUCTURE_EN.md`](docs/PGARD_CLI_AND_STRUCTURE_EN.md): the command set and the layout of the apps and packages.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests, plus the current issue, board and review workflow.
 
 One further document is written in English and describes current behaviour: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
 
@@ -480,3 +481,7 @@ Where the planning documents and this README disagree, this README and the code 
 ## License
 
 [MIT](LICENSE)
+
+The PDF reports embed a subset of Noto Sans KR, licensed under the SIL Open Font License 1.1. See [NOTICE](NOTICE.md) and `packages/report/fonts/OFL.txt`.
+
+PGARD also bundles reference lists (OWASP Top 10 2025, CWE Top 25 2025 and SEI CERT Java rule ids and titles). They are third-party data under their own licenses (CC BY-SA 4.0, MITRE CWE Terms of Use, CC BY 4.0) and are not covered by the MIT license. See [NOTICE](NOTICE.md).

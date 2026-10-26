@@ -19,6 +19,7 @@ import {
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
 } from "./format.js";
+import { hasStringOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
 
 const MUTED = "#475569";
 const PAGE_MARGIN = 50;
@@ -44,23 +45,45 @@ export const PDF_REPLACEMENT_NOTICE =
   "Note: some characters outside the Latin-1 range (for example Korean text) were replaced " +
   'with "?" in this PDF. See the HTML report for the full text.';
 
-function heading(doc: PDFKit.PDFDocument, text: string): void {
-  doc.moveDown(0.8).font("Helvetica-Bold").fontSize(14).fillColor("#0f172a").text(toPdfText(text));
-  doc.moveDown(0.3).font("Helvetica").fontSize(10);
+export const PDF_FONT_REPLACEMENT_NOTICE =
+  'Note: some characters this PDF font cannot show (for example emoji or other scripts) were replaced with "?". ' +
+  "See the HTML report for the full text.";
+
+/** Which font and text sanitizer one PDF render uses. */
+interface PdfStyle {
+  regular: string;
+  bold: string;
+  text: (value: string) => string;
 }
 
-function line(doc: PDFKit.PDFDocument, text: string, color = "#0f172a"): void {
-  doc.font("Helvetica").fontSize(10).fillColor(color).text(toPdfText(text));
+const LATIN_STYLE: PdfStyle = { regular: "Helvetica", bold: "Helvetica-Bold", text: toPdfText };
+const FONT_STYLE: PdfStyle = { regular: "PgardSans", bold: "PgardSans-Bold", text: toFontText };
+
+function fontFallbackMessage(reason: string): string {
+  return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font.`;
 }
 
-function drawSeverityBars(doc: PDFKit.PDFDocument, findings: readonly Finding[]): void {
+function heading(doc: PDFKit.PDFDocument, style: PdfStyle, text: string): void {
+  doc.moveDown(0.8).font(style.bold).fontSize(14).fillColor("#0f172a").text(style.text(text));
+  doc.moveDown(0.3).font(style.regular).fontSize(10);
+}
+
+function line(doc: PDFKit.PDFDocument, style: PdfStyle, text: string, color = "#0f172a"): void {
+  doc.font(style.regular).fontSize(10).fillColor(color).text(style.text(text));
+}
+
+function drawSeverityBars(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  findings: readonly Finding[],
+): void {
   const counts = countFindingsBySeverity(findings);
   const maxCount = Math.max(1, ...Object.values(counts));
   for (const severity of SEVERITIES) {
     const y = doc.y;
     const width = Math.max(1, Math.round((counts[severity] / maxCount) * BAR_MAX_WIDTH));
     doc
-      .font("Helvetica")
+      .font(style.regular)
       .fontSize(10)
       .fillColor("#0f172a")
       .text(labelSeverity(severity), PAGE_MARGIN, y);
@@ -75,124 +98,154 @@ function drawSeverityBars(doc: PDFKit.PDFDocument, findings: readonly Finding[])
   }
 }
 
-function writeFinding(doc: PDFKit.PDFDocument, finding: Finding): void {
+function writeFinding(doc: PDFKit.PDFDocument, style: PdfStyle, finding: Finding): void {
   doc.moveDown(0.6);
   doc
-    .font("Helvetica-Bold")
+    .font(style.bold)
     .fontSize(11)
     .fillColor(severityColor(finding.severity))
     .text(`[${labelSeverity(finding.severity)}] `, { continued: true })
     .fillColor("#0f172a")
-    .text(toPdfText(finding.title));
+    .text(style.text(finding.title));
   line(
     doc,
+    style,
     `${finding.status}, confidence ${finding.confidence} - ${finding.ruleId} - ${finding.category} - source: ${finding.sources.join(", ")}`,
     MUTED,
   );
-  line(doc, `Location: ${formatLocation(finding.location)}`);
-  line(doc, `Evidence (redacted): ${finding.evidence}`);
-  line(doc, `Impact: ${finding.impact}`);
-  line(doc, `Recommendation: ${finding.recommendation}`);
+  line(doc, style, `Location: ${formatLocation(finding.location)}`);
+  line(doc, style, `Evidence (redacted): ${finding.evidence}`);
+  line(doc, style, `Impact: ${finding.impact}`);
+  line(doc, style, `Recommendation: ${finding.recommendation}`);
   const references = [
     ...finding.references.cwe,
     ...finding.references.owasp,
     ...finding.references.cve,
   ];
-  if (references.length > 0) line(doc, `References: ${references.join(", ")}`, MUTED);
+  if (references.length > 0) line(doc, style, `References: ${references.join(", ")}`, MUTED);
 }
 
 /** Renders the same content as the HTML report into a PDF buffer (pure JS, no browser). */
 export function renderPdfReport(
   input: ScanResult,
   /** `compress: false` keeps the content streams readable, so tests can extract the text. */
-  options: { compress?: boolean } = {},
+  options: {
+    compress?: boolean;
+    /** Called once per render: null when the Korean-capable font is used, else why it is not. */
+    onFontFallback?: (message: string | null) => void;
+  } = {},
 ): Promise<Buffer> {
   const result = prepareReportResult(input);
+  const loaded = loadPdfFonts();
+  const style = loaded.ok ? FONT_STYLE : LATIN_STYLE;
+  options.onFontFallback?.(loaded.ok ? null : fontFallbackMessage(loaded.reason));
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
       compress: options.compress ?? true,
       margin: PAGE_MARGIN,
-      info: { Title: "PGARD Report", Creator: "pgard", Producer: "pgard" },
+      info: {
+        Title: "PGARD Report",
+        Creator: "pgard",
+        Producer: "pgard",
+        Subject: loaded.ok
+          ? "Font: Noto Sans KR (subset, SIL OFL 1.1)"
+          : fontFallbackMessage(loaded.reason),
+      },
     });
+    if (loaded.ok) {
+      doc.registerFont(FONT_STYLE.regular, loaded.fonts.regular);
+      doc.registerFont(FONT_STYLE.bold, loaded.fonts.bold);
+    }
     const chunks: Buffer[] = [];
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
     const target = result.target;
-    doc.font("Helvetica-Bold").fontSize(20).fillColor("#0f172a").text("PGARD security report");
+    doc.font(style.bold).fontSize(20).fillColor("#0f172a").text("PGARD security report");
     line(
       doc,
+      style,
       `Repository: ${target.repo ?? "unknown"} - Revision: ${target.revision ?? "unknown"}`,
       MUTED,
     );
-    if (target.webOrigin !== null) line(doc, `Web target: ${target.webOrigin}`, MUTED);
+    if (target.webOrigin !== null) line(doc, style, `Web target: ${target.webOrigin}`, MUTED);
     line(
       doc,
+      style,
       `Scan ${result.scanId} - ${result.startedAt} to ${result.finishedAt} - ${result.tool.name} ${result.tool.version} - schema ${result.schemaVersion}`,
       MUTED,
     );
-    line(doc, `Requested scopes: ${result.requestedScopes.join(", ") || "none"}`, MUTED);
-    if (hasUnsupportedPdfCharacters(result)) {
+    line(doc, style, `Requested scopes: ${result.requestedScopes.join(", ") || "none"}`, MUTED);
+    if (!loaded.ok) {
       doc.moveDown(0.3);
-      line(doc, PDF_REPLACEMENT_NOTICE, "#b45309");
+      line(doc, style, fontFallbackMessage(loaded.reason), "#b45309");
+    }
+    const hasReplacedText = loaded.ok
+      ? hasStringOutsideFont(result)
+      : hasUnsupportedPdfCharacters(result);
+    if (hasReplacedText) {
+      doc.moveDown(0.3);
+      line(doc, style, loaded.ok ? PDF_FONT_REPLACEMENT_NOTICE : PDF_REPLACEMENT_NOTICE, "#b45309");
     }
     doc.moveDown(0.5);
     doc
-      .font("Helvetica-Bold")
+      .font(style.bold)
       .fontSize(11)
       .fillColor("#0f172a")
-      .text(`Overall status: ${toPdfText(labelOverallStatus(result.overallStatus))}`);
+      .text(`Overall status: ${style.text(labelOverallStatus(result.overallStatus))}`);
 
     // Headline counts cover regular code; test and fixture findings get their own section, and
     // suggestions in vendored code come last.
     const { primary, test, vendored } = groupReportFindings(result.findings);
-    heading(doc, "Summary");
-    line(doc, formatFindingSummary(result.findings));
+    heading(doc, style, "Summary");
+    line(doc, style, formatFindingSummary(result.findings));
     doc.moveDown(0.5);
-    drawSeverityBars(doc, primary);
+    drawSeverityBars(doc, style, primary);
 
-    heading(doc, "Coverage");
-    if (result.coverage.length === 0) line(doc, "No coverage was recorded.");
+    heading(doc, style, "Coverage");
+    if (result.coverage.length === 0) line(doc, style, "No coverage was recorded.");
     for (const entry of result.coverage) {
       line(
         doc,
+        style,
         `${entry.area} (${entry.scope}): ${labelCoverageStatus(entry.status)}${entry.note === null ? "" : ` - ${entry.note}`}`,
       );
     }
 
-    heading(doc, "Findings");
+    heading(doc, style, "Findings");
     if (primary.length === 0) {
       line(
         doc,
+        style,
         `No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
       );
     }
-    for (const finding of primary) writeFinding(doc, finding);
+    for (const finding of primary) writeFinding(doc, style, finding);
     if (test.length > 0) {
-      heading(doc, `${TEST_FINDINGS_TITLE} (${test.length})`);
-      line(doc, TEST_FINDINGS_NOTE, MUTED);
-      for (const finding of test) writeFinding(doc, finding);
+      heading(doc, style, `${TEST_FINDINGS_TITLE} (${test.length})`);
+      line(doc, style, TEST_FINDINGS_NOTE, MUTED);
+      for (const finding of test) writeFinding(doc, style, finding);
     }
     if (vendored.length > 0) {
-      heading(doc, `${VENDORED_FINDINGS_TITLE} (${vendored.length})`);
-      line(doc, VENDORED_FINDINGS_NOTE);
-      line(doc, VENDORED_FINDINGS_DETAIL, MUTED);
-      for (const finding of vendored) writeFinding(doc, finding);
+      heading(doc, style, `${VENDORED_FINDINGS_TITLE} (${vendored.length})`);
+      line(doc, style, VENDORED_FINDINGS_NOTE);
+      line(doc, style, VENDORED_FINDINGS_DETAIL, MUTED);
+      for (const finding of vendored) writeFinding(doc, style, finding);
     }
 
-    heading(doc, "Authorization");
-    line(doc, `Decision: ${result.authorization.decision}`);
+    heading(doc, style, "Authorization");
+    line(doc, style, `Decision: ${result.authorization.decision}`);
     for (const check of result.authorization.checks) {
-      line(doc, `${check.id}: ${check.status} - ${check.reason}`);
+      line(doc, style, `${check.id}: ${check.status} - ${check.reason}`);
     }
 
-    heading(doc, "Analysis basis");
-    line(doc, ANALYSIS_BASIS_NOTE);
+    heading(doc, style, "Analysis basis");
+    line(doc, style, ANALYSIS_BASIS_NOTE);
 
     doc.moveDown(1);
-    doc.font("Helvetica").fontSize(8).fillColor(MUTED).text(toPdfText(REPORT_DISCLAIMER));
+    doc.font(style.regular).fontSize(8).fillColor(MUTED).text(style.text(REPORT_DISCLAIMER));
     doc.end();
   });
 }

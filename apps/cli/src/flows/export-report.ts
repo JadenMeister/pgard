@@ -63,8 +63,10 @@ export async function saveReports(
 ): Promise<boolean> {
   try {
     const written = await context.deps.writeReports(result, { format, outputDir });
-    for (const entry of written)
+    for (const entry of written) {
       out(context, `Saved ${entry.format.toUpperCase()} report: ${safeText(entry.filePath, 500)}`);
+      if (entry.warning !== undefined) err(context, `Warning: ${safeText(entry.warning, 500)}`);
+    }
     return true;
   } catch (error) {
     const message =
