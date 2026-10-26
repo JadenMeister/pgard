@@ -9,8 +9,13 @@ permissions:
   contents: read
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
+  check-os:
+    name: check (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -31,3 +36,24 @@ jobs:
       - run: npm run typecheck:tests
       - run: npm run format:check
       - run: npm test
+      # Real Windows Credential Manager round trip with a random throwaway service name.
+      - name: Keychain round trip (Windows)
+        if: runner.os == 'Windows'
+        env:
+          PGARD_KEYCHAIN_CI: "1"
+        run: npx vitest run packages/github-auth/src/os-keychain.ci.test.ts
+
+  # Branch protection requires a check named `check`. This job keeps that name and passes only
+  # when every OS in the matrix passed (`always()` so a failed matrix cannot leave it skipped).
+  check:
+    name: check
+    needs: check-os
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every OS to pass
+        run: |
+          if [ "${{ needs.check-os.result }}" != "success" ]; then
+            echo "check-os result: ${{ needs.check-os.result }}"
+            exit 1
+          fi
