@@ -650,6 +650,7 @@ describe("runScanCommand reports", () => {
       const log = JSON.parse(captured.stdout());
       expect(log.runs[0].invocations[0].executionSuccessful).toBe(false);
       expect(log.runs[0].results).toEqual([]);
+      expect(captured.stderr()).toContain("Do not upload this SARIF: the scan did not run");
     });
 
     it("is a usage error, before any scan, when web checks would need a port prompt", async () => {

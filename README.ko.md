@@ -523,26 +523,26 @@ pgard baseline clear
 
 ### SARIF 출력
 
-`pgard scan --format sarif > pgard.sarif`는 가려진 결과를 [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) 형식으로 stdout에 출력합니다(진행 상황과 안내는 stderr, 종료 코드는 그대로). 파일로 저장하려면 stdout을 리다이렉트하세요. SARIF용 출력 파일 옵션은 없으며 `--report`/`--output-dir`는 여전히 HTML과 PDF 보고서만 씁니다. **PGARD는 아무것도 업로드하지 않습니다.** 파일을 GitHub이나 IDE로 보내는 것은 사용자의 몫입니다. GitHub 코드 스캐닝 예시:
+`pgard scan --format sarif > pgard.sarif`는 가려진 결과를 [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) 형식으로 stdout에 출력합니다(진행 상황과 안내는 stderr, 종료 코드는 그대로). 파일로 저장하려면 stdout을 리다이렉트하세요. SARIF용 출력 파일 옵션은 없으며 `--report`/`--output-dir`는 여전히 HTML과 PDF 보고서만 씁니다. **PGARD는 아무것도 업로드하지 않습니다.** 파일을 GitHub이나 IDE로 보내는 것은 사용자의 몫입니다.
 
-```yaml
-- run: npx pgard scan --format sarif > pgard.sarif
-  continue-on-error: true # 문제를 찾았거나 일부만 검사하면 pgard는 0이 아닌 코드로 종료합니다
-- uses: github/codeql-action/upload-sarif@v3
-  with:
-    sarif_file: pgard.sarif
+**업로드하면 안 되는 경우.** GitHub 코드 스캐닝은 PGARD의 `toolExecutionNotifications`와 `executionSuccessful`을 표시하지 않으며, 업로드에 없는 기존 알림을 닫습니다. 완전히 실행되지 않은 스캔의 SARIF를 올리면 검사된 적 없는 영역의 알림이 닫힙니다. 종료 코드가 `0`일 때만 업로드하세요. 종료 코드 `3`(blocked), `4`(partial), `5`(failed)이면 업로드하지 마세요(blocked와 failed에서는 PGARD가 stderr에 "Do not upload this SARIF: the scan did not run"도 출력합니다). CI 워크플로 예시는 없습니다. 권한 확인에 필요한 GitHub 로그인이 현재 CI 러너에는 없어서, 러너에서는 blocked 상태의 빈 SARIF가 만들어지기 때문입니다. 로컬 흐름 예시:
+
+```sh
+pgard scan --format sarif > pgard.sarif && gh api -X POST repos/OWNER/REPO/code-scanning/sarifs \
+  -f commit_sha="$(git rev-parse HEAD)" -f ref="$(git symbolic-ref HEAD)" \
+  -f sarif="$(gzip -c pgard.sarif | base64 | tr -d '\n')"
 ```
 
-(업로드에는 `permissions: security-events: write`가 필요합니다.)
+(`&&` 덕분에 종료 코드 0일 때만 업로드합니다. `security_events` 권한이 있는 토큰이 필요하며, 직접 실행하는 워크플로에서는 `github/codeql-action/upload-sarif`도 같은 일을 합니다.)
 
 매핑 방식:
 
 - **규칙.** 실행되었거나 발견 항목을 만든 규칙마다 `tool.driver.rules`에 항목이 하나씩 있습니다. 짧은 설명(제목), 전체 설명(근거), `help.text`(해결 방법), `helpUri`(공식 CWE 페이지, 없으면 첫 번째 표준 링크), `properties.tags`(`security`, `CWE-n`, `external/cwe/cwe-n`, `OWASP-A0x:2025`)가 들어 있습니다.
-- **심각도.** `level`: critical과 high는 `error`, medium은 `warning`, low와 info는 `note`입니다. `security-severity`(GitHub가 읽으며 규칙과 결과에 모두 들어 있음)는 숫자 문자열입니다. critical `9.5`, high `8.0`, medium `5.5`, low `3.0`, info `1.0`.
-- **위치.** 파일 발견 항목은 저장소 기준 상대 경로 `artifactLocation.uri`(`uriBaseId` `%SRCROOT%`)와 시작·끝 줄이 있는 region을 가집니다. 이력 발견 항목은 커밋도 `properties.pgard.commit`에 담습니다(줄이 없으면 region도 없음). 웹 발견 항목은 파일이 없으므로 논리 위치(kind `resource`, URL)와 `properties.pgard.url`을 가집니다.
-- **지문.** `partialFingerprints["pgardFindingIdentity/v1"]`는 기준선과 스캔 비교가 쓰는 줄 번호와 무관한 식별자와 같으므로, 위치만 옮겨진 발견 항목은 지문이 유지됩니다.
+- **심각도.** `level`: critical과 high는 `error`, medium은 `warning`, low와 info는 `note`입니다. `security-severity`는 숫자 문자열입니다. critical `9.5`, high `8.0`, medium `5.5`, low `3.0`, info `1.0`. GitHub는 규칙에 있는 값만 읽으며, PGARD는 이번 실행에서 그 규칙의 발견 항목 중 가장 높은 심각도를 규칙에 넣습니다. 따라서 GitHub가 낮은 심각도 결과를 규칙의 더 높은 심각도로 보여 줄 수 있습니다. 다른 도구를 위해 각 결과에도 자체 값이 들어 있습니다.
+- **위치.** 저장소 파일 경로가 있는 발견 항목만 파일에 들어갑니다(물리적 위치가 없는 결과는 GitHub가 거부함). 각 항목은 저장소 기준 상대 경로 `artifactLocation.uri`(`uriBaseId` `%SRCROOT%`)와 시작·끝 줄이 있는 region을 가집니다(줄이 없으면 region도 없음). 이력 발견 항목은 커밋도 `properties.pgard.commit`에 담습니다. **웹 발견 항목은 제외됩니다**(파일이 없고 PGARD는 경로를 지어내지 않습니다). 몇 건이 어떤 규칙에서 제외되었는지는 `error` 알림과 `runs[0].properties.pgard.omittedFindings`에 기록되고, CLI는 stderr에 경고를 출력합니다. 해당 항목은 텍스트나 JSON 출력, 또는 보고서로 확인하세요.
+- **지문.** `partialFingerprints["pgardFindingIdentity/v1"]`는 기준선과 스캔 비교가 쓰는 줄 번호와 무관한 식별자와 같으므로, 위치만 옮겨진 발견 항목은 지문이 유지됩니다. GitHub가 쓰는 유일한 지문인 `primaryLocationLineHash`는 이 식별자 뒤에 `:n`을 붙인 값이며, n은 파일 안에서 같은 식별자를 가진 결과의 순번이라 서로 다른 줄의 동일한 발견 항목이 충돌하지 않습니다. 이력의 발견 항목은 파일이 나중에 삭제되어도 식별자가 안정적으로 유지됩니다.
 - **숨김 처리된 항목과 기준선.** `pgard.config.json`에서 숨김 처리한 발견 항목은 `suppressions: [{kind: "external", justification}]`와 함께 파일에 그대로 남아 집계됩니다. 기준선이 있으면 `baselineState`는 기준선에 있는 항목에 `unchanged`, 나머지에 `new`입니다. 숨김 처리된 항목에는 `baselineState`가 없습니다. 기준선이 없으면 설정하지 않습니다.
-- **실행되지 않은 영역.** `partial` 또는 `not_tested` 영역마다 `runs[0].invocations[0].toolExecutionNotifications`에 `warning`이 하나씩 들어갑니다. `executionSuccessful`은 completed나 partial 스캔이면 `true`, blocked나 failed 스캔이면 `false`입니다(이 경우 `error` 알림도 추가됨). 따라서 이런 알림이 없을 때만 빈 `results`가 깨끗한 스캔을 뜻합니다. 선택하지 않은 영역은 나열하지 않습니다.
+- **실행되지 않은 영역.** `partial` 또는 `not_tested` 영역마다 `runs[0].invocations[0].toolExecutionNotifications`에 `warning`이 하나씩 들어갑니다. `executionSuccessful`은 blocked나 failed 스캔이거나 요청한 영역이 하나도 실행되지 않은 경우(예: 확인된 대상 없이 `scan web`)에 `false`이며, 이때 `error` 알림도 추가됩니다. 선택하지 않은 영역은 나열하지 않습니다. 다른 도구는 이 알림을 보여 줄 수 있지만 GitHub는 보여 주지 않습니다.
 - **가림 처리.** 텍스트는 JSON 출력과 똑같이 가려지며 비밀 값은 나타나지 않습니다.
 
 ### 저장된 결과

@@ -1,5 +1,7 @@
 import {
   buildSarif,
+  countSarifOmitted,
+  sarifScanDidNotRun,
   localizeFindings,
   type ConfirmedWebTarget,
   type ScanResult,
@@ -110,11 +112,27 @@ export async function runScanCommand(
   return runScanFlow(flowContext, command, {
     show: () => undefined,
     finish: (result) => {
+      if (command.format === "sarif") warnAboutSarif(context, result);
       const document =
         command.format === "sarif" ? buildSarif(result, getRuleTextCatalog()) : result;
       context.io.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
     },
   });
+}
+
+function warnAboutSarif(context: CommandContext, result: ScanResult): void {
+  const omitted = countSarifOmitted(result);
+  if (omitted > 0) {
+    err(
+      context,
+      context.errStyle.yellow(
+        `${omitted} web findings are not in SARIF (no file location); see the text/JSON output or report.`,
+      ),
+    );
+  }
+  if (sarifScanDidNotRun(result)) {
+    err(context, context.errStyle.red("Do not upload this SARIF: the scan did not run."));
+  }
 }
 
 /** Rule texts in the terminal language; the stored and JSON result stay English. */

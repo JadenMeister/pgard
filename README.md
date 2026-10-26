@@ -523,26 +523,26 @@ pgard baseline clear
 
 ### SARIF output
 
-`pgard scan --format sarif > pgard.sarif` writes the redacted result as [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) to stdout (progress and messages go to stderr, exit codes are unchanged). To keep a file, redirect stdout; PGARD has no output-file option for SARIF, and `--report`/`--output-dir` still only write HTML and PDF reports. **PGARD never uploads anything**: sending the file to GitHub or an IDE is your step. Example for GitHub code scanning:
+`pgard scan --format sarif > pgard.sarif` writes the redacted result as [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) to stdout (progress and messages go to stderr, exit codes are unchanged). To keep a file, redirect stdout; PGARD has no output-file option for SARIF, and `--report`/`--output-dir` still only write HTML and PDF reports. **PGARD never uploads anything**: sending the file to GitHub or an IDE is your step.
 
-```yaml
-- run: npx pgard scan --format sarif > pgard.sarif
-  continue-on-error: true # pgard exits non-zero when it finds issues or a partial scan
-- uses: github/codeql-action/upload-sarif@v3
-  with:
-    sarif_file: pgard.sarif
+**When not to upload.** GitHub code scanning does not display PGARD's `toolExecutionNotifications` or `executionSuccessful`, and it closes existing alerts that are missing from an upload. A SARIF of a scan that did not fully run would therefore close alerts for areas that were never checked. Upload only when the exit code is `0`. Exit code `3` (blocked), `4` (partial) or `5` (failed) means do not upload (for blocked and failed scans PGARD also prints "Do not upload this SARIF: the scan did not run" on stderr). There is no CI workflow example: the authorization gate needs a GitHub sign-in that a CI runner does not have today, so a runner would produce a blocked, empty SARIF. A local flow:
+
+```sh
+pgard scan --format sarif > pgard.sarif && gh api -X POST repos/OWNER/REPO/code-scanning/sarifs \
+  -f commit_sha="$(git rev-parse HEAD)" -f ref="$(git symbolic-ref HEAD)" \
+  -f sarif="$(gzip -c pgard.sarif | base64 | tr -d '\n')"
 ```
 
-(`permissions: security-events: write` is needed for the upload.)
+(`&&` uploads only after exit code 0. It needs a token with the `security_events` scope; `github/codeql-action/upload-sarif` does the same in a workflow you run yourself.)
 
 How the result maps:
 
 - **Rules.** One entry in `tool.driver.rules` for every rule that ran or produced a finding: short description (title), full description (rationale), `help.text` (remediation), `helpUri` (the official CWE page, else the first standards link) and `properties.tags` (`security`, `CWE-n`, `external/cwe/cwe-n`, `OWASP-A0x:2025`).
-- **Severity.** `level`: critical and high are `error`, medium is `warning`, low and info are `note`. `security-severity` (read by GitHub, on rules and on results) is a numeric string: critical `9.5`, high `8.0`, medium `5.5`, low `3.0`, info `1.0`.
-- **Locations.** A file finding has a repository-relative `artifactLocation.uri` (`uriBaseId` `%SRCROOT%`) and a region with start and end line. A history finding also has its commit in `properties.pgard.commit` (and no region when it has no line). A web finding has no file: it has a logical location (kind `resource`, the URL) and the URL in `properties.pgard.url`.
-- **Fingerprints.** `partialFingerprints["pgardFindingIdentity/v1"]` is the same line-insensitive identity the baseline and scan comparison use, so a finding that only moves keeps its fingerprint.
+- **Severity.** `level`: critical and high are `error`, medium is `warning`, low and info are `note`. `security-severity` is a numeric string: critical `9.5`, high `8.0`, medium `5.5`, low `3.0`, info `1.0`. GitHub reads it only on the rule, where PGARD sets the strongest severity among that rule's findings in the run, so GitHub can show a lower-severity result at the rule's higher severity. Each result also carries its own value for other tools.
+- **Locations.** Only findings with a repository file path are in the file (GitHub rejects a result without a physical location). Each has a repository-relative `artifactLocation.uri` (`uriBaseId` `%SRCROOT%`) and a region with start and end line (no region when it has no line). A history finding also has its commit in `properties.pgard.commit`. **Web findings are left out** (they have no file, and PGARD does not invent paths): the file says how many and for which rules in an `error` notification and in `runs[0].properties.pgard.omittedFindings`, and the CLI prints a warning on stderr. Use the text or JSON output or a report for them.
+- **Fingerprints.** `partialFingerprints["pgardFindingIdentity/v1"]` is the same line-insensitive identity the baseline and scan comparison use, so a finding that only moves keeps its fingerprint. `primaryLocationLineHash` (the only one GitHub uses) is that identity plus `:n`, where n counts results with the same identity in the file, so identical findings on different lines do not collide. Findings in history keep a stable identity even when the file was later deleted.
 - **Suppressed and baseline findings.** A finding suppressed in `pgard.config.json` stays in the file with `suppressions: [{kind: "external", justification}]`, so it stays counted. When a baseline exists, `baselineState` is `unchanged` for findings in it and `new` for the others; suppressed findings get no `baselineState`. Without a baseline it is never set.
-- **Areas that did not run.** Each `partial` or `not_tested` area is a `warning` in `runs[0].invocations[0].toolExecutionNotifications`. `executionSuccessful` is `true` for a completed or partial scan and `false` for a blocked or failed one (which also gets an `error` notification). An empty `results` list is therefore not a clean scan unless there are no such notifications. Areas you did not select are not listed.
+- **Areas that did not run.** Each `partial` or `not_tested` area is a `warning` in `runs[0].invocations[0].toolExecutionNotifications`. `executionSuccessful` is `false` for a blocked or failed scan and when no requested area ran at all (for example `scan web` without a confirmed target); those also get an `error` notification. Areas you did not select are not listed. Other tools may show these notifications; GitHub does not.
 - **Redaction.** The text is redacted exactly like the JSON output; secret values never appear.
 
 ### Stored results

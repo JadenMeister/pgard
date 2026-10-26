@@ -208,7 +208,7 @@ describe("buildSarif", () => {
     ]);
   });
 
-  it("puts the commit of a history finding in properties and gives a web finding a logical location", () => {
+  it("puts the commit of a history finding in properties and leaves out findings without a file", () => {
     const history = finding({
       id: "h",
       location: { kind: "commit", path: "config/.env", line: null, url: null, commit: "deadbeef" },
@@ -228,14 +228,103 @@ describe("buildSarif", () => {
     });
     const log = buildSarif(result({ findings: [history, web] }), CATALOG) as Obj;
     expectValidSarif(log);
-    const [h, w] = log.runs[0].results;
-    expect(h.properties.pgard.commit).toBe("deadbeef");
-    expect(h.locations[0].physicalLocation.region).toBeUndefined();
-    expect(w.locations[0].physicalLocation).toBeUndefined();
-    expect(w.locations[0].logicalLocations).toEqual([
-      { name: "http://127.0.0.1:3000/", kind: "resource" },
-    ]);
-    expect(w.properties.pgard.url).toBe("http://127.0.0.1:3000/");
+    const run = log.runs[0];
+    expect(run.results).toHaveLength(1);
+    expect(run.results[0].properties.pgard.commit).toBe("deadbeef");
+    expect(run.results[0].locations[0].physicalLocation.region).toBeUndefined();
+    for (const r of run.results) expect(r.locations.length).toBeGreaterThan(0);
+    expect(run.properties.pgard.omittedFindings).toEqual({
+      total: 1,
+      byRule: { "PG-WEB-001": 1 },
+    });
+    const note = run.invocations[0].toolExecutionNotifications.find(
+      (n: Obj) => n.descriptor.id === "pgard/findings-omitted",
+    );
+    expect(note.level).toBe("error");
+    expect(note.message.text).toContain("PG-WEB-001: 1");
+    expect(JSON.stringify(log)).not.toContain("127.0.0.1");
+    expect(run.tool.driver.rules.map((r: Obj) => r.id)).toContain("PG-WEB-001");
+  });
+
+  it("gives identical findings in one file distinct GitHub fingerprints", () => {
+    const at = (line: number, id: string) =>
+      finding({ id, location: { ...finding().location, line } });
+    const log = buildSarif(result({ findings: [at(1, "a"), at(2, "b")] }), CATALOG) as Obj;
+    const [x, y] = log.runs[0].results.map((r: Obj) => r.partialFingerprints);
+    expect(x[SARIF_FINGERPRINT_KEY]).toBe(y[SARIF_FINGERPRINT_KEY]);
+    expect(x.primaryLocationLineHash).toBe(`${x[SARIF_FINGERPRINT_KEY]}:1`);
+    expect(y.primaryLocationLineHash).toBe(`${y[SARIF_FINGERPRINT_KEY]}:2`);
+  });
+
+  it("uses the strongest severity of the rule's findings, not the first", () => {
+    const log = buildSarif(
+      result({
+        findings: [
+          finding({ id: "a", severity: "low" }),
+          finding({ id: "b", severity: "critical", location: { ...finding().location, line: 2 } }),
+          finding({ id: "c", severity: "medium", location: { ...finding().location, line: 3 } }),
+        ],
+      }),
+      CATALOG,
+    ) as Obj;
+    const rule = log.runs[0].tool.driver.rules[0];
+    expect(rule.properties["security-severity"]).toBe("9.5");
+    expect(rule.defaultConfiguration.level).toBe("error");
+    expect(log.runs[0].results[2].properties["security-severity"]).toBe("5.5");
+    expect(SARIF_SECURITY_SEVERITY.medium).toBe("5.5");
+  });
+
+  it("redacts the repository name and keeps evidence in the message", () => {
+    const log = buildSarif(
+      result({ target: { repo: `owner/${GITHUB_TOKEN}`, revision: null, webOrigin: null } }),
+      CATALOG,
+    ) as Obj;
+    expect(JSON.stringify(log)).not.toContain(GITHUB_TOKEN);
+    expect(log.runs[0].results[0].message.text).toBe(
+      "SQL built from a dynamic string: req.query -> concat -> query()",
+    );
+  });
+
+  it("does not double the period after a note", () => {
+    const log = buildSarif(
+      result({
+        coverage: [
+          {
+            area: "history:commits",
+            scope: "history",
+            status: "partial",
+            ruleIds: [],
+            note: "Stopped.",
+          },
+        ],
+      }),
+      CATALOG,
+    ) as Obj;
+    const text = log.runs[0].invocations[0].toolExecutionNotifications[0].message.text;
+    expect(text).not.toContain("..");
+    expect(text).toContain("Stopped. Results");
+  });
+
+  it("is unsuccessful when no requested area ran", () => {
+    const log = buildSarif(
+      result({
+        findings: [],
+        requestedScopes: ["web"],
+        overallStatus: "partial",
+        coverage: [
+          {
+            area: "web:anonymous",
+            scope: "web",
+            status: "not_tested",
+            ruleIds: [],
+            note: "no target",
+          },
+        ],
+      }),
+      CATALOG,
+    ) as Obj;
+    expect(log.runs[0].invocations[0].executionSuccessful).toBe(false);
+    expect(log.runs[0].invocations[0].toolExecutionNotifications.at(-1).level).toBe("error");
   });
 
   it("encodes unusual path characters in the uri", () => {
