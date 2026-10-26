@@ -94,3 +94,20 @@ SEI CERT Oracle Coding Standard for Java.
 - Attribution: (c) 2026 Carnegie Mellon University. SEI CERT is a registered trademark of Carnegie
   Mellon University. This data is not endorsed by Carnegie Mellon University or the SEI. Titles are
   unmodified apart from removing a trailing period and Markdown escapes.
+
+### OWASP Top 10 2025 mapped CWEs and CWE mapping notes
+
+Used by the rule mapping policy ([docs/RULE_MAPPING.md](docs/RULE_MAPPING.md)).
+
+- Content: for each OWASP Top 10:2025 category, the CWE ids in the "List of Mapped CWEs" section of
+  its page (ids only, no names or descriptions); and, for the CWEs that PGARD rules reference, the
+  abstraction level and Vulnerability Mapping usage label shown on the CWE page (CWE 4.20).
+- Sources: the category pages under https://top10.owasp.org/2025/ and the CWE definitions under
+  https://cwe.mitre.org/data/definitions/ . `packages/findings/scripts/generate-owasp-mapped-cwes.mjs`
+  regenerates the lists.
+- Retrieved 2026-10-26.
+- Terms: the OWASP lists are offered under CC BY-SA 4.0 (see "OWASP Top 10 2025" above); the CWE
+  labels fall under the MITRE CWE Terms of Use (see "CWE Top 25 2025" above). This data is not
+  covered by PGARD's MIT license.
+- Attribution: OWASP Top 10:2025, Copyright (c) 2003-2025 The OWASP Foundation, Inc.; Copyright (c)
+  2006-2026, The MITRE Corporation. CWE is sponsored by DHS CISA.

