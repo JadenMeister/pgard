@@ -6,6 +6,9 @@ import { scanGitHistory } from "./scan-history.js";
 import { detectSecrets, isEnvironmentFile } from "./secret-patterns.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 // Fake, runtime-assembled values (nothing secret-looking is committed to this repo).
 const join = (...parts: string[]) => parts.join("");
 const FAKE = {
@@ -583,7 +586,7 @@ describe("detectSecrets", () => {
       const start = performance.now();
       detectSecrets(input, { path });
       // Quadratic scanning takes tens of seconds here; linear takes well under a second.
-      expect(performance.now() - start).toBeLessThan(2_000);
+      expect(performance.now() - start).toBeLessThan(2_000 * SLOW);
     }
   }, 120_000);
 

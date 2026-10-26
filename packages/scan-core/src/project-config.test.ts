@@ -9,6 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -44,9 +45,11 @@ const ALLOWED: AuthorizationOutcome = {
 };
 
 const roots: string[] = [];
-afterEach(() => {
-  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
-});
+// The budget test leaves about 4000 files behind; deleting them synchronously on Windows has
+// exceeded vitest's 10 s hook timeout (#259), so clean up asynchronously with a longer limit.
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+}, 60_000);
 beforeEach(() => {
   authorizeProject.mockReset();
   authorizeProject.mockResolvedValue(ALLOWED);

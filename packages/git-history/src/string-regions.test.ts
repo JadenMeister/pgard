@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { createStringLookup } from "./string-regions.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 /** Whether the first occurrence of `marker` in `text` is inside a string literal. */
 function inside(text: string, path: string, marker = "MARK"): boolean {
   const index = text.indexOf(marker);
@@ -272,7 +275,7 @@ describe("createStringLookup (#145)", () => {
       const lookup = createStringLookup(input, path);
       lookup(input.length - 1);
       // Quadratic scanning of a 1 MB line takes minutes; linear takes tens of milliseconds.
-      expect(performance.now() - start).toBeLessThan(2_000);
+      expect(performance.now() - start).toBeLessThan(2_000 * SLOW);
     }
   }, 180_000);
 
@@ -306,7 +309,7 @@ describe("createStringLookup (#145)", () => {
       // generous so a loaded machine does not fail it; the absolute bound is loose (a quadratic scan
       // of 40 MB takes hours) because CI runners are several times slower than local machines.
       expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(30_000);
+      expect(large).toBeLessThan(30_000 * SLOW);
     }
   }, 600_000);
 });
