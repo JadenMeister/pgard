@@ -127,6 +127,11 @@ const REGEX_BEFORE_WORDS = new Set([
 ]);
 /** Keywords whose `( … )` condition may be followed by a regex literal. */
 const CONTROL_WORDS = new Set(["if", "while", "for", "with", "unless", "until", "elsif"]);
+/**
+ * A line ending in one of these continues on the next line (a backslash, a binary operator), so a
+ * `<<` starting that line is a shift, not a heredoc.
+ */
+const CONTINUES_LINE = "\\+-*/%^>.~";
 const IDENTIFIER_CHAR = /[\w$]/;
 
 class Scanner {
@@ -214,7 +219,10 @@ class Scanner {
       if (
         syntax.heredoc !== "none" &&
         char === "<" &&
-        this.readHeredoc(index, atLineStart ? "" : last)
+        this.readHeredoc(
+          index,
+          atLineStart && (last === "" || !CONTINUES_LINE.includes(last)) ? "" : last,
+        )
       ) {
         index += 2;
         last = "<";
@@ -436,7 +444,14 @@ class Scanner {
     const match = opener.exec(this.text.slice(index, index + 80));
     if (!match) return false;
     // `send :<<'x'` is the symbol `:<<`, not a heredoc.
-    if (!php && this.text[index - 1] === ":") return false;
+    // (A label right before it, `{sql:<<~SQL}` or `f(text:<<~EOS)`, is a heredoc.)
+    if (
+      !php &&
+      this.text[index - 1] === ":" &&
+      !/[A-Za-z0-9_?!]/.test(this.text[index - 2] ?? "")
+    ) {
+      return false;
+    }
     // A lowercase name is a heredoc only where a value can start (`x = <<~eos`, `f(<<~eos`,
     // `a, <<~eos`) and not after an operand (`list <<'x'`, `a <<-n` are shifts). A bare `<<name`
     // is always a shift. A wrong guess could hide a later string, so doubtful cases are code.

@@ -139,6 +139,25 @@ describe("createStringLookup (#145)", () => {
       "foo\n  <<-eos\n MARK\n eos",
       "a.rb",
     ],
+    [
+      "a heredoc at the start of a line right after a heredoc body (#163)",
+      "a = <<~EOS\n  x\nEOS\n<<~eos\n  MARK\neos",
+      "a.rb",
+    ],
+    ["a heredoc after a comment line (#163)", "# note <<~eos\n<<~eos\n  MARK\neos", "a.rb"],
+    ["a heredoc after a label in a hash (#163)", "h = {sql:<<~SQL}\n  select 1\nMARK\nSQL", "a.rb"],
+    ["a heredoc after a label in a call (#163)", "post(text:<<~EOS)\n  hi\nMARK\nEOS", "a.rb"],
+    ["a PHP heredoc right after a colon (#163)", "$a = $c ? 1 :<<<EOT\nMARK\nEOT;", "a.php"],
+    [
+      "a string after a shift on a backslash-continued line (#163)",
+      "out = buf \\\n  <<'x'\nq = \"\nx\nMARK\n\"",
+      "a.rb",
+    ],
+    [
+      "a string after a shift on a line continued by an operator (#163)",
+      "out = buf +\n  <<'x'\nq = \"\nx\nMARK\n\"",
+      "a.rb",
+    ],
     ["a lowercase Ruby heredoc with a dash", "a = <<-eos\n  MARK\n  eos", "a.rb"],
     ["a quoted lowercase Ruby heredoc", "a = <<'eos'\n  MARK\neos", "a.rb"],
     [

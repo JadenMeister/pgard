@@ -428,6 +428,7 @@ describe("detectSecrets", () => {
       "U=postgres://u:{qwertyuiopasdfgh}@h/db",
       "{qwertyuiopasdfgh}",
     ],
+    ["a :name with digits and an underscore", "U=postgres://u::k9_x2p7q4m8z@h/db", ":k9_x2p7q4m8z"],
     [
       "a long lowercase word after a colon",
       "U=postgres://u::qwertyuiopasdfgh@h/db",
@@ -476,10 +477,25 @@ describe("detectSecrets", () => {
     ]);
   });
 
-  it("does not repeat a specific match as a generic one for trailing punctuation (#163)", () => {
+  it.each([
+    ["no tail", "", ["aws_access_key_id"]],
+    ["a tail of 1", ")", ["aws_access_key_id"]],
+    ["a tail of 3", ")))", ["aws_access_key_id"]],
+    ["a tail of 4", "))))", ["aws_access_key_id", "generic_credential"]],
+  ])("handles trailing characters after an AWS key id: %s (#163)", (_label, tail, kinds) => {
     const id = join("AKIA", "ABCDEFGH", "IJKLMNOP");
-    const kinds = detectSecrets(`api_key=${id})`, { path: "app.env" }).map((secret) => secret.kind);
-    expect(kinds).toEqual(["aws_access_key_id"]);
+    const found = detectSecrets(`api_key=${id}${tail}`, { path: "app.env" });
+    expect(found.map((secret) => secret.kind)).toEqual(kinds);
+  });
+
+  it("keeps a generic value with a prefix of 4 or more before an AWS key id (#163)", () => {
+    const id = join("AKIA", "ABCDEFGH", "IJKLMNOP");
+    const kinds = detectSecrets(`api_key=x9/+/${id}`, { path: "app.env" }).map((s) => s.kind);
+    expect(kinds).toEqual(["aws_access_key_id", "generic_credential"]);
+  });
+
+  it("ignores a $NAME slot with digits and an underscore (#163)", () => {
+    expect(detectSecrets("U=postgres://u:$DB_PASS1@h/db", { path: "a.env" })).toEqual([]);
   });
 
   it("reports a token in a URL once, as a password in a URL (#158)", () => {
