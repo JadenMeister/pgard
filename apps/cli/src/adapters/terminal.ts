@@ -1,4 +1,5 @@
 import readline from "node:readline";
+import { UserCancelledError } from "../ui/components/prompts.js";
 
 export interface Key {
   name: string | undefined;
@@ -9,6 +10,7 @@ export interface Key {
 export interface InputStream extends NodeJS.ReadableStream {
   isTTY?: boolean;
   setRawMode?: (mode: boolean) => unknown;
+  readableEnded?: boolean;
 }
 
 export interface OutputStream extends NodeJS.WritableStream {
@@ -54,7 +56,14 @@ export const TYPE_AHEAD_DISCARD_MS = 40;
 export function createKeyReader(stdin: InputStream, now: () => number = Date.now): KeyReader {
   readline.emitKeypressEvents(stdin);
   const queue: Key[] = [];
-  const waiters: Array<(key: Key) => void> = [];
+  const waiters: Array<{ resolve: (key: Key) => void; reject: (error: Error) => void }> = [];
+  // End of input (Ctrl+D in line mode, a closed terminal) means no key can ever arrive again.
+  // It is a cancel: every pending and later readKey rejects, so a prompt never hangs.
+  let isEnded = stdin.readableEnded === true;
+  stdin.once("end", () => {
+    isEnded = true;
+    for (const waiter of waiters.splice(0)) waiter.reject(new UserCancelledError());
+  });
   let activatedAt = Number.NEGATIVE_INFINITY;
   let wasSuspended = false;
   const onKeypress = (sequence: string | undefined, key: Partial<Key> | undefined): void => {
@@ -66,7 +75,7 @@ export function createKeyReader(stdin: InputStream, now: () => number = Date.now
     };
     const waiter = waiters.shift();
     if (waiter === undefined) queue.push(entry);
-    else waiter(entry);
+    else waiter.resolve(entry);
   };
   let isActive = false;
   const activate = (): void => {
@@ -91,10 +100,11 @@ export function createKeyReader(stdin: InputStream, now: () => number = Date.now
   };
   return {
     readKey: () => {
+      if (isEnded) return Promise.reject(new UserCancelledError());
       activate();
       const queued = queue.shift();
       if (queued !== undefined) return Promise.resolve(queued);
-      return new Promise((resolve) => waiters.push(resolve));
+      return new Promise((resolve, reject) => waiters.push({ resolve, reject }));
     },
     suspend: deactivate,
     close: deactivate,
@@ -125,8 +135,12 @@ export function waitForEnter(
     if (!isWaiting) return;
     isWaiting = false;
     stdin.off("data", onData);
+    stdin.off("end", stop);
     stdin.pause();
   };
+  // End of input (Ctrl+D) stops the wait without opening anything. It does not cancel the run
+  // here (polling goes on); the next key prompt sees the ended stdin and cancels (exit 130).
+  stdin.once("end", stop);
   stdin.on("data", onData);
   stdin.resume();
   return stop;

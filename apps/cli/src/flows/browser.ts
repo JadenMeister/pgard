@@ -37,7 +37,7 @@ export function offerBrowserOpen(context: CommandContext, url: string): () => vo
   if (!context.canOpenBrowser || !isOpenableGitHubUrl(url) || context.io.stdin.isTTY !== true) {
     return () => undefined;
   }
-  // Leave raw mode if a prompt left it on: Ctrl+C must stay a SIGINT while we wait.
+  // Backstop (callers already suspend before long work): leave raw mode if a prompt left it on: Ctrl+C must stay a SIGINT while we wait.
   context.keys?.suspend();
   err(context, context.errStyle.dim(OPEN_PROMPT));
   let stopWaiting = (): void => undefined;

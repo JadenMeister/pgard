@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { main } from "../app.js";
 import type { CliDeps } from "../deps.js";
 import { createTestDeps, createTestIo, noInterrupts } from "../test-support.js";
+import { createKeyReader, waitForEnter } from "../adapters/terminal.js";
+import { UserCancelledError } from "../ui/components/prompts.js";
 import { OPEN_PROMPT } from "./browser.js";
 
 const DEVICE_PAGE = "https://github.com/login/device";
@@ -273,5 +275,54 @@ describe("Enter before opening the GitHub device page (terminal)", () => {
     expect(await exit).toBe(130);
     expect(openBrowser).not.toHaveBeenCalled();
     expect(captured.stdin.isPaused()).toBe(true);
+  });
+});
+
+describe("Ctrl+D (end of input) at the Enter prompt", () => {
+  it("opens nothing and does not hang", async () => {
+    const openBrowser = vi.fn(async () => true);
+    const done = gate();
+    let clock = 0;
+    const deps = createTestDeps({
+      openBrowser,
+      now: () => (clock += 100),
+      signInAndStore: async (options) => {
+        await options.onUserCode({
+          userCode: "WXYZ-1234",
+          verificationUri: DEVICE_PAGE,
+          expiresIn: 900,
+        });
+        await done.promise;
+        return { login: "octo", savedError: null };
+      },
+    });
+    const captured = createTestIo({ isTTY: true });
+    const exit = main(["login"], captured.io, { deps, interrupts: noInterrupts });
+    await tick();
+    captured.stdin.end(); // Ctrl+D on an empty line
+    await tick();
+    done.open();
+    expect(await exit).toBe(0);
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(captured.stdin.listenerCount("data")).toBe(0);
+  });
+
+  it("ends the menu with Cancelled. and exit 130 instead of hanging", async () => {
+    const captured = createTestIo({ isTTY: true });
+    const exit = main([], captured.io, { deps: createTestDeps(), interrupts: noInterrupts });
+    await tick();
+    captured.stdin.end();
+    expect(await exit).toBe(130);
+    expect(captured.stderr()).toContain("Cancelled.");
+  });
+
+  it("cancels at the first prompt after Ctrl+D was pressed at the Enter prompt", async () => {
+    const captured = createTestIo({ isTTY: true });
+    const keys = createKeyReader(captured.io.stdin);
+    const stop = waitForEnter(captured.io.stdin, () => undefined);
+    captured.stdin.end();
+    await tick();
+    stop();
+    await expect(keys.readKey()).rejects.toBeInstanceOf(UserCancelledError);
   });
 });

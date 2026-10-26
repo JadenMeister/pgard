@@ -131,7 +131,7 @@ Options:
                            before opening a page
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to
-be installed, PGARD opens the install page, waits for it, re-runs the full
+be installed, PGARD prints the install page link (in a terminal it opens after you press Enter), waits for it, re-runs the full
 authorization and continues the scan.
 ```
 
