@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/github/license/JadenMeister/pgard?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#requirements)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#requirements)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#requirements)
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#known-limitations)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#privacy-and-network-traffic)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
@@ -60,7 +60,8 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 
 - Node.js 22.23.4, 24.22.1 or 26.12.1, or a newer patch on the same line. These are the releases that fix the vulnerabilities in the [Node.js security release of 21 October 2026](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), including a Brotli decoder out-of-bounds write that can lead to remote code execution (CVE-2026-111497) and TLS hostname check bypasses. PGARD uses `fetch` and TLS to call the GitHub API, so older releases are not supported: `pgard doctor` fails the Node.js check on them. Node.js 20 and earlier and the odd-numbered lines get no fixes. Check your version with `node --version`.
 - Git
-- macOS or Linux for local port discovery (`lsof` on macOS, falling back to `netstat`; `/proc/net/tcp*` on Linux). You can always type a port by hand.
+- macOS, Linux or Windows. CI runs the full test suite on all three. Local port discovery uses `lsof` on macOS (falling back to `netstat`), `/proc/net/tcp*` on Linux and `%SystemRoot%\System32\netstat.exe` on Windows. You can always type a port by hand.
+- Windows notes: the sign-in is kept in Windows Credential Manager, the browser opens through `explorer.exe`, and reports cannot be created with mode `0600` because Windows has no such mode. A report there gets the default permissions of the folder you choose, so pick a folder only you can read. Consoles without Unicode or colour support (older `cmd.exe`, `TERM=dumb`, `NO_COLOR`) get plain ASCII output.
 - A GitHub account (see [GitHub App and sign-in](#github-app-and-sign-in))
 
 ## Install and build
@@ -375,7 +376,7 @@ Also:
 - Build output such as `dist/` or `build/` is your own output and is not vendored.
 - A path that is both vendored and test code (`node_modules/pkg/test/a.js`) is vendored.
 
-HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600`. Keep reports outside the repository so they are not committed by mistake.
+HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600` (not possible on Windows, see [Requirements](#requirements)). Keep reports outside the repository so they are not committed by mistake.
 
 ## Dashboard
 

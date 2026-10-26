@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import { devNull } from "node:os";
 
 export interface GitRunOptions {
   cwd: string;
@@ -214,6 +213,12 @@ const DRIVER_PROGRAM_KEYS: Record<string, readonly string[]> = {
 };
 
 /**
+ * Git's null device. Not `os.devNull`: on Windows that is a `\\.\nul` device path, which git
+ * rejects as a config path ("unable to access ... Invalid argument"), whereas `NUL` works.
+ */
+const GIT_NULL_DEVICE = process.platform === "win32" ? "NUL" : "/dev/null";
+
+/**
  * Environment for git: allowlisted variables only, so GIT_DIR/GIT_CONFIG_* never leak in.
  * System and global config are ignored; only the scanned repository's config is read, and its
  * program-running keys are neutralized above.
@@ -230,7 +235,7 @@ export function buildGitEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   env.GIT_OPTIONAL_LOCKS = "0";
   env.GIT_PAGER = "cat";
   env.GIT_CONFIG_NOSYSTEM = "1";
-  env.GIT_CONFIG_GLOBAL = devNull;
+  env.GIT_CONFIG_GLOBAL = GIT_NULL_DEVICE;
   env.GIT_NO_REPLACE_OBJECTS = "1";
   env.LC_ALL = "C";
   return env;
