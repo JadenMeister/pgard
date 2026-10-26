@@ -5,3 +5,4 @@ export * from "./fingerprint.js";
 export * from "./rule-descriptor.js";
 export * from "./finding-context.js";
 export * from "./read-result.js";
+export * from "./standards/index.js";
