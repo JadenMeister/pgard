@@ -8,17 +8,37 @@
 
 export const SCHEMA_VERSION = "1.0" as const;
 
+/**
+ * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
+ * the lists below cannot drift from the union types they sit next to.
+ */
+function exhaustive<T extends string>(members: Record<T, true>): readonly T[] {
+  return Object.keys(members) as T[];
+}
+
 /** User-selectable scan scopes. `scan` = code + history, `scan all` = code + history + web. */
 export type ScanScope = "code" | "history" | "web";
-export const SCAN_SCOPES: readonly ScanScope[] = ["code", "history", "web"];
+export const SCAN_SCOPES = exhaustive<ScanScope>({ code: true, history: true, web: true });
 
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
-export const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
+export const SEVERITIES = exhaustive<Severity>({
+  critical: true,
+  high: true,
+  medium: true,
+  low: true,
+  info: true,
+});
 
 /** How strongly the evidence supports the finding. Never merged with severity into a score. */
 export type Confidence = "high" | "medium" | "low";
+export const CONFIDENCES = exhaustive<Confidence>({ high: true, medium: true, low: true });
 
 export type FindingStatus = "confirmed" | "suspected" | "informational";
+export const FINDING_STATUSES = exhaustive<FindingStatus>({
+  confirmed: true,
+  suspected: true,
+  informational: true,
+});
 
 export type FindingCategory =
   | "injection"
@@ -33,6 +53,20 @@ export type FindingCategory =
   | "file_handling"
   | "command_execution"
   | "secret_exposure";
+export const FINDING_CATEGORIES = exhaustive<FindingCategory>({
+  injection: true,
+  xss: true,
+  ssrf: true,
+  access_control: true,
+  authentication: true,
+  brute_force: true,
+  cryptography: true,
+  misconfiguration: true,
+  csrf: true,
+  file_handling: true,
+  command_execution: true,
+  secret_exposure: true,
+});
 
 /**
  * - `completed`: the area ran to the end (findings may or may not exist).
@@ -41,6 +75,12 @@ export type FindingCategory =
  * - `not_selected`: the user did not request the area.
  */
 export type CoverageStatus = "completed" | "partial" | "not_tested" | "not_selected";
+export const COVERAGE_STATUSES = exhaustive<CoverageStatus>({
+  completed: true,
+  partial: true,
+  not_tested: true,
+  not_selected: true,
+});
 
 export interface Coverage {
   /** Fine-grained area id, e.g. `source:typescript`, `history:secrets`, `web:anonymous`. */
@@ -52,6 +92,7 @@ export interface Coverage {
 }
 
 export type LocationKind = "file" | "url" | "commit";
+export const LOCATION_KINDS = exhaustive<LocationKind>({ file: true, url: true, commit: true });
 
 export interface FindingLocation {
   kind: LocationKind;
@@ -70,6 +111,7 @@ export interface FindingLocation {
  * Optional, so JSON v1 consumers that do not know it keep working.
  */
 export type FindingContext = "test" | "vendored";
+export const FINDING_CONTEXTS = exhaustive<FindingContext>({ test: true, vendored: true });
 
 export interface FindingReferences {
   cwe: string[];
@@ -124,9 +166,21 @@ export interface AdvisoryDbInfo {
 
 export type AuthorizationCheckId =
   "repository" | "github_identity" | "owner_approval" | "current_access" | "contribution";
+export const AUTHORIZATION_CHECK_IDS = exhaustive<AuthorizationCheckId>({
+  repository: true,
+  github_identity: true,
+  owner_approval: true,
+  current_access: true,
+  contribution: true,
+});
 
 /** `unverifiable` blocks exactly like `failed`; it only differs in the reported reason. */
 export type AuthorizationCheckStatus = "passed" | "failed" | "unverifiable";
+export const AUTHORIZATION_CHECK_STATUSES = exhaustive<AuthorizationCheckStatus>({
+  passed: true,
+  failed: true,
+  unverifiable: true,
+});
 
 export interface AuthorizationCheck {
   id: AuthorizationCheckId;
@@ -134,8 +188,14 @@ export interface AuthorizationCheck {
   reason: string;
 }
 
+export type AuthorizationDecision = "allowed" | "blocked";
+export const AUTHORIZATION_DECISIONS = exhaustive<AuthorizationDecision>({
+  allowed: true,
+  blocked: true,
+});
+
 export interface AuthorizationSummary {
-  decision: "allowed" | "blocked";
+  decision: AuthorizationDecision;
   checks: AuthorizationCheck[];
 }
 
@@ -146,6 +206,12 @@ export interface AuthorizationSummary {
  * - `failed`: an internal error stopped the scan.
  */
 export type OverallStatus = "completed" | "partial" | "blocked" | "failed";
+export const OVERALL_STATUSES = exhaustive<OverallStatus>({
+  completed: true,
+  partial: true,
+  blocked: true,
+  failed: true,
+});
 
 export interface ScanResult {
   schemaVersion: typeof SCHEMA_VERSION;

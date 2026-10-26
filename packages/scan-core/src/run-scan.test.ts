@@ -1,4 +1,9 @@
-import type { AnalyzerOutput, Finding, ScanRequest } from "@pgard/findings";
+import {
+  readScanResult,
+  type AnalyzerOutput,
+  type Finding,
+  type ScanRequest,
+} from "@pgard/findings";
 import type { AuthorizationOutcome } from "@pgard/policy";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { sessionProvider } from "../../policy/src/test-support/mock-github.js";
@@ -98,6 +103,21 @@ beforeEach(() => {
 });
 
 describe("runScan", () => {
+  it("produces a result that the reader accepts unchanged, also after a JSON round trip", async () => {
+    authorizeProject.mockResolvedValue(ALLOWED);
+    const result = await runScan(request(), deps());
+    expect(result.findings.length).toBeGreaterThan(0);
+    expect(readScanResult(result)).toEqual({ ok: true, result, sourceVersion: "1.0" });
+    expect(readScanResult(JSON.parse(JSON.stringify(result)))).toEqual({
+      ok: true,
+      result,
+      sourceVersion: "1.0",
+    });
+    authorizeProject.mockResolvedValue(BLOCKED);
+    const blocked = await runScan(request(), deps());
+    expect(readScanResult(blocked)).toEqual({ ok: true, result: blocked, sourceVersion: "1.0" });
+  });
+
   it("does not run any analyzer when authorization is blocked", async () => {
     authorizeProject.mockResolvedValue(BLOCKED);
     const code = vi.fn(async () => codeOutput);
