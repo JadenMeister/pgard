@@ -2,6 +2,7 @@
 import {
   GitHubAuthError,
   createGitHubSession,
+  type GitHubAccount,
   type GitHubClient,
   type GitHubCommitSummary,
   type GitHubCompareStatus,
@@ -25,6 +26,12 @@ export interface MockGitHubState {
   compare: Record<string, GitHubCompareStatus>;
   /** Membership by organization login; an error is thrown; missing ⇒ 404 `not_found`. */
   memberships?: Record<string, GitHubOrganizationMembership | Error>;
+  /** Public accounts by login for `getAccount`; missing ⇒ 404 `not_found`; an Error is thrown. */
+  accounts?: Record<string, (GitHubAccount & { type: string }) | Error>;
+  /** Thrown by `getRepository` only (missing repository still gives 404). */
+  repositoryError?: Error;
+  /** Thrown by `listUserInstallations` only. */
+  installationsError?: Error;
   failWith?: GitHubAuthError;
 }
 
@@ -122,6 +129,7 @@ export function createMockGitHub(state: MockGitHubState): {
     },
     async listUserInstallations() {
       guard("installations");
+      if (state.installationsError) throw state.installationsError;
       return state.installations;
     },
     async listInstallationRepositoryIds(id) {
@@ -139,8 +147,20 @@ export function createMockGitHub(state: MockGitHubState): {
       }
       return membership;
     },
+    async getAccount(login) {
+      guard(`account:${login}`);
+      const account = state.accounts?.[login];
+      if (account === undefined) {
+        throw new GitHubAuthError("not_found", "not found", 404);
+      }
+      if (account instanceof Error) {
+        throw account;
+      }
+      return account;
+    },
     async getRepository() {
       guard("repo");
+      if (state.repositoryError) throw state.repositoryError;
       if (!state.repository) {
         throw new GitHubAuthError("not_found", "not found", 404);
       }

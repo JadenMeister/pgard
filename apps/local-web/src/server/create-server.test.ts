@@ -1721,6 +1721,53 @@ describe("local web guided App install", () => {
     expect(recheck).toHaveBeenCalledTimes(2);
   });
 
+  it("offers the install for a hidden private repository, with the same bounds, and re-runs the full check", async () => {
+    let clock = 1_000_000;
+    const hidden: AuthorizationOutcome = {
+      ...needsInstall({ missing: "access", url: INSTALL_URL.split("&")[0] }),
+      summary: {
+        decision: "blocked",
+        checks: AUTHORIZATION_CHECK_ORDER.map((id) => ({
+          id,
+          status:
+            id === "current_access"
+              ? "failed"
+              : id === "owner_approval" || id === "contribution"
+                ? "unverifiable"
+                : "passed",
+          reason: "r",
+        })),
+      },
+    };
+    const verifyProject = vi.fn(async () => hidden);
+    const recheck = vi.fn<ServerDeps["recheckOwnerApproval"]>(async () => ({
+      status: "failed",
+      reason: "GitHub returned no access.",
+      remedy: hidden.remedy ?? null,
+    }));
+    const running = await start(
+      fakeDeps({ verifyProject, recheckOwnerApproval: recheck, now: () => clock }),
+    );
+    await authorize(running);
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.remedy).toMatchObject({ missing: "access", canApprove: "yes" });
+    expect(auth.remedy.url).not.toContain("repository_ids");
+    expect(auth.installWaitEndsAt).toBe(1_000_000 + 10 * 60_000);
+
+    expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(200);
+    clock += 4_999;
+    expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(429);
+    clock = 1_000_000 + 10 * 60_000 + 1;
+    expect((await apiPost(running, "/api/auth/owner-approval")).status).toBe(409);
+    expect(recheck).toHaveBeenCalledTimes(1);
+
+    // Re-verifying runs the whole gate again; a passed re-check never opens port access itself.
+    const calls = verifyProject.mock.calls.length;
+    await authorize(running);
+    expect(verifyProject.mock.calls.length).toBe(calls + 1);
+    expect((await apiGet(running, "/api/ports")).status).toBe(403);
+  });
+
   it("offers no wait deadline when nothing can be waited for", async () => {
     const running = await start(
       fakeDeps({ verifyProject: async () => needsInstall({ canApprove: "no" }) }),

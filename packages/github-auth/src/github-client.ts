@@ -96,6 +96,11 @@ export interface GitHubClient {
    * `rate_limited`, `unauthorized`, `http_error`, `network_error` or `unexpected_response`.
    */
   getOrganizationMembership(org: string): Promise<GitHubOrganizationMembership>;
+  /**
+   * A user or organization account by login (`GET /users/{login}`, public, works for both).
+   * Throws `GitHubAuthError` with code `not_found` when no such account exists.
+   */
+  getAccount(login: string): Promise<GitHubAccount & { type: string }>;
   /** Throws `GitHubAuthError` with code `not_found` when the user cannot see the repo. */
   getRepository(owner: string, name: string): Promise<GitHubRepository>;
   /** Returns `null` when GitHub cannot compare the refs (e.g. unknown SHA). */
@@ -374,6 +379,15 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         organization: { id: organization.id, login: organization.login },
         user: { id: user.id, login: user.login },
       };
+    },
+
+    async getAccount(login) {
+      const body = asRecord(await getJson(`/users/${encodeSegment(login, "account")}`, false));
+      const account = parseAccount(body);
+      if (account === null) {
+        throw malformed("account");
+      }
+      return account;
     },
 
     async getRepository(owner, name) {

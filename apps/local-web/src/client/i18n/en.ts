@@ -113,6 +113,28 @@ export const en = {
       `If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${url}`,
     owner: (account: string): string =>
       `Owner approval: install the PGARD GitHub App on ${account}. On GitHub, choose "Only select repositories" (this repository) or "All repositories", then click Install. Installing the App is the owner approval; PGARD cannot install it for you.`,
+    thisRepository: "this repository",
+    // The repository is hidden (GitHub answered 404) and the App is not installed on the owner.
+    accessLead:
+      "GitHub shows no access to this repository. If it is private, the PGARD GitHub App must be installed for it; PGARD cannot tell this from missing account access.",
+    accessPage: (target: string): string =>
+      `The page pre-selects "All repositories"; to limit PGARD to this repository, choose "Only select repositories" and pick ${target}, then click Install.`,
+    // The repository is hidden and the App is already installed on the owner account.
+    repoAccessButton: "Open the App's repository access",
+    repoAccessWaiting:
+      "Waiting for the repository to be added to the PGARD GitHub App's repository access... PGARD checks every 5 seconds and runs the full authorization again once it is added.",
+    repoAccessTimedOut:
+      "Stopped waiting for the repository to be added to the PGARD GitHub App's repository access after 10 minutes. Add it, then check again.",
+    repoAccessAskOwner: (account: string, target: string): string =>
+      `Ask an owner of ${account} to add ${target} to the PGARD GitHub App's repository access:`,
+    repoAccessLead: (account: string, target: string): string =>
+      `GitHub shows no access to ${target}. The PGARD GitHub App is already installed on ${account}, but its repository access does not include this repository (or your account has no access to it).`,
+    repoAccessOwner: (target: string): string =>
+      `Owner approval: add ${target} to the PGARD GitHub App's repository access.`,
+    repoAccessMaybeOwner: (account: string, target: string, url: string): string =>
+      `If you are an owner of ${account}, add ${target} to the PGARD GitHub App's repository access on its settings page; otherwise ask an owner to do it there: ${url}`,
+    repoAccessSteps: (target: string): string =>
+      `On GitHub, under "Repository access", choose "Only select repositories", add ${target}, then click Save. Changing the App's repository access is the owner approval; PGARD cannot change it for you.`,
   },
   deviceCode: {
     required: "GitHub sign-in is required. Open",

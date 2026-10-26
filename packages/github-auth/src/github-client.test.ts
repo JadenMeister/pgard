@@ -29,6 +29,36 @@ function routeFetch(routes: Record<string, [number, unknown]>): {
 
 const SHA = "a".repeat(40);
 
+describe("getAccount", () => {
+  it("reads a user or organization from the public /users endpoint", async () => {
+    const { fetch, urls } = routeFetch({
+      "/users/acme": [200, { id: 42, login: "acme", type: "Organization" }],
+    });
+    const client = createGitHubClient({ token: "t", fetch });
+    expect(await client.getAccount("acme")).toEqual({
+      id: 42,
+      login: "acme",
+      type: "Organization",
+    });
+    expect(urls).toEqual(["https://api.github.com/users/acme"]);
+  });
+
+  it("maps 404 to not_found, rejects malformed bodies and unsafe logins", async () => {
+    const { fetch, urls } = routeFetch({ "/users/bad": [200, { login: "bad" }] });
+    const client = createGitHubClient({ token: "t", fetch });
+    await expect(client.getAccount("ghost")).rejects.toMatchObject({ code: "not_found" });
+    await expect(client.getAccount("bad")).rejects.toMatchObject({ code: "unexpected_response" });
+    urls.length = 0;
+    for (const unsafe of ["a/b", "..", "a?b", "a#b", "a b", ""]) {
+      await expect(client.getAccount(unsafe)).rejects.toMatchObject({
+        code: "unexpected_response",
+      });
+    }
+    // Rejected before any request is made.
+    expect(urls).toEqual([]);
+  });
+});
+
 describe("createGitHubClient", () => {
   it("parses repository permissions and owner type", async () => {
     const { fetch } = routeFetch({

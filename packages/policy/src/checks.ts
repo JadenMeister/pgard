@@ -15,6 +15,7 @@ import {
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
   buildAppInstallUrl,
   isGitHubAuthError,
+  isOpenableGitHubUrl,
   type GitHubClient,
   type GitHubRepository,
   type GitHubUser,
@@ -181,6 +182,10 @@ export interface OwnerApprovalResult {
 export const GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE =
   "The guided install is only available for repositories on github.com.";
 
+/** Shown when the App's settings link for an existing installation failed its safety check. */
+export const REPOSITORY_ACCESS_LINK_UNAVAILABLE_MESSAGE =
+  "PGARD could not build a safe link to the App's repository access settings. Open the PGARD GitHub App's installation settings on github.com yourself and add this repository.";
+
 /**
  * Builds the install remedy from API data only: the numeric ids GitHub reported for the owner
  * account and the repository, and the configured slug. Never changes the check result.
@@ -306,6 +311,98 @@ export async function evaluateOwnerApproval(
     ),
     remedy: installRemedy(repository, "installation", canApprove, context.appSlug),
     ownerEvidence: null,
+  };
+}
+
+/**
+ * current_access reason when GitHub answers 404 for the repository. PGARD cannot tell whether
+ * the App is not installed for a private repository or the account has no access (or the
+ * repository does not exist), so it says both.
+ */
+export function notFoundAccessReason(repoName: string): string {
+  return `GitHub returned no access to github.com/${repoName}. For a private repository this usually means the PGARD GitHub App is not installed for it, or your account has no access.`;
+}
+
+/**
+ * The install remedy offered when `getRepository` answered 404 (the repository id is unknown).
+ * Looks up the remote owner's account id with the public `GET /users/{owner}`. Returns `null`
+ * (no remedy) when that lookup fails, returns another login than the remote names, or reports an
+ * account type other than User/Organization. Guidance only: it never changes any check result.
+ *
+ * - personal account: `yes` only when it is the signed-in user's own account, otherwise `no`;
+ * - organization: `unknown` (admin cannot be verified before the App is installed), guided.
+ */
+export async function evaluateAccessRemedy(
+  client: GitHubClient,
+  user: GitHubUser,
+  remoteOwner: string,
+  appSlug: string | null | undefined,
+): Promise<OwnerApprovalRemedy | null> {
+  let account;
+  try {
+    account = await client.getAccount(remoteOwner);
+  } catch {
+    return null;
+  }
+  if (account.login.toLowerCase() !== remoteOwner.toLowerCase()) return null;
+  if (account.type !== "User" && account.type !== "Organization") return null;
+  const canApprove: InstallApproval =
+    account.type === "Organization" ? "unknown" : account.id === user.id ? "yes" : "no";
+  const remedyAccount: { login: string; type: "User" | "Organization" } = {
+    login: account.login,
+    type: account.type === "Organization" ? "Organization" : "User",
+  };
+
+  // Is the App already installed on the owner account? Then the repository only has to be added
+  // to that installation. If the listing fails there is no way to tell which page helps, so no
+  // remedy is offered (the failed reason still says what is likely wrong): guessing "install"
+  // for an installed App, or "configure" for a missing one, would send the user to a wrong page.
+  let installations;
+  try {
+    installations = await client.listUserInstallations();
+  } catch {
+    return null;
+  }
+  const existing = installations.find(
+    (installation) =>
+      installation.account.id === account.id && installation.targetType === account.type,
+  );
+  if (existing !== undefined) {
+    const configureUrl =
+      account.type === "Organization"
+        ? `https://github.com/organizations/${encodeURIComponent(account.login)}/settings/installations/${existing.id}`
+        : `https://github.com/settings/installations/${existing.id}`;
+    const isSafe =
+      Number.isSafeInteger(existing.id) &&
+      existing.id > 0 &&
+      /^[A-Za-z0-9-]{1,100}$/.test(account.login) &&
+      isOpenableGitHubUrl(configureUrl);
+    return {
+      kind: "install_app",
+      missing: "repository_access",
+      account: remedyAccount,
+      url: isSafe ? configureUrl : null,
+      canApprove,
+      unavailableReason: isSafe ? null : REPOSITORY_ACCESS_LINK_UNAVAILABLE_MESSAGE,
+    };
+  }
+
+  const url =
+    typeof appSlug === "string"
+      ? buildAppInstallUrl({ slug: appSlug, targetId: account.id })
+      : null;
+  return {
+    kind: "install_app",
+    missing: "access",
+    account: remedyAccount,
+    url,
+    canApprove,
+    unavailableReason:
+      url !== null
+        ? null
+        : typeof appSlug === "string"
+          ? GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE
+          : GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
   };
 }
 

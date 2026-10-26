@@ -25,13 +25,22 @@ export type InstallRemedyView =
 /** What the authorization panel shows for a remedy; the same wording as the CLI. */
 export function describeInstallRemedy(
   remedy: InstallRemedyDto,
+  repo: string | null = null,
   m: Messages = en,
 ): InstallRemedyView {
   const account = remedy.account.login;
+  const target = repo ?? m.install.thisRepository;
   if (remedy.url === null || !isGitHubUrl(remedy.url)) {
     return {
       kind: "unavailable",
       text: remedy.unavailableReason ?? m.install.noLink,
+    };
+  }
+  if (remedy.canApprove === "no" && remedy.missing === "repository_access") {
+    return {
+      kind: "ask_owner",
+      url: remedy.url,
+      text: m.install.repoAccessAskOwner(account, target),
     };
   }
   if (remedy.canApprove === "no") {
@@ -39,6 +48,25 @@ export function describeInstallRemedy(
       kind: "ask_owner",
       url: remedy.url,
       text: m.install.askOwner(account),
+    };
+  }
+  if (remedy.missing === "repository_access") {
+    const lead = m.install.repoAccessLead(account, target);
+    const steps = m.install.repoAccessSteps(target);
+    return {
+      kind: "install",
+      url: remedy.url,
+      text:
+        remedy.canApprove === "yes"
+          ? `${lead} ${m.install.repoAccessOwner(target)} ${steps}`
+          : `${lead} ${m.install.repoAccessMaybeOwner(account, target, remedy.url)} ${steps}`,
+    };
+  }
+  if (remedy.missing === "access") {
+    return {
+      kind: "install",
+      url: remedy.url,
+      text: `${m.install.accessLead} ${m.install.maybeOwner(account, remedy.url)} ${m.install.accessPage(target)}`,
     };
   }
   if (remedy.canApprove === "unknown") {
@@ -54,6 +82,20 @@ export function describeInstallRemedy(
     url: remedy.url,
     text: m.install.owner(account),
   };
+}
+
+/** The button and waiting texts for a remedy: an install, or adding a repository to one. */
+export function installTexts(
+  remedy: InstallRemedyDto,
+  m: Messages = en,
+): { button: string; waiting: string; timedOut: string } {
+  return remedy.missing === "repository_access"
+    ? {
+        button: m.install.repoAccessButton,
+        waiting: m.install.repoAccessWaiting,
+        timedOut: m.install.repoAccessTimedOut,
+      }
+    : { button: m.install.button, waiting: m.install.waiting, timedOut: m.install.timedOut };
 }
 
 /**

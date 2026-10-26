@@ -104,6 +104,26 @@ export const ko: Messages = {
       `${account}의 owner라면 설치 페이지에서 App을 설치하세요. 아니라면 owner에게 설치를 요청하세요: ${url}`,
     owner: (account) =>
       `owner 승인: ${account}에 PGARD GitHub App을 설치하세요. GitHub에서 "Only select repositories"(이 저장소) 또는 "All repositories"를 고른 뒤 Install을 누르세요. App 설치가 곧 owner 승인이며, PGARD가 대신 설치할 수는 없습니다.`,
+    thisRepository: "이 저장소",
+    accessLead:
+      "GitHub에 이 저장소의 접근 권한이 보이지 않습니다. 비공개 저장소라면 PGARD GitHub App이 이 저장소에 설치되어 있어야 합니다. PGARD는 이것을 계정의 접근 권한 부족과 구분할 수 없습니다.",
+    accessPage: (target) =>
+      `이 페이지는 "All repositories"가 미리 선택되어 있습니다. PGARD를 이 저장소로 한정하려면 "Only select repositories"를 고르고 ${target}을(를) 선택한 뒤 Install을 누르세요.`,
+    repoAccessButton: "App의 저장소 접근 설정 열기",
+    repoAccessWaiting:
+      "PGARD GitHub App의 저장소 접근에 이 저장소가 추가되기를 기다리는 중입니다... PGARD가 5초마다 확인하고, 추가되면 권한 확인 전체를 다시 실행합니다.",
+    repoAccessTimedOut:
+      "10분이 지나 PGARD GitHub App의 저장소 접근에 저장소가 추가되기를 기다리는 것을 중단했습니다. 저장소를 추가한 뒤 다시 확인하세요.",
+    repoAccessAskOwner: (account, target) =>
+      `${account}의 owner에게 PGARD GitHub App의 저장소 접근에 ${target}을(를) 추가해 달라고 요청하세요:`,
+    repoAccessLead: (account, target) =>
+      `GitHub에 ${target}의 접근 권한이 보이지 않습니다. PGARD GitHub App은 이미 ${account}에 설치되어 있지만, App의 저장소 접근에 이 저장소가 포함되어 있지 않습니다(또는 본인 계정에 접근 권한이 없습니다).`,
+    repoAccessOwner: (target) =>
+      `owner 승인: PGARD GitHub App의 저장소 접근에 ${target}을(를) 추가하세요.`,
+    repoAccessMaybeOwner: (account, target, url) =>
+      `${account}의 owner라면 App 설정 페이지에서 PGARD GitHub App의 저장소 접근에 ${target}을(를) 추가하세요. 아니라면 owner에게 추가를 요청하세요: ${url}`,
+    repoAccessSteps: (target) =>
+      `GitHub의 "Repository access"에서 "Only select repositories"를 고르고 ${target}을(를) 추가한 뒤 Save를 누르세요. App의 저장소 접근을 바꾸는 것이 곧 owner 승인이며, PGARD가 대신 바꿀 수는 없습니다.`,
   },
   deviceCode: {
     required: "GitHub 로그인이 필요합니다. 다음 주소를 열고",

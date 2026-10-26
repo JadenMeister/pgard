@@ -17,6 +17,13 @@ export const INSTALL_WAIT_LIMIT_MS = 10 * 60_000;
 export const WAITING_FOR_INSTALL_MESSAGE =
   "Waiting for the PGARD GitHub App to be installed... (press Ctrl+C twice to cancel)";
 
+/** The waiting line: for a repository to be added to an existing installation, or an install. */
+export function waitingMessage(missing: string, repo: string | null): string {
+  if (missing !== "repository_access") return WAITING_FOR_INSTALL_MESSAGE;
+  const target = repo === null ? "this repository" : safeText(repo, 120);
+  return `Waiting for ${target} to be added to the PGARD GitHub App's repository access... (press Ctrl+C twice to cancel)`;
+}
+
 /**
  * - `not_offered`: no guided install applies; the caller reports the outcome as before.
  * - `blocked`: shown the reason/link, but nothing to wait for (or the wait timed out).
@@ -49,19 +56,51 @@ export function formatOwnerOrAsk(accountLogin: string, url: string): string {
   return `If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${url}`;
 }
 
+type MissingKind = "installation" | "repository" | "access" | "repository_access";
+
+/** "Ask an owner" line when the repository must be added to an existing installation. */
+export function formatAskOwnerToAddRepository(
+  accountLogin: string,
+  repo: string | null,
+  url: string,
+): string {
+  const target = repo === null ? "this repository" : safeText(repo, 120);
+  return `Ask an owner of ${safeText(accountLogin, 100)} to add ${target} to the PGARD GitHub App's repository access: ${url}`;
+}
+
 function formatInstallSteps(
   accountLogin: string,
   repo: string | null,
   url: string,
   canApprove: "yes" | "unknown",
+  missing: MissingKind = "installation",
 ): string {
   const target = repo === null ? "this repository" : safeText(repo, 120);
+  const account = safeText(accountLogin, 100);
+  if (missing === "repository_access") {
+    return [
+      `GitHub shows no access to ${target}. The PGARD GitHub App is already installed on ${account}, but its repository access does not include this repository (or your account has no access to it).`,
+      canApprove === "yes"
+        ? `Owner approval: add ${target} to the PGARD GitHub App's repository access.`
+        : `If you are an owner of ${account}, add ${target} to the PGARD GitHub App's repository access on its settings page; otherwise ask an owner to do it there: ${url}`,
+      `  1. Open ${url}`,
+      `  2. Under "Repository access", choose "Only select repositories", add ${target}, then click Save.`,
+      "Changing the App's repository access is the owner approval; PGARD cannot change it for you.",
+    ].join("\n");
+  }
   return [
+    ...(missing === "access"
+      ? [
+          `GitHub shows no access to ${target}. If it is private, the PGARD GitHub App must be installed for it (PGARD cannot tell this from missing account access).`,
+        ]
+      : []),
     canApprove === "yes"
-      ? `Owner approval: install the PGARD GitHub App on ${safeText(accountLogin, 100)} to approve PGARD for ${target}.`
+      ? `Owner approval: install the PGARD GitHub App on ${account} to approve PGARD for ${target}.`
       : formatOwnerOrAsk(accountLogin, url),
     `  1. Open ${url}`,
-    `  2. Choose "Only select repositories" (${target}) or "All repositories", then click Install.`,
+    missing === "access"
+      ? `  2. The page pre-selects "All repositories". To limit PGARD to this repository, choose "Only select repositories" and pick ${target}, then click Install.`
+      : `  2. Choose "Only select repositories" (${target}) or "All repositories", then click Install.`,
     "Installing the App is the owner approval; PGARD cannot install it for you.",
   ].join("\n");
 }
@@ -97,7 +136,14 @@ export async function offerGuidedInstall(
     return "blocked";
   }
   if (remedy.canApprove === "no") {
-    err(context, errStyle.yellow(formatAskOwner(remedy.account.login, remedy.url)));
+    err(
+      context,
+      errStyle.yellow(
+        remedy.missing === "repository_access"
+          ? formatAskOwnerToAddRepository(remedy.account.login, outcome.repo, remedy.url)
+          : formatAskOwner(remedy.account.login, remedy.url),
+      ),
+    );
     return "blocked";
   }
   // `unknown` (the organization membership could not be read yet) is guided like `yes`: only a
@@ -105,20 +151,28 @@ export async function offerGuidedInstall(
   err(
     context,
     errStyle.bold(
-      formatInstallSteps(remedy.account.login, outcome.repo, remedy.url, remedy.canApprove),
+      formatInstallSteps(
+        remedy.account.login,
+        outcome.repo,
+        remedy.url,
+        remedy.canApprove,
+        remedy.missing,
+      ),
     ),
   );
   if (context.io.stdout.isTTY !== true) {
     err(
       context,
       errStyle.dim(
-        "Not a terminal, so PGARD does not wait for the installation. Run the command again after installing.",
+        remedy.missing === "repository_access"
+          ? "Not a terminal, so PGARD does not wait. Run the command again after adding the repository to the App's repository access."
+          : "Not a terminal, so PGARD does not wait for the installation. Run the command again after installing.",
       ),
     );
     return "blocked";
   }
   await openInBrowser(context, remedy.url);
-  err(context, errStyle.dim(WAITING_FOR_INSTALL_MESSAGE));
+  err(context, errStyle.dim(waitingMessage(remedy.missing, outcome.repo)));
 
   const deadline = context.deps.now() + INSTALL_WAIT_LIMIT_MS;
   for (;;) {

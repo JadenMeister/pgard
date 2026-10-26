@@ -155,6 +155,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
           {status.status === "done" && status.remedy && (
             <InstallAppNotice
               remedy={status.remedy}
+              repo={status.repo}
               waitEndsAt={status.installWaitEndsAt}
               onInstalled={() => void verify()}
             />
