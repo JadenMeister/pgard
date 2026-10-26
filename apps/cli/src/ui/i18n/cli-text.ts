@@ -658,7 +658,9 @@ function formatElapsed(milliseconds: number, minuteWord: string, secondWord: str
   const isKorean = secondWord === "\ucd08";
   const join = (value: string, unit: string): string =>
     isKorean ? `${value}${unit}` : `${value} ${unit}`;
-  if (total < 10) return join(total.toFixed(1), secondWord);
+  // Round to tenths first: 9.96 s is "10 s", never "10.0 s".
+  if (Math.round(total * 10) < 100)
+    return join((Math.round(total * 10) / 10).toFixed(1), secondWord);
   // Round once, before splitting, so 119.6 s is "2 m 0 s" and never "1 m 60 s".
   const whole = Math.round(total);
   if (whole < 60) return join(String(whole), secondWord);

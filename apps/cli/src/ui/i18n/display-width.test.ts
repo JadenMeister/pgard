@@ -7,6 +7,7 @@ import {
   padStartWidth,
   stripAnsi,
   truncateWidth,
+  wrapWidth,
 } from "./display-width.js";
 
 describe("display width", () => {
@@ -38,5 +39,29 @@ describe("display width", () => {
     expect(displayWidth(cut)).toBeLessThanOrEqual(9);
     expect(cut.endsWith("...")).toBe(true);
     expect(truncateWidth("짧음", 9)).toBe("짧음");
+  });
+});
+
+describe("wrapWidth and colour", () => {
+  const ESC = String.fromCharCode(27);
+  const yellow = (text: string): string => `${ESC}[33m${text}${ESC}[39m`;
+
+  it("closes a colour at the end of a wrapped line and reopens it on the next", () => {
+    const lines = wrapWidth(`one ${yellow("two three four")} five`, 12);
+    expect(lines.map(stripAnsi)).toEqual(["one two", "three four", "five"]);
+    expect(lines[0]).toBe(`one ${ESC}[33mtwo${ESC}[0m`);
+    expect(lines[1]).toBe(`${ESC}[33mthree four${ESC}[39m`);
+    // The third line is outside the colour: no stray codes.
+    expect(lines[2]).toBe("five");
+  });
+
+  it("leaves text without colour alone and tracks bold and colour together", () => {
+    expect(wrapWidth("plain words here", 11)).toEqual(["plain words", "here"]);
+    const lines = wrapWidth(`${ESC}[1m${yellow("a b")} c${ESC}[22m`, 2);
+    expect(lines.map(stripAnsi)).toEqual(["a", "b", "c"]);
+    expect(lines[0]).toBe(`${ESC}[1m${ESC}[33ma${ESC}[0m`);
+    // Both the bold and the colour are open on the second line; the colour ends there.
+    expect(lines[1]).toBe(`${ESC}[1m${ESC}[33mb${ESC}[39m${ESC}[0m`);
+    expect(lines[2]).toBe(`${ESC}[1mc${ESC}[22m`);
   });
 });

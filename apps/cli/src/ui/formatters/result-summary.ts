@@ -13,7 +13,7 @@ import { formatScanTime } from "../../flows/scan-diff-summary.js";
 import { maxDisplayWidth, padEndWidth, wrapWidth } from "../i18n/display-width.js";
 import type { CliText } from "../i18n/cli-text.js";
 import { renderChart, type ChartRow } from "./charts.js";
-import { MIN_CHART_WIDTH, safeText, type Style } from "./style.js";
+import { MIN_CHART_WIDTH, safeText, toAscii, toTerminalText, type Style } from "./style.js";
 
 /** What every section renderer needs: colours, language, width and the rule catalog. */
 export interface RenderContext {
@@ -76,6 +76,12 @@ export function compactDiff(diff: ScanDiff, t: CliText, withTime = true): string
     notComparableAreas(comparison).length > 0;
   const line = t.diffCompact(comparison.new.length, comparison.noLongerReported.length, unclear);
   return withTime ? `${line} (${formatScanTime(diff.previousSavedAt)})` : line;
+}
+
+/** Fixed words use an em dash: ASCII on consoles that cannot show it (`unicode` overrides). */
+function terminalPunctuation(text: string, unicode: boolean | undefined): string {
+  if (unicode === undefined) return toTerminalText(text);
+  return unicode ? text : toAscii(text);
 }
 
 /**
@@ -155,7 +161,10 @@ export function formatSummaryBlock(
   return [
     style.bold(t.summaryTitle),
     ...rows.flatMap(([label, value, isUntrusted]) => {
-      const [first = "", ...rest] = wrapWidth(isUntrusted ? safeText(value, 300) : value, room);
+      const [first = "", ...rest] = wrapWidth(
+        isUntrusted ? safeText(value, 300) : terminalPunctuation(value, ctx.unicode),
+        room,
+      );
       return [
         ...(isStacked
           ? [`  ${label}`, `${" ".repeat(indent)}${first}`]

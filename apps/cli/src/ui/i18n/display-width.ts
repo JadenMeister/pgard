@@ -84,6 +84,49 @@ export function maxDisplayWidth(texts: readonly string[]): number {
  * Used for summary rows, so a long value continues under itself instead of wrapping to column 0.
  */
 export function wrapWidth(text: string, width: number): string[] {
+  return carryColour(wrapPlain(text, width));
+}
+
+const SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[([0-9;]*)m`, "g");
+const RESET = `${String.fromCharCode(27)}[0m`;
+
+/** The attribute family a colour code belongs to: its close code resets the family. */
+function attributeFamily(code: string): string | null {
+  const value = Number(code);
+  if (value === 1 || value === 2 || value === 22) return "weight";
+  if (value === 3 || value === 23) return "italic";
+  if (value === 4 || value === 24) return "underline";
+  if (value === 7 || value === 27) return "inverse";
+  if ((value >= 30 && value <= 39) || (value >= 90 && value <= 97)) return "foreground";
+  if ((value >= 40 && value <= 49) || (value >= 100 && value <= 107)) return "background";
+  return null;
+}
+
+/**
+ * A colour opened on one wrapped line must not run on into the indent of the next: each line
+ * that ends inside a colour is closed, and the next line opens it again after its own indent.
+ */
+function carryColour(lines: string[]): string[] {
+  const open = new Map<string, string>();
+  return lines.map((line) => {
+    const reopened = [...open.values()].map((code) => `${String.fromCharCode(27)}[${code}m`);
+    for (const match of line.matchAll(SGR_PATTERN)) {
+      const code = match[1] ?? "";
+      if (code === "" || code === "0") {
+        open.clear();
+        continue;
+      }
+      const family = attributeFamily(code);
+      if (family === null) continue;
+      const isClose = ["22", "23", "24", "27", "39", "49"].includes(code);
+      if (isClose) open.delete(family);
+      else open.set(family, code);
+    }
+    return `${reopened.join("")}${line}${open.size > 0 ? RESET : ""}`;
+  });
+}
+
+function wrapPlain(text: string, width: number): string[] {
   const lines: string[] = [];
   let line = "";
   for (const word of text.split(" ")) {
