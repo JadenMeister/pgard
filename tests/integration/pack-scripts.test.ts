@@ -28,7 +28,10 @@ async function metafileOf(source: string) {
       {
         name: "external",
         setup(b) {
-          b.onResolve({ filter: /^[^./]/ }, (args) => ({ path: args.path, external: true }));
+          b.onResolve({ filter: /^[^./]/ }, (args) =>
+            // Absolute Windows paths (the entry point) are files, not packages.
+            /^[A-Za-z]:[\\/]/.test(args.path) ? undefined : { path: args.path, external: true },
+          );
         },
       },
     ],
