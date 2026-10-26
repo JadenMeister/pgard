@@ -14,7 +14,12 @@ import {
   signInAndStore,
   type SignInNotice,
 } from "./session-provider.js";
-import { readStoredSignInStatus, removeStoredSignIn, signInKey } from "./stored-sign-in.js";
+import {
+  readStoredSignInStatus,
+  removeStoredSignIn,
+  signInKey,
+  withKeychainLock,
+} from "./stored-sign-in.js";
 
 const CLIENT_ID = "Iv23.testClient";
 const OTHER_CLIENT_ID = "Iv23.otherClient";
@@ -386,6 +391,66 @@ describe("stored sign-in reuse", () => {
     await expect(provider()).rejects.toBeDefined();
     expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
     expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+  });
+
+  /**
+   * A keychain where `pgard login` saves `replacement` right after the `afterRead`-th read
+   * returned (the reads are numbered across the whole test).
+   */
+  function replacedAfterRead(
+    inner: ReturnType<typeof createInMemoryCredentialStore>,
+    afterRead: number,
+    replacement: string,
+  ): CredentialStore {
+    let reads = 0;
+    return {
+      get: async (key) => {
+        reads += 1;
+        const value = await inner.get(key);
+        if (reads === afterRead) await inner.set(KEY, replacement);
+        return value;
+      },
+      set: (key, secret) => inner.set(key, secret),
+      delete: (key) => inner.delete(key),
+    };
+  }
+
+  it("keeps a sign-in saved while an expired entry was about to be deleted (#162)", async () => {
+    const inner = await storeWith(storedRecord({ expiresAt: START - HOUR, refreshToken: null }));
+    const store = replacedAfterRead(inner, 1, storedRecord({ accessToken: NEW_TOKEN }));
+    const { provider, notices } = makeProvider(fakeGitHub(), store);
+    await expect(provider()).rejects.toBeDefined(); // no device token queued
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "expired" });
+  });
+
+  it("keeps a sign-in saved while a rejected refresh was about to delete its entry (#162)", async () => {
+    const inner = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    // Reads: 1 load, 2 and 3 the race reloads (the same refresh token), 4 the delete's re-check.
+    const store = replacedAfterRead(inner, 3, storedRecord({ accessToken: NEW_TOKEN }));
+    const { provider, notices } = makeProvider(fakeGitHub(), store);
+    await expect(provider()).rejects.toBeDefined();
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "refresh_failed" });
+  });
+
+  it("keeps a sign-in saved while a malformed entry was about to be deleted (#162)", async () => {
+    const inner = await storeWith("{not json");
+    const store = replacedAfterRead(inner, 1, storedRecord({ accessToken: NEW_TOKEN }));
+    const { provider } = makeProvider(fakeGitHub(), store);
+    await expect(provider()).rejects.toBeDefined();
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  it("deletes a malformed entry that is still unchanged (#162)", async () => {
+    const inner = await storeWith("{not json");
+    const { provider, notices } = makeProvider(
+      fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] }),
+      inner,
+    );
+    await provider();
+    expect(notices[0]).toEqual({ kind: "removed", reason: "malformed" });
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
   });
 
   it("stops reusing a cached keychain session after pgard logout in another process", async () => {
@@ -819,6 +884,26 @@ describe("keychain writes and removals are serialized (#143)", () => {
     expect(userCodes).toEqual([]);
     expect(github.count("device")).toBe(0);
     expect(github.count("user")).toBe(1);
+  });
+
+  it.each([
+    ["a malformed entry", "{not json"],
+    ["an expired entry", storedRecord({ expiresAt: START - HOUR, refreshToken: null })],
+  ])("deletes %s only under the keychain lock (#162)", async (_name, text) => {
+    const { store, inner, control } = controllableStore();
+    await inner.set(KEY, text);
+    const lock = gate();
+    const holding = withKeychainLock(store, () => lock.promise);
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider } = makeProvider(github, store);
+    const signingIn = provider();
+    await settle();
+    // Someone else holds the lock (a save or removal in flight): the delete must wait.
+    expect(control.deleteCalls).toBe(0);
+    lock.open();
+    await holding;
+    await signingIn;
+    expect(control.deleteCalls).toBeGreaterThan(0);
   });
 
   it("removes a device-flow sign-in whose save was in flight when removal started", async () => {

@@ -278,12 +278,6 @@ export function createDeviceFlowSessionProvider(
     });
   };
 
-  const deleteEntry = async (clientId: string): Promise<void> => {
-    const current = store;
-    if (current === null) return;
-    await withKeychainLock(current, () => deleteEntryLocked(current, clientId));
-  };
-
   /**
    * Deletes the entry only while it still holds `accessToken`. Another process (`pgard login`,
    * or a refresh in a second PGARD process) may have replaced it since this provider read it; a
@@ -300,12 +294,19 @@ export function createDeviceFlowSessionProvider(
     });
   };
 
-  const drop = async (
-    clientId: string,
+  /**
+   * Deletes the entry `record` was read from and tells the caller, but only while the entry still
+   * holds that access token (under the keychain lock): `pgard login` or a refresh in another
+   * process may have saved a newer sign-in since, and an entry that is already gone needs no
+   * notice.
+   */
+  const dropIfStillHolds = async (
+    record: StoredSignInRecord,
     reason: Extract<SignInNotice, { kind: "removed" }>["reason"],
   ): Promise<void> => {
-    await deleteEntry(clientId);
-    notify({ kind: "removed", reason });
+    if (await deleteIfStillHolds(record.clientId, record.accessToken)) {
+      notify({ kind: "removed", reason });
+    }
   };
 
   /** Validates (and if needed refreshes) a stored sign-in; `null` means use the device flow. */
@@ -318,7 +319,7 @@ export function createDeviceFlowSessionProvider(
     let isRefreshed = false;
     if (!isFresh(record.expiresAt)) {
       if (record.refreshToken === null || !isFresh(record.refreshTokenExpiresAt)) {
-        await drop(record.clientId, "expired");
+        await dropIfStillHolds(record, "expired");
         return null;
       }
       try {
@@ -349,7 +350,7 @@ export function createDeviceFlowSessionProvider(
             return isRetry ? null : tryStored(current, latest, true);
           }
         }
-        if (latest !== null) await drop(record.clientId, "refresh_failed");
+        if (latest !== null) await dropIfStillHolds(record, "refresh_failed");
         return null;
       }
     }

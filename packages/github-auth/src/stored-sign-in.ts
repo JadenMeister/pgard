@@ -99,11 +99,33 @@ function unavailableReason(error: unknown): string {
 
 export interface LoadStoredSignInOptions {
   /**
-   * Delete an entry that cannot be parsed (default `true`). Read-only status paths (`doctor`,
+   * Delete an entry that cannot be parsed (default `true`; under the keychain lock, and only
+   * while it is still unchanged, so callers must not hold the lock themselves). Read-only status paths (`doctor`,
    * the dashboard's session status, the `login` pre-check) pass `false` so that looking at the
    * keychain never changes it.
    */
   deleteMalformed?: boolean;
+}
+
+/**
+ * Deletes a malformed entry under the keychain lock, and only while it still holds the text that
+ * could not be parsed: `pgard login` may have saved a valid sign-in since it was read. Never
+ * call it (or `loadStoredSignIn` without `deleteMalformed: false`) from inside the lock.
+ */
+async function deleteMalformedEntry(
+  store: CredentialStore,
+  key: CredentialKey,
+  unreadable: string,
+): Promise<void> {
+  await withKeychainLock(store, async () => {
+    let current: string | null;
+    try {
+      current = await store.get(key);
+    } catch {
+      return;
+    }
+    if (current === unreadable) await store.delete(key).catch(() => false);
+  });
 }
 
 export async function loadStoredSignIn(
@@ -122,7 +144,7 @@ export async function loadStoredSignIn(
   if (text === null) return { kind: "none", wasMalformed: false };
   const record = parseRecord(text, host, clientId);
   if (record === null) {
-    if (options.deleteMalformed !== false) await store.delete(key).catch(() => false);
+    if (options.deleteMalformed !== false) await deleteMalformedEntry(store, key, text);
     return { kind: "none", wasMalformed: true };
   }
   return { kind: "found", record };
@@ -194,7 +216,8 @@ export async function removeStoredSignIn(
   host: string = githubHostOf(),
 ): Promise<RemoveStoredSignInResult> {
   return withKeychainLock(store, async () => {
-    const loaded = await loadStoredSignIn(store, host, clientId);
+    // Inside the lock: the delete below removes a malformed entry too.
+    const loaded = await loadStoredSignIn(store, host, clientId, { deleteMalformed: false });
     if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
     try {
       const wasDeleted = await store.delete(signInKey(host, clientId));
