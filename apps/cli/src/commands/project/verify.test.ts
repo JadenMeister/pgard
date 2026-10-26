@@ -221,6 +221,30 @@ describe("runProjectVerify: App already installed, repository not included", () 
       "Changing the App's repository access is the owner approval; PGARD cannot change it for you.",
     );
     expect(stderr).not.toContain("click Install");
+    expect(stderr).toContain(
+      "Run the command again after adding the repository to the App's repository access.",
+    );
+    expect(stderr).not.toContain("after installing");
+  });
+
+  it("waits with a line about the repository access, not an install", async () => {
+    const captured = createTestIo({ isTTY: true });
+    const recheck = vi
+      .fn<() => Promise<OwnerApprovalRecheck>>()
+      .mockResolvedValue({ status: "passed", reason: "x", remedy: null });
+    const context = createTestContext(
+      captured,
+      createTestDeps({
+        verifyProject: async () => configure,
+        recheckOwnerApproval: recheck,
+        openBrowser: async () => true,
+      }),
+    );
+    await runProjectVerify(context);
+    expect(captured.stderr()).toContain(
+      "Waiting for JadenMeister/photo-dump to be added to the PGARD GitHub App's repository access... (press Ctrl+C twice to cancel)",
+    );
+    expect(captured.stderr()).not.toContain("to be installed");
   });
 
   it("guides an organization with an unknown role, and asks for an owner otherwise", async () => {

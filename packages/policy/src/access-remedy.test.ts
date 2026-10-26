@@ -10,7 +10,7 @@ import {
   isAuthorizationAllowed,
   recheckOwnerApproval,
 } from "./authorize-project.js";
-import { evaluateAccessRemedy } from "./checks.js";
+import { evaluateAccessRemedy, REPOSITORY_ACCESS_LINK_UNAVAILABLE_MESSAGE } from "./checks.js";
 import {
   ME,
   ORG,
@@ -252,7 +252,12 @@ describe("configure link safety", () => {
       }),
     );
     const remedy = await evaluateAccessRemedy(session.client, ME, "a_b", SLUG);
-    expect(remedy).toMatchObject({ missing: "repository_access", url: null });
+    expect(remedy).toMatchObject({
+      missing: "repository_access",
+      url: null,
+      unavailableReason: REPOSITORY_ACCESS_LINK_UNAVAILABLE_MESSAGE,
+    });
+    expect(remedy?.unavailableReason).not.toContain("only available for repositories");
   });
 });
 

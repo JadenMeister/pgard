@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { InstallRemedyDto } from "../../../shared/api-types";
 import {
   describeInstallRemedy,
+  installTexts,
   INSTALL_POLL_INTERVAL_MS,
   isInstallWaitOver,
   nextInstallStep,
@@ -76,6 +77,20 @@ describe("dashboard install remedy", () => {
       url: configure,
       text: "Ask an owner of acme to add acme/app to the PGARD GitHub App's repository access:",
     });
+  });
+
+  it("words the button and waiting texts by remedy kind", () => {
+    const configure = remedy({ missing: "repository_access" });
+    expect(installTexts(configure).waiting).toContain(
+      "added to the PGARD GitHub App's repository access",
+    );
+    expect(installTexts(configure).button).not.toContain("Install");
+    expect(installTexts(configure).timedOut).toContain("Add it");
+    for (const missing of ["access", "installation", "repository"] as const) {
+      const texts = installTexts(remedy({ missing }));
+      expect(texts.waiting).toContain("to be installed");
+      expect(texts.button).toBe("Install the PGARD GitHub App");
+    }
   });
 
   it("says the install page pre-selects All repositories for a hidden repository", () => {

@@ -5,12 +5,10 @@ import { Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
 import {
   describeInstallRemedy,
-  INSTALL_BUTTON_LABEL,
   INSTALL_POLL_INTERVAL_MS,
-  INSTALL_WAIT_TIMED_OUT_TEXT,
+  installTexts,
   isInstallWaitOver,
   nextInstallStep,
-  WAITING_FOR_INSTALL_TEXT,
 } from "./install-remedy";
 
 interface InstallAppNoticeProps {
@@ -39,6 +37,7 @@ export function InstallAppNotice({
   onInstalled,
 }: InstallAppNoticeProps) {
   const view = describeInstallRemedy(remedy, repo);
+  const texts = installTexts(remedy);
   const canWait = view.kind === "install" && !isInstallWaitOver(waitEndsAt, Date.now());
   const [isWaiting, setIsWaiting] = useState(canWait);
   const [isTimedOut, setIsTimedOut] = useState(view.kind === "install" && !canWait);
@@ -95,11 +94,11 @@ export function InstallAppNotice({
       <p>{view.text}</p>
       <p>
         <a className="button primary" href={view.url} target="_blank" rel="noreferrer noopener">
-          {INSTALL_BUTTON_LABEL}
+          {texts.button}
         </a>
       </p>
-      {isWaiting && <p className="muted">{WAITING_FOR_INSTALL_TEXT}</p>}
-      {isTimedOut && <p className="muted">{INSTALL_WAIT_TIMED_OUT_TEXT}</p>}
+      {isWaiting && <p className="muted">{texts.waiting}</p>}
+      {isTimedOut && <p className="muted">{texts.timedOut}</p>}
     </div>
   );
 }

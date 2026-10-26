@@ -12,6 +12,30 @@ export const WAITING_FOR_INSTALL_TEXT =
   "Waiting for the PGARD GitHub App to be installed... PGARD checks every 5 seconds and runs the full authorization again once it is installed.";
 export const INSTALL_WAIT_TIMED_OUT_TEXT =
   "Stopped waiting for the PGARD GitHub App installation after 10 minutes. Install it, then check again.";
+export const REPOSITORY_ACCESS_BUTTON_LABEL = "Open the App's repository access";
+export const WAITING_FOR_REPOSITORY_ACCESS_TEXT =
+  "Waiting for the repository to be added to the PGARD GitHub App's repository access... PGARD checks every 5 seconds and runs the full authorization again once it is added.";
+export const REPOSITORY_ACCESS_WAIT_TIMED_OUT_TEXT =
+  "Stopped waiting for the repository to be added to the PGARD GitHub App's repository access after 10 minutes. Add it, then check again.";
+
+/** The button and waiting texts for a remedy: an install, or adding a repository to one. */
+export function installTexts(remedy: InstallRemedyDto): {
+  button: string;
+  waiting: string;
+  timedOut: string;
+} {
+  return remedy.missing === "repository_access"
+    ? {
+        button: REPOSITORY_ACCESS_BUTTON_LABEL,
+        waiting: WAITING_FOR_REPOSITORY_ACCESS_TEXT,
+        timedOut: REPOSITORY_ACCESS_WAIT_TIMED_OUT_TEXT,
+      }
+    : {
+        button: INSTALL_BUTTON_LABEL,
+        waiting: WAITING_FOR_INSTALL_TEXT,
+        timedOut: INSTALL_WAIT_TIMED_OUT_TEXT,
+      };
+}
 
 export type InstallRemedyView =
   /** The user can install it: show the button and wait. */

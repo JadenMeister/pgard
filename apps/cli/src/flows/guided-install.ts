@@ -17,6 +17,13 @@ export const INSTALL_WAIT_LIMIT_MS = 10 * 60_000;
 export const WAITING_FOR_INSTALL_MESSAGE =
   "Waiting for the PGARD GitHub App to be installed... (press Ctrl+C twice to cancel)";
 
+/** The waiting line: for a repository to be added to an existing installation, or an install. */
+export function waitingMessage(missing: string, repo: string | null): string {
+  if (missing !== "repository_access") return WAITING_FOR_INSTALL_MESSAGE;
+  const target = repo === null ? "this repository" : safeText(repo, 120);
+  return `Waiting for ${target} to be added to the PGARD GitHub App's repository access... (press Ctrl+C twice to cancel)`;
+}
+
 /**
  * - `not_offered`: no guided install applies; the caller reports the outcome as before.
  * - `blocked`: shown the reason/link, but nothing to wait for (or the wait timed out).
@@ -157,13 +164,15 @@ export async function offerGuidedInstall(
     err(
       context,
       errStyle.dim(
-        "Not a terminal, so PGARD does not wait for the installation. Run the command again after installing.",
+        remedy.missing === "repository_access"
+          ? "Not a terminal, so PGARD does not wait. Run the command again after adding the repository to the App's repository access."
+          : "Not a terminal, so PGARD does not wait for the installation. Run the command again after installing.",
       ),
     );
     return "blocked";
   }
   await openInBrowser(context, remedy.url);
-  err(context, errStyle.dim(WAITING_FOR_INSTALL_MESSAGE));
+  err(context, errStyle.dim(waitingMessage(remedy.missing, outcome.repo)));
 
   const deadline = context.deps.now() + INSTALL_WAIT_LIMIT_MS;
   for (;;) {

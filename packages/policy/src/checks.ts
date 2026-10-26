@@ -182,6 +182,10 @@ export interface OwnerApprovalResult {
 export const GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE =
   "The guided install is only available for repositories on github.com.";
 
+/** Shown when the App's settings link for an existing installation failed its safety check. */
+export const REPOSITORY_ACCESS_LINK_UNAVAILABLE_MESSAGE =
+  "PGARD could not build a safe link to the App's repository access settings. Open the PGARD GitHub App's installation settings on github.com yourself and add this repository.";
+
 /**
  * Builds the install remedy from API data only: the numeric ids GitHub reported for the owner
  * account and the repository, and the configured slug. Never changes the check result.
@@ -379,7 +383,7 @@ export async function evaluateAccessRemedy(
       account: remedyAccount,
       url: isSafe ? configureUrl : null,
       canApprove,
-      unavailableReason: isSafe ? null : GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE,
+      unavailableReason: isSafe ? null : REPOSITORY_ACCESS_LINK_UNAVAILABLE_MESSAGE,
     };
   }
 
