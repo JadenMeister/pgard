@@ -11,7 +11,9 @@ export interface GitHubSessionManager {
   getGitHubSession: GitHubSessionProvider;
   /**
    * Stops a device flow that is still waiting for the user, or a token refresh a non-interactive
-   * re-check (`existing()`) has in flight; a signed-in session is kept.
+   * re-check (`existing()`) has in flight. A scan cancel therefore also aborts an owner-approval
+   * re-check that is running; that fails closed (the re-check ends without a result and never
+   * authorizes anything). A signed-in session is kept.
    */
   abortPendingSignIn: () => void;
   /**
