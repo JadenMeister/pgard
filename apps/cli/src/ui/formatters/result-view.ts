@@ -205,38 +205,48 @@ export function formatConfigNotices(coverage: readonly Coverage[], style: Style)
 }
 
 const STANDARD_MARKS: Record<StandardCheckState, string> = {
-  checked: "[checked]",
-  partial: "[partial]",
-  not_checked: "[not checked]",
+  rules_ran: "[rules ran]",
+  rules_partial: "[rules partial]",
+  not_run: "[not run]",
+  no_rules: "[no rules]",
 };
 const MAX_LISTED_RULES = 4;
 
-/** Standards coverage notice shown under the lines, so a reader does not read "checked" as "safe". */
+/** Shown under the lines so a reader does not take "rules ran" for "safe" or "covered". */
 export const STANDARDS_NOTE =
-  "Checked means a mapped rule ran to completion in this scan; it does not mean the weakness is absent. Full detail per entry: --format json (standardsCoverage, ruleStats).";
+  "Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage, ruleStats).";
 
 /**
- * Compact "Standards coverage" section: one line per OWASP Top 10 2025 category with its state
- * and the rules behind it (or the reason), then counts for the CWE Top 25 2025.
+ * Compact "Standards coverage" section: one line per OWASP Top 10 2025 category with its state,
+ * how many of the category's CWEs have a rule, and the rules behind it (or the reason), then
+ * counts for the CWE Top 25 2025. Nothing is coloured green: a rule that ran is not a pass.
  */
 export function formatStandardsCoverage(standards: StandardsCoverage, style: Style): string {
   const lines = standards.owasp.map((entry) => {
     const mark = STANDARD_MARKS[entry.state];
     const colored =
-      entry.state === "checked"
-        ? style.green(mark)
-        : entry.state === "partial"
+      entry.state === "rules_ran"
+        ? mark
+        : entry.state === "rules_partial"
           ? style.yellow(mark)
           : style.dim(mark);
     const listed = entry.ruleIds.slice(0, MAX_LISTED_RULES).join(", ");
     const rest = entry.ruleIds.length - MAX_LISTED_RULES;
     const rules = entry.ruleIds.length === 0 ? "" : ` (${listed}${rest > 0 ? ` +${rest}` : ""})`;
-    const detail = entry.state === "checked" ? rules.trim() : `${entry.reason}${rules}`;
-    return `  ${colored} ${safeText(entry.id.replace(":2025", ""), 8)} ${safeText(entry.title, 60)} ${style.dim(`- ${safeText(detail, 200)}`)}`;
+    const breadth =
+      entry.breadth === null
+        ? ""
+        : `${entry.breadth.cwesWithRules} of ${entry.breadth.cwesInCategory} mapped CWEs have rules`;
+    // Rule ids come before the reason, so a long reason is what gets cut, never the rules.
+    const head = entry.state === "no_rules" ? entry.reason : `${breadth}${rules}`;
+    const tail =
+      entry.state === "rules_ran" || entry.state === "no_rules" ? "" : `; ${entry.reason}`;
+    const detail = `${head}${tail}`;
+    return `  ${colored} ${safeText(entry.id.replace(":2025", ""), 8)} ${safeText(entry.title, 60)} ${style.dim(`- ${safeText(detail, 240)}`)}`;
   });
   const counts = countStandardStates(standards.cweTop25);
   lines.push(
-    `  CWE Top 25 2025: ${counts.checked} checked, ${counts.partial} partial, ${counts.not_checked} not checked`,
+    `  CWE Top 25 2025: ${counts.rules_ran} rules ran, ${counts.rules_partial} rules partial, ${counts.not_run} not run, ${counts.no_rules} no rules`,
   );
   return lines.join("\n");
 }

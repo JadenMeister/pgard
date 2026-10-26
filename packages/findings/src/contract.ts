@@ -172,17 +172,30 @@ export interface RuleStat {
 }
 
 /**
- * - `checked`: a mapped rule ran to completion over everything it covers, for the languages
- *   present. It says the rule ran, never that the project is free of the weakness.
- * - `partial`: some mapped rules ran, but an area was partial or a language present is not covered.
- * - `not_checked`: no mapped rule exists, or none ran.
+ * What a scan can say about a standards entry. None of these states means "safe" or "category
+ * covered": they say whether PGARD rules that map to the entry ran.
+ *
+ * - `rules_ran`: every scope that has a mapped rule ran, all contributing areas completed, no
+ *   code area was partial, and every language present is covered by a completed mapped rule. It
+ *   still says nothing about how much of the entry the rules cover (see `breadth`).
+ * - `rules_partial`: some mapped rules ran, but something was partial, missing or uncovered.
+ * - `not_run`: rules map to the entry, but none ran in this scan.
+ * - `no_rules`: no PGARD rule maps to the entry.
  */
-export type StandardCheckState = "checked" | "partial" | "not_checked";
+export type StandardCheckState = "rules_ran" | "rules_partial" | "not_run" | "no_rules";
 export const STANDARD_CHECK_STATES = exhaustive<StandardCheckState>({
-  checked: true,
-  partial: true,
-  not_checked: true,
+  rules_ran: true,
+  rules_partial: true,
+  not_run: true,
+  no_rules: true,
 });
+
+/** How much of an OWASP category's mapped CWE list PGARD has any rule for. */
+export interface StandardBreadth {
+  /** CWEs of the category's "List of Mapped CWEs" that at least one PGARD rule lists. */
+  cwesWithRules: number;
+  cwesInCategory: number;
+}
 
 export interface StandardCoverageEntry {
   /** `A05:2025` or `CWE-79`. */
@@ -191,6 +204,8 @@ export interface StandardCoverageEntry {
   /** CWE Top 25 rank; `null` for OWASP categories. */
   rank: number | null;
   state: StandardCheckState;
+  /** OWASP categories only; `null` for CWE Top 25 entries (a CWE is one weakness, 1 of 1). */
+  breadth: StandardBreadth | null;
   /** Rules that ran and contribute to the state. */
   ruleIds: string[];
   /** Every rule in this PGARD version that maps to the entry, whether it ran or not. */

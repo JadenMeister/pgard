@@ -205,6 +205,11 @@ function normalizeRuleStats(
  */
 export async function runScan(request: ScanRequest, deps: ScanDependencies): Promise<ScanResult> {
   const requestedScopes = validateRequest(request);
+  // Without the web rules the standards map would not know what the web scanner can check and
+  // would claim more than it can support, so a launcher that injects a scanner must name them.
+  if (deps.webScanner !== undefined && deps.webRules === undefined) {
+    throw new TypeError("ScanDependencies.webRules is required when webScanner is set.");
+  }
   const now = deps.now ?? (() => new Date());
   const scanId = (deps.createScanId ?? randomUUID)();
   const startedAt = now().toISOString();

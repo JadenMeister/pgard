@@ -80,4 +80,25 @@ describe("scanSourceCode rule stats", () => {
     expect(stat?.status).toBe("partial");
     expect(stat?.targets[0]?.examined).toBeLessThan(2);
   });
+
+  it("marks the project-level heuristics partial when a JavaScript-family area was partial", async () => {
+    const root = project({ "src/a.ts": SQL_VULN, "src/b.ts": SQL_VULN });
+    let tick = 0;
+    const output = await scanSourceCode(root, { timeBudgetMs: 1500, now: () => (tick += 1000) });
+    const heuristics = output.coverage.find((entry) => entry.area === "source:heuristics");
+    expect(output.coverage.find((entry) => entry.area === "source:typescript")?.status).toBe(
+      "partial",
+    );
+    expect(heuristics?.status).toBe("partial");
+    expect(statFor(output, "source:heuristics", "PG-CSRF-001")?.status).toBe("partial");
+  });
+
+  it("lists no heuristics rules when there is no JavaScript-family file to read", async () => {
+    const root = project({ "README.md": "# docs\n", "cmd/main.go": "package main\n" });
+    const output = await scanSourceCode(root);
+    const heuristics = output.coverage.find((entry) => entry.area === "source:heuristics");
+    expect(heuristics).toMatchObject({ status: "completed", ruleIds: [] });
+    expect(heuristics?.note).toContain("did not run");
+    expect(output.ruleStats?.some((stat) => stat.area === "source:heuristics")).toBe(false);
+  });
 });

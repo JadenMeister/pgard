@@ -22,6 +22,7 @@ import {
   type FindingReferences,
   type RuleStat,
   type RuleTargetCount,
+  type StandardBreadth,
   type StandardCoverageEntry,
   type StandardsCoverage,
   type ScanResult,
@@ -156,6 +157,7 @@ export const READER_KEYS = {
     title: true,
     rank: true,
     state: true,
+    breadth: true,
     ruleIds: true,
     mappedRuleIds: true,
     reason: true,
@@ -296,6 +298,12 @@ function readRuleTarget(value: unknown, path: string): RuleTargetCount {
   if (examined === null && reason === null) {
     fail("invalid_shape", `${path} has no count and no reason; an unknown count needs a reason.`);
   }
+  if (examined !== null && reason !== null) {
+    fail(
+      "invalid_shape",
+      `${path} has a count and a reason; a reason is only for an unknown count.`,
+    );
+  }
   return { unit: str(field(o, "unit"), `${path}.unit`), examined, reason };
 }
 
@@ -314,11 +322,21 @@ function readRuleStat(value: unknown, path: string): RuleStat {
 function readStandardEntry(value: unknown, path: string): StandardCoverageEntry {
   const o = object(value, path);
   const rank = field(o, "rank");
+  const breadthValue = field(o, "breadth");
+  let breadth: StandardBreadth | null = null;
+  if (breadthValue !== null) {
+    const b = object(breadthValue, `${path}.breadth`);
+    breadth = {
+      cwesWithRules: count(field(b, "cwesWithRules"), `${path}.breadth.cwesWithRules`),
+      cwesInCategory: count(field(b, "cwesInCategory"), `${path}.breadth.cwesInCategory`),
+    };
+  }
   return {
     id: str(field(o, "id"), `${path}.id`),
     title: str(field(o, "title"), `${path}.title`),
     rank: rank === null ? null : count(rank, `${path}.rank`),
     state: oneOf(field(o, "state"), STANDARD_CHECK_STATES, `${path}.state`),
+    breadth,
     ruleIds: strings(field(o, "ruleIds"), `${path}.ruleIds`),
     mappedRuleIds: strings(field(o, "mappedRuleIds"), `${path}.mappedRuleIds`),
     reason: str(field(o, "reason"), `${path}.reason`),

@@ -131,9 +131,11 @@ describe("runScan: ruleStats", () => {
     const result = await run({ findings: [], coverage: [] });
     expect(result.overallStatus).toBe("blocked");
     expect(result.ruleStats).toEqual([]);
-    expect(result.standardsCoverage?.owasp.every((entry) => entry.state === "not_checked")).toBe(
-      true,
-    );
+    expect(
+      result.standardsCoverage?.owasp.every(
+        (entry) => entry.state === "not_run" || entry.state === "no_rules",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -147,34 +149,38 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
   it("derives A05 and CWE-89 from the rules' own mappings", async () => {
     const result = await run(tsCompleted);
     const a05 = result.standardsCoverage?.owasp.find((entry) => entry.id === "A05:2025");
-    expect(a05).toMatchObject({ state: "checked", ruleIds: ["PG-SQL-001"] });
+    expect(a05).toMatchObject({ state: "rules_ran", ruleIds: ["PG-SQL-001"] });
     expect(a05?.mappedRuleIds).toContain("PG-SQL-003");
     expect(result.standardsCoverage?.cweTop25.find((entry) => entry.id === "CWE-89")?.state).toBe(
-      "checked",
+      "rules_ran",
     );
   });
 
-  it("downgrades to partial when a Java project sits next to the TypeScript one", async () => {
+  it("downgrades to rules_partial when a Java project sits next to the TypeScript one", async () => {
     const result = await run({
       ...tsCompleted,
       coverage: [...tsCompleted.coverage, cov("source:java", "code", "not_tested")],
     });
-    expect(result.standardsCoverage?.owasp.find((e) => e.id === "A05:2025")?.state).toBe("partial");
+    expect(result.standardsCoverage?.owasp.find((e) => e.id === "A05:2025")?.state).toBe(
+      "rules_partial",
+    );
   });
 
-  it("downgrades to partial when the TypeScript area was partial", async () => {
+  it("downgrades to rules_partial when the TypeScript area was partial", async () => {
     const result = await run({
       findings: [],
       coverage: [cov("source:typescript", "code", "partial", ["PG-SQL-001"])],
       ruleStats: [row("PG-SQL-001", "source:typescript", "partial")],
     });
-    expect(result.standardsCoverage?.owasp.find((e) => e.id === "A05:2025")?.state).toBe("partial");
+    expect(result.standardsCoverage?.owasp.find((e) => e.id === "A05:2025")?.state).toBe(
+      "rules_partial",
+    );
   });
 
-  it("is not checked when the code scope was not requested", async () => {
+  it("is not_run when the code scope was not requested", async () => {
     const result = await run(tsCompleted, undefined, {}, ["history"]);
     const a05 = result.standardsCoverage?.owasp.find((entry) => entry.id === "A05:2025");
-    expect(a05?.state).toBe("not_checked");
+    expect(a05?.state).toBe("not_run");
     expect(a05?.reason).toContain("code scope not selected");
   });
 
@@ -184,7 +190,7 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
     const result = await run(tsCompleted);
     const a03 = result.standardsCoverage?.owasp.find((entry) => entry.id === "A03:2025");
     expect(a03?.mappedRuleIds).toEqual(["PG-HYGIENE-001"]);
-    expect(a03?.state).toBe("not_checked");
+    expect(a03?.state).toBe("not_run");
     const withHistory = await run(tsCompleted, {
       findings: [],
       coverage: [cov("history:tracked-files", "history", "completed", ["PG-HYGIENE-001"])],
@@ -192,7 +198,7 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
     });
     expect(
       withHistory.standardsCoverage?.owasp.find((entry) => entry.id === "A03:2025")?.state,
-    ).toBe("checked");
+    ).toBe("rules_ran");
   });
 
   it("includes web rules only when the launcher passes them", async () => {
@@ -228,18 +234,20 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
           ...extra,
         },
       );
-    const without = await call({});
-    expect(without.standardsCoverage?.owasp.find((e) => e.id === "A02:2025")?.state).toBe(
-      "not_checked",
-    );
+    // Without the catalog the map would claim more than it can support, so the scan refuses.
+    await expect(call({})).rejects.toThrow("webRules");
     const withRules = await call({ webRules: [webRule] });
     expect(withRules.standardsCoverage?.owasp.find((e) => e.id === "A02:2025")).toMatchObject({
-      state: "checked",
+      // The code rules that map to A02 (PG-COOKIE-001) were not selected in this web-only scan.
+      state: "rules_partial",
       ruleIds: ["PG-WEB-X"],
     });
+    expect(withRules.standardsCoverage?.owasp.find((e) => e.id === "A02:2025")?.reason).toContain(
+      "code rules not run: scope not selected",
+    );
   });
 
-  it("invariant: no entry is `checked` unless every contributing row is completed", async () => {
+  it("invariant: no entry is `rules_ran` unless every contributing row is completed", async () => {
     const statuses = ["completed", "partial"] as const;
     for (const ts of statuses) {
       for (const go of statuses) {
@@ -263,7 +271,7 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
           ...(result.standardsCoverage?.owasp ?? []),
           ...(result.standardsCoverage?.cweTop25 ?? []),
         ]) {
-          if (entry.state === "checked") {
+          if (entry.state === "rules_ran") {
             expect(entry.ruleIds.length).toBeGreaterThan(0);
             expect(entry.ruleIds.some((id) => partialIds.has(id))).toBe(false);
           }

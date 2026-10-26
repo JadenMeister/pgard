@@ -68,7 +68,7 @@ export interface ScanDependencies {
   /**
    * The rules the injected `webScanner` implements (`WEB_RULE_LIST` of `@pgard/http-local`).
    * scan-core never imports http-local, so the launcher passes them in; they only feed the
-   * standards coverage map. Without them the map treats web rules as non-existent.
+   * standards coverage map. Required whenever `webScanner` is set (`runScan` throws otherwise).
    */
   webRules?: ReadonlyArray<{ id: string; metadata: RuleMetadata }>;
   onProgress?: (event: ScanProgressEvent) => void;

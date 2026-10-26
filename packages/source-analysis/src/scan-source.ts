@@ -541,12 +541,22 @@ export async function scanSourceCode(
       });
     }
   }
+  // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file, so they
+  // are only as complete as those areas: partial when one of them was, and not run (no rules
+  // listed, like a language with no files) when there was nothing to read.
+  const jsFamilyAreas = ["source:javascript", "source:typescript", "source:vue"];
+  const isJsFamilyPartial = coverage.some(
+    (entry) => jsFamilyAreas.includes(entry.area) && entry.status === "partial",
+  );
+  const hasHeuristicsInput = jsFacts.length > 0;
   const heuristicsEntry: Coverage = {
     area: "source:heuristics",
     scope: "code",
-    status: "completed",
-    ruleIds: ["PG-CSRF-001", "PG-BRUTE-001"],
-    note: "CSRF and brute-force checks are project-level heuristics (library imports and route names) and report suspected findings with low confidence.",
+    status: isJsFamilyPartial ? "partial" : "completed",
+    ruleIds: hasHeuristicsInput ? ["PG-CSRF-001", "PG-BRUTE-001"] : [],
+    note: hasHeuristicsInput
+      ? `CSRF and brute-force checks are project-level heuristics (library imports and route names) and report suspected findings with low confidence.${isJsFamilyPartial ? " Partial because a JavaScript, TypeScript or Vue area was partial." : ""}`
+      : "No JavaScript, TypeScript or Vue files were analyzed, so the CSRF and brute-force heuristics did not run.",
   };
   coverage.push(heuristicsEntry);
   // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file.

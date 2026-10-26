@@ -50,18 +50,24 @@ describe("formatStandardsCoverage", () => {
     expect(lines).toHaveLength(11);
     expect(lines[0]).toContain("A01 Broken Access Control");
     expect(lines.at(-1)).toMatch(
-      /^ {2}CWE Top 25 2025: \d+ checked, \d+ partial, \d+ not checked$/,
+      /^ {2}CWE Top 25 2025: \d+ rules ran, \d+ rules partial, \d+ not run, \d+ no rules$/,
     );
   });
 
-  it("never prints `checked` for a partial category, and shows the reason", () => {
+  it("never prints `rules ran` for a partial category, and shows the reason", () => {
     const a05 = lines.find((line) => line.includes("A05 Injection"));
-    // Java is present with no rules, so injection is only partially checked.
-    expect(a05).toContain("[partial]");
-    expect(a05).not.toContain("[checked]");
+    // Java is present with no rules, so the injection rules only partly ran.
+    expect(a05).toContain("[rules partial]");
+    expect(a05).not.toContain("[rules ran]");
     expect(a05).toContain("no completed mapped rule covers java");
     const a07 = lines.find((line) => line.includes("A07 "));
-    expect(a07).toContain("[partial]");
+    expect(a07).toContain("[rules partial]");
+  });
+
+  it("shows how many of the category's CWEs have rules, next to the state", () => {
+    const a03 = lines.find((line) => line.includes("A03 "));
+    expect(a03).toMatch(/- 1 of \d+ mapped CWEs have rules/);
+    expect(a03).toContain("PG-HYGIENE-001");
   });
 
   it("says `no rules` for a category with no mapped rule", () => {
@@ -72,18 +78,37 @@ describe("formatStandardsCoverage", () => {
     const line = formatStandardsCoverage(map, plain)
       .split("\n")
       .find((entry) => entry.includes("A09 "));
-    expect(line).toContain("[not checked]");
-    expect(line).toContain("no rules");
+    expect(line).toContain("[no rules]");
+  });
+
+  it("prints `not run` for a category whose rules did not run", () => {
+    const map = computeStandardsCoverage({
+      rules: listSupportedRules(),
+      coverage: [],
+      ruleStats: [],
+    });
+    const line = formatStandardsCoverage(map, plain)
+      .split("\n")
+      .find((entry) => entry.includes("A05 "));
+    expect(line).toContain("[not run]");
+  });
+
+  it("never colours `rules ran` green", () => {
+    const colored = createStyle(true);
+    const rows = standardsCoverage.owasp.map((entry) => ({
+      ...entry,
+      state: "rules_ran" as const,
+    }));
+    const out = formatStandardsCoverage({ ...standardsCoverage, owasp: rows }, colored);
+    // ANSI green is 32; no line may carry it.
+    expect(out).not.toMatch(/\u001b\[32m/);
   });
 
   it("matches the counts of the structured data", () => {
-    const counts = {
-      checked: standardsCoverage.cweTop25.filter((e) => e.state === "checked").length,
-      partial: standardsCoverage.cweTop25.filter((e) => e.state === "partial").length,
-      not_checked: standardsCoverage.cweTop25.filter((e) => e.state === "not_checked").length,
-    };
+    const count = (state: string) =>
+      standardsCoverage.cweTop25.filter((entry) => entry.state === state).length;
     expect(lines.at(-1)).toBe(
-      `  CWE Top 25 2025: ${counts.checked} checked, ${counts.partial} partial, ${counts.not_checked} not checked`,
+      `  CWE Top 25 2025: ${count("rules_ran")} rules ran, ${count("rules_partial")} rules partial, ${count("not_run")} not run, ${count("no_rules")} no rules`,
     );
   });
 });
