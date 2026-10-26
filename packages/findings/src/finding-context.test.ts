@@ -245,3 +245,25 @@ describe("classifyDependencyVendorDirectory", () => {
     expect(classifyDependencyVendorDirectory("node_modules", has())).toBeNull();
   });
 });
+
+describe("applyFindingContext with configured test paths", () => {
+  const configured = {
+    isConfiguredTestPath: (path: string | null) => path?.startsWith("e2e/") === true,
+  };
+
+  it("adds the test context for a configured path", () => {
+    const result = applyFindingContext(finding("e2e/login.ts"), configured);
+    expect(result.context).toBe("test");
+    expect(result.confidence).toBe("low");
+    expect(applyFindingContext(finding("src/login.ts"), configured).context).toBeUndefined();
+  });
+
+  it("can only add: built-in test and vendored classification is unchanged", () => {
+    const never = { isConfiguredTestPath: () => false };
+    expect(applyFindingContext(finding("tests/a.ts"), never).context).toBe("test");
+    expect(applyFindingContext(finding("node_modules/x/a.js"), never).context).toBe("vendored");
+    // Vendored still wins when the config also calls the path a test directory.
+    const all = { isConfiguredTestPath: () => true };
+    expect(applyFindingContext(finding("node_modules/x/a.js"), all).context).toBe("vendored");
+  });
+});

@@ -185,13 +185,14 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
 
 /** Validates a `--lang` / `--report-lang` / `PGARD_LANG` value. */
 export function parseLanguageValue(name: string, value: string, topic?: HelpTopic): RuleLocale {
-  if (!(RULE_LOCALES as readonly string[]).includes(value)) {
+  const normalized = value.trim().toLowerCase();
+  if (!(RULE_LOCALES as readonly string[]).includes(normalized)) {
     throw new UsageError(
       `${name} must be one of ${RULE_LOCALES.join(", ")} (got "${value.slice(0, 20)}").`,
       topic,
     );
   }
-  return value as RuleLocale;
+  return normalized as RuleLocale;
 }
 
 function parseLangOption(

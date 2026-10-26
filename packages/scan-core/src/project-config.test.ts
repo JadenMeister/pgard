@@ -1,0 +1,522 @@
+import { execFileSync } from "node:child_process";
+import {
+  chmodSync,
+  linkSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+  MAX_PROJECT_CONFIG_BYTES,
+  configTestFindingCount,
+  projectConfigNotices,
+  readScanResult,
+  type ScanRequest,
+} from "@pgard/findings";
+import type { AuthorizationOutcome } from "@pgard/policy";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { sessionProvider } from "../../policy/src/test-support/mock-github.js";
+
+const authorizeProject = vi.fn<(root: string) => Promise<AuthorizationOutcome>>();
+
+vi.mock("@pgard/policy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@pgard/policy")>();
+  return { ...actual, authorizeProject: (root: string) => authorizeProject(root) };
+});
+
+const { runScan, loadProjectConfig, describeProjectConfig } = await import("./index.js");
+const { createDefaultAnalyzers } = await import("./analyzers.js");
+
+const ALLOWED: AuthorizationOutcome = {
+  summary: {
+    decision: "allowed",
+    checks: (
+      ["repository", "github_identity", "owner_approval", "current_access", "contribution"] as const
+    ).map((id) => ({ id, status: "passed" as const, reason: "ok" })),
+  },
+  repo: "octo/app",
+  revision: "a".repeat(40),
+};
+
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+beforeEach(() => {
+  authorizeProject.mockReset();
+  authorizeProject.mockResolvedValue(ALLOWED);
+});
+
+const SQL_VULN =
+  'import { Pool } from "pg";\nconst pool = new Pool();\nexport const q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n';
+
+function project(files: Record<string, string>): string {
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-pcfg-")));
+  roots.push(root);
+  for (const [relative, content] of Object.entries(files)) {
+    const target = path.join(root, relative);
+    mkdirSync(path.dirname(target), { recursive: true });
+    writeFileSync(target, content);
+  }
+  return root;
+}
+
+const SOURCES = {
+  "src/db.ts": SQL_VULN,
+  "legacy/old.ts": SQL_VULN,
+  "e2e/flow.ts": SQL_VULN,
+};
+
+const scan = (root: string, scopes: ScanRequest["scopes"] = ["code"], analyzers = {}) =>
+  runScan(
+    { projectRoot: root, scopes, webTarget: null },
+    {
+      authorization: {
+        getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+      },
+      createScanId: () => "scan-1",
+      now: () => new Date("2026-10-27T00:00:00Z"),
+      ...(Object.keys(analyzers).length > 0 ? { analyzers } : {}),
+    },
+  );
+
+const coverageOf = (result: Awaited<ReturnType<typeof scan>>, area: string) =>
+  result.coverage.find((entry) => entry.area === area);
+
+describe("loadProjectConfig", () => {
+  it("is absent when there is no file", async () => {
+    expect(await loadProjectConfig(project({}))).toEqual({ state: "absent" });
+  });
+
+  it("loads a valid file", async () => {
+    const root = project({ "pgard.config.json": '{"version":1,"exclude":["legacy"]}' });
+    expect(await loadProjectConfig(root)).toEqual({
+      state: "loaded",
+      config: { version: 1, exclude: ["legacy"], testDirectories: [], suppressions: [] },
+    });
+  });
+
+  it("refuses a symbolic link, even to a valid file", async () => {
+    const root = project({ "real.json": '{"version":1}' });
+    symlinkSync(path.join(root, "real.json"), path.join(root, "pgard.config.json"));
+    const result = await loadProjectConfig(root);
+    expect(result).toMatchObject({ state: "invalid" });
+    expect(JSON.stringify(result)).toContain("symbolic link");
+  });
+
+  it("refuses a symbolic link to a file outside the repository", async () => {
+    const outside = project({ "secret.json": '{"version":1,"exclude":["**"]}' });
+    const root = project({});
+    symlinkSync(path.join(outside, "secret.json"), path.join(root, "pgard.config.json"));
+    expect((await loadProjectConfig(root)).state).toBe("invalid");
+  });
+
+  it("refuses a directory in place of the file", async () => {
+    const root = project({ "pgard.config.json/x": "" });
+    expect(await loadProjectConfig(root)).toMatchObject({ state: "invalid" });
+  });
+
+  it("refuses a file over the size cap without parsing it", async () => {
+    const root = project({
+      "pgard.config.json": `{"version":1,"exclude":["${"a".repeat(MAX_PROJECT_CONFIG_BYTES)}"]}`,
+    });
+    const result = await loadProjectConfig(root);
+    expect(result).toMatchObject({ state: "invalid" });
+    expect(JSON.stringify(result)).toContain("larger than 65536 bytes");
+  });
+
+  it("accepts a file exactly at the cap", async () => {
+    const head = '{"version":1,"exclude":[],"x":"';
+    const tail = '"}';
+    const pad = " ".repeat(MAX_PROJECT_CONFIG_BYTES - head.length - tail.length);
+    const root = project({ "pgard.config.json": `${head}${pad}${tail}` });
+    // Size is fine; the unknown key "x" is what makes it invalid.
+    expect(JSON.stringify(await loadProjectConfig(root))).not.toContain("larger than");
+  });
+
+  it("refuses invalid UTF-8", async () => {
+    const root = project({});
+    writeFileSync(path.join(root, "pgard.config.json"), Buffer.from([0x7b, 0xff, 0xfe, 0x7d]));
+    expect(JSON.stringify(await loadProjectConfig(root))).toContain("not valid UTF-8");
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an unreadable file as invalid, not as absent",
+    async () => {
+      const root = project({ "pgard.config.json": '{"version":1}' });
+      chmodSync(path.join(root, "pgard.config.json"), 0o000);
+      expect((await loadProjectConfig(root)).state).toBe("invalid");
+    },
+  );
+
+  it("never executes the file: a JavaScript-looking config is just invalid", async () => {
+    const root = project({
+      "pgard.config.json": 'require("child_process").execSync("touch pwned"); module.exports = {}',
+    });
+    expect((await loadProjectConfig(root)).state).toBe("invalid");
+  });
+});
+
+describe("loadProjectConfig races and size checks", () => {
+  const valid = '{"version":1}';
+
+  it("the stat check and the read check each refuse an oversized file, with their own message", async () => {
+    const big = project({ "pgard.config.json": " ".repeat(MAX_PROJECT_CONFIG_BYTES + 1) });
+    expect(JSON.stringify(await loadProjectConfig(big))).toContain("is larger than");
+    // The file passes the stat check, then grows before it is read.
+    const grows = project({ "pgard.config.json": valid });
+    const result = await loadProjectConfig(grows, {
+      afterInspect: () =>
+        writeFileSync(
+          path.join(grows, "pgard.config.json"),
+          " ".repeat(MAX_PROJECT_CONFIG_BYTES + 5),
+        ),
+    });
+    expect(JSON.stringify(result)).toContain("grew larger than");
+  });
+
+  it("accepts a file of exactly the cap (the limit is inclusive)", async () => {
+    const pad = " ".repeat(MAX_PROJECT_CONFIG_BYTES - valid.length);
+    const root = project({ "pgard.config.json": `${valid}${pad}` });
+    expect((await loadProjectConfig(root)).state).toBe("loaded");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "O_NOFOLLOW refuses a file swapped for a link to the same file after the inspection",
+    async () => {
+      const root = project({ "pgard.config.json": valid });
+      const file = path.join(root, "pgard.config.json");
+      // A hard link keeps the same device and inode, so only O_NOFOLLOW can tell the link.
+      linkSync(file, path.join(root, "same-inode.json"));
+      const result = await loadProjectConfig(root, {
+        afterInspect: () => {
+          rmSync(file);
+          symlinkSync(path.join(root, "same-inode.json"), file);
+        },
+      });
+      expect(result.state).toBe("invalid");
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "without O_NOFOLLOW the opened file must be the inspected one (device and inode)",
+    async () => {
+      const outside = project({ "evil.json": '{"version":1,"exclude":["**"]}' });
+      const root = project({ "pgard.config.json": valid });
+      const file = path.join(root, "pgard.config.json");
+      const result = await loadProjectConfig(root, {
+        pretendNoNoFollow: true,
+        afterInspect: () => {
+          rmSync(file);
+          symlinkSync(path.join(outside, "evil.json"), file);
+        },
+      });
+      expect(result).toMatchObject({ state: "invalid" });
+      expect(JSON.stringify(result)).toContain("changed while it was being opened");
+      // And a normal read still works in that mode.
+      expect(
+        (
+          await loadProjectConfig(project({ "pgard.config.json": valid }), {
+            pretendNoNoFollow: true,
+          })
+        ).state,
+      ).toBe("loaded");
+    },
+  );
+});
+
+describe("describeProjectConfig", () => {
+  it("reports suppressions as parsed, not yet applied", () => {
+    const coverage = describeProjectConfig(
+      {
+        state: "loaded",
+        config: {
+          version: 1,
+          exclude: [],
+          testDirectories: ["e2e"],
+          suppressions: [{ ruleId: "PG-SQL-001", path: "a", reason: "why" }],
+        },
+      },
+      2,
+    );
+    expect(coverage?.status).toBe("completed");
+    expect(coverage?.note).toContain("1 suppression parsed, not yet applied");
+    expect(coverage?.note).toContain("2 findings classified as test code");
+  });
+
+  it("is silent without a file", () => {
+    expect(describeProjectConfig({ state: "absent" }, 0)).toBeNull();
+  });
+});
+
+describe("runScan with pgard.config.json", () => {
+  it("does not analyze excluded files, counts them, and keeps the JSON result valid", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": '{"version":1,"exclude":["legacy/**"]}',
+    });
+    const result = await scan(root);
+    expect(result.findings.map((f) => f.location.path).sort()).toEqual([
+      "e2e/flow.ts",
+      "src/db.ts",
+    ]);
+    const excluded = coverageOf(result, "source:config-excluded");
+    expect(excluded?.note).toMatch(/^1 file excluded by pgard\.config\.json/);
+    expect(excluded?.note).toContain('"legacy/**"');
+    expect(coverageOf(result, "source:config")?.status).toBe("completed");
+    // The coverage reaches the JSON result unchanged.
+    const parsed = readScanResult(JSON.parse(JSON.stringify(result)));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.ok && parsed.result.coverage.map((c) => c.area)).toContain(
+      "source:config-excluded",
+    );
+  });
+
+  it("testDirectories add the test context and report how many findings they moved", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": '{"version":1,"testDirectories":["e2e"]}',
+    });
+    const result = await scan(root);
+    const byPath = Object.fromEntries(result.findings.map((f) => [f.location.path, f]));
+    expect(byPath["e2e/flow.ts"]?.context).toBe("test");
+    expect(byPath["e2e/flow.ts"]?.confidence).toBe("low");
+    expect(byPath["src/db.ts"]?.context).toBeUndefined();
+    expect(coverageOf(result, "source:config")?.note).toContain(
+      "1 finding classified as test code by it",
+    );
+  });
+
+  it("testDirectories cannot remove the test context of a built-in test path", async () => {
+    const root = project({
+      "tests/a.ts": SQL_VULN,
+      "pgard.config.json": '{"version":1,"testDirectories":["nothing-here"]}',
+    });
+    const result = await scan(root);
+    expect(result.findings[0]?.context).toBe("test");
+    expect(coverageOf(result, "source:config")?.note).toContain("0 findings classified");
+  });
+
+  it("testDirectories do not apply to history findings", async () => {
+    const root = project({
+      "pgard.config.json": '{"version":1,"testDirectories":["e2e"]}',
+    });
+    const historyFinding = {
+      id: "h1",
+      ruleId: "PG-SECRET-003",
+      title: "Secret in history",
+      category: "secret_exposure" as const,
+      severity: "high" as const,
+      status: "suspected" as const,
+      confidence: "medium" as const,
+      location: { kind: "commit" as const, path: "e2e/.env", line: 1, url: null, commit: "abc" },
+      evidence: "key added (value redacted)",
+      impact: "i",
+      recommendation: "r",
+      references: { cwe: [], owasp: [], cve: [] },
+      sources: ["history" as const],
+    };
+    const result = await scan(root, ["code", "history"], {
+      code: async () => ({ findings: [], coverage: [] }),
+      history: async () => ({
+        findings: [historyFinding],
+        coverage: [
+          {
+            area: "history:secrets",
+            scope: "history",
+            status: "completed",
+            ruleIds: [],
+            note: null,
+          },
+        ],
+      }),
+    });
+    expect(result.findings[0]?.context).toBeUndefined();
+    expect(result.findings[0]?.confidence).toBe("medium");
+  });
+
+  it.each(["*.*", "src"])(
+    "testDirectories %j cannot quietly demote production findings",
+    async (pattern) => {
+      const root = project({
+        "src/a.ts": SQL_VULN,
+        "src/b.ts": SQL_VULN,
+        "src/c.ts": SQL_VULN,
+        "pgard.config.json": JSON.stringify({ version: 1, testDirectories: [pattern] }),
+      });
+      const result = await scan(root, ["code"]);
+      const demoted = result.findings.filter((f) => f.context === "test");
+      expect(demoted.length).toBeGreaterThan(0);
+      // The warning area exists, is partial (exit code 4) and says why.
+      const entry = coverageOf(result, "source:config-test");
+      expect(entry?.status).toBe("partial");
+      expect(result.overallStatus).toBe("partial");
+      expect(demoted).toHaveLength(3);
+      // The notices every front end shows include the reclassification count.
+      const notices = projectConfigNotices(result.coverage)
+        .map((n) => n.text)
+        .join("\n");
+      expect(notices).toContain(`${demoted.length} finding`);
+      expect(notices).toContain("classified as test code by the testDirectories setting");
+      expect(configTestFindingCount(result.coverage)).toBe(demoted.length);
+    },
+  );
+
+  it("testDirectories that demote every production file make the scan partial", async () => {
+    const root = project({
+      "src/a.ts": SQL_VULN,
+      "src/b.ts": SQL_VULN,
+      "pgard.config.json": '{"version":1,"testDirectories":["*.*"]}',
+    });
+    const result = await scan(root, ["code"]);
+    expect(result.overallStatus).toBe("partial");
+    expect(coverageOf(result, "source:config-test")?.status).toBe("partial");
+    expect(result.findings).toHaveLength(2); // still listed, never dropped
+  });
+
+  it("a legitimate testDirectories config still shows the reclassification notice", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": '{"version":1,"testDirectories":["e2e"]}',
+    });
+    const result = await scan(root, ["code"]);
+    expect(result.overallStatus).toBe("completed");
+    expect(
+      projectConfigNotices(result.coverage)
+        .map((n) => n.text)
+        .join(),
+    ).toContain("1 finding was classified as test code");
+  });
+
+  it("a malicious config that excludes everything is surfaced as partial with a warning", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": '{"version":1,"exclude":["**"]}',
+    });
+    const result = await scan(root);
+    expect(result.findings).toEqual([]);
+    expect(result.overallStatus).toBe("partial");
+    const excluded = coverageOf(result, "source:config-excluded");
+    expect(excluded?.status).toBe("partial");
+    expect(excluded?.note).toMatch(/^3 files excluded by pgard\.config\.json/);
+    expect(excluded?.note).toContain("WARNING");
+  });
+
+  it("a config that marks every path as test code is surfaced, and findings are still listed", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": '{"version":1,"testDirectories":["**"]}',
+    });
+    const result = await scan(root);
+    expect(result.findings).toHaveLength(3);
+    expect(result.findings.every((f) => f.context === "test")).toBe(true);
+    const config = coverageOf(result, "source:config");
+    expect(config?.status).toBe("partial");
+    expect(config?.note).toContain("WARNING");
+    expect(config?.note).toContain("3 findings classified as test code");
+  });
+
+  it("fail-safe: an invalid config is ignored as a whole and reported, nothing is hidden", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": '{"version":1,"exclude":["legacy"],"allowedHosts":["evil.test"]}',
+    });
+    const result = await scan(root);
+    expect(result.findings).toHaveLength(3); // the valid `exclude` is NOT applied either
+    expect(coverageOf(result, "source:config-excluded")).toBeUndefined();
+    const config = coverageOf(result, "source:config");
+    expect(config?.status).toBe("partial");
+    expect(config?.note).toContain("invalid and was ignored");
+    expect(config?.note).toContain("allowedHosts");
+    expect(result.overallStatus).toBe("partial");
+  });
+
+  it("the authorization gate and web target rules are untouched by any config", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json":
+        '{"version":1,"authorization":"skip","webTarget":"http://evil.test","ports":[1]}',
+    });
+    const result = await scan(root, ["code", "web"]);
+    expect(authorizeProject).toHaveBeenCalledTimes(1);
+    expect(coverageOf(result, "source:config")?.status).toBe("partial");
+    expect(result.target.webOrigin).toBeNull();
+    expect(coverageOf(result, "web")?.status).toBe("not_tested");
+  });
+
+  it("does not read the config when authorization blocks the scan", async () => {
+    authorizeProject.mockResolvedValue({
+      ...ALLOWED,
+      summary: { ...ALLOWED.summary, decision: "blocked" },
+    });
+    const root = project({ ...SOURCES, "pgard.config.json": "{" });
+    const result = await scan(root);
+    expect(result.overallStatus).toBe("blocked");
+    expect(result.coverage.map((c) => c.area)).not.toContain("source:config");
+  });
+
+  it("a scan with no config file has no config coverage", async () => {
+    const result = await scan(project(SOURCES));
+    expect(result.coverage.map((c) => c.area)).not.toContain("source:config");
+    expect(result.coverage.map((c) => c.area)).not.toContain("source:config-excluded");
+  });
+});
+
+describe("history scan and excludes", () => {
+  function gitProject(): string {
+    const root = project({
+      "src/db.ts": SQL_VULN,
+      ".env": "AWS_SECRET_ACCESS_KEY=abcdEFGH1234abcdEFGH1234abcdEFGH1234abcd\n",
+      "pgard.config.json": '{"version":1,"exclude":[".env","src"]}',
+    });
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t.test", ...args], {
+        cwd: root,
+        stdio: "ignore",
+      });
+    git("init", "-q");
+    git("add", "-A");
+    git("commit", "-q", "-m", "init", "--no-gpg-sign");
+    return root;
+  }
+
+  it("excludes do not apply to history: the secret in an excluded file is still reported", async () => {
+    const root = gitProject();
+    const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
+    const output = await createDefaultAnalyzers().history({
+      projectRoot: root,
+      revision,
+      env: {},
+      now: () => new Date(),
+      projectConfig: {
+        version: 1,
+        exclude: [".env", "src"],
+        testDirectories: [],
+        suppressions: [],
+      },
+    });
+    expect(output.findings.some((f) => f.location.path === ".env")).toBe(true);
+    const note = output.coverage.find((c) => c.area === "history:config-excluded");
+    expect(note?.scope).toBe("history");
+    expect(note?.ruleIds).toEqual([]);
+    expect(note?.note).toContain("do not apply to Git history");
+    expect(note?.note).toMatch(/set [0-9a-f]{16}/);
+  });
+
+  it("adds no history note when there are no excludes", async () => {
+    const root = gitProject();
+    const output = await createDefaultAnalyzers().history({
+      projectRoot: root,
+      revision: null,
+      env: {},
+      now: () => new Date(),
+      projectConfig: null,
+    });
+    expect(output.coverage.map((c) => c.area)).not.toContain("history:config-excluded");
+  });
+});

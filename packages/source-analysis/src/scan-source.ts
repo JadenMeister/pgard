@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AnalyzerOutput, Coverage, Finding } from "@pgard/findings";
+import {
+  compileGlob,
+  compilePathMatcher,
+  isTestOrFixturePath,
+  isVendoredPath,
+  matchesEverything,
+  type AnalyzerOutput,
+  type Coverage,
+  type Finding,
+  type ProjectConfig,
+} from "@pgard/findings";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
 import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
@@ -13,6 +23,7 @@ import {
   type GeneratedDirectoryReason,
   type SkippedDependencyDirectory,
   type SourceLanguage,
+  type WalkResult,
 } from "./walk.js";
 
 export interface SourceScanOptions {
@@ -21,6 +32,8 @@ export interface SourceScanOptions {
   timeBudgetMs?: number;
   /** Injectable clock (ms) for tests. */
   now?: () => number;
+  /** Validated project configuration; its `exclude` patterns leave source files out, visibly. */
+  projectConfig?: ProjectConfig | null;
 }
 
 const CSRF_MODULES = [
@@ -167,7 +180,14 @@ export async function scanSourceCode(
   projectRoot: string,
   options: SourceScanOptions = {},
 ): Promise<AnalyzerOutput> {
-  const walk = await walkSourceTree(projectRoot);
+  const excludePatterns = options.projectConfig?.exclude ?? [];
+  const excludeMatcher = excludePatterns.length > 0 ? compilePathMatcher(excludePatterns) : null;
+  const testPatterns = options.projectConfig?.testDirectories ?? [];
+  const testMatcher = testPatterns.length > 0 ? compilePathMatcher(testPatterns) : null;
+  const walk = await walkSourceTree(
+    projectRoot,
+    excludeMatcher ? { isExcluded: (relativePath) => excludeMatcher.matches(relativePath) } : {},
+  );
   const raw: RawSourceFinding[] = [];
   const stats: Record<SourceLanguage, LanguageStats> = {
     javascript: {
@@ -372,6 +392,22 @@ export async function scanSourceCode(
   // parseCoverage: a grammar that fails its checksum surfaces as `unavailable` there and becomes
   // a not_tested coverage entry. Do not call TreeSitterRuntime.parse directly and drop it.
   coverage.push(...languageTrackCoverage(await detectLanguageTrack(walk)));
+  if (excludeMatcher !== null) {
+    coverage.push(
+      describeConfigExcluded(
+        excludePatterns,
+        walk.excluded,
+        walk.files.length + walkTrackedCount(walk) + walk.excluded.count,
+      ),
+    );
+  }
+  if (testMatcher !== null) {
+    const analyzed = [
+      ...walk.files.map((file) => file.relativePath),
+      ...Object.values(walk.trackFiles).flatMap((list) => list.map((file) => file.relativePath)),
+    ];
+    coverage.push(describeConfigTestDirectories(testPatterns, analyzed, testMatcher.matches));
+  }
   if (walk.skippedLarge > 0) {
     coverage.push({
       area: "source:large-files",
@@ -441,6 +477,106 @@ export async function scanSourceCode(
   });
 
   return { findings, coverage };
+}
+
+function walkTrackedCount(walk: WalkResult): number {
+  return Object.values(walk.trackFiles).reduce((sum, list) => sum + list.length, 0);
+}
+
+/** The CLI shows at most 300 characters of a coverage note; the count comes first. */
+export const MAX_CONFIG_NOTE_LENGTH = 300;
+
+/**
+ * Coverage entry for files left out by `pgard.config.json`: the count, the share of all source
+ * files found, a hash of the patterns and of the excluded file set (so a later scan notices a
+ * different set even when the count is the same) and the patterns themselves, JSON-quoted. A
+ * pattern that matches every file, or exclusions that leave nothing analyzed, make the area
+ * `partial` with a WARNING: the scan then says little about the project.
+ */
+export function describeConfigExcluded(
+  patterns: readonly string[],
+  excluded: { count: number; digest: string },
+  totalFound: number,
+): Coverage {
+  const catchAll = patterns.filter((pattern) => matchesEverything(compileGlob(pattern)));
+  const everythingExcluded = totalFound > 0 && excluded.count === totalFound;
+  const setHash = createHash("sha256")
+    .update(`${[...patterns].sort().join("\n")}\n--\n${excluded.digest}`)
+    .digest("hex")
+    .slice(0, 16);
+  const count = excluded.count;
+  const warning =
+    catchAll.length > 0
+      ? ` WARNING: ${JSON.stringify(catchAll[0])} matches every file.`
+      : everythingExcluded
+        ? " WARNING: every source file is excluded."
+        : "";
+  const heading = `${count} file${count === 1 ? "" : "s"} excluded by pgard.config.json (of ${totalFound} source files; ${patterns.length} pattern${patterns.length === 1 ? "" : "s"}, set ${setHash}).${warning}`;
+  const compose = (shown: string[]) => {
+    const rest = patterns.length - shown.length;
+    return `${heading} Patterns: ${shown.map((pattern) => JSON.stringify(pattern)).join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  };
+  const shown: string[] = [];
+  for (const pattern of patterns) {
+    if (shown.length === MAX_LISTED_PATHS) break;
+    if (compose([...shown, pattern]).length > MAX_CONFIG_NOTE_LENGTH) break;
+    shown.push(pattern);
+  }
+  return {
+    area: "source:config-excluded",
+    scope: "code",
+    status: warning === "" ? "completed" : "partial",
+    ruleIds: [],
+    note: shown.length === 0 ? heading : compose(shown),
+  };
+}
+
+/** At or above this share of production files (and more than MIN files) the config is suspect. */
+export const CONFIG_TEST_SHARE_WARNING = 0.5;
+export const CONFIG_TEST_MIN_FILES = 20;
+
+/**
+ * Coverage entry `source:config-test` for `testDirectories`. It counts the files the patterns
+ * demote from regular code to test code (files that the built-in rules do not already treat as
+ * test or vendored). Test code is listed apart and its confidence is capped at low, so a config
+ * that marks all or most production files as test code would make real findings look minor: when
+ * the patterns match every such file, or at least half of them and more than 20, the area is
+ * `partial` with a WARNING (a real project keeps most of its code outside test paths).
+ */
+export function describeConfigTestDirectories(
+  patterns: readonly string[],
+  analyzedPaths: readonly string[],
+  matches: (filePath: string) => boolean,
+): Coverage {
+  const production = analyzedPaths.filter(
+    (filePath) => !isTestOrFixturePath(filePath) && !isVendoredPath(filePath),
+  );
+  const demoted = production.filter(matches).length;
+  const isSuspect =
+    production.length > 0 &&
+    (demoted === production.length ||
+      (demoted > CONFIG_TEST_MIN_FILES &&
+        demoted / production.length >= CONFIG_TEST_SHARE_WARNING));
+  const setHash = createHash("sha256")
+    .update(`${[...patterns].sort().join("\n")}\n--\n${demoted}`)
+    .digest("hex")
+    .slice(0, 16);
+  const listed = patterns.slice(0, MAX_LISTED_PATHS).map((pattern) => JSON.stringify(pattern));
+  const rest = patterns.length - listed.length;
+  const note =
+    `${demoted} of ${production.length} source files are classified as test code by pgard.config.json testDirectories (set ${setHash}).` +
+    (isSuspect ? " WARNING: most or all of your code is marked as test code." : "") +
+    ` Patterns: ${listed.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  return {
+    area: "source:config-test",
+    scope: "code",
+    status: isSuspect ? "partial" : "completed",
+    ruleIds: [],
+    note:
+      note.length > MAX_CONFIG_NOTE_LENGTH
+        ? `${note.slice(0, MAX_CONFIG_NOTE_LENGTH - 3)}...`
+        : note,
+  };
 }
 
 /** Short hash of a path set, so a note changes when the set changes without listing the paths. */

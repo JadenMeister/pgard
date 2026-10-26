@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -62,6 +63,12 @@ export interface WalkResult {
   /** Relative paths of manifests used for ORM detection. */
   packageJsonPaths: string[];
   goModPaths: string[];
+  /**
+   * Analyzable source files (any language track) left out by the project's `exclude` patterns.
+   * `digest` is a hash over their paths in walk order, so the set is comparable between scans
+   * without listing it. `count` is 0 when no exclusion applies.
+   */
+  excluded: { count: number; digest: string };
   skippedLarge: number;
   /** Repository-relative paths of every symbolic link (file or directory); never followed. */
   skippedSymlinks: string[];
@@ -91,6 +98,15 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
   ".go": "go",
 };
 
+export interface WalkOptions {
+  /**
+   * Repository-relative POSIX path of an analyzable source file: true leaves it out (counted in
+   * `WalkResult.excluded`). Only files that would be analyzed are asked; skipped directories,
+   * symbolic links, declaration files and minified bundles are never listed either way.
+   */
+  isExcluded?: (relativePath: string) => boolean;
+}
+
 /**
  * Lists analyzable source files under `root`, read-only. Skips build/cache directories,
  * `node_modules/` and `bower_components/` anywhere, and a `vendor/` only when it is a dependency
@@ -99,7 +115,12 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
  * module is analyzed; skipped dependency directories are reported. Also skips
  * symbolic links (never followed), minified bundles, `.d.ts` files and files over 1 MiB.
  */
-export async function walkSourceTree(root: string): Promise<WalkResult> {
+export async function walkSourceTree(root: string, options: WalkOptions = {}): Promise<WalkResult> {
+  const excludedHash = createHash("sha256");
+  const noteExcluded = (relativePath: string) => {
+    result.excluded.count += 1;
+    excludedHash.update(`${relativePath}\n`);
+  };
   const result: WalkResult = {
     files: [],
     trackFiles: { java: [], kotlin: [], python: [], php: [] },
@@ -107,6 +128,7 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     trackTruncated: false,
     packageJsonPaths: [],
     goModPaths: [],
+    excluded: { count: 0, digest: "" },
     skippedLarge: 0,
     skippedSymlinks: [],
     unreadableDirectories: [],
@@ -184,6 +206,10 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       }
       const trackLanguage = TREE_SITTER_EXTENSIONS[path.extname(entry.name)];
       if (trackLanguage) {
+        if (options.isExcluded?.(relativePath)) {
+          noteExcluded(relativePath);
+          continue;
+        }
         const stats = await lstat(absolutePath).catch(() => null);
         if (!stats || !stats.isFile()) continue;
         const list = result.trackFiles[trackLanguage];
@@ -194,6 +220,10 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       const language = EXTENSIONS[path.extname(entry.name)];
       if (!language || entry.name.endsWith(".d.ts") || /\.min\.(js|mjs|cjs)$/.test(entry.name))
         continue;
+      if (options.isExcluded?.(relativePath)) {
+        noteExcluded(relativePath);
+        continue;
+      }
       const stats = await lstat(absolutePath).catch(() => null);
       if (!stats || !stats.isFile()) continue;
       if (stats.size > MAX_FILE_BYTES) {
@@ -205,12 +235,14 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
         // The walk stopped early, so the track lists are lower bounds too.
         result.trackTruncated = true;
         finishTrack(result);
+        result.excluded.digest = excludedHash.digest("hex").slice(0, 16);
         return result;
       }
       result.files.push({ absolutePath, relativePath, language });
     }
   }
   finishTrack(result);
+  result.excluded.digest = excludedHash.digest("hex").slice(0, 16);
   result.files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   return result;
 }

@@ -1,5 +1,7 @@
 import {
   SEVERITIES,
+  projectConfigNotices,
+  configTestGroupNote,
   splitFindingsByContext,
   summarizeBySeverity,
   type AuthorizationSummary,
@@ -185,6 +187,20 @@ export function formatCoverage(coverage: readonly Coverage[], style: Style): str
     .join("\n");
 }
 
+/**
+ * Prominent lines for the project configuration file, shown above the findings so exclusions are
+ * never missed in the coverage list: "N files excluded by pgard.config.json ..." and any warning
+ * or problem with the file itself.
+ */
+export function formatConfigNotices(coverage: readonly Coverage[], style: Style): string[] {
+  return projectConfigNotices(coverage).map((notice) => {
+    const text = safeText(notice.text, 300);
+    return notice.tone === "warning"
+      ? style.yellow(style.bold(`! ${text}`))
+      : style.dim(`  ${text}`);
+  });
+}
+
 const CHECK_STATUS_MARKS: Record<string, string> = {
   passed: "[passed]",
   failed: "[failed]",
@@ -229,6 +245,8 @@ export function formatScanResult(
     sections.push("", formatAuthorization(result.authorization, style));
     return sections.join("\n");
   }
+  const configNotices = formatConfigNotices(result.coverage, style);
+  if (configNotices.length > 0) sections.push("", ...configNotices);
   // Headline counts cover regular code; test and fixture findings follow in their own group and
   // suggestions in vendored code come last.
   const { primary, test, vendored } = splitFindingsByContext(sortBySeverity(result.findings));
@@ -264,7 +282,7 @@ export function formatScanResult(
     sections.push(
       "",
       style.bold(`${TEST_GROUP_TITLE} (${testShown.length})`),
-      style.dim(`  ${TEST_GROUP_NOTE}${severeNote}`),
+      style.dim(`  ${TEST_GROUP_NOTE}${configTestGroupNote(result.coverage)}${severeNote}`),
       formatGroups(testShown, style, allFindings),
     );
   }

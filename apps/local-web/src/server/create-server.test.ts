@@ -921,7 +921,7 @@ describe("local web report download", () => {
     const korean = await apiGet(running, "/api/reports/html?lang=ko");
     expect(korean.status).toBe(200);
     expect(korean.body).toContain('<html lang="ko">');
-    expect(korean.body).toContain("pg/mysql2 query에 동적 문자열로 만든 SQL");
+    expect(korean.body).toContain("pg/mysql2 쿼리에 동적 문자열로 만든 SQL");
     expect((await apiGet(running, "/api/reports/html?lang=fr")).status).toBe(400);
     expect((await apiGet(running, "/api/reports/html")).body).toContain('<html lang="en">');
   });

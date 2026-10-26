@@ -20,6 +20,8 @@ export const ko: Messages = {
     errorNoToken:
       "이 페이지는 `pgard dashboard`가 출력한 개인 세션 URL이 필요합니다. 그 URL을 다시 여세요.",
     errorSession: "대시보드 세션을 사용할 수 없습니다. `pgard dashboard`를 다시 시작하세요.",
+    errorRuleTexts:
+      "한국어 규칙 문구를 불러오지 못했습니다. 규칙 제목과 조치 문구는 영어로 표시됩니다. 페이지를 새로 고쳐 다시 시도하세요.",
   },
   cards: {
     legal: "시작하기 전에",

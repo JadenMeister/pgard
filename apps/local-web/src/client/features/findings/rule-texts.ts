@@ -13,7 +13,8 @@ export function localizeFindingText(
   texts: RuleTextsResponse | null,
   language: Language,
 ): Finding {
-  const entry = texts?.[finding.ruleId];
+  const entry =
+    texts !== null && Object.hasOwn(texts, finding.ruleId) ? texts[finding.ruleId] : undefined;
   if (language === "en" || entry === undefined) return finding;
   return {
     ...finding,

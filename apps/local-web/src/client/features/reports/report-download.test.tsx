@@ -9,7 +9,7 @@ import {
 import { en } from "../../i18n/en";
 import { ko } from "../../i18n/ko";
 import { REVOKE_DELAY_MS, triggerDownload, type DownloadEnvironment } from "./download";
-import { ReportPanel, reportErrorMessage } from "./ReportPanel";
+import { ReportPanel, reportErrorMessage, reportPath } from "./ReportPanel";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -176,5 +176,12 @@ describe("report panel", () => {
     expect(ko.report.downloadHtml).toBe("HTML 다운로드");
     expect(ko.report.preparing("PDF")).toContain("PDF");
     expect(ko.report.failed).not.toBe("");
+  });
+});
+
+describe("reportPath", () => {
+  it("asks for the report in the dashboard language", () => {
+    expect(reportPath("html", "ko")).toBe("/api/reports/html?lang=ko");
+    expect(reportPath("pdf", "en")).toBe("/api/reports/pdf?lang=en");
   });
 });

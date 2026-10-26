@@ -223,3 +223,44 @@ describe("prepareReportResult caps every string", () => {
     expect(truncated).toBe("a".repeat(499) + " (truncated)");
   });
 });
+
+describe("project configuration notices in the HTML report", () => {
+  const coverage = [
+    {
+      area: "source:config-excluded",
+      scope: "code" as const,
+      status: "completed" as const,
+      ruleIds: [],
+      note: '3 files excluded by pgard.config.json (of 9 source files). Patterns: "<b>x</b>".',
+    },
+    {
+      area: "source:config",
+      scope: "code" as const,
+      status: "completed" as const,
+      ruleIds: [],
+      note: "pgard.config.json read: 0 exclude patterns (2 findings classified as test code by it).",
+    },
+  ];
+
+  it("shows the excluded count and the reclassification above the findings, escaped", () => {
+    const html = renderHtmlReport(
+      scanResult({
+        coverage,
+        findings: [finding({ id: "t1", context: "test", confidence: "low" })],
+      }),
+    );
+    const notice = html.indexOf("3 files excluded by pgard.config.json");
+    expect(notice).toBeGreaterThan(-1);
+    expect(notice).toBeLessThan(html.indexOf("<h2>Summary</h2>"));
+    expect(html).toContain(
+      "2 findings were classified as test code by the testDirectories setting",
+    );
+    expect(html).toContain("2 of them were classified by the testDirectories setting");
+    expect(html).not.toContain("<b>x</b>");
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;");
+  });
+
+  it("shows nothing extra without a config", () => {
+    expect(renderHtmlReport(scanResult())).not.toContain("pgard.config.json");
+  });
+});
