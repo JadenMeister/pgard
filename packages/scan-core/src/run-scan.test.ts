@@ -1,5 +1,6 @@
 import {
   readScanResult,
+  SCHEMA_VERSION,
   type AnalyzerOutput,
   type Finding,
   type ScanRequest,
@@ -107,15 +108,19 @@ describe("runScan", () => {
     authorizeProject.mockResolvedValue(ALLOWED);
     const result = await runScan(request(), deps());
     expect(result.findings.length).toBeGreaterThan(0);
-    expect(readScanResult(result)).toEqual({ ok: true, result, sourceVersion: "1.0" });
+    expect(readScanResult(result)).toEqual({ ok: true, result, sourceVersion: SCHEMA_VERSION });
     expect(readScanResult(JSON.parse(JSON.stringify(result)))).toEqual({
       ok: true,
       result,
-      sourceVersion: "1.0",
+      sourceVersion: SCHEMA_VERSION,
     });
     authorizeProject.mockResolvedValue(BLOCKED);
     const blocked = await runScan(request(), deps());
-    expect(readScanResult(blocked)).toEqual({ ok: true, result: blocked, sourceVersion: "1.0" });
+    expect(readScanResult(blocked)).toEqual({
+      ok: true,
+      result: blocked,
+      sourceVersion: SCHEMA_VERSION,
+    });
   });
 
   it("does not run any analyzer when authorization is blocked", async () => {

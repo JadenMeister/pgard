@@ -41,6 +41,10 @@ const NOTICE_MARKER = ".notice-shown";
 const TEMP_PREFIX = ".tmp-";
 /** Leftover temp files (a crashed write) older than this are removed by prune. */
 const STALE_TEMP_MS = 3_600_000;
+/** The repository's baseline (`pgard baseline set`); not a result, so retention never prunes it. */
+const BASELINE_FILE = "baseline.json";
+const BASELINE_KIND = "pgard-baseline";
+const BASELINE_VERSION = 1;
 const RESULT_FILE_PATTERN = /^(\d{13})-([0-9a-f]{16})\.json$/;
 const DIRECTORY_MODE = 0o700;
 const FILE_MODE = 0o600;
@@ -95,6 +99,20 @@ export interface StoredScan {
   sourceVersion: string;
 }
 
+/** The reference scan of a repository. */
+export interface StoredBaseline {
+  /** When the user set it. */
+  setAt: Date;
+  /** The redacted result the baseline was made from. */
+  result: ScanResult;
+  /** The `schemaVersion` the scan inside the file carried. */
+  sourceVersion: string;
+}
+
+export type SetBaselineOutcome = { ok: true } | { ok: false; error: StoreError };
+export type GetBaselineOutcome =
+  { ok: true; baseline: StoredBaseline | null } | { ok: false; error: StoreError };
+
 export interface ListOutcome {
   /** Newest first. */
   scans: StoredScan[];
@@ -121,6 +139,8 @@ export interface ClearOptions {
 export interface ClearOutcome {
   /** Result files deleted. */
   removed: number;
+  /** Baselines deleted with them (a clear removes the baseline of every repository it touches). */
+  baselinesRemoved: number;
   /** Files that could not be matched or deleted (named by `warnings`). */
   warnings: string[];
 }
@@ -151,6 +171,16 @@ export interface ResultStore {
     accept: (scan: StoredScan) => string | null,
   ): Promise<FindNewestOutcome>;
   prune(repositoryId: number): Promise<number>;
+  /**
+   * Stores `result` as the repository's baseline (replacing an earlier one). Same rules as
+   * `save`: only a result the gate allowed, redacted text only, owner-only permissions, no
+   * symbolic links.
+   */
+  setBaseline(result: ScanResult, options: SaveOptions): Promise<SetBaselineOutcome>;
+  /** The baseline, or `baseline: null` when there is none. A corrupt file is an error, not "none". */
+  getBaseline(repositoryId: number): Promise<GetBaselineOutcome>;
+  /** Deletes the baseline; true when there was one. */
+  clearBaseline(repositoryId: number): Promise<boolean>;
   clear(options?: ClearOptions): Promise<ClearOutcome>;
   /** True exactly once per store directory (the caller prints the first-run notice then). */
   claimFirstRunNotice(): Promise<boolean>;
@@ -332,7 +362,16 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
   }
 
   /** Temp file in the same directory, owner-only, fsynced, then renamed over the target. */
-  async function writeAtomically(dir: string, finalName: string, text: string): Promise<void> {
+  async function writeAtomically(
+    dir: string,
+    finalName: string,
+    text: string,
+    /** Version of an existing file; throws when it is unreadable. */
+    existingVersion: (name: string, text: string) => string = (name, body) =>
+      parseStored(name, body).sourceVersion,
+    /** A baseline that cannot be read may be replaced: the user asked for a new one. */
+    replaceUnreadable = false,
+  ): Promise<void> {
     const finalPath = path.join(dir, finalName);
     const tempPath = path.join(
       dir,
@@ -370,12 +409,12 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         }
         let blocked: string | null = null;
         try {
-          const previous = parseStored(finalName, await readCapped(finalPath));
-          if (isNewerVersion(previous.sourceVersion)) {
-            blocked = "A stored result with a newer schema version already has this name.";
+          const version = existingVersion(finalName, await readCapped(finalPath));
+          if (isNewerVersion(version)) {
+            blocked = "A stored file with a newer schema version already has this name.";
           }
         } catch {
-          blocked = "An unreadable stored result already has this name.";
+          if (!replaceUnreadable) blocked = "An unreadable stored file already has this name.";
         }
         if (blocked !== null) throw new StoreFailure("would_overwrite", blocked);
       }
@@ -384,6 +423,34 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       await unlink(tempPath).catch(() => undefined);
       throw error;
     }
+  }
+
+  function parseBaseline(text: string): StoredBaseline {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      throw new StoreFailure("invalid_input", "The baseline file is not valid JSON.");
+    }
+    const record = parsed as Record<string, unknown> | null;
+    if (
+      typeof record !== "object" ||
+      record === null ||
+      record.kind !== BASELINE_KIND ||
+      record.version !== BASELINE_VERSION ||
+      typeof record.setAt !== "string"
+    ) {
+      throw new StoreFailure("invalid_input", "The baseline file is not a PGARD baseline.");
+    }
+    const setAt = new Date(record.setAt);
+    if (Number.isNaN(setAt.getTime())) {
+      throw new StoreFailure("invalid_input", "The baseline file has no valid date.");
+    }
+    const outcome = readScanResult(record.result);
+    if (!outcome.ok) {
+      throw new StoreFailure("invalid_input", `${outcome.error.code}: ${outcome.error.message}`);
+    }
+    return { setAt, result: outcome.result, sourceVersion: outcome.sourceVersion };
   }
 
   async function listFiles(dir: string): Promise<string[]> {
@@ -489,6 +556,96 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       }
     },
 
+    async setBaseline(result, saveOptions) {
+      try {
+        if (!isRepositoryId(saveOptions.repositoryId)) {
+          throw new StoreFailure("invalid_input", "A GitHub repository id is required.");
+        }
+        if (
+          !isAllowedByGate(result) ||
+          result.overallStatus === "blocked" ||
+          result.overallStatus === "failed"
+        ) {
+          throw new StoreFailure(
+            "not_allowed",
+            "Only results of an allowed scan can be a baseline.",
+          );
+        }
+        const checked = readScanResult(JSON.parse(JSON.stringify(result)) as unknown);
+        if (!checked.ok) {
+          throw new StoreFailure(
+            "invalid_input",
+            `The result is not valid: ${checked.error.code}.`,
+          );
+        }
+        const text = `${JSON.stringify({
+          kind: BASELINE_KIND,
+          version: BASELINE_VERSION,
+          setAt: new Date(now()).toISOString(),
+          result: checked.result,
+        })}\n`;
+        for (const forbidden of saveOptions.forbidSubstrings ?? []) {
+          const escaped = JSON.stringify(forbidden).slice(1, -1);
+          if (forbidden !== "" && (text.includes(forbidden) || text.includes(escaped))) {
+            throw new StoreFailure("contains_local_path", "The result contains a local path.");
+          }
+        }
+        if (Buffer.byteLength(text, "utf8") > MAX_RESULT_FILE_BYTES) {
+          throw new StoreFailure("too_large", "The result is too large to store.");
+        }
+        const dir = await ensureRepoDirectory(saveOptions.repositoryId);
+        await writeAtomically(
+          dir,
+          BASELINE_FILE,
+          text,
+          (_name, body) => parseBaseline(body).sourceVersion,
+          true,
+        );
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, error: toStoreError(error) };
+      }
+    },
+
+    async getBaseline(repositoryId) {
+      if (!isRepositoryId(repositoryId)) return { ok: true, baseline: null };
+      try {
+        const dir = path.join(reposDir, String(repositoryId));
+        try {
+          await ensureDirectory(root, false);
+          await ensureDirectory(reposDir, false);
+          await ensureDirectory(dir, false);
+        } catch (error) {
+          if (errnoOf(error) === "ENOENT") return { ok: true, baseline: null };
+          throw error;
+        }
+        try {
+          const text = await readCapped(path.join(dir, BASELINE_FILE));
+          return { ok: true, baseline: parseBaseline(text) };
+        } catch (error) {
+          if (errnoOf(error) === "ENOENT") return { ok: true, baseline: null };
+          throw error;
+        }
+      } catch (error) {
+        return { ok: false, error: toStoreError(error) };
+      }
+    },
+
+    async clearBaseline(repositoryId) {
+      if (!isRepositoryId(repositoryId)) return false;
+      try {
+        const dir = path.join(reposDir, String(repositoryId));
+        await ensureDirectory(root, false);
+        await ensureDirectory(reposDir, false);
+        await ensureDirectory(dir, false);
+        // unlink removes a symlink itself and never follows it.
+        await unlink(path.join(dir, BASELINE_FILE));
+        return true;
+      } catch {
+        return false;
+      }
+    },
+
     async list(repositoryId) {
       const outcome: ListOutcome = { scans: [], warnings: [] };
       if (!isRepositoryId(repositoryId)) return outcome;
@@ -575,7 +732,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     },
 
     async clear(clearOptions = {}) {
-      const outcome: ClearOutcome = { removed: 0, warnings: [] };
+      const outcome: ClearOutcome = { removed: 0, baselinesRemoved: 0, warnings: [] };
       try {
         // Same checks as every other operation: no symlink, ours, 0700. Nothing is created.
         try {
@@ -608,20 +765,25 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
           for (const name of await listFiles(dir)) {
             const file = path.join(dir, name);
             const isResult = RESULT_FILE_PATTERN.test(name);
-            // A name-scoped clear only ever deletes result files it has matched.
-            if (wantedName !== undefined && !isResult) continue;
-            if (isResult && wantedName !== undefined) {
+            const isBaseline = name === BASELINE_FILE;
+            // A name-scoped clear only ever deletes result files and baselines it has matched.
+            if (wantedName !== undefined && !isResult && !isBaseline) continue;
+            if ((isResult || isBaseline) && wantedName !== undefined) {
               try {
-                const scan = parseStored(name, await readCapped(file));
+                const text = await readCapped(file);
+                const scan = isBaseline ? parseBaseline(text) : parseStored(name, text);
                 if (scan.result.target.repo?.toLowerCase() !== wantedName) continue;
               } catch {
-                outcome.warnings.push(`Could not match stored result ${name}; left in place.`);
+                outcome.warnings.push(
+                  `Could not match stored ${isBaseline ? "baseline" : `result ${name}`}; left in place.`,
+                );
                 continue;
               }
             }
             try {
               await unlink(file);
               if (isResult) outcome.removed += 1;
+              if (isBaseline) outcome.baselinesRemoved += 1;
             } catch (error) {
               if (errnoOf(error) !== "ENOENT") {
                 outcome.warnings.push(`Could not delete ${name}.`);

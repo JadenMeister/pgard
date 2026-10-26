@@ -188,6 +188,8 @@ export interface PathMatcher {
   matches(filePath: string | null): boolean;
   /** True once the work budget ran out; later matches all answer false. */
   readonly exhausted: boolean;
+  /** Work spent so far, so callers can share one budget across several matchers. */
+  readonly work: number;
 }
 
 /** One matcher for a list of valid patterns; a path matches when any pattern does. */
@@ -202,6 +204,9 @@ export function compilePathMatcher(
     patterns,
     get exhausted() {
       return exhausted;
+    },
+    get work() {
+      return used;
     },
     matches: (filePath) => {
       if (filePath === null || exhausted) return false;

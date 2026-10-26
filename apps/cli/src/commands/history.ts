@@ -20,9 +20,15 @@ export async function runHistoryClear(
     err(context, context.errStyle.yellow(safeText(warning, 200)));
   }
   const scope = repo === null ? "" : ` for ${safeText(repo, 120)}`;
+  // A cleared history takes the baseline with it: a baseline is a stored scan, and a leftover
+  // one would keep grouping findings after the user asked for everything to be deleted.
+  const baselines =
+    outcome.baselinesRemoved === 0
+      ? ""
+      : ` and ${outcome.baselinesRemoved} baseline${outcome.baselinesRemoved === 1 ? "" : "s"}`;
   out(
     context,
-    `Deleted ${outcome.removed} stored scan result${outcome.removed === 1 ? "" : "s"}${scope} from ${store.dir}.`,
+    `Deleted ${outcome.removed} stored scan result${outcome.removed === 1 ? "" : "s"}${baselines}${scope} from ${store.dir}.`,
   );
   return outcome.warnings.length > 0 ? EXIT_CODES.partial : EXIT_CODES.ok;
 }

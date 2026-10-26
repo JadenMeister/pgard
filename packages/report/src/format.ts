@@ -1,6 +1,10 @@
 import {
   SEVERITIES,
+  baselineNotices,
+  formatBaselineCounts,
+  partitionFindings,
   splitFindingsByContext,
+  suppressionNotices,
   type CoverageStatus,
   type Finding,
   type FindingLocation,
@@ -233,16 +237,47 @@ export const VENDORED_FINDINGS_NOTE =
 export const VENDORED_FINDINGS_DETAIL =
   "Classified by path only: files under a node_modules/, bower_components/, jspm_packages/ or Pods/ directory, or under a vendor/ or third_party/ directory that is not inside src/, app/ or lib/. Their confidence is capped at low and they are not counted above, but they are not dropped: a real secret committed there is still exposed.";
 
+export const SUPPRESSED_FINDINGS_TITLE = "Suppressed";
+export const SUPPRESSED_FINDINGS_NOTE =
+  "These findings matched a suppression in pgard.config.json, a file of the scanned repository. They are still reported here and in the JSON result; the reasons are the file's own words, not PGARD's. Critical findings are always shown open.";
+export const BASELINE_FINDINGS_TITLE = "In baseline";
+export const BASELINE_FINDINGS_NOTE =
+  "These findings were already in the baseline (pgard baseline). They are not new, but they are still reported.";
+
 /**
- * Sorted findings split into regular code (headline counts), test or fixture code, and
- * suggestions in committed third-party (vendored) code.
+ * Sorted findings split into suppressed ones, ones in the baseline, and the rest: regular code
+ * (headline counts), test or fixture code, and suggestions in committed third-party (vendored)
+ * code. Every finding is in exactly one list.
  */
 export function groupReportFindings(findings: readonly Finding[]): {
   primary: Finding[];
   test: Finding[];
   vendored: Finding[];
+  suppressed: Finding[];
+  baseline: Finding[];
 } {
-  return splitFindingsByContext(sortFindings(findings));
+  const { suppressed, baseline, rest } = partitionFindings(sortFindings(findings));
+  return { ...splitFindingsByContext(rest), suppressed, baseline };
+}
+
+/**
+ * Warnings about suppressions and the baseline that both reports show above the summary, so a
+ * suppression is never visible only in the finding list.
+ */
+export function reportSuppressionNotices(result: ScanResult): string[] {
+  return [
+    ...suppressionNotices(result).map((notice) => notice.text),
+    ...baselineNotices(result.baseline)
+      .filter((notice) => notice.tone === "warning")
+      .map((notice) => notice.text),
+  ];
+}
+
+/** Reason line of a suppressed finding, in the config's own words. */
+export function formatSuppressionReason(finding: Finding): string {
+  const suppression = finding.suppression;
+  if (suppression === undefined) return "";
+  return `Suppressed by ${suppression.source}: "${suppression.reason}"${suppression.expires === undefined ? "" : ` (expires ${suppression.expires})`}`;
 }
 
 /**
@@ -291,12 +326,24 @@ export function formatOutsideContexts(counts: { test: number; vendored: number }
 }
 
 /** One-line summary: regular findings by status, plus the separate test and vendored counts. */
-export function formatFindingSummary(findings: readonly Finding[]): string {
-  const { primary, test, vendored } = groupReportFindings(findings);
+export function formatFindingSummary(
+  findings: readonly Finding[],
+  result?: Pick<ScanResult, "baseline" | "suppressions">,
+): string {
+  const { primary, test, vendored, suppressed, baseline } = groupReportFindings(findings);
   const split = summarizeStatusSplit(primary);
+  const critical = suppressed.filter((finding) => finding.severity === "critical").length;
+  const showSuppressed = suppressed.length > 0 || result?.suppressions !== undefined;
   return (
+    (result?.baseline === undefined
+      ? ""
+      : `Baseline: ${formatBaselineCounts(result.baseline)}. New findings: `) +
     `${primary.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.` +
     (test.length === 0 ? "" : ` ${test.length} more in test or fixture code, listed separately.`) +
-    (vendored.length === 0 ? "" : ` ${formatVendoredSuggestions(vendored)}, listed last.`)
+    (vendored.length === 0 ? "" : ` ${formatVendoredSuggestions(vendored)}, listed last.`) +
+    (showSuppressed
+      ? ` ${suppressed.length} suppressed by pgard.config.json${critical > 0 ? ` (including ${critical} critical)` : ""}, listed separately.`
+      : "") +
+    (baseline.length === 0 ? "" : ` ${baseline.length} in baseline, listed separately.`)
   );
 }

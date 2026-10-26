@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ScanResult } from "@pgard/findings";
+import { SCHEMA_VERSION, type ScanResult } from "@pgard/findings";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_RESULT_FILE_BYTES,
@@ -28,7 +28,7 @@ const REPO_ID = 4242;
 
 function makeResult(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: SCHEMA_VERSION,
     scanId: "scan-1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",
@@ -89,7 +89,7 @@ describe("save and list", () => {
     expect(listed.warnings).toEqual([]);
     expect(listed.scans).toHaveLength(1);
     expect(listed.scans[0]?.result.scanId).toBe("scan-1");
-    expect(listed.scans[0]?.sourceVersion).toBe("1.0");
+    expect(listed.scans[0]?.sourceVersion).toBe(SCHEMA_VERSION);
     if (saved.ok) {
       const loaded = await store.load(REPO_ID, saved.file);
       expect(loaded.ok).toBe(true);
@@ -602,13 +602,13 @@ describe("clear", () => {
     await store.save(makeResult({ scanId: "a" }), { repositoryId: 1 });
     await store.save(makeResult({ scanId: "b" }), { repositoryId: 2 });
     const outcome = await store.clear();
-    expect(outcome).toEqual({ removed: 2, warnings: [] });
+    expect(outcome).toEqual({ removed: 2, baselinesRemoved: 0, warnings: [] });
     expect((await store.list(1)).scans).toEqual([]);
     await expect(stat(path.join(dir, "repos"))).rejects.toThrow();
   });
 
   it("is a no-op when the store does not exist", async () => {
-    expect(await store.clear()).toEqual({ removed: 0, warnings: [] });
+    expect(await store.clear()).toEqual({ removed: 0, baselinesRemoved: 0, warnings: [] });
     await expect(stat(dir)).rejects.toThrow();
   });
 

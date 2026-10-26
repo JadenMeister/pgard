@@ -9,6 +9,7 @@ import {
   type CliIo,
 } from "./adapters/terminal.js";
 import { runAdvisoriesUpdate } from "./commands/advisories.js";
+import { runBaseline } from "./commands/baseline.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistoryClear } from "./commands/history.js";
@@ -52,6 +53,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runRulesList(context, command.language);
     case "history-clear":
       return runHistoryClear(context, command.repo);
+    case "baseline":
+      return runBaseline(context, command.action, command.fromCurrent);
     case "doctor":
       return runDoctor(context);
     case "advisories-update":

@@ -6,6 +6,7 @@ import {
   FINDING_CATEGORIES,
   FINDING_CONTEXTS,
   FINDING_STATUSES,
+  SUPPRESSION_STATES,
   LOCATION_KINDS,
   OVERALL_STATUSES,
   SCAN_SCOPES,
@@ -15,13 +16,17 @@ import {
   type AdvisoryDbInfo,
   type AuthorizationCheck,
   type AuthorizationSummary,
+  type BaselineSummary,
   type Coverage,
   type Finding,
   type FindingLocation,
   type FindingReferences,
+  type FindingSuppression,
   type ScanResult,
   type ScanScope,
   type ScanTarget,
+  type SuppressionEntryResult,
+  type SuppressionSummary,
 } from "./contract.js";
 
 /**
@@ -85,6 +90,8 @@ export const READER_KEYS = {
     coverage: true,
     findings: true,
     advisoryDb: true,
+    suppressions: true,
+    baseline: true,
   } satisfies Record<keyof ScanResult, true>,
   finding: {
     id: true,
@@ -101,6 +108,8 @@ export const READER_KEYS = {
     references: true,
     sources: true,
     context: true,
+    suppression: true,
+    inBaseline: true,
   } satisfies Record<keyof Finding, true>,
   location: {
     kind: true,
@@ -127,6 +136,8 @@ export const READER_KEYS = {
   tool: { name: true, version: true } satisfies Record<keyof ScanResult["tool"], true>,
 };
 
+const SUPPRESSION_SOURCES: readonly FindingSuppression["source"][] = ["pgard.config.json"];
+const MAX_COUNT = 1_000_000;
 const TOOL_NAMES: readonly ScanResult["tool"]["name"][] = ["pgard"];
 const SUPPORTED_MAJOR = Number(SCHEMA_VERSION.split(".")[0]);
 const VERSION_PATTERN = /^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
@@ -282,7 +293,76 @@ function readFinding(value: unknown, path: string): Finding {
   if (context !== undefined) {
     finding.context = oneOf(context, FINDING_CONTEXTS, `${path}.context`);
   }
+  const suppression = field(o, "suppression");
+  if (suppression !== undefined)
+    finding.suppression = readSuppression(suppression, `${path}.suppression`);
+  const inBaseline = field(o, "inBaseline");
+  if (inBaseline !== undefined) {
+    if (inBaseline !== true) fail("invalid_shape", `${path}.inBaseline must be true when present.`);
+    finding.inBaseline = true;
+  }
   return finding;
+}
+
+function count(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0 || value > MAX_COUNT) {
+    fail("invalid_shape", `${path} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function bool(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") fail("invalid_shape", `${path} must be true or false.`);
+  return value;
+}
+
+function readSuppression(value: unknown, path: string): FindingSuppression {
+  const o = object(value, path);
+  const expires = field(o, "expires");
+  return {
+    reason: str(field(o, "reason"), `${path}.reason`),
+    ...(expires === undefined ? {} : { expires: str(expires, `${path}.expires`) }),
+    source: oneOf(field(o, "source"), SUPPRESSION_SOURCES, `${path}.source`),
+  };
+}
+
+function readSuppressionEntry(value: unknown, path: string): SuppressionEntryResult {
+  const o = object(value, path);
+  const expires = field(o, "expires");
+  return {
+    ruleId: str(field(o, "ruleId"), `${path}.ruleId`),
+    path: str(field(o, "path"), `${path}.path`),
+    reason: str(field(o, "reason"), `${path}.reason`),
+    ...(expires === undefined ? {} : { expires: str(expires, `${path}.expires`) }),
+    state: oneOf(field(o, "state"), SUPPRESSION_STATES, `${path}.state`),
+    matched: count(field(o, "matched"), `${path}.matched`),
+    wildcard: bool(field(o, "wildcard"), `${path}.wildcard`),
+  };
+}
+
+function readSuppressionSummary(value: unknown): SuppressionSummary {
+  const o = object(value, "suppressions");
+  return {
+    source: oneOf(field(o, "source"), SUPPRESSION_SOURCES, "suppressions.source"),
+    suppressed: count(field(o, "suppressed"), "suppressions.suppressed"),
+    critical: count(field(o, "critical"), "suppressions.critical"),
+    entries: list(field(o, "entries"), "suppressions.entries", 1_000, readSuppressionEntry),
+    incomplete: bool(field(o, "incomplete"), "suppressions.incomplete"),
+  };
+}
+
+function readBaselineSummary(value: unknown): BaselineSummary {
+  const o = object(value, "baseline");
+  return {
+    setAt: str(field(o, "setAt"), "baseline.setAt"),
+    scanId: str(field(o, "scanId"), "baseline.scanId"),
+    revision: nullableStr(field(o, "revision"), "baseline.revision"),
+    total: count(field(o, "total"), "baseline.total"),
+    matched: count(field(o, "matched"), "baseline.matched"),
+    new: count(field(o, "new"), "baseline.new"),
+    newInUncertainAreas: count(field(o, "newInUncertainAreas"), "baseline.newInUncertainAreas"),
+    toolVersionChanged: bool(field(o, "toolVersionChanged"), "baseline.toolVersionChanged"),
+  };
 }
 
 function readCheck(value: unknown, path: string): AuthorizationCheck {
@@ -354,6 +434,10 @@ function parse(input: unknown): ReadScanResultOutcome {
       updatedAt: nullableStr(field(advisory, "updatedAt"), "advisoryDb.updatedAt"),
     },
   };
+  const suppressions = field(input, "suppressions");
+  if (suppressions !== undefined) result.suppressions = readSuppressionSummary(suppressions);
+  const baseline = field(input, "baseline");
+  if (baseline !== undefined) result.baseline = readBaselineSummary(baseline);
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {

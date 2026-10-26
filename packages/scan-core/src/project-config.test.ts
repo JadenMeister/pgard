@@ -231,7 +231,7 @@ describe("loadProjectConfig races and size checks", () => {
 });
 
 describe("describeProjectConfig", () => {
-  it("reports suppressions as parsed, not yet applied", () => {
+  it("counts the suppressions it was given", () => {
     const coverage = describeProjectConfig(
       {
         state: "loaded",
@@ -245,7 +245,7 @@ describe("describeProjectConfig", () => {
       2,
     );
     expect(coverage?.status).toBe("completed");
-    expect(coverage?.note).toContain("1 suppression parsed, not yet applied");
+    expect(coverage?.note).toContain("1 suppression.");
     expect(coverage?.note).toContain("2 findings classified as test code");
   });
 
