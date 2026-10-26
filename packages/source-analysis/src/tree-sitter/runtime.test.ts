@@ -115,7 +115,7 @@ describe("limits", () => {
     const timedOut = { ...stats, tooLarge: [], timedOut: ["slow.py"] };
     const timeoutCoverage = parseCoverage("python", [], timedOut, { timeoutMs: 5 });
     expect(timeoutCoverage.status).toBe("partial");
-    expect(timeoutCoverage.note).toContain("5 ms parse budget");
+    expect(timeoutCoverage.note).toContain("scan deadline");
   });
 
   it("tolerates syntax errors but counts them", async () => {

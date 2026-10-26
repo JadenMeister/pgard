@@ -272,7 +272,7 @@ export function parseCoverage(
   }
   if (stats.timedOut.length > 0) {
     problems.push(
-      `${stats.timedOut.length} file(s) exceeded the ${timeoutMs} ms parse budget (${listQuoted(stats.timedOut)})`,
+      `${stats.timedOut.length} file(s) hit the parse budget (${timeoutMs} ms per file) or the scan deadline (${listQuoted(stats.timedOut)})`,
     );
   }
   if (stats.unreadable.length > 0) {

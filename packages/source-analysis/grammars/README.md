@@ -2,7 +2,7 @@
 
 Prebuilt tree-sitter grammars for the language track, loaded by `web-tree-sitter` (WASM). They are
 vendored unchanged so PGARD needs no native module, no install script and no large grammar bundle.
-A test (`src/tree-sitter/grammars.test.ts`) checks every SHA-256 below.
+A test (`src/tree-sitter/walk-track.test.ts`) checks every SHA-256 below.
 
 | File                      | Source                                                                      | SHA-256                                                            | License                           |
 | ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------- |

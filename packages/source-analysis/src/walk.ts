@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
@@ -95,6 +95,33 @@ function isPythonSitePackages(relativePath: string): boolean {
   );
 }
 
+/**
+ * A virtualenv has `pyvenv.cfg` plus an activate script (`bin/activate`, `Scripts/activate`) or a
+ * `site-packages` directory (`lib/python3.x/site-packages`, `Lib/site-packages`). An empty
+ * `pyvenv.cfg` alone must not hide first-party code.
+ */
+async function looksLikeVirtualenv(
+  directory: string,
+  entries: readonly Dirent[],
+): Promise<boolean> {
+  const isFile = async (...parts: string[]) =>
+    (await lstat(path.join(directory, ...parts)).catch(() => null))?.isFile() === true;
+  const isDirectory = async (...parts: string[]) =>
+    (await lstat(path.join(directory, ...parts)).catch(() => null))?.isDirectory() === true;
+  if ((await isFile("bin", "activate")) || (await isFile("Scripts", "activate"))) return true;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^lib(64)?$/i.test(entry.name)) continue;
+    if (await isDirectory(entry.name, "site-packages")) return true;
+    const children = await readdir(path.join(directory, entry.name)).catch(() => [] as string[]);
+    for (const child of children) {
+      if (/^python\d/i.test(child) && (await isDirectory(entry.name, child, "site-packages"))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 const GRADLE_FILES = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
 
 function generatedDirectoryReason(
@@ -160,11 +187,12 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     // A directory is a Python virtual environment only if it holds `pyvenv.cfg` (written by
-    // `python -m venv` and virtualenv). The name alone proves nothing: `app/venv/server.js` and
+    // `python -m venv` and virtualenv) and the layout of an environment (see looksLikeVirtualenv). The name alone proves nothing: `app/venv/server.js` and
     // `Lib/venv/__init__.py` are first-party. Its contents are third-party and not analyzed.
     if (
       directory !== root &&
-      entries.some((entry) => entry.name === "pyvenv.cfg" && entry.isFile())
+      entries.some((entry) => entry.name === "pyvenv.cfg" && entry.isFile()) &&
+      (await looksLikeVirtualenv(directory, entries))
     ) {
       result.skippedDependencyDirectories.push({
         path: path.relative(root, directory).split(path.sep).join("/"),

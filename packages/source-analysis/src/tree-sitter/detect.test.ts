@@ -81,6 +81,7 @@ describe("language detection and coverage", () => {
       "composer.json": JSON.stringify({ require: { "laravel/framework": "^11" } }),
       "web/index.php": "<?php echo 1;\n",
       ".venv/pyvenv.cfg": "home = /usr/bin\n",
+      ".venv/bin/activate": "",
       ".venv/lib/site.py": "x = 1\n",
     });
     const coverage = languageTrackCoverage(await detectLanguageTrack(await walkSourceTree(root)));

@@ -127,7 +127,11 @@ export function detectGradleFrameworks(text: string): Framework[] {
 
 /** `gradle/libs.versions.toml` version catalogs: text search, `#` comments removed. */
 export function detectGradleCatalogFrameworks(text: string): Framework[] {
-  const withoutComments = text.replace(/^\s*#.*$/gm, "");
+  // Line by line: a `\s*` with the `m` flag would span newlines and go quadratic.
+  const withoutComments = text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("#"))
+    .join("\n");
   return SPRING_PATTERN.test(withoutComments) ? ["Spring"] : [];
 }
 

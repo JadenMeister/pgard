@@ -7,8 +7,12 @@ import { scanSourceCode } from "../scan-source.js";
 import { MAX_FILES, walkSourceTree } from "../walk.js";
 import {
   detectGradleCatalogFrameworks,
+  detectComposerFrameworks,
   detectGradleFrameworks,
   detectFrameworks,
+  detectMavenFrameworks,
+  detectPyprojectFrameworks,
+  detectRequirementsFrameworks,
   stripGradleComments,
 } from "./detect-frameworks.js";
 import {
@@ -84,6 +88,7 @@ describe("virtual environments and generated directories", () => {
   it("skips a real virtual environment (pyvenv.cfg) and site-packages under lib/python", async () => {
     const root = project({
       "env/pyvenv.cfg": "home = /usr/bin\n",
+      "env/bin/activate": "",
       "env/lib/python3.12/site-packages/dep.py": "x = 1\n",
       "docs/lib/python3.11/site-packages/dep.py": "x = 1\n",
       "src/main.py": "x = 1\n",
@@ -93,6 +98,22 @@ describe("virtual environments and generated directories", () => {
     expect(walk.skippedDependencyDirectories).toEqual([
       { path: "env", reason: "Python virtual environment" },
       { path: "docs/lib/python3.11/site-packages", reason: "Python site-packages" },
+    ]);
+  });
+
+  it("does not treat a lone pyvenv.cfg as a virtualenv", async () => {
+    const root = project({
+      "src/pyvenv.cfg": "",
+      "src/hidden.js": "module.exports = 1;\n",
+      "src/hidden.py": "x = 1\n",
+      "winenv/pyvenv.cfg": "home = C:\\Python\n",
+      "winenv/Lib/site-packages/dep.py": "x = 1\n",
+    });
+    const walk = await walkSourceTree(root);
+    expect(walk.files.map((file) => file.relativePath)).toEqual(["src/hidden.js"]);
+    expect(walk.trackFiles.python.map((file) => file.relativePath)).toEqual(["src/hidden.py"]);
+    expect(walk.skippedDependencyDirectories).toEqual([
+      { path: "winenv", reason: "Python virtual environment" },
     ]);
   });
 
@@ -160,6 +181,30 @@ describe("more manifests", () => {
     expect(detectGradleFrameworks(script)).toEqual(["Spring"]);
     expect(detectGradleFrameworks(`url "https://a" // org.springframework\n`)).toEqual([]);
     expect(stripGradleComments("/* ".repeat(200_000)).length).toBe(0);
+  });
+});
+
+describe("regular expression cost", () => {
+  it("handles a catalog and manifests made of newlines and blanks quickly", async () => {
+    const megabyte = 1024 * 1024;
+    const inputs = ["\n".repeat(megabyte), " \n".repeat(megabyte / 2), "#\n".repeat(megabyte / 2)];
+    const startedAt = Date.now();
+    for (const input of inputs) {
+      expect(detectGradleCatalogFrameworks(input)).toEqual([]);
+      expect(detectGradleFrameworks(input)).toEqual([]);
+      expect(detectPyprojectFrameworks(input)).toEqual([]);
+      expect(detectRequirementsFrameworks(input).frameworks).toEqual([]);
+      expect(detectMavenFrameworks(input)).toEqual([]);
+      expect(detectComposerFrameworks(input)).toBe("invalid_json");
+    }
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
+  });
+
+  it("handles repeated groupId openers and blanks quickly", () => {
+    const startedAt = Date.now();
+    expect(detectMavenFrameworks("<groupId>".repeat(100_000) + " ".repeat(500_000))).toEqual([]);
+    expect(detectMavenFrameworks("<groupId> ".repeat(100_000))).toEqual([]);
+    expect(Date.now() - startedAt).toBeLessThan(10_000);
   });
 });
 
