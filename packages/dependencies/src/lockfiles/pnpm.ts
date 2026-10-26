@@ -137,23 +137,45 @@ function child(node: Node | undefined, key: string): Node | undefined {
 
 const SEMVERISH = /^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?$/;
 
+/** Text before the first `marker` (all of it if there is none). Linear; no backtracking. */
+function before(text: string, marker: string): string {
+  const at = text.indexOf(marker);
+  return at === -1 ? text : text.slice(0, at);
+}
+
+/** v5 keys: `/name/1.2.3` or `/@scope/name/1.2.3_peer@1`. Plain scans, no patterns on the key. */
+function splitV5Key(key: string): { name: string; version: string } | null {
+  if (!key.startsWith("/")) return null;
+  const rest = key.slice(1);
+  let nameStart = 0;
+  if (rest.startsWith("@")) {
+    const scopeEnd = rest.indexOf("/");
+    if (scopeEnd <= 1) return null;
+    nameStart = scopeEnd + 1;
+  }
+  const separator = rest.indexOf("/", nameStart);
+  if (separator <= nameStart) return null;
+  const lastSegment = rest.slice(nameStart, separator);
+  if (lastSegment.includes("@")) return null;
+  const version = before(rest.slice(separator + 1), "_");
+  if (version === "" || version.includes("/") || !/^\d/.test(version)) return null;
+  return { name: rest.slice(0, separator), version };
+}
+
 /** Splits a `packages:` key into name and version for every pnpm lockfile generation. */
 function splitPackageKey(key: string): { name: string; version: string } | null {
-  // v5: /name/1.2.3 or /@scope/name/1.2.3_peer@1
-  const v5 = /^\/((?:@[^/]+\/)?[^/@]+)\/(\d[^/_]*)(?:_.*)?$/.exec(key);
-  if (v5 !== null) return { name: v5[1] as string, version: v5[2] as string };
+  const v5 = splitV5Key(key);
+  if (v5 !== null) return v5;
   // v6: /name@1.2.3(peer@1)   v9: name@1.2.3(peer@1)
-  const stripped = key.replace(/^\//, "").replace(/\(.*$/, "");
+  const stripped = before(key.startsWith("/") ? key.slice(1) : key, "(");
   const at = stripped.indexOf("@", 1);
   if (at <= 0) return null;
-  const name = stripped.slice(0, at);
-  const version = stripped.slice(at + 1).replace(/_.*$/, "");
-  return { name, version };
+  return { name: stripped.slice(0, at), version: before(stripped.slice(at + 1), "_") };
 }
 
 /** Importer dependency value -> bare version, or `null` for links and other non-registry specs. */
 function importerVersion(value: string): string | null {
-  const bare = value.replace(/\(.*$/, "").replace(/_.*$/, "");
+  const bare = before(before(value, "("), "_");
   return SEMVERISH.test(bare) ? bare : null;
 }
 

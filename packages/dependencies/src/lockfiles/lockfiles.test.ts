@@ -449,6 +449,24 @@ describe("hostile input", () => {
     }
   });
 
+  it("pnpm: package keys and importer versions made of ( and _ with a trailing CR stay fast", () => {
+    const shapes = ["(", "_", "(_", "/a/1_", "a@1("];
+    for (const shape of shapes) {
+      const key = `${shape.repeat(Math.floor(16_000 / shape.length))}\r`;
+      const lines = Array.from(
+        { length: 60 },
+        (_unused, index) => `  '${index}${key}':\n    resolution: {integrity: x}\n`,
+      ).join("");
+      const importers = Array.from(
+        { length: 60 },
+        (_unused, index) => `      d${index}:\n        specifier: ^1\n        version: ${key}\n`,
+      ).join("");
+      const text = `lockfileVersion: '9.0'\nimporters:\n  .:\n    dependencies:\n${importers}packages:\n${lines}`;
+      const { ms } = timed(() => parsePnpmLock(text));
+      expect(ms, shape).toBeLessThan(BOUND_MS);
+    }
+  });
+
   it("yarn, go and npm: megabyte-long lines parse in bounded time", () => {
     const long = "x".repeat(1_000_000);
     const spaces = " ".repeat(1_000_000);

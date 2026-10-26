@@ -42,6 +42,11 @@ export function isInteractive(io: CliIo): boolean {
   return io.stdin.isTTY === true && io.stdout.isTTY === true;
 }
 
+/** Prompts shown on stderr: stdin and stderr are terminals (stdout may be redirected). */
+export function isInteractiveOnStderr(io: CliIo): boolean {
+  return io.stdin.isTTY === true && io.stderr.isTTY === true;
+}
+
 /**
  * Raw-mode key reader. Ctrl+C arrives as a key (not SIGINT) while it is active, so prompts can
  * ask for cancel confirmation themselves.
