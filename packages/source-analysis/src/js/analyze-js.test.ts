@@ -1286,6 +1286,115 @@ describe("injection precision and recall (#242)", () => {
     });
   });
 
+  describe("scope, aliases and normalizers (review round 3)", () => {
+    it("does not resolve a const that is local to another function or assigned elsewhere", () => {
+      const head = "import { exec } from 'child_process';";
+      expect(
+        rulesIn(
+          `${head} function setup() { const dir = '/var/log'; return dir; }
+           export const f = (req) => { exec('du -sh ' + dir); };
+           export const g = (req) => { dir = req.query.d; };`,
+        ),
+      ).toEqual(["PG-CMD-001"]);
+      expect(
+        rulesIn(
+          `${head} function setup() { const dir = '/var/log'; return dir; }
+           export const f = (req) => { exec('du -sh ' + dir); }; globalThis.dir = req.query.d;`,
+        ),
+      ).toEqual(["PG-CMD-001"]);
+      expect(
+        rulesIn(`${head} export function f() { const dir = '/var/log'; exec('du -sh ' + dir); }`),
+      ).toEqual([]);
+    });
+
+    const url = (guardAndRest: string) =>
+      `export async function f(req: any) { const u = new URL(req.query.u);
+       if (u.hostname !== 'a.com' || u.protocol !== 'https:') throw 1; ${guardAndRest} }`;
+
+    it("keeps the finding when an inner binding shadows the guarded URL", () => {
+      expect(rulesIn(url("return fetch(u);"))).toEqual([]);
+      expect(rulesIn(url("for (const u of req.body.m) { await fetch(u); }"))).toEqual([
+        "PG-SSRF-001",
+      ]);
+      expect(rulesIn(url("{ const u = new URL(req.query.b); return fetch(u); }"))).toEqual([
+        "PG-SSRF-001",
+      ]);
+    });
+
+    it("keeps the finding when the URL is mutated through an alias or a helper", () => {
+      expect(rulesIn(url("const v = u; v.hostname = req.query.h; return fetch(u);"))).toEqual([
+        "PG-SSRF-001",
+      ]);
+      expect(rulesIn(url("retarget(u, req.query.h); return fetch(u);"))).toEqual(["PG-SSRF-001"]);
+    });
+
+    it("requires the sink side of the subject to be stable too", () => {
+      // The guard checks `v`, which is clean; `w` is a copy that is handed to a function.
+      expect(
+        rulesIn(
+          `export async function f(req: any) { const v = new URL(req.query.u);
+           if (v.hostname !== 'a.com' || v.protocol !== 'https:') throw 1;
+           const w = new URL(v.href); register(w); return fetch(w); }`,
+        ),
+      ).toEqual(["PG-SSRF-001"]);
+      expect(
+        rulesIn(
+          `export async function f(req: any) { const v = new URL(req.query.u);
+           if (v.hostname !== 'a.com' || v.protocol !== 'https:') throw 1;
+           const w = new URL(v.href); return fetch(w); }`,
+        ),
+      ).toEqual([]);
+    });
+
+    it("keeps the finding when a destructured URL object is passed to a helper", () => {
+      const code = (middle: string) =>
+        `export async function f(req: any) { const { u } = req.body;
+         if (u.hostname !== 'a.com' || u.protocol !== 'https:') throw 1; ${middle} return fetch(u); }`;
+      expect(rulesIn(code(""))).toEqual([]);
+      expect(rulesIn(code("retarget(u);"))).toEqual(["PG-SSRF-001"]);
+    });
+
+    it("trusts only the real path/fs normalizers, not a local resolve", () => {
+      const body = `const full = resolve(ROOT, req.query.name);
+        if (!full.startsWith(ROOT + path.sep)) return res.end(); fs.readFileSync(full);`;
+      const head = "import fs from 'fs'; import path from 'path'; const ROOT = '/srv';";
+      expect(
+        rulesIn(
+          `${head} const resolve = (b, n) => b + '/' + n; export const f = (req, res) => { ${body} };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+      expect(
+        rulesIn(
+          `${head} import { resolve } from 'path'; export const f = (req, res) => { ${body} };`,
+        ),
+      ).toEqual([]);
+      expect(
+        rulesIn(
+          `${head} import { resolve } from './mine'; export const f = (req, res) => { ${body} };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+      expect(
+        rulesIn(
+          `${head} import { resolve } from 'path'; export const f = (req, res) => { const resolve = (b, n) => b + n; ${body} };`,
+        ),
+      ).toEqual(["PG-PATH-001"]);
+    });
+
+    it("does not trust an exported allowlist table", () => {
+      const query = "pool.query('SELECT * FROM t ORDER BY ' + T[req.query.k])";
+      expect(
+        rulesIn(
+          `import { Pool } from 'pg'; const pool = new Pool(); const T = { a: 'x' }; export const f = (req) => ${query};`,
+        ),
+      ).toEqual([]);
+      expect(
+        rulesIn(
+          `import { Pool } from 'pg'; const pool = new Pool(); export const T = { a: 'x' }; export const f = (req) => ${query};`,
+        ),
+      ).toEqual(["PG-SQL-001"]);
+    });
+  });
+
   it("stays linear with thousands of guarded sinks in one function", () => {
     const build = (count: number) => {
       const lines = Array.from(
@@ -1299,6 +1408,6 @@ describe("injection precision and recall (#242)", () => {
     const small = bestTimeOf(3, () => analyzeJsSource(build(500), "a.ts"));
     const large = bestTimeOf(3, () => analyzeJsSource(build(2500), "a.ts"));
     expect(analyzeJsSource(build(50), "a.ts").findings).toEqual([]);
-    expect(large / Math.max(small, 1)).toBeLessThan(40);
+    expect(large / Math.max(small, 1)).toBeLessThan(12); // 5x the input: linear is about 5, quadratic about 25
   }, 120_000);
 });

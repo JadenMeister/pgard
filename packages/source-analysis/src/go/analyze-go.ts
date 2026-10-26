@@ -118,6 +118,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const functionSpans: FunctionSpan[] = [];
   const bound = new Map<string, number>();
   const constDeclarations = new Map<string, number>();
+  const constPositions = new Map<string, number>();
   const bump = (map: Map<string, number>, name: string) => map.set(name, (map.get(name) ?? 0) + 1);
   const bumpTokens = (text: string) => {
     for (const token of text.matchAll(/[A-Za-z_]\w*/g)) bump(bound, token[0]);
@@ -152,7 +153,10 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         )?.[1];
         if (names) lineNames.push(...names.split(",").map((name) => name.trim()));
       }
-      for (const name of lineNames) bump(constDeclarations, name);
+      for (const name of lineNames) {
+        bump(constDeclarations, name);
+        constPositions.set(name, at);
+      }
       withoutConsts += code.slice(cursor, at) + code.slice(at, end).replace(/[^\n]/g, " ");
       cursor = end;
     }
@@ -220,7 +224,25 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       }
     }
     for (const [name, count] of constDeclarations) {
-      if (count === 1 && !bound.has(name)) inertNames.add(name);
+      if (count !== 1 || bound.has(name)) continue;
+      // A const declared inside a function is trusted only when every use of the name is inside
+      // that same function: another function (or file of the package) may mean a package variable.
+      const at = constPositions.get(name) ?? 0;
+      const owner = functionSpans
+        .filter((span) => span.start <= at && at <= span.end)
+        .sort((a, b) => b.start - a.start)[0];
+      if (owner) {
+        let outside = false;
+        for (const use of code.matchAll(new RegExp(`(?<![\\w.])${name}\\b`, "g"))) {
+          const index = use.index ?? 0;
+          if (index < owner.start || index > owner.end) {
+            outside = true;
+            break;
+          }
+        }
+        if (outside) continue;
+      }
+      inertNames.add(name);
     }
     // `n, err := strconv.Atoi(...)`: a number, trusted only when this is the name's only binding.
     for (const match of withoutConsts.matchAll(

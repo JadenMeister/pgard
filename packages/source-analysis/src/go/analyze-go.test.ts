@@ -368,6 +368,39 @@ func b(r *http.Request) {
       }
     });
 
+    it("reads items appended to the slice", () => {
+      expect(
+        rulesIn(
+          exec(
+            `func f(r *http.Request) {\n\targs := []string{"-c"}\n\targs = append(args, r.FormValue("c"))\n\texec.Command("sh", args...).Run()\n}`,
+          ),
+        ),
+      ).toEqual(["PG-CMD-002"]);
+      expect(
+        rulesIn(
+          exec(
+            `func f() {\n\targs := []string{"-c"}\n\targs = append(args, "uptime")\n\texec.Command("sh", args...).Run()\n}`,
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    it("does not trust a function-local const used in another function", () => {
+      const source = exec(`func defaults() string {
+	const hookCmd = "true"
+	return hookCmd
+}
+func run() { exec.Command("sh", "-c", hookCmd).Run() }`);
+      expect(rulesIn(source)).toEqual(["PG-CMD-002"]);
+      expect(
+        rulesIn(
+          exec(
+            `func run() {\n\tconst hookCmd = "true"\n\texec.Command("sh", "-c", hookCmd).Run()\n}`,
+          ),
+        ),
+      ).toEqual([]);
+    });
+
     it("does not flag a constant or parsed script", () => {
       expect(
         rulesIn(

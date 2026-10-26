@@ -729,12 +729,10 @@ export function analyzeJsSource(
     // changed, and its initializer must be the resolving call itself.
     const pathArgument = unwrap(first);
     if (ts.isIdentifier(pathArgument)) {
-      const init = soleConst(pathArgument.text);
+      const init = soleConst(pathArgument.text, pathArgument);
       const initializer = init ? unwrap(init) : null;
       const isResolved =
-        initializer !== null &&
-        ts.isCallExpression(initializer) &&
-        /^(resolve|realpath|realpathSync)$/.test(calleeName(initializer) ?? "");
+        initializer !== null && ts.isCallExpression(initializer) && isNormalizingCall(initializer);
       if (
         isResolved &&
         isStableName(pathArgument.text, true) &&
@@ -990,6 +988,8 @@ export function analyzeJsSource(
   const bindingCount = new Map<string, number>();
   const mutatedRoots = new Set<string>();
   const tableMisuse = new Set<string>();
+  /** Names used as more than a property read or a request argument: aliased, passed on, assigned. */
+  const subjectEscapes = new Set<string>();
   const countBinding = (name: string) => bindingCount.set(name, (bindingCount.get(name) ?? 0) + 1);
   const rootName = (expression: ts.Expression): string | null => {
     let current = unwrap(expression);
@@ -1000,6 +1000,16 @@ export function analyzeJsSource(
       else break;
     }
     return ts.isIdentifier(current) ? current.text : null;
+  };
+  const rootIdentifier = (expression: ts.Expression): ts.Identifier | null => {
+    let current = unwrap(expression);
+    for (;;) {
+      if (ts.isPropertyAccessExpression(current) || ts.isElementAccessExpression(current))
+        current = unwrap(current.expression);
+      else if (ts.isCallExpression(current)) current = unwrap(current.expression);
+      else break;
+    }
+    return ts.isIdentifier(current) ? current : null;
   };
   const isWriteTarget = (access: ts.Node): boolean => {
     const parent = access.parent;
@@ -1126,14 +1136,117 @@ export function analyzeJsSource(
           isRead = true;
         }
         if (!isRead) tableMisuse.add(node.text);
+        let isSubjectRead = isRead;
+        if (!isSubjectRead) {
+          if (
+            ts.isCallExpression(parent) &&
+            parent.arguments.some((argument) => argument === current)
+          )
+            isSubjectRead =
+              /^(fetch|get|post|put|patch|delete|head|request|got|axios|needle|superagent|String|has|includes|indexOf|startsWith|endsWith)$/.test(
+                calleeName(parent) ?? "",
+              );
+          else if (ts.isNewExpression(parent) && calleeName(parent) === "URL") isSubjectRead = true;
+          else if (
+            ts.isPropertyAccessExpression(parent) &&
+            parent.expression === current &&
+            /^(toString|valueOf)$/.test(parent.name.text)
+          )
+            isSubjectRead = true;
+        }
+        if (!isSubjectRead) subjectEscapes.add(node.text);
       }
     }
     ts.forEachChild(node, collectFacts);
   };
   collectFacts(sourceFile);
   /** A module constant that no other binding of the same name can shadow. */
-  const soleConst = (name: string): ts.Expression | null =>
-    bindingCount.get(name) === 1 ? singleConst(name) : null;
+  const soleConst = (name: string, use: ts.Node): ts.Expression | null => {
+    if (bindingCount.get(name) !== 1 || reassigned.has(name)) return null;
+    const init = singleConst(name);
+    if (!init) return null;
+    // Block scope: the declaring block must enclose the use (module level encloses everything).
+    let container: ts.Node | undefined = init.parent;
+    while (
+      container &&
+      !ts.isBlock(container) &&
+      !ts.isSourceFile(container) &&
+      !ts.isModuleBlock(container)
+    )
+      container = container.parent;
+    if (!container) return null;
+    if (ts.isSourceFile(container)) return init;
+    return container.pos <= use.pos && use.end <= container.end ? init : null;
+  };
+  const isExported = (initializer: ts.Expression): boolean => {
+    const statement = initializer.parent.parent.parent;
+    return (
+      ts.isVariableStatement(statement) &&
+      (ts.getCombinedModifierFlags(statement.declarationList.declarations[0] as ts.Declaration) &
+        ts.ModifierFlags.Export) !==
+        0
+    );
+  };
+  /** Names of the scope's own bindings, for resolving an identifier to its declaration. */
+  const scopeNames = new Map<ts.Node, Map<string, ts.Node>>();
+  const namesDeclaredBy = (scope: ts.Node): Map<string, ts.Node> => {
+    let names = scopeNames.get(scope);
+    if (names) return names;
+    const own = new Map<string, ts.Node>();
+    names = own;
+    const add = (binding: ts.BindingName, declaration: ts.Node) => {
+      const found: string[] = [];
+      bindingNames(binding, found);
+      for (const name of found) own.set(name, declaration);
+    };
+    if (ts.isFunctionLike(scope))
+      for (const parameter of scope.parameters) add(parameter.name, parameter);
+    if (ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope)) {
+      for (const statement of scope.statements) {
+        if (ts.isVariableStatement(statement))
+          for (const declaration of statement.declarationList.declarations)
+            add(declaration.name, declaration);
+        else if (
+          (ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) &&
+          statement.name
+        )
+          own.set(statement.name.text, statement);
+      }
+    }
+    if (
+      (ts.isForStatement(scope) || ts.isForInStatement(scope) || ts.isForOfStatement(scope)) &&
+      scope.initializer &&
+      ts.isVariableDeclarationList(scope.initializer)
+    )
+      for (const declaration of scope.initializer.declarations) add(declaration.name, declaration);
+    if (ts.isCatchClause(scope) && scope.variableDeclaration)
+      add(scope.variableDeclaration.name, scope.variableDeclaration);
+    scopeNames.set(scope, own);
+    return own;
+  };
+  /** Identity of the binding an identifier refers to ("g" when it is not declared in a scope). */
+  const bindingIdentity = (identifier: ts.Identifier): string => {
+    let current: ts.Node | undefined = identifier.parent;
+    while (current) {
+      const declaration = namesDeclaredBy(current).get(identifier.text);
+      if (declaration) return String(declaration.pos);
+      current = current.parent;
+    }
+    return "g";
+  };
+  /** A call that normalizes a path: `path.resolve` or `fs.realpath*` reached through an import. */
+  const isNormalizingCall = (call: ts.CallExpression): boolean => {
+    const resolved = moduleOfCall(call);
+    if (!resolved) return false;
+    const callee = accessPath(call.expression);
+    // A local binding of the same name shadows the import.
+    if (bindingCount.get(callee ? (callee.split(".")[0] ?? "") : "") !== 1) return false;
+    const module = resolved.module.replace(/^node:/, "");
+    if (/^path(\/(posix|win32))?$/.test(module)) return resolved.member === "resolve";
+    if (/^fs(\/promises)?$/.test(module))
+      return resolved.member === "realpath" || resolved.member === "realpathSync";
+    return false;
+  };
   const isConstDeclaration = (initializer: ts.Expression): boolean =>
     ts.isVariableDeclaration(initializer.parent) &&
     ts.isVariableDeclarationList(initializer.parent.parent) &&
@@ -1151,10 +1264,11 @@ export function analyzeJsSource(
     if (depth > 4) return false;
     const node = unwrap(expression);
     if (ts.isIdentifier(node)) {
-      const init = soleConst(node.text);
+      const init = soleConst(node.text, node);
       return (
         init !== null &&
         isConstDeclaration(init) &&
+        !isExported(init) &&
         !tableMisuse.has(node.text) &&
         !mutatedRoots.has(node.text) &&
         isInertTable(init, depth + 1)
@@ -1239,7 +1353,7 @@ export function analyzeJsSource(
     }
     if (ts.isIdentifier(node)) {
       if (node.text === "undefined") return bindingCount.get("undefined") === undefined;
-      const init = soleConst(node.text);
+      const init = soleConst(node.text, node);
       return init !== null && inert(init);
     }
     if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node))
@@ -1302,10 +1416,17 @@ export function analyzeJsSource(
   const canonicalSubject = (expression: ts.Expression, depth = 0): Subject => {
     const node = unwrap(expression);
     const terminal = (): Subject => {
-      const root = accessPath(node) === null ? null : rootName(node);
+      const root = accessPath(node) === null ? null : rootIdentifier(node);
       return {
-        text: node.getText(sourceFile),
-        stable: root !== null && isStableName(root, false),
+        // The binding's identity keeps an inner `u` (loop variable, nested block) apart from the
+        // outer `u` the guard checked.
+        text: root
+          ? `${bindingIdentity(root)}:${node.getText(sourceFile)}`
+          : node.getText(sourceFile),
+        stable:
+          root !== null &&
+          isStableName(root.text, false) &&
+          (ts.isIdentifier(node) ? !subjectEscapes.has(root.text) : true),
       };
     };
     if (depth > 5) return { text: node.getText(sourceFile), stable: false };
@@ -1321,7 +1442,7 @@ export function analyzeJsSource(
     if (ts.isPropertyAccessExpression(node) && node.name.text === "href")
       return canonicalSubject(node.expression, depth + 1);
     if (ts.isIdentifier(node)) {
-      const init = soleConst(node.text);
+      const init = soleConst(node.text, node);
       if (init) {
         const inner = unwrap(init);
         if (
@@ -1331,7 +1452,11 @@ export function analyzeJsSource(
           ts.isCallExpression(inner)
         ) {
           const resolved = canonicalSubject(inner, depth + 1);
-          return { text: resolved.text, stable: resolved.stable && isStableName(node.text, true) };
+          return {
+            text: resolved.text,
+            stable:
+              resolved.stable && isStableName(node.text, true) && !subjectEscapes.has(node.text),
+          };
         }
       }
     }
@@ -1355,10 +1480,14 @@ export function analyzeJsSource(
       return receiver ? urlPartSubject(receiver, part, depth + 1) : null;
     }
     if (ts.isIdentifier(node)) {
-      const init = soleConst(node.text);
+      const init = soleConst(node.text, node);
       const resolved = init ? urlPartSubject(init, part, depth + 1) : null;
       return resolved
-        ? { ...resolved, stable: resolved.stable && isStableName(node.text, true) }
+        ? {
+            ...resolved,
+            stable:
+              resolved.stable && isStableName(node.text, true) && !subjectEscapes.has(node.text),
+          }
         : null;
     }
     return null;
@@ -1375,10 +1504,11 @@ export function analyzeJsSource(
     if (depth > 4) return false;
     const node = unwrap(expression);
     if (ts.isIdentifier(node)) {
-      const init = soleConst(node.text);
+      const init = soleConst(node.text, node);
       return (
         init !== null &&
         isConstDeclaration(init) &&
+        !isExported(init) &&
         !tableMisuse.has(node.text) &&
         !mutatedRoots.has(node.text) &&
         isStringCollection(init, depth + 1)
@@ -1427,7 +1557,7 @@ export function analyzeJsSource(
     const fixedPath = accessPath(node);
     if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) return true;
     if (ts.isIdentifier(node)) {
-      const init = soleConst(node.text);
+      const init = soleConst(node.text, node);
       return (
         init !== null &&
         isStableName(node.text, true) &&
