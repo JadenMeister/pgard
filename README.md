@@ -171,8 +171,8 @@ Options:
   --all-findings           list every finding and location; by default more than
                            5 findings in test, fixture or vendored code are
                            summarized, and groups show up to 3 locations
-  --lang en|ko             language of rule titles, impact and fix texts in the
-                           result (default: PGARD_LANG, then the system locale,
+  --lang en|ko             language of the result screen, progress lines and rule
+                           texts (default: PGARD_LANG, then the system locale,
                            then en). JSON output is always English
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)
@@ -429,6 +429,18 @@ The validator is strict: exact keys and types, length and count limits, and unkn
 
 The terminal result shows a severity chart, the findings (confirmed, suspected or informational) with a `file:line` or URL, redacted evidence, guidance, and the coverage of each area.
 
+### The terminal result screen
+
+`pgard scan` prints, from top to bottom:
+
+1. **Status line** with the repository, revision and scopes, then the `!` notices about `pgard.config.json`, suppressions and the baseline.
+2. **Summary**: the areas scanned and how many are completed, partial or not tested; how many rules ran (from `ruleStats`; a rule that ran in a partially scanned area is counted separately); the size of the target (files, commits, pages: the largest count any rule examined, not a sum); the elapsed time; and, when an earlier scan of the repository is stored, **Since last scan: `+N new / -N no longer reported`**. It says "no longer reported", not "fixed", because the code may also have been skipped, renamed or removed; areas that could not be compared are named. A longer line with the same data follows the result. A row is left out when the result has no data for it (results of PGARD 1.0 have no `ruleStats`).
+3. **Charts** of the findings by severity, by OWASP Top 10 2025 category (a finding counts once per category it maps to; findings without a mapping are counted apart) and by area (code, history, web). With colour on, bars use block characters in the severity colours; with `NO_COLOR`, a non-TTY output or `TERM=dumb` they are plain `#` bars; below 60 columns there are no bars, only `label  count` lines. Bars scale to the terminal width (`COLUMNS` when the output is not a terminal; 80 otherwise) and labels are cut to fit.
+4. **Findings**, worst first, each with its location, redacted evidence, the fix, and the official standards of the rule (OWASP, CWE, CERT ids with their links; https only). Test, fixture and vendored findings follow in their own groups; when there are more than 5, the lower-severity ones are replaced by a count (see [Grouping and collapsing](#grouping-and-collapsing)).
+5. **Coverage** per area and the **standards coverage** map.
+
+The standards map uses four states and nothing else: `rules ran`, `rules partial`, `not run`, `no rules`. They say whether PGARD rules that map to the entry ran in this scan. None of them means "safe" or "covered", and nothing in the map is green.
+
 ### Standards coverage and rule statistics
 
 The result says which rules ran and which standards entries those rules map to. Both are in the JSON result (`ruleStats`, `standardsCoverage`, schema 1.1) and a compact summary closes the terminal result. This is an example from a small TypeScript project with one Java file (code and history scopes; the output is cut to the first 200 characters of each line here):
@@ -471,7 +483,7 @@ The HTML and PDF reports and the dashboard show the same information as the term
 
 Rule titles, the impact text and the fix text can be shown in Korean or English. The language is chosen in this order: `--lang en|ko`, then the environment variable `PGARD_LANG` (`en` or `ko`), then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; the first one that is set decides, and a value starting with `ko` selects Korean; on Windows, where these are usually unset, the runtime locale is used), and otherwise English. Values are case-insensitive (`KO` works). An invalid `--lang`, `--report-lang` or `PGARD_LANG` value is a usage error (exit 2); `PGARD_LANG` is checked only by the commands that show rule text (`scan`, `rules list` and the menu), so `doctor`, `login`, `logout` and `history clear` ignore it.
 
-- **Terminal:** the scan result (titles and fix lines) and the titles in `pgard rules list` use that language. Fixed interface text (headings, labels, coverage, messages) stays English for now.
+- **Terminal:** the whole scan result screen (headings, labels, status words, charts, notices, the note that `testDirectories` classified findings as test code, the comparison with the last scan), the progress and status lines on stderr, and the first-run storage notice use that language, as do the rule titles, impact and fix lines and the titles in `pgard rules list`. Korean text is padded by display width (Korean characters take two columns), so columns line up. Not translated: paths, evidence, reasons quoted from `pgard.config.json`, coverage notes written by the scan, authorization reasons and the official titles of standards. Prompts and the other commands' messages (sign-in, App install, report export) stay English for now.
 - **Reports:** `--report-lang en|ko` (default: the terminal language) sets the language of the whole report chrome (headings, labels, table headers, summary, notices, disclaimer and the new standards and statistics sections) as well as the rule titles, impact and fix texts, and `<html lang>` follows it. The PDF uses the embedded Korean font (its subset covers all rule texts and examples; a test checks that). Evidence, locations, authorization reasons, coverage notes and the reasons in the standards map are data from the scan and stay as written (English).
 - **Dashboard:** rule titles, impact and fix texts follow the dashboard's own language toggle, and the report downloads use the same language. The server only sends the rule metadata of both languages (`/api/rule-texts`: titles, texts, standards links and examples); no scan data is added. If that request keeps failing, the dashboard shows a notice and the rule texts stay in English.
 - **JSON output** (`--format json`) and stored results are unchanged and always English.

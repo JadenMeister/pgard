@@ -171,8 +171,8 @@ Options:
   --all-findings           list every finding and location; by default more than
                            5 findings in test, fixture or vendored code are
                            summarized, and groups show up to 3 locations
-  --lang en|ko             language of rule titles, impact and fix texts in the
-                           result (default: PGARD_LANG, then the system locale,
+  --lang en|ko             language of the result screen, progress lines and rule
+                           texts (default: PGARD_LANG, then the system locale,
                            then en). JSON output is always English
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)
@@ -429,6 +429,18 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 터미널 결과는 심각도 차트, `파일:줄` 또는 URL이 붙은 발견 항목(확정·의심·정보), 가려진 근거, 가이드, 영역별 coverage를 보여 줍니다.
 
+### 터미널 결과 화면
+
+`pgard scan`은 위에서 아래로 다음을 출력합니다.
+
+1. **상태 줄**: 저장소, 리비전, 범위, 그리고 `pgard.config.json`·억제·기준선에 대한 `!` 안내.
+2. **요약**: 검사한 영역과 완료·부분 완료·미검사 개수, 실행된 규칙 수(`ruleStats` 기준이며 부분 완료 영역에서 실행된 규칙은 따로 표시), 대상 크기(파일·커밋·페이지: 규칙들이 살펴본 개수 중 가장 큰 값이며 합계가 아님), 소요 시간, 그리고 저장소의 이전 검사가 저장되어 있으면 **지난 검사 대비: `+N 신규 / -N 더 이상 보고되지 않음`**. "해결됨"이 아니라 "더 이상 보고되지 않음"이라고 쓰는 것은 코드가 건너뛰어졌거나 이름이 바뀌었거나 사라졌을 수도 있기 때문이며, 비교하지 못한 영역은 이름을 밝힙니다. 같은 데이터의 더 긴 한 줄이 결과 뒤에 이어집니다. 결과에 데이터가 없는 줄은 생략합니다(PGARD 1.0 결과에는 `ruleStats`가 없음).
+3. **차트**: 심각도별, OWASP Top 10 2025 분류별(발견 항목은 매핑된 분류마다 한 번 셈, 매핑이 없는 항목은 따로 셈), 영역별(코드·이력·웹). 색이 켜져 있으면 막대는 심각도 색의 블록 문자이고, `NO_COLOR`·터미널이 아닌 출력·`TERM=dumb`에서는 일반 `#` 막대이며, 60열 미만에서는 막대 없이 `라벨  개수` 줄만 나옵니다. 막대는 터미널 너비에 맞춰지고(터미널이 아니면 `COLUMNS`, 없으면 80) 라벨은 넘치면 잘립니다.
+4. **발견 항목**: 심각도가 높은 순으로, 위치, 가려진 근거, 조치, 규칙의 공식 표준(OWASP·CWE·CERT 식별자와 링크, https만)을 보여 줍니다. 테스트·fixture·vendored 항목은 각자의 그룹에 이어지며, 5개를 넘으면 심각도가 낮은 항목은 개수로 대체됩니다([그룹화와 접기](#그룹화와-접기) 참고).
+5. **검사 범위**(영역별)와 **표준 매핑 현황**.
+
+표준 매핑 현황은 네 가지 상태만 씁니다: 규칙 실행됨(`rules ran`), 규칙 일부 실행(`rules partial`), 실행 안 됨(`not run`), 규칙 없음(`no rules`). 항목에 매핑된 PGARD 규칙이 이번 검사에서 실행되었는지를 나타낼 뿐 "안전"이나 "모두 다룸"이라는 뜻이 아니며, 표에 초록색은 쓰지 않습니다.
+
 ### 표준 coverage와 규칙 통계
 
 결과는 어떤 규칙이 실행되었는지, 그리고 그 규칙이 어떤 표준 항목에 연결되는지 알려 줍니다. 두 정보는 JSON 결과(`ruleStats`, `standardsCoverage`, 스키마 1.1)에 들어 있고, 터미널 결과의 끝에 간단한 요약이 붙습니다. 아래는 Java 파일 하나가 있는 작은 TypeScript 프로젝트(code와 history 범위)의 예시이며, 여기서는 각 줄을 앞의 200자까지만 보여 줍니다.
@@ -471,7 +483,7 @@ HTML·PDF 보고서와 대시보드는 터미널과 같은 정보에 더해 다�
 
 규칙 제목, 영향 설명, 조치 설명을 한국어나 영어로 볼 수 있습니다. 언어는 `--lang en|ko`, 환경 변수 `PGARD_LANG`(`en` 또는 `ko`), 시스템 로케일(`LC_ALL`, `LC_MESSAGES`, `LANG` 중 먼저 값이 있는 것이 결정하며 `ko`로 시작하면 한국어, 보통 이 변수가 없는 Windows에서는 런타임 로케일 사용), 마지막으로 영어 순서로 정해집니다. 값은 대소문자를 구분하지 않습니다(`KO`도 가능). `--lang`, `--report-lang`, `PGARD_LANG`에 잘못된 값을 주면 사용법 오류(종료 코드 2)이며, `PGARD_LANG`은 규칙 문구를 보여 주는 명령(`scan`, `rules list`, 메뉴)에서만 검사하므로 `doctor`, `login`, `logout`, `history clear`는 이 값을 무시합니다.
 
-- **터미널:** 검사 결과(제목과 조치 줄)와 `pgard rules list`의 제목이 해당 언어로 표시됩니다. 고정 인터페이스 문구(제목줄, 라벨, coverage, 메시지)는 아직 영어입니다.
+- **터미널:** 검사 결과 화면 전체(제목, 라벨, 상태 단어, 차트, 안내, `testDirectories`가 발견 항목을 테스트 코드로 분류했다는 설명, 지난 검사와의 비교), stderr의 진행·상태 줄, 처음 실행 시의 저장 안내가 해당 언어로 표시되며, 규칙 제목·영향·조치 줄과 `pgard rules list`의 제목도 마찬가지입니다. 한국어 글자는 두 칸을 차지하므로 표시 너비 기준으로 맞춰 열이 어긋나지 않습니다. 번역하지 않는 것: 경로, 근거, `pgard.config.json`에서 인용한 사유, 검사가 쓴 coverage 비고, 권한 확인 사유, 표준의 공식 제목. 프롬프트와 다른 명령의 메시지(로그인, App 설치, 보고서 내보내기)는 아직 영어입니다.
 - **보고서:** `--report-lang en|ko`(기본값: 터미널 언어)가 보고서 전체의 고정 문구(제목, 라벨, 표 머리글, 요약, 안내문, 면책 문구, 새 표준·통계 구역)와 규칙 제목, 영향, 조치 문구의 언어를 정하며 `<html lang>`도 이를 따릅니다. PDF는 내장 한국어 글꼴을 쓰며, 글꼴 부분집합이 모든 규칙 문구와 예시를 포함하는지 테스트로 확인합니다. 근거, 위치, 권한 확인 사유, 검사 범위 비고, 표준 지도의 이유는 검사에서 나온 데이터이므로 그대로(영어) 둡니다.
 - **대시보드:** 규칙 제목, 영향, 조치 문구가 대시보드의 언어 토글을 따르며, 보고서 다운로드도 같은 언어를 씁니다. 서버는 두 언어의 규칙 메타데이터만 보내며(`/api/rule-texts`: 제목, 문구, 표준 링크, 예시) 검사 데이터는 추가되지 않습니다. 이 요청이 계속 실패하면 알림을 보여 주며 규칙 문구는 영어로 남습니다.
 - **JSON 출력**(`--format json`)과 저장된 결과는 바뀌지 않으며 항상 영어입니다.
