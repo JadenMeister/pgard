@@ -476,3 +476,5 @@ Where the planning documents and this README disagree, this README and the code 
 [MIT](LICENSE)
 
 The PDF reports embed a subset of Noto Sans KR, licensed under the SIL Open Font License 1.1. See [NOTICE](NOTICE.md) and `packages/report/fonts/OFL.txt`.
+
+PGARD also bundles reference lists (OWASP Top 10 2025, CWE Top 25 2025 and SEI CERT Java rule ids and titles). They are third-party data under their own licenses (CC BY-SA 4.0, MITRE CWE Terms of Use, CC BY 4.0) and are not covered by the MIT license. See [NOTICE](NOTICE.md).

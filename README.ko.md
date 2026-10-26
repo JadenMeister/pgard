@@ -476,3 +476,5 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 [MIT](LICENSE)
 
 PDF 보고서에는 SIL Open Font License 1.1로 배포되는 Noto Sans KR 서브셋이 포함됩니다. [NOTICE](NOTICE.md)와 `packages/report/fonts/OFL.txt`를 참고하세요.
+
+PGARD는 참조 목록(OWASP Top 10 2025, CWE Top 25 2025, SEI CERT Java의 규칙 id와 제목)도 포함합니다. 이 데이터는 각각의 라이선스(CC BY-SA 4.0, MITRE CWE 이용 약관, CC BY 4.0)를 따르는 제3자 데이터이며 MIT 라이선스의 적용 대상이 아닙니다. [NOTICE](NOTICE.md)를 참고하세요.
