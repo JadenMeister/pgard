@@ -73,8 +73,10 @@ export const WEB_RULES = {
       cwe: ["CWE-693"],
       cert: [],
       mappingNote: {
-        en: "CWE-693 is a Pillar that MITRE marks DISCOURAGED for mapping. No specific CWE describes a missing Content-Security-Policy header, so it is kept and its OWASP category (A06) follows the OWASP mapped-CWE list.",
-        ko: "CWE-693은 MITRE가 매핑에 쓰지 말라고(DISCOURAGED) 표시한 Pillar입니다. Content-Security-Policy 헤더 누락을 정확히 설명하는 CWE가 없어 유지하며, OWASP 범주(A06)는 OWASP 매핑 CWE 목록을 따릅니다.",
+        discouragedCwe: {
+          en: "CWE-693 is a Pillar that MITRE marks DISCOURAGED for mapping. No specific CWE describes a missing Content-Security-Policy header, so it is kept and its OWASP category (A06) follows the OWASP mapped-CWE list.",
+          ko: "CWE-693은 MITRE가 매핑에 쓰지 말라고(DISCOURAGED) 표시한 Pillar입니다. Content-Security-Policy 헤더 누락을 정확히 설명하는 CWE가 없어 유지하며, OWASP 범주(A06)는 OWASP 매핑 CWE 목록을 따릅니다.",
+        },
       },
     },
     rationale: {
@@ -115,8 +117,10 @@ export const WEB_RULES = {
       cwe: ["CWE-693"],
       cert: [],
       mappingNote: {
-        en: "CWE-693 is a Pillar that MITRE marks DISCOURAGED for mapping. No specific CWE describes a missing X-Content-Type-Options header, so it is kept and its OWASP category (A06) follows the OWASP mapped-CWE list.",
-        ko: "CWE-693은 MITRE가 매핑에 쓰지 말라고(DISCOURAGED) 표시한 Pillar입니다. X-Content-Type-Options 헤더 누락을 정확히 설명하는 CWE가 없어 유지하며, OWASP 범주(A06)는 OWASP 매핑 CWE 목록을 따릅니다.",
+        discouragedCwe: {
+          en: "CWE-693 is a Pillar that MITRE marks DISCOURAGED for mapping. No specific CWE describes a missing X-Content-Type-Options header, so it is kept and its OWASP category (A06) follows the OWASP mapped-CWE list.",
+          ko: "CWE-693은 MITRE가 매핑에 쓰지 말라고(DISCOURAGED) 표시한 Pillar입니다. X-Content-Type-Options 헤더 누락을 정확히 설명하는 CWE가 없어 유지하며, OWASP 범주(A06)는 OWASP 매핑 CWE 목록을 따릅니다.",
+        },
       },
     },
     rationale: {
@@ -141,8 +145,8 @@ export const WEB_RULES = {
       ko: "사용자가 링크를 따라가거나 다른 사이트의 리소스를 불러올 때 브라우저가 `Referer` 헤더에 전체 URL을 보낼 수 있습니다. URL에 id, 검색어, 토큰(예: 비밀번호 재설정 링크)이 들어 있으면 상대 사이트와 그 분석 도구·로그가 이를 받게 됩니다.",
     },
     remediation: {
-      en: "Send `Referrer-Policy: strict-origin-when-cross-origin`, or `no-referrer` on pages whose URLs are sensitive. Do not put secrets or tokens in URLs.",
-      ko: "`Referrer-Policy: strict-origin-when-cross-origin`을 설정하고, URL이 민감한 페이지에는 `no-referrer`를 쓰세요. URL에 비밀정보나 토큰을 넣지 마세요.",
+      en: "Send `Referrer-Policy: strict-origin-when-cross-origin` (also the default in current browsers, so setting it mainly makes the policy explicit and covers older browsers), or `no-referrer` on pages whose URLs are sensitive. Do not put secrets or tokens in URLs.",
+      ko: "`Referrer-Policy: strict-origin-when-cross-origin`을 설정하세요(최신 브라우저의 기본값이기도 하므로, 명시해 두면 정책이 분명해지고 오래된 브라우저도 보호됩니다). URL이 민감한 페이지에는 `no-referrer`를 쓰세요. URL에 비밀정보나 토큰을 넣지 마세요.",
     },
   }),
   cookieWithoutHttpOnly: rule({
@@ -158,8 +162,8 @@ export const WEB_RULES = {
       ko: "JavaScript가 읽을 수 있는 쿠키는 주입된 스크립트가 훔칠 수 있으므로(`document.cookie`), 쿠키가 세션을 담고 있다면 XSS 결함이 세션 탈취로 이어집니다. 이 쿠키가 세션을 담는지 PGARD가 알 수 없으므로 의심 항목으로 보고합니다.",
     },
     remediation: {
-      en: "Set `HttpOnly` on session and authentication cookies: `Set-Cookie: sid=...; HttpOnly; Secure; SameSite=Lax`. Cookies the front end must read can stay without it, but must not hold secrets.",
-      ko: "세션·인증 쿠키에 `HttpOnly`를 설정하세요: `Set-Cookie: sid=...; HttpOnly; Secure; SameSite=Lax`. 프런트엔드가 읽어야 하는 쿠키는 없이 둘 수 있지만 비밀정보를 담아서는 안 됩니다.",
+      en: "Add the `HttpOnly` attribute to session and authentication cookies, together with `Secure` and `SameSite=Lax`. Cookies the front end must read can stay without it, but must not hold secrets.",
+      ko: "세션·인증 쿠키에 `HttpOnly` 속성을 `Secure`, `SameSite=Lax`와 함께 설정하세요. 프런트엔드가 읽어야 하는 쿠키는 없이 둘 수 있지만 비밀정보를 담아서는 안 됩니다.",
     },
   }),
   cookieWithoutSameSite: rule({
@@ -192,8 +196,8 @@ export const WEB_RULES = {
       ko: "Secure가 없는 쿠키는 평문 HTTP로도 전송되므로, 네트워크 경로상의 누구나(예: 공용 Wi-Fi) 쿠키를 읽거나 바꿀 수 있습니다. 평문 HTTP loopback 서버에서는 예상되는 결과이며, 이 검사는 HTTPS 배포 환경에서 의미가 있습니다.",
     },
     remediation: {
-      en: "Set `Secure` on all cookies in HTTPS deployments and send `Strict-Transport-Security` so browsers never fall back to HTTP. For local development over http, make it depend on the environment.",
-      ko: "HTTPS 배포에서는 모든 쿠키에 `Secure`를 설정하고 `Strict-Transport-Security`를 보내 브라우저가 HTTP로 되돌아가지 않게 하세요. http로 하는 로컬 개발에서는 환경에 따라 켜고 끄도록 하세요.",
+      en: "Set `Secure` on all cookies in HTTPS deployments and send `Strict-Transport-Security` so browsers never fall back to HTTP. Chrome and Firefox accept Secure cookies on `http://localhost`, so local development can keep it on; on other plain-http hosts the cookie is not stored, so make it depend on the environment there.",
+      ko: "HTTPS 배포에서는 모든 쿠키에 `Secure`를 설정하고 `Strict-Transport-Security`를 보내 브라우저가 HTTP로 되돌아가지 않게 하세요. Chrome, Firefox는 `http://localhost`에서 Secure 쿠키를 받아들이므로 로컬 개발에서는 켜 둘 수 있고, 그 밖의 평문 http 호스트에서는 쿠키가 저장되지 않으므로 환경에 따라 켜고 끄도록 하세요.",
     },
   }),
   corsWildcardWithCredentials: rule({
@@ -274,11 +278,11 @@ export const WEB_RULES = {
     standards: { owasp: ["A01:2025"], cwe: ["CWE-538"], cert: [] },
     rationale: {
       en: "A reachable `/.env` returns database passwords, API keys and signing secrets to anyone who requests it, and attackers scan for this path automatically. Treat every value in it as already exposed.",
-      ko: "접근 가능한 `/.env`는 요청하는 누구에게나 데이터베이스 비밀번호, API 키, 서명 비밀값을 돌려주며, 공격자는 이 경로를 자동으로 스캔합니다. 그 안의 모든 값이 이미 노출된 것으로 간주하세요.",
+      ko: "접근 가능한 `/.env`는 요청하는 누구에게나 데이터베이스 비밀번호, API 키, 서명 비밀정보을 돌려주며, 공격자는 이 경로를 자동으로 스캔합니다. 그 안의 모든 값이 이미 노출된 것으로 간주하세요.",
     },
     remediation: {
-      en: "Serve static files from a dedicated public directory that does not contain `.env`, deny dotfiles in the server configuration (`location ~ /\\. { deny all; }` in nginx), and rotate every secret that was in the file, because it was readable.",
-      ko: "`.env`가 없는 전용 공개 디렉터리에서만 정적 파일을 제공하고, 서버 설정에서 점(.)으로 시작하는 파일(dotfile)을 거부하세요(nginx는 `location ~ /\\. { deny all; }`). 파일에 있던 모든 비밀정보는 읽을 수 있었으므로 교체(rotate)하세요.",
+      en: "Serve static files from a dedicated public directory that does not contain `.env`, deny dotfiles in the server configuration (`location ~ /\\.(?!well-known) { deny all; }` in nginx), and rotate every secret that was in the file, because it was readable.",
+      ko: "`.env`가 없는 전용 공개 디렉터리에서만 정적 파일을 제공하고, 서버 설정에서 점(.)으로 시작하는 파일(dotfile)을 거부하세요(nginx는 `location ~ /\\.(?!well-known) { deny all; }`, `.well-known`은 예외). 파일에 있던 모든 비밀정보는 읽을 수 있었으므로 교체(rotate)하세요.",
     },
   }),
   exposedGitDirectory: rule({
@@ -288,7 +292,7 @@ export const WEB_RULES = {
     severity: "high",
     status: "confirmed",
     confidence: "high",
-    standards: { owasp: ["A01:2025"], cwe: ["CWE-538"], cert: [] },
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-527", "CWE-538"], cert: [] },
     rationale: {
       en: "A reachable `/.git/` lets an attacker download the repository objects and rebuild the full source and history with tools such as git-dumper, including secrets that were committed and later deleted.",
       ko: "접근 가능한 `/.git/`이 있으면 공격자가 저장소 객체를 내려받아 git-dumper 같은 도구로 전체 소스와 이력을 복원할 수 있습니다. 커밋했다가 나중에 지운 비밀정보도 포함됩니다.",

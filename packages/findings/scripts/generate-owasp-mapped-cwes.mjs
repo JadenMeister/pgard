@@ -1,6 +1,6 @@
 // Regenerates the CWE lists in src/standards/owasp-mapped-cwes.ts from the "List of Mapped CWEs"
-// section of each OWASP Top 10:2025 category page. Run manually (network access needed), then
-// `npx prettier --write` the output:
+// section of each OWASP Top 10:2025 category page. Run manually (network access needed); the
+// output is the body of `OWASP_MAPPED_CWES`, then `npx prettier --write` the file:
 //   node packages/findings/scripts/generate-owasp-mapped-cwes.mjs
 // Only CWE ids are extracted. The list entries are the `<p>` or `<li>` items that link to
 // cwe.mitre.org; CWE ids that appear only in a category's prose are not part of the list.
@@ -29,4 +29,7 @@ for (const page of PAGES) {
   ].map((match) => Number(match[1]));
   lists[`${page.slice(0, 3)}:2025`] = [...new Set(ids)].sort((a, b) => a - b);
 }
-console.log(JSON.stringify(lists, null, 2));
+// Prints the body of `OWASP_MAPPED_CWES`: paste these lines between its braces, then run prettier.
+for (const [category, ids] of Object.entries(lists)) {
+  console.log(`  "${category}": [${ids.map((id) => `"CWE-${id}"`).join(", ")}],`);
+}

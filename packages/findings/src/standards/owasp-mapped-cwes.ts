@@ -15,6 +15,8 @@ export const OWASP_MAPPED_CWES_PROVENANCE: StandardProvenance = {
  * only; no names or descriptions are copied. Regenerate with
  * `packages/findings/scripts/generate-owasp-mapped-cwes.mjs`. A CWE appears in exactly one category.
  */
+// Source quirk: the A03 page lists "CWE-447 Use of Obsolete Function", but its prose names
+// CWE-477 for that name (CWE-447 is an unrelated entry). The ids are kept exactly as listed.
 export const OWASP_MAPPED_CWES: Readonly<Record<OwaspId, readonly string[]>> = {
   "A01:2025": [
     "CWE-22",
@@ -287,7 +289,8 @@ export function owaspCategoryForCwe(cwe: string): OwaspId | undefined {
 
 /** MITRE's Vulnerability Mapping usage for a CWE (CWE 4.20). Only CWEs that rules use or were considered for use. */
 export type CweMappingUsage = "ALLOWED" | "ALLOWED-WITH-REVIEW" | "DISCOURAGED";
-export type CweAbstraction = "Pillar" | "Class" | "Base" | "Variant" | "Compound";
+/** `Composite` is MITRE's "Structure: Composite" (CWE-352); the others are abstraction levels. */
+export type CweAbstraction = "Pillar" | "Class" | "Base" | "Variant" | "Composite";
 
 export interface CweMappingEntry {
   abstraction: CweAbstraction;
@@ -321,8 +324,9 @@ export const CWE_MAPPING_USAGE: Readonly<Record<string, CweMappingEntry>> = {
   "CWE-321": { abstraction: "Variant", usage: "ALLOWED" },
   "CWE-327": { abstraction: "Class", usage: "ALLOWED-WITH-REVIEW" },
   "CWE-328": { abstraction: "Base", usage: "ALLOWED" },
-  "CWE-352": { abstraction: "Compound", usage: "ALLOWED" },
+  "CWE-352": { abstraction: "Composite", usage: "ALLOWED" },
   "CWE-497": { abstraction: "Base", usage: "ALLOWED" },
+  "CWE-527": { abstraction: "Variant", usage: "ALLOWED" },
   "CWE-538": { abstraction: "Base", usage: "ALLOWED" },
   "CWE-540": { abstraction: "Base", usage: "ALLOWED" },
   "CWE-548": { abstraction: "Variant", usage: "ALLOWED" },

@@ -10,9 +10,11 @@ Pick the CWE that names the weakness the rule detects.
 
 - Prefer **Base** and **Variant** entries. MITRE calls them "a preferred level of abstraction for mapping to the root causes of vulnerabilities".
 - Check the entry's **Vulnerability Mapping Notes** on cwe.mitre.org (CWE 4.20). Usage is `ALLOWED`, `ALLOWED-WITH-REVIEW` or `DISCOURAGED`.
-- Avoid a **Pillar** or **Class** entry, and never use one marked `DISCOURAGED`, unless no more specific entry fits. Then keep it and explain why in `standards.mappingNote`.
+- Avoid a **Pillar** or **Class** entry, and never use one marked `DISCOURAGED`, unless no more specific entry fits. Then keep it and explain why in `standards.mappingNote.discouragedCwe`.
 - Do not force a lower-level entry just to reach Base or Variant. MITRE says the same.
 - Add a second CWE only when the rule detects a second, distinct weakness (for example a hardcoded key is both CWE-321 and CWE-798).
+
+A Class entry that MITRE does not mark `DISCOURAGED` (for example CWE-327, `ALLOWED-WITH-REVIEW`) needs no `mappingNote`: use it when it is the entry that names the weakness, and the test that pins the Pillar and Class CWEs in use keeps such a choice visible in review. Only `DISCOURAGED` entries need a note.
 
 Every CWE a rule uses must have an entry in `CWE_MAPPING_USAGE` (abstraction and usage as read from MITRE). Adding a CWE to a rule means reading its mapping notes first.
 
@@ -22,7 +24,7 @@ A rule's `standards.owasp` is **derived from its CWEs**: the set of OWASP Top 10
 
 - The category does not follow the category's prose, because the prose is open to interpretation and the lists are not. For example, a missing `X-Frame-Options` header reads like a misconfiguration, but CWE-1021 is listed under A06 Insecure Design, so the rule maps to A06.
 - A rule with CWEs in two categories lists both. Each OWASP category is then a real mapping of one of the rule's CWEs.
-- A rule that departs from this (a category that none of its CWEs maps to, or a missing one) must say why in `standards.mappingNote`. Today no rule departs.
+- A rule that departs from this (a category that none of its CWEs maps to, or a missing one) must say why in `standards.mappingNote.owaspDeparture`. Today no rule departs.
 - A CWE that is in no OWASP list contributes no category.
 
 ## 3. CERT Java `via-cwe` links
@@ -40,16 +42,16 @@ Presentation (coverage views and the UI): show `via-cwe` as a secondary "Related
 
 ## 4. `mappingNote`
 
-`standards.mappingNote` is an optional, additive field (English and Korean text). It is required in exactly two cases and rejected otherwise, so a note is always a real deviation:
+`standards.mappingNote` is an optional, additive field with one English and Korean text per kind of departure. Each field is required in exactly its case and rejected otherwise, so a note is always a real deviation and a note for one kind cannot excuse the other:
 
-- the rule's OWASP categories differ from the ones its CWEs map to;
-- the rule keeps a CWE that MITRE marks `DISCOURAGED`.
+- `owaspDeparture`: the rule's OWASP categories differ from the ones its CWEs map to;
+- `discouragedCwe`: the rule keeps a CWE that MITRE marks `DISCOURAGED`.
 
-The two rules that keep CWE-693 (a Pillar, `DISCOURAGED`) carry a note: PG-WEB-001 (Content-Security-Policy) and PG-WEB-003 (`nosniff`). No specific CWE describes a missing header of that kind.
+The two rules that keep CWE-693 (a Pillar, `DISCOURAGED`) carry a `discouragedCwe` note: PG-WEB-001 (Content-Security-Policy) and PG-WEB-003 (`nosniff`). No specific CWE describes a missing header of that kind.
 
 ## 5. Enforcement
 
-- `validateRuleMetadata` (used by the tests) reports a rule whose OWASP categories do not match its CWEs without a `mappingNote`, a `DISCOURAGED` CWE without a note, an unneeded note, and a CWE with no recorded mapping usage.
+- `validateRuleMetadata` (used by the tests) reports a rule whose OWASP categories do not match its CWEs without a `mappingNote.owaspDeparture`, a `DISCOURAGED` CWE without a `mappingNote.discouragedCwe`, an unneeded note, duplicate OWASP ids, and a CWE with no recorded mapping usage.
 - `apps/cli/src/rule-standards.test.ts` pins the exceptions: which rules carry a note, which Pillar and Class CWEs are used, and which CERT links exist.
 - `packages/findings/src/standards/standards.test.ts` checks the bundled lists. Regenerate them with `packages/findings/scripts/generate-owasp-mapped-cwes.mjs` and review the diff.
 

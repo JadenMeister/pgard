@@ -10,9 +10,11 @@ PGARD의 모든 규칙은 메타데이터(`packages/findings/src/rule-metadata.t
 
 - **Base**와 **Variant** 항목을 우선합니다. MITRE는 이 수준을 "취약점의 근본 원인에 매핑하기에 선호되는 추상화 수준"이라고 설명합니다.
 - cwe.mitre.org(CWE 4.20)에서 항목의 **Vulnerability Mapping Notes**를 확인합니다. 사용 구분은 `ALLOWED`, `ALLOWED-WITH-REVIEW`, `DISCOURAGED`입니다.
-- **Pillar**나 **Class** 항목은 피하고, `DISCOURAGED`로 표시된 항목은 더 구체적인 항목이 없을 때만 쓰며, 그때는 이유를 `standards.mappingNote`에 적습니다.
+- **Pillar**나 **Class** 항목은 피하고, `DISCOURAGED`로 표시된 항목은 더 구체적인 항목이 없을 때만 쓰며, 그때는 이유를 `standards.mappingNote.discouragedCwe`에 적습니다.
 - Base나 Variant에 맞추려고 하위 항목을 억지로 고르지 않습니다. MITRE도 같은 입장입니다.
 - 규칙이 서로 다른 두 번째 약점을 탐지할 때만 CWE를 하나 더 추가합니다(예: 하드코딩된 키는 CWE-321이면서 CWE-798입니다).
+
+MITRE가 `DISCOURAGED`로 표시하지 않은 Class 항목(예: `ALLOWED-WITH-REVIEW`인 CWE-327)은 `mappingNote`가 필요 없습니다. 그 항목이 약점을 이름으로 가리킨다면 쓰고, 사용 중인 Pillar·Class CWE를 고정하는 테스트가 그 선택을 리뷰에서 보이게 합니다. 노트가 필요한 것은 `DISCOURAGED` 항목뿐입니다.
 
 규칙이 쓰는 모든 CWE는 `CWE_MAPPING_USAGE`에 항목(MITRE에서 읽은 추상화 수준과 사용 구분)이 있어야 합니다. 규칙에 CWE를 추가하려면 먼저 그 항목의 매핑 노트를 읽어야 합니다.
 
@@ -22,7 +24,7 @@ PGARD의 모든 규칙은 메타데이터(`packages/findings/src/rule-metadata.t
 
 - 범주의 설명문이 아니라 목록을 따릅니다. 설명문은 해석의 여지가 있지만 목록은 그렇지 않기 때문입니다. 예를 들어 `X-Frame-Options` 헤더 누락은 설정 오류처럼 읽히지만, CWE-1021이 A06 Insecure Design 목록에 있으므로 이 규칙은 A06에 매핑합니다.
 - CWE가 서로 다른 두 범주에 걸리면 두 범주를 모두 적습니다. 각 OWASP 범주는 규칙의 CWE 중 하나에 대한 실제 매핑입니다.
-- 이 기준에서 벗어나는 규칙(CWE가 매핑되지 않는 범주를 쓰거나 매핑되는 범주를 빼는 경우)은 이유를 `standards.mappingNote`에 적어야 합니다. 현재 벗어나는 규칙은 없습니다.
+- 이 기준에서 벗어나는 규칙(CWE가 매핑되지 않는 범주를 쓰거나 매핑되는 범주를 빼는 경우)은 이유를 `standards.mappingNote.owaspDeparture`에 적어야 합니다. 현재 벗어나는 규칙은 없습니다.
 - OWASP 목록 어디에도 없는 CWE는 범주를 만들지 않습니다.
 
 ## 3. CERT Java `via-cwe` 링크
@@ -40,16 +42,16 @@ SEI CERT Java에는 웹 규칙 매핑이 따로 없으므로, PGARD는 CWE를 �
 
 ## 4. `mappingNote`
 
-`standards.mappingNote`는 선택 사항이며 기존 필드를 바꾸지 않고 추가된 필드입니다(영어와 한국어 문장). 다음 두 경우에만 필수이고 그 밖에는 허용하지 않으므로, 노트는 언제나 실제 예외를 뜻합니다.
+`standards.mappingNote`는 선택 사항이며 기존 필드를 바꾸지 않고 추가된 필드로, 예외 종류마다 영어와 한국어 문장 하나씩을 담습니다. 각 필드는 해당하는 경우에만 필수이고 그 밖에는 허용하지 않으므로, 노트는 언제나 실제 예외를 뜻하고 한 종류의 노트가 다른 종류의 예외를 면제해 주지 않습니다.
 
-- 규칙의 OWASP 범주가 규칙의 CWE가 매핑되는 범주와 다릅니다.
-- 규칙이 MITRE가 `DISCOURAGED`로 표시한 CWE를 유지합니다.
+- `owaspDeparture`: 규칙의 OWASP 범주가 규칙의 CWE가 매핑되는 범주와 다릅니다.
+- `discouragedCwe`: 규칙이 MITRE가 `DISCOURAGED`로 표시한 CWE를 유지합니다.
 
-CWE-693(Pillar, `DISCOURAGED`)을 유지하는 두 규칙에는 노트가 있습니다. PG-WEB-001(Content-Security-Policy)과 PG-WEB-003(`nosniff`)입니다. 이런 헤더 누락을 정확히 설명하는 CWE가 없습니다.
+CWE-693(Pillar, `DISCOURAGED`)을 유지하는 두 규칙에는 `discouragedCwe` 노트가 있습니다. PG-WEB-001(Content-Security-Policy)과 PG-WEB-003(`nosniff`)입니다. 이런 헤더 누락을 정확히 설명하는 CWE가 없습니다.
 
 ## 5. 검증
 
-- 테스트가 쓰는 `validateRuleMetadata`는 CWE와 맞지 않는 OWASP 범주(`mappingNote` 없음), 노트 없는 `DISCOURAGED` CWE, 불필요한 노트, 매핑 사용 구분이 기록되지 않은 CWE를 보고합니다.
+- 테스트가 쓰는 `validateRuleMetadata`는 CWE와 맞지 않는 OWASP 범주(`mappingNote.owaspDeparture` 없음), `mappingNote.discouragedCwe` 없는 `DISCOURAGED` CWE, 불필요한 노트, 중복된 OWASP 번호, 매핑 사용 구분이 기록되지 않은 CWE를 보고합니다.
 - `apps/cli/src/rule-standards.test.ts`는 예외를 고정합니다. 어떤 규칙에 노트가 있는지, 어떤 Pillar·Class CWE를 쓰는지, 어떤 CERT 링크가 있는지입니다.
 - `packages/findings/src/standards/standards.test.ts`는 포함된 목록을 확인합니다. 목록은 `packages/findings/scripts/generate-owasp-mapped-cwes.mjs`로 다시 만들고 차이를 검토하세요.
 

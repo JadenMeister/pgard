@@ -182,16 +182,22 @@ describe("validateRuleMetadata", () => {
     const standards = (
       owasp: readonly string[],
       cwe: readonly string[],
-      mappingNote?: LocalizedText,
+      mappingNote?: { discouragedCwe?: LocalizedText; owaspDeparture?: LocalizedText },
     ): RuleDefinition["standards"] =>
       ({ owasp, cwe, cert: [], ...(mappingNote === undefined ? {} : { mappingNote }) }) as never;
     const note = { en: "Reason.", ko: "이유입니다." };
 
     it("requires the OWASP categories to be the ones the CWEs map to", () => {
       expect(problems({ standards: standards(["A02:2025"], ["CWE-89"]) })).toEqual([
-        "PG-TEST-001: OWASP A02:2025 does not match the categories of its CWEs (A05:2025); fix the mapping or add standards.mappingNote",
+        "PG-TEST-001: OWASP A02:2025 does not match the categories of its CWEs (A05:2025); fix the mapping or add standards.mappingNote.owaspDeparture",
       ]);
       expect(problems({ standards: standards([], ["CWE-89"]) })).toHaveLength(1);
+    });
+
+    it("rejects duplicate OWASP ids", () => {
+      expect(problems({ standards: standards(["A05:2025", "A05:2025"], ["CWE-89"]) })).toEqual([
+        "PG-TEST-001: duplicate OWASP ids",
+      ]);
     });
 
     it("accepts several categories when the CWEs map to several", () => {
@@ -203,26 +209,60 @@ describe("validateRuleMetadata", () => {
       );
     });
 
-    it("accepts a documented departure, and rejects a note that is not needed", () => {
-      expect(problems({ standards: standards(["A02:2025"], ["CWE-89"], note) })).toEqual([]);
-      expect(problems({ standards: standards(["A05:2025"], ["CWE-89"], note) })).toEqual([
-        "PG-TEST-001: standards.mappingNote is set but the rule follows the mapping policy",
+    it("accepts a CWE that is in no OWASP list alongside one that is", () => {
+      expect(problems({ standards: standards(["A01:2025"], ["CWE-527", "CWE-538"]) })).toEqual([]);
+    });
+
+    it("accepts a documented OWASP departure, and rejects a note that is not needed", () => {
+      expect(
+        problems({ standards: standards(["A02:2025"], ["CWE-89"], { owaspDeparture: note }) }),
+      ).toEqual([]);
+      expect(
+        problems({ standards: standards(["A05:2025"], ["CWE-89"], { owaspDeparture: note }) }),
+      ).toEqual([
+        "PG-TEST-001: standards.mappingNote.owaspDeparture is set but the OWASP categories follow the CWEs",
       ]);
     });
 
     it("requires a note for a CWE that MITRE marks DISCOURAGED", () => {
       expect(problems({ standards: standards(["A06:2025"], ["CWE-693"]) })).toEqual([
-        "PG-TEST-001: CWE-693 is DISCOURAGED by MITRE; use a specific CWE or add standards.mappingNote",
+        "PG-TEST-001: CWE-693 is DISCOURAGED by MITRE; use a specific CWE or add standards.mappingNote.discouragedCwe",
       ]);
-      expect(problems({ standards: standards(["A06:2025"], ["CWE-693"], note) })).toEqual([]);
+      expect(
+        problems({ standards: standards(["A06:2025"], ["CWE-693"], { discouragedCwe: note }) }),
+      ).toEqual([]);
+      expect(
+        problems({ standards: standards(["A05:2025"], ["CWE-89"], { discouragedCwe: note }) }),
+      ).toEqual([
+        "PG-TEST-001: standards.mappingNote.discouragedCwe is set but the rule has no DISCOURAGED CWE",
+      ]);
     });
 
-    it("checks the note like any other prose", () => {
+    it("does not let a note for one kind of departure excuse the other", () => {
+      // The OWASP categories are wrong, and the note is only about the DISCOURAGED CWE.
       expect(
-        problems({ standards: standards(["A06:2025"], ["CWE-693"], { en: "Reason.", ko: "" }) }),
+        problems({ standards: standards(["A02:2025"], ["CWE-693"], { discouragedCwe: note }) }),
       ).toEqual([
-        "PG-TEST-001: standards.mappingNote.ko is empty",
-        "PG-TEST-001: standards.mappingNote.ko contains no Korean",
+        "PG-TEST-001: OWASP A02:2025 does not match the categories of its CWEs (A06:2025); fix the mapping or add standards.mappingNote.owaspDeparture",
+      ]);
+      // The DISCOURAGED CWE has no note, and the note is only about the OWASP departure.
+      expect(
+        problems({ standards: standards(["A02:2025"], ["CWE-693"], { owaspDeparture: note }) }),
+      ).toEqual([
+        "PG-TEST-001: CWE-693 is DISCOURAGED by MITRE; use a specific CWE or add standards.mappingNote.discouragedCwe",
+      ]);
+    });
+
+    it("checks each note like any other prose", () => {
+      expect(
+        problems({
+          standards: standards(["A06:2025"], ["CWE-693"], {
+            discouragedCwe: { en: "Reason.", ko: "" },
+          }),
+        }),
+      ).toEqual([
+        "PG-TEST-001: standards.mappingNote.discouragedCwe.ko is empty",
+        "PG-TEST-001: standards.mappingNote.discouragedCwe.ko contains no Korean",
       ]);
     });
 
@@ -233,10 +273,12 @@ describe("validateRuleMetadata", () => {
     });
 
     it("copies the note so callers cannot mutate the definition", () => {
-      const def = definition({ standards: standards(["A06:2025"], ["CWE-693"], note) });
+      const def = definition({
+        standards: standards(["A06:2025"], ["CWE-693"], { discouragedCwe: note }),
+      });
       const rule = defineRule(def);
-      expect(rule.metadata.standards.mappingNote).toEqual(note);
-      expect(rule.metadata.standards.mappingNote).not.toBe(note);
+      expect(rule.metadata.standards.mappingNote?.discouragedCwe).toEqual(note);
+      expect(rule.metadata.standards.mappingNote?.discouragedCwe).not.toBe(note);
     });
   });
 
