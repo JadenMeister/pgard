@@ -23,34 +23,41 @@ describe("rule references against bundled standards data", () => {
     expect(allRules().length).toBeGreaterThan(30);
   });
 
-  it("uses well-formed CWE ids, and reports those outside the CWE Top 25", () => {
-    const outside = new Map<string, string[]>();
+  it("uses well-formed CWE ids, and the ones outside the CWE Top 25 are exactly the known set", () => {
+    const outside: Record<string, string[]> = {};
     for (const rule of allRules()) {
       for (const cwe of rule.cwe) {
         expect(cwe, rule.id).toMatch(CWE_ID_PATTERN);
-        if (!isCweTop25(cwe)) outside.set(cwe, [...(outside.get(cwe) ?? []), rule.id]);
+        if (!isCweTop25(cwe)) (outside[cwe] ??= []).push(rule.id);
       }
     }
-    // Informational: weaknesses valid in CWE but outside the Top 25 (explicitly reported, not an error).
-    console.info(
-      "CWE ids used by rules but outside the CWE Top 25 (2025):\n" +
-        [...outside.entries()].map(([cwe, ids]) => `  ${cwe}: ${ids.join(", ")}`).join("\n"),
-    );
-    expect(outside.size).toBeGreaterThan(0);
+    // Valid CWE ids that are not in the Top 25. A change here is deliberate: update the list.
+    expect(outside).toEqual({
+      "CWE-916": ["PG-CRYPTO-001"],
+      "CWE-328": ["PG-CRYPTO-001"],
+      "CWE-321": ["PG-CRYPTO-002"],
+      "CWE-798": ["PG-CRYPTO-002", "PG-SECRET-001", "PG-SECRET-002", "PG-SECRET-003"],
+      "CWE-327": ["PG-CRYPTO-003"],
+      "CWE-256": ["PG-AUTH-001"],
+      "CWE-1004": ["PG-COOKIE-001", "PG-WEB-005"],
+      "CWE-614": ["PG-COOKIE-001", "PG-WEB-007"],
+      "CWE-307": ["PG-BRUTE-001"],
+      "CWE-538": ["PG-SECRET-001", "PG-WEB-012", "PG-WEB-013"],
+      "CWE-540": ["PG-SECRET-003"],
+      "CWE-1104": ["PG-HYGIENE-001"],
+      "CWE-693": ["PG-WEB-001", "PG-WEB-003"],
+      "CWE-1021": ["PG-WEB-002"],
+      "CWE-1275": ["PG-WEB-006"],
+      "CWE-942": ["PG-WEB-008", "PG-WEB-009"],
+      "CWE-548": ["PG-WEB-011"],
+    });
   });
 
-  it("only uses OWASP ids that exist in the 2025 list, and reports the others", () => {
-    const unknown = new Map<string, string[]>();
+  it("only uses OWASP ids that exist in the 2025 list", () => {
+    const unknown: string[] = [];
     for (const rule of allRules()) {
-      for (const id of rule.owasp) {
-        if (!getOwaspCategory(id)) unknown.set(id, [...(unknown.get(id) ?? []), rule.id]);
-      }
+      for (const id of rule.owasp) if (!getOwaspCategory(id)) unknown.push(`${rule.id}: ${id}`);
     }
-    console.info(
-      "OWASP ids used by rules but not in the 2025 list:\n" +
-        ([...unknown.entries()].map(([id, ids]) => `  ${id}: ${ids.join(", ")}`).join("\n") ||
-          "  (none)"),
-    );
-    expect([...unknown.keys()]).toEqual([]);
+    expect(unknown).toEqual([]);
   });
 });

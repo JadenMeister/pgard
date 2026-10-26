@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   CERT_JAVA_ID_PATTERN,
@@ -72,10 +73,51 @@ describe("CERT Java data", () => {
 describe("lookup API", () => {
   it("resolves known ids and returns undefined otherwise", () => {
     expect(getOwaspCategory("A05:2025")?.title).toBe("Injection");
+    expect(getOwaspCategory("A09:2025")?.title).toBe("Security Logging & Alerting Failures");
     expect(getOwaspCategory("A03:2021")).toBeUndefined();
     expect(getCweTop25Entry("CWE-79")?.rank).toBe(1);
+    expect(getCweTop25Entry("CWE-798")).toBeUndefined();
+    expect(getCertJavaRule("NOPE00-J")).toBeUndefined();
+  });
+
+  it("tells Top 25 members from other CWE ids", () => {
+    expect(isCweTop25("CWE-79")).toBe(true);
+    expect(isCweTop25("CWE-770")).toBe(true);
     expect(isCweTop25("CWE-798")).toBe(false);
-    expect(certJavaRulesForCwe("CWE-78").map((r) => r.id)).toContain("IDS07-J");
+    expect(isCweTop25("CWE-1")).toBe(false);
+  });
+
+  it("returns exactly the CERT rules that list a CWE id", () => {
+    expect(certJavaRulesForCwe("CWE-78").map((r) => r.id)).toEqual(["IDS07-J"]);
+    expect(certJavaRulesForCwe("CWE-798").map((r) => r.id)).toEqual(["MSC03-J"]);
+    expect(certJavaRulesForCwe("CWE-89")).toEqual([]);
+    for (const rule of certJavaRulesForCwe("CWE-327")) expect(rule.cwe).toContain("CWE-327");
+  });
+});
+
+describe("id patterns", () => {
+  it("accepts well-formed ids only", () => {
+    for (const id of ["CWE-1", "CWE-79", "CWE-1004"]) expect(id).toMatch(CWE_ID_PATTERN);
+    for (const id of ["CWE-", "CWE-0", "CWE-01", "CWE-7a", "cwe-79", "79", " CWE-79"]) {
+      expect(id).not.toMatch(CWE_ID_PATTERN);
+    }
+    for (const id of ["A01:2025", "A10:2025"]) expect(id).toMatch(OWASP_ID_PATTERN);
+    for (const id of ["A00:2025", "A11:2025", "A05", "A05:2021", "A5:2025"]) {
+      expect(id).not.toMatch(OWASP_ID_PATTERN);
+    }
+    for (const id of ["IDS00-J", "MSC11-J"]) expect(id).toMatch(CERT_JAVA_ID_PATTERN);
+    for (const id of ["IDS0-J", "IDS00-K", "ids00-j", "IDS000-J", "IDS00-J "]) {
+      expect(id).not.toMatch(CERT_JAVA_ID_PATTERN);
+    }
+  });
+});
+
+describe("generated CERT Java data", () => {
+  it("matches the pinned hash of the generator output (commit 72e8a32)", () => {
+    // Regenerate with packages/findings/scripts/generate-cert-java.mjs and update the hash on purpose.
+    const digest = createHash("sha256").update(JSON.stringify(CERT_JAVA_RULES)).digest("hex");
+    expect(CERT_JAVA_RULES).toHaveLength(177);
+    expect(digest).toBe("c6463abcc1fcbb2697620d3e031dfc44da0147381e0f01385b51288c236340e5");
   });
 });
 

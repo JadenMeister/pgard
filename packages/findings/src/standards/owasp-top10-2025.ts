@@ -5,8 +5,9 @@ export const OWASP_TOP10_2025_PROVENANCE: StandardProvenance = {
   edition: "2025",
   sourceUrl: "https://top10.owasp.org/2025",
   retrievedAt: "2026-10-26",
-  license: "Creative Commons Attribution 3.0 Unported (CC BY 3.0)",
-  attribution: "OWASP Top 10:2025, (c) OWASP Foundation, https://owasp.org/Top10/",
+  license:
+    "Creative Commons Attribution-ShareAlike 4.0 (CC BY-SA 4.0), https://creativecommons.org/licenses/by-sa/4.0/. Not covered by PGARD's MIT license.",
+  attribution: "OWASP Top 10:2025, Copyright (c) 2003-2025 The OWASP Foundation, Inc.",
 };
 
 const BASE = "https://top10.owasp.org/2025/";
@@ -32,7 +33,7 @@ export const OWASP_TOP10_2025: readonly OwaspCategory[] = [
   ),
   category(
     "A09:2025",
-    "Security Logging and Alerting Failures",
+    "Security Logging & Alerting Failures",
     "A09_2025-Security_Logging_and_Alerting_Failures",
   ),
   category(
