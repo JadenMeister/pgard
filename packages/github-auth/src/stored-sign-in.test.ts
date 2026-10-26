@@ -165,7 +165,7 @@ describe("stored sign-in reuse", () => {
     const first = makeProvider(github, store);
     await first.provider();
     expect(first.userCodes).toEqual(["ABCD-1234"]);
-    expect(first.notices).toEqual([{ kind: "saved", login: "octo" }]);
+    expect(first.notices).toEqual([{ kind: "saved", login: "octo", userId: 7 }]);
     expect(JSON.parse((await store.get(KEY)) ?? "{}")).toMatchObject({
       accessToken: NEW_TOKEN,
       refreshToken: NEW_REFRESH,
@@ -177,7 +177,9 @@ describe("stored sign-in reuse", () => {
     const second = makeProvider(github, store);
     const session = await second.provider();
     expect(second.userCodes).toEqual([]);
-    expect(second.notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(second.notices).toEqual([
+      { kind: "reused", login: "octo", userId: 7, isRefreshed: false },
+    ]);
     expect((await session.client.getAuthenticatedUser()).login).toBe("octo");
     expect(github.count("device")).toBe(1);
   });
@@ -195,7 +197,7 @@ describe("stored sign-in reuse", () => {
     const { provider, notices, userCodes } = makeProvider(github, store);
     await provider();
     expect(userCodes).toEqual([]);
-    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: true }]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", userId: 7, isRefreshed: true }]);
     const refreshCall = github.calls.find(
       (call) => call.form.get("grant_type") === "refresh_token",
     );
@@ -215,7 +217,7 @@ describe("stored sign-in reuse", () => {
     expect(userCodes).toEqual(["ABCD-1234"]);
     expect(notices).toEqual([
       { kind: "removed", reason: "expired" },
-      { kind: "saved", login: "octo" },
+      { kind: "saved", login: "octo", userId: 7 },
     ]);
     expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
   });
@@ -248,7 +250,7 @@ describe("stored sign-in reuse", () => {
     const { provider, notices, userCodes } = makeProvider(github, racing);
     await provider();
     expect(userCodes).toEqual([]);
-    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", userId: 7, isRefreshed: false }]);
   });
 
   it("waits briefly for a racing refresh to be saved before deleting the entry", async () => {
@@ -268,7 +270,7 @@ describe("stored sign-in reuse", () => {
     expect(waits).toHaveLength(1);
     expect(waits[0]).toBeGreaterThan(0);
     expect(userCodes).toEqual([]);
-    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", userId: 7, isRefreshed: false }]);
     expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(REFRESHED_TOKEN);
   });
 
@@ -281,7 +283,7 @@ describe("stored sign-in reuse", () => {
     expect(userCodes).toEqual(["ABCD-1234"]);
     expect(notices).toEqual([
       { kind: "removed", reason: "revoked" },
-      { kind: "saved", login: "octo" },
+      { kind: "saved", login: "octo", userId: 7 },
     ]);
     expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
   });
@@ -389,8 +391,8 @@ describe("stored sign-in reuse", () => {
     expect(second).not.toBe(first);
     expect(userCodes).toEqual([]);
     expect(notices).toEqual([
-      { kind: "reused", login: "octo", isRefreshed: false },
-      { kind: "reused", login: "octo", isRefreshed: false },
+      { kind: "reused", login: "octo", userId: 7, isRefreshed: false },
+      { kind: "reused", login: "octo", userId: 7, isRefreshed: false },
     ]);
     const lastUserCall = github.calls.filter((call) => call.url.endsWith("/user")).at(-1);
     expect(lastUserCall?.init.headers.Authorization).toBe(`Bearer ${NEW_TOKEN}`);
@@ -424,7 +426,7 @@ describe("stored sign-in reuse", () => {
     };
     await provider().catch(() => null);
     expect(store.size()).toBe(0);
-    expect(notices).not.toContainEqual({ kind: "saved", login: "octo" });
+    expect(notices).not.toContainEqual({ kind: "saved", login: "octo", userId: 7 });
   });
 
   it("does not write refreshed tokens back after the entry was removed by sign-out", async () => {
@@ -537,7 +539,9 @@ describe("stored sign-in reuse", () => {
     const same = makeProvider(fakeGitHub(), store, { clientId: sameOverride.clientId });
     await same.provider();
     expect(same.userCodes).toEqual([]);
-    expect(same.notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(same.notices).toEqual([
+      { kind: "reused", login: "octo", userId: 7, isRefreshed: false },
+    ]);
 
     // A different override never sees that entry and signs in on its own.
     const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
@@ -626,6 +630,7 @@ describe("login, logout and status helpers", () => {
     expect(await readStoredSignInStatus(store, CLIENT_ID)).toEqual({
       status: "stored",
       login: "octo",
+      userId: 7,
       expiresAt: START + 8 * HOUR,
       refreshExpiresAt: START + 180 * 24 * HOUR,
     });
@@ -680,7 +685,7 @@ describe("existing() (non-interactive session for background re-checks)", () => 
     expect(await provider()).toBe(session);
     expect(await provider.existing()).toBe(session);
     expect(userCodes).toEqual([]);
-    expect(notices).toEqual([{ kind: "reused", login: "octo", isRefreshed: false }]);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", userId: 7, isRefreshed: false }]);
     expect(github.count("device")).toBe(0);
   });
 

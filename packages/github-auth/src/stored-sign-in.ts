@@ -27,7 +27,14 @@ export interface StoredSignInRecord extends UserTokenSet {
 
 /** Secret-free description of the stored sign-in, for `doctor`, `logout` and the dashboard. */
 export type StoredSignInStatus =
-  | { status: "stored"; login: string; expiresAt: number | null; refreshExpiresAt: number | null }
+  | {
+      status: "stored";
+      login: string;
+      /** GitHub account id saved with the sign-in (not secret). */
+      userId: number;
+      expiresAt: number | null;
+      refreshExpiresAt: number | null;
+    }
   | { status: "none" }
   | { status: "unavailable"; reason: string };
 
@@ -211,10 +218,11 @@ export async function readStoredSignInStatus(
   const loaded = await loadStoredSignIn(store, host, clientId, { deleteMalformed: false });
   if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
   if (loaded.kind === "none") return { status: "none" };
-  const { login, expiresAt, refreshToken, refreshTokenExpiresAt } = loaded.record;
+  const { login, userId, expiresAt, refreshToken, refreshTokenExpiresAt } = loaded.record;
   return {
     status: "stored",
     login,
+    userId,
     expiresAt,
     refreshExpiresAt: refreshToken === null ? null : refreshTokenExpiresAt,
   };

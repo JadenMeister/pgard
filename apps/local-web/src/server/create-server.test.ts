@@ -341,6 +341,26 @@ async function authorize(running: LocalWebServer): Promise<void> {
 }
 
 describe("local web port access authorization gate", () => {
+  it("refuses to confirm a probe when the clock moved back since it was taken", async () => {
+    let clock = 1_000_000;
+    const running = await start(fakeDeps({ verifyProject: ALLOWED_VERIFY, now: () => clock }));
+    await authorize(running);
+    clock = 1_005_000;
+    expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(200);
+    // Still inside the authorization window, but before the probe: fail closed.
+    clock = 1_004_000;
+    const backwards = await apiPost(running, "/api/target/confirm", {
+      port: 3000,
+      isConfirmed: true,
+    });
+    expect(backwards.status).toBe(409);
+    expect(JSON.parse(backwards.body).error.code).toBe("probe_required");
+    clock = 1_005_000;
+    expect(
+      (await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true })).status,
+    ).toBe(200);
+  });
+
   function spiedDeps(verifyProject?: ServerDeps["verifyProject"]) {
     const discoverListeningPorts = vi.fn(fakeDeps().discoverListeningPorts);
     const probeLocalService = vi.fn(async () => IDENTITY);
@@ -1044,6 +1064,41 @@ function expectNoGitHubToken(body: string): void {
 }
 
 describe("local web keychain sign-in", () => {
+  it("closes port access when pgard login switched to another account", async () => {
+    const store = createInMemoryCredentialStore();
+    await store.set(KEYCHAIN_KEY, keychainEntry());
+    const { deps } = keychainDeps(store);
+    const running = await start(deps, null, KEYCHAIN_ENV);
+    await authorize(running);
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+
+    // `pgard login` in another terminal: same account, new token. Nothing changes.
+    const entry = JSON.parse(keychainEntry());
+    await store.set(
+      KEYCHAIN_KEY,
+      JSON.stringify({ ...entry, accessToken: ["ghu", "sameAccountNewToken00000000"].join("_") }),
+    );
+    expect((await apiGet(running, "/api/ports")).status).toBe(200);
+
+    // ...then another account: the old account's allowed check no longer opens port access.
+    await store.set(
+      KEYCHAIN_KEY,
+      JSON.stringify({
+        ...entry,
+        accessToken: ["ghu", "otherAccountToken00000000000"].join("_"),
+        login: "hubot",
+        userId: 8,
+      }),
+    );
+    const ports = await apiGet(running, "/api/ports");
+    expect(ports.status).toBe(403);
+    expect(JSON.parse(ports.body).error.code).toBe("authorization_required");
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth).toMatchObject({ status: "idle", summary: null, expiresAt: null });
+    expect(auth.signInNotice).toContain("The GitHub account changed since the last check");
+    expect((await apiPost(running, "/api/ports/probe", { port: 3000 })).status).toBe(403);
+  });
+
   it("reuses the keychain sign-in on the server without a device code or sending the token", async () => {
     const store = createInMemoryCredentialStore();
     await store.set(KEYCHAIN_KEY, keychainEntry());

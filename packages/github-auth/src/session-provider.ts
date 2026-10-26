@@ -46,10 +46,13 @@ export type GitHubSessionProvider = (() => Promise<GitHubSession>) & {
  * are fixed wording and never contain a token.
  */
 export type SignInNotice =
-  /** A stored sign-in was reused (after an automatic token refresh when `isRefreshed`). */
-  | { kind: "reused"; login: string; isRefreshed: boolean }
+  /**
+   * A stored sign-in was reused (after an automatic token refresh when `isRefreshed`). `userId`
+   * is the GitHub account id `GET /user` returned, so callers can notice an account switch.
+   */
+  | { kind: "reused"; login: string; userId: number; isRefreshed: boolean }
   /** A new device-flow sign-in was saved to the OS keychain. */
-  | { kind: "saved"; login: string }
+  | { kind: "saved"; login: string; userId: number }
   /** The stored sign-in could not be used and was deleted; the device flow runs instead. */
   | { kind: "removed"; reason: "expired" | "revoked" | "refresh_failed" | "malformed" }
   /** No keychain: this provider keeps the sign-in in memory only. */
@@ -415,7 +418,12 @@ export function createDeviceFlowSessionProvider(
       }
       return null;
     }
-    notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
+    notify({
+      kind: "reused",
+      login: user.login,
+      userId: user.id,
+      isRefreshed: reused.isRefreshed,
+    });
     // Only a token that is actually in the keychain ties this session to the entry.
     if (held !== null) markStored(myGeneration, reused.tokens.accessToken);
     return finish(session, reused.tokens.accessToken, myGeneration);
@@ -455,7 +463,7 @@ export function createDeviceFlowSessionProvider(
           isStale(myGeneration) ? "stale" : saveStoredSignIn(saving, record),
         );
         if (failure === null) {
-          notify({ kind: "saved", login: user.login });
+          notify({ kind: "saved", login: user.login, userId: user.id });
           markStored(myGeneration, tokens.accessToken);
         } else if (failure !== "stale") {
           fallBackToMemory(failure);
