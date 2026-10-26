@@ -820,6 +820,17 @@ export function analyzeJsSource(
     )
       return "literal";
     if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "encode" &&
+      ts.isNewExpression(unwrap(node.expression.expression)) &&
+      calleeName(unwrap(node.expression.expression) as ts.NewExpression) === "TextEncoder" &&
+      bindingCount.get("TextEncoder") === undefined &&
+      node.arguments[0] &&
+      ts.isStringLiteralLike(unwrap(node.arguments[0]))
+    )
+      return "literal";
+    if (
       ts.isBinaryExpression(node) &&
       (node.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
         node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) &&
@@ -834,7 +845,45 @@ export function analyzeJsSource(
     return null;
   };
 
-  const reportHardcodedKey = (node: ts.Node, kind: "literal" | "fallback", where: string) => {
+  /**
+   * A fixed string at the sink: a literal, or a name whose only binding is a constant (or a
+   * never-reassigned `let`) initialised with one. `via` names the constant for the evidence.
+   */
+  const fixedString = (
+    expression: ts.Expression | undefined,
+    depth = 0,
+  ): { text: string; via: string | null } | null => {
+    if (!expression || depth > 3) return null;
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return { text: node.text, via: null };
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      const resolved = init ? fixedString(init, depth + 1) : null;
+      return resolved ? { text: resolved.text, via: resolved.via ?? node.text } : null;
+    }
+    return null;
+  };
+  /** `literalValue`, also following a sole-binding constant: `jwt.sign(p, SECRET)`. */
+  const fixedKey = (
+    expression: ts.Expression | undefined,
+  ): { kind: "literal" | "fallback"; via: string | null } | null => {
+    const direct = literalValue(expression);
+    if (direct) return { kind: direct, via: null };
+    if (!expression) return null;
+    const node = unwrap(expression);
+    if (!ts.isIdentifier(node)) return null;
+    const init = soleConst(node.text, node);
+    const kind = init ? literalValue(init) : null;
+    return kind ? { kind, via: node.text } : null;
+  };
+
+  const reportHardcodedKey = (
+    node: ts.Node,
+    key: { kind: "literal" | "fallback"; via: string | null },
+    where: string,
+  ) => {
+    const { kind } = key;
+    const held = key.via === null ? "" : ` held in constant ${key.via}`;
     report(
       "PG-CRYPTO-002",
       node,
@@ -843,13 +892,13 @@ export function analyzeJsSource(
             severity: "high",
             status: "confirmed",
             confidence: "high",
-            flow: `string literal (value redacted) used as ${where}`,
+            flow: `string literal (value redacted)${held} used as ${where}`,
           }
         : {
             severity: "medium",
             status: "suspected",
             confidence: "medium",
-            flow: `hardcoded fallback literal (value redacted) used as ${where} when the environment value is missing`,
+            flow: `hardcoded fallback literal (value redacted)${held} used as ${where} when the environment value is missing`,
           },
       where,
     );
@@ -860,12 +909,8 @@ export function analyzeJsSource(
     const isCryptoModule = resolved !== null && /^(node:)?crypto$/.test(resolved.module);
     const member = resolved?.member ?? name;
     if ((isCryptoModule || name === "createHash") && member === "createHash") {
-      const algorithm = call.arguments[0];
-      if (
-        algorithm &&
-        ts.isStringLiteralLike(unwrap(algorithm)) &&
-        /^(md5|sha1)$/i.test((unwrap(algorithm) as ts.StringLiteral).text)
-      ) {
+      const algorithm = fixedString(call.arguments[0]);
+      if (algorithm && /^(md5|sha1)$/i.test(algorithm.text)) {
         const chainNode = call.parent?.parent?.parent;
         const chain =
           chainNode && chainNode.getWidth(sourceFile) < 2000 ? chainNode.getText(sourceFile) : "";
@@ -877,7 +922,7 @@ export function analyzeJsSource(
               severity: "high",
               status: "suspected",
               confidence: "medium",
-              flow: `${(unwrap(algorithm) as ts.StringLiteral).text} digest of a password-like value`,
+              flow: `${algorithm.text}${algorithm.via ? ` (held in constant ${algorithm.via})` : ""} digest of a password-like value`,
             },
             "createHash",
           );
@@ -904,14 +949,10 @@ export function analyzeJsSource(
       (isCryptoModule || /^create(De)?[Cc]ipheriv$/.test(name)) &&
       /^create(De)?cipheriv$/i.test(member)
     ) {
-      const kind = literalValue(call.arguments[1]);
+      const kind = fixedKey(call.arguments[1]);
       if (kind) reportHardcodedKey(call, kind, `${member} key`);
-      const algorithm = call.arguments[0];
-      if (
-        algorithm &&
-        ts.isStringLiteralLike(unwrap(algorithm)) &&
-        /(^des|rc4|rc2|^bf|blowfish|-ecb$)/i.test((unwrap(algorithm) as ts.StringLiteral).text)
-      ) {
+      const algorithm = fixedString(call.arguments[0]);
+      if (algorithm && /(^des|rc4|rc2|^bf|blowfish|-ecb$)/i.test(algorithm.text)) {
         report(
           "PG-CRYPTO-003",
           call,
@@ -919,7 +960,7 @@ export function analyzeJsSource(
             severity: "medium",
             status: "confirmed",
             confidence: "high",
-            flow: `weak cipher "${(unwrap(algorithm) as ts.StringLiteral).text}"`,
+            flow: `weak cipher "${algorithm.text}"${algorithm.via ? ` (held in constant ${algorithm.via})` : ""}`,
           },
           "weak-cipher",
         );
@@ -942,7 +983,7 @@ export function analyzeJsSource(
       );
     }
     if ((isCryptoModule || name === "createHmac") && member === "createHmac") {
-      const kind = literalValue(call.arguments[1]);
+      const kind = fixedKey(call.arguments[1]);
       if (kind) reportHardcodedKey(call, kind, "HMAC key");
     }
     const receiverPath = calleeReceiver(call)
@@ -952,8 +993,24 @@ export function analyzeJsSource(
       (resolved !== null && resolved.module === "jsonwebtoken") ||
       (receiverPath !== null && /^(jwt|jsonwebtoken)$/.test(receiverPath));
     if (isJwt && (member === "sign" || member === "verify")) {
-      const kind = literalValue(call.arguments[1]);
+      const kind = fixedKey(call.arguments[1]);
       if (kind) reportHardcodedKey(call, kind, `JWT ${member} secret`);
+    }
+    // jose: `new SignJWT(claims)....sign(key)` and `jwtVerify(token, key)`.
+    const receiverNode = calleeReceiver(call);
+    if (
+      member === "sign" &&
+      receiverNode &&
+      receiverNode.getWidth(sourceFile) < 2000 &&
+      /\bnew\s+SignJWT\s*\(/.test(receiverNode.getText(sourceFile)) &&
+      importSet.has("jose")
+    ) {
+      const kind = fixedKey(call.arguments[0]);
+      if (kind) reportHardcodedKey(call, kind, "JWT sign secret");
+    }
+    if (name === "jwtVerify" && resolved?.module === "jose") {
+      const kind = fixedKey(call.arguments[1]);
+      if (kind) reportHardcodedKey(call, kind, "JWT verify secret");
     }
   };
 
@@ -2337,7 +2394,7 @@ export function analyzeJsSource(
           ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === key,
       );
     for (const key of ["secret", "keys"]) {
-      const kind = literalValue(get(properties, key)?.initializer);
+      const kind = fixedKey(get(properties, key)?.initializer);
       if (kind) reportHardcodedKey(call, kind, `${module} ${key}`);
     }
     const cookie = module === "express-session" ? get(properties, "cookie")?.initializer : options;

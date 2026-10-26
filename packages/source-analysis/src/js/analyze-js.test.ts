@@ -6,6 +6,9 @@ const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
 const findingsIn = (code: string, path = "src/app.ts") => analyzeJsSource(code, path).findings;
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 /** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
 const bestTimeOf = (runs: number, fn: () => void) => {
   let best = Infinity;
@@ -377,6 +380,78 @@ describe("PG-CRYPTO rules", () => {
     expect(
       rulesIn(
         "import jwt from 'jsonwebtoken'; jwt.sign(p, process.env.JWT_SECRET); crypto.createCipheriv('aes-256-gcm', key, iv);",
+      ),
+    ).toEqual([]);
+  });
+
+  it("resolves an algorithm or cipher name held in a sole-binding constant", () => {
+    const hash = (decl: string, rest = "") =>
+      rulesIn(
+        `import crypto from 'crypto'; ${decl} ${rest} crypto.createHash(ALGORITHM).update(password);`,
+      );
+    expect(hash("const ALGORITHM = 'md5';")).toEqual(["PG-CRYPTO-001"]);
+    expect(hash("const ALGORITHM = `sha1`;")).toEqual(["PG-CRYPTO-001"]);
+    expect(hash("const ALGORITHM = 'sha256';")).toEqual([]);
+    // Unknown or ambiguous values keep the old behaviour: no finding.
+    expect(hash("let ALGORITHM = 'md5';", "ALGORITHM = pick();")).toEqual([]);
+    expect(hash("const ALGORITHM = process.env.ALGO;")).toEqual([]);
+    expect(
+      rulesIn(
+        "import crypto from 'crypto'; const ALGORITHM = 'md5'; function f(password, ALGORITHM) { return crypto.createHash(ALGORITHM).update(password); }",
+      ),
+    ).toEqual([]);
+    const cipher = (name: string) =>
+      rulesIn(
+        `import crypto from 'crypto'; const CIPHER = '${name}'; crypto.createCipheriv(CIPHER, key, iv);`,
+      );
+    expect(cipher("aes-128-ecb")).toEqual(["PG-CRYPTO-003"]);
+    expect(cipher("des-ede3-cbc")).toEqual(["PG-CRYPTO-003"]);
+    expect(cipher("aes-256-gcm")).toEqual([]);
+    const [weak] = findingsIn(
+      "import crypto from 'crypto'; const CIPHER = 'rc4'; crypto.createCipheriv(CIPHER, key, iv);",
+    );
+    expect(weak?.evidence).toContain("held in constant CIPHER");
+  });
+
+  it("flags a secret held in a constant and passed to a signing call", () => {
+    const secretOf = (decl: string, call: string) =>
+      findingsIn(`import jwt from 'jsonwebtoken'; import crypto from 'crypto'; ${decl} ${call}`);
+    const direct = secretOf("const SECRET = 'my-jwt-signing-value';", "jwt.sign(p, SECRET);");
+    expect(direct.map((f) => f.ruleId)).toEqual(["PG-CRYPTO-002"]);
+    expect(direct[0]).toMatchObject({ severity: "high", confidence: "high" });
+    expect(JSON.stringify(direct)).not.toContain("my-jwt-signing-value");
+    expect(direct[0]?.evidence).toContain("held in constant SECRET");
+    expect(
+      secretOf("const KEY = 'webhook-signing-key';", "crypto.createHmac('sha256', KEY);").map(
+        (f) => f.ruleId,
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    const fallback = secretOf(
+      "const SECRET = process.env.S || 'dev-fallback';",
+      "jwt.sign(p, SECRET);",
+    );
+    expect(fallback[0]).toMatchObject({ severity: "medium", confidence: "medium" });
+    // Not fixed at the sink: environment, parameter that shadows the constant, reassigned.
+    expect(secretOf("const SECRET = process.env.S;", "jwt.sign(p, SECRET);")).toEqual([]);
+    expect(
+      secretOf("const secret = 'x'; function f(p, secret) {", "return jwt.sign(p, secret); }"),
+    ).toEqual([]);
+    expect(secretOf("let secret = 'x'; secret = load();", "jwt.sign(p, secret);")).toEqual([]);
+  });
+
+  it("follows a constant key into jose SignJWT and jwtVerify", () => {
+    const jose = (body: string) => rulesIn(`import { SignJWT, jwtVerify } from 'jose'; ${body}`);
+    expect(
+      jose(
+        "const k = new TextEncoder().encode('hardcoded-secret-value'); new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).sign(k);",
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      jose("const k = new TextEncoder().encode('hardcoded-secret-value'); jwtVerify(token, k);"),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      jose(
+        "const k = new TextEncoder().encode(process.env.S); new SignJWT({}).setProtectedHeader({}).sign(k);",
       ),
     ).toEqual([]);
   });
@@ -931,7 +1006,7 @@ describe("per-function facts stay linear (#104)", () => {
     ).join("\n");
     const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
     expect(code.length).toBeGreaterThan(400_000);
-    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000);
+    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000 * SLOW);
   }, 60_000);
 
   it("still detects MD5 of passwords via update() in the same function", () => {
@@ -999,18 +1074,23 @@ describe("shells via spawn/execFile and promisified exec (#86)", () => {
 
 describe("linear cost and caps (#87)", () => {
   it("analyzes a large JS file quickly", () => {
-    const code = Array.from(
-      { length: 8000 },
-      (_, index) =>
-        `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
-    ).join("\n");
+    const build = (count: number) =>
+      Array.from(
+        { length: count },
+        (_, index) =>
+          `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
+      ).join("\n");
+    const code = build(8000);
     expect(code.length).toBeGreaterThan(500_000);
+    const quarter = build(2000);
     let analysis = analyzeJsSource(code, "big.js");
-    expect(
-      bestTimeOf(3, () => {
-        analysis = analyzeJsSource(code, "big.js");
-      }),
-    ).toBeLessThan(5000);
+    const large = bestTimeOf(3, () => {
+      analysis = analyzeJsSource(code, "big.js");
+    });
+    const small = bestTimeOf(3, () => analyzeJsSource(quarter, "big.js"));
+    expect(large).toBeLessThan(5000 * SLOW);
+    // Four times the input: linear is about 4x, quadratic about 16x.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
     expect(analysis.cappedRules).toContain("PG-XSS-001");
   }, 60_000);
 
