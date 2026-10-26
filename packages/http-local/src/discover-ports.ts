@@ -10,7 +10,7 @@ export interface ListeningPort {
   processName: string | null;
 }
 
-export type PortDiscoveryMethod = "lsof" | "proc" | "unsupported";
+export type PortDiscoveryMethod = "lsof" | "netstat" | "proc" | "unsupported";
 
 export interface PortDiscoveryResult {
   ports: ListeningPort[];
@@ -28,6 +28,7 @@ export interface PortDiscoveryResult {
 export interface PortDiscoveryDeps {
   platform?: NodeJS.Platform;
   runLsof?: () => Promise<string>;
+  runNetstat?: () => Promise<string>;
   readProcFile?: (path: "/proc/net/tcp" | "/proc/net/tcp6") => Promise<string>;
 }
 
@@ -117,12 +118,17 @@ function runLsofDefault(): Promise<string> {
   );
 }
 
+function runNetstatDefault(): Promise<string> {
+  return runCommandWithDeadline("netstat", ["-an", "-p", "tcp"], PORT_DISCOVERY_TIMEOUT_MS);
+}
+
 /** Listener addresses reachable through 127.0.0.1. `[::1]`-only listeners are not. */
 function isReachableViaIpv4Loopback(address: string): boolean {
   return (
     address === "*" ||
     address === "0.0.0.0" ||
     address === "[::]" ||
+    address === "::" ||
     /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(address)
   );
 }
@@ -147,6 +153,27 @@ export function parseLsofOutput(output: string): ListeningPort[] {
         processName: sanitizeDisplayText(command.replace(/\\x20/g, " "), 40),
       });
     }
+  }
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
+}
+
+/**
+ * Parses macOS `netstat -an -p tcp` output. Local addresses look like `127.0.0.1.3000`, `*.8080`
+ * or `::1.5173`: the port follows the last dot. netstat reports no process name.
+ */
+export function parseNetstatOutput(output: string): ListeningPort[] {
+  const byPort = new Map<number, ListeningPort>();
+  for (const line of output.split("\n")) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length < 6 || !columns[0]?.startsWith("tcp")) continue;
+    if (columns[columns.length - 1] !== "LISTEN") continue;
+    const local = columns[3] ?? "";
+    const separator = local.lastIndexOf(".");
+    if (separator < 0 || !/^\d+$/.test(local.slice(separator + 1))) continue;
+    const address = local.slice(0, separator);
+    const port = Number(local.slice(separator + 1));
+    if (!isValidPort(port) || !isReachableViaIpv4Loopback(address)) continue;
+    if (!byPort.has(port)) byPort.set(port, { port, processName: null });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
@@ -189,7 +216,14 @@ export async function discoverListeningPorts(
   try {
     if (platform === "darwin") {
       method = "lsof";
-      ports = parseLsofOutput(await (deps.runLsof ?? runLsofDefault)());
+      try {
+        ports = parseLsofOutput(await (deps.runLsof ?? runLsofDefault)());
+      } catch {
+        // lsof can hang on a stuck volume; its deadline has already settled, so netstat runs
+        // independently of any lingering lsof child.
+        method = "netstat";
+        ports = parseNetstatOutput(await (deps.runNetstat ?? runNetstatDefault)());
+      }
     } else if (platform === "linux") {
       method = "proc";
       const read = deps.readProcFile ?? ((path) => readFile(path, "utf8"));
@@ -202,7 +236,7 @@ export async function discoverListeningPorts(
       note = "Automatic port discovery is not available on this platform.";
     }
   } catch {
-    method = platform === "darwin" ? "lsof" : "proc";
+    method = platform === "darwin" ? "netstat" : "proc";
     isAvailable = false;
     note = "Port discovery failed; enter the port manually.";
   }
