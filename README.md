@@ -69,7 +69,19 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 
 ## Install and build
 
-PGARD cannot be installed from npm yet. The npm name `pgard` is reserved by a placeholder package (0.0.1) that has no CLI: `npm install -g pgard` installs only that placeholder, and you get no `pgard` command. Until the first release (planned v0.1.0), install from source as described below. npm and Homebrew releases are planned.
+### Install from npm or Homebrew (from the first release)
+
+The first release (planned v0.1.0) is not published yet. Until then the npm name `pgard` is reserved by a placeholder package (0.0.1) that has no CLI: `npm install -g pgard` installs only that placeholder, and you get no `pgard` command. Install from source (below) until the release. After the first release:
+
+```sh
+npm install -g pgard   # installs the `pgard` command
+npx pgard doctor       # or run it once without installing
+brew install jadenmeister/pgard/pgard   # Homebrew (macOS and Linux), after the first release
+```
+
+The package is `pgard` and its command is `pgard`. Versions and the release process are described in [docs/RELEASING.md](docs/RELEASING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
+
+### Build from source
 
 Build it from source:
 
