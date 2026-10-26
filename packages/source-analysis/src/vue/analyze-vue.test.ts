@@ -88,6 +88,16 @@ const clean = computed(() => DOMPurify.sanitize(a) + b);
       "src/C.vue",
     );
     expect(partial.findings[0]?.evidence).not.toContain("computed");
+    const other = analyzeVueSource(
+      `<template><div v-html="clean"></div></template>
+<script setup>
+import purify from "./purify.js";
+import { computed } from "vue";
+const clean = computed(() => purify(a));
+</script>`,
+      "src/E.vue",
+    );
+    expect(other.findings[0]?.evidence).not.toContain("computed");
     const local = analyzeVueSource(
       `<template><div v-html="clean"></div></template>
 <script setup>

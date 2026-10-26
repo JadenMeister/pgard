@@ -1,4 +1,4 @@
-// corpus: expect=none
+// corpus: expect=low
 const escapeHtml = require("escape-html");
 
 module.exports = function showFlash(box, message) {

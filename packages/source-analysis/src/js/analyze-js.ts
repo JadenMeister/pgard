@@ -523,46 +523,126 @@ export function analyzeJsSource(
     return out;
   };
 
+  const RAW_TEXT_ELEMENTS = new Set([
+    "script",
+    "style",
+    "textarea",
+    "title",
+    "iframe",
+    "noscript",
+    "noembed",
+    "noframes",
+    "xmp",
+    "plaintext",
+    "template",
+  ]);
+  const VOID_ELEMENTS = new Set([
+    "area",
+    "base",
+    "br",
+    "col",
+    "embed",
+    "hr",
+    "img",
+    "input",
+    "link",
+    "meta",
+    "param",
+    "source",
+    "track",
+    "wbr",
+  ]);
   /**
-   * Where a value lands in the markup built so far. `escape-html` escapes `& < > " '`, which is
-   * enough for text and for a quoted attribute that is not a URL, script or style. It does not
-   * protect an unquoted attribute, a URL (`javascript:`), an event handler or a script element.
+   * True only when the literal markup built so far provably leaves the next value in the text of
+   * an open, ordinary (not raw-text, not void) element, as in `<p>` or `<ul><li>`. The scan is
+   * quote-aware: a `>` inside a quoted attribute value does not end the tag. Anything it cannot
+   * prove (nothing written yet, an open tag or comment, a raw-text element) is not text context.
    */
-  const escapeContext = (before: string): "protected" | "unprotected" => {
-    const text = before.toLowerCase();
-    for (const tag of ["script", "style"]) {
-      if (text.lastIndexOf(`<${tag}`) > text.lastIndexOf(`</${tag}`)) return "unprotected";
+  const isProvableTextContext = (before: string): boolean => {
+    const stack: string[] = [];
+    let index = 0;
+    while (index < before.length) {
+      if (before[index] !== "<") {
+        index += 1;
+        continue;
+      }
+      if (before.startsWith("<!--", index)) {
+        const end = before.indexOf("-->", index + 4);
+        if (end === -1) return false;
+        index = end + 3;
+        continue;
+      }
+      const tag = /^<(\/?)([A-Za-z][\w:-]*)/.exec(before.slice(index, index + 80));
+      if (!tag) {
+        index += 1;
+        continue;
+      }
+      const closing = tag[1] === "/";
+      const name = (tag[2] ?? "").toLowerCase();
+      let cursor = index + tag[0].length;
+      let quote = "";
+      let closed = false;
+      for (; cursor < before.length; cursor += 1) {
+        const char = before[cursor];
+        if (quote) {
+          if (char === quote) quote = "";
+        } else if (char === '"' || char === "'") {
+          quote = char;
+        } else if (char === ">") {
+          closed = true;
+          break;
+        }
+      }
+      if (!closed) return false;
+      const selfClosing = before[cursor - 1] === "/";
+      if (closing) {
+        const at = stack.lastIndexOf(name);
+        if (at !== -1) stack.length = at;
+      } else if (!selfClosing && !VOID_ELEMENTS.has(name)) {
+        stack.push(name);
+      }
+      index = cursor + 1;
     }
-    const open = text.lastIndexOf("<");
-    if (open <= text.lastIndexOf(">")) return "protected";
-    const quoted = /([^\s"'=<>/]+)\s*=\s*(?:"[^"]*|'[^']*)$/.exec(text.slice(open));
-    if (!quoted) return "unprotected";
-    return /^(href|src|srcset|action|formaction|style|srcdoc|data|poster|background|cite|ping|manifest|on.+|xlink:href)$/.test(
-      quoted[1] ?? "",
-    )
-      ? "unprotected"
-      : "protected";
+    const open = stack[stack.length - 1];
+    return open !== undefined && !RAW_TEXT_ELEMENTS.has(open);
+  };
+
+  /** Text of a literal, or of a sole-binding constant holding one; null when not visible here. */
+  const literalText = (expression: ts.Expression, depth = 0): string | null => {
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return node.text;
+    if (ts.isNumericLiteral(node)) return "0";
+    if (ts.isIdentifier(node) && depth < 3) {
+      const init = soleConst(node.text, node);
+      return init ? literalText(init, depth + 1) : null;
+    }
+    return null;
   };
 
   /**
-   * "safe": every dynamic part is fixed or wrapped whole in `escape-html` in a text or plain quoted
-   * attribute context. "unclear": every dynamic part is, but one sits where escape-html does not
-   * protect. null: some part is neither, or nothing is escaped.
+   * escape-html escapes `& < > " '`: enough for HTML text, not for an attribute (unquoted, URL,
+   * handler, `content`, SVG `values`), a script element or an unknown sink element. So the call is
+   * trusted ("safe") only when it sits in text context provable from literal text in the same
+   * expression. Every other use is "unclear" and keeps a low-confidence finding. null: some part
+   * is neither fixed nor escaped, or nothing is escaped.
    */
   const escapeHtmlVerdict = (value: ts.Expression): "safe" | "unclear" | null => {
     const parts = htmlParts(value);
     let escaped = false;
     let unclear = false;
     let before = "";
+    let known = true;
     for (const part of parts) {
       if (typeof part === "string") {
         before += part;
       } else if (isEscapeHtmlCall(part)) {
         escaped = true;
-        if (escapeContext(before) === "unprotected") unclear = true;
+        if (!known || !isProvableTextContext(before)) unclear = true;
         before += "\u0001";
       } else if (isStrictInert(part, "sql")) {
-        before += "\u0001";
+        const text = literalText(part);
+        if (text === null) known = false;
+        else before += text;
       } else {
         return null;
       }
@@ -613,7 +693,7 @@ export function analyzeJsSource(
         node,
         demote(
           evidence,
-          "every dynamic part goes through escape-html, but one is in an attribute, URL or script context it does not protect",
+          "every dynamic part goes through escape-html, but it escapes only & < > quotes, so it does not protect an attribute, URL, script element or markup context that cannot be proven from literal text here",
         ),
         sink,
       );
@@ -659,10 +739,17 @@ export function analyzeJsSource(
     }
     return false;
   };
+  /** A call that yields a jQuery object or DOM node (`$("<li>").text(x)`, `document.createElement`), not a string. */
+  const returnsNode = (node: ts.Expression): boolean => {
+    if (!ts.isCallExpression(node)) return false;
+    if (isJQueryObject(node)) return true;
+    const callee = accessPath(node.expression);
+    return callee !== null && /^document\.(create\w+|querySelector|getElementById)$/.test(callee);
+  };
   /** A string that is built as markup (a literal part holds `<`) or carries request input. */
   const looksLikeHtml = (expression: ts.Expression): boolean => {
     const node = unwrap(expression);
-    if (ts.isFunctionLike(node) || isStaticString(node)) return false;
+    if (ts.isFunctionLike(node) || isStaticString(node) || returnsNode(node)) return false;
     const kind = taint.taintOf(node);
     if (kind === "request" || kind === "browser") return true;
     const target = ts.isIdentifier(node) ? (soleConst(node.text, node) ?? node) : node;
