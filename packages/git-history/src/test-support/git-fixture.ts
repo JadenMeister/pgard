@@ -27,7 +27,8 @@ export interface GitFixture {
 }
 
 export function createGitFixture(options: { remotes?: Record<string, string> } = {}): GitFixture {
-  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-fixture-")));
+  // `.native` expands Windows 8.3 short names (RUNNER~1), matching what git reports.
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-fixture-")));
   const gitWithInput = (input: string | undefined, args: string[]) =>
     execFileSync("git", args, {
       cwd: root,
@@ -84,6 +85,7 @@ export function createGitFixture(options: { remotes?: Record<string, string> } =
     gitWithInput: (input: string, ...args: string[]) => gitWithInput(input, args),
     commit,
     writeFile,
-    cleanup: () => rmSync(root, { recursive: true, force: true }),
+    // Retries: on Windows a just-exited git process can still hold the directory (EBUSY).
+    cleanup: () => rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }

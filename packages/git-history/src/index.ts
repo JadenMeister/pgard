@@ -9,6 +9,7 @@ export {
   type GitSubcommand,
 } from "./run-git.js";
 export { findGitRoot } from "./git-root.js";
+export { resolveGitExecutable, trustedPathEntries } from "./git-executable.js";
 export {
   parseGitHubRemoteUrl,
   readGitHubRemote,

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildAppInstallUrl, isOpenableGitHubUrl } from "./app-install.js";
-import { OPENER_URL_CHARACTERS, openerCommandFor, openGitHubUrl } from "./open-url.js";
+import {
+  OPENER_URL_CHARACTERS,
+  openerCommandFor,
+  openGitHubUrl,
+  windowsExplorerPath,
+} from "./open-url.js";
 
 describe("buildAppInstallUrl", () => {
   it("builds the documented install URL from the slug and numeric ids only", () => {
@@ -77,9 +82,31 @@ describe("openGitHubUrl", () => {
 
   it("uses a fixed argv per platform, never a shell string", () => {
     expect(openerCommandFor("darwin", url)).toEqual({ command: "open", args: [url] });
-    expect(openerCommandFor("win32", url)).toEqual({ command: "explorer.exe", args: [url] });
+    expect(openerCommandFor("win32", url, { SystemRoot: "C:\\Windows" })).toEqual({
+      command: "C:\\Windows\\explorer.exe",
+      args: [url],
+    });
     expect(openerCommandFor("linux", url)).toEqual({ command: "xdg-open", args: [url] });
     expect(openerCommandFor("freebsd", url)).toEqual({ command: "xdg-open", args: [url] });
+  });
+
+  it("opens on Windows through an absolute explorer.exe and never cmd or a shell", async () => {
+    const spawn = vi.fn(async () => true);
+    const env = { SystemRoot: "D:\\WIN" };
+    expect(await openGitHubUrl(url, { platform: "win32", spawn, env })).toBe(true);
+    expect(spawn).toHaveBeenCalledWith("D:\\WIN\\explorer.exe", [url]);
+    // An untrusted SystemRoot falls back to the default instead of being executed.
+    for (const root of ["..\\x", "\\\\host\\share", "C:\\a&calc", "explorer"]) {
+      expect(windowsExplorerPath({ SystemRoot: root })).toBe("C:\\Windows\\explorer.exe");
+    }
+    // `&` in the query is safe only because no cmd.exe parses the URL.
+    expect(openerCommandFor("win32", url)?.command).not.toMatch(/cmd/i);
+    const withAmp = "https://github.com/a?x=1&y=2";
+    expect(await openGitHubUrl(withAmp, { platform: "win32", spawn, env })).toBe(true);
+    expect(await openGitHubUrl("https://github.com/a|calc", { platform: "win32", spawn })).toBe(
+      false,
+    );
+    expect(await openGitHubUrl('https://github.com/a"b', { platform: "win32", spawn })).toBe(false);
   });
 
   it("refuses to open a non-github URL", async () => {

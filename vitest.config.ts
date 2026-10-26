@@ -12,6 +12,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Windows spawns processes far slower; git-heavy tests need more than the 5 s default there.
+    testTimeout: process.platform === "win32" ? 30_000 : 5_000,
     include: ["packages/*/src/**/*.test.ts", "apps/*/src/**/*.test.{ts,tsx}", "tests/**/*.test.ts"],
     environment: "node",
   },
