@@ -277,3 +277,46 @@ describe("precision (#88)", () => {
     ).toEqual(["PG-SQL-003"]);
   });
 });
+
+describe("injection precision and recall (#242)", () => {
+  it("does not flag Sprintf of constants or strconv-parsed numbers", () => {
+    expect(
+      rulesIn(
+        go(
+          ["database/sql", "fmt", "strconv", "net/http"],
+          `const table = "t"
+
+func f(db *sql.DB, r *http.Request) {
+	n, _ := strconv.Atoi(r.FormValue("n"))
+	db.Query(fmt.Sprintf("SELECT * FROM %s LIMIT %d", table, n))
+}`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  it("flags a shell started with a spread slice, resolved or not", () => {
+    const resolved = go(
+      ["os/exec"],
+      `func f(script string) {
+	args := []string{"-c", script}
+	exec.Command("sh", args...).Run()
+}`,
+    );
+    expect(rulesIn(resolved)).toEqual(["PG-CMD-002"]);
+    const fixed = go(
+      ["os/exec"],
+      `func f() {
+	args := []string{"-c", "uptime"}
+	exec.Command("sh", args...).Run()
+}`,
+    );
+    expect(rulesIn(fixed)).toEqual([]);
+    const unresolved = go(
+      ["os/exec"],
+      `func f(args []string) { exec.Command("sh", args...).Run() }`,
+    );
+    const [finding] = analyzeGoSource(unresolved, "main.go").findings;
+    expect(finding).toMatchObject({ ruleId: "PG-CMD-002", confidence: "low" });
+  });
+});

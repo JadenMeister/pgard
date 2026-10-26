@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-PATH-001:a realpath plus prefix check is not recognised as a path guard
+// corpus: expect=none
 const fs = require("node:fs");
 const path = require("node:path");
 const ROOT = fs.realpathSync("public");

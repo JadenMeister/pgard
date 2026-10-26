@@ -90,6 +90,8 @@ const HTTP_CLIENT_MODULES = new Set([
   "node:http",
   "node:https",
 ]);
+/** Process-level values that a request cannot influence. */
+const TRUSTED_PATHS = new Set(["process.execPath", "process.platform", "__dirname", "__filename"]);
 const SANITIZER_CALLS =
   /^(sanitize|sanitizeHtml|purify|escape|escapeHtml|encode|xss|filterXSS|htmlEscape)$/i;
 const PASSWORD_NAME = /^(password|passwd|pwd|pass|userPassword|newPassword|plainPassword)$/i;
@@ -432,13 +434,22 @@ export function analyzeJsSource(
       (name === "raw" && accessPath(calleeReceiver(call) ?? call.expression) === "Prisma")
     ) {
       const argument = call.arguments[0];
+      if (argument && isInertValue(argument, "sql")) return;
+      // Prisma.raw() splices its text into the statement as-is, so a value that cannot be shown
+      // to be fixed is reported at low confidence (the caller may well pass user input).
+      const isRawHelper = name === "raw";
       // Request input passed straight in is as dangerous as a string built from it.
-      if (argument && (taint.isDynamicString(argument) || taint.taintOf(argument) === "request")) {
+      if (
+        argument &&
+        (isRawHelper || taint.isDynamicString(argument) || taint.taintOf(argument) === "request")
+      ) {
         const evidence = classify(
           argument,
           false,
           { severity: "high", status: "confirmed", confidence: "high" },
-          { severity: "high", status: "suspected", confidence: "medium" },
+          isRawHelper && !taint.isDynamicString(argument)
+            ? { severity: "medium", status: "suspected", confidence: "low" }
+            : { severity: "high", status: "suspected", confidence: "medium" },
           name,
         );
         if (evidence) report("PG-SQL-002", call, evidence, name);
@@ -448,6 +459,8 @@ export function analyzeJsSource(
     if (name !== "query" && name !== "execute") return;
     const argument = sqlArgument(call);
     if (!argument) return;
+    // Fixed text: constants, numeric coercion and values picked from a literal allowlist.
+    if (isInertValue(argument, "sql")) return;
     const isTaintedInput = taint.taintOf(argument) === "request";
     if (!taint.isDynamicString(argument) && !isTaintedInput) return;
     const receiver = calleeReceiver(call);
@@ -501,7 +514,7 @@ export function analyzeJsSource(
     const first = call.arguments[0];
     if (!first) return;
     if (member === "exec" || member === "execSync") {
-      if (isStaticString(first)) return;
+      if (isStaticString(first) || isInertValue(first, "cmd")) return;
       const evidence = classify(
         first,
         false,
@@ -552,7 +565,8 @@ export function analyzeJsSource(
         /^[-/]c$/i.test(flag.text) &&
         script &&
         !ts.isSpreadElement(script) &&
-        !isStaticString(script)
+        !isStaticString(script) &&
+        !isInertValue(script, "cmd")
       ) {
         const evidence = classify(
           script,
@@ -587,6 +601,19 @@ export function analyzeJsSource(
     }
   };
 
+  /** `"https://api.example.com/" + x` or a template starting with a fixed scheme and host. */
+  const hasFixedHost = (target: ts.Expression): boolean => {
+    let head: ts.Node = unwrap(target);
+    while (ts.isBinaryExpression(head) && head.operatorToken.kind === ts.SyntaxKind.PlusToken)
+      head = unwrap(head.left);
+    const text = ts.isTemplateExpression(head)
+      ? head.head.text
+      : ts.isStringLiteralLike(head)
+        ? head.text
+        : "";
+    return /^https?:\/\/[^/$\s{}]+\//.test(text);
+  };
+
   const checkSsrf = (call: ts.CallExpression, name: string) => {
     const resolved = moduleOfCall(call);
     const receiverPath = calleeReceiver(call)
@@ -615,6 +642,11 @@ export function analyzeJsSource(
       target = urlProperty.initializer;
     }
     if (taint.taintOf(target) !== "request") return;
+    // An exact hostname allowlist plus a protocol check on the same URL, before the request.
+    const subject = canonicalSubject(target);
+    const facts = guardFactsAt(call).filter((fact) => fact.subject === subject);
+    const hasHost = facts.some((fact) => fact.kind === "host");
+    if (hasHost && facts.some((fact) => fact.kind === "protocol")) return;
     const evidence = classify(
       target,
       false,
@@ -622,7 +654,35 @@ export function analyzeJsSource(
       null,
       `${name}() request URL`,
     );
-    if (evidence) report("PG-SSRF-001", call, evidence, name);
+    if (!evidence) return;
+    if (hasHost) {
+      // Fail closed: the host is checked but the protocol is not, so keep a weaker finding.
+      report(
+        "PG-SSRF-001",
+        call,
+        {
+          ...evidence,
+          severity: "medium",
+          confidence: "low",
+          flow: `${evidence.flow} (hostname checked, protocol not checked)`,
+        },
+        name,
+      );
+    } else if (hasFixedHost(target)) {
+      report(
+        "PG-SSRF-001",
+        call,
+        {
+          ...evidence,
+          severity: "medium",
+          confidence: "low",
+          flow: `${evidence.flow} (host is fixed; only the path is user-controlled)`,
+        },
+        name,
+      );
+    } else {
+      report("PG-SSRF-001", call, evidence, name);
+    }
   };
 
   const checkPath = (call: ts.CallExpression, name: string) => {
@@ -664,6 +724,20 @@ export function analyzeJsSource(
       ) {
         return; // express/send with `root` rejects paths that escape the root.
       }
+    }
+    // `realpath`/`path.resolve` result checked with startsWith(ROOT + sep) before the file op.
+    const pathArgument = unwrap(first);
+    if (ts.isIdentifier(pathArgument)) {
+      const init = singleConst(pathArgument.text);
+      const isResolved =
+        init !== null && /\b(realpath(Sync)?|resolve)\s*\(/.test(init.getText(sourceFile));
+      if (
+        isResolved &&
+        guardFactsAt(call).some(
+          (fact) => fact.kind === "prefix" && fact.subject === pathArgument.text,
+        )
+      )
+        return;
     }
     const evidence = classify(
       first,
@@ -905,6 +979,330 @@ export function analyzeJsSource(
   const singleConst = (name: string): ts.Expression | null => {
     const list = constInits.get(name);
     return list && list.length === 1 ? (list[0] ?? null) : null;
+  };
+
+  /**
+   * A fixed lookup table: a `Map` of pairs, an object literal, or `Object.freeze` of either,
+   * where every value is itself inert. Indexing it with any key yields one of those values.
+   */
+  const isInertTable = (expression: ts.Expression, depth: number): boolean => {
+    if (depth > 4) return false;
+    const node = unwrap(expression);
+    if (ts.isIdentifier(node)) {
+      const init = singleConst(node.text);
+      return init ? isInertTable(init, depth + 1) : false;
+    }
+    if (ts.isCallExpression(node) && accessPath(node.expression) === "Object.freeze") {
+      const inner = node.arguments[0];
+      return inner ? isInertTable(inner, depth + 1) : false;
+    }
+    if (ts.isNewExpression(node) && calleeName(node) === "Map") {
+      const entries = node.arguments?.[0] ? unwrap(node.arguments[0]) : null;
+      return (
+        entries !== null &&
+        ts.isArrayLiteralExpression(entries) &&
+        entries.elements.every((entry) => {
+          const pair = ts.isSpreadElement(entry) ? null : unwrap(entry);
+          const value =
+            pair && ts.isArrayLiteralExpression(pair) && pair.elements.length === 2
+              ? pair.elements[1]
+              : undefined;
+          return (
+            value !== undefined &&
+            !ts.isSpreadElement(value) &&
+            isInertValue(value, "sql", depth + 1)
+          );
+        })
+      );
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      return node.properties.every(
+        (property) =>
+          ts.isPropertyAssignment(property) &&
+          !ts.isComputedPropertyName(property.name) &&
+          isInertValue(property.initializer, "sql", depth + 1),
+      );
+    }
+    return false;
+  };
+
+  /**
+   * True when an expression can only produce a fixed or numeric value, whatever the request holds:
+   * literals, module constants (through `singleConst`), numeric coercion, a value picked from a
+   * literal allowlist table, and, for commands, `shell-quote`'s `quote()`. Anything unresolved is
+   * not inert, so unclear evidence keeps its finding.
+   */
+  const isInertValue = (expression: ts.Expression, context: "sql" | "cmd", depth = 0): boolean => {
+    if (depth > 6) return false;
+    const node = unwrap(expression);
+    if (
+      ts.isStringLiteralLike(node) ||
+      ts.isNumericLiteral(node) ||
+      node.kind === ts.SyntaxKind.TrueKeyword ||
+      node.kind === ts.SyntaxKind.FalseKeyword ||
+      node.kind === ts.SyntaxKind.NullKeyword
+    )
+      return true;
+    const inert = (child: ts.Expression) => isInertValue(child, context, depth + 1);
+    if (ts.isTemplateExpression(node)) return node.templateSpans.every((s) => inert(s.expression));
+    if (ts.isPrefixUnaryExpression(node)) return true; // +x, -x, ~x, !x are numbers or booleans
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind;
+      if (
+        kind === ts.SyntaxKind.PlusToken ||
+        kind === ts.SyntaxKind.BarBarToken ||
+        kind === ts.SyntaxKind.QuestionQuestionToken ||
+        kind === ts.SyntaxKind.AmpersandAmpersandToken
+      )
+        return inert(node.left) && inert(node.right);
+      return (
+        kind === ts.SyntaxKind.MinusToken ||
+        kind === ts.SyntaxKind.AsteriskToken ||
+        kind === ts.SyntaxKind.SlashToken ||
+        kind === ts.SyntaxKind.PercentToken ||
+        kind === ts.SyntaxKind.AsteriskAsteriskToken
+      );
+    }
+    if (ts.isConditionalExpression(node)) return inert(node.whenTrue) && inert(node.whenFalse);
+    const fixedPath = accessPath(node);
+    if (fixedPath !== null && TRUSTED_PATHS.has(fixedPath)) return true;
+    if (ts.isIdentifier(node)) {
+      if (node.text === "undefined") return true;
+      const init = singleConst(node.text);
+      return init !== null && inert(init);
+    }
+    if (ts.isElementAccessExpression(node) || ts.isPropertyAccessExpression(node))
+      return isInertTable(node.expression, 0);
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node);
+      const receiver = calleeReceiver(node);
+      const receiverPath = receiver ? accessPath(receiver) : null;
+      if (name === "parseInt" || name === "parseFloat" || name === "Number")
+        return receiver === null || receiverPath === "Number";
+      if (receiverPath === "Math") return true;
+      if (name === "get" && receiver && node.arguments.length === 1)
+        return isInertTable(receiver, 0);
+      if (context === "cmd" && name) {
+        const resolved = moduleOfCall(node);
+        return resolved?.module === "shell-quote" && resolved.member === "quote";
+      }
+    }
+    return false;
+  };
+
+  const enclosingFunction = (node: ts.Node): ts.Node => {
+    let current: ts.Node | undefined = node.parent;
+    while (current && !ts.isFunctionLike(current) && !ts.isSourceFile(current))
+      current = current.parent;
+    return current ?? sourceFile;
+  };
+
+  const exitsScope = (statement: ts.Statement): boolean =>
+    ts.isReturnStatement(statement) ||
+    ts.isThrowStatement(statement) ||
+    (ts.isBlock(statement) && statement.statements.some((inner) => exitsScope(inner)));
+
+  const splitOn = (expression: ts.Expression, operator: ts.SyntaxKind): ts.Expression[] => {
+    const node = unwrap(expression);
+    return ts.isBinaryExpression(node) && node.operatorToken.kind === operator
+      ? [...splitOn(node.left, operator), ...splitOn(node.right, operator)]
+      : [node];
+  };
+
+  /** Canonical name of the value a URL/string variable carries, following `new URL(x)` and `.href`. */
+  const canonicalSubject = (expression: ts.Expression, depth = 0): string => {
+    const node = unwrap(expression);
+    if (depth > 5) return node.getText(sourceFile);
+    if (ts.isNewExpression(node) && calleeName(node) === "URL" && node.arguments?.[0])
+      return canonicalSubject(node.arguments[0], depth + 1);
+    if (ts.isCallExpression(node)) {
+      const receiver = calleeReceiver(node);
+      if (calleeName(node) === "toString" && receiver && node.arguments.length === 0)
+        return canonicalSubject(receiver, depth + 1);
+      if (calleeName(node) === "String" && !receiver && node.arguments[0])
+        return canonicalSubject(node.arguments[0], depth + 1);
+    }
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "href")
+      return canonicalSubject(node.expression, depth + 1);
+    if (ts.isIdentifier(node)) {
+      const init = singleConst(node.text);
+      if (init) {
+        const inner = unwrap(init);
+        if (
+          ts.isNewExpression(inner) ||
+          ts.isIdentifier(inner) ||
+          ts.isPropertyAccessExpression(inner) ||
+          ts.isCallExpression(inner)
+        )
+          return canonicalSubject(inner, depth + 1);
+      }
+    }
+    return node.getText(sourceFile);
+  };
+
+  /** `u.hostname` / `u.protocol` (also through one const alias) -> canonical subject of `u`. */
+  const urlPartSubject = (
+    expression: ts.Expression,
+    part: "host" | "protocol",
+    depth = 0,
+  ): string | null => {
+    const node = unwrap(expression);
+    if (depth > 3) return null;
+    if (ts.isPropertyAccessExpression(node)) {
+      const names = part === "host" ? ["hostname", "host"] : ["protocol"];
+      return names.includes(node.name.text) ? canonicalSubject(node.expression) : null;
+    }
+    if (ts.isCallExpression(node) && calleeName(node) === "toLowerCase") {
+      const receiver = calleeReceiver(node);
+      return receiver ? urlPartSubject(receiver, part, depth + 1) : null;
+    }
+    if (ts.isIdentifier(node)) {
+      const init = singleConst(node.text);
+      return init ? urlPartSubject(init, part, depth + 1) : null;
+    }
+    return null;
+  };
+
+  interface GuardFact {
+    kind: "host" | "protocol" | "prefix";
+    subject: string;
+  }
+
+  /** True for a literal list of strings: array literal, `new Set([...])`, frozen forms, consts. */
+  const isStringCollection = (expression: ts.Expression, depth = 0): boolean => {
+    if (depth > 4) return false;
+    const node = unwrap(expression);
+    if (ts.isIdentifier(node)) {
+      const init = singleConst(node.text);
+      return init ? isStringCollection(init, depth + 1) : false;
+    }
+    if (ts.isNewExpression(node) && calleeName(node) === "Set" && node.arguments?.[0])
+      return isStringCollection(node.arguments[0], depth + 1);
+    if (
+      ts.isCallExpression(node) &&
+      accessPath(node.expression) === "Object.freeze" &&
+      node.arguments[0]
+    )
+      return isStringCollection(node.arguments[0], depth + 1);
+    return (
+      ts.isArrayLiteralExpression(node) &&
+      node.elements.length > 0 &&
+      node.elements.every(
+        (element) => !ts.isSpreadElement(element) && ts.isStringLiteralLike(unwrap(element)),
+      )
+    );
+  };
+
+  const endsWithSeparator = (expression: ts.Expression): boolean => {
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return node.text.endsWith("/") || node.text.endsWith("\\");
+    if (ts.isTemplateExpression(node)) {
+      const last = node.templateSpans[node.templateSpans.length - 1];
+      if (!last) return false;
+      return last.literal.text === ""
+        ? endsWithSeparator(last.expression)
+        : /[/\\]$/.test(last.literal.text);
+    }
+    const path = accessPath(node);
+    return path !== null && /(^|\.)sep$/.test(path);
+  };
+
+  const equalityFacts = (left: ts.Expression, right: ts.Expression): GuardFact[] => {
+    const facts: GuardFact[] = [];
+    for (const [value, other] of [
+      [left, right],
+      [right, left],
+    ] as const) {
+      if (!ts.isStringLiteralLike(unwrap(value))) continue;
+      const host = urlPartSubject(other, "host");
+      const protocol = urlPartSubject(other, "protocol");
+      if (host) facts.push({ kind: "host", subject: host });
+      if (protocol) facts.push({ kind: "protocol", subject: protocol });
+    }
+    return facts;
+  };
+
+  /** What must hold when `expression` evaluates to true. */
+  const factsWhenTrue = (expression: ts.Expression): GuardFact[] => {
+    const node = unwrap(expression);
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind;
+      if (kind === ts.SyntaxKind.AmpersandAmpersandToken)
+        return [...factsWhenTrue(node.left), ...factsWhenTrue(node.right)];
+      if (
+        kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        kind === ts.SyntaxKind.EqualsEqualsToken
+      )
+        return equalityFacts(node.left, node.right);
+      return [];
+    }
+    if (ts.isCallExpression(node)) {
+      const name = calleeName(node);
+      const receiver = calleeReceiver(node);
+      const argument = node.arguments[0];
+      if (!receiver || !argument || node.arguments.length !== 1) return [];
+      if ((name === "has" || name === "includes") && isStringCollection(receiver)) {
+        const host = urlPartSubject(argument, "host");
+        const protocol = urlPartSubject(argument, "protocol");
+        return [
+          ...(host ? [{ kind: "host" as const, subject: host }] : []),
+          ...(protocol ? [{ kind: "protocol" as const, subject: protocol }] : []),
+        ];
+      }
+      if (name === "startsWith") {
+        const base = unwrap(argument);
+        if (ts.isStringLiteralLike(base) && /^https?:\/\//.test(base.text))
+          return [{ kind: "protocol", subject: canonicalSubject(receiver) }];
+        const hasSeparator =
+          (ts.isBinaryExpression(base) &&
+            base.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+            endsWithSeparator(base.right)) ||
+          (ts.isTemplateExpression(base) && endsWithSeparator(base)) ||
+          (ts.isStringLiteralLike(base) && base.text.length > 1 && endsWithSeparator(base));
+        return hasSeparator
+          ? [{ kind: "prefix", subject: unwrap(receiver).getText(sourceFile) }]
+          : [];
+      }
+    }
+    return [];
+  };
+
+  /** What must hold after `if (expression) <exit>` falls through (every `||` operand was false). */
+  const factsWhenFalse = (expression: ts.Expression): GuardFact[] =>
+    splitOn(expression, ts.SyntaxKind.BarBarToken).flatMap((part) => {
+      if (ts.isPrefixUnaryExpression(part) && part.operator === ts.SyntaxKind.ExclamationToken)
+        return factsWhenTrue(part.operand);
+      if (
+        ts.isBinaryExpression(part) &&
+        (part.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+          part.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken)
+      )
+        return equalityFacts(part.left, part.right);
+      return [];
+    });
+
+  /** Guard facts that hold at `node`: early-exit `if`s before it, or enclosing positive `if`s. */
+  const guardFactsAt = (node: ts.Node): GuardFact[] => {
+    const owner = enclosingFunction(node);
+    const facts: GuardFact[] = [];
+    const visit = (child: ts.Node): void => {
+      if (child !== owner && ts.isFunctionLike(child)) return;
+      if (ts.isIfStatement(child)) {
+        if (
+          !child.elseStatement &&
+          child.getEnd() <= node.getStart(sourceFile) &&
+          exitsScope(child.thenStatement)
+        )
+          facts.push(...factsWhenFalse(child.expression));
+        const inThen =
+          node.getStart(sourceFile) >= child.thenStatement.getStart(sourceFile) &&
+          node.getEnd() <= child.thenStatement.getEnd();
+        if (inThen) facts.push(...factsWhenTrue(child.expression));
+      }
+      ts.forEachChild(child, visit);
+    };
+    visit(owner);
+    return facts;
   };
 
   /**

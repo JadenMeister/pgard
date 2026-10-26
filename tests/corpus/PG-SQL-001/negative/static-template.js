@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-SQL-001:interpolating a module-level string constant is reported as dynamic SQL
+// corpus: expect=none
 const { Pool } = require("pg");
 const pool = new Pool();
 const TABLE = "audit_log";

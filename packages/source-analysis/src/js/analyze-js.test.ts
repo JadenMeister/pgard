@@ -1053,3 +1053,74 @@ describe("precision (#88)", () => {
     ).toEqual([]);
   });
 });
+
+describe("injection precision and recall (#242)", () => {
+  it("treats numeric coercion, constants and literal allowlists as fixed SQL text", () => {
+    expect(
+      rulesIn(
+        "import { Pool } from 'pg'; const pool = new Pool(); const T = 'logs'; const M = new Map([['a','x ASC']]);" +
+          "export const f = (req) => pool.query(`SELECT * FROM ${T} ORDER BY ${M.get(req.query.s) ?? 'id'} LIMIT ${Number.parseInt(req.query.n, 10) || 5}`);",
+      ),
+    ).toEqual([]);
+  });
+
+  it("still flags a request value next to an allowlisted one", () => {
+    expect(
+      rulesIn(
+        "import { Pool } from 'pg'; const pool = new Pool(); const M = new Map([['a','x']]);" +
+          "export const f = (req) => pool.query('SELECT * FROM t WHERE n = ' + req.query.n + ' ORDER BY ' + M.get(req.query.s));",
+      ),
+    ).toEqual(["PG-SQL-001"]);
+  });
+
+  it("flags Prisma.raw of an unresolved value at low confidence, not a literal", () => {
+    const [finding] = findingsIn(
+      "import { Prisma } from '@prisma/client'; export const f = (col: string) => Prisma.sql`SELECT * FROM t ORDER BY ${Prisma.raw(col)}`;",
+    );
+    expect(finding).toMatchObject({ ruleId: "PG-SQL-002", confidence: "low" });
+    expect(
+      rulesIn(
+        "import { Prisma } from '@prisma/client'; export const f = () => Prisma.sql`SELECT * FROM t ORDER BY a ${Prisma.raw('DESC')}`;",
+      ),
+    ).toEqual([]);
+  });
+
+  it("trusts quote() only from shell-quote", () => {
+    const body = "exec('git log ' + quote(req.query.ref));";
+    expect(
+      rulesIn(`import { exec } from 'child_process'; import { quote } from 'shell-quote'; ${body}`),
+    ).toEqual([]);
+    expect(
+      rulesIn(`import { exec } from 'child_process'; import { quote } from './q'; ${body}`),
+    ).toEqual(["PG-CMD-001"]);
+    expect(
+      rulesIn("import { exec } from 'child_process'; const V = '1'; exec(`npm view x@${V}`);"),
+    ).toEqual([]);
+  });
+
+  it("accepts a resolved path guard only with a separator", () => {
+    const code = (check: string) =>
+      `import fs from 'fs'; import path from 'path'; const ROOT = path.resolve('x');
+       export const f = (req, res) => { const p = path.resolve(ROOT, req.query.f);
+       if (!p.startsWith(${check})) return res.end(); res.sendFile(p); };`;
+    expect(rulesIn(code("ROOT + path.sep"))).toEqual([]);
+    expect(rulesIn(code("ROOT"))).toEqual(["PG-PATH-001"]);
+  });
+
+  it("requires hostname and protocol checks for an SSRF guard", () => {
+    const code = (guard: string) =>
+      `export const f = async (req) => { const u = new URL(req.query.u);
+       if (${guard}) throw new Error('no'); return fetch(u); };`;
+    expect(rulesIn(code("u.protocol !== 'https:' || u.hostname !== 'a.com'"))).toEqual([]);
+    expect(rulesIn(code("u.protocol !== 'https:'"))).toEqual(["PG-SSRF-001"]);
+    const [hostOnly] = findingsIn(code("u.hostname !== 'a.com'"));
+    expect(hostOnly).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+  });
+
+  it("keeps a fixed-host request with a user path as a low-confidence finding", () => {
+    const [finding] = findingsIn(
+      "export const f = (req) => fetch('https://api.example.com/u/' + req.params.id);",
+    );
+    expect(finding).toMatchObject({ ruleId: "PG-SSRF-001", confidence: "low" });
+  });
+});

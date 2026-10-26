@@ -107,9 +107,79 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const isTaintedExpr = (expression: string): boolean =>
     !SANITIZER_PATTERN.test(expression) &&
     (SOURCE_PATTERN.test(expression) || referencesAny(expression, tainted));
+  // Names whose value is fixed: package/local `const`s, and numbers parsed with strconv. A name
+  // that is also assigned something else anywhere in the file is not trusted.
+  const inertNames = new Set<string>();
+  {
+    const impure = new Set<string>();
+    const shadowed = new Set<string>();
+    const constNames = new Set<string>();
+    for (const match of code.matchAll(/(?:^|\n)[ \t]*const[ \t]+(\w+)\b[^\n=]*=/g)) {
+      if (match[1]) constNames.add(match[1]);
+    }
+    for (const block of code.matchAll(/(?:^|\n)[ \t]*const[ \t]*\(([^)]*)\)/g)) {
+      for (const line of (block[1] ?? "").split("\n")) {
+        const name = /^\s*(\w+)\b[^=\n]*=/.exec(line)?.[1];
+        if (name) constNames.add(name);
+      }
+    }
+    for (const match of code.matchAll(
+      /(^|\n)[ \t]*(?:var[ \t]+)?([\w, ]{1,200}?)(?:[ \t]+[\w.*[\]]{1,100})?[ \t]*(:=|=|\+=)[ \t]*([^\n]+)/g,
+    )) {
+      if (/^\s*const\b/.test(match[2] ?? "")) continue;
+      const isParse = /^strconv\.(?:Atoi|ParseInt|ParseUint|ParseFloat|ParseBool)\(/.test(
+        (match[4] ?? "").trim(),
+      );
+      for (const name of (match[2] ?? "").split(",").map((entry) => entry.trim())) {
+        if (!IDENTIFIER.test(name) || name === "_" || name === "err") continue;
+        if (isParse && match[3] !== "+=") inertNames.add(name);
+        else impure.add(name);
+        if (match[3] === ":=") shadowed.add(name);
+      }
+    }
+    for (const name of impure) inertNames.delete(name);
+    // Const block entries look like assignments, so they only lose trust when redeclared with :=.
+    for (const name of constNames) if (!shadowed.has(name)) inertNames.add(name);
+  }
+  const splitTopLevelPlus = (text: string): string[] => {
+    const parts: string[] = [];
+    let depth = 0;
+    let current = "";
+    for (const char of text) {
+      if (char === "(" || char === "[" || char === "{") depth += 1;
+      else if (char === ")" || char === "]" || char === "}") depth -= 1;
+      if (char === "+" && depth === 0) {
+        parts.push(current);
+        current = "";
+      } else {
+        current += char;
+      }
+    }
+    parts.push(current);
+    return parts;
+  };
+  /** True when the expression can only produce a fixed or numeric string. */
+  const isInertExpr = (expression: string, depth = 0): boolean => {
+    const trimmed = expression.trim();
+    if (depth > 4 || trimmed === "") return false;
+    if (LITERAL_PATTERN.test(trimmed) || /^\d+$/.test(trimmed)) return true;
+    if (IDENTIFIER.test(trimmed)) return inertNames.has(trimmed);
+    if (/^strconv\.Itoa\(/.test(trimmed)) return true;
+    if (/^fmt\.Sprintf\(/.test(trimmed)) {
+      const { args, end } = readCallArguments(trimmed, trimmed.indexOf("("));
+      return (
+        end === trimmed.length - 1 &&
+        args.length > 0 &&
+        args.every((arg) => isInertExpr(arg, depth + 1))
+      );
+    }
+    const parts = splitTopLevelPlus(trimmed);
+    return parts.length > 1 && parts.every((part) => isInertExpr(part, depth + 1));
+  };
   const isDynamicExpr = (expression: string): boolean => {
     const trimmed = expression.trim();
     if (LITERAL_PATTERN.test(trimmed)) return false;
+    if (isInertExpr(trimmed)) return false;
     if (/\bfmt\.Sprintf\(|\bstrings\.Join\(|\bstrings\.Replace(All)?\(/.test(trimmed)) return true;
     if (/\+/.test(trimmed) && !/^("#\d+"\s*\+\s*)*"#\d+"$/.test(trimmed)) return true;
     return IDENTIFIER.test(trimmed) && dynamic.has(trimmed);
@@ -236,6 +306,62 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     );
   }
 
+  /** `exec.Command("sh", args...)`: the slice holds the flag and script, so judge its elements. */
+  const reportShellSlice = (slice: string, shell: string, offset: number, name: string) => {
+    const declaration = new RegExp(
+      `(?:^|\\n)[ \\t]*(?:var[ \\t]+)?${slice}[ \\t]*(?::=|=)[ \\t]*\\[\\]string[ \\t]*\\{`,
+    ).exec(code);
+    if (declaration === null) {
+      // Parameter or other origin: the shell receives arguments we cannot see. Keep a weak finding.
+      report(
+        "PG-CMD-002",
+        offset,
+        {
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          flow: `${shell} invoked with an argument slice (${slice}...) whose contents cannot be resolved`,
+        },
+        `${name}-shell-slice`,
+      );
+      return;
+    }
+    const elements = readCallArguments(code, declaration.index + declaration[0].length - 1).args;
+    const appended: string[] = [];
+    for (const append of code.matchAll(
+      new RegExp(`\\b${slice}[ \\t]*=[ \\t]*append\\(\\s*${slice}\\s*,`, "g"),
+    )) {
+      const open = (append.index ?? 0) + append[0].indexOf("(");
+      appended.push(...readCallArguments(code, open).args.slice(1));
+    }
+    const flag = literalValue(elements[0] ?? "", literals);
+    if (flag !== null && !/^[-/]c$/i.test(flag)) return; // runs a script file, not inline text
+    const items = [...elements.slice(flag === null ? 0 : 1), ...appended];
+    const dynamicItems = items.filter((item) => !LITERAL_PATTERN.test(item.trim()));
+    if (flag !== null && dynamicItems.length === 0) return;
+    const isTainted = dynamicItems.some((item) => isTaintedExpr(item));
+    report(
+      "PG-CMD-002",
+      offset,
+      isTainted
+        ? {
+            severity: "critical",
+            status: dynamicItems.some((item) => SOURCE_PATTERN.test(item))
+              ? "confirmed"
+              : "suspected",
+            confidence: "high",
+            flow: `request input -> argument slice -> ${shell} -c`,
+          }
+        : {
+            severity: "high",
+            status: "suspected",
+            confidence: "medium",
+            flow: `non-constant argument slice -> ${shell}`,
+          },
+      `${name}-shell-slice`,
+    );
+  };
+
   // PG-CMD-002 os/exec.
   if (has("os/exec")) {
     forEachCall(/\bexec\.(Command|CommandContext)\s*\(/g, (args, offset, name) => {
@@ -243,6 +369,16 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       const program = rest[0];
       if (!program) return;
       const programLiteral = literalValue(program, literals);
+      const spread = /^(\w+)\.\.\.$/.exec((rest[1] ?? "").trim());
+      if (
+        programLiteral !== null &&
+        SHELLS.has(programLiteral) &&
+        rest.length === 2 &&
+        spread?.[1]
+      ) {
+        reportShellSlice(spread[1], programLiteral, offset, name);
+        return;
+      }
       if (
         programLiteral !== null &&
         SHELLS.has(programLiteral) &&

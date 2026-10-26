@@ -1,4 +1,4 @@
-// corpus: expect=PG-CMD-002; known=miss:PG-CMD-002:arguments passed as a spread slice (args...) are not inspected for a shell invocation
+// corpus: expect=PG-CMD-002
 package ops
 
 import "os/exec"
