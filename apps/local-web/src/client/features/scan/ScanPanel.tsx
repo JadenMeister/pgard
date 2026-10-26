@@ -7,6 +7,7 @@ import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
 import { useI18n } from "../../i18n/I18nProvider";
 import { ConfigNotices } from "./ConfigNotices";
+import { SuppressionNotices } from "./SuppressionNotices";
 import { CoverageTable } from "./CoverageTable";
 
 const SCOPES: readonly ScanScope[] = ["code", "history", "web"];
@@ -96,6 +97,7 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
         <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>{scan.message}</Notice>
       )}
       {scan?.result && <ConfigNotices coverage={scan.result.coverage} />}
+      {scan?.result && <SuppressionNotices result={scan.result} />}
       {scan?.result && <CoverageTable coverage={scan.result.coverage} />}
       {error && <Notice tone="error">{error}</Notice>}
     </Card>

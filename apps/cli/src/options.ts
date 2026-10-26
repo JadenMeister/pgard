@@ -37,12 +37,16 @@ export type ParsedCommand =
       reportLang?: RuleLocale;
     }
   | { kind: "history-clear"; repo: string | null }
+  | { kind: "baseline"; action: BaselineAction; fromCurrent: boolean }
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
   | { kind: "rules-list"; language: RuleLanguage | null; lang?: RuleLocale }
   | { kind: "doctor" }
   | { kind: "advisories-update" }
   | { kind: "login"; noBrowser: boolean }
   | { kind: "logout" };
+
+export type BaselineAction = "set" | "show" | "clear";
+const BASELINE_ACTIONS: readonly BaselineAction[] = ["set", "show", "clear"];
 
 export type HelpTopic =
   | "main"
@@ -58,7 +62,8 @@ export type HelpTopic =
   | "login"
   | "logout"
   | "history"
-  | "history clear";
+  | "history clear"
+  | "baseline";
 
 export class UsageError extends Error {
   readonly helpTopic: HelpTopic;
@@ -98,6 +103,9 @@ const NO_STORE_FLAG = "--no-store";
 /** Flag (no value), `pgard history clear` only: explicit "every repository" (the default). */
 const ALL_FLAG = "--all";
 
+/** Flag (no value), `pgard baseline set` only: scan now and use that scan as the baseline. */
+const FROM_CURRENT_FLAG = "--from-current";
+
 /** Flag (no value): list every finding and location in the terminal result. */
 const ALL_FINDINGS_FLAG = "--all-findings";
 
@@ -110,6 +118,7 @@ interface SplitArgs {
   noStore: boolean;
   all: boolean;
   allFindings: boolean;
+  fromCurrent: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -122,6 +131,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let noStore = false;
   let all = false;
   let allFindings = false;
+  let fromCurrent = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -153,6 +163,12 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
       allFindings = true;
       continue;
     }
+    if (arg === FROM_CURRENT_FLAG) {
+      if (fromCurrent)
+        throw new UsageError(`Option ${FROM_CURRENT_FLAG} was given more than once.`, topic());
+      fromCurrent = true;
+      continue;
+    }
     if (arg === "--") {
       throw new UsageError('"--" is not supported.', topic());
     }
@@ -180,7 +196,17 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     }
     positionals.push(arg);
   }
-  return { positionals, options, isHelp, isVersion, noBrowser, noStore, all, allFindings };
+  return {
+    positionals,
+    options,
+    isHelp,
+    isVersion,
+    noBrowser,
+    noStore,
+    all,
+    allFindings,
+    fromCurrent,
+  };
 }
 
 /** Validates a `--lang` / `--report-lang` / `PGARD_LANG` value. */
@@ -295,6 +321,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   if (split.all && !(command === "history" && sub === "clear")) {
     throw new UsageError(`Option ${ALL_FLAG} is only available for pgard history clear.`, "main");
   }
+  if (split.fromCurrent && !(command === "baseline" && sub === "set")) {
+    throw new UsageError(
+      `Option ${FROM_CURRENT_FLAG} is only available for pgard baseline set.`,
+      "main",
+    );
+  }
   if (split.isVersion) {
     throw new UsageError("--version is only available as `pgard --version`.", "main");
   }
@@ -388,6 +420,22 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         throw new UsageError("--repo must look like owner/name.", topic);
       }
       return { kind: "history-clear", repo };
+    }
+    case "baseline": {
+      topic = "baseline";
+      if (split.isHelp) return { kind: "help", topic };
+      const action = BASELINE_ACTIONS.find((known) => known === sub);
+      if (action === undefined) {
+        throw new UsageError(
+          sub === undefined
+            ? "Missing subcommand: set, show or clear"
+            : `Unknown subcommand: baseline ${sub.slice(0, 40)}`,
+          topic,
+        );
+      }
+      rejectExtraPositionals(rest, topic);
+      rejectOptions(split, [], topic, `pgard baseline ${action}`);
+      return { kind: "baseline", action, fromCurrent: split.fromCurrent };
     }
     case "dashboard": {
       topic = "dashboard";

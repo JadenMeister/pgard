@@ -5,10 +5,12 @@ import {
   MAX_PROJECT_CONFIG_BYTES,
   PROJECT_CONFIG_FILE,
   compileGlob,
+  formatSeverityBreakdown,
   matchesEverything,
   parseProjectConfig,
   type Coverage,
   type ProjectConfig,
+  type SuppressionSummary,
 } from "@pgard/findings";
 
 /**
@@ -107,11 +109,28 @@ export async function loadProjectConfig(
 
 const MAX_PROBLEM_NOTE = 220;
 
+function describeSuppressions(parsed: number, summary: SuppressionSummary | null): string {
+  const noun = `${parsed} suppression${parsed === 1 ? "" : "s"}`;
+  if (summary === null) return noun;
+  const breakdown = formatSeverityBreakdown(summary.bySeverity);
+  const severe = summary.bySeverity.critical + summary.bySeverity.high;
+  const expired = summary.entries.filter((entry) => entry.state === "expired").length;
+  const details = [
+    `${summary.suppressed} finding${summary.suppressed === 1 ? "" : "s"} suppressed${breakdown === "" ? "" : ` (${breakdown})`}`,
+    ...(severe > 0
+      ? [`WARNING: ${severe} suppressed finding${severe === 1 ? " is" : "s are"} high or critical`]
+      : []),
+    ...(expired > 0 ? [`${expired} expired, not applied`] : []),
+    ...(summary.incomplete ? ["matching stopped early"] : []),
+  ];
+  return `${noun} (${details.join(", ")})`;
+}
+
 /**
  * Coverage entry `source:config` for the configuration file, or null when there is none.
  * - invalid: `partial`, the scan ran with no config (nothing excluded), first problems quoted;
- * - loaded: `completed`, what was read; suppressions are "parsed, not yet applied" (they hide
- *   nothing); `testFindings` counts findings the config's `testDirectories` moved into the test
+ * - loaded: `completed`, what was read; suppressions are applied and counted in the note (a suppressed
+ *   finding is kept and listed apart); `testFindings` counts findings the config's `testDirectories` moved into the test
  *   group, which is shown so a config cannot demote findings without a trace;
  * - loaded with a `testDirectories` pattern that matches every file: `partial` with a WARNING.
  */
@@ -119,6 +138,7 @@ export function describeProjectConfig(
   load: ProjectConfigLoad,
   testFindings: number,
   budgetWarning: string | null = null,
+  suppression: SuppressionSummary | null = null,
 ): Coverage | null {
   if (load.state === "absent") return null;
   if (load.state === "invalid") {
@@ -147,6 +167,6 @@ export function describeProjectConfig(
     scope: "code",
     status: warning === "" && budgetWarning === null ? "completed" : "partial",
     ruleIds: [],
-    note: `${budgetWarning === null ? "" : `${budgetWarning} `}${PROJECT_CONFIG_FILE} read (version ${config.version}): ${count(config.exclude.length, "exclude pattern")}, ${count(config.testDirectories.length, "test directory pattern")} (${count(testFindings, "finding")} classified as test code by it), ${count(config.suppressions.length, "suppression")} parsed, not yet applied.${warning}`,
+    note: `${budgetWarning === null ? "" : `${budgetWarning} `}${PROJECT_CONFIG_FILE} read (version ${config.version}): ${count(config.exclude.length, "exclude pattern")}, ${count(config.testDirectories.length, "test directory pattern")} (${count(testFindings, "finding")} classified as test code by it), ${describeSuppressions(config.suppressions.length, suppression)}.${warning}`,
   };
 }

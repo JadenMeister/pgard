@@ -12,7 +12,13 @@ import {
   ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
-  formatOutsideContexts,
+  formatNoFindings,
+  formatSuppressionReason,
+  reportSuppressionNotices,
+  BASELINE_FINDINGS_NOTE,
+  BASELINE_FINDINGS_TITLE,
+  SUPPRESSED_FINDINGS_NOTE,
+  SUPPRESSED_FINDINGS_TITLE,
   groupReportFindings,
   labelCoverageStatus,
   labelOverallStatus,
@@ -112,9 +118,14 @@ function writeFinding(
   style: PdfStyle,
   finding: Finding,
   lang: RuleLocale,
+  isNew = false,
 ): void {
   const labels = FINDING_LABELS[lang];
   doc.moveDown(0.6);
+  if (isNew) line(doc, style, "NEW since the baseline", "#0f172a");
+  if (finding.suppression !== undefined) {
+    line(doc, style, formatSuppressionReason(finding), "#b45309");
+  }
   doc
     .font(style.bold)
     .fontSize(11)
@@ -214,14 +225,19 @@ export function renderPdfReport(
 
     // Headline counts cover regular code; test and fixture findings get their own section, and
     // suggestions in vendored code come last.
-    const { primary, test, vendored } = groupReportFindings(result.findings);
+    const { primary, test, vendored, suppressed, baseline } = groupReportFindings(result.findings);
+    const hasBaseline = result.baseline !== undefined;
     for (const notice of projectConfigNotices(result.coverage)) {
       if (notice.tone !== "warning") continue;
       doc.moveDown(0.3);
       line(doc, style, `Note: ${notice.text}`, "#b45309");
     }
+    for (const text of reportSuppressionNotices(result)) {
+      doc.moveDown(0.3);
+      line(doc, style, `Note: ${text}`, "#b45309");
+    }
     heading(doc, style, "Summary");
-    line(doc, style, formatFindingSummary(result.findings));
+    line(doc, style, formatFindingSummary(result.findings, result));
     doc.moveDown(0.5);
     drawSeverityBars(doc, style, primary);
 
@@ -235,15 +251,15 @@ export function renderPdfReport(
       );
     }
 
-    heading(doc, style, "Findings");
+    heading(doc, style, hasBaseline ? "New findings (since the baseline)" : "Findings");
     if (primary.length === 0) {
       line(
         doc,
         style,
-        `No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
+        `${formatNoFindings({ test: test.length, vendored: vendored.length, suppressed }, hasBaseline)} This is not a statement that the project is secure; check coverage above.`,
       );
     }
-    for (const finding of primary) writeFinding(doc, style, finding, lang);
+    for (const finding of primary) writeFinding(doc, style, finding, lang, hasBaseline);
     if (test.length > 0) {
       heading(doc, style, `${TEST_FINDINGS_TITLE} (${test.length})`);
       line(doc, style, `${TEST_FINDINGS_NOTE}${configTestGroupNote(result.coverage)}`, MUTED);
@@ -254,6 +270,18 @@ export function renderPdfReport(
       line(doc, style, VENDORED_FINDINGS_NOTE);
       line(doc, style, VENDORED_FINDINGS_DETAIL, MUTED);
       for (const finding of vendored) writeFinding(doc, style, finding, lang);
+    }
+
+    // A PDF cannot collapse: suppressed and baseline findings are listed in full, after the rest.
+    if (suppressed.length > 0) {
+      heading(doc, style, `${SUPPRESSED_FINDINGS_TITLE} (${suppressed.length})`);
+      line(doc, style, SUPPRESSED_FINDINGS_NOTE, MUTED);
+      for (const finding of suppressed) writeFinding(doc, style, finding, lang);
+    }
+    if (baseline.length > 0) {
+      heading(doc, style, `${BASELINE_FINDINGS_TITLE} (${baseline.length})`);
+      line(doc, style, BASELINE_FINDINGS_NOTE, MUTED);
+      for (const finding of baseline) writeFinding(doc, style, finding, lang);
     }
 
     heading(doc, style, "Authorization");

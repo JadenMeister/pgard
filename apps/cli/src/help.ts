@@ -14,7 +14,8 @@ const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (de
                            before opening a page`;
 
 const NO_STORE_HELP = `  --no-store               do not keep this scan's result on this computer
-                           (same as PGARD_NO_STORE=1)`;
+                           (same as PGARD_NO_STORE=1); the baseline is then
+                           neither read nor applied`;
 
 const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output-dir)
   --output-dir <dir>       existing directory for the report (requires --report);
@@ -39,6 +40,9 @@ Usage:
                                 supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
                                 delete stored scan results (all, or one repository)
+  pgard baseline set [--from-current] | show | clear
+                                keep a scan as this repository's baseline; later
+                                scans list matching findings under "In baseline"
   pgard doctor                  diagnose the environment (not an authorization)
   pgard advisories update       download public OSV vulnerability data (npm, Go)
                                 to this computer; the only non-GitHub download
@@ -95,7 +99,9 @@ Options:
 ${REPORT_HELP}
   --all-findings           list every finding and location; by default more than
                            5 findings in test, fixture or vendored code are
-                           summarized, and groups show up to 3 locations
+                           summarized, and groups show up to 3 locations. It
+                           also lists every suppressed finding (see
+                           pgard.config.json) and every finding in the baseline
   --format text|json       json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
@@ -162,8 +168,31 @@ Deletes the scan results that pgard scan stored in this computer's app-data
 folder. One of the two options is required: --all deletes every repository's
 results; --repo deletes the results of one repository, matched by the owner/name
 stored in them (after a rename or transfer, give the name the results were
-stored under). Nothing is uploaded and no sign-in is needed. Stop storing with --no-store
+stored under). A repository's baseline (pgard baseline) is deleted together
+with its results. Nothing is uploaded and no sign-in is needed. Stop storing with --no-store
 on pgard scan or PGARD_NO_STORE=1.
+
+${EXIT_CODE_HELP}`,
+  baseline: `Usage:
+  pgard baseline set [--from-current]
+  pgard baseline show
+  pgard baseline clear
+
+A baseline is a scan of this repository that you accept as the reference, kept in
+the local result store (same folder, permissions and --no-store rules as scan
+results). Later scans compare against it with the same finding identity as the
+"Since the last scan" line: findings that match it are listed apart under
+"In baseline (N)" and the new ones are highlighted. Nothing is hidden: the counts
+are always shown, --all-findings lists the baseline findings, and the status and
+exit code do not change.
+  set                 use the newest stored scan of this repository (no new scan)
+  set --from-current  scan code and history now and use that scan
+  show                when it was set, from which scan, and how many findings
+  clear               delete the baseline
+The baseline is kept per verified repository, so these commands run the
+authorization gate first. pgard scan --no-store and PGARD_NO_STORE=1 neither read
+nor apply a baseline, and the baseline commands refuse to run with PGARD_NO_STORE=1.
+pgard history clear also deletes the baseline.
 
 ${EXIT_CODE_HELP}`,
   doctor: `Usage:

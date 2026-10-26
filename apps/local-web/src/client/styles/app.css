@@ -443,6 +443,24 @@ select {
   border-top: 1px solid var(--border);
 }
 
+.collapsible-findings > summary {
+  cursor: pointer;
+  margin: 12px 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.suppression-reason {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.badge-new {
+  border-color: var(--text-primary);
+  font-weight: 600;
+}
+
 .test-findings h3 {
   margin: 12px 0 4px;
   font-size: 15px;

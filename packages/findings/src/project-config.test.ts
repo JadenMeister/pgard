@@ -165,6 +165,22 @@ describe("parseProjectConfig", () => {
       expect(ok(text("caf\u00e9 \\ud83d\\ude00")).ok).toBe(true); // accents and a valid pair
     });
 
+    it.each([
+      ["a C1 control", "x\\u0085y"],
+      ["a line separator", "x\\u2028y"],
+      ["a paragraph separator", "x\\u2029y"],
+      ["a combining grapheme joiner", "x\\u034Fy"],
+      ["a Hangul choseong filler", "x\\u115Fy"],
+      ["a Hangul jungseong filler", "x\\u1160y"],
+      ["a Hangul filler", "x\\u3164y"],
+      ["a halfwidth Hangul filler", "x\\uFFA0y"],
+    ])("rejects %s in a reason, however it is written", (_name, escaped) => {
+      const text = (value: string) =>
+        `{"version":1,"suppressions":[{"ruleId":"PG-SQL-001","path":"a","reason":"${value}"}]}`;
+      expect(ok(text(escaped)).ok).toBe(false);
+      expect(ok(text(JSON.parse(`"${escaped}"`))).ok).toBe(false);
+    });
+
     it("treats __proto__ as an ordinary unknown key (no prototype pollution)", () => {
       const result = ok('{"version":1,"__proto__":{"exclude":["**"]}}');
       expect(result.ok).toBe(false);

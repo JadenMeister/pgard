@@ -231,7 +231,7 @@ describe("loadProjectConfig races and size checks", () => {
 });
 
 describe("describeProjectConfig", () => {
-  it("reports suppressions as parsed, not yet applied", () => {
+  it("counts the suppressions it was given", () => {
     const coverage = describeProjectConfig(
       {
         state: "loaded",
@@ -245,7 +245,7 @@ describe("describeProjectConfig", () => {
       2,
     );
     expect(coverage?.status).toBe("completed");
-    expect(coverage?.note).toContain("1 suppression parsed, not yet applied");
+    expect(coverage?.note).toContain("1 suppression.");
     expect(coverage?.note).toContain("2 findings classified as test code");
   });
 
@@ -565,4 +565,112 @@ describe("pattern work budget", () => {
     },
     60_000,
   );
+});
+
+describe("runScan applies suppressions", () => {
+  const cfg = (suppressions: unknown[], extra = "") =>
+    JSON.stringify({ version: 1, suppressions }) + extra;
+  const sup = (path: string, extra: Record<string, unknown> = {}) => ({
+    ruleId: "PG-SQL-001",
+    path,
+    reason: "Admin-only script",
+    ...extra,
+  });
+
+  it("keeps the finding, marks it, counts it and leaves status, coverage and exit untouched", async () => {
+    const plain = await scan(project(SOURCES));
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": cfg([sup("legacy/**")]),
+    });
+    const result = await scan(root);
+    expect(result.findings).toHaveLength(3);
+    const byPath = Object.fromEntries(result.findings.map((f) => [f.location.path, f]));
+    expect(byPath["legacy/old.ts"]?.suppression).toEqual({
+      reason: "Admin-only script",
+      source: "pgard.config.json",
+    });
+    expect(byPath["src/db.ts"]?.suppression).toBeUndefined();
+    expect(result.suppressions).toMatchObject({ suppressed: 1, critical: 0, incomplete: false });
+    expect(coverageOf(result, "source:config")?.note).toContain(
+      "1 suppression (1 finding suppressed (1 high), WARNING: 1 suppressed finding is high or critical)",
+    );
+    expect(coverageOf(result, "source:config")?.note).not.toContain("not yet applied");
+    expect(result.overallStatus).toBe(plain.overallStatus);
+    expect(result.authorization).toEqual(plain.authorization);
+    expect(readScanResult(JSON.parse(JSON.stringify(result))).ok).toBe(true);
+  });
+
+  it("a config that suppresses everything leaves every finding in the result, flagged", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": cfg([sup("**", { reason: "nothing to see" })]),
+    });
+    const result = await scan(root);
+    expect(result.findings).toHaveLength(3);
+    expect(result.findings.every((f) => f.suppression?.reason === "nothing to see")).toBe(true);
+    expect(result.suppressions?.entries[0]?.wildcard).toBe(true);
+    expect(result.suppressions?.suppressed).toBe(3);
+    // The status depends on coverage, not on findings.
+    expect(result.overallStatus).toBe((await scan(project(SOURCES))).overallStatus);
+  });
+
+  it("does not apply an expired entry and keeps it in the summary", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": cfg([sup("legacy/**", { expires: "2026-10-26" })]),
+    });
+    const result = await scan(root);
+    expect(result.findings.every((f) => f.suppression === undefined)).toBe(true);
+    expect(result.suppressions?.entries[0]).toMatchObject({ state: "expired", matched: 0 });
+    expect(coverageOf(result, "source:config")?.note).toContain("1 expired, not applied");
+  });
+
+  it("an invalid config applies no suppression at all", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": cfg([sup("**")], "").replace("}", ',"hosts":["x"]}'),
+    });
+    const result = await scan(root);
+    expect(result.findings.every((f) => f.suppression === undefined)).toBe(true);
+    expect(result.suppressions).toBeUndefined();
+  });
+
+  it("has no suppressions field without a config", async () => {
+    expect((await scan(project(SOURCES))).suppressions).toBeUndefined();
+  });
+
+  it("applies to history findings as well, by their file path", async () => {
+    const root = project({
+      ...SOURCES,
+      "pgard.config.json": cfg([sup("legacy/**")]),
+    });
+    const result = await scan(root, ["code", "history"]);
+    expect(result.findings.filter((f) => f.suppression !== undefined)).toHaveLength(1);
+  });
+});
+
+describe("suppressions never turn a partial scan into a completed one", () => {
+  it("stays partial with every finding suppressed, and the coverage statuses are untouched", async () => {
+    const files = { ...SOURCES };
+    const plainRoot = project(files);
+    const plain = await scan(plainRoot, ["code", "web"]);
+    expect(plain.overallStatus).toBe("partial");
+    const root = project({
+      ...files,
+      "pgard.config.json": JSON.stringify({
+        version: 1,
+        suppressions: [
+          { ruleId: "PG-SQL-001", path: "**", reason: "all good", expires: "2026-12-31" },
+        ],
+      }),
+    });
+    const result = await scan(root, ["code", "web"]);
+    expect(result.overallStatus).toBe("partial");
+    expect(result.findings.every((f) => f.suppression !== undefined)).toBe(true);
+    const statuses = (r: typeof result) =>
+      r.coverage.filter((c) => c.area !== "source:config").map((c) => [c.area, c.status]);
+    expect(statuses(result)).toEqual(statuses(plain));
+    expect(coverageOf(result, "source:config")?.note).toContain("(3 high)");
+  });
 });
