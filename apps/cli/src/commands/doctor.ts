@@ -8,6 +8,7 @@ import {
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
+import { cliText, type CliText } from "../ui/i18n/cli-text.js";
 
 /**
  * Oldest patched release per supported line, from the Node.js security
@@ -50,30 +51,21 @@ function formatTime(epochMs: number): string {
  * so it is shown. A malformed override is a [fail]: scans are blocked until it is fixed or unset.
  * The malformed value itself is never printed.
  */
-function describeGitHubApp(app: ResolvedGitHubAppClientId): DoctorCheck {
-  const label = "GitHub App";
+function describeGitHubApp(app: ResolvedGitHubAppClientId, t: CliText): DoctorCheck {
+  const text = t.commands.doctor;
+  const label = text.labels.app;
   switch (app.source) {
     case "default":
-      return {
-        label,
-        isOk: true,
-        detail: `built-in PGARD App (${app.clientId})`,
-        isRequired: true,
-      };
+      return { label, isOk: true, detail: text.builtInApp(app.clientId), isRequired: true };
     case "env":
       return {
         label,
         isOk: true,
-        detail: `${app.clientId} from ${GITHUB_APP_CLIENT_ID_ENV} (override)`,
+        detail: text.envApp(app.clientId, GITHUB_APP_CLIENT_ID_ENV),
         isRequired: true,
       };
     case "invalid":
-      return {
-        label,
-        isOk: false,
-        detail: `${app.message} Until then GitHub identity is unverifiable and every scan is blocked.`,
-        isRequired: true,
-      };
+      return { label, isOk: false, detail: text.invalidApp(app.message), isRequired: true };
   }
 }
 
@@ -84,100 +76,73 @@ function describeGitHubApp(app: ResolvedGitHubAppClientId): DoctorCheck {
 async function describeStoredSignIn(
   context: CommandContext,
   clientId: string | null,
+  t: CliText,
 ): Promise<{ isOk: boolean; detail: string }> {
+  const text = t.commands.doctor;
   if (clientId === null) {
-    return { isOk: false, detail: `not checked (${GITHUB_APP_CLIENT_ID_ENV} is not valid)` };
+    return { isOk: false, detail: text.signInNotChecked(GITHUB_APP_CLIENT_ID_ENV) };
   }
   let status: StoredSignInStatus;
   try {
     status = await readStoredSignInStatus(context.deps.credentialStore, clientId);
   } catch {
-    status = { status: "unavailable", reason: "the OS keychain could not be read" };
+    status = { status: "unavailable", reason: text.keychainUnreadable };
   }
   if (status.status === "unavailable") {
-    return {
-      isOk: false,
-      detail: `OS keychain unavailable (${safeText(status.reason, 200)}); each run asks for a device code`,
-    };
+    return { isOk: false, detail: text.keychainUnavailable(safeText(status.reason, 200)) };
   }
   if (status.status === "none") {
-    return {
-      isOk: false,
-      detail: "none - run `pgard login` once; until then each run asks for a device code",
-    };
+    return { isOk: false, detail: text.signInNone };
   }
   const login = safeText(status.login, 40);
   const now = Date.now();
   if (status.refreshExpiresAt !== null && status.refreshExpiresAt > now) {
-    return {
-      isOk: true,
-      detail: `${login} (OS keychain; refreshed automatically until ${formatTime(status.refreshExpiresAt)})`,
-    };
+    return { isOk: true, detail: text.signInRefreshed(login, formatTime(status.refreshExpiresAt)) };
   }
   if (status.expiresAt === null) {
-    return { isOk: true, detail: `${login} (OS keychain; the token does not expire)` };
+    return { isOk: true, detail: text.signInNoExpiry(login) };
   }
   if (status.expiresAt > now) {
-    return {
-      isOk: true,
-      detail: `${login} (OS keychain; expires ${formatTime(status.expiresAt)}, then pgard signs in again)`,
-    };
+    return { isOk: true, detail: text.signInExpires(login, formatTime(status.expiresAt)) };
   }
-  return {
-    isOk: false,
-    detail: `${login} (OS keychain; expired - the next scan removes it and asks for a device code)`,
-  };
+  return { isOk: false, detail: text.signInExpired(login) };
 }
 
 /** Age of the downloaded OSV data, from local metadata only (no network). */
-async function describeAdvisoryData(context: CommandContext): Promise<DoctorCheck> {
-  const label = "Advisory data (OSV)";
+async function describeAdvisoryData(context: CommandContext, t: CliText): Promise<DoctorCheck> {
+  const text = t.commands.doctor;
+  const label = text.labels.advisories;
   const appDataDir = context.deps.appDataDir;
   if (appDataDir === null) {
-    return {
-      label,
-      isOk: false,
-      detail: "no home directory found, so there is nowhere to store it",
-      isRequired: false,
-    };
+    return { label, isOk: false, detail: text.advisoryNoHome, isRequired: false };
   }
   let status;
   try {
     status = await context.deps.readAdvisoryStatus(appDataDir, context.deps.now());
   } catch {
-    return { label, isOk: false, detail: "could not be read", isRequired: false };
+    return { label, isOk: false, detail: text.advisoryUnreadable, isRequired: false };
   }
   const ages = status.ecosystems
     .map((entry) =>
       entry.fetchedAt === null
-        ? `${entry.ecosystem} none`
-        : `${entry.ecosystem} ${entry.fetchedAt.slice(0, 10)} (${entry.ageDays} day${entry.ageDays === 1 ? "" : "s"} old${entry.state === "damaged" ? ", files damaged" : ""})`,
+        ? text.advisoryNone(entry.ecosystem)
+        : text.advisoryAge(
+            entry.ecosystem,
+            entry.fetchedAt.slice(0, 10),
+            entry.ageDays,
+            entry.state === "damaged",
+          ),
     )
     .join(", ");
   switch (status.overall) {
     case "fresh":
       return { label, isOk: true, detail: ages, isRequired: false };
     case "stale":
-      return {
-        label,
-        isOk: false,
-        detail: `stale: ${ages}; run \`pgard advisories update\` (it downloads public OSV data, uploads nothing)`,
-        isRequired: false,
-      };
+      return { label, isOk: false, detail: text.advisoryStale(ages), isRequired: false };
     case "damaged":
-      return {
-        label,
-        isOk: false,
-        detail: `damaged: ${ages}; run \`pgard advisories update\``,
-        isRequired: false,
-      };
+      return { label, isOk: false, detail: text.advisoryDamaged(ages), isRequired: false };
     case "none":
-      return {
-        label,
-        isOk: false,
-        detail: `none: ${ages}; run \`pgard advisories update\` to download public OSV data (needed for dependency checks)`,
-        isRequired: false,
-      };
+      return { label, isOk: false, detail: text.advisoryMissing(ages), isRequired: false };
   }
 }
 
@@ -187,6 +152,8 @@ async function describeAdvisoryData(context: CommandContext): Promise<DoctorChec
  */
 export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const { deps, io, style } = context;
+  const t = cliText(context.ruleLocale);
+  const text = t.commands.doctor;
   const [gitVersion, gitRoot, isGitHubReachable, discovery] = await Promise.all([
     deps.readGitVersion(),
     deps.findGitRoot(io.cwd).catch(() => null),
@@ -194,48 +161,45 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     deps.discoverListeningPorts(),
   ]);
   const app = resolveGitHubAppClientId(io.env);
-  const signIn = await describeStoredSignIn(context, app.clientId);
+  const signIn = await describeStoredSignIn(context, app.clientId, t);
   const checks: DoctorCheck[] = [
     {
-      label: "Node.js",
+      label: text.labels.node,
       isOk: isSupportedNodeVersion(deps.nodeVersion),
-      detail: `${deps.nodeVersion} (requires ${MIN_NODE_VERSION_TEXT} or a newer patch on that line)`,
+      detail: text.node(deps.nodeVersion, MIN_NODE_VERSION_TEXT),
       isRequired: true,
     },
     {
-      label: "Git",
+      label: text.labels.git,
       isOk: gitVersion !== null,
-      detail: gitVersion === null ? "not found" : safeText(gitVersion, 80),
+      detail: gitVersion === null ? text.gitNotFound : safeText(gitVersion, 80),
       isRequired: true,
     },
     {
-      label: "Current directory",
+      label: text.labels.directory,
       isOk: gitRoot !== null,
-      detail:
-        gitRoot === null
-          ? "not inside a Git repository (scans need one)"
-          : "inside a Git repository",
+      detail: gitRoot === null ? text.notInRepository : text.inRepository,
       isRequired: false,
     },
     {
-      label: "GitHub reachability",
+      label: text.labels.reachability,
       isOk: isGitHubReachable,
-      detail: isGitHubReachable ? "api.github.com reachable" : "api.github.com not reachable",
+      detail: isGitHubReachable ? text.reachable : text.notReachable,
       isRequired: true,
     },
-    describeGitHubApp(app),
-    { label: "Saved GitHub sign-in", ...signIn, isRequired: false },
-    await describeAdvisoryData(context),
+    describeGitHubApp(app, t),
+    { label: text.labels.signIn, ...signIn, isRequired: false },
+    await describeAdvisoryData(context, t),
     {
-      label: "Local port discovery",
+      label: text.labels.ports,
       isOk: discovery.isAvailable,
       detail: discovery.isAvailable
-        ? `${discovery.method} available (lists can be incomplete; "Other port" is always offered)`
-        : `unavailable (${safeText(discovery.note ?? "unknown reason", 120)})`,
+        ? text.portsAvailable(discovery.method)
+        : text.portsUnavailable(safeText(discovery.note ?? text.unknownReason, 120)),
       isRequired: false,
     },
   ];
-  out(context, style.bold("pgard doctor (diagnosis only, not an authorization)"));
+  out(context, style.bold(text.title));
   for (const check of checks) {
     const mark = check.isOk
       ? style.green("[ok]  ")
@@ -247,9 +211,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
   const failedCount = checks.filter((check) => check.isRequired && !check.isOk).length;
   out(
     context,
-    failedCount === 0
-      ? style.green("All required checks passed.")
-      : style.yellow(`${failedCount} required check(s) need attention (see [fail] above).`),
+    failedCount === 0 ? style.green(text.allPassed) : style.yellow(text.needAttention(failedCount)),
   );
   // The diagnosis itself completed; problems are reported above, not via the exit code.
   return EXIT_CODES.ok;

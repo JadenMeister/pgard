@@ -5,9 +5,7 @@ import { ReportWriteError, type ReportFormat } from "@pgard/report";
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
 import { BACK, promptChoice, promptConfirm, promptText } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
-
-export const REPORT_HELP = `Reports are written only to the directory you enter. Existing files are never
-overwritten. Saving inside the Git repository risks committing the report.`;
+import { cliText } from "../ui/i18n/cli-text.js";
 
 export type OutputDirCheck =
   | { kind: "ok"; outputDir: string; isInsideRepository: boolean }
@@ -18,14 +16,17 @@ export async function checkOutputDir(
   context: CommandContext,
   outputDir: string,
   projectRoot: string,
+  /** `option`: the path came from `--output-dir`; `prompt`: the user typed it in the menu. */
+  source: "option" | "prompt" = "option",
 ): Promise<OutputDirCheck> {
   const absolute = path.resolve(context.io.cwd, outputDir);
+  const text = cliText(context.ruleLocale).commands.report;
+  const isOption = source === "option";
   try {
     const info = await stat(absolute);
-    if (!info.isDirectory())
-      return { kind: "invalid", message: "--output-dir is not a directory." };
+    if (!info.isDirectory()) return { kind: "invalid", message: text.notDirectory(isOption) };
   } catch {
-    return { kind: "invalid", message: "--output-dir does not exist. Create it first." };
+    return { kind: "invalid", message: text.missingDirectory(isOption) };
   }
   return {
     kind: "ok",
@@ -34,24 +35,19 @@ export async function checkOutputDir(
   };
 }
 
-const INSIDE_REPO_WARNING =
-  "The output directory is inside the Git repository. A report there could be committed and shared by mistake.";
-
 /**
  * Asks for explicit confirmation when the directory is inside the repository. Without a
  * terminal there is no way to confirm, so the answer is no.
  */
 export async function confirmInsideRepository(context: CommandContext): Promise<boolean> {
-  err(context, context.errStyle.yellow(`Warning: ${INSIDE_REPO_WARNING}`));
-  const prompts = promptContextOf(context, REPORT_HELP);
+  const text = cliText(context.ruleLocale).commands.report;
+  err(context, context.errStyle.yellow(text.warning(text.insideRepositoryWarning)));
+  const prompts = promptContextOf(context, text.help);
   if (prompts === null) {
-    err(
-      context,
-      "Cannot confirm without an interactive terminal; choose a directory outside the repository.",
-    );
+    err(context, text.cannotConfirm);
     return false;
   }
-  return promptConfirm(prompts, "Save the report inside the repository anyway?");
+  return promptConfirm(prompts, text.confirmInside);
 }
 
 /** Writes the report files; returns false (exit 4) when writing failed. */
@@ -61,6 +57,7 @@ export async function saveReports(
   format: ReportFormat,
   outputDir: string,
 ): Promise<boolean> {
+  const text = cliText(context.ruleLocale).commands.report;
   try {
     const written = await context.deps.writeReports(result, {
       format,
@@ -69,16 +66,13 @@ export async function saveReports(
       ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),
     });
     for (const entry of written) {
-      out(context, `Saved ${entry.format.toUpperCase()} report: ${safeText(entry.filePath, 500)}`);
-      if (entry.warning !== undefined) err(context, `Warning: ${safeText(entry.warning, 500)}`);
+      out(context, text.saved(entry.format.toUpperCase(), safeText(entry.filePath, 500)));
+      if (entry.warning !== undefined) err(context, text.warning(safeText(entry.warning, 500)));
     }
     return true;
   } catch (error) {
-    const message =
-      error instanceof ReportWriteError
-        ? error.message
-        : "Unexpected error while writing the report.";
-    err(context, context.errStyle.red(`Report not saved: ${safeText(message, 500)}`));
+    const message = error instanceof ReportWriteError ? error.message : text.unexpectedWriteError;
+    err(context, context.errStyle.red(text.notSaved(safeText(message, 500))));
     return false;
   }
 }
@@ -89,22 +83,23 @@ export async function offerReportExport(
   result: ScanResult,
   projectRoot: string,
 ): Promise<boolean> {
-  const prompts = promptContextOf(context, REPORT_HELP);
+  const text = cliText(context.ruleLocale).commands.report;
+  const prompts = promptContextOf(context, text.help);
   if (prompts === null || result.overallStatus === "blocked") return true;
-  const format = await promptChoice<ReportFormat | "none">(prompts, "Save a report?", [
-    { label: "No", value: "none" },
+  const format = await promptChoice<ReportFormat | "none">(prompts, text.savePrompt, [
+    { label: text.no, value: "none" },
     { label: "HTML", value: "html" },
     { label: "PDF", value: "pdf" },
-    { label: "HTML and PDF", value: "both" },
+    { label: text.both, value: "both" },
   ]);
   if (format === BACK || format === "none") return true;
   for (;;) {
-    const typed = await promptText(prompts, "Output directory (must exist):");
+    const typed = await promptText(prompts, text.outputDirPrompt);
     if (typed === BACK) return true;
     if (typed.trim() === "") continue;
-    const check = await checkOutputDir(context, typed.trim(), projectRoot);
+    const check = await checkOutputDir(context, typed.trim(), projectRoot, "prompt");
     if (check.kind === "invalid") {
-      out(context, context.style.red(check.message.replace("--output-dir", "That path")));
+      out(context, context.style.red(check.message));
       continue;
     }
     if (check.isInsideRepository && !(await confirmInsideRepository(context))) continue;

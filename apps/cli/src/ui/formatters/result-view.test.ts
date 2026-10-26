@@ -135,6 +135,8 @@ describe("plain output", () => {
         ],
       }),
       plain,
+      // The Areas row has an em dash, which a legacy Windows console would show as "-".
+      { unicode: true },
     );
     expect(text).not.toContain("\u001b");
     expect(text.indexOf("Leaked key")).toBeLessThan(text.indexOf("User input concatenated"));
@@ -345,6 +347,46 @@ describe("project configuration notices", () => {
     );
     expect(text).not.toContain("\u001b");
     expect(text).not.toContain("\u0007");
+  });
+});
+
+describe("project configuration notices in Korean", () => {
+  it("names the file once", () => {
+    const text = formatScanResult(
+      testResult({
+        overallStatus: "partial",
+        coverage: [
+          {
+            area: "source:config",
+            scope: "code",
+            status: "partial",
+            ruleIds: [],
+            note: "pgard.config.json is invalid and was ignored; reason.",
+          },
+        ],
+      }),
+      plain,
+      { locale: "ko" },
+    );
+    const line = text.split("\n").find((entry) => entry.includes("is invalid")) ?? "";
+    expect(line).toBe("! pgard.config.json is invalid and was ignored; reason.");
+    const other = formatScanResult(
+      testResult({
+        overallStatus: "partial",
+        coverage: [
+          {
+            area: "source:config-test",
+            scope: "code",
+            status: "partial",
+            ruleIds: [],
+            note: "testDirectories matches everything.",
+          },
+        ],
+      }),
+      plain,
+      { locale: "ko" },
+    );
+    expect(other).toContain("! pgard.config.json: testDirectories matches everything.");
   });
 });
 

@@ -1,5 +1,6 @@
 import type { IncrementalFullReason, IncrementalInfo, RuleLocale, Severity } from "@pgard/findings";
 import { INCREMENTAL_TEXT, REPORT_TEXT, type ReportText } from "@pgard/report";
+import { COMMAND_TEXT_EN, COMMAND_TEXT_KO, type CommandText } from "./command-text.js";
 
 /**
  * Every fixed word of the terminal screens (headings, labels, status words, notices, progress
@@ -15,6 +16,8 @@ export interface CliText {
   locale: RuleLocale;
   /** The report wording, reused for severity, coverage status, standards states and notices. */
   report: ReportText;
+  /** Fixed text of sign-in, App install, report export, `doctor` and `rules list`. */
+  commands: CommandText;
 
   // --- Header and summary block ---------------------------------------------------------
   scanResult: string;
@@ -199,6 +202,7 @@ const KO_REPORT = REPORT_TEXT.ko;
 const EN: CliText = {
   locale: "en",
   report: EN_REPORT,
+  commands: COMMAND_TEXT_EN,
   scanResult: "PGARD scan result",
   repository: "Repository",
   web: "web",
@@ -413,6 +417,7 @@ const EN: CliText = {
 const KO: CliText = {
   locale: "ko",
   report: KO_REPORT,
+  commands: COMMAND_TEXT_KO,
   scanResult: "PGARD 검사 결과",
   repository: "저장소",
   web: "웹",
@@ -658,7 +663,9 @@ function formatElapsed(milliseconds: number, minuteWord: string, secondWord: str
   const isKorean = secondWord === "\ucd08";
   const join = (value: string, unit: string): string =>
     isKorean ? `${value}${unit}` : `${value} ${unit}`;
-  if (total < 10) return join(total.toFixed(1), secondWord);
+  // Round to tenths first: 9.96 s is "10 s", never "10.0 s".
+  if (Math.round(total * 10) < 100)
+    return join((Math.round(total * 10) / 10).toFixed(1), secondWord);
   // Round once, before splitting, so 119.6 s is "2 m 0 s" and never "1 m 60 s".
   const whole = Math.round(total);
   if (whole < 60) return join(String(whole), secondWord);

@@ -272,8 +272,9 @@ describe("runScanCommand", () => {
     );
     expect(code).toBe(0);
     const stdout = captured.stdout();
+    // Longer than the 80 columns of a pipe: the "plus" part moves to its own wrapped line.
     expect(stdout).toContain(
-      "Findings by severity (1 total) - plus 1 in test or fixture code (1 high), 1 suggestion in vendored code (1 high)",
+      "Findings by severity (1 total)\n  plus 1 in test or fixture code (1 high), 1 suggestion in vendored code (1\n  high)",
     );
     expect(stdout).toMatch(/High\s+#+ 1\n/);
     const testGroup = stdout.indexOf("In test or fixture code (1)");

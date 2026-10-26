@@ -157,7 +157,12 @@ describe("PGARD_LANG scope", () => {
     for (const argv of [["doctor"], ["login"], ["logout"], ["history", "clear", "--all"]]) {
       const captured = createTestIo({ env: { PGARD_LANG: "fr" } });
       await main(argv, captured.io, { deps: createTestDeps(), interrupts: noInterrupts });
-      expect(captured.stderr(), argv.join(" ")).not.toMatch(/PGARD_LANG/);
+      const stderr = captured.stderr();
+      expect(stderr, argv.join(" ")).not.toMatch(/Error:/);
+      // doctor, login and logout read the language, so they say once that the value was ignored;
+      // history clear does not read it at all.
+      const hinted = ["doctor", "login", "logout"].includes(argv[0] ?? "");
+      expect(stderr.includes("PGARD_LANG is not en or ko"), argv.join(" ")).toBe(hinted);
     }
   });
 });

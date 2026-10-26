@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { displayWidth } from "../i18n/display-width.js";
 import { renderChart } from "./charts.js";
 
@@ -84,5 +84,22 @@ describe("renderChart", () => {
 
   it("is empty without rows", () => {
     expect(renderChart([], { width: 80, isColor: false })).toEqual([]);
+  });
+});
+
+describe("renderChart default for Unicode", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("asks the terminal when `unicode` is not given", () => {
+    vi.stubEnv("TERM", "linux");
+    vi.stubEnv("WT_SESSION", "");
+    expect(renderChart(rows, { width: 80, isColor: true })[0]).toContain("#".repeat(30));
+    vi.stubEnv("TERM", "xterm-256color");
+    vi.stubEnv("WT_SESSION", "test-session");
+    const lines = renderChart(rows, { width: 80, isColor: true });
+    expect(lines[0]).toContain("█".repeat(30));
+    expect(lines.join("")).not.toContain("#");
   });
 });

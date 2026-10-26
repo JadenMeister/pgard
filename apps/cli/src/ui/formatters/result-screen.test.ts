@@ -504,6 +504,32 @@ describe("summary wording and colour", () => {
     );
   });
 
+  it("flags a comparison whose only caveat is an area that could not be compared", () => {
+    const area = (name: string): Coverage => ({
+      area: name,
+      scope: "code",
+      status: "completed",
+      ruleIds: ["PG-SQL-001"],
+      note: null,
+    });
+    const earlier = testResult({
+      scanId: "scan-0",
+      coverage: [area("source:typescript"), area("source:go")],
+      findings: [],
+    });
+    const current = testResult({ coverage: [area("source:typescript")], findings: [] });
+    const comparison = compareScans(earlier, current);
+    expect(comparison.uncertainAreas).toEqual([]);
+    expect(comparison.notComparable).toEqual([]);
+    expect(notComparableAreas(comparison).map((entry) => entry.area)).toEqual(["source:go"]);
+    const line = compactDiff({ comparison, previousSavedAt: new Date() }, CLI_TEXT.en, false);
+    expect(line).toBe("+0 new / -0 no longer reported (some areas not fully compared)");
+    const clean = compareScans(current, current);
+    expect(
+      compactDiff({ comparison: clean, previousSavedAt: new Date() }, CLI_TEXT.en, false),
+    ).toBe("+0 new / -0 no longer reported");
+  });
+
   it("puts the scan's English reasons in parentheses in Korean", () => {
     const ko = formatScanResult(result, plain, options({ locale: "ko" }));
     const line = ko.split("\n").find((entry) => entry.includes("A02 Security")) ?? "";
@@ -512,5 +538,72 @@ describe("summary wording and colour", () => {
     const text = formatScanResult(blocked, plain, options({ locale: "ko" }));
     expect(text).toContain("권한 확인: 차단됨");
     expect(text).toMatch(/\[확인 불가\] GitHub 계정 \(GitHub sign-in was denied\.\)/);
+  });
+});
+
+describe("summary block on narrow and plain terminals", () => {
+  const result = fixture();
+  const render = (width: number, extra: Partial<Parameters<typeof formatSummaryBlock>[2]> = {}) =>
+    formatSummaryBlock(result, withDiff(result) ?? null, {
+      style: plain,
+      t: CLI_TEXT.en,
+      width,
+      allFindings: false,
+      ...extra,
+    });
+
+  it("stacks the label above its value only when less than 24 columns are left for the value", () => {
+    // The widest label, "Since last scan", is 15 columns: 2 + 15 + 2 = 19 before the value.
+    const sideBySide = render(43);
+    expect(sideBySide.some((line) => /^ {2}Since last scan {2}\S/.test(line))).toBe(true);
+    const stacked = render(42);
+    expect(stacked).toContain("  Since last scan");
+    expect(stacked.some((line) => /^ {2}Since last scan {2}\S/.test(line))).toBe(false);
+    const index = stacked.indexOf("  Since last scan");
+    expect(stacked[index + 1]).toMatch(/^ {4}\S/);
+  });
+
+  it("uses a hyphen instead of the em dash on consoles without Unicode", () => {
+    const ascii = render(80, { unicode: false }).join("\n");
+    expect(ascii).toMatch(/Areas +2 requested - 1 completed/);
+    expect(ascii).not.toContain("\u2014");
+    expect(render(80, { unicode: true }).join("\n")).toContain("\u2014");
+  });
+
+  it("does not let the warning colour run on into the next line at 40 columns", () => {
+    const lines = formatSummaryBlock(result, null, {
+      style: colored,
+      t: CLI_TEXT.en,
+      width: 40,
+      allFindings: false,
+      unicode: true,
+    });
+    const areas = lines.findIndex((line) => line.includes("Areas"));
+    const row = lines.slice(areas).filter((line, index) => index === 0 || /^ {2,}\S/.test(line));
+    for (const line of row.slice(0, 2)) {
+      const opens = (line.match(/\u001b\[33m/g) ?? []).length;
+      const closes = (line.match(/\u001b\[(39|0)m/g) ?? []).length;
+      expect(opens, JSON.stringify(line)).toBe(closes);
+      // Whatever is open is reopened after the indent, never before it.
+      expect(line).not.toMatch(/^\u001b/);
+    }
+  });
+});
+
+describe("severity chart heading", () => {
+  it("stays within 40 columns, in both languages, when other groups follow it", () => {
+    const result = fixture({
+      findings: [...real, ...testCode(3)],
+    });
+    for (const locale of ["en", "ko"] as const) {
+      const text = formatScanResult(result, plain, options({ locale, width: 40 }));
+      const start = text.indexOf(locale === "en" ? "Findings by severity" : "심각도별");
+      const heading = text
+        .slice(text.lastIndexOf("\n", start) + 1)
+        .split("\n")
+        .slice(0, 3);
+      for (const line of heading) expect(displayWidth(line), line).toBeLessThanOrEqual(40);
+      expect(heading.join(" ")).toContain(locale === "en" ? "plus" : "별도");
+    }
   });
 });

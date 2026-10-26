@@ -104,6 +104,11 @@ const ASCII_FALLBACKS: ReadonlyArray<readonly [RegExp, string]> = [
   [/[\u201c\u201d]/g, '"'],
 ];
 
+/** Replaces the few Unicode punctuation marks PGARD emits with ASCII, unconditionally. */
+export function toAscii(text: string): string {
+  return ASCII_FALLBACKS.reduce((out, [pattern, ascii]) => out.replace(pattern, ascii), text);
+}
+
 /** Replaces the few Unicode punctuation marks PGARD emits with ASCII on consoles without them. */
 export function toTerminalText(
   text: string,
@@ -111,7 +116,7 @@ export function toTerminalText(
   platform: NodeJS.Platform = process.platform,
 ): string {
   if (isUnicodeTerminal(env, platform)) return text;
-  return ASCII_FALLBACKS.reduce((out, [pattern, ascii]) => out.replace(pattern, ascii), text);
+  return toAscii(text);
 }
 
 /**
