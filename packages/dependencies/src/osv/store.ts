@@ -134,6 +134,7 @@ export async function writeMeta(directory: string, meta: OsvMeta): Promise<void>
 export const LOCK_FILE = ".update.lock";
 /** A lock older than this is stale even if its pid is alive (the pid may have been reused). */
 const LOCK_MAX_AGE_MS = 60 * 60 * 1000;
+const TAKEOVER_MAX_AGE_MS = 60 * 1000;
 
 export class UpdateLockedError extends Error {
   constructor() {
@@ -161,11 +162,15 @@ export async function acquireUpdateLock(
 ): Promise<() => Promise<void>> {
   await mkdir(osvDir, { recursive: true, mode: 0o700 });
   const lockPath = path.join(osvDir, LOCK_FILE);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     try {
       await writeFile(lockPath, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
       return async () => {
-        await rm(lockPath, { force: true }).catch(() => undefined);
+        // Remove the lock only if it is still ours (a stale-lock takeover may have replaced it).
+        const current = await readFile(lockPath, "utf8").catch(() => "");
+        if (Number.parseInt(current, 10) === process.pid) {
+          await rm(lockPath, { force: true }).catch(() => undefined);
+        }
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
@@ -180,7 +185,25 @@ export async function acquireUpdateLock(
     }
     const isLive = Number.isInteger(holder) && holder > 0 && isProcessAlive(holder);
     if (isLive && ageMs < LOCK_MAX_AGE_MS) throw new UpdateLockedError();
-    await rm(lockPath, { force: true });
+    // Taking a stale lock over is itself exclusive: only the run that holds the takeover marker
+    // may remove it, and only if it is still the very lock judged stale. Everyone then competes on
+    // the atomic create above, so exactly one run wins.
+    const marker = `${lockPath}.takeover`;
+    try {
+      await writeFile(marker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      const markerAge = now() - ((await stat(marker).catch(() => null))?.mtimeMs ?? now());
+      if (markerAge < TAKEOVER_MAX_AGE_MS) throw new UpdateLockedError();
+      await rm(marker, { force: true }); // left by a crashed run
+      continue;
+    }
+    try {
+      const current = Number.parseInt(await readFile(lockPath, "utf8").catch(() => ""), 10);
+      if (current === holder) await rm(lockPath, { force: true });
+    } finally {
+      await rm(marker, { force: true });
+    }
   }
   throw new UpdateLockedError();
 }

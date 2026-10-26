@@ -699,6 +699,44 @@ describe("update lock and leftovers", () => {
     expect(await readdir(osv)).toEqual(["npm"]);
   });
 
+  it("takes over a lock older than one hour even if its pid is alive", async () => {
+    const { mkdir, utimes, writeFile } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    const lock = path.join(osv, ".update.lock");
+    await writeFile(lock, `${process.pid}\n`);
+    const fresh = acquireUpdateLock(osv);
+    await expect(fresh).rejects.toThrow(/already running/);
+    const old = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    await utimes(lock, old, old);
+    const release = await acquireUpdateLock(osv);
+    expect(await readFile(lock, "utf8")).toBe(`${process.pid}\n`);
+    await release();
+    expect(await readdir(osv)).toEqual([]);
+  });
+
+  it("does not remove a lock that now belongs to another run", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    const release = await acquireUpdateLock(osv);
+    await writeFile(path.join(osv, ".update.lock"), "999999\n"); // taken over by another run
+    await release();
+    expect(await readFile(path.join(osv, ".update.lock"), "utf8")).toBe("999999\n");
+  });
+
+  it("racing takeovers of a stale lock leave exactly one winner", async () => {
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    await writeFile(path.join(osv, ".update.lock"), `${deadPid()}\n`);
+    const results = await Promise.allSettled(
+      Array.from({ length: 6 }, () => acquireUpdateLock(osv)),
+    );
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    expect((await readdir(osv)).filter((name) => name.includes("stale"))).toEqual([]);
+  });
+
   it("releases the lock after a failed update", async () => {
     const { impl } = fakeFetch(() => ({ status: 500 }));
     await updateOsvData({ appDataDir: dir, ecosystems: ["npm"], fetch: impl });

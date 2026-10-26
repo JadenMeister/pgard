@@ -144,6 +144,7 @@ export function parseNpmLock(text: string): ParsedLockfile {
     };
     walk(root["dependencies"], 0);
     if (nonRegistry > 0) {
+      isComplete = false; // their exact versions are unknown, so they were not checked
       notes.push(
         `${nonRegistry} dependenc${nonRegistry === 1 ? "y" : "ies"} from file:, link:, git, github or tarball sources have no registry version and ${nonRegistry === 1 ? "was" : "were"} not listed.`,
       );

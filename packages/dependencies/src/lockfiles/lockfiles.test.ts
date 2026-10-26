@@ -517,5 +517,6 @@ describe("hostile input", () => {
     );
     expect(names(parsed)).toEqual(["a@1.0.0"]);
     expect(parsed.notes.join(" ")).toContain("5 dependencies from file:, link:, git");
+    expect(parsed.isComplete).toBe(false);
   });
 });
