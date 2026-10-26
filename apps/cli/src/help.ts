@@ -102,13 +102,15 @@ ${REPORT_HELP}
                            summarized, and groups show up to 3 locations. It
                            also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
-  --format text|json       json prints only the redacted result (schema in
-                           docs/RESULT_SCHEMA.md) to stdout; progress and
+  --format text|json|sarif json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; sarif prints the
+                           same result as SARIF 2.1.0 (for GitHub code
+                           scanning; PGARD uploads nothing). Progress and
                            messages go to stderr. With web checks it needs --port
                            (prompts go to stderr). Exit codes are unchanged
-  --lang en|ko             language of rule titles, impact and fix texts in the
-                           result (default: PGARD_LANG, then the system locale,
-                           then en). JSON output is always English
+  --lang en|ko             language of the result screen, progress lines and rule
+                           texts (default: PGARD_LANG, then the system locale,
+                           then en). JSON and SARIF output are always English
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)
 ${NO_STORE_HELP}

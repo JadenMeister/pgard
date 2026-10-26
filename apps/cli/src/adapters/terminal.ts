@@ -15,6 +15,8 @@ export interface InputStream extends NodeJS.ReadableStream {
 
 export interface OutputStream extends NodeJS.WritableStream {
   isTTY?: boolean;
+  /** Terminal width in columns (a TTY only). */
+  columns?: number;
 }
 
 /** Process boundary for the CLI. Tests pass fakes; `bin/pgard.ts` passes the real process. */

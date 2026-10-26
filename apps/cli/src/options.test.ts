@@ -186,7 +186,12 @@ describe("scan result options", () => {
   });
 
   it("rejects an unknown format, a repeat, and the options on other commands", () => {
-    expect(() => parseCommandLine(["scan", "--format", "xml"])).toThrow("--format must be");
+    expect(parseCommandLine(["scan", "code", "--format", "sarif"])).toMatchObject({
+      format: "sarif",
+    });
+    expect(() => parseCommandLine(["scan", "--format", "xml"])).toThrow(
+      "--format must be text, json or sarif",
+    );
     expect(() => parseCommandLine(["scan", "--all-findings", "--all-findings"])).toThrow(
       "more than once",
     );

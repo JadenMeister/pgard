@@ -3,11 +3,11 @@ import {
   type AreaComparability,
   notComparableAreas,
   SCHEMA_VERSION,
-  type NotComparableReason,
   type ScanComparison,
   type ScanResult,
 } from "@pgard/findings";
 import type { ResultStore, StoredScan } from "@pgard/result-store";
+import { CLI_TEXT, type CliText } from "../ui/i18n/cli-text.js";
 import { safeText } from "../ui/formatters/style.js";
 
 /** How many skipped-file warnings are shown before the rest are only counted. */
@@ -59,31 +59,20 @@ export async function findPreviousScan(
   return { scan: found.scan, warnings };
 }
 
-export function formatWarnings(warnings: readonly string[]): string[] {
+export function formatWarnings(warnings: readonly string[], t: CliText = CLI_TEXT.en): string[] {
   if (warnings.length === 0) return [];
   const shown = warnings.slice(0, MAX_WARNINGS).map((line) => safeText(line, 200));
   const rest = warnings.length - shown.length;
-  return [
-    ...shown,
-    ...(rest > 0 ? [`${rest} more stored result(s) were skipped and not compared.`] : []),
-  ];
+  return [...shown, ...(rest > 0 ? [t.diff.skippedStored(rest)] : [])];
 }
 
-const BECAUSE_TEXT: Record<NotComparableReason, string> = {
-  partial: "was only partially scanned",
-  not_tested: "was not tested",
-  only_in_previous: "was not in this scan's scope",
-  only_in_current: "was not in the last scan's scope",
-  not_run: "was not run",
-  other_origin: "used a different web address",
-};
-
 /** Rule-less areas are skip signals: they appear or change, they are not "out of scope". */
-function describeReason(area: AreaComparability): string {
-  if (area.reason === null) return "changed between the two scans";
-  if (!area.ownsRules && area.reason === "only_in_current") return "appeared since the last scan";
-  if (!area.ownsRules && area.reason === "only_in_previous") return "was only in the last scan";
-  return BECAUSE_TEXT[area.reason];
+function describeReason(area: AreaComparability, t: CliText): string {
+  const because = t.diff.because;
+  if (area.reason === null) return because.changed;
+  if (!area.ownsRules && area.reason === "only_in_current") return because.appeared;
+  if (!area.ownsRules && area.reason === "only_in_previous") return because.lastOnly;
+  return because[area.reason];
 }
 
 export interface RevisionInfo {
@@ -104,48 +93,56 @@ export function formatComparisonLine(
   comparison: ScanComparison,
   previousSavedAt: Date,
   revisions: RevisionInfo = { previous: null, current: null },
+  t: CliText = CLI_TEXT.en,
 ): string {
+  const text = t.diff;
   const pairs = [...comparison.unchanged, ...comparison.moved];
   const rated = pairs.filter(
     (pair) => pair.changed.includes("severity") || pair.changed.includes("status"),
   ).length;
   const uncertain = comparison.newInUncertainAreas.length;
   const named = comparison.uncertainAreas.slice(0, 2).map((area) => safeText(area, 40));
-  const newText = `${comparison.new.length} new${uncertain > 0 ? ` (${uncertain} in areas not fully compared${named.length > 0 ? `: ${named.join(", ")}` : ""})` : ""}`;
+  const newText = text.newCount(comparison.new.length, uncertain, named.join(", "));
   const details = [
-    ...(comparison.moved.length > 0 ? [`${comparison.moved.length} moved`] : []),
-    ...(rated > 0 ? [`${rated} changed severity or status`] : []),
+    ...(comparison.moved.length > 0 ? [text.moved(comparison.moved.length)] : []),
+    ...(rated > 0 ? [text.changedRating(rated)] : []),
   ];
   const previousRevision = shortRevision(revisions.previous);
   const differs =
     previousRevision !== null && previousRevision !== shortRevision(revisions.current);
-  const when = `${formatScanTime(previousSavedAt)}${differs ? `, at ${previousRevision}` : ""}`;
-  let line = `Since the last scan (${when}): ${newText}, ${comparison.noLongerReported.length} no longer reported, ${pairs.length} unchanged${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
+  const when = `${formatScanTime(previousSavedAt)}${differs ? text.atRevision(previousRevision) : ""}`;
+  let line = `${text.sinceLast(when)}: ${newText}, ${text.noLongerReported(comparison.noLongerReported.length)}, ${text.unchanged(pairs.length)}${details.length > 0 ? ` (${details.join(", ")})` : ""}`;
   if (comparison.toolVersionChanged && comparison.notComparable.length > 0) {
-    line += `. PGARD was updated since the last scan, so ${comparison.notComparable.length} earlier finding(s) that are not reported now could not be checked`;
+    line += `. ${text.toolUpdated(comparison.notComparable.length)}`;
   }
   const areas = notComparableAreas(comparison);
   if (areas.length > 0) {
     const shown = areas
       .slice(0, 3)
-      .map((area) => `${safeText(area.area, 40)} ${describeReason(area)}`);
-    const more = areas.length > 3 ? `, and ${areas.length - 3} more area(s)` : "";
+      .map((area) => `${safeText(area.area, 40)} ${describeReason(area, t)}`);
+    const more = Math.max(0, areas.length - 3);
     const held = areas.reduce((sum, area) => sum + area.held, 0);
     line +=
       held > 0
-        ? `. Some findings could not be compared because ${shown.join("; ")}${more}`
-        : `. Not fully compared: ${shown.join("; ")}${more}`;
+        ? `. ${text.notComparedBecause(shown.join("; "), more)}`
+        : `. ${text.notFullyCompared(shown.join("; "), more)}`;
   }
   const explained = areas.reduce((sum, area) => sum + area.held, 0);
   if (!comparison.toolVersionChanged && comparison.notComparable.length > 0 && explained === 0) {
-    line += `. ${comparison.notComparable.length} earlier finding(s) could not be checked`;
+    line += `. ${text.couldNotCheck(comparison.notComparable.length)}`;
   }
   return line;
 }
 
-export function summarizeSinceLastScan(current: ScanResult, previous: StoredScan): string {
-  return formatComparisonLine(compareScans(previous.result, current), previous.savedAt, {
-    previous: previous.result.target.revision,
-    current: current.target.revision,
-  });
+export function summarizeSinceLastScan(
+  current: ScanResult,
+  previous: StoredScan,
+  t: CliText = CLI_TEXT.en,
+): string {
+  return formatComparisonLine(
+    compareScans(previous.result, current),
+    previous.savedAt,
+    { previous: previous.result.target.revision, current: current.target.revision },
+    t,
+  );
 }

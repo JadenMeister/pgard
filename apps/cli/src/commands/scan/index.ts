@@ -1,4 +1,8 @@
 import {
+  buildSarif,
+  countSarifOmitted,
+  sarifScanDidNotRun,
+  sarifScanIncomplete,
   localizeFindings,
   type ConfirmedWebTarget,
   type ScanResult,
@@ -22,13 +26,16 @@ import {
   saveReports,
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
+import { getRuleTextCatalog } from "../../rule-texts.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
 import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
-import { storeScanResult } from "../../flows/store-result.js";
+import { loadPreviousScan, scanDiffOf, storeScanResult } from "../../flows/store-result.js";
 import type { OutputFormat, ReportRequest, ScanVariant } from "../../options.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
 import { formatAuthorization, formatScanResult } from "../../ui/formatters/result-view.js";
-import { safeText } from "../../ui/formatters/style.js";
+import { safeText, terminalWidth } from "../../ui/formatters/style.js";
+import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
+import type { PreviousScan } from "../../flows/scan-diff-summary.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
@@ -43,7 +50,7 @@ export interface ScanCommand {
   variant: ScanVariant;
   port: number | null;
   report: ReportRequest | null;
-  /** `json`: stdout carries only the redacted ScanResult; everything else goes to stderr. */
+  /** `json`: stdout carries only the redacted ScanResult, `sarif` only its SARIF 2.1.0 form; everything else goes to stderr. */
   format?: OutputFormat;
   /** List every finding and location in the text result. */
   allFindings?: boolean;
@@ -53,14 +60,31 @@ export interface ScanCommand {
   setBaseline?: boolean;
 }
 
+/** `json` and `sarif` both keep stdout for one document; everything else goes to stderr. */
+export function isMachineFormat(format: OutputFormat | undefined): boolean {
+  return format === "json" || format === "sarif";
+}
+
 export const JSON_PORT_REQUIRED_MESSAGE =
   "--format json cannot ask which local service to scan. Pass --port N with web checks, or scan code or history only.";
 
-function formatProgress(event: ScanProgressEvent): string | null {
+/** One progress line in the terminal language; unknown stages and messages stay as written. */
+export function formatProgress(
+  event: ScanProgressEvent,
+  t: CliText = cliText("en"),
+): string | null {
   if (event.web !== undefined) {
-    return `  web: ${event.web.pagesVisited} page(s) checked`;
+    return t.progress.pagesChecked(event.web.pagesVisited);
   }
-  return `  ${event.stage}: ${event.status}${event.message === "" ? "" : ` - ${safeText(event.message, 200)}`}`;
+  if (t.locale === "en") {
+    return `  ${event.stage}: ${event.status}${event.message === "" ? "" : ` - ${safeText(event.message, 200)}`}`;
+  }
+  // Korean: stage and status words; only messages with a known translation are added.
+  const stage = t.progress.stage[event.stage] ?? event.stage;
+  const status = t.progress.status[event.status] ?? event.status;
+  const message =
+    t.progress.message[event.message] ?? t.progress.scoped(event.message, t.progress.stage);
+  return `  ${stage}: ${status}${message === undefined ? "" : ` - ${message}`}`;
 }
 
 /**
@@ -71,15 +95,22 @@ export async function runScanCommand(
   context: CommandContext,
   command: ScanCommand,
 ): Promise<ExitCode> {
-  const isJson = command.format === "json";
+  const isJson = isMachineFormat(command.format);
   if (isJson && SCOPES_BY_VARIANT[command.variant].includes("web") && command.port === null) {
     // Fail before any network activity: the only way to choose a port is a prompt.
-    err(context, context.errStyle.red(JSON_PORT_REQUIRED_MESSAGE));
+    err(
+      context,
+      context.errStyle.red(
+        command.format === "sarif"
+          ? JSON_PORT_REQUIRED_MESSAGE.replace("--format json", "--format sarif")
+          : JSON_PORT_REQUIRED_MESSAGE,
+      ),
+    );
     return EXIT_CODES.usage;
   }
   if (!isJson) {
     return runScanFlow(context, command, {
-      show: (result) => showText(context, result, command),
+      show: (result, previous) => showText(context, result, command, previous),
       finish: () => undefined,
     });
   }
@@ -96,9 +127,34 @@ export async function runScanCommand(
   return runScanFlow(flowContext, command, {
     show: () => undefined,
     finish: (result) => {
-      context.io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+      if (command.format === "sarif") warnAboutSarif(context, result);
+      const document =
+        command.format === "sarif" ? buildSarif(result, getRuleTextCatalog()) : result;
+      context.io.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
     },
   });
+}
+
+function warnAboutSarif(context: CommandContext, result: ScanResult): void {
+  const omitted = countSarifOmitted(result);
+  if (omitted > 0) {
+    err(
+      context,
+      context.errStyle.yellow(
+        `${omitted} findings without a file location (web, ...) are not in SARIF; see the text/JSON output or report.`,
+      ),
+    );
+  }
+  if (sarifScanDidNotRun(result)) {
+    err(context, context.errStyle.red("Do not upload this SARIF: the scan did not run."));
+  } else if (sarifScanIncomplete(result)) {
+    err(
+      context,
+      context.errStyle.red(
+        "Do not upload this SARIF: some requested areas did not complete (their alerts would be closed).",
+      ),
+    );
+  }
 }
 
 /** Rule texts in the terminal language; the stored and JSON result stay English. */
@@ -108,19 +164,28 @@ function localizeResult(context: CommandContext, result: ScanResult): ScanResult
   return { ...result, findings: localizeFindings(result.findings, context.ruleTexts, locale) };
 }
 
-function showText(context: CommandContext, result: ScanResult, command: ScanCommand): void {
+function showText(
+  context: CommandContext,
+  result: ScanResult,
+  command: ScanCommand,
+  previous: PreviousScan | null,
+): void {
   out(context, "");
   out(
     context,
     formatScanResult(localizeResult(context, result), context.style, {
       allFindings: command.allFindings === true,
+      locale: context.ruleLocale ?? "en",
+      width: terminalWidth(context.io.stdout, context.io.env),
+      ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),
+      diff: scanDiffOf(result, previous),
     }),
   );
 }
 
 interface ResultOutput {
   /** Every scan attempt's result, as it arrives (text mode prints it before any install offer). */
-  show: (result: ScanResult) => void;
+  show: (result: ScanResult, previous: PreviousScan | null) => void;
   /** The final result, once (JSON mode prints it here). */
   finish: (result: ScanResult) => void;
 }
@@ -130,7 +195,9 @@ async function runScanFlow(
   command: ScanCommand,
   { show, finish }: ResultOutput,
 ): Promise<ExitCode> {
-  const isJson = command.format === "json";
+  const isJson = isMachineFormat(command.format);
+  // Fixed screen text in the terminal language; machine-format output is never translated.
+  const text = cliText(context.ruleLocale);
   const scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
@@ -182,12 +249,7 @@ async function runScanFlow(
     if (isBlockedEarly) {
       // Nothing to confirm: the scan will be blocked.
     } else if (context.keys === null) {
-      err(
-        context,
-        context.errStyle.yellow(
-          "The web target cannot be confirmed without an interactive terminal; web checks are recorded as not tested.",
-        ),
-      );
+      err(context, context.errStyle.yellow(text.notices.webNotConfirmed));
     } else {
       const selection = await selectLocalPort(context, command.port);
       if (selection.kind === "back") {
@@ -201,10 +263,7 @@ async function runScanFlow(
 
   // Every call runs the full authorization gate inside runScan; nothing is reused between them.
   const scanOnce = async () => {
-    err(
-      context,
-      context.errStyle.dim(`Scanning (${scopes.join(", ")})... Press Ctrl+C twice to cancel.`),
-    );
+    err(context, context.errStyle.dim(text.progress.scanning(scopes.join(", "))));
     suspendKeys(context);
     let outcome: AuthorizationOutcome | null = null;
     try {
@@ -220,7 +279,7 @@ async function runScanFlow(
             outcome = received;
           },
           onProgress: (event) => {
-            const line = formatProgress(event);
+            const line = formatProgress(event, text);
             if (line !== null) err(context, context.errStyle.dim(line));
           },
         },
@@ -247,14 +306,24 @@ async function runScanFlow(
 
   let scanned = await scanOnce();
   if (scanned === null) return EXIT_CODES.usage;
-  show(scanned.result);
+  // Read before the result is shown (the summary says what changed) and before it is saved.
+  let previous = isJson
+    ? null
+    : await loadPreviousScan(context, scanned.result, scanned.outcome, command.noStore === true);
+  show(scanned.result, previous);
   if (scanned.result.overallStatus === "blocked" && scanned.outcome !== null) {
     const guided = await offerGuidedInstall(context, scanned.outcome, projectRoot, authorization);
     throwIfCancelled(context);
     if (guided === "reauthorize") {
       scanned = await scanOnce();
       if (scanned === null) return EXIT_CODES.usage;
-      show(scanned.result);
+      previous = await loadPreviousScan(
+        context,
+        scanned.result,
+        scanned.outcome,
+        command.noStore === true,
+      );
+      show(scanned.result, previous);
     }
   }
   const { result } = scanned;
@@ -262,8 +331,7 @@ async function runScanFlow(
   let exitCode = exitCodeForStatus(result.overallStatus);
 
   if (result.overallStatus === "blocked") {
-    if (command.report !== null)
-      out(context, "No report was written because the scan was blocked.");
+    if (command.report !== null) out(context, text.notices.noReportBlocked);
     return exitCode;
   }
   await storeScanResult(
@@ -273,6 +341,7 @@ async function runScanFlow(
     projectRoot,
     command.noStore === true,
     isJson,
+    isJson ? undefined : previous,
   );
   let isBaselineSaved = true;
   if (command.setBaseline === true) {
@@ -306,7 +375,7 @@ async function setBaselineFromScan(
     typeof repositoryId !== "number" ||
     result.overallStatus === "failed"
   ) {
-    err(context, context.errStyle.red("The baseline was not set: this scan cannot be stored."));
+    err(context, context.errStyle.red(cliText(context.ruleLocale).notices.baselineNotSet));
     return false;
   }
   return (await storeBaseline(context, store, result, repositoryId, projectRoot, null)) === 0;
