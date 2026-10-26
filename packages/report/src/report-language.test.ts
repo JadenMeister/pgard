@@ -16,8 +16,9 @@ describe("report language", () => {
     expect(html).toContain("<dt>영향</dt><dd>쿼리 구조가 바뀔 수 있습니다</dd>");
     expect(html).toContain("<dt>권장 조치</dt><dd>매개변수를 사용하세요</dd>");
     expect(html).not.toContain("Use parameters");
-    // Report chrome stays English for now.
-    expect(html).toContain("PGARD security report");
+    // The report chrome follows the language too.
+    expect(html).toContain("<h1>PGARD 보안 보고서</h1>");
+    expect(html).not.toContain("PGARD security report");
   });
 
   it("is unchanged by default and for en", () => {

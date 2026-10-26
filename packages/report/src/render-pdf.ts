@@ -3,38 +3,36 @@ import {
   configTestGroupNote,
   projectConfigNotices,
   type Finding,
-  type RuleLocale,
   type ScanResult,
+  type StandardLink,
 } from "@pgard/findings";
 import PDFDocument from "pdfkit";
 import {
   countFindingsBySeverity,
-  ANALYSIS_BASIS_NOTE,
-  formatFindingSummary,
-  formatLocation,
-  formatNoFindings,
-  formatSuppressionReason,
-  reportSuppressionNotices,
-  BASELINE_FINDINGS_NOTE,
-  BASELINE_FINDINGS_TITLE,
-  SUPPRESSED_FINDINGS_NOTE,
-  SUPPRESSED_FINDINGS_TITLE,
-  groupReportFindings,
-  labelCoverageStatus,
-  labelOverallStatus,
-  labelSeverity,
   FINDING_LABELS,
+  formatLocation,
+  groupReportFindings,
   prepareLocalizedReportResult,
-  REPORT_DISCLAIMER,
   severityColor,
-  TEST_FINDINGS_NOTE,
-  TEST_FINDINGS_TITLE,
-  VENDORED_FINDINGS_DETAIL,
-  VENDORED_FINDINGS_NOTE,
-  VENDORED_FINDINGS_TITLE,
   type ReportLanguageOptions,
 } from "./format.js";
 import { hasStringOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
+import {
+  cweTop25CountsText,
+  cweTop25Rows,
+  findingDetails,
+  localizedSuppressionNotices,
+  noFindingsLine,
+  owaspRows,
+  reportContext,
+  ruleGuidance,
+  ruleStatRows,
+  rulesWithExamples,
+  standardsLinksOf,
+  summaryLine,
+  suppressionReasonLine,
+  type ReportContext,
+} from "./report-view.js";
 
 const MUTED = "#475569";
 const PAGE_MARGIN = 50;
@@ -51,7 +49,7 @@ export function toPdfText(value: string): string {
 }
 
 /** True when any text in the result would be altered by `toPdfText`. */
-export function hasUnsupportedPdfCharacters(result: ScanResult): boolean {
+export function hasUnsupportedPdfCharacters(result: unknown): boolean {
   // JSON escapes newlines and control characters as ASCII, so only real text characters remain.
   return /[^\x20-\x7e\xa0-\xff]/.test(JSON.stringify(result));
 }
@@ -87,10 +85,50 @@ function line(doc: PDFKit.PDFDocument, style: PdfStyle, text: string, color = "#
   doc.font(style.regular).fontSize(10).fillColor(color).text(style.text(text));
 }
 
+/** Tabs and carriage returns are not in the font: spaces keep code readable. */
+function codeText(value: string): string {
+  return value.replace(/\t/g, "  ").replace(/\r\n?/g, "\n");
+}
+
+/** Code block: small text, indented, no colour. The code itself is never translated. */
+function codeBlock(doc: PDFKit.PDFDocument, style: PdfStyle, code: string): void {
+  doc
+    .font(style.regular)
+    .fontSize(8.5)
+    .fillColor("#0f172a")
+    .text(style.text(codeText(code)), PAGE_MARGIN + 12, doc.y, {
+      width: doc.page.width - 2 * PAGE_MARGIN - 12,
+    });
+  doc.x = PAGE_MARGIN;
+}
+
+/** "Label: id1, id2": the ids are clickable links to the official pages (full URLs: appendix C). */
+function linkLine(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  label: string,
+  links: readonly StandardLink[],
+): void {
+  doc
+    .font(style.regular)
+    .fontSize(10)
+    .fillColor(MUTED)
+    .text(style.text(`${label}: `), {
+      continued: true,
+    });
+  links.forEach((link, index) => {
+    doc
+      .fillColor("#1d4ed8")
+      .text(style.text(link.id), { continued: index < links.length - 1, link: link.url });
+    if (index < links.length - 1) doc.fillColor(MUTED).text(", ", { continued: true });
+  });
+}
+
 function drawSeverityBars(
   doc: PDFKit.PDFDocument,
   style: PdfStyle,
   findings: readonly Finding[],
+  ctx: ReportContext,
 ): void {
   const counts = countFindingsBySeverity(findings);
   const maxCount = Math.max(1, ...Object.values(counts));
@@ -101,7 +139,7 @@ function drawSeverityBars(
       .font(style.regular)
       .fontSize(10)
       .fillColor("#0f172a")
-      .text(labelSeverity(severity), PAGE_MARGIN, y);
+      .text(style.text(ctx.t.severity[severity]), PAGE_MARGIN, y);
     if (counts[severity] > 0) {
       doc.rect(PAGE_MARGIN + 70, y, width, 10).fill(severityColor(severity));
     }
@@ -117,38 +155,194 @@ function writeFinding(
   doc: PDFKit.PDFDocument,
   style: PdfStyle,
   finding: Finding,
-  lang: RuleLocale,
+  ctx: ReportContext,
   isNew = false,
 ): void {
-  const labels = FINDING_LABELS[lang];
+  const t = ctx.t;
+  const labels = FINDING_LABELS[ctx.chrome];
   doc.moveDown(0.6);
-  if (isNew) line(doc, style, "NEW since the baseline", "#0f172a");
+  if (isNew) line(doc, style, t.newSinceBaseline, "#0f172a");
   if (finding.suppression !== undefined) {
-    line(doc, style, formatSuppressionReason(finding), "#b45309");
+    line(doc, style, suppressionReasonLine(finding, ctx), "#b45309");
   }
   doc
     .font(style.bold)
     .fontSize(11)
     .fillColor(severityColor(finding.severity))
-    .text(`[${labelSeverity(finding.severity)}] `, { continued: true })
+    .text(style.text(`[${severityWord(finding.severity, ctx)}] `), { continued: true })
     .fillColor("#0f172a")
     .text(style.text(finding.title));
   line(
     doc,
     style,
-    `${finding.status}, confidence ${finding.confidence} - ${finding.ruleId} - ${finding.category} - source: ${finding.sources.join(", ")}`,
+    `${word(t.findingStatus, finding.status)}, ${t.confidence} ${word(t.confidenceLevel, finding.confidence)} - ${finding.ruleId} - ${finding.category} - ${t.source}: ${finding.sources.join(", ")}`,
     MUTED,
   );
-  line(doc, style, `Location: ${formatLocation(finding.location)}`);
-  line(doc, style, `Evidence (redacted): ${finding.evidence}`);
+  line(doc, style, `${t.location}: ${formatLocation(finding.location)}`);
+  line(doc, style, `${t.evidence}: ${finding.evidence}`);
   line(doc, style, `${labels.impact}: ${finding.impact}`);
   line(doc, style, `${labels.recommendation}: ${finding.recommendation}`);
+  const details = findingDetails(finding, ctx);
+  const guidance = ruleGuidance(finding, details, ctx.lang);
+  if (guidance.rationale !== null) line(doc, style, `${t.ruleRationale}: ${guidance.rationale}`);
+  if (guidance.remediation !== null)
+    line(doc, style, `${t.ruleRemediation}: ${guidance.remediation}`);
+  if (details !== undefined && details.standards.length > 0) {
+    linkLine(doc, style, t.standards, details.standards);
+  }
   const references = [
     ...finding.references.cwe,
     ...finding.references.owasp,
     ...finding.references.cve,
   ];
-  if (references.length > 0) line(doc, style, `References: ${references.join(", ")}`, MUTED);
+  if (references.length > 0) line(doc, style, `${t.references}: ${references.join(", ")}`, MUTED);
+}
+
+function severityWord(severity: unknown, ctx: ReportContext): string {
+  return word(ctx.t.severity, severity, ctx.t.unknownLabel);
+}
+
+function word(words: Readonly<Record<string, string>>, value: unknown, fallback?: string): string {
+  if (typeof value === "string" && Object.hasOwn(words, value)) return words[value] ?? "";
+  return fallback ?? String(value);
+}
+
+function writeStandardsCoverage(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  result: ScanResult,
+  ctx: ReportContext,
+): void {
+  const t = ctx.t;
+  heading(doc, style, t.standardsTitle);
+  if (result.standardsCoverage === undefined) {
+    line(doc, style, t.notRecorded, MUTED);
+    return;
+  }
+  line(doc, style, t.standardsNote, MUTED);
+  doc.moveDown(0.3);
+  for (const row of owaspRows(result, ctx)) {
+    const detail =
+      row.state === "no_rules"
+        ? row.reason
+        : `${row.breadth}${row.rules === "" ? "" : ` (${row.rules})`}${row.state === "rules_ran" ? "" : `; ${row.reason}`}`;
+    doc
+      .font(style.regular)
+      .fontSize(10)
+      .fillColor(row.state === "rules_partial" ? "#b45309" : MUTED)
+      .text(style.text(`[${row.stateLabel}] `), { continued: true })
+      .fillColor("#1d4ed8")
+      .text(style.text(row.id), { continued: true, link: row.url === "" ? undefined : row.url })
+      .fillColor("#0f172a")
+      .text(style.text(` ${row.title} - ${detail}`), { link: undefined });
+  }
+  doc.moveDown(0.3);
+  line(doc, style, `${t.cweTop25Title}: ${cweTop25CountsText(result, ctx)}`);
+}
+
+function writeRuleStats(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  result: ScanResult,
+  ctx: ReportContext,
+): void {
+  const t = ctx.t;
+  if (result.ruleStats === undefined) return;
+  heading(doc, style, `${t.appendixStats} - ${t.ruleStatsTitle(result.ruleStats.length)}`);
+  line(doc, style, t.ruleStatsNote, MUTED);
+  doc.moveDown(0.3);
+  const columns = t.ruleStatsColumns;
+  line(
+    doc,
+    style,
+    `${columns.rule} | ${columns.area} | ${columns.targets} | ${columns.findings} | ${columns.status}`,
+    MUTED,
+  );
+  for (const row of ruleStatRows(result, ctx)) {
+    line(
+      doc,
+      style,
+      `${row.ruleId}${row.title === "" ? "" : ` ${row.title}`} | ${row.area} | ${row.targets} | ${row.findings} | ${row.status}`,
+    );
+  }
+  if (result.standardsCoverage !== undefined) {
+    doc.moveDown(0.5);
+    line(doc, style, `${t.cweTop25Title}`, MUTED);
+    for (const row of cweTop25Rows(result, ctx)) {
+      line(
+        doc,
+        style,
+        `${row.rank ?? ""}. ${row.id} ${row.title} - ${row.stateLabel}${row.rules === "" ? "" : ` (${row.rules})`}`,
+      );
+    }
+  }
+}
+
+function writeExamples(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  findings: readonly Finding[],
+  ctx: ReportContext,
+): void {
+  const t = ctx.t;
+  const rules = rulesWithExamples(findings, ctx);
+  if (rules.length === 0) return;
+  heading(doc, style, t.appendixExamples);
+  for (const rule of rules) {
+    doc.moveDown(0.4);
+    doc
+      .font(style.bold)
+      .fontSize(10)
+      .fillColor("#0f172a")
+      .text(style.text(`${rule.ruleId} ${rule.title}`));
+    for (const example of rule.details.examples) {
+      line(doc, style, `${t.vulnerable} (${example.language})`, MUTED);
+      codeBlock(doc, style, example.vulnerable);
+      line(doc, style, t.safe, MUTED);
+      codeBlock(doc, style, example.safe);
+      if (example.note !== undefined) line(doc, style, example.note[ctx.lang], MUTED);
+    }
+  }
+}
+
+function writeStandardsLinks(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  findings: readonly Finding[],
+  ctx: ReportContext,
+): void {
+  const links = standardsLinksOf(findings, ctx);
+  if (links.length === 0) return;
+  heading(doc, style, ctx.t.appendixLinks);
+  for (const link of links) {
+    doc
+      .font(style.regular)
+      .fontSize(9)
+      .fillColor("#0f172a")
+      .text(
+        style.text(
+          `${link.id}${link.title === null ? "" : ` ${link.title}`}${link.viaCwe === undefined ? "" : ` (${ctx.t.viaCwe(link.viaCwe)})`}: `,
+        ),
+        {
+          continued: true,
+        },
+      )
+      .fillColor("#1d4ed8")
+      .text(style.text(link.url), { link: link.url });
+  }
+}
+
+/** Every string the PDF shows that is not part of the (already checked) result itself. */
+function extraStrings(
+  result: ScanResult,
+  findings: readonly Finding[],
+  ctx: ReportContext,
+): unknown {
+  return [
+    ruleStatRows(result, ctx),
+    findings.map((finding) => findingDetails(finding, ctx)),
+    standardsLinksOf(findings, ctx),
+  ];
 }
 
 /** Renders the same content as the HTML report into a PDF buffer (pure JS, no browser). */
@@ -161,10 +355,12 @@ export function renderPdfReport(
     onFontFallback?: (message: string | null) => void;
   } = {},
 ): Promise<Buffer> {
-  const lang = options.lang ?? "en";
   const result = prepareLocalizedReportResult(input, options);
   const loaded = loadPdfFonts();
   const style = loaded.ok ? FONT_STYLE : LATIN_STYLE;
+  // Without the Korean-capable font Korean chrome would print as "?": use English chrome then.
+  const ctx = reportContext(options, loaded.ok ? undefined : "en");
+  const t = ctx.t;
   options.onFontFallback?.(loaded.ok ? null : fontFallbackMessage(loaded.reason));
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
@@ -190,28 +386,33 @@ export function renderPdfReport(
     doc.on("error", reject);
 
     const target = result.target;
-    doc.font(style.bold).fontSize(20).fillColor("#0f172a").text("PGARD security report");
+    // Headline counts cover regular code; test and fixture findings get their own section, and
+    // suggestions in vendored code come last.
+    const { primary, test, vendored, suppressed, baseline } = groupReportFindings(result.findings);
+    const hasBaseline = result.baseline !== undefined;
+    doc.font(style.bold).fontSize(20).fillColor("#0f172a").text(style.text(t.title));
     line(
       doc,
       style,
-      `Repository: ${target.repo ?? "unknown"} - Revision: ${target.revision ?? "unknown"}`,
+      `${t.repository}: ${target.repo ?? t.unknown} - ${t.revision}: ${target.revision ?? t.unknown}`,
       MUTED,
     );
-    if (target.webOrigin !== null) line(doc, style, `Web target: ${target.webOrigin}`, MUTED);
+    if (target.webOrigin !== null) line(doc, style, `${t.webTarget}: ${target.webOrigin}`, MUTED);
     line(
       doc,
       style,
-      `Scan ${result.scanId} - ${result.startedAt} to ${result.finishedAt} - ${result.tool.name} ${result.tool.version} - schema ${result.schemaVersion}`,
+      `${t.scan} ${result.scanId} - ${result.startedAt} ${t.to} ${result.finishedAt} - ${result.tool.name} ${result.tool.version} - ${t.schema} ${result.schemaVersion}`,
       MUTED,
     );
-    line(doc, style, `Requested scopes: ${result.requestedScopes.join(", ") || "none"}`, MUTED);
+    line(doc, style, `${t.requestedScopes}: ${result.requestedScopes.join(", ") || t.none}`, MUTED);
     if (!loaded.ok) {
       doc.moveDown(0.3);
       line(doc, style, fontFallbackMessage(loaded.reason), "#b45309");
     }
+    const shown = [result, extraStrings(result, result.findings, ctx)];
     const hasReplacedText = loaded.ok
-      ? hasStringOutsideFont(result)
-      : hasUnsupportedPdfCharacters(result);
+      ? hasStringOutsideFont(shown)
+      : hasUnsupportedPdfCharacters(shown);
     if (hasReplacedText) {
       doc.moveDown(0.3);
       line(doc, style, loaded.ok ? PDF_FONT_REPLACEMENT_NOTICE : PDF_REPLACEMENT_NOTICE, "#b45309");
@@ -221,80 +422,111 @@ export function renderPdfReport(
       .font(style.bold)
       .fontSize(11)
       .fillColor("#0f172a")
-      .text(`Overall status: ${style.text(labelOverallStatus(result.overallStatus))}`);
+      .text(
+        style.text(`${t.overallStatus}: ${word(t.overall, result.overallStatus, t.unknownLabel)}`),
+      );
 
-    // Headline counts cover regular code; test and fixture findings get their own section, and
-    // suggestions in vendored code come last.
-    const { primary, test, vendored, suppressed, baseline } = groupReportFindings(result.findings);
-    const hasBaseline = result.baseline !== undefined;
     for (const notice of projectConfigNotices(result.coverage)) {
       if (notice.tone !== "warning") continue;
       doc.moveDown(0.3);
-      line(doc, style, `Note: ${notice.text}`, "#b45309");
+      line(doc, style, `${t.note}: ${notice.text}`, "#b45309");
     }
-    for (const text of reportSuppressionNotices(result)) {
+    for (const text of localizedSuppressionNotices(result, ctx)) {
       doc.moveDown(0.3);
-      line(doc, style, `Note: ${text}`, "#b45309");
+      line(doc, style, `${t.note}: ${text}`, "#b45309");
     }
-    heading(doc, style, "Summary");
-    line(doc, style, formatFindingSummary(result.findings, result));
+    heading(doc, style, t.summary);
+    line(doc, style, summaryLine(result, ctx));
     doc.moveDown(0.5);
-    drawSeverityBars(doc, style, primary);
+    drawSeverityBars(doc, style, primary, ctx);
 
-    heading(doc, style, "Coverage");
-    if (result.coverage.length === 0) line(doc, style, "No coverage was recorded.");
+    heading(doc, style, t.coverage);
+    if (result.coverage.length === 0) line(doc, style, t.noCoverage);
     for (const entry of result.coverage) {
       line(
         doc,
         style,
-        `${entry.area} (${entry.scope}): ${labelCoverageStatus(entry.status)}${entry.note === null ? "" : ` - ${entry.note}`}`,
+        `${entry.area} (${entry.scope}): ${word(t.coverageStatus, entry.status, t.unknownLabel)}${entry.note === null ? "" : ` - ${entry.note}`}`,
       );
     }
 
-    heading(doc, style, hasBaseline ? "New findings (since the baseline)" : "Findings");
+    writeStandardsCoverage(doc, style, result, ctx);
+
+    heading(doc, style, hasBaseline ? t.newFindings : t.findings);
     if (primary.length === 0) {
       line(
         doc,
         style,
-        `${formatNoFindings({ test: test.length, vendored: vendored.length, suppressed }, hasBaseline)} This is not a statement that the project is secure; check coverage above.`,
+        `${noFindingsLine({ test: test.length, vendored: vendored.length, suppressed }, hasBaseline, ctx)} ${t.noFindingsTailPdf}`,
       );
     }
-    for (const finding of primary) writeFinding(doc, style, finding, lang, hasBaseline);
+    for (const finding of primary) writeFinding(doc, style, finding, ctx, hasBaseline);
     if (test.length > 0) {
-      heading(doc, style, `${TEST_FINDINGS_TITLE} (${test.length})`);
-      line(doc, style, `${TEST_FINDINGS_NOTE}${configTestGroupNote(result.coverage)}`, MUTED);
-      for (const finding of test) writeFinding(doc, style, finding, lang);
+      heading(doc, style, `${t.testTitle} (${test.length})`);
+      line(
+        doc,
+        style,
+        `${t.testNote}${ctx.lang === "en" ? configTestGroupNote(result.coverage) : ""}`,
+        MUTED,
+      );
+      for (const finding of test) writeFinding(doc, style, finding, ctx);
     }
     if (vendored.length > 0) {
-      heading(doc, style, `${VENDORED_FINDINGS_TITLE} (${vendored.length})`);
-      line(doc, style, VENDORED_FINDINGS_NOTE);
-      line(doc, style, VENDORED_FINDINGS_DETAIL, MUTED);
-      for (const finding of vendored) writeFinding(doc, style, finding, lang);
+      heading(doc, style, `${t.vendoredTitle} (${vendored.length})`);
+      line(doc, style, t.vendoredNote);
+      line(doc, style, t.vendoredDetail, MUTED);
+      for (const finding of vendored) writeFinding(doc, style, finding, ctx);
     }
 
     // A PDF cannot collapse: suppressed and baseline findings are listed in full, after the rest.
     if (suppressed.length > 0) {
-      heading(doc, style, `${SUPPRESSED_FINDINGS_TITLE} (${suppressed.length})`);
-      line(doc, style, SUPPRESSED_FINDINGS_NOTE, MUTED);
-      for (const finding of suppressed) writeFinding(doc, style, finding, lang);
+      heading(doc, style, `${t.suppressedTitle} (${suppressed.length})`);
+      line(doc, style, t.suppressedNote, MUTED);
+      for (const finding of suppressed) writeFinding(doc, style, finding, ctx);
     }
     if (baseline.length > 0) {
-      heading(doc, style, `${BASELINE_FINDINGS_TITLE} (${baseline.length})`);
-      line(doc, style, BASELINE_FINDINGS_NOTE, MUTED);
-      for (const finding of baseline) writeFinding(doc, style, finding, lang);
+      heading(doc, style, `${t.baselineTitle} (${baseline.length})`);
+      line(doc, style, t.baselineNote, MUTED);
+      for (const finding of baseline) writeFinding(doc, style, finding, ctx);
     }
 
-    heading(doc, style, "Authorization");
-    line(doc, style, `Decision: ${result.authorization.decision}`);
+    heading(doc, style, t.authorization);
+    line(doc, style, `${t.decision}: ${result.authorization.decision}`);
     for (const check of result.authorization.checks) {
       line(doc, style, `${check.id}: ${check.status} - ${check.reason}`);
     }
 
-    heading(doc, style, "Analysis basis");
-    line(doc, style, ANALYSIS_BASIS_NOTE);
+    heading(doc, style, t.analysisBasis);
+    line(doc, style, t.analysisBasisNote);
+
+    // Rule statistics, examples and the full links go in appendices, after the findings: they
+    // are reference material that a PDF cannot collapse, and examples would repeat for every
+    // finding of the same rule. The HTML report shows them inline in collapsible sections.
+    const hasAppendix =
+      result.ruleStats !== undefined ||
+      rulesWithExamples(result.findings, ctx).length > 0 ||
+      standardsLinksOf(result.findings, ctx).length > 0;
+    if (hasAppendix) {
+      doc.addPage();
+      line(doc, style, t.appendixNote, MUTED);
+    }
+    writeRuleStats(doc, style, result, ctx);
+    writeExamples(doc, style, result.findings, ctx);
+    writeStandardsLinks(doc, style, result.findings, ctx);
+
+    if (
+      result.standardsCoverage !== undefined ||
+      standardsLinksOf(result.findings, ctx).length > 0
+    ) {
+      heading(doc, style, t.licenseTitle);
+      line(doc, style, t.licenseIntro, MUTED);
+      for (const text of [t.licenseOwasp, t.licenseCwe, t.licenseCert]) {
+        doc.font(style.regular).fontSize(8).fillColor(MUTED).text(style.text(text));
+      }
+    }
 
     doc.moveDown(1);
-    doc.font(style.regular).fontSize(8).fillColor(MUTED).text(style.text(REPORT_DISCLAIMER));
+    doc.font(style.regular).fontSize(8).fillColor(MUTED).text(style.text(t.disclaimer));
     doc.end();
   });
 }
