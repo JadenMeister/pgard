@@ -1,5 +1,5 @@
 import { Language, Parser, type Tree } from "web-tree-sitter";
-import { grammarPath, type TreeSitterLanguage } from "./languages.js";
+import { grammarPath, readVerifiedGrammar, type TreeSitterLanguage } from "./languages.js";
 
 export interface ParseLimits {
   /** Source larger than this (UTF-8 bytes) is not parsed. */
@@ -28,7 +28,12 @@ export type ParseOutcome =
     }
   | { status: "too_large"; bytes: number; maxBytes: number }
   | { status: "timeout"; timeoutMs: number }
+  /** The grammar file is missing or fails its pinned checksum; nothing was parsed with it. */
+  | { status: "unavailable"; reason: string }
   | { status: "failed"; reason: string };
+
+/** The grammar cannot be used (unreadable or checksum mismatch). */
+class GrammarUnavailableError extends Error {}
 
 /** Counts `ERROR` and `MISSING` nodes, descending only into subtrees that contain one. */
 export function countSyntaxProblems(tree: Tree): { errorCount: number; missingCount: number } {
@@ -68,6 +73,11 @@ export class TreeSitterRuntime {
   private readonly loaded = new Set<TreeSitterLanguage>();
   private readonly loadMs = new Map<TreeSitterLanguage, number>();
 
+  /** `grammarFile` redirects where a grammar is read from (tests); it is still checksum-verified. */
+  constructor(
+    private readonly grammarFile: (language: TreeSitterLanguage) => string = grammarPath,
+  ) {}
+
   /** Languages whose grammar has been loaded so far, in load order. */
   loadedLanguages(): TreeSitterLanguage[] {
     return [...this.loaded];
@@ -90,14 +100,20 @@ export class TreeSitterRuntime {
       pending = (async () => {
         await this.initPromise;
         const startedAt = performance.now();
-        const loaded = await Language.load(grammarPath(language));
+        // Verify the pinned checksum and load the verified bytes, never the path again.
+        const grammar = readVerifiedGrammar(language, this.grammarFile(language));
+        if (!grammar.ok) throw new GrammarUnavailableError(grammar.reason);
+        const loaded = await Language.load(grammar.bytes);
         this.loadMs.set(language, performance.now() - startedAt);
         this.loaded.add(language);
         return loaded;
       })();
       this.languages.set(language, pending);
-      // A failed load is retried by the next caller instead of poisoning the cache.
-      pending.catch(() => this.languages.delete(language));
+      // A failed load is retried by the next caller instead of poisoning the cache, except a
+      // grammar that failed verification: it stays unavailable (and is not re-hashed per file).
+      pending.catch((error) => {
+        if (!(error instanceof GrammarUnavailableError)) this.languages.delete(language);
+      });
     }
     return pending;
   }
@@ -143,6 +159,9 @@ export class TreeSitterRuntime {
       const { errorCount, missingCount } = counts;
       return { status: "parsed", tree, errorCount, missingCount, dispose: () => tree.delete() };
     } catch (error) {
+      if (error instanceof GrammarUnavailableError) {
+        return { status: "unavailable", reason: error.message };
+      }
       return { status: "failed", reason: error instanceof Error ? error.message : String(error) };
     }
   }
