@@ -33,6 +33,7 @@ import {
   suppressionReasonLine,
   type ReportContext,
 } from "./report-view.js";
+import { incrementalLine } from "./incremental-text.js";
 
 const MUTED = "#475569";
 const PAGE_MARGIN = 50;
@@ -437,6 +438,8 @@ export function renderPdfReport(
     }
     heading(doc, style, t.summary);
     line(doc, style, summaryLine(result, ctx));
+    const incremental = incrementalLine(result.incremental, ctx.lang);
+    if (incremental !== null) line(doc, style, `${incremental.label}: ${incremental.value}`, MUTED);
     doc.moveDown(0.5);
     drawSeverityBars(doc, style, primary, ctx);
 

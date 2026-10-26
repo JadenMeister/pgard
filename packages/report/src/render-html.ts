@@ -7,6 +7,7 @@ import {
   type ScanResult,
 } from "@pgard/findings";
 import { escapeHtml } from "./escape-html.js";
+import { incrementalLine } from "./incremental-text.js";
 import {
   countFindingsBySeverity,
   FINDING_LABELS,
@@ -304,6 +305,14 @@ a { color: #1d4ed8; }
 .disclaimer { color: var(--muted); font-size: 12px; margin-top: 32px; }
 `;
 
+/** "Incremental: ..." or "Full scan: ..." under the summary; empty without the field. */
+function renderIncremental(result: ScanResult, lang: ReportContext["lang"]): string {
+  const line = incrementalLine(result.incremental, lang);
+  return line === null
+    ? ""
+    : `<p class="meta"><strong>${escapeHtml(line.label)}:</strong> ${escapeHtml(line.value)}</p>`;
+}
+
 /**
  * Renders a self-contained HTML report from a (redacted) ScanResult. Every dynamic value is
  * escaped; the page has no scripts and a CSP that forbids loading anything. Standards links are
@@ -364,6 +373,7 @@ ${renderConfigNotices(result.coverage, ctx)}
 ${renderSuppressionNotices(result, ctx)}
 <h2>${escapeHtml(t.summary)}</h2>
 <p>${escapeHtml(summaryLine(result, ctx))}</p>
+${renderIncremental(result, lang)}
 <div class="chart">${renderSeverityBarChartSvg(counts, t)}</div>
 
 <h2>${escapeHtml(t.coverage)}</h2>

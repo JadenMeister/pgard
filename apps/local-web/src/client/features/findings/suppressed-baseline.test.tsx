@@ -27,7 +27,7 @@ const at = (id: string, path: string, overrides: Partial<Finding> = {}): Finding
 
 function resultOf(findings: Finding[], extra: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.1",
+    schemaVersion: "1.2",
     scanId: "s1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",

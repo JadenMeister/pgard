@@ -16,6 +16,10 @@ import {
   type ConfirmedWebTarget,
   type Coverage,
   type Finding,
+  type IncrementalAreaInfo,
+  type IncrementalFullReason,
+  type IncrementalInfo,
+  type IncrementalState,
   type PathMatcher,
   type RuleStat,
   type StandardsRule,
@@ -32,6 +36,13 @@ import {
   type AuthorizationOutcome,
 } from "@pgard/policy";
 import { createDefaultAnalyzers } from "./analyzers.js";
+import { ANALYZER_HASH } from "./analyzer-hash.js";
+import {
+  computeAnalysisKey,
+  fingerprintConfig,
+  planIncremental,
+  type IncrementalPlan,
+} from "./incremental.js";
 import { CONFIG_BUDGET_NOTE } from "@pgard/source-analysis";
 import { normalizeFindingPaths } from "./paths.js";
 import {
@@ -241,6 +252,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     findings: Finding[];
     suppressions?: SuppressionSummary | null;
     ruleStats?: RuleStat[];
+    incremental?: IncrementalInfo | null;
     overallStatus?: ScanResult["overallStatus"];
   }): ScanResult => ({
     schemaVersion: SCHEMA_VERSION,
@@ -289,6 +301,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       coverage: fields.coverage,
       ruleStats: fields.ruleStats ?? [],
     }),
+    ...(fields.incremental ? { incremental: fields.incremental } : {}),
   });
 
   throwIfCancelled(deps.signal);
@@ -358,7 +371,29 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       ? compilePathMatcher(projectConfig.testDirectories)
       : null;
   const analyzers = { ...createDefaultAnalyzers(), ...deps.analyzers };
+  const configHash = fingerprintConfig(configLoad);
+  // Web is never incremental: it is always scanned live. Only the local scopes can reuse.
+  const plan: IncrementalPlan | null =
+    deps.incremental !== undefined &&
+    (requestedScopes.includes("code") || requestedScopes.includes("history"))
+      ? await planIncremental({
+          dependencies: deps.incremental,
+          outcome,
+          requestedScopes,
+          projectRoot: request.projectRoot,
+          revision: outcome.revision,
+          configFingerprint: configHash,
+          ...(deps.signal ? { signal: deps.signal } : {}),
+        })
+      : null;
+  throwIfCancelled(deps.signal);
   const context: AnalyzerContext = {
+    ...(plan?.code?.mode === "incremental" && plan.reuseFiles !== null
+      ? { sourceReuse: { files: plan.reuseFiles, label: plan.label } }
+      : {}),
+    ...(plan?.history?.mode === "incremental" && plan.historyBase !== null
+      ? { historyIncremental: plan.historyBase }
+      : {}),
     projectConfig,
     projectRoot: request.projectRoot,
     revision: outcome.revision,
@@ -373,6 +408,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   let configTestFindings = 0;
   let configBudgetWarning: string | null = null;
   const ruleStats: RuleStat[] = [];
+  const outputs: Partial<Record<"code" | "history", LocalAnalyzerOutput>> = {};
 
   for (const scope of SCAN_SCOPES) {
     if (!requestedScopes.includes(scope)) {
@@ -410,6 +446,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
         output = await analyzer(context);
       }
       throwIfCancelled(deps.signal);
+      if (scope === "code" || scope === "history") outputs[scope] = output;
       // Configured test directories apply to source code only: a secret in history stays a
       // regular finding whatever the project calls the directory.
       const normalized = normalizeAnalyzerOutput(
@@ -431,6 +468,8 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
           configIndex = coverage.length;
           coverage.push(scopeCoverage("code", "completed", null));
         }
+      } else if (scope === "history" && plan !== null && output.history?.mode === "incremental") {
+        coverage.push(...describeReusedHistory(normalized.coverage, output.history, plan.label));
       } else {
         coverage.push(...normalized.coverage);
       }
@@ -465,6 +504,26 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     if (configCoverage !== null) coverage[configIndex] = configCoverage;
   }
 
+  const incremental = plan === null ? null : describeIncremental(plan, outputs);
+  if (deps.incremental?.onState !== undefined && plan !== null) {
+    const codeCache = outputs.code?.sourceCache;
+    // State is only handed over when it is complete: a code scope that failed has none.
+    if (codeCache !== undefined || !requestedScopes.includes("code")) {
+      const state: IncrementalState = {
+        format: 1,
+        analysisKey: computeAnalysisKey(),
+        analyzerHash: ANALYZER_HASH,
+        configHash,
+        code: codeCache ?? null,
+      };
+      try {
+        deps.incremental.onState(state, scanId);
+      } catch {
+        // Storing the state must never affect the scan.
+      }
+    }
+  }
+
   return finish({
     authorization: outcome.summary,
     outcome,
@@ -472,5 +531,62 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     findings: suppressed.findings,
     suppressions: suppressed.summary,
     ruleStats,
+    incremental,
   });
+}
+
+/** Says in the history coverage note which commits were reused and how many were read. */
+function describeReusedHistory(
+  entries: Coverage[],
+  history: NonNullable<LocalAnalyzerOutput["history"]>,
+  label: string,
+): Coverage[] {
+  return entries.map((entry) =>
+    entry.area === "history:commits" && entry.note !== null
+      ? {
+          ...entry,
+          note: `${entry.note} Only ${history.commitsScanned} new commit(s) were read; findings of ${history.commitsReused} earlier commit(s) were reused from scan ${label}.`,
+        }
+      : entry,
+  );
+}
+
+function areaInfo(
+  planned: IncrementalPlan["code"],
+  isIncremental: boolean,
+  downgrade: IncrementalFullReason,
+): IncrementalAreaInfo | null {
+  if (planned === null) return null;
+  if (planned.mode === "full") return { mode: "full", reason: planned.reason };
+  return isIncremental
+    ? { mode: "incremental", reason: null }
+    : { mode: "full", reason: downgrade };
+}
+
+/** The `incremental` field: what each local area reused (or why it was scanned in full). */
+function describeIncremental(
+  plan: IncrementalPlan,
+  outputs: Partial<Record<"code" | "history", LocalAnalyzerOutput>>,
+): IncrementalInfo {
+  const codeOut = outputs.code;
+  const historyOut = outputs.history;
+  // An area that was planned as incremental counts as one only when the analyzer says it reused.
+  const code = areaInfo(plan.code, codeOut?.sourceReuse !== undefined, "no_saved_state");
+  const history = areaInfo(
+    plan.history,
+    historyOut?.history?.mode === "incremental",
+    historyOut?.history === undefined ? "no_saved_state" : "history_changed",
+  );
+  const used = code?.mode === "incremental" || history?.mode === "incremental";
+  return {
+    used,
+    reason: code?.reason ?? history?.reason ?? null,
+    basedOn: used ? plan.base : null,
+    filesRescanned: codeOut?.sourceReuse?.rescanned ?? null,
+    filesReused: codeOut?.sourceReuse?.reused ?? null,
+    commitsScanned: historyOut?.history?.commitsScanned ?? null,
+    commitsReused: historyOut?.history?.commitsReused ?? null,
+    code,
+    history,
+  };
 }

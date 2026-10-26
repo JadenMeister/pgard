@@ -31,6 +31,8 @@ export type ParsedCommand =
       allFindings: boolean;
       /** `--no-store`: do not keep this scan's result on this computer. */
       noStore?: boolean;
+      /** `--full`: do not build on an earlier stored scan; scan everything again. */
+      full?: boolean;
       /** `--lang`: language of rule texts in the terminal result. */
       lang?: RuleLocale;
       /** `--report-lang`: language of rule texts in saved reports. */
@@ -106,6 +108,9 @@ const ALL_FLAG = "--all";
 /** Flag (no value), `pgard baseline set` only: scan now and use that scan as the baseline. */
 const FROM_CURRENT_FLAG = "--from-current";
 
+/** Flag (no value), `pgard scan` only: scan everything again instead of building on the last stored scan. */
+const FULL_FLAG = "--full";
+
 /** Flag (no value): list every finding and location in the terminal result. */
 const ALL_FINDINGS_FLAG = "--all-findings";
 
@@ -119,6 +124,7 @@ interface SplitArgs {
   all: boolean;
   allFindings: boolean;
   fromCurrent: boolean;
+  full: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -132,6 +138,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let all = false;
   let allFindings = false;
   let fromCurrent = false;
+  let full = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -161,6 +168,11 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
       if (allFindings)
         throw new UsageError(`Option ${ALL_FINDINGS_FLAG} was given more than once.`, topic());
       allFindings = true;
+      continue;
+    }
+    if (arg === FULL_FLAG) {
+      if (full) throw new UsageError(`Option ${FULL_FLAG} was given more than once.`, topic());
+      full = true;
       continue;
     }
     if (arg === FROM_CURRENT_FLAG) {
@@ -206,6 +218,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     all,
     allFindings,
     fromCurrent,
+    full,
   };
 }
 
@@ -321,6 +334,9 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   if (split.noStore && command !== "scan") {
     throw new UsageError(`Option ${NO_STORE_FLAG} is only available for pgard scan.`, "main");
   }
+  if (split.full && command !== "scan") {
+    throw new UsageError(`Option ${FULL_FLAG} is only available for pgard scan.`, "main");
+  }
   if (split.all && !(command === "history" && sub === "clear")) {
     throw new UsageError(`Option ${ALL_FLAG} is only available for pgard history clear.`, "main");
   }
@@ -392,6 +408,7 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         format: parseFormat(split),
         allFindings: split.allFindings,
         ...(split.noStore ? { noStore: true } : {}),
+        ...(split.full ? { full: true } : {}),
         ...(lang === undefined ? {} : { lang }),
         ...(reportLang === undefined ? {} : { reportLang }),
       };

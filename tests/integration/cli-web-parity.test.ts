@@ -305,9 +305,24 @@ async function verifyWithBoth(
   }
 }
 
+/**
+ * The CLI result as JSON without `incremental`: only the CLI offers incremental scans (the local
+ * web app stores nothing to build on), so that one field is the only intended difference.
+ */
+function withoutIncremental(result: ScanResult): unknown {
+  const { incremental: _incremental, ...rest } = result;
+  return JSON.parse(JSON.stringify(rest)) as unknown;
+}
+
 /** The ScanResult as JSON, without the per-run fields the contract allows to differ. */
 function comparable(result: ScanResult): unknown {
-  const { scanId: _scanId, startedAt: _startedAt, finishedAt: _finishedAt, ...rest } = result;
+  const {
+    scanId: _scanId,
+    startedAt: _startedAt,
+    finishedAt: _finishedAt,
+    incremental: _incremental,
+    ...rest
+  } = result;
   return JSON.parse(JSON.stringify(rest)) as unknown;
 }
 
@@ -396,7 +411,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
     // With the clock and id pinned, the whole document matches, and the API returns it unchanged.
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     expect(web.result).toEqual(JSON.parse(JSON.stringify(web.received)));
 
     // Both frontends asked GitHub the same questions.
@@ -422,7 +437,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(cli.exitCode).toBe(3);
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     expect(webGitHub.calls).toEqual(cliGitHub.calls);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -458,7 +473,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     expect(webGitHub.calls).toEqual(cliGitHub.calls);
     expect(cliGitHub.calls).toContain("membership:acme");
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -489,7 +504,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     expect(webGitHub.calls).toEqual(cliGitHub.calls);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -519,7 +534,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     expect(webGitHub.calls).toEqual(cliGitHub.calls);
     expect(cliGitHub.calls.some((call) => /^(pulls|commit):/.test(call))).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -569,7 +584,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(verify.webSummary).toEqual(JSON.parse(JSON.stringify(cli.result.authorization)));
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     expect(webGitHub.calls).toEqual(cliGitHub.calls);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -592,7 +607,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
     expect(cli.stdout).not.toContain("PGARD_GITHUB_APP_CLIENT_ID");
 
     expect(comparable(web.result)).toEqual(comparable(cli.result));
-    expect(web.result).toEqual(JSON.parse(JSON.stringify(cli.result)));
+    expect(web.result).toEqual(withoutIncremental(cli.result));
     // Both frontends asked GitHub for a device code as the built-in PGARD App, and nothing else.
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     for (const [url, init] of fetchSpy.mock.calls as [string, { body?: string }][]) {

@@ -1,5 +1,5 @@
-import type { RuleLocale, Severity } from "@pgard/findings";
-import { REPORT_TEXT, type ReportText } from "@pgard/report";
+import type { IncrementalFullReason, IncrementalInfo, RuleLocale, Severity } from "@pgard/findings";
+import { INCREMENTAL_TEXT, REPORT_TEXT, type ReportText } from "@pgard/report";
 
 /**
  * Every fixed word of the terminal screens (headings, labels, status words, notices, progress
@@ -29,6 +29,8 @@ export interface CliText {
     target: string;
     elapsed: string;
     sinceLast: string;
+    incremental: string;
+    fullScan: string;
   };
   /** `warn` colours the partial and not-tested counts, as the coverage list does. */
   areasValue: (
@@ -48,6 +50,10 @@ export interface CliText {
     pages: number | null;
   }) => string;
   elapsedValue: (milliseconds: number) => string;
+  /** "re-scanned 3 files, reused 1997 (based on scan 1a2b3c4d)" */
+  incrementalValue: (info: IncrementalInfo) => string;
+  /** Why a scan (or one of its areas) was a full scan. */
+  fullScanReason: Record<IncrementalFullReason, string>;
   /** "+2 new / -1 no longer reported" */
   diffCompact: (added: number, gone: number, unclear: boolean) => string;
   /** A reason or note written by the scan (English) next to this language's text. */
@@ -205,6 +211,8 @@ const EN: CliText = {
     target: "Max per rule",
     elapsed: "Elapsed",
     sinceLast: "Since last scan",
+    incremental: INCREMENTAL_TEXT.en.label,
+    fullScan: INCREMENTAL_TEXT.en.fullScanLabel,
   },
   areasValue: (c, warn) =>
     `${c.requested} requested \u2014 ${[
@@ -225,6 +233,8 @@ const EN: CliText = {
       .filter((part) => part !== null)
       .join(", "),
   elapsedValue: (ms) => formatElapsed(ms, "m", "s"),
+  incrementalValue: INCREMENTAL_TEXT.en.value,
+  fullScanReason: INCREMENTAL_TEXT.en.reason,
   diffCompact: (added, gone, unclear) =>
     `+${added} new / -${gone} no longer reported${unclear ? " (some areas not fully compared)" : ""}`,
   scanText: (text) => text,
@@ -415,6 +425,8 @@ const KO: CliText = {
     target: "규칙별 최대 검사 대상",
     elapsed: "소요 시간",
     sinceLast: "지난 검사 대비",
+    incremental: INCREMENTAL_TEXT.ko.label,
+    fullScan: INCREMENTAL_TEXT.ko.fullScanLabel,
   },
   areasValue: (c, warn) =>
     `요청 ${c.requested} \u2014 ${[
@@ -435,6 +447,8 @@ const KO: CliText = {
       .filter((part) => part !== null)
       .join(", "),
   elapsedValue: (ms) => formatElapsed(ms, "분", "초"),
+  incrementalValue: INCREMENTAL_TEXT.ko.value,
+  fullScanReason: INCREMENTAL_TEXT.ko.reason,
   diffCompact: (added, gone, unclear) =>
     `신규 ${added}건 / 더 이상 보고되지 않음 ${gone}건${unclear ? " (일부 영역은 완전히 비교하지 못함)" : ""}`,
   scanText: (text) => `(${text})`,

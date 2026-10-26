@@ -42,7 +42,34 @@ export interface HistoryScanOptions {
   timeBudgetMs?: number;
   /** Injectable clock (ms) for tests. */
   now?: () => number;
+  /**
+   * Scan only the commits since an earlier scan and carry its commit findings over. This is used
+   * only when the result is provably the same as a full scan; otherwise the whole history is
+   * scanned and the output says so (`incremental.mode === "full"`).
+   */
+  incremental?: HistoryIncrementalBase;
 }
+
+/** What an earlier history scan left behind. */
+export interface HistoryIncrementalBase {
+  /** The commit the earlier scan covered; must be an ancestor of the scanned revision. */
+  baseRevision: string;
+  /** The earlier scan's findings that name a commit (PG-SECRET-001 and PG-SECRET-003 in history). */
+  carried: readonly Finding[];
+  /** Paths of the earlier scan's findings about files in the tracked tree (no commit). */
+  trackedFindingPaths: readonly string[];
+}
+
+/** How the history area was scanned. */
+export interface HistoryScanMode {
+  mode: "incremental" | "full";
+  /** Commits whose changes were read in this scan. */
+  commitsScanned: number;
+  /** Commits of the earlier scan whose findings were carried over. */
+  commitsReused: number;
+}
+
+export type HistoryScanOutput = AnalyzerOutput & { history: HistoryScanMode };
 
 const SHA = /^[0-9a-f]{40}$/;
 const BATCH_BYTES = 8 * 1024 * 1024;
@@ -581,7 +608,107 @@ async function readShallowBoundary(cwd: string, runner: GitRunner): Promise<Set<
 export async function scanGitHistory(
   projectRoot: string,
   options: HistoryScanOptions = {},
-): Promise<AnalyzerOutput> {
+): Promise<HistoryScanOutput> {
+  if (options.incremental !== undefined) {
+    const attempt = await runHistoryScan(projectRoot, options, options.incremental);
+    if (attempt !== null) return attempt;
+  }
+  const full = await runHistoryScan(projectRoot, options, null);
+  if (full === null) throw new Error("A full history scan always returns a result.");
+  return full;
+}
+
+/** `git diff-tree` of two commits: the paths whose content differs. */
+async function listChangedPathsWith(
+  cwd: string,
+  runner: GitRunner,
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+): Promise<Set<string>> {
+  const output = await runner(
+    {
+      subcommand: "diff-tree",
+      flags: ["-r", "-z", "--no-renames", "--name-only"],
+      operands: [from, to],
+    },
+    { cwd, encoding: "latin1", maxBuffer: LIST_MAX_BUFFER, ...(signal ? { signal } : {}) },
+  );
+  return new Set(
+    output
+      .split("\0")
+      .filter((entry) => entry.length > 0)
+      .map(decodeGitPath),
+  );
+}
+
+/**
+ * True when `ancestor` is reachable from `descendant` (false when it is not, or is unknown to
+ * the repository: a rebase, a force-push or another clone).
+ */
+export async function isAncestorCommit(
+  cwd: string,
+  ancestor: string,
+  descendant: string,
+  runner: GitRunner = defaultRunGit,
+): Promise<boolean> {
+  if (!SHA.test(ancestor) || !SHA.test(descendant)) return false;
+  try {
+    // Commits of `ancestor` that `descendant` cannot reach: none when it is an ancestor.
+    const output = await runner(
+      {
+        subcommand: "rev-list",
+        flags: ["--max-count=1"],
+        operands: [`${descendant}..${ancestor}`],
+      },
+      { cwd },
+    );
+    if (output.trim() !== "") return false;
+    // The range is empty for an unknown commit too on some versions; make sure it exists.
+    await runner(
+      {
+        subcommand: "rev-parse",
+        flags: ["--verify", "--quiet"],
+        operands: [`${ancestor}^{commit}`],
+      },
+      { cwd },
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Lists commits (newest first) of `range`, at most `max`. */
+async function listRange(
+  cwd: string,
+  runner: GitRunner,
+  range: string,
+  max: number,
+  signal?: AbortSignal,
+): Promise<string[]> {
+  const output = await runner(
+    { subcommand: "rev-list", flags: [`--max-count=${max}`], operands: [range] },
+    { cwd, ...(signal ? { signal } : {}) },
+  );
+  return output.split("\n").filter((line) => SHA.test(line));
+}
+
+/**
+ * The history scan. With a `plan` it reads only the commits since `plan.baseRevision` and returns
+ * `null` whenever it cannot show that the result equals a full scan's (the caller then scans in
+ * full). Why a plan is sound: the tracked-file findings are always recomputed from the revision;
+ * earlier commit findings stay true while (a) no tracked file that had a finding changed (so a
+ * secret that was current has not become "removed"), (b) the new commits add no secret or
+ * environment file (so nothing new can duplicate, or be duplicated by, an earlier finding), and
+ * (c) no file was left unread, which would make "removed" depend on files the earlier scan did not
+ * see. Anything unusual (shallow clone, truncated history, problems of any kind) means a full scan.
+ */
+async function runHistoryScan(
+  projectRoot: string,
+  options: HistoryScanOptions,
+  plan: HistoryIncrementalBase | null,
+): Promise<HistoryScanOutput | null> {
   const runner = options.runner ?? defaultRunGit;
   const signal = options.signal;
   const now = options.now ?? Date.now;
@@ -606,6 +733,7 @@ export async function scanGitHistory(
       { cwd: projectRoot },
     ).catch(() => "")
   ).trim();
+  if (!SHA.test(revision) && plan !== null) return null;
   if (!SHA.test(revision)) {
     const note =
       options.revision && options.revision !== "HEAD"
@@ -624,7 +752,35 @@ export async function scanGitHistory(
         { area: "history:commits", scope: "history", status: "not_tested", ruleIds: [], note },
       ],
       ruleStats: [],
+      history: { mode: "full", commitsScanned: 0, commitsReused: 0 },
     };
+  }
+
+  // The earlier scan must be an ancestor, and none of the files it reported on may have changed.
+  let newCommits: string[] | null = null;
+  if (plan !== null) {
+    if (!(await isAncestorCommit(projectRoot, plan.baseRevision, revision, runner))) return null;
+    try {
+      const changed = await listChangedPathsWith(
+        projectRoot,
+        runner,
+        plan.baseRevision,
+        revision,
+        signal,
+      );
+      if (plan.trackedFindingPaths.some((trackedPath) => changed.has(trackedPath))) return null;
+      newCommits = await listRange(
+        projectRoot,
+        runner,
+        `${plan.baseRevision}..${revision}`,
+        maxCommits + 1,
+        signal,
+      );
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      return null;
+    }
+    if (newCommits.length > maxCommits) return null;
   }
 
   // 1. Tracked files at the scanned revision.
@@ -748,7 +904,9 @@ export async function scanGitHistory(
   );
   const allCommits = revList.split("\n").filter((line) => SHA.test(line));
   const isTruncated = allCommits.length > maxCommits;
-  const commits = allCommits.slice(0, maxCommits);
+  if (plan !== null && (isTruncated || shallowBoundary !== null)) return null;
+  const commits = newCommits ?? allCommits.slice(0, maxCommits);
+  const reusedCommits = newCommits === null ? 0 : allCommits.length - newCommits.length;
   const listed = await listHistoryBlobs(projectRoot, runner, commits, signal, isOverBudget);
   const headShas = new Set(headBlobs.map((entry) => entry.sha));
   const headPaths = new Set(headBlobs.map((entry) => entry.path));
@@ -989,13 +1147,42 @@ export async function scanGitHistory(
     ...listed.problems,
     ...historySkips.problems,
   ];
+  if (plan !== null) {
+    const hasNewSecrets = oldestFirst.some((entry) => {
+      if (isEnvironmentFile(entry.path)) return true;
+      const content = historyRead.contents.get(entry.sha) ?? headRead.contents.get(entry.sha);
+      return content !== undefined && secretsOf(entry, content).length > 0;
+    });
+    const unreadNew =
+      historyRead.skippedLarge + historyRead.skippedBudget + historyRead.skippedBinary;
+    if (
+      historyProblems.length > 0 ||
+      headProblems.length > 0 ||
+      !isHeadListComplete ||
+      listed.problems.length > 0 ||
+      (plan.carried.length > 0 && (hasNewSecrets || unreadNew > 0 || unreadHeadFiles > 0))
+    ) {
+      return null;
+    }
+    // Earlier commit findings carry over unchanged (their review state is applied again later).
+    for (const carried of plan.carried) {
+      const {
+        suppression: _suppression,
+        inBaseline: _inBaseline,
+        context: _context,
+        ...rest
+      } = carried;
+      findings.push(rest);
+    }
+  }
+  const processedCommits = listed.processedCommits + reusedCommits;
   coverage.push({
     area: "history:commits",
     scope: "history",
     status: historyProblems.length > 0 ? "partial" : "completed",
     ruleIds: ["PG-SECRET-001", "PG-SECRET-003"],
     note: formatNote(
-      `${listed.processedCommits} commit(s) reachable from ${revision.slice(0, 12)}; branches not merged into it are not scanned.`,
+      `${processedCommits} commit(s) reachable from ${revision.slice(0, 12)}; branches not merged into it are not scanned.`,
       historyProblems,
       historySkips.info,
     ),
@@ -1027,20 +1214,46 @@ export async function scanGitHistory(
   const trackedStatus = headProblems.length > 0 ? "partial" : "completed";
   const commitsStatus = historyProblems.length > 0 ? "partial" : "completed";
   const files = (examined: number) => [{ unit: "files", examined, reason: null }];
-  const commitCount = { unit: "commits", examined: listed.processedCommits, reason: null };
+  const commitCount = { unit: "commits", examined: processedCommits, reason: null };
+  // Which old blobs count depends on the current tree (a blob that left it now counts), so an
+  // incremental scan cannot recount them without reading the old commits: it says so.
+  const blobCount: RuleStat["targets"][number] =
+    plan === null
+      ? { unit: "blobs", examined: historyRead.contents.size, reason: null }
+      : {
+          unit: "blobs",
+          examined: null,
+          reason: "Blobs of earlier commits were not read again, so they were not recounted.",
+        };
   const ruleStats: RuleStat[] = [
     stat("history:tracked-files", trackedStatus, "PG-SECRET-001", files(headBlobs.length), false),
     stat("history:tracked-files", trackedStatus, "PG-SECRET-002", files(readTrackedFiles), false),
     stat("history:tracked-files", trackedStatus, "PG-HYGIENE-001", files(headBlobs.length), false),
     stat("history:commits", commitsStatus, "PG-SECRET-001", [commitCount], true),
-    stat(
-      "history:commits",
-      commitsStatus,
-      "PG-SECRET-003",
-      [commitCount, { unit: "blobs", examined: historyRead.contents.size, reason: null }],
-      true,
-    ),
+    stat("history:commits", commitsStatus, "PG-SECRET-003", [commitCount, blobCount], true),
   ];
 
-  return { findings, coverage, ruleStats };
+  return {
+    findings,
+    coverage,
+    ruleStats,
+    history: {
+      mode: plan === null ? "full" : "incremental",
+      commitsScanned: listed.processedCommits,
+      commitsReused: reusedCommits,
+    },
+  };
+}
+
+/**
+ * Paths whose content differs between two commits (`git diff-tree --no-renames`: a rename is a
+ * deletion plus an addition). Rejects when Git cannot compare them.
+ */
+export function listChangedPaths(
+  cwd: string,
+  from: string,
+  to: string,
+  signal?: AbortSignal,
+): Promise<Set<string>> {
+  return listChangedPathsWith(cwd, defaultRunGit, from, to, signal);
 }

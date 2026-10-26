@@ -6,7 +6,9 @@ import {
   isTestOrFixturePath,
   isVendoredPath,
   matchesEverything,
+  redactEvidence,
   type AnalyzerOutput,
+  type CachedSourceFile,
   type Coverage,
   type Finding,
   type ProjectConfig,
@@ -21,6 +23,7 @@ import { analyzeVueSource } from "./vue/analyze-vue.js";
 import {
   readTextFile,
   walkSourceTree,
+  type SourceFile,
   type GeneratedDirectoryReason,
   type SkippedDependencyDirectory,
   type SourceLanguage,
@@ -35,6 +38,20 @@ export interface SourceScanOptions {
   now?: () => number;
   /** Validated project configuration; its `exclude` patterns leave source files out, visibly. */
   projectConfig?: ProjectConfig | null;
+  /**
+   * Results of an earlier scan, by repository-relative path. A file whose path, language and
+   * SHA-256 match an entry keeps that entry's result instead of being analyzed again; the
+   * project-wide checks and every coverage note are still computed from all files.
+   */
+  reuse?: { files: ReadonlyMap<string, CachedSourceFile>; label: string } | null;
+}
+
+/** What a source scan hands back besides its findings: the cache for the next scan. */
+export interface SourceScanOutput extends AnalyzerOutput {
+  /** One entry per analyzed file, for a later scan to reuse. */
+  fileCache: CachedSourceFile[];
+  /** Files analyzed in this scan and files whose earlier result was reused. */
+  reuse: { rescanned: number; reused: number };
 }
 
 const CSRF_MODULES = [
@@ -176,13 +193,100 @@ function matchesModule(imports: Set<string>, candidates: string[]): boolean {
 }
 
 /**
+ * The facts as they are kept, in a scan and in the stored state alike: a route path is redacted
+ * like evidence (it ends up in finding evidence and in a finding's identity), so what is stored
+ * never holds more than the result does, and a stored fact gives the same finding as a fresh one.
+ */
+function storableFacts(facts: JsFileFacts): Record<string, unknown> {
+  return {
+    ...facts,
+    authRoutes: facts.authRoutes.map((route) => ({
+      ...route,
+      routePath: redactEvidence(route.routePath, { maxLength: 200 }),
+    })),
+  } as unknown as Record<string, unknown>;
+}
+
+/** Analyzes one file's text. Everything a later scan needs to reuse the result is in the entry. */
+function analyzeFile(file: SourceFile, content: string, hash: string): CachedSourceFile {
+  const base = { path: file.relativePath, language: file.language, hash };
+  if (file.language === "go") {
+    const analysis = analyzeGoSource(content, file.relativePath);
+    return {
+      ...base,
+      findings: analysis.findings.map(createSourceFinding),
+      facts: null,
+      goImports: [...analysis.imports],
+      hasJsx: false,
+      hasParseErrors: analysis.hasParseErrors,
+      capped: analysis.cappedRules.length > 0,
+    };
+  }
+  if (file.language === "vue") {
+    const analysis = analyzeVueSource(content, file.relativePath);
+    return {
+      ...base,
+      findings: analysis.findings.map(createSourceFinding),
+      facts: analysis.facts ? storableFacts(analysis.facts) : null,
+      goImports: [],
+      hasJsx: false,
+      hasParseErrors: analysis.hasParseErrors,
+      capped: analysis.cappedRules.length > 0,
+    };
+  }
+  const analysis = analyzeJsSource(content, file.relativePath);
+  return {
+    ...base,
+    findings: analysis.findings.map(createSourceFinding),
+    facts: storableFacts(analysis.facts),
+    goImports: [],
+    hasJsx: analysis.facts.hasJsx,
+    hasParseErrors: analysis.hasParseErrors,
+    capped: analysis.cappedRules.length > 0,
+  };
+}
+
+const isNumberList = (value: unknown): boolean =>
+  Array.isArray(value) && value.every((item) => typeof item === "number");
+
+/**
+ * True when stored facts have the shape the project-wide checks read. A stored entry that fails
+ * this is analyzed again instead of being trusted.
+ */
+function hasUsableFacts(entry: CachedSourceFile): boolean {
+  if (entry.language === "go") return entry.facts === null;
+  const facts = entry.facts;
+  if (facts === null) return entry.language === "vue";
+  return (
+    Array.isArray(facts.imports) &&
+    facts.imports.every((item: unknown) => typeof item === "string") &&
+    isNumberList(facts.stateChangingRoutes) &&
+    isNumberList(facts.preflightRoutes) &&
+    (facts.preflightExposure === null ||
+      facts.preflightExposure === "permissive" ||
+      facts.preflightExposure === "unknown") &&
+    typeof facts.strictSession === "boolean" &&
+    typeof facts.usesCookieSession === "boolean" &&
+    typeof facts.hasJsx === "boolean" &&
+    Array.isArray(facts.authRoutes) &&
+    facts.authRoutes.every(
+      (route: unknown) =>
+        typeof route === "object" &&
+        route !== null &&
+        typeof (route as { line?: unknown }).line === "number" &&
+        typeof (route as { routePath?: unknown }).routePath === "string",
+    )
+  );
+}
+
+/**
  * Scans the project's JavaScript/TypeScript/React, Vue and Go sources read-only and returns
  * findings plus per-language coverage. Project code is parsed, never executed or installed.
  */
 export async function scanSourceCode(
   projectRoot: string,
   options: SourceScanOptions = {},
-): Promise<AnalyzerOutput> {
+): Promise<SourceScanOutput> {
   const excludePatterns = options.projectConfig?.exclude ?? [];
   const excludeMatcher = excludePatterns.length > 0 ? compilePathMatcher(excludePatterns) : null;
   const testPatterns = options.projectConfig?.testDirectories ?? [];
@@ -191,7 +295,16 @@ export async function scanSourceCode(
     projectRoot,
     excludeMatcher ? { isExcluded: (relativePath) => excludeMatcher.matches(relativePath) } : {},
   );
-  const raw: RawSourceFinding[] = [];
+  const findings: Finding[] = [];
+  const fileCache: CachedSourceFile[] = [];
+  let reusedFiles = 0;
+  let rescannedFiles = 0;
+  const reusedByLanguage: Record<SourceLanguage, number> = {
+    javascript: 0,
+    typescript: 0,
+    vue: 0,
+    go: 0,
+  };
   const stats: Record<SourceLanguage, LanguageStats> = {
     javascript: {
       files: 0,
@@ -254,32 +367,38 @@ export async function scanSourceCode(
       continue;
     }
     try {
-      let capped: string[] = [];
-      if (file.language === "go") {
-        const analysis = analyzeGoSource(content, file.relativePath);
-        raw.push(...analysis.findings);
-        for (const name of analysis.imports) goImports.add(name);
-        if (analysis.hasParseErrors) languageStats.unparsable += 1;
-        capped = analysis.cappedRules;
-      } else if (file.language === "vue") {
-        const analysis = analyzeVueSource(content, file.relativePath);
-        raw.push(...analysis.findings);
-        if (analysis.facts) jsFacts.push({ path: file.relativePath, facts: analysis.facts });
-        if (analysis.hasParseErrors) languageStats.unparsable += 1;
-        capped = analysis.cappedRules;
+      // A file whose text is the one a stored scan analyzed (same path, language and SHA-256)
+      // keeps that scan's result; anything else, or no stored scan, is analyzed now.
+      const hash = createHash("sha256").update(content).digest("hex");
+      const stored = options.reuse?.files.get(file.relativePath);
+      let entry: CachedSourceFile;
+      if (
+        stored !== undefined &&
+        stored.hash === hash &&
+        stored.language === file.language &&
+        hasUsableFacts(stored)
+      ) {
+        entry = stored;
+        reusedFiles += 1;
+        reusedByLanguage[file.language] += 1;
       } else {
-        const analysis = analyzeJsSource(content, file.relativePath);
-        raw.push(...analysis.findings);
-        jsFacts.push({ path: file.relativePath, facts: analysis.facts });
-        if (analysis.facts.hasJsx) {
-          jsxFiles += 1;
-          jsxPaths.add(file.relativePath);
-        }
-        if (analysis.hasParseErrors) languageStats.unparsable += 1;
-        capped = analysis.cappedRules;
+        entry = analyzeFile(file, content, hash);
+        rescannedFiles += 1;
       }
+      fileCache.push(entry);
+      findings.push(...entry.findings);
+      if (entry.language === "go") {
+        for (const name of entry.goImports) goImports.add(name);
+      } else if (entry.facts !== null) {
+        jsFacts.push({ path: file.relativePath, facts: entry.facts as unknown as JsFileFacts });
+      }
+      if (entry.hasJsx) {
+        jsxFiles += 1;
+        jsxPaths.add(file.relativePath);
+      }
+      if (entry.hasParseErrors) languageStats.unparsable += 1;
       languageStats.analyzed += 1;
-      if (capped.length > 0) languageStats.cappedFiles.push(file.relativePath);
+      if (entry.capped) languageStats.cappedFiles.push(file.relativePath);
     } catch {
       languageStats.unparsable += 1;
     }
@@ -314,7 +433,9 @@ export async function scanSourceCode(
     )
   ).join("\n");
 
-  // Cross-file heuristics (CSRF / brute force) — always suspected with low confidence.
+  // Project-wide heuristics (CSRF / brute force), always suspected with low confidence. They read
+  // the facts of every file (reused ones included) and the manifests, so they run on every scan.
+  const projectFindings: RawSourceFinding[] = [];
   const allImports = new Set([
     ...declaredJsModules,
     ...jsFacts.flatMap((entry) => entry.facts.imports),
@@ -343,7 +464,7 @@ export async function scanSourceCode(
   ];
   const firstRoute = jsFacts.find((entry) => csrfRoutesOf(entry.facts).length > 0);
   if (usesCookieSession && !hasCsrfProtection && firstRoute) {
-    raw.push({
+    projectFindings.push({
       ruleId: "PG-CSRF-001",
       path: firstRoute.path,
       line: Math.min(...csrfRoutesOf(firstRoute.facts)),
@@ -361,7 +482,7 @@ export async function scanSourceCode(
   if (!hasRateLimiter) {
     for (const entry of jsFacts) {
       for (const route of entry.facts.authRoutes.slice(0, 5)) {
-        raw.push({
+        projectFindings.push({
           ruleId: "PG-BRUTE-001",
           path: entry.path,
           line: route.line,
@@ -375,7 +496,7 @@ export async function scanSourceCode(
     }
   }
 
-  const findings: Finding[] = raw.map(createSourceFinding);
+  findings.push(...projectFindings.map(createSourceFinding));
 
   // Coverage.
   const coverage: Coverage[] = [];
@@ -385,7 +506,7 @@ export async function scanSourceCode(
   const addRuleStats = (
     entry: Coverage,
     examined: number,
-    isInArea: (finding: RawSourceFinding) => boolean,
+    isInArea: (finding: Finding) => boolean,
   ) => {
     if (entry.status !== "completed" && entry.status !== "partial") return;
     for (const ruleId of entry.ruleIds) {
@@ -395,7 +516,8 @@ export async function scanSourceCode(
         scope: "code",
         status: entry.status,
         targets: [{ unit: "files", examined, reason: null }],
-        findings: raw.filter((finding) => finding.ruleId === ruleId && isInArea(finding)).length,
+        findings: findings.filter((finding) => finding.ruleId === ruleId && isInArea(finding))
+          .length,
       });
     }
   };
@@ -429,13 +551,13 @@ export async function scanSourceCode(
       note:
         languageStats.files === 0
           ? `No ${label} files found.`
-          : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}`,
+          : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}${reusedByLanguage[language] > 0 && options.reuse ? ` ${reusedByLanguage[language]} file(s) reused from scan ${options.reuse.label} (content unchanged).` : ""}`,
     };
     coverage.push(entry);
     addRuleStats(
       entry,
       languageStats.analyzed,
-      (finding) => languageOfPath.get(finding.path) === language,
+      (finding) => languageOfPath.get(finding.location.path ?? "") === language,
     );
   };
   const jsMethod = "TypeScript compiler AST with intra-file, flow-insensitive taint tracking";
@@ -452,7 +574,7 @@ export async function scanSourceCode(
         : "No JSX found.",
   };
   coverage.push(reactEntry);
-  addRuleStats(reactEntry, jsxFiles, (finding) => jsxPaths.has(finding.path));
+  addRuleStats(reactEntry, jsxFiles, (finding) => jsxPaths.has(finding.location.path ?? ""));
   languageCoverage(
     "vue",
     [...VUE_RULE_IDS, ...JS_RULE_IDS],
@@ -582,7 +704,13 @@ export async function scanSourceCode(
   // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file.
   addRuleStats(heuristicsEntry, jsFacts.length, () => true);
 
-  return { findings, coverage, ruleStats };
+  return {
+    findings,
+    coverage,
+    ruleStats,
+    fileCache,
+    reuse: { rescanned: rescannedFiles, reused: reusedFiles },
+  };
 }
 
 function walkTrackedCount(walk: WalkResult): number {

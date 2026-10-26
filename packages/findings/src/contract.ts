@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.1" as const;
+export const SCHEMA_VERSION = "1.2" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -373,6 +373,94 @@ export interface BaselineSummary {
   toolVersionChanged: boolean;
 }
 
+/**
+ * Why a scan (or one of its areas) was a full scan instead of an incremental one. Stable codes:
+ * frontends translate them.
+ *
+ * - `requested_full`: the user asked for a full scan (`--full`).
+ * - `no_previous_scan`: nothing is stored for this repository (first scan, or stored results are off).
+ * - `store_unavailable`: the result store could not be read.
+ * - `previous_unreadable`: the newest stored scan is corrupt, expired or from an incompatible PGARD.
+ * - `no_saved_state`: the stored scan has no incremental data (older PGARD, or too large to keep).
+ * - `scopes_changed`: the stored scan covered other scopes than this one.
+ * - `tool_changed`: the PGARD version, rule metadata, advisory data or grammar hashes changed.
+ * - `config_changed`: `pgard.config.json` changed (or appeared or disappeared).
+ * - `previous_incomplete`: a stored area was partial or not tested.
+ * - `head_not_ancestor`: the stored commit is not an ancestor of HEAD (rebase, force-push, other clone).
+ * - `git_failed`: Git could not list the changes since the stored commit.
+ * - `rules_unclassified`: a rule is not classified as file-local or project-wide.
+ * - `analyzer_changed`: the analyzer code that decides findings changed since the stored scan.
+ * - `previous_state_too_large`: the stored scan's reuse data was too large to keep.
+ * - `previous_state_rejected`: the stored scan's reuse data was dropped or failed its checks.
+ * - `history_changed`: the new commits change what the earlier history findings mean, so the
+ *   Git history was scanned in full (the code area may still be incremental).
+ */
+export type IncrementalFullReason =
+  | "requested_full"
+  | "no_previous_scan"
+  | "store_unavailable"
+  | "previous_unreadable"
+  | "no_saved_state"
+  | "scopes_changed"
+  | "tool_changed"
+  | "config_changed"
+  | "previous_incomplete"
+  | "head_not_ancestor"
+  | "git_failed"
+  | "rules_unclassified"
+  | "analyzer_changed"
+  | "previous_state_too_large"
+  | "previous_state_rejected"
+  | "history_changed";
+export const INCREMENTAL_FULL_REASONS = exhaustive<IncrementalFullReason>({
+  requested_full: true,
+  no_previous_scan: true,
+  store_unavailable: true,
+  previous_unreadable: true,
+  no_saved_state: true,
+  scopes_changed: true,
+  tool_changed: true,
+  config_changed: true,
+  previous_incomplete: true,
+  head_not_ancestor: true,
+  git_failed: true,
+  rules_unclassified: true,
+  analyzer_changed: true,
+  previous_state_too_large: true,
+  previous_state_rejected: true,
+  history_changed: true,
+});
+
+/** How one local area was scanned. */
+export interface IncrementalAreaInfo {
+  mode: "incremental" | "full";
+  /** Why it was a full scan; null when `mode` is `incremental`. */
+  reason: IncrementalFullReason | null;
+}
+
+/**
+ * Added in 1.2, present when the launcher offered incremental scans. Says what the scan reused
+ * from an earlier stored scan: nothing is reused silently.
+ */
+export interface IncrementalInfo {
+  /** True when at least one area reused data from the stored scan. */
+  used: boolean;
+  /** Why the scan was a full one (the code area's reason when both areas were full); else null. */
+  reason: IncrementalFullReason | null;
+  /** The stored scan this one is based on; null for a full scan. */
+  basedOn: { scanId: string; revision: string | null } | null;
+  /** Source files analyzed in this scan (all of them in a full scan). Null: no code scope. */
+  filesRescanned: number | null;
+  /** Source files whose stored findings were reused because their content did not change. */
+  filesReused: number | null;
+  /** Commits scanned in this scan (for an incremental one: only the new commits). Null: no history scope. */
+  commitsScanned: number | null;
+  /** Commits whose earlier history findings were carried over. */
+  commitsReused: number | null;
+  code: IncrementalAreaInfo | null;
+  history: IncrementalAreaInfo | null;
+}
+
 export interface ScanResult {
   schemaVersion: typeof SCHEMA_VERSION;
   scanId: string;
@@ -395,6 +483,8 @@ export interface ScanResult {
   ruleStats?: RuleStat[];
   /** Added in 1.1. Absent in results written by 1.0. */
   standardsCoverage?: StandardsCoverage;
+  /** Added in 1.2. Absent in older results and when the launcher did not offer incremental scans. */
+  incremental?: IncrementalInfo;
 }
 
 /** A local HTTP target the user explicitly confirmed with `Y` after seeing its identity. */
