@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { buildAppInstallUrl, isOpenableGitHubUrl } from "./app-install.js";
-import { openerCommandFor, openGitHubUrl } from "./open-url.js";
+import { OPENER_URL_CHARACTERS, openerCommandFor, openGitHubUrl } from "./open-url.js";
 
 describe("buildAppInstallUrl", () => {
   it("builds the documented install URL from the slug and numeric ids only", () => {
@@ -78,6 +78,35 @@ describe("openGitHubUrl", () => {
     expect(await openGitHubUrl("https://evil.test/", { platform: "darwin", spawn })).toBe(false);
     expect(openerCommandFor("linux", "https://evil.test/")).toBe(null);
     expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it("opens only URLs made of the allowlisted characters, as defence in depth", async () => {
+    // The real links: the device page and the percent-encoded install URL.
+    expect(openerCommandFor("darwin", "https://github.com/login/device")).not.toBeNull();
+    expect(
+      openerCommandFor(
+        "darwin",
+        buildAppInstallUrl({ slug: "pgard-jadenmeister", targetId: 42, repositoryId: 555 }) ?? "",
+      ),
+    ).not.toBeNull();
+    const spawn = vi.fn(async () => true);
+    // Each of these passes isOpenableGitHubUrl but holds a character outside the allowlist.
+    for (const odd of [
+      "https://github.com/apps/a?x=1#frag",
+      "https://github.com/apps/a?x=[1]",
+      "https://github.com/apps/a;b",
+      "https://github.com/apps/a!b",
+      "https://github.com/apps/a~b",
+      "https://github.com/apps/a,b",
+      "https://github.com/apps/a+b",
+      "https://github.com/apps/a@b",
+      "https://github.com/apps/\u00e9",
+    ]) {
+      expect(openerCommandFor("linux", odd)).toBeNull();
+      expect(await openGitHubUrl(odd, { platform: "win32", spawn })).toBe(false);
+    }
+    expect(spawn).not.toHaveBeenCalled();
+    expect(OPENER_URL_CHARACTERS.source).toBe("^[A-Za-z0-9/_.?=&%:-]+$");
   });
 
   it("passes the URL as one argument and reports a failed start as false", async () => {

@@ -5,6 +5,7 @@ export {
   type AppInstallUrlInput,
 } from "./app-install.js";
 export {
+  OPENER_URL_CHARACTERS,
   openGitHubUrl,
   openerCommandFor,
   spawnOpener,
@@ -21,7 +22,10 @@ export {
   GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
   INVALID_APP_SLUG_OVERRIDE_MESSAGE,
   INVALID_CLIENT_ID_OVERRIDE_MESSAGE,
+  MIXED_APP_OVERRIDE_MESSAGE,
+  mixedAppOverrideWarning,
   resolveGitHubAppClientId,
+  resolveKeychainClientId,
   type GitHubAppClientIdSource,
   type ResolvedGitHubAppClientId,
 } from "./env.js";

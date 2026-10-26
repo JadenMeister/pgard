@@ -1,6 +1,6 @@
 import { sanitizeDisplayText } from "@pgard/http-local";
 import {
-  resolveGitHubAppClientId,
+  resolveKeychainClientId,
   readStoredSignInStatus,
   type CredentialStore,
   type SignInNotice,
@@ -46,7 +46,8 @@ export async function readStoredSignInDto(
   store: CredentialStore,
   env: Readonly<Record<string, string | undefined>>,
 ): Promise<StoredSignInDto> {
-  const { clientId } = resolveGitHubAppClientId(env);
+  // The entry is named by the client id alone; a malformed slug override does not hide it.
+  const { clientId } = resolveKeychainClientId(env);
   if (clientId === null) return { status: "unknown" };
   try {
     const status = await readStoredSignInStatus(store, clientId);

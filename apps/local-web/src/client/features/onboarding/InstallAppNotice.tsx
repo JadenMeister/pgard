@@ -1,20 +1,25 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { InstallRemedyDto, OwnerApprovalRecheckDto } from "../../../shared/api-types";
-import { apiPost } from "../../api/client";
+import { apiPost, ApiRequestError } from "../../api/client";
 import { Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
 import {
   describeInstallRemedy,
   INSTALL_BUTTON_LABEL,
   INSTALL_POLL_INTERVAL_MS,
-  INSTALL_WAIT_LIMIT_MS,
   INSTALL_WAIT_TIMED_OUT_TEXT,
+  isInstallWaitOver,
   nextInstallStep,
   WAITING_FOR_INSTALL_TEXT,
 } from "./install-remedy";
 
 interface InstallAppNoticeProps {
   remedy: InstallRemedyDto;
+  /**
+   * When the server stops accepting re-checks (`AuthStatus.installWaitEndsAt`). It comes from the
+   * server, so a remount (for example after a transient error) never restarts the 10 minutes.
+   */
+  waitEndsAt: number | null;
   /** Runs the full authorization again (`POST /api/auth/verify`). */
   onInstalled: () => void;
 }
@@ -22,28 +27,42 @@ interface InstallAppNoticeProps {
 /**
  * Shown when the latest check is blocked only because the PGARD GitHub App is not installed for
  * this repository. A user who can install it gets a button (new tab) and the panel re-checks
- * owner approval every 5 s for up to 10 minutes, then starts the full check again.
+ * owner approval every 5 s until the server's 10-minute window ends, then starts the full check
+ * again.
  */
-export function InstallAppNotice({ remedy, onInstalled }: InstallAppNoticeProps) {
+export function InstallAppNotice({ remedy, waitEndsAt, onInstalled }: InstallAppNoticeProps) {
   const view = describeInstallRemedy(remedy);
-  const startedAt = useRef(Date.now());
-  const [isWaiting, setIsWaiting] = useState(view.kind === "install");
-  const [isTimedOut, setIsTimedOut] = useState(false);
+  const canWait = view.kind === "install" && !isInstallWaitOver(waitEndsAt, Date.now());
+  const [isWaiting, setIsWaiting] = useState(canWait);
+  const [isTimedOut, setIsTimedOut] = useState(view.kind === "install" && !canWait);
 
   useEffect(() => {
-    startedAt.current = Date.now();
-    setIsWaiting(view.kind === "install");
-    setIsTimedOut(false);
-  }, [view.kind, remedy.url]);
+    const isOver = isInstallWaitOver(waitEndsAt, Date.now());
+    setIsWaiting(view.kind === "install" && !isOver);
+    setIsTimedOut(view.kind === "install" && isOver);
+  }, [view.kind, remedy.url, waitEndsAt]);
+
+  const stopWaiting = (): void => {
+    setIsWaiting(false);
+    setIsTimedOut(true);
+  };
 
   usePolling(
     async () => {
-      if (Date.now() - startedAt.current >= INSTALL_WAIT_LIMIT_MS) {
-        setIsWaiting(false);
-        setIsTimedOut(true);
+      if (isInstallWaitOver(waitEndsAt, Date.now())) {
+        stopWaiting();
         return;
       }
-      const recheck = await apiPost<OwnerApprovalRecheckDto>("/api/auth/owner-approval");
+      let recheck: OwnerApprovalRecheckDto;
+      try {
+        recheck = await apiPost<OwnerApprovalRecheckDto>("/api/auth/owner-approval");
+      } catch (error) {
+        // The server's window is the one that counts; anything else is retried on the next tick.
+        if (error instanceof ApiRequestError && error.code === "install_wait_expired") {
+          stopWaiting();
+        }
+        return;
+      }
       if (nextInstallStep(recheck) === "reverify") {
         setIsWaiting(false);
         onInstalled();

@@ -1,5 +1,6 @@
 import {
   GITHUB_APP_CLIENT_ID_ENV,
+  mixedAppOverrideWarning,
   resolveGitHubAppClientId,
   type DeviceUserCode,
   type GitHubSessionProvider,
@@ -66,6 +67,9 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
   const app = resolveGitHubAppClientId(context.io.env);
   if (app.source === "env")
     err(context, context.errStyle.dim(formatGitHubAppOverride(app.clientId)));
+  // Once per command: an overridden slug with the built-in client id can never approve PGARD.
+  const mixed = mixedAppOverrideWarning(context.io.env);
+  if (mixed !== null) err(context, context.errStyle.yellow(mixed));
   return context.deps.createSessionProvider({
     env: context.io.env,
     onUserCode: (code) => showDeviceCode(context, code),

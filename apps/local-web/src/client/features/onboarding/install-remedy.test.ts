@@ -3,7 +3,7 @@ import type { InstallRemedyDto } from "../../../shared/api-types";
 import {
   describeInstallRemedy,
   INSTALL_POLL_INTERVAL_MS,
-  INSTALL_WAIT_LIMIT_MS,
+  isInstallWaitOver,
   nextInstallStep,
 } from "./install-remedy";
 
@@ -42,7 +42,7 @@ describe("dashboard install remedy", () => {
     expect(describeInstallRemedy(remedy({ canApprove: "unknown" }))).toEqual({
       kind: "install",
       url: URL,
-      text: `If you are an owner of acme, install the App on the page that opened; otherwise ask an owner: ${URL}`,
+      text: `If you are an owner of acme, install the App on the install page; otherwise ask an owner to install it there: ${URL}`,
     });
   });
 
@@ -71,6 +71,12 @@ describe("dashboard install remedy", () => {
       "keep_waiting",
     );
     expect(INSTALL_POLL_INTERVAL_MS).toBe(5_000);
-    expect(INSTALL_WAIT_LIMIT_MS).toBe(600_000);
+  });
+
+  it("stops waiting at the server's deadline, so a remount never restarts the 10 minutes", () => {
+    expect(isInstallWaitOver(2_000, 1_999)).toBe(false);
+    expect(isInstallWaitOver(2_000, 2_000)).toBe(true);
+    // No server deadline: nothing to wait for.
+    expect(isInstallWaitOver(null, 0)).toBe(true);
   });
 });

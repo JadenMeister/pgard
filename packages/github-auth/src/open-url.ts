@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { isOpenableGitHubUrl } from "./app-install.js";
 
+/** Every character a URL handed to the system opener may contain. */
+export const OPENER_URL_CHARACTERS = /^[A-Za-z0-9/_.?=&%:-]+$/;
+
 export interface OpenerCommand {
   command: string;
   args: string[];
@@ -11,10 +14,12 @@ export interface OpenerCommand {
  * macOS `open <url>`, Windows `explorer.exe <url>`, everything else `xdg-open <url>`.
  *
  * Windows uses `explorer.exe` rather than `cmd /c start`, because cmd would parse `&` in the
- * query string as a command separator. `null` when the URL is not an `https://github.com/` URL.
+ * query string as a command separator. `null` when the URL is not an `https://github.com/` URL,
+ * or when it holds any character outside `OPENER_URL_CHARACTERS` (defence in depth: the URLs
+ * PGARD opens, the device page and the percent-encoded install link, never need more).
  */
 export function openerCommandFor(platform: NodeJS.Platform, url: string): OpenerCommand | null {
-  if (!isOpenableGitHubUrl(url)) return null;
+  if (!OPENER_URL_CHARACTERS.test(url) || !isOpenableGitHubUrl(url)) return null;
   switch (platform) {
     case "darwin":
       return { command: "open", args: [url] };

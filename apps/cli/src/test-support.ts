@@ -172,7 +172,9 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     sleep: async () => undefined,
     now: () => 0,
     createSessionProvider: () =>
-      Object.assign(async () => unexpected("getGitHubSession")(), {}) as never,
+      Object.assign(async () => unexpected("getGitHubSession")(), {
+        existing: async () => unexpected("existing")(),
+      }) as never,
     // A fake keychain: tests never touch the real OS keychain.
     credentialStore: createInMemoryCredentialStore(),
     signInAndStore: unexpected("signInAndStore") as never,

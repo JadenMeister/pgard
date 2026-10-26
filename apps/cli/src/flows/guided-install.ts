@@ -15,7 +15,7 @@ export const INSTALL_POLL_INTERVAL_MS = 5_000;
 export const INSTALL_WAIT_LIMIT_MS = 10 * 60_000;
 
 export const WAITING_FOR_INSTALL_MESSAGE =
-  "Waiting for the PGARD GitHub App to be installed... (Ctrl+C to cancel)";
+  "Waiting for the PGARD GitHub App to be installed... (press Ctrl+C twice to cancel)";
 
 /**
  * - `not_offered`: no guided install applies; the caller reports the outcome as before.
@@ -41,11 +41,12 @@ export function formatAskOwner(accountLogin: string, url: string): string {
 
 /**
  * Said when GitHub would not show the organization membership (expected before the App is
- * installed there): an owner installs it on the page PGARD opened, anyone else asks an owner.
+ * installed there): an owner installs it on the install page, anyone else asks an owner. It names
+ * "the install page" plus the link, since with `--no-browser` (or in the dashboard) nothing opened.
  */
 export function formatOwnerOrAsk(accountLogin: string, url: string): string {
   const account = safeText(accountLogin, 100);
-  return `If you are an owner of ${account}, install the App on the page that opened; otherwise ask an owner: ${url}`;
+  return `If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${url}`;
 }
 
 function formatInstallSteps(
@@ -73,8 +74,11 @@ function formatInstallSteps(
  * - GitHub shows the signed-in user cannot install it (not the personal owner, or a non-owner /
  *   pending organization membership): prints "Ask an owner of <account> ..." with the link; no
  *   browser, no waiting;
- * - the user can install it, or the organization membership could not be read yet: prints the steps, opens the install page (when allowed) and, on a
- *   terminal, re-checks owner approval every 5 s for up to 10 minutes.
+ * - the user can install it, or the organization membership could not be read yet: prints the
+ *   steps, opens the install page (when allowed) and, on a terminal, re-checks owner approval
+ *   every 5 s for up to 10 minutes. The re-check uses only the existing sign-in
+ *   (`getGitHubSession.existing()`), never a new device flow; without one it ends the wait and the
+ *   caller's full authorization signs in as usual.
  *
  * Detecting the installation is never a pass by itself: `reauthorize` tells the caller to run the
  * complete authorization again from scratch. Nothing is cached and no check is skipped.
@@ -152,10 +156,15 @@ export async function offerGuidedInstall(
     }
     if (recheck.remedy === null) {
       // Owner approval now fails for another reason (e.g. the installation exists but the
-      // membership cannot be read). The full authorization reports the current reasons.
+      // membership cannot be read), or could not be evaluated (rate limit, API error, sign-in
+      // gone). The full authorization reports the current reasons.
       err(
         context,
-        errStyle.yellow("Owner approval changed. Running the full authorization again..."),
+        errStyle.yellow(
+          recheck.status === "unverifiable"
+            ? "Owner approval could not be confirmed. Running the full authorization again..."
+            : "Owner approval changed. Running the full authorization again...",
+        ),
       );
       return "reauthorize";
     }

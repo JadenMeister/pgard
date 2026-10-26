@@ -2,6 +2,7 @@ import {
   GITHUB_APP_AUTHORIZATIONS_URL,
   isGitHubAuthError,
   resolveGitHubAppClientId,
+  resolveKeychainClientId,
   readStoredSignInStatus,
   removeStoredSignIn,
 } from "@pgard/scan-core";
@@ -74,9 +75,10 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
 /** `pgard logout`: deletes the stored sign-in from the OS keychain. */
 export async function runLogout(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
-  const app = resolveGitHubAppClientId(context.io.env);
+  // Only the client id names the entry, so a malformed slug override does not block removal.
+  const app = resolveKeychainClientId(context.io.env);
   // Never fall back to the built-in App's entry: the operator asked for another App.
-  if (app.source === "invalid") {
+  if (app.clientId === null) {
     err(context, errStyle.red(app.message));
     return EXIT_CODES.blocked;
   }

@@ -30,10 +30,14 @@ export interface MockGitHubState {
 
 /**
  * Wraps a session function as a `GitHubSessionProvider`, with no-op `invalidate()` and
- * `signOut()`, for tests that only need the call itself.
+ * `signOut()`, for tests that only need the call itself. `existing()` (the non-interactive
+ * variant) defaults to the same session.
  */
-export function sessionProvider(get: () => Promise<GitHubSession>): GitHubSessionProvider {
-  return Object.assign(get, { invalidate: () => {}, signOut: () => {} });
+export function sessionProvider(
+  get: () => Promise<GitHubSession>,
+  existing: () => Promise<GitHubSession | null> = get,
+): GitHubSessionProvider {
+  return Object.assign(get, { invalidate: () => {}, signOut: () => {}, existing });
 }
 
 export const ME: GitHubUser = { id: 1001, login: "me", name: "Me Person", email: "me@example.com" };
