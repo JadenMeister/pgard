@@ -20,6 +20,9 @@
       "path": "packages/source-analysis"
     },
     {
+      "path": "packages/dependencies"
+    },
+    {
       "path": "packages/http-local"
     },
     {
