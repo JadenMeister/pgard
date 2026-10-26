@@ -1,4 +1,5 @@
 import {
+  CWE_ID_PATTERN,
   countStandardStates,
   cweUrl,
   getOwaspCategory,
@@ -107,7 +108,10 @@ export function StandardsCoveragePanel({ result }: { result: ScanResult }) {
               <tr key={entry.id}>
                 <td data-label={text.cweColumns.rank}>{entry.rank ?? ""}</td>
                 <td data-label={text.cweColumns.id}>
-                  <ExternalLink url={cweUrl(entry.id)} hint={m.details.opensExternally}>
+                  <ExternalLink
+                    url={CWE_ID_PATTERN.test(entry.id) ? cweUrl(entry.id) : ""}
+                    hint={m.details.opensExternally}
+                  >
                     {entry.id}
                   </ExternalLink>
                 </td>

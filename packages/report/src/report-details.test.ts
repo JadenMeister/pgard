@@ -27,6 +27,64 @@ function hrefs(html: string): string[] {
   return [...html.matchAll(/<a [^>]*href="([^"]*)"/g)].map((match) => match[1] ?? "");
 }
 
+describe("HTML hardening and size", () => {
+  it("escapes the state and rank of forged coverage entries", () => {
+    const result = scanResultV11();
+    const map = result.standardsCoverage!;
+    const forged = {
+      ...result,
+      standardsCoverage: {
+        ...map,
+        owasp: map.owasp.map((entry) => ({ ...entry, state: '"><b id=x>' })),
+        cweTop25: map.cweTop25.map((entry) => ({
+          ...entry,
+          state: '"><i id=y>',
+          rank: "<u id=z>",
+        })),
+      },
+    } as unknown as ScanResult;
+    const html = renderHtmlReport(forged, EN);
+    expect(html).not.toContain("<b id=x>");
+    expect(html).not.toContain("<i id=y>");
+    expect(html).not.toContain("<u id=z>");
+    expect(html).toContain("state-&quot;&gt;&lt;b id=x&gt;");
+    expect(html).toContain("&lt;u id=z&gt;");
+  });
+
+  it("writes the examples and guidance of a rule once, however many findings it has", () => {
+    const base = scanResultV11();
+    const findings = Array.from({ length: 5 }, (_, index) =>
+      finding({
+        id: `f${index}`,
+        impact: "Own impact",
+      }),
+    );
+    const html = renderHtmlReport({ ...base, findings }, EN);
+    expect(html.match(/<details class="examples">/g)).toHaveLength(1);
+    expect(html.match(/class="guidance"/g) ?? []).toHaveLength(1);
+    expect(html.match(/<article class="finding/g)).toHaveLength(5);
+    expect(html.match(/<div class="standards">/g)).toHaveLength(5);
+    // The first finding is the anchor; the other four link to it, in both languages.
+    expect(html.match(/ id="rule-PG-SQL-001"/g)).toHaveLength(1);
+    expect(html.match(/href="#rule-PG-SQL-001"/g)).toHaveLength(4);
+    expect(html).toContain("Examples and guidance: see the first PG-SQL-001 finding");
+    const ko = renderHtmlReport({ ...base, findings }, KO);
+    expect(ko).toContain("예시와 안내: 첫 번째 PG-SQL-001 발견 항목을 참고하세요");
+    expect(ko.match(/href="#rule-PG-SQL-001"/g)).toHaveLength(4);
+    // The anchor comes before every link to it.
+    expect(html.indexOf(' id="rule-PG-SQL-001"')).toBeLessThan(html.indexOf('href="#rule-'));
+  });
+
+  it("names the licence of the CERT rules by URL and uses the upstream trademark wording", () => {
+    for (const lang of ["en", "ko"] as const) {
+      const text = REPORT_TEXT[lang].licenseCert;
+      expect(text).toContain("https://creativecommons.org/licenses/by/4.0/");
+      expect(text).toMatch(/Carnegie Mellon( and |과 ?)CERT/);
+      expect(text).not.toContain("SEI CERT are registered");
+    }
+  });
+});
+
 describe("HTML per-finding details", () => {
   for (const options of [EN, KO]) {
     it(`escapes the example code (${options.lang})`, () => {
@@ -237,6 +295,27 @@ describe("PDF with the new sections", () => {
     const raw = pdf.toString("latin1");
     expect(raw).toContain("https://cwe.mitre.org/data/definitions/89.html");
     expect(raw).toContain("https://top10.owasp.org/2025/A05_2025-Injection/");
+  });
+
+  it("points every /URI link annotation at an official standards page", async () => {
+    const pdf = await renderPdfReport(scanResultV11(), { ...EN, compress: false });
+    const uris = [...pdf.toString("latin1").matchAll(/\/URI \(([^)]*)\)/g)].map(
+      (match) => match[1] ?? "",
+    );
+    // Findings' standards line, the OWASP table rows and appendix C all carry annotations.
+    expect(uris.length).toBeGreaterThan(10);
+    for (const uri of uris) {
+      expect(uri).toMatch(
+        /^https:\/\/(top10\.owasp\.org\/2025\/A\d\d_2025-[A-Za-z_]+\/|cwe\.mitre\.org\/data\/definitions\/[1-9]\d*\.html|cmu-sei\.github\.io\/secure-coding-standards\/[a-z0-9/-]+)$/,
+      );
+    }
+    const unique = new Set(uris);
+    expect(unique).toContain("https://cwe.mitre.org/data/definitions/89.html");
+    expect(unique).toContain("https://top10.owasp.org/2025/A05_2025-Injection/");
+    expect([...unique].some((uri) => uri.startsWith("https://top10.owasp.org/2025/A01_"))).toBe(
+      true,
+    );
+    expect([...unique].some((uri) => uri.startsWith("https://cmu-sei.github.io/"))).toBe(true);
   });
 
   it("keeps English chrome and the new sections for en", async () => {
