@@ -1,5 +1,7 @@
 # Scan result schema and versioning
 
+> [한국어](RESULT_SCHEMA.ko.md) translation available. This English file is the reference; the translation follows it.
+
 The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.0`. This document says when that version changes and what a reader must do with a version it did not write.
 
 ## Version rules

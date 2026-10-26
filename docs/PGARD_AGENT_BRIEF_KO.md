@@ -1,5 +1,7 @@
 # PGARD — 구현 에이전트용 통합 브리프
 
+> **참고:** 이 문서는 MVP 기획 기록입니다. 현재 동작은 [README.ko.md](../README.ko.md)([English](../README.md))가 설명하며, 내용이 다르면 README가 맞습니다. 이 문서의 영어 번역: [PGARD_AGENT_BRIEF_EN.md](PGARD_AGENT_BRIEF_EN.md).
+
 **현재 상태:** 제품명과 기본 명령 `pgard`, 로컬 실행, GitHub owner 승인·현재 접근·실제 반영 기여 확인, 코드/Git/로컬 HTTP 검사 범위는 대화에서 정했다. TypeScript/Node.js/React 구현 스택은 추천안이다. 현재 문서 작업 공간에는 Git 저장소와 리뷰 대기 PR이 없으므로 구현·PR 생성·병합은 수행하지 않았다.
 
 ## 모든 구현 담당이 함께 읽을 상세 문서

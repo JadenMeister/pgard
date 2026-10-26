@@ -5,7 +5,7 @@
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#requirements)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#requirements)
-[![Status: MVP](https://img.shields.io/badge/status-MVP-orange)](#out-of-scope-for-the-mvp)
+[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#known-limitations)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#privacy-and-network-traffic)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
 
@@ -15,7 +15,7 @@ PGARD (`pgard`) is a local security scanner for GitHub projects you are authoriz
 
 Before every scan, PGARD checks that the repository owner approved PGARD, that you currently have access to the repository, and that you own it or really contributed to it. Your code and the results stay on your computer.
 
-PGARD is an MVP. It does not find every vulnerability, and "no findings" never means "secure".
+PGARD is a pre-release under active development. The first release (v0.1.0) is planned. PGARD does not find every vulnerability, and "no findings" never means "secure".
 
 > **Current status:** PGARD ships the client id of the PGARD GitHub App, so signing in needs no setup. A scan still needs the App installed on the account that owns the repository: your personal account, or an organization you own (see [Authorization model](#authorization-model)).
 
@@ -23,6 +23,7 @@ PGARD is released under the [MIT License](LICENSE).
 
 ## Contents
 
+- [Policies](#policies)
 - [Requirements](#requirements)
 - [Install and build](#install-and-build)
 - [Commands](#commands)
@@ -35,10 +36,25 @@ PGARD is released under the [MIT License](LICENSE).
 - [Results and reports](#results-and-reports)
 - [Dashboard](#dashboard)
 - [Privacy and network traffic](#privacy-and-network-traffic)
-- [Out of scope for the MVP](#out-of-scope-for-the-mvp)
+- [Out of scope](#out-of-scope)
 - [Known limitations](#known-limitations)
 - [Development](#development)
 - [License](#license)
+
+## Policies
+
+These are the rules PGARD follows. Each entry says what the policy is and links to where it is written down in full. This README and [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) describe current behaviour. The planning documents in [`docs/`](docs/README.md) (Korean originals with English translations) are the MVP planning record: where they differ (for example, they mention an advisory database, which PGARD does not have), this README wins.
+
+- **Authorization gate.** Five checks (repository, GitHub identity, owner approval, current access, contribution) run again on every scan. There is no option to skip them or to reuse an earlier result, and if evidence is missing or unclear the scan is blocked (exit code 3). See [Authorization model](#authorization-model).
+- **Organization repositories.** Only an active owner of the organization can scan an organization repository, and the PGARD GitHub App must be installed on the organization with access to the repository. See [Organization repositories](#organization-repositories).
+- **Local processing and network traffic.** Code, Git history and results are processed on your computer and never uploaded. The only external traffic is to GitHub, for sign-in and authorization metadata. See [Privacy and network traffic](#privacy-and-network-traffic).
+- **Credentials.** The GitHub token is saved only in the OS keychain, or kept in memory when no keychain exists. It is never written to a file, printed, logged or sent to the browser. `pgard logout` removes the saved sign-in (it does not revoke the token at GitHub). See [Saved sign-in](#saved-sign-in-os-keychain).
+- **Redaction.** Secret values that PGARD recognises are replaced by their kind in terminal output, findings, HTML/PDF reports and the dashboard. What counts as a secret is defined in [Git history checks](#git-history-checks); see also [Results and reports](#results-and-reports). Detection is pattern-based, so unusual forms can be missed.
+- **Local web dashboard security.** It listens on `127.0.0.1` only, requires a per-session token, checks the `Host` and `Origin` headers, sends a strict Content-Security-Policy and serves reports as browser downloads without writing files. See [How the dashboard protects itself](#how-the-dashboard-protects-itself).
+- **Web checks.** Checks send only anonymous `GET`/`HEAD` requests to `127.0.0.1`, and only to the service you confirm (after authorization, one identity `GET /` goes to each discovered local port). PGARD sends no POST/PUT/DELETE requests or form submissions, but a badly built app can still change state on a `GET`. See [Local web checks](#local-web-checks).
+- **Result schema versioning.** The scan result carries a `major.minor` `schemaVersion`; readers refuse another major version. See [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md).
+- **Out of scope.** Remote services, attack or state-changing requests, logged-in web browsing, dependency vulnerability lookups and more are not supported. See [Out of scope](#out-of-scope).
+- **Development conventions.** Commit units and messages, branch and pull request boundaries, and reviews before merge are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
 
 ## Requirements
 
@@ -49,7 +65,9 @@ PGARD is released under the [MIT License](LICENSE).
 
 ## Install and build
 
-PGARD is not published to npm. Build it from source:
+PGARD cannot be installed from npm yet. The npm name `pgard` is reserved by a placeholder package (0.0.1) that has no CLI: `npm install -g pgard` installs only that placeholder, and you get no `pgard` command. Until the first release (planned v0.1.0), install from source as described below. npm and Homebrew releases are planned.
+
+Build it from source:
 
 ```sh
 git clone https://github.com/JadenMeister/pgard.git
@@ -376,7 +394,7 @@ Port discovery, identity probes and target confirmation are allowed only after t
 
 The dashboard is available in Korean and English. It follows the browser language (any Korean setting picks Korean, otherwise English) and has a **한국어 / English** toggle in the header; the choice is remembered in the browser. Text that comes from the scan itself (finding titles, rule descriptions, authorization reasons) stays in English for now.
 
-How the dashboard protects itself:
+### How the dashboard protects itself
 
 - It binds to `127.0.0.1` only, on a free port.
 - A random 32-byte session token is passed in the URL **fragment**, so the browser never sends it in requests or `Referer` headers. The page removes it from the address bar and keeps it in memory. Do not share the URL.
@@ -392,7 +410,7 @@ How the dashboard protects itself:
 - After authorization passes, PGARD sends one `GET /` to each discovered listening port on `127.0.0.1` to show its identity. The web checks then send requests only to the service you confirmed.
 - PGARD does not ship, download or query a vulnerability database.
 
-## Out of scope for the MVP
+## Out of scope
 
 - Direct database connections
 - Docker or container configuration
@@ -405,9 +423,9 @@ How the dashboard protects itself:
 ## Known limitations
 
 - [#44](https://github.com/JadenMeister/pgard/issues/44) PDF reports replace text outside Latin-1 (for example Korean) with `?`. Use the HTML report for the full text.
-- [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope for the MVP (see [Out of scope for the MVP](#out-of-scope-for-the-mvp)).
+- [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope (see [Out of scope](#out-of-scope)).
 - Contribution is checked conservatively for users who are not the verified owner: co-author trailers and unsigned direct pushes do not count, so a collaborator who only co-authored commits or pushed unsigned commits is blocked at contribution until a pull request of theirs is merged or they push signed commits.
-- [#143](https://github.com/JadenMeister/pgard/issues/143) Follow-ups from the keychain sign-in review: narrow races between a keychain save and a removal; a session-only dashboard sign-out during a token refresh can make the next use ask for a new device code; and after `pgard login` switches accounts, the dashboard keeps the previous account's port access for up to 30 minutes (scans still re-check authorization).
+- The dashboard's scan text (finding titles, rule descriptions, authorization reasons) is English only; the rest of the dashboard is available in Korean and English.
 - Detection is not complete. Missing findings do not mean the project is secure.
 - Port discovery can be incomplete or unavailable. Type the port by hand in that case.
 
@@ -441,16 +459,17 @@ npm run check         # typecheck + format:check + test
 
 CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull requests and pushes to `main`.
 
-### Design documents
+### Documents in `docs/`
 
-PGARD was built from three Korean planning documents in [`docs/`](docs/):
+[`docs/README.md`](docs/README.md) indexes the documents in [`docs/`](docs/) and says which are current policy and which are historical. PGARD was built from three planning documents, the MVP planning record (written in Korean; these are the English translations):
 
-- [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
-- [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): the command set and the layout of the apps and packages.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): the rules for commit units, messages, naming, verification and pull requests.
-  One further document is written in English: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
+- [`PGARD_AGENT_BRIEF_EN.md`](docs/PGARD_AGENT_BRIEF_EN.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
+- [`PGARD_CLI_AND_STRUCTURE_EN.md`](docs/PGARD_CLI_AND_STRUCTURE_EN.md): the command set and the layout of the apps and packages.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests.
 
-Where these documents and this README disagree, this README and the code are correct, because they reflect decisions made later.
+One further document is written in English and describes current behaviour: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
+
+Where the planning documents and this README disagree, this README and the code are correct, because they reflect decisions made later.
 
 ## License
 
