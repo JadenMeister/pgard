@@ -7,6 +7,12 @@ const go = (imports: string[], body: string) =>
 const rulesIn = (source: string) =>
   analyzeGoSource(source, "main.go").findings.map((f) => f.ruleId);
 
+/**
+ * Wall-clock limits are a backstop against quadratic blow-ups (minutes), not a benchmark, so CI
+ * runners (Windows in particular) get three times the room.
+ */
+const TIME_LIMIT_FACTOR = process.env.CI ? 3 : 1;
+
 /** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
 const bestTimeOf = (runs: number, fn: () => void) => {
   let best = Infinity;
@@ -256,7 +262,7 @@ describe("linear cost and caps (#87)", () => {
       bestTimeOf(3, () => {
         analysis = analyzeGoSource(source, "big.go");
       }),
-    ).toBeLessThan(3000);
+    ).toBeLessThan(3000 * TIME_LIMIT_FACTOR);
     expect(analysis.findings.length).toBeLessThanOrEqual(25);
     expect(analysis.cappedRules).toEqual(["PG-SQL-003"]);
   }, 60_000);

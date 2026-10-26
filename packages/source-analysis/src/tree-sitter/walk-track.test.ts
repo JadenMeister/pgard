@@ -190,14 +190,14 @@ describe("regular expression cost", () => {
       expect(detectMavenFrameworks(input)).toEqual([]);
       expect(detectComposerFrameworks(input)).toBe("invalid_json");
     }
-    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(Date.now() - startedAt).toBeLessThan(10_000 * (process.env.CI ? 3 : 1));
   });
 
   it("handles repeated groupId openers and blanks quickly", () => {
     const startedAt = Date.now();
     expect(detectMavenFrameworks("<groupId>".repeat(100_000) + " ".repeat(500_000))).toEqual([]);
     expect(detectMavenFrameworks("<groupId> ".repeat(100_000))).toEqual([]);
-    expect(Date.now() - startedAt).toBeLessThan(10_000);
+    expect(Date.now() - startedAt).toBeLessThan(10_000 * (process.env.CI ? 3 : 1));
   });
 });
 

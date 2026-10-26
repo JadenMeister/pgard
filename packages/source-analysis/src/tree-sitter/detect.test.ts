@@ -134,7 +134,7 @@ describe("malicious manifests", () => {
     });
     const startedAt = Date.now();
     const detection = await detectLanguageTrack(await walkSourceTree(root));
-    expect(Date.now() - startedAt).toBeLessThan(5000);
+    expect(Date.now() - startedAt).toBeLessThan(5000 * (process.env.CI ? 3 : 1));
     expect(detection.manifestIssues.map((issue) => [issue.path, issue.reason])).toContainEqual([
       "composer.json",
       "unreadable_or_too_large",

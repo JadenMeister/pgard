@@ -6,6 +6,12 @@ const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
 const findingsIn = (code: string, path = "src/app.ts") => analyzeJsSource(code, path).findings;
 
+/**
+ * Wall-clock limits are a backstop against quadratic blow-ups (minutes), not a benchmark, so CI
+ * runners (Windows in particular) get three times the room.
+ */
+const TIME_LIMIT_FACTOR = process.env.CI ? 3 : 1;
+
 /** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
 const bestTimeOf = (runs: number, fn: () => void) => {
   let best = Infinity;
@@ -931,7 +937,9 @@ describe("per-function facts stay linear (#104)", () => {
     ).join("\n");
     const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
     expect(code.length).toBeGreaterThan(400_000);
-    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000);
+    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(
+      5000 * TIME_LIMIT_FACTOR,
+    );
   }, 60_000);
 
   it("still detects MD5 of passwords via update() in the same function", () => {
@@ -1010,7 +1018,7 @@ describe("linear cost and caps (#87)", () => {
       bestTimeOf(3, () => {
         analysis = analyzeJsSource(code, "big.js");
       }),
-    ).toBeLessThan(5000);
+    ).toBeLessThan(5000 * TIME_LIMIT_FACTOR);
     expect(analysis.cappedRules).toContain("PG-XSS-001");
   }, 60_000);
 

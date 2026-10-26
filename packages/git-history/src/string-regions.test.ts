@@ -272,7 +272,7 @@ describe("createStringLookup (#145)", () => {
       const lookup = createStringLookup(input, path);
       lookup(input.length - 1);
       // Quadratic scanning of a 1 MB line takes minutes; linear takes tens of milliseconds.
-      expect(performance.now() - start).toBeLessThan(2_000);
+      expect(performance.now() - start).toBeLessThan(2_000 * (process.env.CI ? 3 : 1));
     }
   }, 180_000);
 
@@ -306,7 +306,7 @@ describe("createStringLookup (#145)", () => {
       // generous so a loaded machine does not fail it; the absolute bound is loose (a quadratic scan
       // of 40 MB takes hours) because CI runners are several times slower than local machines.
       expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(30_000);
+      expect(large).toBeLessThan(30_000 * (process.env.CI ? 3 : 1));
     }
   }, 600_000);
 });
