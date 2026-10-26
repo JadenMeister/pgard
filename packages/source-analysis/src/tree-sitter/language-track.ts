@@ -18,6 +18,11 @@ import {
   type TreeSitterRuntime,
 } from "./runtime.js";
 
+/** Wall-clock budget for parsing the whole tree-sitter track (all languages) in one scan. */
+export const MAX_TRACK_PARSE_MS = 60_000;
+/** Parse timeouts tolerated per language before the remaining files of it are not parsed. */
+export const MAX_PARSE_TIMEOUTS_PER_LANGUAGE = 3;
+
 export const NO_RULES_NOTE = "detected, no rules yet";
 const MAX_LISTED = 5;
 
@@ -118,8 +123,28 @@ function describeManifestIssues(issues: readonly ManifestIssue[]): string {
   return parts.join("; ");
 }
 
+/** Shared by every `parseTrackFiles` call of one scan: the scan-wide parse deadline. */
+export interface TrackDeadline {
+  /** Absolute time (same clock as `now`) after which no further file is parsed. */
+  endsAt: number;
+  totalMs: number;
+  now: () => number;
+}
+
+export function createTrackDeadline(
+  totalMs = MAX_TRACK_PARSE_MS,
+  now: () => number = () => performance.now(),
+): TrackDeadline {
+  return { endsAt: now() + totalMs, totalMs, now };
+}
+
 export interface ParseStats {
   files: number;
+  /** Files not parsed because the scan-wide deadline or the timeout cap was reached. */
+  notParsed: number;
+  stoppedBy: "deadline" | "timeouts" | null;
+  totalBudgetMs: number | null;
+  maxTimeouts: number | null;
   parsed: number;
   tooLarge: string[];
   timedOut: string[];
@@ -133,6 +158,10 @@ export interface ParseStats {
 export function emptyParseStats(): ParseStats {
   return {
     files: 0,
+    notParsed: 0,
+    stoppedBy: null,
+    totalBudgetMs: null,
+    maxTimeouts: null,
     parsed: 0,
     tooLarge: [],
     timedOut: [],
@@ -153,12 +182,30 @@ export async function parseTrackFiles(
   runtime: TreeSitterRuntime,
   language: TreeSitterLanguage,
   files: readonly TrackedFile[],
-  options: ParseOptions = {},
+  options: ParseOptions & {
+    /** Scan-wide deadline shared across languages. Omit for no total limit. */
+    deadline?: TrackDeadline;
+    maxTimeouts?: number;
+  } = {},
   visit?: (file: TrackedFile, outcome: Extract<ParseOutcome, { status: "parsed" }>) => void,
 ): Promise<ParseStats> {
   const maxBytes = options.maxBytes ?? DEFAULT_PARSE_LIMITS.maxBytes;
+  const maxTimeouts = options.maxTimeouts ?? MAX_PARSE_TIMEOUTS_PER_LANGUAGE;
+  const deadline = options.deadline;
   const stats = emptyParseStats();
-  for (const file of files) {
+  stats.maxTimeouts = maxTimeouts;
+  if (deadline) stats.totalBudgetMs = deadline.totalMs;
+  for (const [index, file] of files.entries()) {
+    if (stats.stoppedBy === null && deadline && deadline.now() >= deadline.endsAt) {
+      stats.stoppedBy = "deadline";
+    } else if (stats.stoppedBy === null && stats.timedOut.length >= maxTimeouts) {
+      stats.stoppedBy = "timeouts";
+    }
+    if (stats.stoppedBy !== null) {
+      stats.notParsed = files.length - index;
+      stats.files += stats.notParsed;
+      break;
+    }
     stats.files += 1;
     if (file.size > maxBytes) {
       stats.tooLarge.push(file.relativePath);
@@ -169,7 +216,12 @@ export async function parseTrackFiles(
       stats.unreadable.push(file.relativePath);
       continue;
     }
-    const outcome = await runtime.parse(language, source, options);
+    // A single parse never runs past the scan-wide deadline either.
+    const remaining = deadline ? Math.max(1, deadline.endsAt - deadline.now()) : Infinity;
+    const outcome = await runtime.parse(language, source, {
+      ...options,
+      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_PARSE_LIMITS.timeoutMs, remaining),
+    });
     switch (outcome.status) {
       case "too_large":
         stats.tooLarge.push(file.relativePath);
@@ -229,6 +281,13 @@ export function parseCoverage(
   if (stats.failed.length > 0) {
     problems.push(
       `${stats.failed.length} file(s) could not be parsed (${listQuoted(stats.failed)})`,
+    );
+  }
+  if (stats.stoppedBy !== null) {
+    problems.push(
+      stats.stoppedBy === "deadline"
+        ? `parsing stopped at the ${Math.round((stats.totalBudgetMs ?? MAX_TRACK_PARSE_MS) / 1000)} s scan-wide budget; ${stats.notParsed} of ${stats.files} file(s) were not parsed`
+        : `parsing stopped after ${stats.maxTimeouts ?? MAX_PARSE_TIMEOUTS_PER_LANGUAGE} timeouts; ${stats.notParsed} of ${stats.files} file(s) were not parsed`,
     );
   }
   const notes: string[] = [];

@@ -21,11 +21,15 @@ export interface SourceFile {
   language: SourceLanguage;
 }
 
+/** Why a directory other than `node_modules` was skipped as generated or third-party. */
+export type GeneratedDirectoryReason =
+  "Python virtual environment" | "Python site-packages" | "Maven build output" | "Gradle cache";
+
 export interface SkippedDependencyDirectory {
   /** Repository-relative POSIX path of the directory, e.g. `node_modules` or `api/vendor`. */
   path: string;
   /** For `vendor/`: the manifest next to it, or `repository root`. */
-  reason: DependencyVendorReason | null;
+  reason: DependencyVendorReason | GeneratedDirectoryReason | null;
 }
 
 /** A Java, Kotlin, Python or PHP file found by the walk. Not parsed by the walk itself. */
@@ -77,17 +81,40 @@ export const SKIPPED_DIRECTORIES = new Set([
 /** Dependency directories that are never entered, at any depth, and listed in coverage. */
 export const SKIPPED_DEPENDENCY_DIRECTORIES = new Set(["node_modules", "bower_components"]);
 
+/**
+ * `site-packages` is third-party only where Python puts it: under `lib/python3.x/` (or `lib64`).
+ * A first-party package that happens to be called `site-packages` is analyzed.
+ */
+function isPythonSitePackages(relativePath: string): boolean {
+  const segments = relativePath.split("/");
+  const [name, parent, grandparent] = [segments.at(-1), segments.at(-2), segments.at(-3)];
+  return (
+    name === "site-packages" &&
+    /^python\d[\d.]*$/i.test(parent ?? "") &&
+    /^lib(64)?$/i.test(grandparent ?? "")
+  );
+}
+
+const GRADLE_FILES = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
+
+function generatedDirectoryReason(
+  name: string,
+  relativePath: string,
+  siblingFiles: ReadonlySet<string>,
+): GeneratedDirectoryReason | null {
+  if (isPythonSitePackages(relativePath)) return "Python site-packages";
+  if (name === "target" && siblingFiles.has("pom.xml")) return "Maven build output";
+  if (name === ".gradle" && GRADLE_FILES.some((file) => siblingFiles.has(file))) {
+    return "Gradle cache";
+  }
+  return null;
+}
+
 export const MAX_FILE_BYTES = 1024 * 1024;
 export const MAX_FILES = 20_000;
 /** Cap per tree-sitter language and for manifests. */
 export const MAX_TRACK_FILES = 20_000;
 export const MAX_TRACK_MANIFESTS = 200;
-
-/**
- * Python virtual environments: third-party code that is never first-party source. Reported as
- * skipped dependency directories like `node_modules/`.
- */
-const SKIPPED_ENVIRONMENT_DIRECTORIES = new Set([".venv", "venv", "site-packages"]);
 
 const EXTENSIONS: Record<string, SourceLanguage> = {
   ".js": "javascript",
@@ -132,6 +159,19 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       continue;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
+    // A directory is a Python virtual environment only if it holds `pyvenv.cfg` (written by
+    // `python -m venv` and virtualenv). The name alone proves nothing: `app/venv/server.js` and
+    // `Lib/venv/__init__.py` are first-party. Its contents are third-party and not analyzed.
+    if (
+      directory !== root &&
+      entries.some((entry) => entry.name === "pyvenv.cfg" && entry.isFile())
+    ) {
+      result.skippedDependencyDirectories.push({
+        path: path.relative(root, directory).split(path.sep).join("/"),
+        reason: "Python virtual environment",
+      });
+      continue;
+    }
     // Regular files only: a symlinked composer.json/go.mod/Gemfile is deliberately not trusted, so
     // it cannot hide a first-party vendor/ from analysis.
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
@@ -141,11 +181,13 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-        if (
-          SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name) ||
-          SKIPPED_ENVIRONMENT_DIRECTORIES.has(entry.name)
-        ) {
+        if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {
           result.skippedDependencyDirectories.push({ path: relativePath, reason: null });
+          continue;
+        }
+        const generated = generatedDirectoryReason(entry.name, relativePath, fileNames);
+        if (generated !== null) {
+          result.skippedDependencyDirectories.push({ path: relativePath, reason: generated });
           continue;
         }
         if (entry.name === "vendor") {
@@ -164,14 +206,14 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       if (!entry.isFile()) continue;
       if (entry.name === "package.json") result.packageJsonPaths.push(relativePath);
       if (entry.name === "go.mod") result.goModPaths.push(relativePath);
-      const manifestKind = classifyManifest(entry.name);
+      const manifestKind = classifyManifest(entry.name, path.basename(directory));
       if (manifestKind !== null) {
         if (result.trackManifests.length < MAX_TRACK_MANIFESTS) {
           result.trackManifests.push({ absolutePath, relativePath, kind: manifestKind });
         } else {
           result.trackTruncated = true;
         }
-        continue;
+        // `setup.py` is both a manifest and Python source, so there is no `continue` here.
       }
       const trackLanguage = TREE_SITTER_EXTENSIONS[path.extname(entry.name)];
       if (trackLanguage) {
@@ -193,6 +235,8 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       }
       if (result.files.length >= MAX_FILES) {
         result.isTruncated = true;
+        // The walk stopped early, so the track lists are lower bounds too.
+        result.trackTruncated = true;
         finishTrack(result);
         return result;
       }

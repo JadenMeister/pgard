@@ -32,6 +32,10 @@ export {
   languageTrackCoverage,
   parseCoverage,
   parseTrackFiles,
+  createTrackDeadline,
+  MAX_TRACK_PARSE_MS,
+  MAX_PARSE_TIMEOUTS_PER_LANGUAGE,
+  type TrackDeadline,
   type LanguageTrackDetection,
   type ParseStats,
 } from "./tree-sitter/language-track.js";

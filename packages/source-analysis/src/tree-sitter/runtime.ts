@@ -133,7 +133,14 @@ export class TreeSitterRuntime {
         parser.reset();
         return { status: "timeout", timeoutMs };
       }
-      const { errorCount, missingCount } = countSyntaxProblems(tree);
+      let counts;
+      try {
+        counts = countSyntaxProblems(tree);
+      } catch (error) {
+        tree.delete();
+        throw error;
+      }
+      const { errorCount, missingCount } = counts;
       return { status: "parsed", tree, errorCount, missingCount, dispose: () => tree.delete() };
     } catch (error) {
       return { status: "failed", reason: error instanceof Error ? error.message : String(error) };

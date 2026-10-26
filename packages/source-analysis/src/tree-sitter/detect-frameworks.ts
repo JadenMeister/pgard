@@ -44,7 +44,6 @@ const PYTHON_FRAMEWORKS: Record<string, Framework> = {
   fastapi: "FastAPI",
 };
 
-/** `-` and `_` are equivalent in Python package names (PEP 503); case is ignored. */
 /**
  * Removes `open ... close` sections in linear time. An unclosed section runs to the end of the
  * text (a regular expression would rescan the rest from every unclosed opener).
@@ -62,6 +61,7 @@ function stripDelimited(text: string, open: string, close: string): string {
   }
 }
 
+/** `-` and `_` are equivalent in Python package names (PEP 503); case is ignored. */
 function normalizePythonName(name: string): string {
   return name.toLowerCase().replace(/[_.]+/g, "-");
 }
@@ -80,12 +80,55 @@ export function detectMavenFrameworks(text: string): Framework[] | "unsafe_xml" 
   return [];
 }
 
+/**
+ * Removes line and block comments from a Gradle script in linear time, leaving string contents
+ * alone (`"https://repo"` keeps its `//`). An unclosed block comment runs to the end.
+ */
+export function stripGradleComments(text: string): string {
+  let result = "";
+  let quote: string | null = null;
+  for (let i = 0; i < text.length; i += 1) {
+    const char = text[i] as string;
+    if (quote !== null) {
+      result += char;
+      if (char === "\\" && i + 1 < text.length) {
+        i += 1;
+        result += text[i] as string;
+      } else if (char === quote || char === "\n") {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      result += char;
+    } else if (char === "/" && text[i + 1] === "/") {
+      const end = text.indexOf("\n", i);
+      if (end === -1) break;
+      i = end - 1;
+    } else if (char === "/" && text[i + 1] === "*") {
+      const end = text.indexOf("*/", i + 2);
+      if (end === -1) break;
+      i = end + 1;
+      result += " ";
+    } else {
+      result += char;
+    }
+  }
+  return result;
+}
+
+const SPRING_PATTERN = /org\.springframework|spring-boot-starter/;
+
 /** Gradle build scripts are only searched as text; they are never evaluated. */
 export function detectGradleFrameworks(text: string): Framework[] {
-  const withoutComments = stripDelimited(text, "/*", "*/").replace(/(^|[^:])\/\/.*$/gm, "$1");
-  return /org\.springframework|spring-boot-starter|org\.springframework\.boot/.test(withoutComments)
-    ? ["Spring"]
-    : [];
+  return SPRING_PATTERN.test(stripGradleComments(text)) ? ["Spring"] : [];
+}
+
+/** `gradle/libs.versions.toml` version catalogs: text search, `#` comments removed. */
+export function detectGradleCatalogFrameworks(text: string): Framework[] {
+  const withoutComments = text.replace(/^\s*#.*$/gm, "");
+  return SPRING_PATTERN.test(withoutComments) ? ["Spring"] : [];
 }
 
 /** Lines of a requirements file: `name`, `name==1.0`, `name[extra]>=2`. Options (`-r`) are skipped. */
@@ -195,7 +238,13 @@ function detectInManifest(
         ? { frameworks: result.frameworks, issue: "cut" }
         : { frameworks: result.frameworks };
     }
+    case "gradle-catalog":
+      return { frameworks: detectGradleCatalogFrameworks(text) };
+    // Pipfile (TOML) and setup.py/setup.cfg are read as text and never executed: the token
+    // heuristic of pyproject.toml applies (names in quotes or as keys, comments ignored).
     case "pyproject":
+    case "pipfile":
+    case "python-setup":
       return { frameworks: detectPyprojectFrameworks(text) };
     case "composer": {
       const result = detectComposerFrameworks(text);
