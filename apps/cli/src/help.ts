@@ -13,6 +13,9 @@ const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (de
                            In a terminal, PGARD asks you to press Enter
                            before opening a page`;
 
+const NO_STORE_HELP = `  --no-store               do not keep this scan's result on this computer
+                           (same as PGARD_NO_STORE=1)`;
+
 const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output-dir)
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
@@ -34,6 +37,8 @@ Usage:
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and unsupported areas
+  pgard history clear [--repo owner/name]
+                                delete stored scan results (all, or one repository)
   pgard doctor                  diagnose the environment (not an authorization)
   pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard logout                  remove the saved GitHub sign-in from the OS keychain
@@ -86,7 +91,12 @@ Options:
   --port N                 local service port 1-65535 (web and all only). You
                            still confirm the service identity with y/N.
 ${REPORT_HELP}
+${NO_STORE_HELP}
 ${NO_BROWSER_HELP}
+
+A finished scan of a repository the gate allowed is stored in this computer's
+app-data folder (owner-only, never uploaded): the last 20 scans per repository
+for 90 days. Delete them with pgard history clear.
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to
 be installed, PGARD opens the install page, waits for it, re-runs the full
@@ -108,7 +118,8 @@ Starts the local web dashboard on a free 127.0.0.1 port and prints its private
 URL. --target-port pre-selects the local service to check (you still confirm it
 in the browser). The dashboard reuses the GitHub sign-in saved in the OS
 keychain; the token stays in the dashboard server and never reaches the
-browser. Results and the session end when you stop the dashboard.
+browser. Dashboard scans are not stored: their results and the session end when
+you stop the dashboard.
 The dashboard opens the GitHub sign-in page when a device code is needed
 (unless --no-browser) and shows an install button when the PGARD GitHub App is
 not installed for this repository.
@@ -122,6 +133,21 @@ ${EXIT_CODE_HELP}`,
 Lists supported rules and unsupported areas.
 --language react and vue also include the JavaScript/TypeScript rules.
 Works outside a project.`,
+  history: `Usage:
+  pgard history clear [--repo owner/name]
+
+Subcommands:
+  clear   delete stored scan results`,
+  "history clear": `Usage:
+  pgard history clear [--all | --repo owner/name]
+
+Deletes the scan results that pgard scan stored in this computer's app-data
+folder. Without options (or with --all) every repository's results are deleted;
+--repo deletes the results of one repository, matched by the owner/name stored in
+them. Nothing is uploaded and no sign-in is needed. Stop storing with --no-store
+on pgard scan or PGARD_NO_STORE=1.
+
+${EXIT_CODE_HELP}`,
   doctor: `Usage:
   pgard doctor
 

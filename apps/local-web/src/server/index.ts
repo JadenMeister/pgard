@@ -40,7 +40,7 @@ async function runLauncher(): Promise<number> {
     [
       "PGARD dashboard is running on 127.0.0.1 only.",
       `Open this private session URL in your browser (valid until you stop the dashboard): ${server.url}`,
-      "Do not share this URL. Press Ctrl+C to stop; results and sign-in are discarded on exit.",
+      "Do not share this URL. Press Ctrl+C to stop; dashboard results and the session are discarded on exit.",
       "",
     ].join("\n"),
   );

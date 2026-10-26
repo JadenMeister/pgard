@@ -4,6 +4,7 @@ import { createCancelController, type InterruptSource } from "./adapters/cancel.
 import { createKeyReader, isInteractive, type CliIo } from "./adapters/terminal.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
+import { runHistoryClear } from "./commands/history.js";
 import { runLogin, runLogout } from "./commands/login.js";
 import { runProjectVerify } from "./commands/project/verify.js";
 import { runRulesList } from "./commands/rules/list.js";
@@ -40,6 +41,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runDashboard(context, command.targetPort, command.noBrowser);
     case "rules-list":
       return runRulesList(context, command.language);
+    case "history-clear":
+      return runHistoryClear(context, command.repo);
     case "doctor":
       return runDoctor(context);
     case "login":
@@ -51,7 +54,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
 
 const MENU_HELP = `Arrow keys move, Enter selects, Esc goes back, ? shows help, Ctrl+C asks to cancel.
 Every scan checks repository authorization again; only the GitHub sign-in is reused
-(from the OS keychain). Results are not stored between runs.`;
+(from the OS keychain). Scan results are stored locally unless you pass --no-store
+(see pgard history clear); dashboard scans are never stored.`;
 
 const MENU_CHOICES: ReadonlyArray<{
   label: string;

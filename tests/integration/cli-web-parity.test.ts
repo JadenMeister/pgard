@@ -187,6 +187,8 @@ async function scanWithCli(
   const recorder = recordingRunScan(defaults.runScan);
   const deps: CliDeps = {
     ...defaults,
+    // Tests never write to the real app-data store.
+    resultStore: null,
     runScan: recorder.runScan,
     ...(createSessionProvider === null ? {} : { createSessionProvider }),
   };
@@ -288,7 +290,7 @@ async function verifyWithBoth(
 ): Promise<{ cliStdout: string; cliCode: number; webSummary: unknown }> {
   const captured = createTestIo({ cwd: root, env: ENV });
   const cliCode = await main(["project", "verify"], captured.io, {
-    deps: { ...createDefaultDeps(), createSessionProvider },
+    deps: { ...createDefaultDeps(), resultStore: null, createSessionProvider },
     interrupts: noInterrupts,
   });
   if (server === null) throw new Error("scanWithWeb must start the server first");
@@ -629,7 +631,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
 
     const verify = createTestIo({ cwd: root, env: badEnv });
     const verifyCode = await main(["project", "verify"], verify.io, {
-      deps: { ...createDefaultDeps(), createSessionProvider: realProvider },
+      deps: { ...createDefaultDeps(), resultStore: null, createSessionProvider: realProvider },
       interrupts: noInterrupts,
     });
     expect(verifyCode).toBe(3);

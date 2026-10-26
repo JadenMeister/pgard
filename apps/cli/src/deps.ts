@@ -8,6 +8,7 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isPathInsideDirectory, writeReports } from "@pgard/report";
+import { createResultStore, resolveStoreDirectory, type ResultStore } from "@pgard/result-store";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
@@ -56,6 +57,8 @@ export interface CliDeps {
   credentialStore: CredentialStore;
   /** `pgard login`: device flow, then save to `credentialStore`. */
   signInAndStore: typeof signInAndStore;
+  /** Local result store, or `null` when no app-data directory can be determined. */
+  resultStore: ResultStore | null;
   webScanner: WebScanner;
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
@@ -158,6 +161,11 @@ function deviceFlowApp(env: Readonly<Record<string, string | undefined>>): {
     : { clientId: app.clientId };
 }
 
+function defaultResultStore(): ResultStore | null {
+  const dir = resolveStoreDirectory();
+  return dir === null ? null : createResultStore({ dir });
+}
+
 export function createDefaultDeps(): CliDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
@@ -179,6 +187,7 @@ export function createDefaultDeps(): CliDeps {
       }),
     credentialStore,
     signInAndStore,
+    resultStore: defaultResultStore(),
     webScanner: scanLocalWeb,
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),

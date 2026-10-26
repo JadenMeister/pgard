@@ -21,7 +21,10 @@ export type ParsedCommand =
       port: number | null;
       report: ReportRequest | null;
       noBrowser: boolean;
+      /** `--no-store`: do not keep this scan's result on this computer. */
+      noStore?: boolean;
     }
+  | { kind: "history-clear"; repo: string | null }
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
   | { kind: "rules-list"; language: RuleLanguage | null }
   | { kind: "doctor" }
@@ -38,7 +41,9 @@ export type HelpTopic =
   | "rules list"
   | "doctor"
   | "login"
-  | "logout";
+  | "logout"
+  | "history"
+  | "history clear";
 
 export class UsageError extends Error {
   readonly helpTopic: HelpTopic;
@@ -49,17 +54,23 @@ export class UsageError extends Error {
   }
 }
 
-type OptionName = "--port" | "--target-port" | "--report" | "--output-dir" | "--language";
+type OptionName =
+  "--port" | "--target-port" | "--report" | "--output-dir" | "--language" | "--repo";
 const VALUE_OPTIONS: readonly OptionName[] = [
   "--port",
   "--target-port",
   "--report",
   "--output-dir",
   "--language",
+  "--repo",
 ];
 
 /** Flag (no value): do not open GitHub pages in the browser automatically; links are printed. */
 const NO_BROWSER_FLAG = "--no-browser";
+/** Flag (no value), `pgard scan` only: do not keep this scan's result locally. */
+const NO_STORE_FLAG = "--no-store";
+/** Flag (no value), `pgard history clear` only: explicit "every repository" (the default). */
+const ALL_FLAG = "--all";
 
 interface SplitArgs {
   positionals: string[];
@@ -67,6 +78,8 @@ interface SplitArgs {
   isHelp: boolean;
   isVersion: boolean;
   noBrowser: boolean;
+  noStore: boolean;
+  all: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -76,6 +89,8 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let isHelp = false;
   let isVersion = false;
   let noBrowser = false;
+  let noStore = false;
+  let all = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -90,6 +105,15 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
       if (noBrowser)
         throw new UsageError(`Option ${NO_BROWSER_FLAG} was given more than once.`, topic());
       noBrowser = true;
+      continue;
+    }
+    if (arg === NO_STORE_FLAG || arg === ALL_FLAG) {
+      const isStore = arg === NO_STORE_FLAG;
+      if (isStore ? noStore : all) {
+        throw new UsageError(`Option ${arg} was given more than once.`, topic());
+      }
+      if (isStore) noStore = true;
+      else all = true;
       continue;
     }
     if (arg === "--") {
@@ -119,7 +143,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     }
     positionals.push(arg);
   }
-  return { positionals, options, isHelp, isVersion, noBrowser };
+  return { positionals, options, isHelp, isVersion, noBrowser, noStore, all };
 }
 
 function parsePortOption(name: string, value: string, topic: HelpTopic): number {
@@ -194,6 +218,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
     rejectOptions(split, [], "main", "pgard");
     return { kind: "menu" };
   }
+  if (split.noStore && command !== "scan") {
+    throw new UsageError(`Option ${NO_STORE_FLAG} is only available for pgard scan.`, "main");
+  }
+  if (split.all && !(command === "history" && sub === "clear")) {
+    throw new UsageError(`Option ${ALL_FLAG} is only available for pgard history clear.`, "main");
+  }
   if (split.isVersion) {
     throw new UsageError("--version is only available as `pgard --version`.", "main");
   }
@@ -245,7 +275,30 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         port,
         report: parseReport(split),
         noBrowser: split.noBrowser,
+        ...(split.noStore ? { noStore: true } : {}),
       };
+    }
+    case "history": {
+      topic = sub === "clear" ? "history clear" : "history";
+      if (split.isHelp) return { kind: "help", topic };
+      if (sub !== "clear") {
+        throw new UsageError(
+          sub === undefined
+            ? "Missing subcommand: clear"
+            : `Unknown subcommand: history ${sub.slice(0, 40)}`,
+          "history",
+        );
+      }
+      rejectExtraPositionals(rest, topic);
+      rejectOptions(split, ["--repo"], topic, "pgard history clear");
+      const repo = split.options.get("--repo") ?? null;
+      if (repo !== null && split.all) {
+        throw new UsageError("--repo and --all cannot be used together.", topic);
+      }
+      if (repo !== null && !/^[A-Za-z0-9._-]{1,100}\/[A-Za-z0-9._-]{1,100}$/.test(repo)) {
+        throw new UsageError("--repo must look like owner/name.", topic);
+      }
+      return { kind: "history-clear", repo };
     }
     case "dashboard": {
       topic = "dashboard";

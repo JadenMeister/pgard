@@ -20,7 +20,8 @@ export const en = {
   app: {
     subtitle: (version: string | null): string =>
       `Local security dashboard${version === null ? "" : ` - v${version}`}`,
-    footer: "Runs on 127.0.0.1 only. Results and sign-in are discarded when the dashboard stops.",
+    footer:
+      "Runs on 127.0.0.1 only. Dashboard scans are not stored: their results and the session are discarded when the dashboard stops.",
     errorNoToken:
       "This page needs the private session URL printed by `pgard dashboard`. Open that URL again.",
     errorSession: "The dashboard session is not available. Restart `pgard dashboard`.",
@@ -41,7 +42,7 @@ export const en = {
       "After authorization passes, PGARD sends one GET / to each discovered listening port on 127.0.0.1 to show its identity.",
       "PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
       "The GitHub sign-in is saved in the OS keychain (macOS Keychain, Windows Credential Manager or the Linux Secret Service), never in a file, so the CLI and the dashboard can reuse it. It stays in the local PGARD process and is never sent to the browser. Without a keychain it is kept in memory only. Use pgard logout, or the dashboard's sign-out that removes it from the keychain, to delete it.",
-      "Results and the dashboard session token live only in memory and are discarded when you stop the dashboard. Only reports you export remain, and you are responsible for storing and sharing them.",
+      "Results of scans you run in the dashboard and the dashboard session token live only in memory and are discarded when you stop the dashboard. Only reports you export remain, and you are responsible for storing and sharing them. Scans run with the pgard command are different: their redacted results are kept in this computer's app-data folder (last 20 scans per repository, 90 days, owner-only, never uploaded) unless you pass --no-store or set PGARD_NO_STORE=1. Delete them with pgard history clear.",
       "Web checks send anonymous GET requests to the local service you confirm. A badly implemented application can still change state on GET; PGARD does not guarantee that checks have no side effects.",
       "Only scan projects you are authorized to scan. The authorization check runs before every scan and cannot be skipped.",
     ],
