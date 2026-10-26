@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ScanRequest } from "@pgard/findings";
+import { readScanResult, type ScanRequest } from "@pgard/findings";
 import { ScanCancelledError } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UserCancelledError } from "../../ui/components/prompts.js";
@@ -129,7 +129,7 @@ describe("runScanCommand", () => {
     const stdout = captured.stdout();
     expect(stdout).toContain("Findings by severity (1 total)");
     expect(stdout).toContain("src/api/users.ts:42");
-    expect(stdout).toContain("Suspected (needs review) (1)");
+    expect(stdout).toContain("Findings (1)");
     expect(stdout).toContain("Coverage");
   });
 
@@ -188,7 +188,7 @@ describe("runScanCommand", () => {
     const stdout = captured.stdout();
     expect(stdout).toContain("Findings by severity (1 total) - plus 1 in test or fixture code");
     expect(stdout).toMatch(/Critical\s+0\n/);
-    expect(stdout).toContain("Suspected (needs review) (1)");
+    expect(stdout).toContain("Findings (1)");
     const testGroup = stdout.indexOf("In test or fixture code (1)");
     expect(testGroup).toBeGreaterThan(stdout.indexOf("src/api/users.ts:42"));
     expect(stdout.indexOf("src/redact.test.ts:7")).toBeGreaterThan(testGroup);
@@ -579,5 +579,70 @@ describe("runScanCommand reports", () => {
     );
     expect(code).toBe(3);
     expect(writeReports).not.toHaveBeenCalled();
+  });
+
+  describe("--format json", () => {
+    const JSON_SCAN = { variant: "code", port: null, report: null, format: "json" } as const;
+
+    it("prints only the ScanResult on stdout, which readScanResult accepts, and the rest on stderr", async () => {
+      const captured = createTestIo();
+      const result = testResult({
+        findings: [testFinding(), testFinding({ id: "f2", severity: "low" })],
+      });
+      const code = await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => result })),
+        JSON_SCAN,
+      );
+      expect(code).toBe(0);
+      const parsed: unknown = JSON.parse(captured.stdout());
+      const read = readScanResult(parsed);
+      expect(read.ok).toBe(true);
+      if (read.ok) expect(read.result).toEqual(result);
+      expect(captured.stdout()).not.toContain("PGARD scan result");
+      expect(captured.stderr()).toContain("Scanning (code)");
+    });
+
+    it("keeps the exit code of the scan status and prints a blocked result too", async () => {
+      const captured = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({
+            runScan: async () => testResult({ overallStatus: "blocked", authorization: BLOCKED }),
+          }),
+        ),
+        JSON_SCAN,
+      );
+      expect(code).toBe(3);
+      expect(JSON.parse(captured.stdout()).overallStatus).toBe("blocked");
+    });
+
+    it("is a usage error, before any scan, when web checks would need a port prompt", async () => {
+      const captured = createTestIo();
+      const runScan = vi.fn();
+      const code = await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan }), scriptedKeys([])),
+        { variant: "web", port: null, report: null, format: "json" },
+      );
+      expect(code).toBe(2);
+      expect(runScan).not.toHaveBeenCalled();
+      expect(captured.stdout()).toBe("");
+      expect(captured.stderr()).toContain("--port");
+    });
+
+    it("sends the port confirmation prompt to stderr, never stdout", async () => {
+      const captured = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({ runScan: async () => testResult() }),
+          scriptedKeys(["y"]),
+        ),
+        { variant: "web", port: 3000, report: null, format: "json" },
+      );
+      expect(code).toBe(0);
+      expect(() => JSON.parse(captured.stdout())).not.toThrow();
+      expect(captured.stderr()).toContain("Is this the current project's service?");
+    });
   });
 });

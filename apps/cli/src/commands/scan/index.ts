@@ -1,4 +1,4 @@
-import type { ConfirmedWebTarget, ScanScope } from "@pgard/findings";
+import type { ConfirmedWebTarget, ScanResult, ScanScope } from "@pgard/findings";
 import {
   ScanCancelledError,
   ScanRequestError,
@@ -16,7 +16,7 @@ import {
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
-import type { ReportRequest, ScanVariant } from "../../options.js";
+import type { OutputFormat, ReportRequest, ScanVariant } from "../../options.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
 import { formatAuthorization, formatScanResult } from "../../ui/formatters/result-view.js";
 import { safeText } from "../../ui/formatters/style.js";
@@ -34,7 +34,14 @@ export interface ScanCommand {
   variant: ScanVariant;
   port: number | null;
   report: ReportRequest | null;
+  /** `json`: stdout carries only the redacted ScanResult; everything else goes to stderr. */
+  format?: OutputFormat;
+  /** List every finding and location in the text result. */
+  allFindings?: boolean;
 }
+
+export const JSON_PORT_REQUIRED_MESSAGE =
+  "--format json cannot ask which local service to scan. Pass --port N with web checks, or scan code or history only.";
 
 function formatProgress(event: ScanProgressEvent): string | null {
   if (event.web !== undefined) {
@@ -50,6 +57,47 @@ function formatProgress(event: ScanProgressEvent): string | null {
 export async function runScanCommand(
   context: CommandContext,
   command: ScanCommand,
+): Promise<ExitCode> {
+  const isJson = command.format === "json";
+  if (isJson && SCOPES_BY_VARIANT[command.variant].includes("web") && command.port === null) {
+    // Fail before any network activity: the only way to choose a port is a prompt.
+    err(context, context.errStyle.red(JSON_PORT_REQUIRED_MESSAGE));
+    return EXIT_CODES.usage;
+  }
+  if (!isJson) {
+    return runScanFlow(context, context, command, (result) => showText(context, result, command));
+  }
+  // In JSON mode nothing but the result may reach stdout: messages and the one prompt that is
+  // still possible (confirming the --port service) go to stderr, and nothing else can prompt.
+  const flowContext: CommandContext = {
+    ...context,
+    io: { ...context.io, stdout: context.io.stderr },
+    style: context.errStyle,
+    keys: null,
+    canOpenBrowser: false,
+  };
+  return runScanFlow(flowContext, context, command, (result) => {
+    context.io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  });
+}
+
+function showText(context: CommandContext, result: ScanResult, command: ScanCommand): void {
+  out(context, "");
+  out(
+    context,
+    formatScanResult(result, context.style, { allFindings: command.allFindings === true }),
+  );
+}
+
+/**
+ * `context` receives every message; `original` is the unmodified context (the only one with
+ * keys, used for the port confirmation in JSON mode). `show` prints one result.
+ */
+async function runScanFlow(
+  context: CommandContext,
+  original: CommandContext,
+  command: ScanCommand,
+  show: (result: ScanResult) => void,
 ): Promise<ExitCode> {
   const scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
@@ -92,7 +140,7 @@ export async function runScanCommand(
         return EXIT_CODES.blocked;
       }
     }
-    if (context.keys === null) {
+    if (original.keys === null) {
       err(
         context,
         context.errStyle.yellow(
@@ -100,7 +148,7 @@ export async function runScanCommand(
         ),
       );
     } else {
-      const selection = await selectLocalPort(context, command.port);
+      const selection = await selectLocalPort({ ...context, keys: original.keys }, command.port);
       if (selection.kind === "back") {
         // Esc: in the menu go back to it; a direct subcommand has no previous step.
         if (context.isMenu) return EXIT_CODES.cancelled;
@@ -148,16 +196,14 @@ export async function runScanCommand(
 
   let scanned = await scanOnce();
   if (scanned === null) return EXIT_CODES.usage;
-  out(context, "");
-  out(context, formatScanResult(scanned.result, context.style));
+  show(scanned.result);
   if (scanned.result.overallStatus === "blocked" && scanned.outcome !== null) {
     const guided = await offerGuidedInstall(context, scanned.outcome, projectRoot, authorization);
     throwIfCancelled(context);
     if (guided === "reauthorize") {
       scanned = await scanOnce();
       if (scanned === null) return EXIT_CODES.usage;
-      out(context, "");
-      out(context, formatScanResult(scanned.result, context.style));
+      show(scanned.result);
     }
   }
   const { result } = scanned;
