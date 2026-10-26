@@ -83,7 +83,12 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
             ...analysis.facts.stateChangingRoutes,
           ],
           preflightRoutes: [...facts.preflightRoutes, ...analysis.facts.preflightRoutes],
-          corsCredentials: facts.corsCredentials || analysis.facts.corsCredentials,
+          preflightExposure:
+            facts.preflightExposure === "permissive" ||
+            analysis.facts.preflightExposure === "permissive"
+              ? "permissive"
+              : (facts.preflightExposure ?? analysis.facts.preflightExposure),
+          strictSession: facts.strictSession || analysis.facts.strictSession,
           authRoutes: [...facts.authRoutes, ...analysis.facts.authRoutes],
           usesCookieSession: facts.usesCookieSession || analysis.facts.usesCookieSession,
           hasJsx: facts.hasJsx || analysis.facts.hasJsx,

@@ -231,6 +231,42 @@ describe("scanSourceCode", () => {
     ).toBe(true);
   });
 
+  it("keeps PUT/PATCH/DELETE in when CORS is unknown, and reports the earliest counted route", async () => {
+    const scan = async (files: Record<string, string>) =>
+      (await scanSourceCode(project(files))).findings.filter((f) => f.ruleId === "PG-CSRF-001");
+    const head = "const cookieParser = require('cookie-parser');\nconst cors = require('cors');\n";
+    const put = "app.put('/p', (req, res) => res.end());\n";
+    const post = "app.post('/q', (req, res) => res.end());\n";
+    // Unresolvable CORS options, a hand-set header and method-override keep the preflight methods.
+    expect(await scan({ "s.js": `${head}app.use(cors(opts));\n${put}` })).toHaveLength(1);
+    expect(
+      await scan({
+        "s.js": `${head}app.use((q, r) => r.header('Access-Control-Allow-Credentials', 'true'));\n${put}`,
+      }),
+    ).toHaveLength(1);
+    expect(
+      await scan({ "s.js": `${head}const mo = require('method-override');\n${put}` }),
+    ).toHaveLength(1);
+    // Provably restrictive CORS keeps them out.
+    expect(
+      await scan({
+        "s.js": `${head}app.use(cors({ origin: ['https://a.example'], credentials: true }));\n${put}`,
+      }),
+    ).toEqual([]);
+    // The finding points at the earliest counted route, not the first POST.
+    const [mixed] = await scan({
+      "s.js": `${head}app.use(cors({ origin: true, credentials: true }));\n${put}${post}`,
+    });
+    expect(mixed?.location?.line).toBe(4);
+    const [postOnly] = await scan({ "s.js": `${head}\n\n${put}${post}` });
+    expect(postOnly?.location?.line).toBe(6);
+    // SameSite=Strict express-session is not CSRF-able; a lax one is.
+    const session = (sameSite: string) =>
+      `const session = require('express-session');\napp.use(session({ secret: process.env.S, cookie: { httpOnly: true, secure: true, sameSite: '${sameSite}' } }));\n${post}`;
+    expect(await scan({ "s.js": session("strict") })).toEqual([]);
+    expect(await scan({ "s.js": session("lax") })).toHaveLength(1);
+  });
+
   it("produces stable ids across runs", async () => {
     const root = project({ "src/db.ts": SQL_VULN });
     const first = await scanSourceCode(root);
