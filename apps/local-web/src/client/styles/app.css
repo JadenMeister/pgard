@@ -555,3 +555,70 @@ select {
     font-size: 12px;
   }
 }
+
+/* Rule details: standards links, general rule text and examples inside a finding. */
+.rule-details {
+  margin-top: 8px;
+}
+
+.rule-details .finding-standards ul {
+  margin: 2px 0 6px;
+  padding-left: 20px;
+  font-size: 13px;
+}
+
+.rule-details a {
+  color: var(--link, inherit);
+  text-decoration: underline;
+}
+
+.rule-guidance {
+  margin: 4px 0;
+}
+
+.rule-examples > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin: 4px 0;
+}
+
+pre.code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin: 2px 0 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+/* Standards coverage map and rule statistics. Every state is neutral: a rule that ran is not a pass. */
+.standards-map {
+  font-size: 13px;
+}
+
+.standards-cwe > summary,
+.rule-stats > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin: 8px 0;
+}
+
+.badge.standard-state.state-rules_partial {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.badge.standard-state.state-not_run,
+.badge.standard-state.state-no_rules {
+  color: var(--text-secondary);
+}
+
+.standards-attribution {
+  margin-top: 12px;
+}
+
+.standards-attribution ul {
+  margin: 4px 0;
+  padding-left: 20px;
+}

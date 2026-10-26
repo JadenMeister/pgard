@@ -13,6 +13,7 @@ import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
 import { Card, Notice } from "../../components/ui/Card";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { localizeFindingText } from "./rule-texts";
+import { RuleDetailsBlock } from "./RuleDetailsBlock";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   buildFindingsView,
@@ -23,7 +24,15 @@ import {
   type FindingFilters,
 } from "./filter-findings";
 
-function FindingItem({ finding, isNew = false }: { finding: Finding; isNew?: boolean }) {
+function FindingItem({
+  finding,
+  ruleTexts,
+  isNew = false,
+}: {
+  finding: Finding;
+  ruleTexts: RuleTextsResponse | null;
+  isNew?: boolean;
+}) {
   const { m } = useI18n();
   const statusLabels: Record<string, string> = m.status;
   const confidenceLabels: Record<string, string> = m.confidence;
@@ -64,6 +73,7 @@ function FindingItem({ finding, isNew = false }: { finding: Finding; isNew?: boo
         <dt>{m.findings.recommendation}</dt>
         <dd>{finding.recommendation}</dd>
       </dl>
+      <RuleDetailsBlock finding={finding} ruleTexts={ruleTexts} />
     </li>
   );
 }
@@ -199,7 +209,12 @@ export function FindingsDashboard({
       ) : (
         <ul className="findings">
           {visible.map((finding) => (
-            <FindingItem key={finding.id} finding={finding} isNew={result.baseline !== undefined} />
+            <FindingItem
+              key={finding.id}
+              finding={finding}
+              ruleTexts={ruleTexts}
+              isNew={result.baseline !== undefined}
+            />
           ))}
         </ul>
       )}
@@ -224,7 +239,7 @@ export function FindingsDashboard({
             ) : (
               <ul className="findings">
                 {section.visible.map((finding) => (
-                  <FindingItem key={finding.id} finding={finding} />
+                  <FindingItem key={finding.id} finding={finding} ruleTexts={ruleTexts} />
                 ))}
               </ul>
             )}
@@ -260,7 +275,7 @@ export function FindingsDashboard({
             ) : (
               <ul className="findings">
                 {section.visible.map((finding) => (
-                  <FindingItem key={finding.id} finding={finding} />
+                  <FindingItem key={finding.id} finding={finding} ruleTexts={ruleTexts} />
                 ))}
               </ul>
             )}

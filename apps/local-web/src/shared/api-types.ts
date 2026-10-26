@@ -2,7 +2,7 @@
  * JSON shapes exchanged between the local server and the browser. Browser-safe: types only.
  * Results are the redacted v1 ScanResult; no source code, tokens or absolute project paths.
  */
-import type { AuthorizationSummary, ScanResult, ScanScope } from "@pgard/findings";
+import type { AuthorizationSummary, RuleDetails, ScanResult, ScanScope } from "@pgard/findings";
 
 export const SESSION_TOKEN_HEADER = "x-pgard-token";
 
@@ -171,6 +171,8 @@ export interface RuleTextsDto {
   title: { en: string; ko: string };
   impact: { en: string; ko: string };
   recommendation: { en: string; ko: string };
+  /** Standards links, examples and the rule-level texts (ids, titles and official URLs only). */
+  details?: RuleDetails;
 }
 
 /** `GET /api/rule-texts`: rule id -> texts. Only the rule texts; no result data. */

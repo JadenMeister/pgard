@@ -109,7 +109,7 @@ ${REPORT_HELP}
   --lang en|ko             language of rule titles, impact and fix texts in the
                            result (default: PGARD_LANG, then the system locale,
                            then en). JSON output is always English
-  --report-lang en|ko      language of rule texts in saved reports (default: the
+  --report-lang en|ko      language of saved reports (default: the
                            --lang language)
 ${NO_STORE_HELP}
 ${NO_BROWSER_HELP}

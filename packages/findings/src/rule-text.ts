@@ -1,4 +1,5 @@
 import type { Finding } from "./contract.js";
+import { buildRuleDetails, type RuleDetails } from "./rule-details.js";
 import { pickText, type RuleLocale, type RuleMetadata } from "./rule-metadata.js";
 
 /** Korean rule titles. English titles live on the rule definitions (they feed findings). */
@@ -45,6 +46,8 @@ export interface RuleTexts {
   title: Record<RuleLocale, string>;
   impact: Record<RuleLocale, string>;
   recommendation: Record<RuleLocale, string>;
+  /** Standards links, examples and the rule-level texts; absent in hand-built catalogs. */
+  details?: RuleDetails;
 }
 
 export type RuleTextCatalog = ReadonlyMap<string, RuleTexts>;
@@ -59,6 +62,7 @@ export function buildRuleTextCatalog(
       title: { en: rule.title, ko: RULE_TITLES_KO[rule.id] ?? rule.title },
       impact: rule.metadata.rationale,
       recommendation: rule.metadata.remediation,
+      details: buildRuleDetails(rule.metadata),
     });
   }
   return catalog;

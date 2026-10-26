@@ -36,6 +36,7 @@ export {
   type ReportLanguageOptions,
   type SeverityCounts,
 } from "./format.js";
+export { isPdfFontCodePoint } from "./pdf-font.js";
 export { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";
 export {
   hasUnsupportedPdfCharacters,
