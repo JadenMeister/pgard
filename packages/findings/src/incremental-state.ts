@@ -44,6 +44,8 @@ export interface IncrementalState {
   format: typeof INCREMENTAL_STATE_FORMAT;
   /** Hash of everything that decides what an analyzer reports for the same file text. */
   analysisKey: string;
+  /** Hash of the analyzer source (`ANALYZER_HASH`): changes whenever analysis code changes. */
+  analyzerHash: string;
   /** Hash of `pgard.config.json` as read, or null when there was none. */
   configHash: string | null;
   /** Analyzed source files; null when the code scope did not run. */
@@ -95,7 +97,9 @@ function readCachedFile(value: unknown): CachedSourceFile | null {
 export function readIncrementalState(input: unknown): IncrementalState | null {
   try {
     if (!isObject(input) || input.format !== INCREMENTAL_STATE_FORMAT) return null;
-    if (typeof input.analysisKey !== "string") return null;
+    if (typeof input.analysisKey !== "string" || typeof input.analyzerHash !== "string") {
+      return null;
+    }
     if (input.configHash !== null && typeof input.configHash !== "string") return null;
     let code: CachedSourceFile[] | null = null;
     if (input.code !== null) {
@@ -112,6 +116,7 @@ export function readIncrementalState(input: unknown): IncrementalState | null {
     return {
       format: INCREMENTAL_STATE_FORMAT,
       analysisKey: input.analysisKey,
+      analyzerHash: input.analyzerHash,
       configHash: input.configHash,
       code,
     };

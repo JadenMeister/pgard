@@ -72,7 +72,6 @@ export {
 } from "@pgard/github-auth";
 export { findGitRoot, resolveGitExecutable } from "@pgard/git-history";
 export {
-  ANALYZER_REVISION,
   blockingCoverage,
   computeAnalysisKey,
   planIncremental,

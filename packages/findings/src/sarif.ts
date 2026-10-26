@@ -344,6 +344,19 @@ export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifL
         requestedScopes: [...result.requestedScopes],
         resultSchemaVersion: result.schemaVersion,
         omittedFindings: { total: omitted.length, byRule: omittedByRule },
+        ...(result.incremental === undefined
+          ? {}
+          : {
+              incremental: {
+                used: result.incremental.used,
+                reason: result.incremental.reason,
+                basedOnScanId: result.incremental.basedOn?.scanId ?? null,
+                filesRescanned: result.incremental.filesRescanned,
+                filesReused: result.incremental.filesReused,
+                commitsScanned: result.incremental.commitsScanned,
+                commitsReused: result.incremental.commitsReused,
+              },
+            }),
         ...(result.target.revision === null ? {} : { revision: result.target.revision }),
         ...(repository === "" ? {} : { repository }),
       },

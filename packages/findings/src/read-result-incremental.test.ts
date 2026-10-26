@@ -76,6 +76,7 @@ describe("incremental state reader", () => {
   const state = {
     format: INCREMENTAL_STATE_FORMAT,
     analysisKey: "k",
+    analyzerHash: "h",
     configHash: null,
     code: [
       {

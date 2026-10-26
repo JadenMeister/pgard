@@ -6,6 +6,7 @@ import {
   isTestOrFixturePath,
   isVendoredPath,
   matchesEverything,
+  redactEvidence,
   type AnalyzerOutput,
   type CachedSourceFile,
   type Coverage,
@@ -191,6 +192,21 @@ function matchesModule(imports: Set<string>, candidates: string[]): boolean {
   );
 }
 
+/**
+ * The facts as they are kept, in a scan and in the stored state alike: a route path is redacted
+ * like evidence (it ends up in finding evidence and in a finding's identity), so what is stored
+ * never holds more than the result does, and a stored fact gives the same finding as a fresh one.
+ */
+function storableFacts(facts: JsFileFacts): Record<string, unknown> {
+  return {
+    ...facts,
+    authRoutes: facts.authRoutes.map((route) => ({
+      ...route,
+      routePath: redactEvidence(route.routePath, { maxLength: 200 }),
+    })),
+  } as unknown as Record<string, unknown>;
+}
+
 /** Analyzes one file's text. Everything a later scan needs to reuse the result is in the entry. */
 function analyzeFile(file: SourceFile, content: string, hash: string): CachedSourceFile {
   const base = { path: file.relativePath, language: file.language, hash };
@@ -211,7 +227,7 @@ function analyzeFile(file: SourceFile, content: string, hash: string): CachedSou
     return {
       ...base,
       findings: analysis.findings.map(createSourceFinding),
-      facts: analysis.facts ? (analysis.facts as unknown as Record<string, unknown>) : null,
+      facts: analysis.facts ? storableFacts(analysis.facts) : null,
       goImports: [],
       hasJsx: false,
       hasParseErrors: analysis.hasParseErrors,
@@ -222,7 +238,7 @@ function analyzeFile(file: SourceFile, content: string, hash: string): CachedSou
   return {
     ...base,
     findings: analysis.findings.map(createSourceFinding),
-    facts: analysis.facts as unknown as Record<string, unknown>,
+    facts: storableFacts(analysis.facts),
     goImports: [],
     hasJsx: analysis.facts.hasJsx,
     hasParseErrors: analysis.hasParseErrors,

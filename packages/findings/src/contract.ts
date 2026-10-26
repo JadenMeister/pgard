@@ -389,6 +389,9 @@ export interface BaselineSummary {
  * - `head_not_ancestor`: the stored commit is not an ancestor of HEAD (rebase, force-push, other clone).
  * - `git_failed`: Git could not list the changes since the stored commit.
  * - `rules_unclassified`: a rule is not classified as file-local or project-wide.
+ * - `analyzer_changed`: the analyzer code that decides findings changed since the stored scan.
+ * - `previous_state_too_large`: the stored scan's reuse data was too large to keep.
+ * - `previous_state_rejected`: the stored scan's reuse data was dropped or failed its checks.
  * - `history_changed`: the new commits change what the earlier history findings mean, so the
  *   Git history was scanned in full (the code area may still be incremental).
  */
@@ -405,6 +408,9 @@ export type IncrementalFullReason =
   | "head_not_ancestor"
   | "git_failed"
   | "rules_unclassified"
+  | "analyzer_changed"
+  | "previous_state_too_large"
+  | "previous_state_rejected"
   | "history_changed";
 export const INCREMENTAL_FULL_REASONS = exhaustive<IncrementalFullReason>({
   requested_full: true,
@@ -419,6 +425,9 @@ export const INCREMENTAL_FULL_REASONS = exhaustive<IncrementalFullReason>({
   head_not_ancestor: true,
   git_failed: true,
   rules_unclassified: true,
+  analyzer_changed: true,
+  previous_state_too_large: true,
+  previous_state_rejected: true,
   history_changed: true,
 });
 

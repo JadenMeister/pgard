@@ -78,3 +78,17 @@ describe("scanSourceCode with results of an earlier scan", () => {
     expect(second.findings).toEqual(first.findings);
   });
 });
+
+describe("stored route facts", () => {
+  it("never keep a secret-looking route path, and give the same finding as a fresh scan", async () => {
+    const token = ["ghp", "_", "WiRiNgTeStVaLuE0123", "456789AbCdEfGhIjK"].join("");
+    const root = project({
+      "server.js": `import express from 'express';\nconst app = express();\napp.post('/login/${token}', login);\n`,
+    });
+    const first = await scanSourceCode(root);
+    expect(JSON.stringify(first.fileCache)).not.toContain(token);
+    const second = await scanSourceCode(root, { reuse: reuseOf(first.fileCache) });
+    expect(second.findings).toEqual(first.findings);
+    expect(second.findings.some((f) => f.ruleId === "PG-BRUTE-001")).toBe(true);
+  });
+});

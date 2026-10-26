@@ -527,3 +527,118 @@ describe("incremental scan equals a full scan (random sequences)", () => {
     }, 120_000);
   }
 });
+
+describe("stored state that cannot be trusted", () => {
+  async function firstWithState(): Promise<{ repo: GitFixture; first: Stored }> {
+    const repo = setup();
+    const first = await scan(repo, null);
+    if (first.state === null || first.state.code === null) throw new Error("expected state");
+    return { repo, first };
+  }
+  const withEntry = (
+    first: Stored,
+    file: string,
+    change: (entry: NonNullable<IncrementalState["code"]>[number]) => unknown,
+  ): Stored => ({
+    result: first.result,
+    state: {
+      ...(first.state as IncrementalState),
+      code: (first.state?.code ?? []).map((entry) =>
+        entry.path === file ? (change(entry) as typeof entry) : entry,
+      ),
+    },
+  });
+  const donorOf = (first: Stored) => {
+    const donor = first.result.findings.find((f) => f.location.path === "src/a.js");
+    if (donor === undefined) throw new Error("expected a finding");
+    return donor;
+  };
+
+  it("scans in full when the analyzer code changed", async () => {
+    const { repo, first } = await firstWithState();
+    const stale = {
+      result: first.result,
+      state: { ...(first.state as IncrementalState), analyzerHash: "0".repeat(64) },
+    };
+    const { incremental } = await expectSameAsFull(repo, stale, "analyzer changed");
+    expect(incremental.result.incremental).toMatchObject({
+      used: false,
+      reason: "analyzer_changed",
+    });
+  }, 60_000);
+
+  it("analyzes a file again when its cached findings were emptied", async () => {
+    const { repo, first } = await firstWithState();
+    const tampered = withEntry(first, "src/a.js", (entry) => ({ ...entry, findings: [] }));
+    const { incremental } = await expectSameAsFull(repo, tampered, "emptied entry");
+    expect(incremental.result.incremental?.filesRescanned).toBe(1);
+    expect(incremental.result.findings.some((f) => f.location.path === "src/a.js")).toBe(true);
+  }, 60_000);
+
+  it("analyzes a file again when a finding was added to its entry", async () => {
+    const { repo, first } = await firstWithState();
+    const donor = donorOf(first);
+    const tampered = withEntry(first, "src/b.ts", (entry) => ({
+      ...entry,
+      findings: [
+        {
+          ...donor,
+          id: "f".repeat(32),
+          ruleId: "PG-SQL-002",
+          location: { ...donor.location, path: "src/b.ts" },
+        },
+      ],
+    }));
+    const { incremental } = await expectSameAsFull(repo, tampered, "extra finding");
+    expect(incremental.result.incremental?.filesRescanned).toBe(1);
+  }, 60_000);
+
+  it("refuses a state with a finding for another path", async () => {
+    const { repo, first } = await firstWithState();
+    const tampered = withEntry(first, "src/b.ts", (entry) => ({
+      ...entry,
+      findings: [donorOf(first)],
+    }));
+    const { incremental } = await expectSameAsFull(repo, tampered, "other path");
+    expect(incremental.result.incremental).toMatchObject({
+      used: false,
+      reason: "previous_unreadable",
+    });
+  }, 60_000);
+
+  it("refuses a state with a finding of a rule that is not file-local", async () => {
+    const { repo, first } = await firstWithState();
+    const tampered = withEntry(first, "src/a.js", (entry) => ({
+      ...entry,
+      findings: [{ ...donorOf(first), ruleId: "PG-CSRF-001" }],
+    }));
+    const { incremental } = await expectSameAsFull(repo, tampered, "non-local rule");
+    expect(incremental.result.incremental?.reason).toBe("previous_unreadable");
+  }, 60_000);
+
+  it("says why a state is missing when the store dropped it", async () => {
+    const { repo, first } = await firstWithState();
+    for (const [omitted, reason] of [
+      ["too_large", "previous_state_too_large"],
+      ["rejected", "previous_state_rejected"],
+    ] as const) {
+      authorizeProject.mockResolvedValue(allowed(repo.git("rev-parse", "HEAD").trim()));
+      const result = await runScan(
+        { projectRoot: repo.root, scopes: ["code", "history"], webTarget: null },
+        {
+          authorization: {
+            getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+          },
+          env: {},
+          incremental: {
+            loadBase: async () => ({
+              kind: "found",
+              base: { result: first.result, state: null, stateOmitted: omitted },
+            }),
+          },
+        },
+      );
+      expect(result.incremental?.reason).toBe(reason);
+    }
+  }, 60_000);
+});

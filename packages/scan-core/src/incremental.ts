@@ -17,22 +17,18 @@ import {
 import { GRAMMAR_SHA256 } from "@pgard/source-analysis";
 import type { AuthorizationOutcome } from "@pgard/policy";
 import type { ProjectConfigLoad } from "./project-config.js";
-import { unclassifiedRules } from "./rule-locality.js";
+import { RULE_LOCALITY, unclassifiedRules } from "./rule-locality.js";
 import { listSupportedRules } from "./rules.js";
+import { ANALYZER_HASH } from "./analyzer-hash.js";
 import { PGARD_VERSION } from "./version.js";
-
-/**
- * Bump when an analyzer reports something different for the same file text without a change to
- * a rule's metadata or the PGARD version (a fixed detection, a new pattern). Stored per-file
- * results of another revision are then not reused.
- */
-export const ANALYZER_REVISION = 1;
 
 /** The stored scan an incremental scan builds on. */
 export interface IncrementalBase {
   result: ScanResult;
   /** The per-file data stored with it; null when there is none (older PGARD, too large). */
   state: IncrementalState | null;
+  /** Why a state is missing although one was offered for storing (see the result store). */
+  stateOmitted?: "too_large" | "rejected" | null;
 }
 
 export type IncrementalBaseLoad =
@@ -83,13 +79,63 @@ function full(reason: IncrementalFullReason): AreaPlan {
   return { mode: "full", reason };
 }
 
+/** The findings of a rule that decides each finding from one file (see `RULE_LOCALITY`). */
+const isFileLocalRule = (ruleId: string): boolean =>
+  Object.hasOwn(RULE_LOCALITY, ruleId) && RULE_LOCALITY[ruleId]?.locality === "file-local";
+
+/**
+ * A cached entry may only hold findings of file-local rules, located in its own file, once per
+ * path. Anything else cannot come from a scan of PGARD, so the whole state is refused.
+ */
+function entriesAreStructurallySound(entries: readonly CachedSourceFile[]): boolean {
+  const paths = new Set<string>();
+  for (const entry of entries) {
+    if (paths.has(entry.path)) return false;
+    paths.add(entry.path);
+    for (const finding of entry.findings) {
+      if (finding.location.path !== entry.path || !isFileLocalRule(finding.ruleId)) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Entries whose findings are the findings the stored result lists for that file (compared by
+ * id among file-local rules). An entry that disagrees (emptied, extended or edited) is dropped,
+ * so its file is analyzed again instead of trusting the cache.
+ */
+function entriesAgreeingWithResult(
+  entries: readonly CachedSourceFile[],
+  result: ScanResult,
+): CachedSourceFile[] {
+  const listed = new Map<string, Set<string>>();
+  for (const finding of result.findings) {
+    const filePath = finding.location.path;
+    if (
+      filePath === null ||
+      !finding.sources.includes("code") ||
+      finding.location.commit !== null ||
+      !isFileLocalRule(finding.ruleId)
+    ) {
+      continue;
+    }
+    let ids = listed.get(filePath);
+    if (ids === undefined) listed.set(filePath, (ids = new Set()));
+    ids.add(finding.id);
+  }
+  return entries.filter((entry) => {
+    const expected = listed.get(entry.path) ?? new Set<string>();
+    const cached = new Set(entry.findings.map((finding) => finding.id));
+    return expected.size === cached.size && [...cached].every((id) => expected.has(id));
+  });
+}
+
 /** Everything that decides what an analyzer reports for the same file text. */
 export function computeAnalysisKey(): string {
   return createHash("sha256")
     .update(
       JSON.stringify({
         format: INCREMENTAL_STATE_FORMAT,
-        analyzer: ANALYZER_REVISION,
         tool: PGARD_VERSION,
         rules: listSupportedRules(),
         grammars: GRAMMAR_SHA256,
@@ -197,8 +243,21 @@ export async function planIncremental(params: {
   if (result.advisoryDb.version !== null || result.advisoryDb.updatedAt !== null) {
     return fail("tool_changed");
   }
-  if (state === null) return fail("no_saved_state");
+  if (state === null) {
+    const omitted = loaded.base.stateOmitted;
+    return fail(
+      omitted === "too_large"
+        ? "previous_state_too_large"
+        : omitted === "rejected"
+          ? "previous_state_rejected"
+          : "no_saved_state",
+    );
+  }
   if (state.analysisKey !== computeAnalysisKey()) return fail("tool_changed");
+  if (state.analyzerHash !== ANALYZER_HASH) return fail("analyzer_changed");
+  if (state.code !== null && !entriesAreStructurallySound(state.code)) {
+    return fail("previous_unreadable");
+  }
   if (state.configHash !== params.configFingerprint) return fail("config_changed");
   if (blockingCoverage(result) !== null) return fail("previous_incomplete");
   if (unclassifiedRules().length > 0) return fail("rules_unclassified");
@@ -230,8 +289,9 @@ export async function planIncremental(params: {
     if (state.code === null) {
       code = full("no_saved_state");
     } else {
+      const agreeing = entriesAgreeingWithResult(state.code, result);
       reuseFiles = new Map(
-        state.code.filter((file) => !changed.has(file.path)).map((file) => [file.path, file]),
+        agreeing.filter((file) => !changed.has(file.path)).map((file) => [file.path, file]),
       );
       code = INCREMENTAL_AREA;
     }

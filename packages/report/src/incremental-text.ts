@@ -32,6 +32,9 @@ const EN_REASON: Record<IncrementalFullReason, string> = {
     "the stored commit is not in this branch's history (rebase, force-push or another clone)",
   git_failed: "Git could not list the changes since the stored scan",
   rules_unclassified: "a rule is not classified for incremental scans",
+  analyzer_changed: "PGARD's analysis code changed since the stored scan",
+  previous_state_too_large: "the stored scan's reuse data was too large to keep",
+  previous_state_rejected: "the stored scan's reuse data was dropped or failed its checks",
   history_changed: "the new commits change what the earlier history findings mean",
 };
 
@@ -48,6 +51,9 @@ const KO_REASON: Record<IncrementalFullReason, string> = {
   head_not_ancestor: "저장된 커밋이 이 브랜치의 이력에 없음 (리베이스, 강제 푸시 또는 다른 복제본)",
   git_failed: "저장된 검사 이후의 변경을 Git으로 확인하지 못함",
   rules_unclassified: "증분 검사용으로 분류되지 않은 규칙이 있음",
+  analyzer_changed: "저장된 검사 이후 PGARD의 분석 코드가 바뀜",
+  previous_state_too_large: "저장된 검사의 재사용 데이터가 너무 커서 보관되지 않음",
+  previous_state_rejected: "저장된 검사의 재사용 데이터가 제외되었거나 검증을 통과하지 못함",
   history_changed: "새 커밋 때문에 이전 이력 발견 항목의 의미가 달라짐",
 };
 

@@ -36,6 +36,7 @@ import {
   type AuthorizationOutcome,
 } from "@pgard/policy";
 import { createDefaultAnalyzers } from "./analyzers.js";
+import { ANALYZER_HASH } from "./analyzer-hash.js";
 import {
   computeAnalysisKey,
   fingerprintConfig,
@@ -511,6 +512,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       const state: IncrementalState = {
         format: 1,
         analysisKey: computeAnalysisKey(),
+        analyzerHash: ANALYZER_HASH,
         configHash,
         code: codeCache ?? null,
       };

@@ -70,7 +70,11 @@ export function createIncrementalHandle(
       }
       return {
         kind: "found",
-        base: { result: found.scan.result, state: found.scan.incrementalState },
+        base: {
+          result: found.scan.result,
+          state: found.scan.incrementalState,
+          stateOmitted: found.scan.incrementalStateOmitted,
+        },
       };
     },
     onState: (produced) => {

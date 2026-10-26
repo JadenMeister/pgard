@@ -46,6 +46,7 @@ function makeResult(scanId: string): ScanResult {
 const STATE: IncrementalState = {
   format: INCREMENTAL_STATE_FORMAT,
   analysisKey: "a".repeat(64),
+  analyzerHash: "c".repeat(64),
   configHash: null,
   code: [
     {
@@ -142,5 +143,42 @@ describe("incremental state in the result store", () => {
     const found = await store.findNewest(REPO_ID, () => null);
     expect(found.scan?.result.scanId).toBe("s5");
     expect(found.scan?.incrementalState).toBeNull();
+  });
+});
+
+describe("why a state was left out", () => {
+  it("records a state that was too large or rejected", async () => {
+    const rejected: IncrementalState = {
+      ...STATE,
+      code:
+        STATE.code?.map((file) => ({ ...file, goImports: ["/home/me/secret-project"] })) ?? null,
+    };
+    await store.save(makeResult("o1"), {
+      repositoryId: REPO_ID,
+      forbidSubstrings: ["/home/me/secret-project"],
+      incrementalState: rejected,
+    });
+    expect((await store.findNewest(REPO_ID, () => null)).scan?.incrementalStateOmitted).toBe(
+      "rejected",
+    );
+    const huge: IncrementalState = {
+      ...STATE,
+      code: Array.from({ length: 2 }, (_, index) => ({
+        ...(STATE.code?.[0] as NonNullable<IncrementalState["code"]>[number]),
+        path: `src/${index}.ts`,
+        goImports: Array.from({ length: 200_000 }, (__, n) => `module-${n}-${"x".repeat(12)}`),
+      })),
+    };
+    await store.save(makeResult("o2"), { repositoryId: REPO_ID, incrementalState: huge });
+    const found = await store.findNewest(REPO_ID, (scan) =>
+      scan.result.scanId === "o2" ? null : "skip",
+    );
+    expect(found.scan?.incrementalState).toBeNull();
+    expect(found.scan?.incrementalStateOmitted).toBe("too_large");
+  });
+
+  it("records nothing when no state was offered", async () => {
+    await store.save(makeResult("o3"), { repositoryId: REPO_ID });
+    expect((await store.findNewest(REPO_ID, () => null)).scan?.incrementalStateOmitted).toBeNull();
   });
 });

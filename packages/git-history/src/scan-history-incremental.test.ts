@@ -1,3 +1,7 @@
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { Finding } from "@pgard/findings";
 import { isAncestorCommit, listChangedPaths, scanGitHistory } from "./scan-history.js";
@@ -108,5 +112,80 @@ describe("incremental history scan", () => {
       "a.txt",
       "b.txt",
     ]);
+  });
+});
+
+describe("incremental history scan guards", () => {
+  it("scans in full when a removed environment file is committed again", async () => {
+    fixture = createGitFixture();
+    fixture.commit({ files: { ".env": "KEY=1\n", "a.txt": "1" } });
+    fixture.commit({ remove: [".env"], files: { "a.txt": "2" } });
+    const stored = fixture.git("rev-parse", "HEAD").trim();
+    const first = await scanGitHistory(fixture.root);
+    expect(first.findings.some((f) => f.ruleId === "PG-SECRET-001" && f.location.commit)).toBe(
+      true,
+    );
+    fixture.commit({ files: { ".env": "KEY=2\n" } });
+    const incremental = await scanGitHistory(fixture.root, {
+      incremental: baseOf(first.findings, stored),
+    });
+    const full = await scanGitHistory(fixture.root);
+    expect(incremental.history.mode).toBe("full");
+    expect(ids(incremental.findings)).toEqual(ids(full.findings));
+    expect(incremental.findings.some((f) => f.location.commit !== null)).toBe(false);
+  });
+
+  it("scans in full when a removed secret is committed again inside a binary file", async () => {
+    fixture = createGitFixture();
+    fixture.commit({ files: { "a.ts": `export const t = "${TOKEN}";\n` } });
+    fixture.commit({ files: { "a.ts": "export const t = 1;\n" } });
+    const stored = fixture.git("rev-parse", "HEAD").trim();
+    const first = await scanGitHistory(fixture.root);
+    expect(first.findings.map((f) => f.ruleId)).toContain("PG-SECRET-003");
+    fixture.commit({ files: { "blob.bin": `\u0000\u0001${TOKEN}\u0000` } });
+    const incremental = await scanGitHistory(fixture.root, {
+      incremental: baseOf(first.findings, stored),
+    });
+    const full = await scanGitHistory(fixture.root);
+    expect(incremental.history.mode).toBe("full");
+    expect(ids(incremental.findings)).toEqual(ids(full.findings));
+    expect(incremental.coverage.map((c) => [c.area, c.status])).toEqual(
+      full.coverage.map((c) => [c.area, c.status]),
+    );
+  });
+
+  it("scans in full when the history is longer than the commit window", async () => {
+    fixture = createGitFixture();
+    for (let index = 0; index < 4; index += 1) fixture.commit({ files: { "a.txt": `${index}` } });
+    const stored = fixture.git("rev-parse", "HEAD").trim();
+    const first = await scanGitHistory(fixture.root, { maxCommits: 3 });
+    fixture.commit({ files: { "a.txt": "x" } });
+    const incremental = await scanGitHistory(fixture.root, {
+      maxCommits: 3,
+      incremental: baseOf(first.findings, stored),
+    });
+    expect(incremental.history.mode).toBe("full");
+    expect(incremental.coverage.find((c) => c.area === "history:commits")?.status).toBe("partial");
+  });
+
+  it("scans in full in a shallow clone", async () => {
+    fixture = createGitFixture();
+    for (let index = 0; index < 3; index += 1) fixture.commit({ files: { "a.txt": `${index}` } });
+    const clone = mkdtempSync(path.join(tmpdir(), "pgard-shallow-"));
+    try {
+      execFileSync("git", ["clone", "-q", "--depth", "1", `file://${fixture.root}`, clone], {
+        env: { PATH: process.env.PATH ?? "", HOME: clone, GIT_CONFIG_NOSYSTEM: "1" },
+      });
+      const stored = execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: clone,
+        encoding: "utf8",
+      }).trim();
+      const incremental = await scanGitHistory(clone, {
+        incremental: { baseRevision: stored, carried: [], trackedFindingPaths: [] },
+      });
+      expect(incremental.history.mode).toBe("full");
+    } finally {
+      rmSync(clone, { recursive: true, force: true });
+    }
   });
 });

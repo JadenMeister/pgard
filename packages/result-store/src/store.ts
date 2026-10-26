@@ -107,6 +107,8 @@ export interface StoredScan {
   sourceVersion: string;
   /** The incremental state stored with the result; null when there is none or it is unreadable. */
   incrementalState: IncrementalState | null;
+  /** Why the state was left out when it was offered (too large, or it failed the checks). */
+  incrementalStateOmitted: "too_large" | "rejected" | null;
 }
 
 /** The reference scan of a repository. */
@@ -372,9 +374,19 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       typeof parsed === "object" && parsed !== null
         ? Object.getOwnPropertyDescriptor(parsed, "incrementalState")
         : undefined;
+    const omittedDescriptor =
+      typeof parsed === "object" && parsed !== null
+        ? Object.getOwnPropertyDescriptor(parsed, "incrementalStateOmitted")
+        : undefined;
+    const omittedValue =
+      omittedDescriptor !== undefined && "value" in omittedDescriptor
+        ? omittedDescriptor.value
+        : null;
     return {
       file,
       savedAt: new Date(Number(match?.[1] ?? 0)),
+      incrementalStateOmitted:
+        omittedValue === "too_large" || omittedValue === "rejected" ? omittedValue : null,
       result: outcome.result,
       sourceVersion: outcome.sourceVersion,
       incrementalState:
@@ -587,14 +599,17 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         const state = saveOptions.incrementalState
           ? readIncrementalState(JSON.parse(JSON.stringify(saveOptions.incrementalState)))
           : null;
+        // The reason is stored too, so the next scan can say why it has no reusable data.
+        let omitted: "too_large" | "rejected" | null =
+          saveOptions.incrementalState && state === null ? "rejected" : null;
         if (state !== null) {
           const withState = `${JSON.stringify({ ...checked.result, incrementalState: state })}\n`;
-          if (
-            Buffer.byteLength(withState, "utf8") <= MAX_RESULT_FILE_BYTES &&
-            !containsForbidden(withState)
-          ) {
-            text = withState;
-          }
+          if (Buffer.byteLength(withState, "utf8") > MAX_RESULT_FILE_BYTES) omitted = "too_large";
+          else if (containsForbidden(withState)) omitted = "rejected";
+          else text = withState;
+        }
+        if (omitted !== null) {
+          text = `${JSON.stringify({ ...checked.result, incrementalStateOmitted: omitted })}\n`;
         }
         const dir = await ensureRepoDirectory(saveOptions.repositoryId);
         const file = fileNameFor(checked.result, now());
