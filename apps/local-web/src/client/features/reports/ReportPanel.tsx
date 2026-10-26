@@ -15,6 +15,11 @@ export function reportErrorMessage(caught: unknown, m: Messages): string {
   return m.report.failed;
 }
 
+/** API path of a report download, in the dashboard language. */
+export function reportPath(format: ReportFormatDto, language: string): string {
+  return `/api/reports/${format}?lang=${language}`;
+}
+
 /**
  * Downloads the current result as HTML or PDF through the browser's normal download. The server
  * renders it from the redacted result; the dashboard never writes files on disk.
@@ -30,10 +35,7 @@ export function ReportPanel() {
     setDownloaded(null);
     setBusy(format);
     try {
-      const file = await apiDownload(
-        `/api/reports/${format}?lang=${language}`,
-        `pgard-report.${format}`,
-      );
+      const file = await apiDownload(reportPath(format, language), `pgard-report.${format}`);
       triggerDownload(file.blob, file.filename);
       setDownloaded(file.filename);
     } catch (caught) {

@@ -192,7 +192,9 @@ export async function main(
   let reportLocale: RuleLocale = "en";
   try {
     command = parseCommandLine(argv);
-    if (command.kind !== "help" && command.kind !== "version") {
+    // Only commands that show rule text read --lang / PGARD_LANG, so a bad PGARD_LANG does not
+    // break doctor, login, logout or history clear.
+    if (command.kind === "scan" || command.kind === "rules-list" || command.kind === "menu") {
       const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
       ruleLocale = resolveLanguage({ flag, env: io.env });
       reportLocale = command.kind === "scan" ? (command.reportLang ?? ruleLocale) : ruleLocale;
