@@ -74,6 +74,8 @@ async function resolveOutputDir(outputDir: string): Promise<string> {
 async function writeExclusive(filePath: string, content: string | Buffer): Promise<void> {
   let handle;
   try {
+    // Mode 0600 applies on POSIX. Windows ignores the mode bits (the file inherits the ACL of its
+    // folder); that is documented in the README rather than faked here.
     handle = await open(filePath, "wx", 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {

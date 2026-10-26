@@ -14,6 +14,7 @@ import {
   findGitRoot,
   openGitHubUrl,
   recheckOwnerApproval,
+  resolveGitExecutable,
   resolveGitHubAppClientId,
   runScan,
   signInAndStore,
@@ -121,10 +122,15 @@ function sleepDefault(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function readGitVersionDefault(): Promise<string | null> {
+export function readGitVersionDefault(
+  options: { env?: NodeJS.ProcessEnv } = {},
+): Promise<string | null> {
+  // An absolute path on Windows: a bare "git" would be searched in the current directory first.
+  const gitProgram = resolveGitExecutable(options.env === undefined ? {} : { env: options.env });
+  if (gitProgram === null) return Promise.resolve(null);
   return new Promise((resolve) => {
     execFile(
-      "git",
+      gitProgram,
       ["--version"],
       { timeout: DOCTOR_TIMEOUT_MS, shell: false },
       (error, stdout) => {

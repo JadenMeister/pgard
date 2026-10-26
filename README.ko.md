@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/github/license/JadenMeister/pgard?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#요구-사항)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#요구-사항)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#요구-사항)
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#알려진-제한-사항)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#개인정보와-네트워크-통신)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
@@ -60,7 +60,8 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 
 - Node.js 22.23.4, 24.22.1, 26.12.1 이상(같은 버전 라인의 더 새로운 패치 포함). [2026년 10월 21일 Node.js 보안 릴리스](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)에서 고친 취약점이 반영된 버전입니다. 원격 코드 실행으로 이어질 수 있는 Brotli 디코더 범위 밖 쓰기(CVE-2026-111497)와 TLS 호스트 이름 검증 우회가 여기에 포함됩니다. PGARD는 `fetch`와 TLS로 GitHub API를 호출하므로 이전 버전은 지원하지 않으며, `pgard doctor`의 Node.js 검사도 실패합니다. Node.js 20 이하와 홀수 버전 라인은 수정이 제공되지 않습니다. 버전은 `node --version`으로 확인하세요.
 - Git
-- 로컬 포트 탐지를 위한 macOS 또는 Linux(macOS는 `lsof`이며 실패하면 `netstat`으로 대체, Linux는 `/proc/net/tcp*`). 포트는 언제든 직접 입력할 수 있습니다.
+- macOS, Linux 또는 Windows. CI가 세 운영체제 모두에서 전체 테스트를 실행합니다. 로컬 포트 탐지는 macOS에서 `lsof`(실패하면 `netstat`으로 대체), Linux에서 `/proc/net/tcp*`, Windows에서 `%SystemRoot%\System32\netstat.exe`를 사용합니다. 포트는 언제든 직접 입력할 수 있습니다.
+- Windows 참고: 로그인은 Windows 자격 증명 관리자에 보관되고, 브라우저는 `explorer.exe`로 열립니다. Windows에는 `0600` 같은 권한 모드가 없어 보고서를 그 모드로 만들 수 없습니다. 보고서는 선택한 폴더의 기본 권한을 따르므로 본인만 읽을 수 있는 폴더를 고르세요. 터미널 출력: `NO_COLOR`는 색상만 끕니다. `TERM=dumb`는 색상을 끄고, Windows가 아닌 시스템에서는 텍스트도 ASCII로 바꿉니다. Windows에서는 호스트가 Windows Terminal, VS Code 또는 비슷한 터미널이 아니면 텍스트가 ASCII이고, 색상은 호스트와 관계없이 켜진 상태로 유지됩니다.
 - GitHub 계정([GitHub App과 로그인](#github-app과-로그인) 참고)
 
 ## 설치와 빌드
@@ -375,7 +376,7 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 - `dist/`, `build/` 같은 빌드 결과물은 사용자 자신의 산출물이므로 vendored가 아닙니다.
 - vendored이면서 테스트 코드이기도 한 경로(`node_modules/pkg/test/a.js`)는 vendored로 봅니다.
 
-HTML·PDF 보고서는 같은 가려진 결과로 만듭니다. HTML 보고서는 스크립트가 없고 엄격한 CSP를 쓰는 단일 파일입니다. 보고서는 사용자가 지정한 디렉터리에만 저장되고, 기존 파일을 덮어쓰지 않으며, 권한 `0600`으로 만들어집니다. 실수로 커밋되지 않도록 보고서는 저장소 밖에 보관하세요.
+HTML·PDF 보고서는 같은 가려진 결과로 만듭니다. HTML 보고서는 스크립트가 없고 엄격한 CSP를 쓰는 단일 파일입니다. 보고서는 사용자가 지정한 디렉터리에만 저장되고, 기존 파일을 덮어쓰지 않으며, 권한 `0600`으로 만들어집니다(Windows에서는 불가능합니다. [요구 사항](#요구-사항) 참고). 실수로 커밋되지 않도록 보고서는 저장소 밖에 보관하세요.
 
 ## 대시보드
 
