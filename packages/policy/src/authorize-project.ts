@@ -49,6 +49,7 @@ export async function authorizeProject(
   );
   const results = new Map<AuthorizationCheckId, CheckResult>();
   let remedy: OwnerApprovalRemedy | null = null;
+  let account: { login: string; userId: number } | null = null;
   const build = (repo: string | null, revision: string | null): AuthorizationOutcome => {
     const checks: AuthorizationCheck[] = AUTHORIZATION_CHECK_ORDER.map((id) => ({
       id,
@@ -60,6 +61,7 @@ export async function authorizeProject(
       repo,
       revision,
       remedy,
+      account,
     };
   };
 
@@ -86,6 +88,7 @@ export async function authorizeProject(
     }
     return build(repoName, revision);
   }
+  account = { login: user.login, userId: user.id };
   results.set("github_identity", {
     status: "passed",
     reason: `Signed in to GitHub as ${user.login}.`,

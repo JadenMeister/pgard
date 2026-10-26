@@ -12,6 +12,7 @@ import {
   type AuthorizationOutcome,
   type OwnerApprovalRemedy,
   type CredentialStore,
+  type SignInNotice,
 } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ServerDeps } from "./deps.js";
@@ -1050,8 +1051,8 @@ function keychainDeps(store: CredentialStore) {
       }),
     verifyProject: async (_root, authorization) => {
       const session = await authorization.getGitHubSession();
-      await session.client.getAuthenticatedUser();
-      return outcome();
+      const user = await session.client.getAuthenticatedUser();
+      return { ...outcome(), account: { login: user.login, userId: user.id } };
     },
   });
   return { deps, deviceCodeRequests: () => deviceCodeRequests };
@@ -1150,9 +1151,9 @@ describe("local web keychain sign-in", () => {
         }),
       verifyProject: async (_root, authorization) => {
         const session = await authorization.getGitHubSession();
-        await session.client.getAuthenticatedUser();
+        const user = await session.client.getAuthenticatedUser();
         verifications += 1;
-        return outcome();
+        return { ...outcome(), account: { login: user.login, userId: user.id } };
       },
     });
     const running = await start(deps, null, KEYCHAIN_ENV);
@@ -1174,6 +1175,37 @@ describe("local web keychain sign-in", () => {
     const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
     expect(auth.status).toBe("done");
     expect(auth.signInNotice).toContain("hubot");
+  });
+
+  it("ties the check to the account the gate ran with, not the one adopted last (#162)", async () => {
+    const store = createInMemoryCredentialStore();
+    const entry = JSON.parse(keychainEntry());
+    // The keychain holds account B (id 8) ...
+    await store.set(KEYCHAIN_KEY, JSON.stringify({ ...entry, login: "hubot", userId: 8 }));
+    let notify: ((notice: SignInNotice) => void) | null = null;
+    const provider = Object.assign(async () => ({}) as never, {
+      invalidate: () => {},
+      signOut: () => {},
+    });
+    const deps = fakeDeps({
+      credentialStore: store,
+      createSessionProvider: (options) => {
+        notify = options.onNotice;
+        return provider as never;
+      },
+      verifyProject: async () => {
+        // ... and the provider adopts it while the gate itself ran as account A (id 7).
+        notify?.({ kind: "reused", login: "hubot", userId: 8, isRefreshed: false });
+        return { ...outcome(), account: { login: "octo", userId: 7 } };
+      },
+    });
+    const running = await start(deps, null, KEYCHAIN_ENV);
+    await apiPost(running, "/api/auth/verify");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // The check ran as A, the keychain holds B: port access must be closed.
+    const ports = await apiGet(running, "/api/ports");
+    expect(ports.status).toBe(403);
+    expect(JSON.parse(ports.body).error.code).toBe("authorization_required");
   });
 
   it("reuses the keychain sign-in on the server without a device code or sending the token", async () => {

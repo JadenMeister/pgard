@@ -81,6 +81,12 @@ export interface AuthorizationOutcome {
    * `guidedInstallRemedy` for when frontends offer it). Absent or `null` otherwise.
    */
   remedy?: OwnerApprovalRemedy | null;
+  /**
+   * The GitHub account (login and numeric id, never a token) this run's `github_identity` check
+   * signed in with. Absent or `null` when that check did not pass. Frontends use it to tell
+   * whether a later sign-in is the same account the check ran with.
+   */
+  account?: { login: string; userId: number } | null;
 }
 
 /** Result of `recheckOwnerApproval`: the owner_approval check alone, evaluated again. */

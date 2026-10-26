@@ -199,8 +199,9 @@ const startVerify: ApiHandler = async (context) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
       setAuth(state, { status: "done", outcome, finishedAt: context.deps.now(), message: null });
-      // The account this check ran with; a later switch resets it (see resetAuthIfAccountChanged).
-      state.authAccount = state.sessionAccount;
+      // The account the gate itself ran with (not whichever account the provider adopted last,
+      // which may have changed meanwhile); a later switch resets it (see resetAuthIfAccountChanged).
+      state.authAccount = outcome.account ?? null;
     })
     .catch(() => {
       if (state.auth !== run) return;

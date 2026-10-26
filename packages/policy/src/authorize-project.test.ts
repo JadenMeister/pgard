@@ -108,6 +108,8 @@ describe("authorizeProject: allowed paths", () => {
     expect(isAuthorizationAllowed(outcome)).toBe(true);
     expect(outcome.repo).toBe("maintainer/app");
     expect(outcome.revision).toBe(mine);
+    // The identity the gate ran with, for frontends that track account switches.
+    expect(outcome.account).toEqual({ login: ME.login, userId: ME.id });
   });
 
   it("allows a signature-verified commit committed by the user in the default branch", async () => {
@@ -516,6 +518,7 @@ describe("authorizeProject: repository and identity", () => {
     expect(statusOf(outcome, "contribution")).not.toBe("passed");
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(outcome.repo).toBe("maintainer/app");
+    expect(outcome.account).toBeNull();
   });
 
   it("blocks with github_identity unverifiable when the override is malformed", async () => {
