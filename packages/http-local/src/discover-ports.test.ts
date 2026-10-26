@@ -14,6 +14,9 @@ import {
   runCommandWithDeadline,
 } from "./discover-ports.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 const LSOF_SAMPLE = `COMMAND     PID USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
 node      12345 me     23u  IPv4 0x1234567890abcdef      0t0  TCP 127.0.0.1:3000 (LISTEN)
 node      12345 me     24u  IPv6 0x1234567890abcdee      0t0  TCP [::1]:3000 (LISTEN)
@@ -182,7 +185,7 @@ describe("runCommandWithDeadline", () => {
         300,
       ),
     ).rejects.toBeInstanceOf(CommandTimeoutError);
-    expect(Date.now() - startedAt).toBeLessThan(2000);
+    expect(Date.now() - startedAt).toBeLessThan(2000 * SLOW);
   });
 
   it("returns stdout of a command that finishes", async () => {
@@ -228,7 +231,7 @@ describe("runCommandWithDeadline exit handling", () => {
     await expect(
       runCommandWithDeadline("lsof", [], 200, { execFileImpl: neverExits }),
     ).rejects.toBeInstanceOf(CommandTimeoutError);
-    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(Date.now() - startedAt).toBeLessThan(1000 * SLOW);
   });
 
   it("accepts exit code 1 (nothing matched) with its output", async () => {

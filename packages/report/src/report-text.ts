@@ -72,6 +72,10 @@ export interface ReportText {
   standards: string;
   viaCwe: (cwe: string) => string;
   examples: (count: number) => string;
+  /** Link text on a finding whose rule examples and guidance were written on an earlier finding. */
+  ruleDetailsAbove: (ruleId: string) => string;
+  /** PDF finding line: the rule's examples are in appendix B. */
+  examplesInAppendix: string;
   vulnerable: string;
   safe: string;
   references: string;
@@ -240,6 +244,8 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     standards: "Standards",
     viaCwe: (cwe) => `via ${cwe}`,
     examples: (count) => `Examples (${count})`,
+    examplesInAppendix: "Examples: see Appendix B",
+    ruleDetailsAbove: (ruleId) => `Examples and guidance: see the first ${ruleId} finding`,
     vulnerable: "Vulnerable",
     safe: "Safe",
     references: "References",
@@ -326,7 +332,7 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     licenseCwe:
       "CWE and the CWE Top 25: Copyright (c) 2006-2026, The MITRE Corporation, used under the CWE Terms of Use (https://cwe.mitre.org/about/termsofuse.html). CWE is a trademark of The MITRE Corporation.",
     licenseCert:
-      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, licensed under CC BY 4.0. SEI CERT is a registered trademark of Carnegie Mellon University; this report is not endorsed by Carnegie Mellon University or the SEI. See NOTICE.md of PGARD.",
+      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Carnegie Mellon and CERT are registered trademarks of Carnegie Mellon University. This report is not endorsed by Carnegie Mellon University or the SEI. See NOTICE.md of PGARD.",
   },
   ko: {
     htmlTitle: "PGARD 보고서",
@@ -387,6 +393,8 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     standards: "표준",
     viaCwe: (cwe) => `${cwe} 경유`,
     examples: (count) => `예시 (${count})`,
+    examplesInAppendix: "예시: 부록 B 참고",
+    ruleDetailsAbove: (ruleId) => `예시와 안내: 첫 번째 ${ruleId} 발견 항목을 참고하세요`,
     vulnerable: "취약한 코드",
     safe: "안전한 코드",
     references: "참조",
@@ -481,6 +489,6 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     licenseCwe:
       "CWE 및 CWE Top 25: Copyright (c) 2006-2026, The MITRE Corporation, CWE 이용 약관에 따라 사용 (https://cwe.mitre.org/about/termsofuse.html). CWE는 The MITRE Corporation의 상표입니다.",
     licenseCert:
-      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, CC BY 4.0 라이선스. SEI CERT는 Carnegie Mellon University의 등록 상표이며, 이 보고서는 Carnegie Mellon University나 SEI의 보증을 받지 않았습니다. PGARD의 NOTICE.md를 참고하세요.",
+      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, CC BY 4.0 라이선스(https://creativecommons.org/licenses/by/4.0/). Carnegie Mellon과 CERT는 Carnegie Mellon University의 등록 상표입니다. 이 보고서는 Carnegie Mellon University나 SEI의 보증을 받지 않았습니다. PGARD의 NOTICE.md를 참고하세요.",
   },
 };

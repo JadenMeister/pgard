@@ -74,7 +74,7 @@ const LATIN_STYLE: PdfStyle = { regular: "Helvetica", bold: "Helvetica-Bold", te
 const FONT_STYLE: PdfStyle = { regular: "PgardSans", bold: "PgardSans-Bold", text: toFontText };
 
 function fontFallbackMessage(reason: string): string {
-  return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font.`;
+  return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font, so a Korean report is rendered in English.`;
 }
 
 function heading(doc: PDFKit.PDFDocument, style: PdfStyle, text: string): void {
@@ -184,12 +184,15 @@ function writeFinding(
   line(doc, style, `${labels.impact}: ${finding.impact}`);
   line(doc, style, `${labels.recommendation}: ${finding.recommendation}`);
   const details = findingDetails(finding, ctx);
-  const guidance = ruleGuidance(finding, details, ctx.lang);
+  const guidance = ruleGuidance(finding, details, ctx.chrome);
   if (guidance.rationale !== null) line(doc, style, `${t.ruleRationale}: ${guidance.rationale}`);
   if (guidance.remediation !== null)
     line(doc, style, `${t.ruleRemediation}: ${guidance.remediation}`);
   if (details !== undefined && details.standards.length > 0) {
     linkLine(doc, style, t.standards, details.standards);
+  }
+  if (details !== undefined && details.examples.length > 0) {
+    line(doc, style, t.examplesInAppendix, MUTED);
   }
   const references = [
     ...finding.references.cwe,
@@ -301,7 +304,7 @@ function writeExamples(
       codeBlock(doc, style, example.vulnerable);
       line(doc, style, t.safe, MUTED);
       codeBlock(doc, style, example.safe);
-      if (example.note !== undefined) line(doc, style, example.note[ctx.lang], MUTED);
+      if (example.note !== undefined) line(doc, style, example.note[ctx.chrome], MUTED);
     }
   }
 }
@@ -341,7 +344,19 @@ function extraStrings(
 ): unknown {
   return [
     ruleStatRows(result, ctx),
-    findings.map((finding) => findingDetails(finding, ctx)),
+    // Only the texts that are printed: the catalog also holds the other language's text.
+    findings.map((finding) => {
+      const details = findingDetails(finding, ctx);
+      if (details === undefined) return undefined;
+      return {
+        guidance: ruleGuidance(finding, details, ctx.chrome),
+        standards: details.standards,
+        examples: details.examples.map((example) => ({
+          ...example,
+          note: example.note?.[ctx.chrome],
+        })),
+      };
+    }),
     standardsLinksOf(findings, ctx),
   ];
 }
@@ -356,11 +371,13 @@ export function renderPdfReport(
     onFontFallback?: (message: string | null) => void;
   } = {},
 ): Promise<Buffer> {
-  const result = prepareLocalizedReportResult(input, options);
   const loaded = loadPdfFonts();
   const style = loaded.ok ? FONT_STYLE : LATIN_STYLE;
-  // Without the Korean-capable font Korean chrome would print as "?": use English chrome then.
-  const ctx = reportContext(options, loaded.ok ? undefined : "en");
+  // Without the Korean-capable font Korean text would print as "?": fall back to English for the
+  // fixed words (`ctx.chrome`) and for the texts taken from the rule catalog alike.
+  const languageOptions: ReportLanguageOptions = loaded.ok ? options : { ...options, lang: "en" };
+  const result = prepareLocalizedReportResult(input, languageOptions);
+  const ctx = reportContext(languageOptions);
   const t = ctx.t;
   options.onFontFallback?.(loaded.ok ? null : fontFallbackMessage(loaded.reason));
   return new Promise((resolve, reject) => {
@@ -438,7 +455,7 @@ export function renderPdfReport(
     }
     heading(doc, style, t.summary);
     line(doc, style, summaryLine(result, ctx));
-    const incremental = incrementalLine(result.incremental, ctx.lang);
+    const incremental = incrementalLine(result.incremental, ctx.chrome);
     if (incremental !== null) line(doc, style, `${incremental.label}: ${incremental.value}`, MUTED);
     doc.moveDown(0.5);
     drawSeverityBars(doc, style, primary, ctx);
@@ -469,7 +486,7 @@ export function renderPdfReport(
       line(
         doc,
         style,
-        `${t.testNote}${ctx.lang === "en" ? configTestGroupNote(result.coverage) : ""}`,
+        `${t.testNote}${ctx.chrome === "en" ? configTestGroupNote(result.coverage) : ""}`,
         MUTED,
       );
       for (const finding of test) writeFinding(doc, style, finding, ctx);

@@ -95,7 +95,7 @@ export function standardLabel(link: StandardLink, t: ReportText): string {
 }
 
 function breakdownText(counts: Readonly<Record<Severity, number>>, ctx: ReportContext): string {
-  if (ctx.lang === "en") return formatSeverityBreakdown(counts);
+  if (ctx.chrome === "en") return formatSeverityBreakdown(counts);
   return SEVERITIES.filter((severity) => counts[severity] > 0)
     .map((severity) => `${ctx.t.severity[severity]} ${counts[severity]}건`)
     .join(", ");
@@ -109,7 +109,7 @@ function severeText(findings: readonly Pick<Finding, "severity">[], ctx: ReportC
     }))
     .filter((entry) => entry.count > 0)
     .map((entry) =>
-      ctx.lang === "en"
+      ctx.chrome === "en"
         ? `${entry.count} ${entry.severity}`
         : `${ctx.t.severity[entry.severity]} ${entry.count}건`,
     )
@@ -118,7 +118,7 @@ function severeText(findings: readonly Pick<Finding, "severity">[], ctx: ReportC
 
 /** The one-line summary under "Summary", in the report language. English equals the CLI's text. */
 export function summaryLine(result: ScanResult, ctx: ReportContext): string {
-  if (ctx.lang === "en") return formatFindingSummary(result.findings, result);
+  if (ctx.chrome === "en") return formatFindingSummary(result.findings, result);
   const t = ctx.t;
   const { primary, test, vendored, suppressed, baseline } = groupReportFindings(result.findings);
   const split = summarizeStatusSplit(primary);
@@ -147,7 +147,7 @@ export function noFindingsLine(
   isNew: boolean,
   ctx: ReportContext,
 ): string {
-  if (ctx.lang === "en") return formatNoFindings(groups, isNew);
+  if (ctx.chrome === "en") return formatNoFindings(groups, isNew);
   const t = ctx.t;
   const outside =
     groups.test > 0 && groups.vendored > 0
@@ -317,7 +317,7 @@ export function ruleStatRows(result: ScanResult, ctx: ReportContext): RuleStatRo
       title:
         ctx.ruleTexts === undefined
           ? ""
-          : localizedRuleTitle(ctx.ruleTexts, stat.ruleId, ctx.lang, ""),
+          : localizedRuleTitle(ctx.ruleTexts, stat.ruleId, ctx.chrome, ""),
       area: stat.area,
       targets: targetsText(stat, ctx),
       findings: stat.findings,
@@ -344,7 +344,7 @@ export function rulesWithExamples(
       title:
         ctx.ruleTexts === undefined
           ? finding.title
-          : localizedRuleTitle(ctx.ruleTexts, finding.ruleId, ctx.lang, finding.title),
+          : localizedRuleTitle(ctx.ruleTexts, finding.ruleId, ctx.chrome, finding.title),
       details,
     });
   }

@@ -705,6 +705,56 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   }
 
   // PG-CRYPTO-002 hardcoded keys: []byte("...") passed to signing/encryption APIs.
+  // A package-level `const`/`var` bound once, to a literal, and never written, taken by address or
+  // indexed: `var signingKey = []byte("...")`. A `var` can still be overwritten from another file
+  // of the package (an init() reading the environment), so it is reported at medium confidence.
+  const packageKeyCache = new Map<string, "const" | "var" | null>();
+  const packageKey = (name: string): "const" | "var" | null => {
+    if (!IDENTIFIER.test(name)) return null;
+    const cached = packageKeyCache.get(name);
+    if (cached !== undefined) return cached;
+    let result: "const" | "var" | null = null;
+    const escaped = name.replace(/[$]/g, "\\$");
+    const declaration = new RegExp(
+      `(?:^|\\n)[ \\t]*(?:(var|const)[ \\t]+)?${escaped}(?:[ \\t]+[\\w.*[\\]]{1,60})?[ \\t]*=[ \\t]*(?:\\[\\]byte\\([ \\t]*"#\\d+"[ \\t]*\\)|"#\\d+")[ \\t]*(?=\\n|$)`,
+      "g",
+    );
+    const matches = [...code.matchAll(declaration)];
+    const only = matches.length === 1 ? matches[0] : undefined;
+    if (only) {
+      const at = (only.index ?? 0) + (only[0].startsWith("\n") ? 1 : 0);
+      let depth = 0;
+      for (let index = 0; index < at; index += 1) {
+        if (code[index] === "{") depth += 1;
+        else if (code[index] === "}") depth -= 1;
+      }
+      // A keyword-less line sits in a `var (` or `const (` block: the nearest opener names it.
+      const keyword =
+        only[1] ?? [...code.slice(0, at).matchAll(/(?:^|\n)(var|const)[ \t]*\(/g)].pop()?.[1];
+      // Every write or re-declaration of the name anywhere makes it untrusted.
+      let writes = 0;
+      for (const assignment of code.matchAll(
+        /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*(?::=|(?:[-+*/|&^%]|<<|>>|&\^)?=(?!=))/g,
+      )) {
+        const before = code[(assignment.index ?? 0) - 1];
+        if (before === "." || before === "]") continue;
+        if ((assignment[1] ?? "").split(",").some((part) => part.trim() === name)) writes += 1;
+      }
+      const redeclared = new RegExp(`\\bvar[ \\t]+(?:\\([^)]*)?(?<![\\w.])${escaped}\\b`, "g");
+      const inSignature = new RegExp(`\\bfunc\\b[^\\n{]*(?<![\\w.])${escaped}\\b`);
+      const mutated = new RegExp(`&${escaped}\\b|(?<![\\w.])${escaped}\\[|\\bcopy\\(${escaped}\\b`);
+      if (
+        depth === 0 &&
+        writes === 1 &&
+        [...code.matchAll(redeclared)].length <= 1 &&
+        !inSignature.test(code) &&
+        !mutated.test(code)
+      )
+        result = keyword === "const" ? "const" : "var";
+    }
+    packageKeyCache.set(name, result);
+    return result;
+  };
   forEachCall(
     /\b(SignedString|NewCipher|hmac\.New|SigningKey|NewGCM)\s*\(/g,
     (args, offset, name) => {
@@ -720,6 +770,32 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
           },
           name,
         );
+        return;
+      }
+      for (const arg of args) {
+        const trimmed = arg.trim();
+        const held = /^\[\]byte\(\s*([A-Za-z_]\w*)\s*\)$/.exec(trimmed)?.[1] ?? trimmed;
+        const kind = packageKey(held);
+        if (kind === null) continue;
+        report(
+          "PG-CRYPTO-002",
+          offset,
+          kind === "const"
+            ? {
+                severity: "high",
+                status: "confirmed",
+                confidence: "high",
+                flow: `string literal (value redacted) held in package constant ${held} used as ${name} key`,
+              }
+            : {
+                severity: "high",
+                status: "suspected",
+                confidence: "medium",
+                flow: `string literal (value redacted) held in package variable ${held} used as ${name} key (verify no other file of the package overwrites it from the environment)`,
+              },
+          name,
+        );
+        return;
       }
     },
   );
