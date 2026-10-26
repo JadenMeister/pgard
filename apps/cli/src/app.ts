@@ -1,7 +1,12 @@
 import { stopBrowserOffers } from "./flows/browser.js";
 import { PGARD_VERSION } from "@pgard/scan-core";
 import { createCancelController, type InterruptSource } from "./adapters/cancel.js";
-import { createKeyReader, isInteractive, type CliIo } from "./adapters/terminal.js";
+import {
+  createKeyReader,
+  isInteractive,
+  isInteractiveOnStderr,
+  type CliIo,
+} from "./adapters/terminal.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistoryClear } from "./commands/history.js";
@@ -70,27 +75,67 @@ const MENU_CHOICES: ReadonlyArray<{
   {
     label: "Scan code + history",
     hint: "pgard scan",
-    value: { kind: "scan", variant: "default", port: null, report: null, noBrowser: false },
+    value: {
+      kind: "scan",
+      variant: "default",
+      port: null,
+      report: null,
+      noBrowser: false,
+      format: "text",
+      allFindings: false,
+    },
   },
   {
     label: "Scan code",
     hint: "pgard scan code",
-    value: { kind: "scan", variant: "code", port: null, report: null, noBrowser: false },
+    value: {
+      kind: "scan",
+      variant: "code",
+      port: null,
+      report: null,
+      noBrowser: false,
+      format: "text",
+      allFindings: false,
+    },
   },
   {
     label: "Scan Git history",
     hint: "pgard scan history",
-    value: { kind: "scan", variant: "history", port: null, report: null, noBrowser: false },
+    value: {
+      kind: "scan",
+      variant: "history",
+      port: null,
+      report: null,
+      noBrowser: false,
+      format: "text",
+      allFindings: false,
+    },
   },
   {
     label: "Scan local web service",
     hint: "pgard scan web",
-    value: { kind: "scan", variant: "web", port: null, report: null, noBrowser: false },
+    value: {
+      kind: "scan",
+      variant: "web",
+      port: null,
+      report: null,
+      noBrowser: false,
+      format: "text",
+      allFindings: false,
+    },
   },
   {
     label: "Scan all",
     hint: "code + history + web",
-    value: { kind: "scan", variant: "all", port: null, report: null, noBrowser: false },
+    value: {
+      kind: "scan",
+      variant: "all",
+      port: null,
+      report: null,
+      noBrowser: false,
+      format: "text",
+      allFindings: false,
+    },
   },
   {
     label: "Open dashboard",
@@ -158,7 +203,12 @@ export async function main(
   }
 
   const deps = options.deps ?? createDefaultDeps();
-  const keys = isInteractive(io) ? createKeyReader(io.stdin) : null;
+  // `--format json` leaves stdout for the result, so a person can still answer prompts (shown on
+  // stderr) when stdin and stderr are terminals even though stdout is redirected.
+  const isJsonScan = command.kind === "scan" && command.format === "json";
+  const keys = (isJsonScan ? isInteractiveOnStderr(io) : isInteractive(io))
+    ? createKeyReader(io.stdin)
+    : null;
   const cancel = createCancelController(options.interrupts ?? process, (message) =>
     io.stderr.write(`${errStyle.yellow(message)}\n`),
   );

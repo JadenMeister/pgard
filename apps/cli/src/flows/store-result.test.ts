@@ -108,6 +108,19 @@ describe("storing a finished scan", () => {
     }
   });
 
+  it("in --format json mode still stores, with one JSON document on stdout and the notice on stderr", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(createTestContext(captured, depsWith(ALLOWED_OUTCOME)), {
+      ...DEFAULT_SCAN,
+      format: "json",
+    });
+    expect(code).toBe(0);
+    expect(JSON.parse(captured.stdout())).toMatchObject({ scanId: "scan-1234abcd" });
+    expect(captured.stdout()).not.toContain("PGARD now keeps");
+    expect(captured.stderr()).toContain("PGARD now keeps your scan results");
+    expect((await store.list(REPO_ID)).scans).toHaveLength(1);
+  });
+
   it("stores nothing with --no-store, and does not print the notice or create the directory", async () => {
     const { captured, code } = await run(depsWith(ALLOWED_OUTCOME), { noStore: true });
     expect(code).toBe(0);

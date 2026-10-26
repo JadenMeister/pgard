@@ -5,6 +5,9 @@ export type ScanVariant = "default" | "code" | "history" | "web" | "all";
 export type RuleLanguage = "js" | "ts" | "react" | "vue" | "go";
 export const RULE_LANGUAGES: readonly RuleLanguage[] = ["js", "ts", "react", "vue", "go"];
 
+export type OutputFormat = "text" | "json";
+export const OUTPUT_FORMATS: readonly OutputFormat[] = ["text", "json"];
+
 export interface ReportRequest {
   format: ReportFormat;
   outputDir: string;
@@ -21,6 +24,10 @@ export type ParsedCommand =
       port: number | null;
       report: ReportRequest | null;
       noBrowser: boolean;
+      /** `json` prints only the redacted ScanResult on stdout. */
+      format: OutputFormat;
+      /** List every finding and location instead of collapsing test, fixture and vendored ones. */
+      allFindings: boolean;
       /** `--no-store`: do not keep this scan's result on this computer. */
       noStore?: boolean;
     }
@@ -55,13 +62,14 @@ export class UsageError extends Error {
 }
 
 type OptionName =
-  "--port" | "--target-port" | "--report" | "--output-dir" | "--language" | "--repo";
+  "--port" | "--target-port" | "--report" | "--output-dir" | "--language" | "--format" | "--repo";
 const VALUE_OPTIONS: readonly OptionName[] = [
   "--port",
   "--target-port",
   "--report",
   "--output-dir",
   "--language",
+  "--format",
   "--repo",
 ];
 
@@ -72,6 +80,9 @@ const NO_STORE_FLAG = "--no-store";
 /** Flag (no value), `pgard history clear` only: explicit "every repository" (the default). */
 const ALL_FLAG = "--all";
 
+/** Flag (no value): list every finding and location in the terminal result. */
+const ALL_FINDINGS_FLAG = "--all-findings";
+
 interface SplitArgs {
   positionals: string[];
   options: Map<OptionName, string>;
@@ -80,6 +91,7 @@ interface SplitArgs {
   noBrowser: boolean;
   noStore: boolean;
   all: boolean;
+  allFindings: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -91,6 +103,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let noBrowser = false;
   let noStore = false;
   let all = false;
+  let allFindings = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -114,6 +127,12 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
       }
       if (isStore) noStore = true;
       else all = true;
+      continue;
+    }
+    if (arg === ALL_FINDINGS_FLAG) {
+      if (allFindings)
+        throw new UsageError(`Option ${ALL_FINDINGS_FLAG} was given more than once.`, topic());
+      allFindings = true;
       continue;
     }
     if (arg === "--") {
@@ -143,7 +162,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     }
     positionals.push(arg);
   }
-  return { positionals, options, isHelp, isVersion, noBrowser, noStore, all };
+  return { positionals, options, isHelp, isVersion, noBrowser, noStore, all, allFindings };
 }
 
 function parsePortOption(name: string, value: string, topic: HelpTopic): number {
@@ -163,7 +182,11 @@ function rejectOptions(
   topic: HelpTopic,
   where: string,
   allowNoBrowser = false,
+  allowAllFindings = false,
 ): void {
+  if (split.allFindings && !allowAllFindings) {
+    throw new UsageError(`Option ${ALL_FINDINGS_FLAG} is not available for ${where}.`, topic);
+  }
   if (split.noBrowser && !allowNoBrowser) {
     throw new UsageError(`Option ${NO_BROWSER_FLAG} is not available for ${where}.`, topic);
   }
@@ -194,6 +217,15 @@ function parseReport(split: SplitArgs): ReportRequest | null {
     );
   }
   return { format, outputDir };
+}
+
+function parseFormat(split: SplitArgs): OutputFormat {
+  const value = split.options.get("--format");
+  if (value === undefined) return "text";
+  if (!(OUTPUT_FORMATS as readonly string[]).includes(value)) {
+    throw new UsageError(`--format must be text or json (got "${value.slice(0, 20)}").`, "scan");
+  }
+  return value as OutputFormat;
 }
 
 const SCAN_VARIANTS: Record<string, ScanVariant> = {
@@ -262,9 +294,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       const isWeb = variant === "web" || variant === "all";
       rejectOptions(
         split,
-        isWeb ? ["--port", "--report", "--output-dir"] : ["--report", "--output-dir"],
+        isWeb
+          ? ["--port", "--report", "--output-dir", "--format"]
+          : ["--report", "--output-dir", "--format"],
         topic,
         variant === "default" ? "pgard scan" : `pgard scan ${variant}`,
+        true,
         true,
       );
       const portValue = split.options.get("--port");
@@ -275,6 +310,8 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         port,
         report: parseReport(split),
         noBrowser: split.noBrowser,
+        format: parseFormat(split),
+        allFindings: split.allFindings,
         ...(split.noStore ? { noStore: true } : {}),
       };
     }

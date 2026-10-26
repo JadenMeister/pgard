@@ -5,22 +5,30 @@ import {
   type AuthorizationSummary,
   type Coverage,
   type Finding,
-  type FindingStatus,
   type ScanResult,
 } from "@pgard/findings";
 import {
   ANALYSIS_BASIS_NOTE,
-  formatContextCounts,
+  formatVendoredSuggestions,
   formatLocation,
   formatOutsideContexts,
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
-  sortFindings,
+  summarizeStatusSplit,
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
 } from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
+import {
+  COLLAPSE_THRESHOLD,
+  groupFindings,
+  MAX_REPRESENTATIVE_LOCATIONS,
+  shouldCollapse,
+  sortBySeverity,
+  summarizeCollapsed,
+  type FindingGroup,
+} from "./result-groups.js";
 import { safeText, type Style } from "./style.js";
 
 const BAR_WIDTH = 30;
@@ -38,24 +46,116 @@ export function formatSeverityBars(findings: readonly Finding[], style: Style): 
   }).join("\n");
 }
 
-function formatFinding(finding: Finding, style: Style): string {
+/** How to see everything that was collapsed or shortened. */
+export const SHOW_ALL_HINT =
+  "Run again with --all-findings to list everything, or save a report (--report html --output-dir <dir>).";
+
+const MAX_SUMMARY_RULES = 10;
+
+function allSame(values: readonly string[]): boolean {
+  return values.every((value) => value === values[0]);
+}
+
+function formatGroup(group: FindingGroup, style: Style, allFindings: boolean): string {
+  const finding = group.representative;
+  const members = group.findings;
+  const count = members.length;
   const severity = style.severity(
     finding.severity,
     `[${labelSeverity(finding.severity).toUpperCase()}]`,
   );
+  const detail = `${finding.status}${count > 1 ? `, ${count} locations` : ""}`;
+  const lines = [
+    `  ${severity} ${style.bold(safeText(finding.title, 300))} ${style.dim(`(${detail})`)}`,
+  ];
+  const rule = style.dim(`${safeText(finding.ruleId, 40)} - confidence ${finding.confidence}`);
+  const places = members.map((member) => safeText(formatLocation(member.location), 500));
+  const evidence = (member: Finding): string => safeText(member.evidence, 500);
+  const fix = (member: Finding): string => safeText(member.recommendation, 500);
+  const isFixShared = allSame(members.map(fix));
+  if (count === 1) {
+    lines.push(
+      `      ${places[0]}  ${rule}`,
+      `      Evidence: ${evidence(finding)}`,
+      `      Fix: ${fix(finding)}`,
+    );
+  } else if (allFindings) {
+    // Every location with its own evidence: nothing is shown for one member on behalf of others.
+    lines.push(`      ${rule}`);
+    members.forEach((member, index) => {
+      lines.push(`      - ${places[index]}`, `          Evidence: ${evidence(member)}`);
+      if (!isFixShared) lines.push(`          Fix: ${fix(member)}`);
+    });
+    if (isFixShared) lines.push(`      Fix: ${fix(finding)}`);
+  } else {
+    const shown = places.slice(0, MAX_REPRESENTATIVE_LOCATIONS);
+    const rest = count - shown.length;
+    lines.push(`      ${shown.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}  ${rule}`);
+    lines.push(
+      allSame(members.map(evidence))
+        ? `      Evidence: ${evidence(finding)}`
+        : "      Evidence: varies by location (run with --all-findings to see each)",
+      isFixShared
+        ? `      Fix: ${fix(finding)}`
+        : "      Fix: varies by location (run with --all-findings to see each)",
+    );
+  }
+  return lines.join("\n");
+}
+
+function formatGroups(findings: readonly Finding[], style: Style, allFindings: boolean): string {
+  return groupFindings(findings)
+    .map((group) => formatGroup(group, style, allFindings))
+    .join("\n\n");
+}
+
+function hasShortenedGroup(findings: readonly Finding[]): boolean {
+  return groupFindings(findings).some(
+    (group) => group.findings.length > MAX_REPRESENTATIVE_LOCATIONS,
+  );
+}
+
+const isSevere = (finding: Pick<Finding, "severity">): boolean =>
+  finding.severity === "critical" || finding.severity === "high";
+
+/** Summary that replaces the listing of lower-severity test, fixture and vendored findings. */
+function formatCollapsed(findings: readonly Finding[], style: Style): string {
+  const summary = summarizeCollapsed(findings);
+  const rules = summary.byRule.slice(0, MAX_SUMMARY_RULES);
+  const moreRules = summary.byRule.length - rules.length;
   return [
-    `  ${severity} ${style.bold(safeText(finding.title, 300))}`,
-    `      ${safeText(formatLocation(finding.location), 500)}  ${style.dim(`${safeText(finding.ruleId, 40)} - confidence ${finding.confidence}`)}`,
-    `      Evidence: ${safeText(finding.evidence, 500)}`,
-    `      Fix: ${safeText(finding.recommendation, 500)}`,
+    style.bold(
+      `Test, fixture and vendored code (${summary.count} lower-severity findings not listed)`,
+    ),
+    style.dim(
+      `  Collapsed because there are more than ${COLLAPSE_THRESHOLD} in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.`,
+    ),
+    `  By context: ${summary.byContext.map((entry) => `${entry.context} ${entry.count}`).join(", ")}`,
+    `  By rule: ${rules.map((entry) => `${safeText(entry.ruleId, 40)} x${entry.count}`).join(", ")}${moreRules > 0 ? ` and ${moreRules} more rules` : ""}`,
+    `  By severity: ${summary.bySeverity.map((entry) => `${entry.count} ${labelSeverity(entry.severity).toLowerCase()}`).join(", ")}`,
+    `  ${SHOW_ALL_HINT}`,
   ].join("\n");
 }
 
-const STATUS_GROUPS: ReadonlyArray<{ status: FindingStatus; title: string }> = [
-  { status: "confirmed", title: "Confirmed" },
-  { status: "suspected", title: "Suspected (needs review)" },
-  { status: "informational", title: "Informational" },
-];
+/** "3 in test or fixture code (1 critical, 2 high)" so severe matches are not hidden in a total. */
+function formatTestCount(test: readonly Finding[]): string {
+  const severe = (["critical", "high"] as const)
+    .map((severity) => ({ severity, count: test.filter((f) => f.severity === severity).length }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${entry.severity}`);
+  return `${test.length} in test or fixture code${severe.length === 0 ? "" : ` (${severe.join(", ")})`}`;
+}
+
+function formatStatusCounts(findings: readonly Finding[]): string {
+  const split = summarizeStatusSplit(findings);
+  return [
+    split.confirmed > 0 ? `${split.confirmed} confirmed` : null,
+    split.suspected > 0 ? `${split.suspected} suspected (needs review)` : null,
+    split.informational > 0 ? `${split.informational} informational` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(", ");
+}
 
 const TEST_GROUP_TITLE = "In test or fixture code";
 const TEST_GROUP_NOTE =
@@ -109,7 +209,12 @@ export function formatAuthorization(summary: AuthorizationSummary, style: Style)
 }
 
 /** Full terminal result view: status, chart, findings by status, coverage, analysis basis. */
-export function formatScanResult(result: ScanResult, style: Style): string {
+export function formatScanResult(
+  result: ScanResult,
+  style: Style,
+  options: { allFindings?: boolean } = {},
+): string {
+  const allFindings = options.allFindings === true;
   const sections: string[] = [];
   const target = result.target;
   sections.push(
@@ -126,20 +231,21 @@ export function formatScanResult(result: ScanResult, style: Style): string {
   }
   // Headline counts cover regular code; test and fixture findings follow in their own group and
   // suggestions in vendored code come last.
-  const { primary, test, vendored } = splitFindingsByContext(sortFindings(result.findings));
+  const { primary, test, vendored } = splitFindingsByContext(sortBySeverity(result.findings));
   const contextCounts = { test: test.length, vendored: vendored.length };
-  const extra = formatContextCounts({ test: test.length, vendored });
+  const extra = [
+    ...(test.length === 0 ? [] : [formatTestCount(test)]),
+    ...(vendored.length === 0 ? [] : [formatVendoredSuggestions(vendored)]),
+  ];
   sections.push(
     "",
     style.bold(`Findings by severity (${primary.length} total)`) +
-      (extra === "" ? "" : style.dim(` - ${extra}`)),
+      (extra.length === 0 ? "" : style.dim(` - plus ${extra.join(", ")}`)),
     formatSeverityBars(primary, style),
   );
-  for (const group of STATUS_GROUPS) {
-    const groupFindings = primary.filter((finding) => finding.status === group.status);
-    if (groupFindings.length === 0) continue;
-    sections.push("", style.bold(`${group.title} (${groupFindings.length})`));
-    sections.push(groupFindings.map((finding) => formatFinding(finding, style)).join("\n\n"));
+  if (primary.length > 0) {
+    sections.push("", style.bold(`Findings (${primary.length}): ${formatStatusCounts(primary)}`));
+    sections.push(formatGroups(primary, style, allFindings));
   }
   if (primary.length === 0) {
     sections.push(
@@ -147,20 +253,37 @@ export function formatScanResult(result: ScanResult, style: Style): string {
       `No findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; see coverage.`,
     );
   }
-  if (test.length > 0) {
+  const nonReal = [...test, ...vendored];
+  const isCollapsing = shouldCollapse(nonReal.length, allFindings);
+  // Critical and high findings are listed in full even when the rest is collapsed.
+  const testShown = isCollapsing ? test.filter(isSevere) : test;
+  const vendoredShown = isCollapsing ? vendored.filter(isSevere) : vendored;
+  const collapsed = isCollapsing ? nonReal.filter((finding) => !isSevere(finding)) : [];
+  const severeNote = isCollapsing ? " Critical and high findings are always listed." : "";
+  if (testShown.length > 0) {
     sections.push(
       "",
-      style.bold(`${TEST_GROUP_TITLE} (${test.length})`),
-      style.dim(`  ${TEST_GROUP_NOTE}`),
-      test.map((finding) => formatFinding(finding, style)).join("\n\n"),
+      style.bold(`${TEST_GROUP_TITLE} (${testShown.length})`),
+      style.dim(`  ${TEST_GROUP_NOTE}${severeNote}`),
+      formatGroups(testShown, style, allFindings),
     );
   }
-  if (vendored.length > 0) {
+  if (vendoredShown.length > 0) {
     sections.push(
       "",
-      style.bold(`${VENDORED_FINDINGS_TITLE} (${vendored.length})`),
-      style.dim(`  ${VENDORED_FINDINGS_NOTE}`),
-      vendored.map((finding) => formatFinding(finding, style)).join("\n\n"),
+      style.bold(`${VENDORED_FINDINGS_TITLE} (${vendoredShown.length})`),
+      style.dim(`  ${VENDORED_FINDINGS_NOTE}${severeNote}`),
+      formatGroups(vendoredShown, style, allFindings),
+    );
+  }
+  if (collapsed.length > 0) sections.push("", formatCollapsed(collapsed, style));
+  const listed = [...primary, ...testShown, ...vendoredShown];
+  if (!allFindings && hasShortenedGroup(listed)) {
+    sections.push(
+      "",
+      style.dim(
+        `Groups show up to ${MAX_REPRESENTATIVE_LOCATIONS} locations. Run again with --all-findings to list every location.`,
+      ),
     );
   }
   sections.push("", style.bold("Coverage"), formatCoverage(result.coverage, style));

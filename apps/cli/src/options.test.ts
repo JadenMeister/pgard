@@ -16,6 +16,8 @@ describe("parseCommandLine", () => {
       port: null,
       report: null,
       noBrowser: false,
+      format: "text",
+      allFindings: false,
     });
     expect(parseCommandLine(["scan", "code"])).toMatchObject({ variant: "code" });
     expect(parseCommandLine(["scan", "history"])).toMatchObject({ variant: "history" });
@@ -164,5 +166,31 @@ describe("parseCommandLine", () => {
       kind: "help",
       topic: "history clear",
     });
+  });
+});
+
+describe("scan result options", () => {
+  it("parses --format and --all-findings for every scan type", () => {
+    expect(parseCommandLine(["scan", "code", "--format", "json"])).toMatchObject({
+      format: "json",
+      allFindings: false,
+    });
+    expect(parseCommandLine(["scan", "--format=text", "--all-findings"])).toMatchObject({
+      format: "text",
+      allFindings: true,
+    });
+    expect(parseCommandLine(["scan", "web", "--port", "3000", "--format", "json"])).toMatchObject({
+      format: "json",
+      port: 3000,
+    });
+  });
+
+  it("rejects an unknown format, a repeat, and the options on other commands", () => {
+    expect(() => parseCommandLine(["scan", "--format", "xml"])).toThrow("--format must be");
+    expect(() => parseCommandLine(["scan", "--all-findings", "--all-findings"])).toThrow(
+      "more than once",
+    );
+    expect(() => parseCommandLine(["doctor", "--all-findings"])).toThrow(UsageError);
+    expect(() => parseCommandLine(["rules", "list", "--format", "json"])).toThrow(UsageError);
   });
 });

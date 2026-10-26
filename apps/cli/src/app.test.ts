@@ -1,7 +1,13 @@
 import { ScanCancelledError } from "@pgard/scan-core";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultDeps, main } from "./app.js";
-import { createTestDeps, createTestIo, noInterrupts } from "./test-support.js";
+import {
+  createTestDeps,
+  createTestIo,
+  noInterrupts,
+  testResult,
+  HTTP_IDENTITY,
+} from "./test-support.js";
 
 describe("main", () => {
   it("prints help and version with exit 0 without touching dependencies", async () => {
@@ -177,5 +183,27 @@ describe("main", () => {
     expect(typeof deps.verifyProject).toBe("function");
     expect(typeof deps.webScanner).toBe("function");
     expect(deps.nodeVersion).toBe(process.versions.node);
+  });
+
+  it("lets --format json confirm the --port service on stderr when only stdout is redirected", async () => {
+    const captured = createTestIo({ isTTY: true });
+    // stdout redirected to a file: not a terminal; stdin and stderr still are.
+    (captured.io.stdout as unknown as { isTTY: boolean }).isTTY = false;
+    const runScan = vi.fn(async (_request: unknown) => testResult());
+    const code = await main(["scan", "web", "--port", "3000", "--format", "json"], captured.io, {
+      deps: createTestDeps({
+        runScan,
+        // The key reader drops keys typed before it is asked, so answer once the prompt is up.
+        probeLocalService: async () => {
+          setTimeout(() => captured.stdin.write("y"), 150);
+          return HTTP_IDENTITY;
+        },
+      }),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(0);
+    expect(runScan.mock.calls[0]?.[0]).toMatchObject({ webTarget: { port: 3000 } });
+    expect(() => JSON.parse(captured.stdout())).not.toThrow();
+    expect(captured.stderr()).toContain("Is this the current project's service?");
   });
 });
