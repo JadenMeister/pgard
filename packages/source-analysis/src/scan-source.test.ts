@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -74,7 +82,7 @@ describe("scanSourceCode", () => {
     expect(coverage["source:symlinks"]).toMatchObject({
       status: "completed",
       ruleIds: [],
-      note: "1 symbolic link(s) to source files were not followed.",
+      note: expect.stringMatching(/^1 symbolic link\(s\) were not followed \(set [0-9a-f]{8}\)\.$/),
     });
     expect(coverage["source:go"]?.note).toMatch(/syntax-level/);
     expect(coverage["source:react"]?.ruleIds).toEqual(["PG-XSS-002"]);
@@ -320,5 +328,44 @@ describe("describeSkippedDependencyDirectories", () => {
     // Long paths keep their last characters.
     expect(note).toContain("…");
     expect(note).toContain("p0/node_modules/");
+  });
+
+  describe("skip signals for later comparison", () => {
+    const area = (result: Awaited<ReturnType<typeof scanSourceCode>>, name: string) =>
+      result.coverage.find((entry) => entry.area === name);
+
+    it("counts a directory replaced by a symlink, and notices a swap with the same count", async () => {
+      const outside = project({ "x.ts": "export {};\n" });
+      const first = project({ "a/f.ts": "export {};\n", "b/g.ts": "export {};\n" });
+      const second = project({ "a/f.ts": "export {};\n", "b/g.ts": "export {};\n" });
+      const third = project({ "a/f.ts": "export {};\n", "b/g.ts": "export {};\n" });
+      rmSync(path.join(first, "a"), { recursive: true });
+      symlinkSync(outside, path.join(first, "a"), "dir");
+      rmSync(path.join(second, "b"), { recursive: true });
+      symlinkSync(outside, path.join(second, "b"), "dir");
+      const none = await scanSourceCode(third);
+      const one = await scanSourceCode(first);
+      const other = await scanSourceCode(second);
+      expect(area(none, "source:symlinks")).toBeUndefined();
+      expect(area(one, "source:symlinks")?.note).toMatch(/^1 symbolic link/);
+      expect(area(other, "source:symlinks")?.note).toMatch(/^1 symbolic link/);
+      expect(area(one, "source:symlinks")?.note).not.toBe(area(other, "source:symlinks")?.note);
+    });
+
+    const canChmod = process.platform !== "win32" && process.getuid?.() !== 0;
+    it.skipIf(!canChmod)("reports an unreadable directory as a partial area", async () => {
+      const root = project({ "ok/f.ts": "export {};\n", "locked/g.ts": "export {};\n" });
+      chmodSync(path.join(root, "locked"), 0o000);
+      try {
+        const result = await scanSourceCode(root);
+        expect(area(result, "source:unreadable")).toMatchObject({
+          status: "partial",
+          ruleIds: [],
+          note: expect.stringContaining("1 directory could not be read"),
+        });
+      } finally {
+        chmodSync(path.join(root, "locked"), 0o700);
+      }
+    });
   });
 });

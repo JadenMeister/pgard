@@ -1,5 +1,6 @@
 import {
   compareScans,
+  type AreaComparability,
   notComparableAreas,
   SCHEMA_VERSION,
   type NotComparableReason,
@@ -71,11 +72,19 @@ export function formatWarnings(warnings: readonly string[]): string[] {
 const BECAUSE_TEXT: Record<NotComparableReason, string> = {
   partial: "was only partially scanned",
   not_tested: "was not tested",
-  only_in_previous: "ran in only one of the two scans",
-  only_in_current: "ran in only one of the two scans",
+  only_in_previous: "was not in this scan's scope",
+  only_in_current: "was not in the last scan's scope",
   not_run: "was not run",
   other_origin: "used a different web address",
 };
+
+/** Rule-less areas are skip signals: they appear or change, they are not "out of scope". */
+function describeReason(area: AreaComparability): string {
+  if (area.reason === null) return "changed between the two scans";
+  if (!area.ownsRules && area.reason === "only_in_current") return "appeared since the last scan";
+  if (!area.ownsRules && area.reason === "only_in_previous") return "was only in the last scan";
+  return BECAUSE_TEXT[area.reason];
+}
 
 export interface RevisionInfo {
   previous: string | null;
@@ -101,7 +110,8 @@ export function formatComparisonLine(
     (pair) => pair.changed.includes("severity") || pair.changed.includes("status"),
   ).length;
   const uncertain = comparison.newInUncertainAreas.length;
-  const newText = `${comparison.new.length} new${uncertain > 0 ? ` (${uncertain} in partially scanned areas)` : ""}`;
+  const named = comparison.uncertainAreas.slice(0, 2).map((area) => safeText(area, 40));
+  const newText = `${comparison.new.length} new${uncertain > 0 ? ` (${uncertain} in areas not fully compared${named.length > 0 ? `: ${named.join(", ")}` : ""})` : ""}`;
   const details = [
     ...(comparison.moved.length > 0 ? [`${comparison.moved.length} moved`] : []),
     ...(rated > 0 ? [`${rated} changed severity or status`] : []),
@@ -118,13 +128,17 @@ export function formatComparisonLine(
   if (areas.length > 0) {
     const shown = areas
       .slice(0, 3)
-      .map((area) => `${safeText(area.area, 40)} ${BECAUSE_TEXT[area.reason ?? "not_run"]}`);
+      .map((area) => `${safeText(area.area, 40)} ${describeReason(area)}`);
     const more = areas.length > 3 ? `, and ${areas.length - 3} more area(s)` : "";
     const held = areas.reduce((sum, area) => sum + area.held, 0);
     line +=
       held > 0
         ? `. Some findings could not be compared because ${shown.join("; ")}${more}`
         : `. Not fully compared: ${shown.join("; ")}${more}`;
+  }
+  const explained = areas.reduce((sum, area) => sum + area.held, 0);
+  if (!comparison.toolVersionChanged && comparison.notComparable.length > 0 && explained === 0) {
+    line += `. ${comparison.notComparable.length} earlier finding(s) could not be checked`;
   }
   return line;
 }

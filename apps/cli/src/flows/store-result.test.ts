@@ -432,4 +432,25 @@ describe("comparison with the previous stored scan", () => {
     expect(line).toContain(", at abcdef1)");
     expect(line).toContain("1 changed severity or status");
   });
+
+  it("names the area in the new-findings qualifier and for a scope change", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, testResult({ scanId: "a", findings: [], coverage: [] })));
+    const next = testResult({
+      scanId: "b",
+      findings: [testFinding()],
+      coverage: [
+        {
+          area: "source:typescript",
+          scope: "code",
+          status: "completed",
+          ruleIds: ["PG-SQL-001"],
+          note: null,
+        },
+      ],
+    });
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, next));
+    const [line] = summaryLines(captured.stdout());
+    expect(line).toContain("1 new (1 in areas not fully compared: source:typescript)");
+    expect(line).toContain("source:typescript was not in the last scan's scope");
+  });
 });

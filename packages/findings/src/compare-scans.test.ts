@@ -479,4 +479,39 @@ describe("compareScans", () => {
       expect(result.moved[0]?.current.location.line).toBe(9);
     });
   });
+
+  describe("explanations", () => {
+    const JS = [cov("source:javascript", "code", "completed", ["PG-SQL-001"])];
+
+    it("lists a rule-less completed area whose note changed when it holds findings back", () => {
+      const note = (text: string): Coverage => ({
+        ...cov("source:symlinks", "code", "completed", []),
+        note: text,
+      });
+      const result = compareScans(
+        scan([finding()], [...JS, note("1 symbolic link(s) (set aaaaaaaa)")]),
+        scan([], [...JS, note("1 symbolic link(s) (set bbbbbbbb)")]),
+      );
+      expect(result.noLongerReported).toEqual([]);
+      expect(notComparableAreas(result).map((a) => a.area)).toEqual(["source:symlinks"]);
+    });
+
+    it("names the areas that made new findings uncertain", () => {
+      const partial = [cov("history:commits", "history", "partial", ["PG-SECRET-003"])];
+      const result = compareScans(scan([], partial), scan([historyFinding()], partial));
+      expect(result.uncertainAreas).toEqual(["history:commits"]);
+    });
+
+    it("an area that did not run last time is a scope change, not a partial area", () => {
+      const result = compareScans(
+        scan([], []),
+        scan([finding()], [cov("source:typescript", "code", "partial", ["PG-SQL-001"])]),
+      );
+      expect(result.areas.find((a) => a.area === "source:typescript")?.reason).toBe(
+        "only_in_current",
+      );
+      expect(result.new).toHaveLength(1);
+      expect(result.newInUncertainAreas).toHaveLength(1);
+    });
+  });
 });

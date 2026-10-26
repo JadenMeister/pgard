@@ -69,7 +69,8 @@ import { redactEvidence } from "./redact.js";
  *   area with no rules (a language PGARD detects but cannot analyze yet) blocks nothing.
  * It is also blocked when `tool.version` differs, since rules may have changed.
  * A pair found in both scans is always reported as unchanged or moved. Unpaired current findings
- * are always `new`; those with a blocking reason are also in `newInUncertainAreas`.
+ * are always `new`, including those from an area that did not run last time (a scope change); those
+ * with a blocking reason are also in `newInUncertainAreas`, and `uncertainAreas` names the areas.
  */
 
 export type NotComparableReason =
@@ -107,6 +108,8 @@ export interface ScanComparison {
   moved: ComparedPair[];
   /** Unpaired previous findings that could not be checked; never counted as gone. */
   notComparable: Finding[];
+  /** Areas that made some `new` finding uncertain, most findings first. */
+  uncertainAreas: string[];
   /** True when `tool.version` differs between the scans. */
   toolVersionChanged: boolean;
   /** Every area seen in either scan. */
@@ -241,11 +244,13 @@ function compareAreas(
     const ran = (entry: Coverage | undefined) =>
       entry !== undefined && entry.status !== "not_selected";
     let reason: NotComparableReason | null = null;
-    if (a?.status === "partial" || b?.status === "partial") reason = "partial";
-    else if (a?.status === "not_tested" || b?.status === "not_tested") reason = "not_tested";
-    else if (ran(a) && !ran(b)) reason = "only_in_previous";
+    // A scope change comes first: an area that did not run last time has no baseline at all, which
+    // is a different statement from "partially scanned".
+    if (ran(a) && !ran(b)) reason = "only_in_previous";
     else if (!ran(a) && ran(b)) reason = "only_in_current";
     else if (!ran(a) && !ran(b)) reason = "not_run";
+    else if (a?.status === "partial" || b?.status === "partial") reason = "partial";
+    else if (a?.status === "not_tested" || b?.status === "not_tested") reason = "not_tested";
     else if (isOriginChanged && scope === "web") reason = "other_origin";
     result.set(area, {
       area,
@@ -324,8 +329,10 @@ export function compareScans(previous: ScanResult, current: ScanResult): ScanCom
     moved: [],
     notComparable: [],
     toolVersionChanged,
+    uncertainAreas: [],
     areas: [],
   };
+  const uncertainCounts = new Map<string, number>();
   const hold = (blocking: string[]) => {
     for (const area of blocking) {
       const info = areas.get(area);
@@ -372,22 +379,28 @@ export function compareScans(previous: ScanResult, current: ScanResult): ScanCom
       if (blocking === null || blocking.length > 0) {
         comparison.newInUncertainAreas.push(finding);
         hold(blocking ?? []);
+        for (const area of blocking ?? []) {
+          uncertainCounts.set(area, (uncertainCounts.get(area) ?? 0) + 1);
+        }
       }
     });
   }
+  comparison.uncertainAreas = [...uncertainCounts.entries()]
+    .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+    .map(([area]) => area);
   comparison.areas = [...areas.values()];
   return comparison;
 }
 
 /**
- * Areas worth telling the user about: not comparable, requested by at least one scan, and either
- * rule-owning or holding back findings. Those holding back the most findings come first, so
+ * Areas worth telling the user about: any area holding findings back (this includes skip signals,
+ * which are "completed" but changed), and rule-owning areas that were not comparable. Those holding back the most findings come first, so
  * rule-less language-track entries ("detected, no rules yet") never crowd them out.
  */
 export function notComparableAreas(comparison: ScanComparison): AreaComparability[] {
   return comparison.areas
     .filter(
-      (area) => !area.comparable && area.reason !== "not_run" && (area.held > 0 || area.ownsRules),
+      (area) => area.held > 0 || (!area.comparable && area.reason !== "not_run" && area.ownsRules),
     )
     .sort(
       (a, b) =>

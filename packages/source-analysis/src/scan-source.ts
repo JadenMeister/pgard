@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import path from "node:path";
 import type { AnalyzerOutput, Coverage, Finding } from "@pgard/findings";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
@@ -377,14 +378,24 @@ export async function scanSourceCode(
       note: `${walk.skippedLarge} source file(s) over 1 MiB were skipped.`,
     });
   }
-  if (walk.skippedSymlinks > 0) {
-    // Informational: lets a later scan notice that a file it analyzed before is now a link.
+  if (walk.skippedSymlinks.length > 0) {
+    // Informational: a later scan compares this note, so a link that replaced a file or a
+    // directory (even with the same count) is noticed. The paths are hashed, not listed.
     coverage.push({
       area: "source:symlinks",
       scope: "code",
       status: "completed",
       ruleIds: [],
-      note: `${walk.skippedSymlinks} symbolic link(s) to source files were not followed.`,
+      note: `${walk.skippedSymlinks.length} symbolic link(s) were not followed (set ${fingerprintPaths(walk.skippedSymlinks)}).`,
+    });
+  }
+  if (walk.unreadableDirectories.length > 0) {
+    coverage.push({
+      area: "source:unreadable",
+      scope: "code",
+      status: "partial",
+      ruleIds: [],
+      note: `${walk.unreadableDirectories.length} director${walk.unreadableDirectories.length === 1 ? "y" : "ies"} could not be read, so files below ${walk.unreadableDirectories.length === 1 ? "it were" : "them were"} not analyzed (set ${fingerprintPaths(walk.unreadableDirectories)}).`,
     });
   }
   if (walk.skippedDependencyDirectories.length > 0) {
@@ -427,4 +438,12 @@ export async function scanSourceCode(
   });
 
   return { findings, coverage };
+}
+
+/** Short hash of a path set, so a note changes when the set changes without listing the paths. */
+function fingerprintPaths(paths: readonly string[]): string {
+  return createHash("sha256")
+    .update([...paths].sort().join("\n"))
+    .digest("hex")
+    .slice(0, 8);
 }
