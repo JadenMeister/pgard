@@ -642,3 +642,30 @@ describe("stored state that cannot be trusted", () => {
     }
   }, 60_000);
 });
+
+describe("cached entry content is checked, not only identity", () => {
+  it("analyzes a file again when a cached finding's severity, line or evidence was edited", async () => {
+    const repo = setup();
+    const first = await scan(repo, null);
+    for (const change of <Record<string, unknown>[]>[
+      { severity: "low" },
+      { status: "informational" },
+      { evidence: "nothing to see" },
+      { location: { kind: "file", path: "src/a.js", line: 999, url: null, commit: null } },
+    ]) {
+      const tampered: Stored = {
+        result: first.result,
+        state: {
+          ...(first.state as IncrementalState),
+          code: (first.state?.code ?? []).map((entry) =>
+            entry.path === "src/a.js"
+              ? { ...entry, findings: entry.findings.map((f) => ({ ...f, ...change })) }
+              : entry,
+          ),
+        },
+      };
+      const { incremental } = await expectSameAsFull(repo, tampered, JSON.stringify(change));
+      expect(incremental.result.incremental?.filesRescanned).toBe(1);
+    }
+  }, 60_000);
+});

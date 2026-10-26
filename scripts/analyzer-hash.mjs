@@ -18,6 +18,27 @@ const INPUTS = [
   "packages/scan-core/src",
 ];
 
+/** Third-party code the analyzers run on (parsers, compilers): declared and resolved versions. */
+function dependencyInputs() {
+  const lock = JSON.parse(readFileSync(path.join(root, "package-lock.json"), "utf8"));
+  const lines = [];
+  for (const directory of INPUTS) {
+    const manifest = JSON.parse(
+      readFileSync(path.join(root, directory, "..", "package.json"), "utf8"),
+    );
+    for (const [name, range] of Object.entries(manifest.dependencies ?? {}).sort()) {
+      if (name.startsWith("@pgard/")) continue;
+      const resolved =
+        lock.packages?.[`packages/${path.basename(path.dirname(directory))}/node_modules/${name}`]
+          ?.version ??
+        lock.packages?.[`node_modules/${name}`]?.version ??
+        "unresolved";
+      lines.push(`${directory} ${name} ${range} ${resolved}`);
+    }
+  }
+  return lines;
+}
+
 function isTestFile(relative) {
   return (
     /\.test\.tsx?$/.test(relative) ||
@@ -38,6 +59,7 @@ function listFiles(directory) {
 
 export function computeAnalyzerHash() {
   const hash = createHash("sha256");
+  hash.update(`${dependencyInputs().join("\n")}\n`);
   for (const relative of INPUTS.flatMap(listFiles).sort()) {
     // Line endings differ between checkouts; the logic does not.
     const text = readFileSync(path.join(root, relative), "utf8").replace(/\r\n/g, "\n");
@@ -58,7 +80,9 @@ if (process.argv.includes("--check")) {
     // missing
   }
   if (current !== expected) {
-    console.error(`${OUTPUT} is out of date: run \`node scripts/analyzer-hash.mjs\`.`);
+    console.error(
+      `${OUTPUT} is out of date: run \`npm run build\` and commit packages/scan-core/src/analyzer-hash.ts.`,
+    );
     process.exit(1);
   }
 } else {

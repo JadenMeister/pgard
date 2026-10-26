@@ -100,6 +100,21 @@ function entriesAreStructurallySound(entries: readonly CachedSourceFile[]): bool
 }
 
 /**
+ * Severity, status, line, rule, evidence and (unless the result lowered it for test or vendored
+ * code) confidence of a cached finding against the stored one. A difference only costs a re-scan.
+ */
+function sameContent(cached: Finding, stored: Finding): boolean {
+  return (
+    cached.ruleId === stored.ruleId &&
+    cached.severity === stored.severity &&
+    cached.status === stored.status &&
+    cached.location.line === stored.location.line &&
+    cached.evidence === stored.evidence &&
+    (stored.context !== undefined || cached.confidence === stored.confidence)
+  );
+}
+
+/**
  * Entries whose findings are the findings the stored result lists for that file (compared by
  * id among file-local rules). An entry that disagrees (emptied, extended or edited) is dropped,
  * so its file is analyzed again instead of trusting the cache.
@@ -108,7 +123,7 @@ function entriesAgreeingWithResult(
   entries: readonly CachedSourceFile[],
   result: ScanResult,
 ): CachedSourceFile[] {
-  const listed = new Map<string, Set<string>>();
+  const listed = new Map<string, Map<string, Finding[]>>();
   for (const finding of result.findings) {
     const filePath = finding.location.path;
     if (
@@ -119,14 +134,21 @@ function entriesAgreeingWithResult(
     ) {
       continue;
     }
-    let ids = listed.get(filePath);
-    if (ids === undefined) listed.set(filePath, (ids = new Set()));
-    ids.add(finding.id);
+    let byId = listed.get(filePath);
+    if (byId === undefined) listed.set(filePath, (byId = new Map()));
+    byId.set(finding.id, [...(byId.get(finding.id) ?? []), finding]);
   }
   return entries.filter((entry) => {
-    const expected = listed.get(entry.path) ?? new Set<string>();
+    const expected = listed.get(entry.path) ?? new Map<string, Finding[]>();
     const cached = new Set(entry.findings.map((finding) => finding.id));
-    return expected.size === cached.size && [...cached].every((id) => expected.has(id));
+    if (expected.size !== cached.size || ![...cached].every((id) => expected.has(id))) return false;
+    // Same identity is not enough: what a finding says must be what the stored result says (a
+    // finding of one id may stand for several equal ones that were merged).
+    return [...expected.values()].every((listedFindings) =>
+      listedFindings.every((stored) =>
+        entry.findings.some((own) => own.id === stored.id && sameContent(own, stored)),
+      ),
+    );
   });
 }
 
