@@ -12,7 +12,7 @@ import {
   ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
-  formatOutsideContexts,
+  formatNoFindings,
   formatSuppressionReason,
   reportSuppressionNotices,
   BASELINE_FINDINGS_NOTE,
@@ -256,7 +256,7 @@ export function renderPdfReport(
       line(
         doc,
         style,
-        `No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
+        `${formatNoFindings({ test: test.length, vendored: vendored.length, suppressed }, hasBaseline)} This is not a statement that the project is secure; check coverage above.`,
       );
     }
     for (const finding of primary) writeFinding(doc, style, finding, lang, hasBaseline);

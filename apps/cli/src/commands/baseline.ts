@@ -63,8 +63,20 @@ export async function runBaseline(
   const name = safeText(outcome.repo ?? "this repository", 120);
 
   if (action === "clear") {
-    const removed = await store.clearBaseline(repositoryId);
-    out(context, removed ? `Baseline of ${name} cleared.` : `There was no baseline for ${name}.`);
+    const cleared = await store.clearBaseline(repositoryId);
+    if (!cleared.ok) {
+      err(
+        context,
+        context.errStyle.red(
+          `The baseline of ${name} could not be cleared: ${safeText(cleared.error.message, 200)}`,
+        ),
+      );
+      return EXIT_CODES.partial;
+    }
+    out(
+      context,
+      cleared.removed ? `Baseline of ${name} cleared.` : `There was no baseline for ${name}.`,
+    );
     return EXIT_CODES.ok;
   }
   if (action === "show") {

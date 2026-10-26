@@ -593,7 +593,7 @@ describe("runScan applies suppressions", () => {
     expect(byPath["src/db.ts"]?.suppression).toBeUndefined();
     expect(result.suppressions).toMatchObject({ suppressed: 1, critical: 0, incomplete: false });
     expect(coverageOf(result, "source:config")?.note).toContain(
-      "1 suppression (1 finding suppressed)",
+      "1 suppression (1 finding suppressed (1 high), WARNING: 1 suppressed finding is high or critical)",
     );
     expect(coverageOf(result, "source:config")?.note).not.toContain("not yet applied");
     expect(result.overallStatus).toBe(plain.overallStatus);
@@ -647,5 +647,30 @@ describe("runScan applies suppressions", () => {
     });
     const result = await scan(root, ["code", "history"]);
     expect(result.findings.filter((f) => f.suppression !== undefined)).toHaveLength(1);
+  });
+});
+
+describe("suppressions never turn a partial scan into a completed one", () => {
+  it("stays partial with every finding suppressed, and the coverage statuses are untouched", async () => {
+    const files = { ...SOURCES };
+    const plainRoot = project(files);
+    const plain = await scan(plainRoot, ["code", "web"]);
+    expect(plain.overallStatus).toBe("partial");
+    const root = project({
+      ...files,
+      "pgard.config.json": JSON.stringify({
+        version: 1,
+        suppressions: [
+          { ruleId: "PG-SQL-001", path: "**", reason: "all good", expires: "2026-12-31" },
+        ],
+      }),
+    });
+    const result = await scan(root, ["code", "web"]);
+    expect(result.overallStatus).toBe("partial");
+    expect(result.findings.every((f) => f.suppression !== undefined)).toBe(true);
+    const statuses = (r: typeof result) =>
+      r.coverage.filter((c) => c.area !== "source:config").map((c) => [c.area, c.status]);
+    expect(statuses(result)).toEqual(statuses(plain));
+    expect(coverageOf(result, "source:config")?.note).toContain("(3 high)");
   });
 });

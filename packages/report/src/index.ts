@@ -5,6 +5,7 @@ export {
   formatContextCounts,
   formatVendoredSuggestions,
   formatFindingSummary,
+  formatNoFindings,
   formatSuppressionReason,
   reportSuppressionNotices,
   BASELINE_FINDINGS_NOTE,

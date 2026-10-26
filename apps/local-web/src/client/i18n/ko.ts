@@ -185,8 +185,12 @@ export const ko: Messages = {
         `pgard.config.json의 testDirectories 설정이 발견 항목 ${count}건을 테스트 코드로 분류했습니다(따로 나열되고 신뢰도는 최대 낮음으로 제한). 검토하세요.`,
     },
     suppressionNotice: {
-      critical: (count) =>
-        `억제된 발견 항목 중 ${count}건이 치명적입니다. "억제됨" 목록에 그대로 나열되어 있으니 pgard.config.json의 사유를 확인하세요.`,
+      severe: (count, high, critical) =>
+        `억제된 발견 항목 중 ${count}건이 높음 또는 치명적입니다(높음 ${high}건, 치명적 ${critical}건). "억제됨" 목록에 그대로 나열되어 있으니 pgard.config.json의 사유를 확인하세요.`,
+      total: (count) =>
+        `억제 항목이 몇 개든 합쳐서 발견 항목 ${count}건(10건 초과)이 억제되었습니다.`,
+      far: (ruleId, path, expires) =>
+        `${ruleId}의 억제 항목(${JSON.stringify(path)})은 ${expires}까지로 1년이 넘게 남았습니다. 억제 항목은 정기적으로 검토해야 합니다.`,
       wildcard: (ruleId, path, count) =>
         `${ruleId}의 억제 항목이 ${JSON.stringify(path)}를 사용합니다. 모든 파일, 그 규칙의 모든 발견 항목에 해당합니다 (${count}건 억제).`,
       broad: (ruleId, path, count) =>
@@ -258,8 +262,8 @@ export const ko: Messages = {
     impact: "영향",
     recommendation: "권장 조치",
     noMatch: "필터에 맞는 발견 항목이 없습니다.",
-    noFindings: (outside) =>
-      `실행된 영역에서${outside} 발견 항목이 없습니다. 프로젝트가 안전하다는 뜻은 아니므로 coverage를 확인하세요.`,
+    noFindings: (outside, suppressed, breakdown) =>
+      `실행된 영역에서${outside} ${suppressed > 0 ? "억제되지 않은 " : ""}발견 항목이 없습니다${suppressed > 0 ? ` (억제됨 ${suppressed}건${breakdown === "" ? "" : `: ${breakdown}`})` : ""}. 프로젝트가 안전하다는 뜻은 아니므로 coverage를 확인하세요.`,
     outsideTestAndVendored: " 테스트·fixture·vendored 코드를 제외하고",
     outsideTest: " 테스트·fixture 코드를 제외하고",
     outsideVendored: " vendored 코드를 제외하고",
@@ -281,16 +285,17 @@ export const ko: Messages = {
     vendoredSuggestions: (count, severe) =>
       `vendored 코드의 제안 ${count}건${severe === "" ? "" : ` (${severe})`}`,
     plus: (parts) => `그 외 ${parts}`,
-    suppressedCount: (count, critical) =>
-      `억제됨 ${count}건${critical > 0 ? ` (치명적 ${critical}건 포함)` : ""}`,
-    baselineCount: (matched, fresh) => `기준선: 기준선에 있음 ${matched}건, 새 항목 ${fresh}건`,
+    suppressedCount: (count, breakdown) =>
+      `억제됨 ${count}건${breakdown === "" ? "" : ` (${breakdown})`}`,
+    baselineCount: (matched, fresh, breakdown) =>
+      `기준선: 기준선에 있음 ${matched}건${breakdown === "" ? "" : ` (${breakdown})`}, 새 항목 ${fresh}건`,
     baselineInBaseline: (count) => `기준선에 있음 ${count}건`,
     suppressedTitle: (count) => `억제됨 (${count})`,
     suppressedAria: "억제된 발견 항목",
     suppressedNote:
       "이 항목들은 검사 대상 저장소의 파일인 pgard.config.json의 억제 항목에 해당했습니다. 여기와 JSON 결과에는 그대로 보고됩니다. 사유는 PGARD가 아니라 그 파일의 문구입니다. 치명적 항목이 있는 구역은 펼쳐져 있습니다.",
     suppressedReason: (reason, expires) =>
-      `pgard.config.json으로 억제됨: "${reason}"${expires === "" ? "" : ` (만료 ${expires})`}`,
+      `pgard.config.json으로 억제됨: ${JSON.stringify(reason)}${expires === "" ? "" : ` (만료 ${expires})`}`,
     baselineTitle: (count) => `기준선에 있음 (${count})`,
     baselineAria: "기준선에 있는 발견 항목",
     baselineNote:

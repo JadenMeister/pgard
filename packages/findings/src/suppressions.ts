@@ -1,8 +1,10 @@
-import type {
-  Finding,
-  ScanResult,
-  SuppressionEntryResult,
-  SuppressionSummary,
+import {
+  SEVERITIES,
+  type Finding,
+  type ScanResult,
+  type Severity,
+  type SuppressionEntryResult,
+  type SuppressionSummary,
 } from "./contract.js";
 import {
   MAX_GLOB_WORK,
@@ -38,6 +40,13 @@ import type { ProjectSuppression } from "./project-config.js";
 /** An active entry that matches more findings than this is flagged in the notices. */
 export const BROAD_SUPPRESSION_THRESHOLD = 10;
 
+/**
+ * An `expires` date further ahead than this is flagged. A suppression is a promise to look again;
+ * a year is the longest review cycle that is still a cycle, and `9999-12-31` is no expiry at all.
+ */
+export const MAX_SUPPRESSION_HORIZON_DAYS = 366;
+
+const MS_PER_DAY = 86_400_000;
 const DAY = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 /** True when `expires` (`YYYY-MM-DD`) is before today in UTC. Unparseable counts as expired. */
@@ -45,6 +54,42 @@ export function isSuppressionExpired(expires: string | undefined, now: Date): bo
   if (expires === undefined) return false;
   if (!DAY.test(expires)) return true;
   return now.toISOString().slice(0, 10) > expires;
+}
+
+/** True when `expires` is more than `MAX_SUPPRESSION_HORIZON_DAYS` after `now` (UTC dates). */
+export function isFarExpiry(expires: string | undefined, now: Date): boolean {
+  if (expires === undefined || !DAY.test(expires)) return false;
+  const end = Date.parse(`${expires}T00:00:00Z`);
+  const today = Date.parse(`${now.toISOString().slice(0, 10)}T00:00:00Z`);
+  return end - today > MAX_SUPPRESSION_HORIZON_DAYS * MS_PER_DAY;
+}
+
+/** Findings per severity, every severity present. */
+export function countBySeverity(
+  findings: readonly Pick<Finding, "severity">[],
+): Record<Severity, number> {
+  const counts = Object.fromEntries(SEVERITIES.map((severity) => [severity, 0])) as Record<
+    Severity,
+    number
+  >;
+  for (const finding of findings) {
+    if (finding.severity in counts) counts[finding.severity] += 1;
+  }
+  return counts;
+}
+
+/** "1 critical, 5 high": the non-zero severities, worst first; empty when there are none. */
+export function formatSeverityBreakdown(counts: Readonly<Record<Severity, number>>): string {
+  return SEVERITIES.filter((severity) => counts[severity] > 0)
+    .map((severity) => `${counts[severity]} ${severity}`)
+    .join(", ");
+}
+
+/** " (12 suppressed: 12 high)" for the "No findings" sentence; empty when nothing is suppressed. */
+export function formatSuppressedSuffix(suppressed: readonly Pick<Finding, "severity">[]): string {
+  return suppressed.length === 0
+    ? ""
+    : ` (${suppressed.length} suppressed: ${formatSeverityBreakdown(countBySeverity(suppressed))})`;
 }
 
 export interface AppliedSuppressions {
@@ -56,6 +101,7 @@ export interface AppliedSuppressions {
 interface Compiled {
   source: ProjectSuppression;
   expired: boolean;
+  far: boolean;
   wildcard: boolean;
   matcher: PathMatcher | null;
   matched: number;
@@ -75,6 +121,7 @@ export function applySuppressions(
     return {
       source,
       expired,
+      far: !expired && isFarExpiry(source.expires, now),
       wildcard,
       matcher: expired || wildcard ? null : compilePathMatcher([source.path], maxWork),
       matched: 0,
@@ -94,8 +141,8 @@ export function applySuppressions(
     if (entry.matcher.exhausted || spent > maxWork) incomplete = true;
     return matched && !entry.matcher.exhausted;
   };
-  let critical = 0;
   let suppressed = 0;
+  const suppressedFindings: Finding[] = [];
   const result = findings.map((finding): Finding => {
     let applied: ProjectSuppression | null = null;
     for (const entry of active) {
@@ -106,8 +153,7 @@ export function applySuppressions(
     }
     if (applied === null || incomplete) return finding;
     suppressed += 1;
-    if (finding.severity === "critical") critical += 1;
-    return {
+    const marked: Finding = {
       ...finding,
       suppression: {
         reason: applied.reason,
@@ -115,6 +161,8 @@ export function applySuppressions(
         source: "pgard.config.json",
       },
     };
+    suppressedFindings.push(marked);
+    return marked;
   });
   const entries: SuppressionEntryResult[] = compiled.map((entry) => ({
     ruleId: entry.source.ruleId,
@@ -124,30 +172,50 @@ export function applySuppressions(
     state: entry.expired ? "expired" : "active",
     matched: entry.matched,
     wildcard: entry.wildcard,
+    farExpiry: entry.far,
   }));
+  const bySeverity = countBySeverity(suppressedFindings);
   return {
     findings: result,
-    summary: { source: "pgard.config.json", suppressed, critical, entries, incomplete },
+    summary: {
+      source: "pgard.config.json",
+      suppressed,
+      critical: bySeverity.critical,
+      bySeverity,
+      entries,
+      incomplete,
+    },
   };
 }
 
 export type SuppressionNoticeKind =
-  "critical" | "wildcard" | "broad" | "expired" | "incomplete" | "everything";
+  | "severe"
+  | "wildcard"
+  | "broad"
+  | "total"
+  | "expired"
+  | "far"
+  | "noexpiry"
+  | "incomplete"
+  | "everything";
 
 export interface SuppressionNotice {
   kind: SuppressionNoticeKind;
   text: string;
-  /** Entry the notice is about (not for `critical`, `incomplete` or `everything`). */
+  /** Entry the notice is about (only for `wildcard`, `broad`, `expired` and `far`). */
   ruleId?: string;
   path?: string;
   expires?: string;
   count?: number;
-  /** Always `warning`: a suppression notice is never merely informational. */
-  tone: "warning";
+  /** `severe` only. */
+  high?: number;
+  critical?: number;
+  /** `warning` is shown prominently everywhere; `info` (no expiry date) only in the terminal. */
+  tone: "warning" | "info";
 }
 
 /**
- * Warnings every front end shows above the findings. Derived from the result alone (the summary
+ * Notices every front end shows above the findings. Derived from the result alone (the summary
  * and the findings), so the terminal, HTML and PDF reports and the dashboard agree.
  */
 export function suppressionNotices(
@@ -157,6 +225,8 @@ export function suppressionNotices(
   if (summary === undefined) return [];
   const notices: SuppressionNotice[] = [];
   const total = result.findings.length;
+  const suppressed = result.findings.filter((finding) => finding.suppression !== undefined);
+  const counts = countBySeverity(suppressed);
   if (summary.suppressed > 0 && summary.suppressed === total) {
     notices.push({
       kind: "everything",
@@ -165,12 +235,23 @@ export function suppressionNotices(
       text: `Every finding of this scan (${total}) is suppressed by pgard.config.json. They are all listed under "Suppressed"; review the reasons before relying on this result.`,
     });
   }
-  if (summary.critical > 0) {
+  const severe = counts.critical + counts.high;
+  if (severe > 0) {
     notices.push({
-      kind: "critical",
-      count: summary.critical,
+      kind: "severe",
+      count: severe,
+      high: counts.high,
+      critical: counts.critical,
       tone: "warning",
-      text: `${summary.critical} suppressed finding${summary.critical === 1 ? " is" : "s are"} critical. ${summary.critical === 1 ? "It is" : "They are"} still listed in full under "Suppressed"; check the reason in pgard.config.json.`,
+      text: `${severe} suppressed finding${severe === 1 ? " is" : "s are"} high or critical (${counts.high} high, ${counts.critical} critical). ${severe === 1 ? "It is" : "They are"} still listed under "Suppressed"; check the reason in pgard.config.json.`,
+    });
+  }
+  if (summary.suppressed > BROAD_SUPPRESSION_THRESHOLD) {
+    notices.push({
+      kind: "total",
+      count: summary.suppressed,
+      tone: "warning",
+      text: `${summary.suppressed} findings are suppressed in total (more than ${BROAD_SUPPRESSION_THRESHOLD}), however many entries do it.`,
     });
   }
   for (const entry of summary.entries) {
@@ -184,7 +265,9 @@ export function suppressionNotices(
         tone: "warning",
         text: `The suppression of ${where} expired on ${entry.expires ?? "an unknown date"} and is not applied.`,
       });
-    } else if (entry.wildcard) {
+      continue;
+    }
+    if (entry.wildcard) {
       notices.push({
         kind: "wildcard",
         ruleId: entry.ruleId,
@@ -203,6 +286,27 @@ export function suppressionNotices(
         text: `The suppression of ${where} matches ${entry.matched} findings.`,
       });
     }
+    if (entry.farExpiry) {
+      notices.push({
+        kind: "far",
+        ruleId: entry.ruleId,
+        path: entry.path,
+        ...(entry.expires === undefined ? {} : { expires: entry.expires }),
+        tone: "warning",
+        text: `The suppression of ${where} runs until ${entry.expires ?? "?"}, more than a year ahead (limit: ${MAX_SUPPRESSION_HORIZON_DAYS} days). Suppressions should be reviewed regularly.`,
+      });
+    }
+  }
+  const undated = summary.entries.filter(
+    (entry) => entry.state === "active" && entry.expires === undefined,
+  ).length;
+  if (undated > 0) {
+    notices.push({
+      kind: "noexpiry",
+      count: undated,
+      tone: "info",
+      text: `${undated} suppression${undated === 1 ? " has" : "s have"} no expiry date, so ${undated === 1 ? "it" : "they"} will never be reviewed again unless someone remembers.`,
+    });
   }
   if (summary.incomplete) {
     notices.push({
@@ -214,9 +318,10 @@ export function suppressionNotices(
   return notices;
 }
 
-/** "3 suppressed (including 1 critical)"; the critical part is always present when it applies. */
+/** "12 suppressed: 12 high": the count and what it hides, by severity. */
 export function formatSuppressedCount(
-  summary: Pick<SuppressionSummary, "suppressed" | "critical">,
+  summary: Pick<SuppressionSummary, "suppressed" | "bySeverity">,
 ): string {
-  return `${summary.suppressed} suppressed${summary.critical > 0 ? ` (including ${summary.critical} critical)` : ""}`;
+  const breakdown = formatSeverityBreakdown(summary.bySeverity);
+  return `${summary.suppressed} suppressed${breakdown === "" ? "" : `: ${breakdown}`}`;
 }

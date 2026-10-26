@@ -13,7 +13,7 @@ import {
   ANALYSIS_BASIS_NOTE,
   formatFindingSummary,
   formatLocation,
-  formatOutsideContexts,
+  formatNoFindings,
   formatSuppressionReason,
   reportSuppressionNotices,
   BASELINE_FINDINGS_NOTE,
@@ -183,7 +183,7 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
   const target = result.target;
   const findingsHtml =
     primary.length === 0
-      ? `<p>No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
+      ? `<p>${escapeHtml(formatNoFindings({ test: test.length, vendored: vendored.length, suppressed }, hasBaseline))} This is not a statement that the project is secure; check coverage below.</p>`
       : primary.map((finding) => renderFinding(finding, lang, hasBaseline)).join("\n");
   const testFindingsHtml =
     test.length === 0

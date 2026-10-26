@@ -177,13 +177,11 @@ export function buildFindingsView(
       visible: filterFindings(parts.baseline, filters),
     },
   ].filter((section) => section.total > 0);
-  const suppressedCritical = parts.suppressed.filter(
-    (finding) => finding.severity === "critical",
-  ).length;
+  const suppressedBreakdown = formatSeverityBreakdown(parts.suppressed, m);
   const extraParts = [
     ...(parts.suppressed.length === 0
       ? []
-      : [m.findings.suppressedCount(parts.suppressed.length, suppressedCritical)]),
+      : [m.findings.suppressedCount(parts.suppressed.length, suppressedBreakdown)]),
     ...(parts.baseline.length === 0 ? [] : [m.findings.baselineInBaseline(parts.baseline.length)]),
   ];
   const baseNote = formatContextCounts({ test: groups.test.length, vendored: groups.vendored }, m);
@@ -203,10 +201,22 @@ export function buildFindingsView(
       visible.length > 0
         ? null
         : groups.primary.length === 0
-          ? m.findings.noFindings(formatOutsideContexts(contextCounts, m))
+          ? m.findings.noFindings(
+              formatOutsideContexts(contextCounts, m),
+              parts.suppressed.length,
+              suppressedBreakdown,
+            )
           : m.findings.noMatch,
     sections,
   };
+}
+
+/** "1 critical, 5 high": the non-zero severities, worst first; empty when there are none. */
+export function formatSeverityBreakdown(findings: readonly Finding[], m: Messages = en): string {
+  const counts = countBySeverity(findings);
+  return SEVERITY_ORDER.filter((severity) => counts[severity] > 0)
+    .map((severity) => `${counts[severity]} ${m.severityInline[severity]}`)
+    .join(", ");
 }
 
 /** Same wording as `formatOutsideContexts` in @pgard/report. */

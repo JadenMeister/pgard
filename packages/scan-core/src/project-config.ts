@@ -5,6 +5,7 @@ import {
   MAX_PROJECT_CONFIG_BYTES,
   PROJECT_CONFIG_FILE,
   compileGlob,
+  formatSeverityBreakdown,
   matchesEverything,
   parseProjectConfig,
   type Coverage,
@@ -111,9 +112,14 @@ const MAX_PROBLEM_NOTE = 220;
 function describeSuppressions(parsed: number, summary: SuppressionSummary | null): string {
   const noun = `${parsed} suppression${parsed === 1 ? "" : "s"}`;
   if (summary === null) return noun;
+  const breakdown = formatSeverityBreakdown(summary.bySeverity);
+  const severe = summary.bySeverity.critical + summary.bySeverity.high;
   const expired = summary.entries.filter((entry) => entry.state === "expired").length;
   const details = [
-    `${summary.suppressed} finding${summary.suppressed === 1 ? "" : "s"} suppressed${summary.critical > 0 ? ` (including ${summary.critical} critical)` : ""}`,
+    `${summary.suppressed} finding${summary.suppressed === 1 ? "" : "s"} suppressed${breakdown === "" ? "" : ` (${breakdown})`}`,
+    ...(severe > 0
+      ? [`WARNING: ${severe} suppressed finding${severe === 1 ? " is" : "s are"} high or critical`]
+      : []),
     ...(expired > 0 ? [`${expired} expired, not applied`] : []),
     ...(summary.incomplete ? ["matching stopped early"] : []),
   ];

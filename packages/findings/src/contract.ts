@@ -250,6 +250,8 @@ export interface SuppressionEntryResult {
   matched: number;
   /** The path pattern matches every file (`**`, `*`), so the rule is suppressed everywhere. */
   wildcard: boolean;
+  /** `expires` is more than a year ahead (`MAX_SUPPRESSION_HORIZON_DAYS`): flagged in the notices. */
+  farExpiry: boolean;
 }
 
 /**
@@ -262,6 +264,8 @@ export interface SuppressionSummary {
   suppressed: number;
   /** Of those, how many are critical (a critical finding may be suppressed, never silently). */
   critical: number;
+  /** Suppressed findings per severity (adds up to `suppressed`). */
+  bySeverity: Record<Severity, number>;
   entries: SuppressionEntryResult[];
   /** True when the pattern work budget ran out: later findings were checked against no entry. */
   incomplete: boolean;
@@ -275,9 +279,15 @@ export interface BaselineSummary {
   revision: string | null;
   /** Findings in the baseline scan. */
   total: number;
-  /** Findings of this result that are in the baseline (flagged `inBaseline`). */
+  /**
+   * Findings of this result that are in the baseline (flagged `inBaseline`) and not suppressed:
+   * the size of the "In baseline" group. A suppressed finding is counted under `suppressions` only.
+   */
   matched: number;
-  /** Findings of this result that are not in the baseline. */
+  /**
+   * Findings of this result that are neither in the baseline nor suppressed. Includes test and
+   * vendored findings, which the headline "New findings" count leaves out.
+   */
   new: number;
   /** Of `new`, how many sit in areas the baseline did not fully cover (they may be old). */
   newInUncertainAreas: number;

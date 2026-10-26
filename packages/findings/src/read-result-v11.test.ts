@@ -46,6 +46,7 @@ const SUMMARY = {
   source: "pgard.config.json",
   suppressed: 1,
   critical: 0,
+  bySeverity: { critical: 0, high: 1, medium: 0, low: 0, info: 0 },
   incomplete: false,
   entries: [
     {
@@ -56,6 +57,7 @@ const SUMMARY = {
       state: "active",
       matched: 1,
       wildcard: false,
+      farExpiry: false,
     },
   ],
 };

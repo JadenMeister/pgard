@@ -1,5 +1,6 @@
 import { compareScans } from "./compare-scans.js";
 import type { BaselineSummary, Finding, ScanResult } from "./contract.js";
+import { countBySeverity, formatSeverityBreakdown } from "./suppressions.js";
 
 /**
  * Baseline: a stored scan of the same repository that the user accepted as the reference
@@ -9,7 +10,13 @@ import type { BaselineSummary, Finding, ScanResult } from "./contract.js";
  *
  * Matching uses exactly the identity and one-to-one pairing of the scan comparison
  * (`compareScans`): the same issue on another line is still "in baseline", a second copy of it
- * is new. Suppressed findings are matched like any other.
+ * is new.
+ *
+ * Suppressed findings are left out of a baseline (`baselineSnapshot`): a suppression is a
+ * temporary, expiring statement, and a finding the baseline swallowed together with it would stay
+ * hidden after the suppression is removed or expires. Left out, it comes back as new then. A
+ * suppressed finding of the current scan is still matched (it keeps `suppression` and gets
+ * `inBaseline`), but it is counted under the suppressions only, never as "in baseline" or "new".
  */
 
 export interface AppliedBaseline {
@@ -23,7 +30,9 @@ export function applyBaseline(
   baseline: ScanResult,
   setAt: Date,
 ): AppliedBaseline {
-  const comparison = compareScans(baseline, current);
+  // An older baseline may still hold suppressed findings: they do not count as accepted.
+  const accepted = baselineSnapshot(baseline);
+  const comparison = compareScans(accepted, current);
   const known = new Set<Finding>(
     [...comparison.unchanged, ...comparison.moved].map((pair) => pair.current),
   );
@@ -31,13 +40,15 @@ export function applyBaseline(
     if (!known.has(finding)) return finding;
     return { ...finding, inBaseline: true };
   });
+  const isOpen = (finding: Finding) => finding.suppression === undefined;
+  const matched = [...known].filter(isOpen).length;
   const summary: BaselineSummary = {
     setAt: setAt.toISOString(),
     scanId: baseline.scanId,
     revision: baseline.target.revision,
-    total: baseline.findings.length,
-    matched: known.size,
-    new: current.findings.length - known.size,
+    total: accepted.findings.length,
+    matched,
+    new: current.findings.filter((finding) => isOpen(finding) && !known.has(finding)).length,
     newInUncertainAreas: comparison.newInUncertainAreas.length,
     toolVersionChanged: comparison.toolVersionChanged,
   };
@@ -53,6 +64,18 @@ export function stripBaselineMarks(result: ScanResult): ScanResult {
       const { inBaseline: _inBaseline, ...plain } = finding;
       return plain;
     }),
+  };
+}
+
+/**
+ * What a baseline is stored as: the result without the marks of an earlier baseline and without
+ * suppressed findings.
+ */
+export function baselineSnapshot(result: ScanResult): ScanResult {
+  const stripped = stripBaselineMarks(result);
+  return {
+    ...stripped,
+    findings: stripped.findings.filter((finding) => finding.suppression === undefined),
   };
 }
 
@@ -85,9 +108,13 @@ export function baselineNotices(summary: BaselineSummary | undefined): BaselineN
   return notices;
 }
 
-/** "12 in baseline, 3 new (baseline set 2026-10-20)". */
-export function formatBaselineCounts(summary: BaselineSummary): string {
-  return `${summary.matched} in baseline, ${summary.new} new`;
+/** "6 in baseline (1 critical, 5 high), 0 new"; the breakdown comes from the baseline group. */
+export function formatBaselineCounts(
+  summary: BaselineSummary,
+  inBaseline: readonly Pick<Finding, "severity">[] = [],
+): string {
+  const breakdown = formatSeverityBreakdown(countBySeverity(inBaseline));
+  return `${summary.matched} in baseline${breakdown === "" ? "" : ` (${breakdown})`}, ${summary.new} new`;
 }
 
 export interface FindingPartition {

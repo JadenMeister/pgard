@@ -1,7 +1,7 @@
 import {
   applyBaseline,
   SEVERITIES,
-  stripBaselineMarks,
+  baselineSnapshot,
   summarizeBySeverity,
   type ScanResult,
 } from "@pgard/findings";
@@ -82,8 +82,7 @@ export function describeFindings(result: ScanResult): string {
   const parts = SEVERITIES.filter((severity) => counts[severity] > 0).map(
     (severity) => `${counts[severity]} ${severity}`,
   );
-  const suppressed = result.findings.filter((finding) => finding.suppression !== undefined).length;
-  return `${result.findings.length} finding${result.findings.length === 1 ? "" : "s"}${parts.length > 0 ? ` (${parts.join(", ")})` : ""}${suppressed > 0 ? `, ${suppressed} of them suppressed by pgard.config.json` : ""}`;
+  return `${result.findings.length} finding${result.findings.length === 1 ? "" : "s"}${parts.length > 0 ? ` (${parts.join(", ")})` : ""}`;
 }
 
 /**
@@ -101,7 +100,7 @@ export async function storeBaseline(
 ): Promise<ExitCode> {
   const home = context.io.env.HOME ?? context.io.env.USERPROFILE ?? "";
   const forbidSubstrings = home.length > 3 ? [projectRoot, home] : [projectRoot];
-  const saved = await store.setBaseline(stripBaselineMarks(result), {
+  const saved = await store.setBaseline(baselineSnapshot(result), {
     repositoryId,
     forbidSubstrings,
   });
@@ -113,10 +112,20 @@ export async function storeBaseline(
     return EXIT_CODES.partial;
   }
   const when = savedAt === null ? "this scan" : `the scan of ${formatScanTime(savedAt)}`;
+  const snapshot = baselineSnapshot(result);
+  const left = result.findings.length - snapshot.findings.length;
   out(
     context,
-    `Baseline set from ${when}: ${describeFindings(result)}. Later scans list the findings that match it under "In baseline" and highlight the new ones. Nothing is hidden.`,
+    `Baseline set from ${when}: ${describeFindings(snapshot)}. Later scans list the findings that match it under "In baseline" and highlight the new ones. Nothing is hidden.`,
   );
+  if (left > 0) {
+    out(
+      context,
+      context.style.yellow(
+        `! ${left} finding${left === 1 ? " is" : "s are"} suppressed by pgard.config.json and ${left === 1 ? "was" : "were"} left out of the baseline: ${left === 1 ? "it" : "they"} will read as new when the suppression is removed or expires.`,
+      ),
+    );
+  }
   if (result.overallStatus !== "completed") {
     out(
       context,

@@ -1,6 +1,9 @@
 import {
   SEVERITIES,
   baselineNotices,
+  countBySeverity,
+  formatSeverityBreakdown,
+  formatSuppressedSuffix,
   formatBaselineCounts,
   partitionFindings,
   splitFindingsByContext,
@@ -249,6 +252,17 @@ export const BASELINE_FINDINGS_NOTE =
  * (headline counts), test or fixture code, and suggestions in committed third-party (vendored)
  * code. Every finding is in exactly one list.
  */
+/**
+ * The "No findings ..." sentence: "No findings outside test or fixture code in the areas that
+ * ran", and "No unsuppressed findings ... (12 suppressed: 12 high)" when anything is suppressed.
+ */
+export function formatNoFindings(
+  groups: { test: number; vendored: number; suppressed: readonly Pick<Finding, "severity">[] },
+  isNew = false,
+): string {
+  return `No ${isNew ? "new " : ""}${groups.suppressed.length > 0 ? "unsuppressed " : ""}findings${formatOutsideContexts(groups)} in the areas that ran${formatSuppressedSuffix(groups.suppressed)}.`;
+}
+
 export function groupReportFindings(findings: readonly Finding[]): {
   primary: Finding[];
   test: Finding[];
@@ -266,7 +280,9 @@ export function groupReportFindings(findings: readonly Finding[]): {
  */
 export function reportSuppressionNotices(result: ScanResult): string[] {
   return [
-    ...suppressionNotices(result).map((notice) => notice.text),
+    ...suppressionNotices(result)
+      .filter((notice) => notice.tone === "warning")
+      .map((notice) => notice.text),
     ...baselineNotices(result.baseline)
       .filter((notice) => notice.tone === "warning")
       .map((notice) => notice.text),
@@ -277,7 +293,8 @@ export function reportSuppressionNotices(result: ScanResult): string[] {
 export function formatSuppressionReason(finding: Finding): string {
   const suppression = finding.suppression;
   if (suppression === undefined) return "";
-  return `Suppressed by ${suppression.source}: "${suppression.reason}"${suppression.expires === undefined ? "" : ` (expires ${suppression.expires})`}`;
+  // The reason is quoted as JSON, so a quote inside it cannot fake the "(expires ...)" suffix.
+  return `Suppressed by ${suppression.source}: ${JSON.stringify(suppression.reason)}${suppression.expires === undefined ? "" : ` (expires ${suppression.expires})`}`;
 }
 
 /**
@@ -332,17 +349,17 @@ export function formatFindingSummary(
 ): string {
   const { primary, test, vendored, suppressed, baseline } = groupReportFindings(findings);
   const split = summarizeStatusSplit(primary);
-  const critical = suppressed.filter((finding) => finding.severity === "critical").length;
+  const breakdown = formatSeverityBreakdown(countBySeverity(suppressed));
   const showSuppressed = suppressed.length > 0 || result?.suppressions !== undefined;
   return (
     (result?.baseline === undefined
       ? ""
-      : `Baseline: ${formatBaselineCounts(result.baseline)}. New findings: `) +
+      : `Baseline: ${formatBaselineCounts(result.baseline, baseline)}. New findings: `) +
     `${primary.length} finding(s): ${split.confirmed} confirmed, ${split.suspected} suspected, ${split.informational} informational.` +
     (test.length === 0 ? "" : ` ${test.length} more in test or fixture code, listed separately.`) +
     (vendored.length === 0 ? "" : ` ${formatVendoredSuggestions(vendored)}, listed last.`) +
     (showSuppressed
-      ? ` ${suppressed.length} suppressed by pgard.config.json${critical > 0 ? ` (including ${critical} critical)` : ""}, listed separately.`
+      ? ` ${suppressed.length} suppressed by pgard.config.json${breakdown === "" ? "" : ` (${breakdown})`}, listed separately.`
       : "") +
     (baseline.length === 0 ? "" : ` ${baseline.length} in baseline, listed separately.`)
   );

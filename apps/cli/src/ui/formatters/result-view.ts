@@ -1,6 +1,9 @@
 import {
   SEVERITIES,
   baselineNotices,
+  countBySeverity,
+  formatSeverityBreakdown,
+  formatSuppressedSuffix,
   formatBaselineCounts,
   partitionFindings,
   suppressionNotices,
@@ -213,7 +216,9 @@ export function formatConfigNotices(coverage: readonly Coverage[], style: Style)
 export function formatSuppressionNotices(result: ScanResult, style: Style): string[] {
   return [
     ...suppressionNotices(result).map((notice) =>
-      style.yellow(style.bold(`! ${safeText(notice.text, 400)}`)),
+      notice.tone === "warning"
+        ? style.yellow(style.bold(`! ${safeText(notice.text, 400)}`))
+        : style.dim(`  ${safeText(notice.text, 400)}`),
     ),
     ...baselineNotices(result.baseline).map((notice) =>
       notice.tone === "warning"
@@ -223,20 +228,28 @@ export function formatSuppressionNotices(result: ScanResult, style: Style): stri
   ];
 }
 
+/** " (1 critical, 5 high)", or "" when the list is empty. */
+function breakdownOf(findings: readonly Finding[]): string {
+  const text = formatSeverityBreakdown(countBySeverity(findings));
+  return text === "" ? "" : ` (${text})`;
+}
+
 /** The always-visible count lines: suppressed (with critical) and baseline. */
 export function formatSuppressionAndBaselineCounts(result: ScanResult, style: Style): string[] {
   const lines: string[] = [];
   if (result.suppressions !== undefined) {
     lines.push(
       style.bold(
-        `Suppressed by pgard.config.json: ${result.suppressions.suppressed}${result.suppressions.critical > 0 ? ` (including ${result.suppressions.critical} critical)` : ""}`,
+        `Suppressed by pgard.config.json: ${result.suppressions.suppressed}${breakdownOf(result.findings.filter((f) => f.suppression !== undefined))}`,
       ),
     );
   }
   if (result.baseline !== undefined) {
     const when = result.baseline.setAt.slice(0, 10);
     lines.push(
-      style.bold(`Baseline (set ${safeText(when, 10)}): ${formatBaselineCounts(result.baseline)}`),
+      style.bold(
+        `Baseline (set ${safeText(when, 10)}): ${formatBaselineCounts(result.baseline, partitionFindings(result.findings).baseline)}`,
+      ),
     );
   }
   return lines;
@@ -268,7 +281,7 @@ function formatSuppressedGroups(findings: readonly Finding[], style: Style, all:
         suppression?.expires === undefined ? "" : ` (expires ${safeText(suppression.expires, 10)})`;
       return [
         style.dim(
-          `  Reason from pgard.config.json: "${safeText(suppression?.reason ?? "", 300)}"${expires}`,
+          `  Reason from pgard.config.json: ${JSON.stringify(safeText(suppression?.reason ?? "", 300))}${expires}`,
         ),
         formatGroups(members, style, all),
       ].join("\n");
@@ -381,9 +394,7 @@ export function formatScanResult(
     ...(vendored.length === 0 ? [] : [formatVendoredSuggestions(vendored)]),
     ...(partition.suppressed.length === 0
       ? []
-      : [
-          `${partition.suppressed.length} suppressed${partition.suppressed.some(isCritical) ? ` (including ${partition.suppressed.filter(isCritical).length} critical)` : ""}`,
-        ]),
+      : [`${partition.suppressed.length} suppressed${breakdownOf(partition.suppressed)}`]),
     ...(partition.baseline.length === 0 ? [] : [`${partition.baseline.length} in baseline`]),
   ];
   sections.push(
@@ -405,7 +416,7 @@ export function formatScanResult(
   if (primary.length === 0) {
     sections.push(
       "",
-      `No ${hasBaseline ? "new " : ""}findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; see coverage.`,
+      `No ${hasBaseline ? "new " : ""}${partition.suppressed.length > 0 ? "unsuppressed " : ""}findings${formatOutsideContexts(contextCounts)} in the areas that ran${formatSuppressedSuffix(partition.suppressed)}. This does not mean the project is secure; see coverage.`,
     );
   }
   const nonReal = [...test, ...vendored];

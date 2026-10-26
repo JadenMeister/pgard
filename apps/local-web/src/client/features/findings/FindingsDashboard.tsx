@@ -18,6 +18,8 @@ import {
   buildFindingsView,
   EMPTY_FILTERS,
   formatLocation,
+  formatSeverityBreakdown,
+  partitionFindings,
   type FindingFilters,
 } from "./filter-findings";
 
@@ -112,7 +114,11 @@ export function FindingsDashboard({
       </p>
       {result.baseline !== undefined && (
         <p className="muted">
-          {m.findings.baselineCount(result.baseline.matched, result.baseline.new)}
+          {m.findings.baselineCount(
+            result.baseline.matched,
+            result.baseline.new,
+            formatSeverityBreakdown(partitionFindings(result.findings).baseline, m),
+          )}
         </p>
       )}
       <div className="charts">

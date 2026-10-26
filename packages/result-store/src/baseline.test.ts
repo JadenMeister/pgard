@@ -1,4 +1,15 @@
-import { mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { SCHEMA_VERSION, type Finding, type ScanResult } from "@pgard/findings";
@@ -113,8 +124,8 @@ describe("baseline storage", () => {
   it("clears only the baseline, and says whether there was one", async () => {
     await store.save(makeResult({ scanId: "kept" }), { repositoryId: REPO_ID });
     await store.setBaseline(makeResult(), { repositoryId: REPO_ID });
-    expect(await store.clearBaseline(REPO_ID)).toBe(true);
-    expect(await store.clearBaseline(REPO_ID)).toBe(false);
+    expect(await store.clearBaseline(REPO_ID)).toEqual({ ok: true, removed: true });
+    expect(await store.clearBaseline(REPO_ID)).toEqual({ ok: true, removed: false });
     expect(await store.getBaseline(REPO_ID)).toEqual({ ok: true, baseline: null });
     expect((await store.list(REPO_ID)).scans).toHaveLength(1);
   });
@@ -242,7 +253,7 @@ describe.skipIf(!isPosix)("symlink refusal", () => {
     const target = path.join(base, "elsewhere.txt");
     await writeFile(target, "keep");
     await symlink(target, baselineFile());
-    expect(await store.clearBaseline(REPO_ID)).toBe(true);
+    expect(await store.clearBaseline(REPO_ID)).toEqual({ ok: true, removed: true });
     expect(await readFile(target, "utf8")).toBe("keep");
   });
 
@@ -303,5 +314,88 @@ describe("history clear", () => {
     expect(outcome.baselinesRemoved).toBe(0);
     expect(outcome.warnings.join(" ")).toContain("baseline");
     expect(await readdir(repoDir())).toContain("baseline.json");
+  });
+});
+
+describe("hardening", () => {
+  it("is not used for another repository id, even when the file is moved there", async () => {
+    await store.setBaseline(makeResult(), { repositoryId: REPO_ID });
+    await store.save(makeResult({ scanId: "x" }), { repositoryId: REPO_ID + 1 });
+    await copyFile(baselineFile(), path.join(dir, "repos", String(REPO_ID + 1), "baseline.json"));
+    expect(await store.getBaseline(REPO_ID + 1)).toMatchObject({
+      ok: false,
+      error: { code: "invalid_input", message: expect.stringContaining("another repository") },
+    });
+  });
+
+  it("refuses a file without a repository id", async () => {
+    await store.setBaseline(makeResult(), { repositoryId: REPO_ID });
+    const text = (await readFile(baselineFile(), "utf8")).replace(`"repositoryId":${REPO_ID},`, "");
+    await writeFile(baselineFile(), text);
+    expect((await store.getBaseline(REPO_ID)).ok).toBe(false);
+  });
+
+  it.skipIf(!isPosix)("refuses a file that other users can write", async () => {
+    await store.setBaseline(makeResult(), { repositoryId: REPO_ID });
+    for (const mode of [0o620, 0o602, 0o666]) {
+      await chmod(baselineFile(), mode);
+      expect(await store.getBaseline(REPO_ID)).toMatchObject({
+        ok: false,
+        error: { code: "permissions" },
+      });
+    }
+    await chmod(baselineFile(), 0o644);
+    expect((await store.getBaseline(REPO_ID)).ok).toBe(true);
+  });
+
+  it.skipIf(!isPosix)("reports a failed clear instead of 'there was none'", async () => {
+    await store.save(makeResult({ scanId: "x" }), { repositoryId: REPO_ID });
+    // A directory where the file should be: unlink fails with something other than "absent".
+    await mkdir(baselineFile());
+    await writeFile(path.join(baselineFile(), "x"), "");
+    expect((await store.clearBaseline(REPO_ID)).ok).toBe(false);
+  });
+
+  it("refuses a result over the size cap", async () => {
+    const big = makeResult({
+      findings: Array.from({ length: 100 }, (_, index) => ({
+        ...makeFinding(),
+        id: `f${index}`,
+        evidence: "x".repeat(90_000),
+      })),
+    });
+    expect(await store.setBaseline(big, { repositoryId: REPO_ID })).toMatchObject({
+      ok: false,
+      error: { code: "too_large" },
+    });
+    expect(await store.getBaseline(REPO_ID)).toEqual({ ok: true, baseline: null });
+  });
+
+  it("refuses a result whose gate did not pass every check, whatever its status says", async () => {
+    const checks = makeResult().authorization.checks;
+    const failedCheck = makeResult({
+      authorization: {
+        decision: "allowed",
+        checks: checks.map((check) =>
+          check.id === "owner_approval" ? { ...check, status: "failed" as const } : check,
+        ),
+      },
+    });
+    const blockedDecision = makeResult({ authorization: { decision: "blocked", checks } });
+    const missingCheck = makeResult({
+      authorization: { decision: "allowed", checks: checks.slice(1) },
+    });
+    for (const result of [failedCheck, blockedDecision, missingCheck]) {
+      expect(await store.setBaseline(result, { repositoryId: REPO_ID })).toMatchObject({
+        ok: false,
+        error: { code: "not_allowed" },
+      });
+    }
+  });
+
+  it("is not replaced by a result of the wrong status either", async () => {
+    expect(
+      await store.setBaseline(makeResult({ overallStatus: "blocked" }), { repositoryId: REPO_ID }),
+    ).toMatchObject({ ok: false, error: { code: "not_allowed" } });
   });
 });

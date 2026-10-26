@@ -103,6 +103,8 @@ export interface StoredScan {
 export interface StoredBaseline {
   /** When the user set it. */
   setAt: Date;
+  /** The repository id (from the gate) it was set for; checked against the id it is read for. */
+  repositoryId: number;
   /** The redacted result the baseline was made from. */
   result: ScanResult;
   /** The `schemaVersion` the scan inside the file carried. */
@@ -110,6 +112,8 @@ export interface StoredBaseline {
 }
 
 export type SetBaselineOutcome = { ok: true } | { ok: false; error: StoreError };
+export type ClearBaselineOutcome =
+  { ok: true; removed: boolean } | { ok: false; error: StoreError };
 export type GetBaselineOutcome =
   { ok: true; baseline: StoredBaseline | null } | { ok: false; error: StoreError };
 
@@ -179,8 +183,8 @@ export interface ResultStore {
   setBaseline(result: ScanResult, options: SaveOptions): Promise<SetBaselineOutcome>;
   /** The baseline, or `baseline: null` when there is none. A corrupt file is an error, not "none". */
   getBaseline(repositoryId: number): Promise<GetBaselineOutcome>;
-  /** Deletes the baseline; true when there was one. */
-  clearBaseline(repositoryId: number): Promise<boolean>;
+  /** Deletes the baseline: `removed` is false when there was none; a failure is an error. */
+  clearBaseline(repositoryId: number): Promise<ClearBaselineOutcome>;
   clear(options?: ClearOptions): Promise<ClearOutcome>;
   /** True exactly once per store directory (the caller prints the first-run notice then). */
   claimFirstRunNotice(): Promise<boolean>;
@@ -306,7 +310,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
   }
 
   /** Reads a regular file without following a symlink, capped before parsing. */
-  async function readCapped(file: string): Promise<string> {
+  async function readCapped(file: string, refuseWritableByOthers = false): Promise<string> {
     const before = await lstat(file);
     if (before.isSymbolicLink() || !before.isFile()) {
       throw new StoreFailure("symlink", "Not a regular file (symbolic links are never followed).");
@@ -316,6 +320,12 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       const stat = await handle.stat();
       if (!stat.isFile() || stat.ino !== before.ino || stat.dev !== before.dev) {
         throw new StoreFailure("symlink", "The file changed while it was opened.");
+      }
+      if (refuseWritableByOthers && isPosix && (stat.mode & 0o022) !== 0) {
+        throw new StoreFailure(
+          "permissions",
+          "The file can be written by other users, so it is not trusted. Delete it and set it again.",
+        );
       }
       if (stat.size > MAX_RESULT_FILE_BYTES) {
         throw new StoreFailure(
@@ -438,7 +448,8 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       record === null ||
       record.kind !== BASELINE_KIND ||
       record.version !== BASELINE_VERSION ||
-      typeof record.setAt !== "string"
+      typeof record.setAt !== "string" ||
+      !isRepositoryId(record.repositoryId)
     ) {
       throw new StoreFailure("invalid_input", "The baseline file is not a PGARD baseline.");
     }
@@ -450,7 +461,12 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     if (!outcome.ok) {
       throw new StoreFailure("invalid_input", `${outcome.error.code}: ${outcome.error.message}`);
     }
-    return { setAt, result: outcome.result, sourceVersion: outcome.sourceVersion };
+    return {
+      setAt,
+      repositoryId: record.repositoryId,
+      result: outcome.result,
+      sourceVersion: outcome.sourceVersion,
+    };
   }
 
   async function listFiles(dir: string): Promise<string[]> {
@@ -582,6 +598,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
           kind: BASELINE_KIND,
           version: BASELINE_VERSION,
           setAt: new Date(now()).toISOString(),
+          repositoryId: saveOptions.repositoryId,
           result: checked.result,
         })}\n`;
         for (const forbidden of saveOptions.forbidSubstrings ?? []) {
@@ -620,8 +637,15 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
           throw error;
         }
         try {
-          const text = await readCapped(path.join(dir, BASELINE_FILE));
-          return { ok: true, baseline: parseBaseline(text) };
+          const text = await readCapped(path.join(dir, BASELINE_FILE), true);
+          const baseline = parseBaseline(text);
+          if (baseline.repositoryId !== repositoryId) {
+            throw new StoreFailure(
+              "invalid_input",
+              "The baseline was set for another repository and is not used.",
+            );
+          }
+          return { ok: true, baseline };
         } catch (error) {
           if (errnoOf(error) === "ENOENT") return { ok: true, baseline: null };
           throw error;
@@ -632,17 +656,22 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     },
 
     async clearBaseline(repositoryId) {
-      if (!isRepositoryId(repositoryId)) return false;
+      if (!isRepositoryId(repositoryId)) return { ok: true, removed: false };
       try {
         const dir = path.join(reposDir, String(repositoryId));
-        await ensureDirectory(root, false);
-        await ensureDirectory(reposDir, false);
-        await ensureDirectory(dir, false);
-        // unlink removes a symlink itself and never follows it.
-        await unlink(path.join(dir, BASELINE_FILE));
-        return true;
-      } catch {
-        return false;
+        try {
+          await ensureDirectory(root, false);
+          await ensureDirectory(reposDir, false);
+          await ensureDirectory(dir, false);
+          // unlink removes a symlink itself and never follows it.
+          await unlink(path.join(dir, BASELINE_FILE));
+        } catch (error) {
+          if (errnoOf(error) === "ENOENT") return { ok: true, removed: false };
+          throw error;
+        }
+        return { ok: true, removed: true };
+      } catch (error) {
+        return { ok: false, error: toStoreError(error) };
       }
     },
 

@@ -32,7 +32,7 @@ const MAX_REPORTED_PROBLEMS = 10;
 const RULE_ID = /^PG-[A-Z0-9]{2,12}-\d{3}$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f]/;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
 
 export interface ProjectSuppression {
   ruleId: string;

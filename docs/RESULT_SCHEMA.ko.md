@@ -46,10 +46,10 @@
 
 - `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: `pgard.config.json`의 활성 억제 항목이 해당 발견 항목에 맞았을 때만 있습니다. 발견 항목은 결과에 그대로 남습니다.
 - `Finding.inBaseline?: true`: 저장소의 기준선(`pgard baseline set`)에 그 발견 항목이 있을 때만(검사 비교와 같은 식별 방식) 있습니다. `false`는 없고, 필드가 없으면 기준선에 없거나 기준선이 없다는 뜻입니다.
-- `ScanResult.suppressions?: { source; suppressed; critical; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard }[]; incomplete }`: 설정에 억제 항목이 하나 이상 있을 때 있습니다. `suppressed`는 `suppression`이 붙은 발견 항목 수, `critical`은 그중 치명적인 수, `matched`는 항목이 맞는 발견 항목 수(만료된 항목은 0), `wildcard`는 항목의 경로가 모든 파일에 맞는지, `incomplete`는 매칭 작업량 한도를 넘었는지(그 뒤 발견 항목은 억제되지 않음)를 뜻합니다.
-- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: 기준선이 적용되었을 때 있습니다. `matched`는 `inBaseline`이 붙은 발견 항목 수, `new`는 나머지, `total`은 기준선 검사의 발견 항목 수입니다.
+- `ScanResult.suppressions?: { source; suppressed; critical; bySeverity; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard; farExpiry }[]; incomplete }`: 설정에 억제 항목이 하나 이상 있을 때 있습니다. `suppressed`는 `suppression`이 붙은 발견 항목 수, `critical`은 그중 치명적인 수, `bySeverity`는 심각도별 수(합이 `suppressed`), `farExpiry`는 `expires`가 366일을 넘게 남았는지, `matched`는 항목이 맞는 발견 항목 수(만료된 항목은 0), `wildcard`는 항목의 경로가 모든 파일에 맞는지, `incomplete`는 매칭 작업량 한도를 넘었는지(그 뒤 발견 항목은 억제되지 않음)를 뜻합니다.
+- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: 기준선이 적용되었을 때 있습니다. `matched`는 `inBaseline`이 붙었고 억제되지 않은 발견 항목 수("In baseline" 그룹의 크기), `new`는 기준선에도 없고 억제되지도 않은 발견 항목 수(테스트·vendored 항목 포함), `total`은 기준선 검사의 발견 항목 수입니다. 억제된 발견 항목은 저장되는 기준선에서 제외됩니다.
 
-새 최상위 객체 둘은 모두 선택적이며 다른 새 필드와 독립적입니다. 닫힌 값이 새로 생긴 것은 `SuppressionState`와 `source` 리터럴뿐이며, 여기에 새 값을 더하면 major 변경입니다. 억제나 기준선은 `overallStatus`, `coverage`, `authorization`을 바꾸지 않습니다. 상태는 coverage에서만 나옵니다.
+새 최상위 객체 둘은 모두 선택적이며 다른 새 필드와 독립적입니다. 닫힌 값이 새로 생긴 것은 `SuppressionState`와 `source` 리터럴뿐이며, 여기에 새 값을 더하면 major 변경입니다. 억제나 기준선은 `overallStatus`, 어떤 coverage 영역의 상태, `authorization`도 바꾸지 않습니다. 상태는 coverage에서만 나옵니다. 억제를 언급하는 coverage 문구는 개수를 세는 `source:config` 영역의 `note`뿐입니다.
 
 ## 버전이 들어가는 출력
 

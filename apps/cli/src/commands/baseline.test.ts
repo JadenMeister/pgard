@@ -1,7 +1,7 @@
-import { mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ScanResult } from "@pgard/findings";
+import { SCHEMA_VERSION, type ScanResult } from "@pgard/findings";
 import { createResultStore, type ResultStore } from "@pgard/result-store";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -254,7 +254,7 @@ describe("a scan with a baseline", () => {
     const text = captured.stdout();
     expect(code).toBe(0);
     expect(text).toContain("Baseline (set ");
-    expect(text).toContain("1 in baseline, 1 new");
+    expect(text).toContain("1 in baseline (1 high), 1 new");
     expect(text).toContain("New findings by severity (1 total)");
     expect(text).toContain("New findings since the baseline (1)");
     expect(text).toContain("Unescaped output");
@@ -320,5 +320,89 @@ describe("a scan with a baseline", () => {
     expect(await store.getBaseline(REPO_ID)).toEqual({ ok: true, baseline: null });
     expect(await readdir(base)).not.toContain("never");
     await expect(stat(path.join(base, "pgard", "repos"))).rejects.toThrow();
+  });
+});
+
+describe("baseline hardening in the CLI", () => {
+  it("reports a failed clear, not 'there was no baseline'", async () => {
+    const broken: ResultStore = {
+      ...store,
+      clearBaseline: async () => ({ ok: false, error: { code: "io", message: "disk gone" } }),
+    };
+    const { captured, code } = await baseline("clear", deps({ resultStore: broken }));
+    expect(code).toBe(4);
+    expect(captured.stderr()).toContain("could not be cleared: disk gone");
+    expect(captured.stdout()).not.toContain("There was no baseline");
+  });
+
+  it("does not apply a baseline written by a newer schema, and says so", async () => {
+    await storeScan(testResult({ scanId: "base", findings: [old] }));
+    await baseline("set");
+    const file = path.join(base, "pgard", "repos", String(REPO_ID), "baseline.json");
+    const text = (await readFile(file, "utf8")).replace(
+      `"schemaVersion":"${SCHEMA_VERSION}"`,
+      '"schemaVersion":"1.9"',
+    );
+    expect(text).toContain('"1.9"');
+    await writeFile(file, text);
+    const { captured } = await scan();
+    expect(captured.stderr()).toContain("newer than this PGARD understands");
+    expect(captured.stdout()).not.toContain("In baseline");
+    expect(captured.stdout()).toContain("Findings by severity (2 total)");
+  });
+
+  it("does not apply a baseline that belongs to another repository", async () => {
+    await storeScan(testResult({ scanId: "base", findings: [old] }));
+    await baseline("set");
+    const other = path.join(base, "pgard", "repos", "1");
+    await mkdir(other, { recursive: true });
+    await copyFile(
+      path.join(base, "pgard", "repos", String(REPO_ID), "baseline.json"),
+      path.join(other, "baseline.json"),
+    );
+    const { captured } = await scan(deps({ outcome: { ...OUTCOME, repositoryId: 1 } }));
+    expect(captured.stderr()).toContain("another repository");
+    expect(captured.stdout()).not.toContain("In baseline");
+  });
+
+  it("always lists a critical finding of the baseline in full, and summarizes the rest", async () => {
+    const critical = testFinding({
+      id: "crit",
+      severity: "critical",
+      title: "Hard-coded key",
+      location: { kind: "file", path: "src/key.ts", line: 1, url: null, commit: null },
+    });
+    await storeScan(testResult({ scanId: "base", findings: [old, critical] }));
+    await baseline("set");
+    const { captured } = await scan(deps({ result: testResult({ findings: [old, critical] }) }));
+    const text = captured.stdout();
+    expect(text).toContain("In baseline (2)");
+    expect(text).toContain("Hard-coded key");
+    expect(text).toContain("src/key.ts:1");
+    expect(text).toContain("1 not listed here (the critical ones are above)");
+    expect(text).not.toContain("src/api/users.ts:10");
+    expect(text).toContain("2 in baseline (1 critical, 1 high), 0 new");
+  });
+
+  it("says that suppressed findings were left out of the baseline", async () => {
+    const suppressed = {
+      ...old,
+      suppression: { reason: "r", source: "pgard.config.json" as const },
+    };
+    await storeScan(testResult({ findings: [suppressed, fresh] }));
+    const { captured } = await baseline("set");
+    expect(captured.stdout()).toContain("1 finding (1 high)");
+    expect(captured.stdout()).toContain(
+      "! 1 finding is suppressed by pgard.config.json and was left out",
+    );
+    const loaded = await store.getBaseline(REPO_ID);
+    expect(loaded.ok && loaded.baseline?.result.findings.map((f) => f.id)).toEqual(["fresh"]);
+  });
+
+  it("--from-current on a failed scan sets nothing and keeps the failure exit code", async () => {
+    const failed = testResult({ overallStatus: "failed", findings: [] });
+    const { code } = await baseline("set", deps({ result: failed }), { fromCurrent: true });
+    expect(code).toBe(5);
+    expect(await store.getBaseline(REPO_ID)).toEqual({ ok: true, baseline: null });
   });
 });

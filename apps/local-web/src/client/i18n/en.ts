@@ -201,8 +201,12 @@ export const en = {
         `${count} finding${count === 1 ? " was" : "s were"} classified as test code by the testDirectories setting of pgard.config.json (listed apart, confidence capped at low). Review ${count === 1 ? "it" : "them"}.`,
     },
     suppressionNotice: {
-      critical: (count: number): string =>
-        `${count} suppressed finding${count === 1 ? " is" : "s are"} critical. ${count === 1 ? "It is" : "They are"} still listed under "Suppressed"; check the reason in pgard.config.json.`,
+      severe: (count: number, high: number, critical: number): string =>
+        `${count} suppressed finding${count === 1 ? " is" : "s are"} high or critical (${high} high, ${critical} critical). ${count === 1 ? "It is" : "They are"} still listed under "Suppressed"; check the reason in pgard.config.json.`,
+      total: (count: number): string =>
+        `${count} findings are suppressed in total (more than 10), however many entries do it.`,
+      far: (ruleId: string, path: string, expires: string): string =>
+        `The suppression of ${ruleId} for ${JSON.stringify(path)} runs until ${expires}, more than a year ahead. Suppressions should be reviewed regularly.`,
       wildcard: (ruleId: string, path: string, count: number): string =>
         `The suppression of ${ruleId} uses ${JSON.stringify(path)}, which matches every file and every finding of that rule (${count} suppressed).`,
       broad: (ruleId: string, path: string, count: number): string =>
@@ -281,8 +285,8 @@ export const en = {
     impact: "Impact",
     recommendation: "Recommendation",
     noMatch: "No findings match the filters.",
-    noFindings: (outside: string): string =>
-      `No findings${outside} in the areas that ran. This does not mean the project is secure; check coverage.`,
+    noFindings: (outside: string, suppressed: number, breakdown: string): string =>
+      `No ${suppressed > 0 ? "unsuppressed " : ""}findings${outside} in the areas that ran${suppressed > 0 ? ` (${suppressed} suppressed${breakdown === "" ? "" : `: ${breakdown}`})` : ""}. This does not mean the project is secure; check coverage.`,
     outsideTestAndVendored: " outside test, fixture or vendored code",
     outsideTest: " outside test or fixture code",
     outsideVendored: " outside vendored code",
@@ -305,17 +309,17 @@ export const en = {
     vendoredSuggestions: (count: number, severe: string): string =>
       `${count} suggestion${count === 1 ? "" : "s"} in vendored code${severe === "" ? "" : ` (${severe})`}`,
     plus: (parts: string): string => `plus ${parts}`,
-    suppressedCount: (count: number, critical: number): string =>
-      `${count} suppressed${critical > 0 ? ` (including ${critical} critical)` : ""}`,
-    baselineCount: (matched: number, fresh: number): string =>
-      `baseline: ${matched} in baseline, ${fresh} new`,
+    suppressedCount: (count: number, breakdown: string): string =>
+      `${count} suppressed${breakdown === "" ? "" : ` (${breakdown})`}`,
+    baselineCount: (matched: number, fresh: number, breakdown: string): string =>
+      `baseline: ${matched} in baseline${breakdown === "" ? "" : ` (${breakdown})`}, ${fresh} new`,
     baselineInBaseline: (count: number): string => `${count} in baseline`,
     suppressedTitle: (count: number): string => `Suppressed (${count})`,
     suppressedAria: "Suppressed findings",
     suppressedNote:
       "These findings matched a suppression in pgard.config.json, a file of the scanned repository. They are still reported here and in the JSON result; the reasons are the file's own words, not PGARD's. A section with a critical finding is open.",
     suppressedReason: (reason: string, expires: string): string =>
-      `Suppressed by pgard.config.json: "${reason}"${expires === "" ? "" : ` (expires ${expires})`}`,
+      `Suppressed by pgard.config.json: ${JSON.stringify(reason)}${expires === "" ? "" : ` (expires ${expires})`}`,
     baselineTitle: (count: number): string => `In baseline (${count})`,
     baselineAria: "Findings in the baseline",
     baselineNote:

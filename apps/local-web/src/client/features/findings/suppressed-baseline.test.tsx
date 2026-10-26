@@ -94,7 +94,7 @@ describe("dashboard view model", () => {
     );
     const view = buildFindingsView(result.findings, EMPTY_FILTERS);
     expect(view.total).toBe(2);
-    expect(view.contextNote).toBe("plus 1 suppressed (including 1 critical)");
+    expect(view.contextNote).toBe("plus 1 suppressed (1 critical)");
     expect(view.sections.map((section) => section.kind)).toEqual(["suppressed"]);
     expect(view.counts.critical).toBe(0);
   });
@@ -125,8 +125,11 @@ describe("dashboard suppressed and baseline sections", () => {
       suppressed([at("a", "scripts/a.ts", { severity: "critical" })], [{ path: "scripts/**" }]),
     );
     expect(html).toMatch(/<details[^>]* open/);
-    expect(html).toContain("1 suppressed finding is critical");
-    expect(html).toContain("including 1 critical");
+    expect(html).toContain("1 suppressed finding is high or critical (0 high, 1 critical)");
+    expect(html).toContain("plus 1 suppressed (1 critical)");
+    expect(html).toContain(
+      "No unsuppressed findings in the areas that ran (1 suppressed: 1 critical)",
+    );
   });
 
   it("warns in Korean for a wildcard and an expired entry, and for everything suppressed", () => {
@@ -151,7 +154,7 @@ describe("dashboard suppressed and baseline sections", () => {
       NOW,
     );
     const html = render("en", result);
-    expect(html).toContain("baseline: 1 in baseline, 1 new");
+    expect(html).toContain("baseline: 1 in baseline (1 high), 1 new");
     expect(html).toContain("In baseline (1)");
     expect(html).toContain(">NEW<");
     expect(html.split(">NEW<")).toHaveLength(2);

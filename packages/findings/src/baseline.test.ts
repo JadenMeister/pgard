@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   applyBaseline,
+  baselineSnapshot,
   baselineNotices,
   formatBaselineCounts,
   partitionFindings,
@@ -187,5 +188,62 @@ describe("stripBaselineMarks", () => {
     expect(stripped.findings[0]?.inBaseline).toBeUndefined();
     expect(stripped.findings[0]?.id).toBe(result.findings[0]?.id);
     expect(Object.keys(stripped)).not.toContain("baseline");
+  });
+});
+
+describe("suppressed findings and the baseline", () => {
+  const suppress = (f: Finding): Finding => ({
+    ...f,
+    suppression: { reason: "r", source: "pgard.config.json" },
+  });
+
+  it("leaves suppressed findings out of the stored baseline", () => {
+    const snapshot = baselineSnapshot(scan([finding(), suppress(finding({ path: "x.ts" }))]));
+    expect(snapshot.findings).toHaveLength(1);
+    expect(snapshot.findings[0]?.suppression).toBeUndefined();
+  });
+
+  it("a finding the baseline held only while suppressed comes back as new", () => {
+    const baseline = scan([suppress(finding({ line: 3 }))]);
+    const { result, summary } = applyBaseline(scan([finding({ line: 3 })]), baseline, SET_AT);
+    expect(summary).toMatchObject({ total: 0, matched: 0, new: 1 });
+    expect(result.findings[0]?.inBaseline).toBeUndefined();
+  });
+
+  it("counts a suppressed finding under the suppressions only, matched or not", () => {
+    const baseline = scan([finding({ line: 3 })]);
+    const current = scan([
+      suppress(finding({ line: 3 })),
+      suppress(finding({ line: 3, path: "other.ts" })),
+      finding({ line: 3, path: "fresh.ts" }),
+    ]);
+    const { result, summary } = applyBaseline(current, baseline, SET_AT);
+    expect(summary).toMatchObject({ matched: 0, new: 1 });
+    // The suppressed one that is also in the baseline keeps both marks.
+    expect(result.findings[0]).toMatchObject({ inBaseline: true });
+    expect(result.findings[0]?.suppression).toBeDefined();
+    const parts = partitionFindings(result.findings);
+    expect(parts.suppressed).toHaveLength(2);
+    expect(parts.baseline).toHaveLength(0);
+    expect(parts.rest).toHaveLength(1);
+  });
+
+  it("writes the severity breakdown of the baseline group into the count line", () => {
+    const summary = {
+      setAt: "x",
+      scanId: "s",
+      revision: null,
+      total: 6,
+      matched: 6,
+      new: 0,
+      newInUncertainAreas: 0,
+      toolVersionChanged: false,
+    };
+    const group = [
+      finding({ severity: "critical" }),
+      ...Array.from({ length: 5 }, () => finding({ severity: "high" })),
+    ];
+    expect(formatBaselineCounts(summary, group)).toBe("6 in baseline (1 critical, 5 high), 0 new");
+    expect(formatBaselineCounts({ ...summary, matched: 0 })).toBe("0 in baseline, 0 new");
   });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Finding, ScanResult } from "./contract.js";
+import { compilePathMatcher } from "./glob.js";
 import type { ProjectSuppression } from "./project-config.js";
 import {
   BROAD_SUPPRESSION_THRESHOLD,
@@ -7,6 +8,9 @@ import {
   formatSuppressedCount,
   isSuppressionExpired,
   suppressionNotices,
+  MAX_SUPPRESSION_HORIZON_DAYS,
+  formatSuppressedSuffix,
+  isFarExpiry,
 } from "./suppressions.js";
 
 const NOW = new Date("2026-10-27T12:00:00Z");
@@ -42,6 +46,7 @@ const entry = (overrides: Partial<ProjectSuppression> = {}): ProjectSuppression 
   ruleId: "PG-SQL-001",
   path: "scripts/**",
   reason: "Admin-only script",
+  expires: "2027-01-31",
   ...overrides,
 });
 
@@ -63,6 +68,7 @@ describe("applySuppressions matching", () => {
     expect(applied.findings).toHaveLength(3);
     expect(applied.findings[0]?.suppression).toEqual({
       reason: "Admin-only script",
+      expires: "2027-01-31",
       source: "pgard.config.json",
     });
     expect(applied.findings[1]?.suppression).toBeUndefined();
@@ -187,26 +193,66 @@ describe("critical policy", () => {
     const critical = finding({ path: "scripts/a.ts", severity: "critical" });
     const high = finding({ path: "scripts/b.ts" });
     const applied = applySuppressions([critical, high], [entry()], NOW);
-    expect(applied.summary).toMatchObject({ suppressed: 2, critical: 1 });
+    expect(applied.summary).toMatchObject({
+      suppressed: 2,
+      critical: 1,
+      bySeverity: { critical: 1, high: 1, medium: 0, low: 0, info: 0 },
+    });
     expect(formatSuppressedCount(applied.summary as never)).toBe(
-      "2 suppressed (including 1 critical)",
+      "2 suppressed: 1 critical, 1 high",
     );
     const notices = suppressionNotices({
       suppressions: applied.summary ?? undefined,
       findings: [...applied.findings, finding()],
     });
-    expect(notices.map((n) => n.kind)).toEqual(["critical"]);
-    expect(notices[0]?.count).toBe(1);
+    expect(notices.map((n) => n.kind)).toEqual(["severe"]);
+    expect(notices[0]).toMatchObject({ count: 2, high: 1, critical: 1, tone: "warning" });
+    expect(notices[0]?.text).toContain(
+      "2 suppressed findings are high or critical (1 high, 1 critical)",
+    );
   });
 
-  it("omits 'including' when no critical finding is suppressed", () => {
-    expect(formatSuppressedCount({ suppressed: 3, critical: 0 })).toBe("3 suppressed");
+  it("warns for a high finding too, and for none below high", () => {
+    const high = applySuppressions([finding({ path: "scripts/a.ts" })], [entry()], NOW);
+    const medium = applySuppressions(
+      [finding({ path: "scripts/a.ts", severity: "medium" })],
+      [entry()],
+      NOW,
+    );
+    const kinds = (applied: typeof high) =>
+      suppressionNotices({
+        suppressions: applied.summary ?? undefined,
+        findings: [...applied.findings, finding()],
+      }).map((n) => n.kind);
+    expect(kinds(high)).toEqual(["severe"]);
+    expect(kinds(medium)).toEqual([]);
+  });
+
+  it("writes the severity breakdown into every count", () => {
+    expect(
+      formatSuppressedCount({
+        suppressed: 3,
+        bySeverity: { critical: 0, high: 0, medium: 3, low: 0, info: 0 },
+      }),
+    ).toBe("3 suppressed: 3 medium");
+    expect(
+      formatSuppressedCount({
+        suppressed: 0,
+        bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+      }),
+    ).toBe("0 suppressed");
+    expect(formatSuppressedSuffix([finding(), finding({ severity: "low" })])).toBe(
+      " (2 suppressed: 1 high, 1 low)",
+    );
+    expect(formatSuppressedSuffix([])).toBe("");
   });
 });
 
 describe("broad patterns", () => {
   const many = (count: number) =>
-    Array.from({ length: count }, (_, index) => finding({ path: `scripts/f${index}.ts` }));
+    Array.from({ length: count }, (_, index) =>
+      finding({ path: `scripts/f${index}.ts`, severity: "low" }),
+    );
 
   it("flags an entry that matches more findings than the threshold", () => {
     const applied = applySuppressions(many(BROAD_SUPPRESSION_THRESHOLD + 1), [entry()], NOW);
@@ -214,7 +260,7 @@ describe("broad patterns", () => {
       suppressions: applied.summary ?? undefined,
       findings: [...applied.findings, finding()],
     });
-    expect(notices.map((n) => n.kind)).toEqual(["broad"]);
+    expect(notices.map((n) => n.kind)).toEqual(["total", "broad"]);
     expect(notices[0]?.text).toContain(`${BROAD_SUPPRESSION_THRESHOLD + 1} findings`);
   });
 
@@ -267,7 +313,7 @@ describe("a malicious config", () => {
       findings: applied.findings,
     }).map((n) => n.kind);
     expect(kinds).toContain("everything");
-    expect(kinds).toContain("critical");
+    expect(kinds).toContain("severe");
     expect(kinds.filter((kind) => kind === "wildcard")).toHaveLength(5);
   });
 
@@ -278,6 +324,68 @@ describe("a malicious config", () => {
       NOW,
     );
     expect(suppressedOf(applied.findings)).toHaveLength(0);
+  });
+});
+
+describe("many narrow suppressions that each stay under the threshold", () => {
+  const twelve = Array.from({ length: 12 }, (_, index) =>
+    finding({ path: `src/mod${index}/db.ts`, status: "confirmed" }),
+  );
+  const entries = twelve.map((_, index) =>
+    entry({ path: `src/mod${index}/**`, expires: "2027-01-31", reason: "Reviewed, internal only" }),
+  );
+
+  it("is still flagged: severity, aggregate total, and the severity breakdown", () => {
+    const applied = applySuppressions([...twelve, finding({ path: "tests/a.ts" })], entries, NOW);
+    expect(applied.summary?.entries.every((e) => e.matched === 1)).toBe(true);
+    expect(applied.summary?.bySeverity.high).toBe(12);
+    const notices = suppressionNotices({
+      suppressions: applied.summary ?? undefined,
+      findings: applied.findings,
+    });
+    expect(notices.map((n) => n.kind)).toEqual(["severe", "total"]);
+    expect(notices[0]?.text).toContain(
+      "12 suppressed findings are high or critical (12 high, 0 critical)",
+    );
+    expect(notices[1]?.text).toContain("12 findings are suppressed in total");
+    expect(formatSuppressedCount(applied.summary as never)).toBe("12 suppressed: 12 high");
+  });
+});
+
+describe("expiry horizon", () => {
+  it("flags an entry more than a year ahead, not one a year ahead", () => {
+    expect(MAX_SUPPRESSION_HORIZON_DAYS).toBe(366);
+    expect(isFarExpiry("2027-10-28", NOW)).toBe(false); // 366 days
+    expect(isFarExpiry("2027-10-29", NOW)).toBe(true);
+    expect(isFarExpiry("9999-12-31", NOW)).toBe(true);
+    expect(isFarExpiry(undefined, NOW)).toBe(false);
+    expect(isFarExpiry("garbage", NOW)).toBe(false);
+  });
+
+  it("puts a warning for a far expiry and a quiet info line for entries without a date", () => {
+    const applied = applySuppressions(
+      [
+        finding({ path: "scripts/a.ts", severity: "low" }),
+        finding({ path: "tools/a.ts", severity: "low" }),
+      ],
+      [entry({ expires: "9999-12-31" }), entry({ path: "tools/**", expires: undefined })],
+      NOW,
+    );
+    expect(applied.summary?.entries.map((e) => e.farExpiry)).toEqual([true, false]);
+    const notices = suppressionNotices({
+      suppressions: applied.summary ?? undefined,
+      findings: [...applied.findings, finding()],
+    });
+    expect(notices.map((n) => [n.kind, n.tone])).toEqual([
+      ["far", "warning"],
+      ["noexpiry", "info"],
+    ]);
+    expect(notices[0]?.text).toContain("more than a year ahead");
+  });
+
+  it("does not call an expired entry far or undated", () => {
+    const applied = applySuppressions([], [entry({ expires: "2020-01-01" })], NOW);
+    expect(applied.summary?.entries[0]?.farExpiry).toBe(false);
   });
 });
 
@@ -304,5 +412,59 @@ describe("notices", () => {
     expect(suppressionNotices({ findings: [finding()] } as Pick<ScanResult, "findings">)).toEqual(
       [],
     );
+  });
+});
+
+describe("work budget boundary", () => {
+  const pattern = "scripts/*.ts";
+  const paths = ["scripts/a.ts", "scripts/b.ts", "scripts/c.ts", "scripts/d.ts", "scripts/e.ts"];
+
+  function costOfOne(): number {
+    const matcher = compilePathMatcher([pattern]);
+    matcher.matches("scripts/a.ts");
+    return matcher.work;
+  }
+
+  it("suppresses what fits in the budget, not the finding that crosses it, and nothing after", () => {
+    const cost = costOfOne();
+    expect(cost).toBeGreaterThan(0);
+    const applied = applySuppressions(
+      paths.map((path) => finding({ path, severity: "low" })),
+      [entry({ path: pattern })],
+      NOW,
+      Math.floor(cost * 2.5),
+    );
+    expect(applied.findings.map((f) => f.suppression !== undefined)).toEqual([
+      true,
+      true,
+      false,
+      false,
+      false,
+    ]);
+    expect(applied.summary).toMatchObject({ suppressed: 2, incomplete: true });
+    expect(applied.findings).toHaveLength(paths.length);
+  });
+
+  it("is complete when the budget is exactly what the matching needs", () => {
+    const cost = costOfOne();
+    const applied = applySuppressions(
+      paths.map((path) => finding({ path, severity: "low" })),
+      [entry({ path: pattern })],
+      NOW,
+      cost * paths.length,
+    );
+    expect(applied.summary).toMatchObject({ suppressed: paths.length, incomplete: false });
+  });
+
+  it("one more unit short and the last finding is not suppressed", () => {
+    const cost = costOfOne();
+    const applied = applySuppressions(
+      paths.map((path) => finding({ path, severity: "low" })),
+      [entry({ path: pattern })],
+      NOW,
+      cost * paths.length - 1,
+    );
+    expect(applied.summary).toMatchObject({ suppressed: paths.length - 1, incomplete: true });
+    expect(applied.findings.at(-1)?.suppression).toBeUndefined();
   });
 });

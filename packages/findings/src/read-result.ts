@@ -25,6 +25,7 @@ import {
   type ScanResult,
   type ScanScope,
   type ScanTarget,
+  type Severity,
   type SuppressionEntryResult,
   type SuppressionSummary,
 } from "./contract.js";
@@ -337,6 +338,21 @@ function readSuppressionEntry(value: unknown, path: string): SuppressionEntryRes
     state: oneOf(field(o, "state"), SUPPRESSION_STATES, `${path}.state`),
     matched: count(field(o, "matched"), `${path}.matched`),
     wildcard: bool(field(o, "wildcard"), `${path}.wildcard`),
+    farExpiry:
+      field(o, "farExpiry") === undefined
+        ? false
+        : bool(field(o, "farExpiry"), `${path}.farExpiry`),
+  };
+}
+
+function readSeverityCounts(value: unknown, path: string): Record<Severity, number> {
+  const o = object(value, path);
+  return {
+    critical: count(field(o, "critical"), `${path}.critical`),
+    high: count(field(o, "high"), `${path}.high`),
+    medium: count(field(o, "medium"), `${path}.medium`),
+    low: count(field(o, "low"), `${path}.low`),
+    info: count(field(o, "info"), `${path}.info`),
   };
 }
 
@@ -346,6 +362,7 @@ function readSuppressionSummary(value: unknown): SuppressionSummary {
     source: oneOf(field(o, "source"), SUPPRESSION_SOURCES, "suppressions.source"),
     suppressed: count(field(o, "suppressed"), "suppressions.suppressed"),
     critical: count(field(o, "critical"), "suppressions.critical"),
+    bySeverity: readSeverityCounts(field(o, "bySeverity"), "suppressions.bySeverity"),
     entries: list(field(o, "entries"), "suppressions.entries", 1_000, readSuppressionEntry),
     incomplete: bool(field(o, "incomplete"), "suppressions.incomplete"),
   };

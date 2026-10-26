@@ -83,16 +83,16 @@ describe("suppressed findings in the terminal result", () => {
     expect(text).toContain('"second reason"');
   });
 
-  it("says 'including K critical', warns with a ! line and always lists a critical finding in full", () => {
+  it("names the severities, warns with a ! line and always lists a critical finding in full", () => {
     const text = render(
       suppressedResult(
         [at("scripts/a.ts", { severity: "critical", title: "Hard-coded key" }), at("scripts/b.ts")],
         [{ path: "scripts/**" }],
       ),
     );
-    expect(text).toContain("Suppressed by pgard.config.json: 2 (including 1 critical)");
-    expect(text).toContain("plus 2 suppressed (including 1 critical)");
-    expect(text).toMatch(/^! 1 suppressed finding is critical\./m);
+    expect(text).toContain("Suppressed by pgard.config.json: 2 (1 critical, 1 high)");
+    expect(text).toContain("plus 2 suppressed (1 critical, 1 high)");
+    expect(text).toMatch(/^! 2 suppressed findings are high or critical \(1 high, 1 critical\)\./m);
     // The critical one is listed in full even without --all-findings; the other is summarized.
     expect(text).toContain("Hard-coded key");
     expect(text).toContain("scripts/a.ts");
@@ -138,13 +138,15 @@ describe("suppressed findings in the terminal result", () => {
     ]);
     const text = render(result);
     expect(result.findings).toHaveLength(3);
-    expect(text).toContain("Suppressed by pgard.config.json: 3 (including 1 critical)");
+    expect(text).toContain("Suppressed by pgard.config.json: 3 (1 critical, 2 high)");
     expect(text).toMatch(
       /^! Every finding of this scan \(3\) is suppressed by pgard\.config\.json/m,
     );
-    expect(text).toMatch(/^! 1 suppressed finding is critical/m);
+    expect(text).toMatch(/^! 3 suppressed findings are high or critical \(2 high, 1 critical\)/m);
     expect(text).toContain("Suppressed (3)");
-    expect(text).toContain("No findings in the areas that ran");
+    expect(text).toContain(
+      "No unsuppressed findings in the areas that ran (3 suppressed: 1 critical, 2 high)",
+    );
     expect(text).toContain("src/a.ts"); // the critical one, in full
     expect(render(result, true)).toContain("lib/c.ts");
   });
@@ -181,5 +183,69 @@ describe("suppressed findings in the terminal result", () => {
     const text = render(testResult());
     expect(text).not.toContain("Suppressed");
     expect(text).not.toContain("Baseline");
+  });
+});
+
+describe("many narrow suppressions hiding high findings", () => {
+  const modules = Array.from({ length: 12 }, (_, index) => `src/mod${index}`);
+  const findings = [
+    ...modules.map((dir) => at(`${dir}/db.ts`, { status: "confirmed" })),
+    at("tests/a.test.ts", { context: "test", severity: "low", ruleId: "PG-XSS-001" }),
+  ];
+  const entries = modules.map((dir) => ({
+    path: `${dir}/**`,
+    expires: "2027-01-31",
+    reason: "Reviewed, internal only",
+  }));
+
+  it("shows the severity everywhere on the terminal, with a ! notice and no bare 'No findings'", () => {
+    const result = suppressedResult(findings, entries);
+    const text = render(result);
+    expect(text).toMatch(
+      /^! 12 suppressed findings are high or critical \(12 high, 0 critical\)\./m,
+    );
+    expect(text).toMatch(/^! 12 findings are suppressed in total/m);
+    expect(text).toContain("Suppressed by pgard.config.json: 12 (12 high)");
+    expect(text).toContain("plus 1 in test or fixture code, 12 suppressed (12 high)");
+    expect(result.suppressions?.bySeverity.high).toBe(12);
+    // The only unsuppressed finding is in test code: the sentence says what was suppressed.
+    expect(text).toContain(
+      "No unsuppressed findings outside test or fixture code in the areas that ran (12 suppressed: 12 high)",
+    );
+  });
+
+  it("does not warn for medium findings below the threshold", () => {
+    const text = render(
+      suppressedResult(
+        [at("scripts/a.ts", { severity: "medium" }), at("src/a.ts")],
+        [{ path: "scripts/**", expires: "2027-01-31" }],
+      ),
+    );
+    expect(text.split("\n").filter((l) => l.startsWith("!"))).toEqual([]);
+    expect(text).toContain("Suppressed by pgard.config.json: 1 (1 medium)");
+  });
+
+  it("flags a far expiry as a warning and a missing one as a quiet line", () => {
+    const text = render(
+      suppressedResult(
+        [at("scripts/a.ts", { severity: "low" }), at("tools/a.ts", { severity: "low" })],
+        [{ path: "scripts/**", expires: "9999-12-31" }, { path: "tools/**" }],
+      ),
+    );
+    expect(text).toMatch(
+      /^! The suppression of PG-SQL-001 for "scripts\/\*\*" runs until 9999-12-31, more than a year ahead/m,
+    );
+    expect(text).toMatch(/^ {2}1 suppression has no expiry date/m);
+  });
+
+  it("quotes the reason so it cannot fake an expiry suffix", () => {
+    const text = render(
+      suppressedResult(
+        [at("scripts/a.ts", { severity: "low" })],
+        [{ path: "scripts/**", reason: 'fine" (expires 9999-12-31', expires: "2027-01-31" }],
+      ),
+      true,
+    );
+    expect(text).toContain(String.raw`"fine\" (expires 9999-12-31" (expires 2027-01-31)`);
   });
 });

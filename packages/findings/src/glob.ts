@@ -32,9 +32,13 @@ export const MAX_STARS_PER_SEGMENT = 10;
 export const MAX_PATH_LENGTH = 4096;
 
 // eslint-disable-next-line no-control-regex
-const CONTROL = /[\u0000-\u001f\u007f]/;
-/** Format characters (bidi controls, zero-width, joiners...) and lone surrogates: invisible or ambiguous. */
-const INVISIBLE = /[\p{Cf}\p{Cs}]/u;
+const CONTROL = /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/;
+/**
+ * Format characters (bidi controls, zero-width, joiners...), lone surrogates, C1 controls, line and
+ * paragraph separators, the combining grapheme joiner and the Hangul fillers (which render as
+ * blanks): invisible or ambiguous.
+ */
+const INVISIBLE = /[\p{Cf}\p{Cs}\p{Zl}\p{Zp}\u0080-\u009f\u034f\u115f\u1160\u3164\uffa0]/u;
 export const INVISIBLE_CHARACTERS = INVISIBLE;
 
 /** Why a pattern is not acceptable, or `null` when it is. */

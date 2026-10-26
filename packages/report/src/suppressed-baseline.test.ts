@@ -58,7 +58,7 @@ describe("grouping for reports", () => {
       [{ path: "scripts/**" }],
     );
     expect(formatFindingSummary(result.findings, result)).toContain(
-      "1 suppressed by pgard.config.json (including 1 critical), listed separately.",
+      "1 suppressed by pgard.config.json (1 critical), listed separately.",
     );
     const none = withSuppressions([at("b", "src/b.ts")], [{ path: "scripts/**" }]);
     expect(formatFindingSummary(none.findings, none)).toContain(
@@ -97,8 +97,8 @@ describe("HTML report", () => {
       ),
     );
     expect(html).toContain('<details class="group" open>');
-    expect(html).toContain("1 suppressed finding is critical");
-    expect(html).toContain("including 1 critical");
+    expect(html).toContain("1 suppressed finding is high or critical (0 high, 1 critical)");
+    expect(html).toContain("1 suppressed by pgard.config.json (1 critical)");
   });
 
   it("warns about a wildcard, an expired entry and a total suppression", () => {
@@ -111,7 +111,9 @@ describe("HTML report", () => {
     expect(html).toContain("matches every file and every finding of that rule");
     expect(html).toContain("expired on 2026-01-01 and is not applied");
     expect(html).toContain("Every finding of this scan (1) is suppressed");
-    expect(html).toContain("No findings in the areas that ran");
+    expect(html).toContain(
+      "No unsuppressed findings in the areas that ran (1 suppressed: 1 high).",
+    );
   });
 
   it("lists baseline findings in their own section and marks new ones", () => {
@@ -124,7 +126,7 @@ describe("HTML report", () => {
       NOW,
     );
     const html = renderHtmlReport(result);
-    expect(html).toContain("Baseline: 1 in baseline, 1 new.");
+    expect(html).toContain("Baseline: 1 in baseline (1 high), 1 new.");
     expect(html).toContain("<summary>In baseline (1)</summary>");
     expect(html).toContain("<h2>New findings (since the baseline)</h2>");
     expect(html).toContain('<span class="new-badge">NEW</span>');
@@ -149,13 +151,27 @@ describe("PDF report", () => {
     const { result } = applyBaseline(suppressed, base, NOW);
     const lines = extractEmbeddedFontText(await renderPdfReport(result, { compress: false }));
     const text = lines.join(" ");
-    expect(text).toContain("1 suppressed finding is critical");
-    expect(text).toContain("Baseline: 1 in baseline, 1 new.");
+    expect(text).toContain("1 suppressed finding is high or critical (0 high, 1 critical)");
+    expect(text).toContain("Baseline: 1 in baseline (1 high), 0 new.");
+    expect(text).toContain(
+      "No new unsuppressed findings in the areas that ran (1 suppressed: 1 critical).",
+    );
     expect(lines).toContain("Suppressed (1)");
     expect(lines).toContain("In baseline (1)");
     expect(lines).toContain("Location: scripts/s.ts:4");
     expect(text).toContain('Suppressed by pgard.config.json: "Admin-only script"');
     expect(lines.indexOf("Suppressed (1)")).toBeGreaterThan(lines.indexOf("Findings") - 1);
     expect(lines.indexOf("In baseline (1)")).toBeGreaterThan(lines.indexOf("Suppressed (1)"));
+  });
+});
+
+describe("reason quoting", () => {
+  it("quotes the reason as JSON so it cannot fake an expiry suffix", () => {
+    const result = withSuppressions(
+      [at("a", "scripts/a.ts")],
+      [{ path: "scripts/**", reason: 'fine" (expires 9999-12-31', expires: "2027-01-31" }],
+    );
+    const html = renderHtmlReport(result);
+    expect(html).toContain("&quot;fine\\&quot; (expires 9999-12-31&quot; (expires 2027-01-31)");
   });
 });
