@@ -123,7 +123,9 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const bumpTokens = (text: string) => {
     for (const token of text.matchAll(/[A-Za-z_]\w*/g)) bump(bound, token[0]);
   };
+  // Strict: package-level constants. Inferred: block-local constants and strconv-parsed numbers.
   const inertNames = new Set<string>();
+  const inferredNames = new Set<string>();
   {
     // `const` declarations: counted separately, then blanked so they do not look like assignments.
     let withoutConsts = "";
@@ -225,24 +227,35 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     }
     for (const [name, count] of constDeclarations) {
       if (count !== 1 || bound.has(name)) continue;
-      // A const declared inside a function is trusted only when every use of the name is inside
-      // that same function: another function (or file of the package) may mean a package variable.
+      // A const declared inside a block is trusted only when every use of the name is inside that
+      // same innermost `{...}`: elsewhere the name may mean a package variable of another file.
       const at = constPositions.get(name) ?? 0;
-      const owner = functionSpans
-        .filter((span) => span.start <= at && at <= span.end)
-        .sort((a, b) => b.start - a.start)[0];
-      if (owner) {
-        let outside = false;
-        for (const use of code.matchAll(new RegExp(`(?<![\\w.])${name}\\b`, "g"))) {
-          const index = use.index ?? 0;
-          if (index < owner.start || index > owner.end) {
-            outside = true;
-            break;
-          }
-        }
-        if (outside) continue;
+      let open = -1;
+      const stack: number[] = [];
+      for (let index = 0; index < at; index += 1) {
+        if (code[index] === "{") stack.push(index);
+        else if (code[index] === "}") stack.pop();
       }
-      inertNames.add(name);
+      open = stack[stack.length - 1] ?? -1;
+      if (open === -1) {
+        inertNames.add(name);
+        continue;
+      }
+      let depth = 0;
+      let close = open;
+      for (; close < code.length; close += 1) {
+        if (code[close] === "{") depth += 1;
+        else if (code[close] === "}" && (depth -= 1) === 0) break;
+      }
+      let outside = false;
+      for (const use of code.matchAll(new RegExp(`(?<![\\w.])${name}\\b`, "g"))) {
+        const index = use.index ?? 0;
+        if (index < open || index > close) {
+          outside = true;
+          break;
+        }
+      }
+      if (!outside) inferredNames.add(name);
     }
     // `n, err := strconv.Atoi(...)`: a number, trusted only when this is the name's only binding.
     for (const match of withoutConsts.matchAll(
@@ -251,7 +264,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       const names = (match[1] ?? "").split(",").map((name) => name.trim());
       const [first] = names;
       if (first && first !== "_" && bound.get(first) === 1 && !constDeclarations.has(first))
-        inertNames.add(first);
+        inferredNames.add(first);
     }
   }
   const splitTopLevelPlus = (text: string): string[] => {
@@ -271,32 +284,43 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     parts.push(current);
     return parts;
   };
-  /** True when the expression can only produce a fixed or numeric string. */
-  const isInertExpr = (expression: string, depth = 0): boolean => {
+  /**
+   * "strict" when the expression can only produce a fixed or numeric string by itself (literals,
+   * package constants, `strconv.Itoa` of the whole expression); "inferred" when that relies on a
+   * block-local constant or a parsed number; null otherwise.
+   */
+  type Inertness = "strict" | "inferred" | null;
+  const isInertExpr = (expression: string, depth = 0): Inertness => {
     const trimmed = expression.trim();
-    if (depth > 4 || trimmed === "") return false;
-    if (LITERAL_PATTERN.test(trimmed) || /^\d+$/.test(trimmed)) return true;
-    if (IDENTIFIER.test(trimmed)) return inertNames.has(trimmed);
+    if (depth > 4 || trimmed === "") return null;
+    if (LITERAL_PATTERN.test(trimmed) || /^\d+$/.test(trimmed)) return "strict";
+    if (IDENTIFIER.test(trimmed))
+      return inertNames.has(trimmed) ? "strict" : inferredNames.has(trimmed) ? "inferred" : null;
     if (/^strconv\.Itoa\(/.test(trimmed)) {
       // Only when the call is the whole expression: `strconv.Itoa(id) + clause` is not fixed.
       const { end } = readCallArguments(trimmed, trimmed.indexOf("("));
-      return end === trimmed.length - 1;
+      return end === trimmed.length - 1 ? "strict" : null;
     }
+    const combine = (parts: string[]): Inertness => {
+      let result: Inertness = "strict";
+      for (const part of parts) {
+        const level = isInertExpr(part, depth + 1);
+        if (level === null) return null;
+        if (level === "inferred") result = "inferred";
+      }
+      return result;
+    };
     if (/^fmt\.Sprintf\(/.test(trimmed)) {
       const { args, end } = readCallArguments(trimmed, trimmed.indexOf("("));
-      return (
-        end === trimmed.length - 1 &&
-        args.length > 0 &&
-        args.every((arg) => isInertExpr(arg, depth + 1))
-      );
+      return end === trimmed.length - 1 && args.length > 0 ? combine(args) : null;
     }
     const parts = splitTopLevelPlus(trimmed);
-    return parts.length > 1 && parts.every((part) => isInertExpr(part, depth + 1));
+    return parts.length > 1 ? combine(parts) : null;
   };
   const isDynamicExpr = (expression: string): boolean => {
     const trimmed = expression.trim();
     if (LITERAL_PATTERN.test(trimmed)) return false;
-    if (isInertExpr(trimmed)) return false;
+    if (isInertExpr(trimmed) === "strict") return false;
     if (/\bfmt\.Sprintf\(|\bstrings\.Join\(|\bstrings\.Replace(All)?\(/.test(trimmed)) return true;
     if (/\+/.test(trimmed) && !/^("#\d+"\s*\+\s*)*"#\d+"$/.test(trimmed)) return true;
     return IDENTIFIER.test(trimmed) && dynamic.has(trimmed);
@@ -361,8 +385,27 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     }
   };
 
+  const INFERRED_NOTE =
+    "value inferred to be fixed through a local constant or a parsed number; verify it cannot hold request input";
+  const demote = (evidence: Evidence, note: string): Evidence => ({
+    ...evidence,
+    severity:
+      evidence.severity === "critical" || evidence.severity === "high"
+        ? "medium"
+        : evidence.severity,
+    status: "suspected",
+    confidence: "low",
+    flow: `${evidence.flow} (${note})`,
+  });
   const sqlEvidence = (expression: string, sink: string): Evidence | null => {
+    const evidence = sqlEvidenceRaw(expression, sink);
+    return evidence && isInertExpr(expression) === "inferred"
+      ? demote(evidence, INFERRED_NOTE)
+      : evidence;
+  };
+  const sqlEvidenceRaw = (expression: string, sink: string): Evidence | null => {
     if (LITERAL_PATTERN.test(expression.trim())) return null;
+    if (isInertExpr(expression) === "strict") return null;
     if (!isDynamicExpr(expression)) {
       // Request input passed straight in as SQL (e.g. db.Order(c.Query("sort"))).
       if (!isTaintedExpr(expression)) return null;
@@ -487,8 +530,24 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     const flag = literalValue(elements[0] ?? "", literals);
     if (flag !== null && !/^[-/]c$/i.test(flag)) return; // runs a script file, not inline text
     const items = [...elements.slice(flag === null ? 0 : 1), ...appended];
-    const dynamicItems = items.filter((item) => !LITERAL_PATTERN.test(item.trim()));
-    if (flag !== null && dynamicItems.length === 0) return;
+    const dynamicItems = items.filter(
+      (item) => !LITERAL_PATTERN.test(item.trim()) && isInertExpr(item) !== "strict",
+    );
+    if (flag !== null && dynamicItems.length === 0) {
+      // Resolved through the slice declaration, which is an inference: keep a weak finding.
+      report(
+        "PG-CMD-002",
+        offset,
+        {
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          flow: `${shell} -c with an argument slice resolved to fixed values; verify nothing else changes ${slice}`,
+        },
+        `${name}-shell-slice`,
+      );
+      return;
+    }
     const isTainted = dynamicItems.some((item) => isTaintedExpr(item));
     report(
       "PG-CMD-002",
@@ -535,24 +594,28 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         literalValue(rest[1] ?? "", literals)?.match(/^[-/]c$/i)
       ) {
         const script = rest[2];
-        if (!script || LITERAL_PATTERN.test(script.trim()) || isInertExpr(script)) return;
+        if (!script || LITERAL_PATTERN.test(script.trim()) || isInertExpr(script) === "strict")
+          return;
         const isTainted = isTaintedExpr(script);
+        const scriptEvidence: Evidence = isTainted
+          ? {
+              severity: "critical",
+              status: SOURCE_PATTERN.test(script) ? "confirmed" : "suspected",
+              confidence: "high",
+              flow: `request input -> ${describe(script)} -> ${programLiteral} -c`,
+            }
+          : {
+              severity: "high",
+              status: "suspected",
+              confidence: "medium",
+              flow: `non-constant script -> ${programLiteral} -c`,
+            };
         report(
           "PG-CMD-002",
           offset,
-          isTainted
-            ? {
-                severity: "critical",
-                status: SOURCE_PATTERN.test(script) ? "confirmed" : "suspected",
-                confidence: "high",
-                flow: `request input -> ${describe(script)} -> ${programLiteral} -c`,
-              }
-            : {
-                severity: "high",
-                status: "suspected",
-                confidence: "medium",
-                flow: `non-constant script -> ${programLiteral} -c`,
-              },
+          isInertExpr(script) === "inferred"
+            ? demote(scriptEvidence, INFERRED_NOTE)
+            : scriptEvidence,
           `${name}-shell`,
         );
         return;

@@ -10,61 +10,66 @@ sample that does not list it counts as a false positive for that other rule).
 TP: expected and reported. FP: reported but not expected. FN: expected but not reported.
 TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).
 
+Confidence: a finding at any confidence counts for recall. A safe sample that is only safe through
+a recognised guard, allowlist table or constant is labelled `allow=low`: a finding capped at low
+confidence on it is accepted (counted as TN), because guards lower confidence and never hide a
+finding. Precision (medium+) counts only medium and high confidence findings, on every sample.
+
 ## Source rules (scanSourceCode)
 
-321 samples.
+333 samples.
 
-| Rule | TP | FP | FN | TN | Precision | Recall |
-| --- | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 15 | 0 | 0 | 306 | 100.0% | 100.0% |
-| PG-SQL-002 | 11 | 0 | 0 | 310 | 100.0% | 100.0% |
-| PG-SQL-003 | 12 | 0 | 0 | 309 | 100.0% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 316 | 100.0% | 100.0% |
-| PG-XSS-001 | 6 | 2 | 1 | 312 | 75.0% | 85.7% |
-| PG-XSS-002 | 4 | 0 | 1 | 316 | 100.0% | 80.0% |
-| PG-XSS-003 | 4 | 1 | 0 | 316 | 80.0% | 100.0% |
-| PG-SSRF-001 | 22 | 1 | 0 | 298 | 95.7% | 100.0% |
-| PG-CMD-001 | 14 | 0 | 0 | 307 | 100.0% | 100.0% |
-| PG-CMD-002 | 11 | 0 | 0 | 310 | 100.0% | 100.0% |
-| PG-PATH-001 | 16 | 0 | 0 | 305 | 100.0% | 100.0% |
-| PG-CRYPTO-001 | 4 | 0 | 1 | 316 | 100.0% | 80.0% |
-| PG-CRYPTO-002 | 4 | 0 | 2 | 315 | 100.0% | 66.7% |
-| PG-CRYPTO-003 | 4 | 0 | 1 | 316 | 100.0% | 80.0% |
-| PG-AUTH-001 | 15 | 0 | 2 | 304 | 100.0% | 88.2% |
-| PG-COOKIE-001 | 16 | 0 | 2 | 303 | 100.0% | 88.9% |
-| PG-CSRF-001 | 13 | 0 | 0 | 308 | 100.0% | 100.0% |
-| PG-BRUTE-001 | 6 | 0 | 0 | 315 | 100.0% | 100.0% |
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-SQL-001 | 17 | 0 | 0 | 316 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-002 | 12 | 0 | 0 | 321 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-003 | 13 | 0 | 0 | 320 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 328 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-001 | 6 | 2 | 1 | 324 | 75.0% | 85.7% | 100.0% |
+| PG-XSS-002 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
+| PG-XSS-003 | 4 | 1 | 0 | 328 | 80.0% | 100.0% | 100.0% |
+| PG-SSRF-001 | 26 | 0 | 0 | 307 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-001 | 15 | 0 | 0 | 318 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-002 | 12 | 0 | 0 | 321 | 100.0% | 100.0% | 100.0% |
+| PG-PATH-001 | 18 | 0 | 0 | 315 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-001 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
+| PG-CRYPTO-002 | 4 | 0 | 2 | 327 | 100.0% | 66.7% | 100.0% |
+| PG-CRYPTO-003 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
+| PG-AUTH-001 | 15 | 0 | 2 | 316 | 100.0% | 88.2% | 100.0% |
+| PG-COOKIE-001 | 16 | 0 | 2 | 315 | 100.0% | 88.9% | 100.0% |
+| PG-CSRF-001 | 13 | 0 | 0 | 320 | 100.0% | 100.0% | n/a |
+| PG-BRUTE-001 | 6 | 0 | 0 | 327 | 100.0% | 100.0% | n/a |
 
 ## History rules (scanGitHistory on generated git repositories)
 
 40 samples.
 
-| Rule | TP | FP | FN | TN | Precision | Recall |
-| --- | --: | --: | --: | --: | --: | --: |
-| PG-SECRET-001 | 5 | 0 | 0 | 35 | 100.0% | 100.0% |
-| PG-SECRET-002 | 11 | 0 | 0 | 29 | 100.0% | 100.0% |
-| PG-SECRET-003 | 4 | 0 | 0 | 36 | 100.0% | 100.0% |
-| PG-HYGIENE-001 | 4 | 0 | 0 | 36 | 100.0% | 100.0% |
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-SECRET-001 | 5 | 0 | 0 | 35 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-002 | 11 | 0 | 0 | 29 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-003 | 4 | 0 | 0 | 36 | 100.0% | 100.0% | 100.0% |
+| PG-HYGIENE-001 | 4 | 0 | 0 | 36 | 100.0% | 100.0% | 100.0% |
 
 ## Web rules (scanLocalWeb against loopback servers)
 
 53 samples.
 
-| Rule | TP | FP | FN | TN | Precision | Recall |
-| --- | --: | --: | --: | --: | --: | --: |
-| PG-WEB-001 | 5 | 0 | 0 | 48 | 100.0% | 100.0% |
-| PG-WEB-002 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-003 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-004 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-005 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-006 | 5 | 0 | 0 | 48 | 100.0% | 100.0% |
-| PG-WEB-007 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-008 | 3 | 0 | 0 | 50 | 100.0% | 100.0% |
-| PG-WEB-009 | 2 | 0 | 1 | 50 | 100.0% | 66.7% |
-| PG-WEB-010 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-011 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
-| PG-WEB-012 | 5 | 0 | 0 | 48 | 100.0% | 100.0% |
-| PG-WEB-013 | 4 | 0 | 0 | 49 | 100.0% | 100.0% |
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-WEB-001 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-002 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-003 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-004 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-005 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-006 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-007 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-008 | 3 | 0 | 0 | 50 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-009 | 2 | 0 | 1 | 50 | 100.0% | 66.7% | 100.0% |
+| PG-WEB-010 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-011 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-012 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-013 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
 
 ## Known misses and false positives
 
@@ -81,7 +86,6 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/const-secret.ts` | a hardcoded secret held in a constant and passed by name to jwt.sign is not followed |
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/go-jwt.go` | a hardcoded key held in a package variable and passed to SignedString is not followed |
 | PG-CRYPTO-003 | miss (FN) | `PG-CRYPTO-003/positive/hard-algorithm-variable.js` | a cipher name held in a constant is not resolved |
-| PG-SSRF-001 | false positive (FP) | `PG-SSRF-001/negative/hard-fixed-host-path-param.js` | path only, host fixed, and `..` can reach other paths on the same host, so it is kept at low confidence instead of dropped |
 | PG-WEB-009 | miss (FN) | `web/cors-null-origin-with-credentials` | the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/escaped-helper.js` | an escape-html call is not recognised as a sanitizer |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/hard-trusted-template.js` | assigning an imported (bundled) template string to innerHTML is reported |

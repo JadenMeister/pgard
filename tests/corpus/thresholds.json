@@ -29,7 +29,7 @@
       "recall": 1
     },
     "PG-SSRF-001": {
-      "precision": 0.956,
+      "precision": 1,
       "recall": 1
     },
     "PG-CMD-001": {

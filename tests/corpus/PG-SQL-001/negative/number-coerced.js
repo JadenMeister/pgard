@@ -1,4 +1,4 @@
-// corpus: expect=none
+// corpus: expect=none; allow=low
 const { Pool } = require("pg");
 const pool = new Pool();
 

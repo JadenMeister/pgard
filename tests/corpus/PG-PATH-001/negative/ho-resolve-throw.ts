@@ -1,4 +1,4 @@
-// corpus: expect=none
+// corpus: expect=none; allow=low
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 const ROOT = path.resolve(process.cwd(), "docs");

@@ -663,6 +663,8 @@ Each rule is measured against a labelled corpus under [`tests/corpus/`](tests/co
 
 Read the numbers with care. The corpus is small (roughly ten samples per rule) and was written by the PGARD authors, so it shows how the rules behave on cases we thought of, not how often they are right on your code. It deliberately includes hard cases the rules miss or wrongly report; those stay in the corpus and are listed in `RESULTS.md` with a reason, never deleted. A high score here does not mean a project is secure.
 
+Guards lower confidence; they never hide a finding. The injection rules (SQL, command, path, SSRF) suppress a finding completely only when the value is fixed by the expression itself: a literal, a numeric coercion such as `Number(x)`, a module-level constant set to a literal, or `shell-quote`'s `quote()`. When safety rests on something PGARD only infers (a `startsWith(ROOT + sep)` check, a hostname allowlist, a lookup table, an alias or a local constant), the finding stays, capped at low confidence and medium severity, with a note saying what was recognised so you can verify it. In the corpus, a safe sample that is only safe through such an inference carries `allow=low` in its header, meaning a low-confidence finding on it is accepted; `RESULTS.md` also reports precision counting only medium and high confidence findings.
+
 ## Known limitations
 
 - PDF reports embed a subset of Noto Sans KR, so Korean and English text both render. Characters the font does not have (Hanja, emoji, other scripts) are replaced with `?` and the PDF says so; the HTML report has the full text. If the bundled font cannot be loaded, the PDF falls back to a built-in Latin-1 font (Korean becomes `?`), notes this in the PDF itself, and the CLI prints a warning.

@@ -1,4 +1,4 @@
-// corpus: expect=none
+// corpus: expect=none; allow=low
 import { Pool } from "pg";
 const pool = new Pool();
 const DIRECTIONS: Record<string, string> = { asc: "ASC", desc: "DESC" };

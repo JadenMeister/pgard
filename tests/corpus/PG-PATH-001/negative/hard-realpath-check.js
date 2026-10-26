@@ -1,4 +1,4 @@
-// corpus: expect=none
+// corpus: expect=none; allow=low
 const fs = require("node:fs");
 const path = require("node:path");
 const ROOT = fs.realpathSync("public");
