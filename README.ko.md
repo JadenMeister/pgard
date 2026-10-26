@@ -429,6 +429,34 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 터미널 결과는 심각도 차트, `파일:줄` 또는 URL이 붙은 발견 항목(확정·의심·정보), 가려진 근거, 가이드, 영역별 coverage를 보여 줍니다.
 
+### 표준 coverage와 규칙 통계
+
+결과는 어떤 규칙이 실행되었는지, 그리고 그 규칙이 어떤 표준 항목에 연결되는지 알려 줍니다. 두 정보는 JSON 결과(`ruleStats`, `standardsCoverage`, 스키마 1.1)에 들어 있고, 터미널 결과의 끝에 간단한 요약이 붙습니다. 아래는 Java 파일 하나가 있는 작은 TypeScript 프로젝트(code와 history 범위)의 예시이며, 여기서는 각 줄을 앞의 200자까지만 보여 줍니다.
+
+```
+Standards coverage (OWASP Top 10 2025)
+  [rules partial] A01 Broken Access Control - 9 of 40 mapped CWEs have rules (PG-COOKIE-001, PG-CSRF-001, PG-PATH-001, PG-SECRET-001 +2); web rules not run: scope not selected; no completed mapped rule covers java (1 file) ...
+  [rules ran] A03 Software Supply Chain Failures - 1 of 6 mapped CWEs have rules (PG-HYGIENE-001)
+  [rules partial] A05 Injection - 3 of 37 mapped CWEs have rules (PG-CMD-001, PG-SQL-001, PG-SQL-002, PG-XSS-001 +1); no completed mapped rule covers java (1 file) ...
+  [no rules] A08 Software or Data Integrity Failures - no rules
+  CWE Top 25 2025: 0 rules ran, 6 rules partial, 0 not run, 19 no rules
+```
+
+**상태의 의미.** 어느 상태도 프로젝트가 안전하다는 뜻이 아니며, 분류 전체를 다룬다는 뜻도 아닙니다. 이번 검사에서 그 항목에 연결된 PGARD 규칙이 실행되었는지를 알려 줄 뿐이며, 각 줄은 그 분류의 CWE 중 규칙이 있는 것이 얼마나 적은지(`1 of 6 mapped CWEs have rules`)도 보여 줍니다. 초록색으로는 표시하지 않습니다.
+
+- **규칙 통계**(`ruleStats`): 어떤 영역에서 실행된 규칙마다 항목이 하나씩 있습니다(여러 언어에서 실행되는 규칙은 영역마다 하나). 영역, 그 영역의 상태, 규칙이 확인한 대상 수, 그 영역에서 보고한 발견 항목 수가 들어 있습니다. 대상 수는 추정하지 않고 분석기가 직접 셉니다. 언어 분석기가 실제로 분석한 파일(바이너리, 크기 제한 초과, 시간 예산 때문에 건너뛴 파일은 세지 않음), 이력 규칙이 읽은 커밋과 텍스트로 읽은 이력 blob, 웹 규칙의 페이지와 응답입니다. 측정할 수 없는 수는 추측하지 않고 `null`과 `reason`으로 표시합니다. 선택되지 않았거나 실행되지 못한 영역의 규칙에는 항목이 없습니다. 같은 발견 항목이 두 항목에 나타날 수 있는 경우는 `source:react`와 `source:heuristics`뿐입니다. 이 영역들은 언어 영역과 같은 파일을 보므로, 모든 항목의 수를 더하지 마세요.
+- **표준 지도**(`standardsCoverage`): OWASP Top 10 2025의 각 분류(A01~A10)와 CWE Top 25 2025의 각 항목마다 항목이 하나씩 있습니다. 규칙은 자체 `standards` 메타데이터(`pgard rules list`와 같은 데이터)의 OWASP·CWE id로, id가 정확히 같을 때만 항목에 연결됩니다. 상위·하위 CWE는 추정하지 않습니다. 상태는 다음과 같습니다.
+  - `rules_ran`: 연결된 규칙이 하나 이상 실행되었고 이를 제한하는 것이 없습니다. 실행된 모든 영역이 완료되었고, `partial`인 코드 영역이 없고(`source:large-files`, `source:unreadable`, `source:config`, `source:orm:typeorm` 같은 ORM 영역이 `partial`이면 코드 규칙이 연결된 모든 항목이 제한됩니다), 연결된 규칙이 있는 모든 범위가 실행되었고(history만 검사하면 코드 규칙도 연결된 항목은 `rules_ran`이 될 수 없습니다), 프로젝트에 있는 각 언어가 완료된 연결 규칙으로 확인되었고, 대상을 0개 본 규칙이 없습니다. 이력·웹 규칙은 언어와 관계없이 추적 파일과 실행 중인 서비스를 보므로, 언어 확인은 코드 규칙이 연결된 항목에만 적용됩니다.
+  - `rules_partial`: 연결된 규칙 일부가 실행되었지만 위 조건 중 하나가 충족되지 않았습니다. 이유에 어느 조건인지 적혀 있습니다.
+  - `not_run`: 항목에 연결된 규칙이 있지만 하나도 실행되지 않았습니다(해당 범위를 선택하지 않았거나 실행할 수 없었음).
+  - `no_rules`: 항목에 연결된 PGARD 규칙이 없습니다(이유 `no rules`).
+
+  항목마다 실행된 규칙(`ruleIds`), 연결된 모든 규칙(`mappedRuleIds`), 짧은 이유가 들어 있습니다. OWASP 항목에는 `breadth`도 있습니다. 분류의 "List of Mapped CWEs"에 있는 CWE 중 PGARD 규칙이 하나라도 있는 것의 수입니다(예: A03은 6개 중 1개). CWE Top 25 항목은 CWE 하나가 약점 하나이므로 `breadth: null`입니다.
+
+- **`rules_ran`이 뜻하지 않는 것.** 취약점이 없다는 뜻도, 그 취약점을 만드는 모든 방식을 탐지한다는 뜻도, 분류 전체를 다룬다는 뜻도 아닙니다. 여러 분류가 좁은 규칙 하나에만 연결되어 있으므로 `breadth`와 규칙 id를 함께 보세요. OSV 같은 권고 정보는 검사에 포함되지 않으므로(PGARD는 취약점 데이터베이스를 제공하지 않습니다) 항목에 반영되지 않습니다. A03 소프트웨어 공급망 실패는 `PG-HYGIENE-001`(커밋된 의존성 디렉터리)에만 연결되어 있고, lockfile은 살펴보지 않습니다.
+
+터미널 요약은 OWASP 분류마다 한 줄과 CWE Top 25 개수를 보여 줍니다. 항목별 자세한 내용과 규칙 통계는 `--format json`으로 확인하세요. 이전에 저장된 결과(스키마 1.0)에는 두 필드가 없으며 이전과 같이 읽힙니다. 이 경우 터미널에는 표준 섹션이 나타나지 않습니다. 웹 스캐너를 주입하는 실행기는 웹 규칙 목록(`webRules`)도 함께 넘겨야 하며, 그렇지 않으면 `runScan`이 실행을 거부합니다.
+
 ### 규칙 문구의 언어
 
 규칙 제목, 영향 설명, 조치 설명을 한국어나 영어로 볼 수 있습니다. 언어는 `--lang en|ko`, 환경 변수 `PGARD_LANG`(`en` 또는 `ko`), 시스템 로케일(`LC_ALL`, `LC_MESSAGES`, `LANG` 중 먼저 값이 있는 것이 결정하며 `ko`로 시작하면 한국어, 보통 이 변수가 없는 Windows에서는 런타임 로케일 사용), 마지막으로 영어 순서로 정해집니다. 값은 대소문자를 구분하지 않습니다(`KO`도 가능). `--lang`, `--report-lang`, `PGARD_LANG`에 잘못된 값을 주면 사용법 오류(종료 코드 2)이며, `PGARD_LANG`은 규칙 문구를 보여 주는 명령(`scan`, `rules list`, 메뉴)에서만 검사하므로 `doctor`, `login`, `logout`, `history clear`는 이 값을 무시합니다.

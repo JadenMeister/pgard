@@ -40,17 +40,6 @@ Strings are length-capped but not sanitized. Evidence, titles and notes can cont
 
 **Write-back.** The reader returns the fields it knows and drops the rest. When `sourceVersion` is newer than `SCHEMA_VERSION`, never write the reader's output back over the source file: that would silently delete the newer fields. Save a copy under another name, or refuse.
 
-## Version history
-
-**`1.1`** (additive; `1.0` results are still read, with the new fields absent):
-
-- `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: set only when an active suppression of `pgard.config.json` matched the finding. The finding stays in the result.
-- `Finding.inBaseline?: true`: set only when the repository's baseline (`pgard baseline set`) contains the finding (same identity as the scan comparison). Never `false`; absent means not in the baseline, or no baseline.
-- `ScanResult.suppressions?: { source; suppressed; critical; bySeverity; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard; farExpiry }[]; incomplete }`: present when the config has at least one suppression. `suppressed` counts the findings carrying `suppression`, `critical` how many of them are critical, `bySeverity` the count per severity (adds up to `suppressed`), `farExpiry` whether `expires` is more than 366 days ahead, `matched` the findings an entry matches (0 when expired), `wildcard` whether the entry's path matches every file, and `incomplete` whether the matching work budget ran out (later findings are then not suppressed).
-- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: present when a baseline was applied. `matched` is the number of findings flagged `inBaseline` that are not suppressed (the size of the "In baseline" group), `new` the findings that are neither in the baseline nor suppressed (test and vendored findings included), `total` the findings in the baseline scan. Suppressed findings are left out of a stored baseline.
-
-Both new top-level objects are optional and independent of any other new field, and `SuppressionState` and the `source` literal are the only closed values added (a new value there would be a major change). A suppression, or a baseline, never changes `overallStatus`, the status of any coverage area or `authorization`: the status comes from coverage only. The only coverage text that mentions suppressions is the `note` of the `source:config` area, which counts them.
-
 ## Which outputs carry the version
 
 - Any JSON output of a scan, including the planned CLI JSON output (`schemaVersion` at the top level).
@@ -60,6 +49,23 @@ Both new top-level objects are optional and independent of any other new field, 
 ## Finding.id is a fingerprint
 
 `Finding.id` is a stable fingerprint of rule, location and cause. Stored results are compared with later scans by this id, so it is part of the contract even though its type is only `string`. Changing how it is derived makes ids from older results stop matching, so such a change is a **major** version change. Its type or the rule that it never contains secret values cannot change within a major version either.
+
+## Version history
+
+**1.1** (additive; a minor bump). Four optional top-level fields (`ruleStats`, `standardsCoverage`, `suppressions`, `baseline`) and two optional finding fields (`suppression`, `inBaseline`). A `1.0` result has none of them, and a reader treats a missing field as "not recorded", never as "nothing ran" or "nothing checked".
+
+- `ruleStats` (`RuleStat[]`): one entry per rule and coverage area where the rule ran (`completed` or `partial`). `ruleId`, `area` (a `Coverage.area`), `scope`, `status` (the area's status), `findings` (findings the rule reported in that area, counted before findings of several scopes are merged) and `targets`: a list of `{ unit, examined, reason }`. `unit` is an open string (`files`, `commits`, `blobs`, `pages`, `responses`, `unknown`; a new unit is not a schema change). `examined` is a count the analyzer measured, or `null` when it cannot be measured, and then `reason` says why (`reason` is `null` otherwise). An analyzer that reports nothing gets `{ unit: "unknown", examined: null, reason }`, never a guess. The same finding can count in two entries only for `source:react` and `source:heuristics`, which look at files that a language area also covers.
+- `standardsCoverage` (`{ owasp, cweTop25 }`): one `StandardCoverageEntry` per OWASP Top 10 2025 category (A01 to A10, in order) and per CWE Top 25 2025 entry (rank order): `id`, `title`, `rank` (`null` for OWASP), `state`, `breadth`, `ruleIds` (rules that ran and contribute), `mappedRuleIds` (every rule of this PGARD version that maps to the entry) and a short English `reason`. `breadth` is `{ cwesWithRules, cwesInCategory }` for OWASP entries (how many CWEs of the category's "List of Mapped CWEs" have at least one PGARD rule) and `null` for CWE Top 25 entries. `state` is `rules_ran`, `rules_partial`, `not_run` or `no_rules`; it is a closed enum, so a new state would be a major change. None of the states means "safe" or "category covered": they say whether PGARD rules that map to the entry ran. It is derived by `computeStandardsCoverage` from the rule mappings and from the scan's own coverage and `ruleStats`. `rules_ran` needs a mapped rule that ran, every contributing area `completed`, no partial code-scope area at all (even one that lists no rules), every scope that has a mapped rule run, every language present covered by a completed mapped rule (history and web rules are not language-bound), no mapped rule that examined 0 targets, and no ran rule missing from the rule catalog. `rules_partial` is some mapped rule that ran with any of those conditions unmet; `not_run` is rules exist but none ran; `no_rules` is no rule maps to the entry (reason `no rules`). Advisories (OSV) are not rules of a scan and never count.
+- `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: set only when an active suppression of `pgard.config.json` matched the finding. The finding stays in the result.
+- `Finding.inBaseline?: true`: set only when the repository's baseline (`pgard baseline set`) contains the finding (same identity as the scan comparison). Never `false`; absent means not in the baseline, or no baseline.
+- `ScanResult.suppressions?: { source; suppressed; critical; bySeverity; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard; farExpiry }[]; incomplete }`: present when the config has at least one suppression. `suppressed` counts the findings carrying `suppression`, `critical` how many of them are critical, `bySeverity` the count per severity (adds up to `suppressed`), `farExpiry` whether `expires` is more than 366 days ahead, `matched` the findings an entry matches (0 when expired), `wildcard` whether the entry's path matches every file, and `incomplete` whether the matching work budget ran out (later findings are then not suppressed).
+- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: present when a baseline was applied. `matched` is the number of findings flagged `inBaseline` that are not suppressed (the size of the "In baseline" group), `new` the findings that are neither in the baseline nor suppressed (test and vendored findings included), `total` the findings in the baseline scan. Suppressed findings are left out of a stored baseline.
+
+A blocked or failed scan writes `ruleStats: []` and a `standardsCoverage` in which no entry is `rules_ran` (`not_run` or `no_rules`).
+
+The `suppressions` and `baseline` objects are optional and independent of any other new field, and `SuppressionState` and the `source` literal are the only closed values added (a new value there would be a major change). A suppression, or a baseline, never changes `overallStatus`, the status of any coverage area or `authorization`: the status comes from coverage only. The only coverage text that mentions suppressions is the `note` of the `source:config` area, which counts them.
+
+**1.0**: the original shape.
 
 ## Changing the version
 

@@ -40,17 +40,6 @@
 
 **다시 쓰기.** 읽는 쪽은 아는 필드만 반환하고 나머지는 버립니다. `sourceVersion`이 `SCHEMA_VERSION`보다 높을 때는 읽는 쪽의 출력을 원본 파일에 다시 쓰지 마세요. 더 새로운 필드가 조용히 사라집니다. 다른 이름으로 사본을 저장하거나 거부하세요.
 
-## 버전 이력
-
-**`1.1`**(추가만 있음. `1.0` 결과도 새 필드가 없는 상태로 계속 읽습니다):
-
-- `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: `pgard.config.json`의 활성 억제 항목이 해당 발견 항목에 맞았을 때만 있습니다. 발견 항목은 결과에 그대로 남습니다.
-- `Finding.inBaseline?: true`: 저장소의 기준선(`pgard baseline set`)에 그 발견 항목이 있을 때만(검사 비교와 같은 식별 방식) 있습니다. `false`는 없고, 필드가 없으면 기준선에 없거나 기준선이 없다는 뜻입니다.
-- `ScanResult.suppressions?: { source; suppressed; critical; bySeverity; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard; farExpiry }[]; incomplete }`: 설정에 억제 항목이 하나 이상 있을 때 있습니다. `suppressed`는 `suppression`이 붙은 발견 항목 수, `critical`은 그중 치명적인 수, `bySeverity`는 심각도별 수(합이 `suppressed`), `farExpiry`는 `expires`가 366일을 넘게 남았는지, `matched`는 항목이 맞는 발견 항목 수(만료된 항목은 0), `wildcard`는 항목의 경로가 모든 파일에 맞는지, `incomplete`는 매칭 작업량 한도를 넘었는지(그 뒤 발견 항목은 억제되지 않음)를 뜻합니다.
-- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: 기준선이 적용되었을 때 있습니다. `matched`는 `inBaseline`이 붙었고 억제되지 않은 발견 항목 수("In baseline" 그룹의 크기), `new`는 기준선에도 없고 억제되지도 않은 발견 항목 수(테스트·vendored 항목 포함), `total`은 기준선 검사의 발견 항목 수입니다. 억제된 발견 항목은 저장되는 기준선에서 제외됩니다.
-
-새 최상위 객체 둘은 모두 선택적이며 다른 새 필드와 독립적입니다. 닫힌 값이 새로 생긴 것은 `SuppressionState`와 `source` 리터럴뿐이며, 여기에 새 값을 더하면 major 변경입니다. 억제나 기준선은 `overallStatus`, 어떤 coverage 영역의 상태, `authorization`도 바꾸지 않습니다. 상태는 coverage에서만 나옵니다. 억제를 언급하는 coverage 문구는 개수를 세는 `source:config` 영역의 `note`뿐입니다.
-
 ## 버전이 들어가는 출력
 
 - 검사의 모든 JSON 출력. 계획된 CLI JSON 출력을 포함합니다(최상위의 `schemaVersion`).
@@ -60,6 +49,23 @@
 ## Finding.id는 지문입니다
 
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
+
+## 버전 이력
+
+**1.1**(추가만 있는 변경, minor 올림). 최상위 선택 필드 네 개(`ruleStats`, `standardsCoverage`, `suppressions`, `baseline`)와 발견 항목 선택 필드 두 개(`suppression`, `inBaseline`)가 추가되었습니다. `1.0` 결과에는 모두 없으며, 읽는 쪽은 없는 필드를 "기록되지 않음"으로 다루고 "실행된 것이 없음"이나 "확인된 것이 없음"으로 해석하지 않습니다.
+
+- `ruleStats`(`RuleStat[]`): 규칙이 실행된(`completed` 또는 `partial`) 규칙·coverage 영역마다 항목이 하나씩 있습니다. `ruleId`, `area`(`Coverage.area`), `scope`, `status`(영역의 상태), `findings`(그 영역에서 규칙이 보고한 발견 항목 수, 여러 범위의 발견 항목을 합치기 전에 셉니다), 그리고 `{ unit, examined, reason }` 목록인 `targets`가 있습니다. `unit`은 값이 열려 있는 문자열입니다(`files`, `commits`, `blobs`, `pages`, `responses`, `unknown`, 새 단위가 생겨도 스키마 변경이 아닙니다). `examined`는 분석기가 직접 센 값이거나, 측정할 수 없으면 `null`이며 이때 `reason`이 이유를 설명합니다(그 밖에는 `reason`이 `null`). 아무것도 보고하지 않은 분석기에는 추측 대신 `{ unit: "unknown", examined: null, reason }`가 들어갑니다. 같은 발견 항목이 두 항목에 세어질 수 있는 경우는 `source:react`와 `source:heuristics`뿐이며, 이 영역들은 언어 영역과 같은 파일을 봅니다.
+- `standardsCoverage`(`{ owasp, cweTop25 }`): OWASP Top 10 2025의 분류(A01~A10, 순서대로)마다, 그리고 CWE Top 25 2025의 항목(순위 순서)마다 `StandardCoverageEntry`가 하나씩 있습니다. `id`, `title`, `rank`(OWASP는 `null`), `state`, `breadth`, `ruleIds`(실행되어 상태에 기여한 규칙), `mappedRuleIds`(이 PGARD 버전에서 항목에 연결된 모든 규칙), 짧은 영문 `reason`이 있습니다. `breadth`는 OWASP 항목에서는 `{ cwesWithRules, cwesInCategory }`(분류의 "List of Mapped CWEs"에 있는 CWE 중 PGARD 규칙이 하나라도 있는 것의 수), CWE Top 25 항목에서는 `null`입니다. `state`는 `rules_ran`, `rules_partial`, `not_run`, `no_rules`이며 닫힌 enum이므로 새 상태는 major 변경입니다. 어느 상태도 "안전"이나 "분류 전체를 다룸"을 뜻하지 않으며, 그 항목에 연결된 PGARD 규칙이 실행되었는지만 알려 줍니다. `computeStandardsCoverage`가 규칙 매핑과 해당 검사의 coverage·`ruleStats`로 계산합니다. `rules_ran`이 되려면 연결된 규칙이 실행되었고, 기여한 모든 영역이 `completed`이며, `partial`인 코드 범위 영역이 하나도 없고(규칙을 나열하지 않는 영역도 포함), 연결된 규칙이 있는 모든 범위가 실행되었고, 프로젝트에 있는 모든 언어가 완료된 연결 규칙으로 확인되었고(이력·웹 규칙은 언어에 묶이지 않습니다), 대상을 0개 확인한 연결 규칙이 없고, 실행된 규칙 중 규칙 목록에 없는 것이 없어야 합니다. `rules_partial`은 연결된 규칙이 실행되었지만 위 조건 중 하나가 충족되지 않은 경우, `not_run`은 규칙은 있지만 하나도 실행되지 않은 경우, `no_rules`는 항목에 연결된 규칙이 없는 경우(이유 `no rules`)입니다. 권고 정보(OSV)는 검사의 규칙이 아니므로 반영되지 않습니다.
+- `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: `pgard.config.json`의 활성 억제 항목이 해당 발견 항목에 맞았을 때만 있습니다. 발견 항목은 결과에 그대로 남습니다.
+- `Finding.inBaseline?: true`: 저장소의 기준선(`pgard baseline set`)에 그 발견 항목이 있을 때만(검사 비교와 같은 식별 방식) 있습니다. `false`는 없고, 필드가 없으면 기준선에 없거나 기준선이 없다는 뜻입니다.
+- `ScanResult.suppressions?: { source; suppressed; critical; bySeverity; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard; farExpiry }[]; incomplete }`: 설정에 억제 항목이 하나 이상 있을 때 있습니다. `suppressed`는 `suppression`이 붙은 발견 항목 수, `critical`은 그중 치명적인 수, `bySeverity`는 심각도별 수(합이 `suppressed`), `farExpiry`는 `expires`가 366일을 넘게 남았는지, `matched`는 항목이 맞는 발견 항목 수(만료된 항목은 0), `wildcard`는 항목의 경로가 모든 파일에 맞는지, `incomplete`는 매칭 작업량 한도를 넘었는지(그 뒤 발견 항목은 억제되지 않음)를 뜻합니다.
+- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: 기준선이 적용되었을 때 있습니다. `matched`는 `inBaseline`이 붙었고 억제되지 않은 발견 항목 수("In baseline" 그룹의 크기), `new`는 기준선에도 없고 억제되지도 않은 발견 항목 수(테스트·vendored 항목 포함), `total`은 기준선 검사의 발견 항목 수입니다. 억제된 발견 항목은 저장되는 기준선에서 제외됩니다.
+
+차단되었거나 실패한 검사는 `ruleStats: []`와, `rules_ran`인 항목이 없는(`not_run` 또는 `no_rules`) `standardsCoverage`를 기록합니다.
+
+새 최상위 객체 둘은 모두 선택적이며 다른 새 필드와 독립적입니다. 닫힌 값이 새로 생긴 것은 `SuppressionState`와 `source` 리터럴뿐이며, 여기에 새 값을 더하면 major 변경입니다. 억제나 기준선은 `overallStatus`, 어떤 coverage 영역의 상태, `authorization`도 바꾸지 않습니다. 상태는 coverage에서만 나옵니다. 억제를 언급하는 coverage 문구는 개수를 세는 `source:config` 영역의 `note`뿐입니다.
+
+**1.0**: 최초의 형태.
 
 ## 버전 바꾸기
 

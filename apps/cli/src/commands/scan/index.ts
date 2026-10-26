@@ -4,6 +4,7 @@ import {
   type ScanResult,
   type ScanScope,
 } from "@pgard/findings";
+import { WEB_RULE_LIST } from "@pgard/http-local";
 import {
   ScanCancelledError,
   ScanRequestError,
@@ -212,6 +213,7 @@ async function runScanFlow(
         {
           authorization,
           webScanner: context.deps.webScanner,
+          webRules: WEB_RULE_LIST,
           signal: context.signal,
           env: context.io.env,
           onAuthorization: (received) => {

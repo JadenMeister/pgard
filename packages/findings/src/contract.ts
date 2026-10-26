@@ -165,9 +165,87 @@ export interface Finding {
   inBaseline?: true;
 }
 
+/**
+ * How many targets a rule examined, in one unit. `unit` is open-ended (a new unit is not a
+ * schema change); today: `files`, `commits`, `blobs`, `pages`, `responses`, `unknown`.
+ * `examined` is a real count or `null`, never an estimate; `null` always carries a `reason`.
+ */
+export interface RuleTargetCount {
+  unit: string;
+  examined: number | null;
+  /** Why the count is unknown. Present exactly when `examined` is `null`. */
+  reason: string | null;
+}
+
+/**
+ * What one rule did in one coverage area (a rule that runs in several areas has one entry each).
+ * Only rules that ran appear: a rule of an area that was not selected or not tested has no entry.
+ */
+export interface RuleStat {
+  ruleId: string;
+  /** The `Coverage.area` the rule ran in, e.g. `source:typescript`. */
+  area: string;
+  scope: ScanScope;
+  /** The status of that area (`completed` or `partial`). */
+  status: CoverageStatus;
+  targets: RuleTargetCount[];
+  /** Findings this rule reported in this area (before findings of several scopes are merged). */
+  findings: number;
+}
+
+/**
+ * What a scan can say about a standards entry. None of these states means "safe" or "category
+ * covered": they say whether PGARD rules that map to the entry ran.
+ *
+ * - `rules_ran`: every scope that has a mapped rule ran, all contributing areas completed, no
+ *   code area was partial, and every language present is covered by a completed mapped rule. It
+ *   still says nothing about how much of the entry the rules cover (see `breadth`).
+ * - `rules_partial`: some mapped rules ran, but something was partial, missing or uncovered.
+ * - `not_run`: rules map to the entry, but none ran in this scan.
+ * - `no_rules`: no PGARD rule maps to the entry.
+ */
+export type StandardCheckState = "rules_ran" | "rules_partial" | "not_run" | "no_rules";
+export const STANDARD_CHECK_STATES = exhaustive<StandardCheckState>({
+  rules_ran: true,
+  rules_partial: true,
+  not_run: true,
+  no_rules: true,
+});
+
+/** How much of an OWASP category's mapped CWE list PGARD has any rule for. */
+export interface StandardBreadth {
+  /** CWEs of the category's "List of Mapped CWEs" that at least one PGARD rule lists. */
+  cwesWithRules: number;
+  cwesInCategory: number;
+}
+
+export interface StandardCoverageEntry {
+  /** `A05:2025` or `CWE-79`. */
+  id: string;
+  title: string;
+  /** CWE Top 25 rank; `null` for OWASP categories. */
+  rank: number | null;
+  state: StandardCheckState;
+  /** OWASP categories only; `null` for CWE Top 25 entries (a CWE is one weakness, 1 of 1). */
+  breadth: StandardBreadth | null;
+  /** Rules that ran and contribute to the state. */
+  ruleIds: string[];
+  /** Every rule in this PGARD version that maps to the entry, whether it ran or not. */
+  mappedRuleIds: string[];
+  /** One short sentence that explains the state. */
+  reason: string;
+}
+
+export interface StandardsCoverage {
+  owasp: StandardCoverageEntry[];
+  cweTop25: StandardCoverageEntry[];
+}
+
 export interface AnalyzerOutput {
   findings: Finding[];
   coverage: Coverage[];
+  /** Per-rule measurements; analyzers that cannot measure may omit it (scan-core then marks the counts unknown). */
+  ruleStats?: RuleStat[];
 }
 
 export interface ScanTarget {
@@ -313,6 +391,10 @@ export interface ScanResult {
   suppressions?: SuppressionSummary;
   /** Present when a baseline was applied (JSON v1.1, optional). */
   baseline?: BaselineSummary;
+  /** Added in 1.1. Absent in results written by 1.0. */
+  ruleStats?: RuleStat[];
+  /** Added in 1.1. Absent in results written by 1.0. */
+  standardsCoverage?: StandardsCoverage;
 }
 
 /** A local HTTP target the user explicitly confirmed with `Y` after seeing its identity. */

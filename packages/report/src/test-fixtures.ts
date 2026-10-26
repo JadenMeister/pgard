@@ -1,4 +1,9 @@
-import type { Finding, RuleTextCatalog, ScanResult } from "@pgard/findings";
+import {
+  SCHEMA_VERSION,
+  type Finding,
+  type RuleTextCatalog,
+  type ScanResult,
+} from "@pgard/findings";
 
 export const XSS = `<script>alert("x")</script><img src=x onerror=alert(1)>`;
 
@@ -23,7 +28,7 @@ export function finding(overrides: Partial<Finding>): Finding {
 
 export function scanResult(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.1",
+    schemaVersion: SCHEMA_VERSION,
     scanId: "3f2b9c1e-aaaa-bbbb-cccc-000000000000",
     startedAt: "2026-10-24T01:02:03.000Z",
     finishedAt: "2026-10-24T01:02:09.000Z",

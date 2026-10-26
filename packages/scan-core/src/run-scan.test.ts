@@ -87,6 +87,7 @@ const deps = (overrides: Record<string, unknown> = {}) => ({
     getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
   },
   analyzers: { code: async () => codeOutput, history: async () => historyOutput },
+  webRules: [],
   createScanId: () => "scan-1",
   now: () => new Date("2026-10-24T00:00:00Z"),
   ...overrides,
