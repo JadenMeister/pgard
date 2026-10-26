@@ -4,7 +4,7 @@ import { pickText, type RuleLocale, type RuleMetadata } from "./rule-metadata.js
 /** Korean rule titles. English titles live on the rule definitions (they feed findings). */
 export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-SECRET-001": "Git에 커밋된 환경 파일",
-  "PG-SECRET-002": "추적되는 파일 안의 비밀 값",
+  "PG-SECRET-002": "추적되는 파일 안의 비밀정보",
   "PG-SECRET-003": "Git 이력에서 발견된 비밀정보",
   "PG-HYGIENE-001": "Git에 커밋된 의존성 디렉터리",
   "PG-SQL-001": "pg/mysql2 쿼리에 동적 문자열로 만든 SQL",
@@ -19,7 +19,7 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-CMD-002": "셸이나 동적 프로그램을 쓰는 Go exec.Command",
   "PG-PATH-001": "파일 읽기/다운로드에 쓰이는 요청 입력 파일 경로",
   "PG-CRYPTO-001": "비밀번호에 쓰인 약한 해시(MD5/SHA-1)",
-  "PG-CRYPTO-002": "하드코딩된 암호화 키 또는 서명 비밀 값",
+  "PG-CRYPTO-002": "하드코딩된 암호화 키 또는 서명 비밀정보",
   "PG-CRYPTO-003": "취약하거나 더 이상 권장되지 않는 암호화 알고리즘",
   "PG-AUTH-001": "해시 없이 저장된 비밀번호",
   "PG-COOKIE-001": "HttpOnly/Secure/SameSite가 없는 세션·인증 쿠키",
