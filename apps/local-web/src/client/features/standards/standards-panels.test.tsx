@@ -1,6 +1,7 @@
 /// <reference types="node" />
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -304,7 +305,7 @@ describe("rendering safety", () => {
   }
 
   it("never uses dangerouslySetInnerHTML in the client", () => {
-    const root = new URL("../../", import.meta.url).pathname;
+    const root = fileURLToPath(new URL("../../", import.meta.url));
     for (const file of sources(root)) {
       expect(readFileSync(file, "utf8"), file).not.toContain("dangerouslySetInnerHTML");
     }
