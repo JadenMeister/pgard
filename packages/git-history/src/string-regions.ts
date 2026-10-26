@@ -182,7 +182,7 @@ class Scanner {
           continue;
         }
         lineStart = true;
-        sawQuestion = false;
+        sawQuestion = last === "?"; // a ternary may continue on the next line
         index += 1;
         continue;
       }

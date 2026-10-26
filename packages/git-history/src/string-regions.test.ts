@@ -224,6 +224,16 @@ describe("createStringLookup (#145)", () => {
     expect(inside(text, path)).toBe(false);
   });
 
+  it("finds a heredoc after a ternary broken after the question mark (#163)", () => {
+    const text = 'msg = ok ?\n  1 :<<~EOS\n  say "hi\nEOS\nq = "\nMARK\n"';
+    expect(inside(text, "a.rb")).toBe(true);
+  });
+
+  it("does not carry a question mark inside a string over a line break (#163)", () => {
+    expect(inside("x = 'why?'\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+    expect(inside("x = \"why?\"\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+  });
+
   it("code after a symbol on a later line than a ternary stays code (#163)", () => {
     expect(inside("ok = a ? 1 : 2\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
     expect(inside("ok = a ? 1 :<<~E\n  hi\nE\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
