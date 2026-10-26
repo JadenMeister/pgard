@@ -33,6 +33,7 @@ PGARD is released under the [MIT License](LICENSE).
 - [Code-based analysis](#code-based-analysis)
 - [Local web checks](#local-web-checks)
 - [Git history checks](#git-history-checks)
+- [Project configuration](#project-configuration)
 - [Results and reports](#results-and-reports)
 - [Dashboard](#dashboard)
 - [Privacy and network traffic](#privacy-and-network-traffic)
@@ -363,6 +364,41 @@ A badly built application can still change state on a `GET` request. PGARD canno
 Secrets are private keys, well-known token formats (AWS, GitHub, Slack, Stripe, Google API keys), passwords in URLs (`postgres://user:password@host`) and generic credential assignments (`password = ...`, `api_key: ...`, `password := ...`, `headers["x-api-key"] = ...`, also with a type annotation or a quoted value behind a condition such as `cond ? "..." : ...`). A generic assignment counts only when its value is a literal that looks random enough and is not a placeholder. A password in a URL is reported unless it is a placeholder (`user:pass`, `${DB_PASSWORD}`, `$DB_PASSWORD`, or the user name repeated); a short or simple one is reported with low confidence. In source files, an unquoted value on a line that clearly looks like code (a type, a parameter list, a constant or variable name) is not treated as a credential. Lines inside string literals, including multi-line ones (template literals, `"""` blocks, heredocs, raw strings), are never treated as code; when the file cannot be read reliably (for example an unterminated string), the match is reported. Detection is pattern-based, so unusual forms can still be missed.
 
 PGARD calls a secret or `.env` file "removed" only when it can show that the current files no longer hold it. Before that, it searches the current commit with `git grep -F` (the values are passed on stdin, never as arguments), which also covers files it did not read itself (too large, over the read budget, or binary). UTF-16 text files, which `git grep` cannot search, are decoded and searched in memory. When the current state cannot be established, for example because a file could not be read or the search did not finish, the finding says whether the value or file is still current **could not be checked**, instead of claiming it was removed.
+
+## Project configuration
+
+A project can keep an optional `pgard.config.json` at the Git root. It sets exclusions and test directories and holds a suppression list. It is **never** a way to change what PGARD is allowed to do: authorization, hosts, ports, network targets and rule severities cannot be configured, and any key not listed below is rejected. The file is part of the scanned repository, so PGARD treats it as untrusted data: it is read read-only, never executed, never followed through a symbolic link, and limited to 64 KiB.
+
+```json
+{
+  "version": 1,
+  "exclude": ["legacy/**", "*.generated.ts"],
+  "testDirectories": ["e2e", "tools/samples"],
+  "suppressions": [
+    {
+      "ruleId": "PG-SQL-001",
+      "path": "scripts/**",
+      "reason": "Admin-only script; the input is not user controlled",
+      "expires": "2027-01-31"
+    }
+  ]
+}
+```
+
+- `version` (required): the number `1`.
+- `exclude` (up to 200 patterns): source files left out of the source analysis.
+- `testDirectories` (up to 100 patterns): paths classified as test code (see [Findings in test or fixture code](#findings-in-test-or-fixture-code)). They can only **add** the test context; a path that is test code by the built-in rules stays test code, and vendored code stays vendored. They apply to source code findings, not to Git history.
+- `suppressions` (up to 200 entries): `ruleId` (for example `PG-SQL-001`), `path` (a pattern), `reason` (required, at most 300 characters) and an optional `expires` date (`YYYY-MM-DD`). They are parsed and validated only. They hide nothing yet, and the coverage note says so: `N suppressions parsed, not yet applied`.
+
+Patterns are repository-relative paths with `/` as the separator, case-sensitive: `*` matches within one path segment, `?` one character, `**` any number of segments. A pattern without `/` matches at any depth (`*.generated.ts`), and a pattern also matches everything below a matching directory (`legacy` and `legacy/**` are the same). Absolute paths, `..`, backslashes, `[ ] { }` and a leading `!` are rejected. Matching never builds a regular expression from a pattern and takes time proportional to the pattern length times the path length, so no pattern can stall a scan.
+
+The validator is strict: exact keys and types, length and count limits, and unknown or duplicate keys are rejected.
+
+**Nothing is excluded silently.** The source scan lists the excluded files in the `source:config-excluded` coverage area (also in the JSON result): the number of files, the number of source files found, the patterns (quoted, up to 5 and then a count) and a short hash of the pattern set and of the excluded file set, so a later `pgard scan` comparison notices a changed exclusion. The terminal result shows a prominent line above the findings, for example `! 12 files excluded by pgard.config.json (of 140 source files; 2 patterns, set 3fa91c2e).`. A newly excluded file is never reported as "no longer reported" in a comparison with an earlier scan. A pattern that matches every file (`**`) or exclusions that leave nothing to analyze add a `WARNING` and make the area `partial` (exit code 4). Files that `testDirectories` moved into the test group are counted in the `source:config` coverage note.
+
+**Git history is never excluded.** `exclude` applies to the source analysis only. Secrets in Git history and in tracked files are always scanned in full: a secret that was committed stays exposed in every clone whatever the file is called now, and paths in old commits do not map onto the current tree. The `history:config-excluded` coverage note says that the patterns were not applied to history.
+
+**An invalid file never hides findings.** If `pgard.config.json` is not valid (unknown key, duplicate key, too large, a symbolic link, and so on), the scan still runs, as if there were no config at all: nothing is excluded, not even the valid parts. The `source:config` coverage area becomes `partial` with the first problems, the terminal shows a prominent line, and the exit code is 4. Fix the file, or delete it, to get `completed`.
 
 ## Results and reports
 

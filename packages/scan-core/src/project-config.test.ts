@@ -227,6 +227,44 @@ describe("runScan with pgard.config.json", () => {
     expect(coverageOf(result, "source:config")?.note).toContain("0 findings classified");
   });
 
+  it("testDirectories do not apply to history findings", async () => {
+    const root = project({
+      "pgard.config.json": '{"version":1,"testDirectories":["e2e"]}',
+    });
+    const historyFinding = {
+      id: "h1",
+      ruleId: "PG-SECRET-003",
+      title: "Secret in history",
+      category: "secret_exposure" as const,
+      severity: "high" as const,
+      status: "suspected" as const,
+      confidence: "medium" as const,
+      location: { kind: "commit" as const, path: "e2e/.env", line: 1, url: null, commit: "abc" },
+      evidence: "key added (value redacted)",
+      impact: "i",
+      recommendation: "r",
+      references: { cwe: [], owasp: [], cve: [] },
+      sources: ["history" as const],
+    };
+    const result = await scan(root, ["code", "history"], {
+      code: async () => ({ findings: [], coverage: [] }),
+      history: async () => ({
+        findings: [historyFinding],
+        coverage: [
+          {
+            area: "history:secrets",
+            scope: "history",
+            status: "completed",
+            ruleIds: [],
+            note: null,
+          },
+        ],
+      }),
+    });
+    expect(result.findings[0]?.context).toBeUndefined();
+    expect(result.findings[0]?.confidence).toBe("medium");
+  });
+
   it("a malicious config that excludes everything is surfaced as partial with a warning", async () => {
     const root = project({
       ...SOURCES,

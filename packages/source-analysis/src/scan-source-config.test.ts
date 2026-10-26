@@ -91,6 +91,15 @@ describe("exclude patterns in the source scan", () => {
     }
   });
 
+  it("flags a catch-all pattern even when there are no source files at all", async () => {
+    const output = await scanSourceCode(project({ "README.md": "x" }), {
+      projectConfig: config({ exclude: ["**"] }),
+    });
+    const excluded = area(output, "source:config-excluded");
+    expect(excluded?.status).toBe("partial");
+    expect(excluded?.note).toContain('WARNING: "**" matches every file.');
+  });
+
   it("flags exclusions that leave nothing to analyze even without a catch-all pattern", async () => {
     const root = project({ "a/x.ts": SQL_VULN, "b/y.ts": SQL_VULN });
     const output = await scanSourceCode(root, { projectConfig: config({ exclude: ["a", "b"] }) });
