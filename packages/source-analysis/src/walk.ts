@@ -1,7 +1,15 @@
-import { constants } from "node:fs";
+import { constants, type Dirent } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
+
+import {
+  TREE_SITTER_EXTENSIONS,
+  TREE_SITTER_LANGUAGES,
+  classifyManifest,
+  type ManifestKind,
+  type TreeSitterLanguage,
+} from "./tree-sitter/languages.js";
 
 export type SourceLanguage = "javascript" | "typescript" | "vue" | "go";
 
@@ -13,15 +21,39 @@ export interface SourceFile {
   language: SourceLanguage;
 }
 
+/** Why a directory other than `node_modules` was skipped as generated or third-party. */
+export type GeneratedDirectoryReason =
+  "Python virtual environment" | "Python site-packages" | "Maven build output" | "Gradle cache";
+
 export interface SkippedDependencyDirectory {
   /** Repository-relative POSIX path of the directory, e.g. `node_modules` or `api/vendor`. */
   path: string;
   /** For `vendor/`: the manifest next to it, or `repository root`. */
-  reason: DependencyVendorReason | null;
+  reason: DependencyVendorReason | GeneratedDirectoryReason | null;
+}
+
+/** A Java, Kotlin, Python or PHP file found by the walk. Not parsed by the walk itself. */
+export interface TrackedFile {
+  absolutePath: string;
+  relativePath: string;
+  /** Size in bytes from `lstat`; the parse step enforces the per-file limit with it. */
+  size: number;
+}
+
+/** A dependency manifest used for framework detection. */
+export interface ManifestFile {
+  absolutePath: string;
+  relativePath: string;
+  kind: ManifestKind;
 }
 
 export interface WalkResult {
   files: SourceFile[];
+  /** Files of the tree-sitter language track, per language. Not counted against `MAX_FILES`. */
+  trackFiles: Record<TreeSitterLanguage, TrackedFile[]>;
+  trackManifests: ManifestFile[];
+  /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
+  trackTruncated: boolean;
   /** Relative paths of manifests used for ORM detection. */
   packageJsonPaths: string[];
   goModPaths: string[];
@@ -49,8 +81,67 @@ export const SKIPPED_DIRECTORIES = new Set([
 /** Dependency directories that are never entered, at any depth, and listed in coverage. */
 export const SKIPPED_DEPENDENCY_DIRECTORIES = new Set(["node_modules", "bower_components"]);
 
+/**
+ * `site-packages` is third-party only where Python puts it: under `lib/python3.x/` (or `lib64`).
+ * A first-party package that happens to be called `site-packages` is analyzed.
+ */
+function isPythonSitePackages(relativePath: string): boolean {
+  const segments = relativePath.split("/");
+  const [name, parent, grandparent] = [segments.at(-1), segments.at(-2), segments.at(-3)];
+  return (
+    name === "site-packages" &&
+    /^python\d[\d.]*$/i.test(parent ?? "") &&
+    /^lib(64)?$/i.test(grandparent ?? "")
+  );
+}
+
+/**
+ * A virtualenv has `pyvenv.cfg` plus an activate script (`bin/activate`, `Scripts/activate`) or a
+ * `site-packages` directory (`lib/python3.x/site-packages`, `Lib/site-packages`). An empty
+ * `pyvenv.cfg` alone must not hide first-party code.
+ */
+async function looksLikeVirtualenv(
+  directory: string,
+  entries: readonly Dirent[],
+): Promise<boolean> {
+  const isFile = async (...parts: string[]) =>
+    (await lstat(path.join(directory, ...parts)).catch(() => null))?.isFile() === true;
+  const isDirectory = async (...parts: string[]) =>
+    (await lstat(path.join(directory, ...parts)).catch(() => null))?.isDirectory() === true;
+  if ((await isFile("bin", "activate")) || (await isFile("Scripts", "activate"))) return true;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^lib(64)?$/i.test(entry.name)) continue;
+    if (await isDirectory(entry.name, "site-packages")) return true;
+    const children = await readdir(path.join(directory, entry.name)).catch(() => [] as string[]);
+    for (const child of children) {
+      if (/^python\d/i.test(child) && (await isDirectory(entry.name, child, "site-packages"))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+const GRADLE_FILES = ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"];
+
+function generatedDirectoryReason(
+  name: string,
+  relativePath: string,
+  siblingFiles: ReadonlySet<string>,
+): GeneratedDirectoryReason | null {
+  if (isPythonSitePackages(relativePath)) return "Python site-packages";
+  if (name === "target" && siblingFiles.has("pom.xml")) return "Maven build output";
+  if (name === ".gradle" && GRADLE_FILES.some((file) => siblingFiles.has(file))) {
+    return "Gradle cache";
+  }
+  return null;
+}
+
 export const MAX_FILE_BYTES = 1024 * 1024;
 export const MAX_FILES = 20_000;
+/** Cap per tree-sitter language and for manifests. */
+export const MAX_TRACK_FILES = 20_000;
+export const MAX_TRACK_MANIFESTS = 200;
 
 const EXTENSIONS: Record<string, SourceLanguage> = {
   ".js": "javascript",
@@ -76,6 +167,9 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
 export async function walkSourceTree(root: string): Promise<WalkResult> {
   const result: WalkResult = {
     files: [],
+    trackFiles: { java: [], kotlin: [], python: [], php: [] },
+    trackManifests: [],
+    trackTruncated: false,
     packageJsonPaths: [],
     goModPaths: [],
     skippedLarge: 0,
@@ -92,6 +186,20 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       continue;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
+    // A directory is a Python virtual environment only if it holds `pyvenv.cfg` (written by
+    // `python -m venv` and virtualenv) and the layout of an environment (see looksLikeVirtualenv). The name alone proves nothing: `app/venv/server.js` and
+    // `Lib/venv/__init__.py` are first-party. Its contents are third-party and not analyzed.
+    if (
+      directory !== root &&
+      entries.some((entry) => entry.name === "pyvenv.cfg" && entry.isFile()) &&
+      (await looksLikeVirtualenv(directory, entries))
+    ) {
+      result.skippedDependencyDirectories.push({
+        path: path.relative(root, directory).split(path.sep).join("/"),
+        reason: "Python virtual environment",
+      });
+      continue;
+    }
     // Regular files only: a symlinked composer.json/go.mod/Gemfile is deliberately not trusted, so
     // it cannot hide a first-party vendor/ from analysis.
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
@@ -103,6 +211,11 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
         if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {
           result.skippedDependencyDirectories.push({ path: relativePath, reason: null });
+          continue;
+        }
+        const generated = generatedDirectoryReason(entry.name, relativePath, fileNames);
+        if (generated !== null) {
+          result.skippedDependencyDirectories.push({ path: relativePath, reason: generated });
           continue;
         }
         if (entry.name === "vendor") {
@@ -121,6 +234,24 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       if (!entry.isFile()) continue;
       if (entry.name === "package.json") result.packageJsonPaths.push(relativePath);
       if (entry.name === "go.mod") result.goModPaths.push(relativePath);
+      const manifestKind = classifyManifest(entry.name, path.basename(directory));
+      if (manifestKind !== null) {
+        if (result.trackManifests.length < MAX_TRACK_MANIFESTS) {
+          result.trackManifests.push({ absolutePath, relativePath, kind: manifestKind });
+        } else {
+          result.trackTruncated = true;
+        }
+        // `setup.py` is both a manifest and Python source, so there is no `continue` here.
+      }
+      const trackLanguage = TREE_SITTER_EXTENSIONS[path.extname(entry.name)];
+      if (trackLanguage) {
+        const stats = await lstat(absolutePath).catch(() => null);
+        if (!stats || !stats.isFile()) continue;
+        const list = result.trackFiles[trackLanguage];
+        if (list.length >= MAX_TRACK_FILES) result.trackTruncated = true;
+        else list.push({ absolutePath, relativePath, size: stats.size });
+        continue;
+      }
       const language = EXTENSIONS[path.extname(entry.name)];
       if (!language || entry.name.endsWith(".d.ts") || /\.min\.(js|mjs|cjs)$/.test(entry.name))
         continue;
@@ -132,13 +263,24 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       }
       if (result.files.length >= MAX_FILES) {
         result.isTruncated = true;
+        // The walk stopped early, so the track lists are lower bounds too.
+        result.trackTruncated = true;
+        finishTrack(result);
         return result;
       }
       result.files.push({ absolutePath, relativePath, language });
     }
   }
+  finishTrack(result);
   result.files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   return result;
+}
+
+function finishTrack(result: WalkResult): void {
+  for (const language of TREE_SITTER_LANGUAGES) {
+    result.trackFiles[language].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  }
+  result.trackManifests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 /** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */
