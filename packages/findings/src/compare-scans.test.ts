@@ -515,3 +515,64 @@ describe("compareScans", () => {
     });
   });
 });
+
+describe("project configuration exclusions", () => {
+  const JS = [cov("source:typescript", "code", "completed", ["PG-SQL-001"])];
+  const excluded = (note: string, status: Coverage["status"] = "completed"): Coverage => ({
+    ...cov("source:config-excluded", "code", status, []),
+    note,
+  });
+
+  it("a newly excluded file is not comparable, never 'no longer reported'", () => {
+    const result = compareScans(
+      scan([finding()], JS),
+      scan([], [...JS, excluded("1 file excluded by pgard.config.json (set aaaaaaaa)")]),
+    );
+    expect(result.noLongerReported).toEqual([]);
+    expect(result.notComparable).toHaveLength(1);
+    expect(notComparableAreas(result).map((a) => a.area)).toContain("source:config-excluded");
+  });
+
+  it("a widened exclusion set (same pattern, other files) is not comparable either", () => {
+    const result = compareScans(
+      scan([finding()], [...JS, excluded("1 file excluded by pgard.config.json (set aaaaaaaa)")]),
+      scan([], [...JS, excluded("1 file excluded by pgard.config.json (set bbbbbbbb)")]),
+    );
+    expect(result.noLongerReported).toEqual([]);
+    expect(result.notComparable).toHaveLength(1);
+  });
+
+  it("removing the exclusions does not turn old findings into 'no longer reported'", () => {
+    const result = compareScans(
+      scan([finding()], [...JS, excluded("1 file excluded by pgard.config.json (set aaaaaaaa)")]),
+      scan([], JS),
+    );
+    expect(result.noLongerReported).toEqual([]);
+  });
+
+  it("an unchanged exclusion note still lets a fixed finding be reported as gone", () => {
+    const area = excluded("1 file excluded by pgard.config.json (set aaaaaaaa)");
+    const result = compareScans(scan([finding()], [...JS, area]), scan([], [...JS, area]));
+    expect(result.noLongerReported).toHaveLength(1);
+  });
+
+  it("a partial exclusion warning (catch-all pattern) holds findings back", () => {
+    const area = excluded("WARNING", "partial");
+    const result = compareScans(scan([finding()], [...JS, area]), scan([], [...JS, area]));
+    expect(result.noLongerReported).toEqual([]);
+  });
+
+  it("the history note is a skip signal in the history scope only", () => {
+    const note: Coverage = {
+      ...cov("history:config-excluded", "history", "completed", []),
+      note: "set aaaaaaaa",
+    };
+    const history = [cov("history:commits", "history", "completed", ["PG-SECRET-003"])];
+    const result = compareScans(
+      scan([finding(), historyFinding()], [...JS, ...history]),
+      scan([], [...JS, ...history, note]),
+    );
+    expect(result.noLongerReported.map((f) => f.ruleId)).toEqual(["PG-SQL-001"]);
+    expect(result.notComparable.map((f) => f.ruleId)).toEqual(["PG-SECRET-003"]);
+  });
+});

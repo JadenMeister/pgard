@@ -1,4 +1,4 @@
-import type { Finding } from "@pgard/findings";
+import type { Coverage, Finding } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
 import { testFinding, testResult } from "../../test-support.js";
 import { COLLAPSE_THRESHOLD, groupFindings, sortBySeverity } from "./result-groups.js";
@@ -260,5 +260,79 @@ describe("headline status counts", () => {
       plain,
     );
     expect(text).toContain("Findings (3): 1 confirmed, 2 suspected (needs review)");
+  });
+});
+
+describe("project configuration notices", () => {
+  const withCoverage = (...entries: Coverage[]) =>
+    testResult({ overallStatus: "partial", coverage: entries });
+  const area = (name: string, status: Coverage["status"], note: string): Coverage => ({
+    area: name,
+    scope: "code",
+    status,
+    ruleIds: [],
+    note,
+  });
+
+  it("shows a prominent line above the findings when files were excluded", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area(
+          "source:config-excluded",
+          "completed",
+          "3 files excluded by pgard.config.json (of 9).",
+        ),
+      ),
+      plain,
+    );
+    const line = text
+      .split("\n")
+      .findIndex((l) => l.startsWith("! 3 files excluded by pgard.config.json"));
+    expect(line).toBeGreaterThan(0);
+    expect(line).toBeLessThan(
+      text.split("\n").findIndex((l) => l.startsWith("Findings by severity")),
+    );
+  });
+
+  it("shows warnings and an ignored invalid config prominently", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area(
+          "source:config-excluded",
+          "partial",
+          "9 files excluded by pgard.config.json. WARNING: x",
+        ),
+        area("source:config", "partial", "pgard.config.json is invalid and was ignored; reason."),
+      ),
+      plain,
+    );
+    expect(text).toContain("! 9 files excluded by pgard.config.json. WARNING: x");
+    expect(text).toContain("! pgard.config.json is invalid and was ignored; reason.");
+  });
+
+  it("is quiet when nothing was excluded and the config is fine", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area("source:config-excluded", "completed", "0 files excluded by pgard.config.json."),
+        area("source:config", "completed", "pgard.config.json read."),
+      ),
+      plain,
+    );
+    expect(text).not.toContain("! ");
+  });
+
+  it("strips terminal control characters from hostile patterns in the note", () => {
+    const text = formatScanResult(
+      withCoverage(
+        area(
+          "source:config-excluded",
+          "completed",
+          "1 file excluded by pgard.config.json: \u001b[2J\u001b]0;pwned\u0007",
+        ),
+      ),
+      plain,
+    );
+    expect(text).not.toContain("\u001b");
+    expect(text).not.toContain("\u0007");
   });
 });

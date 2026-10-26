@@ -1,6 +1,14 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AnalyzerOutput, Coverage, Finding } from "@pgard/findings";
+import {
+  compileGlob,
+  compilePathMatcher,
+  matchesEverything,
+  type AnalyzerOutput,
+  type Coverage,
+  type Finding,
+  type ProjectConfig,
+} from "@pgard/findings";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
 import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
@@ -13,6 +21,7 @@ import {
   type GeneratedDirectoryReason,
   type SkippedDependencyDirectory,
   type SourceLanguage,
+  type WalkResult,
 } from "./walk.js";
 
 export interface SourceScanOptions {
@@ -21,6 +30,8 @@ export interface SourceScanOptions {
   timeBudgetMs?: number;
   /** Injectable clock (ms) for tests. */
   now?: () => number;
+  /** Validated project configuration; its `exclude` patterns leave source files out, visibly. */
+  projectConfig?: ProjectConfig | null;
 }
 
 const CSRF_MODULES = [
@@ -167,7 +178,12 @@ export async function scanSourceCode(
   projectRoot: string,
   options: SourceScanOptions = {},
 ): Promise<AnalyzerOutput> {
-  const walk = await walkSourceTree(projectRoot);
+  const excludePatterns = options.projectConfig?.exclude ?? [];
+  const excludeMatcher = excludePatterns.length > 0 ? compilePathMatcher(excludePatterns) : null;
+  const walk = await walkSourceTree(
+    projectRoot,
+    excludeMatcher ? { isExcluded: (relativePath) => excludeMatcher.matches(relativePath) } : {},
+  );
   const raw: RawSourceFinding[] = [];
   const stats: Record<SourceLanguage, LanguageStats> = {
     javascript: {
@@ -369,6 +385,15 @@ export async function scanSourceCode(
   );
   // Java, Kotlin, Python and PHP: detected only; no grammar is loaded until rules exist.
   coverage.push(...languageTrackCoverage(await detectLanguageTrack(walk)));
+  if (excludeMatcher !== null) {
+    coverage.push(
+      describeConfigExcluded(
+        excludePatterns,
+        walk.excluded,
+        walk.files.length + walkTrackedCount(walk) + walk.excluded.count,
+      ),
+    );
+  }
   if (walk.skippedLarge > 0) {
     coverage.push({
       area: "source:large-files",
@@ -438,6 +463,58 @@ export async function scanSourceCode(
   });
 
   return { findings, coverage };
+}
+
+function walkTrackedCount(walk: WalkResult): number {
+  return Object.values(walk.trackFiles).reduce((sum, list) => sum + list.length, 0);
+}
+
+/** The CLI shows at most 300 characters of a coverage note; the count comes first. */
+export const MAX_CONFIG_NOTE_LENGTH = 300;
+
+/**
+ * Coverage entry for files left out by `pgard.config.json`: the count, the share of all source
+ * files found, a hash of the patterns and of the excluded file set (so a later scan notices a
+ * different set even when the count is the same) and the patterns themselves, JSON-quoted. A
+ * pattern that matches every file, or exclusions that leave nothing analyzed, make the area
+ * `partial` with a WARNING: the scan then says little about the project.
+ */
+export function describeConfigExcluded(
+  patterns: readonly string[],
+  excluded: { count: number; digest: string },
+  totalFound: number,
+): Coverage {
+  const catchAll = patterns.filter((pattern) => matchesEverything(compileGlob(pattern)));
+  const everythingExcluded = totalFound > 0 && excluded.count === totalFound;
+  const setHash = createHash("sha256")
+    .update(`${[...patterns].sort().join("\n")}\n--\n${excluded.digest}`)
+    .digest("hex")
+    .slice(0, 8);
+  const count = excluded.count;
+  const warning =
+    catchAll.length > 0
+      ? ` WARNING: ${JSON.stringify(catchAll[0])} matches every file.`
+      : everythingExcluded
+        ? " WARNING: every source file is excluded."
+        : "";
+  const heading = `${count} file${count === 1 ? "" : "s"} excluded by pgard.config.json (of ${totalFound} source files; ${patterns.length} pattern${patterns.length === 1 ? "" : "s"}, set ${setHash}).${warning}`;
+  const compose = (shown: string[]) => {
+    const rest = patterns.length - shown.length;
+    return `${heading} Patterns: ${shown.map((pattern) => JSON.stringify(pattern)).join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  };
+  const shown: string[] = [];
+  for (const pattern of patterns) {
+    if (shown.length === MAX_LISTED_PATHS) break;
+    if (compose([...shown, pattern]).length > MAX_CONFIG_NOTE_LENGTH) break;
+    shown.push(pattern);
+  }
+  return {
+    area: "source:config-excluded",
+    scope: "code",
+    status: warning === "" ? "completed" : "partial",
+    ruleIds: [],
+    note: shown.length === 0 ? heading : compose(shown),
+  };
 }
 
 /** Short hash of a path set, so a note changes when the set changes without listing the paths. */

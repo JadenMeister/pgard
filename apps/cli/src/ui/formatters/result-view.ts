@@ -185,6 +185,30 @@ export function formatCoverage(coverage: readonly Coverage[], style: Style): str
     .join("\n");
 }
 
+/**
+ * Prominent lines for the project configuration file, shown above the findings so exclusions are
+ * never missed in the coverage list: "N files excluded by pgard.config.json ..." and any warning
+ * or problem with the file itself.
+ */
+export function formatConfigNotices(coverage: readonly Coverage[], style: Style): string[] {
+  const lines: string[] = [];
+  for (const entry of coverage) {
+    if (entry.note === null) continue;
+    const text = safeText(entry.note, 300);
+    if (entry.area === "source:config-excluded") {
+      const excludedNone = /^0 files /.test(entry.note);
+      lines.push(
+        entry.status === "partial" || !excludedNone
+          ? style.yellow(style.bold(`! ${text}`))
+          : style.dim(`  ${text}`),
+      );
+    } else if (entry.area === "source:config" && entry.status === "partial") {
+      lines.push(style.yellow(style.bold(`! ${text}`)));
+    }
+  }
+  return lines;
+}
+
 const CHECK_STATUS_MARKS: Record<string, string> = {
   passed: "[passed]",
   failed: "[failed]",
@@ -229,6 +253,8 @@ export function formatScanResult(
     sections.push("", formatAuthorization(result.authorization, style));
     return sections.join("\n");
   }
+  const configNotices = formatConfigNotices(result.coverage, style);
+  if (configNotices.length > 0) sections.push("", ...configNotices);
   // Headline counts cover regular code; test and fixture findings follow in their own group and
   // suggestions in vendored code come last.
   const { primary, test, vendored } = splitFindingsByContext(sortBySeverity(result.findings));

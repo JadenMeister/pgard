@@ -160,12 +160,22 @@ export function isVendoredContextFinding(finding: Pick<Finding, "context">): boo
  * - test or fixture code (`isTestOrFixturePath`) gets `context: "test"`: a match there is
  *   usually a deliberate sample, but a real value committed in a test is still exposed.
  * Vendored wins when a path is both (`node_modules/pkg/test/a.js`).
+ *
+ * `isConfiguredTestPath` (the project's `testDirectories`) can only add the test context: it is
+ * consulted after the built-in rules, so it never removes a classification.
  */
-export function applyFindingContext(finding: Finding): Finding {
+export function applyFindingContext(
+  finding: Finding,
+  options: { isConfiguredTestPath?: (filePath: string | null) => boolean } = {},
+): Finding {
   if (isVendoredContextFinding(finding) || isVendoredPath(finding.location.path)) {
     return { ...finding, context: "vendored", confidence: "low" };
   }
-  if (!isTestContextFinding(finding) && !isTestOrFixturePath(finding.location.path)) {
+  if (
+    !isTestContextFinding(finding) &&
+    !isTestOrFixturePath(finding.location.path) &&
+    options.isConfiguredTestPath?.(finding.location.path) !== true
+  ) {
     return finding;
   }
   return { ...finding, context: "test", confidence: "low" };

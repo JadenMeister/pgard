@@ -4,6 +4,7 @@ import {
   SCAN_SCOPES,
   SCHEMA_VERSION,
   applyFindingContext,
+  compilePathMatcher,
   deriveOverallStatus,
   mergeFindings,
   redactEvidence,
@@ -13,6 +14,7 @@ import {
   type ConfirmedWebTarget,
   type Coverage,
   type Finding,
+  type PathMatcher,
   type ScanRequest,
   type ScanResult,
   type ScanScope,
@@ -26,6 +28,11 @@ import {
 } from "@pgard/policy";
 import { createDefaultAnalyzers } from "./analyzers.js";
 import { normalizeFindingPaths } from "./paths.js";
+import {
+  describeProjectConfig,
+  loadProjectConfig,
+  type ProjectConfigLoad,
+} from "./project-config.js";
 import {
   ScanCancelledError,
   type AnalyzerContext,
@@ -119,16 +126,27 @@ function normalizeAnalyzerOutput(
   scope: ScanScope,
   output: AnalyzerOutput,
   projectRoot: string,
-): AnalyzerOutput {
+  testPaths: PathMatcher | null,
+): AnalyzerOutput & { configTestFindings: number } {
+  let configTestFindings = 0;
   const coverage = output.coverage.map((entry) => ({ ...entry, scope }));
   const findings = output.findings.map((finding) => {
     const sources: ScanScope[] = finding.sources.length > 0 ? [...finding.sources] : [scope];
     if (!sources.includes(scope)) {
       sources.push(scope);
     }
-    return applyFindingContext(normalizeFindingPaths({ ...finding, sources }, projectRoot));
+    const normalized = normalizeFindingPaths({ ...finding, sources }, projectRoot);
+    const context = applyFindingContext(normalized);
+    if (testPaths === null) return context;
+    // `testDirectories` can only add the test context, never remove one; count what it added.
+    const configured = applyFindingContext(normalized, {
+      isConfiguredTestPath: (filePath) => testPaths.matches(filePath),
+    });
+    if (configured.context !== context.context) configTestFindings += 1;
+    return configured;
   });
   return {
+    configTestFindings,
     findings,
     coverage:
       coverage.length > 0 ? coverage : [scopeCoverage(scope, "partial", "No coverage reported.")],
@@ -257,8 +275,23 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   }
   emit({ stage: "authorization", status: "completed", message: "Authorization verified." });
 
+  // The repository's own config is untrusted data: validated strictly, never able to change
+  // authorization (which already ran), and an invalid one is ignored as a whole.
+  const configLoad: ProjectConfigLoad = await loadProjectConfig(request.projectRoot).catch(
+    (): ProjectConfigLoad => ({
+      state: "invalid",
+      problems: ["pgard.config.json could not be read"],
+    }),
+  );
+  throwIfCancelled(deps.signal);
+  const projectConfig = configLoad.state === "loaded" ? configLoad.config : null;
+  const testPaths =
+    projectConfig !== null && projectConfig.testDirectories.length > 0
+      ? compilePathMatcher(projectConfig.testDirectories)
+      : null;
   const analyzers = { ...createDefaultAnalyzers(), ...deps.analyzers };
   const context: AnalyzerContext = {
+    projectConfig,
     projectRoot: request.projectRoot,
     revision: outcome.revision,
     env,
@@ -304,8 +337,19 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
         output = await analyzer(context);
       }
       throwIfCancelled(deps.signal);
-      const normalized = normalizeAnalyzerOutput(scope, output, request.projectRoot);
+      // Configured test directories apply to source code only: a secret in history stays a
+      // regular finding whatever the project calls the directory.
+      const normalized = normalizeAnalyzerOutput(
+        scope,
+        output,
+        request.projectRoot,
+        scope === "code" ? testPaths : null,
+      );
       coverage.push(...normalized.coverage);
+      if (scope === "code") {
+        const configCoverage = describeProjectConfig(configLoad, normalized.configTestFindings);
+        if (configCoverage !== null) coverage.push(configCoverage);
+      }
       findings.push(...normalized.findings);
       emit({ stage: scope, status: "completed", message: `Finished ${scope} analysis.` });
     } catch (error) {
