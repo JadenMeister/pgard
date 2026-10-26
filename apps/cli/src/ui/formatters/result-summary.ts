@@ -21,6 +21,8 @@ export interface RenderContext {
   /** Terminal columns. */
   width: number;
   allFindings: boolean;
+  /** Block characters allowed in charts; default: what the terminal can render. */
+  unicode?: boolean | undefined;
   ruleTexts?: RuleTextCatalog | undefined;
 }
 
@@ -169,7 +171,11 @@ export function formatSecondaryCharts(
   ctx: RenderContext,
 ): string[] {
   if (findings.length === 0) return [];
-  const options = { width: ctx.width, isColor: ctx.style.enabled };
+  const options = {
+    width: ctx.width,
+    isColor: ctx.style.enabled,
+    ...(ctx.unicode === undefined ? {} : { unicode: ctx.unicode }),
+  };
   return [
     "",
     ctx.style.bold(ctx.t.chartByOwasp),

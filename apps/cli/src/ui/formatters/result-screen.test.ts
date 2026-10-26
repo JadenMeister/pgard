@@ -130,7 +130,7 @@ const previous = testResult({
 });
 
 function options(extra: ScanResultOptions = {}): ScanResultOptions {
-  return { ruleTexts: getRuleTextCatalog(), width: 80, ...extra };
+  return { ruleTexts: getRuleTextCatalog(), width: 80, unicode: true, ...extra };
 }
 
 function withDiff(result: ScanResult): ScanResultOptions["diff"] {
@@ -141,7 +141,8 @@ function withDiff(result: ScanResult): ScanResultOptions["diff"] {
 }
 
 /** Local times differ by timezone. */
-const stable = (text: string): string => text.replace(/\d{4}-\d\d-\d\d \d\d:\d\d/g, "<time>");
+const stable = (text: string): string =>
+  text.replace(/\d{4}-\d\d-\d\d \d\d:\d\d/g, "<time>").replaceAll("\u2026", "...");
 
 describe("result screen, English", () => {
   const result = fixture();

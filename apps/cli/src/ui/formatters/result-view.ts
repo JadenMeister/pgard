@@ -59,10 +59,12 @@ export function formatSeverityBars(
   style: Style,
   t: CliText = EN,
   width = DEFAULT_WIDTH,
+  unicode?: boolean,
 ): string {
   return renderChart(severityChartRows(findings, style, t), {
     width,
     isColor: style.enabled,
+    ...(unicode === undefined ? {} : { unicode }),
   }).join("\n");
 }
 
@@ -505,6 +507,8 @@ export interface ScanResultOptions {
   ruleTexts?: RuleTextCatalog;
   /** The comparison with the previous stored scan, shown in the summary. */
   diff?: ScanDiff | null;
+  /** Allow block characters in charts (default: what the terminal can render). */
+  unicode?: boolean;
 }
 
 function outsideContexts(counts: { test: number; vendored: number }) {
@@ -525,6 +529,7 @@ export function formatScanResult(
     allFindings: options.allFindings === true,
     width: options.width ?? DEFAULT_WIDTH,
     ruleTexts: options.ruleTexts,
+    unicode: options.unicode,
   });
   const allFindings = ctx.allFindings;
   const sections: string[] = [];
@@ -570,7 +575,7 @@ export function formatScanResult(
     "",
     style.bold(t.chartBySeverity(hasBaseline, primary.length)) +
       (extra.length === 0 ? "" : style.dim(t.plus(extra))),
-    formatSeverityBars(primary, style, t, ctx.width),
+    formatSeverityBars(primary, style, t, ctx.width, ctx.unicode),
     ...formatSecondaryCharts(primary, result.requestedScopes, ctx),
   );
   if (primary.length > 0) {

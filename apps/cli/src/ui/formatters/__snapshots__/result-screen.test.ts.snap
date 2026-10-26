@@ -60,13 +60,13 @@ Coverage
   [not selected] web:anonymous (Not selected)
 
 Standards coverage (OWASP Top 10 2025)
-  [rules partial] A01 Broken Access Control - 6 of 40 mapped CWEs have rules (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.c…
+  [rules partial] A01 Broken Access Control - 6 of 40 mapped CWEs have rules (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.c...
   [not run]       A02 Security Misconfiguration - 2 of 16 mapped CWEs have rules; no mapped rule ran (PG-COOKIE-001: code areas could not run)
   [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped CWEs have rules; no mapped rule ran (PG-HYGIENE-001: history areas could not run)
   [not run]       A04 Cryptographic Failures - 4 of 32 mapped CWEs have rules; no mapped rule ran (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run)
   [rules ran]     A05 Injection - 3 of 37 mapped CWEs have rules (PG-SQL-001, PG-XSS-001)
   [not run]       A06 Insecure Design - 1 of 39 mapped CWEs have rules; no mapped rule ran (PG-AUTH-001: code areas could not run)
-  [rules partial] A07 Authentication Failures - 2 of 36 mapped CWEs have rules (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.c…
+  [rules partial] A07 Authentication Failures - 2 of 36 mapped CWEs have rules (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.c...
   [no rules]      A08 Software or Data Integrity Failures - no rules
   [no rules]      A09 Security Logging & Alerting Failures - no rules
   [no rules]      A10 Mishandling of Exceptional Conditions - no rules
@@ -136,13 +136,13 @@ OWASP Top 10 2025 분류별
   [선택 안 함] web:anonymous (선택 안 함)
 
 표준 매핑 현황 (OWASP Top 10 2025)
-  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 6개에 규칙이 있음 (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config.…
+  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 6개에 규칙이 있음 (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config....
   [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 2개에 규칙이 있음; no mapped rule ran (PG-COOKIE-001: code areas could not run)
   [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 1개에 규칙이 있음; no mapped rule ran (PG-HYGIENE-001: history areas could not run)
   [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음; no mapped rule ran (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run)
   [규칙 실행됨]    A05 Injection - 매핑된 CWE 37개 중 3개에 규칙이 있음 (PG-SQL-001, PG-XSS-001)
   [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에 규칙이 있음; no mapped rule ran (PG-AUTH-001: code areas could not run)
-  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config.…
+  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003); partial areas: history:commits; code rules not run: areas could not run; no completed mapped rule covers typescript (files that are not yours to scan can be left out with "exclude" in pgard.config....
   [규칙 없음]      A08 Software or Data Integrity Failures - no rules
   [규칙 없음]      A09 Security Logging & Alerting Failures - no rules
   [규칙 없음]      A10 Mishandling of Exceptional Conditions - no rules
