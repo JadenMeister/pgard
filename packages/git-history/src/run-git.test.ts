@@ -147,7 +147,8 @@ describe("runGit against a malicious repository", () => {
 
   function createMaliciousRepo() {
     markerDir = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-marker-")));
-    const marker = (name: string) => path.join(markerDir as string, name);
+    // Forward slashes: the configured commands run through sh, which eats Windows backslashes.
+    const marker = (name: string) => path.join(markerDir as string, name).replaceAll("\\", "/");
     fixture = createGitFixture();
     fixture.commit({
       files: { "a.txt": "one\n", ".gitattributes": "*.txt filter=pwn diff=pwn\n" },
@@ -165,7 +166,7 @@ describe("runGit against a malicious repository", () => {
       .trim();
     fixture.git("update-ref", "HEAD", signedSha);
 
-    const gpgScript = path.join(markerDir, "fake-gpg.sh");
+    const gpgScript = path.join(markerDir, "fake-gpg.sh").replaceAll("\\", "/");
     writeFileSync(gpgScript, `#!/bin/sh\ntouch ${marker("gpg")}\nexit 1\n`);
     chmodSync(gpgScript, 0o755);
 
