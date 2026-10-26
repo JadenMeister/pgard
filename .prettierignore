@@ -4,3 +4,4 @@ package-lock.json
 coverage/
 docs/PGARD_*_KO.md
 docs/PGARD_*_EN.md
+.pack/

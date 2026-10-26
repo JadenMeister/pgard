@@ -81,6 +81,17 @@ npm link -w @pgard/cli # 선택: PATH에 `pgard` 등록
 
 `npm link` 없이 실행하려면 저장소에서 `node apps/cli/dist/bin/pgard.js <명령>`을 사용합니다.
 
+### 패키지를 로컬에서 빌드하기
+
+배포물은 CLI, 대시보드, PDF 글꼴, tree-sitter 문법을 하나로 묶은 npm 패키지 `pgard`입니다. 아직 배포하지 않았습니다. 빌드하고, 설치했을 때 동작하는지 확인하려면 다음을 실행합니다.
+
+```sh
+npm run pack:pgard   # 빌드 후 .pack/pgard-<버전>.tgz 생성(git 추적 제외)
+npm run smoke:pack   # 그 tarball을 임시 디렉터리에 설치해 실행
+```
+
+`smoke:pack`은 `pgard --version`, `--help`, `rules list`, `doctor`를 실행하고, 내장 글꼴로 한국어 PDF를 만들며(대체 글꼴이면 실패), 문법 하나를 불러오고, 대시보드 서버를 시작합니다. CI도 Linux, macOS, Windows에서 같은 단계를 실행합니다.
+
 그다음 검사할 프로젝트의 루트에서 PGARD를 실행합니다.
 
 ```sh

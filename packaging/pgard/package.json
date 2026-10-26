@@ -1,0 +1,38 @@
+{
+  "name": "pgard",
+  "version": "0.1.0",
+  "description": "Local security checks for GitHub projects you are authorized to scan",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JadenMeister/pgard.git"
+  },
+  "homepage": "https://github.com/JadenMeister/pgard#readme",
+  "bugs": {
+    "url": "https://github.com/JadenMeister/pgard/issues"
+  },
+  "bin": {
+    "pgard": "./dist/pgard.js"
+  },
+  "exports": {
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "assets",
+    "NOTICE.md",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": "^22.23.4 || ^24.22.1 || >=26.12.1"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "2.1.1",
+    "@vue/compiler-sfc": "3.5.43",
+    "pdfkit": "0.20.2",
+    "typescript-api": "npm:typescript@5.9.3",
+    "web-tree-sitter": "0.27.1"
+  }
+}

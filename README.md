@@ -81,6 +81,17 @@ npm link -w @pgard/cli # optional: puts `pgard` on your PATH
 
 Without `npm link`, run `node apps/cli/dist/bin/pgard.js <command>` from the repository.
 
+### Build the package locally
+
+The release artifact is one npm package, `pgard`, which bundles the CLI, the dashboard, the PDF font and the tree-sitter grammars. It is not published yet. To build it and check that it works when installed:
+
+```sh
+npm run pack:pgard   # builds and writes .pack/pgard-<version>.tgz (gitignored)
+npm run smoke:pack   # installs that tarball into a temporary directory and runs it
+```
+
+`smoke:pack` runs `pgard --version`, `--help`, `rules list` and `doctor`, renders a Korean PDF with the embedded font (a fallback font fails the check), loads a grammar and starts the dashboard server. CI runs the same steps on Linux, macOS and Windows.
+
 Then run PGARD from the root of the project you want to scan:
 
 ```sh
