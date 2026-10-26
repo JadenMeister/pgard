@@ -1,5 +1,6 @@
 import {
   SEVERITIES,
+  countStandardStates,
   projectConfigNotices,
   configTestGroupNote,
   splitFindingsByContext,
@@ -8,6 +9,8 @@ import {
   type Coverage,
   type Finding,
   type ScanResult,
+  type StandardCheckState,
+  type StandardsCoverage,
 } from "@pgard/findings";
 import {
   ANALYSIS_BASIS_NOTE,
@@ -201,6 +204,43 @@ export function formatConfigNotices(coverage: readonly Coverage[], style: Style)
   });
 }
 
+const STANDARD_MARKS: Record<StandardCheckState, string> = {
+  checked: "[checked]",
+  partial: "[partial]",
+  not_checked: "[not checked]",
+};
+const MAX_LISTED_RULES = 4;
+
+/** Standards coverage notice shown under the lines, so a reader does not read "checked" as "safe". */
+export const STANDARDS_NOTE =
+  "Checked means a mapped rule ran to completion in this scan; it does not mean the weakness is absent. Full detail per entry: --format json (standardsCoverage, ruleStats).";
+
+/**
+ * Compact "Standards coverage" section: one line per OWASP Top 10 2025 category with its state
+ * and the rules behind it (or the reason), then counts for the CWE Top 25 2025.
+ */
+export function formatStandardsCoverage(standards: StandardsCoverage, style: Style): string {
+  const lines = standards.owasp.map((entry) => {
+    const mark = STANDARD_MARKS[entry.state];
+    const colored =
+      entry.state === "checked"
+        ? style.green(mark)
+        : entry.state === "partial"
+          ? style.yellow(mark)
+          : style.dim(mark);
+    const listed = entry.ruleIds.slice(0, MAX_LISTED_RULES).join(", ");
+    const rest = entry.ruleIds.length - MAX_LISTED_RULES;
+    const rules = entry.ruleIds.length === 0 ? "" : ` (${listed}${rest > 0 ? ` +${rest}` : ""})`;
+    const detail = entry.state === "checked" ? rules.trim() : `${entry.reason}${rules}`;
+    return `  ${colored} ${safeText(entry.id.replace(":2025", ""), 8)} ${safeText(entry.title, 60)} ${style.dim(`- ${safeText(detail, 200)}`)}`;
+  });
+  const counts = countStandardStates(standards.cweTop25);
+  lines.push(
+    `  CWE Top 25 2025: ${counts.checked} checked, ${counts.partial} partial, ${counts.not_checked} not checked`,
+  );
+  return lines.join("\n");
+}
+
 const CHECK_STATUS_MARKS: Record<string, string> = {
   passed: "[passed]",
   failed: "[failed]",
@@ -305,6 +345,14 @@ export function formatScanResult(
     );
   }
   sections.push("", style.bold("Coverage"), formatCoverage(result.coverage, style));
+  if (result.standardsCoverage !== undefined) {
+    sections.push(
+      "",
+      style.bold("Standards coverage (OWASP Top 10 2025)"),
+      formatStandardsCoverage(result.standardsCoverage, style),
+      style.dim(`  ${STANDARDS_NOTE}`),
+    );
+  }
   sections.push("", style.dim(ANALYSIS_BASIS_NOTE));
   return sections.join("\n");
 }
