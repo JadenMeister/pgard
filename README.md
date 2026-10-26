@@ -38,6 +38,7 @@ PGARD is released under the [MIT License](LICENSE).
 - [Dashboard](#dashboard)
 - [Privacy and network traffic](#privacy-and-network-traffic)
 - [Out of scope](#out-of-scope)
+- [Accuracy](#accuracy)
 - [Known limitations](#known-limitations)
 - [Development](#development)
 - [License](#license)
@@ -536,6 +537,12 @@ The dashboard is available in Korean and English. It follows the browser languag
 - Logged-in (authenticated) web browsing (#45). The `web:authenticated` area is always `not_selected`, and PGARD never asks for application passwords.
 - Matching dependencies against vulnerability (CVE/advisory) data: not implemented yet. Only lockfile parsing and the user-run OSV data download exist.
 
+## Accuracy
+
+Each rule is measured against a labelled corpus under [`tests/corpus/`](tests/corpus/): vulnerable (`positive`) and safe (`negative`) samples for the source rules, generated Git repositories for the history rules, and loopback servers for the web rules. `npm run build && npm run corpus` scans them all (the runner uses the built packages), prints true positives, false positives, false negatives, precision and recall per rule, and writes the table to [`tests/corpus/RESULTS.md`](tests/corpus/RESULTS.md). CI fails when a rule drops below its recorded threshold, when a sample's result changes without the expected-failure list being updated, or when `RESULTS.md` is out of date.
+
+Read the numbers with care. The corpus is small (roughly ten samples per rule) and was written by the PGARD authors, so it shows how the rules behave on cases we thought of, not how often they are right on your code. It deliberately includes hard cases the rules miss or wrongly report; those stay in the corpus and are listed in `RESULTS.md` with a reason, never deleted. A high score here does not mean a project is secure.
+
 ## Known limitations
 
 - PDF reports embed a subset of Noto Sans KR, so Korean and English text both render. Characters the font does not have (Hanja, emoji, other scripts) are replaced with `?` and the PDF says so; the HTML report has the full text. If the bundled font cannot be loaded, the PDF falls back to a built-in Latin-1 font (Korean becomes `?`), notes this in the PDF itself, and the CLI prints a warning.
@@ -562,6 +569,7 @@ This is an npm workspaces monorepo written in TypeScript.
 | `packages/findings`        | Shared finding and coverage types, redaction        |
 | `packages/report`          | HTML and PDF reports                                |
 | `tests/integration`        | Cross-package integration tests                     |
+| `tests/corpus`             | Accuracy corpus, runner and thresholds              |
 
 ```sh
 npm ci
@@ -571,9 +579,10 @@ npm test              # run the Vitest suite
 npm run format        # format with Prettier
 npm run format:check  # check formatting
 npm run check         # typecheck + format:check + test
+npm run corpus        # run the accuracy corpus and rewrite tests/corpus/RESULTS.md
 ```
 
-CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull requests and pushes to `main`.
+CI runs `npm ci`, `npm run build`, `npm run format:check`, `npm test` and `npm run corpus:check` on pull requests and pushes to `main`.
 
 ### Documents in `docs/`
 

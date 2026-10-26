@@ -1,0 +1,144 @@
+{
+  "rules": {
+    "PG-SQL-001": {
+      "precision": 0.7,
+      "recall": 1
+    },
+    "PG-SQL-002": {
+      "precision": 1,
+      "recall": 0.75
+    },
+    "PG-SQL-003": {
+      "precision": 0.833,
+      "recall": 1
+    },
+    "PG-SQL-004": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-XSS-001": {
+      "precision": 0.75,
+      "recall": 0.857
+    },
+    "PG-XSS-002": {
+      "precision": 1,
+      "recall": 0.8
+    },
+    "PG-XSS-003": {
+      "precision": 0.8,
+      "recall": 1
+    },
+    "PG-SSRF-001": {
+      "precision": 0.777,
+      "recall": 1
+    },
+    "PG-CMD-001": {
+      "precision": 0.75,
+      "recall": 1
+    },
+    "PG-CMD-002": {
+      "precision": 1,
+      "recall": 0.8
+    },
+    "PG-PATH-001": {
+      "precision": 0.857,
+      "recall": 1
+    },
+    "PG-CRYPTO-001": {
+      "precision": 1,
+      "recall": 0.8
+    },
+    "PG-CRYPTO-002": {
+      "precision": 1,
+      "recall": 0.666
+    },
+    "PG-CRYPTO-003": {
+      "precision": 1,
+      "recall": 0.8
+    },
+    "PG-AUTH-001": {
+      "precision": 1,
+      "recall": 0.4
+    },
+    "PG-COOKIE-001": {
+      "precision": 0.714,
+      "recall": 0.714
+    },
+    "PG-CSRF-001": {
+      "precision": 0.666,
+      "recall": 0.8
+    },
+    "PG-BRUTE-001": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-SECRET-001": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-SECRET-002": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-SECRET-003": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-HYGIENE-001": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-001": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-002": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-003": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-004": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-005": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-006": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-007": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-008": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-009": {
+      "precision": 1,
+      "recall": 0.666
+    },
+    "PG-WEB-010": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-011": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-012": {
+      "precision": 1,
+      "recall": 1
+    },
+    "PG-WEB-013": {
+      "precision": 1,
+      "recall": 1
+    }
+  }
+}

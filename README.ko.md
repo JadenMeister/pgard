@@ -38,6 +38,7 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 - [대시보드](#대시보드)
 - [개인정보와 네트워크 통신](#개인정보와-네트워크-통신)
 - [범위 밖](#범위-밖)
+- [정확도](#정확도)
 - [알려진 제한 사항](#알려진-제한-사항)
 - [개발](#개발)
 - [라이선스](#라이선스)
@@ -536,6 +537,12 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 - 로그인한 상태의 웹 탐색(#45). `web:authenticated` 영역은 항상 `not_selected`이며, PGARD는 애플리케이션 비밀번호를 묻지 않습니다.
 - 의존성을 취약점(CVE/advisory) 데이터와 대조하는 기능: 아직 구현되지 않았습니다. lockfile 파싱과 사용자가 직접 실행하는 OSV 데이터 다운로드만 있습니다.
 
+## 정확도
+
+각 규칙은 [`tests/corpus/`](tests/corpus/)의 라벨이 붙은 코퍼스로 측정합니다. 소스 규칙에는 취약한 샘플(`positive`)과 안전한 샘플(`negative`)을, 이력 규칙에는 생성한 Git 저장소를, 웹 규칙에는 루프백 서버를 사용합니다. `npm run build && npm run corpus`는(실행기는 빌드된 패키지를 사용합니다) 이를 모두 검사하고 규칙별 true positive, false positive, false negative, 정밀도(precision), 재현율(recall)을 출력하며, 표를 [`tests/corpus/RESULTS.md`](tests/corpus/RESULTS.md)에 씁니다. CI는 규칙이 기록된 임계값 아래로 떨어지거나, 예상 실패 목록을 갱신하지 않은 채 샘플의 결과가 바뀌거나, `RESULTS.md`가 최신이 아니면 실패합니다.
+
+숫자는 조심해서 읽으세요. 코퍼스는 작고(규칙마다 샘플이 열 개 안팎) PGARD 작성자들이 직접 만들었으므로, 우리가 떠올린 경우에서 규칙이 어떻게 동작하는지를 보여 줄 뿐 여러분의 코드에서 얼마나 자주 맞는지를 뜻하지 않습니다. 규칙이 놓치거나 잘못 보고하는 어려운 사례도 일부러 넣었으며, 이런 사례는 코퍼스에서 지우지 않고 이유와 함께 `RESULTS.md`에 남깁니다. 여기서 점수가 높다고 프로젝트가 안전한 것은 아닙니다.
+
 ## 알려진 제한 사항
 
 - PDF 보고서에는 Noto Sans KR 서브셋이 포함되어 한국어와 영어가 모두 표시됩니다. 폰트에 없는 문자(한자, 이모지, 다른 문자 체계)는 `?`로 바뀌고 PDF에 그 사실이 표시됩니다. 전체 텍스트는 HTML 보고서에 있습니다. 포함된 폰트를 불러오지 못하면 PDF는 내장 Latin-1 폰트로 대체되고(한국어는 `?`), PDF 안에 이를 알리며 CLI도 경고를 출력합니다.
@@ -562,6 +569,7 @@ TypeScript로 작성된 npm workspaces 모노레포입니다.
 | `packages/findings`        | 공통 발견 항목·coverage 타입, 민감정보 가림               |
 | `packages/report`          | HTML·PDF 보고서                                           |
 | `tests/integration`        | 패키지 간 통합 테스트                                     |
+| `tests/corpus`             | 정확도 코퍼스, 실행기, 임계값                             |
 
 ```sh
 npm ci
@@ -571,9 +579,10 @@ npm test              # Vitest 테스트 실행
 npm run format        # Prettier로 포맷
 npm run format:check  # 포맷 확인
 npm run check         # typecheck + format:check + test
+npm run corpus        # 정확도 코퍼스를 실행하고 tests/corpus/RESULTS.md를 다시 씀
 ```
 
-CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run format:check`, `npm test`를 실행합니다.
+CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run format:check`, `npm test`, `npm run corpus:check`를 실행합니다.
 
 ### `docs/`의 문서
 

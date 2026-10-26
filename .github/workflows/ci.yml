@@ -66,18 +66,36 @@ jobs:
       - run: npm run pack:pgard
       - run: npm run smoke:pack
 
+  # Accuracy corpus: scans the labelled samples with the built analyzers and fails when a rule
+  # falls below its threshold, a result changes without the expected-failure list changing, or
+  # tests/corpus/RESULTS.md is out of date. Local only (generated git repos, loopback servers).
+  corpus:
+    name: accuracy corpus
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          check-latest: true
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm run corpus:check
+
   # Branch protection requires a check named `check`. This job keeps that name and passes only
   # when every OS in the matrix passed (`always()` so a failed matrix cannot leave it skipped).
   check:
     name: check
-    needs: [check-os, pack-smoke]
+    needs: [check-os, pack-smoke, corpus]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every OS to pass
         run: |
-          if [ "${{ needs.check-os.result }}" != "success" ] || [ "${{ needs.pack-smoke.result }}" != "success" ]; then
+          if [ "${{ needs.check-os.result }}" != "success" ] || [ "${{ needs.pack-smoke.result }}" != "success" ] || [ "${{ needs.corpus.result }}" != "success" ]; then
             echo "check-os result: ${{ needs.check-os.result }}"
             echo "pack-smoke result: ${{ needs.pack-smoke.result }}"
+            echo "corpus result: ${{ needs.corpus.result }}"
             exit 1
           fi
