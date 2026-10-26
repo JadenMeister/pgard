@@ -107,3 +107,44 @@ describe("localizeFindingText", () => {
     expect(localizeFindingText(FINDING, TEXTS, "en")).toBe(FINDING);
   });
 });
+
+describe("dashboard test-group note for config classification", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const testFinding: Finding = { ...FINDING, id: "t1", context: "test", confidence: "low" };
+  const withConfig = (count: number): ScanResult => ({
+    ...resultWith(testFinding),
+    coverage: [
+      {
+        area: "source:config",
+        scope: "code",
+        status: "completed",
+        ruleIds: [],
+        note: `read (${count} finding${count === 1 ? "" : "s"} classified as test code by it)`,
+      },
+    ],
+  });
+  const html = (result: ScanResult) =>
+    renderToStaticMarkup(
+      <I18nProvider>
+        <FindingsDashboard result={result} ruleTexts={null} />
+      </I18nProvider>,
+    );
+
+  it("says how many findings the config classified, in English and Korean", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    expect(html(withConfig(2))).toContain(
+      "2 of them were classified by the testDirectories setting of pgard.config.json",
+    );
+    vi.stubGlobal("navigator", { languages: ["ko-KR"] });
+    expect(html(withConfig(2))).toContain("그중 2건은 기본 규칙이 아니라");
+  });
+
+  it("adds nothing when the config classified none", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    expect(html(withConfig(0))).not.toContain("testDirectories setting");
+    expect(html(resultWith(testFinding))).not.toContain("testDirectories setting");
+  });
+});

@@ -1,4 +1,4 @@
-export { scanSourceCode, type SourceScanOptions } from "./scan-source.js";
+export { CONFIG_BUDGET_NOTE, scanSourceCode, type SourceScanOptions } from "./scan-source.js";
 export {
   SOURCE_RULES,
   listSourceRules,

@@ -202,3 +202,28 @@ describe("project configuration notices in the PDF report", () => {
     expect(text.indexOf("invalid and was ignored")).toBeLessThan(text.indexOf("Summary"));
   });
 });
+
+describe("PDF test-group sentence for config classification", () => {
+  it("says how many test findings the config classified", async () => {
+    const result = scanResult({
+      findings: [finding({ id: "t1", context: "test", confidence: "low" })],
+      coverage: [
+        {
+          area: "source:config",
+          scope: "code",
+          status: "completed",
+          ruleIds: [],
+          note: "pgard.config.json read (1 finding classified as test code by it)",
+        },
+      ],
+    });
+    const text = pdfTextLines(await renderPdfReport(result, { compress: false })).join(" ");
+    expect(text).toContain("1 of them was classified by the testDirectories setting");
+    const plain = pdfTextLines(
+      await renderPdfReport(scanResult({ findings: [finding({ id: "t2", context: "test" })] }), {
+        compress: false,
+      }),
+    ).join(" ");
+    expect(plain).not.toContain("testDirectories setting");
+  });
+});

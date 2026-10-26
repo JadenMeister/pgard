@@ -193,6 +193,13 @@ export const en = {
     },
     noWebTarget:
       "No confirmed web target: the web scope will be recorded as not tested and the scan will be partial.",
+    configNotice: {
+      excluded: (detail: string): string => detail,
+      config: (detail: string): string => detail,
+      test: (detail: string): string => detail,
+      demoted: (count: number): string =>
+        `${count} finding${count === 1 ? " was" : "s were"} classified as test code by the testDirectories setting of pgard.config.json (listed apart, confidence capped at low). Review ${count === 1 ? "it" : "them"}.`,
+    },
     run: "Run scan",
     cancel: "Cancel",
   },
@@ -264,6 +271,8 @@ export const en = {
     testAria: "Findings in test or fixture code",
     testNote:
       "Matches in files classified as test or fixture code by their path only, with confidence capped at low. They are not counted above, but review them: a real value committed in a test is still exposed.",
+    testNoteConfig: (count: number): string =>
+      ` ${count} of them ${count === 1 ? "was" : "were"} classified by the testDirectories setting of pgard.config.json, not by the built-in rules.`,
     vendoredTitle: (count: number): string =>
       `Suggestions: in third-party/vendored code (${count})`,
     vendoredAria: "Suggestions in third-party or vendored code",

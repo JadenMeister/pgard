@@ -520,3 +520,49 @@ describe("history scan and excludes", () => {
     expect(output.coverage.map((c) => c.area)).not.toContain("history:config-excluded");
   });
 });
+
+describe("pattern work budget", () => {
+  const hostile = (kind: "exclude" | "testDirectories") =>
+    JSON.stringify({
+      version: 1,
+      [kind]: Array.from({ length: kind === "exclude" ? 200 : 100 }, (_, i) => {
+        const letter = String.fromCharCode(98 + (i % 25));
+        return `*${"?".repeat(Math.floor(i / 25))}${`?${letter}`.repeat(60)}*`;
+      }),
+    });
+  const manyFiles = (): Record<string, string> =>
+    Object.fromEntries(
+      Array.from({ length: 4000 }, (_, i) => [
+        `src/p${i % 30}/${"a".repeat(24)}${i}.ts`,
+        "export {};\n",
+      ]),
+    );
+
+  it.each(["exclude", "testDirectories"] as const)(
+    "%s patterns that exceed the budget warn, and later files are scanned, not dropped",
+    async (kind) => {
+      const root = project({
+        ...manyFiles(),
+        "pgard.config.json": hostile(kind),
+        "zz/vuln.ts": SQL_VULN,
+      });
+      const result = await scan(root, ["code"]);
+      const config = result.coverage.filter((entry) => entry.area === "source:config");
+      expect(config).toHaveLength(1); // merged into one entry
+      expect(config[0]?.status).toBe("partial");
+      expect(config[0]?.note).toContain("exceeded the matching work limit");
+      expect(result.overallStatus).toBe("partial");
+      const area = result.coverage.find(
+        (entry) => entry.area === `source:config-${kind === "exclude" ? "excluded" : "test"}`,
+      );
+      expect(area?.status).toBe("partial");
+      expect(area?.note).toContain("work limit");
+      // Fail-safe: the vulnerable file is analyzed and reported as regular code.
+      const vuln = result.findings.find((f) => f.location.path === "zz/vuln.ts");
+      expect(vuln).toBeDefined();
+      expect(vuln?.context).toBeUndefined();
+      expect(projectConfigNotices(result.coverage).some((n) => n.kind === "config")).toBe(true);
+    },
+    60_000,
+  );
+});

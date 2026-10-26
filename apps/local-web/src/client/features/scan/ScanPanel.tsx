@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { projectConfigNotices, type ScanScope } from "@pgard/findings";
+import type { ScanScope } from "@pgard/findings";
 import type { ScanStatus, TargetInfo } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
 import { useI18n } from "../../i18n/I18nProvider";
+import { ConfigNotices } from "./ConfigNotices";
 import { CoverageTable } from "./CoverageTable";
 
 const SCOPES: readonly ScanScope[] = ["code", "history", "web"];
@@ -94,14 +95,7 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
       {scan?.message && (
         <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>{scan.message}</Notice>
       )}
-      {scan?.result &&
-        projectConfigNotices(scan.result.coverage)
-          .filter((notice) => notice.tone === "warning")
-          .map((notice) => (
-            <Notice key={notice.text} tone="warning">
-              {notice.text}
-            </Notice>
-          ))}
+      {scan?.result && <ConfigNotices coverage={scan.result.coverage} />}
       {scan?.result && <CoverageTable coverage={scan.result.coverage} />}
       {error && <Notice tone="error">{error}</Notice>}
     </Card>

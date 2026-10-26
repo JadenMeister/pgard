@@ -398,6 +398,7 @@ export async function scanSourceCode(
         excludePatterns,
         walk.excluded,
         walk.files.length + walkTrackedCount(walk) + walk.excluded.count,
+        excludeMatcher.exhausted,
       ),
     );
   }
@@ -406,7 +407,23 @@ export async function scanSourceCode(
       ...walk.files.map((file) => file.relativePath),
       ...Object.values(walk.trackFiles).flatMap((list) => list.map((file) => file.relativePath)),
     ];
-    coverage.push(describeConfigTestDirectories(testPatterns, analyzed, testMatcher.matches));
+    coverage.push(
+      describeConfigTestDirectories(
+        testPatterns,
+        analyzed,
+        testMatcher.matches,
+        () => testMatcher.exhausted,
+      ),
+    );
+  }
+  if (excludeMatcher?.exhausted === true || testMatcher?.exhausted === true) {
+    coverage.push({
+      area: "source:config",
+      scope: "code",
+      status: "partial",
+      ruleIds: [],
+      note: CONFIG_BUDGET_NOTE,
+    });
   }
   if (walk.skippedLarge > 0) {
     coverage.push({
@@ -497,6 +514,7 @@ export function describeConfigExcluded(
   patterns: readonly string[],
   excluded: { count: number; digest: string },
   totalFound: number,
+  budgetExhausted = false,
 ): Coverage {
   const catchAll = patterns.filter((pattern) => matchesEverything(compileGlob(pattern)));
   const everythingExcluded = totalFound > 0 && excluded.count === totalFound;
@@ -506,11 +524,11 @@ export function describeConfigExcluded(
     .slice(0, 16);
   const count = excluded.count;
   const warning =
-    catchAll.length > 0
+    (catchAll.length > 0
       ? ` WARNING: ${JSON.stringify(catchAll[0])} matches every file.`
       : everythingExcluded
         ? " WARNING: every source file is excluded."
-        : "";
+        : "") + (budgetExhausted ? ` WARNING: ${BUDGET_WARNING}` : "");
   const heading = `${count} file${count === 1 ? "" : "s"} excluded by pgard.config.json (of ${totalFound} source files; ${patterns.length} pattern${patterns.length === 1 ? "" : "s"}, set ${setHash}).${warning}`;
   const compose = (shown: string[]) => {
     const rest = patterns.length - shown.length;
@@ -531,6 +549,12 @@ export function describeConfigExcluded(
   };
 }
 
+const BUDGET_WARNING =
+  "pattern matching hit its work limit; later files were NOT excluded or reclassified.";
+/** Merged into the `source:config` note by the scan (one entry per area). */
+export const CONFIG_BUDGET_NOTE =
+  "WARNING: the patterns in pgard.config.json exceeded the matching work limit (too many or too expensive patterns). Files after that point were scanned as if no pattern applied to them; simplify the patterns.";
+
 /** At or above this share of production files (and more than MIN files) the config is suspect. */
 export const CONFIG_TEST_SHARE_WARNING = 0.5;
 export const CONFIG_TEST_MIN_FILES = 20;
@@ -547,11 +571,13 @@ export function describeConfigTestDirectories(
   patterns: readonly string[],
   analyzedPaths: readonly string[],
   matches: (filePath: string) => boolean,
+  isExhausted: () => boolean = () => false,
 ): Coverage {
   const production = analyzedPaths.filter(
     (filePath) => !isTestOrFixturePath(filePath) && !isVendoredPath(filePath),
   );
   const demoted = production.filter(matches).length;
+  const budgetExhausted = isExhausted();
   const isSuspect =
     production.length > 0 &&
     (demoted === production.length ||
@@ -566,11 +592,12 @@ export function describeConfigTestDirectories(
   const note =
     `${demoted} of ${production.length} source files are classified as test code by pgard.config.json testDirectories (set ${setHash}).` +
     (isSuspect ? " WARNING: most or all of your code is marked as test code." : "") +
+    (budgetExhausted ? ` WARNING: ${BUDGET_WARNING}` : "") +
     ` Patterns: ${listed.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
   return {
     area: "source:config-test",
     scope: "code",
-    status: isSuspect ? "partial" : "completed",
+    status: isSuspect || budgetExhausted ? "partial" : "completed",
     ruleIds: [],
     note:
       note.length > MAX_CONFIG_NOTE_LENGTH

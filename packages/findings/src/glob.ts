@@ -93,6 +93,9 @@ const ROW_SIZE = MAX_PATH_LENGTH + 2;
 const charRows: [Uint8Array, Uint8Array] = [new Uint8Array(ROW_SIZE), new Uint8Array(ROW_SIZE)];
 const segmentRows: [Uint8Array, Uint8Array] = [new Uint8Array(ROW_SIZE), new Uint8Array(ROW_SIZE)];
 
+/** Table cells filled since the module loaded; a `PathMatcher` reads the difference per match. */
+let workDone = 0;
+
 /** `*` and `?` inside one segment, by dynamic programming over (pattern chars x name chars). */
 function segmentMatches(pattern: string, name: string): boolean {
   if (!pattern.includes("*") && !pattern.includes("?")) return pattern === name;
@@ -103,6 +106,7 @@ function segmentMatches(pattern: string, name: string): boolean {
   if (!name.startsWith(pattern.slice(0, first))) return false;
   const suffix = pattern.slice(last + 1);
   if (name.length < first + suffix.length || !name.endsWith(suffix)) return false;
+  workDone += pattern.length * (name.length + 1);
   let row = charRows[0];
   let next = charRows[1];
   row.fill(0, 0, name.length + 1);
@@ -129,6 +133,7 @@ function segmentMatches(pattern: string, name: string): boolean {
 export function globMatches(glob: CompiledGlob, filePath: string): boolean {
   if (filePath.length === 0 || filePath.length > MAX_PATH_LENGTH) return false;
   const names = filePath.split("/");
+  workDone += glob.segments.length * (names.length + 1);
   let reach = segmentRows[0];
   let next = segmentRows[1];
   reach.fill(0, 0, names.length + 1);
@@ -166,16 +171,55 @@ export function matchesEverything(glob: CompiledGlob): boolean {
   return PROBE_PATHS.every((probe) => globMatches(glob, probe));
 }
 
+/**
+ * Hard bound on the work of one `PathMatcher` (one scan): table cells filled by all matches.
+ * Per-pattern limits (200 characters, 10 `*` per segment, 4,096-character paths) bound a single
+ * match but not the total: patterns like `*?a?a...?a*` defeat the star cap and the prefilter, and
+ * 200 of them cost about 33 s per 10,000 typical paths in measurements. 500 million cells take
+ * about a second on a laptop; ordinary configurations use a small fraction (200 plain
+ * patterns on 20,000 files fill about 6 million). Past the budget `matches` answers false: the
+ * remaining files are NOT excluded and not demoted, so the failure direction is always "more is
+ * scanned" (callers report `exhausted`).
+ */
+export const MAX_GLOB_WORK = 500_000_000;
+
 export interface PathMatcher {
   readonly patterns: readonly string[];
   matches(filePath: string | null): boolean;
+  /** True once the work budget ran out; later matches all answer false. */
+  readonly exhausted: boolean;
 }
 
 /** One matcher for a list of valid patterns; a path matches when any pattern does. */
-export function compilePathMatcher(patterns: readonly string[]): PathMatcher {
-  const globs = patterns.map(compileGlob);
+export function compilePathMatcher(
+  patterns: readonly string[],
+  maxWork: number = MAX_GLOB_WORK,
+): PathMatcher {
+  const globs = [...new Set(patterns)].map(compileGlob);
+  let used = 0;
+  let exhausted = false;
   return {
     patterns,
-    matches: (filePath) => filePath !== null && globs.some((glob) => globMatches(glob, filePath)),
+    get exhausted() {
+      return exhausted;
+    },
+    matches: (filePath) => {
+      if (filePath === null || exhausted) return false;
+      const before = workDone;
+      let matched = false;
+      for (const glob of globs) {
+        if (globMatches(glob, filePath)) {
+          matched = true;
+          break;
+        }
+        if (used + (workDone - before) > maxWork) break;
+      }
+      used += workDone - before;
+      if (used > maxWork) {
+        exhausted = true;
+        return false; // the answer for the file that crossed the budget is also "not matched"
+      }
+      return matched;
+    },
   };
 }
