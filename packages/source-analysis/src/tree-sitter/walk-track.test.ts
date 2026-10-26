@@ -24,7 +24,7 @@ import {
   parseCoverage,
   parseTrackFiles,
 } from "./language-track.js";
-import { grammarPath, TREE_SITTER_LANGUAGES } from "./languages.js";
+import { GRAMMAR_SHA256, grammarPath, TREE_SITTER_LANGUAGES } from "./languages.js";
 import { TreeSitterRuntime } from "./runtime.js";
 
 const roots: string[] = [];
@@ -40,13 +40,6 @@ function project(files: Record<string, string>): string {
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
-
-const GRAMMAR_SHA256: Record<(typeof TREE_SITTER_LANGUAGES)[number], string> = {
-  java: "4fdeac4ca6ca089f06c6f7e562abcac1733cd465728cc7031ebb73c2019122c4",
-  kotlin: "7009d69453bc8735e438b2818a633efb21c88f99782769abba60dffedfab73f7",
-  python: "16108b50df4ee9a30168794252ab55e7c93bfc5765d7fa0aa3e335752c515f47",
-  php: "d4df6a6ff08c87c3ec4f9cbb785fe09998a0cb570e03f57d7b19b3acfb146aa7",
-};
 
 describe("vendored grammars", () => {
   for (const language of TREE_SITTER_LANGUAGES) {

@@ -2,7 +2,9 @@
 
 Prebuilt tree-sitter grammars for the language track, loaded by `web-tree-sitter` (WASM). They are
 vendored unchanged so PGARD needs no native module, no install script and no large grammar bundle.
-A test (`src/tree-sitter/walk-track.test.ts`) checks every SHA-256 below.
+The pinned checksums live in `GRAMMAR_SHA256` (`src/tree-sitter/languages.ts`), the single source of
+truth: the runtime verifies a grammar's SHA-256 before loading it (a mismatch makes that language
+`not_tested`, never parsed), and a test keeps this table in agreement with it.
 
 | File                      | Source                                                                      | SHA-256                                                            | License                           |
 | ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------- |
@@ -19,5 +21,5 @@ Kotlin comes from the `@tree-sitter-grammars/tree-sitter-kotlin` tarball. That p
 `install` script (`node-gyp-build`) for its native binding, which PGARD does not allow, so only the
 `.wasm` file is taken (`npm pack`, then `package/tree-sitter-kotlin.wasm`).
 
-To update a grammar: pack the new version, replace the file, update the checksum here and in the
-test, and re-run the tests. Licenses are also listed in the root `NOTICE.md`.
+To update a grammar: pack the new version, replace the file, update the checksum here and in
+`GRAMMAR_SHA256`, and re-run the tests. Licenses are also listed in the root `NOTICE.md`.
