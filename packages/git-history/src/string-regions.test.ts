@@ -147,6 +147,24 @@ describe("createStringLookup (#145)", () => {
     ["a heredoc after a comment line (#163)", "# note <<~eos\n<<~eos\n  MARK\neos", "a.rb"],
     ["a heredoc after a label in a hash (#163)", "h = {sql:<<~SQL}\n  select 1\nMARK\nSQL", "a.rb"],
     ["a heredoc after a label in a call (#163)", "post(text:<<~EOS)\n  hi\nMARK\nEOS", "a.rb"],
+    [
+      "a heredoc after a ternary colon (#163)",
+      'ok = a ? 1 :<<~EOS\n  say "hi\nEOS\nq = "\nMARK\n"',
+      "a.rb",
+    ],
+    [
+      "a heredoc after a ternary colon, plain body (#163)",
+      "ok = a ? 1 :<<~EOS\n  hi\nMARK\nEOS",
+      "a.rb",
+    ],
+    [
+      "a heredoc after a ternary colon with a call (#163)",
+      'q = f(a) ? g(b) :<<-SQL\n  select "id\n  SQL\nw = "\nMARK\n"',
+      "a.rb",
+    ],
+    ["a heredoc after a label ending in a digit (#163)", "h = {a1:<<~X}\n  hi\nMARK\nX", "a.rb"],
+    ["a heredoc after a label ending in ? (#163)", "h = {ok?:<<~X}\n  hi\nMARK\nX", "a.rb"],
+    ["a heredoc after a label ending in ! (#163)", "f(go!:<<~X)\n  hi\nMARK\nX", "a.rb"],
     ["a PHP heredoc right after a colon (#163)", "$a = $c ? 1 :<<<EOT\nMARK\nEOT;", "a.php"],
     [
       "a string after a shift on a backslash-continued line (#163)",
@@ -204,6 +222,24 @@ describe("createStringLookup (#145)", () => {
     ],
   ])("finds %s outside strings (#158)", (_label, text, path) => {
     expect(inside(text, path)).toBe(false);
+  });
+
+  it("code after a symbol on a later line than a ternary stays code (#163)", () => {
+    expect(inside("ok = a ? 1 : 2\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+    expect(inside("ok = a ? 1 :<<~E\n  hi\nE\nsend :<<'x'\nMARK", "a.rb")).toBe(false);
+  });
+
+  it("stays linear on a long line of ? and :<< (#163)", () => {
+    const line = (n: number) => "a ? b :<<~x ".repeat(n);
+    const time = (n: number) => {
+      const text = `${line(n)}\nMARK`;
+      const start = performance.now();
+      createStringLookup(text, "a.rb")(text.length - 1);
+      return performance.now() - start;
+    };
+    time(20_000);
+    const small = Math.max(time(100_000), 1);
+    expect(time(800_000) / small).toBeLessThan(40);
   });
 
   it("stays linear on long lines with many quotes (#158)", () => {

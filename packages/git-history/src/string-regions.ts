@@ -167,6 +167,7 @@ class Scanner {
     let braces = 0;
     let last = ""; // last significant code character
     let lineStart = true; // only whitespace or comments so far on this line
+    let sawQuestion = false; // a `?` in code earlier on this line (a ternary may be open)
     /** Per open `(`: whether a control keyword (`if (`, `while (`) comes before it. */
     const parens: boolean[] = [];
     let closedControlParen = false; // the last `)` closed `if (…)`, `while (…)`...
@@ -177,9 +178,11 @@ class Scanner {
         if (this.pendingHeredocs.length > 0) {
           index = this.scanHeredocs(index + 1, record);
           lineStart = true;
+          sawQuestion = false;
           continue;
         }
         lineStart = true;
+        sawQuestion = false;
         index += 1;
         continue;
       }
@@ -222,6 +225,7 @@ class Scanner {
         this.readHeredoc(
           index,
           atLineStart && (last === "" || !CONTINUES_LINE.includes(last)) ? "" : last,
+          sawQuestion,
         )
       ) {
         index += 2;
@@ -250,6 +254,7 @@ class Scanner {
           braces -= 1;
         }
       }
+      if (char === "?") sawQuestion = true;
       last = char;
       index += 1;
     }
@@ -436,7 +441,7 @@ class Scanner {
   }
 
   /** Records a heredoc opened at `index` (`<<~EOS`, `<<-EOS`, `<<<EOT`), if there is one. */
-  private readHeredoc(index: number, last: string): boolean {
+  private readHeredoc(index: number, last: string, sawQuestion: boolean): boolean {
     const php = this.syntax.heredoc === "php";
     const opener = php
       ? /^<<<[ \t]{0,4}(["']?)([A-Za-z_]\w{0,63})\1/
@@ -444,9 +449,11 @@ class Scanner {
     const match = opener.exec(this.text.slice(index, index + 80));
     if (!match) return false;
     // `send :<<'x'` is the symbol `:<<`, not a heredoc.
-    // (A label right before it, `{sql:<<~SQL}` or `f(text:<<~EOS)`, is a heredoc.)
+    // (A label right before it, `{sql:<<~SQL}` or `f(text:<<~EOS)`, is a heredoc, and so is the
+    // body after a ternary colon, `ok ? 1 :<<~EOS`: a `?` earlier on the line may be the ternary.)
     if (
       !php &&
+      !sawQuestion &&
       this.text[index - 1] === ":" &&
       !/[A-Za-z0-9_?!]/.test(this.text[index - 2] ?? "")
     ) {
