@@ -12,28 +12,28 @@ TN: neither. Precision = TP / (TP + FP). Recall = TP / (TP + FN).
 
 ## Source rules (scanSourceCode)
 
-225 samples.
+238 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall |
 | --- | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 7 | 3 | 0 | 215 | 70.0% | 100.0% |
-| PG-SQL-002 | 3 | 0 | 1 | 221 | 100.0% | 75.0% |
-| PG-SQL-003 | 5 | 1 | 0 | 219 | 83.3% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 220 | 100.0% | 100.0% |
-| PG-XSS-001 | 6 | 2 | 1 | 216 | 75.0% | 85.7% |
-| PG-XSS-002 | 4 | 0 | 1 | 220 | 100.0% | 80.0% |
-| PG-XSS-003 | 4 | 1 | 0 | 220 | 80.0% | 100.0% |
-| PG-SSRF-001 | 7 | 2 | 0 | 216 | 77.8% | 100.0% |
-| PG-CMD-001 | 6 | 2 | 0 | 217 | 75.0% | 100.0% |
-| PG-CMD-002 | 4 | 0 | 1 | 220 | 100.0% | 80.0% |
-| PG-PATH-001 | 6 | 1 | 0 | 218 | 85.7% | 100.0% |
-| PG-CRYPTO-001 | 4 | 0 | 1 | 220 | 100.0% | 80.0% |
-| PG-CRYPTO-002 | 4 | 0 | 2 | 219 | 100.0% | 66.7% |
-| PG-CRYPTO-003 | 4 | 0 | 1 | 220 | 100.0% | 80.0% |
-| PG-AUTH-001 | 11 | 0 | 0 | 214 | 100.0% | 100.0% |
-| PG-COOKIE-001 | 15 | 0 | 0 | 210 | 100.0% | 100.0% |
-| PG-CSRF-001 | 11 | 0 | 0 | 214 | 100.0% | 100.0% |
-| PG-BRUTE-001 | 6 | 0 | 0 | 219 | 100.0% | 100.0% |
+| PG-SQL-001 | 7 | 3 | 0 | 228 | 70.0% | 100.0% |
+| PG-SQL-002 | 3 | 0 | 1 | 234 | 100.0% | 75.0% |
+| PG-SQL-003 | 5 | 1 | 0 | 232 | 83.3% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 233 | 100.0% | 100.0% |
+| PG-XSS-001 | 6 | 2 | 1 | 229 | 75.0% | 85.7% |
+| PG-XSS-002 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
+| PG-XSS-003 | 4 | 1 | 0 | 233 | 80.0% | 100.0% |
+| PG-SSRF-001 | 7 | 2 | 0 | 229 | 77.8% | 100.0% |
+| PG-CMD-001 | 6 | 2 | 0 | 230 | 75.0% | 100.0% |
+| PG-CMD-002 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
+| PG-PATH-001 | 6 | 1 | 0 | 231 | 85.7% | 100.0% |
+| PG-CRYPTO-001 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
+| PG-CRYPTO-002 | 4 | 0 | 2 | 232 | 100.0% | 66.7% |
+| PG-CRYPTO-003 | 4 | 0 | 1 | 233 | 100.0% | 80.0% |
+| PG-AUTH-001 | 15 | 0 | 2 | 221 | 100.0% | 88.2% |
+| PG-COOKIE-001 | 16 | 0 | 2 | 220 | 100.0% | 88.9% |
+| PG-CSRF-001 | 13 | 0 | 0 | 225 | 100.0% | 100.0% |
+| PG-BRUTE-001 | 6 | 0 | 0 | 232 | 100.0% | 100.0% |
 
 ## History rules (scanGitHistory on generated git repositories)
 
@@ -73,9 +73,13 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 
 | Rule | Kind | Sample | Reason |
 | --- | --- | --- | --- |
+| PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-mysql-set-object.js` | mysql "SET ?" with an object of column values is not parsed |
+| PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-pgp-named-placeholders.js` | pg-promise ${name} placeholders with db.none are not recognised |
 | PG-CMD-001 | false positive (FP) | `PG-CMD-001/negative/hard-literal-only-template.js` | a template literal that interpolates only a module constant is reported as dynamic |
 | PG-CMD-001 | false positive (FP) | `PG-CMD-001/negative/shell-quote.js` | a shell-quote quote() call is not recognised as escaping |
 | PG-CMD-002 | miss (FN) | `PG-CMD-002/positive/hard-args-slice.go` | arguments passed as a spread slice (args...) are not inspected for a shell invocation |
+| PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-fastify-reply-setcookie.js` | Fastify reply.setCookie() is not recognised |
+| PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-raw-set-cookie-header.js` | a raw Set-Cookie header string is not parsed |
 | PG-CRYPTO-001 | miss (FN) | `PG-CRYPTO-001/positive/hard-algorithm-variable.js` | an algorithm name held in a constant is not resolved |
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/const-secret.ts` | a hardcoded secret held in a constant and passed by name to jwt.sign is not followed |
 | PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/go-jwt.go` | a hardcoded key held in a package variable and passed to SignedString is not followed |

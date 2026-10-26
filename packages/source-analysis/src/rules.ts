@@ -372,8 +372,8 @@ export const SOURCE_RULES = [
     languages: JS_TS,
     standards: { owasp: ["A06:2025"], cwe: ["CWE-256"], cert: [] },
     rationale: {
-      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too.",
-      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다.",
+      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too. PGARD also flags password-named values passed to repository or ORM calls without a hash call in the same function, at low confidence when the value is not read from a request.",
+      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다. PGARD는 같은 함수에 해시 호출 없이 저장소·ORM 호출로 넘어가는 비밀번호 이름의 값도 보고하며, 값이 요청에서 읽은 것이 아니면 낮은 신뢰도로 보고합니다.",
     },
     remediation: {
       en: "Never store the password itself. Store a hash from a password hashing function with a per-user salt: Argon2id (preferred), scrypt or bcrypt, for example `await argon2.hash(password)` when the user signs up and `argon2.verify(hash, password)` at login.",

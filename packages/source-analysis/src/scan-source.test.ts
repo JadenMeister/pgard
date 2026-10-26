@@ -216,10 +216,10 @@ describe("scanSourceCode", () => {
     expect(
       await csrfIn({ "s.js": `${head}app.post('/account', (req, res) => res.end());\n` }),
     ).toBe(true);
-    // Only setting a cookie, with no session library.
+    // Only setting a non-session cookie, with no session library.
     expect(
       await csrfIn({
-        "s.js": "app.post('/x', (req, res) => { res.cookie('sid', 'v', {}); res.end(); });\n",
+        "s.js": "app.post('/x', (req, res) => { res.cookie('theme', 'v', {}); res.end(); });\n",
       }),
     ).toBe(false);
     // Fastify sessions count as cookie sessions.

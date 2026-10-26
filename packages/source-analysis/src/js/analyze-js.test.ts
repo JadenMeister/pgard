@@ -594,7 +594,103 @@ describe("PG-AUTH-001 plain-value and SQL parsing details", () => {
   });
 });
 
+describe("PG-AUTH-001 request-derived identifiers", () => {
+  const create = (body: string) =>
+    rulesIn(`async function f(req) { ${body} await User.create({ password: v }); }`);
+
+  it("treats destructured, renamed and single-assignment request values as plain", () => {
+    expect(create("const { password: v } = req.body;")).toEqual(["PG-AUTH-001"]);
+    expect(create("const { newPass: v } = req.body;")).toEqual(["PG-AUTH-001"]);
+    expect(create("let v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    expect(create("const v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "async function f(req) { const { pw } = req.body; await knex('u').update({ password: pw }); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "app.post('/r', async ({ body }) => { const { pw } = body; await User.create({ password: pw }); });",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "app.post('/r', async ({ body }) => { const v = body.pw; await User.create({ password: v }); });",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+  });
+
+  it("does not treat reassigned lets, call results or unrelated destructuring as plain", () => {
+    expect(create("let v = req.body.pw; v = secure(v);")).toEqual([]);
+    expect(create("const v = secure(req.body.pw);")).toEqual([]);
+    expect(create("const { pw: v } = await lookup(req);")).toEqual([]);
+    expect(create("const { v } = config;")).toEqual([]);
+    // A property of a call result is not a request value either.
+    expect(
+      rulesIn("async function f() { await Backup.create({ password: getUser().password }); }"),
+    ).toEqual([]);
+  });
+});
+
 describe("PG-COOKIE-001 option resolution and name filter", () => {
+  it("matches cookie names by whole word", () => {
+    for (const name of [
+      "session",
+      "sessionId",
+      "connect.sid",
+      "__Host-sid",
+      "__Secure-auth_token",
+      "jwt",
+      "refresh_token",
+      "remember_me",
+      "SESSION_COOKIE",
+    ])
+      expect(rulesIn(`res.cookie('${name}', v);`), name).toEqual(["PG-COOKIE-001"]);
+    for (const name of [
+      "access_log_consent",
+      "accessibility",
+      "sidebar_state",
+      "theme",
+      "residence",
+      "authority",
+    ])
+      expect(rulesIn(`res.cookie('${name}', v);`), name).toEqual([]);
+    expect(findingsIn("res.cookie('uid', v);")[0]).toMatchObject({
+      confidence: "low",
+      severity: "low",
+    });
+    expect(findingsIn("res.cookie('sid', v);")[0]).toMatchObject({ confidence: "medium" });
+  });
+
+  it("marks a session-like cookie as a cookie session for CSRF", () => {
+    expect(analyzeJsSource("res.cookie('session', v, {});", "s.js").facts.usesCookieSession).toBe(
+      true,
+    );
+    expect(analyzeJsSource("res.cookie('theme', v, {});", "s.js").facts.usesCookieSession).toBe(
+      false,
+    );
+  });
+
+  it("resolves sameSite and cookie options held in consts for express-session", () => {
+    const base = "import session from 'express-session';";
+    const strict = analyzeJsSource(
+      `${base} const SS = 'strict'; app.use(session({ secret: s, cookie: { httpOnly: true, secure: true, sameSite: SS } }));`,
+      "s.ts",
+    );
+    expect(strict.findings).toEqual([]);
+    expect(strict.facts.strictSession).toBe(true);
+    const viaConst = analyzeJsSource(
+      `${base} const C = { httpOnly: true, secure: true, sameSite: 'lax' }; app.use(session({ secret: s, cookie: C }));`,
+      "s.ts",
+    );
+    expect(viaConst.findings).toEqual([]);
+    const imported = analyzeJsSource(
+      `${base} app.use(session({ secret: s, cookie: imported }));`,
+      "s.ts",
+    );
+    expect(imported.findings[0]?.evidence).toContain("options not resolvable");
+  });
+
   it("resolves options held in a same-file const", () => {
     expect(
       rulesIn("const o = { httpOnly: true }; function f(res) { res.cookie('sid', t, o); }"),
@@ -606,7 +702,7 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
     ).toEqual([]);
     // A reassignable binding or an imported object cannot be resolved: reported unverified, low.
     for (const code of [
-      "let o = {}; function f(res) { res.cookie('sid', t, o); }",
+      "let o = {}; o = other; function f(res) { res.cookie('sid', t, o); }",
       "function f(res) { res.cookie('sid', t, imported); }",
     ]) {
       const [finding] = findingsIn(code);
@@ -811,8 +907,8 @@ describe("facts and robustness", () => {
     expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login" }]);
     expect(facts.stateChangingRoutes).toHaveLength(1);
     expect(facts.preflightRoutes).toHaveLength(1);
-    // Setting a cookie is not a cookie-authenticated session.
-    expect(facts.usesCookieSession).toBe(false);
+    // A session-like cookie set by hand counts as a cookie session; other cookies do not.
+    expect(facts.usesCookieSession).toBe(true);
   });
 
   it("reports syntax errors without throwing", () => {
