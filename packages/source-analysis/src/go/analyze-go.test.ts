@@ -190,6 +190,31 @@ describe("crypto and cookies", () => {
     expect(JSON.stringify(findings)).not.toContain("super-signing-value");
   });
 
+  it("follows a package-level key into SignedString and hmac.New", () => {
+    const sign = (decls: string, body = "return t.SignedString(key)") =>
+      analyzeGoSource(
+        go(["github.com/golang-jwt/jwt/v5"], `${decls}\nfunc f() (string, error) {\n\t${body}\n}`),
+        "main.go",
+      ).findings;
+    const viaVar = sign('var key = []byte("hardcoded-signing-secret")');
+    expect(viaVar.map((f) => f.ruleId)).toEqual(["PG-CRYPTO-002"]);
+    // A package variable may be overwritten from another file: medium, not high.
+    expect(viaVar[0]).toMatchObject({ severity: "high", confidence: "medium" });
+    expect(JSON.stringify(viaVar)).not.toContain("hardcoded-signing-secret");
+    const viaConst = sign(
+      'const secret = "hardcoded-signing-secret"',
+      "return t.SignedString([]byte(secret))",
+    );
+    expect(viaConst[0]).toMatchObject({ confidence: "high" });
+    expect(sign('var (\n\tkey = []byte("blocked-secret")\n)')).toHaveLength(1);
+    // Written elsewhere, declared without a value, shadowed by a parameter or a local: no finding.
+    expect(sign('var key []byte\nfunc init() { key = []byte(os.Getenv("K")) }')).toEqual([]);
+    expect(sign('var key = []byte("x")\nfunc g() { key = load() }')).toEqual([]);
+    expect(sign('var key = []byte("x")\nfunc g(key []byte) {}')).toEqual([]);
+    expect(sign('var key = []byte("x")', "key := load(); return t.SignedString(key)")).toEqual([]);
+    expect(sign('var key = []byte("x")\nvar _ = copy(key, other)')).toEqual([]);
+  });
+
   it("does not flag MD5 of non-password data or keys from the environment", () => {
     expect(
       rulesIn(

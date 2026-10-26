@@ -384,6 +384,78 @@ describe("PG-CRYPTO rules", () => {
     ).toEqual([]);
   });
 
+  it("resolves an algorithm or cipher name held in a sole-binding constant", () => {
+    const hash = (decl: string, rest = "") =>
+      rulesIn(
+        `import crypto from 'crypto'; ${decl} ${rest} crypto.createHash(ALGORITHM).update(password);`,
+      );
+    expect(hash("const ALGORITHM = 'md5';")).toEqual(["PG-CRYPTO-001"]);
+    expect(hash("const ALGORITHM = `sha1`;")).toEqual(["PG-CRYPTO-001"]);
+    expect(hash("const ALGORITHM = 'sha256';")).toEqual([]);
+    // Unknown or ambiguous values keep the old behaviour: no finding.
+    expect(hash("let ALGORITHM = 'md5';", "ALGORITHM = pick();")).toEqual([]);
+    expect(hash("const ALGORITHM = process.env.ALGO;")).toEqual([]);
+    expect(
+      rulesIn(
+        "import crypto from 'crypto'; const ALGORITHM = 'md5'; function f(password, ALGORITHM) { return crypto.createHash(ALGORITHM).update(password); }",
+      ),
+    ).toEqual([]);
+    const cipher = (name: string) =>
+      rulesIn(
+        `import crypto from 'crypto'; const CIPHER = '${name}'; crypto.createCipheriv(CIPHER, key, iv);`,
+      );
+    expect(cipher("aes-128-ecb")).toEqual(["PG-CRYPTO-003"]);
+    expect(cipher("des-ede3-cbc")).toEqual(["PG-CRYPTO-003"]);
+    expect(cipher("aes-256-gcm")).toEqual([]);
+    const [weak] = findingsIn(
+      "import crypto from 'crypto'; const CIPHER = 'rc4'; crypto.createCipheriv(CIPHER, key, iv);",
+    );
+    expect(weak?.evidence).toContain("held in constant CIPHER");
+  });
+
+  it("flags a secret held in a constant and passed to a signing call", () => {
+    const secretOf = (decl: string, call: string) =>
+      findingsIn(`import jwt from 'jsonwebtoken'; import crypto from 'crypto'; ${decl} ${call}`);
+    const direct = secretOf("const SECRET = 'my-jwt-signing-value';", "jwt.sign(p, SECRET);");
+    expect(direct.map((f) => f.ruleId)).toEqual(["PG-CRYPTO-002"]);
+    expect(direct[0]).toMatchObject({ severity: "high", confidence: "high" });
+    expect(JSON.stringify(direct)).not.toContain("my-jwt-signing-value");
+    expect(direct[0]?.evidence).toContain("held in constant SECRET");
+    expect(
+      secretOf("const KEY = 'webhook-signing-key';", "crypto.createHmac('sha256', KEY);").map(
+        (f) => f.ruleId,
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    const fallback = secretOf(
+      "const SECRET = process.env.S || 'dev-fallback';",
+      "jwt.sign(p, SECRET);",
+    );
+    expect(fallback[0]).toMatchObject({ severity: "medium", confidence: "medium" });
+    // Not fixed at the sink: environment, parameter that shadows the constant, reassigned.
+    expect(secretOf("const SECRET = process.env.S;", "jwt.sign(p, SECRET);")).toEqual([]);
+    expect(
+      secretOf("const secret = 'x'; function f(p, secret) {", "return jwt.sign(p, secret); }"),
+    ).toEqual([]);
+    expect(secretOf("let secret = 'x'; secret = load();", "jwt.sign(p, secret);")).toEqual([]);
+  });
+
+  it("follows a constant key into jose SignJWT and jwtVerify", () => {
+    const jose = (body: string) => rulesIn(`import { SignJWT, jwtVerify } from 'jose'; ${body}`);
+    expect(
+      jose(
+        "const k = new TextEncoder().encode('hardcoded-secret-value'); new SignJWT({}).setProtectedHeader({ alg: 'HS256' }).sign(k);",
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      jose("const k = new TextEncoder().encode('hardcoded-secret-value'); jwtVerify(token, k);"),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      jose(
+        "const k = new TextEncoder().encode(process.env.S); new SignJWT({}).setProtectedHeader({}).sign(k);",
+      ),
+    ).toEqual([]);
+  });
+
   it("flags broken ciphers", () => {
     expect(
       rulesIn(

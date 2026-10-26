@@ -1,4 +1,4 @@
-// corpus: expect=PG-CRYPTO-002; known=miss:PG-CRYPTO-002:a hardcoded key held in a package variable and passed to SignedString is not followed
+// corpus: expect=PG-CRYPTO-002
 package auth
 
 import "github.com/golang-jwt/jwt/v5"

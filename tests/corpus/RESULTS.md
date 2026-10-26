@@ -18,28 +18,28 @@ medium and high confidence findings, on every sample.
 
 ## Source rules (scanSourceCode)
 
-333 samples.
+357 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 17 | 0 | 0 | 316 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-002 | 12 | 0 | 0 | 321 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-003 | 13 | 0 | 0 | 320 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 328 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-001 | 6 | 2 | 1 | 324 | 75.0% | 85.7% | 100.0% |
-| PG-XSS-002 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
-| PG-XSS-003 | 4 | 1 | 0 | 328 | 80.0% | 100.0% | 100.0% |
-| PG-SSRF-001 | 26 | 0 | 0 | 307 | 100.0% | 100.0% | 100.0% |
-| PG-CMD-001 | 15 | 0 | 0 | 318 | 100.0% | 100.0% | 100.0% |
-| PG-CMD-002 | 12 | 0 | 0 | 321 | 100.0% | 100.0% | 100.0% |
-| PG-PATH-001 | 18 | 0 | 0 | 315 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-001 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
-| PG-CRYPTO-002 | 4 | 0 | 2 | 327 | 100.0% | 66.7% | 100.0% |
-| PG-CRYPTO-003 | 4 | 0 | 1 | 328 | 100.0% | 80.0% | 100.0% |
-| PG-AUTH-001 | 15 | 0 | 2 | 316 | 100.0% | 88.2% | 100.0% |
-| PG-COOKIE-001 | 16 | 0 | 2 | 315 | 100.0% | 88.9% | 100.0% |
-| PG-CSRF-001 | 13 | 0 | 0 | 320 | 100.0% | 100.0% | n/a |
-| PG-BRUTE-001 | 6 | 0 | 0 | 327 | 100.0% | 100.0% | n/a |
+| PG-SQL-001 | 17 | 0 | 0 | 340 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-002 | 12 | 0 | 0 | 345 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-003 | 13 | 0 | 0 | 344 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 352 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-001 | 6 | 2 | 1 | 348 | 75.0% | 85.7% | 100.0% |
+| PG-XSS-002 | 4 | 0 | 1 | 352 | 100.0% | 80.0% | 100.0% |
+| PG-XSS-003 | 4 | 1 | 0 | 352 | 80.0% | 100.0% | 100.0% |
+| PG-SSRF-001 | 26 | 0 | 0 | 331 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-001 | 15 | 0 | 0 | 342 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-002 | 12 | 0 | 0 | 345 | 100.0% | 100.0% | 100.0% |
+| PG-PATH-001 | 18 | 0 | 0 | 339 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-001 | 9 | 0 | 0 | 348 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-002 | 10 | 0 | 0 | 347 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-003 | 9 | 0 | 0 | 348 | 100.0% | 100.0% | 100.0% |
+| PG-AUTH-001 | 15 | 0 | 2 | 340 | 100.0% | 88.2% | 100.0% |
+| PG-COOKIE-001 | 16 | 0 | 2 | 339 | 100.0% | 88.9% | 100.0% |
+| PG-CSRF-001 | 13 | 0 | 0 | 344 | 100.0% | 100.0% | n/a |
+| PG-BRUTE-001 | 6 | 0 | 0 | 351 | 100.0% | 100.0% | n/a |
 
 ## History rules (scanGitHistory on generated git repositories)
 
@@ -83,10 +83,6 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-pgp-named-placeholders.js` | pg-promise ${name} placeholders with db.none are not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-fastify-reply-setcookie.js` | Fastify reply.setCookie() is not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-raw-set-cookie-header.js` | a raw Set-Cookie header string is not parsed |
-| PG-CRYPTO-001 | miss (FN) | `PG-CRYPTO-001/positive/hard-algorithm-variable.js` | an algorithm name held in a constant is not resolved |
-| PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/const-secret.ts` | a hardcoded secret held in a constant and passed by name to jwt.sign is not followed |
-| PG-CRYPTO-002 | miss (FN) | `PG-CRYPTO-002/positive/go-jwt.go` | a hardcoded key held in a package variable and passed to SignedString is not followed |
-| PG-CRYPTO-003 | miss (FN) | `PG-CRYPTO-003/positive/hard-algorithm-variable.js` | a cipher name held in a constant is not resolved |
 | PG-WEB-009 | miss (FN) | `web/cors-null-origin-with-credentials` | the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/escaped-helper.js` | an escape-html call is not recognised as a sanitizer |
 | PG-XSS-001 | false positive (FP) | `PG-XSS-001/negative/hard-trusted-template.js` | assigning an imported (bundled) template string to innerHTML is reported |
