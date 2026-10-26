@@ -1,4 +1,9 @@
-import type { RuleDescriptor, RuleLanguage } from "@pgard/findings";
+import {
+  defineRule,
+  type RuleDefinition,
+  type RuleDescriptor,
+  type RuleLanguage,
+} from "@pgard/findings";
 
 export type { RuleDescriptor, RuleLanguage } from "@pgard/findings";
 
@@ -12,11 +17,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-89"],
-    owasp: ["A05:2025"],
-    impact: "Input can change the structure of the SQL statement (read, modify or delete data).",
-    recommendation:
-      "Pass values as bound parameters (e.g. `query('... WHERE id = $1', [id])`) instead of building SQL text.",
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
+    rationale: {
+      en: "Input can change the structure of the SQL statement (read, modify or delete data).",
+      ko: "입력값이 SQL 문의 구조를 바꿀 수 있어 데이터가 조회·수정·삭제될 수 있습니다.",
+    },
+    remediation: {
+      en: "Pass values as bound parameters (e.g. `query('... WHERE id = $1', [id])`) instead of building SQL text.",
+      ko: "SQL 문자열을 직접 만들지 말고 값을 바인딩된 매개변수로 전달하세요(예: `query('... WHERE id = $1', [id])`).",
+    },
   },
   {
     id: "PG-SQL-002",
@@ -25,11 +34,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-89"],
-    owasp: ["A05:2025"],
-    impact: "Input can change the structure of the raw SQL statement.",
-    recommendation:
-      "Use the tagged template `$queryRaw` / `$executeRaw` or `Prisma.sql`, or pass values as extra parameters to the Unsafe variant.",
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
+    rationale: {
+      en: "Input can change the structure of the raw SQL statement.",
+      ko: "입력이 raw SQL 문의 구조를 바꿀 수 있습니다.",
+    },
+    remediation: {
+      en: "Use the tagged template `$queryRaw` / `$executeRaw` or `Prisma.sql`, or pass values as extra parameters to the Unsafe variant.",
+      ko: "태그드 템플릿 `$queryRaw` / `$executeRaw`나 `Prisma.sql`을 사용하거나, Unsafe 변형에는 값을 추가 매개변수로 전달하세요.",
+    },
   },
   {
     id: "PG-SQL-003",
@@ -38,10 +51,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["go"],
-    cwe: ["CWE-89"],
-    owasp: ["A05:2025"],
-    impact: "Input can change the structure of the SQL statement.",
-    recommendation: "Use placeholders (`?` or `$1`) and pass values as arguments to Query/Exec.",
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
+    rationale: {
+      en: "Input can change the structure of the SQL statement.",
+      ko: "입력이 SQL 문의 구조를 바꿀 수 있습니다.",
+    },
+    remediation: {
+      en: "Use placeholders (`?` or `$1`) and pass values as arguments to Query/Exec.",
+      ko: "플레이스홀더(`?` 또는 `$1`)를 사용하고 값은 Query/Exec의 인자로 전달하세요.",
+    },
   },
   {
     id: "PG-SQL-004",
@@ -50,11 +68,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["go"],
-    cwe: ["CWE-89"],
-    owasp: ["A05:2025"],
-    impact: "Input can change the structure of the SQL statement.",
-    recommendation:
-      'Use GORM placeholders, e.g. `db.Where("name = ?", name)`, `db.Raw("... ?", v)`.',
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
+    rationale: {
+      en: "Input can change the structure of the SQL statement.",
+      ko: "입력이 SQL 문의 구조를 바꿀 수 있습니다.",
+    },
+    remediation: {
+      en: 'Use GORM placeholders, e.g. `db.Where("name = ?", name)`, `db.Raw("... ?", v)`.',
+      ko: 'GORM 플레이스홀더를 사용하세요. 예: `db.Where("name = ?", name)`, `db.Raw("... ?", v)`.',
+    },
   },
   {
     id: "PG-XSS-001",
@@ -63,11 +85,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-79"],
-    owasp: ["A05:2025"],
-    impact: "Untrusted HTML can run script in the user's browser.",
-    recommendation:
-      "Use textContent, or sanitize with a maintained sanitizer (e.g. DOMPurify) before inserting HTML.",
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
+    rationale: {
+      en: "Untrusted HTML can run script in the user's browser.",
+      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
+    },
+    remediation: {
+      en: "Use textContent, or sanitize with a maintained sanitizer (e.g. DOMPurify) before inserting HTML.",
+      ko: "textContent를 사용하거나, HTML을 삽입하기 전에 꾸준히 유지보수되는 sanitizer(예: DOMPurify)로 sanitize하세요.",
+    },
   },
   {
     id: "PG-XSS-002",
@@ -76,10 +102,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["react"],
-    cwe: ["CWE-79"],
-    owasp: ["A05:2025"],
-    impact: "Untrusted HTML can run script in the user's browser.",
-    recommendation: "Render text through JSX, or sanitize the HTML (e.g. DOMPurify) first.",
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
+    rationale: {
+      en: "Untrusted HTML can run script in the user's browser.",
+      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
+    },
+    remediation: {
+      en: "Render text through JSX, or sanitize the HTML (e.g. DOMPurify) first.",
+      ko: "JSX로 텍스트를 렌더링하거나, 먼저 HTML을 sanitize하세요(예: DOMPurify).",
+    },
   },
   {
     id: "PG-XSS-003",
@@ -88,10 +119,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["vue"],
-    cwe: ["CWE-79"],
-    owasp: ["A05:2025"],
-    impact: "Untrusted HTML can run script in the user's browser.",
-    recommendation: "Use text interpolation (`{{ }}`), or sanitize the HTML before binding it.",
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
+    rationale: {
+      en: "Untrusted HTML can run script in the user's browser.",
+      ko: "신뢰할 수 없는 HTML을 통해 사용자 브라우저에서 스크립트가 실행될 수 있습니다.",
+    },
+    remediation: {
+      en: "Use text interpolation (`{{ }}`), or sanitize the HTML before binding it.",
+      ko: "텍스트 보간(`{{ }}`)을 사용하거나, HTML을 바인딩하기 전에 sanitize하세요.",
+    },
   },
   {
     id: "PG-SSRF-001",
@@ -100,11 +136,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    cwe: ["CWE-918"],
-    owasp: ["A01:2025"],
-    impact: "The server can be made to call internal services or cloud metadata endpoints.",
-    recommendation:
-      "Allow only known hosts/schemes (allowlist), resolve and block private addresses, and do not forward raw user URLs.",
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-918"], cert: [] },
+    rationale: {
+      en: "The server can be made to call internal services or cloud metadata endpoints.",
+      ko: "서버가 내부 서비스나 클라우드 메타데이터 엔드포인트를 호출하도록 유도될 수 있습니다.",
+    },
+    remediation: {
+      en: "Allow only known hosts/schemes (allowlist), resolve and block private addresses, and do not forward raw user URLs.",
+      ko: "알려진 호스트와 스킴만 허용 목록(allowlist)으로 허용하고, 호스트 이름을 IP로 확인(resolve)한 뒤 사설 주소를 차단하며, 사용자가 준 URL을 그대로 전달하지 마세요.",
+    },
   },
   {
     id: "PG-CMD-001",
@@ -113,11 +153,19 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-78"],
-    owasp: ["A05:2025"],
-    impact: "Input can inject additional shell commands.",
-    recommendation:
-      "Use execFile/spawn with an argument array and no shell; validate arguments against an allowlist.",
+    standards: {
+      owasp: ["A05:2025"],
+      cwe: ["CWE-78"],
+      cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
+    },
+    rationale: {
+      en: "Input can inject additional shell commands.",
+      ko: "입력을 통해 추가 셸 명령이 주입될 수 있습니다.",
+    },
+    remediation: {
+      en: "Use execFile/spawn with an argument array and no shell; validate arguments against an allowlist.",
+      ko: "셸 없이 인자 배열과 함께 execFile/spawn을 사용하고, 인자는 허용 목록(allowlist)으로 검증하세요.",
+    },
   },
   {
     id: "PG-CMD-002",
@@ -126,11 +174,19 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["go"],
-    cwe: ["CWE-78"],
-    owasp: ["A05:2025"],
-    impact: "Input can inject additional shell commands.",
-    recommendation:
-      'Call the program directly with separate arguments (`exec.Command("git", "log")`), never via `sh -c`.',
+    standards: {
+      owasp: ["A05:2025"],
+      cwe: ["CWE-78"],
+      cert: [{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }],
+    },
+    rationale: {
+      en: "Input can inject additional shell commands.",
+      ko: "입력을 통해 추가 셸 명령이 주입될 수 있습니다.",
+    },
+    remediation: {
+      en: 'Call the program directly with separate arguments (`exec.Command("git", "log")`), never via `sh -c`.',
+      ko: '인자를 분리해 프로그램을 직접 호출하고(`exec.Command("git", "log")`), `sh -c`를 거치지 마세요.',
+    },
   },
   {
     id: "PG-PATH-001",
@@ -139,11 +195,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    cwe: ["CWE-22"],
-    owasp: ["A01:2025"],
-    impact: "`../` sequences can read or serve files outside the intended directory.",
-    recommendation:
-      "Reduce the input to a basename or id, resolve against a fixed root and verify the result stays inside it.",
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-22"], cert: [] },
+    rationale: {
+      en: "`../` sequences can read or serve files outside the intended directory.",
+      ko: "`../` 시퀀스로 의도한 디렉터리 밖의 파일을 읽거나 내려받게 할 수 있습니다.",
+    },
+    remediation: {
+      en: "Reduce the input to a basename or id, resolve against a fixed root and verify the result stays inside it.",
+      ko: "입력을 basename이나 id로 줄이고, 고정된 루트를 기준으로 해석한 뒤 결과가 그 루트 안에 있는지 확인하세요.",
+    },
   },
   {
     id: "PG-CRYPTO-001",
@@ -152,10 +212,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    cwe: ["CWE-916", "CWE-328"],
-    owasp: ["A04:2025"],
-    impact: "Password hashes can be cracked quickly after a database leak.",
-    recommendation: "Hash passwords with bcrypt, scrypt or Argon2id with a per-user salt.",
+    standards: { owasp: ["A04:2025"], cwe: ["CWE-916", "CWE-328"], cert: [] },
+    rationale: {
+      en: "Password hashes can be cracked quickly after a database leak.",
+      ko: "데이터베이스가 유출되면 비밀번호 해시가 빠르게 크래킹될 수 있습니다.",
+    },
+    remediation: {
+      en: "Hash passwords with bcrypt, scrypt or Argon2id with a per-user salt.",
+      ko: "사용자마다 다른 salt를 적용해 bcrypt, scrypt 또는 Argon2id로 비밀번호를 해시하세요.",
+    },
   },
   {
     id: "PG-CRYPTO-002",
@@ -164,11 +229,19 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    cwe: ["CWE-321", "CWE-798"],
-    owasp: ["A04:2025"],
-    impact: "Anyone with the source can decrypt data or forge tokens.",
-    recommendation:
-      "Load keys from a secret store or environment at runtime and rotate the exposed key.",
+    standards: {
+      owasp: ["A04:2025"],
+      cwe: ["CWE-321", "CWE-798"],
+      cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
+    },
+    rationale: {
+      en: "Anyone with the source can decrypt data or forge tokens.",
+      ko: "소스 코드를 가진 사람은 누구나 데이터를 복호화하거나 토큰을 위조할 수 있습니다.",
+    },
+    remediation: {
+      en: "Load keys from a secret store or environment at runtime and rotate the exposed key.",
+      ko: "키는 실행 시점에 비밀정보 저장소나 환경 변수에서 불러오고, 노출된 키는 교체(rotate)하세요.",
+    },
   },
   {
     id: "PG-CRYPTO-003",
@@ -177,10 +250,19 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-327"],
-    owasp: ["A04:2025"],
-    impact: "Encrypted data may be recoverable or tampered with.",
-    recommendation: "Use an AEAD cipher such as AES-256-GCM via createCipheriv with a random IV.",
+    standards: {
+      owasp: ["A04:2025"],
+      cwe: ["CWE-327"],
+      cert: [{ kind: "via-cwe", id: "MSC02-J", cwe: "CWE-327" }],
+    },
+    rationale: {
+      en: "Encrypted data may be recoverable or tampered with.",
+      ko: "암호화된 데이터가 복호화되거나 변조될 수 있습니다.",
+    },
+    remediation: {
+      en: "Use an AEAD cipher such as AES-256-GCM via createCipheriv with a random IV.",
+      ko: "무작위 IV와 함께 createCipheriv로 AES-256-GCM 같은 AEAD 암호를 사용하세요.",
+    },
   },
   {
     id: "PG-AUTH-001",
@@ -189,10 +271,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-256"],
-    owasp: ["A04:2025"],
-    impact: "A database leak exposes every user's password.",
-    recommendation: "Hash the password with bcrypt, scrypt or Argon2id before storing it.",
+    standards: { owasp: ["A04:2025"], cwe: ["CWE-256"], cert: [] },
+    rationale: {
+      en: "A database leak exposes every user's password.",
+      ko: "데이터베이스가 유출되면 모든 사용자의 비밀번호가 노출됩니다.",
+    },
+    remediation: {
+      en: "Hash the password with bcrypt, scrypt or Argon2id before storing it.",
+      ko: "저장하기 전에 bcrypt, scrypt 또는 Argon2id로 비밀번호를 해시하세요.",
+    },
   },
   {
     id: "PG-COOKIE-001",
@@ -201,10 +288,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: ["javascript", "typescript", "go"],
-    cwe: ["CWE-1004", "CWE-614"],
-    owasp: ["A02:2025"],
-    impact: "Cookies may be read by scripts, sent over plain HTTP or sent cross-site.",
-    recommendation: "Set httpOnly, secure and sameSite ('lax' or 'strict') on session cookies.",
+    standards: { owasp: ["A02:2025"], cwe: ["CWE-1004", "CWE-614"], cert: [] },
+    rationale: {
+      en: "Cookies may be read by scripts, sent over plain HTTP or sent cross-site.",
+      ko: "스크립트가 쿠키를 읽거나, 쿠키가 평문 HTTP로 전송되거나, 다른 사이트에서 보낸 요청에 함께 실릴 수 있습니다.",
+    },
+    remediation: {
+      en: "Set httpOnly, secure and sameSite ('lax' or 'strict') on session cookies.",
+      ko: "세션 쿠키에 httpOnly, secure, sameSite('lax' 또는 'strict')를 설정하세요.",
+    },
   },
   {
     id: "PG-CSRF-001",
@@ -213,11 +305,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-352"],
-    owasp: ["A01:2025"],
-    impact: "Another site may trigger state changes with the user's cookies.",
-    recommendation:
-      "Use CSRF tokens (or SameSite=strict cookies plus Origin checks) for cookie-authenticated POST/PUT/PATCH/DELETE routes.",
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-352"], cert: [] },
+    rationale: {
+      en: "Another site may trigger state changes with the user's cookies.",
+      ko: "다른 사이트가 사용자의 쿠키로 상태 변경 요청을 일으킬 수 있습니다.",
+    },
+    remediation: {
+      en: "Use CSRF tokens (or SameSite=strict cookies plus Origin checks) for cookie-authenticated POST/PUT/PATCH/DELETE routes.",
+      ko: "쿠키로 인증하는 POST/PUT/PATCH/DELETE 라우트에는 CSRF 토큰(또는 SameSite=strict 쿠키와 Origin 검사)을 사용하세요.",
+    },
   },
   {
     id: "PG-BRUTE-001",
@@ -226,17 +322,22 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: JS_TS,
-    cwe: ["CWE-307"],
-    owasp: ["A07:2025"],
-    impact: "Passwords or reset codes can be guessed by automated requests.",
-    recommendation:
-      "Add per-account and per-IP rate limiting or lockout (e.g. express-rate-limit) to authentication routes.",
+    standards: { owasp: ["A07:2025"], cwe: ["CWE-307"], cert: [] },
+    rationale: {
+      en: "Passwords or reset codes can be guessed by automated requests.",
+      ko: "자동화된 요청으로 비밀번호나 재설정 코드를 추측할 수 있습니다.",
+    },
+    remediation: {
+      en: "Add per-account and per-IP rate limiting or lockout (e.g. express-rate-limit) to authentication routes.",
+      ko: "인증 라우트에 계정별·IP별 요청 제한이나 계정 잠금(예: express-rate-limit)을 추가하세요.",
+    },
   },
-] as const satisfies readonly RuleDescriptor[];
+] as const satisfies readonly RuleDefinition[];
 
 export type SourceRuleId = (typeof SOURCE_RULES)[number]["id"];
 
-const RULES_BY_ID = new Map<string, RuleDescriptor>(SOURCE_RULES.map((rule) => [rule.id, rule]));
+const DESCRIPTORS: readonly RuleDescriptor[] = SOURCE_RULES.map(defineRule);
+const RULES_BY_ID = new Map<string, RuleDescriptor>(DESCRIPTORS.map((rule) => [rule.id, rule]));
 
 export function getRule(id: SourceRuleId): RuleDescriptor {
   const rule = RULES_BY_ID.get(id);
@@ -247,12 +348,7 @@ export function getRule(id: SourceRuleId): RuleDescriptor {
 }
 
 export function listSourceRules(): RuleDescriptor[] {
-  return SOURCE_RULES.map((rule) => ({
-    ...rule,
-    languages: [...rule.languages],
-    cwe: [...rule.cwe],
-    owasp: [...rule.owasp],
-  }));
+  return SOURCE_RULES.map(defineRule);
 }
 
 export const JS_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>

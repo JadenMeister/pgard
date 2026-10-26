@@ -54,7 +54,7 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 - **Web checks.** Checks send only anonymous `GET`/`HEAD` requests to `127.0.0.1`, and only to the service you confirm (after authorization, one identity `GET /` goes to each discovered local port). PGARD sends no POST/PUT/DELETE requests or form submissions, but a badly built app can still change state on a `GET`. See [Local web checks](#local-web-checks).
 - **Result schema versioning.** The scan result carries a `major.minor` `schemaVersion`; readers refuse another major version. See [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md).
 - **Out of scope.** Remote services, attack or state-changing requests, logged-in web browsing, dependency vulnerability lookups and more are not supported. See [Out of scope](#out-of-scope).
-- **Development conventions.** Commit units and messages, branch and pull request boundaries, and reviews before merge are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
+- **Development conventions.** Commit units and messages, branch and pull request boundaries, and the issue, project board and review-before-merge workflow are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
 
 ## Requirements
 
@@ -422,7 +422,7 @@ The dashboard is available in Korean and English. It follows the browser languag
 
 ## Known limitations
 
-- [#44](https://github.com/JadenMeister/pgard/issues/44) PDF reports replace text outside Latin-1 (for example Korean) with `?`. Use the HTML report for the full text.
+- PDF reports embed a subset of Noto Sans KR, so Korean and English text both render. Characters the font does not have (Hanja, emoji, other scripts) are replaced with `?` and the PDF says so; the HTML report has the full text. If the bundled font cannot be loaded, the PDF falls back to a built-in Latin-1 font (Korean becomes `?`), notes this in the PDF itself, and the CLI prints a warning.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope (see [Out of scope](#out-of-scope)).
 - Contribution is checked conservatively for users who are not the verified owner: co-author trailers and unsigned direct pushes do not count, so a collaborator who only co-authored commits or pushed unsigned commits is blocked at contribution until a pull request of theirs is merged or they push signed commits.
 - The dashboard's scan text (finding titles, rule descriptions, authorization reasons) is English only; the rest of the dashboard is available in Korean and English.
@@ -465,7 +465,7 @@ CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull
 
 - [`PGARD_AGENT_BRIEF_EN.md`](docs/PGARD_AGENT_BRIEF_EN.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
 - [`PGARD_CLI_AND_STRUCTURE_EN.md`](docs/PGARD_CLI_AND_STRUCTURE_EN.md): the command set and the layout of the apps and packages.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests, plus the current issue, board and review workflow.
 
 One further document is written in English and describes current behaviour: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
 
@@ -474,3 +474,7 @@ Where the planning documents and this README disagree, this README and the code 
 ## License
 
 [MIT](LICENSE)
+
+The PDF reports embed a subset of Noto Sans KR, licensed under the SIL Open Font License 1.1. See [NOTICE](NOTICE.md) and `packages/report/fonts/OFL.txt`.
+
+PGARD also bundles reference lists (OWASP Top 10 2025, CWE Top 25 2025 and SEI CERT Java rule ids and titles). They are third-party data under their own licenses (CC BY-SA 4.0, MITRE CWE Terms of Use, CC BY 4.0) and are not covered by the MIT license. See [NOTICE](NOTICE.md).

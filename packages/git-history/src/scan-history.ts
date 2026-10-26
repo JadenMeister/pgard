@@ -475,7 +475,8 @@ function createFinding(fields: {
   evidence: string;
   cause: string;
 }): Finding {
-  const rule = HISTORY_RULES.find((entry) => entry.id === fields.ruleId) ?? HISTORY_RULES[0];
+  const rule = HISTORY_RULES.find((entry) => entry.id === fields.ruleId);
+  if (rule === undefined) throw new Error(`Unknown history rule ${fields.ruleId}`);
   const location = {
     kind: fields.commit ? ("commit" as const) : ("file" as const),
     path: fields.path,
