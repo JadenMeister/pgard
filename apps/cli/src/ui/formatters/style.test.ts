@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUnicodeTerminal, shouldUseColor, toTerminalText } from "./style.js";
+import { isUnicodeTerminal, shouldUseColor, terminalWidth, toTerminalText } from "./style.js";
 
 describe("shouldUseColor", () => {
   it("needs a TTY and respects NO_COLOR and TERM=dumb", () => {
@@ -28,5 +28,17 @@ describe("Unicode fallback", () => {
     expect(toTerminalText(text, {}, "win32")).toBe('cut ... - "q" \'');
     expect(toTerminalText(text, { WT_SESSION: "x" }, "win32")).toBe(text);
     expect(toTerminalText(text, { TERM: "xterm" }, "linux")).toBe(text);
+  });
+});
+
+describe("terminalWidth", () => {
+  it("uses the columns of a TTY", () => {
+    expect(terminalWidth({ isTTY: true, columns: 132 }, { COLUMNS: "50" })).toBe(132);
+  });
+  it("uses COLUMNS when the output is not a TTY, then 80", () => {
+    expect(terminalWidth({ isTTY: false, columns: 132 }, { COLUMNS: "50" })).toBe(50);
+    expect(terminalWidth({ isTTY: true }, { COLUMNS: "70" })).toBe(70);
+    expect(terminalWidth({ isTTY: false }, {})).toBe(80);
+    expect(terminalWidth({ isTTY: false }, { COLUMNS: "abc" })).toBe(80);
   });
 });

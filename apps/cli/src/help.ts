@@ -106,8 +106,8 @@ ${REPORT_HELP}
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
                            (prompts go to stderr). Exit codes are unchanged
-  --lang en|ko             language of rule titles, impact and fix texts in the
-                           result (default: PGARD_LANG, then the system locale,
+  --lang en|ko             language of the result screen, progress lines and rule
+                           texts (default: PGARD_LANG, then the system locale,
                            then en). JSON output is always English
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)

@@ -2,6 +2,8 @@ import type { Severity } from "@pgard/findings";
 import { sanitizeDisplayText } from "@pgard/http-local";
 
 export interface Style {
+  /** False for `NO_COLOR`, a non-TTY stream or `TERM=dumb`: plain text, no colour codes. */
+  enabled: boolean;
   bold: (text: string) => string;
   dim: (text: string) => string;
   red: (text: string) => string;
@@ -21,6 +23,7 @@ const identity = (text: string): string => text;
 export function createStyle(isColorEnabled: boolean): Style {
   if (!isColorEnabled) {
     return {
+      enabled: false,
       bold: identity,
       dim: identity,
       red: identity,
@@ -36,6 +39,7 @@ export function createStyle(isColorEnabled: boolean): Style {
   const blue = wrap(34, 39);
   const magenta = wrap(35, 39);
   return {
+    enabled: true,
     bold: wrap(1, 22),
     dim: wrap(2, 22),
     red,
@@ -116,4 +120,23 @@ export function toTerminalText(
  */
 export function safeText(value: string, maxLength = 2000): string {
   return toTerminalText(sanitizeDisplayText(value, maxLength));
+}
+
+/** Narrowest terminal that still gets bar charts; below this, charts are plain count lines. */
+export const MIN_CHART_WIDTH = 60;
+const DEFAULT_WIDTH = 80;
+
+/**
+ * Columns of the terminal: the stream's width on a TTY, then `COLUMNS`, then 80 (also for pipes
+ * and files, which have no width).
+ */
+export function terminalWidth(
+  stream: { isTTY?: boolean; columns?: number },
+  env: Readonly<Record<string, string | undefined>>,
+): number {
+  if (stream.isTTY === true && typeof stream.columns === "number" && stream.columns > 0) {
+    return Math.floor(stream.columns);
+  }
+  const fromEnv = Number(env.COLUMNS);
+  return Number.isInteger(fromEnv) && fromEnv > 0 ? fromEnv : DEFAULT_WIDTH;
 }
