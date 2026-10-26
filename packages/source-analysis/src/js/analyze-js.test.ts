@@ -86,6 +86,164 @@ describe("PG-SQL-002 Prisma", () => {
   });
 });
 
+describe("PG-XSS jQuery, escape-html, bundled templates and spread props", () => {
+  const xss = (code: string, path = "src/app.js") =>
+    findingsIn(code, path).filter((finding) => finding.ruleId.startsWith("PG-XSS-"));
+
+  it("flags jQuery .html() and HTML-building inserters, not text, selectors or elements", () => {
+    const h = (body: string) => xss(`import $ from "jquery"; ${body}`);
+    expect(h('$("#o").html("<b>" + location.hash + "</b>");')).toHaveLength(1);
+    expect(
+      h('$("#o").find("p").html(`<i>${new URLSearchParams(location.search).get("q")}</i>`);'),
+    ).toHaveLength(1);
+    expect(h('const $o = $("#o"); $o.html(data);')).toHaveLength(1);
+    expect(h('$("#o").append("<li>" + item.name + "</li>");')).toHaveLength(1);
+    expect(h('$("#o").before(`<hr>${title}`);')).toHaveLength(1);
+    expect(h("$(location.hash).hide();")).toHaveLength(1);
+    expect(h('$("<div>" + name + "</div>").appendTo("#o");')).toHaveLength(1);
+    // Not sinks: text, selector building, a node, a static string, a function, the getter.
+    expect(h('$("#o").text(location.hash); $("#row-" + id).show();')).toEqual([]);
+    expect(h('$("#o").append(node); $("#o").append(document.createTextNode(name));')).toEqual([]);
+    expect(h('$("#o").html("<b>Saved</b>"); $("<div>"); $("#o").html();')).toEqual([]);
+    expect(h('$("#o").html(function (i, old) { return old; });')).toEqual([]);
+    expect(h('$("#o").html(DOMPurify.sanitize(data));')).toEqual([]);
+    // A `$` that is not jQuery: cheerio, or a local helper.
+    expect(
+      xss('const cheerio = require("cheerio"); const $ = cheerio.load(page); $("t").html(title);'),
+    ).toEqual([]);
+    expect(xss("const $ = (s) => document.querySelector(s); $('#o').html(x);")).toEqual([]);
+    // An IIFE parameter named $ is jQuery.
+    expect(xss("(function ($) { $('#o').html('<b>' + location.hash); })(jQuery);")).toHaveLength(1);
+  });
+
+  it("never silences a value that goes through escape-html, and words the evidence by context", () => {
+    const e = (body: string) => xss(`import esc from "escape-html"; ${body}`);
+    const looksLikeText = [
+      "el.innerHTML = `<b>${esc(a)}</b> <i>${esc(b)}</i>`;",
+      "el.innerHTML = `<ul><li>${esc(a)} ${5}</li></ul>`;",
+      "const OPEN = '<p class=\"x\">'; el.innerHTML = OPEN + esc(a) + '</p>';",
+      "$('#o').html('<p>' + esc(a) + '</p>');",
+      // Nested inside raw text it cannot see: still reported, wording asks to verify.
+      "el.innerHTML = `<script><b>${esc(u)}`;",
+    ];
+    for (const body of looksLikeText) {
+      const found = e(body);
+      expect(found, body).toHaveLength(1);
+      expect(found[0], body).toMatchObject({ confidence: "low", status: "suspected" });
+      expect(found[0]?.severity, body).not.toBe("high");
+      expect(found[0]?.evidence, body).toContain("looks like an HTML text context");
+    }
+    const notSufficient = [
+      "el.innerHTML = `<a href=${esc(u)}>x</a>`;",
+      'el.innerHTML = `<a href="${esc(u)}">x</a>`;',
+      'el.innerHTML = `<a title="t" onclick="${esc(u)}">x</a>`;',
+      'el.innerHTML = `<meta http-equiv="refresh" content="0;url=${esc(u)}">`;',
+      'el.innerHTML = `<svg><animate attributeName="href" values="${esc(u)}"/></svg>`;',
+      "el.innerHTML = `<script>var x = '${esc(u)}'</script>`;",
+      "el.innerHTML = `<script/>${esc(u)}`;",
+      "el.innerHTML = `<style><i>x</i>${esc(u)}`;",
+      "el.innerHTML = `<textarea>${esc(u)}</textarea>`;",
+      "el.innerHTML = esc(u);",
+      "$('#o').html(esc(u));",
+      "const OPEN_LINK = '<a href=\"'; el.innerHTML = OPEN_LINK + esc(u) + '\">x</a>';",
+      "document.createElement('script').innerHTML = esc(u);",
+    ];
+    for (const body of notSufficient) {
+      const found = e(body);
+      expect(found, body).toHaveLength(1);
+      expect(found[0], body).toMatchObject({ confidence: "low", status: "suspected" });
+      expect(found[0]?.severity, body).not.toBe("high");
+      expect(found[0]?.evidence, body).toContain("not sufficient");
+    }
+    // A void-element prefix is never a reason to stay silent.
+    const voided = e('el.innerHTML = "<img src=x>" + esc(a);');
+    expect(voided).toHaveLength(1);
+    expect(voided[0]).toMatchObject({ confidence: "low" });
+    // A part that is not escape-html's keeps the normal medium-or-higher finding, even when the
+    // file imports escape-html and the sink also has an escaped part.
+    expect(e("el.innerHTML = `<b>${esc(a)}</b>${location.hash}`;")[0]).toMatchObject({
+      confidence: "medium",
+    });
+    expect(
+      xss(
+        'import esc from "escape-html"; import t from "./t.js"; el.innerHTML = "<b>" + t(location.hash);',
+      )[0],
+    ).toMatchObject({ confidence: "medium" });
+    // Not the escape-html module (a local function, a shadowing parameter, another import).
+    for (const body of [
+      "function esc(s) { return s; } el.innerHTML = `<b>${esc(location.hash)}</b>`;",
+      "function f(esc) { el.innerHTML = `<b>${esc(location.hash)}</b>`; }",
+    ])
+      expect(xss(`import esc from "escape-html"; ${body}`)[0], body).toMatchObject({
+        confidence: "medium",
+      });
+    for (const module of ["./html-utils.js", "lodash"])
+      expect(
+        xss(`import esc from "${module}"; el.innerHTML = \`<b>\${esc(location.hash)}</b>\`;`)[0],
+        module,
+      ).toMatchObject({ confidence: "medium" });
+  });
+
+  it("stays linear in the number of escape-html parts", () => {
+    const parts = Array.from({ length: 4000 }, () => "<li>${esc(a)}</li>").join("");
+    const code = `import esc from "escape-html"; el.innerHTML = \`${parts}\`;`;
+    const start = performance.now();
+    expect(xss(code)).toHaveLength(1);
+    expect(performance.now() - start).toBeLessThan(1500);
+  });
+
+  it("does not treat a jQuery or DOM node result as an HTML string", () => {
+    const h = (body: string) => xss(`import $ from "jquery"; ${body}`);
+    expect(h('$("#list").append($("<li>").text(location.hash));')).toEqual([]);
+    expect(h('$("#list").append($("<li>").attr("title", location.hash));')).toEqual([]);
+    expect(h('$("#list").append(document.createElement("li"));')).toEqual([]);
+    expect(h('$("#list").append("<li>" + location.hash + "</li>");')).toHaveLength(1);
+  });
+
+  it("demotes an imported bundled template instead of dropping the finding", () => {
+    for (const module of ["./card.html?raw", "../views/card.html", "./logo.svg?inline"]) {
+      const [finding] = xss(`import tpl from "${module}"; el.innerHTML = tpl;`, "src/a.ts");
+      expect(finding, module).toMatchObject({ confidence: "low", status: "suspected" });
+      expect(finding?.evidence).toContain("build-time asset");
+    }
+    const [plain] = xss('import tpl from "./render.js"; el.innerHTML = tpl;');
+    expect(plain?.evidence).not.toContain("build-time asset");
+  });
+
+  it("follows dangerouslySetInnerHTML through spread props and createElement", () => {
+    const j = (body: string) => xss(body, "src/a.jsx").map((finding) => finding.ruleId);
+    expect(
+      j("const p = { dangerouslySetInnerHTML: { __html: html } }; const A = () => <div {...p} />;"),
+    ).toEqual(["PG-XSS-002"]);
+    expect(
+      j("const A = () => <div {...{ dangerouslySetInnerHTML: { __html: html } }} />;"),
+    ).toEqual(["PG-XSS-002"]);
+    expect(
+      j(
+        "const markup = { __html: html }; const A = () => <div {...{ dangerouslySetInnerHTML: markup }} />;",
+      ),
+    ).toEqual(["PG-XSS-002"]);
+    expect(
+      j(
+        'const A = () => React.createElement("div", { dangerouslySetInnerHTML: { __html: html } });',
+      ),
+    ).toEqual(["PG-XSS-002"]);
+    expect(
+      j(
+        'const p = { dangerouslySetInnerHTML: { __html: "<b>x</b>" } }; const A = () => <div {...p} />;',
+      ),
+    ).toEqual([]);
+    expect(
+      j(
+        "const p = { dangerouslySetInnerHTML: { __html: DOMPurify.sanitize(h) } }; const A = () => <div {...p} />;",
+      ),
+    ).toEqual([]);
+    expect(j("const A = ({ ...rest }) => <div {...rest} className='a' />;")).toEqual([]);
+    // Reassigned or shadowed spread objects are not resolved.
+    expect(j("let p = {}; p = other; const A = () => <div {...p} />;")).toEqual([]);
+  });
+});
+
 describe("PG-XSS-001/002 HTML sinks", () => {
   it("rates request/browser input into innerHTML higher than unknown values", () => {
     const [fromInput] = findingsIn("el.innerHTML = location.search;");

@@ -492,6 +492,95 @@ export function analyzeJsSource(
       report("PG-SQL-001", call, inferred ? demote(evidence, INFERRED_NOTE) : evidence, label);
   };
 
+  // ---- HTML sink helpers: escape-html context, bundled templates, jQuery receivers. ----
+
+  /** `escape-html`'s default export, when it is the only binding of that local name. */
+  const isEscapeHtmlCall = (expression: ts.Expression): boolean => {
+    const node = unwrap(expression);
+    if (!ts.isCallExpression(node) || node.arguments.length !== 1) return false;
+    const callee = unwrap(node.expression);
+    return (
+      ts.isIdentifier(callee) &&
+      namespaceImports.get(callee.text) === "escape-html" &&
+      bindingCount.get(callee.text) === 1
+    );
+  };
+
+  /** A template or `+` chain as literal text and the expressions between it. */
+  const htmlParts = (expression: ts.Expression, out: (string | ts.Expression)[] = []) => {
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) {
+      out.push(node.text);
+    } else if (ts.isTemplateExpression(node)) {
+      out.push(node.head.text);
+      for (const span of node.templateSpans) out.push(span.expression, span.literal.text);
+    } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      htmlParts(node.left, out);
+      htmlParts(node.right, out);
+    } else {
+      out.push(node);
+    }
+    return out;
+  };
+
+  /** Text of a literal, or of a sole-binding constant holding one; null when not visible here. */
+  const literalText = (expression: ts.Expression, depth = 0): string | null => {
+    const node = unwrap(expression);
+    if (ts.isStringLiteralLike(node)) return node.text;
+    if (ts.isNumericLiteral(node)) return "0";
+    if (ts.isIdentifier(node) && depth < 3) {
+      const init = soleConst(node.text, node);
+      return init ? literalText(init, depth + 1) : null;
+    }
+    return null;
+  };
+
+  /**
+   * escape-html escapes only `& < > " '`. That is not enough in an attribute, a URL, a script or
+   * style element, or an unknown sink element, and a parser here would have to model HTML
+   * tokenization, so the call never silences a finding. The check below only chooses the wording:
+   * "text-like" when the literal markup just before the value ends in an ordinary open tag
+   * followed by plain text; "unclear" otherwise. null: a dynamic part is not escape-html's, or
+   * nothing is escaped (the normal finding applies). Only the last 200 characters are kept.
+   */
+  const escapeHtmlVerdict = (value: ts.Expression): "text-like" | "unclear" | null => {
+    let escaped = false;
+    let textLike = true;
+    let before = "";
+    let known = true;
+    for (const part of htmlParts(value)) {
+      if (typeof part === "string") {
+        before = (before + part).slice(-200);
+      } else if (isEscapeHtmlCall(part)) {
+        escaped = true;
+        if (!known || !LOOKS_LIKE_TEXT_CONTEXT.test(before)) textLike = false;
+        before = (before + "\u0001").slice(-200);
+      } else if (isStrictInert(part, "sql")) {
+        const text = literalText(part);
+        if (text === null) known = false;
+        else before = (before + text).slice(-200);
+      } else {
+        return null;
+      }
+    }
+    return escaped ? (textLike ? "text-like" : "unclear") : null;
+  };
+  /** An ordinary (not script, style, textarea, title, template, svg) open tag, then plain text. */
+  const LOOKS_LIKE_TEXT_CONTEXT =
+    /<(?!(?:script|style|textarea|title|template|svg|math|iframe|noscript|xmp|plaintext)\b)[a-z][a-z0-9]*(?:\s+[\w-]+="[^"<>]*")*\s*>[^<>"'`]*$/i;
+
+  /** A default import of a build-time asset (`./card.html`, `?raw`): its text is not visible here. */
+  const bundledTemplate = (value: ts.Expression): string | null => {
+    const node = unwrap(value);
+    if (!ts.isIdentifier(node) || bindingCount.get(node.text) !== 1) return null;
+    const module = namespaceImports.get(node.text);
+    return module !== undefined &&
+      (/[?&](raw|inline)\b/.test(module) ||
+        (module.startsWith(".") && /\.(html?|svg|txt|md)(\?.*)?$/i.test(module)))
+      ? module
+      : null;
+  };
+
   const checkHtmlSink = (
     ruleId: SourceRuleId,
     node: ts.Node,
@@ -504,6 +593,7 @@ export function analyzeJsSource(
       isSanitized(value)
     )
       return;
+    const verdict = importSet.has("escape-html") ? escapeHtmlVerdict(value) : null;
     const evidence = classify(
       value,
       true,
@@ -513,7 +603,159 @@ export function analyzeJsSource(
         : { severity: "low", status: "suspected", confidence: "low" },
       sink,
     );
-    if (evidence) report(ruleId, node, evidence, sink);
+    if (!evidence) return;
+    const template = namespaceImports.size > 0 ? bundledTemplate(value) : null;
+    if (verdict !== null) {
+      report(
+        ruleId,
+        node,
+        demote(
+          evidence,
+          verdict === "text-like"
+            ? "escape-html wraps the value in what looks like an HTML text context; verify it is not inside script/style or an attribute"
+            : "escape-html only escapes & < > \" ' and is not sufficient in this context (attribute, URL, script/style element or unknown markup)",
+        ),
+        sink,
+      );
+    } else if (template !== null) {
+      report(
+        ruleId,
+        node,
+        demote(
+          evidence,
+          `imported template "${template}" is a build-time asset whose content is not visible to the scan; verify it holds no request data`,
+        ),
+        sink,
+      );
+    } else {
+      report(ruleId, node, evidence, sink);
+    }
+  };
+
+  /**
+   * `$(...)` / `jQuery(...)` or a chain / constant built from one. `$` must be the global or the
+   * jquery import (or a parameter, as in `(function ($) {})(jQuery)`), not cheerio's `$`.
+   */
+  const isJQueryFactory = (name: string): boolean => {
+    const count = bindingCount.get(name);
+    if (count === undefined) return true;
+    if (count !== 1) return false;
+    const module = namespaceImports.get(name);
+    if (module !== undefined) return /^jquery(\/|$)/.test(module);
+    return singleConst(name) === null;
+  };
+  const isJQueryObject = (expression: ts.Expression, depth = 0): boolean => {
+    const node = unwrap(expression);
+    if (depth > 4) return false;
+    if (ts.isCallExpression(node)) {
+      const callee = unwrap(node.expression);
+      if (ts.isIdentifier(callee))
+        return /^(\$|jQuery)$/.test(callee.text) && isJQueryFactory(callee.text);
+      return ts.isPropertyAccessExpression(callee) && isJQueryObject(callee.expression, depth + 1);
+    }
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return init !== null && isJQueryObject(init, depth + 1);
+    }
+    return false;
+  };
+  /** A call that yields a jQuery object or DOM node (`$("<li>").text(x)`, `document.createElement`), not a string. */
+  const returnsNode = (node: ts.Expression): boolean => {
+    if (!ts.isCallExpression(node)) return false;
+    if (isJQueryObject(node)) return true;
+    const callee = accessPath(node.expression);
+    return callee !== null && /^document\.(create\w+|querySelector|getElementById)$/.test(callee);
+  };
+  /** A string that is built as markup (a literal part holds `<`) or carries request input. */
+  const looksLikeHtml = (expression: ts.Expression): boolean => {
+    const node = unwrap(expression);
+    if (ts.isFunctionLike(node) || isStaticString(node) || returnsNode(node)) return false;
+    const kind = taint.taintOf(node);
+    if (kind === "request" || kind === "browser") return true;
+    const target = ts.isIdentifier(node) ? (soleConst(node.text, node) ?? node) : node;
+    return htmlParts(target).some((part) => typeof part === "string" && part.includes("<"));
+  };
+  /** `$(x)` parses x as HTML when it starts with `<`; `$("#id" + x)` is a selector. */
+  const jQueryParsesAsHtml = (argument: ts.Expression): boolean => {
+    const node = unwrap(argument);
+    if (ts.isFunctionLike(node) || isStaticString(node)) return false;
+    const [first] = htmlParts(node);
+    if (typeof first === "string" && !first.trimStart().startsWith("<") && first.trim() !== "")
+      return false;
+    return looksLikeHtml(node) || taint.isDynamicString(node);
+  };
+  const JQUERY_HTML_INSERTERS = new Set(["append", "prepend", "before", "after", "replaceWith"]);
+  const JQUERY_CALL_NAMES = new Set(["html", "$", "jQuery", ...JQUERY_HTML_INSERTERS]);
+  const ELEMENT_FACTORY_NAMES = new Set([
+    "createElement",
+    "cloneElement",
+    "jsx",
+    "jsxs",
+    "jsxDEV",
+    "h",
+  ]);
+  const checkJQuery = (call: ts.CallExpression, name: string) => {
+    const receiver = calleeReceiver(call);
+    const argument = call.arguments[0];
+    if (!argument || ts.isSpreadElement(argument)) return;
+    if (receiver === null || receiver === undefined) {
+      // `$(userHtml)`
+      const callee = unwrap(call.expression);
+      if (
+        ts.isIdentifier(callee) &&
+        /^(\$|jQuery)$/.test(callee.text) &&
+        isJQueryFactory(callee.text) &&
+        call.arguments.length <= 2 &&
+        jQueryParsesAsHtml(argument)
+      )
+        checkHtmlSink("PG-XSS-001", call, argument, `${callee.text}() HTML parsing`);
+      return;
+    }
+    if (call.arguments.length !== 1 || ts.isFunctionLike(unwrap(argument))) return;
+    if (!isJQueryObject(receiver)) return;
+    if (name === "html") checkHtmlSink("PG-XSS-001", call, argument, "jQuery .html()");
+    else if (JQUERY_HTML_INSERTERS.has(name) && looksLikeHtml(argument))
+      checkHtmlSink("PG-XSS-001", call, argument, `jQuery .${name}()`);
+  };
+
+  /** `dangerouslySetInnerHTML` given as an object property, reached by spread or createElement. */
+  const resolveObject = (expression: ts.Expression): ts.ObjectLiteralExpression | null => {
+    const node = unwrap(expression);
+    if (ts.isObjectLiteralExpression(node)) return node;
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      const inner = init ? unwrap(init) : null;
+      return inner && ts.isObjectLiteralExpression(inner) ? inner : null;
+    }
+    return null;
+  };
+  const checkDangerousValue = (node: ts.Node, value: ts.Expression) => {
+    const object = unwrap(value);
+    if (ts.isObjectLiteralExpression(object)) {
+      const html = object.properties.find(
+        (property): property is ts.PropertyAssignment =>
+          ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === "__html",
+      );
+      if (html) checkHtmlSink("PG-XSS-002", node, html.initializer, "dangerouslySetInnerHTML");
+    } else {
+      checkHtmlSink("PG-XSS-002", node, object, "dangerouslySetInnerHTML");
+    }
+  };
+  const checkDangerousProps = (node: ts.Node, props: ts.Expression) => {
+    const object = resolveObject(props);
+    if (!object) return;
+    for (const property of object.properties) {
+      if (
+        ts.isPropertyAssignment(property) &&
+        property.name.getText(sourceFile) === "dangerouslySetInnerHTML"
+      )
+        checkDangerousValue(node, property.initializer);
+      else if (
+        ts.isShorthandPropertyAssignment(property) &&
+        property.name.text === "dangerouslySetInnerHTML"
+      )
+        checkDangerousValue(node, property.name);
+    }
   };
 
   const checkCommand = (call: ts.CallExpression) => {
@@ -2708,6 +2950,10 @@ export function analyzeJsSource(
           node.arguments[0]
         )
           checkHtmlSink("PG-XSS-001", node, node.arguments[0], `document.${name}`);
+        if (JQUERY_CALL_NAMES.has(name)) checkJQuery(node, name);
+        if (ELEMENT_FACTORY_NAMES.has(name))
+          for (const argument of node.arguments)
+            if (!ts.isSpreadElement(argument)) checkDangerousProps(node, argument);
       }
     } else if (
       ts.isBinaryExpression(node) &&
@@ -2721,18 +2967,10 @@ export function analyzeJsSource(
       node.name.getText(sourceFile) === "dangerouslySetInnerHTML"
     ) {
       const initializer = node.initializer;
-      if (initializer && ts.isJsxExpression(initializer) && initializer.expression) {
-        const object = unwrap(initializer.expression);
-        if (ts.isObjectLiteralExpression(object)) {
-          const html = object.properties.find(
-            (property): property is ts.PropertyAssignment =>
-              ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === "__html",
-          );
-          if (html) checkHtmlSink("PG-XSS-002", node, html.initializer, "dangerouslySetInnerHTML");
-        } else {
-          checkHtmlSink("PG-XSS-002", node, object, "dangerouslySetInnerHTML");
-        }
-      }
+      if (initializer && ts.isJsxExpression(initializer) && initializer.expression)
+        checkDangerousValue(node, initializer.expression);
+    } else if (ts.isJsxSpreadAttribute(node)) {
+      checkDangerousProps(node, node.expression);
     } else if (ts.isObjectLiteralExpression(node)) {
       checkPlaintextPassword(node);
     }

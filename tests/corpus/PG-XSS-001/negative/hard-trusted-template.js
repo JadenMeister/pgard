@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-XSS-001:assigning an imported (bundled) template string to innerHTML is reported
+// corpus: expect=low
 import template from "./templates/card.html?raw";
 
 export function render(el) {

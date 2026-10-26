@@ -1,4 +1,4 @@
-<!-- corpus: expect=none; known=fp:PG-XSS-003:DOMPurify.sanitize inside a computed property is not followed -->
+<!-- corpus: expect=low -->
 <template>
   <div v-html="clean"></div>
 </template>

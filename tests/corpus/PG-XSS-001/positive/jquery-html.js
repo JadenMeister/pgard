@@ -1,4 +1,4 @@
-// corpus: expect=PG-XSS-001; known=miss:PG-XSS-001:jQuery .html() is not among the recognised sinks
+// corpus: expect=PG-XSS-001
 import $ from "jquery";
 
 const term = new URLSearchParams(location.search).get("q");

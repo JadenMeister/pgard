@@ -21,17 +21,17 @@
       "precisionMedium": 1
     },
     "PG-XSS-001": {
-      "precision": 0.75,
-      "recall": 0.857,
+      "precision": 1,
+      "recall": 1,
       "precisionMedium": 1
     },
     "PG-XSS-002": {
       "precision": 1,
-      "recall": 0.8,
+      "recall": 1,
       "precisionMedium": 1
     },
     "PG-XSS-003": {
-      "precision": 0.8,
+      "precision": 1,
       "recall": 1,
       "precisionMedium": 1
     },

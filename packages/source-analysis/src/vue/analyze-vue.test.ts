@@ -54,6 +54,62 @@ export default {
     expect(facts?.imports).toContain("pg");
   });
 
+  it("keeps a v-html bound to a sanitizing computed at low confidence, saying why", () => {
+    const setup = analyzeVueSource(
+      `<template><div v-html="clean"></div></template>
+<script setup>
+import DOMPurify from "dompurify";
+import { computed } from "vue";
+const props = defineProps({ html: String });
+const clean = computed(() => DOMPurify.sanitize(props.html));
+</script>`,
+      "src/A.vue",
+    );
+    expect(setup.findings).toHaveLength(1);
+    expect(setup.findings[0]).toMatchObject({ confidence: "low", status: "suspected" });
+    expect(setup.findings[0]?.evidence).toContain('computed "clean"');
+    const options = analyzeVueSource(
+      `<template><div v-html="safe"></div></template>
+<script>
+import sanitizeHtml from "sanitize-html";
+export default { computed: { safe() { return sanitizeHtml(this.html); } } };
+</script>`,
+      "src/B.vue",
+    );
+    expect(options.findings[0]?.evidence).toContain('computed "safe"');
+    // Only part of the value sanitized, or a sanitizer that is not imported: ordinary finding.
+    const partial = analyzeVueSource(
+      `<template><div v-html="clean"></div></template>
+<script setup>
+import DOMPurify from "dompurify";
+import { computed } from "vue";
+const clean = computed(() => DOMPurify.sanitize(a) + b);
+</script>`,
+      "src/C.vue",
+    );
+    expect(partial.findings[0]?.evidence).not.toContain("computed");
+    const other = analyzeVueSource(
+      `<template><div v-html="clean"></div></template>
+<script setup>
+import purify from "./purify.js";
+import { computed } from "vue";
+const clean = computed(() => purify(a));
+</script>`,
+      "src/E.vue",
+    );
+    expect(other.findings[0]?.evidence).not.toContain("computed");
+    const local = analyzeVueSource(
+      `<template><div v-html="clean"></div></template>
+<script setup>
+import { computed } from "vue";
+const DOMPurify = { sanitize: (x) => x };
+const clean = computed(() => DOMPurify.sanitize(a));
+</script>`,
+      "src/D.vue",
+    );
+    expect(local.findings[0]?.evidence).not.toContain("computed");
+  });
+
   it("reports parse errors instead of throwing", () => {
     expect(analyzeVueSource("<template><div></template", "src/B.vue").hasParseErrors).toBe(true);
   });

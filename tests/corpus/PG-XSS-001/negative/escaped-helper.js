@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-XSS-001:an escape-html call is not recognised as a sanitizer
+// corpus: expect=low
 import escapeHtml from "escape-html";
 
 export function show(el, name) {
