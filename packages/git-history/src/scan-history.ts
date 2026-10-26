@@ -500,13 +500,14 @@ function createFinding(fields: {
   };
 }
 
-function assessment(kind: DetectedSecretKind): {
+function assessment({ kind, weak }: DetectedSecret): {
   severity: Severity;
   status: FindingStatus;
   confidence: Confidence;
 } {
-  // A header with no key body may be a sample or a key split across string pieces: review it.
-  if (kind === "private_key_header") {
+  // A header with no key body may be a sample or a key split across string pieces, and a short
+  // or simple password may be a local default: review them.
+  if (kind === "private_key_header" || weak === true) {
     return { severity: "high", status: "suspected", confidence: "low" };
   }
   return STRONG_KINDS.has(kind)
@@ -659,7 +660,7 @@ export async function scanGitHistory(
         path: entry.path,
         line: secret.line,
         commit,
-        ...assessment(secret.kind),
+        ...assessment(secret),
         evidence: commit
           ? isCurrentStateUnknown
             ? `${label} ${where}; whether it is still in the current files could not be checked (value redacted)`

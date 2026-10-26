@@ -96,8 +96,11 @@ function syntaxFor(path: string): Syntax {
   return name === undefined ? C_LIKE : (SYNTAX_BY_EXTENSION[name] as Syntax);
 }
 
-/** A regex literal body longer than this is not taken as one (keeps the scan linear). */
-const MAX_REGEX_LENGTH = 512;
+/**
+ * A regex literal body longer than this is not taken as one. The scan stays linear at any limit
+ * because a failed attempt is never searched again (`failedRegexUntil`).
+ */
+const MAX_REGEX_LENGTH = 4096;
 /** Deeper `${…}` nesting than this is treated as confusion (inside a string). */
 const MAX_TEMPLATE_DEPTH = 32;
 const REGEX_BEFORE_CHARS = "(,=:[!&|?{};+-*%<>~^";
@@ -122,6 +125,8 @@ const REGEX_BEFORE_WORDS = new Set([
   "or",
   "not",
 ]);
+/** Keywords whose `( … )` condition may be followed by a regex literal. */
+const CONTROL_WORDS = new Set(["if", "while", "for", "with", "unless", "until", "elsif"]);
 const IDENTIFIER_CHAR = /[\w$]/;
 
 class Scanner {
@@ -156,6 +161,9 @@ class Scanner {
     const record = depth === 0;
     let braces = 0;
     let last = ""; // last significant code character
+    /** Per open `(`: whether a control keyword (`if (`, `while (`) comes before it. */
+    const parens: boolean[] = [];
+    let closedControlParen = false; // the last `)` closed `if (…)`, `while (…)`...
     let index = start;
     while (index < text.length) {
       const char = text[index] as string;
@@ -167,7 +175,7 @@ class Scanner {
         index += 1;
         continue;
       }
-      if (char === " " || char === "\t" || char === "\r") {
+      if (char === " " || char === "\t" || char === "\r" || char === "\uFEFF") {
         index += 1;
         continue;
       }
@@ -189,7 +197,7 @@ class Scanner {
         syntax.regexLiterals &&
         char === "/" &&
         index >= this.failedRegexUntil &&
-        this.regexAllowed(index, last)
+        this.regexAllowed(index, last, closedControlParen)
       ) {
         const end = this.regexEnd(index);
         if (end !== -1) {
@@ -198,17 +206,25 @@ class Scanner {
           continue;
         }
       }
-      if (syntax.heredoc !== "none" && char === "<" && this.readHeredoc(index)) {
+      if (syntax.heredoc !== "none" && char === "<" && this.readHeredoc(index, last)) {
         index += 2;
         last = "<";
         continue;
       }
       const stringEnd = this.stringAt(index, depth);
       if (stringEnd !== -1) {
+        // A quote left open at the end of its line (an apostrophe in JSX text, `it's`) is
+        // confusion: the rest of the line is a string region (reported) and is not scanned. The
+        // scan must not resume inside it: after a stray quote, a backtick or `/*` may be stray
+        // too, and reading it as an opener would hide a later real template.
         this.add(index, stringEnd, record);
         index = stringEnd;
         last = '"';
         continue;
+      }
+      if (syntax.regexLiterals) {
+        if (char === "(") parens.push(CONTROL_WORDS.has(this.wordBefore(index)));
+        else if (char === ")") closedControlParen = parens.pop() === true;
       }
       if (untilBrace) {
         if (char === "{") braces += 1;
@@ -233,11 +249,14 @@ class Scanner {
       (char === "r" || char === "b") &&
       !IDENTIFIER_CHAR.test(before)
     ) {
-      const raw = /^b?r(#{0,8})"/.exec(text.slice(index, index + 12));
-      if (raw) {
-        const close = `"${raw[1] ?? ""}`;
-        const end = text.indexOf(close, index + raw[0].length);
-        return end === -1 ? text.length : end + close.length;
+      const r = text[index] === "b" ? index + 1 : index;
+      if (text[r] === "r") {
+        const hashes = this.hashesAt(r + 1);
+        if (text[r + 1 + hashes] === '"') {
+          const close = `"${"#".repeat(hashes)}`;
+          const end = text.indexOf(close, r + 2 + hashes);
+          return end === -1 ? text.length : end + close.length;
+        }
       }
     }
     if (syntax.rawStrings === "cpp" && char === "R" && !IDENTIFIER_CHAR.test(before)) {
@@ -248,11 +267,11 @@ class Scanner {
         return end === -1 ? text.length : end + close.length;
       }
     }
-    if (syntax.rawStrings === "swift" && char === "#") {
-      const raw = /^(#{1,8})"/.exec(text.slice(index, index + 10));
-      if (raw) {
-        const close = `"${raw[1] ?? ""}`;
-        const end = text.indexOf(close, index + raw[0].length);
+    if (syntax.rawStrings === "swift" && char === "#" && before !== "#") {
+      const hashes = this.hashesAt(index);
+      if (text[index + hashes] === '"') {
+        const close = `"${"#".repeat(hashes)}`;
+        const end = text.indexOf(close, index + hashes + 1);
         return end === -1 ? text.length : end + close.length;
       }
     }
@@ -261,9 +280,12 @@ class Scanner {
         const end = text.indexOf("`", index + 1);
         return end === -1 ? text.length : end + 1;
       }
-      if (syntax.backtick === "template") return this.templateEnd(index + 1, depth);
+      if (syntax.backtick === "template") {
+        return this.templateEnd(index + 1, depth);
+      }
     }
     if (char !== '"' && char !== "'") return -1;
+    if (syntax.rawStrings === "rust" && char === "'" && this.isRustLifetime(index)) return -1;
     if (syntax.tripleQuotes && text.startsWith(char.repeat(3), index)) {
       return this.quotedEnd(index + 3, char.repeat(3), true);
     }
@@ -272,16 +294,51 @@ class Scanner {
       char === '"' &&
       (before === "@" || (before === "$" && text[index - 2] === "@"))
     ) {
-      // `""` is an escaped quote; there are no backslash escapes.
-      let cursor = index + 1;
-      for (;;) {
-        const end = text.indexOf('"', cursor);
-        if (end === -1) return text.length;
-        if (text[end + 1] !== '"') return end + 1;
-        cursor = end + 2;
-      }
+      return this.verbatimEnd(index + 1, before === "$" || text[index - 2] === "$", depth);
     }
     return this.quotedEnd(index + 1, char, syntax.multiLineQuotes.includes(char));
+  }
+
+  /**
+   * Whether the `'` at `index` starts a Rust lifetime or loop label (`&'static`, `<'a>`,
+   * `'outer:`) rather than a char literal (`'a'`, `'\n'`, `'\u{1F600}'`, `'"'`): an identifier
+   * follows and no `'` closes it as a single character.
+   */
+  private isRustLifetime(index: number): boolean {
+    const { text } = this;
+    const next = text.codePointAt(index + 1);
+    if (next === undefined) return false;
+    const width = next > 0xffff ? 2 : 1;
+    if (text[index + 1 + width] === "'") return false; // a one-character literal
+    return /[A-Za-z_]/.test(text[index + 1] as string);
+  }
+
+  /**
+   * End (exclusive) of a C# verbatim string whose body starts at `start`. `""` is an escaped
+   * quote and there are no backslash escapes. In an interpolated one (`$@"…"`), a `{…}` hole is
+   * code that may hold strings of its own (`{(a ? "x" : "y")}`); `{{` is a literal brace.
+   */
+  private verbatimEnd(start: number, interpolated: boolean, depth: number): number {
+    const { text } = this;
+    for (let cursor = start; cursor < text.length; cursor += 1) {
+      const char = text[cursor];
+      if (char === '"') {
+        if (text[cursor + 1] !== '"') return cursor + 1;
+        cursor += 1;
+      } else if (interpolated && char === "{") {
+        if (text[cursor + 1] === "{") cursor += 1;
+        else if (depth >= MAX_TEMPLATE_DEPTH) return text.length;
+        else cursor = this.scanCode(cursor + 1, true, depth + 1);
+      }
+    }
+    return text.length;
+  }
+
+  /** Number of `#` characters at `index` (at most 255, as in Rust raw strings). */
+  private hashesAt(index: number): number {
+    let count = 0;
+    while (count < 255 && this.text[index + count] === "#") count += 1;
+    return count;
   }
 
   /** End (exclusive) of a quoted string whose body starts at `start`. */
@@ -312,20 +369,31 @@ class Scanner {
     return text.length;
   }
 
-  private regexAllowed(index: number, last: string): boolean {
-    const { text } = this;
-    const next = text[index + 1];
+  /**
+   * Whether a `/` after the code character `last` starts a regex literal. After `)` it does only
+   * when the parenthesis closed a control condition (`if (x) /re/.test(s)`); otherwise a `)`
+   * followed by `/` is division.
+   */
+  private regexAllowed(index: number, last: string, closedControlParen: boolean): boolean {
+    const next = this.text[index + 1];
     if (next === "/" || next === "*") return false;
     if (last === "") return true;
+    if (last === ")") return closedControlParen;
     if (REGEX_BEFORE_CHARS.includes(last)) return true;
     if (!IDENTIFIER_CHAR.test(last)) return false;
+    return REGEX_BEFORE_WORDS.has(this.wordBefore(index));
+  }
+
+  /** The identifier (up to 16 characters) right before `index`, skipping whitespace. */
+  private wordBefore(index: number): string {
+    const { text } = this;
     let cursor = index - 1;
     while (cursor >= 0 && /\s/.test(text[cursor] as string)) cursor -= 1;
     const wordEnd = cursor + 1;
     while (cursor >= 0 && wordEnd - cursor <= 16 && IDENTIFIER_CHAR.test(text[cursor] as string)) {
       cursor -= 1;
     }
-    return REGEX_BEFORE_WORDS.has(text.slice(cursor + 1, wordEnd));
+    return text.slice(cursor + 1, wordEnd);
   }
 
   /** End (exclusive, after flags) of a regex literal at `index` on its line, or -1. */
@@ -351,13 +419,20 @@ class Scanner {
   }
 
   /** Records a heredoc opened at `index` (`<<~EOS`, `<<-EOS`, `<<<EOT`), if there is one. */
-  private readHeredoc(index: number): boolean {
+  private readHeredoc(index: number, last: string): boolean {
     const php = this.syntax.heredoc === "php";
     const opener = php
       ? /^<<<[ \t]{0,4}(["']?)([A-Za-z_]\w{0,63})\1/
-      : /^<<([~-]?)(["'`]?)([A-Z_][A-Za-z0-9_]{0,63})\2/;
+      : /^<<([~-]?)(["'`]?)([A-Za-z_][A-Za-z0-9_]{0,63})\2/;
     const match = opener.exec(this.text.slice(index, index + 80));
     if (!match) return false;
+    // A lowercase name is a heredoc only where a value can start (`x = <<~eos`, `f(<<~eos`,
+    // `a, <<~eos`) and not after an operand (`list <<'x'`, `a <<-n` are shifts). A bare `<<name`
+    // is always a shift. A wrong guess could hide a later string, so doubtful cases are code.
+    if (!php && /^[a-z]/.test(match[3] as string)) {
+      if (match[1] === "" && match[2] === "") return false;
+      if (last !== "" && !"=(,[{|&:?".includes(last)) return false;
+    }
     this.pendingHeredocs.push({ id: (php ? match[2] : match[3]) as string, php });
     return true;
   }

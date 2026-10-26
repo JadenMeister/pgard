@@ -181,6 +181,92 @@ describe("detectSecrets", () => {
     expectCredential(text, path);
   });
 
+  it.each([
+    [
+      "Rust string after a 'static lifetime",
+      `const C: &'static str = "\n{password: ${C}}\n";`,
+      "main.rs",
+    ],
+    [
+      "Rust string after lifetimes",
+      `fn f<'a>(x: &'a str) -> &'a str { "\n{password: ${C}}\n" }`,
+      "main.rs",
+    ],
+    [
+      "Rust string after a char literal",
+      `let q = '\\n'; let c = "\n{password: ${C}}\n";`,
+      "main.rs",
+    ],
+  ])("detects %s (#158)", (_label, text, path) => {
+    expectCredential(text, path);
+  });
+
+  it.each([
+    [
+      "a template after a regex that follows if (…)",
+      "if (x) /`/.test(s);\nconst c = `\n{password: C9}\n`;",
+      "a.ts",
+    ],
+    [
+      "a template after an apostrophe and a stray backtick in JSX text",
+      "const x = <p>Don't press the ` key</p>;\nconst c = `\n{password: C9}\n`;",
+      "a.tsx",
+    ],
+    [
+      "a template after an apostrophe and a stray /* in JSX text",
+      "const x = <p>Don't type /* here</p>;\nconst c = `\n{password: C9}\n`;\n// */",
+      "a.tsx",
+    ],
+    [
+      "a Vue template after an apostrophe and a backtick",
+      "<template><p>Don't press `</p></template>\n<script>const c = `\n{password: C9}\n`</script>",
+      "a.vue",
+    ],
+    [
+      "a Ruby string after a shift of a quoted string",
+      "items <<'x'\nq = \"\nx\n{password: C9}\n\"",
+      "app.rb",
+    ],
+    [
+      "a template after a division by a parenthesized value and a quote",
+      'const r = (a) / "/"; const c = `\n{password: C9}\n`;',
+      "a.ts",
+    ],
+    ["a lowercase Ruby heredoc", "cfg = <<~eos\n  {password: C9}\neos", "app.rb"],
+    [
+      "a C# interpolated verbatim string",
+      'var c = $@"{(a ? "x" : "y")}\n{password: C9}\n";',
+      "App.cs",
+    ],
+    [
+      "a template after a BOM and a regex",
+      "﻿/`/.test(x);\nconst c = `\n{password: C9}\n`;",
+      "a.ts",
+    ],
+    [
+      "a template after a long regex",
+      `const r = /${"x".repeat(600)}\`/;\nconst c = \`\n{password: C9}\n\`;`,
+      "a.ts",
+    ],
+    [
+      "a Rust raw string with more than 8 #",
+      'let c = r#########"\n"#;\n{password: C9}\n"#########;',
+      "main.rs",
+    ],
+  ])("detects %s: tracker gaps (#158)", (_label, text, path) => {
+    expectCredential(text.replace("C9", C), path);
+  });
+
+  it.each([
+    [
+      "after a Rust lifetime",
+      'const X: &\'static str = "a";\nlet x = Cfg { password: passwordFromVault };',
+    ],
+    ["after a Rust char literal", "let q = 'a';\nlet x = Cfg { password: passwordFromVault };"],
+  ])("ignores code %s (#158)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/main.rs" })).toEqual([]);
+  });
+
   // #142 false positives must stay fixed with the whole-file string tracking (#145).
   it.each([
     ["after a closed template", "const t = `x`;\nconst x = { password: passwordFromVault };"],
@@ -279,6 +365,88 @@ describe("detectSecrets", () => {
     expect(detectSecrets(text, { path: "src/db.ts" })).toEqual([]);
   });
 
+  it.each([
+    ["user:pass", 'const u = "postgres://user:pass@localhost/db";'],
+    ["the user name as the password", 'const u = "amqp://guest:guest@localhost:5672";'],
+    ["the same capitalised word", 'const u = "amqp://Guest:Guest@localhost:5672";'],
+    ["a shell variable in braces", 'const u = "mysql://root:${db_password}@db/app";'],
+    ["a lowercase slot after a colon", "U=redis://user::password@cache:6379"],
+    ["a lowercase slot in braces", 'const u = "postgres://u:{db_password}@h/db";'],
+    ["postgres:postgres", 'const u = "postgres://postgres:postgres@db:5432/app";'],
+    ["a shell variable", 'const u = "mysql://root:$MYSQL_PASSWORD@db/app";'],
+    ["a format slot", 'const u = "postgres://u:{password}@h/db";'],
+    ["a printf slot", 'const u = "postgres://u:%s@h/db";'],
+    ["an angle-bracket slot", 'const u = "postgres://u:<password>@h/db";'],
+    ["a host and port before @", 'const u = "http://localhost:8080@x.com";'],
+  ])("ignores URL placeholders: %s (#158)", (_label, text) => {
+    expect(detectSecrets(text, { path: "src/db.ts" })).toEqual([]);
+  });
+
+  it.each([
+    ["a short password", 'const u = "postgres://admin:hunter2@db/x";', "hunter2"],
+    ["a short password with symbols", "url: postgres://admin:S3cr3t!@db/x", "S3cr3t!"],
+    ["a numeric password", "DATABASE_URL=mysql://root:1234@db/app", "1234"],
+  ])("reports %s in a URL as weak (#158)", (_label, text, password) => {
+    const found = detectSecrets(text, { path: "config/app.yml" });
+    expect(found).toEqual([{ kind: "url_credential", line: 1, value: password, weak: true }]);
+  });
+
+  it.each([
+    [
+      "a $-prefixed mixed-case password",
+      "DATABASE_URL=postgres://admin:$uP3rS3cr3tPw9@db.prod/app",
+      "$uP3rS3cr3tPw9",
+    ],
+    [
+      "a password starting with a colon",
+      "U=redis://user::Xk9vLp8Wz4Rt2q@cache:6379",
+      ":Xk9vLp8Wz4Rt2q",
+    ],
+    ["a password in braces", "U=postgres://u:{Xk9vLp8Wz4Rt2q}@h/db", "{Xk9vLp8Wz4Rt2q}"],
+    [
+      "a password equal to a user name with symbols",
+      "U=postgres://Svc_Deploy_9f8a:Svc_Deploy_9f8a@db/app",
+      "Svc_Deploy_9f8a",
+    ],
+    [
+      "a password equal to a user name but for the case, with digits",
+      "U=postgres://Admin123:admin123@db/app",
+      "admin123",
+    ],
+  ])("reports %s in a URL, not as a placeholder (#158)", (_label, text, password) => {
+    const found = detectSecrets(text, { path: "config/app.env" });
+    expect(found.map((secret) => [secret.kind, secret.value])).toEqual([
+      ["url_credential", password],
+    ]);
+  });
+
+  it("reports a token in a URL once, as a password in a URL (#158)", () => {
+    const token = "9f8a7b6c5d4e3f2a1b0c";
+    const found = detectSecrets(`u = "https://x-access-token:${token}@github.com/o/r"`, {
+      path: "a.ts",
+    });
+    expect(found).toEqual([{ kind: "url_credential", line: 1, value: token }]);
+  });
+
+  it("still reports a generic credential next to a URL on the same line (#158)", () => {
+    const text = `password = "${L}"; url = "postgres://app:${C}@db/app"`;
+    const kinds = detectSecrets(text, { path: "config/app.yml" }).map((secret) => secret.kind);
+    expect(kinds.sort()).toEqual(["generic_credential", "url_credential"]);
+  });
+
+  it("keeps the generic credential over a weak URL password inside it (#158)", () => {
+    const found = detectSecrets("password=postgres://admin:hunter22@db.prod.internal/app", {
+      path: "app.env",
+    });
+    expect(found.map((secret) => secret.kind)).toEqual(["generic_credential"]);
+  });
+
+  it("keeps a random password in a URL at full strength (#158)", () => {
+    const [found] = detectSecrets(`u = "redis://default:${L}@cache:6379"`, { path: "a.ts" });
+    expect(found).toMatchObject({ kind: "url_credential", value: L });
+    expect(found?.weak).toBeUndefined();
+  });
+
   it("stays linear on large inputs (#145)", () => {
     const shapes = [
       'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
@@ -288,23 +456,81 @@ describe("detectSecrets", () => {
       `${"a".repeat(39)}password_${"b".repeat(39)} `,
       "password: abc <<~A r#\"`${'",
     ];
+    // Best of 3 runs per size: a single run is noisy when other test files run in parallel.
     const time = (text: string) => {
-      const start = performance.now();
-      for (const path of ["big.ts", "big.rb", "config.yml"]) detectSecrets(text, { path });
-      return performance.now() - start;
+      let best = Infinity;
+      for (let run = 0; run < 3; run += 1) {
+        const start = performance.now();
+        for (const path of ["big.ts", "big.rb", "config.yml"]) detectSecrets(text, { path });
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
     };
     for (const shape of shapes) {
       // Starts with an unquoted match so the string tracker runs over the whole text.
       const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(1_250_000 / shape.length))}`;
       time(unit.slice(0, 100_000)); // warm up
       const small = time(unit);
-      const large = time(unit.repeat(4)); // 5 MB
-      // 4x the input should take roughly 4x the time (16x if quadratic). CI runners are much
-      // slower than local machines, so the absolute bound is loose.
-      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      const large = time(unit.repeat(8)); // 10 MB
+      // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
+      // generous so a loaded machine does not fail it; the absolute bound is loose because CI
+      // runners are much slower than local machines.
+      expect(large / Math.max(small, 1)).toBeLessThan(40);
       expect(large).toBeLessThan(15_000);
     }
   }, 120_000);
+
+  it("does not read a cut window as the start of the line (#158)", () => {
+    // Main read the whole line and took `{` + spaces + key as code; with a 200-character window
+    // the spaces alone must not look like an empty line start either: report it.
+    const text = `const x = {${" ".repeat(300)}password: ${L},\n};`;
+    expectCredential(text, "src/a.ts");
+    // Within the window the same shape is code.
+    expect(
+      detectSecrets(`const x = {${" ".repeat(20)}password: ${L},\n};`, { path: "a.ts" }),
+    ).toEqual([]);
+  });
+
+  it("stays linear on a 1 MB minified line with stray quotes (#158)", () => {
+    const json = '\\"k\\":\\"v\\",'.repeat(1_000_000 / 12);
+    const inputs: [string, string][] = [
+      [
+        `x = { password: passwordFromVault };\nconst a = <p>Don't</p>, j = JSON.parse('{${json}}');\n`,
+        "bundle.js",
+      ],
+      [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nconst z = 1;\n`, "a.ts"],
+      [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nz = 1\n`, "a.py"],
+    ];
+    for (const [input, path] of inputs) {
+      const start = performance.now();
+      detectSecrets(input, { path });
+      // Quadratic scanning takes tens of seconds here; linear takes well under a second.
+      expect(performance.now() - start).toBeLessThan(2_000);
+    }
+  }, 120_000);
+
+  it("stays linear on one very long line with many matches (#158)", () => {
+    // Each match used to slice and test the whole line around it: a 1 MB line took ~19 s.
+    const time = (text: string) => {
+      let best = Infinity;
+      for (let run = 0; run < 3; run += 1) {
+        const start = performance.now();
+        detectSecrets(text, { path: "big.ts" });
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
+    };
+    for (const unit of ["x password: Ab1Cd2Ef3Gh4 }", "x password=Ab1Cd2Ef3Gh4 "]) {
+      const line = (size: number) => unit.repeat(Math.ceil(size / unit.length));
+      time(line(50_000)); // warm up
+      const small = time(line(250_000));
+      const large = time(line(1_000_000));
+      // 4x the input should take roughly 4x the time (16x if quadratic).
+      expect(large / Math.max(small, 1)).toBeLessThan(12);
+      expect(large).toBeLessThan(5_000);
+      expect(detectSecrets(line(1_000_000), { path: "big.ts" })).toHaveLength(1);
+    }
+  }, 60_000);
 
   it("ignores bare identifiers only where the line clearly is code", () => {
     expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);
@@ -387,6 +613,22 @@ describe("scanGitHistory", () => {
       status: "confirmed",
       confidence: "high",
     });
+  });
+
+  it("reports a weak password in a URL with low confidence and without the value (#158)", async () => {
+    fixture = createGitFixture();
+    const password = join("hun", "ter2");
+    fixture.commit({ files: { "config/db.yml": `url: postgres://admin:${password}@db/app\n` } });
+    const result = await scanGitHistory(fixture.root);
+    const tracked = byRule(result, "PG-SECRET-002");
+    expect(tracked).toHaveLength(1);
+    expect(tracked[0]).toMatchObject({
+      severity: "high",
+      status: "suspected",
+      confidence: "low",
+      evidence: "password in a URL in a tracked file (value redacted)",
+    });
+    expect(JSON.stringify(result)).not.toContain(password);
   });
 
   it("reports committed .env files and tracked secrets at HEAD without values", async () => {

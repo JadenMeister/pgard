@@ -6,6 +6,17 @@ const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
 const findingsIn = (code: string, path = "src/app.ts") => analyzeJsSource(code, path).findings;
 
+/** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
+const bestTimeOf = (runs: number, fn: () => void) => {
+  let best = Infinity;
+  for (let run = 0; run < runs; run += 1) {
+    const start = performance.now();
+    fn();
+    best = Math.min(best, performance.now() - start);
+  }
+  return best;
+};
+
 describe("PG-SQL-001 pg/mysql2", () => {
   it("flags request input interpolated into pool.query", () => {
     const [finding] = findingsIn(`
@@ -469,10 +480,8 @@ describe("per-function facts stay linear (#104)", () => {
     ).join("\n");
     const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
     expect(code.length).toBeGreaterThan(400_000);
-    const start = performance.now();
-    analyzeJsSource(code, "big.js");
-    expect(performance.now() - start).toBeLessThan(5000);
-  });
+    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000);
+  }, 60_000);
 
   it("still detects MD5 of passwords via update() in the same function", () => {
     const rules = analyzeJsSource(
@@ -545,11 +554,14 @@ describe("linear cost and caps (#87)", () => {
         `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
     ).join("\n");
     expect(code.length).toBeGreaterThan(500_000);
-    const start = performance.now();
-    const analysis = analyzeJsSource(code, "big.js");
-    expect(performance.now() - start).toBeLessThan(5000);
+    let analysis = analyzeJsSource(code, "big.js");
+    expect(
+      bestTimeOf(3, () => {
+        analysis = analyzeJsSource(code, "big.js");
+      }),
+    ).toBeLessThan(5000);
     expect(analysis.cappedRules).toContain("PG-XSS-001");
-  });
+  }, 60_000);
 
   it("resolves sanitized variables in linear time when many scopes share a name (#109)", () => {
     const build = (count: number) =>
@@ -559,18 +571,18 @@ describe("linear cost and caps (#87)", () => {
           `function f${index}() { const h = DOMPurify.sanitize(a${index}); el.innerHTML = h; }`,
       ).join("\n");
     const time = (code: string) => {
-      const start = performance.now();
       expect(analyzeJsSource(code, "big.js").findings).toEqual([]);
-      return performance.now() - start;
+      return bestTimeOf(3, () => analyzeJsSource(code, "big.js"));
     };
     time(build(500)); // warm up
-    const small = time(build(2000));
-    const large = time(build(8000));
-    // Quadratic resolution took ~20 s at 8,000 scopes. Linear time grows roughly 4x for 4x the
-    // input (16x if quadratic). Only the ratio is checked: CI runners are much slower than
-    // local machines, so absolute bounds are flaky.
-    expect(large / Math.max(small, 1)).toBeLessThan(10);
-  }, 60_000);
+    const small = time(build(4000));
+    const large = time(build(32000));
+    // Quadratic resolution took ~20 s at 8,000 scopes. Linear time grows roughly 8x for 8x the
+    // input (64x if quadratic). Only the ratio is checked, with a generous limit and the best of
+    // 3 runs per size: CI runners are much slower than local machines, so absolute bounds are
+    // flaky.
+    expect(large / Math.max(small, 1)).toBeLessThan(40);
+  }, 120_000);
 });
 
 describe("precision (#88)", () => {

@@ -22,6 +22,8 @@ export interface DetectedSecret {
   line: number;
   /** In-memory only: used for equality between occurrences, never output. */
   value: string;
+  /** A short or simple password in a URL that is still not a placeholder: report it as unsure. */
+  weak?: true;
 }
 
 export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
@@ -93,6 +95,15 @@ const PATTERNS: Pattern[] = [
     group: 0,
   },
   {
+    kind: "url_credential",
+    // `scheme://user:password@host`: the value is the password only.
+    pattern:
+      /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/[^\s:/?#@"'`<>]{0,128}:(?<value>[^\s/?#@"'`<>]{1,256})@(?=[A-Za-z0-9[])/g,
+    group: "value",
+  },
+  // The generic patterns come last: a value a specific pattern above already reported is not
+  // reported again as a generic credential (see `detectSecrets`).
+  {
     kind: "generic_credential",
     // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
     pattern: new RegExp(
@@ -110,13 +121,6 @@ const PATTERNS: Pattern[] = [
       `${CREDENTIAL_KEY}["']?\\??(?:[ \\t]{0,8}:[ \\t]{0,8}[A-Za-z_$][\\w$.]{0,40}(?:<[^<>\\n]{0,80}>)?(?:\\[\\])?\\??[ \\t]{0,8}(?::=|=(?![=>]))|[ \\t]{1,8}[A-Za-z_*[\\]][\\w$.*[\\]]{0,40}[ \\t]{0,8}=(?![=>])|[ \\t]{0,8}(?::=|=(?![=>]))[ \\t]{0,8}!?[\\w$.!()[\\]]{1,80}[ \\t]{0,8}(?:\\?\\?|\\|\\||\\?(?![.?])))[ \\t]{0,8}${QUOTED_VALUE}`,
       "gi",
     ),
-    group: "value",
-  },
-  {
-    kind: "url_credential",
-    // `scheme://user:password@host`: the value is the password only.
-    pattern:
-      /(?<![A-Za-z0-9+.-])[A-Za-z][A-Za-z0-9+.-]{0,31}:\/\/[^\s:/?#@"'`<>]{0,128}:(?<value>[^\s/?#@"'`<>]{1,256})@(?=[A-Za-z0-9[])/g,
     group: "value",
   },
 ];
@@ -162,6 +166,8 @@ const CODE_BEFORE_KEY =
   /(?:^|[\s(])(?:const|let|var|val|final|readonly|static|export|public|private|protected|def|func|fn)\s+$|[({[,]\s*$/;
 /** Code right after a value: `)`, `,`, `;`, `{` or `=>`. */
 const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
+/** Characters of the line read before a key and after a value to judge whether it is code. */
+const CODE_WINDOW = 200;
 
 /** Per-text state shared by the matches of one `detectSecrets` call. */
 interface DetectContext {
@@ -197,11 +203,18 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
  */
 function looksLikeCode(text: string, keyStart: number, end: number, separator: string): boolean {
   if (separator === ":=") return true;
-  const lineStart = text.lastIndexOf("\n", keyStart - 1) + 1;
-  const before = text.slice(lineStart, keyStart);
+  // Only a bounded window around the match is read, so a very long line with many matches stays
+  // linear. A window cut short of the line start begins with a non-space marker: neither `^`
+  // nor an empty `before` can then match at the cut, so a long line is not taken as code there.
+  const windowStart = Math.max(0, keyStart - CODE_WINDOW);
+  const window = text.slice(windowStart, keyStart);
+  const newline = window.lastIndexOf("\n");
+  const before =
+    newline !== -1 ? window.slice(newline + 1) : windowStart > 0 ? `x${window}` : window;
   if (CODE_BEFORE_KEY.test(before)) return true;
-  const lineEnd = text.indexOf("\n", end);
-  const after = text.slice(end, lineEnd === -1 ? text.length : lineEnd);
+  const afterWindow = text.slice(end, end + CODE_WINDOW);
+  const lineEnd = afterWindow.indexOf("\n");
+  const after = lineEnd === -1 ? afterWindow : afterWindow.slice(0, lineEnd);
   return separator === ":" && before.trim() === "" && CODE_AFTER_VALUE.test(after);
 }
 
@@ -266,6 +279,35 @@ function isLikelySecretValue(value: string): boolean {
   return shannonEntropy(value) >= 3.0;
 }
 
+/**
+ * Passwords in URLs that are template slots shaped like variable names: `$DB_PASSWORD`,
+ * `${db_password}`, `{password}`, `%s`, `:password`, `***`. A value with mixed case or digits
+ * after the marker (`$uP3rS3cr3t`, `{Xk9vLp8Wz4Rt2q}`) is a real password.
+ */
+const URL_PLACEHOLDER =
+  /^(?:\$[A-Z_][A-Z0-9_]*|\$\{[A-Za-z_]\w*\}|\{[a-z_]+\}|%[sdv]|:[a-z_][a-z0-9_]*|\*+)$/;
+
+/**
+ * Judges the password of a `scheme://user:password@host` match: `null` for a placeholder (see
+ * `PLACEHOLDER` and `URL_PLACEHOLDER`), a plain word (`user:pass`, `postgres:password`) or the
+ * user name repeated (`guest:guest`, `postgres:postgres`), or a host and port. A short or simple password that is
+ * none of these (`admin:hunter2`) is kept as weak, to be reported with low confidence.
+ */
+function urlPasswordStrength(match: RegExpMatchArray, value: string): "strong" | "weak" | null {
+  if (PLACEHOLDER.test(value) || URL_PLACEHOLDER.test(value)) return null;
+  if (/^[a-z]+$/.test(value) && value.length < 16) return null;
+  const authority = match[0].slice(match[0].indexOf("//") + 2);
+  const user = authority.slice(0, authority.indexOf(":"));
+  // The user name repeated is a default only when it is a plain word (`guest:guest`); with
+  // digits or symbols (`Svc_Deploy_9f8a:Svc_Deploy_9f8a`) it is a chosen password.
+  if (/^[A-Za-z]+$/.test(value) && user.toLowerCase() === value.toLowerCase()) return null;
+  // `http://localhost:8080@host`: a host and port, not a user and password.
+  if (/^\d{1,5}$/.test(value) && (user.includes(".") || user.toLowerCase() === "localhost")) {
+    return null;
+  }
+  return isLikelySecretValue(value) ? "strong" : "weak";
+}
+
 function createLineLookup(text: string): (index: number) => number {
   const newlines: number[] = [];
   for (let cursor = text.indexOf("\n"); cursor !== -1; cursor = text.indexOf("\n", cursor + 1)) {
@@ -293,12 +335,25 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
   const context = createContext(text, options);
   const results: DetectedSecret[] = [];
   const seen = new Set<string>();
+  /** `[start, end)` value spans reported by the specific patterns (not weak URL passwords). */
+  const claimed: number[] = [];
+  /** Weak URL passwords: result index and `[start, end)`; a generic match over one replaces it. */
+  const weakUrls: { index: number; start: number; end: number }[] = [];
+  /** `[start, end)` spans of the generic credentials reported. */
+  const genericSpans: number[] = [];
+  let isClaimedAt: ((start: number, end: number) => boolean) | null = null;
   for (const { kind: patternKind, pattern, group } of PATTERNS) {
+    if (patternKind === "generic_credential") isClaimedAt ??= createSpanLookup(claimed);
     pattern.lastIndex = 0;
     for (const match of text.matchAll(pattern)) {
       let kind = patternKind;
       let value = (typeof group === "number" ? match[group] : match.groups?.[group]) ?? "";
       if (value.length === 0) continue;
+      // The value ends the match (only a closing quote or `@` may follow it).
+      const valueStart = (match.index ?? 0) + match[0].lastIndexOf(value);
+      const valueEnd = valueStart + value.length;
+      // `https://x-access-token:<token>@host`: the URL password, not also a generic credential.
+      if (kind === "generic_credential" && isClaimedAt?.(valueStart, valueEnd)) continue;
       if (kind === "private_key" && !hasPrivateKeyBody(value)) {
         kind = "private_key_header";
         // No key material to compare: keep nearby text so distinct headers stay distinct.
@@ -310,17 +365,55 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
         (!isLikelySecretValue(value) || !isLiteralAssignment(context, match))
       )
         continue;
-      if (kind === "url_credential" && !isLikelySecretValue(value)) continue;
+      const strength = kind === "url_credential" ? urlPasswordStrength(match, value) : "strong";
+      if (strength === null) continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
         continue;
       const line = lineOfIndex(match.index ?? 0);
       const key = `${line}:${value}`;
       if (seen.has(key)) continue; // a specific pattern already reported this value
       seen.add(key);
-      results.push({ kind, line, value });
+      if (strength === "weak")
+        weakUrls.push({ index: results.length, start: valueStart, end: valueEnd });
+      results.push(strength === "weak" ? { kind, line, value, weak: true } : { kind, line, value });
+      if (kind === "generic_credential") genericSpans.push(valueStart, valueEnd);
+      else if (strength !== "weak") claimed.push(valueStart, valueEnd);
     }
   }
-  return results;
+  // A weak URL password inside a reported generic value (a URL assigned to a credential key) is
+  // the same finding: keep the generic one, which carries the higher confidence.
+  const covered = weakUrls.length > 0 ? createSpanLookup(genericSpans) : null;
+  const dropped = new Set(
+    weakUrls.filter(({ start, end }) => covered?.(start, end)).map(({ index }) => index),
+  );
+  return dropped.size > 0 ? results.filter((_, index) => !dropped.has(index)) : results;
+}
+
+/** Whether `[start, end)` overlaps any of the flat `[start, end)` pairs in `spans`. */
+function createSpanLookup(spans: number[]): (start: number, end: number) => boolean {
+  const pairs: [number, number][] = [];
+  for (let index = 0; index < spans.length; index += 2) {
+    pairs.push([spans[index] as number, spans[index + 1] as number]);
+  }
+  pairs.sort((a, b) => a[0] - b[0]);
+  // Merge into disjoint, sorted spans.
+  const merged: [number, number][] = [];
+  for (const pair of pairs) {
+    const last = merged[merged.length - 1];
+    if (last && pair[0] <= last[1]) last[1] = Math.max(last[1], pair[1]);
+    else merged.push([pair[0], pair[1]]);
+  }
+  return (start, end) => {
+    // Last span starting before `end`.
+    let low = 0;
+    let high = merged.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if ((merged[middle] as [number, number])[0] < end) low = middle + 1;
+      else high = middle;
+    }
+    return low > 0 && (merged[low - 1] as [number, number])[1] > start;
+  };
 }
 
 const ENV_EXAMPLE = /\.(example|sample|template|dist|defaults?)$/i;
