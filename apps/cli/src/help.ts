@@ -100,6 +100,11 @@ ${REPORT_HELP}
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
                            (prompts go to stderr). Exit codes are unchanged
+  --lang en|ko             language of rule titles, impact and fix texts in the
+                           result (default: PGARD_LANG, then the system locale,
+                           then en). JSON output is always English
+  --report-lang en|ko      language of rule texts in saved reports (default: the
+                           --lang language)
 ${NO_STORE_HELP}
 ${NO_BROWSER_HELP}
 
@@ -138,10 +143,12 @@ ${EXIT_CODE_HELP}`,
   rules: `Usage:
   pgard rules list [--language js|ts|react|vue|go]`,
   "rules list": `Usage:
-  pgard rules list [--language js|ts|react|vue|go]
+  pgard rules list [--language js|ts|react|vue|go] [--lang en|ko]
 
 Lists supported rules and unsupported areas.
 --language react and vue also include the JavaScript/TypeScript rules.
+--lang en|ko shows rule titles in that language (default: PGARD_LANG, then the
+system locale, then en).
 Works outside a project.`,
   history: `Usage:
   pgard history clear --all | --repo owner/name

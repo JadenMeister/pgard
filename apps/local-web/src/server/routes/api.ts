@@ -1,8 +1,17 @@
 import path from "node:path";
-import { SCAN_SCOPES, type ScanResult, type ScanScope } from "@pgard/findings";
+import {
+  buildRuleTextCatalog,
+  RULE_LOCALES,
+  SCAN_SCOPES,
+  type RuleLocale,
+  type RuleTextCatalog,
+  type ScanResult,
+  type ScanScope,
+} from "@pgard/findings";
 import {
   createConfirmedWebTarget,
   isValidPort,
+  WEB_RULE_LIST,
   sanitizeDisplayText,
   type ServiceIdentity,
 } from "@pgard/http-local";
@@ -20,6 +29,7 @@ import {
   removeStoredSignIn,
   ScanCancelledError,
   type AuthorizationDependencies,
+  listSupportedRules,
   type OwnerApprovalRemedy,
 } from "@pgard/scan-core";
 import type {
@@ -27,6 +37,7 @@ import type {
   InstallRemedyDto,
   OwnerApprovalRecheckDto,
   PortListResponse,
+  RuleTextsResponse,
   ScanStatus,
   ServiceIdentityDto,
   SessionInfo,
@@ -66,7 +77,35 @@ export interface ApiContext {
   github: GitHubSessionManager;
 }
 
-export type ApiHandler = (context: ApiContext, body: unknown) => Promise<unknown>;
+export type ApiHandler = (
+  context: ApiContext,
+  body: unknown,
+  /** Query string of the request (GET routes). */
+  query: URLSearchParams,
+) => Promise<unknown>;
+
+let ruleTextCatalog: RuleTextCatalog | undefined;
+
+function getRuleTextCatalog(): RuleTextCatalog {
+  ruleTextCatalog ??= buildRuleTextCatalog([...listSupportedRules(), ...WEB_RULE_LIST]);
+  return ruleTextCatalog;
+}
+
+/** Every rule's title, impact and fix text in both languages; the client picks by UI language. */
+const getRuleTexts: ApiHandler = async () => {
+  const texts: RuleTextsResponse = {};
+  for (const [id, entry] of getRuleTextCatalog()) texts[id] = entry;
+  return texts;
+};
+
+function readReportLang(query: URLSearchParams): RuleLocale {
+  const value = query.get("lang");
+  if (value === null) return "en";
+  if (!(RULE_LOCALES as readonly string[]).includes(value)) {
+    throw new ApiError(400, "bad_lang", "lang must be en or ko.");
+  }
+  return value as RuleLocale;
+}
 
 function asRecord(body: unknown): Record<string, unknown> {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
@@ -580,13 +619,17 @@ export function reportDownloadName(result: ScanResult, format: "html" | "pdf"): 
  * and returns it as a download. Nothing is written to disk.
  */
 function downloadReport(format: "html" | "pdf"): ApiHandler {
-  return async (context) => {
+  return async (context, _body, query) => {
+    const lang = readReportLang(query);
     const result = context.state.scan.result;
     if (result === null || result.overallStatus === "blocked") {
       throw new ApiError(409, "no_result", "There is no scan result to export.");
     }
     try {
-      const body = await context.deps.renderReport(result, format);
+      const body = await context.deps.renderReport(result, format, undefined, {
+        lang,
+        ruleTexts: getRuleTextCatalog(),
+      });
       return new ApiDownload(
         REPORT_CONTENT_TYPES[format],
         reportDownloadName(result, format),
@@ -614,6 +657,7 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "GET /api/scan": getScan,
   "POST /api/scan": startScan,
   "POST /api/scan/cancel": cancelScan,
+  "GET /api/rule-texts": getRuleTexts,
   "GET /api/reports/html": downloadReport("html"),
   "GET /api/reports/pdf": downloadReport("pdf"),
 };

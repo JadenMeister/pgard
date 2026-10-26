@@ -1,4 +1,9 @@
-import type { ConfirmedWebTarget, ScanResult, ScanScope } from "@pgard/findings";
+import {
+  localizeFindings,
+  type ConfirmedWebTarget,
+  type ScanResult,
+  type ScanScope,
+} from "@pgard/findings";
 import {
   ScanCancelledError,
   ScanRequestError,
@@ -91,11 +96,20 @@ export async function runScanCommand(
   });
 }
 
+/** Rule texts in the terminal language; the stored and JSON result stay English. */
+function localizeResult(context: CommandContext, result: ScanResult): ScanResult {
+  const locale = context.ruleLocale ?? "en";
+  if (locale === "en" || context.ruleTexts === undefined) return result;
+  return { ...result, findings: localizeFindings(result.findings, context.ruleTexts, locale) };
+}
+
 function showText(context: CommandContext, result: ScanResult, command: ScanCommand): void {
   out(context, "");
   out(
     context,
-    formatScanResult(result, context.style, { allFindings: command.allFindings === true }),
+    formatScanResult(localizeResult(context, result), context.style, {
+      allFindings: command.allFindings === true,
+    }),
   );
 }
 

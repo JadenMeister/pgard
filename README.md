@@ -109,7 +109,7 @@ Usage:
   pgard scan all [--port N]     code + history + local HTTP service
   pgard dashboard [--target-port N]
                                 start the local web dashboard
-  pgard rules list [--language js|ts|react|vue|go]
+  pgard rules list [--language js|ts|react|vue|go] [--lang en|ko]
                                 supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
                                 delete stored scan results (all, or one repository)
@@ -154,6 +154,11 @@ Options:
   --all-findings           list every finding and location; by default more than
                            5 findings in test, fixture or vendored code are
                            summarized, and groups show up to 3 locations
+  --lang en|ko             language of rule titles, impact and fix texts in the
+                           result (default: PGARD_LANG, then the system locale,
+                           then en). JSON output is always English
+  --report-lang en|ko      language of rule texts in saved reports (default: the
+                           --lang language)
   --format text|json       json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
@@ -175,6 +180,8 @@ authorization and continues the scan.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
 - `--all-findings` (any `scan`): list every finding and every location, each with its own evidence, and never collapse anything. By default, groups show up to 3 locations (the evidence is shown once when all members share it, otherwise it says it varies), and when more than 5 findings come from test, fixture or vendored code the lower-severity ones are replaced by a summary (see [Grouping and collapsing](#grouping-and-collapsing)).
 - `--format text|json` (any `scan`, default `text`): `json` prints only the redacted scan result to stdout, exactly as described in [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md) and readable with `readScanResult`. Progress, notices and prompts go to stderr, so `pgard scan code --format json > result.json` is valid JSON. Prompts never use stdout: `scan web` and `scan all` need `--port` (without it the command exits with the usage error 2 before scanning). The exit codes do not change. `--all-findings` has no effect on JSON, which always contains every finding. Prompts that are still possible (the `--port` confirmation, the GitHub App install guide, saving a report inside the repository) are shown on stderr when stdin and stderr are terminals, even if stdout is redirected to a file. Stdout holds exactly one document, the final result, which is also a blocked result when authorization failed. Stdout stays empty only for a usage error (exit 2), a cancellation, a directory that is not a repository (exit 3) and an internal error.
+- `--lang en|ko` (any `scan`, `rules list`): language of the rule texts (titles, impact, fix) in the terminal. See [Language of rule texts](#language-of-rule-texts).
+- `--report-lang en|ko` (any `scan`, with `--report`): language of the rule texts in the saved HTML and PDF reports; defaults to the `--lang` language.
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
 - `--no-browser` (`scan`, `project verify`, `login`, `dashboard`): do not open GitHub pages (the device sign-in page, the App install page) in the browser; the links are only printed. Without it, in a terminal (stdin and stdout) PGARD prints the link and asks `Press Enter to open github.com in your browser...`; the page opens only after you press Enter (other keys are ignored). Waiting for sign-in or installation never depends on that prompt, and it is dropped as soon as the wait ends. Outside a terminal nothing is opened and nothing is asked. The links are always printed too, and a browser that fails to open is not an error.
 - `--no-store` (`scan` only), or the environment variable `PGARD_NO_STORE=1`: do not keep this scan's result on this computer. Only the exact value `1` counts. Nothing is created in that case, not even the notice. See [Stored results](#stored-results).
@@ -368,6 +375,16 @@ PGARD calls a secret or `.env` file "removed" only when it can show that the cur
 
 The terminal result shows a severity chart, the findings (confirmed, suspected or informational) with a `file:line` or URL, redacted evidence, guidance, and the coverage of each area.
 
+### Language of rule texts
+
+Rule titles, the impact text and the fix text can be shown in Korean or English. The language is chosen in this order: `--lang en|ko`, then the environment variable `PGARD_LANG` (`en` or `ko`), then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; the first one that is set decides, and a value starting with `ko` selects Korean; on Windows, where these are usually unset, the runtime locale is used), and otherwise English. An invalid `--lang`, `--report-lang` or `PGARD_LANG` value is a usage error (exit 2).
+
+- **Terminal:** the scan result (titles and fix lines) and the titles in `pgard rules list` use that language. Fixed interface text (headings, labels, coverage, messages) stays English for now.
+- **Reports:** `--report-lang en|ko` (default: the terminal language) sets the language of rule titles, impact and fix texts and of the per-finding "Impact" and "Recommendation" labels (`영향`, `권장 조치`), and `<html lang>` follows it. The PDF uses the embedded Korean font. The rest of the report (headings, summary, coverage, authorization table, notes and disclaimer) stays English for now, and so do evidence, locations and reasons.
+- **Dashboard:** rule titles, impact and fix texts follow the dashboard's own language toggle, and the report downloads use the same language. The server only sends the rule texts of both languages (`/api/rule-texts`); no other data is added.
+- **JSON output** (`--format json`) and stored results are unchanged and always English.
+- **Finding-specific text:** some findings carry their own text instead of the rule's default (for example the recommendation of a committed dependency directory). That text is shown as it is, in English, and the rule default is never shown next to it. Findings from dependency advisories are also shown as they are.
+
 ### Grouping and collapsing
 
 Findings are ordered by severity (critical, high, medium, low, info), then confirmed before suspected before informational, then by location. Findings with the same rule and cause form one group: the title shows the number of locations and the line names up to 3 of them (`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`), with the evidence when all members share it, otherwise the line `Evidence: varies by location`. The result carries no cause text (only a fingerprint that includes the line), so "same cause" means the same rule, title, severity, status, confidence, location kind and context.
@@ -440,7 +457,7 @@ When a device code is needed, the dashboard shows an **Open the GitHub sign-in p
 
 Port discovery, identity probes and target confirmation are allowed only after the dashboard's latest authorization check for this project passed, and only for 30 minutes after that check finished. The dashboard shows when this window ends; after that (or if the system clock moves back), you must check again before it contacts local services. A new check or a sign-out closes the window at once and aborts probes that are still running, and the page drops port lists and probe results from an earlier check. Each scan runs the full authorization check again regardless of this window.
 
-The dashboard is available in Korean and English. It follows the browser language (any Korean setting picks Korean, otherwise English) and has a **한국어 / English** toggle in the header; the choice is remembered in the browser. Text that comes from the scan itself (finding titles, rule descriptions, authorization reasons) stays in English for now.
+The dashboard is available in Korean and English. It follows the browser language (any Korean setting picks Korean, otherwise English) and has a **한국어 / English** toggle in the header; the choice is remembered in the browser. Rule texts in finding details (title, impact, fix) follow the same toggle; other text that comes from the scan itself (evidence, authorization reasons, coverage notes) stays in English for now.
 
 ### How the dashboard protects itself
 
@@ -475,7 +492,7 @@ The dashboard is available in Korean and English. It follows the browser languag
 - PDF reports embed a subset of Noto Sans KR, so Korean and English text both render. Characters the font does not have (Hanja, emoji, other scripts) are replaced with `?` and the PDF says so; the HTML report has the full text. If the bundled font cannot be loaded, the PDF falls back to a built-in Latin-1 font (Korean becomes `?`), notes this in the PDF itself, and the CLI prints a warning.
 - [#45](https://github.com/JadenMeister/pgard/issues/45) Logged-in web browsing is not available: it is out of scope (see [Out of scope](#out-of-scope)).
 - Contribution is checked conservatively for users who are not the verified owner: co-author trailers and unsigned direct pushes do not count, so a collaborator who only co-authored commits or pushed unsigned commits is blocked at contribution until a pull request of theirs is merged or they push signed commits.
-- The dashboard's scan text (finding titles, rule descriptions, authorization reasons) is English only; the rest of the dashboard is available in Korean and English.
+- The dashboard's rule texts are available in Korean and English; evidence, authorization reasons and coverage notes from the scan are English only, and so are the headings and notes of exported reports.
 - Detection is not complete. Missing findings do not mean the project is secure.
 - Port discovery can be incomplete or unavailable. Type the port by hand in that case.
 

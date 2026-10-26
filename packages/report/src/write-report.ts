@@ -1,6 +1,7 @@
 import { lstat, open, realpath, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
+import type { ReportLanguageOptions } from "./format.js";
 import { renderHtmlReport } from "./render-html.js";
 import { renderPdfReport } from "./render-pdf.js";
 
@@ -34,7 +35,7 @@ export interface WrittenReport {
   warning?: string;
 }
 
-export interface WriteReportsOptions {
+export interface WriteReportsOptions extends ReportLanguageOptions {
   format: ReportFormat;
   /** Directory chosen by the user. It must already exist; PGARD never creates or picks one. */
   outputDir: string;
@@ -110,11 +111,15 @@ export async function renderReport(
   format: "html" | "pdf",
   /** PDF only: called with why the Korean-capable font is not used, or null when it is. */
   onFontFallback?: (message: string | null) => void,
+  language: ReportLanguageOptions = {},
 ): Promise<string | Buffer> {
   try {
     return format === "html"
-      ? renderHtmlReport(result)
-      : await renderPdfReport(result, onFontFallback === undefined ? {} : { onFontFallback });
+      ? renderHtmlReport(result, language)
+      : await renderPdfReport(result, {
+          ...language,
+          ...(onFontFallback === undefined ? {} : { onFontFallback }),
+        });
   } catch {
     throw new ReportWriteError(
       "render_failed",
@@ -146,9 +151,17 @@ export async function writeReports(
   }> = [];
   for (const format of formats) {
     let warning: string | undefined;
-    const content = await renderReport(result, format, (message) => {
-      if (message !== null) warning = message;
-    });
+    const content = await renderReport(
+      result,
+      format,
+      (message) => {
+        if (message !== null) warning = message;
+      },
+      {
+        ...(options.lang === undefined ? {} : { lang: options.lang }),
+        ...(options.ruleTexts === undefined ? {} : { ruleTexts: options.ruleTexts }),
+      },
+    );
     planned.push({
       format,
       filePath: path.join(directory, `${baseName}.${format}`),

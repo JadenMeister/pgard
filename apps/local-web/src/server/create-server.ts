@@ -134,7 +134,8 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     const hostCheck = checkHost(request, port);
     if (!hostCheck.isAllowed) return reject(response, hostCheck);
     const method = request.method ?? "GET";
-    const pathname = (request.url ?? "/").split("?")[0] ?? "/";
+    const [pathname = "/", queryString = ""] = (request.url ?? "/").split("?", 2);
+    const query = new URLSearchParams(queryString);
 
     if (pathname.startsWith("/api/")) {
       const isStateChanging = method !== "GET";
@@ -147,7 +148,7 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
       void (async () => {
         try {
           const body = isStateChanging ? await readJsonBody(request) : undefined;
-          const payload = await handler(context, body);
+          const payload = await handler(context, body, query);
           if (payload instanceof ApiDownload) {
             const content = Buffer.from(payload.body);
             response.statusCode = 200;

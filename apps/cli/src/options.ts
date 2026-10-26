@@ -1,3 +1,4 @@
+import { RULE_LOCALES, type RuleLocale } from "@pgard/findings";
 import { isValidPort } from "@pgard/http-local";
 import { isReportFormat, type ReportFormat } from "@pgard/report";
 
@@ -30,10 +31,14 @@ export type ParsedCommand =
       allFindings: boolean;
       /** `--no-store`: do not keep this scan's result on this computer. */
       noStore?: boolean;
+      /** `--lang`: language of rule texts in the terminal result. */
+      lang?: RuleLocale;
+      /** `--report-lang`: language of rule texts in saved reports. */
+      reportLang?: RuleLocale;
     }
   | { kind: "history-clear"; repo: string | null }
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
-  | { kind: "rules-list"; language: RuleLanguage | null }
+  | { kind: "rules-list"; language: RuleLanguage | null; lang?: RuleLocale }
   | { kind: "doctor" }
   | { kind: "advisories-update" }
   | { kind: "login"; noBrowser: boolean }
@@ -65,7 +70,15 @@ export class UsageError extends Error {
 }
 
 type OptionName =
-  "--port" | "--target-port" | "--report" | "--output-dir" | "--language" | "--format" | "--repo";
+  | "--port"
+  | "--target-port"
+  | "--report"
+  | "--output-dir"
+  | "--language"
+  | "--format"
+  | "--repo"
+  | "--lang"
+  | "--report-lang";
 const VALUE_OPTIONS: readonly OptionName[] = [
   "--port",
   "--target-port",
@@ -74,6 +87,8 @@ const VALUE_OPTIONS: readonly OptionName[] = [
   "--language",
   "--format",
   "--repo",
+  "--lang",
+  "--report-lang",
 ];
 
 /** Flag (no value): do not open GitHub pages in the browser automatically; links are printed. */
@@ -166,6 +181,26 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     positionals.push(arg);
   }
   return { positionals, options, isHelp, isVersion, noBrowser, noStore, all, allFindings };
+}
+
+/** Validates a `--lang` / `--report-lang` / `PGARD_LANG` value. */
+export function parseLanguageValue(name: string, value: string, topic?: HelpTopic): RuleLocale {
+  if (!(RULE_LOCALES as readonly string[]).includes(value)) {
+    throw new UsageError(
+      `${name} must be one of ${RULE_LOCALES.join(", ")} (got "${value.slice(0, 20)}").`,
+      topic,
+    );
+  }
+  return value as RuleLocale;
+}
+
+function parseLangOption(
+  split: SplitArgs,
+  name: "--lang" | "--report-lang",
+  topic: HelpTopic,
+): RuleLocale | undefined {
+  const value = split.options.get(name);
+  return value === undefined ? undefined : parseLanguageValue(name, value, topic);
 }
 
 function parsePortOption(name: string, value: string, topic: HelpTopic): number {
@@ -298,13 +333,18 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       rejectOptions(
         split,
         isWeb
-          ? ["--port", "--report", "--output-dir", "--format"]
-          : ["--report", "--output-dir", "--format"],
+          ? ["--port", "--report", "--output-dir", "--format", "--lang", "--report-lang"]
+          : ["--report", "--output-dir", "--format", "--lang", "--report-lang"],
         topic,
         variant === "default" ? "pgard scan" : `pgard scan ${variant}`,
         true,
         true,
       );
+      const lang = parseLangOption(split, "--lang", topic);
+      const reportLang = parseLangOption(split, "--report-lang", topic);
+      if (reportLang !== undefined && split.options.get("--report") === undefined) {
+        throw new UsageError("--report-lang needs --report and --output-dir.", topic);
+      }
       const portValue = split.options.get("--port");
       const port = portValue === undefined ? null : parsePortOption("--port", portValue, topic);
       return {
@@ -316,6 +356,8 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         format: parseFormat(split),
         allFindings: split.allFindings,
         ...(split.noStore ? { noStore: true } : {}),
+        ...(lang === undefined ? {} : { lang }),
+        ...(reportLang === undefined ? {} : { reportLang }),
       };
     }
     case "history": {
@@ -370,12 +412,17 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         );
       }
       rejectExtraPositionals(rest, topic);
-      rejectOptions(split, ["--language"], topic, "pgard rules list");
+      rejectOptions(split, ["--language", "--lang"], topic, "pgard rules list");
       const language = split.options.get("--language");
       if (language !== undefined && !(RULE_LANGUAGES as readonly string[]).includes(language)) {
         throw new UsageError(`--language must be one of ${RULE_LANGUAGES.join(", ")}.`, topic);
       }
-      return { kind: "rules-list", language: (language as RuleLanguage | undefined) ?? null };
+      const lang = parseLangOption(split, "--lang", topic);
+      return {
+        kind: "rules-list",
+        language: (language as RuleLanguage | undefined) ?? null,
+        ...(lang === undefined ? {} : { lang }),
+      };
     }
     case "doctor": {
       topic = "doctor";

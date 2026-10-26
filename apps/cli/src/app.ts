@@ -1,3 +1,4 @@
+import type { RuleLocale } from "@pgard/findings";
 import { stopBrowserOffers } from "./flows/browser.js";
 import { PGARD_VERSION } from "@pgard/scan-core";
 import { createCancelController, type InterruptSource } from "./adapters/cancel.js";
@@ -19,7 +20,9 @@ import { err, out, type CommandContext } from "./context.js";
 import { createDefaultDeps, type CliDeps } from "./deps.js";
 import { EXIT_CODES, type ExitCode } from "./exit-codes.js";
 import { getHelpText } from "./help.js";
+import { resolveLanguage } from "./language.js";
 import { parseCommandLine, UsageError, type ParsedCommand } from "./options.js";
+import { getRuleTextCatalog } from "./rule-texts.js";
 import { BACK, promptChoice, UserCancelledError } from "./ui/components/prompts.js";
 import { createStyle, safeText, shouldUseColor } from "./ui/formatters/style.js";
 
@@ -185,8 +188,15 @@ export async function main(
 ): Promise<ExitCode> {
   const errStyle = createStyle(shouldUseColor(io.stderr, io.env));
   let command: ParsedCommand;
+  let ruleLocale: RuleLocale = "en";
+  let reportLocale: RuleLocale = "en";
   try {
     command = parseCommandLine(argv);
+    if (command.kind !== "help" && command.kind !== "version") {
+      const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
+      ruleLocale = resolveLanguage({ flag, env: io.env });
+      reportLocale = command.kind === "scan" ? (command.reportLang ?? ruleLocale) : ruleLocale;
+    }
   } catch (error) {
     if (error instanceof UsageError) {
       io.stderr.write(
@@ -226,6 +236,9 @@ export async function main(
     keys,
     signal: cancel.signal,
     isMenu: command.kind === "menu",
+    ruleLocale,
+    reportLocale,
+    ruleTexts: getRuleTextCatalog(),
     releaseInterrupts: cancel.dispose,
   };
   try {

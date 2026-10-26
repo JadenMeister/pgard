@@ -8,3 +8,4 @@ export * from "./read-result.js";
 export * from "./standards/index.js";
 export * from "./rule-metadata.js";
 export * from "./compare-scans.js";
+export * from "./rule-text.js";
