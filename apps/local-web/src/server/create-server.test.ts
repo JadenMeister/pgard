@@ -1,5 +1,10 @@
 import http from "node:http";
-import type { AuthorizationCheckId, ScanRequest, ScanResult } from "@pgard/findings";
+import {
+  SCHEMA_VERSION,
+  type AuthorizationCheckId,
+  type ScanRequest,
+  type ScanResult,
+} from "@pgard/findings";
 import type { PortDiscoveryResult, ServiceIdentity } from "@pgard/http-local";
 import {
   AUTHORIZATION_CHECK_ORDER,
@@ -56,7 +61,7 @@ function outcome(
 
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: SCHEMA_VERSION,
     scanId: "scan-1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:01.000Z",

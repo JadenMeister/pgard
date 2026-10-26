@@ -10,6 +10,7 @@ import {
   type Coverage,
   type Finding,
   type ProjectConfig,
+  type RuleStat,
 } from "@pgard/findings";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
 import { analyzeGoSource } from "./go/analyze-go.js";
@@ -82,6 +83,8 @@ const LANGUAGE_LABEL: Record<SourceLanguage, string> = {
 
 interface LanguageStats {
   files: number;
+  /** Files the language analyzer actually ran on (not skipped, unreadable or crashed). */
+  analyzed: number;
   unparsable: number;
   unreadable: number;
   overran: number;
@@ -192,6 +195,7 @@ export async function scanSourceCode(
   const stats: Record<SourceLanguage, LanguageStats> = {
     javascript: {
       files: 0,
+      analyzed: 0,
       unparsable: 0,
       unreadable: 0,
       overran: 0,
@@ -200,18 +204,37 @@ export async function scanSourceCode(
     },
     typescript: {
       files: 0,
+      analyzed: 0,
       unparsable: 0,
       unreadable: 0,
       overran: 0,
       cappedFiles: [],
       skippedForTime: 0,
     },
-    vue: { files: 0, unparsable: 0, unreadable: 0, overran: 0, cappedFiles: [], skippedForTime: 0 },
-    go: { files: 0, unparsable: 0, unreadable: 0, overran: 0, cappedFiles: [], skippedForTime: 0 },
+    vue: {
+      files: 0,
+      analyzed: 0,
+      unparsable: 0,
+      unreadable: 0,
+      overran: 0,
+      cappedFiles: [],
+      skippedForTime: 0,
+    },
+    go: {
+      files: 0,
+      analyzed: 0,
+      unparsable: 0,
+      unreadable: 0,
+      overran: 0,
+      cappedFiles: [],
+      skippedForTime: 0,
+    },
   };
   const jsFacts: { path: string; facts: JsFileFacts }[] = [];
   const goImports = new Set<string>();
   let jsxFiles = 0;
+  const jsxPaths = new Set<string>();
+  const languageOfPath = new Map<string, SourceLanguage>();
 
   const now = options.now ?? Date.now;
   const startedAt = now();
@@ -220,6 +243,7 @@ export async function scanSourceCode(
     throwIfAborted(options.signal);
     const languageStats = stats[file.language];
     languageStats.files += 1;
+    languageOfPath.set(file.relativePath, file.language);
     if (now() - startedAt > timeBudgetMs) {
       languageStats.skippedForTime += 1;
       continue;
@@ -247,10 +271,14 @@ export async function scanSourceCode(
         const analysis = analyzeJsSource(content, file.relativePath);
         raw.push(...analysis.findings);
         jsFacts.push({ path: file.relativePath, facts: analysis.facts });
-        if (analysis.facts.hasJsx) jsxFiles += 1;
+        if (analysis.facts.hasJsx) {
+          jsxFiles += 1;
+          jsxPaths.add(file.relativePath);
+        }
         if (analysis.hasParseErrors) languageStats.unparsable += 1;
         capped = analysis.cappedRules;
       }
+      languageStats.analyzed += 1;
       if (capped.length > 0) languageStats.cappedFiles.push(file.relativePath);
     } catch {
       languageStats.unparsable += 1;
@@ -343,6 +371,26 @@ export async function scanSourceCode(
 
   // Coverage.
   const coverage: Coverage[] = [];
+  // Rule stats: one row per rule and area that ran. Targets are the files the analyzers really
+  // ran on, counted in the walk above; findings are the rule's own raw findings in those files.
+  const ruleStats: RuleStat[] = [];
+  const addRuleStats = (
+    entry: Coverage,
+    examined: number,
+    isInArea: (finding: RawSourceFinding) => boolean,
+  ) => {
+    if (entry.status !== "completed" && entry.status !== "partial") return;
+    for (const ruleId of entry.ruleIds) {
+      ruleStats.push({
+        ruleId,
+        area: entry.area,
+        scope: "code",
+        status: entry.status,
+        targets: [{ unit: "files", examined, reason: null }],
+        findings: raw.filter((finding) => finding.ruleId === ruleId && isInArea(finding)).length,
+      });
+    }
+  };
   const languageCoverage = (language: SourceLanguage, ruleIds: string[], method: string) => {
     const languageStats = stats[language];
     const label = LANGUAGE_LABEL[language];
@@ -365,7 +413,7 @@ export async function scanSourceCode(
       );
     if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
     const isPartial = problems.length > 0;
-    coverage.push({
+    const entry: Coverage = {
       area: `source:${language}`,
       scope: "code",
       status: isPartial ? "partial" : "completed",
@@ -374,12 +422,18 @@ export async function scanSourceCode(
         languageStats.files === 0
           ? `No ${label} files found.`
           : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}`,
-    });
+    };
+    coverage.push(entry);
+    addRuleStats(
+      entry,
+      languageStats.analyzed,
+      (finding) => languageOfPath.get(finding.path) === language,
+    );
   };
   const jsMethod = "TypeScript compiler AST with intra-file, flow-insensitive taint tracking";
   languageCoverage("javascript", JS_RULE_IDS, jsMethod);
   languageCoverage("typescript", JS_RULE_IDS, jsMethod);
-  coverage.push({
+  const reactEntry: Coverage = {
     area: "source:react",
     scope: "code",
     status: "completed",
@@ -388,7 +442,9 @@ export async function scanSourceCode(
       jsxFiles > 0
         ? `${jsxFiles} file(s) with JSX; analyzed with the JavaScript/TypeScript rules.`
         : "No JSX found.",
-  });
+  };
+  coverage.push(reactEntry);
+  addRuleStats(reactEntry, jsxFiles, (finding) => jsxPaths.has(finding.path));
   languageCoverage(
     "vue",
     [...VUE_RULE_IDS, ...JS_RULE_IDS],
@@ -497,15 +553,28 @@ export async function scanSourceCode(
       });
     }
   }
-  coverage.push({
+  // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file, so they
+  // are only as complete as those areas: partial when one of them was, and not run (no rules
+  // listed, like a language with no files) when there was nothing to read.
+  const jsFamilyAreas = ["source:javascript", "source:typescript", "source:vue"];
+  const isJsFamilyPartial = coverage.some(
+    (entry) => jsFamilyAreas.includes(entry.area) && entry.status === "partial",
+  );
+  const hasHeuristicsInput = jsFacts.length > 0;
+  const heuristicsEntry: Coverage = {
     area: "source:heuristics",
     scope: "code",
-    status: "completed",
-    ruleIds: ["PG-CSRF-001", "PG-BRUTE-001"],
-    note: "CSRF and brute-force checks are project-level heuristics (library imports and route names) and report suspected findings with low confidence.",
-  });
+    status: isJsFamilyPartial ? "partial" : "completed",
+    ruleIds: hasHeuristicsInput ? ["PG-CSRF-001", "PG-BRUTE-001"] : [],
+    note: hasHeuristicsInput
+      ? `CSRF and brute-force checks are project-level heuristics (library imports and route names) and report suspected findings with low confidence.${isJsFamilyPartial ? " Partial because a JavaScript, TypeScript or Vue area was partial." : ""}`
+      : "No JavaScript, TypeScript or Vue files were analyzed, so the CSRF and brute-force heuristics did not run.",
+  };
+  coverage.push(heuristicsEntry);
+  // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file.
+  addRuleStats(heuristicsEntry, jsFacts.length, () => true);
 
-  return { findings, coverage };
+  return { findings, coverage, ruleStats };
 }
 
 function walkTrackedCount(walk: WalkResult): number {

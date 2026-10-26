@@ -1,4 +1,9 @@
-import type { AnalyzerOutput, ConfirmedWebTarget, ProjectConfig } from "@pgard/findings";
+import type {
+  AnalyzerOutput,
+  ConfirmedWebTarget,
+  ProjectConfig,
+  RuleMetadata,
+} from "@pgard/findings";
 import type { AuthorizationDependencies, AuthorizationOutcome } from "@pgard/policy";
 
 export interface WebScanProgress {
@@ -60,6 +65,12 @@ export interface ScanDependencies {
   /** Passed to `@pgard/policy` `authorizeProject`; the gate runs on every scan. */
   authorization: AuthorizationDependencies;
   webScanner?: WebScanner;
+  /**
+   * The rules the injected `webScanner` implements (`WEB_RULE_LIST` of `@pgard/http-local`).
+   * scan-core never imports http-local, so the launcher passes them in; they only feed the
+   * standards coverage map. Required whenever `webScanner` is set (`runScan` throws otherwise).
+   */
+  webRules?: ReadonlyArray<{ id: string; metadata: RuleMetadata }>;
   onProgress?: (event: ScanProgressEvent) => void;
   /**
    * Receives this scan's authorization outcome (allowed or blocked) right after the gate ran, so

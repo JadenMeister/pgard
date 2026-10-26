@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "1.0",
+  "scanId": "0b9f6c1e-7a52-4a53-9a0e-3f2f2f1d0001",
+  "startedAt": "2026-10-20T09:00:00.000Z",
+  "finishedAt": "2026-10-20T09:00:04.000Z",
+  "tool": { "name": "pgard", "version": "0.1.0" },
+  "requestedScopes": ["code", "history"],
+  "overallStatus": "completed",
+  "target": {
+    "repo": "acme/shop",
+    "revision": "0123456789abcdef0123456789abcdef01234567",
+    "webOrigin": null
+  },
+  "authorization": {
+    "decision": "allowed",
+    "checks": [
+      { "id": "repository", "status": "passed", "reason": "ok" },
+      { "id": "github_identity", "status": "passed", "reason": "ok" },
+      { "id": "owner_approval", "status": "passed", "reason": "ok" },
+      { "id": "current_access", "status": "passed", "reason": "ok" },
+      { "id": "contribution", "status": "passed", "reason": "ok" }
+    ]
+  },
+  "coverage": [
+    {
+      "area": "source:typescript",
+      "scope": "code",
+      "status": "completed",
+      "ruleIds": ["PG-SQL-001"],
+      "note": "2 TypeScript file(s)."
+    },
+    {
+      "area": "history:commits",
+      "scope": "history",
+      "status": "completed",
+      "ruleIds": ["PG-SECRET-003"],
+      "note": "3 commit(s)."
+    },
+    { "area": "web", "scope": "web", "status": "not_selected", "ruleIds": [], "note": null }
+  ],
+  "findings": [
+    {
+      "id": "f-1",
+      "ruleId": "PG-SQL-001",
+      "title": "SQL query built from user input",
+      "category": "injection",
+      "severity": "high",
+      "status": "confirmed",
+      "confidence": "high",
+      "location": { "kind": "file", "path": "src/db.ts", "line": 3, "url": null, "commit": null },
+      "evidence": "template literal with request data",
+      "impact": "An attacker can change the query.",
+      "recommendation": "Use parameters.",
+      "references": { "cwe": ["CWE-89"], "owasp": ["A05:2025"], "cve": [] },
+      "sources": ["code"]
+    }
+  ],
+  "advisoryDb": { "version": null, "updatedAt": null }
+}

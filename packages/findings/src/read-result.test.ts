@@ -72,9 +72,13 @@ function errorCode(input: unknown): string | undefined {
 }
 
 describe("readScanResult version compatibility", () => {
-  it("returns a valid 1.0 result unchanged", () => {
-    const outcome = readScanResult(raw());
+  it("reads a result written by 1.0 (no ruleStats, no standardsCoverage), normalizing the version", () => {
+    const old = raw();
+    old.schemaVersion = "1.0";
+    const outcome = readScanResult(old);
     expect(outcome).toEqual({ ok: true, result: sample(), sourceVersion: "1.0" });
+    expect(outcome.ok && "ruleStats" in outcome.result).toBe(false);
+    expect(outcome.ok && "standardsCoverage" in outcome.result).toBe(false);
   });
 
   it.each(["1.0", "1.7", "1.123456"])("accepts same major, version %s", (version) => {
@@ -141,7 +145,7 @@ describe("readScanResult unknown fields", () => {
     input.authorization.checks[0].extra = 1;
     input.tool.extra = 1;
     const outcome = readScanResult(input);
-    expect(outcome).toEqual({ ok: true, result: sample(), sourceVersion: "1.0" });
+    expect(outcome).toEqual({ ok: true, result: sample(), sourceVersion: SCHEMA_VERSION });
   });
 
   it("keeps `context` optional", () => {

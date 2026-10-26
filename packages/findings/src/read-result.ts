@@ -11,6 +11,7 @@ import {
   SCAN_SCOPES,
   SCHEMA_VERSION,
   SEVERITIES,
+  STANDARD_CHECK_STATES,
   AUTHORIZATION_DECISIONS,
   type AdvisoryDbInfo,
   type AuthorizationCheck,
@@ -19,6 +20,11 @@ import {
   type Finding,
   type FindingLocation,
   type FindingReferences,
+  type RuleStat,
+  type RuleTargetCount,
+  type StandardBreadth,
+  type StandardCoverageEntry,
+  type StandardsCoverage,
   type ScanResult,
   type ScanScope,
   type ScanTarget,
@@ -58,6 +64,10 @@ export type ReadScanResultOutcome =
 export const READ_LIMITS = {
   findings: 50_000,
   coverage: 1_000,
+  /** Rule stats: one entry per rule and area. */
+  ruleStats: 10_000,
+  /** Entries per standard (OWASP has 10, the CWE Top 25 has 25). */
+  standardsEntries: 200,
   /** Per-array cap for `ruleIds`, `references.*`, `sources`, `requestedScopes`, `checks`. */
   list: 1_000,
   /** Per-string cap (UTF-16 units). */
@@ -85,6 +95,8 @@ export const READER_KEYS = {
     coverage: true,
     findings: true,
     advisoryDb: true,
+    ruleStats: true,
+    standardsCoverage: true,
   } satisfies Record<keyof ScanResult, true>,
   finding: {
     id: true,
@@ -124,6 +136,32 @@ export const READER_KEYS = {
   >,
   check: { id: true, status: true, reason: true } satisfies Record<keyof AuthorizationCheck, true>,
   advisoryDb: { version: true, updatedAt: true } satisfies Record<keyof AdvisoryDbInfo, true>,
+  ruleStat: {
+    ruleId: true,
+    area: true,
+    scope: true,
+    status: true,
+    targets: true,
+    findings: true,
+  } satisfies Record<keyof RuleStat, true>,
+  ruleTarget: { unit: true, examined: true, reason: true } satisfies Record<
+    keyof RuleTargetCount,
+    true
+  >,
+  standardsCoverage: { owasp: true, cweTop25: true } satisfies Record<
+    keyof StandardsCoverage,
+    true
+  >,
+  standardEntry: {
+    id: true,
+    title: true,
+    rank: true,
+    state: true,
+    breadth: true,
+    ruleIds: true,
+    mappedRuleIds: true,
+    reason: true,
+  } satisfies Record<keyof StandardCoverageEntry, true>,
   tool: { name: true, version: true } satisfies Record<keyof ScanResult["tool"], true>,
 };
 
@@ -245,6 +283,78 @@ function readCoverage(value: unknown, path: string): Coverage {
   };
 }
 
+function count(value: unknown, path: string): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    fail("invalid_shape", `${path} must be a non-negative integer.`);
+  }
+  return value;
+}
+
+function readRuleTarget(value: unknown, path: string): RuleTargetCount {
+  const o = object(value, path);
+  const examinedValue = field(o, "examined");
+  const examined = examinedValue === null ? null : count(examinedValue, `${path}.examined`);
+  const reason = nullableStr(field(o, "reason"), `${path}.reason`);
+  if (examined === null && reason === null) {
+    fail("invalid_shape", `${path} has no count and no reason; an unknown count needs a reason.`);
+  }
+  if (examined !== null && reason !== null) {
+    fail(
+      "invalid_shape",
+      `${path} has a count and a reason; a reason is only for an unknown count.`,
+    );
+  }
+  return { unit: str(field(o, "unit"), `${path}.unit`), examined, reason };
+}
+
+function readRuleStat(value: unknown, path: string): RuleStat {
+  const o = object(value, path);
+  return {
+    ruleId: str(field(o, "ruleId"), `${path}.ruleId`),
+    area: str(field(o, "area"), `${path}.area`),
+    scope: oneOf(field(o, "scope"), SCAN_SCOPES, `${path}.scope`),
+    status: oneOf(field(o, "status"), COVERAGE_STATUSES, `${path}.status`),
+    targets: list(field(o, "targets"), `${path}.targets`, READ_LIMITS.list, readRuleTarget),
+    findings: count(field(o, "findings"), `${path}.findings`),
+  };
+}
+
+function readStandardEntry(value: unknown, path: string): StandardCoverageEntry {
+  const o = object(value, path);
+  const rank = field(o, "rank");
+  const breadthValue = field(o, "breadth");
+  let breadth: StandardBreadth | null = null;
+  if (breadthValue !== null) {
+    const b = object(breadthValue, `${path}.breadth`);
+    breadth = {
+      cwesWithRules: count(field(b, "cwesWithRules"), `${path}.breadth.cwesWithRules`),
+      cwesInCategory: count(field(b, "cwesInCategory"), `${path}.breadth.cwesInCategory`),
+    };
+  }
+  return {
+    id: str(field(o, "id"), `${path}.id`),
+    title: str(field(o, "title"), `${path}.title`),
+    rank: rank === null ? null : count(rank, `${path}.rank`),
+    state: oneOf(field(o, "state"), STANDARD_CHECK_STATES, `${path}.state`),
+    breadth,
+    ruleIds: strings(field(o, "ruleIds"), `${path}.ruleIds`),
+    mappedRuleIds: strings(field(o, "mappedRuleIds"), `${path}.mappedRuleIds`),
+    reason: str(field(o, "reason"), `${path}.reason`),
+  };
+}
+
+function readStandardsCoverage(value: unknown): StandardsCoverage {
+  const o = object(value, "standardsCoverage");
+  const entries = (key: "owasp" | "cweTop25") =>
+    list(
+      field(o, key),
+      `standardsCoverage.${key}`,
+      READ_LIMITS.standardsEntries,
+      readStandardEntry,
+    );
+  return { owasp: entries("owasp"), cweTop25: entries("cweTop25") };
+}
+
 function readLocation(value: unknown, path: string): FindingLocation {
   const o = object(value, path);
   return {
@@ -354,6 +464,14 @@ function parse(input: unknown): ReadScanResultOutcome {
       updatedAt: nullableStr(field(advisory, "updatedAt"), "advisoryDb.updatedAt"),
     },
   };
+  // Added in 1.1: absent in older results, and a present-but-malformed value is refused like any
+  // other field (a 1.0 result never carries them, so absent is the only old-version shape).
+  const ruleStats = field(input, "ruleStats");
+  if (ruleStats !== undefined) {
+    result.ruleStats = list(ruleStats, "ruleStats", READ_LIMITS.ruleStats, readRuleStat);
+  }
+  const standards = field(input, "standardsCoverage");
+  if (standards !== undefined) result.standardsCoverage = readStandardsCoverage(standards);
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {

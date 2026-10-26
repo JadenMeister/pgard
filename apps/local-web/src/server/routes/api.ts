@@ -523,6 +523,7 @@ const startScan: ApiHandler = async (context, body) => {
       {
         authorization: authorizationDeps(context),
         webScanner: context.deps.webScanner,
+        webRules: WEB_RULE_LIST,
         signal: controller.signal,
         env: context.env,
         onProgress: (event) => {

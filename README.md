@@ -425,6 +425,34 @@ The validator is strict: exact keys and types, length and count limits, and unkn
 
 The terminal result shows a severity chart, the findings (confirmed, suspected or informational) with a `file:line` or URL, redacted evidence, guidance, and the coverage of each area.
 
+### Standards coverage and rule statistics
+
+The result says which rules ran and which standards entries those rules map to. Both are in the JSON result (`ruleStats`, `standardsCoverage`, schema 1.1) and a compact summary closes the terminal result. This is an example from a small TypeScript project with one Java file (code and history scopes; the output is cut to the first 200 characters of each line here):
+
+```
+Standards coverage (OWASP Top 10 2025)
+  [rules partial] A01 Broken Access Control - 9 of 40 mapped CWEs have rules (PG-COOKIE-001, PG-CSRF-001, PG-PATH-001, PG-SECRET-001 +2); web rules not run: scope not selected; no completed mapped rule covers java (1 file) ...
+  [rules ran] A03 Software Supply Chain Failures - 1 of 6 mapped CWEs have rules (PG-HYGIENE-001)
+  [rules partial] A05 Injection - 3 of 37 mapped CWEs have rules (PG-CMD-001, PG-SQL-001, PG-SQL-002, PG-XSS-001 +1); no completed mapped rule covers java (1 file) ...
+  [no rules] A08 Software or Data Integrity Failures - no rules
+  CWE Top 25 2025: 0 rules ran, 6 rules partial, 0 not run, 19 no rules
+```
+
+**What the states mean.** None of them says the project is safe, and none says the category is covered. They say whether PGARD rules that map to the entry ran in this scan, and the line shows how few of the category's CWEs have a rule at all (`1 of 6 mapped CWEs have rules`). Nothing is shown in green.
+
+- **Rule statistics** (`ruleStats`): one entry for each rule that ran in an area (a rule that runs in several languages has one entry per area): its area, the area's status, the number of targets it examined and the number of findings it reported there. Targets are counted by the analyzers, not estimated: the files a language analyzer actually ran on (files that were binary, over the size limit or skipped for the time budget are not counted), the commits and the history blobs read as text for the history rules, and the pages and responses for the web rules. A count that cannot be measured is `null` with a `reason`, never a guess. A rule of an area that was not selected or could not run has no entry. The same finding can appear in two entries only for `source:react` and `source:heuristics`, which look at files that a language area also covers, so do not add the counts of all entries up.
+- **Standards map** (`standardsCoverage`): one entry for each OWASP Top 10 2025 category (A01 to A10) and each CWE Top 25 2025 entry. A rule is mapped to an entry through the OWASP and CWE ids in its own `standards` metadata (the same data as `pgard rules list`), by exact id: no parent or child CWE is inferred. The state is:
+  - `rules_ran`: at least one mapped rule ran and nothing limits it: every area it ran in completed, no code area was partial (a partial `source:large-files`, `source:unreadable`, `source:config` or an ORM such as `source:orm:typeorm` limits every entry that code rules map to), every scope that has a mapped rule ran (a history-only scan cannot be `rules_ran` for an entry that code rules also map to), each language present in the project is covered by a completed mapped rule, and no rule looked at 0 targets. Rules for history and web look at tracked files and the running service whatever the language is, so the language check applies to entries that code rules map to.
+  - `rules_partial`: some mapped rules ran, but one of those conditions does not hold. The reason says which.
+  - `not_run`: rules map to the entry, but none ran (their scope was not selected or could not run).
+  - `no_rules`: no PGARD rule maps to the entry (reason `no rules`).
+
+  Each entry lists the rules that ran (`ruleIds`), every rule that maps to it (`mappedRuleIds`) and a short reason. OWASP entries also carry `breadth`: how many of the CWEs in the category's "List of Mapped CWEs" have at least one PGARD rule (for example 1 of 6 for A03). CWE Top 25 entries have `breadth: null`, because a CWE is one weakness.
+
+- **What `rules_ran` does not mean.** It does not mean the weakness is absent, that every way to commit it is detected, or that the category is covered; several categories are mapped to a narrow rule, so read `breadth` and the rule ids. OSV and other advisories are not part of a scan (PGARD ships no vulnerability database), so they never count: A03 Software Supply Chain Failures is mapped only to `PG-HYGIENE-001` (committed dependency directories), and lockfiles are not examined.
+
+The terminal summary has one line per OWASP category and counts for the CWE Top 25; use `--format json` for the per-entry detail and the rule statistics. Older stored results (schema 1.0) have neither field and are read as before; the terminal then shows no standards section. A launcher that injects a web scanner must also pass the web rule catalog (`webRules`), otherwise `runScan` refuses to run.
+
 ### Language of rule texts
 
 Rule titles, the impact text and the fix text can be shown in Korean or English. The language is chosen in this order: `--lang en|ko`, then the environment variable `PGARD_LANG` (`en` or `ko`), then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; the first one that is set decides, and a value starting with `ko` selects Korean; on Windows, where these are usually unset, the runtime locale is used), and otherwise English. Values are case-insensitive (`KO` works). An invalid `--lang`, `--report-lang` or `PGARD_LANG` value is a usage error (exit 2); `PGARD_LANG` is checked only by the commands that show rule text (`scan`, `rules list` and the menu), so `doctor`, `login`, `logout` and `history clear` ignore it.
