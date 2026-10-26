@@ -114,10 +114,10 @@ function formatInstallSteps(
  *   pending organization membership): prints "Ask an owner of <account> ..." with the link; no
  *   browser, no waiting;
  * - the user can install it, or the organization membership could not be read yet: prints the
- *   steps, offers to open the install page after Enter (when allowed) and, on a terminal, re-checks owner approval
- *   every 5 s for up to 10 minutes. The re-check uses only the existing sign-in
- *   (`getGitHubSession.existing()`), never a new device flow; without one it ends the wait and the
- *   caller's full authorization signs in as usual.
+ *   steps, offers to open the install page after Enter (when allowed) and, on a terminal,
+ *   re-checks owner approval every 5 s for up to 10 minutes. The re-check uses only the existing
+ *   sign-in (`getGitHubSession.existing()`), never a new device flow; without one it ends the
+ *   wait and the caller's full authorization signs in as usual.
  *
  * Detecting the installation is never a pass by itself: `reauthorize` tells the caller to run the
  * complete authorization again from scratch. Nothing is cached and no check is skipped.
