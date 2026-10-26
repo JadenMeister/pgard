@@ -8,6 +8,7 @@ import {
 } from "@pgard/http-local";
 import { ReportWriteError } from "@pgard/report";
 import {
+  accessNoteFor,
   GITHUB_APP_AUTHORIZATIONS_URL,
   guidedInstallRemedy,
   isAuthorizationAllowed,
@@ -141,6 +142,7 @@ function authStatus(state: SessionState): AuthStatus {
     message,
     storedSignIn: state.storedSignIn,
     remedy,
+    accessNote: status === "done" && outcome !== null ? accessNoteFor(outcome) : null,
     signInNotice: state.signInNotice,
     // Same window `requirePortAccessAuthorized` enforces; only shown, never trusted back.
     expiresAt: isAllowed && finishedAt !== null ? finishedAt + PORT_ACCESS_WINDOW_MS : null,

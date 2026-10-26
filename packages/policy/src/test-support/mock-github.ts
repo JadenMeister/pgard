@@ -62,7 +62,12 @@ export function userRepository(overrides: Partial<GitHubRepository> = {}): GitHu
 }
 
 export function ownerInstallation(accountId = OWNER_ID, login = "me"): GitHubInstallation {
-  return { id: 77, targetType: "User", account: { id: accountId, login } };
+  return {
+    id: 77,
+    targetType: "User",
+    account: { id: accountId, login },
+    repositorySelection: "selected",
+  };
 }
 
 /** Another person's personal account; `ME` collaborates on its repository. */
@@ -95,7 +100,13 @@ export function orgRepository(overrides: Partial<GitHubRepository> = {}): GitHub
 }
 
 export function orgInstallation(overrides: Partial<GitHubInstallation> = {}): GitHubInstallation {
-  return { id: 88, targetType: "Organization", account: { ...ORG }, ...overrides };
+  return {
+    id: 88,
+    targetType: "Organization",
+    account: { ...ORG },
+    repositorySelection: "selected",
+    ...overrides,
+  };
 }
 
 /** An active owner (`admin`) membership of `ME` in `ORG`. */

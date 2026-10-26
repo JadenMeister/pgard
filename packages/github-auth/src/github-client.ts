@@ -31,6 +31,11 @@ export interface GitHubInstallation {
   /** `User` or `Organization` as reported by GitHub. */
   targetType: string;
   account: GitHubAccount;
+  /**
+   * `repository_selection` as GitHub reports it. `null` when it is missing or not exactly `all`
+   * or `selected`; callers must not guess in that case.
+   */
+  repositorySelection: "all" | "selected" | null;
 }
 
 export interface GitHubRepositoryPermissions {
@@ -339,7 +344,13 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         if (id === null || account === null || targetType === null) {
           throw malformed("installation");
         }
-        return { id, targetType, account: { id: account.id, login: account.login } };
+        const selection = record?.repository_selection;
+        return {
+          id,
+          targetType,
+          account: { id: account.id, login: account.login },
+          repositorySelection: selection === "all" || selection === "selected" ? selection : null,
+        };
       });
     },
 

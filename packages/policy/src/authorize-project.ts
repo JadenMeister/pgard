@@ -11,14 +11,16 @@ import {
   describeIdentityError,
   verifyContribution,
   verifyCurrentAccess,
-  evaluateAccessRemedy,
   evaluateOwnerApproval,
+  inspectNotFoundAccess,
   notFoundAccessReason,
+  notFoundAllRepositoriesReason,
   verifyRepository,
   type CheckResult,
 } from "./checks.js";
 import {
   AUTHORIZATION_CHECK_ORDER,
+  type AccessNote,
   type AuthorizationDependencies,
   type AuthorizationOutcome,
   type OwnerApprovalRecheck,
@@ -51,6 +53,7 @@ export async function authorizeProject(
   );
   const results = new Map<AuthorizationCheckId, CheckResult>();
   let remedy: OwnerApprovalRemedy | null = null;
+  let accessNote: AccessNote | null = null;
   let account: { login: string; userId: number } | null = null;
   const build = (repo: string | null, revision: string | null): AuthorizationOutcome => {
     const checks: AuthorizationCheck[] = AUTHORIZATION_CHECK_ORDER.map((id) => ({
@@ -63,6 +66,7 @@ export async function authorizeProject(
       repo,
       revision,
       remedy,
+      accessNote,
       account,
     };
   };
@@ -102,15 +106,21 @@ export async function authorizeProject(
     repository = await client.getRepository(repo.owner, repo.name);
   } catch (error) {
     const isNotFound = isGitHubAuthError(error) && error.code === "not_found";
-    const access = isNotFound
+    let access = isNotFound
       ? { status: "failed" as const, reason: notFoundAccessReason(repoName) }
       : describeApiError(error, "read the repository from GitHub");
-    results.set("current_access", access);
     if (isNotFound) {
       // Stays failed. The remedy only offers the install page; after an install the full gate
-      // decides again. No lookup (or an unclear one) means no remedy.
-      remedy = await evaluateAccessRemedy(client, user, repo.owner, deps.appSlug);
+      // decides again. No lookup (or an unclear one) means no remedy. An All-repositories
+      // installation gets no remedy either, only a reason that says why.
+      const inspection = await inspectNotFoundAccess(client, user, repo.owner, deps.appSlug);
+      remedy = inspection.remedy;
+      if (inspection.isCoveredByAllRepositories) {
+        accessNote = "app_covers_all_repositories";
+        access = { status: "failed", reason: notFoundAllRepositoriesReason(repoName) };
+      }
     }
+    results.set("current_access", access);
     results.set("owner_approval", notEvaluated("current_access"));
     results.set("contribution", notEvaluated("current_access"));
     return build(repoName, revision);
@@ -193,6 +203,24 @@ export function guidedInstallRemedy(outcome: AuthorizationOutcome): OwnerApprova
   return isOnlyOwnerApproval ? remedy : null;
 }
 
+/**
+ * The note frontends show when GitHub showed no repository although the App covers all
+ * repositories on the owner account, or `null`. Same exact-shape gate as `guidedInstallRemedy`
+ * (identity passed, current_access failed, nothing else evaluated); never a remedy, never a pass.
+ */
+export function accessNoteFor(outcome: AuthorizationOutcome): AccessNote | null {
+  const note = outcome.accessNote ?? null;
+  if (note === null || outcome.summary.decision !== "blocked") return null;
+  const { checks } = outcome.summary;
+  const expected = ["passed", "passed", "unverifiable", "failed", "unverifiable"] as const;
+  return checks.length === AUTHORIZATION_CHECK_ORDER.length &&
+    AUTHORIZATION_CHECK_ORDER.every(
+      (id, index) => checks[index]?.id === id && checks[index]?.status === expected[index],
+    )
+    ? note
+    : null;
+}
+
 /** Re-check result when no signed-in session exists any more (no remedy: re-authorize). */
 const NO_EXISTING_SESSION: CheckResult = {
   status: "unverifiable",
@@ -238,10 +266,19 @@ export async function recheckOwnerApproval(
     if (isGitHubAuthError(error) && error.code === "not_found") {
       // Still no access: same failed state and remedy as the gate, so callers keep waiting.
       // Never a pass; the caller runs the full gate once this changes.
+      const repoName = `${repo.owner}/${repo.name}`;
+      const inspection = await inspectNotFoundAccess(
+        session.client,
+        user,
+        repo.owner,
+        deps.appSlug,
+      );
       return {
         status: "failed",
-        reason: notFoundAccessReason(`${repo.owner}/${repo.name}`),
-        remedy: await evaluateAccessRemedy(session.client, user, repo.owner, deps.appSlug),
+        reason: inspection.isCoveredByAllRepositories
+          ? notFoundAllRepositoriesReason(repoName)
+          : notFoundAccessReason(repoName),
+        remedy: inspection.remedy,
       };
     }
     return notChecked(describeApiError(error, "read the repository from GitHub"));

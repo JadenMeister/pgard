@@ -17,12 +17,14 @@ export {
 } from "./types.js";
 // Launcher-facing re-exports so apps depend on scan-core (and findings) only.
 export {
+  accessNoteFor,
   AUTHORIZATION_CHECK_ORDER,
   AUTHORIZATION_REASON_MAX_LENGTH,
   GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE,
   guidedInstallRemedy,
   isAuthorizationAllowed,
   recheckOwnerApproval,
+  type AccessNote,
   type AuthorizationDependencies,
   type AuthorizationOutcome,
   type OwnerApprovalRecheck,

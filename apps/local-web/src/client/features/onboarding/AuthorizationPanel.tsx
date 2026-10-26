@@ -152,6 +152,11 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
               ))}
             </tbody>
           </table>
+          {status.status === "done" && status.accessNote === "app_covers_all_repositories" && (
+            <Notice tone="warning">
+              {m.install.allRepositoriesNote(status.repo ?? m.install.thisRepository)}
+            </Notice>
+          )}
           {status.status === "done" && status.remedy && (
             <InstallAppNotice
               remedy={status.remedy}
