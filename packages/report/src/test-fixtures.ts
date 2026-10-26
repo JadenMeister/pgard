@@ -23,7 +23,7 @@ export function finding(overrides: Partial<Finding>): Finding {
 
 export function scanResult(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.0",
+    schemaVersion: "1.1",
     scanId: "3f2b9c1e-aaaa-bbbb-cccc-000000000000",
     startedAt: "2026-10-24T01:02:03.000Z",
     finishedAt: "2026-10-24T01:02:09.000Z",
