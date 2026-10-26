@@ -27,7 +27,14 @@ export interface StoredSignInRecord extends UserTokenSet {
 
 /** Secret-free description of the stored sign-in, for `doctor`, `logout` and the dashboard. */
 export type StoredSignInStatus =
-  | { status: "stored"; login: string; expiresAt: number | null; refreshExpiresAt: number | null }
+  | {
+      status: "stored";
+      login: string;
+      /** GitHub account id saved with the sign-in (not secret). */
+      userId: number;
+      expiresAt: number | null;
+      refreshExpiresAt: number | null;
+    }
   | { status: "none" }
   | { status: "unavailable"; reason: string };
 
@@ -146,6 +153,32 @@ export async function saveStoredSignIn(
   }
 }
 
+const keychainLocks = new WeakMap<CredentialStore, Promise<void>>();
+
+/**
+ * Runs `task` while holding this process's single lock for `store`, so keychain writes and
+ * removals never interleave: a removal that starts while a save is in flight waits for it (and
+ * then removes the saved entry), and a save that starts while a removal is in flight waits and
+ * re-checks inside `task`. Not reentrant: never call it from inside `task`.
+ */
+export async function withKeychainLock<T>(
+  store: CredentialStore,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = keychainLocks.get(store) ?? Promise.resolve();
+  let release = (): void => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const tail = previous.then(() => held);
+  keychainLocks.set(store, tail);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (keychainLocks.get(store) === tail) keychainLocks.delete(store);
+  }
+}
+
 export type RemoveStoredSignInResult =
   | { status: "removed"; login: string | null }
   | { status: "none" }
@@ -160,15 +193,17 @@ export async function removeStoredSignIn(
   clientId: string,
   host: string = githubHostOf(),
 ): Promise<RemoveStoredSignInResult> {
-  const loaded = await loadStoredSignIn(store, host, clientId);
-  if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
-  try {
-    const wasDeleted = await store.delete(signInKey(host, clientId));
-    if (loaded.kind === "found") return { status: "removed", login: loaded.record.login };
-    return wasDeleted ? { status: "removed", login: null } : { status: "none" };
-  } catch (error) {
-    return { status: "unavailable", reason: unavailableReason(error) };
-  }
+  return withKeychainLock(store, async () => {
+    const loaded = await loadStoredSignIn(store, host, clientId);
+    if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
+    try {
+      const wasDeleted = await store.delete(signInKey(host, clientId));
+      if (loaded.kind === "found") return { status: "removed", login: loaded.record.login };
+      return wasDeleted ? { status: "removed", login: null } : { status: "none" };
+    } catch (error) {
+      return { status: "unavailable", reason: unavailableReason(error) };
+    }
+  });
 }
 
 /**
@@ -183,10 +218,11 @@ export async function readStoredSignInStatus(
   const loaded = await loadStoredSignIn(store, host, clientId, { deleteMalformed: false });
   if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
   if (loaded.kind === "none") return { status: "none" };
-  const { login, expiresAt, refreshToken, refreshTokenExpiresAt } = loaded.record;
+  const { login, userId, expiresAt, refreshToken, refreshTokenExpiresAt } = loaded.record;
   return {
     status: "stored",
     login,
+    userId,
     expiresAt,
     refreshExpiresAt: refreshToken === null ? null : refreshTokenExpiresAt,
   };

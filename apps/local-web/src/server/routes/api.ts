@@ -35,7 +35,7 @@ import type {
 } from "../../shared/api-types.js";
 import type { ServerDeps } from "../deps.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
-import { readStoredSignInDto } from "../session/stored-sign-in.js";
+import { readStoredSignInDto, resetAuthIfStoredAccountChanged } from "../session/stored-sign-in.js";
 import {
   INSTALL_WAIT_WINDOW_MS,
   isWithinWindow,
@@ -199,6 +199,8 @@ const startVerify: ApiHandler = async (context) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
       setAuth(state, { status: "done", outcome, finishedAt: context.deps.now(), message: null });
+      // The account this check ran with; a later switch resets it (see resetAuthIfAccountChanged).
+      state.authAccount = state.sessionAccount;
     })
     .catch(() => {
       if (state.auth !== run) return;
@@ -213,7 +215,15 @@ const startVerify: ApiHandler = async (context) => {
   return authStatus(state);
 };
 
-const getAuth: ApiHandler = async (context) => authStatus(context.state);
+/** Resets the latest check when the keychain now holds another account than it ran with. */
+async function syncAccount(context: ApiContext): Promise<void> {
+  await resetAuthIfStoredAccountChanged(context.state, context.deps.credentialStore, context.env);
+}
+
+const getAuth: ApiHandler = async (context) => {
+  await syncAccount(context);
+  return authStatus(context.state);
+};
 
 /**
  * Checks owner approval alone again while the user installs the PGARD GitHub App, so the panel
@@ -366,6 +376,7 @@ function requireSameAuthorization(context: ApiContext, authAtStart: SessionState
 }
 
 const listPorts: ApiHandler = async (context) => {
+  await syncAccount(context);
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   // Taken together with `authAtStart`: it aborts as soon as that authorization is replaced.
   const { signal } = context.state.portAccessController;
@@ -391,6 +402,7 @@ const listPorts: ApiHandler = async (context) => {
  * it ran under so a later sign-out or re-check makes it unconfirmable.
  */
 const probePort: ApiHandler = async (context, body) => {
+  await syncAccount(context);
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const { signal } = context.state.portAccessController;
   const identity = await context.deps.probeLocalService(readPort(body), { signal });
@@ -404,6 +416,7 @@ const probePort: ApiHandler = async (context, body) => {
  * and only if it answered HTTP. The browser never supplies the target object itself.
  */
 const confirmTarget: ApiHandler = async (context, body) => {
+  await syncAccount(context);
   const auth = requirePortAccessAuthorized(context.state, context.deps.now());
   const port = readPort(body);
   if (asRecord(body).isConfirmed !== true) {

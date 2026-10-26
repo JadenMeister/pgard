@@ -56,6 +56,17 @@ export interface SessionState {
    * that are still in flight (their results would be discarded anyway).
    */
   portAccessController: AbortController;
+  /**
+   * The GitHub account (login and id) of the latest sign-in this dashboard adopted, from the
+   * provider's notices; `null` until one was reused or saved.
+   */
+  sessionAccount: GitHubAccountRef | null;
+  /**
+   * The account `auth` was checked with, set when a check finishes. When the signed-in account
+   * changes (for example `pgard login` switched accounts), `auth` is reset so the old account's
+   * result no longer opens port access. `null` when unknown (no keychain sign-in).
+   */
+  authAccount: GitHubAccountRef | null;
   /** Device-flow code while a sign-in (from verify or a scan) waits for the user. */
   deviceCode: DeviceCodeInfo | null;
   /** What the keychain holds for this App (login only, never the token). */
@@ -79,10 +90,22 @@ export interface SessionState {
   };
 }
 
+/** A GitHub account as the dashboard tracks it: never a token. */
+export interface GitHubAccountRef {
+  login: string;
+  userId: number;
+}
+
+export function isSameAccount(a: GitHubAccountRef, b: GitHubAccountRef): boolean {
+  return a.userId === b.userId && a.login === b.login;
+}
+
 export function createSessionState(): SessionState {
   return {
     auth: { status: "idle", outcome: null, finishedAt: null, message: null },
     portAccessController: new AbortController(),
+    sessionAccount: null,
+    authAccount: null,
     deviceCode: null,
     storedSignIn: { status: "unknown" },
     signInNotice: null,
@@ -101,11 +124,31 @@ export function createSessionState(): SessionState {
   };
 }
 
-/** Stores a new authorization record and aborts probes started under the previous one. */
+/**
+ * Stores a new authorization record and aborts probes started under the previous one. The
+ * account the previous record was checked with no longer applies.
+ */
 export function setAuth(state: SessionState, auth: SessionState["auth"]): void {
   state.portAccessController.abort();
   state.portAccessController = new AbortController();
   state.auth = auth;
+  state.authAccount = null;
+}
+
+/** Said when the signed-in account changed after the latest check. */
+export const ACCOUNT_CHANGED_NOTICE =
+  "The GitHub account changed since the last check, so its result no longer applies. Check authorization again.";
+
+/**
+ * Resets `auth` (closing port access) when `account` is not the account the latest check ran
+ * with. Returns `true` when it reset.
+ */
+export function resetAuthIfAccountChanged(state: SessionState, account: GitHubAccountRef): boolean {
+  const checked = state.authAccount;
+  if (checked === null || isSameAccount(checked, account)) return false;
+  setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
+  state.signInNotice = ACCOUNT_CHANGED_NOTICE;
+  return true;
 }
 
 export function clearSessionState(state: SessionState): void {

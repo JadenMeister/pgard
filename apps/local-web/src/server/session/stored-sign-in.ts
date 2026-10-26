@@ -6,7 +6,7 @@ import {
   type SignInNotice,
 } from "@pgard/scan-core";
 import type { StoredSignInDto } from "../../shared/api-types.js";
-import type { SessionState } from "./session-state.js";
+import { resetAuthIfAccountChanged, type SessionState } from "./session-state.js";
 
 const REMOVED_REASONS: Record<Extract<SignInNotice, { kind: "removed" }>["reason"], string> = {
   expired: "had expired",
@@ -17,16 +17,47 @@ const REMOVED_REASONS: Record<Extract<SignInNotice, { kind: "removed" }>["reason
 
 const login = (value: string): string => sanitizeDisplayText(value, 40);
 
+/** Tracks the account the provider adopted; a different account resets the latest check. */
+function adoptAccount(state: SessionState, account: { login: string; userId: number }): void {
+  state.sessionAccount = { login: account.login, userId: account.userId };
+  resetAuthIfAccountChanged(state, state.sessionAccount);
+}
+
+/**
+ * Re-reads the keychain entry (no GitHub call) and resets the latest check when it now holds a
+ * different account than the one that check ran with, e.g. after `pgard login` switched
+ * accounts in another terminal. A missing or unreadable entry changes nothing here.
+ */
+export async function resetAuthIfStoredAccountChanged(
+  state: SessionState,
+  store: CredentialStore,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<void> {
+  if (state.authAccount === null) return;
+  const { clientId } = resolveKeychainClientId(env);
+  if (clientId === null) return;
+  let status: Awaited<ReturnType<typeof readStoredSignInStatus>>;
+  try {
+    status = await readStoredSignInStatus(store, clientId);
+  } catch {
+    return;
+  }
+  if (status.status !== "stored") return;
+  resetAuthIfAccountChanged(state, { login: status.login, userId: status.userId });
+}
+
 /** Records a provider notice as browser-safe state. Notices never contain a token. */
 export function applySignInNotice(state: SessionState, notice: SignInNotice): void {
   switch (notice.kind) {
     case "reused":
       state.storedSignIn = { status: "stored", login: login(notice.login) };
       state.signInNotice = `Using the GitHub sign-in for ${login(notice.login)} saved in the OS keychain${notice.isRefreshed ? " (token refreshed)" : ""}.`;
+      adoptAccount(state, notice);
       return;
     case "saved":
       state.storedSignIn = { status: "stored", login: login(notice.login) };
       state.signInNotice = `Saved the GitHub sign-in for ${login(notice.login)} in the OS keychain; the CLI and later dashboard sessions reuse it.`;
+      adoptAccount(state, notice);
       return;
     case "removed":
       state.storedSignIn = { status: "none" };
