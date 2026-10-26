@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /** Languages parsed with tree-sitter (WASM). JS/TS, Vue and Go keep their own analyzers. */
@@ -48,6 +50,45 @@ export function classifyManifest(fileName: string, parentName = ""): ManifestKin
   if (fileName === "Pipfile") return "pipfile";
   if (fileName === "composer.json") return "composer";
   return null;
+}
+
+/**
+ * Pinned SHA-256 of every vendored grammar: the single source of truth. The runtime checks it
+ * before a grammar is loaded, and a test keeps `grammars/README.md` and the files in agreement.
+ * To update a grammar, replace the file and change the checksum here and in the README.
+ */
+export const GRAMMAR_SHA256: Readonly<Record<TreeSitterLanguage, string>> = {
+  java: "4fdeac4ca6ca089f06c6f7e562abcac1733cd465728cc7031ebb73c2019122c4",
+  kotlin: "7009d69453bc8735e438b2818a633efb21c88f99782769abba60dffedfab73f7",
+  python: "16108b50df4ee9a30168794252ab55e7c93bfc5765d7fa0aa3e335752c515f47",
+  php: "d4df6a6ff08c87c3ec4f9cbb785fe09998a0cb570e03f57d7b19b3acfb146aa7",
+};
+
+export type GrammarLoad = { ok: true; bytes: Uint8Array } | { ok: false; reason: string };
+
+/**
+ * Reads a grammar and verifies its pinned SHA-256. The returned bytes are the verified ones, so
+ * the caller loads exactly what was checked. Never throws; the reason names the file, never a
+ * path (Node's own messages contain paths).
+ */
+export function readVerifiedGrammar(
+  language: TreeSitterLanguage,
+  filePath: string = grammarPath(language),
+): GrammarLoad {
+  const name = `tree-sitter-${language}.wasm`;
+  let data: Buffer;
+  try {
+    data = readFileSync(filePath);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `${name} is unreadable (${(error as NodeJS.ErrnoException).code ?? "unknown error"})`,
+    };
+  }
+  if (createHash("sha256").update(data).digest("hex") !== GRAMMAR_SHA256[language]) {
+    return { ok: false, reason: `${name} does not match its pinned SHA-256 checksum` };
+  }
+  return { ok: true, bytes: data };
 }
 
 /**

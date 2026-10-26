@@ -111,6 +111,7 @@ describe("language options", () => {
     for (const [argv, env] of [
       [["rules", "list", "--lang", "fr"], {}],
       [["rules", "list"], { PGARD_LANG: "fr" }],
+      [[], { PGARD_LANG: "fr" }],
     ] as const) {
       const captured = createTestIo({ env });
       const code = await main(argv, captured.io, {
@@ -153,7 +154,7 @@ describe("rule titles", () => {
 
 describe("PGARD_LANG scope", () => {
   it("does not stop commands that show no rule text", async () => {
-    for (const argv of [["doctor"], ["logout"], ["history", "clear", "--all"]]) {
+    for (const argv of [["doctor"], ["login"], ["logout"], ["history", "clear", "--all"]]) {
       const captured = createTestIo({ env: { PGARD_LANG: "fr" } });
       await main(argv, captured.io, { deps: createTestDeps(), interrupts: noInterrupts });
       expect(captured.stderr(), argv.join(" ")).not.toMatch(/PGARD_LANG/);

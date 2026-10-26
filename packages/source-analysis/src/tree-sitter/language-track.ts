@@ -150,6 +150,8 @@ export interface ParseStats {
   timedOut: string[];
   unreadable: string[];
   failed: string[];
+  /** Why the grammar could not be used (checksum mismatch, unreadable); no file was parsed. */
+  grammarUnavailable: string | null;
   /** Files that parsed with at least one `ERROR` node. They are still analyzed. */
   filesWithSyntaxErrors: number;
   errorNodes: number;
@@ -167,6 +169,7 @@ export function emptyParseStats(): ParseStats {
     timedOut: [],
     unreadable: [],
     failed: [],
+    grammarUnavailable: null,
     filesWithSyntaxErrors: 0,
     errorNodes: 0,
   };
@@ -232,6 +235,12 @@ export async function parseTrackFiles(
       case "failed":
         stats.failed.push(file.relativePath);
         break;
+      case "unavailable":
+        // Every remaining file would fail the same way; stop instead of retrying each one.
+        stats.grammarUnavailable = outcome.reason;
+        stats.notParsed = files.length - index;
+        stats.files += files.length - index - 1;
+        return stats;
       case "parsed":
         stats.parsed += 1;
         if (outcome.errorCount > 0) {
@@ -264,6 +273,15 @@ export function parseCoverage(
   const maxBytes = limits.maxBytes ?? DEFAULT_PARSE_LIMITS.maxBytes;
   const timeoutMs = limits.timeoutMs ?? DEFAULT_PARSE_LIMITS.timeoutMs;
   const label = TREE_SITTER_LANGUAGE_LABEL[language];
+  if (stats.grammarUnavailable !== null) {
+    return {
+      area: `source:${language}`,
+      scope: "code",
+      status: "not_tested",
+      ruleIds: [],
+      note: `${label}: the parser grammar was not used (${stats.grammarUnavailable}), so no ${label} file was analyzed. This is not a safe result.`,
+    };
+  }
   const problems: string[] = [];
   if (stats.tooLarge.length > 0) {
     problems.push(
