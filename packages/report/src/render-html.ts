@@ -1,4 +1,10 @@
-import { SEVERITIES, type Coverage, type Finding, type ScanResult } from "@pgard/findings";
+import {
+  SEVERITIES,
+  type Coverage,
+  type Finding,
+  type RuleLocale,
+  type ScanResult,
+} from "@pgard/findings";
 import { escapeHtml } from "./escape-html.js";
 import {
   countFindingsBySeverity,
@@ -10,7 +16,8 @@ import {
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
-  prepareReportResult,
+  FINDING_LABELS,
+  prepareLocalizedReportResult,
   REPORT_DISCLAIMER,
   severityColor,
   TEST_FINDINGS_NOTE,
@@ -18,6 +25,7 @@ import {
   VENDORED_FINDINGS_DETAIL,
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
+  type ReportLanguageOptions,
   type SeverityCounts,
 } from "./format.js";
 
@@ -69,7 +77,8 @@ function renderReferences(finding: Finding): string {
     : `<p class="refs">References: ${escapeHtml(parts.join(", "))}</p>`;
 }
 
-function renderFinding(finding: Finding): string {
+function renderFinding(finding: Finding, lang: RuleLocale): string {
+  const labels = FINDING_LABELS[lang];
   return `<article class="finding sev-${escapeHtml(finding.severity)}">
   <header>
     <span class="sev" style="background:${severityColor(finding.severity)}">${escapeHtml(labelSeverity(finding.severity))}</span>
@@ -80,8 +89,8 @@ function renderFinding(finding: Finding): string {
   <p class="location"><code>${escapeHtml(formatLocation(finding.location))}</code> &middot; ${escapeHtml(finding.ruleId)} &middot; ${escapeHtml(finding.category)} &middot; source: ${escapeHtml(finding.sources.join(", "))}</p>
   <dl>
     <dt>Evidence (redacted)</dt><dd><pre>${escapeHtml(finding.evidence)}</pre></dd>
-    <dt>Impact</dt><dd>${escapeHtml(finding.impact)}</dd>
-    <dt>Recommendation</dt><dd>${escapeHtml(finding.recommendation)}</dd>
+    <dt>${labels.impact}</dt><dd>${escapeHtml(finding.impact)}</dd>
+    <dt>${labels.recommendation}</dt><dd>${escapeHtml(finding.recommendation)}</dd>
   </dl>
   ${renderReferences(finding)}
 </article>`;
@@ -129,8 +138,9 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--panel); 
  * Renders a self-contained HTML report from a (redacted) ScanResult. Every dynamic value is
  * escaped; the page has no scripts and a CSP that forbids loading anything.
  */
-export function renderHtmlReport(input: ScanResult): string {
-  const result = prepareReportResult(input);
+export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptions = {}): string {
+  const lang = options.lang ?? "en";
+  const result = prepareLocalizedReportResult(input, options);
   // Headline counts cover regular code; test and fixture findings get their own section, and
   // suggestions in vendored code come last.
   const { primary, test, vendored } = groupReportFindings(result.findings);
@@ -139,18 +149,18 @@ export function renderHtmlReport(input: ScanResult): string {
   const findingsHtml =
     primary.length === 0
       ? `<p>No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage below.</p>`
-      : primary.map(renderFinding).join("\n");
+      : primary.map((finding) => renderFinding(finding, lang)).join("\n");
   const testFindingsHtml =
     test.length === 0
       ? ""
-      : `\n<h2>${escapeHtml(TEST_FINDINGS_TITLE)} (${test.length})</h2>\n<p class="meta">${escapeHtml(TEST_FINDINGS_NOTE)}</p>\n${test.map(renderFinding).join("\n")}\n`;
+      : `\n<h2>${escapeHtml(TEST_FINDINGS_TITLE)} (${test.length})</h2>\n<p class="meta">${escapeHtml(TEST_FINDINGS_NOTE)}</p>\n${test.map((finding) => renderFinding(finding, lang)).join("\n")}\n`;
   const vendoredFindingsHtml =
     vendored.length === 0
       ? ""
-      : `\n<h2>${escapeHtml(VENDORED_FINDINGS_TITLE)} (${vendored.length})</h2>\n<p>${escapeHtml(VENDORED_FINDINGS_NOTE)}</p>\n<p class="meta">${escapeHtml(VENDORED_FINDINGS_DETAIL)}</p>\n${vendored.map(renderFinding).join("\n")}\n`;
+      : `\n<h2>${escapeHtml(VENDORED_FINDINGS_TITLE)} (${vendored.length})</h2>\n<p>${escapeHtml(VENDORED_FINDINGS_NOTE)}</p>\n<p class="meta">${escapeHtml(VENDORED_FINDINGS_DETAIL)}</p>\n${vendored.map((finding) => renderFinding(finding, lang)).join("\n")}\n`;
 
   return `<!doctype html>
-<html lang="en">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">

@@ -1,4 +1,4 @@
-import { SEVERITIES, type Finding, type ScanResult } from "@pgard/findings";
+import { SEVERITIES, type Finding, type RuleLocale, type ScanResult } from "@pgard/findings";
 import PDFDocument from "pdfkit";
 import {
   countFindingsBySeverity,
@@ -10,7 +10,8 @@ import {
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
-  prepareReportResult,
+  FINDING_LABELS,
+  prepareLocalizedReportResult,
   REPORT_DISCLAIMER,
   severityColor,
   TEST_FINDINGS_NOTE,
@@ -18,6 +19,7 @@ import {
   VENDORED_FINDINGS_DETAIL,
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
+  type ReportLanguageOptions,
 } from "./format.js";
 import { hasStringOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
 
@@ -98,7 +100,13 @@ function drawSeverityBars(
   }
 }
 
-function writeFinding(doc: PDFKit.PDFDocument, style: PdfStyle, finding: Finding): void {
+function writeFinding(
+  doc: PDFKit.PDFDocument,
+  style: PdfStyle,
+  finding: Finding,
+  lang: RuleLocale,
+): void {
+  const labels = FINDING_LABELS[lang];
   doc.moveDown(0.6);
   doc
     .font(style.bold)
@@ -115,8 +123,8 @@ function writeFinding(doc: PDFKit.PDFDocument, style: PdfStyle, finding: Finding
   );
   line(doc, style, `Location: ${formatLocation(finding.location)}`);
   line(doc, style, `Evidence (redacted): ${finding.evidence}`);
-  line(doc, style, `Impact: ${finding.impact}`);
-  line(doc, style, `Recommendation: ${finding.recommendation}`);
+  line(doc, style, `${labels.impact}: ${finding.impact}`);
+  line(doc, style, `${labels.recommendation}: ${finding.recommendation}`);
   const references = [
     ...finding.references.cwe,
     ...finding.references.owasp,
@@ -129,13 +137,14 @@ function writeFinding(doc: PDFKit.PDFDocument, style: PdfStyle, finding: Finding
 export function renderPdfReport(
   input: ScanResult,
   /** `compress: false` keeps the content streams readable, so tests can extract the text. */
-  options: {
+  options: ReportLanguageOptions & {
     compress?: boolean;
     /** Called once per render: null when the Korean-capable font is used, else why it is not. */
     onFontFallback?: (message: string | null) => void;
   } = {},
 ): Promise<Buffer> {
-  const result = prepareReportResult(input);
+  const lang = options.lang ?? "en";
+  const result = prepareLocalizedReportResult(input, options);
   const loaded = loadPdfFonts();
   const style = loaded.ok ? FONT_STYLE : LATIN_STYLE;
   options.onFontFallback?.(loaded.ok ? null : fontFallbackMessage(loaded.reason));
@@ -222,17 +231,17 @@ export function renderPdfReport(
         `No findings${formatOutsideContexts({ test: test.length, vendored: vendored.length })} in the areas that ran. This is not a statement that the project is secure; check coverage above.`,
       );
     }
-    for (const finding of primary) writeFinding(doc, style, finding);
+    for (const finding of primary) writeFinding(doc, style, finding, lang);
     if (test.length > 0) {
       heading(doc, style, `${TEST_FINDINGS_TITLE} (${test.length})`);
       line(doc, style, TEST_FINDINGS_NOTE, MUTED);
-      for (const finding of test) writeFinding(doc, style, finding);
+      for (const finding of test) writeFinding(doc, style, finding, lang);
     }
     if (vendored.length > 0) {
       heading(doc, style, `${VENDORED_FINDINGS_TITLE} (${vendored.length})`);
       line(doc, style, VENDORED_FINDINGS_NOTE);
       line(doc, style, VENDORED_FINDINGS_DETAIL, MUTED);
-      for (const finding of vendored) writeFinding(doc, style, finding);
+      for (const finding of vendored) writeFinding(doc, style, finding, lang);
     }
 
     heading(doc, style, "Authorization");
