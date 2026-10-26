@@ -444,12 +444,16 @@ describe("overflow-path unqueryable current paths (#108 review)", () => {
     expect(commits?.note).toMatch(/could not be checked whether the value is still/);
   };
 
-  it("does not claim removal when the secret moved to a path with a newline", async () => {
-    const repo = fixture();
-    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
-    repo.commit({ remove: ["old.sh"], files: { "a\nb.sh": `export GH="${TOKEN_A}"\n` } });
-    expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
-  });
+  // A newline cannot be part of a Windows file name.
+  it.skipIf(process.platform === "win32")(
+    "does not claim removal when the secret moved to a path with a newline",
+    async () => {
+      const repo = fixture();
+      repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+      repo.commit({ remove: ["old.sh"], files: { "a\nb.sh": `export GH="${TOKEN_A}"\n` } });
+      expectUnknown(await scanGitHistory(repo.root, { runner: noTree(runGit) }));
+    },
+  );
 
   it("does not claim removal when the secret moved to a non-UTF-8 path", async () => {
     const repo = fixture();

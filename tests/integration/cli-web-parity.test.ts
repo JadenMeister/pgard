@@ -369,7 +369,7 @@ describe("CLI and local web parity", { timeout: PARITY_TEST_TIMEOUT_MS }, () => 
       cliGroups.vendored.map((finding) => finding.id),
     );
     expect(cli.stdout).toContain(
-      `Findings by severity (${cliGroups.primary.length} total) - plus 1 in test or fixture code, 2 suggestions in vendored code (1 high)`,
+      `Findings by severity (${cliGroups.primary.length} total) - plus 1 in test or fixture code (1 high), 2 suggestions in vendored code (1 high)`,
     );
     expect(
       cliGroups.primary.some((finding) => finding.location.path?.startsWith("node_modules")),

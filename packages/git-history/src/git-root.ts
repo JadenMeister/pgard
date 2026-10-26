@@ -1,3 +1,4 @@
+import path from "node:path";
 import { runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 
 /**
@@ -12,7 +13,8 @@ export async function findGitRoot(
     const output = (
       await runner({ subcommand: "rev-parse", flags: ["--show-toplevel"] }, { cwd })
     ).trim();
-    return output.length > 0 ? output : null;
+    // Git prints forward slashes on Windows (`C:/Users/x`); callers expect native separators.
+    return output.length > 0 ? path.normalize(output) : null;
   } catch {
     return null;
   }

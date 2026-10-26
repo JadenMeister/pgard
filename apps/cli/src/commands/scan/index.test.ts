@@ -1,8 +1,8 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { ScanRequest } from "@pgard/findings";
-import { ScanCancelledError } from "@pgard/scan-core";
+import { readScanResult, type ScanRequest } from "@pgard/findings";
+import { ScanCancelledError, type AuthorizationOutcome } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UserCancelledError } from "../../ui/components/prompts.js";
 import {
@@ -129,7 +129,7 @@ describe("runScanCommand", () => {
     const stdout = captured.stdout();
     expect(stdout).toContain("Findings by severity (1 total)");
     expect(stdout).toContain("src/api/users.ts:42");
-    expect(stdout).toContain("Suspected (needs review) (1)");
+    expect(stdout).toContain("Findings (1)");
     expect(stdout).toContain("Coverage");
   });
 
@@ -188,7 +188,7 @@ describe("runScanCommand", () => {
     const stdout = captured.stdout();
     expect(stdout).toContain("Findings by severity (1 total) - plus 1 in test or fixture code");
     expect(stdout).toMatch(/Critical\s+0\n/);
-    expect(stdout).toContain("Suspected (needs review) (1)");
+    expect(stdout).toContain("Findings (1)");
     const testGroup = stdout.indexOf("In test or fixture code (1)");
     expect(testGroup).toBeGreaterThan(stdout.indexOf("src/api/users.ts:42"));
     expect(stdout.indexOf("src/redact.test.ts:7")).toBeGreaterThan(testGroup);
@@ -273,7 +273,7 @@ describe("runScanCommand", () => {
     expect(code).toBe(0);
     const stdout = captured.stdout();
     expect(stdout).toContain(
-      "Findings by severity (1 total) - plus 1 in test or fixture code, 1 suggestion in vendored code (1 high)",
+      "Findings by severity (1 total) - plus 1 in test or fixture code (1 high), 1 suggestion in vendored code (1 high)",
     );
     expect(stdout).toMatch(/High\s+#+ 1\n/);
     const testGroup = stdout.indexOf("In test or fixture code (1)");
@@ -597,5 +597,196 @@ describe("runScanCommand reports", () => {
     );
     expect(code).toBe(3);
     expect(writeReports).not.toHaveBeenCalled();
+  });
+
+  describe("--format json", () => {
+    const JSON_SCAN = { variant: "code", port: null, report: null, format: "json" } as const;
+
+    it("prints only the ScanResult on stdout, which readScanResult accepts, and the rest on stderr", async () => {
+      const captured = createTestIo();
+      const result = testResult({
+        findings: [testFinding(), testFinding({ id: "f2", severity: "low" })],
+      });
+      const code = await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => result })),
+        JSON_SCAN,
+      );
+      expect(code).toBe(0);
+      const parsed: unknown = JSON.parse(captured.stdout());
+      const read = readScanResult(parsed);
+      expect(read.ok).toBe(true);
+      if (read.ok) expect(read.result).toEqual(result);
+      expect(captured.stdout()).not.toContain("PGARD scan result");
+      expect(captured.stderr()).toContain("Scanning (code)");
+    });
+
+    it("keeps the exit code of the scan status and prints a blocked result too", async () => {
+      const captured = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({
+            runScan: async () => testResult({ overallStatus: "blocked", authorization: BLOCKED }),
+          }),
+        ),
+        JSON_SCAN,
+      );
+      expect(code).toBe(3);
+      expect(JSON.parse(captured.stdout()).overallStatus).toBe("blocked");
+    });
+
+    it("is a usage error, before any scan, when web checks would need a port prompt", async () => {
+      const captured = createTestIo();
+      const runScan = vi.fn();
+      const code = await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan }), scriptedKeys([])),
+        { variant: "web", port: null, report: null, format: "json" },
+      );
+      expect(code).toBe(2);
+      expect(runScan).not.toHaveBeenCalled();
+      expect(captured.stdout()).toBe("");
+      expect(captured.stderr()).toContain("--port");
+    });
+
+    const HIDDEN_OUTCOME: AuthorizationOutcome = {
+      summary: {
+        decision: "blocked",
+        checks: [
+          { id: "repository", status: "passed", reason: "GitHub remote me/app" },
+          { id: "github_identity", status: "passed", reason: "Signed in" },
+          { id: "owner_approval", status: "unverifiable", reason: "Not evaluated." },
+          { id: "current_access", status: "failed", reason: "No access to me/app." },
+          { id: "contribution", status: "unverifiable", reason: "Not evaluated." },
+        ],
+      },
+      repo: "me/app",
+      revision: "abc",
+      remedy: {
+        kind: "install_app",
+        missing: "access",
+        account: { login: "me", type: "User" },
+        url: "https://github.com/apps/pgard/installations/new",
+        canApprove: "yes",
+        unavailableReason: null,
+      },
+    };
+
+    it("writes exactly one document when a guided install re-runs the scan", async () => {
+      const captured = createTestIo({ isTTY: true });
+      let calls = 0;
+      const runScan = vi.fn(
+        async (
+          _request: unknown,
+          options: { onAuthorization?: (o: AuthorizationOutcome) => void },
+        ) => {
+          calls += 1;
+          if (calls === 1) {
+            options.onAuthorization?.(HIDDEN_OUTCOME);
+            return testResult({ overallStatus: "blocked", authorization: BLOCKED, findings: [] });
+          }
+          return testResult({ scanId: "second-run" });
+        },
+      );
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({
+            runScan: runScan as never,
+            recheckOwnerApproval: async () => ({ status: "passed", reason: "ok", remedy: null }),
+          }),
+          scriptedKeys([]),
+        ),
+        JSON_SCAN,
+      );
+      expect(runScan).toHaveBeenCalledTimes(2);
+      expect(code).toBe(0);
+      const documents = captured
+        .stdout()
+        .trim()
+        .split(/\n(?=\{)/);
+      expect(documents).toHaveLength(1);
+      expect(JSON.parse(captured.stdout()).scanId).toBe("second-run");
+      expect(captured.stderr()).toContain("Running the full authorization again");
+    });
+
+    it("emits a blocked ScanResult for web scopes instead of an empty stdout", async () => {
+      const captured = createTestIo();
+      const probeLocalService = vi.fn();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({
+            verifyProject: async () => ({ summary: BLOCKED, repo: "o/n", revision: "abc" }),
+            runScan: async () =>
+              testResult({ overallStatus: "blocked", authorization: BLOCKED, findings: [] }),
+            probeLocalService,
+          }),
+          scriptedKeys([]),
+        ),
+        { variant: "web", port: 3000, report: null, format: "json" },
+      );
+      expect(code).toBe(3);
+      expect(JSON.parse(captured.stdout()).overallStatus).toBe("blocked");
+      expect(probeLocalService).not.toHaveBeenCalled();
+    });
+
+    it("suspends the real key reader around long work so Ctrl+C still cancels", async () => {
+      const captured = createTestIo();
+      const suspend = vi.fn();
+      const keys = { ...scriptedKeys(["y"]), suspend };
+      const code = await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => testResult() }), keys),
+        { variant: "web", port: 3000, report: null, format: "json" },
+      );
+      expect(code).toBe(0);
+      // Once before the authorization pre-check and once before the scan itself.
+      expect(suspend.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("asks about a report inside the repository on stderr", async () => {
+      const captured = createTestIo();
+      const writeReports = vi.fn(async () => [{ format: "html" as const, filePath: "/x/r.html" }]);
+      const directory = await mkdtemp(path.join(os.tmpdir(), "pgard-json-report-"));
+      try {
+        const code = await runScanCommand(
+          createTestContext(
+            captured,
+            createTestDeps({
+              runScan: async () => testResult(),
+              isPathInsideDirectory: async () => true,
+              writeReports: writeReports as never,
+            }),
+            scriptedKeys(["y"]),
+          ),
+          {
+            variant: "code",
+            port: null,
+            report: { format: "html", outputDir: directory },
+            format: "json",
+          },
+        );
+        expect(code).toBe(0);
+        expect(() => JSON.parse(captured.stdout())).not.toThrow();
+        expect(captured.stderr()).toContain("Save the report inside the repository anyway?");
+        expect(writeReports).toHaveBeenCalled();
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+
+    it("sends the port confirmation prompt to stderr, never stdout", async () => {
+      const captured = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({ runScan: async () => testResult() }),
+          scriptedKeys(["y"]),
+        ),
+        { variant: "web", port: 3000, report: null, format: "json" },
+      );
+      expect(code).toBe(0);
+      expect(() => JSON.parse(captured.stdout())).not.toThrow();
+      expect(captured.stderr()).toContain("Is this the current project's service?");
+    });
   });
 });

@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { MAX_PORT_CANDIDATES, PORT_DISCOVERY_TIMEOUT_MS } from "./constants.js";
 import { sanitizeDisplayText } from "./display-text.js";
 import { isValidPort } from "./target.js";
@@ -25,10 +26,14 @@ export interface PortDiscoveryResult {
   note: string | null;
 }
 
+export type WindowsNetstatProtocol = "TCP" | "TCPv6";
+
 export interface PortDiscoveryDeps {
   platform?: NodeJS.Platform;
   runLsof?: () => Promise<string>;
   runNetstat?: () => Promise<string>;
+  /** Windows `netstat -ano`; called once per address family (`TCP`, `TCPv6`). */
+  runWindowsNetstat?: (protocol: WindowsNetstatProtocol) => Promise<string>;
   readProcFile?: (path: "/proc/net/tcp" | "/proc/net/tcp6") => Promise<string>;
 }
 
@@ -117,6 +122,26 @@ export const LSOF_PATH = "/usr/sbin/lsof";
 export const NETSTAT_PATH = "/usr/sbin/netstat";
 export const NETSTAT_ARGS = ["-an", "-p", "tcp"] as const;
 
+/**
+ * `%SystemRoot%\\System32\\netstat.exe`, never looked up through PATH. SystemRoot comes from the
+ * environment, so it is only trusted when it is an absolute drive path without odd characters;
+ * otherwise the default `C:\\Windows` is used.
+ */
+export function windowsNetstatPath(env: NodeJS.ProcessEnv = process.env): string {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? "";
+  const isTrusted = /^[A-Za-z]:\\[A-Za-z0-9 _.\\()-]*$/.test(root) && !root.includes("..");
+  return path.win32.join(isTrusted ? root : "C:\\Windows", "System32", "netstat.exe");
+}
+
+function runWindowsNetstatDefault(protocol: WindowsNetstatProtocol): Promise<string> {
+  return runCommandWithDeadline(
+    windowsNetstatPath(),
+    ["-ano", "-p", protocol],
+    PORT_DISCOVERY_TIMEOUT_MS,
+    { isExitCodeOneAcceptable: false },
+  );
+}
+
 function runLsofDefault(): Promise<string> {
   // -b avoids kernel calls that can block (e.g. on network mounts); -w silences warnings.
   return runCommandWithDeadline(
@@ -191,6 +216,31 @@ export function parseNetstatOutput(output: string): ListeningPort[] {
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
 
+/**
+ * Parses Windows `netstat -ano -p TCP|TCPv6` output (`TCP  0.0.0.0:135  0.0.0.0:0  LISTENING  4`).
+ * The State column is localized on non-English Windows, so a listener is recognised by its
+ * foreign address ending in port 0, which no established or closing connection has. Local
+ * addresses reachable through 127.0.0.1 are `0.0.0.0`, `[::]` (dual-stack) and `127.x.x.x`;
+ * `[::1]` and other IPv6 addresses are not. netstat reports no process name here (only a PID).
+ */
+export function parseWindowsNetstatOutput(output: string): ListeningPort[] {
+  const byPort = new Map<number, ListeningPort>();
+  for (const line of output.split(/\r?\n/)) {
+    const columns = line.trim().split(/\s+/);
+    if (columns.length !== 5 || columns[0]?.toUpperCase() !== "TCP") continue;
+    const local = columns[1] ?? "";
+    const foreign = columns[2] ?? "";
+    if (!/:0$/.test(foreign)) continue;
+    const separator = local.lastIndexOf(":");
+    if (separator < 0 || !/^\d+$/.test(local.slice(separator + 1))) continue;
+    const address = local.slice(0, separator);
+    const port = Number(local.slice(separator + 1));
+    if (!isValidPort(port) || !isReachableViaIpv4Loopback(address)) continue;
+    if (!byPort.has(port)) byPort.set(port, { port, processName: null });
+  }
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
+}
+
 const LISTEN_STATE = "0A";
 
 /** Parses `/proc/net/tcp` or `/proc/net/tcp6`. */
@@ -243,13 +293,20 @@ export async function discoverListeningPorts(
       const v4 = await read("/proc/net/tcp").catch(() => "");
       const v6 = await read("/proc/net/tcp6").catch(() => "");
       ports = [...parseProcNetTcp(v4, 4), ...parseProcNetTcp(v6, 6)];
+    } else if (platform === "win32") {
+      // Same value as the macOS fallback: it is netstat output, which `doctor` shows as-is.
+      method = "netstat";
+      const run = deps.runWindowsNetstat ?? runWindowsNetstatDefault;
+      // IPv4 must work. The IPv6 table (where dual-stack `[::]` listeners appear) is best effort.
+      const [v4, v6] = await Promise.all([run("TCP"), run("TCPv6").catch(() => "")]);
+      ports = [...parseWindowsNetstatOutput(v4), ...parseWindowsNetstatOutput(v6)];
     } else {
       method = "unsupported";
       isAvailable = false;
       note = "Automatic port discovery is not available on this platform.";
     }
   } catch {
-    method = platform === "darwin" ? "netstat" : "proc";
+    method = platform === "darwin" || platform === "win32" ? "netstat" : "proc";
     isAvailable = false;
     note = "Port discovery failed; enter the port manually.";
   }

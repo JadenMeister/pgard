@@ -4,7 +4,7 @@
 [![License: MIT](https://img.shields.io/github/license/JadenMeister/pgard?color=blue)](LICENSE)
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#requirements)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey?logo=apple&logoColor=white)](#requirements)
+[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#requirements)
 [![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#known-limitations)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#privacy-and-network-traffic)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
@@ -60,7 +60,8 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 
 - Node.js 22.23.4, 24.22.1 or 26.12.1, or a newer patch on the same line. These are the releases that fix the vulnerabilities in the [Node.js security release of 21 October 2026](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases), including a Brotli decoder out-of-bounds write that can lead to remote code execution (CVE-2026-111497) and TLS hostname check bypasses. PGARD uses `fetch` and TLS to call the GitHub API, so older releases are not supported: `pgard doctor` fails the Node.js check on them. Node.js 20 and earlier and the odd-numbered lines get no fixes. Check your version with `node --version`.
 - Git
-- macOS or Linux for local port discovery (`lsof` on macOS, falling back to `netstat`; `/proc/net/tcp*` on Linux). You can always type a port by hand.
+- macOS, Linux or Windows. CI runs the full test suite on all three. Local port discovery uses `lsof` on macOS (falling back to `netstat`), `/proc/net/tcp*` on Linux and `%SystemRoot%\System32\netstat.exe` on Windows. You can always type a port by hand.
+- Windows notes: the sign-in is kept in Windows Credential Manager, the browser opens through `explorer.exe`, and reports cannot be created with mode `0600` because Windows has no such mode. A report there gets the default permissions of the folder you choose, so pick a folder only you can read. Terminal output: `NO_COLOR` turns off colour only. `TERM=dumb` turns off colour and, on non-Windows systems, also gives ASCII text. On Windows, text is ASCII unless the host is Windows Terminal, VS Code or a similar terminal; colour stays on there regardless of the host.
 - A GitHub account (see [GitHub App and sign-in](#github-app-and-sign-in))
 
 ## Install and build
@@ -143,6 +144,13 @@ Options:
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
                            Git repository needs explicit confirmation
+  --all-findings           list every finding and location; by default more than
+                           5 findings in test, fixture or vendored code are
+                           summarized, and groups show up to 3 locations
+  --format text|json       json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; progress and
+                           messages go to stderr. With web checks it needs --port
+                           (prompts go to stderr). Exit codes are unchanged
   --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
                            In a terminal, PGARD asks you to press Enter
@@ -158,6 +166,8 @@ authorization and continues the scan.
 - `--port N` (`scan web` and `scan all` only): the local service port, an integer from 1 to 65535. You still have to confirm the service.
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
+- `--all-findings` (any `scan`): list every finding and every location, each with its own evidence, and never collapse anything. By default, groups show up to 3 locations (the evidence is shown once when all members share it, otherwise it says it varies), and when more than 5 findings come from test, fixture or vendored code the lower-severity ones are replaced by a summary (see [Grouping and collapsing](#grouping-and-collapsing)).
+- `--format text|json` (any `scan`, default `text`): `json` prints only the redacted scan result to stdout, exactly as described in [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md) and readable with `readScanResult`. Progress, notices and prompts go to stderr, so `pgard scan code --format json > result.json` is valid JSON. Prompts never use stdout: `scan web` and `scan all` need `--port` (without it the command exits with the usage error 2 before scanning). The exit codes do not change. `--all-findings` has no effect on JSON, which always contains every finding. Prompts that are still possible (the `--port` confirmation, the GitHub App install guide, saving a report inside the repository) are shown on stderr when stdin and stderr are terminals, even if stdout is redirected to a file. Stdout holds exactly one document, the final result, which is also a blocked result when authorization failed. Stdout stays empty only for a usage error (exit 2), a cancellation, a directory that is not a repository (exit 3) and an internal error.
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
 - `--no-browser` (`scan`, `project verify`, `login`, `dashboard`): do not open GitHub pages (the device sign-in page, the App install page) in the browser; the links are only printed. Without it, in a terminal (stdin and stdout) PGARD prints the link and asks `Press Enter to open github.com in your browser...`; the page opens only after you press Enter (other keys are ignored). Waiting for sign-in or installation never depends on that prompt, and it is dropped as soon as the wait ends. Outside a terminal nothing is opened and nothing is asked. The links are always printed too, and a browser that fails to open is not an error.
 - `--help` / `-h`, and `pgard --version` / `-V`.
@@ -347,9 +357,15 @@ PGARD calls a secret or `.env` file "removed" only when it can show that the cur
 
 The terminal result shows a severity chart, the findings (confirmed, suspected or informational) with a `file:line` or URL, redacted evidence, guidance, and the coverage of each area.
 
+### Grouping and collapsing
+
+Findings are ordered by severity (critical, high, medium, low, info), then confirmed before suspected before informational, then by location. Findings with the same rule and cause form one group: the title shows the number of locations and the line names up to 3 of them (`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`), with the evidence when all members share it, otherwise the line `Evidence: varies by location`. The result carries no cause text (only a fingerprint that includes the line), so "same cause" means the same rule, title, severity, status, confidence, location kind and context.
+
+When more than 5 findings (the constant `COLLAPSE_THRESHOLD`) come from test, fixture or vendored code, the CLI replaces the listing of the lower-severity ones (medium, low, info) with a summary: the count, counts per context and per rule, and the severities, plus how to see everything. Exactly 5 are still listed. Critical and high findings, and findings in your own code, are never collapsed. `--all-findings` lists everything, and so does the HTML report (`--report html --output-dir <dir>`). The headline names the critical and high findings in test code, for example `plus 8 in test or fixture code (1 critical, 2 high)`, and the status counts (`Findings (6): 1 confirmed, 5 suspected (needs review)`). Without a terminal or with `NO_COLOR` the output is the same text without colors.
+
 ### Findings in test or fixture code
 
-Findings in test or fixture code are listed after the other findings, in their own group: **In test or fixture code (N)**. Their rule, severity and evidence are unchanged, but their confidence is capped at `low`. The headline count and the severity chart cover regular code only (for example `Findings by severity (3 total) - plus 2 in test or fixture code`). These findings are not dropped, because a real secret committed in a test is still exposed. The CLI, the dashboard and the HTML/PDF reports use the same grouping.
+Findings in test or fixture code are listed after the other findings, in their own group: **In test or fixture code (N)**. Their rule, severity and evidence are unchanged, but their confidence is capped at `low`. The headline count and the severity chart cover regular code only (for example `Findings by severity (3 total) - plus 2 in test or fixture code`). These findings are not dropped, because a real secret committed in a test is still exposed. The dashboard and the HTML/PDF reports list them all in this group. The terminal view lists them too, except that when there are more than 5 the medium, low and info ones are replaced by a summary (see [Grouping and collapsing](#grouping-and-collapsing)); critical and high ones stay listed.
 
 The classification is by path only, never by file content. A file is test or fixture code when:
 
@@ -361,7 +377,7 @@ Directory names are matched case-insensitively. The rule applies to findings fro
 
 ### Suggestions in third-party or vendored code
 
-Findings in third-party dependency code committed to the repository are shown as suggestions, not as regular findings: you do not own that code and cannot fix it there. They are listed last, after the test or fixture group, in **Suggestions: in third-party/vendored code (N)**, with the note "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git." Their rule, severity and evidence are unchanged, but their confidence is capped at `low`. The headline count and the severity chart do not include them (for example `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code (1 high)`; critical and high suggestions are counted in the parentheses so they are not hidden in a total). They are never dropped, because a real secret committed in `node_modules/` is still exposed. Coverage, the overall status and exit codes do not change. The CLI, the dashboard (with the same filters) and the HTML/PDF reports use the same grouping, and the `PG-HYGIENE-001` suggestion (see [Git history checks](#git-history-checks)) is listed in the same group.
+Findings in third-party dependency code committed to the repository are shown as suggestions, not as regular findings: you do not own that code and cannot fix it there. They are listed last, after the test or fixture group, in **Suggestions: in third-party/vendored code (N)**, with the note "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git." Their rule, severity and evidence are unchanged, but their confidence is capped at `low`. The headline count and the severity chart do not include them (for example `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code (1 high)`; critical and high suggestions are counted in the parentheses so they are not hidden in a total). They are never dropped, because a real secret committed in `node_modules/` is still exposed. Coverage, the overall status and exit codes do not change. The dashboard (with the same filters) and the HTML/PDF reports list them all in this group, and the terminal view summarizes lower-severity ones when more than 5 findings come from test, fixture or vendored code (see [Grouping and collapsing](#grouping-and-collapsing)), and the `PG-HYGIENE-001` suggestion (see [Git history checks](#git-history-checks)) is listed in the same group.
 
 The classification is by path only, never by file content. A file is vendored when a directory in its path is:
 
@@ -375,7 +391,7 @@ Also:
 - Build output such as `dist/` or `build/` is your own output and is not vendored.
 - A path that is both vendored and test code (`node_modules/pkg/test/a.js`) is vendored.
 
-HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600`. Keep reports outside the repository so they are not committed by mistake.
+HTML and PDF reports are rendered from the same redacted result. The HTML report is a single file with no scripts and a strict CSP. Reports are written only to the directory you name, never overwrite existing files, and are created with mode `0600` (not possible on Windows, see [Requirements](#requirements)). Keep reports outside the repository so they are not committed by mistake.
 
 ## Dashboard
 

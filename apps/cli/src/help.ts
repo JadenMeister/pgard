@@ -86,6 +86,13 @@ Options:
   --port N                 local service port 1-65535 (web and all only). You
                            still confirm the service identity with y/N.
 ${REPORT_HELP}
+  --all-findings           list every finding and location; by default more than
+                           5 findings in test, fixture or vendored code are
+                           summarized, and groups show up to 3 locations
+  --format text|json       json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; progress and
+                           messages go to stderr. With web checks it needs --port
+                           (prompts go to stderr). Exit codes are unchanged
 ${NO_BROWSER_HELP}
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to
