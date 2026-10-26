@@ -126,6 +126,23 @@ describe("save and list", () => {
     await expect(stat(dir)).rejects.toThrow();
   });
 
+  it("also refuses the JSON-escaped form of a forbidden path (Windows backslashes)", async () => {
+    const result = makeResult({
+      coverage: [
+        {
+          area: "a",
+          scope: "code",
+          status: "completed",
+          ruleIds: [],
+          note: "C:\\Users\\ann\\x",
+        },
+      ],
+    });
+    expect(
+      await store.save(result, { repositoryId: REPO_ID, forbidSubstrings: ["C:\\Users\\ann"] }),
+    ).toMatchObject({ ok: false, error: { code: "contains_local_path" } });
+  });
+
   it("rejects an invalid repository id", async () => {
     for (const id of [0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
       const saved = await store.save(makeResult(), { repositoryId: id });
@@ -429,6 +446,26 @@ describe("retention", () => {
     if (!saved.ok) return;
     expect(await repoFiles()).toContain(saved.file);
     expect(await repoFiles()).toHaveLength(RETENTION_MAX_SCANS_PER_REPO);
+  });
+
+  it("does not let future-dated files crowd out real scans", async () => {
+    const repoDir = path.join(dir, "repos", String(REPO_ID));
+    await mkdir(repoDir, { recursive: true, mode: 0o700 });
+    for (let i = 0; i < RETENTION_MAX_SCANS_PER_REPO; i += 1) {
+      const future = String(clock + 400 * DAY + i).padStart(13, "0");
+      await writeFile(
+        path.join(repoDir, `${future}-ffffffffffff${i.toString(16).padStart(4, "0")}.json`),
+        JSON.stringify(makeResult({ scanId: `future-${i}` })),
+        { mode: 0o600 },
+      );
+    }
+    for (let i = 0; i < 5; i += 1) {
+      clock += 1000;
+      await store.save(makeResult({ scanId: `real-${i}` }), { repositoryId: REPO_ID });
+    }
+    const ids = (await store.list(REPO_ID)).scans.map((s) => s.result.scanId);
+    expect(ids.filter((id) => id.startsWith("real-"))).toHaveLength(5);
+    expect(ids).toHaveLength(RETENTION_MAX_SCANS_PER_REPO);
   });
 
   it("keeps a scan exactly at the age limit", async () => {

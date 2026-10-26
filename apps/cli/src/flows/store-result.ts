@@ -1,4 +1,3 @@
-import os from "node:os";
 import type { ScanResult } from "@pgard/findings";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
 import { isAuthorizationAllowed } from "@pgard/scan-core";
@@ -45,7 +44,7 @@ export async function storeScanResult(
   if (typeof repositoryId !== "number") return;
   try {
     // The home directory must not appear either (redaction replaces the project root only).
-    const home = os.homedir();
+    const home = context.io.env.HOME ?? context.io.env.USERPROFILE ?? "";
     const forbidSubstrings = home.length > 3 ? [projectRoot, home] : [projectRoot];
     const saved = await store.save(result, { repositoryId, forbidSubstrings });
     if (saved.ok) {

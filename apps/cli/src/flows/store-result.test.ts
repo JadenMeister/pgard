@@ -96,20 +96,16 @@ describe("storing a finished scan", () => {
     expect(firstRunNotice("C:\\d", "win32")).toContain("Windows profile");
   });
 
-  it("refuses a result that carries the home directory", async () => {
-    const leaky = testResult({
-      coverage: [
-        {
-          area: "a",
-          scope: "code",
-          status: "completed",
-          ruleIds: [],
-          note: `in ${os.homedir()}/x`,
-        },
-      ],
-    });
-    const { captured } = await run(depsWith(ALLOWED_OUTCOME, leaky));
-    expect(captured.stderr()).toContain("was not stored");
+  it("refuses a result that carries the home directory, including a Windows path", async () => {
+    for (const home of ["/home/ann", "C:\\Users\\ann"]) {
+      const leaky = testResult({
+        coverage: [
+          { area: "a", scope: "code", status: "completed", ruleIds: [], note: `in ${home}\\x` },
+        ],
+      });
+      const { captured } = await run(depsWith(ALLOWED_OUTCOME, leaky), { env: { HOME: home } });
+      expect(captured.stderr(), home).toContain("was not stored");
+    }
   });
 
   it("stores nothing with --no-store, and does not print the notice or create the directory", async () => {

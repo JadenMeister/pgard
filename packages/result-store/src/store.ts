@@ -149,11 +149,21 @@ function errnoOf(error: unknown): string | undefined {
     : undefined;
 }
 
+const SYMLINK_HINT = "Remove the link by hand, then try again.";
+
 function toStoreError(error: unknown): StoreError {
-  if (error instanceof StoreFailure) return { code: error.code, message: error.message };
+  if (error instanceof StoreFailure) {
+    return {
+      code: error.code,
+      message: error.code === "symlink" ? `${error.message} ${SYMLINK_HINT}` : error.message,
+    };
+  }
   const code = errnoOf(error);
   if (code === "ELOOP") {
-    return { code: "symlink", message: "Refusing to follow a symbolic link in the result store." };
+    return {
+      code: "symlink",
+      message: `Refusing to follow a symbolic link in the result store. ${SYMLINK_HINT}`,
+    };
   }
   return { code: "io", message: `The result store could not be accessed (${code ?? "error"}).` };
 }
@@ -375,20 +385,26 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     const results = names
       .map((name) => ({ name, match: RESULT_FILE_PATTERN.exec(name) }))
       .filter((entry): entry is { name: string; match: RegExpExecArray } => entry.match !== null)
-      // A file dated in the future (clock skew) counts as saved now, so it cannot crowd out
-      // newer scans forever.
-      .map((entry) => ({ name: entry.name, savedAt: Math.min(Number(entry.match[1]), timestamp) }))
-      // The file just written always comes first, so it is never the one pruned.
+      .map((entry) => ({
+        name: entry.name,
+        savedAt: Number(entry.match[1]),
+        // Dated in the future (clock skew or tampering): cannot be a real scan yet.
+        isFuture: Number(entry.match[1]) > timestamp,
+      }))
+      // The file just written comes first, so it is never the one pruned. Future-dated files
+      // come last, so real scans are never crowded out by them; among the rest, newest first.
       .sort(
         (a, b) =>
           Number(b.name === keep) - Number(a.name === keep) ||
+          Number(a.isFuture) - Number(b.isFuture) ||
           b.savedAt - a.savedAt ||
           (a.name < b.name ? 1 : -1),
       );
     const doomed = results
       .filter(
         (entry, index) =>
-          entry.name !== keep && (index >= maxScans || timestamp - entry.savedAt > maxAgeMs),
+          entry.name !== keep &&
+          (index >= maxScans || (!entry.isFuture && timestamp - entry.savedAt > maxAgeMs)),
       )
       .map((entry) => entry.name);
     for (const name of names) {
@@ -437,7 +453,10 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         }
         const text = `${JSON.stringify(checked.result)}\n`;
         for (const forbidden of saveOptions.forbidSubstrings ?? []) {
-          if (forbidden !== "" && text.includes(forbidden)) {
+          // The file holds JSON text, where a backslash is written twice (Windows paths): check
+          // the raw form and the escaped form.
+          const escaped = JSON.stringify(forbidden).slice(1, -1);
+          if (forbidden !== "" && (text.includes(forbidden) || text.includes(escaped))) {
             throw new StoreFailure("contains_local_path", "The result contains a local path.");
           }
         }
@@ -531,7 +550,9 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
             await ensureDirectory(dir, false);
           } catch (error) {
             if (errnoOf(error) !== "ENOENT") {
-              outcome.warnings.push(`Skipped repository ${id}: ${toStoreError(error).message}`);
+              outcome.warnings.push(
+                `Skipped ${path.join(REPOS_DIRECTORY, id)}: ${toStoreError(error).message}`,
+              );
             }
             continue;
           }
