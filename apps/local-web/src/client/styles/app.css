@@ -16,6 +16,24 @@ body {
   padding: 24px 16px 48px;
 }
 
+.page-title {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.lang-toggle {
+  display: flex;
+  gap: 4px;
+}
+
+.lang-toggle .button {
+  padding: 3px 10px;
+  font-size: 13px;
+}
+
 .page-header h1 {
   margin: 0;
   font-size: 26px;

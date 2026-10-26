@@ -1,5 +1,7 @@
 import type { Finding, FindingLocation, FindingStatus, ScanScope, Severity } from "@pgard/findings";
 import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
+import { en } from "../../i18n/en";
+import type { Messages } from "../../i18n/types";
 
 export interface FindingFilters {
   severity: Severity | null;
@@ -49,7 +51,10 @@ export function splitByContext(findings: readonly Finding[]): {
  * ("1 suggestion in vendored code (1 critical)"). Same wording as `formatVendoredSuggestions` in
  * @pgard/report.
  */
-export function formatVendoredSuggestions(vendored: readonly Pick<Finding, "severity">[]): string {
+export function formatVendoredSuggestions(
+  vendored: readonly Pick<Finding, "severity">[],
+  m: Messages = en,
+): string {
   const count = vendored.length;
   const severe = (["critical", "high"] as const)
     .map((severity) => ({
@@ -58,10 +63,7 @@ export function formatVendoredSuggestions(vendored: readonly Pick<Finding, "seve
     }))
     .filter((entry) => entry.count > 0)
     .map((entry) => `${entry.count} ${entry.severity}`);
-  return (
-    `${count} suggestion${count === 1 ? "" : "s"} in vendored code` +
-    (severe.length === 0 ? "" : ` (${severe.join(", ")})`)
-  );
+  return m.findings.vendoredSuggestions(count, severe.join(", "));
 }
 
 /**
@@ -69,15 +71,18 @@ export function formatVendoredSuggestions(vendored: readonly Pick<Finding, "seve
  * (1 high)"; empty when every finding is regular code. Same wording as `formatContextCounts` in
  * @pgard/report.
  */
-export function formatContextCounts(groups: {
-  test: number;
-  vendored: readonly Pick<Finding, "severity">[];
-}): string {
+export function formatContextCounts(
+  groups: {
+    test: number;
+    vendored: readonly Pick<Finding, "severity">[];
+  },
+  m: Messages = en,
+): string {
   const parts = [
-    ...(groups.test === 0 ? [] : [`${groups.test} in test or fixture code`]),
-    ...(groups.vendored.length === 0 ? [] : [formatVendoredSuggestions(groups.vendored)]),
+    ...(groups.test === 0 ? [] : [m.findings.contextTest(groups.test)]),
+    ...(groups.vendored.length === 0 ? [] : [formatVendoredSuggestions(groups.vendored, m)]),
   ];
-  return parts.length === 0 ? "" : `plus ${parts.join(", ")}`;
+  return parts.length === 0 ? "" : m.findings.plus(parts.join(", "));
 }
 
 /** A separate group listed after the regular findings: test code, then vendored suggestions. */
@@ -112,6 +117,7 @@ export interface FindingsView {
 export function buildFindingsView(
   findings: readonly Finding[],
   filters: FindingFilters,
+  m: Messages = en,
 ): FindingsView {
   const groups = splitByContext(findings);
   const statusCounts: Record<FindingStatus, number> = {
@@ -127,13 +133,13 @@ export function buildFindingsView(
   const sections: ContextSection[] = [
     {
       kind: "test" as const,
-      title: `In test or fixture code (${groups.test.length})`,
+      title: m.findings.testTitle(groups.test.length),
       total: groups.test.length,
       visible: filterFindings(groups.test, filters),
     },
     {
       kind: "vendored" as const,
-      title: `Suggestions: in third-party/vendored code (${groups.vendored.length})`,
+      title: m.findings.vendoredTitle(groups.vendored.length),
       total: groups.vendored.length,
       visible: filterFindings(groups.vendored, filters),
     },
@@ -142,28 +148,32 @@ export function buildFindingsView(
     total: groups.primary.length,
     counts: countBySeverity(groups.primary),
     statusCounts,
-    contextNote: formatContextCounts({ test: groups.test.length, vendored: groups.vendored }),
+    contextNote: formatContextCounts({ test: groups.test.length, vendored: groups.vendored }, m),
     visible,
     emptyMessage:
       visible.length > 0
         ? null
         : groups.primary.length === 0
-          ? `No findings${formatOutsideContexts(contextCounts)} in the areas that ran. This does not mean the project is secure; check coverage.`
-          : "No findings match the filters.",
+          ? m.findings.noFindings(formatOutsideContexts(contextCounts, m))
+          : m.findings.noMatch,
     sections,
   };
 }
 
 /** Same wording as `formatOutsideContexts` in @pgard/report. */
-export function formatOutsideContexts(counts: { test: number; vendored: number }): string {
-  if (counts.test > 0 && counts.vendored > 0) return " outside test, fixture or vendored code";
-  if (counts.test > 0) return " outside test or fixture code";
-  if (counts.vendored > 0) return " outside vendored code";
+export function formatOutsideContexts(
+  counts: { test: number; vendored: number },
+  m: Messages = en,
+): string {
+  if (counts.test > 0 && counts.vendored > 0) return m.findings.outsideTestAndVendored;
+  if (counts.test > 0) return m.findings.outsideTest;
+  if (counts.vendored > 0) return m.findings.outsideVendored;
   return "";
 }
 
-export function formatLocation(location: FindingLocation): string {
-  if (location.kind === "url") return location.url ?? "(unknown URL)";
+export function formatLocation(location: FindingLocation, m: Messages = en): string {
+  const text = m.findings.location;
+  if (location.kind === "url") return location.url ?? text.unknownUrl;
   const fileAndLine =
     location.path === null
       ? null
@@ -172,10 +182,10 @@ export function formatLocation(location: FindingLocation): string {
         : `${location.path}:${location.line}`;
   if (location.kind === "commit") {
     const commit =
-      location.commit === null ? "unknown commit" : `commit ${location.commit.slice(0, 12)}`;
+      location.commit === null ? text.unknownCommit : text.commit(location.commit.slice(0, 12));
     return fileAndLine === null ? commit : `${fileAndLine} (${commit})`;
   }
-  return fileAndLine ?? "(unknown location)";
+  return fileAndLine ?? text.unknownLocation;
 }
 
 /** Applies the dashboard filters and sorts by severity, then confirmed before suspected. */

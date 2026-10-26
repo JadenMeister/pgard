@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { AuthStatus, ScanStatus, SessionInfo, TargetInfo } from "../../shared/api-types";
 import { apiGet, hasSessionToken } from "../api/client";
 import { Notice } from "../components/ui/Card";
+import { LanguageToggle, useI18n } from "../i18n/I18nProvider";
 import { FindingsDashboard } from "../features/findings/FindingsDashboard";
 import { LegalNotice } from "../features/legal/LegalNotice";
 import { AuthorizationPanel } from "../features/onboarding/AuthorizationPanel";
@@ -11,7 +12,8 @@ import { TargetPanel } from "../features/target/TargetPanel";
 
 export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { m } = useI18n();
+  const [error, setError] = useState<"token" | "session" | null>(null);
   const [hasAcceptedNotice, setHasAcceptedNotice] = useState(false);
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [target, setTarget] = useState<TargetInfo | null>(null);
@@ -19,9 +21,7 @@ export function App() {
 
   useEffect(() => {
     if (!hasSessionToken()) {
-      setError(
-        "This page needs the private session URL printed by `pgard dashboard`. Open that URL again.",
-      );
+      setError("token");
       return;
     }
     apiGet<TargetInfo | null>("/api/target")
@@ -29,17 +29,24 @@ export function App() {
       .catch(() => undefined);
     apiGet<SessionInfo>("/api/session")
       .then(setSession)
-      .catch(() => setError("The dashboard session is not available. Restart `pgard dashboard`."));
+      .catch(() => setError("session"));
   }, []);
 
   return (
     <div className="page">
       <header className="page-header">
-        <h1>PGARD</h1>
-        <p className="muted">Local security dashboard {session ? `- v${session.version}` : ""}</p>
+        <div className="page-title">
+          <h1>PGARD</h1>
+          <LanguageToggle />
+        </div>
+        <p className="muted">{m.app.subtitle(session ? session.version : null)}</p>
       </header>
       <main>
-        {error && <Notice tone="error">{error}</Notice>}
+        {error && (
+          <Notice tone="error">
+            {error === "token" ? m.app.errorNoToken : m.app.errorSession}
+          </Notice>
+        )}
         {session !== null && !hasAcceptedNotice && (
           <LegalNotice onAccept={() => setHasAcceptedNotice(true)} />
         )}
@@ -58,9 +65,7 @@ export function App() {
           </>
         )}
       </main>
-      <footer className="page-footer muted small">
-        Runs on 127.0.0.1 only. Results and sign-in are discarded when the dashboard stops.
-      </footer>
+      <footer className="page-footer muted small">{m.app.footer}</footer>
     </div>
   );
 }

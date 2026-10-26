@@ -1,5 +1,6 @@
 import type { Severity } from "@pgard/findings";
-import { SEVERITY_COLOR_VARS, SEVERITY_LABELS, SEVERITY_ORDER } from "./severity-scale";
+import { useI18n } from "../../i18n/I18nProvider";
+import { SEVERITY_COLOR_VARS, SEVERITY_ORDER } from "./severity-scale";
 
 const SIZE = 180;
 const RADIUS = 70;
@@ -23,12 +24,13 @@ function arcPath(startAngle: number, endAngle: number): string {
 
 /** Share of findings per severity with the total in the middle and a labeled legend. */
 export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
+  const { m } = useI18n();
   const total = SEVERITY_ORDER.reduce((sum, severity) => sum + counts[severity], 0);
   const present = SEVERITY_ORDER.filter((severity) => counts[severity] > 0);
   let angle = 0;
   return (
     <figure className="donut">
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${total} findings in total`}>
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={m.charts.donutAria(total)}>
         {total === 0 ? (
           <circle
             cx={SIZE / 2}
@@ -47,7 +49,7 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
             strokeWidth={STROKE}
             stroke={SEVERITY_COLOR_VARS[present[0] as Severity]}
           >
-            <title>{`${SEVERITY_LABELS[present[0] as Severity]}: ${total}`}</title>
+            <title>{m.charts.donutSingleTitle(m.severity[present[0] as Severity], total)}</title>
           </circle>
         ) : (
           present.map((severity) => {
@@ -63,7 +65,7 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
                 strokeWidth={STROKE}
                 stroke={SEVERITY_COLOR_VARS[severity]}
               >
-                <title>{`${SEVERITY_LABELS[severity]}: ${counts[severity]} of ${total}`}</title>
+                <title>{m.charts.donutTitle(m.severity[severity], counts[severity], total)}</title>
               </path>
             );
           })
@@ -72,7 +74,7 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
           {total}
         </text>
         <text x={SIZE / 2} y={SIZE / 2 + 18} textAnchor="middle" className="chart-label">
-          findings
+          {m.charts.findings}
         </text>
       </svg>
       <figcaption>
@@ -84,7 +86,7 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
                 style={{ background: SEVERITY_COLOR_VARS[severity] }}
                 aria-hidden="true"
               />
-              {SEVERITY_LABELS[severity]} <span className="muted">{counts[severity]}</span>
+              {m.severity[severity]} <span className="muted">{counts[severity]}</span>
             </li>
           ))}
         </ul>

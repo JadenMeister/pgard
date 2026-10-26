@@ -5,21 +5,10 @@ import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Card, Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
+import { useI18n } from "../../i18n/I18nProvider";
 import { CoverageTable } from "./CoverageTable";
 
-const SCOPE_OPTIONS: ReadonlyArray<{ scope: ScanScope; label: string; hint: string }> = [
-  { scope: "code", label: "Code", hint: "current code and configuration" },
-  {
-    scope: "history",
-    label: "Git history",
-    hint: "tracked files and past commits (secrets, risky files)",
-  },
-  {
-    scope: "web",
-    label: "Local web service",
-    hint: "anonymous GET checks of the confirmed target",
-  },
-];
+const SCOPES: readonly ScanScope[] = ["code", "history", "web"];
 
 interface ScanPanelProps {
   target: TargetInfo | null;
@@ -29,6 +18,7 @@ interface ScanPanelProps {
 
 /** Starts a scan through the local server (scan-core, gate included) and shows progress. */
 export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
+  const { m } = useI18n();
   const [scopes, setScopes] = useState<ScanScope[]>(["code", "history"]);
   const [error, setError] = useState<string | null>(null);
   const isRunning = scan?.status === "running";
@@ -46,7 +36,7 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
     try {
       onScan(await apiPost<ScanStatus>("/api/scan", { scopes }));
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Request failed.");
+      setError(caught instanceof Error ? caught.message : m.common.requestFailed);
     }
   };
 
@@ -55,27 +45,25 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
   };
 
   return (
-    <Card title="Scan" step={3}>
+    <Card title={m.cards.scan} step={3}>
       <fieldset className="scopes" disabled={isRunning}>
-        <legend>Scope</legend>
-        {SCOPE_OPTIONS.map((option) => (
-          <label key={option.scope} className="scope">
+        <legend>{m.scan.scope}</legend>
+        {SCOPES.map((scope) => (
+          <label key={scope} className="scope">
             <input
               type="checkbox"
-              checked={scopes.includes(option.scope)}
-              onChange={() => toggle(option.scope)}
+              checked={scopes.includes(scope)}
+              onChange={() => toggle(scope)}
             />
             <span>
-              {option.label} <span className="muted">- {option.hint}</span>
+              {m.scan.scopes[scope].label}{" "}
+              <span className="muted">- {m.scan.scopes[scope].hint}</span>
             </span>
           </label>
         ))}
       </fieldset>
       {scopes.includes("web") && target === null && (
-        <Notice tone="warning">
-          No confirmed web target: the web scope will be recorded as not tested and the scan will be
-          partial.
-        </Notice>
+        <Notice tone="warning">{m.scan.noWebTarget}</Notice>
       )}
       <div className="button-row">
         <button
@@ -84,11 +72,11 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
           disabled={isRunning || scopes.length === 0}
           onClick={() => void start()}
         >
-          Run scan
+          {m.scan.run}
         </button>
         {isRunning && (
           <button type="button" className="button" onClick={() => void cancel()}>
-            Cancel
+            {m.scan.cancel}
           </button>
         )}
       </div>

@@ -1,14 +1,10 @@
 import type { Severity } from "@pgard/findings";
+import { en } from "../../i18n/en";
 
 export const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
 
-export const SEVERITY_LABELS: Record<Severity, string> = {
-  critical: "Critical",
-  high: "High",
-  medium: "Medium",
-  low: "Low",
-  info: "Info",
-};
+/** English labels; components use the active catalog's `severity` map. */
+export const SEVERITY_LABELS: Record<Severity, string> = en.severity;
 
 /**
  * Severity is ordinal, so it uses one hue (blue) from light to dark, validated with the

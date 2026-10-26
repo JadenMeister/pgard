@@ -3,14 +3,12 @@ import type { InstallRemedyDto, OwnerApprovalRecheckDto } from "../../../shared/
 import { apiPost, ApiRequestError } from "../../api/client";
 import { Notice } from "../../components/ui/Card";
 import { usePolling } from "../../hooks/use-polling";
+import { useI18n } from "../../i18n/I18nProvider";
 import {
   describeInstallRemedy,
-  INSTALL_BUTTON_LABEL,
   INSTALL_POLL_INTERVAL_MS,
-  INSTALL_WAIT_TIMED_OUT_TEXT,
   isInstallWaitOver,
   nextInstallStep,
-  WAITING_FOR_INSTALL_TEXT,
 } from "./install-remedy";
 
 interface InstallAppNoticeProps {
@@ -31,7 +29,8 @@ interface InstallAppNoticeProps {
  * again.
  */
 export function InstallAppNotice({ remedy, waitEndsAt, onInstalled }: InstallAppNoticeProps) {
-  const view = describeInstallRemedy(remedy);
+  const { m } = useI18n();
+  const view = describeInstallRemedy(remedy, m);
   const canWait = view.kind === "install" && !isInstallWaitOver(waitEndsAt, Date.now());
   const [isWaiting, setIsWaiting] = useState(canWait);
   const [isTimedOut, setIsTimedOut] = useState(view.kind === "install" && !canWait);
@@ -88,11 +87,11 @@ export function InstallAppNotice({ remedy, waitEndsAt, onInstalled }: InstallApp
       <p>{view.text}</p>
       <p>
         <a className="button primary" href={view.url} target="_blank" rel="noreferrer noopener">
-          {INSTALL_BUTTON_LABEL}
+          {m.install.button}
         </a>
       </p>
-      {isWaiting && <p className="muted">{WAITING_FOR_INSTALL_TEXT}</p>}
-      {isTimedOut && <p className="muted">{INSTALL_WAIT_TIMED_OUT_TEXT}</p>}
+      {isWaiting && <p className="muted">{m.install.waiting}</p>}
+      {isTimedOut && <p className="muted">{m.install.timedOut}</p>}
     </div>
   );
 }

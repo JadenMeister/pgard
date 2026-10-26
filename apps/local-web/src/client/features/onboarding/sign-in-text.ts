@@ -1,17 +1,27 @@
 import type { SessionInfo, StoredSignInDto } from "../../../shared/api-types";
+import { en } from "../../i18n/en";
+import type { Messages } from "../../i18n/types";
 
 /** Two sign-out actions, labelled so it is clear which one touches the OS keychain. */
-export const SIGN_OUT_LABELS = {
-  sessionOnly: "End dashboard session (keep keychain sign-in)",
-  removeStored: "Sign out and remove from OS keychain",
-} as const;
+export function signOutTexts(m: Messages = en): {
+  labels: { sessionOnly: string; removeStored: string };
+  hints: { sessionOnly: string; removeStored: string };
+} {
+  return {
+    labels: {
+      sessionOnly: m.auth.signOut.sessionOnlyLabel,
+      removeStored: m.auth.signOut.removeStoredLabel,
+    },
+    hints: {
+      sessionOnly: m.auth.signOut.sessionOnlyHint,
+      removeStored: m.auth.signOut.removeStoredHint,
+    },
+  };
+}
 
-export const SIGN_OUT_HINTS = {
-  sessionOnly:
-    "Forgets the GitHub session in this dashboard only. The sign-in saved in the OS keychain stays, and the next check reuses it without a code.",
-  removeStored:
-    "Also deletes the saved sign-in from the OS keychain, for the CLI too. The next check asks for a new device code.",
-} as const;
+/** English texts, kept as constants for callers and tests that do not care about the language. */
+export const SIGN_OUT_LABELS = signOutTexts(en).labels;
+export const SIGN_OUT_HINTS = signOutTexts(en).hints;
 
 /**
  * One line about the GitHub App: the override in use, or why an invalid override blocks every
@@ -19,6 +29,7 @@ export const SIGN_OUT_HINTS = {
  */
 export function describeGitHubApp(
   app: SessionInfo["githubApp"],
+  m: Messages = en,
 ): { tone: "info" | "warning"; text: string } | null {
   switch (app.source) {
     case "default":
@@ -26,25 +37,28 @@ export function describeGitHubApp(
     case "env":
       return {
         tone: "info",
-        text: `GitHub App: ${app.clientId} from PGARD_GITHUB_APP_CLIENT_ID (override of the built-in PGARD App).`,
+        text: m.auth.githubAppEnv(app.clientId),
       };
     case "invalid":
       return {
         tone: "warning",
-        text: `${app.message} Until then GitHub identity is unverifiable and every scan is blocked.`,
+        text: m.auth.githubAppInvalid(app.message),
       };
   }
 }
 
 /** One line about the GitHub sign-in the server holds. Shows the account login at most. */
-export function describeStoredSignIn(storedSignIn: StoredSignInDto): string | null {
+export function describeStoredSignIn(
+  storedSignIn: StoredSignInDto,
+  m: Messages = en,
+): string | null {
   switch (storedSignIn.status) {
     case "stored":
-      return `GitHub sign-in: ${storedSignIn.login}, saved in the OS keychain and reused for each check. The token stays on this computer and is never sent to the browser.`;
+      return m.auth.storedSignIn(storedSignIn.login);
     case "none":
-      return "GitHub sign-in: none saved. The next check asks for a device code and saves the sign-in in the OS keychain.";
+      return m.auth.noSignIn;
     case "unavailable":
-      return `GitHub sign-in: the OS keychain is unavailable (${storedSignIn.reason}), so the sign-in is kept in memory until the dashboard stops.`;
+      return m.auth.keychainUnavailable(storedSignIn.reason);
     case "unknown":
       return null;
   }
