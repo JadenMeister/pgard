@@ -54,7 +54,7 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 - **Web checks.** Checks send only anonymous `GET`/`HEAD` requests to `127.0.0.1`, and only to the service you confirm (after authorization, one identity `GET /` goes to each discovered local port). PGARD sends no POST/PUT/DELETE requests or form submissions, but a badly built app can still change state on a `GET`. See [Local web checks](#local-web-checks).
 - **Result schema versioning.** The scan result carries a `major.minor` `schemaVersion`; readers refuse another major version. See [`docs/RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md).
 - **Out of scope.** Remote services, attack or state-changing requests, logged-in web browsing, dependency vulnerability lookups and more are not supported. See [Out of scope](#out-of-scope).
-- **Development conventions.** Commit units and messages, branch and pull request boundaries, and reviews before merge are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
+- **Development conventions.** Commit units and messages, branch and pull request boundaries, and the issue, project board and review-before-merge workflow are described in [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md). See also [Development](#development).
 
 ## Requirements
 
@@ -465,7 +465,7 @@ CI runs `npm ci`, `npm run build`, `npm run format:check` and `npm test` on pull
 
 - [`PGARD_AGENT_BRIEF_EN.md`](docs/PGARD_AGENT_BRIEF_EN.md): the implementation brief. It sets the product scope, the authorization gate, the scan boundaries and the definition of done.
 - [`PGARD_CLI_AND_STRUCTURE_EN.md`](docs/PGARD_CLI_AND_STRUCTURE_EN.md): the command set and the layout of the apps and packages.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_EN.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_EN.md): the rules for commit units, messages, naming, verification and pull requests, plus the current issue, board and review workflow.
 
 One further document is written in English and describes current behaviour: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
 

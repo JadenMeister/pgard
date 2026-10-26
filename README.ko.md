@@ -54,7 +54,7 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 - **웹 검사.** 검사는 `127.0.0.1`에 익명 `GET`/`HEAD` 요청만 보내며, 사용자가 확인한 서비스에만 보냅니다(권한 확인 후 발견한 각 로컬 포트에는 정체를 확인하는 `GET /` 한 번만 보냅니다). PGARD는 POST/PUT/DELETE 요청이나 폼 제출을 보내지 않지만, 잘못 만들어진 앱은 `GET` 요청에도 상태가 바뀔 수 있습니다. [로컬 웹 검사](#로컬-웹-검사) 참고.
 - **결과 스키마 버전 관리.** 검사 결과는 `major.minor` 형식의 `schemaVersion`을 가지며, 읽는 쪽은 다른 major 버전을 거부합니다. [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md) 참고.
 - **범위 밖.** 원격 서비스, 공격 요청이나 상태를 바꾸는 요청, 로그인한 상태의 웹 탐색, 의존성 취약점 조회 등은 지원하지 않습니다. [범위 밖](#범위-밖) 참고.
-- **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 병합 전 리뷰는 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
+- **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 이슈·프로젝트 보드·병합 전 리뷰 운영은 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
 
 ## 요구 사항
 
@@ -465,7 +465,7 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 
 - [`PGARD_AGENT_BRIEF_KO.md`](docs/PGARD_AGENT_BRIEF_KO.md): 구현 브리프입니다. 제품 범위, 권한 게이트, 검사 경계, 완료 조건을 정했습니다.
 - [`PGARD_CLI_AND_STRUCTURE_KO.md`](docs/PGARD_CLI_AND_STRUCTURE_KO.md): CLI 명령 체계와 앱·패키지 구조를 정했습니다.
-- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙을 정했습니다.
+- [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md): 커밋 단위, 메시지, 네이밍, 검증, PR 규칙과 현행 이슈·보드·리뷰 운영을 정했습니다.
 
 현재 동작을 설명하는 문서가 하나 더 있습니다(기준은 영문판입니다). [`RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
 
