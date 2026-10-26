@@ -127,4 +127,4 @@ packages/
 - **AST (abstract syntax tree):** A form that reads code structurally rather than by text search, capturing variables, function calls, and string concatenation.
 - **Data flow analysis:** Looks at whether user input went through validation and parameter binding, and traces the path it takes to the SQL execution function. For example, if a request value is concatenated directly into a SQL string, it is flagged for review, and when the evidence is insufficient it is marked `suspected` or `not tested` instead of confirmed.
 
-The first SQL library candidates are `pg`, `mysql2`, Prisma raw query, Go `database/sql`, and GORM. This list is a recommendation and does not declare unsupported ORMs safe.
+The first SQL library candidates are `pg`, `mysql2`, Prisma raw query, Go `database/sql`, and GORM. This list is a recommendation. As a rule, an unsupported ORM is not judged safe.

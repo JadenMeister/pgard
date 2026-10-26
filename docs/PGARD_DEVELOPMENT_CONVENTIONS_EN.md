@@ -61,8 +61,8 @@ Verified: policy denial cases and CLI error mapping.
 ## 3. Branch and PR Boundaries
 
 - Branch names are recommended to be `type/short-kebab-case`, such as `feat/cli-scoped-scans` and `fix/policy-owner-approval`. Keep each PR to a size in which one subsystem or one vertical feature can be reviewed. If multiple packages must change together, link the shared contract and the consumer changes in the PR description.
-- Each PR states its purpose, scope, result screenshots or CLI output (sensitive values masked), test results, unsupported/partial scan scope, security impact, and how to revert. Review each PR awaiting review in a separate chat, resolve the problems found in that PR, and then report to the coordinator.
-- A PR that changes the permission policy, result schema, or local web security boundary must be reviewed by the owner of the relevant package. Code ownership changes and cross-package interface changes are negotiated directly between the owners, with the coordinator notified. Merging to main is coordinated after the required reviews, CI, and protection rules pass.
+- Each PR states its purpose, scope, result screenshots or CLI output (sensitive values masked), test results, unsupported/partial scan scope, security impact, and how to revert. Review each PR awaiting review in a separate chat, resolve the problems found in that PR, and then report to the lead.
+- A PR that changes the permission policy, result schema, or local web security boundary must be reviewed by the owner of the relevant package. Code ownership changes and cross-package interface changes are negotiated directly between the owners, with the lead notified. Merging to main is coordinated after the required reviews, CI, and protection rules pass.
 
 ## 4. Code Structure and Dependencies
 
@@ -99,4 +99,4 @@ Make broad names such as `data`, `result`, `item`, `handleThing`, `checkSecurity
 
 ## 7. Completion Report Format for Implementing Agents
 
-Each owner reports to the coordinator, for the boundary they own, **what was changed**, **how it was split into commits**, **verification commands and results**, **remaining limitations and blockers**, and **contract changes needed from other owners**. Before changing scope or file ownership, negotiate directly with the counterpart owner and notify the coordinator. The coordinator gathers the independent review results per PR and checks the required verification status before merging to main.
+Each owner reports to the lead, for the boundary they own, **what was changed**, **how it was split into commits**, **verification commands and results**, **remaining limitations and blockers**, and **contract changes needed from other owners**. Before changing scope or file ownership, negotiate directly with the counterpart owner and notify the lead. The lead gathers the independent review results per PR and checks the required verification status before merging to main.

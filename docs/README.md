@@ -2,7 +2,7 @@
 
 Back to the project [README](../README.md) ([한국어](../README.ko.md)). Korean index: [README.ko.md](README.ko.md).
 
-The README and `RESULT_SCHEMA.md` describe what PGARD does today. The three planning documents are the record of the MVP plan, written in Korean before and during implementation; English translations are provided, and the Korean originals remain the authoritative record. Where a planning document differs from the README (for example, the planning documents mention an advisory database, which PGARD does not have), the README and the code are correct.
+The README and `RESULT_SCHEMA.md` describe what PGARD does today. The three planning documents are the record of the MVP plan, written in Korean before implementation; English translations are provided, and the Korean originals remain the authoritative record. Where a planning document differs from the README (for example, the planning documents mention an advisory database, which PGARD does not have), the README and the code are correct.
 
 | Document                | Role                                                                                | English                                                                                  | Korean                                                                                | Status                                                                         |
 | ----------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
