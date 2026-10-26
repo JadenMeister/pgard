@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createResultStore, type ResultStore } from "@pgard/result-store";
@@ -12,9 +12,11 @@ import {
   createTestContext,
   createTestDeps,
   createTestIo,
+  testFinding,
   testResult,
 } from "../test-support.js";
-import { NO_STORE_ENV, firstRunNotice } from "./store-result.js";
+import { findPreviousScan } from "./scan-diff-summary.js";
+import { NO_STORE_ENV, firstRunNotice, storeScanResult } from "./store-result.js";
 
 const REPO_ID = 777;
 const ALLOWED_OUTCOME: AuthorizationOutcome = {
@@ -239,5 +241,151 @@ describe("pgard history clear", () => {
     );
     expect(code).toBe(5);
     expect(captured.stderr()).toContain("nothing to clear");
+  });
+});
+
+describe("comparison with the previous stored scan", () => {
+  const moved = (line: number) =>
+    testResult({
+      scanId: `scan-${line}`,
+      findings: [
+        testFinding({
+          location: { kind: "file", path: "src/a.ts", line, url: null, commit: null },
+        }),
+      ],
+    });
+  const repoDir = () => path.join(base, "pgard", "repos", String(REPO_ID));
+  const summaryLines = (text: string) =>
+    text.split("\n").filter((line) => line.includes("Since the last scan"));
+
+  it("says nothing on the first scan", async () => {
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME));
+    expect(captured.stdout()).not.toContain("Since the last scan");
+    expect(captured.stderr()).not.toContain("Since the last scan");
+  });
+
+  it("prints one summary line on stdout for the second scan, moved code counted as unchanged", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, moved(30)));
+    const lines = summaryLines(captured.stdout());
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(
+      /^Since the last scan \(\d{4}-\d\d-\d\d \d\d:\d\d\): 0 new, 0 fixed, 1 unchanged \(1 moved\)$/,
+    );
+    expect(captured.stderr()).not.toContain("Since the last scan");
+  });
+
+  it("counts new and fixed findings", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, testResult({ scanId: "a", findings: [testFinding()] })));
+    const next = testResult({
+      scanId: "b",
+      findings: [testFinding({ evidence: "different flow" })],
+    });
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, next));
+    expect(captured.stdout()).toContain(": 1 new, 1 fixed, 0 unchanged");
+  });
+
+  it("names areas that cannot be compared and never calls their findings fixed", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, testResult({ scanId: "a" })));
+    const partial = testResult({
+      scanId: "b",
+      findings: [],
+      coverage: [
+        { area: "source:typescript", scope: "code", status: "partial", ruleIds: [], note: null },
+        { area: "history:secrets", scope: "history", status: "completed", ruleIds: [], note: null },
+      ],
+    });
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, partial));
+    const [line] = summaryLines(captured.stdout());
+    expect(line).toContain("0 fixed");
+    expect(line).toContain("Not compared (source:typescript: partial)");
+  });
+
+  it("prints nothing with --no-store", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, moved(11)), { noStore: true });
+    expect(captured.stdout()).not.toContain("Since the last scan");
+    expect(captured.stderr()).not.toContain("Since the last scan");
+  });
+
+  it("with --format json keeps stdout a single JSON document and uses stderr", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(captured, depsWith(ALLOWED_OUTCOME, moved(12))),
+      { ...DEFAULT_SCAN, format: "json" },
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(captured.stdout())).toMatchObject({ scanId: "scan-12" });
+    expect(captured.stdout()).not.toContain("Since the last scan");
+    expect(summaryLines(captured.stderr())).toHaveLength(1);
+  });
+
+  it("skips a corrupt previous file with a warning and compares with the next one", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    await writeFile(path.join(repoDir(), "9999999999999-0123456789abcdef.json"), "{not json");
+    const { captured, code } = await run(depsWith(ALLOWED_OUTCOME, moved(11)));
+    expect(code).toBe(0);
+    expect(captured.stderr()).toContain(
+      "Skipped stored result 9999999999999-0123456789abcdef.json",
+    );
+    expect(captured.stdout()).toContain("Since the last scan");
+  });
+
+  it("skips a previous file with a newer minor schema, with a warning", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const [name] = await readdir(repoDir());
+    const file = path.join(repoDir(), name as string);
+    const text = (await readFile(file, "utf8")).replace(
+      '"schemaVersion":"1.0"',
+      '"schemaVersion":"1.9"',
+    );
+    expect(text).toContain('"1.9"');
+    await writeFile(file, text);
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, moved(11)));
+    expect(captured.stderr()).toContain("newer than this PGARD understands");
+    expect(captured.stdout()).not.toContain("Since the last scan");
+  });
+
+  it("skips an oversized previous file", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    await writeFile(
+      path.join(repoDir(), "9999999999999-0123456789abcdef.json"),
+      Buffer.alloc(9 * 1024 * 1024, 32),
+    );
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, moved(11)));
+    expect(captured.stderr()).toContain("Skipped stored result");
+    expect(captured.stdout()).toContain("Since the last scan");
+  });
+
+  it("prints no summary when the save fails", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const broken: ResultStore = {
+      ...store,
+      save: async () => ({ ok: false, error: { code: "io", message: "disk full" } }),
+    };
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, moved(11), broken));
+    expect(captured.stdout()).not.toContain("Since the last scan");
+  });
+
+  it("never picks the scan being compared as its own previous scan", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    expect((await findPreviousScan(store, REPO_ID, "scan-10")).scan).toBeNull();
+    expect((await findPreviousScan(store, REPO_ID, "other")).scan?.result.scanId).toBe("scan-10");
+  });
+
+  it("writes the summary to stderr, not stdout, when told the output is JSON", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, moved(10)));
+    const captured = createTestIo();
+    await storeScanResult(
+      createTestContext(captured, depsWith(ALLOWED_OUTCOME)),
+      moved(11),
+      ALLOWED_OUTCOME,
+      "/work/repo",
+      false,
+      true,
+    );
+    expect(captured.stdout()).toBe("");
+    expect(captured.stderr()).toContain("Since the last scan");
   });
 });

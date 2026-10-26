@@ -237,7 +237,14 @@ async function runScanFlow(
       out(context, "No report was written because the scan was blocked.");
     return exitCode;
   }
-  await storeScanResult(context, result, scanned.outcome, projectRoot, command.noStore === true);
+  await storeScanResult(
+    context,
+    result,
+    scanned.outcome,
+    projectRoot,
+    command.noStore === true,
+    isJson,
+  );
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
