@@ -17,8 +17,14 @@ export const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "l
 
 /** How strongly the evidence supports the finding. Never merged with severity into a score. */
 export type Confidence = "high" | "medium" | "low";
+export const CONFIDENCES: readonly Confidence[] = ["high", "medium", "low"];
 
 export type FindingStatus = "confirmed" | "suspected" | "informational";
+export const FINDING_STATUSES: readonly FindingStatus[] = [
+  "confirmed",
+  "suspected",
+  "informational",
+];
 
 export type FindingCategory =
   | "injection"
@@ -33,6 +39,20 @@ export type FindingCategory =
   | "file_handling"
   | "command_execution"
   | "secret_exposure";
+export const FINDING_CATEGORIES: readonly FindingCategory[] = [
+  "injection",
+  "xss",
+  "ssrf",
+  "access_control",
+  "authentication",
+  "brute_force",
+  "cryptography",
+  "misconfiguration",
+  "csrf",
+  "file_handling",
+  "command_execution",
+  "secret_exposure",
+];
 
 /**
  * - `completed`: the area ran to the end (findings may or may not exist).
@@ -41,6 +61,12 @@ export type FindingCategory =
  * - `not_selected`: the user did not request the area.
  */
 export type CoverageStatus = "completed" | "partial" | "not_tested" | "not_selected";
+export const COVERAGE_STATUSES: readonly CoverageStatus[] = [
+  "completed",
+  "partial",
+  "not_tested",
+  "not_selected",
+];
 
 export interface Coverage {
   /** Fine-grained area id, e.g. `source:typescript`, `history:secrets`, `web:anonymous`. */
@@ -52,6 +78,7 @@ export interface Coverage {
 }
 
 export type LocationKind = "file" | "url" | "commit";
+export const LOCATION_KINDS: readonly LocationKind[] = ["file", "url", "commit"];
 
 export interface FindingLocation {
   kind: LocationKind;
@@ -70,6 +97,7 @@ export interface FindingLocation {
  * Optional, so JSON v1 consumers that do not know it keep working.
  */
 export type FindingContext = "test" | "vendored";
+export const FINDING_CONTEXTS: readonly FindingContext[] = ["test", "vendored"];
 
 export interface FindingReferences {
   cwe: string[];
@@ -124,9 +152,21 @@ export interface AdvisoryDbInfo {
 
 export type AuthorizationCheckId =
   "repository" | "github_identity" | "owner_approval" | "current_access" | "contribution";
+export const AUTHORIZATION_CHECK_IDS: readonly AuthorizationCheckId[] = [
+  "repository",
+  "github_identity",
+  "owner_approval",
+  "current_access",
+  "contribution",
+];
 
 /** `unverifiable` blocks exactly like `failed`; it only differs in the reported reason. */
 export type AuthorizationCheckStatus = "passed" | "failed" | "unverifiable";
+export const AUTHORIZATION_CHECK_STATUSES: readonly AuthorizationCheckStatus[] = [
+  "passed",
+  "failed",
+  "unverifiable",
+];
 
 export interface AuthorizationCheck {
   id: AuthorizationCheckId;
@@ -146,6 +186,12 @@ export interface AuthorizationSummary {
  * - `failed`: an internal error stopped the scan.
  */
 export type OverallStatus = "completed" | "partial" | "blocked" | "failed";
+export const OVERALL_STATUSES: readonly OverallStatus[] = [
+  "completed",
+  "partial",
+  "blocked",
+  "failed",
+];
 
 export interface ScanResult {
   schemaVersion: typeof SCHEMA_VERSION;
