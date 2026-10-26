@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   createInMemoryCredentialStore,
   createUnavailableCredentialStore,
+  CredentialStoreError,
   isCredentialStoreError,
   type CredentialStore,
 } from "./credential-store.js";
@@ -718,5 +719,217 @@ describe("existing() (non-interactive session for background re-checks)", () => 
     await expect(provider.existing()).rejects.toMatchObject({
       code: "invalid_client_id_override",
     });
+  });
+});
+
+/** A manually opened gate for the fake keychain below. */
+function gate(): { promise: Promise<void>; open: () => void } {
+  let open = (): void => {};
+  const promise = new Promise<void>((resolve) => (open = resolve));
+  return { promise, open };
+}
+
+/** Lets every pending promise and timer-0 callback run (the fake keychain is in memory). */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+/**
+ * A fake keychain whose writes and removals the test holds open: while `setGate` / `deleteGate`
+ * is set, `set` / `delete` wait for it before taking effect. `failGet` makes reads throw.
+ */
+function controllableStore(): {
+  store: CredentialStore;
+  inner: ReturnType<typeof createInMemoryCredentialStore>;
+  control: {
+    setGate: Promise<void> | null;
+    deleteGate: Promise<void> | null;
+    failGet: boolean;
+    setCalls: number;
+    deleteCalls: number;
+  };
+} {
+  const inner = createInMemoryCredentialStore();
+  const control = {
+    setGate: null as Promise<void> | null,
+    deleteGate: null as Promise<void> | null,
+    failGet: false,
+    setCalls: 0,
+    deleteCalls: 0,
+  };
+  const store: CredentialStore = {
+    get: async (key) => {
+      if (control.failGet) throw new CredentialStoreError("the OS keychain is locked");
+      return inner.get(key);
+    },
+    set: async (key, secret) => {
+      control.setCalls += 1;
+      if (control.setGate) await control.setGate;
+      await inner.set(key, secret);
+    },
+    delete: async (key) => {
+      control.deleteCalls += 1;
+      if (control.deleteGate) await control.deleteGate;
+      return inner.delete(key);
+    },
+  };
+  return { store, inner, control };
+}
+
+describe("keychain writes and removals are serialized (#143)", () => {
+  it("keeps the cached session when the keychain cannot be read right now", async () => {
+    const { store, inner, control } = controllableStore();
+    await inner.set(KEY, storedRecord());
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider, userCodes } = makeProvider(github, store);
+    const first = await provider();
+    control.failGet = true;
+    // An unreadable keychain says nothing about a sign-out: the session is kept.
+    expect(await provider()).toBe(first);
+    expect(await provider.existing()).toBe(first);
+    expect(userCodes).toEqual([]);
+    expect(github.count("device")).toBe(0);
+    expect(github.count("user")).toBe(1);
+  });
+
+  it("removes a device-flow sign-in whose save was in flight when removal started", async () => {
+    const { store, inner, control } = controllableStore();
+    const save = gate();
+    control.setGate = save.promise;
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider } = makeProvider(github, store);
+    const signingIn = provider();
+    await settle();
+    expect(control.setCalls).toBe(1); // the save is in flight
+
+    provider.signOut();
+    let isRemoved = false;
+    const removing = removeStoredSignIn(store, CLIENT_ID).then((result) => {
+      isRemoved = true;
+      return result;
+    });
+    await settle();
+    // The removal waits for the save instead of running before it.
+    expect(isRemoved).toBe(false);
+    save.open();
+    await signingIn;
+    expect(await removing).toEqual({ status: "removed", login: "octo" });
+    expect(inner.size()).toBe(0);
+  });
+
+  it("does not recreate an entry whose removal was in flight when a refresh was saved", async () => {
+    const { store, inner, control } = controllableStore();
+    await inner.set(KEY, storedRecord({ expiresAt: START - HOUR }));
+    const removal = gate();
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    let removing: Promise<unknown> = Promise.resolve();
+    let provider: ReturnType<typeof makeProvider>["provider"] | null = null;
+    const fetch: FetchLike = async (url, init) => {
+      if (new URLSearchParams(init.body ?? "").get("grant_type") === "refresh_token") {
+        // "Sign out and remove from OS keychain" starts while GitHub rotates the token; its
+        // delete is still in flight (and the entry still readable) when the provider saves.
+        control.deleteGate = removal.promise;
+        provider?.signOut();
+        removing = removeStoredSignIn(store, CLIENT_ID);
+      }
+      return github.fetch(url, init);
+    };
+    provider = makeProvider({ ...github, fetch }, store).provider;
+    const reusing = provider().catch(() => null);
+    await settle();
+    expect(control.deleteCalls).toBe(1);
+    removal.open();
+    await reusing;
+    await removing;
+    // The provider re-checked inside the lock, after the removal, and saved nothing.
+    expect(inner.size()).toBe(0);
+  });
+
+  it("never overwrites a sign-in that pgard login saved during a refresh", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    const fetch: FetchLike = async (url, init) => {
+      if (new URLSearchParams(init.body ?? "").get("grant_type") === "refresh_token") {
+        await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+      }
+      return github.fetch(url, init);
+    };
+    const { provider } = makeProvider({ ...github, fetch }, store);
+    await provider();
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").refreshToken).toBe(NEW_REFRESH);
+  });
+
+  it("saves rotated tokens even when a session-only sign-out aborts the /user check", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const controller = new AbortController();
+    const github = fakeGitHub({
+      refreshResponse: {
+        access_token: REFRESHED_TOKEN,
+        expires_in: 28800,
+        refresh_token: REFRESHED_REFRESH,
+        refresh_token_expires_in: 15897600,
+      },
+    });
+    let signOut = () => {};
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/user")) {
+        // "End dashboard session (keep keychain sign-in)" aborts the in-flight request.
+        signOut();
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+      return github.fetch(url, init);
+    };
+    const provider = createDeviceFlowSessionProvider({
+      clientId: CLIENT_ID,
+      onUserCode: () => {},
+      credentialStore: store,
+      fetch,
+      signal: controller.signal,
+      sleep: async () => {},
+      now: () => START,
+    });
+    signOut = () => {
+      controller.abort();
+      provider.signOut();
+    };
+    await expect(provider()).rejects.toBeDefined();
+    // GitHub already rotated the refresh token: the keychain holds the new pair, never the spent one.
+    expect(JSON.parse((await store.get(KEY)) ?? "{}")).toMatchObject({
+      accessToken: REFRESHED_TOKEN,
+      refreshToken: REFRESHED_REFRESH,
+      login: "octo",
+      userId: 7,
+    });
+  });
+});
+
+describe("keychain lock: re-check right before the device-flow save", () => {
+  it("skips the save when a sign-out lands while the save waits for the lock", async () => {
+    const { store, inner, control } = controllableStore();
+    // Another keychain removal holds the lock (its delete is in flight).
+    const removal = gate();
+    control.deleteGate = removal.promise;
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    let provider: ReturnType<typeof makeProvider>["provider"] | null = null;
+    let removing: Promise<unknown> = Promise.resolve();
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/user")) removing = removeStoredSignIn(store, CLIENT_ID);
+      return github.fetch(url, init);
+    };
+    provider = makeProvider({ ...github, fetch }, store).provider;
+    const signingIn = provider();
+    await settle();
+    expect(control.deleteCalls).toBe(1);
+    expect(control.setCalls).toBe(0); // the save waits for the lock
+    provider.signOut();
+    removal.open();
+    await signingIn;
+    await removing;
+    expect(control.setCalls).toBe(0);
+    expect(inner.size()).toBe(0);
   });
 });

@@ -19,6 +19,7 @@ import {
   loadStoredSignIn,
   saveStoredSignIn,
   signInKey,
+  withKeychainLock,
   type StoredSignInRecord,
 } from "./stored-sign-in.js";
 
@@ -164,10 +165,9 @@ export async function signInAndStore(
   const tokens = await requestDeviceFlowTokens(deviceFlowOptions(options, options.clientId));
   const session = createSessionFromToken(tokens.accessToken, tokens.expiresAt, options);
   const user = await session.client.getAuthenticatedUser();
-  const savedError = await saveStoredSignIn(
-    options.credentialStore,
-    toRecord(tokens, user, githubHostOf(), options.clientId, now()),
-  );
+  const store = options.credentialStore;
+  const record = toRecord(tokens, user, githubHostOf(), options.clientId, now());
+  const savedError = await withKeychainLock(store, () => saveStoredSignIn(store, record));
   return { login: user.login, savedError };
 }
 
@@ -268,12 +268,17 @@ export function createDeviceFlowSessionProvider(
     notify({ kind: "memory_only", reason });
   };
 
-  const deleteEntry = async (clientId: string): Promise<void> => {
-    const current = store;
-    if (current === null) return;
+  /** Deletes the entry; the caller holds the keychain lock. */
+  const deleteEntryLocked = async (current: CredentialStore, clientId: string): Promise<void> => {
     await current.delete(signInKey(host, clientId)).catch((error: unknown) => {
       if (isCredentialStoreError(error)) fallBackToMemory(error.message);
     });
+  };
+
+  const deleteEntry = async (clientId: string): Promise<void> => {
+    const current = store;
+    if (current === null) return;
+    await withKeychainLock(current, () => deleteEntryLocked(current, clientId));
   };
 
   /**
@@ -284,10 +289,12 @@ export function createDeviceFlowSessionProvider(
   const deleteIfStillHolds = async (clientId: string, accessToken: string): Promise<boolean> => {
     const current = store;
     if (current === null) return false;
-    const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
-    if (loaded.kind !== "found" || loaded.record.accessToken !== accessToken) return false;
-    await deleteEntry(clientId);
-    return true;
+    return withKeychainLock(current, async () => {
+      const loaded = await loadStoredSignIn(current, host, clientId, { deleteMalformed: false });
+      if (loaded.kind !== "found" || loaded.record.accessToken !== accessToken) return false;
+      await deleteEntryLocked(current, clientId);
+      return true;
+    });
   };
 
   const drop = async (
@@ -346,6 +353,33 @@ export function createDeviceFlowSessionProvider(
     return { tokens, isRefreshed };
   };
 
+  /**
+   * Writes refreshed tokens over the entry whose refresh token was just spent, right away (before
+   * `GET /user`): GitHub has rotated the refresh token, so the keychain must not keep the spent
+   * one even if the `/user` check is aborted by a session-only sign-out, a cancel or shutdown.
+   * Under the keychain lock, and only while the entry still holds the spent refresh token: an
+   * entry removed ("Sign out and remove", `pgard logout`) stays removed, and one replaced by
+   * `pgard login` is not overwritten. Returns the saved record, or `null` when nothing was saved.
+   */
+  const saveRefreshed = async (
+    current: CredentialStore,
+    spent: StoredSignInRecord,
+    tokens: UserTokenSet,
+  ): Promise<StoredSignInRecord | null> => {
+    const refreshed: StoredSignInRecord = { ...spent, ...tokens, savedAt: now() };
+    const failure = await withKeychainLock(current, async () => {
+      // Re-checked right before the save, inside the lock.
+      if (!(await entryStillHolds(current, spent, "refreshToken"))) return "skipped";
+      const saveFailure = await saveStoredSignIn(current, refreshed);
+      // The old refresh token is spent; do not leave it behind.
+      if (saveFailure !== null) await deleteEntryLocked(current, spent.clientId);
+      return saveFailure;
+    });
+    if (failure === null) return refreshed;
+    if (failure !== "skipped") fallBackToMemory(failure);
+    return null;
+  };
+
   /** Reuses a stored sign-in after checking it with `GET /user`; `null` means use the device flow. */
   const reuseStored = async (
     current: CredentialStore,
@@ -355,6 +389,9 @@ export function createDeviceFlowSessionProvider(
   ): Promise<GitHubSession | null> => {
     const reused = await tryStored(current, record, false);
     if (reused === null) return null;
+    // The entry this session's token is (or would be) stored in.
+    let held: StoredSignInRecord | null = record;
+    if (reused.isRefreshed) held = await saveRefreshed(current, record, reused.tokens);
     const session = createSessionFromToken(
       reused.tokens.accessToken,
       reused.tokens.expiresAt,
@@ -366,33 +403,21 @@ export function createDeviceFlowSessionProvider(
     } catch (error) {
       if (!isUnauthorized(error)) throw error;
       // Delete only the entry that was rejected; `pgard login` elsewhere may have replaced it.
+      const rejected = reused.tokens.accessToken;
       const reloaded = await loadStoredSignIn(current, host, record.clientId, {
         deleteMalformed: false,
       });
-      if (reloaded.kind === "found" && reloaded.record.accessToken !== record.accessToken) {
+      if (reloaded.kind === "found" && reloaded.record.accessToken !== rejected) {
         return canRetry ? reuseStored(current, reloaded.record, myGeneration, false) : null;
       }
-      if (reloaded.kind === "found") await drop(record.clientId, "revoked");
+      if (reloaded.kind === "found" && (await deleteIfStillHolds(record.clientId, rejected))) {
+        notify({ kind: "removed", reason: "revoked" });
+      }
       return null;
     }
-    // Signed out (or aborted) meanwhile: write the rotated tokens back only over the entry whose
-    // refresh token was just spent. If the user removed the entry, it stays removed.
-    if (
-      reused.isRefreshed &&
-      (!isStale(myGeneration) || (await entryStillHolds(current, record, "refreshToken")))
-    ) {
-      const failure = await saveStoredSignIn(
-        current,
-        toRecord(reused.tokens, user, host, record.clientId, now()),
-      );
-      if (failure !== null) {
-        // The old refresh token is spent; do not leave it behind.
-        await deleteEntry(record.clientId);
-        fallBackToMemory(failure);
-      }
-    }
     notify({ kind: "reused", login: user.login, isRefreshed: reused.isRefreshed });
-    markStored(myGeneration, reused.tokens.accessToken);
+    // Only a token that is actually in the keychain ties this session to the entry.
+    if (held !== null) markStored(myGeneration, reused.tokens.accessToken);
     return finish(session, reused.tokens.accessToken, myGeneration);
   };
 
@@ -423,14 +448,16 @@ export function createDeviceFlowSessionProvider(
         // The gate looks the user up again and reports the error; nothing is saved.
       }
       if (user !== null && !isStale(myGeneration)) {
-        const failure = await saveStoredSignIn(
-          current,
-          toRecord(tokens, user, host, clientId, now()),
+        const record = toRecord(tokens, user, host, clientId, now());
+        const saving = current;
+        const failure = await withKeychainLock(saving, async () =>
+          // Re-checked right before the save, inside the lock: a removal that ran meanwhile wins.
+          isStale(myGeneration) ? "stale" : saveStoredSignIn(saving, record),
         );
         if (failure === null) {
           notify({ kind: "saved", login: user.login });
           markStored(myGeneration, tokens.accessToken);
-        } else {
+        } else if (failure !== "stale") {
           fallBackToMemory(failure);
         }
       }

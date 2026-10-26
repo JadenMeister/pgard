@@ -146,6 +146,32 @@ export async function saveStoredSignIn(
   }
 }
 
+const keychainLocks = new WeakMap<CredentialStore, Promise<void>>();
+
+/**
+ * Runs `task` while holding this process's single lock for `store`, so keychain writes and
+ * removals never interleave: a removal that starts while a save is in flight waits for it (and
+ * then removes the saved entry), and a save that starts while a removal is in flight waits and
+ * re-checks inside `task`. Not reentrant: never call it from inside `task`.
+ */
+export async function withKeychainLock<T>(
+  store: CredentialStore,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = keychainLocks.get(store) ?? Promise.resolve();
+  let release = (): void => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const tail = previous.then(() => held);
+  keychainLocks.set(store, tail);
+  await previous;
+  try {
+    return await task();
+  } finally {
+    release();
+    if (keychainLocks.get(store) === tail) keychainLocks.delete(store);
+  }
+}
+
 export type RemoveStoredSignInResult =
   | { status: "removed"; login: string | null }
   | { status: "none" }
@@ -160,15 +186,17 @@ export async function removeStoredSignIn(
   clientId: string,
   host: string = githubHostOf(),
 ): Promise<RemoveStoredSignInResult> {
-  const loaded = await loadStoredSignIn(store, host, clientId);
-  if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
-  try {
-    const wasDeleted = await store.delete(signInKey(host, clientId));
-    if (loaded.kind === "found") return { status: "removed", login: loaded.record.login };
-    return wasDeleted ? { status: "removed", login: null } : { status: "none" };
-  } catch (error) {
-    return { status: "unavailable", reason: unavailableReason(error) };
-  }
+  return withKeychainLock(store, async () => {
+    const loaded = await loadStoredSignIn(store, host, clientId);
+    if (loaded.kind === "unavailable") return { status: "unavailable", reason: loaded.reason };
+    try {
+      const wasDeleted = await store.delete(signInKey(host, clientId));
+      if (loaded.kind === "found") return { status: "removed", login: loaded.record.login };
+      return wasDeleted ? { status: "removed", login: null } : { status: "none" };
+    } catch (error) {
+      return { status: "unavailable", reason: unavailableReason(error) };
+    }
+  });
 }
 
 /**
