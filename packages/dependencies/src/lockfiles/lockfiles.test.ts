@@ -520,3 +520,23 @@ describe("hostile input", () => {
     expect(parsed.isComplete).toBe(false);
   });
 });
+
+describe("pnpm key and version edge cases", () => {
+  it("does not read a v5-looking key whose last name segment holds an @", () => {
+    const parsed = parsePnpmLock(
+      "lockfileVersion: 5.4\npackages:\n  /foo@1/1.2.3:\n    resolution: {integrity: x}\n  /bar/2.0.0:\n    resolution: {integrity: y}\n",
+    );
+    expect(names(parsed)).toEqual(["bar@2.0.0"]);
+    expect(parsed.isComplete).toBe(false);
+  });
+
+  it("strips the peer suffix of an importer version (v5 style) to mark direct dependencies", () => {
+    const parsed = parsePnpmLock(
+      "lockfileVersion: 5.4\nspecifiers:\n  lodash: ^4\ndependencies:\n  lodash: 4.17.21_react@18.0.0\npackages:\n  /lodash/4.17.21_react@18.0.0:\n    resolution: {integrity: x}\n  /qs/6.0.0:\n    resolution: {integrity: y}\n",
+    );
+    expect(parsed.dependencies.map((d) => [d.name, d.direct])).toEqual([
+      ["lodash", true],
+      ["qs", false],
+    ]);
+  });
+});

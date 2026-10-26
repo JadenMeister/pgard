@@ -174,3 +174,34 @@ describe("collectDependencies limits and unreadable manifests", () => {
     expect(byPath.has("ok/package.json")).toBe(false);
   });
 });
+
+describe("collectDependencies skips what the scanner skips", () => {
+  const lock = '# yarn lockfile v1\n\nsecret@^1:\n  version "1.0.0"\n';
+
+  it("does not enter virtualenvs, site-packages, Maven target or Gradle cache directories", async () => {
+    await put("venv/pyvenv.cfg", "home = /usr/bin\n");
+    await put("venv/bin/activate", "");
+    await put("venv/yarn.lock", lock);
+    await put("lib/python3.12/site-packages/yarn.lock", lock);
+    await put("svc/pom.xml", "<project/>");
+    await put("svc/target/yarn.lock", lock);
+    await put("app/build.gradle", "");
+    await put("app/.gradle/yarn.lock", lock);
+    await put("real/yarn.lock", lock);
+    const result = await collectDependencies(root);
+    expect(result.coverage.map((c) => c.path)).toEqual(["real/yarn.lock"]);
+  });
+
+  it("still enters first-party directories that only share those names", async () => {
+    await put("venv/server.js", "");
+    await put("venv/yarn.lock", lock); // no pyvenv.cfg: not an environment
+    await put("target/yarn.lock", lock); // no pom.xml beside it
+    await put("site-packages/yarn.lock", lock); // not under lib/python3.x
+    const result = await collectDependencies(root);
+    expect(result.coverage.map((c) => c.path)).toEqual([
+      "site-packages/yarn.lock",
+      "target/yarn.lock",
+      "venv/yarn.lock",
+    ]);
+  });
+});

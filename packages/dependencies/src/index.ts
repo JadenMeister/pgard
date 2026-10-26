@@ -12,12 +12,7 @@ export type {
   LockfileKind,
   ParsedLockfile,
 } from "./types.js";
-export {
-  currentAppDataEnvironment,
-  osvDataDir,
-  resolveAppDataDir,
-  type AppDataEnvironment,
-} from "./app-data.js";
+export { osvDataDir } from "./app-data.js";
 export {
   ALLOWED_DOWNLOAD_HOSTS,
   DownloadError,

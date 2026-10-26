@@ -179,6 +179,8 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     // A fake keychain: tests never touch the real OS keychain.
     credentialStore: createInMemoryCredentialStore(),
     signInAndStore: unexpected("signInAndStore") as never,
+    // No store by default: tests never write to the real app-data directory.
+    openResultStore: () => null,
     webScanner: unexpected("webScanner") as never,
     probeLocalService: async () => HTTP_IDENTITY,
     discoverListeningPorts: async () => ({

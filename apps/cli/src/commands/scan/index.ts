@@ -16,6 +16,7 @@ import {
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
+import { storeScanResult } from "../../flows/store-result.js";
 import type { OutputFormat, ReportRequest, ScanVariant } from "../../options.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
 import { formatAuthorization, formatScanResult } from "../../ui/formatters/result-view.js";
@@ -38,6 +39,8 @@ export interface ScanCommand {
   format?: OutputFormat;
   /** List every finding and location in the text result. */
   allFindings?: boolean;
+  /** `--no-store`. */
+  noStore?: boolean;
 }
 
 export const JSON_PORT_REQUIRED_MESSAGE =
@@ -234,6 +237,7 @@ async function runScanFlow(
       out(context, "No report was written because the scan was blocked.");
     return exitCode;
   }
+  await storeScanResult(context, result, scanned.outcome, projectRoot, command.noStore === true);
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);

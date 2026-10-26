@@ -16,6 +16,20 @@ The PDF reports embed this font. It is distributed in `packages/report/fonts/` a
 - SHA-256 (Regular): `e1a4564bbbb0676ea20c72ba7cc130917096c5f43655ca99f06c99efcec2fdfb`
 - SHA-256 (Bold): `ff1968fc53fb9abf71041d8c9a9783518de3f85ef2e49ca713ca9a03770aa894`
 
+## Parser runtime and grammars
+
+The Java, Kotlin, Python and PHP analyzers parse with tree-sitter compiled to WebAssembly. The grammars
+are vendored unchanged in `packages/source-analysis/grammars/` (sources, versions and SHA-256 in its
+`README.md`, checked by a test); no native code is installed. All of the following are MIT-licensed, and
+the license texts are kept next to the grammars as `LICENSE.*`.
+
+- web-tree-sitter 0.27.1 (npm dependency): Copyright (c) 2018 Max Brunsfeld. https://github.com/tree-sitter/tree-sitter
+- tree-sitter-java grammar 0.23.5 (`tree-sitter-java.wasm`): Copyright (c) 2017 Ayman Nadeem. https://github.com/tree-sitter/tree-sitter-java
+- tree-sitter-python grammar 0.25.0 (`tree-sitter-python.wasm`): Copyright (c) 2016 Max Brunsfeld. https://github.com/tree-sitter/tree-sitter-python
+- tree-sitter-php grammar 0.24.2 (`tree-sitter-php.wasm`): Copyright (c) 2017 Josh Vera, GitHub. https://github.com/tree-sitter/tree-sitter-php
+- The Java, Python and PHP `.wasm` files were built by Microsoft's `@vscode/tree-sitter-wasm` 0.3.1 (MIT, Copyright (c) Microsoft Corporation; `LICENSE.vscode-tree-sitter-wasm`), https://github.com/microsoft/vscode-tree-sitter-wasm . The package itself is not a dependency.
+- tree-sitter-kotlin grammar 1.1.0 (`tree-sitter-kotlin.wasm`, from `@tree-sitter-grammars/tree-sitter-kotlin`): Copyright (c) 2024 Amaan Qureshi. https://github.com/tree-sitter-grammars/tree-sitter-kotlin
+
 ## Reference data
 
 PGARD bundles small reference datasets so rules can link to the security standards they map to. The

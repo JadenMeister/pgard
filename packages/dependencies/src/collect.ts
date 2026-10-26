@@ -5,6 +5,8 @@ import { classifyDependencyVendorDirectory } from "@pgard/findings";
 import {
   SKIPPED_DEPENDENCY_DIRECTORIES,
   SKIPPED_DIRECTORIES,
+  generatedDirectoryReason,
+  isVirtualenvDirectory,
 } from "@pgard/source-analysis/walk-rules";
 import { parseGoMod, parseGoSum } from "./lockfiles/go.js";
 import { parseNpmLock } from "./lockfiles/npm.js";
@@ -78,6 +80,8 @@ async function discover(root: string): Promise<Discovered> {
       continue;
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
+    // Same rule as the scanner: a Python virtual environment is third-party and not entered.
+    if (directory !== root && (await isVirtualenvDirectory(directory, entries))) continue;
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
       visited += 1;
@@ -91,6 +95,7 @@ async function discover(root: string): Promise<Discovered> {
       if (entry.isDirectory()) {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
         if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) continue;
+        if (generatedDirectoryReason(entry.name, relativePath, fileNames) !== null) continue;
         if (
           entry.name === "vendor" &&
           classifyDependencyVendorDirectory(relativePath, (filePath) =>

@@ -53,6 +53,7 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 - **로컬 웹 대시보드 보안.** `127.0.0.1`에서만 수신하고, 세션마다 토큰을 요구하며, `Host`와 `Origin` 헤더를 검사하고, 엄격한 Content-Security-Policy를 적용하며, 보고서는 파일을 쓰지 않고 브라우저 다운로드로 제공합니다. [대시보드 보호 방식](#대시보드-보호-방식) 참고.
 - **웹 검사.** 검사는 `127.0.0.1`에 익명 `GET`/`HEAD` 요청만 보내며, 사용자가 확인한 서비스에만 보냅니다(권한 확인 후 발견한 각 로컬 포트에는 정체를 확인하는 `GET /` 한 번만 보냅니다). PGARD는 POST/PUT/DELETE 요청이나 폼 제출을 보내지 않지만, 잘못 만들어진 앱은 `GET` 요청에도 상태가 바뀔 수 있습니다. [로컬 웹 검사](#로컬-웹-검사) 참고.
 - **결과 스키마 버전 관리.** 검사 결과는 `major.minor` 형식의 `schemaVersion`을 가지며, 읽는 쪽은 다른 major 버전을 거부합니다. [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md) 참고.
+- **저장된 결과.** `pgard scan`은 민감정보를 가린 결과를 로컬에 보관합니다(저장소당 최근 20회, 90일, macOS·Linux에서 본인만 읽기 가능, 업로드 없음). 권한 확인 게이트는 캐시하지 않으며 검사할 때마다 다시 실행합니다. 저장된 결과에는 결과가 담는 내용이 그대로 들어가며, 권한 확인 사유(GitHub 로그인, 조직 이름과 역할)도 포함되므로 이 폴더는 비공개로 다루세요. 끄려면 `--no-store` 또는 `PGARD_NO_STORE=1`, 삭제는 `pgard history clear --all`. 대시보드 검사는 저장하지 않습니다. [저장된 결과](#저장된-결과) 참고.
 - **범위 밖.** 원격 서비스, 공격 요청이나 상태를 바꾸는 요청, 로그인한 상태의 웹 탐색, 의존성을 취약점 데이터와 대조하는 기능 등은 아직 지원하지 않습니다. [범위 밖](#범위-밖) 참고.
 - **개발 컨벤션.** 커밋 단위와 메시지, 브랜치·PR 경계, 이슈·프로젝트 보드·병합 전 리뷰 운영은 한국어 문서 [`PGARD_DEVELOPMENT_CONVENTIONS_KO.md`](docs/PGARD_DEVELOPMENT_CONVENTIONS_KO.md)에 있습니다. [개발](#개발)도 참고하세요.
 
@@ -110,6 +111,8 @@ Usage:
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and unsupported areas
+  pgard history clear --all | --repo owner/name
+                                delete stored scan results (all, or one repository)
   pgard doctor                  diagnose the environment (not an authorization)
   pgard advisories update       download public OSV vulnerability data (npm, Go)
                                 to this computer; the only non-GitHub download
@@ -134,6 +137,7 @@ Usage:
 | `pgard advisories update` | 사용자가 직접 실행하는 명령으로, npm과 Go의 공개 OSV 대량 내보내기를 `osv-vulnerabilities.storage.googleapis.com`에서 내려받습니다(https만, 그 호스트만). 아무것도 업로드하지 않고 패키지 이름도 보내지 않습니다. 압축 파일을 검증(zip 구조, 레코드별 체크섬, 크기·시간 제한)한 뒤 압축된 색인으로 기존 데이터를 원자적으로 교체하며, 실패하면 기존 데이터가 그대로 남습니다. 검사나 `doctor` 중에는 실행되지 않습니다. 생태계 하나라도 실패하면 종료 코드 4. |
 | `pgard login`             | device flow로 GitHub에 로그인하고 OS 키체인에 저장하여 이후 검사와 대시보드가 다시 사용하게 합니다. 다시 실행하면 저장된 로그인을 바꿉니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.                                                                                                                                                                                                                                                                    |
 | `pgard logout`            | OS 키체인에 저장된 GitHub 로그인을 지웁니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.                                                                                                                                                                                                                                                                                                                                                                   |
+| `pgard history clear`     | `pgard scan`이 이 컴퓨터에 저장한 검사 결과를 삭제합니다. 옵션이 하나 필요합니다. `--all`은 전부, `--repo owner/name`은 한 저장소의 결과를 지웁니다. 업로드하지 않고 로그인도 필요 없습니다. [저장된 결과](#저장된-결과) 참고.                                                                                                                                                                                                                                |
 
 `pgard rules list --language <lang>`은 해당 언어의 규칙만 보여 주며, 언어와 무관한 규칙(Git 이력, 로컬 HTTP 규칙)은 항상 포함되고, `--language react`나 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 
@@ -173,6 +177,8 @@ authorization and continues the scan.
 - `--format text|json`(모든 `scan`, 기본값 `text`): `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 - `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 터미널(stdin과 stdout 모두)에서 링크를 출력한 뒤 `Press Enter to open github.com in your browser...`라고 묻고, Enter를 눌러야 페이지를 엽니다(다른 키는 무시). 로그인·설치 대기는 이 질문과 무관하게 진행되며, 대기가 끝나면 질문은 사라집니다. 터미널이 아니면 열지도 묻지도 않습니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
+- `--no-store`(`scan`만) 또는 환경 변수 `PGARD_NO_STORE=1`: 이번 검사 결과를 이 컴퓨터에 보관하지 않습니다. 값이 정확히 `1`일 때만 적용됩니다. 이 경우 폴더도 안내문도 만들지 않습니다. [저장된 결과](#저장된-결과) 참고.
+- `--all` 또는 `--repo owner/name`(`history clear`만, 둘 중 정확히 하나): 모든 저장소 또는 한 저장소의 저장된 결과를 삭제합니다. `--repo`는 결과 안에 저장된 `owner/name`과 대소문자 무시로 비교하며 오프라인에서 동작합니다. 저장소 이름을 바꾸거나 이전한 경우 이전에 저장된 결과에는 옛 이름이 들어 있으므로 그 이름을 쓰거나 `--all`을 쓰세요.
 - `--help` / `-h`, `pgard --version` / `-V`.
 
 알 수 없는 명령·옵션, 잘못된 값과 조합은 Git·GitHub·네트워크 작업 전에 거부됩니다. 알 수 없는 검사 종류(예: `dependencies`)는 종료 코드 2로 끝나며 올바른 값 `code`, `history`, `web`, `all`을 알려 줍니다.
@@ -368,6 +374,21 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 테스트·fixture·vendored 코드의 발견 항목이 5개(상수 `COLLAPSE_THRESHOLD`)를 넘으면 CLI는 심각도가 낮은 항목(medium, low, info)의 목록 대신 요약을 보여 줍니다. 개수, context별·규칙별 개수, 심각도, 전체를 보는 방법이 포함됩니다. 정확히 5개면 그대로 나열합니다. critical·high 항목과 내 코드의 발견 항목은 절대 접지 않습니다. `--all-findings`를 쓰거나 HTML 보고서(`--report html --output-dir <dir>`)를 보면 전부 볼 수 있습니다. 상단에는 테스트 코드의 critical·high 개수가 표시되고(예: `plus 8 in test or fixture code (1 critical, 2 high)`) 상태별 개수도 표시됩니다(`Findings (6): 1 confirmed, 5 suspected (needs review)`). 터미널이 아니거나 `NO_COLOR`가 설정되어 있으면 색 없는 같은 텍스트가 출력됩니다.
 
+### 저장된 결과
+
+`pgard scan`은 이후 작업에서 검사를 비교할 수 있도록 끝난 결과를 보관합니다. 아무것도 남기지 않던 MVP와 달라진 점입니다. 지금은 CLI 검사만 저장합니다. 대시보드는 결과를 여전히 메모리에만 두고 종료하면 버리며, `project verify`는 저장하지 않습니다.
+
+- **위치.** 프로젝트가 아니라 사용자별 앱 데이터 폴더입니다. macOS는 `~/Library/Application Support/pgard`, Linux는 `$XDG_DATA_HOME/pgard`(기본 `~/.local/share/pgard`), Windows는 `%LOCALAPPDATA%\pgard`입니다.
+- **내용.** 검사 한 번에 파일 하나로, 그 실행의 권한 확인에서 얻은 숫자 GitHub 저장소 id 아래에 저장합니다(경로에 저장소 이름은 없음). 파일은 민감정보를 가린 검사 결과이며 [`docs/RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)의 JSON과 같습니다. 검사 id와 시각, PGARD 버전, 요청한 범위, 전체 상태, `owner/name`, HEAD 커밋 SHA(웹 검사는 `127.0.0.1` origin), 권한 확인 결정과 다섯 가지 확인의 사유(로그인한 GitHub 계정, owner 계정 또는 조직, 사용자의 역할 이름이 나옴), 영역별 coverage, 그리고 각 발견 항목의 규칙·심각도·저장소 기준 상대 경로와 줄(또는 로컬 URL, 커밋)·가려 처리한 증거 일부·영향·조치 안내가 들어갑니다. 절대 경로, 프로젝트 루트, 토큰, 소스 파일 전체는 들어 있지 않으며, 읽어서 권한을 판단하는 데 쓰지도 않습니다. 다섯 가지 확인은 검사마다 계속 실행됩니다. 이번 실행에서 게이트가 허용했고 `blocked`나 `failed`로 끝나지 않은 검사만 저장합니다.
+- **보관 기간.** 저장소마다 최근 20회, 그리고 90일을 넘지 않은 것만 남깁니다. 저장할 때마다 정리합니다(`@pgard/result-store`의 상수 `RETENTION_MAX_SCANS_PER_REPO`, `RETENTION_MAX_AGE_DAYS`).
+- **보호.** macOS와 Linux에서 디렉터리는 `0700`, 파일은 `0600`이며 쓴 뒤에 확인합니다. 저장 폴더와 그 안의 파일은 심볼릭 링크를 따라가지 않습니다. 같은 폴더의 임시 파일에 쓴 뒤 이름을 바꾸므로 동시에 실행한 검사도 중간 상태의 파일을 보지 않습니다. Windows에서는 모드 비트가 적용되지 않습니다. 폴더는 `%LOCALAPPDATA%` 프로필 폴더의 접근 규칙을 상속하며 PGARD는 이를 바꾸거나 확인하지 않습니다.
+- **다시 읽기.** 항상 파일 크기 상한(8 MiB)을 확인한 뒤 `readScanResult`로 읽습니다. 손상되었거나 너무 크거나 지원하지 않는 파일은 경고와 함께 건너뛰며, 더 새로운 PGARD가 쓴 파일(더 높은 `schemaVersion` minor)은 절대 덮어쓰지 않습니다.
+- **처음 실행.** 결과를 처음 저장할 때 PGARD는 결과가 어디에 저장되는지, 어떻게 끄거나 지우는지 stderr에 안내합니다. 한 번만 보여 주며 저장 폴더의 `.notice-shown` 파일이 이를 기록합니다.
+- **끄기와 삭제.** `--no-store`나 `PGARD_NO_STORE=1`이면 아무것도 저장하지 않습니다. `pgard history clear --all`은 전부(`--repo owner/name`은 한 저장소)를 삭제합니다. 직접 지우려면 저장 폴더 전체가 아니라 그 안의 `repos` 폴더(`pgard/repos`)를 지우세요. 전체 `pgard` 폴더는 PGARD의 다른 데이터와 함께 쓸 수 있습니다.
+- **advisory 데이터는 별도입니다.** `pgard advisories update`는 공개 OSV 취약점 데이터를 같은 앱 데이터 폴더의 `advisories/osv/`에 저장합니다(약 5 MB. 검사 결과가 아니며 `pgard history clear`로 지워지지 않고 `--no-store`의 영향도 받지 않습니다). 사용자가 직접 실행하는 이 명령만 기록하며, OSV 내보내기 호스트에서 내려받을 뿐 아무것도 업로드하지 않습니다. [개인정보와 네트워크 통신](#개인정보와-네트워크-통신) 참고.
+
+### 테스트·fixture 코드의 발견 항목
+
 ### 테스트·fixture 코드의 발견 항목
 
 테스트·fixture 코드의 발견 항목은 다른 발견 항목 뒤에 별도 그룹(**In test or fixture code (N)**)으로 표시됩니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트는 일반 코드만 셉니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code`). 테스트에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. 대시보드와 HTML/PDF 보고서는 모두 이 그룹에 나열합니다. 터미널 화면도 나열하지만, 5개를 넘으면 medium·low·info 항목은 요약으로 대체되고 critical·high 항목은 계속 나열됩니다([그룹화와 접기](#그룹화와-접기) 참고).
@@ -407,7 +428,7 @@ PGARD dashboard is running on 127.0.0.1 only.
 Open this private session URL in your browser (valid until you stop the dashboard): http://127.0.0.1:<port>/#token=<random>
 ```
 
-대시보드는 CLI 결과를 읽지 않고 직접 검사합니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터(테스트·fixture 항목과 vendored 코드의 제안은 각각 별도 그룹), HTML/PDF 보고서를 브라우저 다운로드로 받는 기능(CLI가 저장하는 것과 같은, 가려진 보고서이며 대시보드는 사용자가 입력한 경로에 파일을 쓰지 않음)을 제공합니다. OS 키체인에 저장된 GitHub 로그인은 서버 쪽에서 다시 사용하며, 토큰은 브라우저로 보내지 않습니다. 로그아웃 버튼은 두 가지입니다. **End dashboard session (keep keychain sign-in)** 버튼은 이 대시보드의 세션만 끝내고 다음 확인 때 키체인 로그인을 다시 사용합니다. **Sign out and remove from OS keychain**은 저장된 로그인도 지웁니다(CLI에서도 지워짐). 대시보드가 실행되는 동안 `pgard login`으로 다른 GitHub 계정으로 바꾸면 대시보드는 마지막 확인 결과를 버리므로, 로컬 서비스 탐색과 probe에는 새 확인이 필요합니다. Ctrl+C로 종료하면 대시보드의 GitHub 세션이 끝나고(키체인 로그인은 유지) 모든 결과를 버립니다.
+대시보드는 CLI가 저장한 결과를 읽거나 쓰지 않고 직접 검사하며, 그 검사는 저장되지 않습니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터(테스트·fixture 항목과 vendored 코드의 제안은 각각 별도 그룹), HTML/PDF 보고서를 브라우저 다운로드로 받는 기능(CLI가 저장하는 것과 같은, 가려진 보고서이며 대시보드는 사용자가 입력한 경로에 파일을 쓰지 않음)을 제공합니다. OS 키체인에 저장된 GitHub 로그인은 서버 쪽에서 다시 사용하며, 토큰은 브라우저로 보내지 않습니다. 로그아웃 버튼은 두 가지입니다. **End dashboard session (keep keychain sign-in)** 버튼은 이 대시보드의 세션만 끝내고 다음 확인 때 키체인 로그인을 다시 사용합니다. **Sign out and remove from OS keychain**은 저장된 로그인도 지웁니다(CLI에서도 지워짐). 대시보드가 실행되는 동안 `pgard login`으로 다른 GitHub 계정으로 바꾸면 대시보드는 마지막 확인 결과를 버리므로, 로컬 서비스 탐색과 probe에는 새 확인이 필요합니다. Ctrl+C로 종료하면 대시보드의 GitHub 세션이 끝나고(키체인 로그인은 유지) 모든 결과를 버립니다.
 
 device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** 버튼을 보여 주고, `pgard dashboard --no-browser`가 아니면 페이지를 직접 엽니다. 권한 확인 패널이 이 저장소에 PGARD GitHub App이 설치되지 않았다는 이유로만 차단되었고 본인이 승인할 수 있으면(또는 GitHub가 아직 조직 역할을 보여 주지 못하면. 문구는 CLI와 같음) **Install the PGARD GitHub App** 버튼(새 탭에서 열림)을 보여 주고, 최대 10분 동안 5초마다 owner 승인을 다시 확인한 뒤 전체 확인을 자동으로 다시 실행합니다. 두 제한은 서버가 강제합니다. 재확인은 5초에 한 번까지, 확인이 끝난 때부터 10분 안에만 허용되므로 패널을 새로 고쳐도 기다리는 시간이 늘어나지 않습니다. 그렇지 않으면 CLI와 같은 `Ask an owner of <account> ...` 링크를 보여 줍니다.
 
@@ -425,7 +446,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 
 ## 개인정보와 네트워크 통신
 
-- 코드, Git 이력, 검사 결과는 사용자 컴퓨터에서 처리되며 어디에도 업로드되지 않습니다. 결과는 메모리에만 있고 프로세스나 대시보드가 끝나면 버려지며, 사용자가 내보낸 보고서만 저장됩니다.
+- 코드, Git 이력, 검사 결과는 사용자 컴퓨터에서 처리되며 어디에도 업로드되지 않습니다. `pgard scan`의 결과는 `--no-store`나 `PGARD_NO_STORE=1`로 끄지 않는 한 앱 데이터 폴더에 보관되고 `pgard history clear --all`로 삭제합니다([저장된 결과](#저장된-결과) 참고). 대시보드의 결과는 메모리에만 있고 대시보드가 끝나면 버려집니다. 내보낸 보고서는 사용자가 고른 위치에 저장됩니다.
 - GitHub 로그인은 파일이 아닌 OS 키체인에 저장되며 브라우저로 보내지 않습니다. 키체인이 없으면 메모리에만 보관합니다. [저장된 로그인](#저장된-로그인os-키체인) 참고.
 - 검사와 `pgard advisories update`를 제외한 모든 명령이 연결하는 곳은 GitHub뿐입니다. device flow 로그인(및 저장된 로그인 갱신)과, 권한 확인에 필요한 메타데이터(사용자 신원, App 설치, 조직 멤버십(조직 저장소인 경우), 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 로컬 커밋의 SHA를 GitHub에 보냅니다(검증된 owner일 때는 로컬 이력이 기본 브랜치와 커밋을 공유하는지 확인하는 데만 사용). `pgard doctor`는 `api.github.com` 연결 가능 여부도 확인합니다.
 - 권한 확인을 통과한 뒤, PGARD는 서비스의 정체를 보여 주기 위해 `127.0.0.1`에서 발견한 각 열린 포트에 `GET /`를 한 번 보냅니다. 이후 웹 검사는 사용자가 확인한 서비스에만 요청을 보냅니다.

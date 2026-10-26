@@ -20,6 +20,9 @@
       "path": "../../packages/report"
     },
     {
+      "path": "../../packages/result-store"
+    },
+    {
       "path": "../../packages/scan-core"
     }
   ]

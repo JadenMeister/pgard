@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createReadStream, createWriteStream } from "node:fs";
 import { once } from "node:events";
-import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { link, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createGzip, type Gzip } from "node:zlib";
 import type { Ecosystem } from "../types.js";
@@ -137,8 +137,10 @@ const LOCK_MAX_AGE_MS = 60 * 60 * 1000;
 const TAKEOVER_MAX_AGE_MS = 60 * 1000;
 
 export class UpdateLockedError extends Error {
-  constructor() {
-    super("Another `pgard advisories update` is already running. Wait for it to finish.");
+  constructor(lockPath: string) {
+    super(
+      `Another \`pgard advisories update\` is already running (lock file ${lockPath}). Wait for it to finish; if none is running, delete that file.`,
+    );
     this.name = "UpdateLockedError";
   }
 }
@@ -152,60 +154,74 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
+/** Test hooks: run between judging a lock stale and acting on that judgement. */
+export interface LockHooks {
+  afterJudgedStale?: () => Promise<void>;
+}
+
 /**
- * Takes the update lock (`O_EXCL` file holding the pid). A lock whose process is gone, or that is
- * older than an hour, is stale and replaced. Returns a release function.
+ * Takes the update lock: a file holding the pid, created atomically with its content (written to
+ * a temporary file, then hard-linked into place), so a reader never sees a half-written lock. A
+ * lock is stale when its pid is gone, when it is older than an hour, or when its content is not a
+ * pid (empty or garbage). Returns a release function.
  */
 export async function acquireUpdateLock(
   osvDir: string,
   now: () => number = Date.now,
+  hooks: LockHooks = {},
 ): Promise<() => Promise<void>> {
   await mkdir(osvDir, { recursive: true, mode: 0o700 });
   const lockPath = path.join(osvDir, LOCK_FILE);
+  const content = `${process.pid}\n`;
   for (let attempt = 0; attempt < 4; attempt += 1) {
+    const temporary = `${lockPath}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    await writeFile(temporary, content, { flag: "wx", mode: 0o600 });
     try {
-      await writeFile(lockPath, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+      await link(temporary, lockPath);
       return async () => {
         // Remove the lock only if it is still ours (a stale-lock takeover may have replaced it).
-        const current = await readFile(lockPath, "utf8").catch(() => "");
-        if (Number.parseInt(current, 10) === process.pid) {
-          await rm(lockPath, { force: true }).catch(() => undefined);
-        }
+        const current = await readFile(lockPath, "utf8").catch(() => null);
+        if (current === content) await rm(lockPath, { force: true }).catch(() => undefined);
       };
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+    } finally {
+      await rm(temporary, { force: true }).catch(() => undefined);
     }
-    let holder = Number.NaN;
-    let ageMs = 0;
+    let heldText: string;
+    let ageMs: number;
     try {
-      holder = Number.parseInt(await readFile(lockPath, "utf8"), 10);
+      heldText = await readFile(lockPath, "utf8");
       ageMs = now() - (await stat(lockPath)).mtimeMs;
     } catch {
-      continue; // released between the two calls: try again
+      continue; // released between the calls: try again
     }
+    const holder = /^\d+\s*$/.test(heldText) ? Number.parseInt(heldText, 10) : Number.NaN;
     const isLive = Number.isInteger(holder) && holder > 0 && isProcessAlive(holder);
-    if (isLive && ageMs < LOCK_MAX_AGE_MS) throw new UpdateLockedError();
+    if (isLive && ageMs < LOCK_MAX_AGE_MS) throw new UpdateLockedError(lockPath);
+    await hooks.afterJudgedStale?.();
     // Taking a stale lock over is itself exclusive: only the run that holds the takeover marker
-    // may remove it, and only if it is still the very lock judged stale. Everyone then competes on
-    // the atomic create above, so exactly one run wins.
+    // may remove it, and only if it is still the very lock judged stale (compared as raw text, so
+    // an empty or garbage lock can be taken over too). Everyone then competes on the atomic
+    // create above, so exactly one run wins.
     const marker = `${lockPath}.takeover`;
     try {
-      await writeFile(marker, `${process.pid}\n`, { flag: "wx", mode: 0o600 });
+      await writeFile(marker, content, { flag: "wx", mode: 0o600 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       const markerAge = now() - ((await stat(marker).catch(() => null))?.mtimeMs ?? now());
-      if (markerAge < TAKEOVER_MAX_AGE_MS) throw new UpdateLockedError();
+      if (markerAge < TAKEOVER_MAX_AGE_MS) throw new UpdateLockedError(lockPath);
       await rm(marker, { force: true }); // left by a crashed run
       continue;
     }
     try {
-      const current = Number.parseInt(await readFile(lockPath, "utf8").catch(() => ""), 10);
-      if (current === holder) await rm(lockPath, { force: true });
+      const current = await readFile(lockPath, "utf8").catch(() => null);
+      if (current === heldText) await rm(lockPath, { force: true });
     } finally {
       await rm(marker, { force: true });
     }
   }
-  throw new UpdateLockedError();
+  throw new UpdateLockedError(lockPath);
 }
 
 /**

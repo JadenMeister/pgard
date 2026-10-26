@@ -4,10 +4,12 @@ import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js
 import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
+import { detectLanguageTrack, languageTrackCoverage } from "./tree-sitter/language-track.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
 import {
   readTextFile,
   walkSourceTree,
+  type GeneratedDirectoryReason,
   type SkippedDependencyDirectory,
   type SourceLanguage,
 } from "./walk.js";
@@ -74,6 +76,12 @@ interface LanguageStats {
   skippedForTime: number;
 }
 
+const GENERATED_REASONS: ReadonlySet<string> = new Set<GeneratedDirectoryReason>([
+  "Python virtual environment",
+  "Python site-packages",
+  "Maven build output",
+  "Gradle cache",
+]);
 const MAX_LISTED_PATHS = 5;
 /** The CLI shows at most 300 characters of a coverage note; the dependency note stays within. */
 export const MAX_DEPENDENCY_NOTE_LENGTH = 300;
@@ -113,7 +121,10 @@ export function describeSkippedDependencyDirectories(
     return `${name} (${entry.reason})`;
   };
   const count = directories.length;
-  const heading = `Skipped ${count} dependency director${count === 1 ? "y" : "ies"} (third-party code, not analyzed): `;
+  const generated = directories.some(
+    (entry) => entry.reason !== null && GENERATED_REASONS.has(entry.reason),
+  );
+  const heading = `Skipped ${count} dependency director${count === 1 ? "y" : "ies"} (${generated ? "third-party or generated code" : "third-party code"}, not analyzed): `;
   const compose = (labels: string[]) => {
     const rest = count - labels.length;
     if (labels.length === 0) return `${heading}${count} not listed.`;
@@ -355,6 +366,8 @@ export async function scanSourceCode(
     GO_RULE_IDS,
     "syntax-level heuristics (lexer and patterns, no type information or cross-file data flow)",
   );
+  // Java, Kotlin, Python and PHP: detected only; no grammar is loaded until rules exist.
+  coverage.push(...languageTrackCoverage(await detectLanguageTrack(walk)));
   if (walk.skippedLarge > 0) {
     coverage.push({
       area: "source:large-files",

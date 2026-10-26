@@ -127,6 +127,46 @@ describe("parseCommandLine", () => {
   ])("rejects %j before doing anything", (argv) => {
     expect(() => parseCommandLine(argv)).toThrow(UsageError);
   });
+
+  it("parses --no-store for scan only and history clear with --all or --repo", () => {
+    expect(parseCommandLine(["scan", "code", "--no-store"])).toMatchObject({
+      kind: "scan",
+      variant: "code",
+      noStore: true,
+    });
+    expect(parseCommandLine(["scan"])).not.toHaveProperty("noStore");
+    for (const argv of [
+      ["doctor", "--no-store"],
+      ["project", "verify", "--no-store"],
+      ["scan", "--no-store", "--no-store"],
+      ["scan", "--all"],
+    ]) {
+      expect(() => parseCommandLine(argv), argv.join(" ")).toThrow(UsageError);
+    }
+    expect(parseCommandLine(["history", "clear", "--all"])).toEqual({
+      kind: "history-clear",
+      repo: null,
+    });
+    expect(parseCommandLine(["history", "clear", "--repo", "Owner/name.js"])).toEqual({
+      kind: "history-clear",
+      repo: "Owner/name.js",
+    });
+    for (const argv of [
+      ["history"],
+      ["history", "list"],
+      ["history", "clear"],
+      ["history", "clear", "--repo", "noslash"],
+      ["history", "clear", "--repo", "a/b", "--all"],
+      ["history", "clear", "extra"],
+      ["history", "clear", "--port", "1"],
+    ]) {
+      expect(() => parseCommandLine(argv), argv.join(" ")).toThrow(UsageError);
+    }
+    expect(parseCommandLine(["history", "clear", "--help"])).toEqual({
+      kind: "help",
+      topic: "history clear",
+    });
+  });
 });
 
 describe("scan result options", () => {

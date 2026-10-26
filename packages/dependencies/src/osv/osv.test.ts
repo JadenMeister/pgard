@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { osvDataDir, resolveAppDataDir } from "../app-data.js";
+import { osvDataDir } from "../app-data.js";
 import { makeZip, osvRecord, type TestZipEntry } from "../test-support/zip.js";
 import { downloadToFile, DownloadError, OSV_EXPORT_HOST, osvArchiveUrl } from "./download.js";
 import { readAdvisoryStatus } from "./status.js";
@@ -501,37 +501,6 @@ describe("advisory status (staleness)", () => {
   });
 });
 
-describe("resolveAppDataDir", () => {
-  it("follows each platform's convention and ignores relative overrides", () => {
-    expect(resolveAppDataDir({ platform: "darwin", env: {}, homedir: "/Users/a" })).toBe(
-      "/Users/a/Library/Application Support/pgard",
-    );
-    expect(resolveAppDataDir({ platform: "linux", env: {}, homedir: "/home/a" })).toBe(
-      "/home/a/.local/share/pgard",
-    );
-    expect(
-      resolveAppDataDir({ platform: "linux", env: { XDG_DATA_HOME: "/data" }, homedir: "/home/a" }),
-    ).toBe("/data/pgard");
-    expect(
-      resolveAppDataDir({
-        platform: "linux",
-        env: { XDG_DATA_HOME: "relative" },
-        homedir: "/home/a",
-      }),
-    ).toBe("/home/a/.local/share/pgard");
-    expect(
-      resolveAppDataDir({
-        platform: "win32",
-        env: { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" },
-        homedir: "C:\\Users\\a",
-      }),
-    ).toBe("C:\\Users\\a\\AppData\\Local\\pgard");
-    expect(resolveAppDataDir({ platform: "win32", env: {}, homedir: "C:\\Users\\a" })).toBe(
-      "C:\\Users\\a\\AppData\\Local\\pgard",
-    );
-  });
-});
-
 describe("swapIntoPlace", () => {
   it("restores the old directory when the new one cannot be moved in", async () => {
     const { mkdir, writeFile } = await import("node:fs/promises");
@@ -744,20 +713,79 @@ describe("update lock and leftovers", () => {
   });
 });
 
-describe("resolveAppDataDir without a home", () => {
-  it("returns null instead of a relative path", () => {
-    expect(resolveAppDataDir({ platform: "darwin", env: {}, homedir: "" })).toBeNull();
-    expect(resolveAppDataDir({ platform: "linux", env: {}, homedir: "" })).toBeNull();
-    expect(
-      resolveAppDataDir({ platform: "linux", env: { XDG_DATA_HOME: "rel" }, homedir: "rel" }),
-    ).toBeNull();
-    expect(resolveAppDataDir({ platform: "win32", env: {}, homedir: "" })).toBeNull();
-    expect(
-      resolveAppDataDir({ platform: "linux", env: { XDG_DATA_HOME: "/x" }, homedir: "" }),
-    ).toBe("/x/pgard");
-    // A Windows drive path is absolute on win32 even though this test runs on another platform.
-    expect(
-      resolveAppDataDir({ platform: "win32", env: { LOCALAPPDATA: "D:\\L" }, homedir: "" }),
-    ).toBe("D:\\L\\pgard");
+describe("lock edge cases", () => {
+  const prepare = async (content: string, ageMs = 0): Promise<{ osv: string; lock: string }> => {
+    const { mkdir, utimes, writeFile } = await import("node:fs/promises");
+    const osv = osvDataDir(dir);
+    await mkdir(osv, { recursive: true });
+    const lock = path.join(osv, ".update.lock");
+    await writeFile(lock, content);
+    if (ageMs > 0) {
+      const old = new Date(Date.now() - ageMs);
+      await utimes(lock, old, old);
+    }
+    return { osv, lock };
+  };
+  const hours = (count: number): number => count * 60 * 60 * 1000;
+  const deadPid = (): number => spawnSync(process.execPath, ["-e", ""]).pid;
+
+  it("an empty lock file, fresh or 2 hours old, does not block updates", async () => {
+    for (const ageMs of [0, hours(2)]) {
+      const { osv, lock } = await prepare("", ageMs);
+      const release = await acquireUpdateLock(osv);
+      expect(await readFile(lock, "utf8")).toBe(`${process.pid}\n`);
+      await release();
+      expect(await readdir(osv)).toEqual([]);
+    }
+  });
+
+  it("garbage lock contents do not block updates", async () => {
+    for (const garbage of ["not a pid", "12abc\n", "\u0000\u0000", "-5", "99999999999999999999"]) {
+      const { osv } = await prepare(garbage);
+      const release = await acquireUpdateLock(osv);
+      await release();
+      expect(await readdir(osv)).toEqual([]);
+    }
+  });
+
+  it("names the lock file in the already-running message", async () => {
+    const { osv, lock } = await prepare(`${process.pid}\n`);
+    await expect(acquireUpdateLock(osv)).rejects.toThrow(lock);
+  });
+
+  it("never removes a lock that another run created after this one judged it stale", async () => {
+    const { osv, lock } = await prepare(`${deadPid()}\n`);
+    const fresh = `${process.pid}\n`;
+    await expect(
+      acquireUpdateLock(osv, Date.now, {
+        afterJudgedStale: async () => {
+          const { writeFile } = await import("node:fs/promises");
+          await writeFile(lock, fresh); // another run took over first
+        },
+      }),
+    ).rejects.toThrow(/already running/);
+    expect(await readFile(lock, "utf8")).toBe(fresh);
+  });
+
+  it("a recent takeover marker blocks the takeover and is never overwritten", async () => {
+    const { osv, lock } = await prepare(`${deadPid()}\n`);
+    const { writeFile } = await import("node:fs/promises");
+    const marker = `${lock}.takeover`;
+    await writeFile(marker, "424242\n");
+    await expect(acquireUpdateLock(osv)).rejects.toThrow(/already running/);
+    expect(await readFile(marker, "utf8")).toBe("424242\n");
+    expect(await readFile(lock, "utf8")).toMatch(/^\d+\n$/);
+  });
+
+  it("an old takeover marker (from a crashed run) is cleared and the takeover proceeds", async () => {
+    const { osv, lock } = await prepare(`${deadPid()}\n`);
+    const { utimes, writeFile } = await import("node:fs/promises");
+    const marker = `${lock}.takeover`;
+    await writeFile(marker, "424242\n");
+    const old = new Date(Date.now() - 5 * 60 * 1000);
+    await utimes(marker, old, old);
+    const release = await acquireUpdateLock(osv);
+    await release();
+    expect(await readdir(osv)).toEqual([]);
   });
 });
