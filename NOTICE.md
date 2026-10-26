@@ -91,8 +91,8 @@ SEI CERT Oracle Coding Standard for Java.
 - License: the SEI CERT Coding Standards are licensed under Creative Commons Attribution 4.0
   (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/ . Their code examples are MIT-licensed;
   no code examples are included here. This data is not covered by PGARD's MIT license.
-- Attribution: (c) 2026 Carnegie Mellon University. SEI CERT is a registered trademark of Carnegie
-  Mellon University. This data is not endorsed by Carnegie Mellon University or the SEI. Titles are
+- Attribution: (c) 2026 Carnegie Mellon University. Carnegie Mellon(R), CERT(R) and SEI CERT are
+  registered in the U.S. Patent and Trademark Office by Carnegie Mellon University. This data is not endorsed by Carnegie Mellon University or the SEI. Titles are
   unmodified apart from removing a trailing period and Markdown escapes.
 
 ### OWASP Top 10 2025 mapped CWEs and CWE mapping notes

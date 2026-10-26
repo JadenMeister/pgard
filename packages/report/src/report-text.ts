@@ -326,7 +326,7 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     licenseCwe:
       "CWE and the CWE Top 25: Copyright (c) 2006-2026, The MITRE Corporation, used under the CWE Terms of Use (https://cwe.mitre.org/about/termsofuse.html). CWE is a trademark of The MITRE Corporation.",
     licenseCert:
-      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, licensed under CC BY 4.0. SEI CERT is a registered trademark of Carnegie Mellon University; this report is not endorsed by Carnegie Mellon University or the SEI. See NOTICE.md of PGARD.",
+      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Carnegie Mellon(R), CERT(R) and SEI CERT are registered in the U.S. Patent and Trademark Office by Carnegie Mellon University; this report is not endorsed by Carnegie Mellon University or the SEI. See NOTICE.md of PGARD.",
   },
   ko: {
     htmlTitle: "PGARD 보고서",
@@ -481,6 +481,6 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     licenseCwe:
       "CWE 및 CWE Top 25: Copyright (c) 2006-2026, The MITRE Corporation, CWE 이용 약관에 따라 사용 (https://cwe.mitre.org/about/termsofuse.html). CWE는 The MITRE Corporation의 상표입니다.",
     licenseCert:
-      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, CC BY 4.0 라이선스. SEI CERT는 Carnegie Mellon University의 등록 상표이며, 이 보고서는 Carnegie Mellon University나 SEI의 보증을 받지 않았습니다. PGARD의 NOTICE.md를 참고하세요.",
+      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, CC BY 4.0 라이선스(https://creativecommons.org/licenses/by/4.0/). Carnegie Mellon(R), CERT(R), SEI CERT는 Carnegie Mellon University가 미국 특허상표청에 등록한 상표이며, 이 보고서는 Carnegie Mellon University나 SEI의 보증을 받지 않았습니다. PGARD의 NOTICE.md를 참고하세요.",
   },
 };

@@ -16,6 +16,7 @@ import {
   PDF_REPLACEMENT_NOTICE,
   renderPdfReport,
 } from "./render-pdf.js";
+import { DETAIL_RULE_TEXTS, scanResultV11 } from "./test-fixtures-details.js";
 import { finding, scanResult } from "./test-fixtures.js";
 import { extractEmbeddedFontText } from "./test-pdf-text.js";
 
@@ -195,6 +196,41 @@ describe("PDF when the font cannot be loaded", () => {
     expect(source).toContain("/Subject");
     expect(source).toContain("uses a built-in Latin-1 font");
     expect(source).toContain("/Helvetica");
+  });
+
+  it("asks for Korean without the font: fixed words and catalog texts are English, no '?'", async () => {
+    vi.resetModules();
+    vi.doMock("node:fs", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs")>();
+      return {
+        ...actual,
+        readFileSync: () => {
+          throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+        },
+      };
+    });
+    const { renderPdfReport: render } = await import("./render-pdf.js");
+    const pdf = await render(scanResultV11(), {
+      lang: "ko",
+      ruleTexts: DETAIL_RULE_TEXTS,
+      compress: false,
+    });
+    // Built-in font strings are hex groups in TJ arrays: join the groups of each line.
+    const text = [...pdf.toString("latin1").matchAll(/\[((?:<[0-9a-f]*>|[-\d.\s])*)\] TJ/g)]
+      .map((match) =>
+        [...(match[1] ?? "").matchAll(/<([0-9a-f]*)>/g)]
+          .map((group) => Buffer.from(group[1] ?? "", "hex").toString("latin1"))
+          .join(""),
+      )
+      .join("\n");
+    expect(text).toContain("PGARD security report");
+    expect(text).toContain("Appendix B: examples for the rules that reported findings");
+    // Rule catalog text in English too (examples' note, rationale, remediation).
+    expect(text).toContain("A quote in a changes the query.");
+    expect(text).toContain("Query structure may change");
+    expect(text).toContain("Use parameters");
+    expect(text).not.toContain("?");
+    expect(text).not.toContain("PGARD 보안");
   });
 
   it("falls back when a font file fails its checksum", async () => {

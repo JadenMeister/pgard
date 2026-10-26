@@ -126,6 +126,26 @@ function renderStandards(finding: Finding, ctx: ReportContext): string {
   return `<div class="standards"><strong>${escapeHtml(ctx.t.standards)}</strong><ul>${items}</ul></div>`;
 }
 
+const shownPerRender = new WeakMap<ReportContext, Set<string>>();
+
+/**
+ * Rule-level blocks (guidance, examples) are the same for every finding of a rule, so only the
+ * first one in the report is written: 100 findings of one rule would otherwise repeat them 100
+ * times. The key includes the text, so a finding with its own guidance still shows it.
+ */
+function firstTimeOnly(ctx: ReportContext, kind: string, finding: Finding, html: string): string {
+  if (html === "") return "";
+  let shown = shownPerRender.get(ctx);
+  if (shown === undefined) {
+    shown = new Set();
+    shownPerRender.set(ctx, shown);
+  }
+  const key = `${kind}\u0000${finding.ruleId}\u0000${html}`;
+  if (shown.has(key)) return "";
+  shown.add(key);
+  return html;
+}
+
 function renderExamples(finding: Finding, ctx: ReportContext): string {
   const details = findingDetails(finding, ctx);
   if (details === undefined || details.examples.length === 0) return "";
@@ -138,7 +158,12 @@ function renderExamples(finding: Finding, ctx: ReportContext): string {
       return `<p><strong>${escapeHtml(ctx.t.vulnerable)}</strong> <span class="meta">${escapeHtml(example.language)}</span></p><pre class="code"><code>${escapeHtml(example.vulnerable)}</code></pre><p><strong>${escapeHtml(ctx.t.safe)}</strong></p><pre class="code"><code>${escapeHtml(example.safe)}</code></pre>${note}`;
     })
     .join("");
-  return `<details class="examples"><summary>${escapeHtml(ctx.t.examples(details.examples.length))}</summary>${blocks}</details>`;
+  return firstTimeOnly(
+    ctx,
+    "examples",
+    finding,
+    `<details class="examples"><summary>${escapeHtml(ctx.t.examples(details.examples.length))}</summary>${blocks}</details>`,
+  );
 }
 
 function renderGuidance(finding: Finding, ctx: ReportContext): string {
@@ -151,7 +176,9 @@ function renderGuidance(finding: Finding, ctx: ReportContext): string {
       ? ""
       : `<dt>${escapeHtml(ctx.t.ruleRemediation)}</dt><dd>${escapeHtml(guidance.remediation)}</dd>`,
   ].join("");
-  return rows === "" ? "" : `<dl class="guidance">${rows}</dl>`;
+  return rows === ""
+    ? ""
+    : firstTimeOnly(ctx, "guidance", finding, `<dl class="guidance">${rows}</dl>`);
 }
 
 function renderFinding(finding: Finding, ctx: ReportContext, isNew = false): string {
@@ -198,13 +225,13 @@ function renderStandardsCoverage(result: ScanResult, ctx: ReportContext): string
   const owasp = owaspRows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${row.state}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   const cwe = cweTop25Rows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${row.rank ?? ""}</td><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${row.state}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td>${escapeHtml(String(row.rank ?? ""))}</td><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   return `<h2>${escapeHtml(t.standardsTitle)}</h2>
