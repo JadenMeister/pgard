@@ -77,6 +77,16 @@ for (const [dep, range] of Object.entries(template.dependencies)) {
   if (!/^(npm:[^@]+@)?\d+\.\d+\.\d+$/.test(range)) fail(`${dep} is not an exact version: ${range}`);
 }
 if (template.scripts) fail("the package must not define install scripts");
+// Publishing metadata (docs/RELEASING.md): a manifest without it must not be packed.
+if (template.private === true) fail("the package must not be private");
+for (const field of ["repository", "homepage", "bugs", "license", "engines", "files", "bin"]) {
+  if (template[field] === undefined) fail(`packaging/pgard/package.json has no "${field}"`);
+}
+if (template.publishConfig?.access !== "public" || template.publishConfig?.provenance !== true) {
+  fail(
+    'packaging/pgard/package.json needs publishConfig { "access": "public", "provenance": true }',
+  );
+}
 
 // No npm-shrinkwrap.json on purpose (evaluated for #228, rejected for now): npm ignores it for
 // installs from a tarball, and for registry installs it nests every dependency under the package

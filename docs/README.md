@@ -12,4 +12,6 @@ The README and `RESULT_SCHEMA.md` describe what PGARD does today. The three plan
 | CLI and structure       | Command set and the layout of the apps and packages                                       | [PGARD_CLI_AND_STRUCTURE_EN.md](PGARD_CLI_AND_STRUCTURE_EN.md) (translation)             | [PGARD_CLI_AND_STRUCTURE_KO.md](PGARD_CLI_AND_STRUCTURE_KO.md) (original)             | Historical MVP planning record                                        |
 | Development conventions | Commit units and messages, naming, verification, PRs; issues, board and review (§8)       | [PGARD_DEVELOPMENT_CONVENTIONS_EN.md](PGARD_DEVELOPMENT_CONVENTIONS_EN.md) (translation) | [PGARD_DEVELOPMENT_CONVENTIONS_KO.md](PGARD_DEVELOPMENT_CONVENTIONS_KO.md) (original) | Historical MVP planning record; §8 (issues, board, review) is current |
 
+Releases: [RELEASING.md](RELEASING.md) ([한국어](RELEASING.ko.md)) describes versioning, the release checklist and rollback; changes are listed in the [CHANGELOG](../CHANGELOG.md).
+
 For the policies themselves (authorization, privacy, credentials, redaction, dashboard security, web checks, out of scope), see [Policies](../README.md#policies) in the README.

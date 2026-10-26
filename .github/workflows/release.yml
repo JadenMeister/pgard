@@ -1,0 +1,151 @@
+name: release
+
+# Publishes the single npm package `pgard`. It never runs on push to a branch or on a pull
+# request: only on a version tag or by hand. The publish job waits for a manual approval (the
+# required reviewers of the `npm-publish` environment) and authenticates to npm with npm trusted
+# publishing (OIDC), so no npm token is stored anywhere. See docs/RELEASING.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release; must equal the version in packaging/pgard/package.json (for example 0.1.0, without v)"
+        required: true
+        type: string
+      dry_run:
+        description: "Verify and run `npm publish --dry-run` only (nothing reaches the registry)"
+        required: true
+        type: boolean
+        default: true
+  push:
+    tags: ["v*.*.*"]
+
+# Nothing by default; each job asks for exactly what it needs.
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tarball: ${{ steps.pack.outputs.tarball }}
+      sha256: ${{ steps.pack.outputs.sha256 }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          check-latest: true
+          cache: npm
+      # The tag (or the dispatch input) must name exactly the version that is about to be packed.
+      - name: Check the requested version against the package
+        id: version
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          pkg=$(node -p 'require("./packaging/pgard/package.json").version')
+          code=$(node -p 'require("fs").readFileSync("packages/scan-core/src/version.ts","utf8").match(/PGARD_VERSION = "([^"]+)"/)[1]')
+          if [ "$EVENT_NAME" = "push" ]; then
+            [ "$REF_TYPE" = "tag" ] || { echo "::error::a push release must be a tag"; exit 1; }
+            requested="${REF_NAME#v}"
+            [ "v$requested" = "$REF_NAME" ] || { echo "::error::tag $REF_NAME must start with v"; exit 1; }
+          else
+            requested="$INPUT_VERSION"
+          fi
+          if ! printf '%s' "$requested" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$requested' is not a semantic version"; exit 1
+          fi
+          if [ "$requested" != "$pkg" ]; then
+            echo "::error::requested version $requested != packaging/pgard/package.json version $pkg"; exit 1
+          fi
+          if [ "$pkg" != "$code" ]; then
+            echo "::error::package version $pkg != PGARD_VERSION $code"; exit 1
+          fi
+          echo "version=$pkg" >> "$GITHUB_OUTPUT"
+      - run: npm ci
+      - run: npm run build
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run corpus:check
+      - run: npm run pack:pgard
+      - run: npm run smoke:pack
+      - name: Locate the tarball
+        id: pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          file=".pack/pgard-${VERSION}.tgz"
+          [ -f "$file" ] || { echo "::error::$file was not produced"; exit 1; }
+          [ "$(ls .pack/pgard-*.tgz | wc -l)" = "1" ] || { echo "::error::expected exactly one tarball"; exit 1; }
+          echo "tarball=pgard-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pgard-tarball
+          path: .pack/pgard-*.tgz
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish to npm
+    needs: verify
+    # Only from main or from a version tag, never from another branch.
+    if: ${{ github.repository == 'JadenMeister/pgard' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+    runs-on: ubuntu-latest
+    # The environment's required reviewers are the manual approval. It must be configured by the
+    # repository owner (docs/RELEASING.md); without it nothing here is protected, see the notes there.
+    environment: npm-publish
+    permissions:
+      id-token: write # OIDC token for npm trusted publishing and the provenance statement
+      contents: read
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          check-latest: true
+      # Trusted publishing needs npm 11.5.1 or newer; Node 22 bundles npm 10. This updates the
+      # runner's own npm only.
+      - name: Use an npm that supports trusted publishing
+        run: |
+          npm install -g npm@11
+          npm --version
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: pgard-tarball
+          path: tarball
+      - name: Publish the verified tarball
+        env:
+          TARBALL: ${{ needs.verify.outputs.tarball }}
+          EXPECTED_SHA256: ${{ needs.verify.outputs.sha256 }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          file="tarball/${TARBALL}"
+          actual=$(sha256sum "$file" | cut -d' ' -f1)
+          [ "$actual" = "$EXPECTED_SHA256" ] || { echo "::error::tarball changed after verify"; exit 1; }
+          # A pre-release version never becomes `latest`.
+          tag=latest
+          case "$VERSION" in *-*) tag=next ;; esac
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run: nothing is published."
+            npm publish "$file" --access public --tag "$tag" --dry-run
+          else
+            # No NODE_AUTH_TOKEN: npm authenticates with the OIDC token (trusted publishing) and
+            # attaches the provenance statement. Without a trusted publisher configured on
+            # npmjs.com this fails and publishes nothing.
+            npm publish "$file" --provenance --access public --tag "$tag"
+          fi
