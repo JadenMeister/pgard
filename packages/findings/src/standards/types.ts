@@ -11,9 +11,23 @@ export interface StandardProvenance {
   attribution: string;
 }
 
+/** The ten OWASP Top 10 2025 ids. A typo in a rule's standards fails at compile time. */
+export const OWASP_IDS = [
+  "A01:2025",
+  "A02:2025",
+  "A03:2025",
+  "A04:2025",
+  "A05:2025",
+  "A06:2025",
+  "A07:2025",
+  "A08:2025",
+  "A09:2025",
+  "A10:2025",
+] as const;
+export type OwaspId = (typeof OWASP_IDS)[number];
+
 export interface OwaspCategory {
-  /** For example `A05:2025`. */
-  id: string;
+  id: OwaspId;
   title: string;
   url: string;
 }

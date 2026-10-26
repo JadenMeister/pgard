@@ -3,7 +3,14 @@ import { CWE_TOP25 } from "./cwe-top25.js";
 import { OWASP_TOP10_2025 } from "./owasp-top10-2025.js";
 import type { CertJavaRule, CweTop25Entry, OwaspCategory, StandardProvenance } from "./types.js";
 
-export type { CertJavaRule, CweTop25Entry, OwaspCategory, StandardProvenance } from "./types.js";
+export type {
+  CertJavaRule,
+  CweTop25Entry,
+  OwaspCategory,
+  OwaspId,
+  StandardProvenance,
+} from "./types.js";
+export { OWASP_IDS } from "./types.js";
 export { OWASP_TOP10_2025, OWASP_TOP10_2025_PROVENANCE } from "./owasp-top10-2025.js";
 export { CWE_TOP25, CWE_TOP25_PROVENANCE } from "./cwe-top25.js";
 export { CERT_JAVA_RULES } from "./cert-java.js";
@@ -22,7 +29,7 @@ export const CERT_JAVA_PROVENANCE: StandardProvenance = {
     "(c) 2026 Carnegie Mellon University. SEI CERT is a registered trademark of Carnegie Mellon University.",
 };
 
-const owaspById = new Map(OWASP_TOP10_2025.map((c) => [c.id, c]));
+const owaspById = new Map<string, OwaspCategory>(OWASP_TOP10_2025.map((c) => [c.id, c]));
 const cweById = new Map(CWE_TOP25.map((c) => [c.id, c]));
 const certById = new Map(CERT_JAVA_RULES.map((r) => [r.id, r]));
 

@@ -6,3 +6,4 @@ export * from "./rule-descriptor.js";
 export * from "./finding-context.js";
 export * from "./read-result.js";
 export * from "./standards/index.js";
+export * from "./rule-metadata.js";

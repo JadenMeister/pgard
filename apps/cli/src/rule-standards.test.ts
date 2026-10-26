@@ -1,10 +1,17 @@
-import { CWE_ID_PATTERN, getOwaspCategory, isCweTop25 } from "@pgard/findings";
+import {
+  CWE_ID_PATTERN,
+  getOwaspCategory,
+  isCweTop25,
+  validateRuleMetadata,
+  type RuleMetadata,
+} from "@pgard/findings";
 import { WEB_RULE_LIST } from "@pgard/http-local";
 import { listSupportedRules } from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 
 interface Refs {
   id: string;
+  metadata: RuleMetadata;
   cwe: readonly string[];
   owasp: readonly string[];
 }
@@ -13,6 +20,7 @@ const allRules = (): Refs[] => [
   ...listSupportedRules(),
   ...WEB_RULE_LIST.map((r) => ({
     id: r.id,
+    metadata: r.metadata,
     cwe: r.references.cwe,
     owasp: r.references.owasp,
   })),
@@ -59,5 +67,34 @@ describe("rule references against bundled standards data", () => {
       for (const id of rule.owasp) if (!getOwaspCategory(id)) unknown.push(`${rule.id}: ${id}`);
     }
     expect(unknown).toEqual([]);
+  });
+
+  it("has valid metadata with Korean text for every rule", () => {
+    const rules = allRules();
+    expect(rules.flatMap((rule) => validateRuleMetadata(rule))).toEqual([]);
+    expect(new Set(rules.map((rule) => rule.id)).size).toBe(rules.length);
+  });
+
+  it("keeps the flat English fields identical to the metadata", () => {
+    for (const rule of listSupportedRules()) {
+      expect(rule.impact, rule.id).toBe(rule.metadata.rationale.en);
+      expect(rule.recommendation, rule.id).toBe(rule.metadata.remediation.en);
+      expect(rule.cwe, rule.id).toEqual([...rule.metadata.standards.cwe]);
+      expect(rule.owasp, rule.id).toEqual([...rule.metadata.standards.owasp]);
+    }
+    for (const rule of WEB_RULE_LIST) {
+      expect(rule.impact, rule.id).toBe(rule.metadata.rationale.en);
+      expect(rule.recommendation, rule.id).toBe(rule.metadata.remediation.en);
+      expect(rule.references.cwe, rule.id).toEqual([...rule.metadata.standards.cwe]);
+      expect(rule.references.owasp, rule.id).toEqual([...rule.metadata.standards.owasp]);
+      expect(rule.references.cve, rule.id).toEqual([]);
+    }
+  });
+
+  it("does not share mutable arrays between a web rule's flat fields and its metadata", () => {
+    for (const rule of WEB_RULE_LIST) {
+      expect(rule.references.cwe, rule.id).not.toBe(rule.metadata.standards.cwe);
+      expect(rule.references.owasp, rule.id).not.toBe(rule.metadata.standards.owasp);
+    }
   });
 });
