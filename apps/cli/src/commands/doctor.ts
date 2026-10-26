@@ -9,13 +9,28 @@ import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
 
-const MIN_NODE_VERSION = [22, 12] as const;
+/**
+ * Oldest patched release per supported line, from the Node.js security
+ * release of 2026-10-21 (CVE-2026-111497 Brotli RCE and others). Odd and
+ * end-of-life lines get no fixes; lines newer than the last entry include them.
+ */
+const MIN_NODE_VERSIONS = [
+  [22, 23, 4],
+  [24, 22, 1],
+  [26, 12, 1],
+] as const;
+const NEWEST_NODE_LINE = 26;
+const MIN_NODE_VERSION_TEXT = MIN_NODE_VERSIONS.map((v) => v.join(".")).join(", ");
 
 export function isSupportedNodeVersion(version: string): boolean {
-  const [major = 0, minor = 0] = version.split(".").map((part) => Number.parseInt(part, 10));
-  return (
-    major > MIN_NODE_VERSION[0] || (major === MIN_NODE_VERSION[0] && minor >= MIN_NODE_VERSION[1])
-  );
+  const [major = 0, minor = 0, patch = 0] = version
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+  if (major > NEWEST_NODE_LINE) return true;
+  const floor = MIN_NODE_VERSIONS.find(([line]) => line === major);
+  if (floor === undefined) return false;
+  if (minor !== floor[1]) return minor > floor[1];
+  return patch >= floor[2];
 }
 
 interface DoctorCheck {
@@ -132,7 +147,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     {
       label: "Node.js",
       isOk: isSupportedNodeVersion(deps.nodeVersion),
-      detail: `${deps.nodeVersion} (requires >= ${MIN_NODE_VERSION.join(".")})`,
+      detail: `${deps.nodeVersion} (requires ${MIN_NODE_VERSION_TEXT} or a newer patch on that line)`,
       isRequired: true,
     },
     {

@@ -193,7 +193,7 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     startDashboardProcess: unexpected("startDashboardProcess") as never,
     readGitVersion: async () => "git version 2.50.0",
     checkGitHubReachable: async () => true,
-    nodeVersion: "22.12.0",
+    nodeVersion: "22.23.4",
     ...overrides,
   };
 }
