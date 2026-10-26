@@ -12,4 +12,6 @@ README와 `RESULT_SCHEMA.ko.md`는 PGARD가 지금 하는 일을 설명합니다
 | CLI·저장소 구조 | 명령 체계와 앱·패키지 구조                                           | [PGARD_CLI_AND_STRUCTURE_KO.md](PGARD_CLI_AND_STRUCTURE_KO.md) (원본)             | [PGARD_CLI_AND_STRUCTURE_EN.md](PGARD_CLI_AND_STRUCTURE_EN.md) (번역)             | MVP 기획 기록(과거 문서)                             |
 | 개발 컨벤션     | 커밋 단위, 메시지, 네이밍, 검증, PR 규칙, 이슈·보드·리뷰(8절)        | [PGARD_DEVELOPMENT_CONVENTIONS_KO.md](PGARD_DEVELOPMENT_CONVENTIONS_KO.md) (원본) | [PGARD_DEVELOPMENT_CONVENTIONS_EN.md](PGARD_DEVELOPMENT_CONVENTIONS_EN.md) (번역) | MVP 기획 기록(과거 문서). 8절(이슈·보드·리뷰)은 현행 |
 
+릴리스: [RELEASING.ko.md](RELEASING.ko.md)([English](RELEASING.md))는 버전 규칙, 릴리스 체크리스트, 롤백을 설명하며 변경 내역은 [CHANGELOG](../CHANGELOG.md)에 있습니다.
+
 정책 자체(권한 확인, 개인정보, 자격 증명, 민감정보 가림, 대시보드 보안, 웹 검사, 범위 밖)는 README의 [정책](../README.ko.md#정책)을 참고하세요.

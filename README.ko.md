@@ -69,7 +69,19 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 
 ## 설치와 빌드
 
-아직 npm으로 설치할 수 없습니다. npm 이름 `pgard`는 CLI가 없는 자리 표시용 패키지(0.0.1)가 선점해 두었습니다. `npm install -g pgard`는 이 자리 표시용 패키지만 설치하며 `pgard` 명령은 생기지 않습니다. 첫 릴리스(v0.1.0 예정) 전까지는 아래처럼 소스에서 설치하세요. npm과 Homebrew 릴리스를 계획하고 있습니다.
+### npm 또는 Homebrew로 설치(첫 릴리스부터)
+
+첫 릴리스(v0.1.0 예정)는 아직 배포되지 않았습니다. 그때까지 npm 이름 `pgard`는 CLI가 없는 자리 표시용 패키지(0.0.1)가 선점하고 있습니다. `npm install -g pgard`는 이 자리 표시용 패키지만 설치하며 `pgard` 명령은 생기지 않습니다. 릴리스 전에는 아래처럼 소스에서 설치하세요. 첫 릴리스 이후에는 다음과 같이 설치합니다.
+
+```sh
+npm install -g pgard   # `pgard` 명령 설치
+npx pgard doctor       # 설치 없이 한 번 실행
+brew install jadenmeister/pgard/pgard   # Homebrew(macOS, Linux), 첫 릴리스 이후
+```
+
+패키지 이름과 명령은 모두 `pgard`입니다. 버전과 릴리스 절차는 [docs/RELEASING.ko.md](docs/RELEASING.ko.md), 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
+
+### 소스에서 빌드
 
 소스에서 빌드합니다.
 
