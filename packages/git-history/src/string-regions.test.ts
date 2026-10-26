@@ -80,22 +80,28 @@ describe("createStringLookup (#145)", () => {
       'a = """ \' " `\n',
       "/* // ' \" ` */ ",
     ];
+    // Best of 3 runs per size: a single run is noisy when other test files run in parallel.
     const time = (text: string) => {
-      const start = performance.now();
-      const lookup = createStringLookup(text, "big.ts");
-      lookup(text.length - 1);
-      createStringLookup(text, "big.rb")(0);
-      createStringLookup(text, "big.py")(0);
-      return performance.now() - start;
+      let best = Infinity;
+      for (let run = 0; run < 3; run += 1) {
+        const start = performance.now();
+        const lookup = createStringLookup(text, "big.ts");
+        lookup(text.length - 1);
+        createStringLookup(text, "big.rb")(0);
+        createStringLookup(text, "big.py")(0);
+        best = Math.min(best, performance.now() - start);
+      }
+      return best;
     };
     for (const shape of shapes) {
-      const unit = shape.repeat(Math.ceil(1_250_000 / shape.length));
+      const unit = shape.repeat(Math.ceil(625_000 / shape.length)).slice(0, 625_000);
       time(unit.slice(0, 100_000)); // warm up
-      const small = time(unit.slice(0, 1_250_000));
-      const large = time(unit.repeat(4));
-      // 4x the input should take roughly 4x the time (16x if quadratic). Only the ratio is
-      // checked tightly: CI runners are much slower than local machines.
-      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      const small = time(unit);
+      const large = time(unit.repeat(8)); // 5 MB
+      // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
+      // generous so a loaded machine does not fail it; the absolute bound is loose because CI
+      // runners are much slower than local machines.
+      expect(large / Math.max(small, 1)).toBeLessThan(24);
       expect(large).toBeLessThan(10_000);
     }
   }, 120_000);
