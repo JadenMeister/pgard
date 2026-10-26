@@ -564,6 +564,24 @@ describe("runScanCommand reports", () => {
     expect(code).toBe(4);
   });
 
+  it("prints a warning on stderr when the PDF fell back to the Latin-1 font", async () => {
+    const captured = createTestIo();
+    const writeReports = vi.fn(async () => [
+      {
+        format: "pdf" as const,
+        filePath: path.join(directory, "r.pdf"),
+        warning: "The Korean-capable PDF font could not be loaded (font file unreadable: ENOENT).",
+      },
+    ]);
+    const code = await runScanCommand(
+      createTestContext(captured, createTestDeps({ writeReports })),
+      { variant: "default", port: null, report: { format: "pdf", outputDir: directory } },
+    );
+    expect(code).toBe(0);
+    expect(captured.stdout()).toContain("Saved PDF report");
+    expect(captured.stderr()).toContain("Warning: The Korean-capable PDF font could not be loaded");
+  });
+
   it("does not write a report for a blocked scan", async () => {
     const captured = createTestIo();
     const writeReports = vi.fn();
