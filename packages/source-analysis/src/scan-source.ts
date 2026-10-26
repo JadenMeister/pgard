@@ -4,6 +4,7 @@ import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js
 import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
+import { detectLanguageTrack, languageTrackCoverage } from "./tree-sitter/language-track.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
 import {
   readTextFile,
@@ -355,6 +356,8 @@ export async function scanSourceCode(
     GO_RULE_IDS,
     "syntax-level heuristics (lexer and patterns, no type information or cross-file data flow)",
   );
+  // Java, Kotlin, Python and PHP: detected only; no grammar is loaded until rules exist.
+  coverage.push(...languageTrackCoverage(await detectLanguageTrack(walk)));
   if (walk.skippedLarge > 0) {
     coverage.push({
       area: "source:large-files",

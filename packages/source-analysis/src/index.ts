@@ -9,3 +9,29 @@ export {
 export { analyzeJsSource, type JsAnalysis, type JsFileFacts } from "./js/analyze-js.js";
 export { analyzeVueSource } from "./vue/analyze-vue.js";
 export { analyzeGoSource } from "./go/analyze-go.js";
+export {
+  TreeSitterRuntime,
+  DEFAULT_PARSE_LIMITS,
+  type ParseLimits,
+  type ParseOptions,
+  type ParseOutcome,
+} from "./tree-sitter/runtime.js";
+export {
+  TREE_SITTER_LANGUAGES,
+  type TreeSitterLanguage,
+  type ManifestKind,
+} from "./tree-sitter/languages.js";
+export {
+  detectFrameworks,
+  type Framework,
+  type FrameworkDetection,
+} from "./tree-sitter/detect-frameworks.js";
+export {
+  NO_RULES_NOTE,
+  detectLanguageTrack,
+  languageTrackCoverage,
+  parseCoverage,
+  parseTrackFiles,
+  type LanguageTrackDetection,
+  type ParseStats,
+} from "./tree-sitter/language-track.js";

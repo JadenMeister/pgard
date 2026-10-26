@@ -3,6 +3,14 @@ import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
 
+import {
+  TREE_SITTER_EXTENSIONS,
+  TREE_SITTER_LANGUAGES,
+  classifyManifest,
+  type ManifestKind,
+  type TreeSitterLanguage,
+} from "./tree-sitter/languages.js";
+
 export type SourceLanguage = "javascript" | "typescript" | "vue" | "go";
 
 export interface SourceFile {
@@ -20,8 +28,28 @@ export interface SkippedDependencyDirectory {
   reason: DependencyVendorReason | null;
 }
 
+/** A Java, Kotlin, Python or PHP file found by the walk. Not parsed by the walk itself. */
+export interface TrackedFile {
+  absolutePath: string;
+  relativePath: string;
+  /** Size in bytes from `lstat`; the parse step enforces the per-file limit with it. */
+  size: number;
+}
+
+/** A dependency manifest used for framework detection. */
+export interface ManifestFile {
+  absolutePath: string;
+  relativePath: string;
+  kind: ManifestKind;
+}
+
 export interface WalkResult {
   files: SourceFile[];
+  /** Files of the tree-sitter language track, per language. Not counted against `MAX_FILES`. */
+  trackFiles: Record<TreeSitterLanguage, TrackedFile[]>;
+  trackManifests: ManifestFile[];
+  /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
+  trackTruncated: boolean;
   /** Relative paths of manifests used for ORM detection. */
   packageJsonPaths: string[];
   goModPaths: string[];
@@ -51,6 +79,15 @@ export const SKIPPED_DEPENDENCY_DIRECTORIES = new Set(["node_modules", "bower_co
 
 export const MAX_FILE_BYTES = 1024 * 1024;
 export const MAX_FILES = 20_000;
+/** Cap per tree-sitter language and for manifests. */
+export const MAX_TRACK_FILES = 20_000;
+export const MAX_TRACK_MANIFESTS = 200;
+
+/**
+ * Python virtual environments: third-party code that is never first-party source. Reported as
+ * skipped dependency directories like `node_modules/`.
+ */
+const SKIPPED_ENVIRONMENT_DIRECTORIES = new Set([".venv", "venv", "site-packages"]);
 
 const EXTENSIONS: Record<string, SourceLanguage> = {
   ".js": "javascript",
@@ -76,6 +113,9 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
 export async function walkSourceTree(root: string): Promise<WalkResult> {
   const result: WalkResult = {
     files: [],
+    trackFiles: { java: [], kotlin: [], python: [], php: [] },
+    trackManifests: [],
+    trackTruncated: false,
     packageJsonPaths: [],
     goModPaths: [],
     skippedLarge: 0,
@@ -101,7 +141,10 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
-        if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {
+        if (
+          SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name) ||
+          SKIPPED_ENVIRONMENT_DIRECTORIES.has(entry.name)
+        ) {
           result.skippedDependencyDirectories.push({ path: relativePath, reason: null });
           continue;
         }
@@ -121,6 +164,24 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       if (!entry.isFile()) continue;
       if (entry.name === "package.json") result.packageJsonPaths.push(relativePath);
       if (entry.name === "go.mod") result.goModPaths.push(relativePath);
+      const manifestKind = classifyManifest(entry.name);
+      if (manifestKind !== null) {
+        if (result.trackManifests.length < MAX_TRACK_MANIFESTS) {
+          result.trackManifests.push({ absolutePath, relativePath, kind: manifestKind });
+        } else {
+          result.trackTruncated = true;
+        }
+        continue;
+      }
+      const trackLanguage = TREE_SITTER_EXTENSIONS[path.extname(entry.name)];
+      if (trackLanguage) {
+        const stats = await lstat(absolutePath).catch(() => null);
+        if (!stats || !stats.isFile()) continue;
+        const list = result.trackFiles[trackLanguage];
+        if (list.length >= MAX_TRACK_FILES) result.trackTruncated = true;
+        else list.push({ absolutePath, relativePath, size: stats.size });
+        continue;
+      }
       const language = EXTENSIONS[path.extname(entry.name)];
       if (!language || entry.name.endsWith(".d.ts") || /\.min\.(js|mjs|cjs)$/.test(entry.name))
         continue;
@@ -132,13 +193,22 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
       }
       if (result.files.length >= MAX_FILES) {
         result.isTruncated = true;
+        finishTrack(result);
         return result;
       }
       result.files.push({ absolutePath, relativePath, language });
     }
   }
+  finishTrack(result);
   result.files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   return result;
+}
+
+function finishTrack(result: WalkResult): void {
+  for (const language of TREE_SITTER_LANGUAGES) {
+    result.trackFiles[language].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  }
+  result.trackManifests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 /** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */
