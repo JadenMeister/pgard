@@ -8,6 +8,7 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isPathInsideDirectory, writeReports } from "@pgard/report";
+import { createResultStore, resolveStoreDirectory, type ResultStore } from "@pgard/result-store";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
@@ -57,6 +58,12 @@ export interface CliDeps {
   credentialStore: CredentialStore;
   /** `pgard login`: device flow, then save to `credentialStore`. */
   signInAndStore: typeof signInAndStore;
+  /**
+   * Opens the local result store for this invocation's environment, or `null` when no
+   * app-data directory can be determined (no home in `env`). Derived from `env`, never from the
+   * process, so a test with a bare environment can never reach the real store.
+   */
+  openResultStore: (env: Readonly<Record<string, string | undefined>>) => ResultStore | null;
   webScanner: WebScanner;
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
@@ -164,6 +171,14 @@ function deviceFlowApp(env: Readonly<Record<string, string | undefined>>): {
     : { clientId: app.clientId };
 }
 
+function openResultStoreDefault(
+  env: Readonly<Record<string, string | undefined>>,
+): ResultStore | null {
+  // An empty home (not absolute) means "unknown": no fallback to the real home directory.
+  const dir = resolveStoreDirectory({ env, homeDir: env.HOME ?? env.USERPROFILE ?? "" });
+  return dir === null ? null : createResultStore({ dir });
+}
+
 export function createDefaultDeps(): CliDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
@@ -185,6 +200,7 @@ export function createDefaultDeps(): CliDeps {
       }),
     credentialStore,
     signInAndStore,
+    openResultStore: openResultStoreDefault,
     webScanner: scanLocalWeb,
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),

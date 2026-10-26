@@ -88,6 +88,11 @@ export interface AuthorizationOutcome {
   /** Local `HEAD` SHA, or `null` if unknown. */
   revision: string | null;
   /**
+   * GitHub's numeric id of the repository, set only when GitHub returned the repository in this
+   * run. A storage key for frontends; never evidence and never carried over between runs.
+   */
+  repositoryId?: number | null;
+  /**
    * Set when owner approval failed because the App is not installed for this repository (see
    * `guidedInstallRemedy` for when frontends offer it). Absent or `null` otherwise.
    */
