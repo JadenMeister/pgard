@@ -101,6 +101,12 @@ export interface AuthStatus {
    * this repository (`guidedInstallRemedy`); the panel offers the install link. `null` otherwise.
    */
   remedy: InstallRemedyDto | null;
+  /**
+   * Set when the latest check is blocked because GitHub showed no repository although the App is
+   * installed on the owner account for all repositories. Not a remedy: adding the repository does
+   * not apply, so the panel only explains. `null` otherwise.
+   */
+  accessNote: "app_covers_all_repositories" | null;
   /** Short, secret-free text about the sign-in (reused, saved, removed, signed out). */
   signInNotice: string | null;
   /**

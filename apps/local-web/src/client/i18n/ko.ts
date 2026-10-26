@@ -105,6 +105,8 @@ export const ko: Messages = {
     owner: (account) =>
       `owner 승인: ${account}에 PGARD GitHub App을 설치하세요. GitHub에서 "Only select repositories"(이 저장소) 또는 "All repositories"를 고른 뒤 Install을 누르세요. App 설치가 곧 owner 승인이며, PGARD가 대신 설치할 수는 없습니다.`,
     thisRepository: "이 저장소",
+    allRepositoriesNote: (target) =>
+      `GitHub에 ${target}의 접근 권한이 보이지 않습니다. PGARD GitHub App은 이미 소유자 계정의 모든 저장소(All repositories)에 설치되어 있으므로 저장소를 추가해도 해결되지 않습니다. 본인 계정에 접근 권한이 없거나, 저장소가 존재하지 않거나, git remote 주소가 잘못되었을 가능성이 큽니다.`,
     accessLead:
       "GitHub에 이 저장소의 접근 권한이 보이지 않습니다. 비공개 저장소라면 PGARD GitHub App이 이 저장소에 설치되어 있어야 합니다. PGARD는 이것을 계정의 접근 권한 부족과 구분할 수 없습니다.",
     accessPage: (target) =>

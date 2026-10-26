@@ -31,13 +31,21 @@ const activeOffers = new WeakMap<CommandContext, Set<() => void>>();
  * working (polling) and calls the returned `stop` when the page is no longer needed (sign-in or
  * installation done, cancelled, failed); the prompt is then abandoned and stdin released. Other
  * keys are ignored. Does nothing (returns a no-op) without `canOpenBrowser`, for a URL that is
- * not an openable github.com page, or when stdin is not a terminal (nobody can press Enter).
+ * not an openable github.com page, or when stdin is not a terminal or has already ended
+ * (nobody can press Enter). The caller prints the URL either way.
  */
 export function offerBrowserOpen(context: CommandContext, url: string): () => void {
-  if (!context.canOpenBrowser || !isOpenableGitHubUrl(url) || context.io.stdin.isTTY !== true) {
+  const { stdin } = context.io;
+  if (
+    !context.canOpenBrowser ||
+    !isOpenableGitHubUrl(url) ||
+    stdin.isTTY !== true ||
+    stdin.readableEnded === true
+  ) {
     return () => undefined;
   }
-  // Backstop (callers already suspend before long work): leave raw mode if a prompt left it on: Ctrl+C must stay a SIGINT while we wait.
+  // Backstop (callers already suspend before long work): leave raw mode if a prompt left it on,
+  // so Ctrl+C stays a SIGINT while we wait.
   context.keys?.suspend();
   err(context, context.errStyle.dim(OPEN_PROMPT));
   let stopWaiting = (): void => undefined;

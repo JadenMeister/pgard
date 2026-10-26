@@ -1574,6 +1574,38 @@ describe("local web guided App install", () => {
     expect(JSON.parse((await apiGet(running, "/api/auth")).body).remedy).toBeNull();
   });
 
+  it("exposes accessNote (no remedy) only for the exact all-repositories 404 shape", async () => {
+    const statuses = ["passed", "passed", "unverifiable", "failed", "unverifiable"] as const;
+    const hidden: AuthorizationOutcome = {
+      summary: {
+        decision: "blocked",
+        checks: AUTHORIZATION_CHECK_ORDER.map((id, index) => ({
+          id,
+          status: statuses[index]!,
+          reason: "x",
+        })),
+      },
+      repo: "owner/name",
+      revision: "abc",
+      remedy: null,
+      accessNote: "app_covers_all_repositories",
+    };
+    let next = hidden;
+    const running = await start(fakeDeps({ verifyProject: async () => next }));
+    await authorize(running);
+    const auth = JSON.parse((await apiGet(running, "/api/auth")).body);
+    expect(auth.accessNote).toBe("app_covers_all_repositories");
+    expect(auth.remedy).toBeNull();
+
+    next = { ...hidden, summary: outcome("contribution").summary };
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).accessNote).toBeNull();
+
+    next = outcome();
+    await authorize(running);
+    expect(JSON.parse((await apiGet(running, "/api/auth")).body).accessNote).toBeNull();
+  });
+
   it("never passes a link that is not https://github.com/ to the browser", async () => {
     const running = await start(
       fakeDeps({ verifyProject: async () => needsInstall({ url: "https://evil.test/install" }) }),
