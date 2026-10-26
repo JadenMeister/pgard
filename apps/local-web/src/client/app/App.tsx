@@ -7,6 +7,7 @@ import type {
   TargetInfo,
 } from "../../shared/api-types";
 import { apiGet, hasSessionToken } from "../api/client";
+import { loadWithRetry } from "../api/retry";
 import { Notice } from "../components/ui/Card";
 import { LanguageToggle, useI18n } from "../i18n/I18nProvider";
 import { FindingsDashboard } from "../features/findings/FindingsDashboard";
@@ -31,25 +32,12 @@ export function App() {
   // Rule texts in both languages, fetched once when a result is first shown.
   useEffect(() => {
     if (!hasResult || ruleTexts !== null) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    // Up to three tries (0 s, 1 s, 2 s), then tell the person the texts stay in English.
-    const attempt = (n: number): void => {
-      apiGet<RuleTextsResponse>("/api/rule-texts")
-        .then((texts) => {
-          if (!cancelled) setRuleTexts(texts);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          if (n >= 3) setRuleTextsFailed(true);
-          else timer = setTimeout(() => attempt(n + 1), n * 1000);
-        });
-    };
-    attempt(1);
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) clearTimeout(timer);
-    };
+    // Up to three tries, then tell the person the texts stay in English.
+    return loadWithRetry(
+      () => apiGet<RuleTextsResponse>("/api/rule-texts"),
+      setRuleTexts,
+      () => setRuleTextsFailed(true),
+    );
   }, [hasResult, ruleTexts]);
 
   useEffect(() => {
@@ -80,7 +68,7 @@ export function App() {
             {error === "token" ? m.app.errorNoToken : m.app.errorSession}
           </Notice>
         )}
-        {ruleTextsFailed && language === "ko" && (
+        {ruleTextsFailed && ruleTexts === null && language === "ko" && (
           <Notice tone="error">{m.app.errorRuleTexts}</Notice>
         )}
         {session !== null && !hasAcceptedNotice && (
