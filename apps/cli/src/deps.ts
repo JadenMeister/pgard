@@ -1,6 +1,12 @@
 import { execFile, spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import {
+  currentAppDataEnvironment,
+  readAdvisoryStatus,
+  resolveAppDataDir,
+  updateOsvData,
+} from "@pgard/dependencies";
+import {
   discoverListeningPorts,
   probeLocalService,
   scanLocalWeb,
@@ -68,6 +74,12 @@ export interface CliDeps {
   readGitVersion: () => Promise<string | null>;
   checkGitHubReachable: () => Promise<boolean>;
   nodeVersion: string;
+  /** Per-user data directory (downloaded advisory data lives under it). */
+  appDataDir: string;
+  /** `pgard advisories update`: the only place advisory data is downloaded. */
+  updateAdvisories: typeof updateOsvData;
+  /** Age of the downloaded data, from local metadata only. */
+  readAdvisoryStatus: typeof readAdvisoryStatus;
 }
 
 /** Package specifier of the dashboard launcher. Only its file path is resolved, never imported. */
@@ -189,5 +201,8 @@ export function createDefaultDeps(): CliDeps {
     readGitVersion: readGitVersionDefault,
     checkGitHubReachable: checkGitHubReachableDefault,
     nodeVersion: process.versions.node,
+    appDataDir: resolveAppDataDir(currentAppDataEnvironment()),
+    updateAdvisories: updateOsvData,
+    readAdvisoryStatus,
   };
 }

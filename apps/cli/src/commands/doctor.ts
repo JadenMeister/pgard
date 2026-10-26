@@ -129,6 +129,49 @@ async function describeStoredSignIn(
   };
 }
 
+/** Age of the downloaded OSV data, from local metadata only (no network). */
+async function describeAdvisoryData(context: CommandContext): Promise<DoctorCheck> {
+  const label = "Advisory data (OSV)";
+  let status;
+  try {
+    status = await context.deps.readAdvisoryStatus(context.deps.appDataDir, context.deps.now());
+  } catch {
+    return { label, isOk: false, detail: "could not be read", isRequired: false };
+  }
+  const ages = status.ecosystems
+    .map((entry) =>
+      entry.fetchedAt === null
+        ? `${entry.ecosystem} none`
+        : `${entry.ecosystem} ${entry.fetchedAt.slice(0, 10)} (${entry.ageDays} day${entry.ageDays === 1 ? "" : "s"} old${entry.state === "damaged" ? ", files damaged" : ""})`,
+    )
+    .join(", ");
+  switch (status.overall) {
+    case "fresh":
+      return { label, isOk: true, detail: ages, isRequired: false };
+    case "stale":
+      return {
+        label,
+        isOk: false,
+        detail: `stale: ${ages}; run \`pgard advisories update\` (it downloads public OSV data, uploads nothing)`,
+        isRequired: false,
+      };
+    case "damaged":
+      return {
+        label,
+        isOk: false,
+        detail: `damaged: ${ages}; run \`pgard advisories update\``,
+        isRequired: false,
+      };
+    case "none":
+      return {
+        label,
+        isOk: false,
+        detail: `none: ${ages}; run \`pgard advisories update\` to download public OSV data (needed for dependency checks)`,
+        isRequired: false,
+      };
+  }
+}
+
 /**
  * `pgard doctor`: environment diagnosis only. It never authorizes a scan, never prints a token,
  * and works outside a project.
@@ -173,6 +216,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     },
     describeGitHubApp(app),
     { label: "Saved GitHub sign-in", ...signIn, isRequired: false },
+    await describeAdvisoryData(context),
     {
       label: "Local port discovery",
       isOk: discovery.isAvailable,

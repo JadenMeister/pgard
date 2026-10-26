@@ -8,6 +8,9 @@
   "exclude": ["src/**/*.test.ts", "src/test-support.ts"],
   "references": [
     {
+      "path": "../../packages/dependencies"
+    },
+    {
       "path": "../../packages/findings"
     },
     {

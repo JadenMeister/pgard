@@ -25,6 +25,7 @@ export type ParsedCommand =
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
   | { kind: "rules-list"; language: RuleLanguage | null }
   | { kind: "doctor" }
+  | { kind: "advisories-update" }
   | { kind: "login"; noBrowser: boolean }
   | { kind: "logout" };
 
@@ -37,6 +38,8 @@ export type HelpTopic =
   | "rules"
   | "rules list"
   | "doctor"
+  | "advisories"
+  | "advisories update"
   | "login"
   | "logout";
 
@@ -284,6 +287,21 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
       rejectOptions(split, [], topic, "pgard doctor");
       return { kind: "doctor" };
+    }
+    case "advisories": {
+      topic = sub === "update" ? "advisories update" : "advisories";
+      if (split.isHelp) return { kind: "help", topic };
+      if (sub !== "update") {
+        throw new UsageError(
+          sub === undefined
+            ? "Missing subcommand: update"
+            : `Unknown subcommand: advisories ${sub.slice(0, 40)}`,
+          "advisories",
+        );
+      }
+      rejectExtraPositionals(rest, topic);
+      rejectOptions(split, [], topic, "pgard advisories update");
+      return { kind: "advisories-update" };
     }
     case "login":
     case "logout": {

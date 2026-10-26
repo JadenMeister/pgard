@@ -2,6 +2,7 @@ import { stopBrowserOffers } from "./flows/browser.js";
 import { PGARD_VERSION } from "@pgard/scan-core";
 import { createCancelController, type InterruptSource } from "./adapters/cancel.js";
 import { createKeyReader, isInteractive, type CliIo } from "./adapters/terminal.js";
+import { runAdvisoriesUpdate } from "./commands/advisories.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runLogin, runLogout } from "./commands/login.js";
@@ -42,6 +43,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runRulesList(context, command.language);
     case "doctor":
       return runDoctor(context);
+    case "advisories-update":
+      return runAdvisoriesUpdate(context);
     case "login":
       return runLogin(context);
     case "logout":

@@ -35,6 +35,8 @@ Usage:
   pgard rules list [--language js|ts|react|vue|go]
                                 supported rules and unsupported areas
   pgard doctor                  diagnose the environment (not an authorization)
+  pgard advisories update       download public OSV vulnerability data (npm, Go)
+                                to this computer; the only non-GitHub download
   pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard logout                  remove the saved GitHub sign-in from the OS keychain
   pgard --help | <command> --help
@@ -93,8 +95,9 @@ be installed, PGARD opens the install page, waits for it, re-runs the full
 authorization and continues the scan.
 
 Findings come from the code itself (query statements, server code,
-configuration, Git history). PGARD does not ship or query a vulnerability
-database.
+configuration, Git history). Scans never download advisory data and never query
+a vulnerability database; "pgard advisories update" is a separate download that
+only you start.
 
 Web checks send anonymous GET requests to 127.0.0.1 only, within page, depth and
 time limits. GET requests can still change state in some applications.
@@ -133,6 +136,28 @@ not authorize scans. Works outside a project.
 
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,
+  advisories: `Usage:
+  pgard advisories update
+
+Subcommands:
+  update   download the public OSV vulnerability data for npm and Go`,
+  "advisories update": `Usage:
+  pgard advisories update
+
+Downloads the public OSV bulk exports for npm and Go from
+https://osv-vulnerabilities.storage.googleapis.com/ (https only, that host only)
+and stores a compact copy in PGARD's data directory on this computer. It runs
+only when you run this command, never during a scan. Nothing is uploaded: the
+request is a plain GET of a fixed file, with no package names, no project data
+and no sign-in. The npm export is about 220 MB; the download is verified (zip
+structure, per-record checksums, size limit, timeout) and replaces the old data
+only when everything checks out. If anything fails, the old data stays.
+
+Exit codes:
+  0    all ecosystems updated
+  4    at least one ecosystem failed (its previous data is unchanged)
+  5    internal error
+  130  cancelled`,
   login: `Usage:
   pgard login [--no-browser]
 

@@ -1,4 +1,5 @@
 import { PassThrough } from "node:stream";
+import { readAdvisoryStatus } from "@pgard/dependencies";
 import type { AuthorizationSummary, Finding, ScanResult } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
 import { createInMemoryCredentialStore } from "@pgard/scan-core";
@@ -194,6 +195,10 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     readGitVersion: async () => "git version 2.50.0",
     checkGitHubReachable: async () => true,
     nodeVersion: "22.23.4",
+    // No data directory: doctor reports "none"; a test that needs data overrides these.
+    appDataDir: "/nonexistent/pgard-test-appdata",
+    updateAdvisories: unexpected("updateAdvisories") as never,
+    readAdvisoryStatus,
     ...overrides,
   };
 }
