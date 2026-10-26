@@ -84,6 +84,66 @@ export function maxDisplayWidth(texts: readonly string[]): number {
  * Used for summary rows, so a long value continues under itself instead of wrapping to column 0.
  */
 export function wrapWidth(text: string, width: number): string[] {
+  return carryColour(wrapPlain(text, width));
+}
+
+const SGR_PATTERN = new RegExp(`${String.fromCharCode(27)}\\[([0-9;]*)m`, "g");
+const RESET = `${String.fromCharCode(27)}[0m`;
+
+/** The attribute family a single SGR code belongs to: its close code resets the family. */
+function attributeFamily(value: number): string | null {
+  if (value === 1 || value === 2 || value === 22) return "weight";
+  if (value === 3 || value === 23) return "italic";
+  if (value === 4 || value === 24) return "underline";
+  if (value === 7 || value === 27) return "inverse";
+  if ((value >= 30 && value <= 39) || (value >= 90 && value <= 97)) return "foreground";
+  if ((value >= 40 && value <= 49) || (value >= 100 && value <= 107)) return "background";
+  return null;
+}
+
+const CLOSE_CODES = new Set([22, 23, 24, 27, 39, 49]);
+
+/**
+ * Applies one `ESC[...m` sequence to the set of open attributes. Compound sequences work:
+ * `1;31` is two codes, and the extended colours `38;5;n` and `38;2;r;g;b` (and `48;...`) are
+ * one attribute with their arguments.
+ */
+function applySgr(open: Map<string, string>, params: string): void {
+  const tokens = params === "" ? ["0"] : params.split(";");
+  for (let index = 0; index < tokens.length; index += 1) {
+    const value = Number(tokens[index]);
+    if (value === 0) {
+      open.clear();
+    } else if (value === 38 || value === 48) {
+      const length = tokens[index + 1] === "5" ? 3 : tokens[index + 1] === "2" ? 5 : 1;
+      open.set(
+        value === 38 ? "foreground" : "background",
+        tokens.slice(index, index + length).join(";"),
+      );
+      index += length - 1;
+    } else {
+      const family = attributeFamily(value);
+      if (family === null) continue;
+      if (CLOSE_CODES.has(value)) open.delete(family);
+      else open.set(family, String(value));
+    }
+  }
+}
+
+/**
+ * A colour opened on one wrapped line must not run on into the indent of the next: each line
+ * that ends inside a colour is closed, and the next line opens it again after its own indent.
+ */
+function carryColour(lines: string[]): string[] {
+  const open = new Map<string, string>();
+  return lines.map((line) => {
+    const reopened = [...open.values()].map((code) => `${String.fromCharCode(27)}[${code}m`);
+    for (const match of line.matchAll(SGR_PATTERN)) applySgr(open, match[1] ?? "");
+    return `${reopened.join("")}${line}${open.size > 0 ? RESET : ""}`;
+  });
+}
+
+function wrapPlain(text: string, width: number): string[] {
   const lines: string[] = [];
   let line = "";
   for (const word of text.split(" ")) {

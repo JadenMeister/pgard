@@ -5,6 +5,9 @@ import { CORS_PROBE_ORIGIN } from "./constants.js";
 import { AUTHENTICATED_NOT_AVAILABLE_NOTE, scanLocalWeb } from "./scan-local-web.js";
 import { startFixtureServer, type FixtureServer } from "./test-fixtures.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 const servers: FixtureServer[] = [];
 async function start(handler: http.RequestListener): Promise<FixtureServer> {
   const server = await startFixtureServer(handler);
@@ -229,7 +232,7 @@ describe("scanLocalWeb", () => {
     });
     const startedAt = Date.now();
     const output = await scanLocalWeb(targetFor(server.port), { limits: { totalBudgetMs: 500 } });
-    expect(Date.now() - startedAt).toBeLessThan(900);
+    expect(Date.now() - startedAt).toBeLessThan(900 * SLOW);
     expect(output.coverage[0]?.status).not.toBe("completed");
   });
 

@@ -4,6 +4,7 @@ import {
   partitionFindings,
   suppressionNotices,
   countStandardStates,
+  PROJECT_CONFIG_FILE,
   projectConfigNotices,
   configTestFindingCount,
   splitFindingsByContext,
@@ -21,7 +22,13 @@ import { formatLocation, summarizeStatusSplit } from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
 import { renderChart } from "./charts.js";
 import { CLI_TEXT, type CliText } from "../i18n/cli-text.js";
-import { maxDisplayWidth, padEndWidth, truncateWidth } from "../i18n/display-width.js";
+import {
+  displayWidth,
+  maxDisplayWidth,
+  padEndWidth,
+  truncateWidth,
+  wrapWidth,
+} from "../i18n/display-width.js";
 import {
   COLLAPSE_THRESHOLD,
   groupFindings,
@@ -66,6 +73,24 @@ export function formatSeverityBars(
     isColor: style.enabled,
     ...(unicode === undefined ? {} : { unicode }),
   }).join("\n");
+}
+
+/**
+ * "Findings by severity (N total) - plus ...": one line when it fits the terminal, else the
+ * heading and the "plus" part on their own wrapped lines, so nothing runs past the width.
+ */
+function severityHeading(heading: string, extra: readonly string[], ctx: RenderContext): string[] {
+  const { style, t, width } = ctx;
+  const plus = extra.length === 0 ? "" : t.plus([...extra]);
+  if (displayWidth(heading) + displayWidth(plus) <= width) {
+    return [style.bold(heading) + (plus === "" ? "" : style.dim(plus))];
+  }
+  return [
+    ...wrapWidth(heading, width).map((line) => style.bold(line)),
+    ...wrapWidth(plus.replace(/^\s*-\s*/, ""), Math.max(10, width - 2)).map(
+      (line) => `  ${style.dim(line)}`,
+    ),
+  ];
 }
 
 /** How to see everything that was collapsed or shortened (English; see `CliText.showAllHint`). */
@@ -237,7 +262,10 @@ function localizedConfigNoticeText(
     if (match !== null) return t.configExcluded(Number(match[1]), match[2] ?? "");
   }
   // The detail (counts, quoted patterns) is the scan's own wording; only the frame is translated.
-  return `${t.configNoticePrefix}${notice.text}`;
+  // The scan's sentence often names the file already: do not say it twice.
+  return notice.text.startsWith(PROJECT_CONFIG_FILE)
+    ? notice.text
+    : `${t.configNoticePrefix}${notice.text}`;
 }
 
 /**
@@ -583,8 +611,7 @@ export function formatScanResult(
   ];
   sections.push(
     "",
-    style.bold(t.chartBySeverity(hasBaseline, primary.length)) +
-      (extra.length === 0 ? "" : style.dim(t.plus(extra))),
+    ...severityHeading(t.chartBySeverity(hasBaseline, primary.length), extra, ctx),
     formatSeverityBars(primary, style, t, ctx.width, ctx.unicode),
     ...formatSecondaryCharts(primary, result.requestedScopes, ctx),
   );

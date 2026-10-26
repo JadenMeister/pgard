@@ -95,5 +95,10 @@ describe("CLI text catalogs", () => {
     expect(CLI_TEXT.en.elapsedValue(59_960)).toBe("1 m 0 s");
     expect(CLI_TEXT.ko.elapsedValue(119_600)).toBe("2분 0초");
     expect(CLI_TEXT.en.elapsedValue(30_400)).toBe("30 s");
+    // Rounding to tenths must not print "10.0 s".
+    expect(CLI_TEXT.en.elapsedValue(9_960)).toBe("10 s");
+    expect(CLI_TEXT.ko.elapsedValue(9_960)).toBe("10초");
+    expect(CLI_TEXT.en.elapsedValue(9_949)).toBe("9.9 s");
+    expect(CLI_TEXT.en.elapsedValue(9_950)).toBe("10 s");
   });
 });

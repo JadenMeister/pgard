@@ -7,7 +7,7 @@ const OFFICIAL_HOSTS: ReadonlySet<string> = new Set([
   "cmu-sei.github.io",
 ]);
 
-/** True for an `https:` URL on an official standards host (no credentials, no other scheme). */
+/** True for an `https:` URL on an official standards host (no credentials, default port only). */
 export function isOfficialStandardsUrl(url: string): boolean {
   try {
     const parsed = new URL(url);
@@ -15,6 +15,7 @@ export function isOfficialStandardsUrl(url: string): boolean {
       parsed.protocol === "https:" &&
       parsed.username === "" &&
       parsed.password === "" &&
+      parsed.port === "" &&
       OFFICIAL_HOSTS.has(parsed.hostname)
     );
   } catch {

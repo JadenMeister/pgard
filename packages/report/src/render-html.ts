@@ -126,9 +126,42 @@ function renderStandards(finding: Finding, ctx: ReportContext): string {
   return `<div class="standards"><strong>${escapeHtml(ctx.t.standards)}</strong><ul>${items}</ul></div>`;
 }
 
-function renderExamples(finding: Finding, ctx: ReportContext): string {
+interface Piece {
+  html: string;
+  /** The same block was already written for an earlier finding of the rule. */
+  isRepeat: boolean;
+}
+
+const shownPerRender = new WeakMap<ReportContext, Set<string>>();
+const anchoredPerRender = new WeakMap<ReportContext, Set<string>>();
+
+function stateOf(map: WeakMap<ReportContext, Set<string>>, ctx: ReportContext): Set<string> {
+  let state = map.get(ctx);
+  if (state === undefined) {
+    state = new Set();
+    map.set(ctx, state);
+  }
+  return state;
+}
+
+/**
+ * Rule-level blocks (guidance, examples) are the same for every finding of a rule, so only the
+ * first one in the report is written: 100 findings of one rule would otherwise repeat them 100
+ * times. The key includes the text, so a finding with its own guidance still shows it. Later
+ * findings get a link to the first one (see `renderFinding`).
+ */
+function firstTimeOnly(ctx: ReportContext, kind: string, finding: Finding, html: string): Piece {
+  if (html === "") return { html: "", isRepeat: false };
+  const shown = stateOf(shownPerRender, ctx);
+  const key = `${kind}\u0000${finding.ruleId}\u0000${html}`;
+  if (shown.has(key)) return { html: "", isRepeat: true };
+  shown.add(key);
+  return { html, isRepeat: false };
+}
+
+function renderExamples(finding: Finding, ctx: ReportContext): Piece {
   const details = findingDetails(finding, ctx);
-  if (details === undefined || details.examples.length === 0) return "";
+  if (details === undefined || details.examples.length === 0) return { html: "", isRepeat: false };
   const blocks = details.examples
     .map((example) => {
       const note =
@@ -138,10 +171,15 @@ function renderExamples(finding: Finding, ctx: ReportContext): string {
       return `<p><strong>${escapeHtml(ctx.t.vulnerable)}</strong> <span class="meta">${escapeHtml(example.language)}</span></p><pre class="code"><code>${escapeHtml(example.vulnerable)}</code></pre><p><strong>${escapeHtml(ctx.t.safe)}</strong></p><pre class="code"><code>${escapeHtml(example.safe)}</code></pre>${note}`;
     })
     .join("");
-  return `<details class="examples"><summary>${escapeHtml(ctx.t.examples(details.examples.length))}</summary>${blocks}</details>`;
+  return firstTimeOnly(
+    ctx,
+    "examples",
+    finding,
+    `<details class="examples"><summary>${escapeHtml(ctx.t.examples(details.examples.length))}</summary>${blocks}</details>`,
+  );
 }
 
-function renderGuidance(finding: Finding, ctx: ReportContext): string {
+function renderGuidance(finding: Finding, ctx: ReportContext): Piece {
   const guidance = ruleGuidance(finding, findingDetails(finding, ctx), ctx.lang);
   const rows = [
     guidance.rationale === null
@@ -151,8 +189,13 @@ function renderGuidance(finding: Finding, ctx: ReportContext): string {
       ? ""
       : `<dt>${escapeHtml(ctx.t.ruleRemediation)}</dt><dd>${escapeHtml(guidance.remediation)}</dd>`,
   ].join("");
-  return rows === "" ? "" : `<dl class="guidance">${rows}</dl>`;
+  return rows === ""
+    ? { html: "", isRepeat: false }
+    : firstTimeOnly(ctx, "guidance", finding, `<dl class="guidance">${rows}</dl>`);
 }
+
+/** Anchor id of the first finding of a rule that shows its examples and guidance. */
+const ruleAnchor = (ruleId: string): string => `rule-${ruleId}`;
 
 function renderFinding(finding: Finding, ctx: ReportContext, isNew = false): string {
   const t = ctx.t;
@@ -162,7 +205,19 @@ function renderFinding(finding: Finding, ctx: ReportContext, isNew = false): str
       ? ""
       : `\n  <p class="suppression"><strong>${escapeHtml(suppressionReasonLine(finding, ctx))}</strong></p>`;
   const severity = word(t.severity, finding.severity, t.unknownLabel);
-  return `<article class="finding sev-${escapeHtml(finding.severity)}">
+  const guidance = renderGuidance(finding, ctx);
+  const examples = renderExamples(finding, ctx);
+  const anchored = stateOf(anchoredPerRender, ctx);
+  let anchor = "";
+  if ((guidance.html !== "" || examples.html !== "") && !anchored.has(finding.ruleId)) {
+    anchored.add(finding.ruleId);
+    anchor = ` id="${escapeHtml(ruleAnchor(finding.ruleId))}"`;
+  }
+  const pointer =
+    (guidance.isRepeat || examples.isRepeat) && anchored.has(finding.ruleId)
+      ? `<p class="meta rule-details-link"><a href="#${escapeHtml(ruleAnchor(finding.ruleId))}">${escapeHtml(t.ruleDetailsAbove(finding.ruleId))}</a></p>`
+      : "";
+  return `<article class="finding sev-${escapeHtml(finding.severity)}"${anchor}>
   <header>${isNew ? `\n    <span class="new-badge">${escapeHtml(t.newBadge)}</span>` : ""}
     <span class="sev" style="background:${severityColor(finding.severity)}">${escapeHtml(severity)}</span>
     <span class="status">${escapeHtml(word(t.findingStatus, finding.status))}</span>
@@ -175,7 +230,7 @@ function renderFinding(finding: Finding, ctx: ReportContext, isNew = false): str
     <dt>${labels.impact}</dt><dd>${escapeHtml(finding.impact)}</dd>
     <dt>${labels.recommendation}</dt><dd>${escapeHtml(finding.recommendation)}</dd>
   </dl>
-  ${renderGuidance(finding, ctx)}${renderStandards(finding, ctx)}${renderExamples(finding, ctx)}${renderReferences(finding, ctx)}
+  ${guidance.html}${renderStandards(finding, ctx)}${examples.html}${pointer}${renderReferences(finding, ctx)}
 </article>`;
 }
 
@@ -198,13 +253,13 @@ function renderStandardsCoverage(result: ScanResult, ctx: ReportContext): string
   const owasp = owaspRows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${row.state}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   const cwe = cweTop25Rows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${row.rank ?? ""}</td><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${row.state}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td>${escapeHtml(String(row.rank ?? ""))}</td><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   return `<h2>${escapeHtml(t.standardsTitle)}</h2>

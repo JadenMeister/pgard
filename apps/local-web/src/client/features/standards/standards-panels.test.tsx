@@ -230,6 +230,23 @@ describe("standards coverage panel", () => {
     });
   }
 
+  it("links only well-formed CWE ids in the Top 25 table", () => {
+    const result = resultV11();
+    const map = result.standardsCoverage!;
+    const entry = map.cweTop25[0]!;
+    const forged = {
+      ...result,
+      standardsCoverage: {
+        ...map,
+        cweTop25: [{ ...entry, id: "CWE-79/../../x" }, { ...entry, id: "CWE-0" }, entry],
+      },
+    } as ScanResult;
+    const html = withLanguage("en", <StandardsCoveragePanel result={forged} />);
+    expect(html).not.toContain("CWE-79/../../x.html");
+    expect(html).not.toContain("definitions/0.html");
+    expect(html).toContain(`definitions/${entry.id.slice(4)}.html`);
+  });
+
   it("shows each of the four states with its own badge", () => {
     const partialCoverage = [{ ...COVERAGE[0]!, status: "partial" as const }];
     const partialStats = STATS.map((stat) => ({ ...stat, status: "partial" as const }));
@@ -287,6 +304,8 @@ describe("external links", () => {
     expect(isOfficialStandardsUrl("javascript:alert(1)")).toBe(false);
     expect(isOfficialStandardsUrl("https://evil.example/cwe.mitre.org")).toBe(false);
     expect(isOfficialStandardsUrl("https://user:pw@cwe.mitre.org/x")).toBe(false);
+    expect(isOfficialStandardsUrl("https://cwe.mitre.org:8443/x")).toBe(false);
+    expect(isOfficialStandardsUrl("https://cwe.mitre.org:443/data/definitions/79.html")).toBe(true);
     expect(isOfficialStandardsUrl("")).toBe(false);
     const html = renderToStaticMarkup(<ExternalLink url="javascript:alert(1)">x</ExternalLink>);
     expect(html).toBe("<span>x</span>");

@@ -7,6 +7,7 @@ import {
 } from "@pgard/scan-core";
 import { err, type CommandContext } from "../context.js";
 import { safeText } from "../ui/formatters/style.js";
+import { cliText, type CliText } from "../ui/i18n/cli-text.js";
 import { offerBrowserOpen } from "./browser.js";
 
 /** How often owner approval is checked again while the user installs the App. */
@@ -14,14 +15,17 @@ export const INSTALL_POLL_INTERVAL_MS = 5_000;
 /** How long PGARD waits for the installation before blocking. */
 export const INSTALL_WAIT_LIMIT_MS = 10 * 60_000;
 
-export const WAITING_FOR_INSTALL_MESSAGE =
-  "Waiting for the PGARD GitHub App to be installed... (press Ctrl+C twice to cancel)";
+export const WAITING_FOR_INSTALL_MESSAGE = cliText("en").commands.install.waitingInstall;
 
 /** The waiting line: for a repository to be added to an existing installation, or an install. */
-export function waitingMessage(missing: string, repo: string | null): string {
-  if (missing !== "repository_access") return WAITING_FOR_INSTALL_MESSAGE;
-  const target = repo === null ? "this repository" : safeText(repo, 120);
-  return `Waiting for ${target} to be added to the PGARD GitHub App's repository access... (press Ctrl+C twice to cancel)`;
+export function waitingMessage(
+  missing: string,
+  repo: string | null,
+  t: CliText = cliText("en"),
+): string {
+  const text = t.commands.install;
+  if (missing !== "repository_access") return text.waitingInstall;
+  return text.waitingRepositoryAccess(repo === null ? text.thisRepository : safeText(repo, 120));
 }
 
 /**
@@ -42,8 +46,12 @@ export function authorizationDepsFor(
 }
 
 /** "Ask an owner" line for a user who cannot install the App; the link is safe to share. */
-export function formatAskOwner(accountLogin: string, url: string): string {
-  return `Ask an owner of ${safeText(accountLogin, 100)} to install the PGARD GitHub App: ${url}`;
+export function formatAskOwner(
+  accountLogin: string,
+  url: string,
+  t: CliText = cliText("en"),
+): string {
+  return t.commands.install.askOwner(safeText(accountLogin, 100), url);
 }
 
 /**
@@ -51,9 +59,12 @@ export function formatAskOwner(accountLogin: string, url: string): string {
  * installed there): an owner installs it on the install page, anyone else asks an owner. It names
  * "the install page" plus the link, since with `--no-browser` (or in the dashboard) nothing opened.
  */
-export function formatOwnerOrAsk(accountLogin: string, url: string): string {
-  const account = safeText(accountLogin, 100);
-  return `If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${url}`;
+export function formatOwnerOrAsk(
+  accountLogin: string,
+  url: string,
+  t: CliText = cliText("en"),
+): string {
+  return t.commands.install.ownerOrAsk(safeText(accountLogin, 100), url);
 }
 
 type MissingKind = "installation" | "repository" | "access" | "repository_access";
@@ -63,9 +74,11 @@ export function formatAskOwnerToAddRepository(
   accountLogin: string,
   repo: string | null,
   url: string,
+  t: CliText = cliText("en"),
 ): string {
-  const target = repo === null ? "this repository" : safeText(repo, 120);
-  return `Ask an owner of ${safeText(accountLogin, 100)} to add ${target} to the PGARD GitHub App's repository access: ${url}`;
+  const text = t.commands.install;
+  const target = repo === null ? text.thisRepository : safeText(repo, 120);
+  return text.askOwnerToAdd(safeText(accountLogin, 100), target, url);
 }
 
 function formatInstallSteps(
@@ -74,34 +87,30 @@ function formatInstallSteps(
   url: string,
   canApprove: "yes" | "unknown",
   missing: MissingKind = "installation",
+  t: CliText = cliText("en"),
 ): string {
-  const target = repo === null ? "this repository" : safeText(repo, 120);
+  const text = t.commands.install;
+  const target = repo === null ? text.thisRepository : safeText(repo, 120);
   const account = safeText(accountLogin, 100);
   if (missing === "repository_access") {
     return [
-      `GitHub shows no access to ${target}. The PGARD GitHub App is already installed on ${account}, but its repository access does not include this repository (or your account has no access to it).`,
+      text.repositoryAccessIntro(target, account),
       canApprove === "yes"
-        ? `Owner approval: add ${target} to the PGARD GitHub App's repository access.`
-        : `If you are an owner of ${account}, add ${target} to the PGARD GitHub App's repository access on its settings page; otherwise ask an owner to do it there: ${url}`,
-      `  1. Open ${url}`,
-      `  2. Under "Repository access", choose "Only select repositories", add ${target}, then click Save.`,
-      "Changing the App's repository access is the owner approval; PGARD cannot change it for you.",
+        ? text.ownerApprovalAdd(target)
+        : text.ownerOrAskToAdd(account, target, url),
+      text.open(url),
+      text.repositoryAccessStep(target),
+      text.repositoryAccessFooter,
     ].join("\n");
   }
   return [
-    ...(missing === "access"
-      ? [
-          `GitHub shows no access to ${target}. If it is private, the PGARD GitHub App must be installed for it (PGARD cannot tell this from missing account access).`,
-        ]
-      : []),
+    ...(missing === "access" ? [text.accessIntro(target)] : []),
     canApprove === "yes"
-      ? `Owner approval: install the PGARD GitHub App on ${account} to approve PGARD for ${target}.`
-      : formatOwnerOrAsk(accountLogin, url),
-    `  1. Open ${url}`,
-    missing === "access"
-      ? `  2. The page pre-selects "All repositories". To limit PGARD to this repository, choose "Only select repositories" and pick ${target}, then click Install.`
-      : `  2. Choose "Only select repositories" (${target}) or "All repositories", then click Install.`,
-    "Installing the App is the owner approval; PGARD cannot install it for you.",
+      ? text.ownerApprovalInstall(account, target)
+      : formatOwnerOrAsk(accountLogin, url, t),
+    text.open(url),
+    missing === "access" ? text.accessStep(target) : text.installStep(target),
+    text.installFooter,
   ].join("\n");
 }
 
@@ -131,8 +140,10 @@ export async function offerGuidedInstall(
   const remedy = guidedInstallRemedy(outcome);
   if (remedy === null) return "not_offered";
   const { errStyle } = context;
+  const t = cliText(context.ruleLocale);
+  const text = t.commands.install;
   if (remedy.url === null) {
-    err(context, errStyle.yellow(remedy.unavailableReason ?? "No install link is available."));
+    err(context, errStyle.yellow(remedy.unavailableReason ?? text.noInstallLink));
     return "blocked";
   }
   if (remedy.canApprove === "no") {
@@ -140,8 +151,8 @@ export async function offerGuidedInstall(
       context,
       errStyle.yellow(
         remedy.missing === "repository_access"
-          ? formatAskOwnerToAddRepository(remedy.account.login, outcome.repo, remedy.url)
-          : formatAskOwner(remedy.account.login, remedy.url),
+          ? formatAskOwnerToAddRepository(remedy.account.login, outcome.repo, remedy.url, t)
+          : formatAskOwner(remedy.account.login, remedy.url, t),
       ),
     );
     return "blocked";
@@ -157,6 +168,7 @@ export async function offerGuidedInstall(
         remedy.url,
         remedy.canApprove,
         remedy.missing,
+        t,
       ),
     ),
   );
@@ -165,14 +177,14 @@ export async function offerGuidedInstall(
       context,
       errStyle.dim(
         remedy.missing === "repository_access"
-          ? "Not a terminal, so PGARD does not wait. Run the command again after adding the repository to the App's repository access."
-          : "Not a terminal, so PGARD does not wait for the installation. Run the command again after installing.",
+          ? text.notTerminalRepository
+          : text.notTerminalInstall,
       ),
     );
     return "blocked";
   }
   const stopOffer = offerBrowserOpen(context, remedy.url);
-  err(context, errStyle.dim(waitingMessage(remedy.missing, outcome.repo)));
+  err(context, errStyle.dim(waitingMessage(remedy.missing, outcome.repo, t)));
 
   const deadline = context.deps.now() + INSTALL_WAIT_LIMIT_MS;
   try {
@@ -183,7 +195,7 @@ export async function offerGuidedInstall(
         // Only an abort ends the sleep early.
       }
       if (context.signal.aborted) {
-        err(context, errStyle.yellow("Stopped waiting for the PGARD GitHub App installation."));
+        err(context, errStyle.yellow(text.stoppedWaiting));
         return "cancelled";
       }
       let recheck;
@@ -193,20 +205,15 @@ export async function offerGuidedInstall(
         recheck = null;
       }
       if (context.signal.aborted) {
-        err(context, errStyle.yellow("Stopped waiting for the PGARD GitHub App installation."));
+        err(context, errStyle.yellow(text.stoppedWaiting));
         return "cancelled";
       }
       if (recheck === null) {
-        err(context, errStyle.red("Owner approval could not be checked again."));
+        err(context, errStyle.red(text.recheckFailed));
         return "blocked";
       }
       if (recheck.status === "passed") {
-        err(
-          context,
-          errStyle.green(
-            "The PGARD GitHub App installation was found. Running the full authorization again...",
-          ),
-        );
+        err(context, errStyle.green(text.found));
         return "reauthorize";
       }
       if (recheck.remedy === null) {
@@ -215,11 +222,7 @@ export async function offerGuidedInstall(
         // gone). The full authorization reports the current reasons.
         err(
           context,
-          errStyle.yellow(
-            recheck.status === "unverifiable"
-              ? "Owner approval could not be confirmed. Running the full authorization again..."
-              : "Owner approval changed. Running the full authorization again...",
-          ),
+          errStyle.yellow(recheck.status === "unverifiable" ? text.unconfirmed : text.changed),
         );
         return "reauthorize";
       }
@@ -227,7 +230,7 @@ export async function offerGuidedInstall(
         err(
           context,
           errStyle.red(
-            `Stopped waiting after ${INSTALL_WAIT_LIMIT_MS / 60_000} minutes. ${safeText(recheck.reason, 300)}`,
+            text.stoppedAfter(INSTALL_WAIT_LIMIT_MS / 60_000, safeText(recheck.reason, 300)),
           ),
         );
         return "blocked";

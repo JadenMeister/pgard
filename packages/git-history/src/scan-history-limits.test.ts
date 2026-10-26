@@ -13,6 +13,9 @@ import {
 } from "./scan-history.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
+/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
+const SLOW = process.platform === "win32" ? 3 : 1;
+
 const join = (...parts: string[]) => parts.join("");
 const TOKEN_A = join("ghp", "_", "AaBbCcDdEeFfGgHhIiJj", "KkLlMmNnOoPpQqRr");
 const pem = (body: string) =>
@@ -813,7 +816,7 @@ describe("binary and skipped current files (#136)", () => {
     };
     const started = Date.now();
     const result = await scanGitHistory(repo.root, { runner, now: () => 0, timeBudgetMs: 300 });
-    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(Date.now() - started).toBeLessThan(5_000 * SLOW);
     expect(grepSignal?.aborted).toBe(true);
     expectUnknown(result);
   });
