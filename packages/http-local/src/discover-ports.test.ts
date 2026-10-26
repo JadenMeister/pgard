@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   CommandTimeoutError,
   discoverListeningPorts,
+  LSOF_PATH,
+  NETSTAT_ARGS,
+  NETSTAT_PATH,
   parseLsofOutput,
+  parseNetstatOutput,
   parseProcNetTcp,
   runCommandWithDeadline,
 } from "./discover-ports.js";
@@ -22,6 +26,50 @@ describe("parseLsofOutput", () => {
       { port: 3000, processName: "node" },
       { port: 5173, processName: "vite" },
     ]);
+  });
+});
+
+// Captured from `netstat -an -p tcp` on macOS; ports and foreign peers are generic examples.
+const NETSTAT_SAMPLE = `Active Internet connections (including servers)
+Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)
+tcp4       0      0  127.0.0.1.3000         *.*                    LISTEN
+tcp4       0      0  127.0.0.1.3000         127.0.0.1.60413        ESTABLISHED
+tcp46      0      0  *.8080                 *.*                    LISTEN
+tcp6       0      0  ::1.5173               *.*                    LISTEN
+tcp6       0      0  *.5173                 *.*                    LISTEN
+tcp6       0      0  *.6006                 *.*                    LISTEN
+tcp4       0      0  127.0.0.1.4001         127.0.0.1.60414        ESTABLISHED
+tcp4       0      0  127.0.0.1.4002         127.0.0.1.60415        TIME_WAIT
+tcp4       0      0  *.5000                 *.*                    LISTEN
+tcp4       0      0  192.168.1.5.7000       *.*                    LISTEN
+tcp4       0      0  127.0.0.1.99999        *.*                    LISTEN
+tcp4       0      0  127.0.0.1.abc          *.*                    LISTEN
+tcp4       0      0  127.0.0.1.3000         *.*                    LISTEN
+tcp4       0      0  garbage LISTEN
+udp4       0      0  *.5353                 *.*
+`;
+
+describe("parseNetstatOutput", () => {
+  it("keeps LISTEN lines reachable on 127.0.0.1, deduped, without process names", () => {
+    expect(parseNetstatOutput(NETSTAT_SAMPLE)).toEqual([
+      { port: 3000, processName: null },
+      { port: 5000, processName: null },
+      { port: 8080, processName: null },
+    ]);
+  });
+
+  it("drops a tcp6 wildcard listener with no tcp4 twin and non-LISTEN lines", () => {
+    const ports = parseNetstatOutput(NETSTAT_SAMPLE).map((entry) => entry.port);
+    expect(ports).not.toContain(6006);
+    expect(ports).not.toContain(4001);
+    expect(ports).not.toContain(4002);
+    expect(parseNetstatOutput("tcp6 0 0 *.6006 *.* LISTEN\n")).toEqual([]);
+    expect(parseNetstatOutput("tcp46 0 0 *.6006 *.* LISTEN\n")).toHaveLength(1);
+  });
+
+  it("drops ::1-only listeners and returns nothing for empty input", () => {
+    expect(parseNetstatOutput("tcp6 0 0 ::1.9000 *.* LISTEN\n")).toEqual([]);
+    expect(parseNetstatOutput("")).toEqual([]);
   });
 });
 
@@ -72,9 +120,47 @@ describe("discoverListeningPorts", () => {
       runLsof: async () => {
         throw new Error("lsof missing");
       },
+      runNetstat: async () => {
+        throw new Error("netstat missing");
+      },
     });
     expect(result.isAvailable).toBe(false);
+    expect(result.method).toBe("netstat");
     expect(result.ports).toEqual([]);
+  });
+
+  it("falls back to netstat on macOS when lsof times out", async () => {
+    const result = await discoverListeningPorts({
+      platform: "darwin",
+      runLsof: async () => {
+        throw new CommandTimeoutError("lsof", 5000);
+      },
+      runNetstat: async () => NETSTAT_SAMPLE,
+    });
+    expect(result.method).toBe("netstat");
+    expect(result.isAvailable).toBe(true);
+    expect(result.isComplete).toBe(false);
+    expect(result.ports.map((entry) => entry.port)).toEqual([3000, 5000, 8080]);
+  });
+
+  it("does not run netstat when lsof works, and never on Linux", async () => {
+    let netstatCalls = 0;
+    const runNetstat = async () => {
+      netstatCalls += 1;
+      return NETSTAT_SAMPLE;
+    };
+    await discoverListeningPorts({
+      platform: "darwin",
+      runLsof: async () => LSOF_SAMPLE,
+      runNetstat,
+    });
+    const linux = await discoverListeningPorts({
+      platform: "linux",
+      readProcFile: async (path) => (path === "/proc/net/tcp" ? PROC_TCP : PROC_TCP6),
+      runNetstat,
+    });
+    expect(netstatCalls).toBe(0);
+    expect(linux.method).toBe("proc");
   });
 
   it("marks other platforms unsupported", async () => {
@@ -101,6 +187,25 @@ describe("runCommandWithDeadline", () => {
     await expect(
       runCommandWithDeadline(process.execPath, ["-e", "process.stdout.write('ok')"], 5000),
     ).resolves.toBe("ok");
+  });
+});
+
+describe("netstat command", () => {
+  it("spawns the absolute paths with fixed argv", () => {
+    expect(LSOF_PATH).toBe("/usr/sbin/lsof");
+    expect(NETSTAT_PATH).toBe("/usr/sbin/netstat");
+    expect([...NETSTAT_ARGS]).toEqual(["-an", "-p", "tcp"]);
+  });
+
+  it("requires exit 0 when exit code 1 is not acceptable", async () => {
+    await expect(
+      runCommandWithDeadline(
+        process.execPath,
+        ["-e", "process.stdout.write('x'); process.exit(1)"],
+        5000,
+        { isExitCodeOneAcceptable: false },
+      ),
+    ).rejects.toBeDefined();
   });
 });
 

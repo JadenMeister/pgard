@@ -10,7 +10,7 @@ export interface ListeningPort {
   processName: string | null;
 }
 
-export type PortDiscoveryMethod = "lsof" | "proc" | "unsupported";
+export type PortDiscoveryMethod = "lsof" | "netstat" | "proc" | "unsupported";
 
 export interface PortDiscoveryResult {
   ports: ListeningPort[];
@@ -28,6 +28,7 @@ export interface PortDiscoveryResult {
 export interface PortDiscoveryDeps {
   platform?: NodeJS.Platform;
   runLsof?: () => Promise<string>;
+  runNetstat?: () => Promise<string>;
   readProcFile?: (path: "/proc/net/tcp" | "/proc/net/tcp6") => Promise<string>;
 }
 
@@ -44,6 +45,8 @@ export interface RunCommandOptions {
   maxBufferBytes?: number;
   /** Test hook; defaults to `child_process.execFile`. */
   execFileImpl?: typeof execFile;
+  /** Defaults to `true` (lsof exits 1 for "nothing matched"). Set `false` to require exit 0. */
+  isExitCodeOneAcceptable?: boolean;
 }
 
 /**
@@ -51,9 +54,10 @@ export interface RunCommandOptions {
  * Anything else (other exit codes, signals, maxBuffer overflow) would mean partial output, which
  * must not be presented as a complete port list.
  */
-function isAcceptableExit(error: ExecFileError | null): boolean {
+function isAcceptableExit(error: ExecFileError | null, isExitCodeOneAcceptable: boolean): boolean {
   if (error === null) return true;
   return (
+    isExitCodeOneAcceptable &&
     error.code === 1 &&
     (error.signal === null || error.signal === undefined) &&
     error.killed !== true
@@ -89,7 +93,7 @@ export function runCommandWithDeadline(
         if (isSettled) return;
         isSettled = true;
         clearTimeout(timer);
-        if (!isAcceptableExit(error)) {
+        if (!isAcceptableExit(error, options.isExitCodeOneAcceptable ?? true)) {
           reject(error ?? new Error(`${file} failed.`));
           return;
         }
@@ -108,13 +112,25 @@ export function runCommandWithDeadline(
   });
 }
 
+/** Absolute paths: macOS ships both here, and PATH is not consulted. */
+export const LSOF_PATH = "/usr/sbin/lsof";
+export const NETSTAT_PATH = "/usr/sbin/netstat";
+export const NETSTAT_ARGS = ["-an", "-p", "tcp"] as const;
+
 function runLsofDefault(): Promise<string> {
   // -b avoids kernel calls that can block (e.g. on network mounts); -w silences warnings.
   return runCommandWithDeadline(
-    "lsof",
+    LSOF_PATH,
     ["-b", "-w", "-nP", "-iTCP", "-sTCP:LISTEN"],
     PORT_DISCOVERY_TIMEOUT_MS,
   );
+}
+
+function runNetstatDefault(): Promise<string> {
+  // netstat has no "nothing matched" exit code, so anything but 0 is a failure.
+  return runCommandWithDeadline(NETSTAT_PATH, NETSTAT_ARGS, PORT_DISCOVERY_TIMEOUT_MS, {
+    isExitCodeOneAcceptable: false,
+  });
 }
 
 /** Listener addresses reachable through 127.0.0.1. `[::1]`-only listeners are not. */
@@ -147,6 +163,30 @@ export function parseLsofOutput(output: string): ListeningPort[] {
         processName: sanitizeDisplayText(command.replace(/\\x20/g, " "), 40),
       });
     }
+  }
+  return [...byPort.values()].sort((a, b) => a.port - b.port);
+}
+
+/**
+ * Parses macOS `netstat -an -p tcp` output. Local addresses look like `127.0.0.1.3000`, `*.8080`
+ * or `::1.5173`: the port follows the last dot. netstat reports no process name.
+ */
+export function parseNetstatOutput(output: string): ListeningPort[] {
+  const byPort = new Map<number, ListeningPort>();
+  for (const line of output.split("\n")) {
+    const columns = line.trim().split(/\s+/);
+    const protocol = columns[0] ?? "";
+    if (columns.length < 6 || !protocol.startsWith("tcp")) continue;
+    if (columns[columns.length - 1] !== "LISTEN") continue;
+    const local = columns[3] ?? "";
+    const separator = local.lastIndexOf(".");
+    if (separator < 0 || !/^\d+$/.test(local.slice(separator + 1))) continue;
+    const address = local.slice(0, separator);
+    const port = Number(local.slice(separator + 1));
+    if (!isValidPort(port) || !isReachableViaIpv4Loopback(address)) continue;
+    // `*` on a plain tcp6 line is an IPv6-only socket, which 127.0.0.1 cannot reach.
+    if (address === "*" && protocol === "tcp6") continue;
+    if (!byPort.has(port)) byPort.set(port, { port, processName: null });
   }
   return [...byPort.values()].sort((a, b) => a.port - b.port);
 }
@@ -189,7 +229,14 @@ export async function discoverListeningPorts(
   try {
     if (platform === "darwin") {
       method = "lsof";
-      ports = parseLsofOutput(await (deps.runLsof ?? runLsofDefault)());
+      try {
+        ports = parseLsofOutput(await (deps.runLsof ?? runLsofDefault)());
+      } catch {
+        // lsof can hang on a stuck volume; its deadline has already settled, so netstat runs
+        // independently of any lingering lsof child.
+        method = "netstat";
+        ports = parseNetstatOutput(await (deps.runNetstat ?? runNetstatDefault)());
+      }
     } else if (platform === "linux") {
       method = "proc";
       const read = deps.readProcFile ?? ((path) => readFile(path, "utf8"));
@@ -202,7 +249,7 @@ export async function discoverListeningPorts(
       note = "Automatic port discovery is not available on this platform.";
     }
   } catch {
-    method = platform === "darwin" ? "lsof" : "proc";
+    method = platform === "darwin" ? "netstat" : "proc";
     isAvailable = false;
     note = "Port discovery failed; enter the port manually.";
   }
