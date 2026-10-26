@@ -92,7 +92,7 @@ ${REPORT_HELP}
   --format text|json       json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
-                           (no prompts in this mode). Exit codes are unchanged
+                           (prompts go to stderr). Exit codes are unchanged
 ${NO_BROWSER_HELP}
 
 If owner approval is the only failed check and the PGARD GitHub App just needs to

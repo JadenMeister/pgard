@@ -1,7 +1,12 @@
 import { stopBrowserOffers } from "./flows/browser.js";
 import { PGARD_VERSION } from "@pgard/scan-core";
 import { createCancelController, type InterruptSource } from "./adapters/cancel.js";
-import { createKeyReader, isInteractive, type CliIo } from "./adapters/terminal.js";
+import {
+  createKeyReader,
+  isInteractive,
+  isInteractiveOnStderr,
+  type CliIo,
+} from "./adapters/terminal.js";
 import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runLogin, runLogout } from "./commands/login.js";
@@ -194,7 +199,12 @@ export async function main(
   }
 
   const deps = options.deps ?? createDefaultDeps();
-  const keys = isInteractive(io) ? createKeyReader(io.stdin) : null;
+  // `--format json` leaves stdout for the result, so a person can still answer prompts (shown on
+  // stderr) when stdin and stderr are terminals even though stdout is redirected.
+  const isJsonScan = command.kind === "scan" && command.format === "json";
+  const keys = (isJsonScan ? isInteractiveOnStderr(io) : isInteractive(io))
+    ? createKeyReader(io.stdin)
+    : null;
   const cancel = createCancelController(options.interrupts ?? process, (message) =>
     io.stderr.write(`${errStyle.yellow(message)}\n`),
   );

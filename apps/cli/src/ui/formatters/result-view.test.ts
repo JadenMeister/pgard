@@ -17,7 +17,12 @@ function at(path: string, line: number, overrides: Partial<Finding> = {}): Findi
 
 function testCode(count: number, ruleId = "PG-SQL-001"): Finding[] {
   return Array.from({ length: count }, (_, index) =>
-    at(`test/case${index}.test.ts`, 1, { ruleId, context: "test", confidence: "low" }),
+    at(`test/case${index}.test.ts`, 1, {
+      ruleId,
+      context: "test",
+      confidence: "low",
+      severity: "low",
+    }),
   );
 }
 
@@ -81,7 +86,7 @@ describe("collapsing test, fixture and vendored code", () => {
     expect(five).toContain("In test or fixture code (5)");
     expect(five).not.toContain("not listed");
     const six = formatScanResult(testResult({ findings: testCode(6) }), plain);
-    expect(six).toContain("6 findings not listed");
+    expect(six).toContain("6 lower-severity findings not listed");
     expect(six).not.toContain("test/case0.test.ts");
     expect(six).toContain("By context: test 6");
     expect(six).toContain("By rule: PG-SQL-001 x6");
@@ -91,7 +96,11 @@ describe("collapsing test, fixture and vendored code", () => {
 
   it("counts test and vendored together, per context and per rule", () => {
     const vendored = [1, 2, 3].map((n) =>
-      at(`node_modules/x/${n}.js`, 1, { ruleId: "PG-XSS-001", context: "vendored" }),
+      at(`node_modules/x/${n}.js`, 1, {
+        ruleId: "PG-XSS-001",
+        context: "vendored",
+        severity: "low",
+      }),
     );
     const text = formatScanResult(testResult({ findings: [...testCode(3), ...vendored] }), plain);
     expect(text).toContain("By context: test 3, vendored 3");
@@ -103,7 +112,7 @@ describe("collapsing test, fixture and vendored code", () => {
     const real = Array.from({ length: 12 }, (_, n) => at(`src/f${n}.ts`, 1, { ruleId: `R${n}` }));
     const text = formatScanResult(testResult({ findings: [...real, ...testCode(9)] }), plain);
     for (let n = 0; n < 12; n += 1) expect(text).toContain(`src/f${n}.ts:1`);
-    expect(text).toContain("9 findings not listed");
+    expect(text).toContain("9 lower-severity findings not listed");
   });
 
   it("--all-findings shows everything", () => {
@@ -140,7 +149,7 @@ describe("plain output", () => {
         Low       0
         Info      0
 
-      Findings (2)
+      Findings (2): 1 confirmed, 1 suspected (needs review)
         [CRITICAL] Leaked key (confirmed)
             src/a.ts:3  PG-SQL-001 - confidence medium
             Evidence: req.query -> concat -> query()
@@ -151,11 +160,11 @@ describe("plain output", () => {
             Evidence: req.query -> concat -> query()
             Fix: Use parameters
 
-      Test, fixture and vendored code (6 findings not listed)
-        Collapsed because there are more than 5. Findings in your own code are always listed.
+      Test, fixture and vendored code (6 lower-severity findings not listed)
+        Collapsed because there are more than 5 in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.
         By context: test 6
         By rule: PG-SQL-001 x6
-        By severity: 6 high
+        By severity: 6 low
         Run again with --all-findings to list everything, or save a report (--report html --output-dir <dir>).
 
       Coverage
@@ -164,5 +173,92 @@ describe("plain output", () => {
 
       PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities."
     `);
+  });
+});
+
+describe("severe findings in test code", () => {
+  it("lists a critical finding in a test file with its location while 5 lows collapse", () => {
+    const text = formatScanResult(
+      testResult({
+        findings: [
+          at("src/auth.test.ts", 12, {
+            ruleId: "PG-SECRET-001",
+            title: "Hardcoded API key",
+            severity: "critical",
+            status: "confirmed",
+            context: "test",
+            confidence: "low",
+          }),
+          ...testCode(5),
+        ],
+      }),
+      plain,
+    );
+    expect(text).toContain("src/auth.test.ts:12");
+    expect(text).toContain("Hardcoded API key");
+    expect(text).toContain("5 lower-severity findings not listed");
+    expect(text).not.toContain("test/case0.test.ts");
+    expect(text).toContain("plus 6 in test or fixture code (1 critical)");
+    expect(text).toContain("a real value committed in a test is still exposed");
+  });
+
+  it("lists high findings in vendored code even when the rest collapses", () => {
+    const text = formatScanResult(
+      testResult({
+        findings: [
+          at("node_modules/x/a.js", 3, {
+            context: "vendored",
+            severity: "high",
+            confidence: "low",
+          }),
+          ...testCode(5),
+        ],
+      }),
+      plain,
+    );
+    expect(text).toContain("node_modules/x/a.js:3");
+    expect(text).toContain("5 lower-severity findings not listed");
+  });
+});
+
+describe("evidence in groups", () => {
+  const varied = [
+    at("a.ts", 1, { evidence: "first evidence" }),
+    at("b.ts", 2, { evidence: "second evidence" }),
+  ];
+
+  it("says the evidence varies instead of showing only the first", () => {
+    const text = formatScanResult(testResult({ findings: varied }), plain);
+    expect(text).toContain("Evidence: varies by location");
+    expect(text).not.toContain("first evidence");
+  });
+
+  it("shows the shared evidence when every member agrees", () => {
+    const text = formatScanResult(testResult({ findings: [at("a.ts", 1), at("b.ts", 2)] }), plain);
+    expect(text).toContain("Evidence: req.query -> concat -> query()");
+  });
+
+  it("prints each location with its own evidence under allFindings", () => {
+    const text = formatScanResult(testResult({ findings: varied }), plain, {
+      allFindings: true,
+    });
+    expect(text).toContain("- a.ts:1\n          Evidence: first evidence");
+    expect(text).toContain("- b.ts:2\n          Evidence: second evidence");
+  });
+});
+
+describe("headline status counts", () => {
+  it("names the number of confirmed and suspected findings", () => {
+    const text = formatScanResult(
+      testResult({
+        findings: [
+          at("a.ts", 1, { status: "confirmed", severity: "critical", title: "K" }),
+          at("b.ts", 1),
+          at("c.ts", 1),
+        ],
+      }),
+      plain,
+    );
+    expect(text).toContain("Findings (3): 1 confirmed, 2 suspected (needs review)");
   });
 });

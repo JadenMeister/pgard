@@ -149,7 +149,7 @@ Options:
   --format text|json       json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; progress and
                            messages go to stderr. With web checks it needs --port
-                           (no prompts in this mode). Exit codes are unchanged
+                           (prompts go to stderr). Exit codes are unchanged
   --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
                            In a terminal, PGARD asks you to press Enter
@@ -165,8 +165,8 @@ authorization and continues the scan.
 - `--port N`(`scan web`, `scan all` 전용): 로컬 서비스 포트, 1~65535 정수. 지정해도 서비스 확인은 필요합니다.
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
-- `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 나열합니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고, 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고).
-- `--format text|json`(모든 `scan`, 기본값 `text`): `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. stdout에서 프롬프트가 뜰 수 없으므로 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다.
+- `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 각자의 근거와 함께 나열하며 아무것도 접지 않습니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고).
+- `--format text|json`(모든 `scan`, 기본값 `text`): `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 - `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 터미널(stdin과 stdout 모두)에서 링크를 출력한 뒤 `Press Enter to open github.com in your browser...`라고 묻고, Enter를 눌러야 페이지를 엽니다(다른 키는 무시). 로그인·설치 대기는 이 질문과 무관하게 진행되며, 대기가 끝나면 질문은 사라집니다. 터미널이 아니면 열지도 묻지도 않습니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
 - `--help` / `-h`, `pgard --version` / `-V`.
@@ -358,13 +358,13 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 ### 그룹화와 접기
 
-발견 항목은 심각도(critical, high, medium, low, info) 순, 같으면 확정 → 의심 → 정보 순, 그다음 위치 순으로 정렬됩니다. 같은 규칙과 원인의 항목은 한 그룹이 됩니다. 제목에 위치 개수가 표시되고 줄에는 최대 3개의 위치가 나옵니다(`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`). 근거는 첫 항목의 것을 예시로 보여 줍니다. 결과에는 원인 문장이 없고(줄이 포함된 fingerprint만 있음) "같은 원인"은 규칙, 제목, 심각도, 상태, 신뢰도, 위치 종류, context가 같다는 뜻입니다.
+발견 항목은 심각도(critical, high, medium, low, info) 순, 같으면 확정 → 의심 → 정보 순, 그다음 위치 순으로 정렬됩니다. 같은 규칙과 원인의 항목은 한 그룹이 됩니다. 제목에 위치 개수가 표시되고 줄에는 최대 3개의 위치가 나옵니다(`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`). 근거는 모든 항목이 같을 때 그대로 보여 주고, 다르면 `Evidence: varies by location`이라고 표시합니다. 결과에는 원인 문장이 없고(줄이 포함된 fingerprint만 있음) "같은 원인"은 규칙, 제목, 심각도, 상태, 신뢰도, 위치 종류, context가 같다는 뜻입니다.
 
-테스트·fixture·vendored 코드의 발견 항목이 5개(상수 `COLLAPSE_THRESHOLD`)를 넘으면 CLI는 목록 대신 요약을 보여 줍니다. 개수, context별·규칙별 개수, 심각도, 전체를 보는 방법이 포함됩니다. 정확히 5개면 그대로 나열합니다. 내 코드의 발견 항목은 절대 접지 않습니다. `--all-findings`를 쓰거나 HTML 보고서(`--report html --output-dir <dir>`)를 보면 전부 볼 수 있습니다. 터미널이 아니거나 `NO_COLOR`가 설정되어 있으면 색 없는 같은 텍스트가 출력됩니다.
+테스트·fixture·vendored 코드의 발견 항목이 5개(상수 `COLLAPSE_THRESHOLD`)를 넘으면 CLI는 심각도가 낮은 항목(medium, low, info)의 목록 대신 요약을 보여 줍니다. 개수, context별·규칙별 개수, 심각도, 전체를 보는 방법이 포함됩니다. 정확히 5개면 그대로 나열합니다. critical·high 항목과 내 코드의 발견 항목은 절대 접지 않습니다. `--all-findings`를 쓰거나 HTML 보고서(`--report html --output-dir <dir>`)를 보면 전부 볼 수 있습니다. 상단에는 테스트 코드의 critical·high 개수가 표시되고(예: `plus 8 in test or fixture code (1 critical, 2 high)`) 상태별 개수도 표시됩니다(`Findings (6): 1 confirmed, 5 suspected (needs review)`). 터미널이 아니거나 `NO_COLOR`가 설정되어 있으면 색 없는 같은 텍스트가 출력됩니다.
 
 ### 테스트·fixture 코드의 발견 항목
 
-테스트·fixture 코드의 발견 항목은 다른 발견 항목 뒤에 별도 그룹(**In test or fixture code (N)**)으로 표시됩니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트는 일반 코드만 셉니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code`). 테스트에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. CLI, 대시보드, HTML/PDF 보고서가 모두 같은 방식으로 묶습니다.
+테스트·fixture 코드의 발견 항목은 다른 발견 항목 뒤에 별도 그룹(**In test or fixture code (N)**)으로 표시됩니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트는 일반 코드만 셉니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code`). 테스트에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. 대시보드와 HTML/PDF 보고서는 모두 이 그룹에 나열합니다. 터미널 화면도 나열하지만, 5개를 넘으면 medium·low·info 항목은 요약으로 대체되고 critical·high 항목은 계속 나열됩니다([그룹화와 접기](#그룹화와-접기) 참고).
 
 분류는 파일 내용이 아니라 경로로만 합니다. 다음에 해당하면 테스트·fixture 코드입니다.
 
@@ -376,7 +376,7 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 ### 서드파티·vendored 코드의 제안
 
-저장소에 커밋된 서드파티 의존성 코드의 발견 항목은 일반 발견 항목이 아니라 제안으로 표시됩니다. 사용자가 소유한 코드가 아니고 그 자리에서 고칠 수도 없기 때문입니다. 이 항목들은 테스트·fixture 그룹 뒤, 맨 마지막에 **Suggestions: in third-party/vendored code (N)** 그룹으로 표시되며 "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git."(커밋된 의존성 코드이며 사용자의 코드가 아님. 예상치 못한 것이면 검토하고, 아니면 Git에서 제거를 고려) 안내가 붙습니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트에는 포함되지 않습니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code (1 high)`. 제안 중 critical·high 항목은 합계에 묻히지 않도록 괄호 안에 개수를 보여 줍니다). `node_modules/`에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. coverage, 전체 상태, 종료 코드는 바뀌지 않습니다. CLI, 대시보드(같은 필터 적용), HTML/PDF 보고서가 모두 같은 방식으로 묶으며, `PG-HYGIENE-001` 제안([Git 이력 검사](#git-이력-검사) 참고)도 같은 그룹에 표시됩니다.
+저장소에 커밋된 서드파티 의존성 코드의 발견 항목은 일반 발견 항목이 아니라 제안으로 표시됩니다. 사용자가 소유한 코드가 아니고 그 자리에서 고칠 수도 없기 때문입니다. 이 항목들은 테스트·fixture 그룹 뒤, 맨 마지막에 **Suggestions: in third-party/vendored code (N)** 그룹으로 표시되며 "This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from Git."(커밋된 의존성 코드이며 사용자의 코드가 아님. 예상치 못한 것이면 검토하고, 아니면 Git에서 제거를 고려) 안내가 붙습니다. 규칙, 심각도, 근거는 그대로이지만 신뢰도(confidence)는 최대 `low`로 제한됩니다. 상단 개수와 심각도 차트에는 포함되지 않습니다(예: `Findings by severity (3 total) - plus 2 in test or fixture code, 5 suggestions in vendored code (1 high)`. 제안 중 critical·high 항목은 합계에 묻히지 않도록 괄호 안에 개수를 보여 줍니다). `node_modules/`에 커밋된 실제 비밀정보도 노출된 것이므로 이 항목들은 버리지 않습니다. coverage, 전체 상태, 종료 코드는 바뀌지 않습니다. 대시보드(같은 필터 적용)와 HTML/PDF 보고서는 모두 이 그룹에 나열하고, 터미널 화면은 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약합니다([그룹화와 접기](#그룹화와-접기) 참고), `PG-HYGIENE-001` 제안([Git 이력 검사](#git-이력-검사) 참고)도 같은 그룹에 표시됩니다.
 
 분류는 파일 내용이 아니라 경로로만 합니다. 경로의 디렉터리가 다음에 해당하면 vendored 코드입니다.
 

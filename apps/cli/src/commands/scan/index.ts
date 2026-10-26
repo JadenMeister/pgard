@@ -65,19 +65,26 @@ export async function runScanCommand(
     return EXIT_CODES.usage;
   }
   if (!isJson) {
-    return runScanFlow(context, context, command, (result) => showText(context, result, command));
+    return runScanFlow(context, command, {
+      show: (result) => showText(context, result, command),
+      finish: () => undefined,
+    });
   }
-  // In JSON mode nothing but the result may reach stdout: messages and the one prompt that is
-  // still possible (confirming the --port service) go to stderr, and nothing else can prompt.
+  // In JSON mode nothing but the result may reach stdout: every message and every prompt (the
+  // port confirmation, the install guide, the in-repository report question) goes to stderr.
+  // The key reader stays, so raw mode is suspended during long work. Stdout gets exactly one
+  // document: the final result, after any guided install and re-check.
   const flowContext: CommandContext = {
     ...context,
     io: { ...context.io, stdout: context.io.stderr },
     style: context.errStyle,
-    keys: null,
     canOpenBrowser: false,
   };
-  return runScanFlow(flowContext, context, command, (result) => {
-    context.io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  return runScanFlow(flowContext, command, {
+    show: () => undefined,
+    finish: (result) => {
+      context.io.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    },
   });
 }
 
@@ -89,16 +96,19 @@ function showText(context: CommandContext, result: ScanResult, command: ScanComm
   );
 }
 
-/**
- * `context` receives every message; `original` is the unmodified context (the only one with
- * keys, used for the port confirmation in JSON mode). `show` prints one result.
- */
+interface ResultOutput {
+  /** Every scan attempt's result, as it arrives (text mode prints it before any install offer). */
+  show: (result: ScanResult) => void;
+  /** The final result, once (JSON mode prints it here). */
+  finish: (result: ScanResult) => void;
+}
+
 async function runScanFlow(
   context: CommandContext,
-  original: CommandContext,
   command: ScanCommand,
-  show: (result: ScanResult) => void,
+  { show, finish }: ResultOutput,
 ): Promise<ExitCode> {
+  const isJson = command.format === "json";
   const scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
@@ -127,20 +137,29 @@ async function runScanFlow(
     suspendKeys(context);
     let outcome = await context.deps.verifyProject(projectRoot, authorization);
     throwIfCancelled(context);
+    let isBlockedEarly = false;
     if (outcome.summary.decision !== "allowed") {
       out(context, formatAuthorization(outcome.summary, context.style));
-      const guided = await offerGuidedInstall(context, outcome, projectRoot, authorization);
-      throwIfCancelled(context);
-      if (guided !== "reauthorize") return EXIT_CODES.blocked;
-      // All five checks again, from scratch; the installation alone is not a pass.
-      outcome = await context.deps.verifyProject(projectRoot, authorization);
-      throwIfCancelled(context);
-      if (outcome.summary.decision !== "allowed") {
-        out(context, formatAuthorization(outcome.summary, context.style));
-        return EXIT_CODES.blocked;
+      if (isJson) {
+        // No port is probed without authorization. The scan below runs the gate again and
+        // produces the blocked result, which is the one JSON document on stdout.
+        isBlockedEarly = true;
+      } else {
+        const guided = await offerGuidedInstall(context, outcome, projectRoot, authorization);
+        throwIfCancelled(context);
+        if (guided !== "reauthorize") return EXIT_CODES.blocked;
+        // All five checks again, from scratch; the installation alone is not a pass.
+        outcome = await context.deps.verifyProject(projectRoot, authorization);
+        throwIfCancelled(context);
+        if (outcome.summary.decision !== "allowed") {
+          out(context, formatAuthorization(outcome.summary, context.style));
+          return EXIT_CODES.blocked;
+        }
       }
     }
-    if (original.keys === null) {
+    if (isBlockedEarly) {
+      // Nothing to confirm: the scan will be blocked.
+    } else if (context.keys === null) {
       err(
         context,
         context.errStyle.yellow(
@@ -148,7 +167,7 @@ async function runScanFlow(
         ),
       );
     } else {
-      const selection = await selectLocalPort({ ...context, keys: original.keys }, command.port);
+      const selection = await selectLocalPort(context, command.port);
       if (selection.kind === "back") {
         // Esc: in the menu go back to it; a direct subcommand has no previous step.
         if (context.isMenu) return EXIT_CODES.cancelled;
@@ -207,6 +226,7 @@ async function runScanFlow(
     }
   }
   const { result } = scanned;
+  finish(result);
   let exitCode = exitCodeForStatus(result.overallStatus);
 
   if (result.overallStatus === "blocked") {

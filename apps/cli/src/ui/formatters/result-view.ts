@@ -9,12 +9,13 @@ import {
 } from "@pgard/findings";
 import {
   ANALYSIS_BASIS_NOTE,
-  formatContextCounts,
+  formatVendoredSuggestions,
   formatLocation,
   formatOutsideContexts,
   labelCoverageStatus,
   labelOverallStatus,
   labelSeverity,
+  summarizeStatusSplit,
   VENDORED_FINDINGS_NOTE,
   VENDORED_FINDINGS_TITLE,
 } from "@pgard/report";
@@ -51,9 +52,14 @@ export const SHOW_ALL_HINT =
 
 const MAX_SUMMARY_RULES = 10;
 
+function allSame(values: readonly string[]): boolean {
+  return values.every((value) => value === values[0]);
+}
+
 function formatGroup(group: FindingGroup, style: Style, allFindings: boolean): string {
   const finding = group.representative;
-  const count = group.findings.length;
+  const members = group.findings;
+  const count = members.length;
   const severity = style.severity(
     finding.severity,
     `[${labelSeverity(finding.severity).toUpperCase()}]`,
@@ -63,20 +69,37 @@ function formatGroup(group: FindingGroup, style: Style, allFindings: boolean): s
     `  ${severity} ${style.bold(safeText(finding.title, 300))} ${style.dim(`(${detail})`)}`,
   ];
   const rule = style.dim(`${safeText(finding.ruleId, 40)} - confidence ${finding.confidence}`);
-  const places = group.findings.map((member) => safeText(formatLocation(member.location), 500));
+  const places = members.map((member) => safeText(formatLocation(member.location), 500));
+  const evidence = (member: Finding): string => safeText(member.evidence, 500);
+  const fix = (member: Finding): string => safeText(member.recommendation, 500);
+  const isFixShared = allSame(members.map(fix));
   if (count === 1) {
-    lines.push(`      ${places[0]}  ${rule}`);
+    lines.push(
+      `      ${places[0]}  ${rule}`,
+      `      Evidence: ${evidence(finding)}`,
+      `      Fix: ${fix(finding)}`,
+    );
   } else if (allFindings) {
-    lines.push(`      ${rule}`, ...places.map((place) => `      - ${place}`));
+    // Every location with its own evidence: nothing is shown for one member on behalf of others.
+    lines.push(`      ${rule}`);
+    members.forEach((member, index) => {
+      lines.push(`      - ${places[index]}`, `          Evidence: ${evidence(member)}`);
+      if (!isFixShared) lines.push(`          Fix: ${fix(member)}`);
+    });
+    if (isFixShared) lines.push(`      Fix: ${fix(finding)}`);
   } else {
     const shown = places.slice(0, MAX_REPRESENTATIVE_LOCATIONS);
     const rest = count - shown.length;
     lines.push(`      ${shown.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}  ${rule}`);
+    lines.push(
+      allSame(members.map(evidence))
+        ? `      Evidence: ${evidence(finding)}`
+        : "      Evidence: varies by location (run with --all-findings to see each)",
+      isFixShared
+        ? `      Fix: ${fix(finding)}`
+        : "      Fix: varies by location (run with --all-findings to see each)",
+    );
   }
-  lines.push(
-    `      ${count > 1 ? "Example evidence" : "Evidence"}: ${safeText(finding.evidence, 500)}`,
-    `      Fix: ${safeText(finding.recommendation, 500)}`,
-  );
   return lines.join("\n");
 }
 
@@ -92,21 +115,46 @@ function hasShortenedGroup(findings: readonly Finding[]): boolean {
   );
 }
 
-/** Summary that replaces the listing of test, fixture and vendored findings. */
+const isSevere = (finding: Pick<Finding, "severity">): boolean =>
+  finding.severity === "critical" || finding.severity === "high";
+
+/** Summary that replaces the listing of lower-severity test, fixture and vendored findings. */
 function formatCollapsed(findings: readonly Finding[], style: Style): string {
   const summary = summarizeCollapsed(findings);
   const rules = summary.byRule.slice(0, MAX_SUMMARY_RULES);
   const moreRules = summary.byRule.length - rules.length;
   return [
-    style.bold(`Test, fixture and vendored code (${summary.count} findings not listed)`),
+    style.bold(
+      `Test, fixture and vendored code (${summary.count} lower-severity findings not listed)`,
+    ),
     style.dim(
-      `  Collapsed because there are more than ${COLLAPSE_THRESHOLD}. Findings in your own code are always listed.`,
+      `  Collapsed because there are more than ${COLLAPSE_THRESHOLD} in this code. Findings in your own code, and critical or high findings anywhere, are always listed. Review these too: a real value committed in a test is still exposed.`,
     ),
     `  By context: ${summary.byContext.map((entry) => `${entry.context} ${entry.count}`).join(", ")}`,
     `  By rule: ${rules.map((entry) => `${safeText(entry.ruleId, 40)} x${entry.count}`).join(", ")}${moreRules > 0 ? ` and ${moreRules} more rules` : ""}`,
     `  By severity: ${summary.bySeverity.map((entry) => `${entry.count} ${labelSeverity(entry.severity).toLowerCase()}`).join(", ")}`,
     `  ${SHOW_ALL_HINT}`,
   ].join("\n");
+}
+
+/** "3 in test or fixture code (1 critical, 2 high)" so severe matches are not hidden in a total. */
+function formatTestCount(test: readonly Finding[]): string {
+  const severe = (["critical", "high"] as const)
+    .map((severity) => ({ severity, count: test.filter((f) => f.severity === severity).length }))
+    .filter((entry) => entry.count > 0)
+    .map((entry) => `${entry.count} ${entry.severity}`);
+  return `${test.length} in test or fixture code${severe.length === 0 ? "" : ` (${severe.join(", ")})`}`;
+}
+
+function formatStatusCounts(findings: readonly Finding[]): string {
+  const split = summarizeStatusSplit(findings);
+  return [
+    split.confirmed > 0 ? `${split.confirmed} confirmed` : null,
+    split.suspected > 0 ? `${split.suspected} suspected (needs review)` : null,
+    split.informational > 0 ? `${split.informational} informational` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(", ");
 }
 
 const TEST_GROUP_TITLE = "In test or fixture code";
@@ -185,15 +233,18 @@ export function formatScanResult(
   // suggestions in vendored code come last.
   const { primary, test, vendored } = splitFindingsByContext(sortBySeverity(result.findings));
   const contextCounts = { test: test.length, vendored: vendored.length };
-  const extra = formatContextCounts({ test: test.length, vendored });
+  const extra = [
+    ...(test.length === 0 ? [] : [formatTestCount(test)]),
+    ...(vendored.length === 0 ? [] : [formatVendoredSuggestions(vendored)]),
+  ];
   sections.push(
     "",
     style.bold(`Findings by severity (${primary.length} total)`) +
-      (extra === "" ? "" : style.dim(` - ${extra}`)),
+      (extra.length === 0 ? "" : style.dim(` - plus ${extra.join(", ")}`)),
     formatSeverityBars(primary, style),
   );
   if (primary.length > 0) {
-    sections.push("", style.bold(`Findings (${primary.length})`));
+    sections.push("", style.bold(`Findings (${primary.length}): ${formatStatusCounts(primary)}`));
     sections.push(formatGroups(primary, style, allFindings));
   }
   if (primary.length === 0) {
@@ -203,28 +254,31 @@ export function formatScanResult(
     );
   }
   const nonReal = [...test, ...vendored];
-  const isCollapsed = shouldCollapse(nonReal.length, allFindings);
-  if (isCollapsed) {
-    sections.push("", formatCollapsed(nonReal, style));
-  } else {
-    if (test.length > 0) {
-      sections.push(
-        "",
-        style.bold(`${TEST_GROUP_TITLE} (${test.length})`),
-        style.dim(`  ${TEST_GROUP_NOTE}`),
-        formatGroups(test, style, allFindings),
-      );
-    }
-    if (vendored.length > 0) {
-      sections.push(
-        "",
-        style.bold(`${VENDORED_FINDINGS_TITLE} (${vendored.length})`),
-        style.dim(`  ${VENDORED_FINDINGS_NOTE}`),
-        formatGroups(vendored, style, allFindings),
-      );
-    }
+  const isCollapsing = shouldCollapse(nonReal.length, allFindings);
+  // Critical and high findings are listed in full even when the rest is collapsed.
+  const testShown = isCollapsing ? test.filter(isSevere) : test;
+  const vendoredShown = isCollapsing ? vendored.filter(isSevere) : vendored;
+  const collapsed = isCollapsing ? nonReal.filter((finding) => !isSevere(finding)) : [];
+  const severeNote = isCollapsing ? " Critical and high findings are always listed." : "";
+  if (testShown.length > 0) {
+    sections.push(
+      "",
+      style.bold(`${TEST_GROUP_TITLE} (${testShown.length})`),
+      style.dim(`  ${TEST_GROUP_NOTE}${severeNote}`),
+      formatGroups(testShown, style, allFindings),
+    );
   }
-  if (!allFindings && !isCollapsed && hasShortenedGroup(result.findings)) {
+  if (vendoredShown.length > 0) {
+    sections.push(
+      "",
+      style.bold(`${VENDORED_FINDINGS_TITLE} (${vendoredShown.length})`),
+      style.dim(`  ${VENDORED_FINDINGS_NOTE}${severeNote}`),
+      formatGroups(vendoredShown, style, allFindings),
+    );
+  }
+  if (collapsed.length > 0) sections.push("", formatCollapsed(collapsed, style));
+  const listed = [...primary, ...testShown, ...vendoredShown];
+  if (!allFindings && hasShortenedGroup(listed)) {
     sections.push(
       "",
       style.dim(
