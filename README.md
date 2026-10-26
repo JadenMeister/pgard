@@ -424,6 +424,30 @@ The validator is strict: exact keys and types, length and count limits, and unkn
 
 The terminal result shows a severity chart, the findings (confirmed, suspected or informational) with a `file:line` or URL, redacted evidence, guidance, and the coverage of each area.
 
+### Standards coverage and rule statistics
+
+The result says which rules ran and which standards entries this scan did and did not check. Both are in the JSON result (`ruleStats`, `standardsCoverage`, schema 1.1) and a compact summary closes the terminal result:
+
+```
+Standards coverage (OWASP Top 10 2025)
+  [partial] A05 Injection - no completed mapped rule covers java, kotlin (PG-CMD-001, PG-SQL-001 +3)
+  [checked] A02 Security Misconfiguration - PG-COOKIE-001, PG-WEB-001, PG-WEB-005
+  [not checked] A09 Security Logging & Alerting Failures - no rules
+  CWE Top 25 2025: 2 checked, 6 partial, 17 not checked
+```
+
+- **Rule statistics** (`ruleStats`): one entry for each rule that ran in an area (a rule that runs in several languages has one entry per area): its area, the area's status, the number of targets it examined and the number of findings it reported there. Targets are counted by the analyzers, not estimated: the files a language analyzer actually ran on (files that were binary, over the size limit or skipped for the time budget are not counted), the commits and the history blobs read as text for the history rules, and the pages and responses for the web rules. A count that cannot be measured is `null` with a `reason`, never a guess. A rule of an area that was not selected or could not run has no entry.
+- **Standards map** (`standardsCoverage`): one entry for each OWASP Top 10 2025 category (A01 to A10) and each CWE Top 25 2025 entry. A rule is mapped to an entry through the OWASP and CWE ids in its own `standards` metadata (the same data as `pgard rules list`), by exact id: no parent or child CWE is inferred. The state is:
+  - `checked`: at least one mapped rule ran, every area it ran in completed, and each language present in the project is covered by a completed mapped rule. Rules for history and web look at tracked files and the running service whatever the language is, so the language check applies to entries that code rules map to.
+  - `partial`: some mapped rules ran, but one of their areas was `partial`, or a language that is present has no completed mapped rule (for example Java files next to TypeScript files; a language that was only detected counts as present).
+  - `not_checked`: no mapped rule ran (its scope was not selected or could not run), or no rule maps to the entry at all (reason `no rules`).
+
+  Each entry lists the rules that ran (`ruleIds`), every rule that maps to it (`mappedRuleIds`) and a short reason.
+
+- **What "checked" means.** A mapped rule ran to completion. It does not mean the weakness is absent, nor that every way to commit it is detected. Several categories are mapped to a single narrow rule, so read the rule ids. OSV and other advisories are not part of a scan (PGARD ships no vulnerability database), so they never count: A03 Software Supply Chain Failures is mapped only to `PG-HYGIENE-001` (committed dependency directories), so it is at best checked for that, and lockfiles are not examined.
+
+The terminal summary has one line per OWASP category and counts for the CWE Top 25; use `--format json` for the per-entry detail and the rule statistics. Older stored results (schema 1.0) have neither field and are read as before; the terminal then shows no standards section.
+
 ### Language of rule texts
 
 Rule titles, the impact text and the fix text can be shown in Korean or English. The language is chosen in this order: `--lang en|ko`, then the environment variable `PGARD_LANG` (`en` or `ko`), then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; the first one that is set decides, and a value starting with `ko` selects Korean; on Windows, where these are usually unset, the runtime locale is used), and otherwise English. Values are case-insensitive (`KO` works). An invalid `--lang`, `--report-lang` or `PGARD_LANG` value is a usage error (exit 2); `PGARD_LANG` is checked only by the commands that show rule text (`scan`, `rules list` and the menu), so `doctor`, `login`, `logout` and `history clear` ignore it.

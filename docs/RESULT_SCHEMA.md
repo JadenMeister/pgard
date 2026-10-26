@@ -2,7 +2,7 @@
 
 > [한국어](RESULT_SCHEMA.ko.md) translation available. This English file is the reference; the translation follows it.
 
-The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.0`. This document says when that version changes and what a reader must do with a version it did not write.
+The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.1`. This document says when that version changes and what a reader must do with a version it did not write.
 
 ## Version rules
 
@@ -26,7 +26,7 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 
 | Input version                 | Behaviour                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Same (`1.0`)                  | Accepted.                                                                                                                           |
+| Same (`1.1`)                  | Accepted.                                                                                                                           |
 | Older minor of the same major | Accepted. Fields added later are absent; the shape is still valid.                                                                  |
 | Newer minor of the same major | Accepted. Unknown fields are ignored (the reader drops them). `sourceVersion` reports the version the file carried.                 |
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
@@ -49,6 +49,17 @@ Strings are length-capped but not sanitized. Evidence, titles and notes can cont
 ## Finding.id is a fingerprint
 
 `Finding.id` is a stable fingerprint of rule, location and cause. Stored results are compared with later scans by this id, so it is part of the contract even though its type is only `string`. Changing how it is derived makes ids from older results stop matching, so such a change is a **major** version change. Its type or the rule that it never contains secret values cannot change within a major version either.
+
+## Version history
+
+**1.1** (additive; a minor bump). Two optional top-level fields. A `1.0` result has neither, and a reader treats a missing field as "not recorded", never as "nothing ran" or "nothing checked".
+
+- `ruleStats` (`RuleStat[]`): one entry per rule and coverage area where the rule ran (`completed` or `partial`). `ruleId`, `area` (a `Coverage.area`), `scope`, `status` (the area's status), `findings` (findings the rule reported in that area, counted before findings of several scopes are merged) and `targets`: a list of `{ unit, examined, reason }`. `unit` is an open string (`files`, `commits`, `blobs`, `pages`, `responses`, `unknown`; a new unit is not a schema change). `examined` is a count the analyzer measured, or `null` when it cannot be measured, and then `reason` says why (`reason` is `null` otherwise). An analyzer that reports nothing gets `{ unit: "unknown", examined: null, reason }`, never a guess. The same finding can count in two entries only for `source:react` and `source:heuristics`, which look at files that a language area also covers.
+- `standardsCoverage` (`{ owasp, cweTop25 }`): one `StandardCoverageEntry` per OWASP Top 10 2025 category (A01 to A10, in order) and per CWE Top 25 2025 entry (rank order): `id`, `title`, `rank` (`null` for OWASP), `state`, `ruleIds` (rules that ran and contribute), `mappedRuleIds` (every rule of this PGARD version that maps to the entry) and a short English `reason`. `state` is `checked`, `partial` or `not_checked`; it is a closed enum, so a new state would be a major change. It is derived by `computeStandardsCoverage` from the rule mappings and from the scan's own coverage and `ruleStats`: `checked` needs a mapped rule that ran, every contributing area `completed`, and every language present covered by a completed mapped rule (history and web rules are not language-bound); `partial` is some mapped rule that ran with a `partial` area or an uncovered language; `not_checked` is no mapped rule ran, or none exists (reason `no rules`). "Checked" says a rule ran to completion, not that the weakness is absent. Advisories (OSV) are not rules of a scan and never count.
+
+A blocked or failed scan writes `ruleStats: []` and a `standardsCoverage` in which every entry is `not_checked`.
+
+**1.0**: the original shape.
 
 ## Changing the version
 
