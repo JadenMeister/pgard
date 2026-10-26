@@ -53,8 +53,13 @@ export type InstallApproval = "yes" | "no" | "unknown";
  */
 export interface OwnerApprovalRemedy {
   kind: "install_app";
-  /** No installation on the owner account, or an installation without this repository. */
-  missing: "installation" | "repository";
+  /**
+   * - `installation`: no installation on the owner account;
+   * - `repository`: an installation without this repository;
+   * - `access`: GitHub returned 404 for the repository itself, so the cause is unknown (usually a
+   *   private repository outside the installation). The link then preselects only the account.
+   */
+  missing: "installation" | "repository" | "access";
   /** The account that owns the repository, as GitHub reports it. */
   account: { login: string; type: "User" | "Organization" };
   /**

@@ -309,6 +309,59 @@ export async function evaluateOwnerApproval(
   };
 }
 
+/**
+ * current_access reason when GitHub answers 404 for the repository. PGARD cannot tell whether
+ * the App is not installed for a private repository or the account has no access (or the
+ * repository does not exist), so it says both.
+ */
+export function notFoundAccessReason(repoName: string): string {
+  return `GitHub returned no access to github.com/${repoName}. For a private repository this usually means the PGARD GitHub App is not installed for it, or your account has no access.`;
+}
+
+/**
+ * The install remedy offered when `getRepository` answered 404 (the repository id is unknown).
+ * Looks up the remote owner's account id with the public `GET /users/{owner}`. Returns `null`
+ * (no remedy) when that lookup fails, returns another login than the remote names, or reports an
+ * account type other than User/Organization. Guidance only: it never changes any check result.
+ *
+ * - personal account: `yes` only when it is the signed-in user's own account, otherwise `no`;
+ * - organization: `unknown` (admin cannot be verified before the App is installed), guided.
+ */
+export async function evaluateAccessRemedy(
+  client: GitHubClient,
+  user: GitHubUser,
+  remoteOwner: string,
+  appSlug: string | null | undefined,
+): Promise<OwnerApprovalRemedy | null> {
+  let account;
+  try {
+    account = await client.getAccount(remoteOwner);
+  } catch {
+    return null;
+  }
+  if (account.login.toLowerCase() !== remoteOwner.toLowerCase()) return null;
+  if (account.type !== "User" && account.type !== "Organization") return null;
+  const canApprove: InstallApproval =
+    account.type === "Organization" ? "unknown" : account.id === user.id ? "yes" : "no";
+  const url =
+    typeof appSlug === "string"
+      ? buildAppInstallUrl({ slug: appSlug, targetId: account.id })
+      : null;
+  return {
+    kind: "install_app",
+    missing: "access",
+    account: { login: account.login, type: account.type },
+    url,
+    canApprove,
+    unavailableReason:
+      url !== null
+        ? null
+        : typeof appSlug === "string"
+          ? GUIDED_INSTALL_GITHUB_COM_ONLY_MESSAGE
+          : GUIDED_INSTALL_NEEDS_SLUG_MESSAGE,
+  };
+}
+
 function noRemedy(check: CheckResult): OwnerApprovalResult {
   return { check, remedy: null, ownerEvidence: null };
 }

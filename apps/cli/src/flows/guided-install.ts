@@ -49,14 +49,22 @@ export function formatOwnerOrAsk(accountLogin: string, url: string): string {
   return `If you are an owner of ${account}, install the App on the install page; otherwise ask an owner to install it there: ${url}`;
 }
 
+const ACCESS_MISSING = "access";
+
 function formatInstallSteps(
   accountLogin: string,
   repo: string | null,
   url: string,
   canApprove: "yes" | "unknown",
+  missing: "installation" | "repository" | "access" = "installation",
 ): string {
   const target = repo === null ? "this repository" : safeText(repo, 120);
   return [
+    ...(missing === ACCESS_MISSING
+      ? [
+          `GitHub shows no access to ${target}. If it is private, the PGARD GitHub App must be installed for it (PGARD cannot tell this from missing account access).`,
+        ]
+      : []),
     canApprove === "yes"
       ? `Owner approval: install the PGARD GitHub App on ${safeText(accountLogin, 100)} to approve PGARD for ${target}.`
       : formatOwnerOrAsk(accountLogin, url),
@@ -105,7 +113,13 @@ export async function offerGuidedInstall(
   err(
     context,
     errStyle.bold(
-      formatInstallSteps(remedy.account.login, outcome.repo, remedy.url, remedy.canApprove),
+      formatInstallSteps(
+        remedy.account.login,
+        outcome.repo,
+        remedy.url,
+        remedy.canApprove,
+        remedy.missing,
+      ),
     ),
   );
   if (context.io.stdout.isTTY !== true) {

@@ -1,5 +1,12 @@
-import { describe, expect, it } from "vitest";
-import { BLOCKED, createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
+import type { AuthorizationOutcome, OwnerApprovalRecheck } from "@pgard/scan-core";
+import { describe, expect, it, vi } from "vitest";
+import {
+  ALLOWED,
+  BLOCKED,
+  createTestContext,
+  createTestDeps,
+  createTestIo,
+} from "../../test-support.js";
 import { UserCancelledError } from "../../ui/components/prompts.js";
 import { runProjectVerify } from "./verify.js";
 
@@ -53,5 +60,126 @@ describe("runProjectVerify", () => {
     };
     await expect(runProjectVerify(context)).rejects.toBeInstanceOf(UserCancelledError);
     expect(captured.stdout()).not.toContain("[unverifiable]");
+  });
+});
+
+const INSTALL_URL =
+  "https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001";
+
+/** current_access failed on a 404; owner approval and contribution were not evaluated. */
+const HIDDEN_REPO: AuthorizationOutcome = {
+  summary: {
+    decision: "blocked",
+    checks: [
+      { id: "repository", status: "passed", reason: "GitHub remote me/app" },
+      { id: "github_identity", status: "passed", reason: "Signed in" },
+      { id: "owner_approval", status: "unverifiable", reason: "Not evaluated." },
+      { id: "current_access", status: "failed", reason: "GitHub returned no access to me/app." },
+      { id: "contribution", status: "unverifiable", reason: "Not evaluated." },
+    ],
+  },
+  repo: "me/app",
+  revision: "abc",
+  remedy: {
+    kind: "install_app",
+    missing: "access",
+    account: { login: "me", type: "User" },
+    url: INSTALL_URL,
+    canApprove: "yes",
+    unavailableReason: null,
+  },
+};
+
+const STILL_HIDDEN: OwnerApprovalRecheck = {
+  status: "failed",
+  reason: "GitHub returned no access to me/app.",
+  remedy: HIDDEN_REPO.remedy ?? null,
+};
+
+describe("runProjectVerify: private repository outside the App installation", () => {
+  function tty(options: { canOpenBrowser?: boolean } = {}) {
+    const captured = createTestIo({ isTTY: true });
+    return { captured, canOpen: options.canOpenBrowser ?? true };
+  }
+
+  it("opens the install page, keeps waiting on not_found, then re-runs the FULL authorization", async () => {
+    const { captured, canOpen } = tty();
+    const verifyProject = vi
+      .fn<() => Promise<AuthorizationOutcome>>()
+      .mockResolvedValueOnce(HIDDEN_REPO)
+      .mockResolvedValueOnce({ summary: ALLOWED, repo: "me/app", revision: "abc" });
+    const recheck = vi
+      .fn<() => Promise<OwnerApprovalRecheck>>()
+      .mockResolvedValueOnce(STILL_HIDDEN)
+      .mockResolvedValueOnce(STILL_HIDDEN)
+      .mockResolvedValueOnce({ status: "passed", reason: "installed", remedy: null });
+    const openBrowser = vi.fn(async () => true);
+    const context = {
+      ...createTestContext(
+        captured,
+        createTestDeps({ verifyProject, recheckOwnerApproval: recheck, openBrowser }),
+      ),
+      canOpenBrowser: canOpen,
+    };
+    expect(await runProjectVerify(context)).toBe(0);
+    expect(openBrowser).toHaveBeenCalledWith(INSTALL_URL);
+    expect(recheck).toHaveBeenCalledTimes(3);
+    // The recheck passing is not an authorization: the whole gate ran a second time.
+    expect(verifyProject).toHaveBeenCalledTimes(2);
+    expect(captured.stderr()).toContain("GitHub shows no access to me/app");
+  });
+
+  it("does not open a browser with --no-browser, but still waits and re-checks", async () => {
+    const { captured } = tty();
+    const verifyProject = vi
+      .fn<() => Promise<AuthorizationOutcome>>()
+      .mockResolvedValueOnce(HIDDEN_REPO)
+      .mockResolvedValueOnce(HIDDEN_REPO);
+    const recheck = vi
+      .fn<() => Promise<OwnerApprovalRecheck>>()
+      .mockResolvedValue({ status: "passed", reason: "x", remedy: null });
+    const openBrowser = vi.fn(async () => true);
+    const context = {
+      ...createTestContext(
+        captured,
+        createTestDeps({ verifyProject, recheckOwnerApproval: recheck, openBrowser }),
+      ),
+      canOpenBrowser: false,
+    };
+    // Still blocked after the re-run: the gate, not the install, decides.
+    expect(await runProjectVerify(context)).toBe(3);
+    expect(openBrowser).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain(INSTALL_URL);
+    expect(verifyProject).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not wait outside a terminal", async () => {
+    const captured = createTestIo({ isTTY: false });
+    const recheck = vi.fn();
+    const context = createTestContext(
+      captured,
+      createTestDeps({
+        verifyProject: async () => HIDDEN_REPO,
+        recheckOwnerApproval: recheck as never,
+      }),
+    );
+    expect(await runProjectVerify(context)).toBe(3);
+    expect(recheck).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain("Not a terminal");
+  });
+
+  it("offers nothing when the owner lookup failed (no remedy)", async () => {
+    const captured = createTestIo({ isTTY: true });
+    const recheck = vi.fn();
+    const context = createTestContext(
+      captured,
+      createTestDeps({
+        verifyProject: async () => ({ ...HIDDEN_REPO, remedy: null }),
+        recheckOwnerApproval: recheck as never,
+      }),
+    );
+    expect(await runProjectVerify(context)).toBe(3);
+    expect(recheck).not.toHaveBeenCalled();
+    expect(captured.stderr()).not.toContain(INSTALL_URL);
   });
 });

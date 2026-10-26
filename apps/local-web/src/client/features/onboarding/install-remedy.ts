@@ -37,6 +37,13 @@ export function describeInstallRemedy(remedy: InstallRemedyDto): InstallRemedyVi
       text: `Ask an owner of ${account} to install the PGARD GitHub App:`,
     };
   }
+  if (remedy.missing === "access") {
+    return {
+      kind: "install",
+      url: remedy.url,
+      text: `GitHub shows no access to this repository. If it is private, the PGARD GitHub App must be installed for it; PGARD cannot tell this from missing account access. If you are an owner of ${account}, install the App on the install page and include this repository; otherwise ask an owner to install it there: ${remedy.url}`,
+    };
+  }
   if (remedy.canApprove === "unknown") {
     // Same wording as the CLI: GitHub would not show the membership before the App is installed.
     return {

@@ -11,7 +11,9 @@ import {
   describeIdentityError,
   verifyContribution,
   verifyCurrentAccess,
+  evaluateAccessRemedy,
   evaluateOwnerApproval,
+  notFoundAccessReason,
   verifyRepository,
   type CheckResult,
 } from "./checks.js";
@@ -99,14 +101,16 @@ export async function authorizeProject(
   try {
     repository = await client.getRepository(repo.owner, repo.name);
   } catch (error) {
-    const access =
-      isGitHubAuthError(error) && error.code === "not_found"
-        ? {
-            status: "failed" as const,
-            reason: `The signed-in user cannot access github.com/${repoName}.`,
-          }
-        : describeApiError(error, "read the repository from GitHub");
+    const isNotFound = isGitHubAuthError(error) && error.code === "not_found";
+    const access = isNotFound
+      ? { status: "failed" as const, reason: notFoundAccessReason(repoName) }
+      : describeApiError(error, "read the repository from GitHub");
     results.set("current_access", access);
+    if (isNotFound) {
+      // Stays failed. The remedy only offers the install page; after an install the full gate
+      // decides again. No lookup (or an unclear one) means no remedy.
+      remedy = await evaluateAccessRemedy(client, user, repo.owner, deps.appSlug);
+    }
     results.set("owner_approval", notEvaluated("current_access"));
     results.set("contribution", notEvaluated("current_access"));
     return build(repoName, revision);
@@ -168,6 +172,17 @@ export function guidedInstallRemedy(outcome: AuthorizationOutcome): OwnerApprova
   const remedy = outcome.remedy ?? null;
   if (remedy === null || outcome.summary.decision !== "blocked") return null;
   const { checks } = outcome.summary;
+  if (remedy.missing === "access") {
+    // GitHub showed no repository: current_access failed, so owner approval and contribution
+    // were not evaluated. Repository and identity must have passed.
+    const expected = ["passed", "passed", "unverifiable", "failed", "unverifiable"] as const;
+    return checks.length === AUTHORIZATION_CHECK_ORDER.length &&
+      AUTHORIZATION_CHECK_ORDER.every(
+        (id, index) => checks[index]?.id === id && checks[index]?.status === expected[index],
+      )
+      ? remedy
+      : null;
+  }
   const isOnlyOwnerApproval =
     checks.length === AUTHORIZATION_CHECK_ORDER.length &&
     AUTHORIZATION_CHECK_ORDER.every((id, index) => {
@@ -220,6 +235,15 @@ export async function recheckOwnerApproval(
   try {
     repository = await session.client.getRepository(repo.owner, repo.name);
   } catch (error) {
+    if (isGitHubAuthError(error) && error.code === "not_found") {
+      // Still no access: same failed state and remedy as the gate, so callers keep waiting.
+      // Never a pass; the caller runs the full gate once this changes.
+      return {
+        status: "failed",
+        reason: notFoundAccessReason(`${repo.owner}/${repo.name}`),
+        remedy: await evaluateAccessRemedy(session.client, user, repo.owner, deps.appSlug),
+      };
+    }
     return notChecked(describeApiError(error, "read the repository from GitHub"));
   }
   const result = await evaluateOwnerApproval(session.client, repository, {

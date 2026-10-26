@@ -9,8 +9,11 @@ export interface AppInstallUrlInput {
   slug: string;
   /** Numeric id GitHub reported for the account that owns the repository. */
   targetId: number;
-  /** Numeric id GitHub reported for the repository. */
-  repositoryId: number;
+  /**
+   * Numeric id GitHub reported for the repository. Omitted (not invalid) when the repository is
+   * not visible to the signed-in user yet, so the link preselects only the account.
+   */
+  repositoryId?: number;
   /** Web origin of the GitHub host; anything but `https://github.com` gets no link. */
   webBaseUrl?: string;
 }
@@ -37,10 +40,13 @@ export function buildAppInstallUrl(input: AppInstallUrlInput): string | null {
   const base = input.webBaseUrl ?? GITHUB_OAUTH_BASE_URL;
   if (base !== GITHUB_WEB_ORIGIN) return null;
   if (!APP_SLUG_PATTERN.test(input.slug)) return null;
-  if (!isPositiveId(input.targetId) || !isPositiveId(input.repositoryId)) return null;
+  if (!isPositiveId(input.targetId)) return null;
+  if (input.repositoryId !== undefined && !isPositiveId(input.repositoryId)) return null;
   const url = new URL(`/apps/${input.slug}/installations/new/permissions`, GITHUB_WEB_ORIGIN);
   url.searchParams.set("suggested_target_id", String(input.targetId));
-  url.searchParams.append("repository_ids[]", String(input.repositoryId));
+  if (input.repositoryId !== undefined) {
+    url.searchParams.append("repository_ids[]", String(input.repositoryId));
+  }
   const built = url.toString();
   return isOpenableGitHubUrl(built) ? built : null;
 }

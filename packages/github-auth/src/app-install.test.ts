@@ -21,6 +21,15 @@ describe("buildAppInstallUrl", () => {
     expect(url.searchParams.getAll("repository_ids[]")).toEqual(["7"]);
   });
 
+  it("omits repository_ids when the repository id is unknown, but never accepts a bad one", () => {
+    expect(buildAppInstallUrl({ slug: "app", targetId: 42 })).toBe(
+      "https://github.com/apps/app/installations/new/permissions?suggested_target_id=42",
+    );
+    for (const repositoryId of [0, -1, 1.5, Number.NaN]) {
+      expect(buildAppInstallUrl({ slug: "app", targetId: 42, repositoryId })).toBeNull();
+    }
+  });
+
   it("refuses a non-github.com host (GHES is not supported)", () => {
     for (const webBaseUrl of [
       "https://github.example.com",

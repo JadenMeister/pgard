@@ -46,6 +46,16 @@ describe("dashboard install remedy", () => {
     });
   });
 
+  it("explains a hidden repository honestly and still guides the install", () => {
+    const view = describeInstallRemedy(remedy({ missing: "access", canApprove: "unknown" }));
+    expect(view).toMatchObject({ kind: "install", url: URL });
+    expect(view.text).toContain("GitHub shows no access to this repository");
+    expect(view.text).toContain("cannot tell this from missing account access");
+    expect(describeInstallRemedy(remedy({ missing: "access", canApprove: "no" })).kind).toBe(
+      "ask_owner",
+    );
+  });
+
   it("shows why there is no link, and never links outside github.com", () => {
     expect(
       describeInstallRemedy(

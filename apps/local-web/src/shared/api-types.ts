@@ -54,7 +54,7 @@ export type JobStatus = "idle" | "running" | "done" | "failed";
  */
 export interface InstallRemedyDto {
   kind: "install_app";
-  missing: "installation" | "repository";
+  missing: "installation" | "repository" | "access";
   account: { login: string; type: "User" | "Organization" };
   /** Always an `https://github.com/apps/...` URL, or `null` (see `unavailableReason`). */
   url: string | null;
