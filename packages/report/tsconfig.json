@@ -5,7 +5,12 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/test-fixtures.ts", "src/test-pdf-text.ts"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/test-fixtures.ts",
+    "src/test-fixtures-details.ts",
+    "src/test-pdf-text.ts"
+  ],
   "references": [
     {
       "path": "../findings"

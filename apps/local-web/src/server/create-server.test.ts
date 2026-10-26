@@ -1,16 +1,18 @@
 import http from "node:http";
 import {
   SCHEMA_VERSION,
+  buildRuleTextCatalog,
   type AuthorizationCheckId,
   type ScanRequest,
   type ScanResult,
 } from "@pgard/findings";
-import type { PortDiscoveryResult, ServiceIdentity } from "@pgard/http-local";
+import { WEB_RULE_LIST, type PortDiscoveryResult, type ServiceIdentity } from "@pgard/http-local";
 import {
   AUTHORIZATION_CHECK_ORDER,
   createDeviceFlowSessionProvider,
   createInMemoryCredentialStore,
   DEFAULT_GITHUB_APP_CLIENT_ID,
+  listSupportedRules,
   type AuthorizationOutcome,
   type OwnerApprovalRemedy,
   type CredentialStore,
@@ -18,6 +20,7 @@ import {
 } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHtmlReport, renderReport } from "@pgard/report";
+import type { RuleTextsDto } from "../shared/api-types.js";
 import type { ServerDeps } from "./deps.js";
 import { reportDownloadName } from "./routes/api.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
@@ -880,7 +883,13 @@ describe("local web report download", () => {
     expect(response.headers["cache-control"]).toBe("no-store");
     expect(response.headers["content-security-policy"]).toContain("default-src 'none'");
     expect(response.headers["x-content-type-options"]).toBe("nosniff");
-    expect(response.body).toBe(renderHtmlReport(scanResult));
+    // Same renderer and rule catalog as the CLI export, so the rule details are included.
+    expect(response.body).toBe(
+      renderHtmlReport(scanResult, {
+        ruleTexts: buildRuleTextCatalog([...listSupportedRules(), ...WEB_RULE_LIST]),
+      }),
+    );
+    expect(response.body).toContain('rel="noopener noreferrer"');
     // Redaction is preserved: the evidence is the already redacted text.
     expect(response.body).toContain("credential assignment in a tracked file (value redacted)");
   });
@@ -894,10 +903,23 @@ describe("local web report download", () => {
     expect(Object.keys(texts)).toContain("PG-WEB-013");
     expect(texts["PG-SQL-001"]?.title.ko).toMatch(/[가-힣]/);
     expect(Object.keys(texts["PG-SQL-001"] ?? {}).sort()).toEqual([
+      "details",
       "impact",
       "recommendation",
       "title",
     ]);
+    // The details carry ids, titles and official links only, plus the rule's own examples.
+    const all = Object.values(JSON.parse(response.body) as Record<string, RuleTextsDto>);
+    const sql = (JSON.parse(response.body) as Record<string, RuleTextsDto>)["PG-SQL-001"];
+    expect(sql?.details?.standards.map((link) => link.id)).toContain("CWE-89");
+    expect(sql?.details?.examples.length).toBeGreaterThan(0);
+    for (const entry of all) {
+      for (const link of entry.details?.standards ?? []) {
+        expect(link.url).toMatch(
+          /^https:\/\/(top10\.owasp\.org\/2025\/|cwe\.mitre\.org\/data\/definitions\/\d+\.html$|cmu-sei\.github\.io\/secure-coding-standards\/)/,
+        );
+      }
+    }
     expect((await send(running, "GET", "/api/rule-texts")).status).toBe(401);
   });
 

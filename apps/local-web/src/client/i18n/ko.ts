@@ -29,6 +29,8 @@ export const ko: Messages = {
     target: "로컬 웹 서비스 (선택)",
     scan: "검사",
     results: "결과",
+    standards: "표준 매핑 현황 (OWASP Top 10 2025)",
+    ruleStats: "규칙 통계",
     report: "보고서 내보내기",
   },
   legal: {
@@ -309,6 +311,63 @@ export const ko: Messages = {
       commit: (sha) => `커밋 ${sha}`,
       unknownLocation: "(알 수 없는 위치)",
     },
+  },
+  details: {
+    standards: "표준",
+    viaCwe: (cwe) => `${cwe} 경유`,
+    examples: (count) => `예시 (${count})`,
+    vulnerable: "취약한 코드",
+    safe: "안전한 코드",
+    ruleRationale: "규칙이 중요한 이유",
+    ruleRemediation: "일반적인 조치",
+    opensExternally: "(공식 페이지를 새 탭에서 엽니다)",
+  },
+  standardsPanel: {
+    note: "각 상태는 항목에 매핑된 PGARD 규칙이 이번 검사에서 실행되었는지를 나타냅니다. 규칙 실행됨은 프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수(범위 폭)를 함께 확인하세요. 여기에는 표준의 식별자, 제목, 링크만 표시하며 표준 자체는 링크된 페이지를 참고하세요.",
+    columns: {
+      id: "ID",
+      category: "분류",
+      state: "상태",
+      breadth: "범위 폭",
+      rules: "규칙",
+      reason: "이유",
+    },
+    states: {
+      rules_ran: "규칙 실행됨",
+      rules_partial: "규칙 일부 실행",
+      not_run: "실행 안 됨",
+      no_rules: "규칙 없음",
+    },
+    breadth: (withRules, inCategory) =>
+      `매핑된 CWE ${inCategory}개 중 ${withRules}개에 규칙이 있음`,
+    cweTop25Title: "CWE Top 25 2025",
+    cweTop25Counts: (ran, partial, notRun, none) =>
+      `규칙 실행됨 ${ran}, 규칙 일부 실행 ${partial}, 실행 안 됨 ${notRun}, 규칙 없음 ${none}`,
+    cweColumns: { rank: "순위", id: "CWE", name: "약점" },
+    notRecorded:
+      "이 결과에는 표준 매핑 현황과 규칙 통계가 기록되어 있지 않습니다(이전 버전의 PGARD가 작성).",
+    attributionTitle: "표준 데이터와 출처 표기",
+    attributionIntro:
+      "이 표준들의 식별자, 제목, 링크만 표시하며 표준의 본문은 복사하지 않았습니다.",
+    attributionOwasp:
+      "OWASP Top 10:2025, Copyright (c) 2003-2025 The OWASP Foundation, Inc., CC BY-SA 4.0 라이선스 (https://creativecommons.org/licenses/by-sa/4.0/).",
+    attributionCwe:
+      "CWE 및 CWE Top 25: Copyright (c) 2006-2026, The MITRE Corporation, CWE 이용 약관에 따라 사용 (https://cwe.mitre.org/about/termsofuse.html). CWE는 The MITRE Corporation의 상표입니다.",
+    attributionCert:
+      "SEI CERT Oracle Coding Standard for Java: (c) 2026 Carnegie Mellon University, CC BY 4.0 라이선스. SEI CERT는 Carnegie Mellon University의 등록 상표이며, 이 대시보드는 Carnegie Mellon University나 SEI의 보증을 받지 않았습니다.",
+  },
+  ruleStats: {
+    note: "각 규칙이 실행된 영역마다 무엇을 살펴봤는지 보여 줍니다. 발견 항목 0건은 규칙이 살펴본 범위에서 아무것도 찾지 못했다는 뜻이며, 프로젝트에 그 약점이 없다는 뜻이 아닙니다.",
+    columns: {
+      rule: "규칙",
+      area: "영역",
+      targets: "살펴본 대상",
+      findings: "발견 항목",
+      status: "상태",
+    },
+    targetCount: (examined, unit) => `${unit} ${examined}개`,
+    targetUnknown: (reason) => `알 수 없음 (${reason})`,
+    summary: (count) => `규칙 통계 (${count})`,
   },
   charts: {
     barAria: (summary) => `심각도별 발견 항목: ${summary}`,
