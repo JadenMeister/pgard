@@ -143,6 +143,13 @@ Options:
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
                            Git repository needs explicit confirmation
+  --all-findings           list every finding and location; by default more than
+                           5 findings in test, fixture or vendored code are
+                           summarized, and groups show up to 3 locations
+  --format text|json       json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; progress and
+                           messages go to stderr. With web checks it needs --port
+                           (no prompts in this mode). Exit codes are unchanged
   --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
                            In a terminal, PGARD asks you to press Enter
@@ -158,6 +165,8 @@ authorization and continues the scan.
 - `--port N`(`scan web`, `scan all` 전용): 로컬 서비스 포트, 1~65535 정수. 지정해도 서비스 확인은 필요합니다.
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
+- `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 나열합니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고, 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고).
+- `--format text|json`(모든 `scan`, 기본값 `text`): `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. stdout에서 프롬프트가 뜰 수 없으므로 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다.
 - `--language js|ts|react|vue|go`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 - `--no-browser`(`scan`, `project verify`, `login`, `dashboard`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 터미널(stdin과 stdout 모두)에서 링크를 출력한 뒤 `Press Enter to open github.com in your browser...`라고 묻고, Enter를 눌러야 페이지를 엽니다(다른 키는 무시). 로그인·설치 대기는 이 질문과 무관하게 진행되며, 대기가 끝나면 질문은 사라집니다. 터미널이 아니면 열지도 묻지도 않습니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
 - `--help` / `-h`, `pgard --version` / `-V`.
@@ -346,6 +355,12 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 ## 결과와 보고서
 
 터미널 결과는 심각도 차트, `파일:줄` 또는 URL이 붙은 발견 항목(확정·의심·정보), 가려진 근거, 가이드, 영역별 coverage를 보여 줍니다.
+
+### 그룹화와 접기
+
+발견 항목은 심각도(critical, high, medium, low, info) 순, 같으면 확정 → 의심 → 정보 순, 그다음 위치 순으로 정렬됩니다. 같은 규칙과 원인의 항목은 한 그룹이 됩니다. 제목에 위치 개수가 표시되고 줄에는 최대 3개의 위치가 나옵니다(`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`). 근거는 첫 항목의 것을 예시로 보여 줍니다. 결과에는 원인 문장이 없고(줄이 포함된 fingerprint만 있음) "같은 원인"은 규칙, 제목, 심각도, 상태, 신뢰도, 위치 종류, context가 같다는 뜻입니다.
+
+테스트·fixture·vendored 코드의 발견 항목이 5개(상수 `COLLAPSE_THRESHOLD`)를 넘으면 CLI는 목록 대신 요약을 보여 줍니다. 개수, context별·규칙별 개수, 심각도, 전체를 보는 방법이 포함됩니다. 정확히 5개면 그대로 나열합니다. 내 코드의 발견 항목은 절대 접지 않습니다. `--all-findings`를 쓰거나 HTML 보고서(`--report html --output-dir <dir>`)를 보면 전부 볼 수 있습니다. 터미널이 아니거나 `NO_COLOR`가 설정되어 있으면 색 없는 같은 텍스트가 출력됩니다.
 
 ### 테스트·fixture 코드의 발견 항목
 

@@ -143,6 +143,13 @@ Options:
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
                            Git repository needs explicit confirmation
+  --all-findings           list every finding and location; by default more than
+                           5 findings in test, fixture or vendored code are
+                           summarized, and groups show up to 3 locations
+  --format text|json       json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; progress and
+                           messages go to stderr. With web checks it needs --port
+                           (no prompts in this mode). Exit codes are unchanged
   --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
                            In a terminal, PGARD asks you to press Enter
@@ -158,6 +165,8 @@ authorization and continues the scan.
 - `--port N` (`scan web` and `scan all` only): the local service port, an integer from 1 to 65535. You still have to confirm the service.
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
+- `--all-findings` (any `scan`): list every finding and every location. By default, groups show up to 3 locations, and when more than 5 findings come from test, fixture or vendored code they are replaced by a summary (see [Grouping and collapsing](#grouping-and-collapsing)).
+- `--format text|json` (any `scan`, default `text`): `json` prints only the redacted scan result to stdout, exactly as described in [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md) and readable with `readScanResult`. Progress, notices and prompts go to stderr, so `pgard scan code --format json > result.json` is valid JSON. Nothing can prompt on stdout: `scan web` and `scan all` need `--port` (without it the command exits with the usage error 2 before scanning). The exit codes do not change. `--all-findings` has no effect on JSON, which always contains every finding.
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
 - `--no-browser` (`scan`, `project verify`, `login`, `dashboard`): do not open GitHub pages (the device sign-in page, the App install page) in the browser; the links are only printed. Without it, in a terminal (stdin and stdout) PGARD prints the link and asks `Press Enter to open github.com in your browser...`; the page opens only after you press Enter (other keys are ignored). Waiting for sign-in or installation never depends on that prompt, and it is dropped as soon as the wait ends. Outside a terminal nothing is opened and nothing is asked. The links are always printed too, and a browser that fails to open is not an error.
 - `--help` / `-h`, and `pgard --version` / `-V`.
@@ -346,6 +355,12 @@ PGARD calls a secret or `.env` file "removed" only when it can show that the cur
 ## Results and reports
 
 The terminal result shows a severity chart, the findings (confirmed, suspected or informational) with a `file:line` or URL, redacted evidence, guidance, and the coverage of each area.
+
+### Grouping and collapsing
+
+Findings are ordered by severity (critical, high, medium, low, info), then confirmed before suspected before informational, then by location. Findings with the same rule and cause form one group: the title shows the number of locations and the line names up to 3 of them (`src/db.ts:10, src/db.ts:30, src/orders.ts:7 and 2 more`), with the evidence of the first one as an example. The result carries no cause text (only a fingerprint that includes the line), so "same cause" means the same rule, title, severity, status, confidence, location kind and context.
+
+When more than 5 findings (the constant `COLLAPSE_THRESHOLD`) come from test, fixture or vendored code, the CLI replaces their listing with a summary: the count, counts per context and per rule, and the severities, plus how to see everything. Exactly 5 are still listed. Findings in your own code are never collapsed. `--all-findings` lists everything, and so does the HTML report (`--report html --output-dir <dir>`). Without a terminal or with `NO_COLOR` the output is the same text without colors.
 
 ### Findings in test or fixture code
 
