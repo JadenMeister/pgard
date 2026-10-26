@@ -2,7 +2,7 @@
 
 > [한국어](RESULT_SCHEMA.ko.md) translation available. This English file is the reference; the translation follows it.
 
-The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.0`. This document says when that version changes and what a reader must do with a version it did not write.
+The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.1`. This document says when that version changes and what a reader must do with a version it did not write.
 
 ## Version rules
 
@@ -26,7 +26,7 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 
 | Input version                 | Behaviour                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Same (`1.0`)                  | Accepted.                                                                                                                           |
+| Same (`1.1`)                  | Accepted.                                                                                                                           |
 | Older minor of the same major | Accepted. Fields added later are absent; the shape is still valid.                                                                  |
 | Newer minor of the same major | Accepted. Unknown fields are ignored (the reader drops them). `sourceVersion` reports the version the file carried.                 |
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
@@ -39,6 +39,17 @@ A version that is accepted is still checked against the full shape. A wrong enum
 Strings are length-capped but not sanitized. Evidence, titles and notes can contain any characters, and escaping them for HTML, terminals or SARIF is the job of whatever renders them.
 
 **Write-back.** The reader returns the fields it knows and drops the rest. When `sourceVersion` is newer than `SCHEMA_VERSION`, never write the reader's output back over the source file: that would silently delete the newer fields. Save a copy under another name, or refuse.
+
+## Version history
+
+**`1.1`** (additive; `1.0` results are still read, with the new fields absent):
+
+- `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: set only when an active suppression of `pgard.config.json` matched the finding. The finding stays in the result.
+- `Finding.inBaseline?: true`: set only when the repository's baseline (`pgard baseline set`) contains the finding (same identity as the scan comparison). Never `false`; absent means not in the baseline, or no baseline.
+- `ScanResult.suppressions?: { source; suppressed; critical; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard }[]; incomplete }`: present when the config has at least one suppression. `suppressed` counts the findings carrying `suppression`, `critical` how many of them are critical, `matched` the findings an entry matches (0 when expired), `wildcard` whether the entry's path matches every file, and `incomplete` whether the matching work budget ran out (later findings are then not suppressed).
+- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: present when a baseline was applied. `matched` is the number of findings flagged `inBaseline`, `new` the others, `total` the findings in the baseline scan.
+
+Both new top-level objects are optional and independent of any other new field, and `SuppressionState` and the `source` literal are the only closed values added (a new value there would be a major change). A suppression, or a baseline, never changes `overallStatus`, `coverage` or `authorization`: the status comes from coverage only.
 
 ## Which outputs carry the version
 

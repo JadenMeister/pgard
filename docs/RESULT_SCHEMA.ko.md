@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.0`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.1`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.0`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.1`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -39,6 +39,17 @@
 문자열은 길이만 제한할 뿐 정제하지 않습니다. 근거, 제목, 메모에는 어떤 문자든 들어 있을 수 있으며, HTML, 터미널, SARIF에 맞게 이스케이프하는 일은 그것을 렌더링하는 쪽의 몫입니다.
 
 **다시 쓰기.** 읽는 쪽은 아는 필드만 반환하고 나머지는 버립니다. `sourceVersion`이 `SCHEMA_VERSION`보다 높을 때는 읽는 쪽의 출력을 원본 파일에 다시 쓰지 마세요. 더 새로운 필드가 조용히 사라집니다. 다른 이름으로 사본을 저장하거나 거부하세요.
+
+## 버전 이력
+
+**`1.1`**(추가만 있음. `1.0` 결과도 새 필드가 없는 상태로 계속 읽습니다):
+
+- `Finding.suppression?: { reason: string; expires?: string; source: "pgard.config.json" }`: `pgard.config.json`의 활성 억제 항목이 해당 발견 항목에 맞았을 때만 있습니다. 발견 항목은 결과에 그대로 남습니다.
+- `Finding.inBaseline?: true`: 저장소의 기준선(`pgard baseline set`)에 그 발견 항목이 있을 때만(검사 비교와 같은 식별 방식) 있습니다. `false`는 없고, 필드가 없으면 기준선에 없거나 기준선이 없다는 뜻입니다.
+- `ScanResult.suppressions?: { source; suppressed; critical; entries: { ruleId; path; reason; expires?; state: "active" | "expired"; matched; wildcard }[]; incomplete }`: 설정에 억제 항목이 하나 이상 있을 때 있습니다. `suppressed`는 `suppression`이 붙은 발견 항목 수, `critical`은 그중 치명적인 수, `matched`는 항목이 맞는 발견 항목 수(만료된 항목은 0), `wildcard`는 항목의 경로가 모든 파일에 맞는지, `incomplete`는 매칭 작업량 한도를 넘었는지(그 뒤 발견 항목은 억제되지 않음)를 뜻합니다.
+- `ScanResult.baseline?: { setAt; scanId; revision; total; matched; new; newInUncertainAreas; toolVersionChanged }`: 기준선이 적용되었을 때 있습니다. `matched`는 `inBaseline`이 붙은 발견 항목 수, `new`는 나머지, `total`은 기준선 검사의 발견 항목 수입니다.
+
+새 최상위 객체 둘은 모두 선택적이며 다른 새 필드와 독립적입니다. 닫힌 값이 새로 생긴 것은 `SuppressionState`와 `source` 리터럴뿐이며, 여기에 새 값을 더하면 major 변경입니다. 억제나 기준선은 `overallStatus`, `coverage`, `authorization`을 바꾸지 않습니다. 상태는 coverage에서만 나옵니다.
 
 ## 버전이 들어가는 출력
 
