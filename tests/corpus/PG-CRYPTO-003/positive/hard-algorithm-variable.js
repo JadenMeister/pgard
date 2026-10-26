@@ -1,4 +1,4 @@
-// corpus: expect=PG-CRYPTO-003; known=miss:PG-CRYPTO-003:a cipher name held in a constant is not resolved
+// corpus: expect=PG-CRYPTO-003
 const crypto = require("node:crypto");
 const ALGORITHM = "des-cbc";
 
