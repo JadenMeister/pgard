@@ -82,6 +82,9 @@ if (template.private === true) fail("the package must not be private");
 for (const field of ["repository", "homepage", "bugs", "license", "engines", "files", "bin"]) {
   if (template[field] === undefined) fail(`packaging/pgard/package.json has no "${field}"`);
 }
+if (template.repository?.url !== "git+https://github.com/JadenMeister/pgard.git") {
+  fail("repository.url must be git+https://github.com/JadenMeister/pgard.git (npm provenance)");
+}
 if (template.publishConfig?.access !== "public" || template.publishConfig?.provenance !== true) {
   fail(
     'packaging/pgard/package.json needs publishConfig { "access": "public", "provenance": true }',

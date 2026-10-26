@@ -44,7 +44,21 @@ jobs:
         with:
           node-version: 22
           check-latest: true
-          cache: npm
+          # No dependency cache in a release job (cache poisoning).
+          package-manager-cache: false
+      # The released commit must be on main, and a real publish needs a tag.
+      - name: Check the released commit and the run mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_TYPE" != "tag" ] && [ "$DRY_RUN_INPUT" != "true" ]; then
+            echo "::error::a dispatch on a branch may only be a dry run; real releases come from a tag"; exit 1
+          fi
+          git fetch --no-tags --depth=1000 origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_SHA is not on main"; exit 1; }
       # The tag (or the dispatch input) must name exactly the version that is about to be packed.
       - name: Check the requested version against the package
         id: version
@@ -77,10 +91,14 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run typecheck
+      - run: npm run typecheck:tests
+      - run: npm run format:check
       - run: npm test
       - run: npm run corpus:check
       - run: npm run pack:pgard
       - run: npm run smoke:pack
+      # upload-artifact skips hidden directories such as .pack, so the tarball is copied to a
+      # visible directory first.
       - name: Locate the tarball
         id: pack
         env:
@@ -89,13 +107,16 @@ jobs:
           set -euo pipefail
           file=".pack/pgard-${VERSION}.tgz"
           [ -f "$file" ] || { echo "::error::$file was not produced"; exit 1; }
-          [ "$(ls .pack/pgard-*.tgz | wc -l)" = "1" ] || { echo "::error::expected exactly one tarball"; exit 1; }
+          found=(.pack/pgard-*.tgz)
+          [ "${#found[@]}" -eq 1 ] || { echo "::error::expected exactly one tarball"; exit 1; }
+          mkdir release-tarball
+          cp "$file" release-tarball/
           echo "tarball=pgard-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
           echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pgard-tarball
-          path: .pack/pgard-*.tgz
+          path: release-tarball/pgard-*.tgz
           if-no-files-found: error
           retention-days: 30
 
@@ -116,11 +137,12 @@ jobs:
         with:
           node-version: 22
           check-latest: true
+          package-manager-cache: false
       # Trusted publishing needs npm 11.5.1 or newer; Node 22 bundles npm 10. This updates the
-      # runner's own npm only.
+      # runner's own npm only, to an exact version.
       - name: Use an npm that supports trusted publishing
         run: |
-          npm install -g npm@11
+          npm install -g npm@11.21.1
           npm --version
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:

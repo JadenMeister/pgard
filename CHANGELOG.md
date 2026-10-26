@@ -20,8 +20,8 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 - The result and report text is localized in Korean and English (CLI, reports, dashboard).
 - Rule rationale and remediation texts and mappings were rewritten against OWASP 2025 and concrete attack and fix examples.
-- Node.js 22.23.4, 24.22.1 or 26.12.1 (or newer patches on those lines) is required.
-- The advisory database dependency check was removed; analysis is code-based.
+- Requires Node.js 22.23.4, 24.22.1 or 26.12.1, or a newer patch on the same line; `pgard doctor` fails older releases.
+- Analysis is code-based: a scan does not check dependencies against an advisory database. The only OSV use is the user-run `pgard advisories update` download.
 
 ### Fixed
 

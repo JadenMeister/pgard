@@ -26,8 +26,9 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
 아래 설정이 없어도 워크플로를 머지하는 것은 안전합니다("아무것도 설정하지 않았을 때" 참고). 첫 릴리스 전에 다음을 설정하세요.
 
 1. **GitHub 환경.** Settings, Environments, New environment `npm-publish`. **Required reviewers**를 추가하고(본인과 릴리스를 승인할 수 있는 사람), 검토자가 둘 이상일 때만 "Prevent self-review"를 켜며, **Deployment branches and tags**를 `main`과 태그 패턴 `v*.*.*`로 제한합니다. 참고: [Managing environments for deployment](https://docs.github.com/en/actions/managing-workflow-runs-and-deployments/managing-deployments/managing-environments-for-deployment).
-2. **npm trusted publisher.** npm 이름 `pgard`는 이미 자리 표시용 패키지(0.0.1)가 선점하고 있으므로 존재하며 설정할 수 있습니다. npmjs.com에서 패키지, Settings, Trusted Publisher, GitHub Actions를 열고 owner `JadenMeister`, repository `pgard`, workflow 파일명 `release.yml`(경로 없이 파일명만), environment `npm-publish`를 입력합니다. 모든 값은 대소문자를 구분하며 npm은 저장할 때 검증하지 않으므로 오류는 배포 시점에야 나타납니다. 새 설정은 2일 안에 첫 배포가 성공하지 않으면 만료됩니다. 참고: [npm trusted publishing](https://docs.npmjs.com/trusted-publishers).
-3. **Homebrew tap**(첫 배포 후): [packaging/homebrew/README.md](../packaging/homebrew/README.md)를 보세요.
+2. **npm trusted publisher.** npm 이름 `pgard`는 이미 자리 표시용 패키지(0.0.1)가 선점하고 있으므로 존재하며 설정할 수 있습니다. npmjs.com에서 패키지, Settings, Trusted Publisher, GitHub Actions를 열고 owner `JadenMeister`, repository `pgard`, workflow 파일명 `release.yml`(경로 없이 파일명만), environment `npm-publish`를 입력합니다. **Allowed actions**에서 **npm publish**를 체크하세요. 2026년 9월 3일 이후 만든 설정은 기본적으로 `npm stage publish`만 허용하는데, 워크플로는 직접 `npm publish`를 실행합니다(버전이 공개되기 전에 npm에서 2FA 승인을 한 번 더 받고 싶다면 `npm stage publish`를 쓸 수 있으며, 그 경우 워크플로가 그 명령을 호출하도록 바꿔야 합니다). **environment 칸은 npm이 선택 사항으로 표시하더라도 반드시 채우세요.** 보안 모델이 이 값에 의존합니다. npm은 워크플로 실행의 environment가 일치할 때만 OIDC 토큰을 받아들입니다. 태그의 커밋이 워크플로에서 `environment:`를 지워 승인을 건너뛰더라도, 설정에 environment 이름이 있어야 npm이 그 토큰을 거부합니다. 모든 값은 대소문자를 구분하며 npm은 저장할 때 검증하지 않으므로 오류는 배포 시점에야 나타납니다. 새 설정은 2일 안에 첫 배포가 성공하지 않으면 만료됩니다. 참고: [npm trusted publishing](https://docs.npmjs.com/trusted-publishers).
+3. **태그 ruleset.** Settings, Rules, Rulesets에서 `v*` 태그 ruleset을 추가해 이 태그를 만들고 갱신하고 삭제할 수 있는 사람을 제한하고(force push 차단 포함) 관리자만 릴리스를 시작할 수 있게 하세요. 워크플로도 `main`에 없는 커밋은 추가로 거부합니다.
+4. **Homebrew tap**(첫 배포 후): [packaging/homebrew/README.md](../packaging/homebrew/README.md)를 보세요.
 
 **토큰 대안.** trusted publishing을 쓸 수 없으면(예: 셀프 호스트 러너) `pgard` 패키지로 한정하고 publish 권한만 가진 granular npm access token을 만들어 `npm-publish` 환경 secret `NPM_TOKEN`에 저장하고, 배포 단계의 `env:`에 `NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}`을 추가합니다. `--provenance`는 유지하세요. 토큰은 오래 유지되는 자격 증명이므로 가능하면 OIDC를 쓰세요.
 
@@ -46,7 +47,7 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
    - `packages/scan-core/src/version.ts`(`PGARD_VERSION`)
 4. **`CHANGELOG.md`를 갱신합니다.** `## [Unreleased]` 내용을 `## [X.Y.Z] - YYYY-MM-DD`로 옮기고 비어 있는 `## [Unreleased]`를 새로 두며 하단 비교 링크를 갱신합니다. 항목은 Added, Changed, Fixed, Security(필요하면 Removed, Deprecated)로 묶고, 호환성을 깨는 변경에는 **BREAKING**을 붙입니다.
 5. `chore(release): vX.Y.Z` **PR**을 이 변경만으로 열고 리뷰한 뒤 머지합니다. 그 전에 로컬에서 `npm run check`, `npm run corpus:check`, `npm run pack:pgard`, `npm run smoke:pack`을 실행합니다.
-6. **드라이런(권장).** Actions, `release`, Run workflow에서 `main`을 고르고 버전을 입력하고 `dry_run`을 켭니다. 모든 검증과 `npm publish --dry-run`을 실행하며 아무것도 배포되지 않습니다.
+6. **드라이런(권장).** Actions, `release`, Run workflow에서 `main`을 고르고 버전을 입력하고 `dry_run`을 켭니다. 모든 검증과 `npm publish --dry-run`을 실행하며 아무것도 배포되지 않습니다. 드라이런도 `publish` 작업을 거치므로 **`npm-publish` 승인을 기다리고 OIDC 토큰도 요청합니다.** 브랜치에서의 수동 실행은 드라이런만 가능하며 실제 배포에는 태그가 필요합니다.
 7. **태그.** `main`의 머지된 커밋에서 `git tag -a vX.Y.Z -m "pgard X.Y.Z"`, `git push origin vX.Y.Z`. 태그는 `v` + 정확한 버전(`v0.1.0`, `v0.2.0-rc.1`)이며, 패키지 버전과 다르면 워크플로가 거부합니다.
 8. **승인.** `verify` 작업이 빌드, 검사를 실행하고 tarball을 올립니다. 이어서 `publish` 작업이 `npm-publish` 환경에서 대기합니다. 필수 검토자가 실행 화면에서 태그, 커밋, verify 결과가 의도한 것인지 확인하고 승인합니다. 배포 작업은 tarball 체크섬을 verify 작업의 값과 대조한 뒤 `npm publish <tarball> --provenance --access public`을 실행합니다.
 9. **배포 후 확인**(아래).
@@ -81,4 +82,6 @@ npm view pgard dist-tags              # latest는 X.Y.Z여야 함(사전 릴리�
 npm deprecate pgard@X.Y.Z "Broken: use X.Y.Z+1 (reason: ...)"
 ```
 
-그다음 정상 체크리스트로 패치 릴리스(`X.Y.Z+1`)를 내어 앞으로 고칩니다. `latest`가 나쁜 버전을 가리켜 이전의 좋은 버전을 먼저 복원해야 한다면 `npm dist-tag add pgard@<좋은 버전> latest`로 되돌립니다(배포 권한이 있는 관리자 로그인 필요). 비밀 값 유출이나 보안 문제라면 deprecate하고, 수정 버전을 내고, 변경 기록의 Security에 밝힙니다. Homebrew tap은 수정된 버전으로 갱신하거나 마지막 커밋을 되돌립니다.
+`npm deprecate`와 `npm dist-tag`는 OIDC 배포 설정으로 처리되지 않습니다. 관리자가 로컬에서 대화형 `npm login`(2FA 포함) 후 실행합니다.
+
+그다음 정상 체크리스트로 패치 릴리스(`X.Y.Z+1`)를 내어 앞으로 고칩니다. `latest`가 나쁜 버전을 가리켜 이전의 좋은 버전을 먼저 복원해야 한다면 `npm dist-tag add pgard@<좋은 버전> latest`로 되돌립니다(배포 권한이 있는 관리자 로그인 필요. npm CLI 11.21.0 이상에서는 해당 권한을 체크한 경우 trusted publisher도 dist-tag를 관리할 수 있습니다). 비밀 값 유출이나 보안 문제라면 deprecate하고, 수정 버전을 내고, 변경 기록의 Security에 밝힙니다. Homebrew tap은 수정된 버전으로 갱신하거나 마지막 커밋을 되돌립니다.
