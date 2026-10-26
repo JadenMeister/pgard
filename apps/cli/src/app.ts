@@ -195,12 +195,20 @@ export async function main(
   let reportLocale: RuleLocale = "en";
   try {
     command = parseCommandLine(argv);
-    // Only commands that show rule text read --lang / PGARD_LANG, so a bad PGARD_LANG does not
-    // break doctor, login, logout or history clear.
     if (command.kind === "scan" || command.kind === "rules-list" || command.kind === "menu") {
       const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
       ruleLocale = resolveLanguage({ flag, env: io.env });
       reportLocale = command.kind === "scan" ? (command.reportLang ?? ruleLocale) : ruleLocale;
+    } else {
+      // The other commands only have fixed text. A bad PGARD_LANG must not break doctor, login,
+      // logout or history clear, so it falls back to the system language instead of failing.
+      try {
+        ruleLocale = resolveLanguage({ flag: null, env: io.env });
+      } catch (error) {
+        if (!(error instanceof UsageError)) throw error;
+        ruleLocale = resolveLanguage({ flag: null, env: { ...io.env, PGARD_LANG: undefined } });
+      }
+      reportLocale = ruleLocale;
     }
   } catch (error) {
     if (error instanceof UsageError) {

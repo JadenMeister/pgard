@@ -9,16 +9,10 @@ import {
 import { out, type CommandContext } from "../../context.js";
 import { EXIT_CODES, type ExitCode } from "../../exit-codes.js";
 import type { RuleLanguage } from "../../options.js";
+import { UNSUPPORTED_AREAS_EN } from "../../ui/i18n/command-text.js";
+import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
 
-export const UNSUPPORTED_AREAS = [
-  "Direct database connections",
-  "Docker / container configuration",
-  "Performance and load testing",
-  "Remote (non-loopback) web services",
-  "Authenticated (logged-in) web browsing",
-  "Form submission and other state-changing requests",
-  "Known-vulnerability (CVE/advisory) lookups for dependencies: PGARD ships no vulnerability database",
-];
+export const UNSUPPORTED_AREAS = UNSUPPORTED_AREAS_EN;
 
 /**
  * Version of the detection criteria shown to users. Bump when rule ids, conditions or severities
@@ -39,22 +33,24 @@ export const LANGUAGE_FILTER: Readonly<Record<RuleLanguage, readonly CatalogLang
 };
 
 /** The filter line under the header, naming every catalog language the filter includes. */
-export function describeLanguageFilter(language: RuleLanguage): string {
-  const extra = LANGUAGE_FILTER[language].slice(1);
-  const included = extra.length > 0 ? `${extra.join("/")} rules and ` : "";
-  return `Language filter: ${language} (${included}rules for any language are included)`;
+export function describeLanguageFilter(language: RuleLanguage, t: CliText = cliText("en")): string {
+  return t.commands.rulesList.languageFilter(language, LANGUAGE_FILTER[language].slice(1));
 }
 
-const SCOPE_HEADINGS: ReadonlyArray<{ scope: RuleDescriptor["scope"]; heading: string }> = [
-  { scope: "code", heading: "Code rules (current files)" },
-  { scope: "history", heading: "Git history rules" },
+const EN_HEADINGS = cliText("en").commands.rulesList.headings;
+
+const SCOPE_HEADINGS: ReadonlyArray<{ scope: "code" | "history"; heading: string }> = [
+  { scope: "code", heading: EN_HEADINGS.code },
+  { scope: "history", heading: EN_HEADINGS.history },
 ];
 
 /** Heading for catalog rules whose scope has no heading above, so no rule is ever hidden. */
-export const OTHER_RULES_HEADING = "Other rules";
+export const OTHER_RULES_HEADING = EN_HEADINGS.other;
 
 export interface RuleGroup {
+  /** English heading; the screen translates it through `scope`. */
   heading: string;
+  scope: "code" | "history" | "other";
   rules: RuleDescriptor[];
 }
 
@@ -65,13 +61,14 @@ export interface RuleGroup {
  */
 export function groupRulesByScope(rules: readonly RuleDescriptor[]): RuleGroup[] {
   const byId = (a: RuleDescriptor, b: RuleDescriptor): number => a.id.localeCompare(b.id, "en");
-  const known = new Set(SCOPE_HEADINGS.map(({ scope }) => scope));
+  const known = new Set<string>(SCOPE_HEADINGS.map(({ scope }) => scope));
   const groups: RuleGroup[] = SCOPE_HEADINGS.map(({ scope, heading }) => ({
     heading,
+    scope,
     rules: rules.filter((rule) => rule.scope === scope).sort(byId),
   }));
   const other = rules.filter((rule) => !known.has(rule.scope)).sort(byId);
-  if (other.length > 0) groups.push({ heading: OTHER_RULES_HEADING, rules: other });
+  if (other.length > 0) groups.push({ heading: OTHER_RULES_HEADING, scope: "other", rules: other });
   return groups;
 }
 
@@ -97,23 +94,25 @@ export async function runRulesList(
   language: RuleLanguage | null,
 ): Promise<ExitCode> {
   const { style } = context;
+  const t = cliText(context.ruleLocale);
+  const text = t.commands.rulesList;
   const titleOf = (id: string, fallback: string): string =>
     context.ruleTexts === undefined
       ? fallback
       : localizedRuleTitle(context.ruleTexts, id, context.ruleLocale ?? "en", fallback);
-  out(context, style.bold(`pgard ${PGARD_VERSION} - detection criteria ${RULE_CRITERIA_VERSION}`));
+  out(context, style.bold(text.header(PGARD_VERSION, RULE_CRITERIA_VERSION)));
   if (language !== null) {
-    out(context, style.dim(describeLanguageFilter(language)));
+    out(context, style.dim(describeLanguageFilter(language, t)));
   }
   const rules = filterRulesByLanguage(listSupportedRules(), language);
   for (const group of groupRulesByScope(rules)) {
     out(context, "");
-    out(context, style.bold(group.heading));
-    if (group.rules.length === 0) out(context, style.dim("  No rules for this language."));
+    out(context, style.bold(text.headings[group.scope]));
+    if (group.rules.length === 0) out(context, style.dim(text.noRules));
     for (const rule of group.rules) out(context, formatRule(rule, titleOf(rule.id, rule.title)));
   }
   out(context, "");
-  out(context, style.bold("Local HTTP rules (anonymous GET, any language)"));
+  out(context, style.bold(text.httpHeading));
   for (const rule of WEB_RULE_LIST) {
     out(
       context,
@@ -121,7 +120,7 @@ export async function runRulesList(
     );
   }
   out(context, "");
-  out(context, style.bold("Not covered in this version"));
-  for (const area of UNSUPPORTED_AREAS) out(context, `  - ${area}`);
+  out(context, style.bold(text.notCoveredHeading));
+  for (const area of text.unsupportedAreas) out(context, `  - ${area}`);
   return EXIT_CODES.ok;
 }
