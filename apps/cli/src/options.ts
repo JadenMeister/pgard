@@ -6,8 +6,8 @@ export type ScanVariant = "default" | "code" | "history" | "web" | "all";
 export type RuleLanguage = "js" | "ts" | "react" | "vue" | "go";
 export const RULE_LANGUAGES: readonly RuleLanguage[] = ["js", "ts", "react", "vue", "go"];
 
-export type OutputFormat = "text" | "json";
-export const OUTPUT_FORMATS: readonly OutputFormat[] = ["text", "json"];
+export type OutputFormat = "text" | "json" | "sarif";
+export const OUTPUT_FORMATS: readonly OutputFormat[] = ["text", "json", "sarif"];
 
 export interface ReportRequest {
   format: ReportFormat;
@@ -288,7 +288,10 @@ function parseFormat(split: SplitArgs): OutputFormat {
   const value = split.options.get("--format");
   if (value === undefined) return "text";
   if (!(OUTPUT_FORMATS as readonly string[]).includes(value)) {
-    throw new UsageError(`--format must be text or json (got "${value.slice(0, 20)}").`, "scan");
+    throw new UsageError(
+      `--format must be text, json or sarif (got "${value.slice(0, 20)}").`,
+      "scan",
+    );
   }
   return value as OutputFormat;
 }

@@ -16,7 +16,7 @@ import { runHistoryClear } from "./commands/history.js";
 import { runLogin, runLogout } from "./commands/login.js";
 import { runProjectVerify } from "./commands/project/verify.js";
 import { runRulesList } from "./commands/rules/list.js";
-import { runScanCommand } from "./commands/scan/index.js";
+import { isMachineFormat, runScanCommand } from "./commands/scan/index.js";
 import { err, out, type CommandContext } from "./context.js";
 import { createDefaultDeps, type CliDeps } from "./deps.js";
 import { EXIT_CODES, type ExitCode } from "./exit-codes.js";
@@ -223,7 +223,7 @@ export async function main(
   const deps = options.deps ?? createDefaultDeps();
   // `--format json` leaves stdout for the result, so a person can still answer prompts (shown on
   // stderr) when stdin and stderr are terminals even though stdout is redirected.
-  const isJsonScan = command.kind === "scan" && command.format === "json";
+  const isJsonScan = command.kind === "scan" && isMachineFormat(command.format);
   const keys = (isJsonScan ? isInteractiveOnStderr(io) : isInteractive(io))
     ? createKeyReader(io.stdin)
     : null;

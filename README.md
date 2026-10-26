@@ -176,8 +176,10 @@ Options:
                            then en). JSON output is always English
   --report-lang en|ko      language of saved reports (default: the
                            --lang language)
-  --format text|json       json prints only the redacted result (schema in
-                           docs/RESULT_SCHEMA.md) to stdout; progress and
+  --format text|json|sarif json prints only the redacted result (schema in
+                           docs/RESULT_SCHEMA.md) to stdout; sarif prints the
+                           same result as SARIF 2.1.0 (for GitHub code
+                           scanning; PGARD uploads nothing). Progress and
                            messages go to stderr. With web checks it needs --port
                            (prompts go to stderr). Exit codes are unchanged
   --no-browser             do not open GitHub pages (device sign-in, App
@@ -196,7 +198,7 @@ authorization and continues the scan.
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
 - `--all-findings` (any `scan`): list every finding and every location, each with its own evidence, and never collapse anything. This includes suppressed findings and findings in the baseline (see [Suppressions](#suppressions) and [Baseline](#baseline)). By default, groups show up to 3 locations (the evidence is shown once when all members share it, otherwise it says it varies), and when more than 5 findings come from test, fixture or vendored code the lower-severity ones are replaced by a summary (see [Grouping and collapsing](#grouping-and-collapsing)).
-- `--format text|json` (any `scan`, default `text`): `json` prints only the redacted scan result to stdout, exactly as described in [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md) and readable with `readScanResult`. Progress, notices and prompts go to stderr, so `pgard scan code --format json > result.json` is valid JSON. Prompts never use stdout: `scan web` and `scan all` need `--port` (without it the command exits with the usage error 2 before scanning). The exit codes do not change. `--all-findings` has no effect on JSON, which always contains every finding. Prompts that are still possible (the `--port` confirmation, the GitHub App install guide, saving a report inside the repository) are shown on stderr when stdin and stderr are terminals, even if stdout is redirected to a file. Stdout holds exactly one document, the final result, which is also a blocked result when authorization failed. Stdout stays empty only for a usage error (exit 2), a cancellation, a directory that is not a repository (exit 3) and an internal error.
+- `--format text|json|sarif` (any `scan`, default `text`): `sarif` prints SARIF 2.1.0 instead (see [SARIF output](#sarif-output)); it follows the same rules as `json` for stdout, stderr, `--port` and exit codes. `json` prints only the redacted scan result to stdout, exactly as described in [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md) and readable with `readScanResult`. Progress, notices and prompts go to stderr, so `pgard scan code --format json > result.json` is valid JSON. Prompts never use stdout: `scan web` and `scan all` need `--port` (without it the command exits with the usage error 2 before scanning). The exit codes do not change. `--all-findings` has no effect on JSON, which always contains every finding. Prompts that are still possible (the `--port` confirmation, the GitHub App install guide, saving a report inside the repository) are shown on stderr when stdin and stderr are terminals, even if stdout is redirected to a file. Stdout holds exactly one document, the final result, which is also a blocked result when authorization failed. Stdout stays empty only for a usage error (exit 2), a cancellation, a directory that is not a repository (exit 3) and an internal error.
 - `--lang en|ko` (any `scan`, `rules list`): language of the rule texts (titles, impact, fix) in the terminal. See [Language of rule texts](#language-of-rule-texts).
 - `--report-lang en|ko` (any `scan`, with `--report`): language of the saved HTML and PDF reports (the whole report, not only the rule texts); defaults to the `--lang` language.
 - `--language js|ts|react|vue|go` (`rules list` only): filter the rule list by language. Rules for any language are always included; `react` and `vue` also include the JavaScript/TypeScript rules.
@@ -518,6 +520,30 @@ pgard baseline clear
 - **Storage.** `repos/<repository id>/baseline.json` in the result store, with the same rules as stored results: `0700` directories and `0600` files on macOS and Linux, symbolic links refused (a link in place of the file is never followed, written through or read), atomic write, a size cap, a refusal to overwrite a file written by a newer PGARD, and a refusal to store a result that contains a local path. It holds a redacted copy of the scan, is not subject to the 20-scan, 90-day retention, and is read back through `readScanResult`. The file records the repository id it was set for, and a baseline for another repository, or a file that other users can write (group or world write bit on macOS and Linux), is refused with a warning. A damaged baseline is an error (`pgard scan` warns, applies nothing and shows every finding), never silently "no baseline".
 - **Opt out.** `pgard scan --no-store` and `PGARD_NO_STORE=1` neither read nor apply a baseline (every finding is listed as usual). With `PGARD_NO_STORE=1` the `baseline` commands refuse to run (exit 2). Dashboard scans never read the store, so the dashboard does not apply a baseline.
 - **`pgard history clear` also deletes the baseline** (`--all`, `--repo owner/name`; the message says how many). A baseline is stored scan data, and a leftover one would keep grouping findings after you asked for everything to go.
+
+### SARIF output
+
+`pgard scan --format sarif > pgard.sarif` writes the redacted result as [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) to stdout (progress and messages go to stderr, exit codes are unchanged). To keep a file, redirect stdout; PGARD has no output-file option for SARIF, and `--report`/`--output-dir` still only write HTML and PDF reports. **PGARD never uploads anything**: sending the file to GitHub or an IDE is your step. Example for GitHub code scanning:
+
+```yaml
+- run: npx pgard scan --format sarif > pgard.sarif
+  continue-on-error: true # pgard exits non-zero when it finds issues or a partial scan
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: pgard.sarif
+```
+
+(`permissions: security-events: write` is needed for the upload.)
+
+How the result maps:
+
+- **Rules.** One entry in `tool.driver.rules` for every rule that ran or produced a finding: short description (title), full description (rationale), `help.text` (remediation), `helpUri` (the official CWE page, else the first standards link) and `properties.tags` (`security`, `CWE-n`, `external/cwe/cwe-n`, `OWASP-A0x:2025`).
+- **Severity.** `level`: critical and high are `error`, medium is `warning`, low and info are `note`. `security-severity` (read by GitHub, on rules and on results) is a numeric string: critical `9.5`, high `8.0`, medium `5.5`, low `3.0`, info `1.0`.
+- **Locations.** A file finding has a repository-relative `artifactLocation.uri` (`uriBaseId` `%SRCROOT%`) and a region with start and end line. A history finding also has its commit in `properties.pgard.commit` (and no region when it has no line). A web finding has no file: it has a logical location (kind `resource`, the URL) and the URL in `properties.pgard.url`.
+- **Fingerprints.** `partialFingerprints["pgardFindingIdentity/v1"]` is the same line-insensitive identity the baseline and scan comparison use, so a finding that only moves keeps its fingerprint.
+- **Suppressed and baseline findings.** A finding suppressed in `pgard.config.json` stays in the file with `suppressions: [{kind: "external", justification}]`, so it stays counted. When a baseline exists, `baselineState` is `unchanged` for findings in it and `new` for the others; suppressed findings get no `baselineState`. Without a baseline it is never set.
+- **Areas that did not run.** Each `partial` or `not_tested` area is a `warning` in `runs[0].invocations[0].toolExecutionNotifications`. `executionSuccessful` is `true` for a completed or partial scan and `false` for a blocked or failed one (which also gets an `error` notification). An empty `results` list is therefore not a clean scan unless there are no such notifications. Areas you did not select are not listed.
+- **Redaction.** The text is redacted exactly like the JSON output; secret values never appear.
 
 ### Stored results
 
