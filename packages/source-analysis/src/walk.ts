@@ -63,6 +63,8 @@ export interface WalkResult {
   packageJsonPaths: string[];
   goModPaths: string[];
   skippedLarge: number;
+  /** Symbolic links to files with a source extension; never followed. */
+  skippedSymlinks: number;
   /** Dependency directories that were not entered, in walk order. */
   skippedDependencyDirectories: SkippedDependencyDirectory[];
   isTruncated: boolean;
@@ -104,6 +106,7 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     packageJsonPaths: [],
     goModPaths: [],
     skippedLarge: 0,
+    skippedSymlinks: 0,
     skippedDependencyDirectories: [],
     isTruncated: false,
   };
@@ -132,7 +135,11 @@ export async function walkSourceTree(root: string): Promise<WalkResult> {
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
       const absolutePath = path.join(directory, entry.name);
-      if (entry.isSymbolicLink()) continue;
+      if (entry.isSymbolicLink()) {
+        const extension = path.extname(entry.name);
+        if (EXTENSIONS[extension] || TREE_SITTER_EXTENSIONS[extension]) result.skippedSymlinks += 1;
+        continue;
+      }
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
         if (SKIPPED_DIRECTORIES.has(entry.name)) continue;

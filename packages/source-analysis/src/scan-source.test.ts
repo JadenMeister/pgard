@@ -71,6 +71,11 @@ describe("scanSourceCode", () => {
     expect(coverage["source:javascript"]).toMatchObject({ status: "partial" });
     expect(coverage["source:javascript"]?.note).toMatch(/binary or unreadable/);
     expect(coverage["source:vue"]?.status).toBe("completed");
+    expect(coverage["source:symlinks"]).toMatchObject({
+      status: "completed",
+      ruleIds: [],
+      note: "1 symbolic link(s) to source files were not followed.",
+    });
     expect(coverage["source:go"]?.note).toMatch(/syntax-level/);
     expect(coverage["source:react"]?.ruleIds).toEqual(["PG-XSS-002"]);
     expect(coverage["source:large-files"]).toMatchObject({ status: "partial" });

@@ -65,7 +65,11 @@ const FULL = [
   cov("web:anonymous", "web", "completed", ["PG-WEB-005"]),
 ];
 
-function scan(findings: Finding[], coverage: Coverage[] = FULL): ScanResult {
+function scan(
+  findings: Finding[],
+  coverage: Coverage[] = FULL,
+  extra: Partial<ScanResult> = {},
+): ScanResult {
   return {
     schemaVersion: "1.0",
     scanId: "s",
@@ -79,6 +83,7 @@ function scan(findings: Finding[], coverage: Coverage[] = FULL): ScanResult {
     coverage,
     findings,
     advisoryDb: { version: null, updatedAt: null },
+    ...extra,
   };
 }
 
@@ -145,7 +150,7 @@ describe("compareScans", () => {
     const result = compareScans(scan([finding({ line: 10 })]), scan([finding({ line: 14 })]));
     expect(result.moved).toHaveLength(1);
     expect(result.moved[0]?.delta).toBe(4);
-    expect([result.new, result.fixed, result.unchanged]).toEqual([[], [], []]);
+    expect([result.new, result.noLongerReported, result.unchanged]).toEqual([[], [], []]);
   });
 
   it("is unchanged on the same line, and survives edits elsewhere in the file", () => {
@@ -157,7 +162,7 @@ describe("compareScans", () => {
     expect(result.unchanged).toHaveLength(1);
     expect(result.moved).toHaveLength(1);
     expect(result.new).toEqual([]);
-    expect(result.fixed).toEqual([]);
+    expect(result.noLongerReported).toEqual([]);
   });
 
   it("reports new and fixed", () => {
@@ -166,7 +171,7 @@ describe("compareScans", () => {
       scan([finding({ evidence: "new flow" })]),
     );
     expect(result.new).toHaveLength(1);
-    expect(result.fixed).toHaveLength(1);
+    expect(result.noLongerReported).toHaveLength(1);
   });
 
   it("pairs duplicates in one file by nearest line", () => {
@@ -190,7 +195,7 @@ describe("compareScans", () => {
     );
     expect(result.moved).toHaveLength(1);
     expect(result.moved[0]?.previous.location.line).toBe(100);
-    expect(result.fixed.map((f) => f.location.line)).toEqual([10]);
+    expect(result.noLongerReported.map((f) => f.location.line)).toEqual([10]);
   });
 
   it("when a duplicate is added, the extra one is new", () => {
@@ -236,8 +241,8 @@ describe("compareScans", () => {
         [partial, FULL],
       ] as const) {
         const result = compareScans(scan([finding()], before), scan([], after));
-        expect(result.fixed).toEqual([]);
-        expect(result.notComparable.previous).toHaveLength(1);
+        expect(result.noLongerReported).toEqual([]);
+        expect(result.notComparable).toHaveLength(1);
         expect(result.areas.find((a) => a.area === "source:typescript")).toMatchObject({
           comparable: false,
           reason: "partial",
@@ -250,18 +255,18 @@ describe("compareScans", () => {
         scan([historyFinding()]),
         scan([], [cov("history:commits", "history", "not_tested", ["PG-SECRET-003"])]),
       );
-      expect(result.fixed).toEqual([]);
-      expect(result.notComparable.previous).toHaveLength(1);
+      expect(result.noLongerReported).toEqual([]);
+      expect(result.notComparable).toHaveLength(1);
     });
 
-    it("an area that ran in one scan only is not comparable (and not new either)", () => {
+    it("an area that ran in one scan only is not comparable; its new findings are still listed", () => {
       const onlyCode = [FULL[0] as Coverage];
       const result = compareScans(scan([], onlyCode), scan([webFinding()], FULL));
-      expect(result.new).toEqual([]);
-      expect(result.notComparable.current).toHaveLength(1);
+      expect(result.new).toHaveLength(1);
+      expect(result.newInUncertainAreas).toHaveLength(1);
       expect(result.areas.find((a) => a.area === "web:anonymous")?.reason).toBe("only_in_current");
       const reversed = compareScans(scan([webFinding()], FULL), scan([], onlyCode));
-      expect(reversed.fixed).toEqual([]);
+      expect(reversed.noLongerReported).toEqual([]);
       expect(reversed.areas.find((a) => a.area === "web:anonymous")?.reason).toBe(
         "only_in_previous",
       );
@@ -272,7 +277,7 @@ describe("compareScans", () => {
         scan([webFinding()]),
         scan([], [...FULL.slice(0, 2), cov("web:anonymous", "web", "not_selected")]),
       );
-      expect(result.fixed).toEqual([]);
+      expect(result.noLongerReported).toEqual([]);
     });
 
     it("a finding present in both scans is still paired in a partial area", () => {
@@ -286,8 +291,10 @@ describe("compareScans", () => {
 
     it("falls back to the scope when no area lists the rule, and fails closed with no area", () => {
       const byScope = [cov("source:typescript", "code", "completed")];
-      expect(compareScans(scan([finding()], byScope), scan([], byScope)).fixed).toHaveLength(1);
-      expect(compareScans(scan([finding()], []), scan([], [])).fixed).toEqual([]);
+      expect(
+        compareScans(scan([finding()], byScope), scan([], byScope)).noLongerReported,
+      ).toHaveLength(1);
+      expect(compareScans(scan([finding()], []), scan([], [])).noLongerReported).toEqual([]);
     });
 
     it("lists only areas that one scan asked for in notComparableAreas", () => {
@@ -312,5 +319,164 @@ describe("compareScans", () => {
       Array.from({ length: 400 }, (_, index) => finding({ line: index + offset }));
     const result = compareScans(scan(many(0)), scan(many(1)));
     expect(result.moved.length + result.unchanged.length).toBe(400);
+  });
+
+  describe("positive evidence that a place was analyzed", () => {
+    const JS = [cov("source:javascript", "code", "completed", ["PG-SQL-001"])];
+    const gone = (previous: Coverage[], current: Coverage[]) =>
+      compareScans(scan([finding()], previous), scan([], current));
+
+    it("every owning area must be comparable, not just one (every vs some)", () => {
+      const both = [
+        cov("source:javascript", "code", "completed", ["PG-SQL-001"]),
+        cov("source:typescript", "code", "completed", ["PG-SQL-001"]),
+      ];
+      const oneBad = [
+        both[0] as Coverage,
+        cov("source:typescript", "code", "partial", ["PG-SQL-001"]),
+      ];
+      expect(gone(both, oneBad).noLongerReported).toEqual([]);
+      expect(gone(both, both).noLongerReported).toHaveLength(1);
+    });
+
+    it("a rule-less partial area (files over 1 MiB, unsupported ORM) blocks the scope", () => {
+      for (const area of ["source:large-files", "source:orm:prisma"]) {
+        const result = gone(JS, [...JS, cov(area, "code", "partial", [])]);
+        expect(result.noLongerReported, area).toEqual([]);
+        expect(result.notComparable, area).toHaveLength(1);
+        expect(result.areas.find((a) => a.area === area)?.held).toBe(1);
+      }
+    });
+
+    it("a skipped-directory or symlink area that appears or changes blocks the scope", () => {
+      const note = (text: string): Coverage => ({
+        ...cov("source:dependency-directories", "code", "completed", []),
+        note: text,
+      });
+      expect(gone(JS, [...JS, note("vendor/")]).noLongerReported).toEqual([]);
+      expect(gone([...JS, note("a/")], [...JS, note("a/, vendor/")]).noLongerReported).toEqual([]);
+      expect(gone([...JS, note("a/")], [...JS, note("a/")]).noLongerReported).toHaveLength(1);
+      expect(gone([...JS, note("a/")], JS).noLongerReported).toEqual([]);
+    });
+
+    it("a detected-but-unsupported language (not_tested, no rules) does not block", () => {
+      const java = cov("source:java", "code", "not_tested", []);
+      expect(gone(JS, [...JS, java]).noLongerReported).toHaveLength(1);
+      expect(gone([...JS, java], [...JS, java]).noLongerReported).toHaveLength(1);
+      expect(notComparableAreas(gone(JS, [...JS, java])).map((a) => a.area)).toEqual([]);
+    });
+
+    it("a skip signal in another scope does not block", () => {
+      const webSkip = cov("web:crawl", "web", "partial", []);
+      expect(gone(JS, [...JS, webSkip]).noLongerReported).toHaveLength(1);
+    });
+  });
+
+  describe("new findings are never hidden", () => {
+    it("lists a new finding in a partial area and flags it", () => {
+      const partial = [cov("history:commits", "history", "partial", ["PG-SECRET-003"])];
+      const result = compareScans(scan([], partial), scan([historyFinding()], partial));
+      expect(result.new).toHaveLength(1);
+      expect(result.newInUncertainAreas).toHaveLength(1);
+    });
+
+    it("does not flag a new finding in a fully compared area", () => {
+      const result = compareScans(scan([]), scan([finding()]));
+      expect(result.new).toHaveLength(1);
+      expect(result.newInUncertainAreas).toEqual([]);
+    });
+  });
+
+  describe("scan differences", () => {
+    it("web areas are not comparable when the web origin changed", () => {
+      const a = scan([webFinding()], FULL, {
+        target: { repo: "o/n", revision: null, webOrigin: "http://127.0.0.1:3000" },
+      });
+      const b = scan([], FULL, {
+        target: { repo: "o/n", revision: null, webOrigin: "http://127.0.0.1:3001" },
+      });
+      const result = compareScans(a, b);
+      expect(result.noLongerReported).toEqual([]);
+      expect(result.areas.find((area) => area.area === "web:anonymous")?.reason).toBe(
+        "other_origin",
+      );
+      expect(compareScans(a, scan([], FULL, { target: a.target })).noLongerReported).toHaveLength(
+        1,
+      );
+    });
+
+    it("does not report findings as gone after a PGARD version change, but still pairs", () => {
+      const updated = { tool: { name: "pgard" as const, version: "0.2.0" } };
+      const gone = compareScans(scan([finding()]), scan([], FULL, updated));
+      expect(gone.toolVersionChanged).toBe(true);
+      expect(gone.noLongerReported).toEqual([]);
+      expect(gone.notComparable).toHaveLength(1);
+      const kept = compareScans(scan([finding()]), scan([finding({ line: 12 })], FULL, updated));
+      expect(kept.moved).toHaveLength(1);
+    });
+
+    it("reports severity and status changes on a pair", () => {
+      const result = compareScans(scan([finding()]), scan([finding({ severity: "critical" })]));
+      expect(result.unchanged[0]?.changed).toEqual(["severity"]);
+    });
+  });
+
+  describe("identity details", () => {
+    it("PG-HYGIENE-001 ignores the revision and the counts in its evidence", () => {
+      const hygiene = (text: string) =>
+        historyFinding({
+          ruleId: "PG-HYGIENE-001",
+          location: { kind: "file", path: "node_modules/", line: null, url: null, commit: null },
+          evidence: text,
+        });
+      expect(
+        findingIdentity(
+          hygiene(
+            "1 dependency directory is tracked in commit aaaaaaaaaaaa: node_modules/ (5 tracked files)",
+          ),
+        ),
+      ).toBe(
+        findingIdentity(
+          hygiene(
+            "1 dependency directory is tracked in commit bbbbbbbbbbbb: node_modules/ (9 tracked files)",
+          ),
+        ),
+      );
+    });
+
+    it("web: cookie names stay part of the identity, versions do not", () => {
+      const cookie = (name: string) =>
+        webFinding({ evidence: `Set-Cookie for "${name}" lacks HttpOnly (value not recorded).` });
+      expect(findingIdentity(cookie("session"))).not.toBe(findingIdentity(cookie("tracking")));
+      expect(findingIdentity(cookie("session"))).toBe(findingIdentity(cookie("session")));
+    });
+
+    it("keeps numbers that are not line references", () => {
+      expect(findingIdentity(finding({ evidence: "POST /api/v1:2 route" }))).not.toBe(
+        findingIdentity(finding({ evidence: "POST /api/v1 route" })),
+      );
+      expect(findingIdentity(finding({ evidence: "see util.ts:12 here" }))).toBe(
+        findingIdentity(finding({ evidence: "see util.ts:99 here" })),
+      );
+    });
+  });
+
+  describe("pairing details", () => {
+    it("on a tie the lower line is paired first", () => {
+      const result = compareScans(
+        scan([finding({ line: 10 })]),
+        scan([finding({ line: 5 }), finding({ line: 15 })]),
+      );
+      expect(result.moved[0]?.current.location.line).toBe(5);
+      expect(result.new.map((f) => f.location.line)).toEqual([15]);
+    });
+
+    it("a missing line is not as close as a real line", () => {
+      const result = compareScans(
+        scan([finding({ line: 7 })]),
+        scan([finding({ line: null }), finding({ line: 9 })]),
+      );
+      expect(result.moved[0]?.current.location.line).toBe(9);
+    });
   });
 });

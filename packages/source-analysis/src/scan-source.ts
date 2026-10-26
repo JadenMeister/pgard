@@ -377,6 +377,16 @@ export async function scanSourceCode(
       note: `${walk.skippedLarge} source file(s) over 1 MiB were skipped.`,
     });
   }
+  if (walk.skippedSymlinks > 0) {
+    // Informational: lets a later scan notice that a file it analyzed before is now a link.
+    coverage.push({
+      area: "source:symlinks",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: `${walk.skippedSymlinks} symbolic link(s) to source files were not followed.`,
+    });
+  }
   if (walk.skippedDependencyDirectories.length > 0) {
     coverage.push({
       area: "source:dependency-directories",

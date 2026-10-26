@@ -3,65 +3,77 @@ import { createFindingFingerprint } from "./fingerprint.js";
 import { redactEvidence } from "./redact.js";
 
 /**
- * Scan comparison: which findings are new, fixed, unchanged or moved between two results of the
- * same repository. Pure and synchronous; the caller loads both results (through `readScanResult`
- * or the result store) and decides what "previous" is.
+ * Scan comparison: which findings are new, no longer reported, unchanged or moved between two
+ * results of the same repository. Pure and synchronous; the caller loads both results (through
+ * `readScanResult` or the result store) and decides what "previous" is.
  *
  * Why this lives in `@pgard/findings`: it only needs the result contract, the fingerprint helper
  * and the redactor, all of which are here. `@pgard/result-store` stays an I/O package (files,
  * permissions, retention) and the web client may import this module (no Node APIs).
  *
+ * ## Principle
+ *
+ * "No longer reported" needs positive evidence that the place was analyzed this time. A new
+ * finding is never hidden: it is always listed, with a flag when the baseline was incomplete.
+ * "No longer reported" is not "fixed": the code may also have been skipped, renamed or
+ * reclassified, which no result can prove otherwise.
+ *
  * ## Design note: line-insensitive finding identity
  *
- * `Finding.id` hashes the line number, so code that only moved reads as "fixed + new". The
+ * `Finding.id` hashes the line number, so code that only moved reads as "gone + new". The
  * comparison therefore uses its own identity, computed at compare time from fields that are
- * already in the result (no schema change): `findingIdentity()`. It never leaves this module's
- * output as anything but an opaque hash, and it is only computed from stored, redacted fields
- * (the evidence is run through `redactEvidence` again); no source text is ever read.
+ * already in the result (no schema change): `findingIdentity()`. It is only computed from stored,
+ * redacted fields (the evidence is run through `redactEvidence` again); no source text is read.
  *
  * - Source (file location, scope `code`): rule id + repository-relative path + normalized
  *   evidence. The evidence is the redacted description of the flow (for example
  *   `req.query -> concat -> query()`), i.e. the code shape, not code text. Normalization
- *   collapses whitespace and drops `line N` / `:N` references. The enclosing function name is
- *   not stored in results, so it is not part of the identity; duplicates in one file that share
- *   rule + shape are told apart by pairing (below).
+ *   collapses whitespace and drops `line N` / `file.ext:N` references. The enclosing function
+ *   name is not stored in results, so it is not part of the identity; duplicates in one file
+ *   that share rule + shape are told apart by pairing (below). Trade-off: if one of two
+ *   same-shape findings in a file is removed and an unrelated one of the same shape is added far
+ *   away, the pair reads as "moved". Same shape in the same file is the same finding to this
+ *   tool.
  * - History (location kind `commit`, or scope `history`): rule id + path + commit + the
  *   normalized evidence, which names the secret kind and where it was found. The secret value
- *   itself is never stored, so no value hash exists (and none could be derived).
+ *   itself is never stored, so no value hash exists. `PG-HYGIENE-001` evidence carries the HEAD
+ *   revision and file counts, which change with every commit, so only its rule and path count.
  * - Web (location kind `url`): rule id + origin + path (query and fragment dropped) + the
- *   evidence with every quoted value removed, which keeps the header name ("Server header
- *   discloses a version") but not the version, so a version bump is not "fixed + new".
+ *   evidence with version-like quoted values removed. That keeps header and cookie names but not
+ *   the version, so a version bump is not "gone + new".
  *
  * ## Collisions
  *
  * Findings that share an identity inside one scan form a group. Previous and current groups with
  * the same identity are paired one-to-one, nearest line first (greedy on the absolute line
- * difference; ties break by order, so the result is deterministic). Leftovers are `fixed`
- * (previous side) or `new` (current side). A missing line counts as far from any real line.
+ * difference; ties break by group order, i.e. the lower line, so the result is deterministic).
+ * Leftovers are `noLongerReported` (previous side) or `new` (current side). A missing line is far
+ * from any real line.
  *
  * ## Moved versus changed
  *
  * - `unchanged`: paired and on the same line.
- * - `moved`: paired, but the line differs (code shifted, lines inserted above, file edited
- *   elsewhere). `delta` is `current - previous`.
+ * - `moved`: paired, but the line differs. `delta` is `current - previous`.
  * - `changed` is not a bucket: a pair whose severity, status or confidence differ carries
- *   `changed` (the names of the fields). A finding whose rule, path, shape, commit or URL
- *   changed has a different identity and is reported as fixed + new, which is what it is.
+ *   `changed`. A finding whose rule, path, shape, commit or URL changed has a different identity.
  *
  * ## Comparability
  *
- * Each coverage area is `comparable` only when it is `completed` in both scans. An area that
- * ran in one scan only, or was `partial` or `not_tested` in either, is not comparable. A finding
- * belongs to the areas whose `ruleIds` list its rule (in either scan); if no area lists the
- * rule, to every area of its scope. Unpaired findings in an area that is not comparable are
- * neither `new` nor `fixed`: they are returned in `notComparable`, because not seeing a finding
- * in an incomplete scan says nothing about whether it was fixed (and a new finding against an
- * incomplete baseline is not known to be new). A pair found in both scans is always reported as
- * unchanged or moved, since both scans saw it.
+ * An area is `comparable` only when it is `completed` in both scans (web areas also need the same
+ * `target.webOrigin`). A finding is blocked from "no longer reported" by:
+ * - the areas whose `ruleIds` list its rule in either scan (if none does, every area of its scope
+ *   that ran), and
+ * - skip signals in its scope: an area with no `ruleIds` that is `partial` (files over the size
+ *   limit, unsupported ORMs, manifests), or that is `completed` but present in only one scan or
+ *   with a different note (skipped dependency directories, symbolic links). A `not_tested`
+ *   area with no rules (a language PGARD detects but cannot analyze yet) blocks nothing.
+ * It is also blocked when `tool.version` differs, since rules may have changed.
+ * A pair found in both scans is always reported as unchanged or moved. Unpaired current findings
+ * are always `new`; those with a blocking reason are also in `newInUncertainAreas`.
  */
 
 export type NotComparableReason =
-  "partial" | "not_tested" | "only_in_previous" | "only_in_current" | "not_run";
+  "partial" | "not_tested" | "only_in_previous" | "only_in_current" | "not_run" | "other_origin";
 
 export interface AreaComparability {
   area: string;
@@ -69,6 +81,10 @@ export interface AreaComparability {
   comparable: boolean;
   /** Set when `comparable` is false. */
   reason: NotComparableReason | null;
+  /** True when the area lists rules in either scan. */
+  ownsRules: boolean;
+  /** Findings that could not be compared because of this area. */
+  held: number;
 }
 
 export interface ComparedPair {
@@ -81,21 +97,28 @@ export interface ComparedPair {
 }
 
 export interface ScanComparison {
-  /** In the current scan only, in a comparable area. */
+  /** Every unpaired finding of the current scan. Never hidden. */
   new: Finding[];
-  /** In the previous scan only, in a comparable area. */
-  fixed: Finding[];
+  /** The subset of `new` whose baseline was incomplete (it may have existed before). */
+  newInUncertainAreas: Finding[];
+  /** In the previous scan only, and the place was fully analyzed both times. */
+  noLongerReported: Finding[];
   unchanged: ComparedPair[];
   moved: ComparedPair[];
-  /** Unpaired findings whose area could not be compared; never counted as new or fixed. */
-  notComparable: { previous: Finding[]; current: Finding[] };
+  /** Unpaired previous findings that could not be checked; never counted as gone. */
+  notComparable: Finding[];
+  /** True when `tool.version` differs between the scans. */
+  toolVersionChanged: boolean;
   /** Every area seen in either scan. */
   areas: AreaComparability[];
 }
 
 const WHITESPACE = /\s+/g;
-const LINE_REFERENCE = /\b(?:lines?|ln)\s*\d+(?:\s*-\s*\d+)?|:\d+(?::\d+)?\b/gi;
-const QUOTED = /"[^"]*"|'[^']*'|`[^`]*`/g;
+// `line 12`, `lines 3-9`, `ln 4`, and `:12` / `:12:3` only right after a file extension.
+const LINE_REFERENCE =
+  /\b(?:lines?|ln)\s*\d+(?:\s*-\s*\d+)?|(?<=\.[A-Za-z0-9]{1,6}):\d+(?::\d+)?\b/gi;
+const QUOTED_VERSION = /"[^"]*\d+\.\d+[^"]*"|'[^']*\d+\.\d+[^']*'/g;
+const HYGIENE_RULE = "PG-HYGIENE-001";
 
 type Family = "source" | "history" | "web";
 
@@ -120,11 +143,12 @@ function webUrl(raw: string | null): string {
   }
 }
 
-function normalizeEvidence(evidence: string, family: Family): string {
+function normalizeEvidence(finding: Finding, family: Family): string {
+  if (finding.ruleId === HYGIENE_RULE) return "";
   // Redact again: the stored text should already be clean, but identity must never depend on
   // (or hash) anything a redactor would have removed.
-  let text = redactEvidence(evidence);
-  if (family === "web") text = text.replace(QUOTED, '""');
+  let text = redactEvidence(finding.evidence);
+  if (family === "web") text = text.replace(QUOTED_VERSION, '""');
   return text.replace(LINE_REFERENCE, "").replace(WHITESPACE, " ").trim();
 }
 
@@ -144,7 +168,7 @@ export function findingIdentity(finding: Finding): string {
       url: family === "web" ? webUrl(location.url) : location.url,
       commit: location.commit,
     },
-    cause: `${family}:${normalizeEvidence(finding.evidence, family)}`,
+    cause: `${family}:${normalizeEvidence(finding, family)}`,
   });
 }
 
@@ -202,7 +226,11 @@ function groupByIdentity(findings: readonly Finding[]): Map<string, Finding[]> {
   return groups;
 }
 
-function compareAreas(previous: readonly Coverage[], current: readonly Coverage[]) {
+function compareAreas(
+  previous: readonly Coverage[],
+  current: readonly Coverage[],
+  isOriginChanged: boolean,
+): Map<string, AreaComparability> {
   const before = new Map(previous.map((entry) => [entry.area, entry]));
   const after = new Map(current.map((entry) => [entry.area, entry]));
   const result = new Map<string, AreaComparability>();
@@ -218,37 +246,91 @@ function compareAreas(previous: readonly Coverage[], current: readonly Coverage[
     else if (ran(a) && !ran(b)) reason = "only_in_previous";
     else if (!ran(a) && ran(b)) reason = "only_in_current";
     else if (!ran(a) && !ran(b)) reason = "not_run";
-    result.set(area, { area, scope, comparable: reason === null, reason });
+    else if (isOriginChanged && scope === "web") reason = "other_origin";
+    result.set(area, {
+      area,
+      scope,
+      comparable: reason === null,
+      reason,
+      ownsRules: (a?.ruleIds.length ?? 0) > 0 || (b?.ruleIds.length ?? 0) > 0,
+      held: 0,
+    });
   }
   return result;
 }
 
-function isComparable(
-  finding: Finding,
-  coverage: readonly Coverage[],
-  areas: Map<string, AreaComparability>,
-): boolean {
-  let owners = coverage.filter((entry) => entry.ruleIds.includes(finding.ruleId));
-  if (owners.length === 0) {
-    owners = coverage.filter((entry) => finding.sources.includes(entry.scope));
+interface Context {
+  before: Map<string, Coverage>;
+  after: Map<string, Coverage>;
+  coverage: Coverage[];
+  areas: Map<string, AreaComparability>;
+}
+
+/** A rule-less area that shows files or directories were skipped in this scope. */
+function isSkipSignal(area: string, ctx: Context): boolean {
+  const a = ctx.before.get(area);
+  const b = ctx.after.get(area);
+  const entries = [a, b].filter((entry): entry is Coverage => entry !== undefined);
+  if (entries.some((entry) => entry.ruleIds.length > 0)) return false;
+  if (entries.some((entry) => entry.status === "partial")) return true;
+  const ran = (entry: Coverage | undefined) => entry?.status === "completed";
+  if (ran(a) !== ran(b)) return true;
+  return a !== undefined && b !== undefined && ran(a) && a.note !== b.note;
+}
+
+/** Area ids that stop `finding` from being compared; null when no area covers it at all. */
+function blockingAreas(finding: Finding, ctx: Context): string[] | null {
+  const scopes = new Set<string>(finding.sources);
+  const listed = new Set(
+    ctx.coverage.filter((entry) => entry.ruleIds.includes(finding.ruleId)).map((e) => e.area),
+  );
+  let owners = listed;
+  if (owners.size === 0) {
+    owners = new Set(
+      ctx.coverage
+        .filter(
+          (entry) =>
+            scopes.has(entry.scope) && (entry.status === "completed" || entry.status === "partial"),
+        )
+        .map((entry) => entry.area),
+    );
   }
-  const ids = new Set(owners.map((entry) => entry.area));
-  if (ids.size === 0) return false;
-  return [...ids].every((id) => areas.get(id)?.comparable === true);
+  if (owners.size === 0) return null;
+  const blocking = new Set([...owners].filter((area) => ctx.areas.get(area)?.comparable !== true));
+  for (const [area, info] of ctx.areas) {
+    if (scopes.has(info.scope) && !owners.has(area) && isSkipSignal(area, ctx)) {
+      blocking.add(area);
+    }
+  }
+  return [...blocking];
 }
 
 export function compareScans(previous: ScanResult, current: ScanResult): ScanComparison {
-  const areas = compareAreas(previous.coverage, current.coverage);
-  const allCoverage = [...previous.coverage, ...current.coverage];
-  const comparable = (finding: Finding) => isComparable(finding, allCoverage, areas);
+  const isOriginChanged = previous.target.webOrigin !== current.target.webOrigin;
+  const areas = compareAreas(previous.coverage, current.coverage, isOriginChanged);
+  const ctx: Context = {
+    before: new Map(previous.coverage.map((entry) => [entry.area, entry])),
+    after: new Map(current.coverage.map((entry) => [entry.area, entry])),
+    coverage: [...previous.coverage, ...current.coverage],
+    areas,
+  };
+  const toolVersionChanged = previous.tool.version !== current.tool.version;
 
   const comparison: ScanComparison = {
     new: [],
-    fixed: [],
+    newInUncertainAreas: [],
+    noLongerReported: [],
     unchanged: [],
     moved: [],
-    notComparable: { previous: [], current: [] },
-    areas: [...areas.values()],
+    notComparable: [],
+    toolVersionChanged,
+    areas: [],
+  };
+  const hold = (blocking: string[]) => {
+    for (const area of blocking) {
+      const info = areas.get(area);
+      if (info) info.held += 1;
+    }
   };
   const before = groupByIdentity(previous.findings);
   const after = groupByIdentity(current.findings);
@@ -275,17 +357,40 @@ export function compareScans(previous: ScanResult, current: ScanResult): ScanCom
     }
     oldGroup.forEach((finding, index) => {
       if (pairedOld.has(index)) return;
-      (comparable(finding) ? comparison.fixed : comparison.notComparable.previous).push(finding);
+      const blocking = blockingAreas(finding, ctx);
+      if (blocking === null || blocking.length > 0 || toolVersionChanged) {
+        comparison.notComparable.push(finding);
+        hold(blocking ?? []);
+      } else {
+        comparison.noLongerReported.push(finding);
+      }
     });
     newGroup.forEach((finding, index) => {
       if (pairedNew.has(index)) return;
-      (comparable(finding) ? comparison.new : comparison.notComparable.current).push(finding);
+      comparison.new.push(finding);
+      const blocking = blockingAreas(finding, ctx);
+      if (blocking === null || blocking.length > 0) {
+        comparison.newInUncertainAreas.push(finding);
+        hold(blocking ?? []);
+      }
     });
   }
+  comparison.areas = [...areas.values()];
   return comparison;
 }
 
-/** Areas that make a comparison incomplete and that one of the two scans actually requested. */
+/**
+ * Areas worth telling the user about: not comparable, requested by at least one scan, and either
+ * rule-owning or holding back findings. Those holding back the most findings come first, so
+ * rule-less language-track entries ("detected, no rules yet") never crowd them out.
+ */
 export function notComparableAreas(comparison: ScanComparison): AreaComparability[] {
-  return comparison.areas.filter((area) => !area.comparable && area.reason !== "not_run");
+  return comparison.areas
+    .filter(
+      (area) => !area.comparable && area.reason !== "not_run" && (area.held > 0 || area.ownsRules),
+    )
+    .sort(
+      (a, b) =>
+        b.held - a.held || Number(b.ownsRules) - Number(a.ownsRules) || (a.area < b.area ? -1 : 1),
+    );
 }

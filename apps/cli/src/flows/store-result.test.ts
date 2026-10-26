@@ -270,7 +270,7 @@ describe("comparison with the previous stored scan", () => {
     const lines = summaryLines(captured.stdout());
     expect(lines).toHaveLength(1);
     expect(lines[0]).toMatch(
-      /^Since the last scan \(\d{4}-\d\d-\d\d \d\d:\d\d\): 0 new, 0 fixed, 1 unchanged \(1 moved\)$/,
+      /^Since the last scan \(\d{4}-\d\d-\d\d \d\d:\d\d\): 0 new, 0 no longer reported, 1 unchanged \(1 moved\)$/,
     );
     expect(captured.stderr()).not.toContain("Since the last scan");
   });
@@ -282,10 +282,10 @@ describe("comparison with the previous stored scan", () => {
       findings: [testFinding({ evidence: "different flow" })],
     });
     const { captured } = await run(depsWith(ALLOWED_OUTCOME, next));
-    expect(captured.stdout()).toContain(": 1 new, 1 fixed, 0 unchanged");
+    expect(captured.stdout()).toContain(": 1 new, 1 no longer reported, 0 unchanged");
   });
 
-  it("names areas that cannot be compared and never calls their findings fixed", async () => {
+  it("names areas that cannot be compared and never calls their findings gone", async () => {
     await run(depsWith(ALLOWED_OUTCOME, testResult({ scanId: "a" })));
     const partial = testResult({
       scanId: "b",
@@ -297,8 +297,10 @@ describe("comparison with the previous stored scan", () => {
     });
     const { captured } = await run(depsWith(ALLOWED_OUTCOME, partial));
     const [line] = summaryLines(captured.stdout());
-    expect(line).toContain("0 fixed");
-    expect(line).toContain("Not compared (source:typescript: partial)");
+    expect(line).toContain("0 no longer reported");
+    expect(line).toContain(
+      "Some findings could not be compared because source:typescript was only partially scanned",
+    );
   });
 
   it("prints nothing with --no-store", async () => {
@@ -387,5 +389,47 @@ describe("comparison with the previous stored scan", () => {
     );
     expect(captured.stdout()).toBe("");
     expect(captured.stderr()).toContain("Since the last scan");
+  });
+
+  it("compares with the newest of several stored scans, not the oldest", async () => {
+    let clock = 1_800_000_000_000;
+    const timed = createResultStore({ dir: path.join(base, "timed"), now: () => (clock += 1000) });
+    for (const line of [10, 20, 30]) {
+      expect((await timed.save(moved(line), { repositoryId: REPO_ID })).ok).toBe(true);
+    }
+    const found = await findPreviousScan(timed, REPO_ID, "other");
+    expect(found.scan?.result.scanId).toBe("scan-30");
+  });
+
+  it("strips terminal control characters from area names taken from a stored file", async () => {
+    const area = (status: "completed" | "partial") => ({
+      area: "evil\u001b[31m-area",
+      scope: "code" as const,
+      status,
+      ruleIds: ["PG-SQL-001"],
+      note: null,
+    });
+    await run(
+      depsWith(ALLOWED_OUTCOME, testResult({ scanId: "a", coverage: [area("completed")] })),
+    );
+    const { captured } = await run(
+      depsWith(ALLOWED_OUTCOME, testResult({ scanId: "b", coverage: [area("partial")] })),
+    );
+    const [line] = summaryLines(captured.stdout());
+    expect(line).toContain("-area");
+    expect(line).not.toContain("\u001b");
+  });
+
+  it("shows the previous revision when HEAD changed, and an unusual severity change", async () => {
+    await run(depsWith(ALLOWED_OUTCOME, testResult({ scanId: "a" })));
+    const next = testResult({
+      scanId: "b",
+      target: { repo: "owner/name", revision: "1111111222222", webOrigin: null },
+      findings: [testFinding({ severity: "critical" })],
+    });
+    const { captured } = await run(depsWith(ALLOWED_OUTCOME, next));
+    const [line] = summaryLines(captured.stdout());
+    expect(line).toContain(", at abcdef1)");
+    expect(line).toContain("1 changed severity or status");
   });
 });
