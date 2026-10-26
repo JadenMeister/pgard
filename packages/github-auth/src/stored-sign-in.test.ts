@@ -17,6 +17,7 @@ import {
 import {
   readStoredSignInStatus,
   removeStoredSignIn,
+  loadStoredSignIn,
   signInKey,
   withKeychainLock,
 } from "./stored-sign-in.js";
@@ -434,12 +435,93 @@ describe("stored sign-in reuse", () => {
     expect(notices).not.toContainEqual({ kind: "removed", reason: "refresh_failed" });
   });
 
-  it("keeps a sign-in saved while a malformed entry was about to be deleted (#162)", async () => {
+  it("re-reads the keychain when a malformed entry was replaced before the locked delete (#169)", async () => {
     const inner = await storeWith("{not json");
     const store = replacedAfterRead(inner, 1, storedRecord({ accessToken: NEW_TOKEN }));
-    const { provider } = makeProvider(fakeGitHub(), store);
-    await expect(provider()).rejects.toBeDefined();
+    const github = fakeGitHub();
+    const { provider, notices, userCodes } = makeProvider(github, store);
+    await provider();
+    // The newer sign-in is reused: no "removed" notice, no device flow.
+    expect(userCodes).toEqual([]);
+    expect(github.count("device")).toBe(0);
+    expect(notices).toEqual([{ kind: "reused", login: "octo", userId: 7, isRefreshed: false }]);
     expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  /**
+   * A keychain driven by read number (counted across the test): after read N returned, the step
+   * for N runs (a string replaces the entry, `null` removes it); `failOn` makes that read throw.
+   */
+  function scriptedStore(
+    inner: ReturnType<typeof createInMemoryCredentialStore>,
+    steps: Record<number, string | null>,
+    failOn: number | null = null,
+  ): CredentialStore {
+    let reads = 0;
+    return {
+      get: async (key) => {
+        reads += 1;
+        if (reads === failOn) throw new CredentialStoreError("the OS keychain is locked");
+        const value = await inner.get(key);
+        if (reads in steps) {
+          const next = steps[reads];
+          if (next === null) await inner.delete(KEY);
+          else if (next !== undefined) await inner.set(KEY, next);
+        }
+        return value;
+      },
+      set: (key, secret) => inner.set(key, secret),
+      delete: (key) => inner.delete(key),
+    };
+  }
+
+  it("re-reads a replaced malformed entry only once, then reports no entry (#169)", async () => {
+    const inner = await storeWith("{bad one");
+    // Read 1: initial. 2: locked check (entry replaced after read 1). 3: the one re-read (replaced
+    // again after it). 4: locked check sees yet another text.
+    const store = scriptedStore(inner, { 1: "{bad two", 3: "{bad three" });
+    expect(await loadStoredSignIn(store, "github.com", CLIENT_ID)).toEqual({
+      kind: "none",
+      wasMalformed: false,
+    });
+    // Nothing was deleted along the way and no further read was chased.
+    expect(await inner.get(KEY)).toBe("{bad three");
+  });
+
+  it("deletes a second malformed entry found on the re-read (#169)", async () => {
+    const inner = await storeWith("{bad one");
+    const store = scriptedStore(inner, { 1: "{bad two" });
+    expect(await loadStoredSignIn(store, "github.com", CLIENT_ID)).toEqual({
+      kind: "none",
+      wasMalformed: true,
+    });
+    expect(inner.size()).toBe(0);
+  });
+
+  it("gives no removed notice for a malformed entry that is already gone (#169)", async () => {
+    const inner = await storeWith("{not json");
+    const store = scriptedStore(inner, { 1: null });
+    const { provider, notices } = makeProvider(
+      fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] }),
+      store,
+    );
+    await provider();
+    expect(notices).toEqual([{ kind: "saved", login: "octo", userId: 7 }]);
+  });
+
+  it("falls back to memory when the keychain cannot be read during the locked delete (#169)", async () => {
+    const inner = await storeWith("{not json");
+    const store = scriptedStore(inner, {}, 2);
+    expect(await loadStoredSignIn(store, "github.com", CLIENT_ID)).toMatchObject({
+      kind: "unavailable",
+      reason: "the OS keychain is locked",
+    });
+    const retry = scriptedStore(await storeWith("{not json"), {}, 2);
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider, notices } = makeProvider(github, retry);
+    await provider();
+    // Memory only: the unreadable keychain is reported and nothing is saved to it.
+    expect(notices).toEqual([{ kind: "memory_only", reason: "the OS keychain is locked" }]);
   });
 
   it("deletes a malformed entry that is still unchanged (#162)", async () => {
@@ -730,6 +812,41 @@ describe("login, logout and status helpers", () => {
     });
     expect(await removeStoredSignIn(store, CLIENT_ID)).toEqual({ status: "none" });
     expect(store.size()).toBe(0);
+  });
+
+  it("removes a malformed entry without waiting on its own lock (#169)", async () => {
+    const store = createInMemoryCredentialStore();
+    await store.set(KEY, "{not json");
+    // Reading with the default deleteMalformed would re-enter the (non-reentrant) lock and hang;
+    // the race turns that hang into a failure.
+    const result = await Promise.race([
+      removeStoredSignIn(store, CLIENT_ID),
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 1_000)),
+    ]);
+    expect(result).toEqual({ status: "removed", login: null });
+    expect(store.size()).toBe(0);
+  });
+
+  it("releases the keychain lock when a task throws, for a call already queued (#169)", async () => {
+    const store = createInMemoryCredentialStore();
+    let fail: () => void = () => {};
+    const failing = withKeychainLock(
+      store,
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          fail = () => reject(new Error("task failed"));
+        }),
+    );
+    // Queued behind the failing task: it only runs if the lock is released on failure.
+    const queued = withKeychainLock(store, async () => "ran");
+    await settle(); // the failing task has started
+    fail();
+    await expect(failing).rejects.toThrow("task failed");
+    const next = await Promise.race([
+      queued,
+      new Promise<string>((resolve) => setTimeout(() => resolve("hung"), 1_000)),
+    ]);
+    expect(next).toBe("ran");
   });
 
   it("reads the status of a malformed entry without deleting it", async () => {

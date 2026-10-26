@@ -116,23 +116,38 @@ async function deleteMalformedEntry(
   store: CredentialStore,
   key: CredentialKey,
   unreadable: string,
-): Promise<void> {
-  await withKeychainLock(store, async () => {
+): Promise<"deleted" | "gone" | "replaced" | { unavailable: string }> {
+  return withKeychainLock(store, async () => {
     let current: string | null;
     try {
       current = await store.get(key);
-    } catch {
-      return;
+    } catch (error) {
+      // An unreadable keychain says nothing about the entry: report it, do not call it gone.
+      return { unavailable: unavailableReason(error) };
     }
-    if (current === unreadable) await store.delete(key).catch(() => false);
+    if (current === null) return "gone";
+    if (current !== unreadable) return "replaced";
+    await store.delete(key).catch(() => false);
+    return "deleted";
   });
 }
 
-export async function loadStoredSignIn(
+export function loadStoredSignIn(
   store: CredentialStore,
   host: string,
   clientId: string,
   options: LoadStoredSignInOptions = {},
+): Promise<LoadResult> {
+  return loadWithRereads(store, host, clientId, options, 1);
+}
+
+/** `rereads` bounds how often a malformed entry replaced before its delete is read again. */
+async function loadWithRereads(
+  store: CredentialStore,
+  host: string,
+  clientId: string,
+  options: LoadStoredSignInOptions,
+  rereads: number,
 ): Promise<LoadResult> {
   const key = signInKey(host, clientId);
   let text: string | null;
@@ -144,8 +159,18 @@ export async function loadStoredSignIn(
   if (text === null) return { kind: "none", wasMalformed: false };
   const record = parseRecord(text, host, clientId);
   if (record === null) {
-    if (options.deleteMalformed !== false) await deleteMalformedEntry(store, key, text);
-    return { kind: "none", wasMalformed: true };
+    if (options.deleteMalformed === false) return { kind: "none", wasMalformed: true };
+    const outcome = await deleteMalformedEntry(store, key, text);
+    if (typeof outcome === "object") return { kind: "unavailable", reason: outcome.unavailable };
+    // Replaced before the locked delete (e.g. by `pgard login`): read what is there now instead
+    // of reporting a removal that did not happen. Only once: if it changes again, report no
+    // entry (fail closed) rather than chase it.
+    if (outcome === "replaced") {
+      return rereads > 0
+        ? loadWithRereads(store, host, clientId, options, rereads - 1)
+        : { kind: "none", wasMalformed: false };
+    }
+    return { kind: "none", wasMalformed: outcome === "deleted" };
   }
   return { kind: "found", record };
 }
