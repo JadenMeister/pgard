@@ -1,4 +1,4 @@
-// corpus: expect=none; known=fp:PG-COOKIE-001:cookie options built with an object spread are not resolved
+// corpus: expect=none
 const SECURE = { httpOnly: true, secure: true, sameSite: "strict" };
 
 module.exports = (req, res) => {

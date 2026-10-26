@@ -16,8 +16,25 @@ import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-bind
 /** Project-level facts used by cross-file heuristics (CSRF, brute force, ORM detection). */
 export interface JsFileFacts {
   imports: string[];
-  /** Lines of POST/PUT/PATCH/DELETE route registrations. */
+  /**
+   * Lines of POST route registrations: the only state-changing method a cross-site page can send
+   * with cookies and no CORS preflight (a form post).
+   */
   stateChangingRoutes: number[];
+  /**
+   * Lines of PUT/PATCH/DELETE route registrations. A cross-site request with these methods needs
+   * a CORS preflight, so they only count as CSRF-able when `preflightExposure` is set.
+   */
+  preflightRoutes: number[];
+  /**
+   * How exposed PUT/PATCH/DELETE are to a credentialed cross-site request: "permissive" (CORS
+   * reflects or pattern-matches origins with credentials), "unknown" (unresolvable CORS options, a
+   * hand-set Access-Control-Allow-Credentials header or method-override), or null (provably
+   * restrictive, or no CORS at all).
+   */
+  preflightExposure: "permissive" | "unknown" | null;
+  /** An express-session/cookie-session configured with `sameSite: "strict"`. */
+  strictSession: boolean;
   /** Authentication-like POST routes. */
   authRoutes: { line: number; routePath: string }[];
   usesCookieSession: boolean;
@@ -96,7 +113,35 @@ const PERSIST_METHODS = new Set([
 const ROUTE_RECEIVERS = /^(app|router|server|api|routes?|fastify|r)$/;
 const AUTH_ROUTE =
   /login|log-in|signin|sign-in|sign_in|auth|session|reset|forgot|password|otp|token|verify/i;
-const SESSION_COOKIE_NAME = /sess|sid|token|auth|jwt|login|remember|connect\.sid/i;
+/** A cookie value that is a session or token (used when the cookie name does not say so). */
+const SESSION_VALUE_WORDS = new Set([
+  "sess",
+  "session",
+  "sessions",
+  "sid",
+  "token",
+  "tokens",
+  "jwt",
+  "auth",
+  "authorization",
+]);
+/** Words that make a cookie name look like a session or auth cookie (whole words only). */
+const SESSION_NAME_WORDS = new Set([
+  "sess",
+  "session",
+  "sessions",
+  "sid",
+  "token",
+  "tokens",
+  "jwt",
+  "auth",
+  "authorization",
+  "login",
+  "remember",
+  "refresh",
+]);
+/** Weaker evidence: the cookie probably identifies a user, reported at low confidence. */
+const WEAK_NAME_WORDS = new Set(["uid", "userid", "user"]);
 
 interface Evidence {
   severity: Severity;
@@ -141,6 +186,9 @@ export function analyzeJsSource(
   const facts: JsFileFacts = {
     imports: [],
     stateChangingRoutes: [],
+    preflightRoutes: [],
+    preflightExposure: null,
+    strictSession: false,
     authRoutes: [],
     usesCookieSession: false,
     hasJsx: false,
@@ -796,12 +844,449 @@ export function analyzeJsSource(
     }
   };
 
+  // `const` bindings with an initializer, by name (a name declared twice is ambiguous and ignored).
+  // `let` bindings count as const when they are declared with a value and never reassigned.
+  const constInits = new Map<string, ts.Expression[]>();
+  /** Names bound by destructuring, with the destructured expression: `const { a: b } = req.body`. */
+  const destructuredFrom = new Map<string, ts.Expression[]>();
+  /** Names of destructured handler parameters that carry request data: `({ body }) => ...`. */
+  const requestAliases = new Set<string>();
+  const reassigned = new Set<string>();
+  const collectAssignments = (node: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      ts.isIdentifier(node.left)
+    )
+      reassigned.add(node.left.text);
+    ts.forEachChild(node, collectAssignments);
+  };
+  collectAssignments(sourceFile);
+  const bindingNames = (name: ts.BindingName, into: string[]) => {
+    if (ts.isIdentifier(name)) into.push(name.text);
+    else
+      for (const element of name.elements)
+        if (ts.isBindingElement(element)) bindingNames(element.name, into);
+  };
+  const collectConsts = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const isConstLike =
+        node.initializer !== undefined &&
+        ts.isVariableDeclarationList(node.parent) &&
+        ((node.parent.flags & ts.NodeFlags.Const) !== 0 || !reassigned.has(node.name.text));
+      const list = constInits.get(node.name.text) ?? [];
+      // Reassigned `let`/`var` bindings: two entries make the name ambiguous.
+      if (isConstLike && node.initializer) list.push(node.initializer);
+      else list.push(node.name, node.name);
+      constInits.set(node.name.text, list);
+    } else if (ts.isVariableDeclaration(node) && node.initializer) {
+      const names: string[] = [];
+      bindingNames(node.name, names);
+      for (const bound of names) {
+        const list = destructuredFrom.get(bound) ?? [];
+        list.push(node.initializer);
+        destructuredFrom.set(bound, list);
+      }
+    } else if (
+      ts.isParameter(node) &&
+      ts.isObjectBindingPattern(node.name) &&
+      node.parent &&
+      ts.isFunctionLike(node.parent)
+    ) {
+      for (const element of node.name.elements) {
+        if (ts.isIdentifier(element.name) && /^(body|query|params)$/.test(element.name.text))
+          requestAliases.add(element.name.text);
+      }
+    }
+    ts.forEachChild(node, collectConsts);
+  };
+  collectConsts(sourceFile);
+  const singleConst = (name: string): ts.Expression | null => {
+    const list = constInits.get(name);
+    return list && list.length === 1 ? (list[0] ?? null) : null;
+  };
+
+  /**
+   * Resolves an options object to its effective properties: an object literal, a same-file
+   * `const`, and object spreads of either. Returns null when any part cannot be resolved.
+   */
+  const resolveOptions = (
+    expression: ts.Expression,
+    depth: number,
+  ): Map<string, ts.Expression> | null => {
+    if (depth > 4) return null;
+    const node = unwrap(expression);
+    if (ts.isIdentifier(node)) {
+      const init = singleConst(node.text);
+      return init ? resolveOptions(init, depth + 1) : null;
+    }
+    if (!ts.isObjectLiteralExpression(node)) return null;
+    const result = new Map<string, ts.Expression>();
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = resolveOptions(property.expression, depth + 1);
+        if (!spread) return null;
+        for (const [key, value] of spread) result.set(key, value);
+      } else if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+        if (ts.isComputedPropertyName(property.name)) return null;
+        const value = ts.isPropertyAssignment(property) ? property.initializer : property.name;
+        result.set(property.name.getText(sourceFile).replace(/^['"]|['"]$/g, ""), value);
+      }
+    }
+    // Resolve `{ httpOnly }` shorthand and `httpOnly: flag` to a same-file const literal.
+    for (const [key, value] of result) {
+      const inner = unwrap(value);
+      if (ts.isIdentifier(inner)) {
+        const init = singleConst(inner.text);
+        if (init) result.set(key, unwrap(init));
+      }
+    }
+    return result;
+  };
+
+  const isNextCookieStore = (expression: ts.Expression, depth: number): boolean => {
+    if (depth > 3) return false;
+    const node = unwrap(expression);
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression))
+      return namedImports.get(node.expression.text) === "next/headers:cookies";
+    if (ts.isIdentifier(node)) {
+      const init = singleConst(node.text);
+      return init ? isNextCookieStore(init, depth + 1) : false;
+    }
+    return false;
+  };
+
+  const moduleOfArgument = (argument: ts.Expression | undefined): string | undefined => {
+    if (!argument) return undefined;
+    const node = unwrap(argument);
+    if (ts.isIdentifier(node)) return namespaceImports.get(node.text);
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "require" &&
+      node.arguments[0] &&
+      ts.isStringLiteral(node.arguments[0])
+    )
+      return node.arguments[0].text;
+    return undefined;
+  };
+
+  const raiseExposure = (level: "permissive" | "unknown") => {
+    if (facts.preflightExposure !== "permissive") facts.preflightExposure = level;
+  };
+
+  /**
+   * Three-valued CORS reading for PG-CSRF-001. PUT/PATCH/DELETE need a preflight, so they are only
+   * left out when CORS is provably restrictive: absent, no credentials, or a fixed origin list.
+   * "permissive" = reflected/pattern/function origin with credentials; "unknown" = options we cannot
+   * resolve, an origin held in an identifier, or a hand-set Access-Control-Allow-Credentials header.
+   */
+  const checkCors = (call: ts.CallExpression, name: string) => {
+    if (["header", "setHeader", "set", "append", "writeHead"].includes(name)) {
+      const header = call.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+      const value = call.arguments[1] ? unwrap(call.arguments[1]) : undefined;
+      if (
+        header &&
+        ts.isStringLiteralLike(header) &&
+        header.text.toLowerCase() === "access-control-allow-credentials" &&
+        !(value && ts.isStringLiteralLike(value) && value.text.toLowerCase() === "false") &&
+        !(value && value.kind === ts.SyntaxKind.FalseKeyword)
+      )
+        raiseExposure("unknown");
+      return;
+    }
+    let options: ts.Expression | undefined;
+    if (name === "register") {
+      if (moduleOfArgument(call.arguments[0]) !== "@fastify/cors") return;
+      options = call.arguments[1];
+    } else {
+      if (namespaceImports.get(name) !== "cors" && namespaceImports.get(name) !== "@fastify/cors")
+        return;
+      options = call.arguments[0];
+    }
+    if (!options) return; // cors() defaults: wildcard origin, no credentials
+    const resolved = resolveOptions(options, 0);
+    if (!resolved) {
+      raiseExposure("unknown"); // imported or computed options
+      return;
+    }
+    const credentials = resolved.get("credentials");
+    if (!credentials || credentials.kind === ts.SyntaxKind.FalseKeyword) return;
+    if (credentials.kind !== ts.SyntaxKind.TrueKeyword) {
+      raiseExposure("unknown");
+      return;
+    }
+    const origin = resolved.get("origin");
+    if (!origin || origin.kind === ts.SyntaxKind.FalseKeyword) return; // wildcard + credentials is rejected
+    if (
+      origin.kind === ts.SyntaxKind.TrueKeyword ||
+      ts.isRegularExpressionLiteral(origin) ||
+      ts.isArrowFunction(origin) ||
+      ts.isFunctionExpression(origin)
+    ) {
+      raiseExposure("permissive");
+    } else if (ts.isStringLiteralLike(origin)) {
+      // a single fixed origin: restrictive
+    } else if (
+      ts.isArrayLiteralExpression(origin) &&
+      origin.elements.every((element) => ts.isStringLiteralLike(element))
+    ) {
+      // a fixed origin list: restrictive
+    } else {
+      raiseExposure("unknown"); // identifier, call or mixed list
+    }
+  };
+
+  // `.save()` receivers per function: `const user = new User(...); user.save()`.
+  const saveReceiverCache = new Map<ts.Node, Set<string>>();
+  const savedReceivers = (node: ts.Node): Set<string> => {
+    let current: ts.Node | undefined = node.parent;
+    while (current && !ts.isFunctionLike(current) && !ts.isSourceFile(current))
+      current = current.parent;
+    const owner = current ?? sourceFile;
+    let names = saveReceiverCache.get(owner);
+    if (!names) {
+      const found = new Set<string>();
+      names = found;
+      const collect = (child: ts.Node): void => {
+        if (ts.isCallExpression(child) && calleeName(child) === "save") {
+          const receiver = calleeReceiver(child);
+          const inner = receiver ? unwrap(receiver) : null;
+          if (inner && ts.isIdentifier(inner)) found.add(inner.text);
+        }
+        ts.forEachChild(child, collect);
+      };
+      collect(owner);
+      saveReceiverCache.set(owner, found);
+    }
+    return names;
+  };
+
+  const isPlainRequestBase = (node: ts.Expression): boolean => {
+    let base: ts.Expression = unwrap(node);
+    while (ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base))
+      base = unwrap(base.expression);
+    return ts.isIdentifier(base) && requestAliases.has(base.text);
+  };
+
+  /**
+   * A plain password at a sink: a direct request read (`req.body.password`), a password-named
+   * property, or an identifier that is a parameter/destructured binding named like a password or a
+   * `const` assigned directly from such a read. A value returned from any call (`hashSecret(pw)`,
+   * `await helper(pw)`) is never plain, so hashing helpers in other functions do not produce findings.
+   */
+  const isPlainPassword = (node: ts.Expression, depth = 0): boolean => {
+    if (depth > 3) return false;
+    const inner = unwrap(node);
+    if (ts.isPropertyAccessExpression(inner) || ts.isElementAccessExpression(inner)) {
+      let base: ts.Expression = inner;
+      while (ts.isPropertyAccessExpression(base) || ts.isElementAccessExpression(base))
+        base = unwrap(base.expression);
+      if (ts.isCallExpression(base) || ts.isNewExpression(base)) return false;
+      if (taint.taintOf(inner) === "request") return true;
+      if (ts.isIdentifier(base) && requestAliases.has(base.text)) return true;
+      return ts.isPropertyAccessExpression(inner) && PASSWORD_NAME.test(inner.name.text);
+    }
+    if (ts.isIdentifier(inner)) {
+      const init = singleConst(inner.text);
+      if (init) return isPlainPassword(init, depth + 1);
+      // Bound by destructuring a request object: `const { password: plain } = req.body`.
+      const sources = destructuredFrom.get(inner.text);
+      if (sources?.length === 1 && sources[0]) {
+        const source = unwrap(sources[0]);
+        if (taint.taintOf(source) === "request") return true;
+        if (ts.isIdentifier(source) && requestAliases.has(source.text)) return true;
+        if (
+          (ts.isPropertyAccessExpression(source) || ts.isElementAccessExpression(source)) &&
+          isPlainRequestBase(source)
+        )
+          return true;
+      }
+      return PASSWORD_NAME.test(inner.text);
+    }
+    return false;
+  };
+
+  /** `user.password = req.body.password; user.save()` without hashing. */
+  const checkPasswordAssignment = (node: ts.BinaryExpression) => {
+    if (
+      node.operatorToken.kind !== ts.SyntaxKind.EqualsToken ||
+      !ts.isPropertyAccessExpression(node.left) ||
+      !PASSWORD_NAME.test(node.left.name.text)
+    )
+      return;
+    const receiver = unwrap(node.left.expression);
+    if (!ts.isIdentifier(receiver) || !isPlainPassword(node.right)) return;
+    if (!savedReceivers(node).has(receiver.text)) return;
+    if (enclosingFunctionFacts(node).hasHashing) return;
+    report(
+      "PG-AUTH-001",
+      node,
+      {
+        severity: "high",
+        status: "suspected",
+        confidence: taint.taintOf(unwrap(node.right)) === "request" ? "medium" : "low",
+        flow: "password value assigned to a model instance, then save() without a hashing call in the same function",
+      },
+      "password:save",
+    );
+  };
+
+  /** Strings and comments replaced by neutral text so `?`, `,` and `(` inside them are not counted. */
+  const cleanSql = (sql: string) =>
+    sql.replace(/'(?:[^']|'')*'|"[^"]*"|--[^\n]*|\/\*[\s\S]*?\*\//g, (match) =>
+      match.startsWith("'") ? "'_'" : match.startsWith('"') ? match.replace(/[^\w"]/g, "_") : " ",
+    );
+
+  /** Text inside the parentheses that open at `open`, and the index after the closing one. */
+  const balancedGroup = (text: string, open: number): { inner: string; end: number } | null => {
+    let depth = 0;
+    for (let index = open; index < text.length; index += 1) {
+      if (text[index] === "(") depth += 1;
+      else if (text[index] === ")") {
+        depth -= 1;
+        if (depth === 0) return { inner: text.slice(open + 1, index), end: index + 1 };
+      }
+    }
+    return null;
+  };
+
+  const splitTopLevel = (text: string): string[] => {
+    const parts: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < text.length; index += 1) {
+      const char = text[index];
+      if (char === "(") depth += 1;
+      else if (char === ")") depth -= 1;
+      else if (char === "," && depth === 0) {
+        parts.push(text.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+    parts.push(text.slice(start).trim());
+    return parts;
+  };
+
+  /** Position (`$2`, `?`) or name (`@pw`, `:pw`) of a bind placeholder; undefined for anything else. */
+  const placeholderRef = (rawToken: string, before: string): number | string | undefined => {
+    const token = rawToken.replace(/::\w+$/, "").trim();
+    const numbered = /^\$(\d{1,3})$/.exec(token);
+    if (numbered?.[1]) return Number(numbered[1]) - 1;
+    if (token === "?") return (before.match(/\?/g) ?? []).length;
+    const named = /^[:@$](\w+)$/.exec(token);
+    return named?.[1];
+  };
+
+  const SQL_HASH_TEXT = /crypt\(|digest\(|hash|sha\d|md5|argon/i;
+
+  /** Raw SQL `INSERT ... (password) VALUES ($1)` / `SET password = $1` fed a plain value. */
+  const checkRawSqlPassword = (call: ts.CallExpression, name: string) => {
+    if (!["query", "execute", "run", "exec", "raw"].includes(name)) return;
+    const literalText = (argument: ts.Expression | undefined): string | null => {
+      let node = argument ? unwrap(argument) : undefined;
+      if (node && ts.isIdentifier(node)) {
+        const init = singleConst(node.text);
+        node = init ? unwrap(init) : undefined;
+      }
+      return node && ts.isStringLiteralLike(node) ? node.text : null;
+    };
+    const raw = literalText(call.arguments[0]);
+    if (!raw || raw.length > 2000 || SQL_HASH_TEXT.test(raw)) return;
+    let params: ts.Expression | undefined = call.arguments[1]
+      ? unwrap(call.arguments[1])
+      : undefined;
+    if (params && ts.isIdentifier(params)) {
+      const init = singleConst(params.text);
+      params = init ? unwrap(init) : undefined;
+    }
+    if (!params || !(ts.isArrayLiteralExpression(params) || ts.isObjectLiteralExpression(params)))
+      return;
+    const sql = cleanSql(raw);
+    if (!/\b(insert|update)\b/i.test(sql) || !/\b(password|passwd|pwd|pass)\b/i.test(sql)) return;
+
+    // Which bind placeholder feeds the password column: a ref, "none" (a literal/function value
+    // there) or "unparsed" (structure not understood).
+    let ref: number | string | "none" | "unparsed" = "unparsed";
+    const insert = /insert\s+(?:or\s+\w+\s+)?into\s+[^\s(]{1,200}\s*\(/i.exec(sql);
+    if (insert) {
+      const columnGroup = balancedGroup(sql, insert.index + insert[0].length - 1);
+      const values = columnGroup ? /^\s*values\s*\(/i.exec(sql.slice(columnGroup.end)) : null;
+      const valueGroup =
+        columnGroup && values ? balancedGroup(sql, columnGroup.end + values[0].length - 1) : null;
+      if (columnGroup && valueGroup) {
+        const columns = splitTopLevel(columnGroup.inner).map((column) =>
+          column.replace(/^.*\./, "").replace(/["`[\]]/g, ""),
+        );
+        const tokens = splitTopLevel(valueGroup.inner);
+        const column = columns.findIndex((entry) => PASSWORD_NAME.test(entry));
+        if (column >= 0 && columns.length === tokens.length) {
+          ref = placeholderRef(tokens[column] ?? "", tokens.slice(0, column).join(",")) ?? "none";
+        }
+      }
+    } else {
+      const update =
+        /\bset\b[\s\S]{0,500}?\b(?:password|passwd|pwd|pass)\b\s*=\s*(\$\d{1,3}|\?|[:@]\w+)/i.exec(
+          sql,
+        );
+      if (update?.[1]) {
+        const before = sql.slice(0, update.index + update[0].length - update[1].length);
+        ref = placeholderRef(update[1], before) ?? "none";
+      }
+    }
+    if (ref === "none") return;
+
+    const entries = ts.isArrayLiteralExpression(params)
+      ? params.elements.map((element, index) => [index, element] as const)
+      : params.properties.flatMap((property) =>
+          ts.isPropertyAssignment(property)
+            ? [[property.name.getText(sourceFile), property.initializer] as const]
+            : ts.isShorthandPropertyAssignment(property)
+              ? [[property.name.text, property.name] as const]
+              : [],
+        );
+    let value: ts.Expression | undefined;
+    let confidence: Confidence = "low";
+    if (ref === "unparsed") {
+      // Column and value lists did not line up (or were not understood): fall back to any bound
+      // value that is itself a plain password read, at low confidence. Request values for other
+      // columns are not enough.
+      value = entries.find(
+        ([, element]) =>
+          !ts.isSpreadElement(element) &&
+          isPlainPassword(element) &&
+          /pass|pwd/i.test(unwrap(element).getText(sourceFile).slice(0, 200)),
+      )?.[1];
+    } else {
+      value = entries.find(([key]) => key === ref)?.[1];
+      if (value && ts.isSpreadElement(value)) return;
+      if (value && !isPlainPassword(value)) return;
+      confidence = value && taint.taintOf(unwrap(value)) === "request" ? "medium" : "low";
+    }
+    if (!value) return;
+    if (enclosingFunctionFacts(call).hasHashing) return;
+    report(
+      "PG-AUTH-001",
+      call,
+      {
+        severity: "high",
+        status: "suspected",
+        confidence,
+        flow: `password value -> raw SQL ${name}() without a hashing call in the same function`,
+      },
+      "password:sql",
+    );
+  };
+
   const checkSessionConfig = (call: ts.CallExpression, name: string) => {
     const module = namespaceImports.get(name);
     if (module !== "express-session" && module !== "cookie-session") return;
-    facts.usesCookieSession = true;
     const options = call.arguments[0];
-    if (!options || !ts.isObjectLiteralExpression(unwrap(options))) return;
+    if (!options || !ts.isObjectLiteralExpression(unwrap(options))) {
+      facts.usesCookieSession = true;
+      return;
+    }
     const properties = (unwrap(options) as ts.ObjectLiteralExpression).properties;
     const get = (props: ts.NodeArray<ts.ObjectLiteralElementLike>, key: string) =>
       props.find(
@@ -813,20 +1298,40 @@ export function analyzeJsSource(
       if (kind) reportHardcodedKey(call, kind, `${module} ${key}`);
     }
     const cookie = module === "express-session" ? get(properties, "cookie")?.initializer : options;
-    const cookieProps =
-      cookie && ts.isObjectLiteralExpression(unwrap(cookie))
-        ? (unwrap(cookie) as ts.ObjectLiteralExpression).properties
-        : null;
+    // `cookie: COOKIE_OPTIONS` and `sameSite: SAME_SITE` resolve through same-file consts.
+    const cookieOptions = cookie ? resolveOptions(cookie, 0) : new Map<string, ts.Expression>();
+    if (cookie && !cookieOptions) {
+      facts.usesCookieSession = true;
+      report(
+        "PG-COOKIE-001",
+        call,
+        {
+          severity: "low",
+          status: "suspected",
+          confidence: "low",
+          flow: `${module} cookie with options not resolvable (imported/computed); flags unverified`,
+        },
+        `${module}-cookie`,
+      );
+      return;
+    }
     const missing: string[] = [];
     const flag = (key: string, defaultOn: boolean) => {
-      const value = cookieProps ? get(cookieProps, key)?.initializer : undefined;
+      const value = cookieOptions?.get(key);
       if (value === undefined ? !defaultOn : value.kind === ts.SyntaxKind.FalseKeyword)
         missing.push(key);
     };
     flag("httpOnly", true);
     flag("secure", false);
-    const sameSite = cookieProps ? get(cookieProps, "sameSite")?.initializer : undefined;
+    const sameSite = cookieOptions?.get("sameSite");
     if (!sameSite || sameSite.kind === ts.SyntaxKind.FalseKeyword) missing.push("sameSite");
+    // SameSite=Strict keeps the session cookie off every cross-site request, so it is not CSRF-able.
+    const isStrict =
+      sameSite !== undefined &&
+      ts.isStringLiteralLike(unwrap(sameSite)) &&
+      (unwrap(sameSite) as ts.StringLiteral).text.toLowerCase() === "strict";
+    if (isStrict) facts.strictSession = true;
+    else facts.usesCookieSession = true;
     if (missing.length > 0) {
       report(
         "PG-COOKIE-001",
@@ -846,41 +1351,153 @@ export function analyzeJsSource(
     const receiver = calleeReceiver(call);
     const receiverPath = receiver ? accessPath(receiver) : null;
     if (name !== "cookie" || !receiverPath || !/^(res|response|reply)$/.test(receiverPath)) return;
-    facts.usesCookieSession = true;
-    const cookieName = call.arguments[0];
-    const options = call.arguments[2];
-    if (options && !ts.isObjectLiteralExpression(unwrap(options))) return; // unknown options object
-    const props = options ? (unwrap(options) as ts.ObjectLiteralExpression).properties : null;
-    const isTrue = (key: string) =>
-      props?.some(
-        (property) =>
-          ts.isPropertyAssignment(property) &&
-          property.name.getText(sourceFile) === key &&
-          property.initializer.kind === ts.SyntaxKind.TrueKeyword,
-      ) ?? false;
-    const has = (key: string) =>
-      props?.some((property) => property.name?.getText(sourceFile) === key) ?? false;
+    reportCookieCall(call, call.arguments[0], call.arguments[1], call.arguments[2], "res.cookie");
+  };
+
+  /** Cookie APIs other than `res.cookie`: Next.js, Koa, NextResponse and Hono. */
+  const checkNextCookie = (call: ts.CallExpression, name: string) => {
+    if (name === "setCookie") {
+      // Hono: setCookie(c, name, value, options)
+      if (
+        ts.isIdentifier(call.expression) &&
+        namedImports.get(call.expression.text) === "hono/cookie:setCookie"
+      )
+        reportCookieCall(
+          call,
+          call.arguments[1],
+          call.arguments[2],
+          call.arguments[3],
+          "setCookie",
+        );
+      return;
+    }
+    if (name !== "set") return;
+    const receiver = calleeReceiver(call);
+    if (!receiver) return;
+    const receiverPath = accessPath(receiver);
+    if (receiverPath && /^(ctx|context)\.cookies$/.test(receiverPath)) {
+      // Koa sets httpOnly unless told otherwise.
+      reportCookieCall(
+        call,
+        call.arguments[0],
+        call.arguments[1],
+        call.arguments[2],
+        "ctx.cookies.set",
+        { httpOnly: true },
+      );
+      return;
+    }
+    if (
+      receiverPath &&
+      /^(res|response|nextResponse)\.cookies$/i.test(receiverPath) &&
+      facts.imports.includes("next/server")
+    ) {
+      reportCookieCall(
+        call,
+        call.arguments[0],
+        call.arguments[1],
+        call.arguments[2],
+        "response.cookies.set",
+      );
+      return;
+    }
+    if (!isNextCookieStore(receiver, 0)) return;
+    const first = call.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+    if (first && ts.isObjectLiteralExpression(first)) {
+      const options = resolveOptions(first, 0);
+      const named = options?.get("name");
+      const value = options?.get("value");
+      reportCookieCall(call, named, value, first, "cookies().set");
+      return;
+    }
+    reportCookieCall(call, first, call.arguments[1], call.arguments[2], "cookies().set");
+  };
+
+  /** Identifier words of an expression's text (`accessToken` -> access, token). */
+  const identifierWords = (text: string): string[] =>
+    (text.match(/[A-Za-z_$][\w$]*/g) ?? []).flatMap((identifier) =>
+      identifier
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .split(/[\s_$]+/)
+        .map((word) => word.toLowerCase()),
+    );
+
+  /**
+   * Shared judgement for response-cookie APIs. Only cookies that look like a session or auth
+   * cookie (by name, or by a session/token value) are judged. If the options object cannot be
+   * resolved, a session-like cookie is still reported, at low confidence, with the flags unverified.
+   */
+  const reportCookieCall = (
+    call: ts.CallExpression,
+    cookieName: ts.Expression | undefined,
+    cookieValue: ts.Expression | undefined,
+    options: ts.Expression | undefined,
+    api: string,
+    defaults: { httpOnly?: boolean } = {},
+  ) => {
+    const nameNode = cookieName ? unwrap(cookieName) : undefined;
+    const nameText =
+      nameNode && ts.isStringLiteralLike(nameNode)
+        ? nameNode.text
+        : (nameNode?.getText(sourceFile).slice(0, 80) ?? "");
+    const nameWords = identifierWords(nameText.replace(/^__(host|secure)-/i, ""));
+    const isStrongName =
+      /connect\.sid/i.test(nameText) || nameWords.some((word) => SESSION_NAME_WORDS.has(word));
+    const isWeakName = !isStrongName && nameWords.some((word) => WEAK_NAME_WORDS.has(word));
+    const isSessionLike = isStrongName || isWeakName;
+    // A hand-rolled session cookie is a cookie session for PG-CSRF-001.
+    if (isStrongName) facts.usesCookieSession = true;
+    // A cookie with a non-session name still counts when it carries a session or token value.
+    const valueNode = cookieValue ? unwrap(cookieValue) : undefined;
+    const carriesToken =
+      !isSessionLike &&
+      valueNode !== undefined &&
+      !ts.isStringLiteralLike(valueNode) &&
+      identifierWords(valueNode.getText(sourceFile).slice(0, 200)).some((word) =>
+        SESSION_VALUE_WORDS.has(word),
+      );
+    if (!isSessionLike && !carriesToken) return;
+    const severity = isStrongName ? "medium" : "low";
+    const kind = isSessionLike ? "session-like name" : "session or token value";
+    let resolved: Map<string, ts.Expression> | null = new Map();
+    if (options) resolved = resolveOptions(options, 0);
+    if (!resolved) {
+      report(
+        "PG-COOKIE-001",
+        call,
+        {
+          severity: "low",
+          status: "suspected",
+          confidence: "low",
+          flow: `${api}(${kind}) with options not resolvable (imported/computed); flags unverified`,
+        },
+        `${api}:${nameText}`,
+      );
+      return;
+    }
+    const isTrue = (key: string) => resolved.get(key)?.kind === ts.SyntaxKind.TrueKeyword;
+    const hasSameSite = (() => {
+      const value = resolved.get("sameSite");
+      return value !== undefined && value.kind !== ts.SyntaxKind.FalseKeyword;
+    })();
+    const httpOnlyDefault =
+      defaults.httpOnly === true && resolved.get("httpOnly")?.kind !== ts.SyntaxKind.FalseKeyword;
     const missing = [
-      ...(isTrue("httpOnly") ? [] : ["httpOnly"]),
+      ...(isTrue("httpOnly") || httpOnlyDefault ? [] : ["httpOnly"]),
       ...(isTrue("secure") ? [] : ["secure"]),
-      ...(has("sameSite") ? [] : ["sameSite"]),
+      ...(hasSameSite ? [] : ["sameSite"]),
     ];
     if (missing.length === 0) return;
-    const nameText =
-      cookieName && ts.isStringLiteralLike(unwrap(cookieName))
-        ? (unwrap(cookieName) as ts.StringLiteral).text
-        : "";
-    const isSessionLike = SESSION_COOKIE_NAME.test(nameText);
     report(
       "PG-COOKIE-001",
       call,
       {
-        severity: isSessionLike ? "medium" : "low",
+        severity,
         status: "suspected",
-        confidence: isSessionLike ? "medium" : "low",
-        flow: `res.cookie(${isSessionLike ? "session-like name" : "cookie"}) without ${missing.join(", ")}`,
+        confidence: isStrongName ? "medium" : "low",
+        flow: `${api}(${kind}) without ${missing.join(", ")}`,
       },
-      `res.cookie:${nameText}`,
+      `${api}:${nameText}`,
     );
   };
 
@@ -892,7 +1509,8 @@ export function analyzeJsSource(
     const route = call.arguments[0];
     if (!route || !ts.isStringLiteralLike(unwrap(route)) || call.arguments.length < 2) return;
     const line = lineOf(call);
-    facts.stateChangingRoutes.push(line);
+    if (name === "post") facts.stateChangingRoutes.push(line);
+    else facts.preflightRoutes.push(line);
     const routePath = (unwrap(route) as ts.StringLiteral).text;
     if (name === "post" && AUTH_ROUTE.test(routePath)) facts.authRoutes.push({ line, routePath });
   };
@@ -909,11 +1527,36 @@ export function analyzeJsSource(
         value = property.name;
       if (!value) continue;
       const node = unwrap(value);
-      const isPlain =
-        taint.taintOf(node) === "request" ||
-        (ts.isIdentifier(node) && PASSWORD_NAME.test(node.text)) ||
-        (ts.isPropertyAccessExpression(node) && PASSWORD_NAME.test(node.name.text));
-      if (!isPlain) continue;
+      if (!isPlainPassword(node)) continue;
+      // `new Model({ password })` persists through a later `instance.save()`.
+      if (
+        object.parent &&
+        ts.isNewExpression(object.parent) &&
+        object.parent.arguments?.[0] === object
+      ) {
+        const created = object.parent;
+        const target = created.parent;
+        const savedHere =
+          ts.isIdentifier(created.expression) &&
+          /^[A-Z]/.test(created.expression.text) &&
+          ((ts.isVariableDeclaration(target) &&
+            ts.isIdentifier(target.name) &&
+            savedReceivers(created).has(target.name.text)) ||
+            (ts.isPropertyAccessExpression(target) && target.name.text === "save"));
+        if (!savedHere || enclosingFunctionFacts(created).hasHashing) continue;
+        report(
+          "PG-AUTH-001",
+          property,
+          {
+            severity: "high",
+            status: "suspected",
+            confidence: taint.taintOf(node) === "request" ? "medium" : "low",
+            flow: "password value -> new Model(...).save() without a hashing call in the same function",
+          },
+          "password:save",
+        );
+        continue;
+      }
       // Find the persistence call this object belongs to (directly or under `data:`).
       let current: ts.Node = object;
       let call: ts.CallExpression | null = null;
@@ -942,6 +1585,7 @@ export function analyzeJsSource(
 
   // Pass 2: rules.
   const visit = (node: ts.Node): void => {
+    if (ts.isBinaryExpression(node)) checkPasswordAssignment(node);
     if (ts.isCallExpression(node)) {
       const name = calleeName(node);
       if (name) {
@@ -952,6 +1596,9 @@ export function analyzeJsSource(
         checkCrypto(node, name);
         checkSessionConfig(node, name);
         checkResponseCookie(node, name);
+        checkNextCookie(node, name);
+        checkCors(node, name);
+        checkRawSqlPassword(node, name);
         checkRoute(node, name);
         if (name === "insertAdjacentHTML" && node.arguments[1])
           checkHtmlSink("PG-XSS-001", node, node.arguments[1], "insertAdjacentHTML");
@@ -993,6 +1640,7 @@ export function analyzeJsSource(
   };
   visit(sourceFile);
 
+  if (facts.imports.includes("method-override")) raiseExposure("unknown");
   facts.imports = [...new Set(facts.imports)];
   return { findings, facts, hasParseErrors, cappedRules: [...cappedRules] };
 }

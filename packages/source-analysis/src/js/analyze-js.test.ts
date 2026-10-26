@@ -419,6 +419,455 @@ describe("PG-AUTH-001 plaintext password storage", () => {
   });
 });
 
+describe("PG-AUTH-001 instance and raw SQL storage", () => {
+  it("flags assign-then-save and new Model({password}).save()", () => {
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User(); u.password = req.body.password; await u.save(); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User({ password: req.body.password }); await u.save(); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn("async function f(req) { await new User({ password: req.body.password }).save(); }"),
+    ).toEqual(["PG-AUTH-001"]);
+  });
+
+  it("does not flag hashed, unsaved or non-request assignments", () => {
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User(); u.password = await argon2.hash(req.body.password); await u.save(); }",
+      ),
+    ).toEqual([]);
+    expect(rulesIn("function f(req) { const v = {}; v.password = req.body.password; }")).toEqual(
+      [],
+    );
+    expect(
+      rulesIn("async function f() { const u = new User(); u.password = 'x'; await u.save(); }"),
+    ).toEqual([]);
+    expect(
+      rulesIn("function f(req) { const u = new User({ password: req.body.password }); }"),
+    ).toEqual([]);
+  });
+
+  it("flags a raw SQL INSERT/UPDATE bound to the password column only", () => {
+    expect(
+      rulesIn(
+        'async function f(req) { await pool.query("INSERT INTO users (email, password) VALUES ($1, $2)", [req.body.email, req.body.password]); }',
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        'async function f(req) { await db.run("INSERT INTO users (email, password) VALUES (?, ?)", [req.body.email, req.body.password]); }',
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        'async function f(req) { await db.query("UPDATE users SET password = $1 WHERE id = $2", [req.body.password, 1]); }',
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    // The request value sits in the email column, not the password column.
+    expect(
+      rulesIn(
+        'async function f(req) { await pool.query("INSERT INTO users (password, email) VALUES ($1, $2)", [gen, req.body.email]); }',
+      ),
+    ).toEqual([]);
+    // Hashing inside the SQL text.
+    expect(
+      rulesIn(
+        "async function f(req) { await pool.query(\"INSERT INTO users (email, password) VALUES ($1, crypt($2, gen_salt('bf')))\", [req.body.email, req.body.password]); }",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("PG-AUTH-001 plain-value and SQL parsing details", () => {
+  const sql = (statement: string, params: string, before = "") =>
+    findingsIn(
+      `${before} async function f(req) { await pool.query(${statement}, ${params}); }`,
+    ).filter((finding) => finding.ruleId === "PG-AUTH-001");
+
+  it("never treats a value returned from a call as a plain password", () => {
+    const insert = '"INSERT INTO users (email, password) VALUES ($1, $2)"';
+    expect(sql(insert, "[req.body.email, hashSecret(req.body.password)]")).toEqual([]);
+    expect(sql(insert, "[req.body.email, makeDigest(req.body.password)]")).toEqual([]);
+    expect(sql(insert, "[req.body.email, req.body.password]")).toHaveLength(1);
+    expect(
+      sql(insert, "[req.body.email, stored]", "const stored = secure(req.body.password);"),
+    ).toEqual([]);
+    expect(sql(insert, "[req.body.email, pw]", "const pw = req.body.password;")).toHaveLength(1);
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new User(); u.password = secure(req.body.password); await u.save(); }",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "async function f(req) { await User.create({ password: hashSecret(req.body.password) }); }",
+      ),
+    ).toEqual([]);
+  });
+
+  it("counts placeholders outside string literals and comments only", () => {
+    expect(
+      sql(
+        `"INSERT INTO users (note, password, email) VALUES ('ok?', ?, ?)"`,
+        "[gen, req.body.email]",
+      ),
+    ).toEqual([]);
+    expect(
+      sql(
+        `"INSERT INTO users (password, email) VALUES (?, ?) -- why? because"`,
+        "[req.body.password, e]",
+      ),
+    ).toHaveLength(1);
+    expect(
+      sql(`"INSERT INTO users (note, password) VALUES ('a,b', $1)"`, "[req.body.password]"),
+    ).toHaveLength(1);
+  });
+
+  it("parses VALUES with function calls, SQL held in a const, pass columns and named params", () => {
+    expect(
+      sql(
+        '"INSERT INTO users (email, created_at, password) VALUES ($1, NOW(), $2)"',
+        "[req.body.email, req.body.password]",
+      ),
+    ).toHaveLength(1);
+    expect(
+      sql(
+        "Q",
+        "[req.body.email, req.body.password]",
+        'const Q = "INSERT INTO u (e, password) VALUES ($1, $2)";',
+      ),
+    ).toHaveLength(1);
+    expect(
+      sql('"UPDATE users SET pass = $1 WHERE id = $2"', "[req.body.password, 1]"),
+    ).toHaveLength(1);
+    expect(
+      sql(
+        '"INSERT INTO users (email, password) VALUES (@email, @password)"',
+        "{ email: e, password: req.body.password }",
+      ),
+    ).toHaveLength(1);
+    expect(
+      sql(
+        '"INSERT INTO users (email, password) VALUES (:email, :password)"',
+        "{ email: req.body.email, password: p }",
+      ),
+    ).toEqual([]);
+  });
+
+  it("falls back to a low-confidence finding when columns and values do not line up", () => {
+    // Exact mapping: medium. Mismatched counts: only a bound password read counts, at low confidence.
+    const mapped = sql(
+      '"INSERT INTO users (email, password) VALUES ($1, $2)"',
+      "[e, req.body.password]",
+    );
+    expect(mapped[0]?.confidence).toBe("medium");
+    const mismatched = sql(
+      '"INSERT INTO users (email, password) VALUES ($1, $2, $3)"',
+      "[req.body.email, req.body.password, x]",
+    );
+    expect(mismatched).toHaveLength(1);
+    expect(mismatched[0]?.confidence).toBe("low");
+    // A request value that is not a password read does not trigger the fallback.
+    expect(
+      sql('"INSERT INTO users (email, password) VALUES ($1, $2, $3)"', "[req.body.email, g, x]"),
+    ).toEqual([]);
+  });
+
+  it("skips SQL that hashes, and unsaved lowercase constructors", () => {
+    expect(
+      sql(
+        '"INSERT INTO users (email, password) VALUES ($1, $2) /* hashed by trigger: sha256 */"',
+        "[req.body.email, req.body.password]",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "async function f(req) { const u = new user({ password: req.body.password }); await u.save(); }",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("PG-AUTH-001 request-derived identifiers", () => {
+  const create = (body: string) =>
+    rulesIn(`async function f(req) { ${body} await User.create({ password: v }); }`);
+
+  it("treats destructured, renamed and single-assignment request values as plain", () => {
+    expect(create("const { password: v } = req.body;")).toEqual(["PG-AUTH-001"]);
+    expect(create("const { newPass: v } = req.body;")).toEqual(["PG-AUTH-001"]);
+    expect(create("let v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    expect(create("const v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "async function f(req) { const { pw } = req.body; await knex('u').update({ password: pw }); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "app.post('/r', async ({ body }) => { const { pw } = body; await User.create({ password: pw }); });",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "app.post('/r', async ({ body }) => { const v = body.pw; await User.create({ password: v }); });",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+  });
+
+  it("does not treat reassigned lets, call results or unrelated destructuring as plain", () => {
+    expect(create("let v = req.body.pw; v = secure(v);")).toEqual([]);
+    expect(create("const v = secure(req.body.pw);")).toEqual([]);
+    expect(create("const { pw: v } = await lookup(req);")).toEqual([]);
+    expect(create("const { v } = config;")).toEqual([]);
+    // A property of a call result is not a request value either.
+    expect(
+      rulesIn("async function f() { await Backup.create({ password: getUser().password }); }"),
+    ).toEqual([]);
+  });
+});
+
+describe("PG-COOKIE-001 option resolution and name filter", () => {
+  it("matches cookie names by whole word", () => {
+    for (const name of [
+      "session",
+      "sessionId",
+      "connect.sid",
+      "__Host-sid",
+      "__Secure-auth_token",
+      "jwt",
+      "refresh_token",
+      "remember_me",
+      "SESSION_COOKIE",
+    ])
+      expect(rulesIn(`res.cookie('${name}', v);`), name).toEqual(["PG-COOKIE-001"]);
+    for (const name of [
+      "access_log_consent",
+      "accessibility",
+      "sidebar_state",
+      "theme",
+      "residence",
+      "authority",
+    ])
+      expect(rulesIn(`res.cookie('${name}', v);`), name).toEqual([]);
+    expect(findingsIn("res.cookie('uid', v);")[0]).toMatchObject({
+      confidence: "low",
+      severity: "low",
+    });
+    expect(findingsIn("res.cookie('sid', v);")[0]).toMatchObject({ confidence: "medium" });
+  });
+
+  it("marks a session-like cookie as a cookie session for CSRF", () => {
+    expect(analyzeJsSource("res.cookie('session', v, {});", "s.js").facts.usesCookieSession).toBe(
+      true,
+    );
+    expect(analyzeJsSource("res.cookie('theme', v, {});", "s.js").facts.usesCookieSession).toBe(
+      false,
+    );
+  });
+
+  it("resolves sameSite and cookie options held in consts for express-session", () => {
+    const base = "import session from 'express-session';";
+    const strict = analyzeJsSource(
+      `${base} const SS = 'strict'; app.use(session({ secret: s, cookie: { httpOnly: true, secure: true, sameSite: SS } }));`,
+      "s.ts",
+    );
+    expect(strict.findings).toEqual([]);
+    expect(strict.facts.strictSession).toBe(true);
+    const viaConst = analyzeJsSource(
+      `${base} const C = { httpOnly: true, secure: true, sameSite: 'lax' }; app.use(session({ secret: s, cookie: C }));`,
+      "s.ts",
+    );
+    expect(viaConst.findings).toEqual([]);
+    const imported = analyzeJsSource(
+      `${base} app.use(session({ secret: s, cookie: imported }));`,
+      "s.ts",
+    );
+    expect(imported.findings[0]?.evidence).toContain("options not resolvable");
+  });
+
+  it("resolves options held in a same-file const", () => {
+    expect(
+      rulesIn("const o = { httpOnly: true }; function f(res) { res.cookie('sid', t, o); }"),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        "const o = { httpOnly: true, secure: true, sameSite: 'lax' }; function f(res) { res.cookie('sid', t, o); }",
+      ),
+    ).toEqual([]);
+    // A reassignable binding or an imported object cannot be resolved: reported unverified, low.
+    for (const code of [
+      "let o = {}; o = other; function f(res) { res.cookie('sid', t, o); }",
+      "function f(res) { res.cookie('sid', t, imported); }",
+    ]) {
+      const [finding] = findingsIn(code);
+      expect(finding).toMatchObject({ ruleId: "PG-COOKIE-001", confidence: "low" });
+      expect(finding?.evidence).toContain("options not resolvable");
+    }
+    // ...but only for session-like cookies.
+    expect(rulesIn("function f(res) { res.cookie('theme', 'x', imported); }")).toEqual([]);
+  });
+
+  it("resolves object spreads of local consts and skips unknown spreads", () => {
+    expect(
+      rulesIn(
+        "const S = { httpOnly: true, secure: true, sameSite: 'lax' }; function f(res) { res.cookie('sid', t, { ...S, maxAge: 1 }); }",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "const S = { httpOnly: true }; function f(res) { res.cookie('sid', t, { ...S, secure: true }); }",
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      findingsIn("function f(res) { res.cookie('sid', t, { ...other }); }")[0]?.evidence,
+    ).toContain("options not resolvable");
+  });
+
+  it("counts sameSite: false as not set, and matches session values by word", () => {
+    expect(
+      rulesIn("res.cookie('sid', t, { httpOnly: true, secure: true, sameSite: false });"),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(rulesIn("res.cookie('app', jwtValue);")).toEqual(["PG-COOKIE-001"]);
+    expect(rulesIn("res.cookie('app', accessToken);")).toEqual(["PG-COOKIE-001"]);
+    expect(rulesIn("res.cookie('editor_mode', tokenizerMode);")).toEqual([]);
+    expect(rulesIn("res.cookie('refresh', r);")).toEqual(["PG-COOKIE-001"]);
+  });
+
+  it("recognises Koa, NextResponse and Hono cookie APIs", () => {
+    // Koa defaults httpOnly on; secure and sameSite are still missing.
+    const [koa] = findingsIn("ctx.cookies.set('session', v, { maxAge: 1 });");
+    expect(koa?.evidence).toContain("without secure, sameSite");
+    expect(
+      rulesIn("ctx.cookies.set('session', v, { httpOnly: false, secure: true, sameSite: 'lax' });"),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        "import { NextResponse } from 'next/server'; const res = NextResponse.json({}); res.cookies.set('session', 'x');",
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(rulesIn("res.cookies.set('session', 'x');")).toEqual([]);
+    expect(
+      rulesIn("import { setCookie } from 'hono/cookie'; setCookie(c, 'session', 'x');"),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        "import { setCookie } from 'hono/cookie'; setCookie(c, 'session', 'x', { httpOnly: true, secure: true, sameSite: 'Lax' });",
+      ),
+    ).toEqual([]);
+  });
+
+  it("only judges session or auth looking cookies", () => {
+    expect(rulesIn("res.cookie('theme', 'dark');")).toEqual([]);
+    expect(rulesIn("res.cookie('lang', 'ko', { path: '/' });")).toEqual([]);
+    expect(findingsIn("res.cookie('app', accessToken);")[0]).toMatchObject({
+      ruleId: "PG-COOKIE-001",
+      confidence: "low",
+    });
+    expect(findingsIn("res.cookie('connect.sid', v);")[0]).toMatchObject({ severity: "medium" });
+  });
+
+  it("recognises the Next.js cookies().set() API", () => {
+    const next = "import { cookies } from 'next/headers';";
+    expect(
+      rulesIn(
+        `${next} async function f() { (await cookies()).set('auth_token', 'x', { path: '/' }); }`,
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        `${next} async function f() { const s = await cookies(); s.set({ name: 'session', value: 'x' }); }`,
+      ),
+    ).toEqual(["PG-COOKIE-001"]);
+    expect(
+      rulesIn(
+        `${next} async function f() { (await cookies()).set('auth_token', 'x', { httpOnly: true, secure: true, sameSite: 'lax' }); }`,
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(`${next} async function f() { (await cookies()).set('theme', 'dark'); }`),
+    ).toEqual([]);
+    // `cookies` from somewhere else is not the Next.js API.
+    expect(rulesIn("import { cookies } from './jar'; cookies().set('session', 'x');")).toEqual([]);
+  });
+});
+
+describe("CSRF facts", () => {
+  it("separates POST from preflighted methods and detects credentialed permissive CORS", () => {
+    const base = "import express from 'express'; import cors from 'cors'; const app = express();";
+    const factsFor = (setup: string) =>
+      analyzeJsSource(`${base} ${setup} app.put('/a', h); app.post('/b', h);`, "s.ts").facts;
+    const exposure = (setup: string) => factsFor(setup).preflightExposure;
+    // Provably restrictive: no CORS, no credentials, a fixed origin or origin list.
+    expect(exposure("")).toBeNull();
+    expect(exposure("app.use(cors());")).toBeNull();
+    expect(exposure("app.use(cors({ origin: true }));")).toBeNull();
+    expect(
+      exposure("app.use(cors({ origin: ['https://a.example'], credentials: true }));"),
+    ).toBeNull();
+    expect(
+      exposure("app.use(cors({ origin: 'https://a.example', credentials: true }));"),
+    ).toBeNull();
+    expect(
+      exposure("const O = ['https://a.example']; app.use(cors({ origin: O, credentials: true }));"),
+    ).toBeNull();
+    // Permissive: reflected, pattern or function origin with credentials.
+    expect(exposure("app.use(cors({ origin: true, credentials: true }));")).toBe("permissive");
+    expect(exposure("app.use(cors({ origin: /example/, credentials: true }));")).toBe("permissive");
+    expect(
+      exposure("app.use(cors({ origin: (o, cb) => cb(null, true), credentials: true }));"),
+    ).toBe("permissive");
+    expect(
+      exposure(
+        "app.use(cors({ origin: function (o, cb) { cb(null, true); }, credentials: true }));",
+      ),
+    ).toBe("permissive");
+    // Unknown: unresolvable options, identifier origin, mixed list, hand-set header, method-override.
+    expect(exposure("app.use(cors(imported));")).toBe("unknown");
+    expect(exposure("app.use(cors({ origin: checkOrigin, credentials: true }));")).toBe("unknown");
+    expect(exposure("app.use(cors({ origin: ['https://a', other], credentials: true }));")).toBe(
+      "unknown",
+    );
+    expect(exposure("app.use(cors({ origin: true, credentials: flag }));")).toBe("unknown");
+    expect(
+      exposure("app.use((q, r) => r.header('Access-Control-Allow-Credentials', 'true'));"),
+    ).toBe("unknown");
+    expect(
+      exposure("app.use((q, r) => r.header('Access-Control-Allow-Credentials', 'false'));"),
+    ).toBeNull();
+    expect(
+      analyzeJsSource("import mo from 'method-override'; app.use(mo());", "s.ts").facts
+        .preflightExposure,
+    ).toBe("unknown");
+    expect(factsFor("").stateChangingRoutes).toHaveLength(1);
+    expect(factsFor("").preflightRoutes).toHaveLength(1);
+  });
+
+  it("detects @fastify/cors registered with credentials, and strict sessions", () => {
+    const { facts } = analyzeJsSource(
+      "import cors from '@fastify/cors'; app.register(cors, { origin: true, credentials: true });",
+      "s.ts",
+    );
+    expect(facts.preflightExposure).toBe("permissive");
+    const strict = analyzeJsSource(
+      "import session from 'express-session'; app.use(session({ secret: s, cookie: { sameSite: 'strict' } }));",
+      "s.ts",
+    ).facts;
+    expect(strict).toMatchObject({ strictSession: true, usesCookieSession: false });
+    expect(
+      analyzeJsSource(
+        "import session from 'express-session'; app.use(session({ secret: s, cookie: { sameSite: 'lax' } }));",
+        "s.ts",
+      ).facts,
+    ).toMatchObject({ strictSession: false, usesCookieSession: true });
+  });
+});
+
 describe("PG-COOKIE-001", () => {
   it("flags session cookies without flags", () => {
     const [finding] = findingsIn("res.cookie('session', token);");
@@ -456,7 +905,9 @@ describe("facts and robustness", () => {
     );
     expect(facts.imports).toContain("express");
     expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login" }]);
-    expect(facts.stateChangingRoutes).toHaveLength(2);
+    expect(facts.stateChangingRoutes).toHaveLength(1);
+    expect(facts.preflightRoutes).toHaveLength(1);
+    // A session-like cookie set by hand counts as a cookie session; other cookies do not.
     expect(facts.usesCookieSession).toBe(true);
   });
 
