@@ -199,8 +199,9 @@ const startVerify: ApiHandler = async (context) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
       setAuth(state, { status: "done", outcome, finishedAt: context.deps.now(), message: null });
-      // The account this check ran with; a later switch resets it (see resetAuthIfAccountChanged).
-      state.authAccount = state.sessionAccount;
+      // The account the gate itself ran with (not whichever account the provider adopted last,
+      // which may have changed meanwhile); a later switch resets it (see resetAuthIfAccountChanged).
+      state.authAccount = outcome.account ?? null;
     })
     .catch(() => {
       if (state.auth !== run) return;
@@ -257,8 +258,9 @@ const recheckOwnerApproval: ApiHandler = async (context) => {
     throw new ApiError(409, "recheck_running", "Owner approval is already being checked.");
   }
   const last = state.ownerApprovalRecheckAt;
-  // A clock that moved back since the last re-check counts as too soon.
-  if (last !== null && (now < last || now - last < OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS)) {
+  // A clock that moved back since the last re-check gives a negative difference, which is also
+  // below the minimum interval, so it counts as too soon without a separate comparison.
+  if (last !== null && now - last < OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS) {
     throw new ApiError(429, "recheck_too_soon", "Wait 5 seconds between owner approval checks.");
   }
   state.ownerApprovalRecheckAt = now;

@@ -96,8 +96,13 @@ export interface GitHubAccountRef {
   userId: number;
 }
 
+/**
+ * Same GitHub account means the same user id. The login is not compared: a username rename keeps
+ * the account (and would otherwise reset the check on every port route). A missing or invalid id
+ * is never "the same": the check is reset (fail closed).
+ */
 export function isSameAccount(a: GitHubAccountRef, b: GitHubAccountRef): boolean {
-  return a.userId === b.userId && a.login === b.login;
+  return Number.isSafeInteger(a.userId) && Number.isSafeInteger(b.userId) && a.userId === b.userId;
 }
 
 export function createSessionState(): SessionState {

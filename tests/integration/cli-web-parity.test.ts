@@ -240,7 +240,10 @@ async function scanWithWeb(
   createSessionProvider: SessionFactory,
   env: Record<string, string> = ENV,
 ): Promise<{ result: ScanResult; received: ScanResult }> {
-  const defaults = createDefaultServerDeps();
+  const defaults = {
+    ...createDefaultServerDeps(),
+    credentialStore: createInMemoryCredentialStore(),
+  };
   const recorder = recordingRunScan(defaults.runScan);
   const deps: ServerDeps = {
     ...defaults,

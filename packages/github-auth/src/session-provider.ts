@@ -278,12 +278,6 @@ export function createDeviceFlowSessionProvider(
     });
   };
 
-  const deleteEntry = async (clientId: string): Promise<void> => {
-    const current = store;
-    if (current === null) return;
-    await withKeychainLock(current, () => deleteEntryLocked(current, clientId));
-  };
-
   /**
    * Deletes the entry only while it still holds `accessToken`. Another process (`pgard login`,
    * or a refresh in a second PGARD process) may have replaced it since this provider read it; a
@@ -300,12 +294,19 @@ export function createDeviceFlowSessionProvider(
     });
   };
 
-  const drop = async (
-    clientId: string,
+  /**
+   * Deletes the entry `record` was read from and tells the caller, but only while the entry still
+   * holds that access token (under the keychain lock): `pgard login` or a refresh in another
+   * process may have saved a newer sign-in since, and an entry that is already gone needs no
+   * notice.
+   */
+  const dropIfStillHolds = async (
+    record: StoredSignInRecord,
     reason: Extract<SignInNotice, { kind: "removed" }>["reason"],
   ): Promise<void> => {
-    await deleteEntry(clientId);
-    notify({ kind: "removed", reason });
+    if (await deleteIfStillHolds(record.clientId, record.accessToken)) {
+      notify({ kind: "removed", reason });
+    }
   };
 
   /** Validates (and if needed refreshes) a stored sign-in; `null` means use the device flow. */
@@ -318,7 +319,7 @@ export function createDeviceFlowSessionProvider(
     let isRefreshed = false;
     if (!isFresh(record.expiresAt)) {
       if (record.refreshToken === null || !isFresh(record.refreshTokenExpiresAt)) {
-        await drop(record.clientId, "expired");
+        await dropIfStillHolds(record, "expired");
         return null;
       }
       try {
@@ -349,7 +350,7 @@ export function createDeviceFlowSessionProvider(
             return isRetry ? null : tryStored(current, latest, true);
           }
         }
-        if (latest !== null) await drop(record.clientId, "refresh_failed");
+        if (latest !== null) await dropIfStillHolds(record, "refresh_failed");
         return null;
       }
     }
@@ -392,9 +393,9 @@ export function createDeviceFlowSessionProvider(
   ): Promise<GitHubSession | null> => {
     const reused = await tryStored(current, record, false);
     if (reused === null) return null;
-    // The entry this session's token is (or would be) stored in.
-    let held: StoredSignInRecord | null = record;
-    if (reused.isRefreshed) held = await saveRefreshed(current, record, reused.tokens);
+    // When the refreshed tokens were not saved (the entry was removed by `pgard logout` or
+    // replaced by `pgard login` meanwhile), the keychain no longer holds this session's token.
+    if (reused.isRefreshed) await saveRefreshed(current, record, reused.tokens);
     const session = createSessionFromToken(
       reused.tokens.accessToken,
       reused.tokens.expiresAt,
@@ -424,8 +425,10 @@ export function createDeviceFlowSessionProvider(
       userId: user.id,
       isRefreshed: reused.isRefreshed,
     });
-    // Only a token that is actually in the keychain ties this session to the entry.
-    if (held !== null) markStored(myGeneration, reused.tokens.accessToken);
+    // Always tie the session to this token. If the keychain does not hold it (see above), the
+    // next `isStillStored` check sees the mismatch and the provider follows the keychain
+    // (the newer sign-in, or a new device flow after a removal) instead of serving this one.
+    markStored(myGeneration, reused.tokens.accessToken);
     return finish(session, reused.tokens.accessToken, myGeneration);
   };
 

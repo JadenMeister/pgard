@@ -14,7 +14,12 @@ import {
   signInAndStore,
   type SignInNotice,
 } from "./session-provider.js";
-import { readStoredSignInStatus, removeStoredSignIn, signInKey } from "./stored-sign-in.js";
+import {
+  readStoredSignInStatus,
+  removeStoredSignIn,
+  signInKey,
+  withKeychainLock,
+} from "./stored-sign-in.js";
 
 const CLIENT_ID = "Iv23.testClient";
 const OTHER_CLIENT_ID = "Iv23.otherClient";
@@ -362,6 +367,90 @@ describe("stored sign-in reuse", () => {
     expect(userCodes).toEqual([]);
     expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
     expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  it("keeps a sign-in saved between the reload and the delete of a revoked entry (#162)", async () => {
+    const { store, inner } = controllableStore();
+    await inner.set(KEY, storedRecord({ accessToken: REVOKED_TOKEN }));
+    const github = fakeGitHub();
+    let reads = 0;
+    // The reload (second read) returns the revoked entry; `pgard login` then saves a new one
+    // before the delete's own re-check (third read).
+    const racing: CredentialStore = {
+      ...store,
+      get: async (key) => {
+        reads += 1;
+        const value = await store.get(key);
+        if (reads === 2) await inner.set(KEY, storedRecord({ accessToken: NEW_TOKEN }));
+        return value;
+      },
+    };
+    const { provider, notices } = makeProvider(github, racing);
+    // No device token is queued, so the device flow after the rejected entry ends in an error and
+    // cannot write anything itself: whatever the keychain holds afterwards was left by the race.
+    await expect(provider()).rejects.toBeDefined();
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "revoked" });
+  });
+
+  /**
+   * A keychain where `pgard login` saves `replacement` right after the `afterRead`-th read
+   * returned (the reads are numbered across the whole test).
+   */
+  function replacedAfterRead(
+    inner: ReturnType<typeof createInMemoryCredentialStore>,
+    afterRead: number,
+    replacement: string,
+  ): CredentialStore {
+    let reads = 0;
+    return {
+      get: async (key) => {
+        reads += 1;
+        const value = await inner.get(key);
+        if (reads === afterRead) await inner.set(KEY, replacement);
+        return value;
+      },
+      set: (key, secret) => inner.set(key, secret),
+      delete: (key) => inner.delete(key),
+    };
+  }
+
+  it("keeps a sign-in saved while an expired entry was about to be deleted (#162)", async () => {
+    const inner = await storeWith(storedRecord({ expiresAt: START - HOUR, refreshToken: null }));
+    const store = replacedAfterRead(inner, 1, storedRecord({ accessToken: NEW_TOKEN }));
+    const { provider, notices } = makeProvider(fakeGitHub(), store);
+    await expect(provider()).rejects.toBeDefined(); // no device token queued
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "expired" });
+  });
+
+  it("keeps a sign-in saved while a rejected refresh was about to delete its entry (#162)", async () => {
+    const inner = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    // Reads: 1 load, 2 and 3 the race reloads (the same refresh token), 4 the delete's re-check.
+    const store = replacedAfterRead(inner, 3, storedRecord({ accessToken: NEW_TOKEN }));
+    const { provider, notices } = makeProvider(fakeGitHub(), store);
+    await expect(provider()).rejects.toBeDefined();
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+    expect(notices).not.toContainEqual({ kind: "removed", reason: "refresh_failed" });
+  });
+
+  it("keeps a sign-in saved while a malformed entry was about to be deleted (#162)", async () => {
+    const inner = await storeWith("{not json");
+    const store = replacedAfterRead(inner, 1, storedRecord({ accessToken: NEW_TOKEN }));
+    const { provider } = makeProvider(fakeGitHub(), store);
+    await expect(provider()).rejects.toBeDefined();
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  it("deletes a malformed entry that is still unchanged (#162)", async () => {
+    const inner = await storeWith("{not json");
+    const { provider, notices } = makeProvider(
+      fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] }),
+      inner,
+    );
+    await provider();
+    expect(notices[0]).toEqual({ kind: "removed", reason: "malformed" });
+    expect(JSON.parse((await inner.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
   });
 
   it("stops reusing a cached keychain session after pgard logout in another process", async () => {
@@ -797,6 +886,26 @@ describe("keychain writes and removals are serialized (#143)", () => {
     expect(github.count("user")).toBe(1);
   });
 
+  it.each([
+    ["a malformed entry", "{not json"],
+    ["an expired entry", storedRecord({ expiresAt: START - HOUR, refreshToken: null })],
+  ])("deletes %s only under the keychain lock (#162)", async (_name, text) => {
+    const { store, inner, control } = controllableStore();
+    await inner.set(KEY, text);
+    const lock = gate();
+    const holding = withKeychainLock(store, () => lock.promise);
+    const github = fakeGitHub({ deviceTokens: [{ access_token: NEW_TOKEN }] });
+    const { provider } = makeProvider(github, store);
+    const signingIn = provider();
+    await settle();
+    // Someone else holds the lock (a save or removal in flight): the delete must wait.
+    expect(control.deleteCalls).toBe(0);
+    lock.open();
+    await holding;
+    await signingIn;
+    expect(control.deleteCalls).toBeGreaterThan(0);
+  });
+
   it("removes a device-flow sign-in whose save was in flight when removal started", async () => {
     const { store, inner, control } = controllableStore();
     const save = gate();
@@ -866,6 +975,52 @@ describe("keychain writes and removals are serialized (#143)", () => {
     const { provider } = makeProvider({ ...github, fetch }, store);
     await provider();
     expect(JSON.parse((await store.get(KEY)) ?? "{}").refreshToken).toBe(NEW_REFRESH);
+  });
+
+  it("follows the keychain when pgard login replaced the entry during a refresh (#162)", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+    });
+    const fetch: FetchLike = async (url, init) => {
+      if (new URLSearchParams(init.body ?? "").get("grant_type") === "refresh_token") {
+        // `pgard login` saves another sign-in while GitHub rotates the old one.
+        await store.set(KEY, storedRecord({ accessToken: NEW_TOKEN, refreshToken: NEW_REFRESH }));
+      }
+      return github.fetch(url, init);
+    };
+    const { provider, userCodes } = makeProvider({ ...github, fetch }, store);
+    const first = await provider();
+    // The refreshed session is not what the keychain holds: the next call must not serve it.
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual([]);
+    const lastUserCall = github.calls.filter((call) => call.url.endsWith("/user")).at(-1);
+    expect(lastUserCall?.init.headers.Authorization).toBe(`Bearer ${NEW_TOKEN}`);
+    await expect(first.client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "unauthorized",
+    });
+    expect(JSON.parse((await store.get(KEY)) ?? "{}").accessToken).toBe(NEW_TOKEN);
+  });
+
+  it("signs in again when pgard logout removed the entry during a refresh (#162)", async () => {
+    const store = await storeWith(storedRecord({ expiresAt: START - HOUR }));
+    const github = fakeGitHub({
+      refreshResponse: { access_token: REFRESHED_TOKEN, refresh_token: REFRESHED_REFRESH },
+      deviceTokens: [{ access_token: NEW_TOKEN }],
+    });
+    const fetch: FetchLike = async (url, init) => {
+      if (new URLSearchParams(init.body ?? "").get("grant_type") === "refresh_token") {
+        await store.delete(KEY); // `pgard logout` in another process
+      }
+      return github.fetch(url, init);
+    };
+    const { provider, userCodes } = makeProvider({ ...github, fetch }, store);
+    const first = await provider();
+    expect(store.size()).toBe(0);
+    const second = await provider();
+    expect(second).not.toBe(first);
+    expect(userCodes).toEqual(["ABCD-1234"]);
   });
 
   it("saves rotated tokens even when a session-only sign-out aborts the /user check", async () => {

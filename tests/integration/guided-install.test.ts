@@ -7,6 +7,7 @@
 import http from "node:http";
 import type { AuthorizationSummary, ScanResult } from "@pgard/findings";
 import {
+  createInMemoryCredentialStore,
   GitHubAuthError,
   guidedInstallRemedy,
   recheckOwnerApproval as realRecheck,
@@ -26,6 +27,7 @@ import {
   createDefaultServerDeps,
   startLocalWebServer,
   type LocalWebServer,
+  type ServerDeps,
 } from "../../apps/local-web/src/server/create-server.js";
 import {
   createGitFixture,
@@ -434,7 +436,7 @@ describe("guided install: organizations and configuration", () => {
       env: {},
       assets: new Map(),
       deps: {
-        ...createDefaultServerDeps(),
+        ...serverDepsWithFakeKeychain(),
         createSessionProvider: () => provider,
         now: () => clock,
       },
@@ -474,7 +476,7 @@ describe("guided install: organizations and configuration", () => {
       presetTargetPort: null,
       env: {},
       assets: new Map(),
-      deps: { ...createDefaultServerDeps(), createSessionProvider: () => provider },
+      deps: { ...serverDepsWithFakeKeychain(), createSessionProvider: () => provider },
       token: WEB_TOKEN,
     });
     try {
@@ -553,6 +555,11 @@ describe("guided install: organizations and configuration", () => {
     expect(h.sleeps()).toBe(0);
   });
 });
+
+/** Default dashboard deps with a fake keychain: tests never read the OS keychain. */
+function serverDepsWithFakeKeychain(): ServerDeps {
+  return { ...createDefaultServerDeps(), credentialStore: createInMemoryCredentialStore() };
+}
 
 const WEB_TOKEN = "guided-install-token-0123456789abcdefgh";
 
@@ -647,7 +654,7 @@ describe("guided install: CLI and dashboard parity", () => {
       assets: new Map(),
       // The server allows one re-check per 5 s; a fake clock steps over that.
       deps: {
-        ...createDefaultServerDeps(),
+        ...serverDepsWithFakeKeychain(),
         createSessionProvider: () => provider,
         now: () => clock,
       },
