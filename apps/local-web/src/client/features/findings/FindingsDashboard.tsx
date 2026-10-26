@@ -4,6 +4,8 @@ import { SeverityBarChart } from "../../components/charts/SeverityBarChart";
 import { SeverityDonutChart } from "../../components/charts/SeverityDonutChart";
 import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
 import { Card, Notice } from "../../components/ui/Card";
+import type { RuleTextsResponse } from "../../../shared/api-types";
+import { localizeFindingText } from "./rule-texts";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   buildFindingsView,
@@ -49,15 +51,23 @@ function FindingItem({ finding }: { finding: Finding }) {
 }
 
 /** Charts, filters and the finding list for the current session's result (already redacted). */
-export function FindingsDashboard({ result }: { result: ScanResult }) {
-  const { m } = useI18n();
+export function FindingsDashboard({
+  result,
+  ruleTexts = null,
+}: {
+  result: ScanResult;
+  /** Rule texts from `GET /api/rule-texts`; without them findings show their stored English text. */
+  ruleTexts?: RuleTextsResponse | null;
+}) {
+  const { m, language } = useI18n();
   const [filters, setFilters] = useState<FindingFilters>(EMPTY_FILTERS);
   // Headline counts and charts cover regular code; test and fixture findings are listed after,
   // and suggestions in vendored code come last (see buildFindingsView).
-  const view = useMemo(
-    () => buildFindingsView(result.findings, filters, m),
-    [result.findings, filters, m],
+  const findings = useMemo(
+    () => result.findings.map((finding) => localizeFindingText(finding, ruleTexts, language)),
+    [result.findings, ruleTexts, language],
   );
+  const view = useMemo(() => buildFindingsView(findings, filters, m), [findings, filters, m]);
   const { counts, statusCounts, contextNote, visible } = view;
   const overallLabels: Record<string, string> = m.findings.overall;
 
