@@ -523,90 +523,6 @@ export function analyzeJsSource(
     return out;
   };
 
-  const RAW_TEXT_ELEMENTS = new Set([
-    "script",
-    "style",
-    "textarea",
-    "title",
-    "iframe",
-    "noscript",
-    "noembed",
-    "noframes",
-    "xmp",
-    "plaintext",
-    "template",
-  ]);
-  const VOID_ELEMENTS = new Set([
-    "area",
-    "base",
-    "br",
-    "col",
-    "embed",
-    "hr",
-    "img",
-    "input",
-    "link",
-    "meta",
-    "param",
-    "source",
-    "track",
-    "wbr",
-  ]);
-  /**
-   * True only when the literal markup built so far provably leaves the next value in the text of
-   * an open, ordinary (not raw-text, not void) element, as in `<p>` or `<ul><li>`. The scan is
-   * quote-aware: a `>` inside a quoted attribute value does not end the tag. Anything it cannot
-   * prove (nothing written yet, an open tag or comment, a raw-text element) is not text context.
-   */
-  const isProvableTextContext = (before: string): boolean => {
-    const stack: string[] = [];
-    let index = 0;
-    while (index < before.length) {
-      if (before[index] !== "<") {
-        index += 1;
-        continue;
-      }
-      if (before.startsWith("<!--", index)) {
-        const end = before.indexOf("-->", index + 4);
-        if (end === -1) return false;
-        index = end + 3;
-        continue;
-      }
-      const tag = /^<(\/?)([A-Za-z][\w:-]*)/.exec(before.slice(index, index + 80));
-      if (!tag) {
-        index += 1;
-        continue;
-      }
-      const closing = tag[1] === "/";
-      const name = (tag[2] ?? "").toLowerCase();
-      let cursor = index + tag[0].length;
-      let quote = "";
-      let closed = false;
-      for (; cursor < before.length; cursor += 1) {
-        const char = before[cursor];
-        if (quote) {
-          if (char === quote) quote = "";
-        } else if (char === '"' || char === "'") {
-          quote = char;
-        } else if (char === ">") {
-          closed = true;
-          break;
-        }
-      }
-      if (!closed) return false;
-      const selfClosing = before[cursor - 1] === "/";
-      if (closing) {
-        const at = stack.lastIndexOf(name);
-        if (at !== -1) stack.length = at;
-      } else if (!selfClosing && !VOID_ELEMENTS.has(name)) {
-        stack.push(name);
-      }
-      index = cursor + 1;
-    }
-    const open = stack[stack.length - 1];
-    return open !== undefined && !RAW_TEXT_ELEMENTS.has(open);
-  };
-
   /** Text of a literal, or of a sole-binding constant holding one; null when not visible here. */
   const literalText = (expression: ts.Expression, depth = 0): string | null => {
     const node = unwrap(expression);
@@ -620,35 +536,38 @@ export function analyzeJsSource(
   };
 
   /**
-   * escape-html escapes `& < > " '`: enough for HTML text, not for an attribute (unquoted, URL,
-   * handler, `content`, SVG `values`), a script element or an unknown sink element. So the call is
-   * trusted ("safe") only when it sits in text context provable from literal text in the same
-   * expression. Every other use is "unclear" and keeps a low-confidence finding. null: some part
-   * is neither fixed nor escaped, or nothing is escaped.
+   * escape-html escapes only `& < > " '`. That is not enough in an attribute, a URL, a script or
+   * style element, or an unknown sink element, and a parser here would have to model HTML
+   * tokenization, so the call never silences a finding. The check below only chooses the wording:
+   * "text-like" when the literal markup just before the value ends in an ordinary open tag
+   * followed by plain text; "unclear" otherwise. null: a dynamic part is not escape-html's, or
+   * nothing is escaped (the normal finding applies). Only the last 200 characters are kept.
    */
-  const escapeHtmlVerdict = (value: ts.Expression): "safe" | "unclear" | null => {
-    const parts = htmlParts(value);
+  const escapeHtmlVerdict = (value: ts.Expression): "text-like" | "unclear" | null => {
     let escaped = false;
-    let unclear = false;
+    let textLike = true;
     let before = "";
     let known = true;
-    for (const part of parts) {
+    for (const part of htmlParts(value)) {
       if (typeof part === "string") {
-        before += part;
+        before = (before + part).slice(-200);
       } else if (isEscapeHtmlCall(part)) {
         escaped = true;
-        if (!known || !isProvableTextContext(before)) unclear = true;
-        before += "\u0001";
+        if (!known || !LOOKS_LIKE_TEXT_CONTEXT.test(before)) textLike = false;
+        before = (before + "\u0001").slice(-200);
       } else if (isStrictInert(part, "sql")) {
         const text = literalText(part);
         if (text === null) known = false;
-        else before += text;
+        else before = (before + text).slice(-200);
       } else {
         return null;
       }
     }
-    return escaped ? (unclear ? "unclear" : "safe") : null;
+    return escaped ? (textLike ? "text-like" : "unclear") : null;
   };
+  /** An ordinary (not script, style, textarea, title, template, svg) open tag, then plain text. */
+  const LOOKS_LIKE_TEXT_CONTEXT =
+    /<(?!(?:script|style|textarea|title|template|svg|math|iframe|noscript|xmp|plaintext)\b)[a-z][a-z0-9]*(?:\s+[\w-]+="[^"<>]*")*\s*>[^<>"'`]*$/i;
 
   /** A default import of a build-time asset (`./card.html`, `?raw`): its text is not visible here. */
   const bundledTemplate = (value: ts.Expression): string | null => {
@@ -675,7 +594,6 @@ export function analyzeJsSource(
     )
       return;
     const verdict = importSet.has("escape-html") ? escapeHtmlVerdict(value) : null;
-    if (verdict === "safe") return;
     const evidence = classify(
       value,
       true,
@@ -687,13 +605,15 @@ export function analyzeJsSource(
     );
     if (!evidence) return;
     const template = namespaceImports.size > 0 ? bundledTemplate(value) : null;
-    if (verdict === "unclear") {
+    if (verdict !== null) {
       report(
         ruleId,
         node,
         demote(
           evidence,
-          "every dynamic part goes through escape-html, but it escapes only & < > quotes, so it does not protect an attribute, URL, script element or markup context that cannot be proven from literal text here",
+          verdict === "text-like"
+            ? "escape-html wraps the value in what looks like an HTML text context; verify it is not inside script/style or an attribute"
+            : "escape-html only escapes & < > \" ' and is not sufficient in this context (attribute, URL, script/style element or unknown markup)",
         ),
         sink,
       );

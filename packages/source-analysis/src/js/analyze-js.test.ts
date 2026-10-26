@@ -116,58 +116,80 @@ describe("PG-XSS jQuery, escape-html, bundled templates and spread props", () =>
     expect(xss("(function ($) { $('#o').html('<b>' + location.hash); })(jQuery);")).toHaveLength(1);
   });
 
-  it("trusts escape-html only in text context provable from literal markup", () => {
+  it("never silences a value that goes through escape-html, and words the evidence by context", () => {
     const e = (body: string) => xss(`import esc from "escape-html"; ${body}`);
-    // Provable text: an open ordinary element in the same expression, constants resolved.
-    expect(e("el.innerHTML = `<b>${esc(a)}</b> <i>${esc(b)}</i>`;")).toEqual([]);
-    expect(e("el.innerHTML = `<ul><li>${esc(a)} ${5}</li></ul>`;")).toEqual([]);
-    expect(e("const OPEN = '<p class=\"x\">'; el.innerHTML = OPEN + esc(a) + '</p>';")).toEqual([]);
-    expect(e("el.innerHTML = '<p title=\"a > b\">' + esc(a) + '</p>';")).toEqual([]);
-    // One unescaped part keeps the normal (medium+) finding.
-    expect(e("el.innerHTML = `<b>${esc(a)}</b>${location.hash}`;")[0]).toMatchObject({
-      confidence: "medium",
-    });
-    // Everything else is demoted, not dropped: attributes, URLs, handlers, `content`, SVG values,
-    // script/style/textarea, a bare call (unknown sink element), unresolved or quoted-`>` prefixes.
-    const demoted = [
-      "el.innerHTML = `<a href=${esc(u)}>x</a>`;",
-      'el.innerHTML = `<a href="${esc(u)}">x</a>`;',
-      'el.innerHTML = `<a title="t" onclick="${esc(u)}">x</a>`;',
-      'el.innerHTML = `<span title="${esc(u)}">x</span>`;',
-      'el.innerHTML = `<meta http-equiv="refresh" content="0;url=${esc(u)}">`;',
-      'el.innerHTML = `<svg><animate attributeName="href" values="${esc(u)}"/></svg>`;',
-      "el.innerHTML = `<script>var x = '${esc(u)}'</script>`;",
-      "el.innerHTML = `<textarea>${esc(u)}</textarea>`;",
-      "el.innerHTML = esc(u);",
-      "$('#o').html(esc(u));",
-      "el.innerHTML = prefix + esc(u) + '</p>';",
-      "const OPEN_LINK = '<a href=\"'; el.innerHTML = OPEN_LINK + esc(u) + '\">x</a>';",
-      "el.innerHTML = '<a title=\"a > b\" href=\"' + esc(u) + '\">x</a>';",
-      "document.createElement('script').innerHTML = esc(u);",
+    const looksLikeText = [
+      "el.innerHTML = `<b>${esc(a)}</b> <i>${esc(b)}</i>`;",
+      "el.innerHTML = `<ul><li>${esc(a)} ${5}</li></ul>`;",
+      "const OPEN = '<p class=\"x\">'; el.innerHTML = OPEN + esc(a) + '</p>';",
+      "$('#o').html('<p>' + esc(a) + '</p>');",
+      // Nested inside raw text it cannot see: still reported, wording asks to verify.
+      "el.innerHTML = `<script><b>${esc(u)}`;",
     ];
-    for (const body of demoted) {
+    for (const body of looksLikeText) {
       const found = e(body);
       expect(found, body).toHaveLength(1);
       expect(found[0], body).toMatchObject({ confidence: "low", status: "suspected" });
       expect(found[0]?.severity, body).not.toBe("high");
-      // An unresolved prefix is an ordinary unknown part: kept, without an escape-html note.
-      if (!body.includes("prefix")) expect(found[0]?.evidence, body).toContain("escape-html");
+      expect(found[0]?.evidence, body).toContain("looks like an HTML text context");
     }
-    // Not the escape-html module (a local function, a shadowing parameter, another import): no credit.
+    const notSufficient = [
+      "el.innerHTML = `<a href=${esc(u)}>x</a>`;",
+      'el.innerHTML = `<a href="${esc(u)}">x</a>`;',
+      'el.innerHTML = `<a title="t" onclick="${esc(u)}">x</a>`;',
+      'el.innerHTML = `<meta http-equiv="refresh" content="0;url=${esc(u)}">`;',
+      'el.innerHTML = `<svg><animate attributeName="href" values="${esc(u)}"/></svg>`;',
+      "el.innerHTML = `<script>var x = '${esc(u)}'</script>`;",
+      "el.innerHTML = `<script/>${esc(u)}`;",
+      "el.innerHTML = `<style><i>x</i>${esc(u)}`;",
+      "el.innerHTML = `<textarea>${esc(u)}</textarea>`;",
+      "el.innerHTML = esc(u);",
+      "$('#o').html(esc(u));",
+      "const OPEN_LINK = '<a href=\"'; el.innerHTML = OPEN_LINK + esc(u) + '\">x</a>';",
+      "document.createElement('script').innerHTML = esc(u);",
+    ];
+    for (const body of notSufficient) {
+      const found = e(body);
+      expect(found, body).toHaveLength(1);
+      expect(found[0], body).toMatchObject({ confidence: "low", status: "suspected" });
+      expect(found[0]?.severity, body).not.toBe("high");
+      expect(found[0]?.evidence, body).toContain("not sufficient");
+    }
+    // A void-element prefix is never a reason to stay silent.
+    const voided = e('el.innerHTML = "<img src=x>" + esc(a);');
+    expect(voided).toHaveLength(1);
+    expect(voided[0]).toMatchObject({ confidence: "low" });
+    // A part that is not escape-html's keeps the normal medium-or-higher finding, even when the
+    // file imports escape-html and the sink also has an escaped part.
+    expect(e("el.innerHTML = `<b>${esc(a)}</b>${location.hash}`;")[0]).toMatchObject({
+      confidence: "medium",
+    });
+    expect(
+      xss(
+        'import esc from "escape-html"; import t from "./t.js"; el.innerHTML = "<b>" + t(location.hash);',
+      )[0],
+    ).toMatchObject({ confidence: "medium" });
+    // Not the escape-html module (a local function, a shadowing parameter, another import).
     for (const body of [
-      "function esc(s) { return s; } el.innerHTML = `<b>${esc(a)}</b>`;",
-      "function f(esc) { el.innerHTML = `<b>${esc(a)}</b>`; }",
+      "function esc(s) { return s; } el.innerHTML = `<b>${esc(location.hash)}</b>`;",
+      "function f(esc) { el.innerHTML = `<b>${esc(location.hash)}</b>`; }",
     ])
-      expect(xss(`import esc from "escape-html"; ${body}`), body).toHaveLength(1);
-    expect(
-      xss("function esc(s) { return s; } el.innerHTML = `<b>${esc(location.hash)}</b>`;")[0],
-    ).toMatchObject({ confidence: "medium" });
-    expect(
-      xss('import esc from "./html-utils.js"; el.innerHTML = `<b>${esc(location.hash)}</b>`;')[0],
-    ).toMatchObject({ confidence: "medium" });
-    expect(
-      xss('import { esc } from "lodash"; el.innerHTML = `<b>${esc(location.hash)}</b>`;')[0],
-    ).toMatchObject({ confidence: "medium" });
+      expect(xss(`import esc from "escape-html"; ${body}`)[0], body).toMatchObject({
+        confidence: "medium",
+      });
+    for (const module of ["./html-utils.js", "lodash"])
+      expect(
+        xss(`import esc from "${module}"; el.innerHTML = \`<b>\${esc(location.hash)}</b>\`;`)[0],
+        module,
+      ).toMatchObject({ confidence: "medium" });
+  });
+
+  it("stays linear in the number of escape-html parts", () => {
+    const parts = Array.from({ length: 4000 }, () => "<li>${esc(a)}</li>").join("");
+    const code = `import esc from "escape-html"; el.innerHTML = \`${parts}\`;`;
+    const start = performance.now();
+    expect(xss(code)).toHaveLength(1);
+    expect(performance.now() - start).toBeLessThan(1500);
   });
 
   it("does not treat a jQuery or DOM node result as an HTML string", () => {

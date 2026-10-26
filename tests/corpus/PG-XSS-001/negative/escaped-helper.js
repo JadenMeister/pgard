@@ -1,4 +1,4 @@
-// corpus: expect=none
+// corpus: expect=low
 import escapeHtml from "escape-html";
 
 export function show(el, name) {
