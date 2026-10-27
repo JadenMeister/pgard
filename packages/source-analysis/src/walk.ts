@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
-import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
+import {
+  classifyDependencyVendorDirectory,
+  isUnderJvmSourceRoot,
+  type DependencyVendorReason,
+} from "@pgard/findings";
 import {
   SKIPPED_DEPENDENCY_DIRECTORIES,
   SKIPPED_DIRECTORIES,
@@ -122,23 +126,54 @@ const PROBE_SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([
   ".java",
   ".kt",
   ".kts",
+  ".ts",
+  ".tsx",
 ]);
 
+const JVM_MANIFESTS = [
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+];
+
 /**
- * True under a JVM source root (`src/main/java`, `src/test/kotlin`, ...): a segment `java` or
- * `kotlin` below a `src` segment. A directory named `build` there is a package, not build output.
+ * A Maven or Gradle manifest in an ancestor directory, or Java/Kotlin files already seen: the
+ * walk exemption for a package called `build` applies to JVM projects only, so a JavaScript
+ * repository with `src/main/java/build/` is not affected.
  */
-export function isUnderJvmSourceRoot(relativePath: string): boolean {
-  const segments = relativePath.split("/").slice(0, -1);
-  const src = segments.indexOf("src");
-  return src >= 0 && segments.slice(src + 1).some((part) => part === "java" || part === "kotlin");
+async function isJvmProjectSoFar(
+  root: string,
+  relativePath: string,
+  result: WalkResult,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  if (result.trackFiles.java.length + result.trackFiles.kotlin.length > 0) return true;
+  const parts = relativePath.split("/").slice(0, -1);
+  for (let depth = 0; depth <= parts.length; depth += 1) {
+    const directory = path.join(root, ...parts.slice(0, depth));
+    let found = cache.get(directory);
+    if (found === undefined) {
+      found = false;
+      for (const name of JVM_MANIFESTS) {
+        const stats = await lstat(path.join(directory, name)).catch(() => null);
+        if (stats?.isFile()) found = true;
+      }
+      cache.set(directory, found);
+    }
+    if (found) return true;
+  }
+  return false;
 }
 
 async function containsSourceFiles(directory: string): Promise<boolean> {
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
   return entries.some(
     (entry) =>
-      entry.isFile() && PROBE_SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()),
+      entry.isFile() &&
+      !entry.name.endsWith(".d.ts") &&
+      PROBE_SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()),
   );
 }
 
@@ -264,6 +299,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     return stats;
   };
   let probes = 0;
+  const manifestCache = new Map<string, boolean>();
   const stack: string[] = [root];
   while (stack.length > 0) {
     const directory = stack.pop() as string;
@@ -301,7 +337,10 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         if (entry.name === ".git") continue;
         if (SKIPPED_DIRECTORIES.has(entry.name)) {
           // A package named `build`, `out` or `dist` under a JVM source root is first-party code.
-          if (isUnderJvmSourceRoot(relativePath)) {
+          if (
+            isUnderJvmSourceRoot(relativePath) &&
+            (await isJvmProjectSoFar(root, relativePath, result, manifestCache))
+          ) {
             stack.push(absolutePath);
             continue;
           }

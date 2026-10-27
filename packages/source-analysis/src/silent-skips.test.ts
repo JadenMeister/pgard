@@ -12,7 +12,7 @@ import {
   describeUnreadableEntries,
   scanSourceCode,
 } from "./scan-source.js";
-import { isUnderJvmSourceRoot } from "./walk.js";
+import { isUnderJvmSourceRoot } from "@pgard/findings";
 
 const roots: string[] = [];
 const restore: string[] = [];
@@ -116,7 +116,7 @@ describe("directories skipped by name", () => {
     });
     const entry = area(await scanSourceCode(root), "source:build-output");
     expect(entry?.status).toBe("partial");
-    expect(entry?.note).toContain('"build/ (contains source files; skipped by name)"');
+    expect(entry?.note).toContain('"build/ (contains source)"');
     expect(entry?.note).toContain("Contains source files; skipped by name.");
     expect((entry?.note ?? "").length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
   });
@@ -139,17 +139,80 @@ describe("directories skipped by name", () => {
     expect(area(result, "source:java")?.note).toMatch(/^1 Java file/);
   });
 
+  it("walks a Gradle package called build too, but not under a JavaScript repository", async () => {
+    const gradle = project({
+      "src/main/kotlin/com/acme/out/Foo.kt": "fun f() {}\n",
+      "build.gradle.kts": "x",
+      "build/classes/A.class": "x",
+    });
+    const result = await scanSourceCode(gradle);
+    expect(area(result, "source:kotlin")?.note).toMatch(/^1 Kotlin file/);
+    expect(area(result, "source:build-output")?.note).toMatch(/^1 director/);
+    const js = project({ "app.ts": SRC, "src/main/java/build/Widget.js": SRC });
+    const jsResult = await scanSourceCode(js);
+    expect(jsResult.findings).toEqual([]);
+    expect(area(jsResult, "source:build-output")?.note).toMatch(/^1 director/);
+    const jsFiles = project({ "src/java/build/a.ts": SRC, "app.ts": SRC });
+    expect(area(await scanSourceCode(jsFiles), "source:build-output")).toBeDefined();
+  });
+
   it("recognises JVM source roots", () => {
     for (const yes of [
       "src/main/java/build",
       "src/test/kotlin/com/out",
       "app/src/main/java/a/dist",
+      "src/integrationTest/java/x/Foo.java",
+      "src/main/java/com/acme/build/Foo.java",
     ]) {
       expect(isUnderJvmSourceRoot(yes), yes).toBe(true);
     }
-    for (const no of ["build", "src/build", "java/build", "src/main/build", "lib/java/build"]) {
+    for (const no of [
+      "build",
+      "src/build",
+      "java/build",
+      "src/main/build",
+      "lib/java/build",
+      "src/java/build",
+      "src/main/java",
+      "build/src/main/x",
+    ]) {
       expect(isUnderJvmSourceRoot(no), no).toBe(false);
     }
+  });
+
+  it("counts TypeScript in a skipped directory as source, but not declarations", async () => {
+    const pkg = project({ "app.py": "x=1\n", "packages/angular/build/index.ts": "export {};\n" });
+    expect(area(await scanSourceCode(pkg), "source:build-output")?.status).toBe("partial");
+    const tsx = project({ "app.py": "x=1\n", "build/App.tsx": "export {};\n" });
+    expect(area(await scanSourceCode(tsx), "source:build-output")?.status).toBe("partial");
+    const dist = project({
+      "app.py": "x=1\n",
+      "dist/index.js": SRC,
+      "dist/index.d.ts": "export {};\n",
+      "dist/index.js.map": "{}",
+    });
+    expect(area(await scanSourceCode(dist), "source:build-output")?.status).toBe("completed");
+  });
+
+  it("says a directory holds source once: in its label, and in the tail", () => {
+    const note = noteOf(["build"], { withSource: ["build"] });
+    expect(note.match(/contains source/gi)).toHaveLength(2);
+    expect(note).not.toContain("contains source files; skipped by name)");
+  });
+
+  it("changes the note with each reason and tail, and drops them when they do not apply", () => {
+    const plain = noteOf(["dist"]);
+    expect(plain).not.toMatch(/No source file|Contains source|file limit|first 200/);
+    expect(noteOf(["dist"], { noSourceElsewhere: true })).toContain(
+      " No source file was found outside these directories. Move",
+    );
+    expect(noteOf(["dist"], { limitReached: true })).toContain(
+      "(file limit reached; count may be incomplete) Move",
+    );
+    expect(noteOf(["dist"], { probeLimit: 200 })).toContain("(first 200 checked for source) Move");
+    expect(noteOf(["dist"], { withSource: ["dist"] })).toContain(
+      " Contains source files; skipped by name. Move",
+    );
   });
 
   it("notes when the source check hit its directory cap", async () => {

@@ -231,7 +231,7 @@ export function describeSkippedBuildDirectories(input: BuildDirectoryNoteInput):
     tail,
     "/",
     new Set(withSource),
-    " (contains source files; skipped by name)",
+    " (contains source)",
   );
 }
 

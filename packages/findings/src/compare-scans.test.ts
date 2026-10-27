@@ -420,7 +420,7 @@ describe("compareScans", () => {
           }
         });
 
-        it(`${area}: a finding at ${path} stays not comparable, unless nothing is skipped`, () => {
+        it(`${area}: a finding at ${path} stays not comparable when the skip set changes`, () => {
           if (area === "source:special-files") {
             const result = goneAt(path, JS, [...JS, skip(area, status, "1 skipped (set 1): a.")]);
             expect(result.noLongerReported).toHaveLength(1);
@@ -433,6 +433,41 @@ describe("compareScans", () => {
           expect(goneAt(path, JS, JS).noLongerReported).toHaveLength(1);
         });
       }
+
+      it("source:build-output: the same skip set in both scans holds nothing back", () => {
+        const both = [...JS, skip("source:build-output", "completed", "1 skipped (set 1): a.")];
+        expect(goneAt("build/x.js", both, both).noLongerReported).toHaveLength(1);
+        expect(newAt("build/x.js", both, both).newInUncertainAreas).toEqual([]);
+      });
+
+      it("a JVM package called build is never held back by source:build-output", () => {
+        const foo = "src/main/java/com/acme/build/Foo.java";
+        const before = [...JS, skip("source:build-output", "completed", "1 skipped (set 1): a.")];
+        const after = [...JS, skip("source:build-output", "completed", "2 skipped (set 2): a, b.")];
+        for (const [previous, current] of [
+          [before, before],
+          [JS, before],
+          [before, after],
+          [before, JS],
+        ]) {
+          expect(
+            goneAt(foo, previous as Coverage[], current as Coverage[]).noLongerReported,
+          ).toHaveLength(1);
+          const added = newAt(foo, previous as Coverage[], current as Coverage[]);
+          expect(added.newInUncertainAreas).toEqual([]);
+          expect(added.uncertainAreas).toEqual([]);
+        }
+      });
+
+      it("note-only areas that stay partial leave their own area comparable", () => {
+        for (const area of ["source:unreadable-files", "source:build-output"]) {
+          const partial = skip(area, "partial", "1 (set 1)");
+          const result = goneAt("lib/x.js", [...JS, partial], [...JS, partial]);
+          const info = result.areas.find((entry) => entry.area === area);
+          expect(info).toMatchObject({ comparable: true, reason: null });
+          expect(notComparableAreas(result)).toEqual([]);
+        }
+      });
 
       it("source:build-output (partial, no source found) blocks everything when its note changes", () => {
         const partial = (note: string) => skip("source:build-output", "partial", note);

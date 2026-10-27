@@ -1,7 +1,7 @@
 import type { Coverage, Finding, ScanResult } from "./contract.js";
 import { createFindingFingerprint } from "./fingerprint.js";
 import { redactEvidence } from "./redact.js";
-import { SKIPPED_DIRECTORIES } from "./skipped-directories.js";
+import { SKIPPED_DIRECTORIES, isUnderJvmSourceRoot } from "./skipped-directories.js";
 
 /**
  * Scan comparison: which findings are new, no longer reported, unchanged or moved between two
@@ -251,6 +251,7 @@ const SPECIAL_AREA = "source:special-files";
 function isUnderSkippedDirectory(findingPath: string | null | undefined): boolean {
   return (
     typeof findingPath === "string" &&
+    !isUnderJvmSourceRoot(findingPath) &&
     findingPath.split("/").some((s) => SKIPPED_DIRECTORIES.has(s))
   );
 }
@@ -320,7 +321,8 @@ function isSkipSignal(area: string, ctx: Context, finding: Finding): boolean {
   // Informational build-output notes only matter for findings in such a directory; the partial
   // form (no source found elsewhere) is a whole-scope signal that follows its note.
   if (area === BUILD_OUTPUT_AREA && !entries.some((entry) => entry.status === "partial")) {
-    return isUnderSkippedDirectory(finding.location.path);
+    // Same skip set in both scans: such a finding could not have been analyzed in only one.
+    return a?.note !== b?.note && isUnderSkippedDirectory(finding.location.path);
   }
   if (NOTE_ONLY_AREAS.has(area)) return a?.note !== b?.note;
   if (entries.some((entry) => entry.status === "partial")) return true;
