@@ -109,6 +109,9 @@ export function describeIdentityError(error: unknown): CheckResult {
         return unverifiable(`GitHub App sign-in is misconfigured: ${error.message}`);
       case "cancelled":
         return unverifiable("GitHub sign-in was cancelled.");
+      case "not_signed_in":
+        // Fixed text from `@pgard/github-auth`: the reason and the fix (`pgard login`).
+        return unverifiable(error.message);
       default:
         return unverifiable(`GitHub identity could not be verified: ${error.message}`);
     }

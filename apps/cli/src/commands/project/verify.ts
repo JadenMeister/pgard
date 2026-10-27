@@ -9,7 +9,7 @@ import { safeText } from "../../ui/formatters/style.js";
 export const NOT_A_REPOSITORY_MESSAGE =
   "The current directory is not inside a Git repository. PGARD always checks the Git root of the current directory.";
 
-function showOutcome(context: CommandContext, outcome: AuthorizationOutcome): void {
+export function showOutcome(context: CommandContext, outcome: AuthorizationOutcome): void {
   out(
     context,
     context.style.dim(

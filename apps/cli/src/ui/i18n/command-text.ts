@@ -8,6 +8,19 @@
  * messages, the report writer's errors, the App override warnings of scan-core).
  */
 
+import { OS_KEYCHAIN_NOT_LOADED_MESSAGE, OS_KEYCHAIN_UNUSABLE_MESSAGE } from "@pgard/scan-core";
+
+/**
+ * The keychain reasons that `@pgard/github-auth` writes (fixed English text, never native error
+ * text) in the terminal language. Any other reason is returned unchanged.
+ */
+export function localizeKeychainReason(reason: string, text: CommandText["signIn"]): string {
+  return reason
+    .replace(OS_KEYCHAIN_UNUSABLE_MESSAGE, text.keychainUnusable)
+    .replace(OS_KEYCHAIN_NOT_LOADED_MESSAGE, text.keychainNotLoaded)
+    .replace("the OS keychain could not be used", text.keychainUnusableShort);
+}
+
 export interface CommandText {
   signIn: {
     revokeHint: (url: string) => string;
@@ -28,6 +41,27 @@ export interface CommandText {
     removedNotice: (reason: string) => string;
     memoryOnly: (reason: string) => string;
     appOverride: (clientId: string, envName: string) => string;
+    /** Fixed keychain reasons from `@pgard/github-auth`, translated by exact match. */
+    keychainUnusable: string;
+    keychainUnusableShort: string;
+    keychainNotLoaded: string;
+    /** `pgard login` without a terminal (usage error). */
+    loginNeedsTerminal: string;
+  };
+  firstRun: {
+    notSignedIn: string;
+    signInQuestion: string;
+    signInDeclined: string;
+    signedInVerifying: string;
+    verifying: string;
+    allowed: string;
+    openPrompt: string;
+    afterInstallPrompt: string;
+    rechecking: (attempt: number, max: number) => string;
+    stillBlocked: (max: number) => string;
+    quit: string;
+    blockedOther: string;
+    signInFailed: string;
   };
   install: {
     thisRepository: string;
@@ -183,6 +217,31 @@ export const COMMAND_TEXT_EN: CommandText = {
       `The saved GitHub sign-in ${reason} and was removed from the OS keychain. Sign in again below.`,
     memoryOnly: (reason) => `The GitHub sign-in is kept in memory for this run only: ${reason}.`,
     appOverride: (clientId, envName) => `Using GitHub App ${clientId} from ${envName} (override).`,
+    keychainUnusable:
+      "the OS keychain could not be used (it may be locked, or no keychain service is running)",
+    keychainUnusableShort: "the OS keychain could not be used",
+    keychainNotLoaded: "the OS keychain module is not available on this platform",
+    loginNeedsTerminal:
+      "`pgard login` needs a terminal: it shows a code to type on github.com and waits for you. Run it in an interactive terminal (stdin and stderr must be a terminal).",
+  },
+  firstRun: {
+    notSignedIn: "You are not signed in to GitHub yet.",
+    signInQuestion: "Sign in now?",
+    signInDeclined:
+      "Skipped. Run `pgard login` whenever you are ready; scans also offer to sign in when they need it.",
+    signedInVerifying: "Signed in. Checking this repository...",
+    verifying: "Checking authorization for this repository (all five checks)...",
+    allowed: "Authorization passed. Starting the scan...",
+    openPrompt: "Press Enter to open the page in your browser (or s to skip)...",
+    afterInstallPrompt: "Press Enter after installing (or q to quit)...",
+    rechecking: (attempt, max) =>
+      `Checking again from scratch, all five authorization checks (try ${attempt} of ${max})...`,
+    stillBlocked: (max) =>
+      `Still blocked after ${max} tries. Nothing was changed. Fix the reason above and run \`pgard\` again.`,
+    quit: "Stopped. Run `pgard` again after the App is installed.",
+    blockedOther:
+      "This cannot be fixed by installing the App, so PGARD does not wait. Fix the reasons above and run `pgard` again.",
+    signInFailed: "Sign-in did not finish. Run `pgard login` to try again.",
   },
   install: {
     thisRepository: "this repository",
@@ -355,6 +414,31 @@ export const COMMAND_TEXT_KO: CommandText = {
     memoryOnly: (reason) => `GitHub 로그인은 이번 실행 동안만 메모리에 보관됩니다: ${reason}.`,
     appOverride: (clientId, envName) =>
       `${envName}에서 재정의한 GitHub App을 사용합니다: ${clientId}`,
+    keychainUnusable:
+      "OS 키체인을 사용할 수 없습니다 (잠겨 있거나 키체인 서비스가 실행 중이지 않을 수 있습니다)",
+    keychainUnusableShort: "OS 키체인을 사용할 수 없습니다",
+    keychainNotLoaded: "이 플랫폼에서는 OS 키체인 모듈을 사용할 수 없습니다",
+    loginNeedsTerminal:
+      "`pgard login`은 터미널이 필요합니다. github.com에 입력할 코드를 보여 주고 사용자를 기다립니다. 대화형 터미널(stdin과 stderr가 터미널)에서 실행하세요.",
+  },
+  firstRun: {
+    notSignedIn: "아직 GitHub에 로그인하지 않았습니다.",
+    signInQuestion: "지금 로그인할까요?",
+    signInDeclined:
+      "건너뛰었습니다. 준비되면 `pgard login`을 실행하세요. 검사가 필요할 때도 로그인을 안내합니다.",
+    signedInVerifying: "로그인했습니다. 이 저장소를 확인합니다...",
+    verifying: "이 저장소의 권한을 확인합니다 (5가지 확인 전체)...",
+    allowed: "권한 확인을 통과했습니다. 검사를 시작합니다...",
+    openPrompt: "Enter를 누르면 브라우저에서 페이지를 엽니다 (건너뛰려면 s)...",
+    afterInstallPrompt: "설치한 뒤 Enter를 누르세요 (종료하려면 q)...",
+    rechecking: (attempt, max) =>
+      `처음부터 다시 확인합니다. 5가지 권한 확인 전체입니다 (${max}회 중 ${attempt}회째)...`,
+    stillBlocked: (max) =>
+      `${max}회 시도 후에도 차단되어 있습니다. 아무것도 바꾸지 않았습니다. 위의 이유를 해결한 뒤 \`pgard\`를 다시 실행하세요.`,
+    quit: "중단했습니다. App을 설치한 뒤 `pgard`를 다시 실행하세요.",
+    blockedOther:
+      "App을 설치해도 해결되지 않는 이유라서 PGARD는 기다리지 않습니다. 위의 이유를 해결한 뒤 `pgard`를 다시 실행하세요.",
+    signInFailed: "로그인을 마치지 못했습니다. `pgard login`으로 다시 시도하세요.",
   },
   install: {
     thisRepository: "이 저장소",

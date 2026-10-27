@@ -23,24 +23,28 @@ function loginDeps(openBrowser: CliDeps["openBrowser"], verificationUri = DEVICE
 async function login(
   argv: string[],
   deps: CliDeps,
-  options: { stdoutIsTTY: boolean; env?: Record<string, string> },
+  options: { stdoutIsTTY: boolean; stdinIsTTY?: boolean; env?: Record<string, string> },
 ) {
   const captured = createTestIo(options.env ? { env: options.env } : {});
-  // stdout is a terminal, stdin is not: no key reader, but browser opening is allowed.
+  // `pgard login` needs stdin and stderr to be terminals; stdout is set per test.
+  captured.stdin.isTTY = options.stdinIsTTY ?? true;
+  (captured.io.stderr as { isTTY?: boolean }).isTTY = true;
   (captured.io.stdout as { isTTY?: boolean }).isTTY = options.stdoutIsTTY;
   const exitCode = await main(argv, captured.io, { deps, interrupts: noInterrupts });
   return { exitCode, stdout: captured.stdout(), stderr: captured.stderr() };
 }
 
 describe("opening the GitHub device page", () => {
-  it("only prints the page when stdout is a TTY but stdin is not (nobody can press Enter)", async () => {
+  it("refuses to sign in when stdin is not a terminal (nobody can type the code)", async () => {
     const openBrowser = vi.fn(async () => true);
-    const result = await login(["login"], loginDeps(openBrowser), { stdoutIsTTY: true });
-    expect(result.exitCode).toBe(0);
+    const result = await login(["login"], loginDeps(openBrowser), {
+      stdoutIsTTY: true,
+      stdinIsTTY: false,
+    });
+    expect(result.exitCode).toBe(2);
     expect(openBrowser).not.toHaveBeenCalled();
-    expect(result.stderr).not.toContain(OPEN_PROMPT);
-    expect(result.stderr).toContain(`1. Open ${DEVICE_PAGE}`);
-    expect(result.stderr).toContain("Enter the code WXYZ-1234");
+    expect(result.stderr).toContain("`pgard login` needs a terminal");
+    expect(result.stderr).not.toContain("Enter the code");
   });
 
   it("does not open anything with --no-browser", async () => {

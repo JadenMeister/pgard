@@ -50,6 +50,11 @@ export interface CliDeps {
     env: Readonly<Record<string, string | undefined>>;
     onUserCode: (code: DeviceUserCode) => void;
     onNotice: (notice: SignInNotice) => void;
+    /**
+     * False without a terminal (stdin or stderr is not a TTY): a stored sign-in is still used,
+     * but no device flow is ever started; the gate blocks with "not signed in" instead.
+     */
+    canSignInInteractively?: boolean;
     signal?: AbortSignal;
   }) => GitHubSessionProvider;
   /**
@@ -204,11 +209,12 @@ export function createDefaultDeps(): CliDeps {
     openBrowser: (url) => openGitHubUrl(url),
     sleep: sleepDefault,
     now: Date.now,
-    createSessionProvider: ({ env, onUserCode, onNotice, signal }) =>
+    createSessionProvider: ({ env, onUserCode, onNotice, canSignInInteractively, signal }) =>
       createDeviceFlowSessionProvider({
         ...deviceFlowApp(env),
         onUserCode,
         onNotice,
+        ...(canSignInInteractively === undefined ? {} : { canSignInInteractively }),
         credentialStore,
         ...(signal === undefined ? {} : { signal }),
       }),

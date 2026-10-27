@@ -8,10 +8,15 @@ import {
 } from "@pgard/scan-core";
 import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
-import { formatGitHubAppOverride, showDeviceCode } from "../flows/authenticate.js";
+import {
+  canSignInInteractively,
+  formatGitHubAppOverride,
+  showDeviceCode,
+} from "../flows/authenticate.js";
 import { stopBrowserOffers } from "../flows/browser.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
+import { localizeKeychainReason } from "../ui/i18n/command-text.js";
 
 /**
  * `pgard login`: runs the device flow and saves the sign-in in the OS keychain so later scans
@@ -20,19 +25,29 @@ import { cliText } from "../ui/i18n/cli-text.js";
  */
 export async function runLogin(context: CommandContext): Promise<ExitCode> {
   const { deps, errStyle } = context;
+  const text = cliText(context.ruleLocale).commands.signIn;
+  // Nobody could type the code: refuse before anything is requested (a usage error, exit 2).
+  if (!canSignInInteractively(context)) {
+    err(context, errStyle.red(text.loginNeedsTerminal));
+    return EXIT_CODES.usage;
+  }
   const app = resolveGitHubAppClientId(context.io.env);
   if (app.source === "invalid") {
     err(context, errStyle.red(app.message));
     return EXIT_CODES.blocked;
   }
   const { clientId } = app;
-  const text = cliText(context.ruleLocale).commands.signIn;
   if (app.source === "env")
     out(context, formatGitHubAppOverride(clientId, cliText(context.ruleLocale)));
   // Check the keychain before asking the user to type a code that could not be saved.
   const status = await readStoredSignInStatus(deps.credentialStore, clientId);
   if (status.status === "unavailable") {
-    err(context, errStyle.yellow(text.keychainUnavailableOnLogin(safeText(status.reason, 200))));
+    err(
+      context,
+      errStyle.yellow(
+        text.keychainUnavailableOnLogin(localizeKeychainReason(safeText(status.reason, 200), text)),
+      ),
+    );
     return EXIT_CODES.partial;
   }
   suspendKeys(context);
@@ -55,7 +70,15 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
   stopBrowserOffers(context);
   const login = safeText(result.login, 40);
   if (result.savedError !== null) {
-    err(context, errStyle.yellow(text.signedInNotSaved(login, safeText(result.savedError, 200))));
+    err(
+      context,
+      errStyle.yellow(
+        text.signedInNotSaved(
+          login,
+          localizeKeychainReason(safeText(result.savedError, 200), text),
+        ),
+      ),
+    );
     return EXIT_CODES.partial;
   }
   out(context, context.style.green(text.signedIn(login)));
@@ -77,7 +100,14 @@ export async function runLogout(context: CommandContext): Promise<ExitCode> {
   const result = await removeStoredSignIn(deps.credentialStore, app.clientId);
   switch (result.status) {
     case "unavailable":
-      err(context, errStyle.yellow(text.keychainUnavailableOnLogout(safeText(result.reason, 200))));
+      err(
+        context,
+        errStyle.yellow(
+          text.keychainUnavailableOnLogout(
+            localizeKeychainReason(safeText(result.reason, 200), text),
+          ),
+        ),
+      );
       return EXIT_CODES.partial;
     case "none":
       out(context, text.noneSaved);
