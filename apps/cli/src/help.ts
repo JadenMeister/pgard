@@ -6,7 +6,8 @@ const EXIT_CODE_HELP = `Exit codes:
   3    repository, authorization or contribution check failed
   4    part of the scan or the report export failed
   5    internal error
-  130  cancelled`;
+  130  cancelled
+  143  terminated by SIGTERM while the panel view was open`;
 
 const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.

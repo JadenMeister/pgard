@@ -250,6 +250,7 @@ Unknown commands and options, invalid values and invalid combinations are reject
 | 4    | Part of the scan did not run, so the result is partial (for example, no web target was confirmed, or the Git history scan stopped at its time budget), or the report export failed. |
 | 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                 |
 | 130  | Cancelled by the user.                                                                                                                                                              |
+| 143  | Terminated by SIGTERM while the panel view was open.                                                                                                                                |
 
 `doctor` exits with 0 when the diagnosis completed (problems are listed as `[fail]` or `[warn]` rows) and 5 on an internal error. `pgard login` and `pgard logout` use these codes:
 
