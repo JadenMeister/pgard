@@ -156,7 +156,7 @@ describe("rule references against bundled standards data", () => {
         expect(example.vulnerable.length, rule.id).toBeGreaterThan(0);
       }
     }
-    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(21);
+    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(23);
   });
 
   it("survives output redaction unchanged: findings carry impact and recommendation through redactEvidence", () => {

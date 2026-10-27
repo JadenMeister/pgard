@@ -33,6 +33,7 @@ export const LANGUAGE_FILTER: Readonly<Record<RuleLanguage, readonly CatalogLang
   java: ["java"],
   kotlin: ["kotlin"],
   php: ["php"],
+  python: ["python"],
 };
 
 /** The filter line under the header, naming every catalog language the filter includes. */

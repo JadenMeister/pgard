@@ -1,0 +1,18 @@
+# corpus: expect=PG-CMD-004
+import os
+import subprocess
+
+from flask import Flask, request
+
+app = Flask(__name__)
+
+
+@app.route("/run")
+def handler():
+    host = request.args["host"]
+
+    def run():
+        os.system("ping " + host)
+
+    run()
+    return "ok"

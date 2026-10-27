@@ -227,6 +227,45 @@ try {
     );
   }
 
+  // The installed package scans a Python project offline: the grammar is read from assets/, both
+  // Python rules fire, and the coverage says what was and was not checked.
+  const pyProject = mkdtempSync(join(prefix, "py project "));
+  writeFileSync(join(pyProject, "requirements.txt"), "Flask==3.0\n");
+  writeFileSync(
+    join(pyProject, "app.py"),
+    [
+      "import os",
+      "import sqlite3",
+      "from flask import Flask, request",
+      "app = Flask(__name__)",
+      "@app.route('/u')",
+      "def u():",
+      "    sqlite3.connect('x.db').cursor().execute(f\"SELECT * FROM t WHERE a = '{request.args['a']}'\")",
+      "    os.system('ping ' + request.args['h'])",
+      "    return ''",
+      "",
+    ].join("\n"),
+  );
+  const pyScan = await grammar.scanSourceCode(pyProject);
+  const pyRules = pyScan.findings.map((item) => item.ruleId).sort();
+  check(
+    "installed package finds Python SQL injection and command execution",
+    pyRules.join(",") === "PG-CMD-004,PG-SQL-006",
+    pyRules.join(","),
+  );
+  const pyCoverage = pyScan.coverage.find((item) => item.area === "source:python");
+  check(
+    "Python coverage is completed and names Flask",
+    pyCoverage?.status === "completed" && /frameworks: Flask/.test(pyCoverage.note ?? ""),
+    JSON.stringify(pyCoverage),
+  );
+  check(
+    "Python categories without rules are reported as not tested",
+    pyScan.coverage.some(
+      (item) => item.area === "source:python:other-categories" && item.status === "not_tested",
+    ),
+  );
+
   // A PHP project scanned from the installed layout, offline: the scanner only reads files, and
   // nothing is stored (PGARD_NO_STORE) or sent anywhere. The PHP grammar must load from assets/.
   process.env.PGARD_NO_STORE = "1";

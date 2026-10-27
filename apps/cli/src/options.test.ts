@@ -117,7 +117,7 @@ describe("parseCommandLine", () => {
     [["scan", "--skip-auth"]],
     [["dashboard", "--port", "3000"]],
     [["scan", "web", "--target-port", "3000"]],
-    [["rules", "list", "--language", "python"]],
+    [["rules", "list", "--language", "ruby"]],
     [["rules"]],
     [["project"]],
     [["project", "verify", "extra"]],
