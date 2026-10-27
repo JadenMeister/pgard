@@ -479,7 +479,7 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
   /** stdin from /dev/null, stdout and stderr redirected: nothing is a terminal. */
   function redirected(cwd: string): CapturedIo {
     const captured = createTestIo({ isTTY: false, cwd, env: {} });
-    captured.io.stdin = fs.createReadStream("/dev/null");
+    captured.io.stdin = fs.createReadStream(os.devNull);
     return captured;
   }
 
