@@ -42,6 +42,7 @@ describe("writeReports", () => {
     );
     expect(error).toBeInstanceOf(ReportWriteError);
     expect((error as ReportWriteError).code).toBe("file_exists");
+    expect(path.dirname((error as ReportWriteError).path ?? "")).toBe(directory);
   });
 
   it("does not follow a pre-planted symlink at the target name", async () => {
@@ -107,6 +108,7 @@ describe("writeReports atomicity", () => {
       (caught: unknown) => caught,
     );
     expect((error as ReportWriteError).code).toBe("file_exists");
+    expect((error as ReportWriteError).path).toBe(pdfPath);
     expect(await readdir(directory)).toEqual(["pgard-report-20261024010203-3f2b9c1e.pdf"]);
     expect(await readFile(pdfPath, "utf8")).toBe("existing");
   });

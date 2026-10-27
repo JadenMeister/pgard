@@ -50,9 +50,6 @@ export async function confirmInsideRepository(context: CommandContext): Promise<
   return promptConfirm(prompts, text.confirmInside);
 }
 
-/** Start of the message `writeReports` gives for a file that already exists. */
-const REFUSAL_PREFIX = "Refusing to overwrite existing file: ";
-
 /** Writes the report files; returns false (exit 4) when writing failed. */
 export async function saveReports(
   context: CommandContext,
@@ -78,9 +75,8 @@ export async function saveReports(
     return true;
   } catch (error) {
     if (error instanceof ReportWriteError && error.code === "file_exists") {
-      const existing = error.message.slice(REFUSAL_PREFIX.length);
-      if (error.message.startsWith(REFUSAL_PREFIX) && savedPaths?.has(existing) === true) {
-        out(context, text.alreadySaved(safeText(existing, 500)));
+      if (error.path !== undefined && savedPaths?.has(error.path) === true) {
+        out(context, text.alreadySaved(safeText(error.path, 500)));
         return true;
       }
     }

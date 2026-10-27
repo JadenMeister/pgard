@@ -678,7 +678,7 @@ describe("e: export from the panel view", () => {
     const writeReports = vi.fn(async () => {
       calls += 1;
       if (calls === 1) return [{ format: "html" as const, filePath: target }];
-      throw new ReportWriteError("file_exists", `Refusing to overwrite existing file: ${target}`);
+      throw new ReportWriteError("file_exists", "Already there.", target);
     });
     const run = await open(["e", ...HTML, ...DIR, "x", "e", ...HTML, ...DIR, "x", "q"], {
       writeReports,
@@ -686,13 +686,18 @@ describe("e: export from the panel view", () => {
     expect(await run.isOk).toBe(true);
     expect(run.outcomes).toEqual(["saved", "saved"]);
     expect(run.captured.stdout()).toContain(`This report was already saved to ${target}.`);
-    expect(run.captured.stderr()).not.toContain("Refusing");
+    // The message is worded differently here: detection uses the path field, not the text.
+    expect(run.captured.stderr()).not.toContain("Already there");
   });
 
   it("still fails for a file this session did not save", async () => {
     const other = path.join(outputDir, "other.html");
     const writeReports = vi.fn(async () => {
-      throw new ReportWriteError("file_exists", `Refusing to overwrite existing file: ${other}`);
+      throw new ReportWriteError(
+        "file_exists",
+        `Refusing to overwrite existing file: ${other}`,
+        other,
+      );
     });
     const run = await open(["e", ...HTML, ...DIR, "x", "q"], { writeReports });
     expect(await run.isOk).toBe(false);

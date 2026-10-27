@@ -21,10 +21,13 @@ export type ReportWriteErrorCode =
 
 export class ReportWriteError extends Error {
   readonly code: ReportWriteErrorCode;
-  constructor(code: ReportWriteErrorCode, message: string) {
+  /** The file the error is about, for per-file errors (exists, create, write); else unset. */
+  readonly path?: string;
+  constructor(code: ReportWriteErrorCode, message: string, path?: string) {
     super(message);
     this.name = "ReportWriteError";
     this.code = code;
+    if (path !== undefined) this.path = path;
   }
 }
 
@@ -80,16 +83,20 @@ async function writeExclusive(filePath: string, content: string | Buffer): Promi
     handle = await open(filePath, "wx", 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new ReportWriteError("file_exists", `Refusing to overwrite existing file: ${filePath}`);
+      throw new ReportWriteError(
+        "file_exists",
+        `Refusing to overwrite existing file: ${filePath}`,
+        filePath,
+      );
     }
-    throw new ReportWriteError("write_failed", `Could not create ${filePath}`);
+    throw new ReportWriteError("write_failed", `Could not create ${filePath}`, filePath);
   }
   let isWritten = false;
   try {
     await handle.writeFile(content);
     isWritten = true;
   } catch {
-    throw new ReportWriteError("write_failed", `Could not write ${filePath}`);
+    throw new ReportWriteError("write_failed", `Could not write ${filePath}`, filePath);
   } finally {
     await handle.close().catch(() => undefined);
     if (!isWritten) await unlink(filePath).catch(() => undefined);
@@ -174,6 +181,7 @@ export async function writeReports(
       throw new ReportWriteError(
         "file_exists",
         `Refusing to overwrite existing file: ${entry.filePath}`,
+        entry.filePath,
       );
     }
   }
