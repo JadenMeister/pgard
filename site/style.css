@@ -850,6 +850,16 @@ html:not(.js) .tabpanel + .tabpanel {
   pointer-events: none;
 }
 
+/* The fade never covers the focus outline of the scrolling frame */
+.capped .term:focus-within::after {
+  display: none;
+}
+
+/* Expanded ("Show full output"): no height cap at all */
+.js .tabs:not(.capped) .term pre {
+  max-height: none;
+}
+
 .demo-foot {
   display: flex;
   flex-wrap: wrap;

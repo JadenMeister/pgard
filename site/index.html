@@ -530,8 +530,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
                   ><span class="state-released">Install</span>
                 </h3>
                 <p class="state-unreleased">
-                  Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. Then
-                  <code>npm link -w @pgard/cli</code> puts pgard on your PATH.
+                  Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. The second
+                  line puts pgard on your PATH.
                 </p>
                 <p class="state-released">
                   Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. Homebrew
@@ -541,6 +541,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               <div class="state-unreleased">
                 <!-- prettier-ignore -->
                 <div class="cmdline"><code id="s1-src"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">git clone https://github.com/JadenMeister/pgard.git &amp;&amp; cd pgard &amp;&amp; npm ci &amp;&amp; npm run build</span></code><button type="button" class="copy" data-copy-target="s1-src" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+                <!-- prettier-ignore -->
+                <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="Copied" aria-label="Copy command">Copy</button></div>
               </div>
               <div class="state-released">
                 <!-- prettier-ignore -->
@@ -562,8 +564,9 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               <div class="step-text">
                 <h3>Scan</h3>
                 <p>
-                  From your project root. Authorization is checked again, then the result opens in
-                  the panel view.
+                  From your project root. Authorization is checked again; in a terminal, the panel
+                  view opens after the text result of a completed or partial scan (not in CI or with
+                  <code>PGARD_PANELS=off</code>).
                 </p>
               </div>
               <!-- prettier-ignore -->
@@ -583,9 +586,12 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               <!-- prettier-ignore -->
               <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
               <p>
-                <code>pgard doctor</code> checks your setup; it is not an authorization. Without
-                <code>npm link</code>, run <code>node apps/cli/dist/bin/pgard.js</code> from the
-                clone. Every command and option is in the
+                <code>pgard doctor</code> checks your setup; it is not an authorization.
+                <span class="state-unreleased"
+                  >Without <code>npm link</code>, run
+                  <code>node apps/cli/dist/bin/pgard.js</code> from the clone.</span
+                >
+                Every command and option is in the
                 <a href="https://github.com/JadenMeister/pgard#readme" rel="noopener">README</a>.
               </p>
             </div>
