@@ -406,13 +406,19 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
                 <pre
                   tabindex="0"
                 ><code><span class="prompt">$</span> <span class="cmd">pgard rules list --language java</span>
-<b>pgard 0.1.0 - detection criteria 2026.10-mvp.4</b>
+<b>pgard 0.1.0 - detection criteria 2026.10-mvp.6</b>
 <b>Language filter: java (rules for any language are included)</b>
 
 <b>Code rules (current files)</b>
+  <span class="rule">PG-AUTH-001</span>    high     Password stored without hashing [javascript, typescript, java, kotlin]
   <span class="rule">PG-CMD-003</span>     high     OS command built from dynamic strings in Java/Kotlin (Runtime.exec, ProcessBuilder, Commons Exec) [java, kotlin]
+  <span class="rule">PG-CRYPTO-001</span>  high     Weak hash (MD5/SHA-1) used for passwords [javascript, typescript, go, java, kotlin]
+  <span class="rule">PG-CRYPTO-002</span>  high     Hardcoded cryptographic key or signing secret [javascript, typescript, go, java, kotlin]
+  <span class="rule">PG-CRYPTO-003</span>  medium   Broken or deprecated cipher, fixed IV or predictable random value [javascript, typescript, java, kotlin]
   <span class="rule">PG-PATH-002</span>    high     File path from request input or an archive entry used in Java/Kotlin file access (path traversal, zip slip) [java, kotlin]
   <span class="rule">PG-SQL-005</span>     high     SQL built from dynamic strings in Java/Kotlin JDBC, JPA/Hibernate or MyBatis code [java, kotlin]
+  <span class="rule">PG-SSRF-002</span>    high     Server-side HTTP request to a URL from request input in Java/Kotlin [java, kotlin]
+  <span class="rule">PG-XSS-004</span>     high     Request data written to an HTML response in Java/Kotlin (servlet writer, JSP, Thymeleaf th:utext) [java, kotlin]
 
 <b>Git history rules</b>
   <span class="rule">PG-HYGIENE-001</span> info     Dependency directory committed to Git [any]
@@ -677,7 +683,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
                 <tr class="emph">
                   <th scope="row">Java, Kotlin</th>
                   <td>
-                    Five categories: SQL injection, XSS, SSRF, command execution, path traversal
+                    Six categories: SQL injection, XSS, SSRF, command execution, path traversal,
+                    cryptography
                   </td>
                 </tr>
                 <tr class="emph">
@@ -844,7 +851,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               ><span>Partial coverage is shown; a partial scan exits with code 4.</span>
             </li>
             <li>
-              <b>languages</b><span>Java and Kotlin: five categories. Python and PHP: two.</span>
+              <b>languages</b><span>Java and Kotlin: six categories. Python and PHP: two.</span>
             </li>
             <li><b>dependencies</b><span>No known-vulnerability (CVE, OSV) matching yet.</span></li>
             <li>

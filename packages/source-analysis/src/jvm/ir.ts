@@ -99,6 +99,8 @@ export interface FieldInfo {
   overridable: boolean;
   init: Expr | null;
   line: number;
+  /** Annotations on the field (`@Value("${jwt.secret:x}")`), when the language adapter read them. */
+  annotations?: Annotation[];
 }
 
 export interface ClassInfo {

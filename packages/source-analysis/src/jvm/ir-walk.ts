@@ -4,11 +4,7 @@ import type { Expr, Stmt, Unit } from "./ir.js";
  * Calls `onExpr` for every expression and `onStmt` for every statement of a file. A long `+`
  * chain is followed along its left side in a loop, not by recursion.
  */
-export function walkUnit(
-  unit: Unit,
-  onExpr: (expr: Expr) => void,
-  onStmt: (stmt: Stmt) => void,
-): void {
+function walker(onExpr: (expr: Expr) => void, onStmt: (stmt: Stmt) => void) {
   const stmts = (list: readonly Stmt[] | null): void => {
     for (const stmt of list ?? []) stmtVisit(stmt);
   };
@@ -99,6 +95,33 @@ export function walkUnit(
         break;
     }
   }
+  return { stmts, exprs };
+}
+
+/** `walkUnit` for one body: the statements of a method, an initializer block or a lambda. */
+export function walkStatements(
+  body: readonly Stmt[],
+  onExpr: (expr: Expr) => void,
+  onStmt: (stmt: Stmt) => void,
+): void {
+  walker(onExpr, onStmt).stmts(body);
+}
+
+/** `walkUnit` for one expression. */
+export function walkExpression(
+  expr: Expr,
+  onExpr: (expr: Expr) => void,
+  onStmt: (stmt: Stmt) => void,
+): void {
+  walker(onExpr, onStmt).exprs([expr]);
+}
+
+export function walkUnit(
+  unit: Unit,
+  onExpr: (expr: Expr) => void,
+  onStmt: (stmt: Stmt) => void,
+): void {
+  const { stmts, exprs } = walker(onExpr, onStmt);
   for (const cls of [unit.top, ...unit.classes]) {
     for (const field of cls.fields.values()) exprs([field.init]);
     stmts(cls.initializers);
