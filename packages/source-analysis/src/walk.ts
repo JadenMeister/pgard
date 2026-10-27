@@ -96,6 +96,10 @@ export interface WalkResult {
    * entered, as repository-relative paths in walk order. `.git` is not listed.
    */
   skippedBuildDirectories: string[];
+  /** The skipped directories above that directly contain Go, Python, PHP, Java or Kotlin files. */
+  buildDirectoriesWithSource: string[];
+  /** More than `MAX_BUILD_DIRECTORY_PROBES` skipped directories: the rest were not looked into. */
+  buildProbeLimitReached: boolean;
   /** `.xml` files under a `res` or `target` path segment that were not checked for MyBatis mappers. */
   skippedResourceXml: string[];
   /**
@@ -106,6 +110,36 @@ export interface WalkResult {
   /** FIFOs, sockets, devices and entries that were no longer regular files; never opened. */
   skippedSpecialFiles: string[];
   isTruncated: boolean;
+}
+
+/** At most this many skipped directories are looked into for source files (one `readdir` each). */
+export const MAX_BUILD_DIRECTORY_PROBES = 200;
+/** Extensions that make a skipped-by-name directory look like first-party source. */
+const PROBE_SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".go",
+  ".py",
+  ".php",
+  ".java",
+  ".kt",
+  ".kts",
+]);
+
+/**
+ * True under a JVM source root (`src/main/java`, `src/test/kotlin`, ...): a segment `java` or
+ * `kotlin` below a `src` segment. A directory named `build` there is a package, not build output.
+ */
+export function isUnderJvmSourceRoot(relativePath: string): boolean {
+  const segments = relativePath.split("/").slice(0, -1);
+  const src = segments.indexOf("src");
+  return src >= 0 && segments.slice(src + 1).some((part) => part === "java" || part === "kotlin");
+}
+
+async function containsSourceFiles(directory: string): Promise<boolean> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  return entries.some(
+    (entry) =>
+      entry.isFile() && PROBE_SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()),
+  );
 }
 
 export const MAX_FILE_BYTES = 1024 * 1024;
@@ -153,6 +187,19 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
  */
 const MINIFIED_BUNDLE = /\.min\.(js|mjs|cjs)$/;
 
+/** A file name the walk would analyze, read or report (declaration files excluded). */
+function isAnalysableFileName(name: string): boolean {
+  if (name.endsWith(".d.ts")) return false;
+  const extension = path.extname(name);
+  const lower = extension.toLowerCase();
+  return (
+    EXTENSIONS[extension] !== undefined ||
+    TREE_SITTER_EXTENSIONS[extension] !== undefined ||
+    lower === ".xml" ||
+    TEMPLATE_EXTENSIONS.has(lower)
+  );
+}
+
 export interface WalkOptions {
   /**
    * Repository-relative POSIX path of an analyzable source file: true leaves it out (counted in
@@ -194,6 +241,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     unreadableDirectories: [],
     skippedDependencyDirectories: [],
     skippedBuildDirectories: [],
+    buildDirectoriesWithSource: [],
+    buildProbeLimitReached: false,
     skippedResourceXml: [],
     unreadableEntries: [],
     skippedSpecialFiles: [],
@@ -214,6 +263,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     }
     return stats;
   };
+  let probes = 0;
   const stack: string[] = [root];
   while (stack.length > 0) {
     const directory = stack.pop() as string;
@@ -250,7 +300,20 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       if (entry.isDirectory()) {
         if (entry.name === ".git") continue;
         if (SKIPPED_DIRECTORIES.has(entry.name)) {
+          // A package named `build`, `out` or `dist` under a JVM source root is first-party code.
+          if (isUnderJvmSourceRoot(relativePath)) {
+            stack.push(absolutePath);
+            continue;
+          }
           result.skippedBuildDirectories.push(relativePath);
+          if (probes >= MAX_BUILD_DIRECTORY_PROBES) {
+            result.buildProbeLimitReached = true;
+          } else {
+            probes += 1;
+            if (await containsSourceFiles(absolutePath)) {
+              result.buildDirectoriesWithSource.push(relativePath);
+            }
+          }
           continue;
         }
         if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {
@@ -276,8 +339,9 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         continue;
       }
       if (!entry.isFile()) {
-        // FIFO, socket or device: never opened, counted once in a note.
-        result.skippedSpecialFiles.push(relativePath);
+        // FIFO, socket or device: never opened. Only names the walk would have analyzed are
+        // counted (a `.sock` or `.s.PGSQL.5432` is no concern of a source scan).
+        if (isAnalysableFileName(entry.name)) result.skippedSpecialFiles.push(relativePath);
         continue;
       }
       if (entry.name === "package.json") result.packageJsonPaths.push(relativePath);

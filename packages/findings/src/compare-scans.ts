@@ -1,6 +1,7 @@
 import type { Coverage, Finding, ScanResult } from "./contract.js";
 import { createFindingFingerprint } from "./fingerprint.js";
 import { redactEvidence } from "./redact.js";
+import { SKIPPED_DIRECTORIES } from "./skipped-directories.js";
 
 /**
  * Scan comparison: which findings are new, no longer reported, unchanged or moved between two
@@ -232,8 +233,8 @@ function groupByIdentity(findings: readonly Finding[]): Map<string, Finding[]> {
 }
 
 /**
- * Skip areas that stay as they are (partial or informational) overall: only a change of the
- * skipped set (the note, which includes the set fingerprint) makes a comparison unreliable.
+ * Skip areas whose own status (partial or informational) never makes the whole area "not
+ * comparable"; what they block is decided per finding in isSkipSignal.
  */
 const NOTE_ONLY_AREAS: ReadonlySet<string> = new Set([
   "source:minified",
@@ -242,6 +243,26 @@ const NOTE_ONLY_AREAS: ReadonlySet<string> = new Set([
   "source:unreadable-files",
   "source:special-files",
 ]);
+const BUILD_OUTPUT_AREA = "source:build-output";
+const XML_AREA = "source:xml-skipped";
+const SPECIAL_AREA = "source:special-files";
+
+/** The path has a directory segment that the source walk skips by name (`dist`, `build`, ...). */
+function isUnderSkippedDirectory(findingPath: string | null | undefined): boolean {
+  return (
+    typeof findingPath === "string" &&
+    findingPath.split("/").some((s) => SKIPPED_DIRECTORIES.has(s))
+  );
+}
+
+/** An `.xml` file under a `res` or `target` segment, which the walk does not check for mappers. */
+function isSkippedResourceXml(findingPath: string | null | undefined): boolean {
+  return (
+    typeof findingPath === "string" &&
+    findingPath.toLowerCase().endsWith(".xml") &&
+    findingPath.split("/").some((s) => s === "res" || s === "target")
+  );
+}
 
 function compareAreas(
   previous: readonly Coverage[],
@@ -289,11 +310,18 @@ interface Context {
 }
 
 /** A rule-less area that shows files or directories were skipped in this scope. */
-function isSkipSignal(area: string, ctx: Context): boolean {
+function isSkipSignal(area: string, ctx: Context, finding: Finding): boolean {
   const a = ctx.before.get(area);
   const b = ctx.after.get(area);
   const entries = [a, b].filter((entry): entry is Coverage => entry !== undefined);
   if (entries.some((entry) => entry.ruleIds.length > 0)) return false;
+  if (area === SPECIAL_AREA) return false;
+  if (area === XML_AREA) return isSkippedResourceXml(finding.location.path);
+  // Informational build-output notes only matter for findings in such a directory; the partial
+  // form (no source found elsewhere) is a whole-scope signal that follows its note.
+  if (area === BUILD_OUTPUT_AREA && !entries.some((entry) => entry.status === "partial")) {
+    return isUnderSkippedDirectory(finding.location.path);
+  }
   if (NOTE_ONLY_AREAS.has(area)) return a?.note !== b?.note;
   if (entries.some((entry) => entry.status === "partial")) return true;
   const ran = (entry: Coverage | undefined) => entry?.status === "completed";
@@ -321,7 +349,7 @@ function blockingAreas(finding: Finding, ctx: Context): string[] | null {
   if (owners.size === 0) return null;
   const blocking = new Set([...owners].filter((area) => ctx.areas.get(area)?.comparable !== true));
   for (const [area, info] of ctx.areas) {
-    if (scopes.has(info.scope) && !owners.has(area) && isSkipSignal(area, ctx)) {
+    if (scopes.has(info.scope) && !owners.has(area) && isSkipSignal(area, ctx, finding)) {
       blocking.add(area);
     }
   }

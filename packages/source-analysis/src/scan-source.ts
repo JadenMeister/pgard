@@ -18,7 +18,7 @@ import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js
 import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
-import { scanJvm, JVM_LANGUAGES } from "./jvm/scan-jvm.js";
+import { scanJvm, isJvmWalk, JVM_LANGUAGES } from "./jvm/scan-jvm.js";
 import { scanPhp } from "./php/scan-php.js";
 import { scanPython } from "./python/scan-python.js";
 import {
@@ -29,6 +29,7 @@ import {
 } from "./tree-sitter/language-track.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
 import {
+  MAX_BUILD_DIRECTORY_PROBES,
   readTextFile,
   walkSourceTree,
   type SourceFile,
@@ -147,13 +148,16 @@ function listPaths(paths: string[]): string {
  * Shared shape of the counted-skip notes: `<heading>: "a", "b" and N more.<tail>`. At most
  * MAX_LISTED_PATHS paths are listed, fewer when long, so the count and the set fingerprint in the
  * heading are never cut off by a display limit. Paths are redacted before they are measured, so
- * the label that is measured is the label that is shown.
+ * the label that is measured is the label that is shown. `priority` paths are listed first and
+ * get `prioritySuffix`.
  */
 function describeCappedPaths(
   heading: string,
   paths: readonly string[],
   tail: string,
   suffix = "",
+  priority: ReadonlySet<string> = new Set(),
+  prioritySuffix = "",
 ): string {
   const count = paths.length;
   const compose = (labels: string[]) => {
@@ -161,13 +165,19 @@ function describeCappedPaths(
     if (labels.length === 0) return `${heading}${count} not listed.${tail}`;
     return `${heading}${labels.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.${tail}`;
   };
+  const ordered = [...paths].sort(
+    (a, b) => Number(priority.has(b)) - Number(priority.has(a)) || a.localeCompare(b, "en"),
+  );
   const labels: string[] = [];
-  for (const raw of [...paths].sort((a, b) => a.localeCompare(b, "en"))) {
+  for (const raw of ordered) {
     if (labels.length === MAX_LISTED_PATHS) break;
     const item = redactEvidence(raw, { maxLength: 500 });
     const shown =
       item.length > MAX_LABEL_PATH_LENGTH ? `…${item.slice(-(MAX_LABEL_PATH_LENGTH - 1))}` : item;
-    const next = [...labels, JSON.stringify(`${shown}${suffix}`)];
+    const next = [
+      ...labels,
+      JSON.stringify(`${shown}${suffix}${priority.has(raw) ? prioritySuffix : ""}`),
+    ];
     if (compose(next).length > MAX_NOTE_LENGTH) break;
     labels.push(next[next.length - 1] as string);
   }
@@ -189,20 +199,39 @@ export function describeSkippedMinified(paths: readonly string[], limitReached =
   );
 }
 
+export interface BuildDirectoryNoteInput {
+  /** Every directory skipped by name. */
+  paths: readonly string[];
+  /** The ones that directly contain Go, Python, PHP, Java or Kotlin files. */
+  withSource: readonly string[];
+  /** No analyzable source file was found anywhere else. */
+  noSourceElsewhere: boolean;
+  limitReached?: boolean;
+  probeLimit?: number | null;
+}
+
 /**
- * Coverage note for build-output and cache directories the walk did not enter. `pgard.config.json`
+ * Coverage note for directories skipped by name (`dist`, `build`, `out`, ...). `pgard.config.json`
  * has no "include" option, so the note says how to get such a directory analyzed.
  */
-export function describeSkippedBuildDirectories(
-  paths: readonly string[],
-  limitReached = false,
-): string {
+export function describeSkippedBuildDirectories(input: BuildDirectoryNoteInput): string {
+  const { paths, withSource, noSourceElsewhere } = input;
   const count = paths.length;
+  const reasons = [
+    withSource.length > 0 ? " Contains source files; skipped by name." : "",
+    noSourceElsewhere ? " No source file was found outside these directories." : "",
+  ].join("");
+  const tail = `${input.limitReached === true ? LIMIT_TAIL : ""}${
+    input.probeLimit == null ? "" : ` (first ${input.probeLimit} checked for source)`
+  }${reasons} Move code out to analyze it.`;
+  const marked = [...paths].map((item) => (withSource.includes(item) ? `${item}*` : item));
   return describeCappedPaths(
-    `${count} build output director${count === 1 ? "y" : "ies"} skipped (build output, not analyzed; set ${fingerprintPaths(paths)}): `,
+    `${count} director${count === 1 ? "y" : "ies"} skipped by name (dist, build, out, ...; not analyzed; set ${fingerprintPaths(marked)}): `,
     paths,
-    `${limitReached ? LIMIT_TAIL : ""} Not configurable; move first-party code out to analyze it.`,
+    tail,
     "/",
+    new Set(withSource),
+    " (contains source files; skipped by name)",
   );
 }
 
@@ -217,22 +246,22 @@ export function describeSkippedResourceXml(paths: readonly string[], limitReache
 }
 
 /** Coverage note for files the walk could not stat, so they were not analyzed. */
-export function describeUnreadableEntries(paths: readonly string[]): string {
+export function describeUnreadableEntries(paths: readonly string[], limitReached = false): string {
   const count = paths.length;
   return describeCappedPaths(
     `${count} file${count === 1 ? "" : "s"} could not be read (permission error or removed during the scan, not analyzed; set ${fingerprintPaths(paths)}): `,
     paths,
-    "",
+    limitReached ? LIMIT_TAIL : "",
   );
 }
 
 /** Coverage note for FIFOs, sockets and devices, which are never opened. */
-export function describeSpecialFiles(paths: readonly string[]): string {
+export function describeSpecialFiles(paths: readonly string[], limitReached = false): string {
   const count = paths.length;
   return describeCappedPaths(
     `${count} special file${count === 1 ? "" : "s"} skipped (FIFO, socket, device or not a regular file, never opened; set ${fingerprintPaths(paths)}): `,
     paths,
-    "",
+    limitReached ? LIMIT_TAIL : "",
   );
 }
 
@@ -781,21 +810,29 @@ export async function scanSourceCode(
     });
   }
   const limitReached = walk.isTruncated;
-  const unanalyzed = walk.files.length + walkTrackedCount(walk) === 0;
+  // Excluded files count as source here: an exclude pattern must not turn the area partial.
+  const noSourceElsewhere = walk.files.length + walkTrackedCount(walk) + walk.excluded.count === 0;
   if (walk.skippedBuildDirectories.length > 0) {
-    // Informational like the dependency directories: build output is generated, so skipping it
-    // does not make a scan partial. Exception: when no source file was found anywhere, the only
-    // source may live in such a directory (a first-party `build/` or `out/` package), and
-    // then the scan says so by being partial.
+    // Informational like the dependency directories: JavaScript build output is generated, so
+    // skipping it does not make a scan partial. Partial when a skipped directory directly holds
+    // Go, Python, PHP, Java or Kotlin files, or when no source file was found anywhere else (the
+    // only source may live there): that code was not analyzed and the scan must say so.
+    const isPartial = noSourceElsewhere || walk.buildDirectoriesWithSource.length > 0;
     coverage.push({
       area: "source:build-output",
       scope: "code",
-      status: unanalyzed ? "partial" : "completed",
+      status: isPartial ? "partial" : "completed",
       ruleIds: [],
-      note: describeSkippedBuildDirectories(walk.skippedBuildDirectories, limitReached),
+      note: describeSkippedBuildDirectories({
+        paths: walk.skippedBuildDirectories,
+        withSource: walk.buildDirectoriesWithSource,
+        noSourceElsewhere,
+        limitReached,
+        probeLimit: walk.buildProbeLimitReached ? MAX_BUILD_DIRECTORY_PROBES : null,
+      }),
     });
   }
-  if (walk.skippedResourceXml.length > 0) {
+  if (walk.skippedResourceXml.length > 0 && isJvmWalk(walk)) {
     coverage.push({
       area: "source:xml-skipped",
       scope: "code",
@@ -810,7 +847,7 @@ export async function scanSourceCode(
       scope: "code",
       status: "partial",
       ruleIds: [],
-      note: describeUnreadableEntries(walk.unreadableEntries),
+      note: describeUnreadableEntries(walk.unreadableEntries, limitReached),
     });
   }
   if (walk.skippedSpecialFiles.length > 0) {
@@ -819,7 +856,7 @@ export async function scanSourceCode(
       scope: "code",
       status: "completed",
       ruleIds: [],
-      note: describeSpecialFiles(walk.skippedSpecialFiles),
+      note: describeSpecialFiles(walk.skippedSpecialFiles, limitReached),
     });
   }
   if (walk.skippedSymlinks.length > 0) {

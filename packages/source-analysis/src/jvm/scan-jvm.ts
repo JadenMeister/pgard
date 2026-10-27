@@ -60,6 +60,14 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 const METHOD =
   "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002); no cross-file data flow and no other rule category yet";
 
+/** Java or Kotlin files were found, or a Maven or Gradle manifest sits in the tree. */
+export function isJvmWalk(walk: WalkResult): boolean {
+  return (
+    walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
+    walk.trackManifests.some((manifest) => manifest.kind === "maven" || manifest.kind === "gradle")
+  );
+}
+
 /**
  * Parses and analyzes the Java and Kotlin files and the MyBatis mapper XML of a walk with the
  * SQL injection rule. Java and Kotlin files go through `parseTrackFiles`, so oversized,
@@ -217,11 +225,7 @@ export async function scanJvm(
     // Templates are read only in a Java or Kotlin project: a Node or Python repository with
     // `.html`, `.mustache` or `.vm` files has none of this rule's concern. The same test decides
     // whether unreadable XML is worth a note (Kotlin-only projects have mappers too).
-    const isJvmProject =
-      walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
-      walk.trackManifests.some(
-        (manifest) => manifest.kind === "maven" || manifest.kind === "gradle",
-      );
+    const isJvmProject = isJvmWalk(walk);
     // MyBatis mapper XML: any .xml file that declares <mapper>. Read here, analyzed as text.
     const excludedMapperPaths: string[] = [];
     let mapperFiles = 0;
