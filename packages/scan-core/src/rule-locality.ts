@@ -46,12 +46,12 @@ export const RULE_LOCALITY: Readonly<Record<string, RuleLocalityEntry>> = {
     reason:
       "Intra-procedural analysis of one Java or Kotlin file; constants are resolved inside the file only, never across files.",
   },
-  "PG-SQL-006": {
+  "PG-SQL-007": {
     locality: "file-local",
     reason:
       "Intra-procedural analysis of one PHP file; constants are resolved inside the file only, never across files.",
   },
-  "PG-CMD-004": {
+  "PG-CMD-005": {
     locality: "file-local",
     reason:
       "Intra-procedural analysis of one PHP file; constants are resolved inside the file only, never across files.",

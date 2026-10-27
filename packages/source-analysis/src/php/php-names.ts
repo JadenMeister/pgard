@@ -1,5 +1,5 @@
 /**
- * Names the PHP SQL injection (PG-SQL-006) and command execution (PG-CMD-004) rules recognize:
+ * Names the PHP SQL injection (PG-SQL-007) and command execution (PG-CMD-005) rules recognize:
  * sinks, request sources, escaping and coercion functions, and validators.
  */
 

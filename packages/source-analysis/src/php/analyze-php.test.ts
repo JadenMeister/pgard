@@ -33,7 +33,7 @@ interface Case {
   /** Statements placed inside a function body. */
   body: string;
   expected: Kind;
-  rule?: "PG-SQL-006" | "PG-CMD-004";
+  rule?: "PG-SQL-007" | "PG-CMD-005";
   /** Parameters of the wrapping function. */
   params?: string;
   /** Text placed before the function (imports, constants). */
@@ -431,157 +431,157 @@ const CMD: Case[] = [
     name: "exec with a concatenated request value",
     body: `exec("ping -c 1 " . $_GET['host']);`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "system with interpolation",
     body: `system("ls $_POST[dir]");`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "shell_exec through a variable",
     body: `$h = $_GET['h'];\n$out = shell_exec("nslookup $h");`,
     expected: "suspected",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "passthru with sprintf",
     body: `passthru(sprintf("convert %s out.png", $_GET['f']));`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "popen with a request value",
     body: `$p = popen("tail -n 5 " . $_GET['f'], 'r');`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "proc_open with a string command",
     body: `proc_open("git log " . $_GET['ref'], $d, $pipes);`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "backtick operator",
     body: "$o = `ls $_GET[d]`;",
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "pcntl_exec with a request program",
     body: `pcntl_exec($_GET['bin'], ['-a']);`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "Process::fromShellCommandline",
     params: "Request $request",
     body: `$p = Process::fromShellCommandline("ls " . $request->input('d'));`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "new Process with a string command",
     body: `$p = new Process("ls " . $_GET['d']);`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "sh -c in an argument array",
     body: `$p = new Process(['sh', '-c', 'ls ' . $_GET['d']]);`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "proc_open with a program from data",
     body: `proc_open([$_GET['bin'], '-v'], $d, $pipes);`,
     expected: "confirmed",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "constant command is silent",
     body: `exec("ls -la /tmp");`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "constants built from literals are silent",
     before: `const CMD = 'ls';`,
     body: `system(CMD . ' -la');`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "escapeshellarg is demoted, not silent",
     body: `exec("ping -c 1 " . escapeshellarg($_GET['host']));`,
     expected: "inferred",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "intval argument is fixed",
     body: `exec("kill " . intval($_GET['pid']));`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "array-form Process with a constant program is safe",
     body: `$p = new Process(['git', 'log', $_GET['ref']]);`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "array-form proc_open with a constant program is safe",
     body: `proc_open(['ls', '-la', $_GET['d']], $d, $pipes);`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "allowlist then exec is demoted",
     body: `$h = $_GET['h'];\nif (!preg_match('/^[a-z0-9.-]+$/', $h)) { exit; }\nexec("ping -c 1 $h");`,
     expected: "inferred",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "a bare parameter command is not guessed",
     params: "$cmd",
     body: `exec($cmd);`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "unknown value inside a command string",
     params: "$dir",
     body: `exec("ls " . $dir);`,
     expected: "untraced",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "an array command that was changed after it was made is reported low",
     body: `$cmd = ['ls'];\n$cmd[] = $_GET['d'];\nproc_open($cmd, $d, $pipes);`,
     expected: "untraced",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "check or die guards what follows",
     body: `$h = $_GET['h'];\nctype_alnum($h) or die('bad');\nexec("ping -c 1 $h");`,
     expected: "inferred",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
   {
     name: "exec method on an object is not the function",
     body: `$ssh->exec($_GET['c']);`,
     expected: "none",
-    rule: "PG-CMD-004",
+    rule: "PG-CMD-005",
   },
 ];
 
-describe("PHP SQL injection (PG-SQL-006)", () => {
+describe("PHP SQL injection (PG-SQL-007)", () => {
   for (const testCase of SQL) {
     it(testCase.name, async () => {
       const analysis = await run(wrap(testCase));
-      const findings = analysis.findings.filter((finding) => finding.ruleId === "PG-SQL-006");
+      const findings = analysis.findings.filter((finding) => finding.ruleId === "PG-SQL-007");
       expect(kindOf(findings), JSON.stringify(analysis.findings.map((f) => f.evidence))).toBe(
         testCase.expected,
       );
@@ -589,11 +589,11 @@ describe("PHP SQL injection (PG-SQL-006)", () => {
   }
 });
 
-describe("PHP command execution (PG-CMD-004)", () => {
+describe("PHP command execution (PG-CMD-005)", () => {
   for (const testCase of CMD) {
     it(testCase.name, async () => {
       const analysis = await run(wrap(testCase));
-      const findings = analysis.findings.filter((finding) => finding.ruleId === "PG-CMD-004");
+      const findings = analysis.findings.filter((finding) => finding.ruleId === "PG-CMD-005");
       expect(kindOf(findings), JSON.stringify(analysis.findings.map((f) => f.evidence))).toBe(
         testCase.expected,
       );
@@ -608,7 +608,7 @@ describe("PHP analysis details", () => {
     );
     expect(analysis.findings).toHaveLength(1);
     expect(analysis.findings[0]).toMatchObject({
-      ruleId: "PG-SQL-006",
+      ruleId: "PG-SQL-007",
       path: "a.php",
       line: 4,
       severity: "high",
@@ -621,7 +621,7 @@ describe("PHP analysis details", () => {
   it("marks command execution from request input critical", async () => {
     const analysis = await run(`<?php\nsystem($_GET['c']);\n`);
     expect(analysis.findings[0]).toMatchObject({
-      ruleId: "PG-CMD-004",
+      ruleId: "PG-CMD-005",
       severity: "critical",
       status: "confirmed",
     });
@@ -644,7 +644,7 @@ describe("PHP analysis details", () => {
     const analysis = await run(
       `<?php\nfunction f($c) { mysqli_query($c, "SELECT " . ${chain} . $_GET['x']); }\n`,
     );
-    expect(analysis.findings.map((finding) => finding.ruleId)).toEqual(["PG-SQL-006"]);
+    expect(analysis.findings.map((finding) => finding.ruleId)).toEqual(["PG-SQL-007"]);
   });
 
   it("flags dynamic calls with SQL-looking text as an unsupported form", async () => {
@@ -754,6 +754,6 @@ class Repo {
         return $this->pdo->query("SELECT * FROM users WHERE name = '$name' AND x = " . $_GET['x'])->fetchAll();
     }
 }`);
-    expect(analysis.findings.map((finding) => finding.ruleId)).toEqual(["PG-SQL-006"]);
+    expect(analysis.findings.map((finding) => finding.ruleId)).toEqual(["PG-SQL-007"]);
   });
 });

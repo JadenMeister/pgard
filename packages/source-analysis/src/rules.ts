@@ -150,7 +150,7 @@ export const SOURCE_RULES = [
     ],
   },
   {
-    id: "PG-SQL-006",
+    id: "PG-SQL-007",
     title: "SQL built from dynamic strings in PHP (mysqli, PDO, Laravel, Doctrine)",
     category: "injection",
     defaultSeverity: "high",
@@ -370,7 +370,7 @@ export const SOURCE_RULES = [
     ],
   },
   {
-    id: "PG-CMD-004",
+    id: "PG-CMD-005",
     title:
       "OS command built from dynamic strings in PHP (exec, system, shell_exec, backticks, Symfony Process)",
     category: "command_execution",

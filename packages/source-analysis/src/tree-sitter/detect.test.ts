@@ -113,7 +113,7 @@ describe("language detection and coverage", () => {
     // PHP has the SQL injection and command execution rules.
     expect(output.coverage.find((item) => item.area === "source:php")).toMatchObject({
       status: "completed",
-      ruleIds: ["PG-SQL-006", "PG-CMD-004"],
+      ruleIds: ["PG-SQL-007", "PG-CMD-005"],
     });
     expect(output.coverage.some((item) => item.area === "source:kotlin")).toBe(false);
   });

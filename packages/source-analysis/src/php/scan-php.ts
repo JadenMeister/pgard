@@ -32,7 +32,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 const METHOD =
-  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-006) and OS command execution (PG-CMD-004); no cross-file data flow";
+  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-007) and OS command execution (PG-CMD-005); no cross-file data flow";
 /** Categories with PHP files present but no PHP rule yet. */
 const NOT_CHECKED =
   "Not checked yet for PHP: XSS (echo of request data, Blade {!! !!}), file inclusion and path, SSRF, cryptography and settings.";
@@ -170,7 +170,7 @@ export async function scanPhp(
         area: `source:${kind === "sql" ? "orm" : "process"}:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         scope: "code",
         status: "partial",
-        ruleIds: kind === "sql" ? ["PG-SQL-006"] : ["PG-CMD-004"],
+        ruleIds: kind === "sql" ? ["PG-SQL-007"] : ["PG-CMD-005"],
         note: `${library} detected in ${count} file(s); its ${
           kind === "sql" ? "SQL" : "process-running"
         } APIs are not supported, so ${

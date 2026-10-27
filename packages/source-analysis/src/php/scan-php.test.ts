@@ -45,25 +45,25 @@ describe("scanSourceCode with PHP", () => {
     const output = await scanSourceCode(root);
     expect(
       output.findings
-        .filter((finding) => finding.ruleId === "PG-SQL-006")
+        .filter((finding) => finding.ruleId === "PG-SQL-007")
         .map((finding) => finding.location.path)
         .sort(),
     ).toEqual(["app/Http/Controllers/UserController.php", "views/legacy.phtml"]);
     expect(
       output.findings
-        .filter((finding) => finding.ruleId === "PG-CMD-004")
+        .filter((finding) => finding.ruleId === "PG-CMD-005")
         .map((finding) => finding.location.path),
     ).toEqual(["public/ping.php"]);
     const php = output.coverage.find((item) => item.area === "source:php");
     expect(php).toMatchObject({
       status: "completed",
-      ruleIds: ["PG-SQL-006", "PG-CMD-004"],
+      ruleIds: ["PG-SQL-007", "PG-CMD-005"],
     });
     expect(php?.note).toContain("3 PHP file(s)");
     expect(php?.note).toContain("frameworks: Laravel");
     // What is not checked yet is said, not left out.
     expect(php?.note).toContain("Not checked yet for PHP: XSS");
-    for (const ruleId of ["PG-SQL-006", "PG-CMD-004"]) {
+    for (const ruleId of ["PG-SQL-007", "PG-CMD-005"]) {
       expect(
         output.ruleStats?.find((row) => row.ruleId === ruleId && row.area === "source:php"),
       ).toMatchObject({
@@ -121,7 +121,7 @@ describe("scanSourceCode with PHP", () => {
     const output = await scanSourceCode(root);
     const php = output.coverage.find((item) => item.area === "source:php");
     expect(php?.status).toBe("partial");
-    expect(output.findings.some((finding) => finding.ruleId === "PG-CMD-004")).toBe(true);
+    expect(output.findings.some((finding) => finding.ruleId === "PG-CMD-005")).toBe(true);
   });
 
   it("does not mention PHP when there are no PHP files", async () => {

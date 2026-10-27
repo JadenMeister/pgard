@@ -45,7 +45,7 @@ import {
 
 /** A finding before the path is attached. */
 export interface PhpFinding {
-  ruleId: "PG-SQL-006" | "PG-CMD-004";
+  ruleId: "PG-SQL-007" | "PG-CMD-005";
   line: number;
   severity: Severity;
   status: FindingStatus;
@@ -612,7 +612,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       const origin = judged.source;
       record(
         {
-          ruleId: "PG-SQL-006",
+          ruleId: "PG-SQL-007",
           line,
           severity: "high",
           status: origin.direct ? "confirmed" : "suspected",
@@ -626,7 +626,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     }
     record(
       {
-        ruleId: "PG-SQL-006",
+        ruleId: "PG-SQL-007",
         line,
         severity: "medium",
         status: "suspected",
@@ -653,7 +653,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       const origin = judged.source;
       record(
         {
-          ruleId: "PG-CMD-004",
+          ruleId: "PG-CMD-005",
           line,
           severity: "critical",
           status: origin.direct ? "confirmed" : "suspected",
@@ -667,7 +667,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     }
     record(
       {
-        ruleId: "PG-CMD-004",
+        ruleId: "PG-CMD-005",
         line,
         severity: "medium",
         status: "suspected",

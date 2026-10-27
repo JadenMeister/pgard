@@ -251,14 +251,14 @@ try {
   const phpRules = phpScan.findings.map((item) => `${item.ruleId}@${item.location.path}`).sort();
   check(
     "PHP project scan finds the SQL and command injection and not the prepared statement",
-    JSON.stringify(phpRules) === JSON.stringify(["PG-CMD-004@ping.php", "PG-SQL-006@users.php"]),
+    JSON.stringify(phpRules) === JSON.stringify(["PG-CMD-005@ping.php", "PG-SQL-007@users.php"]),
     JSON.stringify(phpRules),
   );
   const phpCoverage = phpScan.coverage.find((entry) => entry.area === "source:php");
   check(
     "PHP coverage is completed, names Laravel and says what is not checked",
     phpCoverage?.status === "completed" &&
-      phpCoverage.ruleIds.join() === "PG-SQL-006,PG-CMD-004" &&
+      phpCoverage.ruleIds.join() === "PG-SQL-007,PG-CMD-005" &&
       phpCoverage.note.includes("Laravel") &&
       phpCoverage.note.includes("Not checked yet for PHP"),
     JSON.stringify(phpCoverage),
@@ -267,8 +267,8 @@ try {
   check(
     "pgard rules list --language php",
     phpRulesList.status === 0 &&
-      phpRulesList.stdout.includes("PG-SQL-006") &&
-      phpRulesList.stdout.includes("PG-CMD-004"),
+      phpRulesList.stdout.includes("PG-SQL-007") &&
+      phpRulesList.stdout.includes("PG-CMD-005"),
     phpRulesList.stderr,
   );
 
