@@ -11,8 +11,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  MAX_DEPENDENCY_NOTE_LENGTH,
+  MAX_NOTE_LENGTH,
   describeSkippedDependencyDirectories,
+  describeSkippedMinified,
   scanSourceCode,
 } from "./scan-source.js";
 
@@ -359,6 +360,75 @@ describe("time budget, parse errors and caps (#87, #89)", () => {
   });
 });
 
+describe("minified bundle coverage", () => {
+  it("reports skipped minified bundles as partial source:minified with a count and a reason", async () => {
+    const root = project({
+      "src/db.ts": SQL_VULN,
+      "public/vendor/widgets.min.js": SQL_VULN,
+      "public/vendor/a.min.mjs": SQL_VULN,
+      "public/vendor/b.min.cjs": SQL_VULN,
+      "public/vendor/plain.min.json": "{}",
+    });
+    const result = await scanSourceCode(root);
+    const entry = result.coverage.find((item) => item.area === "source:minified");
+    expect(entry).toMatchObject({ scope: "code", status: "partial", ruleIds: [] });
+    expect(entry?.note).toMatch(
+      /^3 minified bundles skipped \(minified bundle, not analyzed; set [0-9a-f]{8}\): "public\/vendor\/a\.min\.mjs", "public\/vendor\/b\.min\.cjs", "public\/vendor\/widgets\.min\.js"\.$/,
+    );
+    expect(result.findings.some((finding) => (finding.location.path ?? "").includes(".min."))).toBe(
+      false,
+    );
+  });
+
+  it("notes a change outside the listed paths: same count, different set", async () => {
+    const bundles = Object.fromEntries(
+      [..."0123456"]
+        .map((n) => [`pub/m${n}.min.js`, "var a=1;"])
+        .concat([["pub/x.min.js", "var a=1;"]]),
+    );
+    const first = await scanSourceCode(
+      project({ "src/db.ts": SQL_VULN, "src/b.ts": SQL_VULN, ...bundles }),
+    );
+    const { "pub/m6.min.js": _gone, ...rest } = bundles;
+    const second = await scanSourceCode(
+      project({ "src/db.ts": SQL_VULN, ...rest, "pub/zz.min.js": SQL_VULN }),
+    );
+    const note = (output: typeof first) =>
+      output.coverage.find((item) => item.area === "source:minified")?.note;
+    expect(note(first)).toMatch(/^8 minified bundles/);
+    expect(note(second)).toMatch(/^8 minified bundles/);
+    expect(note(first)).not.toBe(note(second));
+  });
+
+  it("adds no entry when nothing was skipped", async () => {
+    const result = await scanSourceCode(project({ "src/db.ts": SQL_VULN }));
+    expect(result.coverage.some((item) => item.area === "source:minified")).toBe(false);
+  });
+});
+
+describe("describeSkippedMinified", () => {
+  it("changes the note when the set changes outside the listed paths", () => {
+    const base = ["m0", "m1", "m2", "m3", "m4", "m5", "m6", "x"].map((n) => `pub/${n}.min.js`);
+    const changed = [...base.slice(0, 6), "pub/x.min.js", "pub/zz.min.js"];
+    expect(describeSkippedMinified(base)).not.toBe(describeSkippedMinified(changed));
+  });
+
+  it("lists at most five paths, sorted, and counts the rest within the note limit", () => {
+    const paths = Array.from({ length: 8 }, (_, index) => `d${7 - index}/x.min.js`);
+    expect(describeSkippedMinified(paths)).toMatch(
+      /^8 minified bundles skipped \(minified bundle, not analyzed; set [0-9a-f]{8}\): "d0\/x\.min\.js", "d1\/x\.min\.js", "d2\/x\.min\.js", "d3\/x\.min\.js", "d4\/x\.min\.js" and 3 more\.$/,
+    );
+    const long = Array.from({ length: 6 }, (_, i) => `${"a".repeat(200)}${i}.min.js`);
+    const note = describeSkippedMinified(long);
+    expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
+    expect(note).toMatch(/and \d+ more\.$/);
+    expect(describeSkippedMinified(["a.min.js"])).toMatch(/^1 minified bundle skipped/);
+    expect(describeSkippedMinified(["a.min.js"], true)).toMatch(
+      /\(file limit reached; count may be incomplete\)$/,
+    );
+  });
+});
+
 describe("describeSkippedDependencyDirectories", () => {
   it("lists at most five directories, sorted, and counts the rest", () => {
     const directories = Array.from({ length: 7 }, (_, index) => ({
@@ -388,7 +458,7 @@ describe("describeSkippedDependencyDirectories", () => {
       reason: null,
     }));
     const note = describeSkippedDependencyDirectories(directories);
-    expect(note.length).toBeLessThanOrEqual(MAX_DEPENDENCY_NOTE_LENGTH);
+    expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
     expect(note).toMatch(/^Skipped 6 dependency directories/);
     expect(note).toMatch(/ and \d more\.$/);
     // Long paths keep their last characters.
