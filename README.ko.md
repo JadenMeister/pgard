@@ -76,8 +76,16 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 ```sh
 npm install -g pgard   # `pgard` 명령 설치
 npx pgard doctor       # 설치 없이 한 번 실행
-brew install jadenmeister/pgard/pgard   # Homebrew(macOS, Linux), 첫 릴리스 이후
 ```
+
+Homebrew(macOS, Linux)로는 첫 릴리스 이후 다음과 같이 설치합니다.
+
+```sh
+brew tap jadenmeister/pgard   # 처음 한 번
+brew install pgard            # 업데이트: brew upgrade pgard
+```
+
+한 줄로 `brew install jadenmeister/pgard/pgard`를 실행해도 됩니다. tap이 자동으로 추가됩니다.
 
 패키지 이름과 명령은 모두 `pgard`입니다. 버전과 릴리스 절차는 [docs/RELEASING.ko.md](docs/RELEASING.ko.md), 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 

@@ -5,10 +5,11 @@
 Users install it after the first release with:
 
 ```sh
-brew install jadenmeister/pgard/pgard
+brew tap jadenmeister/pgard   # once
+brew install pgard
 ```
 
-(`brew install jadenmeister/pgard/pgard` taps `JadenMeister/homebrew-pgard` automatically.)
+`brew tap jadenmeister/pgard` adds `JadenMeister/homebrew-pgard`. After that the short name works for install and `brew upgrade pgard`. The one-line form `brew install jadenmeister/pgard/pgard` taps automatically. A bare `brew install pgard` without the tap only works once the formula is in homebrew-core, which requires Homebrew's notability criteria and is not planned for the first release.
 
 ## Create the tap repository (once, by the owner)
 
