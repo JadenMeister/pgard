@@ -55,7 +55,16 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
       const entry = output.coverage.find((item) => item.area === area);
       expect(entry, area).toMatchObject({
         status: "completed",
-        ruleIds: ["PG-SQL-005", "PG-XSS-004", "PG-SSRF-002", "PG-CMD-003", "PG-PATH-002"],
+        ruleIds: [
+          "PG-SQL-005",
+          "PG-XSS-004",
+          "PG-SSRF-002",
+          "PG-CMD-003",
+          "PG-PATH-002",
+          "PG-COOKIE-001",
+          "PG-CSRF-001",
+          "PG-CONF-001",
+        ],
       });
     }
     // Mapper XML is read for SQL only; the command and path rules do not claim it.

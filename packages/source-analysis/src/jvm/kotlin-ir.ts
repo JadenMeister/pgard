@@ -341,6 +341,8 @@ export function convertKotlin(ast: AstResult): Unit {
       case "boolean_literal":
         return { k: "lit", line, raw: text(node) };
       case "number_literal":
+        // The text of a number is kept (a cookie `maxAge = 0` clears the cookie).
+        return { k: "lit", line, raw: text(node) };
       case "character_literal":
       case "null_literal":
       case "range_expression":

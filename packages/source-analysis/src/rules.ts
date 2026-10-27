@@ -693,25 +693,30 @@ export const SOURCE_RULES = [
     category: "misconfiguration",
     defaultSeverity: "medium",
     scope: "code",
-    languages: ["javascript", "typescript", "go"],
+    languages: ["javascript", "typescript", "go", "java", "kotlin"],
     standards: {
       owasp: ["A01:2025", "A02:2025"],
       cwe: ["CWE-1004", "CWE-614", "CWE-1275"],
       cert: [],
     },
     rationale: {
-      en: "A session cookie without HttpOnly can be read by injected script, so XSS becomes session theft. Without Secure it can travel over plain HTTP. Without SameSite other sites can make the browser attach it, enabling CSRF. Only cookies that look like session or auth cookies are judged: a name with sess, sid, token, auth, jwt, login, remember, refresh or access, or a session or token value. Theme or locale cookies are not reported.",
-      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다. PGARD는 세션·인증 쿠키처럼 보이는 쿠키만 판단합니다. 이름에 sess, sid, token, auth, jwt, login, remember, refresh, access가 들어가거나 값이 세션·토큰인 경우입니다. 테마나 언어 같은 다른 쿠키는 보고하지 않습니다.",
+      en: "A session cookie without HttpOnly can be read by injected script, so XSS becomes session theft. Without Secure it can travel over plain HTTP. Without SameSite other sites can make the browser attach it, enabling CSRF. Only cookies that look like session or auth cookies are judged: a name with sess, sid, token, auth, jwt, login, remember, refresh or access, or a session or token value. Theme or locale cookies are not reported. Also checked in Java, Kotlin and Spring Boot config.",
+      ko: "HttpOnly가 없는 세션 쿠키는 주입된 스크립트가 읽을 수 있어 XSS 결함이 세션 탈취로 이어집니다. Secure가 없으면 평문 HTTP로 전송되어 네트워크에서 가로채일 수 있습니다. SameSite가 없으면 브라우저가 다른 사이트가 시작한 요청에도 쿠키를 실을 수 있어 CSRF가 가능해집니다. PGARD는 세션·인증 쿠키처럼 보이는 쿠키만 판단합니다. 이름에 sess, sid, token, auth, jwt, login, remember, refresh, access가 들어가거나 값이 세션·토큰인 경우입니다. 테마나 언어 같은 다른 쿠키는 보고하지 않습니다. Java, Kotlin, Spring Boot 설정도 확인합니다.",
     },
     remediation: {
-      en: "Set all three on session and authentication cookies: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, or in Go `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. Use `strict` when the site is not entered through cross-site links. Secure needs HTTPS, but browsers such as Chrome and Firefox also accept Secure cookies on `http://localhost`, so development there can keep it on.",
-      ko: "세션·인증 쿠키에는 세 가지를 모두 설정하세요: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, Go에서는 `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. 다른 사이트의 링크로 들어올 일이 없다면 `strict`를 쓰세요. Secure는 HTTPS가 필요하지만 Chrome, Firefox 같은 브라우저는 `http://localhost`에서도 Secure 쿠키를 받아들이므로 그곳의 개발에서는 켜 둘 수 있습니다.",
+      en: "Set all three on session and authentication cookies: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, or in Go `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. Use `strict` when the site is not entered through cross-site links. Secure needs HTTPS, but browsers such as Chrome and Firefox also accept Secure cookies on `http://localhost`, so development there can keep it on. Java: `setHttpOnly(true)` and `setSecure(true)`.",
+      ko: "세션·인증 쿠키에는 세 가지를 모두 설정하세요: `res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' })`, Go에서는 `http.Cookie{HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode}`. 다른 사이트의 링크로 들어올 일이 없다면 `strict`를 쓰세요. Secure는 HTTPS가 필요하지만 Chrome, Firefox 같은 브라우저는 `http://localhost`에서도 Secure 쿠키를 받아들이므로 그곳의 개발에서는 켜 둘 수 있습니다. Java에서는 `setHttpOnly(true)`와 `setSecure(true)`를 호출하세요.",
     },
     examples: [
       {
         language: "javascript",
         vulnerable: "res.cookie('sid', token);",
         safe: "res.cookie('sid', token, { httpOnly: true, secure: true, sameSite: 'lax' });",
+      },
+      {
+        language: "java",
+        vulnerable: 'response.addCookie(new Cookie("sessionId", id));',
+        safe: 'Cookie cookie = new Cookie("sessionId", id);\ncookie.setHttpOnly(true);\ncookie.setSecure(true);\nresponse.addCookie(cookie);',
       },
     ],
   },
@@ -721,15 +726,15 @@ export const SOURCE_RULES = [
     category: "csrf",
     defaultSeverity: "medium",
     scope: "code",
-    languages: JS_TS,
+    languages: [...JS_TS, "java", "kotlin"],
     standards: { owasp: ["A01:2025"], cwe: ["CWE-352"], cert: [] },
     rationale: {
-      en: "A route that changes state and authenticates only by cookie can be triggered by any website the user visits: the browser attaches the cookie to a forged form post or fetch. PGARD counts POST routes. PUT, PATCH and DELETE need a CORS preflight, so they count unless CORS is provably restrictive (none, or a fixed origin list); unresolvable CORS options, hand-set credentials headers and method-override keep them in.",
-      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다. PGARD는 POST 라우트를 대상으로 합니다. PUT, PATCH, DELETE는 CORS preflight가 필요하므로 CORS가 확실히 제한적(없거나 고정 출처 목록)이지 않으면 포함합니다. 해석할 수 없는 CORS 옵션, 직접 설정한 credentials 헤더, method-override가 있으면 계속 포함합니다.",
+      en: "A route that changes state and authenticates only by cookie can be triggered by any website the user visits: the browser attaches the cookie to a forged form post or fetch. PGARD counts POST routes. PUT, PATCH and DELETE need a CORS preflight, so they count unless CORS is provably restrictive (none, or a fixed origin list); unresolvable CORS options, hand-set credentials headers and method-override keep them in. Java/Kotlin: Spring Security `csrf().disable()` on a session-based chain.",
+      ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다. PGARD는 POST 라우트를 대상으로 합니다. PUT, PATCH, DELETE는 CORS preflight가 필요하므로 CORS가 확실히 제한적(없거나 고정 출처 목록)이지 않으면 포함합니다. 해석할 수 없는 CORS 옵션, 직접 설정한 credentials 헤더, method-override가 있으면 계속 포함합니다. Java/Kotlin: 세션 기반 체인의 Spring Security `csrf().disable()`도 보고합니다.",
     },
     remediation: {
-      en: "Add a CSRF token to every state-changing request (a synchronizer token or double-submit cookie from a maintained middleware), set session cookies to `SameSite=Lax` or `Strict`, and check the `Origin` or `Sec-Fetch-Site` header. Never change state on GET requests.",
-      ko: "상태를 바꾸는 모든 요청에 CSRF 토큰을 추가하고(유지보수되는 미들웨어의 synchronizer token이나 double-submit 쿠키), 세션 쿠키는 `SameSite=Lax` 또는 `Strict`로 설정하며, `Origin`이나 `Sec-Fetch-Site` 헤더를 확인하세요. GET 요청으로 상태를 바꾸지 마세요.",
+      en: "Add a CSRF token to every state-changing request (a synchronizer token or double-submit cookie from a maintained middleware), set session cookies to `SameSite=Lax` or `Strict`, and check the `Origin` or `Sec-Fetch-Site` header. Never change state on GET requests. In Spring Security keep CSRF on for session apps; turn it off only for a STATELESS API that authenticates with a bearer token.",
+      ko: "상태를 바꾸는 모든 요청에 CSRF 토큰을 추가하고(유지보수되는 미들웨어의 synchronizer token이나 double-submit 쿠키), 세션 쿠키는 `SameSite=Lax` 또는 `Strict`로 설정하며, `Origin`이나 `Sec-Fetch-Site` 헤더를 확인하세요. GET 요청으로 상태를 바꾸지 마세요. Spring Security에서는 세션 기반 앱의 CSRF 보호를 켜 두고, bearer 토큰으로 인증하는 STATELESS API에서만 끄세요.",
     },
   },
   {
@@ -747,6 +752,23 @@ export const SOURCE_RULES = [
     remediation: {
       en: "Limit attempts per account and per IP on login, password-reset and code-verification routes, for example with `express-rate-limit` plus increasing delays or a temporary lockout after repeated failures. Return the same error for an unknown user and a wrong password, and consider MFA. Prefer delays to permanent lockout, which attackers can use to lock real users out.",
       ko: "로그인, 비밀번호 재설정, 코드 검증 라우트에 계정별·IP별 시도 제한을 두세요. 예를 들어 `express-rate-limit`에 더해 실패가 반복되면 지연을 늘리거나 일시적으로 잠그세요. 없는 사용자와 틀린 비밀번호에는 같은 오류를 돌려주고 MFA도 고려하세요. 영구 잠금은 공격자가 실제 사용자를 잠그는 데 악용할 수 있으므로 지연 방식을 우선하세요.",
+    },
+  },
+  {
+    id: "PG-CONF-001",
+    title: "Spring Security or Spring Boot configuration that weakens access control",
+    category: "misconfiguration",
+    defaultSeverity: "medium",
+    scope: "code",
+    languages: ["java", "kotlin"],
+    standards: { owasp: ["A01:2025", "A02:2025"], cwe: ["CWE-942", "CWE-862"], cert: [] },
+    rationale: {
+      en: "Some Spring configuration removes access control. `anyRequest().permitAll()` as the last rule opens every path no earlier rule names. `web.ignoring()` takes paths out of the filter chain (no authentication, headers or CSRF); only static resources belong there. CORS with every origin (`*`) and credentials lets any site read authenticated responses. Low severity: security debug logging, and `management.endpoints.web.exposure.include=*` without Spring Security.",
+      ko: "일부 Spring 설정은 접근 제어를 없앱니다. 마지막 규칙이 `anyRequest().permitAll()`이면 앞선 규칙에 없는 모든 경로가 열립니다. `web.ignoring()`은 경로를 필터 체인에서 빼 인증, 보안 헤더, CSRF가 모두 사라지므로 정적 리소스에만 써야 합니다. 모든 출처(`*`)와 자격 증명을 함께 허용하는 CORS는 아무 사이트나 인증된 응답을 읽게 합니다. 낮은 심각도: 보안 디버그 로그, Spring Security 없는 프로젝트의 `management.endpoints.web.exposure.include=*`.",
+    },
+    remediation: {
+      en: "End the authorization rules with `anyRequest().authenticated()` or `denyAll()`. Use `web.ignoring()` only for static resources and open other public paths with `permitAll()` inside the filter chain. List exact origins when CORS allows credentials. Turn security debug logging off outside local development, and expose only the Actuator endpoints you need (`include=health,info`).",
+      ko: "인가 규칙은 `anyRequest().authenticated()`나 `denyAll()`로 끝내세요. `web.ignoring()`은 정적 리소스에만 쓰고, 다른 공개 경로는 필터 체인 안에서 `permitAll()`로 여세요. 자격 증명을 허용하는 CORS에는 정확한 출처를 나열하세요. 보안 디버그 로그는 로컬 개발 밖에서는 끄고, Actuator는 필요한 엔드포인트만(`include=health,info`) 노출하세요.",
     },
   },
 ] as const satisfies readonly RuleDefinition[];

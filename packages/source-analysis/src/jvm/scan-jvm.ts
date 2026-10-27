@@ -13,6 +13,12 @@ import { readTextFile, type TrackedFile, type WalkResult } from "../walk.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
 import { analyzeMybatisXml } from "./mybatis-xml.js";
 import {
+  actuatorFinding,
+  analyzeSpringConfig,
+  MAX_SPRING_CONFIG_BYTES,
+  type SpringConfigAnalysis,
+} from "./spring-config.js";
+import {
   analyzeJsp,
   analyzeThymeleaf,
   looksLikeThymeleaf,
@@ -45,6 +51,9 @@ export interface JvmScanOutput {
 }
 
 const XSS_RULE_IDS: SourceRuleId[] = ["PG-XSS-004"];
+const CONFIG_RULE_IDS: SourceRuleId[] = ["PG-COOKIE-001", "PG-CONF-001"];
+/** Build files that name Spring Security as a dependency (text search, never executed). */
+const SPRING_SECURITY_DEPENDENCY = /spring-security|spring-boot-starter-security|starter-oauth2/i;
 const JSP_EXTENSIONS = new Set([".jsp", ".jspx", ".jspf", ".tag", ".tagx"]);
 const extensionOf = (relativePath: string): string => {
   const dot = relativePath.lastIndexOf(".");
@@ -58,7 +67,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 const METHOD =
-  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002); no cross-file data flow and no other rule category yet";
+  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002), and Spring Security and session configuration (PG-CSRF-001, PG-COOKIE-001, PG-CONF-001; the CSRF judgement reads one filter chain at a time, application.properties and application.yml are read separately); no cross-file data flow";
 
 /**
  * Parses and analyzes the Java and Kotlin files and the MyBatis mapper XML of a walk with the
@@ -78,6 +87,8 @@ export async function scanJvm(
   const libraries = new Map<string, number>();
   const osLibraries = new Map<string, { kind: "process" | "file"; count: number }>();
   const templateLibraries = new Map<string, number>();
+  const securityForms = new Map<string, string[]>();
+  let usesSpringSecurity = false;
   /** Template models: the attributes that a controller fills from request input, by name. */
   const modelSources = new Map<string, ModelSource[]>();
   const runtime = new TreeSitterRuntime();
@@ -114,6 +125,10 @@ export async function scanJvm(
               errorFiles.push(file.relativePath);
             }
             if (analysis.reflectionWeb) reflectionFiles.push(file.relativePath);
+            if (analysis.usesSpringSecurity) usesSpringSecurity = true;
+            for (const form of analysis.unsupportedSecurityForms) {
+              securityForms.set(form, [...(securityForms.get(form) ?? []), file.relativePath]);
+            }
             for (const attribute of analysis.modelAttributes) {
               if (attribute.tainted) {
                 modelSources.set(attribute.name, [
@@ -164,6 +179,12 @@ export async function scanJvm(
           `${paths.length} file(s) have SQL, command, file-path, response-writing or URL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
         );
       }
+      for (const [form, paths] of securityForms) {
+        problems.push(
+          `${paths.length} file(s) build a Spring Security filter chain with ${form}, which is not followed, so what the chain does about CSRF and sessions is only partly known (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+        );
+      }
+      securityForms.clear();
       if (reflectionFiles.length > 0) {
         problems.push(
           `${reflectionFiles.length} file(s) call through reflection next to servlet, URL or HTTP client APIs; calls made that way are not followed (${reflectionFiles.slice(0, 3).join(", ")})`,
@@ -385,6 +406,118 @@ export async function scanJvm(
           targets: [{ unit: "files", examined: templatesRead, reason: null }],
           findings: templateFindings.filter((finding) => finding.ruleId === ruleId).length,
         });
+      }
+    }
+    // Spring Boot configuration files: read only in a Java or Kotlin project.
+    const configFindings: Finding[] = [];
+    const actuator: Array<{ path: string; line: number }> = [];
+    let configRead = 0;
+    let configCapped = 0;
+    let configMalformed: string[] = [];
+    let configOversized = 0;
+    let configUnreadable = 0;
+    if (jvmProject) {
+      for (const file of walk.springConfigFiles) {
+        throwIfAborted(options.signal);
+        if (options.isExcluded?.(file.relativePath) === true) {
+          excludedMapperPaths.push(file.relativePath);
+          continue;
+        }
+        if (file.size > MAX_SPRING_CONFIG_BYTES) {
+          configOversized += 1;
+          continue;
+        }
+        const text = await readTextFile(file.absolutePath, MAX_SPRING_CONFIG_BYTES);
+        if (text === null) {
+          configUnreadable += 1;
+          continue;
+        }
+        let analysis: SpringConfigAnalysis;
+        try {
+          analysis = analyzeSpringConfig(
+            text,
+            file.relativePath,
+            /\.ya?ml$/i.test(file.relativePath) ? "yaml" : "properties",
+          );
+        } catch {
+          configMalformed = [...configMalformed, file.relativePath];
+          continue;
+        }
+        configRead += 1;
+        analyzedPaths.push(file.relativePath);
+        configFindings.push(...analysis.findings.map(createSourceFinding));
+        if (analysis.capped) configCapped += 1;
+        if (analysis.malformedLine !== null) {
+          configMalformed = [...configMalformed, `${file.relativePath}:${analysis.malformedLine}`];
+        }
+        actuator.push(...analysis.actuatorExposure);
+      }
+      // Actuator exposure matters when nothing in the project shows Spring Security.
+      if (actuator.length > 0) {
+        let securityShown = usesSpringSecurity;
+        for (const manifest of walk.trackManifests) {
+          if (securityShown) break;
+          if (manifest.kind !== "maven" && manifest.kind !== "gradle") continue;
+          const manifestText = await readTextFile(manifest.absolutePath, 1024 * 1024);
+          if (manifestText !== null && SPRING_SECURITY_DEPENDENCY.test(manifestText)) {
+            securityShown = true;
+          }
+        }
+        if (!securityShown) {
+          configFindings.push(
+            ...actuator.map((entry) =>
+              createSourceFinding(
+                actuatorFinding(
+                  entry,
+                  "no Spring Security import or dependency was found in the project",
+                ),
+              ),
+            ),
+          );
+        }
+      }
+      findings.push(...configFindings);
+      const problems: string[] = [];
+      if (configCapped > 0) {
+        problems.push(
+          `${configCapped} file(s) hit the per-file finding cap; further findings there are not listed`,
+        );
+      }
+      if (configMalformed.length > 0) {
+        problems.push(
+          `${configMalformed.length} file(s) have lines the reader could not parse (tabs for indentation, anchors, multi-line flow collections or malformed escapes), so the rest of each was read only in part (${configMalformed.slice(0, 3).join(", ")})`,
+        );
+      }
+      if (configOversized > 0) {
+        problems.push(
+          `${configOversized} configuration file(s) over ${MAX_SPRING_CONFIG_BYTES / 1024} KiB were not read`,
+        );
+      }
+      if (configUnreadable > 0) {
+        problems.push(`${configUnreadable} configuration file(s) were binary or unreadable`);
+      }
+      if (walk.springConfigTruncated) problems.push("the configuration file list reached its cap");
+      if (configRead + configOversized + configUnreadable > 0 || problems.length > 0) {
+        const entry: Coverage = {
+          area: "source:jvm-config",
+          scope: "code",
+          status: problems.length > 0 ? "partial" : "completed",
+          ruleIds: CONFIG_RULE_IDS,
+          note: `${configRead} Spring Boot configuration file(s) (application.properties, application-*.properties, application.yml, application-*.yml); server.servlet.session.cookie http-only and secure set to false, security debug logging and management.endpoints.web.exposure.include=* without Spring Security; values from a development profile or an environment variable with a default are reported low; a small YAML reader of block mappings, scalar lists and flow lists, not a full YAML parser.${
+            problems.length > 0 ? ` ${problems.join("; ")}.` : ""
+          }`,
+        };
+        coverage.push(entry);
+        for (const ruleId of entry.ruleIds) {
+          ruleStats.push({
+            ruleId,
+            area: entry.area,
+            scope: "code",
+            status: entry.status as "completed" | "partial",
+            targets: [{ unit: "files", examined: configRead, reason: null }],
+            findings: configFindings.filter((finding) => finding.ruleId === ruleId).length,
+          });
+        }
       }
     }
     const engines = new Map<string, number>(engineFiles);

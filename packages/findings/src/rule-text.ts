@@ -39,6 +39,7 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-COOKIE-001": "HttpOnly/Secure/SameSite가 없는 세션·인증 쿠키",
   "PG-CSRF-001": "CSRF 보호가 보이지 않는 쿠키 인증 상태 변경 라우트",
   "PG-BRUTE-001": "속도 제한이 보이지 않는 로그인 또는 비밀번호 재설정 라우트",
+  "PG-CONF-001": "접근 제어를 약화하는 Spring Security·Spring Boot 설정",
   "PG-WEB-001": "Content-Security-Policy 헤더 없음",
   "PG-WEB-002": "클릭재킹 방어 헤더 없음",
   "PG-WEB-003": "X-Content-Type-Options: nosniff 없음",
