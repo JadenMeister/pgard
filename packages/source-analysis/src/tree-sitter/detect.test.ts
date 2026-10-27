@@ -110,10 +110,10 @@ describe("language detection and coverage", () => {
       status: "completed",
       ruleIds: ["PG-SQL-005", "PG-CMD-003", "PG-PATH-002"],
     });
-    // PHP is still only detected.
+    // PHP has the SQL injection and command execution rules.
     expect(output.coverage.find((item) => item.area === "source:php")).toMatchObject({
-      status: "not_tested",
-      ruleIds: [],
+      status: "completed",
+      ruleIds: ["PG-SQL-007", "PG-CMD-005"],
     });
     expect(output.coverage.some((item) => item.area === "source:kotlin")).toBe(false);
   });

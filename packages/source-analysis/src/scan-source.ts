@@ -19,6 +19,7 @@ import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
 import { scanJvm, JVM_LANGUAGES } from "./jvm/scan-jvm.js";
+import { scanPhp } from "./php/scan-php.js";
 import { scanPython } from "./python/scan-python.js";
 import {
   createTrackDeadline,
@@ -592,7 +593,7 @@ export async function scanSourceCode(
     GO_RULE_IDS,
     "syntax-level heuristics (lexer and patterns, no type information or cross-file data flow)",
   );
-  // Java and Kotlin (and MyBatis mapper XML) and Python have rules; PHP is only
+  // Java, Kotlin (and MyBatis mapper XML), Python and PHP have rules; any other language is only
   // detected, and no grammar is loaded for a language without rules. Java and Kotlin go through
   // `parseTrackFiles` inside `scanJvm`, so a grammar that fails its checksum, an oversized file or
   // a timeout shows up as a partial or not_tested area, never as a safe result.
@@ -607,6 +608,13 @@ export async function scanSourceCode(
   findings.push(...jvm.findings);
   coverage.push(...jvm.coverage);
   ruleStats.push(...jvm.ruleStats);
+  const php = await scanPhp(walk, detection, {
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    deadline: createTrackDeadline(Math.min(MAX_TRACK_PARSE_MS, timeBudgetMs)),
+  });
+  findings.push(...php.findings);
+  coverage.push(...php.coverage);
+  ruleStats.push(...php.ruleStats);
   const python = await scanPython(walk, detection, {
     ...(options.signal === undefined ? {} : { signal: options.signal }),
     deadline: createTrackDeadline(Math.min(MAX_TRACK_PARSE_MS, timeBudgetMs)),
@@ -614,7 +622,7 @@ export async function scanSourceCode(
   findings.push(...python.findings);
   coverage.push(...python.coverage);
   ruleStats.push(...python.ruleStats);
-  coverage.push(...languageTrackCoverage(detection, new Set([...JVM_LANGUAGES, "python"])));
+  coverage.push(...languageTrackCoverage(detection, new Set([...JVM_LANGUAGES, "python", "php"])));
   const excludedTotal = {
     count: walk.excluded.count + jvm.excludedMapperPaths.length,
     digest:

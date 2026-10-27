@@ -18,7 +18,7 @@ export const UNSUPPORTED_AREAS = UNSUPPORTED_AREAS_EN;
  * Version of the detection criteria shown to users. Bump when rule ids, conditions or severities
  * change.
  */
-export const RULE_CRITERIA_VERSION = "2026.10-mvp.4";
+export const RULE_CRITERIA_VERSION = "2026.10-mvp.5";
 
 /**
  * `--language` value -> catalog languages it selects. Rules tagged "any" always match. React and
@@ -32,6 +32,7 @@ export const LANGUAGE_FILTER: Readonly<Record<RuleLanguage, readonly CatalogLang
   go: ["go"],
   java: ["java"],
   kotlin: ["kotlin"],
+  php: ["php"],
   python: ["python"],
 };
 

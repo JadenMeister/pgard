@@ -200,6 +200,30 @@ export function detectComposerFrameworks(text: string): Framework[] | "invalid_j
 }
 
 /**
+ * Frameworks named by PHP namespaces in a source file: `use Illuminate\...` (Laravel) and the
+ * Symfony framework namespaces (a standalone `Symfony\Component\Process` is not the framework).
+ * Text only; nothing is executed.
+ */
+export function detectPhpNamespaceFrameworks(source: string): Framework[] {
+  const frameworks: Framework[] = [];
+  if (
+    /^[ \t]*(?:use|namespace)[ \t]+\\?Illuminate\\|^[ \t]*namespace[ \t]+App\\Http\\Controllers\b/m.test(
+      source,
+    )
+  ) {
+    frameworks.push("Laravel");
+  }
+  if (
+    /^[ \t]*use[ \t]+\\?Symfony\\(?:Bundle\\FrameworkBundle|Component\\(?:HttpKernel|HttpFoundation|Routing)|Contracts\\Service)\\/m.test(
+      source,
+    )
+  ) {
+    frameworks.push("Symfony");
+  }
+  return frameworks;
+}
+
+/**
  * Detects frameworks from dependency manifests, read-only. Nothing is installed, executed or
  * evaluated (no Maven/Gradle/pip/Composer). Each manifest is size-capped.
  */

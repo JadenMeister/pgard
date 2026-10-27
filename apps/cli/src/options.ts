@@ -3,7 +3,8 @@ import { isValidPort } from "@pgard/http-local";
 import { isReportFormat, type ReportFormat } from "@pgard/report";
 
 export type ScanVariant = "default" | "code" | "history" | "web" | "all";
-export type RuleLanguage = "js" | "ts" | "react" | "vue" | "go" | "java" | "kotlin" | "python";
+export type RuleLanguage =
+  "js" | "ts" | "react" | "vue" | "go" | "java" | "kotlin" | "python" | "php";
 export const RULE_LANGUAGES: readonly RuleLanguage[] = [
   "js",
   "ts",
@@ -13,6 +14,7 @@ export const RULE_LANGUAGES: readonly RuleLanguage[] = [
   "java",
   "kotlin",
   "python",
+  "php",
 ];
 
 export type OutputFormat = "text" | "json" | "sarif";

@@ -30,6 +30,11 @@
       "recall": 1,
       "precisionMedium": 1
     },
+    "PG-SQL-007": {
+      "precision": 1,
+      "recall": 1,
+      "precisionMedium": 1
+    },
     "PG-XSS-001": {
       "precision": 1,
       "recall": 1,
@@ -66,6 +71,11 @@
       "precisionMedium": 1
     },
     "PG-CMD-004": {
+      "precision": 1,
+      "recall": 1,
+      "precisionMedium": 1
+    },
+    "PG-CMD-005": {
       "precision": 1,
       "recall": 1,
       "precisionMedium": 1
