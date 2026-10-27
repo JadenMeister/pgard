@@ -43,6 +43,20 @@
     select(0, false);
   });
 
+  // --- Demo height: capped by default, "Show full output" lifts the cap ---
+  document.querySelectorAll("[data-expand]").forEach(function (btn) {
+    var target = document.getElementById(btn.getAttribute("aria-controls"));
+    if (!target) return;
+    target.classList.add("capped");
+    btn.hidden = false;
+    btn.addEventListener("click", function () {
+      var open = btn.getAttribute("aria-expanded") !== "true";
+      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      btn.textContent = btn.getAttribute(open ? "data-label-less" : "data-label-more");
+      target.classList.toggle("capped", !open);
+    });
+  });
+
   // --- Copy buttons ---
   function commandText(code) {
     var lines = code.querySelectorAll(".cmd-text");
