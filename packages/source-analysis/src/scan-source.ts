@@ -144,6 +144,30 @@ function listPaths(paths: string[]): string {
 }
 
 /**
+ * Coverage note for minified bundles the walk skipped: the count, the reason and at most
+ * MAX_LISTED_PATHS paths (fewer when long, so the count is never cut off by a display limit).
+ */
+export function describeSkippedMinified(paths: readonly string[]): string {
+  const count = paths.length;
+  const heading = `${count} minified bundle${count === 1 ? "" : "s"} skipped (minified bundle, not analyzed): `;
+  const compose = (labels: string[]) => {
+    const rest = count - labels.length;
+    if (labels.length === 0) return `${heading}${count} not listed.`;
+    return `${heading}${labels.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+  };
+  const labels: string[] = [];
+  for (const item of [...paths].sort((a, b) => a.localeCompare(b, "en"))) {
+    if (labels.length === MAX_LISTED_PATHS) break;
+    const shown =
+      item.length > MAX_LABEL_PATH_LENGTH ? `…${item.slice(-(MAX_LABEL_PATH_LENGTH - 1))}` : item;
+    const next = [...labels, JSON.stringify(shown)];
+    if (compose(next).length > MAX_DEPENDENCY_NOTE_LENGTH) break;
+    labels.push(next[next.length - 1] as string);
+  }
+  return compose(labels);
+}
+
+/**
  * Coverage note for the dependency directories the walk did not enter, listing at most
  * MAX_LISTED_PATHS of them: `vendor/ (composer.json), node_modules/`. Unusual names are quoted.
  */
@@ -671,6 +695,15 @@ export async function scanSourceCode(
       status: "partial",
       ruleIds: [],
       note: `${walk.skippedLarge} source file(s) over 1 MiB were skipped.`,
+    });
+  }
+  if (walk.skippedMinified.length > 0) {
+    coverage.push({
+      area: "source:minified",
+      scope: "code",
+      status: "partial",
+      ruleIds: [],
+      note: describeSkippedMinified(walk.skippedMinified),
     });
   }
   if (walk.skippedSymlinks.length > 0) {

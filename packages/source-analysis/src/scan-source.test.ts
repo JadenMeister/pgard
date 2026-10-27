@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   MAX_DEPENDENCY_NOTE_LENGTH,
   describeSkippedDependencyDirectories,
+  describeSkippedMinified,
   scanSourceCode,
 } from "./scan-source.js";
 
@@ -356,6 +357,46 @@ describe("time budget, parse errors and caps (#87, #89)", () => {
     expect(result.coverage.find((entry) => entry.area === "source:javascript")?.note).toMatch(
       /finding cap/,
     );
+  });
+});
+
+describe("minified bundle coverage", () => {
+  it("reports skipped minified bundles as partial source:minified with a count and a reason", async () => {
+    const root = project({
+      "src/db.ts": SQL_VULN,
+      "public/vendor/widgets.min.js": SQL_VULN,
+      "public/vendor/a.min.mjs": SQL_VULN,
+      "public/vendor/b.min.cjs": SQL_VULN,
+      "public/vendor/plain.min.json": "{}",
+    });
+    const result = await scanSourceCode(root);
+    const entry = result.coverage.find((item) => item.area === "source:minified");
+    expect(entry).toMatchObject({ scope: "code", status: "partial", ruleIds: [] });
+    expect(entry?.note).toBe(
+      '3 minified bundles skipped (minified bundle, not analyzed): "public/vendor/a.min.mjs", "public/vendor/b.min.cjs", "public/vendor/widgets.min.js".',
+    );
+    expect(result.findings.some((finding) => (finding.location.path ?? "").includes(".min."))).toBe(
+      false,
+    );
+  });
+
+  it("adds no entry when nothing was skipped", async () => {
+    const result = await scanSourceCode(project({ "src/db.ts": SQL_VULN }));
+    expect(result.coverage.some((item) => item.area === "source:minified")).toBe(false);
+  });
+});
+
+describe("describeSkippedMinified", () => {
+  it("lists at most five paths, sorted, and counts the rest within the note limit", () => {
+    const paths = Array.from({ length: 8 }, (_, index) => `d${7 - index}/x.min.js`);
+    expect(describeSkippedMinified(paths)).toBe(
+      '8 minified bundles skipped (minified bundle, not analyzed): "d0/x.min.js", "d1/x.min.js", "d2/x.min.js", "d3/x.min.js", "d4/x.min.js" and 3 more.',
+    );
+    const long = Array.from({ length: 6 }, (_, i) => `${"a".repeat(200)}${i}.min.js`);
+    const note = describeSkippedMinified(long);
+    expect(note.length).toBeLessThanOrEqual(MAX_DEPENDENCY_NOTE_LENGTH);
+    expect(note).toMatch(/and \d+ more\.$/);
+    expect(describeSkippedMinified(["a.min.js"])).toMatch(/^1 minified bundle skipped/);
   });
 });
 
