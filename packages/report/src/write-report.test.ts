@@ -42,6 +42,34 @@ describe("writeReports", () => {
     );
     expect(error).toBeInstanceOf(ReportWriteError);
     expect((error as ReportWriteError).code).toBe("file_exists");
+    expect(path.basename((error as ReportWriteError).path ?? "")).toMatch(/\.html$/);
+  });
+
+  it("skips an existing file listed in skipExisting, writes the rest, refuses other files", async () => {
+    const [first] = await writeReports(scanResult(), { format: "html", outputDir: directory });
+    const known = new Set([first?.filePath ?? ""]);
+    const both = await writeReports(scanResult(), {
+      format: "both",
+      outputDir: directory,
+      skipExisting: known,
+    });
+    expect(both.map((entry) => [entry.format, entry.skipped === true])).toEqual([
+      ["html", true],
+      ["pdf", false],
+    ]);
+    expect(await readdir(directory)).toHaveLength(2);
+    // Nothing is in the set now: the same request is refused.
+    const error = await writeReports(scanResult(), { format: "both", outputDir: directory }).catch(
+      (caught: unknown) => caught,
+    );
+    expect((error as ReportWriteError).code).toBe("file_exists");
+    // A set that lists only the HTML still refuses the existing PDF.
+    const partial = await writeReports(scanResult(), {
+      format: "both",
+      outputDir: directory,
+      skipExisting: known,
+    }).catch((caught: unknown) => caught);
+    expect((partial as ReportWriteError).code).toBe("file_exists");
   });
 
   it("does not follow a pre-planted symlink at the target name", async () => {
@@ -107,6 +135,7 @@ describe("writeReports atomicity", () => {
       (caught: unknown) => caught,
     );
     expect((error as ReportWriteError).code).toBe("file_exists");
+    expect(path.basename((error as ReportWriteError).path ?? "")).toBe(path.basename(pdfPath));
     expect(await readdir(directory)).toEqual(["pgard-report-20261024010203-3f2b9c1e.pdf"]);
     expect(await readFile(pdfPath, "utf8")).toBe("existing");
   });

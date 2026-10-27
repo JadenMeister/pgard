@@ -23,6 +23,7 @@ export function createPanelsState(
   size: Size,
   ruleTexts?: RuleTextCatalog,
   trend: TrendData = NO_TREND,
+  canExport = false,
 ): PanelsState {
   const findings = sortBySeverity(result.findings);
   return {
@@ -42,6 +43,8 @@ export function createPanelsState(
     overlay: "none",
     size,
     exit: null,
+    canExport,
+    exportRequested: false,
   };
 }
 
@@ -193,8 +196,8 @@ function isCtrlC(key: Key): boolean {
 }
 
 /**
- * Pure: the state after one key. Unknown keys change nothing. Extension point: M6-5 adds an
- * export key the way `reduceListKey` adds the filter keys.
+ * Pure: the state after one key. Unknown keys change nothing. `e` only asks for an export
+ * (`exportRequested`); the controller runs it, because it needs the terminal.
  */
 export function reduce(state: PanelsState, key: Key): PanelsState {
   if (state.exit !== null) return state;
@@ -254,6 +257,9 @@ export function reduce(state: PanelsState, key: Key): PanelsState {
       return scrollTo(state, "end");
   }
   if (state.overlay === "help" || state.overlay === "detail") return state;
+  if (state.canExport && !key.ctrl && key.sequence === "e" && !isTooSmall(state.size)) {
+    return { ...state, exportRequested: true };
+  }
   if (state.panel === "findings") {
     const next = reduceListKey(state, key);
     if (next !== state) return next;

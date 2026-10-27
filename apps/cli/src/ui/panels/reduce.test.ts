@@ -164,3 +164,54 @@ describe("reduce", () => {
     expect(state.scroll.coverage).toBe(0);
   });
 });
+
+describe("reduce: the export key", () => {
+  const exportable = (): PanelsState =>
+    createPanelsState(panelsFixtureResult(), "en", SIZE, undefined, undefined, true);
+
+  it("only asks for an export and keeps tab, scroll, filters and search", () => {
+    let state = press(exportable(), key("tab"), key("tab"), key("tab"), key("tab"), key("/"));
+    state = press(state, key("s"), key("q", { sequence: "q" }));
+    state = press(state, key("return"), key("down"));
+    const next = press(state, key("e"));
+    expect(next.exportRequested).toBe(true);
+    expect({ ...next, exportRequested: false }).toEqual(state);
+    expect(next.exit).toBeNull();
+  });
+
+  it("is ignored while typing a search, in the help and in an opened finding", () => {
+    const searching = press(exportable(), key("tab"), key("tab"), key("tab"), key("tab"), key("/"));
+    const typed = press(searching, key("e"));
+    expect(typed.exportRequested).toBe(false);
+    expect(typed.filters.text).toBe("e");
+    expect(press(exportable(), key("?"), key("e")).exportRequested).toBe(false);
+    const detail = press(
+      exportable(),
+      key("tab"),
+      key("tab"),
+      key("tab"),
+      key("tab"),
+      key("return"),
+    );
+    expect(detail.overlay).toBe("detail");
+    expect(press(detail, key("e")).exportRequested).toBe(false);
+  });
+
+  it("is ignored for Shift+E", () => {
+    expect(press(exportable(), key("e", { sequence: "E" })).exportRequested).toBe(false);
+  });
+
+  it("is ignored with Ctrl, on a too-small screen, and when no export is wired", () => {
+    expect(press(exportable(), key("e", { ctrl: true })).exportRequested).toBe(false);
+    const tiny = createPanelsState(
+      panelsFixtureResult(),
+      "en",
+      { columns: 30, rows: 8 },
+      undefined,
+      undefined,
+      true,
+    );
+    expect(press(tiny, key("e")).exportRequested).toBe(false);
+    expect(press(fresh(), key("e")).exportRequested).toBe(false);
+  });
+});

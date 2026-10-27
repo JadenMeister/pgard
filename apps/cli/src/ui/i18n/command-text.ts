@@ -100,6 +100,8 @@ export interface CommandText {
     cannotConfirm: string;
     confirmInside: string;
     saved: (format: string, path: string) => string;
+    /** A repeated export to a file this session already saved; nothing was overwritten. */
+    alreadySaved: (path: string) => string;
     notSaved: (message: string) => string;
     unexpectedWriteError: string;
     savePrompt: string;
@@ -300,6 +302,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       "Cannot confirm without an interactive terminal; choose a directory outside the repository.",
     confirmInside: "Save the report inside the repository anyway?",
     saved: (format, path) => `Saved ${format} report: ${path}`,
+    alreadySaved: (path) => `This report was already saved to ${path}.`,
     notSaved: (message) => `Report not saved: ${message}`,
     unexpectedWriteError: "Unexpected error while writing the report.",
     savePrompt: "Save a report?",
@@ -498,6 +501,7 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     cannotConfirm: "대화형 터미널이 아니면 확인할 수 없습니다. 저장소 밖의 디렉터리를 선택하세요.",
     confirmInside: "그래도 저장소 안에 보고서를 저장할까요?",
     saved: (format, path) => `${format} 보고서를 저장했습니다: ${path}`,
+    alreadySaved: (path) => `이 보고서는 이미 ${path}에 저장되어 있습니다.`,
     notSaved: (message) => `보고서를 저장하지 못했습니다: ${message}`,
     unexpectedWriteError: "보고서를 쓰는 중 예기치 않은 오류가 발생했습니다.",
     savePrompt: "보고서를 저장할까요?",
