@@ -1383,19 +1383,27 @@ export function analyzeJsSource(
   /** Names of destructured handler parameters that carry request data: `({ body }) => ...`. */
   const requestAliases = new Set<string>();
   const reassigned = new Set<string>();
+  /** Plain `name = value` assignments per name, to treat `let v; v = req.body.pw` as a single binding. */
+  const plainAssignments = new Map<string, ts.Expression[]>();
+  const writeCounts = new Map<string, number>();
+  /** Names declared by `let v;` / `var v;` without an initialiser (loop bindings excluded). */
+  const bareLets = new Map<string, number>();
   /** Marks every identifier a write target names: `x =`, `[x] =`, `({ a, b: c = 1 } =`, `for (x of`. */
   const markWrite = (target: ts.Node): void => {
     const node = ts.isExpression(target) ? unwrap(target) : target;
     if (ts.isIdentifier(node)) {
       reassigned.add(node.text);
+      writeCounts.set(node.text, (writeCounts.get(node.text) ?? 0) + 1);
     } else if (ts.isArrayLiteralExpression(node)) {
       for (const element of node.elements)
         markWrite(ts.isSpreadElement(element) ? element.expression : element);
     } else if (ts.isObjectLiteralExpression(node)) {
       for (const property of node.properties) {
         if (ts.isPropertyAssignment(property)) markWrite(property.initializer);
-        else if (ts.isShorthandPropertyAssignment(property)) reassigned.add(property.name.text);
-        else if (ts.isSpreadAssignment(property)) markWrite(property.expression);
+        else if (ts.isShorthandPropertyAssignment(property)) {
+          reassigned.add(property.name.text);
+          writeCounts.set(property.name.text, (writeCounts.get(property.name.text) ?? 0) + 1);
+        } else if (ts.isSpreadAssignment(property)) markWrite(property.expression);
       }
     } else if (
       ts.isBinaryExpression(node) &&
@@ -1411,6 +1419,12 @@ export function analyzeJsSource(
       node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
     ) {
       markWrite(node.left);
+      const target = unwrap(node.left);
+      if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(target)) {
+        const list = plainAssignments.get(target.text) ?? [];
+        list.push(node.right);
+        plainAssignments.set(target.text, list);
+      }
     } else if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
       (node.operator === ts.SyntaxKind.PlusPlusToken ||
@@ -1438,6 +1452,14 @@ export function analyzeJsSource(
         node.initializer !== undefined &&
         ts.isVariableDeclarationList(node.parent) &&
         ((node.parent.flags & ts.NodeFlags.Const) !== 0 || !reassigned.has(node.name.text));
+      // `let v;` declarations (not loop bindings): see `soleAssignedValue`.
+      if (
+        node.initializer === undefined &&
+        ts.isVariableDeclarationList(node.parent) &&
+        !ts.isForInStatement(node.parent.parent) &&
+        !ts.isForOfStatement(node.parent.parent)
+      )
+        bareLets.set(node.name.text, (bareLets.get(node.name.text) ?? 0) + 1);
       const list = constInits.get(node.name.text) ?? [];
       // Reassigned `let`/`var` bindings: two entries make the name ambiguous.
       if (isConstLike && node.initializer) list.push(node.initializer);
@@ -1465,6 +1487,19 @@ export function analyzeJsSource(
     ts.forEachChild(node, collectConsts);
   };
   collectConsts(sourceFile);
+  /**
+   * `let v; v = req.body.pw`: the value of the only write to a once-declared, uninitialised binding.
+   * Deliberately separate from `singleConst`, which other rules rely on staying initialiser-only.
+   * Used only to ADD plain-password evidence for PG-AUTH-001.
+   */
+  const soleAssignedValue = (name: string): ts.Expression | null => {
+    const declared = constInits.get(name);
+    if (bindingCount.get(name) !== 1 || bareLets.get(name) !== 1 || declared?.length !== 2)
+      return null;
+    if (writeCounts.get(name) !== 1) return null;
+    const assigned = plainAssignments.get(name);
+    return assigned?.length === 1 ? (assigned[0] ?? null) : null;
+  };
   const singleConst = (name: string): ts.Expression | null => {
     const list = constInits.get(name);
     return list && list.length === 1 ? (list[0] ?? null) : null;
@@ -2411,6 +2446,128 @@ export function analyzeJsSource(
     return result;
   };
 
+  /**
+   * An options object nobody changes after its declaration: never written through a member
+   * (`o.k =`, `o["k"] =`, `delete`, `Object.assign(o, …)`), not aliased, and not handed to a call
+   * that could change it. Being spread into another literal, or passed to the cookie/session
+   * call that consumes it, is not an escape.
+   */
+  const isStableOptionsObject = (name: string): boolean => {
+    if (mutatedRoots.has(name)) return false;
+    /** A real cookie-setting call: `res.cookie`, `*.cookies.set`, `cookies().set`, `reply.setCookie`, `res.append("Set-Cookie", …)`. */
+    const isCookieSetCall = (call: ts.CallExpression): boolean => {
+      const callee = unwrap(call.expression);
+      if (!ts.isPropertyAccessExpression(callee)) return false;
+      const method = callee.name.text;
+      const receiver = unwrap(callee.expression);
+      const receiverPath = accessPath(receiver);
+      if (method === "cookie" || method === "setCookie")
+        return receiverPath !== null && /^(res|response|reply)$/.test(receiverPath);
+      if (method === "set")
+        return (
+          (receiverPath !== null && /(^|\.)(cookies|cookieStore)$/i.test(receiverPath)) ||
+          (ts.isCallExpression(receiver) &&
+            ts.isIdentifier(unwrap(receiver.expression)) &&
+            (unwrap(receiver.expression) as ts.Identifier).text === "cookies")
+        );
+      if (method === "append") {
+        const first = call.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+        return (
+          receiverPath !== null &&
+          /^(res|response|reply)$/.test(receiverPath) &&
+          first !== undefined &&
+          ts.isStringLiteralLike(first) &&
+          first.text.toLowerCase() === "set-cookie"
+        );
+      }
+      return false;
+    };
+    /** The actual express-session / cookie-session middleware factory, imported or required inline. */
+    const isSessionFactory = (callee: ts.Expression): boolean => {
+      const target = unwrap(callee);
+      if (ts.isIdentifier(target)) {
+        const module = namespaceImports.get(target.text);
+        return module === "express-session" || module === "cookie-session";
+      }
+      if (ts.isCallExpression(target) && ts.isIdentifier(unwrap(target.expression))) {
+        const first = target.arguments[0] ? unwrap(target.arguments[0]) : undefined;
+        return (
+          (unwrap(target.expression) as ts.Identifier).text === "require" &&
+          first !== undefined &&
+          ts.isStringLiteralLike(first) &&
+          (first.text === "express-session" || first.text === "cookie-session")
+        );
+      }
+      return false;
+    };
+    return (nonReadUses.get(name) ?? []).every((use) => {
+      const parent = use.parent;
+      if (ts.isSpreadAssignment(parent)) return true;
+      if (ts.isCallExpression(parent) && parent.arguments.some((argument) => argument === use))
+        return isCookieSetCall(parent);
+      // `session({ secret, cookie })`: a config object handed straight to the session middleware.
+      const holder = ts.isShorthandPropertyAssignment(parent)
+        ? parent.parent
+        : ts.isPropertyAssignment(parent) && parent.initializer === use
+          ? parent.parent
+          : undefined;
+      return (
+        holder !== undefined &&
+        ts.isObjectLiteralExpression(holder) &&
+        ts.isCallExpression(holder.parent) &&
+        holder.parent.arguments.some((argument) => argument === holder) &&
+        isSessionFactory(holder.parent.expression)
+      );
+    });
+  };
+
+  /**
+   * The raw `key` expression of an options object, without substituting identifiers (unlike
+   * `resolveOptions`, which looks through same-file consts and is not shadow-aware). Identifiers
+   * naming the options object resolve only through the shadow-aware `soleConst`. Unresolvable
+   * spreads or computed keys give `null`: nothing can then be proven about the value.
+   */
+  const rawOptionValue = (
+    options: ts.Expression,
+    key: string,
+    depth = 0,
+  ): ts.Expression | null | undefined => {
+    if (depth > 4) return null;
+    const node = unwrap(options);
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return init && isStableOptionsObject(node.text) ? rawOptionValue(init, key, depth + 1) : null;
+    }
+    if (!ts.isObjectLiteralExpression(node)) return null;
+    let found: ts.Expression | null | undefined;
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = rawOptionValue(property.expression, key, depth + 1);
+        if (spread !== undefined) found = spread;
+      } else if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+        if (ts.isComputedPropertyName(property.name)) return null;
+        if (property.name.getText(sourceFile).replace(/^['"]|['"]$/g, "") !== key) continue;
+        found = ts.isPropertyAssignment(property) ? property.initializer : property.name;
+      }
+    }
+    return found;
+  };
+
+  /**
+   * `sameSite: "strict"` written as a literal, or an identifier that is a shadow-aware sole
+   * same-file const; inferred values never count. Fully suppresses only a syntactic fixed value.
+   */
+  const isStrictSameSite = (value: ts.Expression | null | undefined, depth = 0): boolean => {
+    if (!value || depth > 3) return false;
+    const inner = unwrap(value);
+    if (ts.isStringLiteralLike(inner)) return inner.text.toLowerCase() === "strict";
+    if (ts.isIdentifier(inner)) {
+      const init = soleConst(inner.text, inner);
+      return init ? isStrictSameSite(init, depth + 1) : false;
+    }
+    return false;
+  };
+
   const isNextCookieStore = (expression: ts.Expression, depth: number): boolean => {
     if (depth > 3) return false;
     const node = unwrap(expression);
@@ -2557,6 +2714,9 @@ export function analyzeJsSource(
     if (ts.isIdentifier(inner)) {
       const init = singleConst(inner.text);
       if (init) return isPlainPassword(init, depth + 1);
+      // `let v; v = req.body.pw` adds evidence only; anything else falls back to the name test.
+      const assigned = soleAssignedValue(inner.text);
+      if (assigned && isPlainPassword(assigned, depth + 1)) return true;
       // Bound by destructuring a request object: `const { password: plain } = req.body`.
       const sources = destructuredFrom.get(inner.text);
       if (sources?.length === 1 && sources[0]) {
@@ -2792,11 +2952,8 @@ export function analyzeJsSource(
     const sameSite = cookieOptions?.get("sameSite");
     if (!sameSite || sameSite.kind === ts.SyntaxKind.FalseKeyword) missing.push("sameSite");
     // SameSite=Strict keeps the session cookie off every cross-site request, so it is not CSRF-able.
-    const isStrict =
-      sameSite !== undefined &&
-      ts.isStringLiteralLike(unwrap(sameSite)) &&
-      (unwrap(sameSite) as ts.StringLiteral).text.toLowerCase() === "strict";
-    if (isStrict) facts.strictSession = true;
+    if (isStrictSameSite(cookie ? rawOptionValue(cookie, "sameSite") : undefined))
+      facts.strictSession = true;
     else facts.usesCookieSession = true;
     if (missing.length > 0) {
       report(
@@ -2906,13 +3063,33 @@ export function analyzeJsSource(
       nameNode && ts.isStringLiteralLike(nameNode)
         ? nameNode.text
         : (nameNode?.getText(sourceFile).slice(0, 80) ?? "");
-    const nameWords = identifierWords(nameText.replace(/^__(host|secure)-/i, ""));
-    const isStrongName =
-      /connect\.sid/i.test(nameText) || nameWords.some((word) => SESSION_NAME_WORDS.has(word));
+    const nameWords = identifierWords(nameText);
+    // A csrf/xsrf token cookie is readable by script on purpose: not a session, no httpOnly wanted.
+    // Only a literal name counts, and any session word (`xsrf_session_id`) keeps it a session cookie.
+    // A value that carries a session (`req.sessionID`) keeps it a session cookie, whatever its name.
+    const csrfValueCarriesSession =
+      cookieValue !== undefined &&
+      !ts.isStringLiteralLike(unwrap(cookieValue)) &&
+      identifierWords(unwrap(cookieValue).getText(sourceFile).slice(0, 200)).some(
+        (word) => SESSION_VALUE_WORDS.has(word) && word !== "token" && word !== "tokens",
+      );
+    const isCsrfToken =
+      !csrfValueCarriesSession &&
+      nameNode !== undefined &&
+      ts.isStringLiteralLike(nameNode) &&
+      nameWords.some((word) => word === "csrf" || word === "xsrf") &&
+      !nameWords.some(
+        (word) => SESSION_NAME_WORDS.has(word) && word !== "token" && word !== "tokens",
+      );
+    const isStrongName = !isCsrfToken && nameWords.some((word) => SESSION_NAME_WORDS.has(word));
     const isWeakName = !isStrongName && nameWords.some((word) => WEAK_NAME_WORDS.has(word));
-    const isSessionLike = isStrongName || isWeakName;
-    // A hand-rolled session cookie is a cookie session for PG-CSRF-001.
-    if (isStrongName) facts.usesCookieSession = true;
+    const isSessionLike = isStrongName || isWeakName || isCsrfToken;
+    // A hand-rolled session cookie is a cookie session for PG-CSRF-001, unless it is resolved
+    // SameSite=Strict (never sent cross-site). Anything not resolved syntactically still counts.
+    if (isStrongName) {
+      const sameSiteValue = options ? rawOptionValue(options, "sameSite") : undefined;
+      if (!isStrictSameSite(sameSiteValue)) facts.usesCookieSession = true;
+    }
     // A cookie with a non-session name still counts when it carries a session or token value.
     const valueNode = cookieValue ? unwrap(cookieValue) : undefined;
     const carriesToken =
@@ -2924,7 +3101,11 @@ export function analyzeJsSource(
       );
     if (!isSessionLike && !carriesToken) return;
     const severity = isStrongName ? "medium" : "low";
-    const kind = isSessionLike ? "session-like name" : "session or token value";
+    const kind = isCsrfToken
+      ? "csrf token cookie"
+      : isSessionLike
+        ? "session-like name"
+        : "session or token value";
     let resolved: Map<string, ts.Expression> | null = new Map();
     if (options) resolved = resolveOptions(options, 0);
     if (!resolved) {
@@ -2949,7 +3130,8 @@ export function analyzeJsSource(
     const httpOnlyDefault =
       defaults.httpOnly === true && resolved.get("httpOnly")?.kind !== ts.SyntaxKind.FalseKeyword;
     const missing = [
-      ...(isTrue("httpOnly") || httpOnlyDefault ? [] : ["httpOnly"]),
+      // A csrf token cookie is read by script on purpose, so httpOnly is not expected.
+      ...(isTrue("httpOnly") || httpOnlyDefault || isCsrfToken ? [] : ["httpOnly"]),
       ...(isTrue("secure") ? [] : ["secure"]),
       ...(hasSameSite ? [] : ["sameSite"]),
     ];

@@ -18,28 +18,28 @@ medium and high confidence findings, on every sample.
 
 ## Source rules (scanSourceCode)
 
-417 samples.
+443 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 17 | 0 | 0 | 400 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-002 | 12 | 0 | 0 | 405 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-003 | 13 | 0 | 0 | 404 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 412 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-001 | 25 | 0 | 0 | 392 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-002 | 9 | 0 | 0 | 408 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-003 | 9 | 0 | 0 | 408 | 100.0% | 100.0% | 100.0% |
-| PG-SSRF-001 | 26 | 0 | 0 | 391 | 100.0% | 100.0% | 100.0% |
-| PG-CMD-001 | 15 | 0 | 0 | 402 | 100.0% | 100.0% | 100.0% |
-| PG-CMD-002 | 12 | 0 | 0 | 405 | 100.0% | 100.0% | 100.0% |
-| PG-PATH-001 | 18 | 0 | 0 | 399 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-001 | 9 | 0 | 0 | 408 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-002 | 10 | 0 | 0 | 407 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-003 | 9 | 0 | 0 | 408 | 100.0% | 100.0% | 100.0% |
-| PG-AUTH-001 | 15 | 0 | 2 | 400 | 100.0% | 88.2% | 100.0% |
-| PG-COOKIE-001 | 16 | 0 | 2 | 399 | 100.0% | 88.9% | 100.0% |
-| PG-CSRF-001 | 13 | 0 | 0 | 404 | 100.0% | 100.0% | n/a |
-| PG-BRUTE-001 | 6 | 0 | 0 | 411 | 100.0% | 100.0% | n/a |
+| PG-SQL-001 | 17 | 0 | 0 | 426 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-002 | 12 | 0 | 0 | 431 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-003 | 13 | 0 | 0 | 430 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 438 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-001 | 26 | 0 | 0 | 417 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-002 | 9 | 0 | 0 | 434 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-003 | 9 | 0 | 0 | 434 | 100.0% | 100.0% | 100.0% |
+| PG-SSRF-001 | 26 | 0 | 0 | 417 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-001 | 15 | 0 | 0 | 428 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-002 | 12 | 0 | 0 | 431 | 100.0% | 100.0% | 100.0% |
+| PG-PATH-001 | 18 | 0 | 0 | 425 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-001 | 9 | 0 | 0 | 434 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-002 | 10 | 0 | 0 | 433 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-003 | 9 | 0 | 0 | 434 | 100.0% | 100.0% | 100.0% |
+| PG-AUTH-001 | 19 | 2 | 2 | 420 | 90.5% | 90.5% | 94.1% |
+| PG-COOKIE-001 | 20 | 0 | 3 | 420 | 100.0% | 87.0% | 100.0% |
+| PG-CSRF-001 | 24 | 0 | 1 | 418 | 100.0% | 96.0% | n/a |
+| PG-BRUTE-001 | 6 | 0 | 0 | 437 | 100.0% | 100.0% | n/a |
 
 ## History rules (scanGitHistory on generated git repositories)
 
@@ -79,8 +79,12 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 
 | Rule | Kind | Sample | Reason |
 | --- | --- | --- | --- |
+| PG-AUTH-001 | false positive (FP) | `PG-AUTH-001/negative/followup-destructure-from-call.js` | a password-named binding destructured from a call result is treated as plain |
+| PG-AUTH-001 | false positive (FP) | `PG-AUTH-001/negative/followup-let-reassigned-hash.js` | a destructured let reassigned from a hashing helper is still treated as the plain request password |
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-mysql-set-object.js` | mysql "SET ?" with an object of column values is not parsed |
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-pgp-named-placeholders.js` | pg-promise ${name} placeholders with db.none are not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-fastify-reply-setcookie.js` | Fastify reply.setCookie() is not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-raw-set-cookie-header.js` | a raw Set-Cookie header string is not parsed |
+| PG-COOKIE-001 | miss (FN) | `PG-CSRF-001/positive/followup-koa-session-router-post.js` | koa-session default cookie options are not judged |
+| PG-CSRF-001 | miss (FN) | `PG-CSRF-001/positive/followup-koa-session-router-post.js` | koa-session is not recognised as a cookie session |
 
