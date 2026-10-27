@@ -126,27 +126,33 @@ describe("XML under res/ or target/", () => {
 });
 
 describe("unreadable and special files", () => {
-  it.skipIf(process.getuid?.() === 0)("counts files whose lstat fails as partial", async () => {
-    const root = project({ "src/a.ts": SRC, "locked/b.ts": SRC, "locked/c.xml": "<a/>" });
-    const locked = path.join(root, "locked");
-    chmodSync(locked, 0o644); // listable, not searchable: lstat of the entries fails with EACCES
-    restore.push(locked);
-    const entry = area(await scanSourceCode(root), "source:unreadable-files");
-    expect(entry).toMatchObject({ status: "partial", ruleIds: [] });
-    expect(entry?.note).toMatch(
-      /^2 files could not be read \(permission error or removed during the scan, not analyzed; set [0-9a-f]{8}\): "locked\/b\.ts", "locked\/c\.xml"\.$/,
-    );
-  });
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "counts files whose lstat fails as partial",
+    async () => {
+      const root = project({ "src/a.ts": SRC, "locked/b.ts": SRC, "locked/c.xml": "<a/>" });
+      const locked = path.join(root, "locked");
+      chmodSync(locked, 0o644); // listable, not searchable: lstat of the entries fails with EACCES
+      restore.push(locked);
+      const entry = area(await scanSourceCode(root), "source:unreadable-files");
+      expect(entry).toMatchObject({ status: "partial", ruleIds: [] });
+      expect(entry?.note).toMatch(
+        /^2 files could not be read \(permission error or removed during the scan, not analyzed; set [0-9a-f]{8}\): "locked\/b\.ts", "locked\/c\.xml"\.$/,
+      );
+    },
+  );
 
-  it("counts FIFOs once in an informational note and never opens them", async () => {
-    const root = project({ "src/a.ts": SRC });
-    execFileSync("mkfifo", [path.join(root, "pipe")]);
-    const entry = area(await scanSourceCode(root), "source:special-files");
-    expect(entry).toMatchObject({ status: "completed", ruleIds: [] });
-    expect(entry?.note).toMatch(
-      /^1 special file skipped \(FIFO, socket, device or not a regular file, never opened; set [0-9a-f]{8}\): "pipe"\.$/,
-    );
-  });
+  it.skipIf(process.platform === "win32")(
+    "counts FIFOs once in an informational note and never opens them",
+    async () => {
+      const root = project({ "src/a.ts": SRC });
+      execFileSync("mkfifo", [path.join(root, "pipe")]);
+      const entry = area(await scanSourceCode(root), "source:special-files");
+      expect(entry).toMatchObject({ status: "completed", ruleIds: [] });
+      expect(entry?.note).toMatch(
+        /^1 special file skipped \(FIFO, socket, device or not a regular file, never opened; set [0-9a-f]{8}\): "pipe"\.$/,
+      );
+    },
+  );
 
   it("keeps both notes within the limit and sanitised", () => {
     const names = [HOSTILE, ...Array.from({ length: 7 }, (_, i) => `${"c".repeat(180)}${i}`)];
