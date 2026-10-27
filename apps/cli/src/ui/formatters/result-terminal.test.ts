@@ -1,10 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { getRuleTextCatalog } from "../../rule-texts.js";
 import { displayWidth, stripAnsi } from "../i18n/display-width.js";
 import { fitLine } from "./fit-lines.js";
 import { realRepoResult } from "./result-fixture.js";
 import { formatScanResult } from "./result-view.js";
 import { createStyle } from "./style.js";
+
+// Text from the scan is cut with a Unicode ellipsis only where the console can show it; the
+// snapshots must not depend on the machine that runs them (Windows CI, TERM=dumb).
+const platform = Object.getOwnPropertyDescriptor(process, "platform");
+beforeAll(() => {
+  Object.defineProperty(process, "platform", { value: "darwin" });
+  vi.stubEnv("TERM", "xterm-256color");
+});
+afterAll(() => {
+  if (platform !== undefined) Object.defineProperty(process, "platform", platform);
+  vi.unstubAllEnvs();
+});
 
 const plain = createStyle(false);
 const colored = createStyle(true);
