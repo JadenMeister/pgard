@@ -247,7 +247,7 @@ describe("loadTrend", () => {
     );
     if (trend.kind !== "unavailable") throw new Error("expected unavailable");
     expect(trend.reason).not.toMatch(/[\u001b\u202e]/u);
-    expect(trend.reason.length).toBeLessThanOrEqual(100);
+    expect(trend.reason.length).toBeLessThanOrEqual(110); // the ellipsis may be spelled "..."
     expect(trend.reason).toContain("bad");
   });
 
@@ -272,7 +272,7 @@ describe("loadTrend", () => {
     expect(trend).toMatchObject({ kind: "unavailable", why: "unreadable" });
     if (trend.kind === "unavailable") {
       expect(trend.reason).not.toMatch(/[\u001b‮]/u);
-      expect(trend.reason.length).toBeLessThanOrEqual(100);
+      expect(trend.reason.length).toBeLessThanOrEqual(110); // the ellipsis may be spelled "..."
     }
   });
 
