@@ -34,7 +34,7 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-WEB-006": "SameSite 없이 설정된 쿠키",
   "PG-WEB-007": "Secure 없이 설정된 쿠키",
   "PG-WEB-008": "자격 증명과 함께 모든 출처를 허용하는 CORS",
-  "PG-WEB-009": "자격 증명과 함께 임의의 Origin을 그대로 반사하는 CORS",
+  "PG-WEB-009": "자격 증명과 함께 임의의 Origin을 반사하거나 `null`을 신뢰하는 CORS",
   "PG-WEB-010": "서버 소프트웨어 버전 노출",
   "PG-WEB-011": "디렉터리 목록 활성화",
   "PG-WEB-012": "HTTP로 제공되는 .env 파일",

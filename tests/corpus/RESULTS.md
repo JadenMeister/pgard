@@ -43,34 +43,34 @@ medium and high confidence findings, on every sample.
 
 ## History rules (scanGitHistory on generated git repositories)
 
-40 samples.
+56 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-SECRET-001 | 5 | 0 | 0 | 35 | 100.0% | 100.0% | 100.0% |
-| PG-SECRET-002 | 11 | 0 | 0 | 29 | 100.0% | 100.0% | 100.0% |
-| PG-SECRET-003 | 4 | 0 | 0 | 36 | 100.0% | 100.0% | 100.0% |
-| PG-HYGIENE-001 | 4 | 0 | 0 | 36 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-001 | 5 | 0 | 0 | 51 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-002 | 23 | 0 | 0 | 33 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-003 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-HYGIENE-001 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | n/a |
 
 ## Web rules (scanLocalWeb against loopback servers)
 
-53 samples.
+56 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-WEB-001 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-002 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-003 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-004 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-005 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-006 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-007 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-008 | 3 | 0 | 0 | 50 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-009 | 2 | 0 | 1 | 50 | 100.0% | 66.7% | 100.0% |
-| PG-WEB-010 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-011 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-012 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
-| PG-WEB-013 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-001 | 5 | 0 | 0 | 51 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-002 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-003 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-004 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-005 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-006 | 5 | 0 | 0 | 51 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-007 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-008 | 3 | 0 | 0 | 53 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-009 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-010 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-011 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-012 | 5 | 0 | 0 | 51 | 100.0% | 100.0% | 100.0% |
+| PG-WEB-013 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
 
 ## Known misses and false positives
 
@@ -87,5 +87,4 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-raw-set-cookie-header.js` | a raw Set-Cookie header string is not parsed |
 | PG-COOKIE-001 | miss (FN) | `PG-CSRF-001/positive/followup-koa-session-router-post.js` | koa-session default cookie options are not judged |
 | PG-CSRF-001 | miss (FN) | `PG-CSRF-001/positive/followup-koa-session-router-post.js` | koa-session is not recognised as a cookie session |
-| PG-WEB-009 | miss (FN) | `web/cors-null-origin-with-credentials` | the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected |
 

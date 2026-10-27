@@ -529,14 +529,15 @@ function createFinding(fields: {
   };
 }
 
-function assessment({ kind, weak }: DetectedSecret): {
+function assessment({ kind, weak, codeText }: DetectedSecret): {
   severity: Severity;
   status: FindingStatus;
   confidence: Confidence;
 } {
   // A header with no key body may be a sample or a key split across string pieces, and a short
-  // or simple password may be a local default: review them.
-  if (kind === "private_key_header" || weak === true) {
+  // or simple password may be a local default, and a value that looks like code text inside a
+  // string literal may be a code sample: review them.
+  if (kind === "private_key_header" || weak === true || codeText === true) {
     return { severity: "high", status: "suspected", confidence: "low" };
   }
   return STRONG_KINDS.has(kind)
@@ -820,11 +821,15 @@ async function runHistoryScan(
         line: secret.line,
         commit,
         ...assessment(secret),
-        evidence: commit
-          ? isCurrentStateUnknown
-            ? `${label} ${where}; whether it is still in the current files could not be checked (value redacted)`
-            : `${label} ${where} and no longer present in current files (value redacted)`
-          : `${label} in a tracked file (value redacted)`,
+        evidence:
+          (commit
+            ? isCurrentStateUnknown
+              ? `${label} ${where}; whether it is still in the current files could not be checked (value redacted)`
+              : `${label} ${where} and no longer present in current files (value redacted)`
+            : `${label} in a tracked file (value redacted)`) +
+          (secret.codeText === true
+            ? "; the value looks like code text inside a string literal (inferred)"
+            : ""),
         cause: `${secret.kind}:${secret.line}`,
       }),
     );
