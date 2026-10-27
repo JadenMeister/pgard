@@ -5,18 +5,23 @@ import { createSessionProvider } from "../../flows/authenticate.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { formatAuthorization } from "../../ui/formatters/result-view.js";
 import { safeText } from "../../ui/formatters/style.js";
+import type { CliText } from "../../ui/i18n/cli-text.js";
 
 export const NOT_A_REPOSITORY_MESSAGE =
   "The current directory is not inside a Git repository. PGARD always checks the Git root of the current directory.";
 
-export function showOutcome(context: CommandContext, outcome: AuthorizationOutcome): void {
+export function showOutcome(
+  context: CommandContext,
+  outcome: AuthorizationOutcome,
+  t?: CliText,
+): void {
   out(
     context,
     context.style.dim(
       `Repository ${safeText(outcome.repo ?? "unknown", 120)} @ ${safeText((outcome.revision ?? "unknown").slice(0, 12), 20)}`,
     ),
   );
-  out(context, formatAuthorization(outcome.summary, context.style));
+  out(context, formatAuthorization(outcome.summary, context.style, t));
   out(context, context.style.dim("This result is not stored. Every scan checks again."));
 }
 

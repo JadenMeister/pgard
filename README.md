@@ -257,10 +257,10 @@ Unknown commands and options, invalid values and invalid combinations are reject
 | Code | `pgard login`                                                                                                                     | `pgard logout`                                                              |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | 0    | Signed in and saved.                                                                                                              | Removed, or nothing was saved.                                              |
+| 2    | No terminal (stdin and stderr must both be terminals): nothing is requested from GitHub.                                          | -                                                                           |
 | 3    | GitHub sign-in failed, or `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id (or `PGARD_GITHUB_APP_SLUG` is not a valid slug). | `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id; nothing was removed. |
 | 4    | No OS keychain is available, or saving failed; nothing was saved.                                                                 | No OS keychain is available; nothing was removed.                           |
 | 5    | Internal error.                                                                                                                   | Internal error.                                                             |
-| 2    | Not run in a terminal (stdin and stderr must both be terminals): nothing is requested from GitHub.                                | -                                                                           |
 | 130  | Cancelled.                                                                                                                        |                                                                             |
 
 ### Interactive keys
@@ -292,16 +292,31 @@ GitHub sign-in is required to verify your identity and repository access.
   2. Enter the code WXYZ-1234 (expires in about 15 min)
 Waiting for approval... (Ctrl+C to cancel)
 Signed in to GitHub as octo.
+Signed in. Checking this repository...
 Checking authorization for this repository (all five checks)...
-  [fail] Owner approval: No PGARD GitHub App installation ...
+Repository octo/app @ 546b9f0284bc
+Authorization: blocked - no analysis ran
+  [passed] repository: Git repository with remote "origin" -> github.com/octo/app.
+  [passed] github identity: Signed in to GitHub as octo.
+  [failed] owner approval: No PGARD GitHub App installation on the owner account "octo" was found for octo/app.
+  [passed] current access: The signed-in user currently has access to octo/app.
+  [passed] contribution: Commit 546b9f0284bc is in the default branch "main" (signature-verified commit by octo).
+This result is not stored. Every scan checks again.
 Owner approval: install the PGARD GitHub App on octo to approve PGARD for octo/app.
-  1. Open https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids[]=555
+  1. Open https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555
   2. Choose "Only select repositories" (octo/app) or "All repositories", then click Install.
 Installing the App is the owner approval; PGARD cannot install it for you.
 Press Enter to open the page in your browser (or s to skip)...
 Press Enter after installing (or q to quit)...
 Checking again from scratch, all five authorization checks (try 1 of 3)...
-  [ok] all five checks passed
+Repository octo/app @ 546b9f0284bc
+Authorization: allowed
+  [passed] repository: Git repository with remote "origin" -> github.com/octo/app.
+  [passed] github identity: Signed in to GitHub as octo.
+  [passed] owner approval: The PGARD GitHub App is installed by the owner account "octo" and includes octo/app.
+  [passed] current access: The signed-in user currently has access to octo/app.
+  [passed] contribution: octo owns octo/app (verified by GitHub account id); a separate contribution is not required. ...
+This result is not stored. Every scan checks again.
 Authorization passed. Starting the scan...
 ```
 

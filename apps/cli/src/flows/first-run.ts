@@ -15,7 +15,7 @@ import {
   type PromptContext,
 } from "../ui/components/prompts.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { createSessionProvider } from "./authenticate.js";
+import { canSignInInteractively, createSessionProvider } from "./authenticate.js";
 import { openInBrowser } from "./browser.js";
 import {
   authorizationDepsFor,
@@ -26,9 +26,6 @@ import {
 
 /** How many times the whole authorization runs again after "I installed the App". */
 export const MAX_INSTALL_RETRIES = 3;
-
-const FIRST_RUN_HELP =
-  "Enter answers the question, Ctrl+C asks to cancel. Every check runs again each time; nothing is remembered.";
 
 /**
  * The guided first run of the interactive menu. It only adds guidance and retries around the
@@ -47,6 +44,8 @@ const FIRST_RUN_HELP =
 export async function runGuidedFirstRun(context: CommandContext): Promise<void> {
   const { keys, errStyle } = context;
   if (keys === null) return;
+  // Without a terminal on stdin and stderr nobody can answer a device code: no questions.
+  if (!canSignInInteractively(context)) return;
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) return;
   const app = resolveGitHubAppClientId(context.io.env);
@@ -66,7 +65,7 @@ export async function runGuidedFirstRun(context: CommandContext): Promise<void> 
     keys,
     out: context.io.stdout,
     style: context.style,
-    helpText: FIRST_RUN_HELP,
+    helpText: "",
   };
   out(context, "");
   err(context, errStyle.yellow(text.notSignedIn));
@@ -90,7 +89,7 @@ export async function runGuidedFirstRun(context: CommandContext): Promise<void> 
   throwIfCancelled(context);
   for (let retries = 0; ; retries += 1) {
     out(context, "");
-    showOutcome(context, outcome);
+    showOutcome(context, outcome, t);
     if (isAuthorizationAllowed(outcome)) break;
     const remedy = guidedInstallRemedy(outcome);
     if (remedy === null) {

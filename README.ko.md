@@ -257,10 +257,10 @@ authorization and continues the scan.
 | 코드 | `pgard login`                                                                                                                      | `pgard logout`                                                                |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | 0    | 로그인하고 저장했습니다.                                                                                                           | 지웠거나, 저장된 것이 없었습니다.                                             |
+| 2    | 터미널 없음(stdin과 stderr가 모두 터미널이어야 함). GitHub에는 아무것도 요청하지 않음.                                             | -                                                                             |
 | 3    | GitHub 로그인 실패 또는 `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님(또는 `PGARD_GITHUB_APP_SLUG`가 올바른 slug가 아님). | `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. 아무것도 지우지 않음. |
 | 4    | 사용할 수 있는 OS 키체인이 없거나 저장에 실패. 아무것도 저장하지 않음.                                                             | 사용할 수 있는 OS 키체인이 없음. 아무것도 지우지 않음.                        |
 | 5    | 내부 오류.                                                                                                                         | 내부 오류.                                                                    |
-| 2    | 터미널에서 실행하지 않음(stdin과 stderr가 모두 터미널이어야 함). GitHub에는 아무것도 요청하지 않음.                                | -                                                                             |
 | 130  | 취소.                                                                                                                              |                                                                               |
 
 ### 대화형 키
@@ -288,14 +288,28 @@ $ pgard
 아직 GitHub에 로그인하지 않았습니다.
 지금 로그인할까요? [Y/n] Y
 (기존 device 로그인: 코드 입력과 승인)
+octo 계정으로 GitHub에 로그인했습니다.
 로그인했습니다. 이 저장소를 확인합니다...
 이 저장소의 권한을 확인합니다 (5가지 확인 전체)...
-  [fail] Owner approval: No PGARD GitHub App installation ...
-  1. 다음 주소를 여세요: https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids[]=555
+Repository octo/app @ 546b9f0284bc
+권한 확인: 차단됨 - 분석이 실행되지 않았습니다
+  [통과] 저장소 (Git repository with remote "origin" -> github.com/octo/app.)
+  [통과] GitHub 계정 (Signed in to GitHub as octo.)
+  [실패] 소유자 승인 (No PGARD GitHub App installation on the owner account "octo" was found for octo/app.)
+  [통과] 현재 접근 권한 (The signed-in user currently has access to octo/app.)
+  [통과] 기여 이력 (Commit 546b9f0284bc is in the default branch "main" (signature-verified commit by octo).)
+This result is not stored. Every scan checks again.
+소유자 승인: octo/app에 대해 PGARD를 승인하려면 octo에 PGARD GitHub App을 설치하세요.
+  1. 다음 주소를 여세요: https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555
   2. "Only select repositories"(octo/app) 또는 "All repositories"를 선택한 뒤 Install을 누르세요.
+App을 설치하는 것이 소유자 승인입니다. PGARD가 대신 설치할 수는 없습니다.
 Enter를 누르면 브라우저에서 페이지를 엽니다 (건너뛰려면 s)...
 설치한 뒤 Enter를 누르세요 (종료하려면 q)...
 처음부터 다시 확인합니다. 5가지 권한 확인 전체입니다 (3회 중 1회째)...
+Repository octo/app @ 546b9f0284bc
+권한 확인: 허용됨
+  [통과] 저장소 / GitHub 계정 / 소유자 승인 / 현재 접근 권한 / 기여 이력 (다섯 항목 모두, 각각 이유 포함)
+This result is not stored. Every scan checks again.
 권한 확인을 통과했습니다. 검사를 시작합니다...
 ```
 

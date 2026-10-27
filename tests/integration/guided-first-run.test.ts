@@ -366,14 +366,52 @@ describe("guided first run: sign in, install the App, re-verify, scan", () => {
     expect(noKeychain.captured.stdout()).toBe("");
   });
 
-  it("speaks Korean under --lang ko / PGARD_LANG=ko", async () => {
+  it("speaks Korean through the menu with PGARD_LANG=ko, including the authorization block", async () => {
     const { head } = project();
     const h = harness(notInstalled(head));
-    const context = contextOf(h, keysWithHook(["n"]));
-    context.ruleLocale = "ko";
-    await runGuidedFirstRun(context);
+    h.captured.io.env = { PGARD_LANG: "ko" };
+    h.captured.stdin.setRawMode = () => undefined;
+    const running = main([], h.captured.io, { deps: h.deps, interrupts: noInterrupts });
+    const press = async (sequence: string): Promise<void> => {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      h.captured.stdin.write(sequence);
+    };
+    await press("\r"); // sign in
+    await press("\r"); // open the page
+    await press("q"); // quit the install wait
+    await press("\u001b"); // quit the menu
+    await running;
+    const stdout = h.captured.stdout();
     expect(h.captured.stderr()).toContain("아직 GitHub에 로그인하지 않았습니다.");
-    expect(h.captured.stdout()).toContain("지금 로그인할까요? [Y/n]");
+    expect(stdout).toContain("지금 로그인할까요? [Y/n]");
+    expect(stdout).toContain("설치한 뒤 Enter를 누르세요 (종료하려면 q)");
+    const block = stdout.slice(stdout.indexOf("Repository "), stdout.indexOf("설치한 뒤 Enter"));
+    expect(block).toContain("GitHub");
+    // Check names and status words come from the Korean catalog, not English.
+    expect(block).not.toMatch(/\b(passed|failed|unverifiable)\b/);
+    expect(block).not.toMatch(/\[(passed|failed)\]/);
+  });
+
+  it("asks nothing when stdin or stderr is not a terminal", async () => {
+    const { head } = project();
+    const h = harness(notInstalled(head));
+    (h.captured.io.stderr as { isTTY?: boolean }).isTTY = false;
+    await runGuidedFirstRun(contextOf(h, keysWithHook([])));
+    expect(h.captured.stdout()).toBe("");
+    expect(h.gates).toHaveLength(0);
+    expect(h.signIn).not.toHaveBeenCalled();
+  });
+
+  it("App missing AND another check failed: no install prompt, one gate (remedy alone is not enough)", async () => {
+    const { head } = project();
+    // Not installed (remedy is set) and no contribution evidence (another check fails).
+    const h = harness(notInstalled(head, { commits: {}, compare: {} }));
+    await runGuidedFirstRun(contextOf(h, keysWithHook([ENTER_KEY])));
+    expect(h.gates).toHaveLength(1);
+    expect(h.gates[0]?.outcome.remedy ?? null).not.toBeNull();
+    expect(h.captured.stdout()).not.toContain("Press Enter after installing");
+    expect(h.captured.stderr()).toContain("cannot be fixed by installing the App");
+    expect(h.scans).toEqual([]);
   });
 });
 
@@ -545,6 +583,24 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
         expect(captured.stdout()).toContain(REASON);
       }
     });
+  });
+
+  it("only stderr redirected (stdin is a terminal) also fails fast with valid JSON", async () => {
+    project();
+    const run = noTerminal(createInMemoryCredentialStore());
+    const captured = createTestIo({ isTTY: true, cwd: fixture?.root ?? "/", env: {} });
+    (captured.io.stdout as { isTTY?: boolean }).isTTY = false;
+    (captured.io.stderr as { isTTY?: boolean }).isTTY = false;
+    const exitCode = await main(["scan", "code", "--format", "json"], captured.io, {
+      deps: run.deps,
+      interrupts: noInterrupts,
+    });
+    expect(exitCode).toBe(3);
+    expect(run.fetchCalls).toEqual([]);
+    expect(run.deviceCodeRequests()).toBe(0);
+    expect((JSON.parse(captured.stdout()) as { overallStatus: string }).overallStatus).toBe(
+      "blocked",
+    );
   });
 
   it("pgard login refuses without a terminal (usage error, exit 2) and requests nothing", async () => {
