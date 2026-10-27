@@ -228,3 +228,118 @@ export function createTestContext(
     releaseInterrupts: () => undefined,
   };
 }
+
+/** A mixed result for the panel view: every severity, three scopes, a Korean title, a long note. */
+export function panelsFixtureResult(): ScanResult {
+  const at = (
+    n: number,
+    severity: Finding["severity"],
+    overrides: Partial<Finding> = {},
+  ): Finding =>
+    testFinding({
+      id: `f${n}`,
+      severity,
+      ruleId: `PG-FIX-${String(n).padStart(3, "0")}`,
+      title: `Fixture finding ${n}`,
+      location: {
+        kind: "file",
+        path: `src/module${n}/handler.ts`,
+        line: 10 + n,
+        url: null,
+        commit: null,
+      },
+      references: {
+        cwe: [],
+        owasp: n % 3 === 0 ? [] : [n % 2 === 0 ? "A05:2025" : "A01:2025"],
+        cve: [],
+      },
+      ...overrides,
+    });
+  const findings: Finding[] = [
+    at(1, "critical", { status: "confirmed", title: "Hardcoded production secret" }),
+    at(2, "high", { title: "비밀번호가 코드에 그대로 들어 있습니다" }),
+    at(3, "high", {
+      sources: ["history"],
+      location: {
+        kind: "commit",
+        path: "config/.env",
+        line: null,
+        url: null,
+        commit: "0123456789abcdef0123",
+      },
+    }),
+    at(4, "high", {
+      suppression: { reason: "accepted", expires: "2027-01-01", source: "pgard.config.json" },
+    }),
+    at(5, "medium"),
+    at(6, "medium", {
+      sources: ["code", "web"],
+      location: {
+        kind: "url",
+        path: null,
+        line: null,
+        url: "http://127.0.0.1:3000/admin",
+        commit: null,
+      },
+    }),
+    at(7, "medium", { inBaseline: true }),
+    at(8, "low", { status: "informational" }),
+    at(9, "low"),
+    at(10, "info", { status: "informational" }),
+    at(11, "high"),
+    at(12, "medium"),
+  ];
+  return testResult({
+    requestedScopes: ["code", "history", "web"],
+    overallStatus: "partial",
+    ruleStats: [
+      {
+        ruleId: "PG-FIX-001",
+        area: "source:typescript",
+        scope: "code",
+        status: "completed",
+        targets: [{ unit: "files", examined: 152, reason: null }],
+        findings: 3,
+      },
+      {
+        ruleId: "PG-FIX-002",
+        area: "history:secrets",
+        scope: "history",
+        status: "partial",
+        targets: [{ unit: "commits", examined: 500, reason: null }],
+        findings: 1,
+      },
+    ],
+    coverage: [
+      {
+        area: "source:typescript",
+        scope: "code",
+        status: "completed",
+        ruleIds: ["PG-FIX-001"],
+        note: null,
+      },
+      {
+        area: "history:secrets",
+        scope: "history",
+        status: "partial",
+        ruleIds: [],
+        note: "Only the last 500 commits were read because the repository history is very long.",
+      },
+      {
+        area: "web:anonymous",
+        scope: "web",
+        status: "not_tested",
+        ruleIds: [],
+        note: "No confirmed local web target.",
+      },
+      {
+        area: "dependencies:npm",
+        scope: "code",
+        status: "not_selected",
+        ruleIds: [],
+        note: null,
+      },
+    ],
+    findings,
+  });
+}

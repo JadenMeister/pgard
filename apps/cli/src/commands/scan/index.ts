@@ -37,6 +37,7 @@ import { formatAuthorization, formatScanResult } from "../../ui/formatters/resul
 import { safeText, terminalWidth } from "../../ui/formatters/style.js";
 import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
 import type { PreviousScan } from "../../flows/scan-diff-summary.js";
+import { offerPanels } from "../../flows/panels.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
@@ -55,6 +56,8 @@ export interface ScanCommand {
   format?: OutputFormat;
   /** List every finding and location in the text result. */
   allFindings?: boolean;
+  /** `--panels`: open the full-screen panel view after the text result. */
+  panels?: boolean;
   /** `--no-store`. */
   noStore?: boolean;
   /** `--full`: scan everything again instead of building on the last stored scan. */
@@ -366,6 +369,7 @@ async function runScanFlow(
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
     exitCode = EXIT_CODES.partial;
   }
+  await offerPanels(context, localizeResult(context, result), command.panels === true);
   return exitCode;
 }
 

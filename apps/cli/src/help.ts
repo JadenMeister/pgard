@@ -107,6 +107,12 @@ ${REPORT_HELP}
                            summarized, and groups show up to 3 locations. It
                            also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
+  --panels                 after the text result, open a read-only full-screen
+                           view (summary, charts, coverage, findings) in a
+                           terminal; keys: Tab, arrows, ? help, Esc back. Not
+                           with --format json or sarif; without a terminal only
+                           the text result is printed. (pgard dashboard is the
+                           separate local web app)
   --format text|json|sarif json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; sarif prints the
                            same result as SARIF 2.1.0 (for GitHub code
