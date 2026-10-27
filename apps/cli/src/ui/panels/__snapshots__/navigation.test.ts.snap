@@ -14,7 +14,7 @@ filters.
 
 
 
-Enter: open  /: search  1-5: severity..."
+Esc: back  ?: help  c: clear filters"
 `;
 
 exports[`rendering > en 40x14: detail of a finding with standards 1`] = `
@@ -31,7 +31,7 @@ Fix: Use parameters
 
 References: A05:2025, CWE-89
 
-Up/Down: scroll  Enter/Esc: c... 1-11/16"
+Esc/Enter: close                 1-11/18"
 `;
 
 exports[`rendering > en 40x14: help lists the new keys 1`] = `
@@ -48,13 +48,14 @@ Home, End: first or last line
 Findings list:
 Enter: open the selected finding
   (evidence, fix, standards); Enter or
-Up/Down: scroll  ?/Esc: close"
+?/Esc: close  Up/Down: scroll"
 `;
 
 exports[`rendering > en 40x14: nothing matches 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 [Findings (0 of 12)]
-0 of 12 | Filters: search: "zzz"
+0 of 12 | Filters: none
+search: "zzz"
 No finding matches these filters, but 12
 findings exist. Press c to clear the
 filters.
@@ -64,14 +65,14 @@ filters.
 
 
 
-
-Enter: open  /: search  1-5: severity..."
+Esc: back  ?: help  c: clear filters"
 `;
 
 exports[`rendering > en 40x14: the search input shows the text and a cursor 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 [Findings (12 of 12)]
-12 of 12 | Filters: search: "fix_"
+12 of 12 | Filters: none
+search: "fix_"
 > [CRITICAL] confirmed     src/module...
   [HIGH]     suspected     config/.en...
   [HIGH]     suspected     src/module...
@@ -81,8 +82,7 @@ exports[`rendering > en 40x14: the search input shows the text and a cursor 1`] 
   [MEDIUM]   suspected     src/module...
   [MEDIUM]   suspected     src/module...
   [MEDIUM]   suspected     (baseline)...
-  [LOW]      suspected     src/module...
-Type to search  Enter: keep  ... 1-10/12"
+Esc: clear  Enter: keep           1-9/12"
 `;
 
 exports[`rendering > en 40x14: the unfiltered list shows "N of N" and the key help 1`] = `
@@ -99,7 +99,7 @@ exports[`rendering > en 40x14: the unfiltered list shows "N of N" and the key he
   [MEDIUM]   suspected     src/module...
   [MEDIUM]   suspected     (baseline)...
   [LOW]      suspected     src/module...
-Enter: open  /: search  1-5: ... 1-10/12"
+Esc: back  ?: help  Enter: open  1-10/12"
 `;
 
 exports[`rendering > en 60x20: active filters are shown with the count 1`] = `
@@ -122,7 +122,7 @@ Press c to clear the filters.
 
 
 
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  c: clear filters  /: search"
 `;
 
 exports[`rendering > en 60x20: detail of a finding with standards 1`] = `
@@ -141,11 +141,11 @@ References: A05:2025, CWE-89
 
 Standards:
   A05:2025 Injection
-    https://top10.owasp.org/2025/A05_2025-Injection/
+https://top10.owasp.org/2025/A05_2025-Injection/
   CWE-89 SQL Injection (via CWE-89)
-    https://cwe.mitre.org/data/definitions/89.html
+https://cwe.mitre.org/data/definitions/89.html
 
-Up/Down: scroll  Enter/Esc: close"
+Esc/Enter: close  Up/Down: scroll"
 `;
 
 exports[`rendering > en 60x20: help lists the new keys 1`] = `
@@ -168,13 +168,14 @@ a: next area (code, history, web), r: next rule, c: clear
 /: search title, rule id and path; Enter keeps it, Esc
   clears it, then Esc leaves
 ?: show or hide this help
-Up/Down: scroll  ?/Esc: close"
+?/Esc: close  Up/Down: scroll"
 `;
 
 exports[`rendering > en 60x20: nothing matches 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Findings (0 of 12)]
-0 of 12 | Filters: search: "zzz"
+0 of 12 | Filters: none
+search: "zzz"
 No finding matches these filters, but 12 findings exist.
 Press c to clear the filters.
 
@@ -190,14 +191,14 @@ Press c to clear the filters.
 
 
 
-
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  c: clear filters  /: search"
 `;
 
 exports[`rendering > en 60x20: the search input shows the text and a cursor 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Findings (12 of 12)]
-12 of 12 | Filters: search: "fix_"
+12 of 12 | Filters: none
+search: "fix_"
 > [CRITICAL] confirmed     src/module1/handler.ts:11
   [HIGH]     suspected     config/.env (commit 0123456789ab)
   [HIGH]     suspected     src/module11/handler.ts:21
@@ -213,8 +214,7 @@ Overview  Charts  Coverage  [Findings (12 of 12)]
 
 
 
-
-Type to search  Enter: keep  Esc: clear"
+Esc: clear  Enter: keep  Type to search"
 `;
 
 exports[`rendering > en 60x20: the unfiltered list shows "N of N" and the key help 1`] = `
@@ -237,7 +237,7 @@ Overview  Charts  Coverage  [Findings (12)]
 
 
 
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  Enter: open  /: search  1-5: severity"
 `;
 
 exports[`rendering > en 80x24: active filters are shown with the count 1`] = `
@@ -264,7 +264,7 @@ filters.
 
 
 
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  c: clear filters  /: search"
 `;
 
 exports[`rendering > en 80x24: detail of a finding with standards 1`] = `
@@ -283,15 +283,15 @@ References: A05:2025, CWE-89
 
 Standards:
   A05:2025 Injection
-    https://top10.owasp.org/2025/A05_2025-Injection/
+https://top10.owasp.org/2025/A05_2025-Injection/
   CWE-89 SQL Injection (via CWE-89)
-    https://cwe.mitre.org/data/definitions/89.html
+https://cwe.mitre.org/data/definitions/89.html
 
 
 
 
 
-Up/Down: scroll  Enter/Esc: close"
+Esc/Enter: close  Up/Down: scroll"
 `;
 
 exports[`rendering > en 80x24: help lists the new keys 1`] = `
@@ -318,13 +318,14 @@ Ctrl+C: ask to cancel (y exits with status 130)
 
 Read-only: nothing is changed or uploaded. Evidence is shown redacted, as in
   the result.
-Up/Down: scroll  ?/Esc: close"
+?/Esc: close  Up/Down: scroll"
 `;
 
 exports[`rendering > en 80x24: nothing matches 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Findings (0 of 12)]
-0 of 12 | Filters: search: "zzz"
+0 of 12 | Filters: none
+search: "zzz"
 No finding matches these filters, but 12 findings exist. Press c to clear the
 filters.
 
@@ -344,14 +345,14 @@ filters.
 
 
 
-
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  c: clear filters  /: search"
 `;
 
 exports[`rendering > en 80x24: the search input shows the text and a cursor 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Findings (12 of 12)]
-12 of 12 | Filters: search: "fix_"
+12 of 12 | Filters: none
+search: "fix_"
 > [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...
   [HIGH]     suspected     config/.env (commit 0123456789ab)  Fixture finding 3
   [HIGH]     suspected     src/module11/handler.ts:21  Fixture finding 11
@@ -371,8 +372,7 @@ Overview  Charts  Coverage  [Findings (12 of 12)]
 
 
 
-
-Type to search  Enter: keep  Esc: clear"
+Esc: clear  Enter: keep  Type to search"
 `;
 
 exports[`rendering > en 80x24: the unfiltered list shows "N of N" and the key help 1`] = `
@@ -399,7 +399,7 @@ Overview  Charts  Coverage  [Findings (12)]
 
 
 
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  Enter: open  /: search  1-5: severity"
 `;
 
 exports[`rendering > ko 40x14: active filters are shown with the count 1`] = `
@@ -416,7 +416,7 @@ exports[`rendering > ko 40x14: active filters are shown with the count 1`] = `
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?:..."
+Esc: 뒤로  ?: 도움말  c: 필터 해제"
 `;
 
 exports[`rendering > ko 40x14: detail of a finding with standards 1`] = `
@@ -433,7 +433,7 @@ User input concatenated into SQL
 
 참조: A05:2025, CWE-89
 
-위/아래: 스크롤  Enter/Esc: 닫기 1-11/16"
+Esc/Enter: 닫기  위/아래: 스크롤 1-11/18"
 `;
 
 exports[`rendering > ko 40x14: help lists the new keys 1`] = `
@@ -450,13 +450,14 @@ Home, End: 처음 또는 마지막 줄
 발견 항목 목록:
 Enter: 선택한 항목 열기(증거, 수정
   방법, 표준). Enter나 Esc로 닫기
-위/아래: 스크롤  ?/Esc: 닫기"
+?/Esc: 닫기  위/아래: 스크롤"
 `;
 
 exports[`rendering > ko 40x14: nothing matches 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 [발견 항목 (12개 중 0개)]
-12개 중 0개 | 필터: 검색: "zzz"
+12개 중 0개 | 필터: 없음
+검색: "zzz"
 이 필터에 맞는 항목이 없지만 발견 항목은
 12개 있습니다. c를 누르면 필터를
 지웁니다.
@@ -466,14 +467,14 @@ exports[`rendering > ko 40x14: nothing matches 1`] = `
 
 
 
-
-Enter: 열기  /: 검색  1-5: 심각도  ?:..."
+Esc: 뒤로  ?: 도움말  c: 필터 해제"
 `;
 
 exports[`rendering > ko 40x14: the search input shows the text and a cursor 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 [발견 항목 (12개 중 12개)]
-12개 중 12개 | 필터: 검색: "fix_"
+12개 중 12개 | 필터: 없음
+검색: "fix_"
 > [치명적] 확인됨 src/module1/handler...
   [높음]   의심   config/.env (commit...
   [높음]   의심   src/module11/handle...
@@ -483,8 +484,7 @@ exports[`rendering > ko 40x14: the search input shows the text and a cursor 1`] 
   [보통]   의심   src/module12/handle...
   [보통]   의심   src/module5/handler...
   [보통]   의심   (기준선) src/module...
-  [낮음]   의심   src/module9/handler...
-입력해서 검색  Enter: 유지  E... 1-10/12"
+Esc: 지우기  Enter: 유지          1-9/12"
 `;
 
 exports[`rendering > ko 40x14: the unfiltered list shows "N of N" and the key help 1`] = `
@@ -501,7 +501,7 @@ exports[`rendering > ko 40x14: the unfiltered list shows "N of N" and the key he
   [보통]   의심   src/module5/handler...
   [보통]   의심   (기준선) src/module...
   [낮음]   의심   src/module9/handler...
-Enter: 열기  /: 검색  1-5: 심... 1-10/12"
+Esc: 뒤로  ?: 도움말             1-10/12"
 `;
 
 exports[`rendering > ko 60x20: active filters are shown with the count 1`] = `
@@ -524,7 +524,7 @@ PG-FIX-001
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
 `;
 
 exports[`rendering > ko 60x20: detail of a finding with standards 1`] = `
@@ -543,11 +543,11 @@ User input concatenated into SQL
 
 표준:
   A05:2025 Injection
-    https://top10.owasp.org/2025/A05_2025-Injection/
+https://top10.owasp.org/2025/A05_2025-Injection/
   CWE-89 SQL Injection (CWE-89 경유)
-    https://cwe.mitre.org/data/definitions/89.html
+https://cwe.mitre.org/data/definitions/89.html
 
-위/아래: 스크롤  Enter/Esc: 닫기"
+Esc/Enter: 닫기  위/아래: 스크롤"
 `;
 
 exports[`rendering > ko 60x20: help lists the new keys 1`] = `
@@ -570,13 +570,14 @@ a: 다음 영역(코드, 이력, 웹), r: 다음 규칙, c: 모든 필터
   번 더 Esc로 나가기
 ?: 이 도움말 열기·닫기
 Esc: 도움말·상세 닫기, 검색 지우기, 또는 패널 화면 나가기
-위/아래: 스크롤  ?/Esc: 닫기"
+?/Esc: 닫기  위/아래: 스크롤"
 `;
 
 exports[`rendering > ko 60x20: nothing matches 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [발견 항목 (12개 중 0개)]
-12개 중 0개 | 필터: 검색: "zzz"
+12개 중 0개 | 필터: 없음
+검색: "zzz"
 이 필터에 맞는 항목이 없지만 발견 항목은 12개 있습니다. c를
 누르면 필터를 지웁니다.
 
@@ -592,14 +593,14 @@ exports[`rendering > ko 60x20: nothing matches 1`] = `
 
 
 
-
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
 `;
 
 exports[`rendering > ko 60x20: the search input shows the text and a cursor 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [발견 항목 (12개 중 12개)]
-12개 중 12개 | 필터: 검색: "fix_"
+12개 중 12개 | 필터: 없음
+검색: "fix_"
 > [치명적] 확인됨 src/module1/handler.ts:11
   [높음]   의심   config/.env (commit 0123456789ab)
   [높음]   의심   src/module11/handler.ts:21
@@ -615,8 +616,7 @@ exports[`rendering > ko 60x20: the search input shows the text and a cursor 1`] 
 
 
 
-
-입력해서 검색  Enter: 유지  Esc: 지우기"
+Esc: 지우기  Enter: 유지  입력해서 검색"
 `;
 
 exports[`rendering > ko 60x20: the unfiltered list shows "N of N" and the key help 1`] = `
@@ -639,7 +639,7 @@ exports[`rendering > ko 60x20: the unfiltered list shows "N of N" and the key he
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
 `;
 
 exports[`rendering > ko 80x24: active filters are shown with the count 1`] = `
@@ -666,7 +666,7 @@ exports[`rendering > ko 80x24: active filters are shown with the count 1`] = `
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
 `;
 
 exports[`rendering > ko 80x24: detail of a finding with standards 1`] = `
@@ -685,15 +685,15 @@ User input concatenated into SQL
 
 표준:
   A05:2025 Injection
-    https://top10.owasp.org/2025/A05_2025-Injection/
+https://top10.owasp.org/2025/A05_2025-Injection/
   CWE-89 SQL Injection (CWE-89 경유)
-    https://cwe.mitre.org/data/definitions/89.html
+https://cwe.mitre.org/data/definitions/89.html
 
 
 
 
 
-위/아래: 스크롤  Enter/Esc: 닫기"
+Esc/Enter: 닫기  위/아래: 스크롤"
 `;
 
 exports[`rendering > ko 80x24: help lists the new keys 1`] = `
@@ -720,13 +720,14 @@ Ctrl+C: 취소 확인 (y를 누르면 종료 코드 130)
 
 
 
-위/아래: 스크롤  ?/Esc: 닫기"
+?/Esc: 닫기  위/아래: 스크롤"
 `;
 
 exports[`rendering > ko 80x24: nothing matches 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [발견 항목 (12개 중 0개)]
-12개 중 0개 | 필터: 검색: "zzz"
+12개 중 0개 | 필터: 없음
+검색: "zzz"
 이 필터에 맞는 항목이 없지만 발견 항목은 12개 있습니다. c를 누르면 필터를
 지웁니다.
 
@@ -746,14 +747,14 @@ exports[`rendering > ko 80x24: nothing matches 1`] = `
 
 
 
-
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
 `;
 
 exports[`rendering > ko 80x24: the search input shows the text and a cursor 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [발견 항목 (12개 중 12개)]
-12개 중 12개 | 필터: 검색: "fix_"
+12개 중 12개 | 필터: 없음
+검색: "fix_"
 > [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret
   [높음]   의심   config/.env (commit 0123456789ab)  Fixture finding 3
   [높음]   의심   src/module11/handler.ts:21  Fixture finding 11
@@ -773,8 +774,7 @@ exports[`rendering > ko 80x24: the search input shows the text and a cursor 1`] 
 
 
 
-
-입력해서 검색  Enter: 유지  Esc: 지우기"
+Esc: 지우기  Enter: 유지  입력해서 검색"
 `;
 
 exports[`rendering > ko 80x24: the unfiltered list shows "N of N" and the key help 1`] = `
@@ -801,5 +801,5 @@ exports[`rendering > ko 80x24: the unfiltered list shows "N of N" and the key he
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
 `;

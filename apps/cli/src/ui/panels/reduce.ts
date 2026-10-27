@@ -2,7 +2,7 @@ import type { RuleLocale, RuleTextCatalog, ScanResult } from "@pgard/findings";
 import type { Key } from "../../adapters/terminal.js";
 import { sortBySeverity } from "../formatters/result-groups.js";
 import { applyFilters, areasOf, cycle, rulesOf, SEVERITY_KEYS } from "./filter.js";
-import { bodyHeight, listHeight, panelLength } from "./layout.js";
+import { bodyHeight, isTooSmall, listHeight, panelLength } from "./layout.js";
 import {
   MAX_SEARCH_LENGTH,
   NO_FILTERS,
@@ -205,6 +205,8 @@ export function reduce(state: PanelsState, key: Key): PanelsState {
   }
   if (isCtrlC(key)) return { ...state, overlay: "confirm-cancel", cancelFrom: state.overlay };
   if (isCtrlD(key)) return { ...state, exit: "back" };
+  // The "terminal too small" screen says Esc leaves, whatever is open underneath.
+  if (key.name === "escape" && isTooSmall(state.size)) return { ...state, exit: "back" };
   if (state.overlay === "filter") return reduceSearch(state, key);
   const height =
     state.panel === "findings" && state.overlay === "none"

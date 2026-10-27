@@ -224,7 +224,7 @@ export interface PanelsText {
   /** Tab labels, in tab order. */
   tabs: Record<"overview" | "charts" | "coverage" | "findings", string>;
   /** Footer key hints for each state of the view; cut at the terminal width. */
-  hints: Record<"default" | "findings" | "filter" | "detail" | "help", string>;
+  hints: Record<"default" | "findings" | "filter" | "detail" | "help" | "noMatch", string>;
   /** Filter line above the findings list. */
   filter: {
     label: string;
@@ -500,11 +500,12 @@ const EN: CliText = {
     title: "PGARD panels",
     tabs: { overview: "Overview", charts: "Charts", coverage: "Coverage", findings: "Findings" },
     hints: {
-      default: "Tab: panel  Up/Down: scroll  ?: help  Esc: back",
-      findings: "Enter: open  /: search  1-5: severity  ?: help  Esc: back",
-      filter: "Type to search  Enter: keep  Esc: clear",
-      detail: "Up/Down: scroll  Enter/Esc: close",
-      help: "Up/Down: scroll  ?/Esc: close",
+      default: "Esc: back  ?: help  Tab: panel  Up/Down: scroll",
+      findings: "Esc: back  ?: help  Enter: open  /: search  1-5: severity",
+      filter: "Esc: clear  Enter: keep  Type to search",
+      detail: "Esc/Enter: close  Up/Down: scroll",
+      help: "?/Esc: close  Up/Down: scroll",
+      noMatch: "Esc: back  ?: help  c: clear filters  /: search",
     },
     filter: {
       label: "Filters",
@@ -803,11 +804,12 @@ const KO: CliText = {
     title: "PGARD 패널",
     tabs: { overview: "개요", charts: "차트", coverage: "검사 범위", findings: "발견 항목" },
     hints: {
-      default: "Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로",
-      findings: "Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로",
-      filter: "입력해서 검색  Enter: 유지  Esc: 지우기",
-      detail: "위/아래: 스크롤  Enter/Esc: 닫기",
-      help: "위/아래: 스크롤  ?/Esc: 닫기",
+      default: "Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤",
+      findings: "Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도",
+      filter: "Esc: 지우기  Enter: 유지  입력해서 검색",
+      detail: "Esc/Enter: 닫기  위/아래: 스크롤",
+      help: "?/Esc: 닫기  위/아래: 스크롤",
+      noMatch: "Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색",
     },
     filter: {
       label: "필터",

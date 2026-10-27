@@ -167,12 +167,53 @@ export function panelLength(state: PanelsState, size: Size): number {
   return state.panel === "findings" ? state.visible.length : panelLines(state, size).length;
 }
 
+/** Lines for the count and the severity, area and rule filters; the search has its own line. */
 const MAX_HEADER_LINES = 3;
+/** Longest rule id shown in the header. */
+const MAX_HEADER_RULE = 24;
+
+/** The end of `text` that fits `room` columns, with `...` in front when the start was cut. */
+function tailWidth(text: string, room: number): string {
+  if (displayWidth(text) <= room) return text;
+  const chars = Array.from(text);
+  let tail = "";
+  let used = 3;
+  for (let i = chars.length - 1; i >= 0; i -= 1) {
+    const char = chars[i] ?? "";
+    const next = displayWidth(char);
+    if (used + next > room) break;
+    tail = char + tail;
+    used += next;
+  }
+  return `...${tail}`;
+}
+
+/** Breaks `text` into pieces of at most `width` columns, cutting anywhere and adding nothing. */
+function hardBreak(text: string, width: number): string[] {
+  const pieces: string[] = [];
+  let piece = "";
+  let used = 0;
+  for (const char of text) {
+    const next = displayWidth(char);
+    if (used + next > width && piece !== "") {
+      pieces.push(piece);
+      piece = "";
+      used = 0;
+    }
+    piece += char;
+    used += next;
+  }
+  if (piece !== "") pieces.push(piece);
+  return pieces;
+}
 
 /**
  * The line(s) above the findings list: how many of all findings it shows and which filters are
- * active (or the search being typed). Plain text, at most three lines, none when the scan has no
- * findings at all. The filters are never left out: this is what says the list is narrowed.
+ * active (or the search being typed). Plain text, none when the scan has no findings at all. The
+ * count and the severity, area and rule filters take at most three lines (a rule id is cut at
+ * `MAX_HEADER_RULE`); the search gets one line of its own, shows the END of the typed text (cut
+ * from the left with `...`) and always shows the cursor, so a long search never hides a filter
+ * and a filter never hides the cursor.
  */
 export function filterHeader(state: PanelsState, size: Size): string[] {
   if (state.findings.length === 0) return [];
@@ -187,16 +228,23 @@ export function filterHeader(state: PanelsState, size: Size): string[] {
     parts.push(`${t.panels.filter.names.area}: ${t.scopeName[filters.area]}`);
   }
   if (filters.rule !== null) {
-    parts.push(`${t.panels.filter.names.rule}: ${safeText(filters.rule, 40)}`);
-  }
-  if (filters.text !== "" || isTyping) {
-    const typed = `${safeText(filters.text, 200)}${isTyping ? "_" : ""}`;
-    parts.push(`${t.panels.filter.names.search}: "${typed}"`);
+    parts.push(`${t.panels.filter.names.rule}: ${safeText(filters.rule, MAX_HEADER_RULE)}`);
   }
   const count = t.panels.filter.count(state.visible.length, state.findings.length);
   const active = parts.length === 0 ? t.panels.filter.none : parts.join(", ");
-  const lines = wrapWidth(`${count} | ${t.panels.filter.label}: ${active}`, size.columns);
-  return lines.slice(0, MAX_HEADER_LINES);
+  const lines = wrapWidth(`${count} | ${t.panels.filter.label}: ${active}`, size.columns).slice(
+    0,
+    MAX_HEADER_LINES,
+  );
+  if (filters.text !== "" || isTyping) {
+    const cursor = isTyping ? "_" : "";
+    const frame = `${t.panels.filter.names.search}: ""`;
+    const room = Math.max(4, size.columns - displayWidth(frame) - cursor.length);
+    lines.push(
+      `${t.panels.filter.names.search}: "${tailWidth(safeText(filters.text, 200), room)}${cursor}"`,
+    );
+  }
+  return lines;
 }
 
 /** Rows the findings list can show: the body minus the filter header. */
@@ -245,7 +293,10 @@ export function detailLines(state: PanelsState, size: Size, opts: RenderOptions 
     for (const link of links.slice(0, MAX_STANDARD_LINKS)) {
       const title = link.title === null ? "" : ` ${safeText(link.title, 80)}`;
       const via = link.viaCwe === undefined ? "" : ` (${t.report.viaCwe(link.viaCwe)})`;
-      add(`  ${safeText(link.id, 20)}${title}${via}`, `    ${safeText(link.url, 200)}`);
+      add(`  ${safeText(link.id, 20)}${title}${via}`);
+      // A link is never shortened (a cut link cannot be copied): it is broken at the width with
+      // nothing added, so the lines joined are the whole address.
+      lines.push(...hardBreak(safeText(link.url, 200), width));
     }
     const rest = links.length - MAX_STANDARD_LINKS;
     if (rest > 0) add(`  +${rest}`);
@@ -331,6 +382,20 @@ function tabBar(state: PanelsState, size: Size, style: Style): string {
   ).join("  ");
 }
 
+/**
+ * The hints that fit: they are written most important first (Esc, `?`), separated by two
+ * spaces, and whole hints are dropped from the end instead of one being cut in the middle.
+ */
+function fitHints(text: string, room: number): string {
+  let out = "";
+  for (const hint of text.split("  ")) {
+    const next = out === "" ? hint : `${out}  ${hint}`;
+    if (displayWidth(next) > room) break;
+    out = next;
+  }
+  return out === "" ? truncateWidth(text, room) : out;
+}
+
 function footer(
   state: PanelsState,
   size: Size,
@@ -347,10 +412,12 @@ function footer(
   const hintText =
     state.overlay === "filter" || state.overlay === "detail" || state.overlay === "help"
       ? t.panels.hints[state.overlay]
-      : state.panel === "findings"
-        ? t.panels.hints.findings
-        : t.panels.hints.default;
-  const hints = padEndWidth(truncateWidth(hintText, Math.max(0, room)), Math.max(0, room));
+      : state.panel !== "findings"
+        ? t.panels.hints.default
+        : state.visible.length === 0 && state.findings.length > 0
+          ? t.panels.hints.noMatch
+          : t.panels.hints.findings;
+  const hints = padEndWidth(fitHints(hintText, Math.max(0, room)), Math.max(0, room));
   return style.dim(position === "" ? hints.trimEnd() : `${hints} ${position}`);
 }
 

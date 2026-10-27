@@ -14,7 +14,7 @@ By area
   web     1
 
 
-Tab: panel  Up/Down: scroll  ?: help ..."
+Esc: back  ?: help  Tab: panel"
 `;
 
 exports[`renderFrame snapshots > en 40x14 coverage (NO_COLOR) 1`] = `
@@ -31,7 +31,7 @@ Coverage
   [not selected] dependencies:npm (No...
 
 
-Tab: panel  Up/Down: scroll  ?: help ..."
+Esc: back  ?: help  Tab: panel"
 `;
 
 exports[`renderFrame snapshots > en 40x14 findings (NO_COLOR) 1`] = `
@@ -48,7 +48,7 @@ exports[`renderFrame snapshots > en 40x14 findings (NO_COLOR) 1`] = `
   [MEDIUM]   suspected     src/module...
   [MEDIUM]   suspected     (baseline)...
   [LOW]      suspected     src/module...
-Enter: open  /: search  1-5: ... 1-10/12"
+Esc: back  ?: help  Enter: open  1-10/12"
 `;
 
 exports[`renderFrame snapshots > en 40x14 findings (colour) 1`] = `
@@ -65,7 +65,7 @@ exports[`renderFrame snapshots > en 40x14 findings (colour) 1`] = `
   <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
   <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m (baseline)...
   <ESC>[34m[LOW]     <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
-<ESC>[2mEnter: open  /: search  1-5: ... 1-10/12<ESC>[22m"
+<ESC>[2mEsc: back  ?: help  Enter: open  1-10/12<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 40x14 overview (NO_COLOR) 1`] = `
@@ -82,7 +82,7 @@ Summary
   Elapsed       5.0 s
 
 Findings by severity (12 total)
-Tab: panel  Up/Down: scroll  ... 1-11/16"
+Esc: back  ?: help  Tab: panel   1-11/16"
 `;
 
 exports[`renderFrame snapshots > en 40x14 overview (colour) 1`] = `
@@ -99,7 +99,7 @@ exports[`renderFrame snapshots > en 40x14 overview (colour) 1`] = `
   Elapsed       5.0 s
 
 <ESC>[1mFindings by severity (12 total)<ESC>[22m
-<ESC>[2mTab: panel  Up/Down: scroll  ... 1-11/16<ESC>[22m"
+<ESC>[2mEsc: back  ?: help  Tab: panel   1-11/16<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 60x20 charts (NO_COLOR) 1`] = `
@@ -122,7 +122,7 @@ By area
 
 
 
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 `;
 
 exports[`renderFrame snapshots > en 60x20 coverage (NO_COLOR) 1`] = `
@@ -145,7 +145,7 @@ Coverage
 
 
 
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 `;
 
 exports[`renderFrame snapshots > en 60x20 findings (NO_COLOR) 1`] = `
@@ -168,7 +168,7 @@ Overview  Charts  Coverage  [Findings (12)]
 
 
 
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  Enter: open  /: search  1-5: severity"
 `;
 
 exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
@@ -191,7 +191,7 @@ exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
 
 
 
-<ESC>[2mEnter: open  /: search  1-5: severity  ?: help  Esc: back<ESC>[22m"
+<ESC>[2mEsc: back  ?: help  Enter: open  /: search  1-5: severity<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 60x20 overview (NO_COLOR) 1`] = `
@@ -214,7 +214,7 @@ Findings by severity (12 total)
 
 
 
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 `;
 
 exports[`renderFrame snapshots > en 60x20 overview (colour) 1`] = `
@@ -237,7 +237,7 @@ exports[`renderFrame snapshots > en 60x20 overview (colour) 1`] = `
 
 
 
-<ESC>[2mTab: panel  Up/Down: scroll  ?: help  Esc: back<ESC>[22m"
+<ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 80x24 charts (NO_COLOR) 1`] = `
@@ -264,7 +264,7 @@ By area
 
 
 
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 `;
 
 exports[`renderFrame snapshots > en 80x24 coverage (NO_COLOR) 1`] = `
@@ -291,7 +291,7 @@ Coverage
 
 
 
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 `;
 
 exports[`renderFrame snapshots > en 80x24 findings (NO_COLOR) 1`] = `
@@ -318,7 +318,7 @@ Overview  Charts  Coverage  [Findings (12)]
 
 
 
-Enter: open  /: search  1-5: severity  ?: help  Esc: back"
+Esc: back  ?: help  Enter: open  /: search  1-5: severity"
 `;
 
 exports[`renderFrame snapshots > en 80x24 findings (colour) 1`] = `
@@ -345,7 +345,7 @@ exports[`renderFrame snapshots > en 80x24 findings (colour) 1`] = `
 
 
 
-<ESC>[2mEnter: open  /: search  1-5: severity  ?: help  Esc: back<ESC>[22m"
+<ESC>[2mEsc: back  ?: help  Enter: open  /: search  1-5: severity<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 80x24 overview (NO_COLOR) 1`] = `
@@ -372,7 +372,7 @@ Findings by severity (12 total)
 
 
 
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 `;
 
 exports[`renderFrame snapshots > en 80x24 overview (colour) 1`] = `
@@ -399,7 +399,7 @@ exports[`renderFrame snapshots > en 80x24 overview (colour) 1`] = `
 
 
 
-<ESC>[2mTab: panel  Up/Down: scroll  ?: help  Esc: back<ESC>[22m"
+<ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 40x14 charts (NO_COLOR) 1`] = `
@@ -416,7 +416,7 @@ OWASP Top 10 2025 분류별
   웹   1
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말..."
+Esc: 뒤로  ?: 도움말  Tab: 패널"
 `;
 
 exports[`renderFrame snapshots > ko 40x14 coverage (NO_COLOR) 1`] = `
@@ -433,7 +433,7 @@ exports[`renderFrame snapshots > ko 40x14 coverage (NO_COLOR) 1`] = `
   [선택 안 함] dependencies:npm (선택...
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말..."
+Esc: 뒤로  ?: 도움말  Tab: 패널"
 `;
 
 exports[`renderFrame snapshots > ko 40x14 findings (NO_COLOR) 1`] = `
@@ -450,7 +450,7 @@ exports[`renderFrame snapshots > ko 40x14 findings (NO_COLOR) 1`] = `
   [보통]   의심   src/module5/handler...
   [보통]   의심   (기준선) src/module...
   [낮음]   의심   src/module9/handler...
-Enter: 열기  /: 검색  1-5: 심... 1-10/12"
+Esc: 뒤로  ?: 도움말             1-10/12"
 `;
 
 exports[`renderFrame snapshots > ko 40x14 findings (colour) 1`] = `
@@ -467,7 +467,7 @@ exports[`renderFrame snapshots > ko 40x14 findings (colour) 1`] = `
   <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module5/handler...
   <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m (기준선) src/module...
   <ESC>[34m[낮음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module9/handler...
-<ESC>[2mEnter: 열기  /: 검색  1-5: 심... 1-10/12<ESC>[22m"
+<ESC>[2mEsc: 뒤로  ?: 도움말             1-10/12<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 40x14 overview (NO_COLOR) 1`] = `
@@ -484,7 +484,7 @@ exports[`renderFrame snapshots > ko 40x14 overview (NO_COLOR) 1`] = `
     파일 152개, 커밋 500개
   소요 시간
     5.0초
-Tab: 패널  위/아래: 스크롤  ?... 1-11/18"
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/18"
 `;
 
 exports[`renderFrame snapshots > ko 40x14 overview (colour) 1`] = `
@@ -501,7 +501,7 @@ exports[`renderFrame snapshots > ko 40x14 overview (colour) 1`] = `
     파일 152개, 커밋 500개
   소요 시간
     5.0초
-<ESC>[2mTab: 패널  위/아래: 스크롤  ?... 1-11/18<ESC>[22m"
+<ESC>[2mEsc: 뒤로  ?: 도움말  Tab: 패널  1-11/18<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 charts (NO_COLOR) 1`] = `
@@ -524,7 +524,7 @@ OWASP Top 10 2025 분류별
 
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 coverage (NO_COLOR) 1`] = `
@@ -547,7 +547,7 @@ exports[`renderFrame snapshots > ko 60x20 coverage (NO_COLOR) 1`] = `
 
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 findings (NO_COLOR) 1`] = `
@@ -570,7 +570,7 @@ exports[`renderFrame snapshots > ko 60x20 findings (NO_COLOR) 1`] = `
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
@@ -593,7 +593,7 @@ exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
 
 
 
-<ESC>[2mEnter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로<ESC>[22m"
+<ESC>[2mEsc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 overview (NO_COLOR) 1`] = `
@@ -616,7 +616,7 @@ exports[`renderFrame snapshots > ko 60x20 overview (NO_COLOR) 1`] = `
 
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 overview (colour) 1`] = `
@@ -639,7 +639,7 @@ exports[`renderFrame snapshots > ko 60x20 overview (colour) 1`] = `
 
 
 
-<ESC>[2mTab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로<ESC>[22m"
+<ESC>[2mEsc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 charts (NO_COLOR) 1`] = `
@@ -666,7 +666,7 @@ OWASP Top 10 2025 분류별
 
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 coverage (NO_COLOR) 1`] = `
@@ -693,7 +693,7 @@ exports[`renderFrame snapshots > ko 80x24 coverage (NO_COLOR) 1`] = `
 
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 findings (NO_COLOR) 1`] = `
@@ -720,7 +720,7 @@ exports[`renderFrame snapshots > ko 80x24 findings (NO_COLOR) 1`] = `
 
 
 
-Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 findings (colour) 1`] = `
@@ -747,7 +747,7 @@ exports[`renderFrame snapshots > ko 80x24 findings (colour) 1`] = `
 
 
 
-<ESC>[2mEnter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로<ESC>[22m"
+<ESC>[2mEsc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 overview (NO_COLOR) 1`] = `
@@ -774,7 +774,7 @@ exports[`renderFrame snapshots > ko 80x24 overview (NO_COLOR) 1`] = `
 
 
 
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 overview (colour) 1`] = `
@@ -801,5 +801,5 @@ exports[`renderFrame snapshots > ko 80x24 overview (colour) 1`] = `
 
 
 
-<ESC>[2mTab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로<ESC>[22m"
+<ESC>[2mEsc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤<ESC>[22m"
 `;

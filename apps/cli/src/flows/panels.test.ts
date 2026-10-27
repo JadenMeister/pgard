@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { main } from "../app.js";
+import { getRuleTextCatalog } from "../rule-texts.js";
 import { parseCommandLine, UsageError } from "../options.js";
 import {
   createTestContext,
@@ -9,6 +10,7 @@ import {
   noInterrupts,
   panelsFixtureResult,
   scriptedKeys,
+  testFinding,
   testResult,
 } from "../test-support.js";
 import { UserCancelledError } from "../ui/components/prompts.js";
@@ -365,6 +367,19 @@ describe("panel view edge cases", () => {
     expect(captured.stdout().endsWith(LEAVE)).toBe(true);
     expect(captured.stderr()).toContain("The panel view failed");
     expect(captured.stderr()).not.toContain("view broke");
+  });
+
+  it("gives the view the rule catalog, so the opened finding shows its standards links", async () => {
+    const captured = terminal();
+    const context = createTestContext(
+      captured,
+      createTestDeps(),
+      scriptedKeys(["left", "return", "escape", "escape"]),
+    );
+    context.ruleTexts = getRuleTextCatalog();
+    const result = testResult({ findings: [testFinding({ ruleId: "PG-SQL-001" })] });
+    await offerPanels(context, result, true);
+    expect(captured.stdout()).toContain("https://cwe.mitre.org/data/definitions/89.html");
   });
 
   it("pauses the cancel controller's SIGINT handling while the view is open", async () => {

@@ -5,8 +5,8 @@ import { getRuleTextCatalog } from "../../rule-texts.js";
 import { panelsFixtureResult, testFinding, testResult } from "../../test-support.js";
 import { createStyle } from "../formatters/style.js";
 import { displayWidth, stripAnsi } from "../i18n/display-width.js";
-import { renderFrame } from "./layout.js";
-import { createPanelsState, reduce } from "./reduce.js";
+import { filterHeader, renderFrame } from "./layout.js";
+import { createPanelsState, reduce, resize as reduceResize } from "./reduce.js";
 import type { PanelsState, Size } from "./types.js";
 
 const ESC = String.fromCharCode(27);
@@ -502,5 +502,154 @@ describe("hostile text in the detail view", () => {
     const text = renderFrame(press(state, key("return")), size, plain).join("\n");
     expect(text).toContain("key = [REDACTED]");
     expect(text).not.toContain(secret);
+  });
+});
+
+describe("standards links in the detail view", () => {
+  const sql = testResult({
+    findings: [testFinding({ ruleId: "PG-SQL-001", references: { cwe: [], owasp: [], cve: [] } })],
+  });
+  const links = (getRuleTextCatalog().get("PG-SQL-001")?.details?.standards ?? []).filter((link) =>
+    link.url.startsWith("https://"),
+  );
+
+  for (const columns of [40, 60, 80]) {
+    it(`${columns} columns: every link is broken at the width, never cut, and can be rebuilt`, () => {
+      const size: Size = { columns, rows: 60 };
+      const state = {
+        ...createPanelsState(sql, "en", size, getRuleTextCatalog()),
+        panel: "findings" as const,
+      };
+      const frame = renderFrame(press(state, key("return")), size, plain);
+      for (const line of frame) expect(displayWidth(line)).toBeLessThanOrEqual(columns);
+      expect(links.length).toBeGreaterThan(0);
+      // The link lines have no indent and no ellipsis: copying them in order gives the address.
+      const joined = frame.map((line) => line.trimEnd()).join("");
+      for (const link of links.slice(0, 5)) expect(joined).toContain(link.url);
+    });
+  }
+
+  it("hostile link titles and addresses of a real rule are sanitised, filtered and capped", () => {
+    const hostile = `${ESC}[31mred${ESC}]0;pwn\u0007 ‮​ tail`;
+    const entry = (id: string, url: string) => ({ id, title: `T ${hostile}`, url });
+    const catalog = new Map([
+      [
+        "PG-SQL-001",
+        {
+          title: { en: "t", ko: "t" },
+          impact: { en: "i", ko: "i" },
+          recommendation: { en: "r", ko: "r" },
+          details: {
+            standards: [
+              entry("A1", `https://cwe.mitre.org/a${ESC}[31m‮​b`),
+              entry("JS", "javascript:alert(1)"),
+              entry("HTTP", "http://insecure.example/x"),
+              entry("A2", "https://owasp.org/2"),
+              entry("A3", "https://owasp.org/3"),
+              entry("A4", "https://owasp.org/4"),
+              entry("A5", "https://owasp.org/5"),
+              entry("A6", "https://owasp.org/6"),
+              entry("A7", "https://owasp.org/7"),
+            ],
+          },
+        },
+      ],
+    ]) as unknown as ReturnType<typeof getRuleTextCatalog>;
+    const size: Size = { columns: 80, rows: 60 };
+    const state = {
+      ...createPanelsState(sql, "en", size, catalog),
+      panel: "findings" as const,
+    };
+    const text = renderFrame(press(state, key("return")), size, plain).join("\n");
+    expect(text).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f​-‏‪-‮]/);
+    expect(text).toContain("https://cwe.mitre.org/a");
+    expect(text).toContain("A5");
+    expect(text).not.toContain("A6");
+    expect(text).toContain("+2");
+    expect(text).not.toContain("javascript:");
+    expect(text).not.toContain("insecure.example");
+    expect(text).toContain("T [31mred");
+  });
+});
+
+describe("filter header and footer", () => {
+  const long = `${"long-search-".repeat(20)}END`;
+
+  it("shows the end of a long search and the cursor, and keeps every filter visible", () => {
+    for (const locale of ["en", "ko"] as const) {
+      const size: Size = { columns: 40, rows: 14 };
+      let state = press(findings(size, locale), char("2"), key("a"), char("/"));
+      state = { ...state, filters: { ...state.filters, text: long.slice(0, 60) } };
+      state = type(state, "END");
+      const header = filterHeader(state, size);
+      const text = header.join(" ");
+      expect(header.at(-1)).toMatch(/END_"$/);
+      expect(header.at(-1)).toContain('"...');
+      expect(text).toMatch(locale === "en" ? /severity: High/ : /심각도: 높음/);
+      expect(text).toMatch(locale === "en" ? /area: code/ : /영역: 코드/);
+      for (const line of header) expect(displayWidth(line)).toBeLessThanOrEqual(size.columns);
+      expect(header.length).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("sanitises the typed search and the rule in the header (bidi, zero-width, escapes)", () => {
+    const size: Size = { columns: 40, rows: 14 };
+    let state = type(press(findings(size), char("/")), "a‮b​c");
+    state = {
+      ...state,
+      filters: { ...state.filters, rule: `PG-${ESC}[31m‮​${"R".repeat(100)}` },
+    };
+    const header = filterHeader(state, size);
+    const text = header.join(" ");
+    expect(text).toContain('search: "a b c_"');
+    expect(text).not.toMatch(/[\u0000-\u001f\u007f-\u009f​-‏‪-‮]/);
+    expect(header.length).toBeLessThanOrEqual(4);
+    expect(header.join("").includes("R".repeat(30))).toBe(false);
+  });
+
+  it("keeps Esc and ? in the footer at 40 columns, in every state and language", () => {
+    for (const locale of ["en", "ko"] as const) {
+      const size: Size = { columns: 40, rows: 14 };
+      const base = findings(size, locale);
+      const states = [
+        base,
+        { ...base, panel: "overview" as const },
+        press(base, char("/")),
+        press(base, key("return")),
+        press(base, char("?")),
+        type(press(base, char("/"), key("return")), "zzzz"),
+      ];
+      for (const state of states) {
+        const footer = renderFrame(state, size, plain).at(-1) ?? "";
+        expect(footer, state.overlay).toContain("Esc");
+        if (state.overlay !== "detail" && state.overlay !== "filter") expect(footer).toContain("?");
+        expect(displayWidth(footer)).toBeLessThanOrEqual(size.columns);
+      }
+    }
+  });
+
+  it("does not advertise Enter: open when nothing matches", () => {
+    const size: Size = { columns: 80, rows: 14 };
+    const state = press(type(press(findings(size), char("/")), "zzzz"), key("return"));
+    const footer = renderFrame(state, size, plain).at(-1) ?? "";
+    expect(footer).not.toContain("Enter");
+    expect(footer).toContain("c: clear filters");
+  });
+});
+
+describe("terminal too small", () => {
+  it("Esc leaves from the too-small screen even with the search, detail or help open", () => {
+    const small: Size = { columns: 30, rows: 8 };
+    const open = [
+      (state: PanelsState) => press(state, char("/")),
+      (state: PanelsState) => press(state, key("return")),
+      (state: PanelsState) => press(state, char("?")),
+    ];
+    for (const make of open) {
+      const state = make(findings(SIZE));
+      expect(state.overlay).not.toBe("none");
+      const shrunk = reduceResize(state, small);
+      expect(press(shrunk, key("escape")).exit).toBe("back");
+    }
   });
 });
