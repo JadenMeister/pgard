@@ -845,6 +845,17 @@ describe("PG-AUTH-001 request-derived identifiers", () => {
     expect(create("let v; for (v in req.body) {}")).toEqual([]);
     expect(create("for (let v of req.body.list) {}")).toEqual([]);
     expect(create("for (let v in req.body) {}")).toEqual([]);
+    // A name bound elsewhere (parameter, other declaration) is not a sole assignment.
+    expect(
+      rulesIn(
+        "async function a(req) { let pw; pw = req.body.password; } async function b(user, pw) { user.password = pw; await User.create({ password: pw }); }",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "async function a(req) { let pw; pw = req.body.xx; } async function b() { const pw = hash(); await User.create({ password: pw }); }",
+      ),
+    ).toEqual([]);
     // The sole assignment only ADDS evidence: a non-plain value falls back to the name test.
     expect(
       rulesIn(
@@ -1002,6 +1013,41 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
       expect(bare.findings[0]?.evidence, name).not.toContain("httpOnly");
       expect(bare.findings[0]?.evidence, name).toContain("secure, sameSite");
     }
+  });
+
+  it("does not let a shadowed const spoof SameSite=Strict", () => {
+    const facts = (code: string) => analyzeJsSource(code, "s.js").facts;
+    expect(
+      facts(
+        "const MODE = 'strict'; function f(res, MODE) { res.cookie('session', v, { sameSite: MODE }); }",
+      ).usesCookieSession,
+    ).toBe(true);
+    expect(
+      facts(
+        "const sameSite = 'strict'; async function f(res) { const { sameSite } = await policy(); res.cookie('sid', v, { sameSite }); }",
+      ).usesCookieSession,
+    ).toBe(true);
+    expect(
+      facts("const sameSite = 'strict'; res.cookie('sid', v, { sameSite });").usesCookieSession,
+    ).toBe(false);
+    expect(
+      facts("const O = { sameSite: 'strict' }; res.cookie('sid', v, O);").usesCookieSession,
+    ).toBe(false);
+    expect(facts("res.cookie('sid', v, { sameSite: 'strict', ...other });").usesCookieSession).toBe(
+      true,
+    );
+    expect(facts("res.cookie('sid', v, { ...other, sameSite: 'strict' });").usesCookieSession).toBe(
+      false,
+    );
+  });
+
+  it("keeps a csrf-named cookie a session cookie when its value carries the session", () => {
+    const result = analyzeJsSource("res.cookie('csrf_token', req.sessionID, {});", "s.js");
+    expect(result.facts.usesCookieSession).toBe(true);
+    expect(result.findings[0]?.evidence).toContain("httpOnly");
+    expect(
+      analyzeJsSource("res.cookie('csrf_token', makeToken(), {});", "s.js").facts.usesCookieSession,
+    ).toBe(false);
   });
 
   it("keeps session cookies that merely mention csrf/xsrf, and non-literal names", () => {

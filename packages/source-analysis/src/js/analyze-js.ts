@@ -1375,7 +1375,8 @@ export function analyzeJsSource(
    */
   const soleAssignedValue = (name: string): ts.Expression | null => {
     const declared = constInits.get(name);
-    if (bareLets.get(name) !== 1 || declared?.length !== 2) return null;
+    if (bindingCount.get(name) !== 1 || bareLets.get(name) !== 1 || declared?.length !== 2)
+      return null;
     if (writeCounts.get(name) !== 1) return null;
     const assigned = plainAssignments.get(name);
     return assigned?.length === 1 ? (assigned[0] ?? null) : null;
@@ -2321,14 +2322,48 @@ export function analyzeJsSource(
     return result;
   };
 
-  /** `sameSite: "strict"` written as a literal or a sole same-file const; inferred values never count. */
-  const isStrictSameSite = (value: ts.Expression | undefined, depth = 0): boolean => {
+  /**
+   * The raw `key` expression of an options object, without substituting identifiers (unlike
+   * `resolveOptions`, which looks through same-file consts and is not shadow-aware). Identifiers
+   * naming the options object resolve only through the shadow-aware `soleConst`. Unresolvable
+   * spreads or computed keys give `null`: nothing can then be proven about the value.
+   */
+  const rawOptionValue = (
+    options: ts.Expression,
+    key: string,
+    depth = 0,
+  ): ts.Expression | null | undefined => {
+    if (depth > 4) return null;
+    const node = unwrap(options);
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return init ? rawOptionValue(init, key, depth + 1) : null;
+    }
+    if (!ts.isObjectLiteralExpression(node)) return null;
+    let found: ts.Expression | null | undefined;
+    for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        const spread = rawOptionValue(property.expression, key, depth + 1);
+        if (spread !== undefined) found = spread;
+      } else if (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property)) {
+        if (ts.isComputedPropertyName(property.name)) return null;
+        if (property.name.getText(sourceFile).replace(/^['"]|['"]$/g, "") !== key) continue;
+        found = ts.isPropertyAssignment(property) ? property.initializer : property.name;
+      }
+    }
+    return found;
+  };
+
+  /**
+   * `sameSite: "strict"` written as a literal, or an identifier that is a shadow-aware sole
+   * same-file const; inferred values never count. Fully suppresses only a syntactic fixed value.
+   */
+  const isStrictSameSite = (value: ts.Expression | null | undefined, depth = 0): boolean => {
     if (!value || depth > 3) return false;
     const inner = unwrap(value);
     if (ts.isStringLiteralLike(inner)) return inner.text.toLowerCase() === "strict";
     if (ts.isIdentifier(inner)) {
-      // Initialiser-only and reassignment-aware: an inferred value never counts as strict.
-      const init = singleConst(inner.text);
+      const init = soleConst(inner.text, inner);
       return init ? isStrictSameSite(init, depth + 1) : false;
     }
     return false;
@@ -2718,7 +2753,8 @@ export function analyzeJsSource(
     const sameSite = cookieOptions?.get("sameSite");
     if (!sameSite || sameSite.kind === ts.SyntaxKind.FalseKeyword) missing.push("sameSite");
     // SameSite=Strict keeps the session cookie off every cross-site request, so it is not CSRF-able.
-    if (isStrictSameSite(sameSite)) facts.strictSession = true;
+    if (isStrictSameSite(cookie ? rawOptionValue(cookie, "sameSite") : undefined))
+      facts.strictSession = true;
     else facts.usesCookieSession = true;
     if (missing.length > 0) {
       report(
@@ -2831,7 +2867,15 @@ export function analyzeJsSource(
     const nameWords = identifierWords(nameText);
     // A csrf/xsrf token cookie is readable by script on purpose: not a session, no httpOnly wanted.
     // Only a literal name counts, and any session word (`xsrf_session_id`) keeps it a session cookie.
+    // A value that carries a session (`req.sessionID`) keeps it a session cookie, whatever its name.
+    const csrfValueCarriesSession =
+      cookieValue !== undefined &&
+      !ts.isStringLiteralLike(unwrap(cookieValue)) &&
+      identifierWords(unwrap(cookieValue).getText(sourceFile).slice(0, 200)).some(
+        (word) => SESSION_VALUE_WORDS.has(word) && word !== "token" && word !== "tokens",
+      );
     const isCsrfToken =
+      !csrfValueCarriesSession &&
       nameNode !== undefined &&
       ts.isStringLiteralLike(nameNode) &&
       nameWords.some((word) => word === "csrf" || word === "xsrf") &&
@@ -2844,7 +2888,7 @@ export function analyzeJsSource(
     // A hand-rolled session cookie is a cookie session for PG-CSRF-001, unless it is resolved
     // SameSite=Strict (never sent cross-site). Anything not resolved syntactically still counts.
     if (isStrongName) {
-      const sameSiteValue = options ? resolveOptions(options, 0)?.get("sameSite") : undefined;
+      const sameSiteValue = options ? rawOptionValue(options, "sameSite") : undefined;
       if (!isStrictSameSite(sameSiteValue)) facts.usesCookieSession = true;
     }
     // A cookie with a non-session name still counts when it carries a session or token value.
