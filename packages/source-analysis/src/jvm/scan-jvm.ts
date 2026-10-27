@@ -45,6 +45,12 @@ export interface JvmScanOutput {
 }
 
 const XSS_RULE_IDS: SourceRuleId[] = ["PG-XSS-004"];
+const CRYPTO_RULE_IDS: SourceRuleId[] = [
+  "PG-CRYPTO-001",
+  "PG-CRYPTO-002",
+  "PG-CRYPTO-003",
+  "PG-AUTH-001",
+];
 const JSP_EXTENSIONS = new Set([".jsp", ".jspx", ".jspf", ".tag", ".tagx"]);
 const extensionOf = (relativePath: string): string => {
   const dot = relativePath.lastIndexOf(".");
@@ -58,7 +64,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 const METHOD =
-  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002); no cross-file data flow and no other rule category yet";
+  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002), and pattern rules for cryptography (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003) and password storage (PG-AUTH-001); no cross-file data flow and no settings rules yet";
 
 /**
  * Parses and analyzes the Java and Kotlin files and the MyBatis mapper XML of a walk with the
@@ -78,6 +84,7 @@ export async function scanJvm(
   const libraries = new Map<string, number>();
   const osLibraries = new Map<string, { kind: "process" | "file"; count: number }>();
   const templateLibraries = new Map<string, number>();
+  const cryptoLibraries = new Map<string, number>();
   /** Template models: the attributes that a controller fills from request input, by name. */
   const modelSources = new Map<string, ModelSource[]>();
   const runtime = new TreeSitterRuntime();
@@ -122,6 +129,9 @@ export async function scanJvm(
                 ]);
               }
             }
+            for (const library of analysis.unsupportedCryptoLibraries) {
+              cryptoLibraries.set(library, (cryptoLibraries.get(library) ?? 0) + 1);
+            }
             for (const library of analysis.unsupportedTemplateLibraries) {
               templateLibraries.set(library, (templateLibraries.get(library) ?? 0) + 1);
             }
@@ -161,7 +171,7 @@ export async function scanJvm(
       }
       for (const [form, paths] of formFiles) {
         problems.push(
-          `${paths.length} file(s) have SQL, command, file-path, response-writing or URL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+          `${paths.length} file(s) have SQL, command, file-path, response-writing, URL or cryptography calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
         );
       }
       if (reflectionFiles.length > 0) {
@@ -398,6 +408,15 @@ export async function scanJvm(
         status: "partial",
         ruleIds: XSS_RULE_IDS,
         note: `${engine} detected in ${count} file(s); its templates are not supported, so output written through them was not evaluated for XSS (not a safe result).`,
+      });
+    }
+    for (const [library, count] of cryptoLibraries) {
+      coverage.push({
+        area: `source:crypto:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        scope: "code",
+        status: "partial",
+        ruleIds: CRYPTO_RULE_IDS,
+        note: `${library} detected in ${count} file(s); its own cryptography APIs are not supported, so keys, ciphers and digests used through it were not evaluated (not a safe result).`,
       });
     }
     for (const [library, count] of libraries) {

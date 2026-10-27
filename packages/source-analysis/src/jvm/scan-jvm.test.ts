@@ -55,7 +55,17 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
       const entry = output.coverage.find((item) => item.area === area);
       expect(entry, area).toMatchObject({
         status: "completed",
-        ruleIds: ["PG-SQL-005", "PG-XSS-004", "PG-SSRF-002", "PG-CMD-003", "PG-PATH-002"],
+        ruleIds: [
+          "PG-SQL-005",
+          "PG-XSS-004",
+          "PG-SSRF-002",
+          "PG-CMD-003",
+          "PG-PATH-002",
+          "PG-CRYPTO-001",
+          "PG-CRYPTO-002",
+          "PG-CRYPTO-003",
+          "PG-AUTH-001",
+        ],
       });
     }
     // Mapper XML is read for SQL only; the command and path rules do not claim it.
@@ -300,7 +310,7 @@ class K { fun f(p: String) {
     const javaEntry = output.coverage.find((item) => item.area === "source:java");
     expect(javaEntry?.status).toBe("partial");
     expect(javaEntry?.note).toContain(
-      "SQL, command, file-path, response-writing or URL calls inside anonymous class bodies",
+      "SQL, command, file-path, response-writing, URL or cryptography calls inside anonymous class bodies",
     );
     const kotlinEntry = output.coverage.find((item) => item.area === "source:kotlin");
     expect(kotlinEntry?.status).toBe("partial");
