@@ -95,7 +95,7 @@ export const ARCHIVE_IMPORT_PREFIXES = [
 /** The type of a variable that holds an archive entry (the name inside it is chosen by the archive's author). */
 export const ARCHIVE_ENTRY_TYPE = /(?:Zip|Jar|Tar|Cpio|Ar|SevenZ|Archive)\w*Entry$|^FileHeader$/;
 /** A variable named like an archive entry (used only in a file that imports an archive library). */
-export const ARCHIVE_ENTRY_NAME = /(?:^|[a-z])[Ee]ntry$|^ze$|^it$|^fileHeader$/;
+export const ARCHIVE_ENTRY_NAME = /(?:^|[a-z])[Ee]ntry$|^ze$|^fileHeader$/;
 /** Calls that return the next entry of an archive stream. */
 export const ARCHIVE_NEXT = new Set([
   "getNextEntry",
@@ -170,7 +170,70 @@ export const FILE_OPENERS = new Set([
   "RandomAccessFile",
   "FileSystemResource",
   "PathResource",
+  "PrintWriter",
+  "PrintStream",
+  "Formatter",
+  "ZipFile",
+  "JarFile",
+  "FileHandler",
+  "UrlResource",
 ]);
+/** Openers that also take a stream or a writer: only a value that looks like a file name counts. */
+export const POLY_OPENERS = new Set(["PrintWriter", "PrintStream", "Formatter"]);
+/** Openers of a URL: only a `file:` URL is a file. */
+export const URL_OPENERS = new Set(["UrlResource"]);
+/** Calls on a path that read its metadata only (existence, size). */
+export const FILES_PROBES = new Set([
+  "exists",
+  "notExists",
+  "isDirectory",
+  "isRegularFile",
+  "isReadable",
+  "isWritable",
+  "isExecutable",
+  "isHidden",
+  "isSymbolicLink",
+  "size",
+  "getLastModifiedTime",
+]);
+export const FILE_PROBES = new Set([
+  "exists",
+  "isFile",
+  "isDirectory",
+  "isHidden",
+  "length",
+  "canRead",
+  "canWrite",
+  "canExecute",
+  "lastModified",
+]);
+/** Types that hold an uploaded file (and the file name the client chose). */
+export const UPLOAD_TYPES = new Set([
+  "MultipartFile",
+  "Part",
+  "FilePart",
+  "FileItem",
+  "FileUpload",
+  "UploadedFile",
+]);
+/** Programs that run the command that follows them. */
+export const LAUNCHERS = new Set([
+  "env",
+  "sudo",
+  "nohup",
+  "timeout",
+  "nice",
+  "xargs",
+  "doas",
+  "stdbuf",
+  "time",
+]);
+/** Receivers whose `entries()`, `stream()` and `getNextEntry()` give archive entries. */
+export const ARCHIVE_RECEIVER_TYPE =
+  /^(?:Zip|Jar|Tar|Cpio|Ar|SevenZ|Archive)\w*(?:File|Stream|Reader)?$/;
+export const ARCHIVE_RECEIVER_NAME = /zip|jar|tar|archive|zis|zf\b/i;
+/** Calls on an archive that give its entries. */
+export const ARCHIVE_ENTRIES = new Set(["entries", "getEntries", "stream", "getFileHeaders"]);
 /** Methods of a `File` or `Path` value (Java and Kotlin) that read, write or change what it names. */
 export const FILE_METHODS = new Set([
   "delete",

@@ -238,7 +238,9 @@ class C(private val jdbc: JdbcTemplate) { fun f(q: String) {
     ] as const) {
       const entry = output.coverage.find((item) => item.area === area);
       expect(entry?.status, area).toBe("partial");
-      expect(entry?.ruleIds, area).toEqual([]);
+      expect(entry?.ruleIds, area).toEqual(
+        area.startsWith("source:process") ? ["PG-CMD-003"] : ["PG-PATH-002"],
+      );
       expect(entry?.note, area).toContain(label);
       expect(entry?.note, area).toContain("not a safe result");
     }

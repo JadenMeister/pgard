@@ -18,7 +18,7 @@ import {
   isTypeName,
   join,
   leafKey,
-  guardOrigin,
+  checkOrigin,
   literalText,
   nonConst,
   Scope,
@@ -366,6 +366,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       } else if (step.op === "+" || step.op === "to" || step.op === "plus") {
         const merged = join(step.op === "to" ? "pair" : "string concatenation", result, right);
         if (step.op === "to") merged.composed = false;
+        // `list + listOf(x)` is still a list.
+        merged.coll = result.coll || right.coll;
         result = merged;
         owned = true;
       } else if (step.op === "?:") {
@@ -610,6 +612,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       expr.recv !== null &&
       (JDBC_SINKS.has(name) || GENERIC_SINKS.has(name) || ORM_SINKS.has(name));
     if (!sinkCall) escape(args, `${name}()`);
+    for (const arg of args) os.escapes(arg);
     if (ctx.report) checkSink(expr, args, ctx);
     noteWrites(expr, args, ctx);
     // Kotlin builds an object by calling its class, plainly (`File(p)`) or by package (`java.io.File(p)`).
@@ -1010,8 +1013,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       : { allow: guardedWhenFalse(text), path: pathGuardedWhenFalse(text) };
 
   /** A path made by a constructor that is never used is reported once the analysis ends: a check demotes it. */
-  const noteGuard = (binding: Binding): void => {
-    guardOrigin(binding.value.origin);
+  const noteGuard = (binding: Binding, permanent: boolean): void => {
+    if (permanent) checkOrigin(binding.value.origin);
   };
 
   /** The variables a path check covers: the one it names (if canonical when it must be) and what it came from. */
@@ -1029,13 +1032,13 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   }
 
   /** Turns the checks on; returns what turns them off again. */
-  function applyGuards(set: GuardSet, ctx: Context): Array<() => void> {
+  function applyGuards(set: GuardSet, ctx: Context, permanent = true): Array<() => void> {
     const restore: Array<() => void> = [];
     for (const name of set.allow) {
       const binding = ctx.scope.find(name);
       if (binding !== null && !binding.guarded) {
         binding.guarded = true;
-        noteGuard(binding);
+        noteGuard(binding, permanent);
         restore.push(() => {
           binding.guarded = false;
         });
@@ -1045,7 +1048,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       for (const binding of pathTargets(guard, ctx)) {
         if (binding.pathGuarded !== true) {
           binding.pathGuarded = true;
-          noteGuard(binding);
+          noteGuard(binding, permanent);
           restore.push(() => {
             binding.pathGuarded = false;
           });
@@ -1056,7 +1059,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   }
 
   function withGuards<T>(set: GuardSet, ctx: Context, run: () => T): T {
-    const restore = applyGuards(set, ctx);
+    const restore = applyGuards(set, ctx, false);
     try {
       return run();
     } finally {
@@ -1281,6 +1284,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     if (stmt.target.k !== "id") {
       // Stored in a field, an array or a collection: a builder can be changed from there.
       escape([incoming], "stored");
+      os.escapes(incoming);
       evalExpr(stmt.target, ctx, depth + 1);
       const root = rootName(stmt.target);
       const written = root === null ? null : ctx.scope.find(root);
@@ -1311,7 +1315,10 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       if (old.builder) {
         addTracked(old.leaves, incoming.leaves);
       } else {
-        binding.value = join("string concatenation", old, incoming);
+        binding.value = {
+          ...join("string concatenation", old, incoming),
+          coll: old.coll || incoming.coll,
+        };
       }
     }
     if (isNumericType(binding.type)) {
@@ -1342,7 +1349,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           evalExpr(stmt.expr, ctx, depth + 1);
           break;
         case "exit":
-          if (stmt.value !== null) evalExpr(stmt.value, ctx, depth + 1);
+          if (stmt.value !== null) os.escapes(evalExpr(stmt.value, ctx, depth + 1));
           break;
         case "assert": {
           evalExpr(stmt.test, ctx, depth + 1);

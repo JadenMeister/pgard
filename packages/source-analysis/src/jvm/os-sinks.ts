@@ -4,6 +4,7 @@ import {
   baseType,
   consumeOrigin,
   copy,
+  guardOrigin,
   inferred,
   join,
   literalText,
@@ -18,9 +19,18 @@ import {
 } from "./flow-values.js";
 import type { Expr } from "./ir.js";
 import {
+  ARCHIVE_ENTRIES,
   ARCHIVE_ENTRY_NAME,
   ARCHIVE_ENTRY_TYPE,
   ARCHIVE_NEXT,
+  ARCHIVE_RECEIVER_NAME,
+  ARCHIVE_RECEIVER_TYPE,
+  FILE_PROBES,
+  FILES_PROBES,
+  LAUNCHERS,
+  POLY_OPENERS,
+  UPLOAD_TYPES,
+  URL_OPENERS,
   ELEMENT_ADD,
   CANONICALIZERS,
   CLIENT_FILE_NAMES,
@@ -32,7 +42,6 @@ import {
   FILES_TWO_PATH,
   FILEUTILS_SINKS,
   LAST_ELEMENT,
-  BENIGN_BARE,
   PATH_KEEPERS,
   PATH_NAME,
   RUNTIME_NAME,
@@ -85,6 +94,8 @@ interface Judged {
   helper: string;
   reasons: string[];
   shape: string;
+  /** The whole value, not a part of a longer one. */
+  bare: boolean;
 }
 
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
@@ -96,7 +107,7 @@ const demotePathGuard = (leaves: readonly Leaf[]): Leaf[] => {
     out,
     leaves.map((leaf): Leaf =>
       (leaf.k === "source" || leaf.k === "unknown") && leaf.pg === true
-        ? { k: "inferred", why: PATH_GUARD_WHY }
+        ? { k: "inferred", why: leaf.pgWhy ?? PATH_GUARD_WHY }
         : leaf,
     ),
   );
@@ -116,16 +127,65 @@ const programName = (text: string | null): string | null => {
   return first.toLowerCase().replace(/\.exe$/, "");
 };
 
+const SUDO_WITH_VALUE = new Set(["-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-r", "-t", "-U"]);
+const XARGS_WITH_VALUE = new Set(["-I", "-n", "-P", "-d", "-L", "-s", "-E", "-a"]);
+
+/**
+ * Where the program starts after launchers (`env`, `sudo -u app`, `nohup`, `timeout 5`, `nice -n 5`,
+ * `xargs`). Null when something dynamic stands where a launcher's own argument should be.
+ */
+function afterLaunchers(texts: ReadonlyArray<string | null>): number | null {
+  let i = 0;
+  for (let hops = 0; hops < 6; hops += 1) {
+    const program = programName(texts[i] ?? null);
+    if (program === null || !LAUNCHERS.has(program)) return i;
+    i += 1;
+    const skipOptions = (withValue: ReadonlySet<string>): boolean => {
+      for (;;) {
+        const text = texts[i];
+        if (text === undefined) return true;
+        if (text === null) return false;
+        if (withValue.has(text)) i += 2;
+        else if (text.startsWith("-")) i += 1;
+        else return true;
+      }
+    };
+    if (program === "env") {
+      for (;;) {
+        const text = texts[i];
+        if (text === undefined) return i;
+        if (text === null) return null;
+        if (text === "-u" || text === "-C" || text === "-S") i += 2;
+        else if (text.startsWith("-") || /^\w+=/.test(text)) i += 1;
+        else break;
+      }
+    } else if (program === "sudo" || program === "doas") {
+      if (!skipOptions(SUDO_WITH_VALUE)) return null;
+    } else if (program === "timeout") {
+      if (!skipOptions(new Set(["-s", "-k"]))) return null;
+      i += 1;
+    } else if (program === "nice") {
+      if (texts[i] === "-n") i += 2;
+      else if (/^-\d+$/.test(texts[i] ?? "")) i += 1;
+    } else if (program === "xargs") {
+      if (!skipOptions(XARGS_WITH_VALUE)) return null;
+    }
+  }
+  return null;
+}
+
 /** A shell program followed by its script flag (`sh -c`, `cmd /c`, `bash -lc`), or by something that may be one. */
 function findWrapper(
   texts: ReadonlyArray<string | null>,
 ): { program: string; flagIndex: number; flag: string | null } | null {
-  const program = programName(texts[0] ?? null);
-  if (program === null || !SHELL_PROGRAMS.has(program) || texts.length < 2) return null;
-  for (let i = 1; i < Math.min(texts.length, 5); i += 1) {
+  const at = afterLaunchers(texts);
+  if (at === null) return null;
+  const program = programName(texts[at] ?? null);
+  if (program === null || !SHELL_PROGRAMS.has(program) || texts.length < at + 2) return null;
+  for (let i = at + 1; i < Math.min(texts.length, at + 5); i += 1) {
     const text = texts[i] ?? null;
     // Something dynamic where the flag should be: it may well be the flag, so the rest is a script.
-    if (text === null) return i === 1 ? { program, flagIndex: 0, flag: null } : null;
+    if (text === null) return i === at + 1 ? { program, flagIndex: at, flag: null } : null;
     if (shellFlag(program, text)) return { program, flagIndex: i, flag: text };
     if (!/^[-/]/.test(text)) return null;
   }
@@ -146,19 +206,33 @@ export function createOsSinks(host: OsHost) {
 
   // ---------------------------------------------------------------- judging a value
 
-  function judge(v: Value, extra: readonly Leaf[] = [], composed = v.composed): Judged | null {
+  /**
+   * What a value is worth at a sink. `path`: the path rule, for which a path check (a `pg` leaf)
+   * means the value is inferred safe; the command rule ignores those marks.
+   */
+  function judge(
+    v: Value,
+    extra: readonly Leaf[] = [],
+    composed = v.composed,
+    path = false,
+  ): Judged | null {
     const leaves: Leaf[] = [];
-    addLeaves(leaves, demotePathGuard(v.leaves));
-    addLeaves(leaves, demotePathGuard(extra));
+    addLeaves(leaves, path ? demotePathGuard(v.leaves) : v.leaves);
+    addLeaves(leaves, path ? demotePathGuard(extra) : extra);
     const present = v.coll
       ? leaves.filter((leaf) => !(leaf.k === "unknown" && COLLECTION_OBJECT.test(leaf.name)))
       : leaves;
     const dynamic = nonConst(present);
     if (dynamic.length === 0) return null;
     const callName = v.opaque.replace(/\(\)$/, "");
-    // These calls keep what is in them: the file name a client chose, the pieces of a split string.
+    // These calls keep what is in them: the file name a client chose, the pieces of a split string,
+    // a path converted to another form.
     const opaque =
-      CLIENT_FILE_NAMES.has(callName) || COLLECTION_RESULTS.has(callName) ? "" : v.opaque;
+      CLIENT_FILE_NAMES.has(callName) ||
+      COLLECTION_RESULTS.has(callName) ||
+      (path && PATH_KEEPERS.has(callName))
+        ? ""
+        : v.opaque;
     const tainted = sourcesOf(present) as SourceLeaf[];
     const helperLeaf = dynamic.find(
       (leaf) => leaf.k === "unknown" && /\(\)$|^mutable field /.test(leaf.name),
@@ -168,15 +242,18 @@ export function createOsSinks(host: OsHost) {
       ...new Set(dynamic.map((leaf) => (leaf.k === "inferred" ? leaf.why : "")).filter(Boolean)),
     ];
     const shape = v.shape || (composed ? "built value" : "value");
-    const base = { tainted, helper, reasons, shape };
+    const base = { tainted, helper, reasons, shape, bare: !composed };
     if (!composed) {
-      // A bare value: request input read directly is reported, the result of a helper at low
-      // confidence, a guard or lookup as inferred; a plain parameter or a number says nothing.
+      // A bare value: request input read directly is reported; so is the result of a helper, a
+      // guard or lookup, a number or a constant from another file, and a plain parameter, each at
+      // low confidence (an unknown value is never silent).
       if (opaque !== "") return { kind: "helper", ...base, tainted: [] };
       if (tainted.length > 0) return { kind: "tainted", ...base };
       if (helper !== "") return { kind: "helper", ...base };
-      if (reasons.some((why) => !BENIGN_BARE.test(why))) return { kind: "inferred", ...base };
-      return null;
+      if (reasons.length > 0 && !dynamic.some((leaf) => leaf.k === "unknown")) {
+        return { kind: "inferred", ...base };
+      }
+      return { kind: "unknown", ...base };
     }
     if (tainted.length > 0) return { kind: "tainted", ...base };
     if (dynamic.some((leaf) => leaf.k === "unknown")) return { kind: "unknown", ...base };
@@ -190,6 +267,16 @@ export function createOsSinks(host: OsHost) {
       : `request input (${source.label})`;
     return { text: `${from}${source.direct ? "" : " via variable"}`, source };
   };
+
+  /** Why a low-confidence finding is low. */
+  const lowReason = (judged: Judged): string =>
+    judged.kind === "helper"
+      ? `value from ${judged.helper}, not followed; inferred`
+      : judged.kind === "unknown"
+        ? judged.bare
+          ? "a value with no identified source (such as a parameter) reaches it; callers not followed; inferred"
+          : "(no input source identified)"
+        : `${judged.reasons.slice(0, 2).join("; ")}; inferred`;
 
   const rankOf = (kind: Kind): number => (kind === "tainted" ? 3 : kind === "unknown" ? 2 : 1);
 
@@ -208,23 +295,18 @@ export function createOsSinks(host: OsHost) {
           ...base,
           severity: "high",
           status: source.direct ? "confirmed" : "suspected",
-          confidence: "high",
+          confidence: source.label.includes("by its name") ? "medium" : "high",
           evidence: `${text} -> ${judged.shape} -> ${label}`,
         },
         rank: 3,
       };
     }
-    const why =
-      judged.kind === "helper"
-        ? `value from ${judged.helper}, not followed; inferred`
-        : judged.kind === "unknown"
-          ? "(no input source identified)"
-          : `${judged.reasons.slice(0, 2).join("; ")}; inferred`;
-    const joiner = judged.kind === "unknown" ? " " : "; ";
+    const why = lowReason(judged);
+    const joiner = judged.kind === "unknown" && !judged.bare ? " " : "; ";
     return {
       finding: {
         ...base,
-        severity: "medium",
+        severity: judged.kind === "unknown" && judged.bare ? "low" : "medium",
         status: "suspected",
         confidence: "low",
         evidence: `${judged.shape} -> ${label}${joiner}${why}`,
@@ -235,7 +317,7 @@ export function createOsSinks(host: OsHost) {
 
   function reportPath(v: Value, line: number, label: string, ctx: Context): void {
     if (!ctx.report) return;
-    const judged = judge(v);
+    const judged = judge(v, [], v.composed, true);
     if (judged === null) return;
     const { finding, rank } = pathFinding(judged, line, label);
     host.record(finding, rank);
@@ -271,9 +353,10 @@ export function createOsSinks(host: OsHost) {
       const origin: Origin = {
         consumed: false,
         guarded: false,
+        checked: false,
         report: (guarded) => {
           const view = guarded ? { ...result, leaves: guardedLeaves(result.leaves) } : result;
-          const judged = judge(view);
+          const judged = judge(view, [], view.composed, true);
           if (judged === null) return;
           const { finding, rank } = pathFinding(judged, line, label);
           host.record(finding, rank);
@@ -340,19 +423,14 @@ export function createOsSinks(host: OsHost) {
         rank: 3,
       };
     }
-    const why =
-      judged.kind === "helper"
-        ? `value from ${judged.helper}, not followed; inferred`
-        : judged.kind === "unknown"
-          ? "(no input source identified)"
-          : `${judged.reasons.slice(0, 2).join("; ")}; inferred`;
+    const why = lowReason(judged);
     return {
       finding: {
         ...base,
         severity: critical ? "medium" : "low",
         status: "suspected",
         confidence: "low",
-        evidence: `${judged.shape} -> ${detail}${judged.kind === "unknown" ? " " : "; "}${why}`,
+        evidence: `${judged.shape} -> ${detail}${judged.kind === "unknown" && !judged.bare ? " " : "; "}${why}`,
       },
       rank: rankOf(judged.kind),
     };
@@ -540,22 +618,52 @@ export function createOsSinks(host: OsHost) {
 
   // ---------------------------------------------------------------- archives
 
-  /** `entry.getName()` where `entry` is a zip, jar or tar entry: the name was chosen by the archive's author. */
-  function isArchiveEntry(recvExpr: Expr | null, ctx: Context): boolean {
+  const ARCHIVE_LABEL = "archive entry name (getName)";
+  const ARCHIVE_WEAK_LABEL = "archive entry name (variable known by its name only)";
+
+  /** The entries of an archive, or one of them: what the author of the archive chose. */
+  const archiveSource = (weak = false): Value =>
+    value([{ k: "source", label: weak ? ARCHIVE_WEAK_LABEL : ARCHIVE_LABEL, direct: false }]);
+
+  const carriesArchive = (v: Value | null): boolean =>
+    v !== null &&
+    v.leaves.some((leaf) => leaf.k === "source" && leaf.label.startsWith("archive entry"));
+
+  /** A receiver that is an archive: `ZipFile`, `ZipInputStream`, a variable named `zip`... */
+  function archiveReceiver(recvExpr: Expr | null, ctx: Context): boolean {
     if (recvExpr === null) return false;
-    const type = host.typeOfExpr(recvExpr, ctx);
-    if (type !== null && ARCHIVE_ENTRY_TYPE.test(baseType(type))) return true;
-    if ((recvExpr.k === "call" || recvExpr.k === "member") && ARCHIVE_NEXT.has(recvExpr.name)) {
-      return true;
-    }
-    if (!host.hasArchiveLibrary) return false;
-    return (
-      (recvExpr.k === "id" || recvExpr.k === "member") && ARCHIVE_ENTRY_NAME.test(recvExpr.name)
-    );
+    const type = baseType(host.typeOfExpr(recvExpr, ctx));
+    if (type !== "" && ARCHIVE_RECEIVER_TYPE.test(type)) return true;
+    return type === "" && ARCHIVE_RECEIVER_NAME.test(nameHint(recvExpr));
   }
 
-  const archiveName = (): Value =>
-    value([{ k: "source", label: "archive entry name (getName)", direct: false }]);
+  /**
+   * `entry.getName()` where `entry` is an archive entry: by its declared type, by being the
+   * result of `getNextEntry()`, or (weakly) by a name like `entry` when no type is written down and
+   * an archive library is imported.
+   */
+  function archiveEntry(recvExpr: Expr | null, ctx: Context): "typed" | "named" | null {
+    if (recvExpr === null) return null;
+    const type = host.typeOfExpr(recvExpr, ctx);
+    if (type !== null && ARCHIVE_ENTRY_TYPE.test(baseType(type))) return "typed";
+    if ((recvExpr.k === "call" || recvExpr.k === "member") && ARCHIVE_NEXT.has(recvExpr.name)) {
+      return "typed";
+    }
+    if (!host.hasArchiveLibrary) return null;
+    if (type !== null && !/^(?:var|val)$/.test(type)) return null;
+    return (recvExpr.k === "id" || recvExpr.k === "member") &&
+      ARCHIVE_ENTRY_NAME.test(recvExpr.name)
+      ? "named"
+      : null;
+  }
+
+  /** An upload (`MultipartFile`, `Part`): the file name the client chose is request input. */
+  function uploadName(recvExpr: Expr | null, ctx: Context): boolean {
+    return recvExpr !== null && UPLOAD_TYPES.has(baseType(host.typeOfExpr(recvExpr, ctx)));
+  }
+
+  const uploadSource = (name: string): Value =>
+    value([{ k: "source", label: `uploaded file name (${name})`, direct: true }]);
 
   // ---------------------------------------------------------------- paths
 
@@ -577,24 +685,96 @@ export function createOsSinks(host: OsHost) {
     return "no";
   }
 
-  /** The value of a path conversion (`toPath()`, `normalize()`, ...): the same path, maybe resolved. */
+  /**
+   * The value of a path conversion (`toPath()`, `normalize()`, ...): the same path, maybe resolved.
+   * For the other rules it reads as an unknown call that carries the request input in it, exactly
+   * as it does without these rules.
+   */
   function keepPath(recv: Value, name: string): Value {
     return {
       ...recv,
       leaves: [...recv.leaves],
-      opaque: "",
+      opaque: sourcesOf(recv.leaves).length > 0 ? `${name}()` : "",
       path: true,
       canon: CANONICALIZERS.has(name) ? true : recv.canon,
       builder: false,
     };
   }
 
-  /** `getFileName()`, `File.name`: only the last element of the path is left. */
-  function lastElement(recv: Value): Value {
-    consumeOrigin(recv.origin);
-    return nonConst(recv.leaves).length === 0
-      ? value(recv.leaves)
-      : inferred("getFileName() / File.name keeps only the last path element");
+  /**
+   * Only the last element of a path is left (`getFileName()`, `File.name`, `FilenameUtils.getName`).
+   * For SQL and commands the value is what any unknown call gives (request input carried, nothing
+   * more: the last element of `a;id` is `a;id`); only the path rule reads it as inferred safe.
+   */
+  function lastElement(from: readonly Value[], call: string, why: string, member = false): Value {
+    for (const item of from) consumeOrigin(item.origin);
+    const carried = sourcesOf(from.flatMap((item) => item.leaves));
+    const mark = (leaf: Leaf): Leaf =>
+      leaf.k === "source" || leaf.k === "unknown" ? { ...leaf, pg: true, pgWhy: why } : leaf;
+    if (carried.length > 0) {
+      return value(carried.map(mark), member ? {} : { opaque: `${call}()` });
+    }
+    return value([mark({ k: "unknown", name: member ? "name()" : `${call}()` })]);
+  }
+
+  /** A call that may be a process call on a receiver of unknown kind: a low note, only for request input. */
+  function unrecognized(
+    v: Value,
+    extra: Leaf[],
+    line: number,
+    name: string,
+    kind: string,
+    ctx: Context,
+  ): void {
+    if (!ctx.report) return;
+    const judged = judge(v, extra);
+    if (judged === null || judged.kind !== "tainted") return;
+    const { text } = sourceText(judged);
+    host.record(
+      {
+        ruleId: "PG-CMD-003",
+        line,
+        severity: "medium",
+        status: "suspected",
+        confidence: "low",
+        evidence: `${text} -> ${name}(); receiver not recognized as ${kind}; inferred`,
+        cause: `${name}:unrecognized`,
+      },
+      1,
+    );
+  }
+
+  /** A receiver whose type is not written down (a call result, `var`, a lambda parameter). */
+  const untypedReceiver = (recvExpr: Expr, ctx: Context): boolean => {
+    const type = host.typeOfExpr(recvExpr, ctx);
+    if (type !== null && !/^(?:var|val)$/.test(type)) return false;
+    return true;
+  };
+
+  const startsWithFileUrl = (v: Value): boolean => {
+    const first = v.leaves[0];
+    return first !== undefined && first.k === "const" && first.text.startsWith("file:");
+  };
+
+  /** Existence and size checks read no content: reported low, and only for request input. */
+  function probe(v: Value, line: number, label: string, ctx: Context): void {
+    consumeOrigin(v.origin);
+    if (!ctx.report) return;
+    const judged = judge(v, [], v.composed, true);
+    if (judged === null || judged.kind !== "tainted") return;
+    const { text } = sourceText(judged);
+    host.record(
+      {
+        ruleId: "PG-PATH-002",
+        line,
+        severity: "low",
+        status: "suspected",
+        confidence: "low",
+        evidence: `${text} -> ${label} (existence or size check, no content read); inferred`,
+        cause: label,
+      },
+      1,
+    );
   }
 
   function call(
@@ -621,19 +801,28 @@ export function createOsSinks(host: OsHost) {
       return value(leaves, { elems: args, coll: true });
     }
     // ---- values that come from, or keep, a path ----
-    if (
-      args.length === 0 &&
-      (name === "getName" || name === "getFileName") &&
-      recv?.path !== true &&
-      isArchiveEntry(recvExpr, ctx)
-    ) {
-      return archiveName();
+    if (recvExpr !== null && args.length === 0 && recv?.path !== true) {
+      if (ARCHIVE_NEXT.has(name) || (ARCHIVE_ENTRIES.has(name) && archiveReceiver(recvExpr, ctx))) {
+        return archiveSource();
+      }
+      if (name === "getName" || name === "getFileName") {
+        if (carriesArchive(recv)) return archiveSource();
+        const entry = archiveEntry(recvExpr, ctx);
+        if (entry !== null) return archiveSource(entry === "named");
+      }
+      if (CLIENT_FILE_NAMES.has(name) && uploadName(recvExpr, ctx)) return uploadSource(name);
     }
     if (recv?.path === true && recvExpr !== null) {
-      if (args.length === 0 && LAST_ELEMENT.has(name)) return lastElement(recv);
+      if (args.length === 0 && LAST_ELEMENT.has(name)) {
+        return lastElement([recv], name, "keeps only the last path element");
+      }
       if (args.length === 0 && PATH_KEEPERS.has(name)) return keepPath(recv, name);
       if (FILE_METHODS.has(name)) {
         consume(recv, line, `File.${name}`, ctx);
+        return null;
+      }
+      if (FILE_PROBES.has(name)) {
+        probe(recv, line, `File.${name}`, ctx);
         return null;
       }
     }
@@ -648,7 +837,7 @@ export function createOsSinks(host: OsHost) {
       }
       if (kind === "maybe" && ctx.report) {
         // The receiver's type is not written down: only request input in the argument is worth a note.
-        const judged = judge(join("path", ...args));
+        const judged = judge(join("path", ...args), [], true, true);
         if (judged !== null && judged.kind === "tainted") {
           const { text } = sourceText(judged);
           host.record(
@@ -669,6 +858,8 @@ export function createOsSinks(host: OsHost) {
     if (typeReceiver && className === "Files") {
       if (FILES_SINKS.has(name) && args[0] !== undefined) {
         consume(args[0], line, `Files.${name}`, ctx);
+      } else if (FILES_PROBES.has(name) && args[0] !== undefined) {
+        probe(args[0], line, `Files.${name}`, ctx);
       } else if (FILES_TWO_PATH.has(name)) {
         const wayIn = args[0];
         if (
@@ -686,9 +877,7 @@ export function createOsSinks(host: OsHost) {
       ((className === "FilenameUtils" && (name === "getName" || name === "getBaseName")) ||
         (className === "StringUtils" && name === "getFilename"))
     ) {
-      // Only the last path element is left (`..` alone is still one), so the value is inferred safe.
-      for (const arg of args) consumeOrigin(arg.origin);
-      return inferred(`${className}.${name}() keeps only the last path element`);
+      return lastElement(args, name, `${className}.${name}() keeps only the last path element`);
     }
     if (typeReceiver && className === "FileUtils" && FILEUTILS_SINKS.has(name)) {
       if (args[0] !== undefined) consume(args[0], line, `FileUtils.${name}`, ctx);
@@ -726,20 +915,30 @@ export function createOsSinks(host: OsHost) {
       return makePath(args, line, "ServletContext.getRealPath", ctx, (args[0] as Value).composed);
     }
     if (name === "getResource" && recvExpr !== null && args.length === 1) {
-      const hint = `${nameHint(recvExpr)} ${host.typeOfExpr(recvExpr, ctx) ?? ""}`;
-      if (/loader|context|ctx|resolver|ResourceLoader|ApplicationContext/i.test(hint)) {
-        consume(args[0] as Value, line, "ResourceLoader.getResource", ctx);
+      // A Spring `ResourceLoader` / `ApplicationContext` opens `file:` URLs; `ClassLoader.getResource`
+      // looks on the class path, which these rules do not claim. A `file:` prefix makes any receiver count.
+      const type = baseType(host.typeOfExpr(recvExpr, ctx));
+      const spring =
+        /^(?:ResourceLoader|ApplicationContext|WebApplicationContext|ResourcePatternResolver)$/.test(
+          type,
+        ) ||
+        (type === "" &&
+          /^(?:resourceLoader|applicationContext|appContext|ctx)$/i.test(nameHint(recvExpr)));
+      if (spring) consume(args[0] as Value, line, "ResourceLoader.getResource", ctx);
+      else if (startsWithFileUrl(args[0] as Value)) {
+        consume(args[0] as Value, line, "getResource(file:)", ctx);
       }
       return null;
     }
 
     // ---- command execution ----
-    if (name === "exec" && !typeReceiver) {
+    if (name === "exec") {
       const first = args[0];
       // Without a receiver (Kotlin `with(runtime) { exec(x) }`) or on a variable of unknown type, an
       // `exec` in a file that gets a Runtime is that Runtime's.
       if (
         first !== undefined &&
+        !typeReceiver &&
         (recvExpr === null ? host.usesRuntime : isRuntime(recvExpr, recv, ctx) || host.usesRuntime)
       ) {
         const collection = isCollection(expr.args[0], first, ctx);
@@ -753,22 +952,7 @@ export function createOsSinks(host: OsHost) {
         );
       } else if (first !== undefined && ctx.report) {
         // Some other `exec`: only request input in its argument is worth a note.
-        const judged = judge(first, writtenLeaves(expr.args[0], ctx));
-        if (judged !== null && judged.kind === "tainted") {
-          const { text } = sourceText(judged);
-          host.record(
-            {
-              ruleId: "PG-CMD-003",
-              line,
-              severity: "medium",
-              status: "suspected",
-              confidence: "low",
-              evidence: `${text} -> exec(); receiver not recognized as a Runtime; inferred`,
-              cause: "exec:unrecognized",
-            },
-            1,
-          );
-        }
+        unrecognized(first, writtenLeaves(expr.args[0], ctx), line, "exec", "a Runtime", ctx);
       }
       return null;
     }
@@ -794,6 +978,15 @@ export function createOsSinks(host: OsHost) {
       if (args.length === 0) return value([], { proc: true, coll: true });
       commandFrom(expr.args, args, line, "ProcessBuilder.command", ctx);
       return value([], { proc: true });
+    }
+    if (
+      name === "command" &&
+      args.length >= 1 &&
+      recvExpr !== null &&
+      untypedReceiver(recvExpr, ctx)
+    ) {
+      // Some other `command(...)`: only request input in its arguments is worth a note.
+      unrecognized(join("arguments", ...args), [], line, "command", "a ProcessBuilder", ctx);
     }
     if (ELEMENT_ADD.has(name) && recv?.proc === true && recv.coll && args.length > 0) {
       // `pb.command().add(x)`: appended to a command whose program is not known here.
@@ -878,7 +1071,16 @@ export function createOsSinks(host: OsHost) {
       );
     }
     if (FILE_OPENERS.has(type) && args[0] !== undefined) {
-      consume(args[0], line, type, ctx);
+      const first = args[0];
+      // A `PrintWriter` or `Formatter` also wraps a stream: only something that looks like a file name counts.
+      const named =
+        first.path ||
+        sourcesOf(first.leaves).length > 0 ||
+        ["str", "bin", "tmpl"].includes(argExprs[0]?.k ?? "") ||
+        /^(?:String|File|Path)$/.test(typeName(argExprs[0], ctx));
+      if (POLY_OPENERS.has(type) && !named) return null;
+      if (URL_OPENERS.has(type) && !startsWithFileUrl(first)) return null;
+      consume(first, line, type, ctx);
       return null;
     }
     return null;
@@ -887,20 +1089,43 @@ export function createOsSinks(host: OsHost) {
   /** Kotlin properties that mirror the conversions (`file.canonicalPath`, `file.name`) and zip entry names. */
   function member(expr: MemberExpr, recv: Value, ctx: Context): Value | null {
     if (recv.path) {
-      if (LAST_ELEMENT.has(expr.name)) return lastElement(recv);
+      if (LAST_ELEMENT.has(expr.name)) {
+        return lastElement([recv], expr.name, "keeps only the last path element", true);
+      }
       if (PATH_KEEPERS.has(expr.name)) return keepPath(recv, expr.name);
       return null;
     }
-    if ((expr.name === "name" || expr.name === "fileName") && isArchiveEntry(expr.obj, ctx)) {
-      return archiveName();
+    if (ARCHIVE_NEXT.has(expr.name)) return archiveSource();
+    if (ARCHIVE_ENTRIES.has(expr.name) && archiveReceiver(expr.obj, ctx)) return archiveSource();
+    if (expr.name === "name" || expr.name === "fileName") {
+      if (carriesArchive(recv)) return archiveSource();
+      const entry = archiveEntry(expr.obj, ctx);
+      if (entry !== null) return archiveSource(entry === "named");
+    }
+    if (CLIENT_FILE_NAMES.has(expr.name) && uploadName(expr.obj, ctx)) {
+      return uploadSource(expr.name);
     }
     return null;
+  }
+
+  /** A path leaves the method (returned, stored, handed on) while a check on its variable held. */
+  function escapes(v: Value): void {
+    if (v.origin === null) return;
+    const checked = v.leaves.some(
+      (leaf) =>
+        ((leaf.k === "source" || leaf.k === "unknown") && leaf.pg === true) ||
+        (leaf.k === "inferred" && /allowlist/.test(leaf.why)),
+    );
+    if (checked) guardOrigin(v.origin);
   }
 
   /** Reports every path that was made and never used in a way the rule knows. */
   function flush(): void {
     for (const origin of origins) {
-      if (!origin.consumed) origin.report(origin.guarded);
+      if (origin.consumed) continue;
+      // Checked and then never used: nothing to say. Used under the check: inferred. Otherwise as made.
+      if (origin.guarded) origin.report(true);
+      else if (!origin.checked) origin.report(false);
     }
   }
 
@@ -908,5 +1133,5 @@ export function createOsSinks(host: OsHost) {
   const bindingOf = (expr: Expr, ctx: Context): Binding | null =>
     expr.k === "id" ? ctx.scope.find(expr.name) : null;
 
-  return { call, construct, member, flush, bindingOf };
+  return { call, construct, member, flush, bindingOf, escapes };
 }

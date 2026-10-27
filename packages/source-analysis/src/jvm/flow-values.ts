@@ -15,8 +15,8 @@ import { NUMERIC_TYPES } from "./jvm-names.js";
 export type Leaf =
   | { k: "const"; text: string }
   | { k: "inferred"; why: string }
-  | { k: "source"; label: string; direct: boolean; pg?: boolean }
-  | { k: "unknown"; name: string; pg?: boolean };
+  | { k: "source"; label: string; direct: boolean; pg?: boolean; pgWhy?: string }
+  | { k: "unknown"; name: string; pg?: boolean; pgWhy?: string };
 
 /**
  * A file path made by `new File(...)`, `Paths.get(...)`, `resolve(...)` and the like. The path
@@ -26,8 +26,10 @@ export type Leaf =
 export interface Origin {
   /** A use of the path was reported (or the path went into a longer path). */
   consumed: boolean;
-  /** A guard was applied to a variable that holds the path. */
+  /** The path was used (returned, stored, handed on) while a check on its variable held. */
   guarded: boolean;
+  /** A check that exits on failure was made on a variable that holds the path. */
+  checked: boolean;
   /** Reports the finding for the construction (`guarded`: demote it to inferred). */
   report: (guarded: boolean) => void;
   /** For a value that is one of several paths: the origins of the alternatives. */
@@ -48,11 +50,18 @@ export function guardOrigin(origin: Origin | null): void {
   for (const part of origin.parts ?? []) guardOrigin(part);
 }
 
+/** A check that exits on failure was made on the path. */
+export function checkOrigin(origin: Origin | null): void {
+  if (origin === null || origin.checked) return;
+  origin.checked = true;
+  for (const part of origin.parts ?? []) checkOrigin(part);
+}
+
 /** One origin for a value that is either of several paths (`cond ? a : b`). */
 export function combineOrigins(values: readonly Value[]): Origin | null {
   const parts = values.flatMap((item) => (item.origin === null ? [] : [item.origin]));
   if (parts.length === 0) return null;
-  return { consumed: false, guarded: false, report: () => {}, parts };
+  return { consumed: false, guarded: false, checked: false, report: () => {}, parts };
 }
 
 export interface Value {
@@ -111,9 +120,9 @@ export const inferred = (why: string): Value => value([{ k: "inferred", why }]);
 
 export const leafKey = (leaf: Leaf): string =>
   leaf.k === "source"
-    ? `s:${leaf.label}:${leaf.direct}${leaf.pg === true ? ":pg" : ""}`
+    ? `s:${leaf.label}:${leaf.direct}${leaf.pg === true ? `:pg${leaf.pgWhy ?? ""}` : ""}`
     : leaf.k === "unknown"
-      ? `u:${leaf.name}${leaf.pg === true ? ":pg" : ""}`
+      ? `u:${leaf.name}${leaf.pg === true ? `:pg${leaf.pgWhy ?? ""}` : ""}`
       : leaf.k === "inferred"
         ? `i:${leaf.why}`
         : "";

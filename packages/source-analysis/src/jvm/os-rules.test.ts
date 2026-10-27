@@ -1,3 +1,4 @@
+import { readdirSync, readFileSync } from "node:fs";
 import { afterAll, describe, expect, it } from "vitest";
 import type { RawSourceFinding } from "../finding-factory.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
@@ -162,7 +163,7 @@ describe("PG-CMD-003: exec(String) and command strings", () => {
     expect(of(unknown, CMD)).toEqual([]);
   });
 
-  it("reports a helper result and a value with no source at low confidence, and a bare parameter not at all", async () => {
+  it("reports a helper result, a value with no source and a bare parameter at low confidence", async () => {
     const helper = await run(
       handler(
         "String c = build(p); Runtime.getRuntime().exec(c);",
@@ -182,7 +183,9 @@ describe("PG-CMD-003: exec(String) and command strings", () => {
     const bare = await run(
       java(SPRING, `void h(String a) throws Exception { Runtime.getRuntime().exec(a); }`),
     );
-    expect(of(bare, CMD)).toEqual([]);
+    expect(of(bare, CMD)[0]).toMatchObject({ confidence: "low", severity: "medium" });
+    expect(of(bare, CMD)[0]?.evidence).toContain("parameter");
+    expect(of(bare, CMD)[0]?.evidence).toContain("callers not followed");
   });
 
   it("reports the result of an own method with no arguments at low confidence", async () => {
@@ -196,7 +199,7 @@ describe("PG-CMD-003: exec(String) and command strings", () => {
     expect(of(analysis, CMD)[0]?.evidence).toContain("command()");
   });
 
-  it("reports a number or a constant from another file only in a longer string", async () => {
+  it("reports a number or a constant from another file at low confidence, bare or in a longer string", async () => {
     const number = await run(
       java(
         SPRING,
@@ -207,7 +210,7 @@ describe("PG-CMD-003: exec(String) and command strings", () => {
     const bare = await run(
       java(SPRING, `void h() throws Exception { Runtime.getRuntime().exec(Config.COMMAND); }`),
     );
-    expect(of(bare, CMD)).toEqual([]);
+    expect(kind(of(bare, CMD))).toBe("inferred");
     const composed = await run(
       java(
         SPRING,
@@ -438,14 +441,15 @@ describe("PG-CMD-003: argument lists", () => {
     });
   });
 
-  it("does not report an argument list that is a bare parameter", async () => {
+  it("reports an argument list that is a bare parameter at low confidence", async () => {
     const analysis = await run(
       java(
         SPRING,
         "void h(List<String> c, String[] d) throws Exception { new ProcessBuilder(c).start(); Runtime.getRuntime().exec(d); }",
       ),
     );
-    expect(of(analysis, CMD)).toEqual([]);
+    expect(of(analysis, CMD)).toHaveLength(2);
+    expect(of(analysis, CMD).every((finding) => finding.confidence === "low")).toBe(true);
   });
 
   it("reports a split command line", async () => {
@@ -520,13 +524,16 @@ describe("PG-CMD-003: ProcessBuilder.command and Commons Exec", () => {
     expect(of(analysis, CMD).map((finding) => finding.cause)).toEqual([
       "ProcessBuilder.command:argument",
     ]);
+    expect(of(analysis, CMD)[0]?.confidence).toBe("medium");
     const unrelated = await run(
       java(
         SPRING,
         `Object make() { return null; } void h(@RequestParam String p) { var other = make(); other.command("git", "log", p); }`,
       ),
     );
-    expect(of(unrelated, CMD)).toEqual([]);
+    // The receiver's type is not written down: a low note, for request input only.
+    expect(of(unrelated, CMD).map((finding) => finding.cause)).toEqual(["command:unrecognized"]);
+    expect(of(unrelated, CMD)[0]?.confidence).toBe("low");
   });
 
   it("reads command(...) on a ProcessBuilder made earlier or in the same expression", async () => {
@@ -923,11 +930,26 @@ describe("PG-PATH-002: where a path is reported", () => {
     ).toBe(true);
   });
 
-  it("does not report Files.exists, isDirectory or size (no content is read or changed)", async () => {
+  it("reports Files.exists, isDirectory and size at low confidence, once each (no content is read or changed)", async () => {
     const analysis = await run(
       handler("Files.exists(Path.of(p)); Files.isDirectory(Path.of(p)); Files.size(Path.of(p));"),
     );
-    expect(of(analysis, PATH).every((finding) => finding.cause === "Path.of")).toBe(true);
+    expect(
+      of(analysis, PATH)
+        .map((finding) => finding.cause)
+        .sort(),
+    ).toEqual(["Files.exists", "Files.isDirectory", "Files.size"]);
+    expect(
+      of(analysis, PATH).every(
+        (finding) => finding.confidence === "low" && finding.severity === "low",
+      ),
+    ).toBe(true);
+    const file = await run(handler("new File(p).exists(); new File(q).length();"));
+    expect(
+      of(file, PATH)
+        .map((finding) => finding.cause)
+        .sort(),
+    ).toEqual(["File.exists", "File.length"]);
   });
 
   it("reports one finding for a chain of path operations", async () => {
@@ -991,13 +1013,14 @@ describe("PG-PATH-002: fixed values and untraced values", () => {
     expect(kind(of(analysis, PATH))).toBe("untraced");
   });
 
-  it("reports a path made of own parameters at low confidence, a lone parameter not at all", async () => {
+  it("reports a path made of own parameters, and a lone parameter, at low confidence", async () => {
     const two = await run(
       java(SPRING, "void h(File dir, String name) { new File(dir, name).delete(); }"),
     );
     expect(kind(of(two, PATH))).toBe("untraced");
     const one = await run(java(SPRING, "void h(String name) { new File(name).delete(); }"));
-    expect(of(one, PATH)).toEqual([]);
+    expect(of(one, PATH)[0]).toMatchObject({ confidence: "low", severity: "low" });
+    expect(of(one, PATH)[0]?.evidence).toContain("callers not followed");
   });
 
   it("reports a helper result at low confidence", async () => {
@@ -1008,7 +1031,7 @@ describe("PG-PATH-002: fixed values and untraced values", () => {
     expect(of(analysis, PATH)[0]?.evidence).toContain("clean()");
   });
 
-  it("reports a number or UUID only inside a longer path", async () => {
+  it("reports a number or UUID at low confidence, bare or inside a longer path", async () => {
     const number = await run(
       java(SPRING, 'void h(@RequestParam long id) { new File("/srv", id + ".pdf").delete(); }'),
     );
@@ -1016,7 +1039,7 @@ describe("PG-PATH-002: fixed values and untraced values", () => {
     const bare = await run(
       java(SPRING, "void h(@RequestParam long id) { new File(Long.toString(id)).delete(); }"),
     );
-    expect(of(bare, PATH)).toEqual([]);
+    expect(kind(of(bare, PATH))).toBe("inferred");
   });
 
   it("does not report a stream first argument of Files.copy", async () => {
@@ -1329,7 +1352,7 @@ describe("PG-PATH-002: archive entries (zip slip)", () => {
     expect(of(analysis, PATH).every((finding) => finding.confidence === "low")).toBe(true);
   });
 
-  it("reads a name like `entry` as an entry only where an archive library is imported", async () => {
+  it("reads a name like `entry` as an entry only where an archive library is imported and no other type is written down", async () => {
     const without = await run(
       java(
         SPRING,
@@ -1337,13 +1360,21 @@ describe("PG-PATH-002: archive entries (zip slip)", () => {
       ),
     );
     expect(of(without, PATH).every((finding) => finding.confidence === "low")).toBe(true);
-    const withImport = await run(
+    const typedOther = await run(
       java(
         `${SPRING}${ZIP}`,
-        `void h(File d, Object entry) throws Exception { new File(d, entry.getName()).mkdirs(); }`,
+        `void h(File d, LogEntry logEntry) throws Exception { new File(d, logEntry.getName()).mkdirs(); } interface LogEntry { String getName(); }`,
       ),
     );
-    expect(kind(of(withImport, PATH))).toBe("high/suspected");
+    expect(of(typedOther, PATH).every((finding) => finding.confidence === "low")).toBe(true);
+    const untyped = await run(
+      java(
+        `${SPRING}${ZIP}`,
+        `Object make() { return null; } void h(File d) throws Exception { var entry = make(); new File(d, entry.getName()).mkdirs(); }`,
+      ),
+    );
+    expect(of(untyped, PATH)[0]).toMatchObject({ severity: "high", confidence: "medium" });
+    expect(of(untyped, PATH)[0]?.evidence).toContain("known by its name only");
   });
 
   it("demotes a canonical check on the extracted file", async () => {
@@ -1623,6 +1654,549 @@ describe("path guard conditions", () => {
   });
 });
 
+// ====================================================================== review round
+
+const JDBC = `${SPRING}import java.sql.*;\n`;
+
+describe("last-element helpers lower only the path rule", () => {
+  const helpers = [
+    "new File(p).getName()",
+    "FilenameUtils.getName(p)",
+    "FilenameUtils.getBaseName(p)",
+    "Paths.get(p).getFileName()",
+    "StringUtils.getFilename(p)",
+  ];
+  const imports = `${JDBC}import org.apache.commons.io.FilenameUtils;\nimport org.springframework.util.StringUtils;\n`;
+
+  it.each(helpers)("%s: SQL in a longer string stays high", async (helper) => {
+    const analysis = await run(
+      java(
+        imports,
+        `void h(@RequestParam String p, Statement st) throws Exception { st.executeQuery("SELECT * FROM t WHERE n = '" + ${helper} + "'"); }`,
+      ),
+    );
+    expect(of(analysis, "PG-SQL-005")[0]).toMatchObject({ severity: "high", confidence: "high" });
+  });
+
+  it.each(helpers)("%s: a bare SQL argument is what any unknown call gives", async (helper) => {
+    const analysis = await run(
+      java(
+        imports,
+        `void h(@RequestParam String p, Statement st) throws Exception { st.executeQuery(${helper}); }`,
+      ),
+    );
+    expect(of(analysis, "PG-SQL-005")[0]).toMatchObject({ confidence: "low" });
+    expect(of(analysis, "PG-SQL-005")[0]?.evidence).toContain("not followed");
+  });
+
+  it.each(helpers)("%s: a command in a longer string stays critical", async (helper) => {
+    const forms = [
+      `Runtime.getRuntime().exec(new String[] {"sh", "-c", "convert /in/" + ${helper}});`,
+      `Runtime.getRuntime().exec("convert /in/" + ${helper});`,
+      `new ProcessBuilder("sh", "-c", "convert " + ${helper}).start();`,
+    ];
+    for (const form of forms) {
+      const analysis = await run(handler(form, imports));
+      expect(of(analysis, CMD)[0], form).toMatchObject({
+        severity: "critical",
+        confidence: "high",
+      });
+    }
+  });
+
+  it.each(helpers)("%s: the path rule still lowers it", async (helper) => {
+    const analysis = await run(handler(`new File("/srv", ${helper}).delete();`, imports));
+    expect(kind(of(analysis, PATH))).toBe("inferred");
+  });
+
+  it("keeps Kotlin File(path).name tainted for SQL and commands", async () => {
+    const sql = await run(
+      `import java.io.File
+import java.sql.Connection
+import org.springframework.web.bind.annotation.*
+@RestController
+class K {
+    @GetMapping("/x")
+    fun h(@RequestParam p: String, c: Connection) {
+        c.createStatement().executeQuery("SELECT * FROM t WHERE n = '" + File(p).name + "'")
+        Runtime.getRuntime().exec("convert " + File(p).name)
+    }
+}
+`,
+      "K.kt",
+    );
+    expect(of(sql, "PG-SQL-005")[0]).toMatchObject({ severity: "high", confidence: "high" });
+    expect(of(sql, CMD)[0]).toMatchObject({ severity: "critical", confidence: "high" });
+  });
+
+  it("does not let a path conversion turn a bare SQL value into request input read directly", async () => {
+    const analysis = await run(
+      java(
+        JDBC,
+        "void h(@RequestParam String p, Statement st) throws Exception { st.executeQuery(new File(p).getAbsolutePath()); }",
+      ),
+    );
+    expect(of(analysis, "PG-SQL-005")[0]).toMatchObject({ confidence: "low" });
+  });
+});
+
+describe("archive entry names and upload names are sources for every rule", () => {
+  it("makes an archive entry name request-like input for SQL (intentional)", async () => {
+    const analysis = await run(
+      java(
+        `${JDBC}import java.util.zip.*;\n`,
+        'void h(ZipInputStream z, Statement st) throws Exception { ZipEntry e = z.getNextEntry(); st.executeUpdate("INSERT INTO files(name) VALUES (\'" + e.getName() + "\')"); }',
+      ),
+    );
+    expect(of(analysis, "PG-SQL-005")[0]).toMatchObject({ severity: "high", confidence: "high" });
+    expect(of(analysis, "PG-SQL-005")[0]?.evidence).toContain("archive entry name");
+  });
+
+  it("makes an uploaded file name request input in any class", async () => {
+    const sql = await run(
+      java(
+        `${JDBC}import org.springframework.web.multipart.MultipartFile;\n`,
+        'void store(MultipartFile file, Statement st) throws Exception { st.executeUpdate("INSERT INTO f(n) VALUES (\'" + file.getOriginalFilename() + "\')"); }',
+      ),
+    );
+    expect(of(sql, "PG-SQL-005")[0]).toMatchObject({ severity: "high", confidence: "high" });
+    const service = await run(
+      java(
+        `${SPRING}import org.springframework.web.multipart.MultipartFile;\n`,
+        'File dir = new File("/srv"); void store(MultipartFile file) { new File(dir, file.getOriginalFilename()).delete();\n new File("/srv/" + file.getOriginalFilename()).delete(); }',
+      ),
+    );
+    expect(of(service, PATH).map((finding) => finding.confidence)).toEqual(["high", "high"]);
+    const part = await run(
+      java(
+        SERVLET,
+        "void h(Part part) throws Exception { new File(part.getSubmittedFileName()).delete(); }",
+      ),
+    );
+    expect(kind(of(part, PATH))).toBe("high/confirmed");
+    const ktor = await run(
+      `import io.ktor.http.content.PartData
+import java.io.File
+fun save(part: PartData.FileItem) { File("/srv/" + part.originalFileName).writeBytes(ByteArray(0)) }
+`,
+      "K.kt",
+    );
+    expect(kind(of(ktor, PATH))).toBe("high/confirmed");
+    const other = await run(
+      java(
+        SPRING,
+        'interface Thing { String getOriginalFilename(); } void h(Thing t) { new File("/srv/" + t.getOriginalFilename()).delete(); }',
+      ),
+    );
+    expect(of(other, PATH).every((finding) => finding.confidence === "low")).toBe(true);
+  });
+});
+
+describe("a parameter or other-file constant at a sink is low, never silent", () => {
+  it.each([
+    [
+      "Process run(String cmd) throws Exception { return Runtime.getRuntime().exec(cmd); }",
+      CMD,
+      "medium",
+    ],
+    [
+      "void run(List<String> argv) throws Exception { new ProcessBuilder(argv).start(); }",
+      CMD,
+      "medium",
+    ],
+    [
+      "void run(String[] argv) throws Exception { Runtime.getRuntime().exec(argv); }",
+      CMD,
+      "medium",
+    ],
+    [
+      'void run(String tool) throws Exception { new ProcessBuilder(tool, "-v").start(); }',
+      CMD,
+      "medium",
+    ],
+    [
+      'void run(String arg) throws Exception { new ProcessBuilder("git", arg).start(); }',
+      CMD,
+      "low",
+    ],
+    [
+      "byte[] read(String path) throws Exception { return Files.readAllBytes(Paths.get(path)); }",
+      PATH,
+      "low",
+    ],
+    ["void read(String path) throws Exception { new FileInputStream(path).close(); }", PATH, "low"],
+    ["void read(String path) { new File(path).delete(); }", PATH, "low"],
+    ["void read(Path path) throws Exception { Files.delete(path); }", PATH, "low"],
+    [
+      "void read(int n) throws Exception { Runtime.getRuntime().exec(String.valueOf(n)); }",
+      CMD,
+      "medium",
+    ],
+    ["void read() throws Exception { new File(Config.DIR).delete(); }", PATH, "medium"],
+  ])("%s", async (code, ruleId, severity) => {
+    const analysis = await run(java(SPRING, code));
+    const found = of(analysis, ruleId);
+    expect(found, code).toHaveLength(1);
+    expect(found[0], code).toMatchObject({ confidence: "low", severity });
+    expect(found[0]?.evidence, code).toMatch(/inferred$/);
+  });
+
+  it("keeps a same-file literal-only constant silent", async () => {
+    const analysis = await run(
+      java(
+        SPRING,
+        'static final String DIR = "/srv"; void h() throws Exception { new File(DIR).delete(); Runtime.getRuntime().exec(DIR); }',
+      ),
+    );
+    expect(analysis.findings.filter((finding) => finding.ruleId !== "PG-SQL-005")).toEqual([]);
+  });
+
+  it("does not change what the SQL rule does with a bare value", async () => {
+    const analysis = await run(
+      java(JDBC, "void h(String q, Statement st) throws Exception { st.executeQuery(q); }"),
+    );
+    expect(of(analysis, "PG-SQL-005")).toEqual([]);
+  });
+});
+
+describe("file openers that take a name", () => {
+  it.each([
+    ['new PrintWriter("/srv/out/" + p);', "PrintWriter"],
+    ['new PrintStream("/srv/out/" + p);', "PrintStream"],
+    ['new Formatter("/srv/out/" + p);', "Formatter"],
+    ['new ZipFile("/srv/archives/" + p);', "ZipFile"],
+    ['new JarFile("/srv/archives/" + p);', "JarFile"],
+    ['new ZipFile(new File("/srv/archives", p));', "ZipFile"],
+    ['new java.util.logging.FileHandler("/srv/log/" + p);', "FileHandler"],
+    ['new UrlResource("file:/srv/files/" + p);', "UrlResource"],
+    ["new PrintWriter(p);", "PrintWriter"],
+    ['new FileSystemResource("/srv/" + p);', "FileSystemResource"],
+  ])("reports %s", async (code, cause) => {
+    const analysis = await run(
+      handler(
+        code,
+        `${SPRING}import java.util.zip.*;\nimport java.util.jar.JarFile;\nimport org.springframework.core.io.*;\n`,
+      ),
+    );
+    expect(
+      of(analysis, PATH).map((finding) => finding.cause),
+      code,
+    ).toContain(cause);
+    expect(
+      of(analysis, PATH).some((finding) => finding.severity === "high"),
+      code,
+    ).toBe(true);
+  });
+
+  it("does not take a stream or a writer for a file name", async () => {
+    const analysis = await run(
+      java(
+        SPRING,
+        `void h(java.io.OutputStream out, java.io.Writer w, javax.servlet.http.HttpServletResponse r) throws Exception {
+           new PrintWriter(out); new PrintWriter(w); new PrintStream(out); new Formatter(w); new PrintWriter(r.getWriter());
+         }`,
+      ),
+    );
+    expect(of(analysis, PATH)).toEqual([]);
+  });
+
+  it("takes UrlResource for a file only with a file: URL", async () => {
+    const analysis = await run(
+      handler(
+        'new UrlResource("https://example.org/" + p); new UrlResource(p);',
+        `${SPRING}import org.springframework.core.io.*;\n`,
+      ),
+    );
+    expect(of(analysis, PATH)).toEqual([]);
+  });
+});
+
+describe("shell wrappers behind launchers", () => {
+  it.each([
+    ['"/usr/bin/env", "bash", "-c", p'],
+    ['"env", "FOO=1", "sh", "-c", p'],
+    ['"env", "-i", "sh", "-c", p'],
+    ['"sudo", "-u", "app", "sh", "-c", p'],
+    ['"sudo", "-n", "bash", "-c", p'],
+    ['"nohup", "sh", "-c", p'],
+    ['"timeout", "10", "sh", "-c", p'],
+    ['"timeout", "-s", "KILL", "10s", "bash", "-c", p'],
+    ['"nice", "-n", "5", "sh", "-c", p'],
+    ['"nice", "sh", "-c", p'],
+    ['"xargs", "-n", "1", "sh", "-c", p'],
+    ['"sudo", "env", "sh", "-c", p'],
+  ])("%s is critical", async (argv) => {
+    const analysis = await run(handler(`new ProcessBuilder(${argv}).start();`));
+    expect(of(analysis, CMD)[0], argv).toMatchObject({
+      severity: "critical",
+      cause: "ProcessBuilder:shell",
+    });
+  });
+
+  it("is still an argument of a program behind a launcher when no shell follows", async () => {
+    const analysis = await run(handler('new ProcessBuilder("env", "git", "log", p).start();'));
+    expect(of(analysis, CMD)[0]).toMatchObject({
+      severity: "medium",
+      cause: "ProcessBuilder:argument",
+    });
+    const arrays = await run(
+      handler('Runtime.getRuntime().exec(new String[] {"sudo", "-u", "app", "sh", "-c", p});'),
+    );
+    expect(of(arrays, CMD)[0]).toMatchObject({ severity: "critical" });
+  });
+
+  it("reads a launcher and a shell in a list filled in steps", async () => {
+    const analysis = await run(
+      handler(
+        'List<String> c = new ArrayList<>(List.of("sudo", "-u", "app", "bash", "-c")); c.add(p); new ProcessBuilder(c).start();',
+      ),
+    );
+    expect(of(analysis, CMD)[0]).toMatchObject({
+      severity: "critical",
+      cause: "ProcessBuilder:shell",
+    });
+  });
+});
+
+describe("Kotlin list appends", () => {
+  it("reads `cmd += listOf(...)` and `cmd + x` as more arguments, not as the program", async () => {
+    const forms = [
+      'var cmd = mutableListOf("ffmpeg"); cmd += listOf("-i", p); ProcessBuilder(cmd).start()',
+      'var cmd = listOf("ffmpeg"); cmd = cmd + listOf("-i", p); ProcessBuilder(cmd).start()',
+      'val cmd = mutableListOf("ffmpeg"); cmd.addAll(listOf("-i", p)); ProcessBuilder(cmd).start()',
+      'var cmd = mutableListOf("ffmpeg"); cmd += p; ProcessBuilder(cmd).start()',
+    ];
+    for (const form of forms) {
+      const analysis = await run(kotlin(form), "K.kt");
+      expect(of(analysis, CMD)[0], form).toMatchObject({
+        severity: "medium",
+        cause: "ProcessBuilder:argument",
+      });
+    }
+  });
+});
+
+describe("archive entry sources are narrow", () => {
+  const ZIPK = "import java.util.zip.ZipFile\nimport java.util.zip.ZipInputStream\n";
+
+  it("reads Kotlin loops and sequences over the entries of an archive", async () => {
+    const analysis = await run(
+      `import java.io.File
+${ZIPK}
+fun a(zip: ZipFile, dest: File) {
+    for (e in zip.entries()) { File(dest, e.name).mkdirs() }
+}
+fun b(zip: ZipFile, dest: File) {
+    zip.entries().asSequence().forEach { File(dest, it.name).mkdirs() }
+}
+fun d(zip: ZipFile, dest: File) {
+    zip.stream().forEach { entry -> File(dest, entry.name).mkdirs() }
+}
+`,
+      "K.kt",
+    );
+    expect(of(analysis, PATH).map((finding) => finding.line)).toEqual([6, 9, 12]);
+    expect(of(analysis, PATH).every((finding) => finding.confidence === "high")).toBe(true);
+  });
+
+  it("does not take other objects named entry, or the files of a directory, for archive entries", async () => {
+    const analysis = await run(
+      `import java.io.File
+${ZIPK}
+class LogEntry(val name: String)
+fun a(dest: File, logEntry: LogEntry) {
+    File(dest, logEntry.name).mkdirs()
+}
+fun b(dir: File, dest: File) {
+    dir.listFiles()!!.forEach { File(dest, it.name).mkdirs() }
+}
+fun c(items: List<LogEntry>, dest: File) {
+    items.forEach { File(dest, it.name).mkdirs() }
+    for (entry: LogEntry in items) { File(dest, entry.name).mkdirs() }
+}
+`,
+      "K.kt",
+    );
+    expect(of(analysis, PATH).length).toBeGreaterThan(0);
+    expect(of(analysis, PATH).every((finding) => finding.confidence === "low")).toBe(true);
+  });
+
+  it("does not let a Java variable typed as something else be an entry", async () => {
+    const analysis = await run(
+      java(
+        `${SPRING}import java.util.zip.*;\n`,
+        "void h(File d, LogEntry logEntry, File[] files) throws Exception { new File(d, logEntry.getName()).mkdirs(); for (File f : files) { new File(d, f.getName()).mkdirs(); } } interface LogEntry { String getName(); }",
+      ),
+    );
+    expect(of(analysis, PATH).every((finding) => finding.confidence === "low")).toBe(true);
+  });
+});
+
+describe("narrow corners", () => {
+  it("reports a probe only for request input", async () => {
+    const own = await run(
+      java(SPRING, "void h(String name) { Files.exists(Path.of(name)); new File(name).exists(); }"),
+    );
+    expect(of(own, PATH)).toEqual([]);
+  });
+
+  it("takes entries() and stream() for archive entries only on an archive", async () => {
+    const other = await run(
+      `import java.io.File
+import java.util.zip.ZipFile
+class Catalog { fun entries(): List<Item> = emptyList() }
+class Item(val name: String)
+fun a(catalog: Catalog, dest: File) { for (e in catalog.entries()) { File(dest, e.name).mkdirs() } }
+`,
+      "K.kt",
+    );
+    expect(of(other, PATH).every((finding) => finding.confidence === "low")).toBe(true);
+  });
+});
+
+describe("a check counts only when the code exits on failure or the use is inside the success branch", () => {
+  const BASE2 = 'final Path base = Paths.get("/srv").toAbsolutePath().normalize();';
+
+  it("does not let an ignored check demote a returned or stored path", async () => {
+    const forms = [
+      'File f = new File("/srv", p); if (f.getCanonicalPath().startsWith("/srv/")) { System.out.println("ok"); } return f;',
+      'File f = new File("/srv", p); if (!f.getCanonicalPath().startsWith("/srv/")) { System.out.println("bad"); } return f;',
+      'File f = new File("/srv", p); f.getCanonicalPath().startsWith("/srv/"); return f;',
+    ];
+    for (const form of forms) {
+      const analysis = await run(
+        java(SPRING, `File h(@RequestParam String p) throws Exception { ${form} }`),
+      );
+      expect(kind(of(analysis, PATH)), form).toBe("high/confirmed");
+      expect(of(analysis, PATH), form).toHaveLength(1);
+    }
+  });
+
+  it("demotes a path returned from the success branch or after an exiting check", async () => {
+    const forms = [
+      'File f = new File("/srv", p); if (f.getCanonicalPath().startsWith("/srv/")) { return f; } return null;',
+      'File f = new File("/srv", p); if (!f.getCanonicalPath().startsWith("/srv/")) { throw new IOException(); } return f;',
+      'File f = new File("/srv", p); if (!f.getCanonicalPath().startsWith("/srv/")) { return null; } return f;',
+    ];
+    for (const form of forms) {
+      const analysis = await run(
+        java(SPRING, `File h(@RequestParam String p) throws Exception { ${form} }`),
+      );
+      expect(kind(of(analysis, PATH)), form).toBe("inferred");
+    }
+  });
+
+  it("says nothing about a path that is checked and never used", async () => {
+    const analysis = await run(
+      handler(
+        "Path x = base.resolve(p).normalize(); if (!x.startsWith(base)) throw new SecurityException();",
+        SPRING,
+        BASE2,
+      ),
+    );
+    expect(of(analysis, PATH)).toEqual([]);
+  });
+
+  it("still reports the use of another variable next to a checked one that is never used", async () => {
+    const analysis = await run(
+      handler(
+        "Path x = base.resolve(q).normalize(); if (!x.startsWith(base)) throw new SecurityException(); Files.readAllBytes(base.resolve(p));",
+        SPRING,
+        BASE2,
+      ),
+    );
+    expect(of(analysis, PATH)).toHaveLength(1);
+    expect(kind(of(analysis, PATH))).toBe("high/confirmed");
+  });
+});
+
+describe("receivers and the names the README documents", () => {
+  it("treats a static receiver's exec and an untyped builder's command as notes at low confidence", async () => {
+    const stat = await run(
+      handler(
+        'Shell.exec("sh -c " + p);',
+        SPRING,
+        "static class Shell { static void exec(String c) {} }",
+      ),
+    );
+    expect(of(stat, CMD)[0]).toMatchObject({ confidence: "low", cause: "exec:unrecognized" });
+    const builder = await run(
+      handler('builder().command(p, "-v");', SPRING, "Object builder() { return null; }"),
+    );
+    expect(of(builder, CMD)[0]).toMatchObject({ confidence: "low", cause: "command:unrecognized" });
+    const fixed = await run(
+      handler(
+        'Shell.exec("sh -c ls");',
+        SPRING,
+        "static class Shell { static void exec(String c) {} }",
+      ),
+    );
+    expect(of(fixed, CMD)).toEqual([]);
+  });
+
+  it("does not call a class-path lookup a ResourceLoader", async () => {
+    const forms = [
+      'getClass().getClassLoader().getResource("templates/" + p);',
+      'ClassLoader.getSystemClassLoader().getResource("templates/" + p);',
+      "Thread.currentThread().getContextClassLoader().getResource(p);",
+      'Class.forName("x").getResource("/t/" + p);',
+    ];
+    for (const form of forms) {
+      const analysis = await run(handler(form));
+      expect(of(analysis, PATH), form).toEqual([]);
+    }
+    const loader = await run(
+      handler(
+        'loader.getResource("file:" + p);',
+        `${SPRING}import org.springframework.core.io.ResourceLoader;\n`,
+        "ResourceLoader loader;",
+      ),
+    );
+    expect(of(loader, PATH)[0]).toMatchObject({
+      cause: "ResourceLoader.getResource",
+      severity: "high",
+    });
+    const context = await run(
+      handler(
+        'applicationContext.getResource("file:" + p);',
+        SPRING,
+        "org.springframework.context.ApplicationContext applicationContext;",
+      ),
+    );
+    expect(of(context, PATH)[0]).toMatchObject({ cause: "ResourceLoader.getResource" });
+    const other = await run(
+      handler('registry.getResource("file:" + p);', SPRING, "Object registry;"),
+    );
+    expect(of(other, PATH)[0]).toMatchObject({ cause: "getResource(file:)" });
+  });
+});
+
+describe("severity and confidence", () => {
+  it("never pairs low confidence with more than medium severity, in any corpus sample", async () => {
+    const root = new URL("../../../../tests/corpus/", import.meta.url);
+    let checked = 0;
+    for (const rule of ["PG-CMD-003", "PG-PATH-002", "PG-SQL-005"]) {
+      for (const kindDir of ["positive", "negative"]) {
+        const dir = new URL(`${rule}/${kindDir}/`, root);
+        for (const name of readdirSync(dir)) {
+          if (!/\.(?:java|kt)$/.test(name)) continue;
+          const source = readFileSync(new URL(name, dir), "utf8");
+          const analysis = await run(source, name);
+          for (const finding of analysis.findings) {
+            if (finding.confidence !== "low") continue;
+            checked += 1;
+            expect(
+              ["medium", "low", "info"],
+              `${rule}/${kindDir}/${name} ${finding.evidence}`,
+            ).toContain(finding.severity);
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(50);
+  });
+});
+
 // ====================================================================== the rules together
 
 describe("the rules in one file", () => {
@@ -1737,6 +2311,7 @@ describe("performance", () => {
       ),
     );
     expect(performance.now() - started).toBeLessThan(5000 * SLOW);
-    expect(analysis.incomplete || of(analysis, PATH).length >= 0).toBe(true);
+    expect(of(analysis, PATH)).toHaveLength(1);
+    expect(of(analysis, PATH)[0]?.cause).toBe("Files.delete");
   }, 60_000);
 });

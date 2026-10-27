@@ -115,7 +115,7 @@ export async function scanJvm(
       const problems: string[] = [];
       if (cappedFiles.length > 0) {
         problems.push(
-          `${cappedFiles.length} file(s) hit the per-file finding cap; further findings there are not listed`,
+          `${cappedFiles.length} file(s) hit the per-file finding cap (25 findings per rule per file); further findings there are not listed`,
         );
       }
       if (incompleteFiles.length > 0) {
@@ -264,7 +264,7 @@ export async function scanJvm(
         area: `source:${kind}:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         scope: "code",
         status: "partial",
-        ruleIds: [],
+        ruleIds: kind === "process" ? ["PG-CMD-003"] : ["PG-PATH-002"],
         note: `${library} detected in ${count} file(s); its ${
           kind === "process" ? "process-running" : "file-access"
         } APIs are not supported, so ${
