@@ -407,13 +407,19 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
                 <pre
                   tabindex="0"
                 ><code><span class="prompt">$</span> <span class="cmd">pgard rules list --language java</span>
-<b>pgard 0.1.0 - detection criteria 2026.10-mvp.4</b>
+<b>pgard 0.1.0 - detection criteria 2026.10-mvp.6</b>
 <b>Language filter: java (rules for any language are included)</b>
 
 <b>Code rules (current files)</b>
+  <span class="rule">PG-AUTH-001</span>    high     Password stored without hashing [javascript, typescript, java, kotlin]
   <span class="rule">PG-CMD-003</span>     high     OS command built from dynamic strings in Java/Kotlin (Runtime.exec, ProcessBuilder, Commons Exec) [java, kotlin]
+  <span class="rule">PG-CRYPTO-001</span>  high     Weak hash (MD5/SHA-1) used for passwords [javascript, typescript, go, java, kotlin]
+  <span class="rule">PG-CRYPTO-002</span>  high     Hardcoded cryptographic key or signing secret [javascript, typescript, go, java, kotlin]
+  <span class="rule">PG-CRYPTO-003</span>  medium   Broken or deprecated cipher [javascript, typescript, java, kotlin]
   <span class="rule">PG-PATH-002</span>    high     File path from request input or an archive entry used in Java/Kotlin file access (path traversal, zip slip) [java, kotlin]
   <span class="rule">PG-SQL-005</span>     high     SQL built from dynamic strings in Java/Kotlin JDBC, JPA/Hibernate or MyBatis code [java, kotlin]
+  <span class="rule">PG-SSRF-002</span>    high     Server-side HTTP request to a URL from request input in Java/Kotlin [java, kotlin]
+  <span class="rule">PG-XSS-004</span>     high     Request data written to an HTML response in Java/Kotlin (servlet writer, JSP, Thymeleaf th:utext) [java, kotlin]
 
 <b>Git history rules</b>
   <span class="rule">PG-HYGIENE-001</span> info     Dependency directory committed to Git [any]
@@ -678,7 +684,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
                 </tr>
                 <tr class="emph">
                   <th scope="row">Java, Kotlin</th>
-                  <td>다섯 분류: SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작</td>
+                  <td>여섯 분류: SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작, 암호화</td>
                 </tr>
                 <tr class="emph">
                   <th scope="row">Python, PHP</th>
@@ -841,7 +847,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
             <li>
               <b>검사 범위</b><span>부분 검사는 그대로 표시하고 종료 코드 4로 끝납니다.</span>
             </li>
-            <li><b>언어</b><span>Java와 Kotlin은 다섯 분류, Python과 PHP는 두 분류만.</span></li>
+            <li><b>언어</b><span>Java와 Kotlin은 여섯 분류, Python과 PHP는 두 분류만.</span></li>
             <li><b>의존성</b><span>알려진 취약점(CVE, OSV) 대조는 아직 없습니다.</span></li>
             <li>
               <b>원격</b
