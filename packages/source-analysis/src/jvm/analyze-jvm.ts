@@ -3,6 +3,8 @@ import type { RawSourceFinding } from "../finding-factory.js";
 import { annotationFindings } from "./annotation-rules.js";
 import { analyzeCookies } from "./cookie-rules.js";
 import type { ConfigFinding } from "./config-util.js";
+import { unsupportedCryptoLibraries } from "./crypto-names.js";
+import { cryptoFindings, type CryptoFinding } from "./crypto-rules.js";
 import { convertJava } from "./java-ir.js";
 import { convertKotlin } from "./kotlin-ir.js";
 import { analyzeSpringSecurity } from "./spring-security.js";
@@ -31,6 +33,8 @@ export interface JvmAnalysis {
   unsupportedOsLibraries: Array<{ label: string; kind: "process" | "file" }>;
   /** Imported template engines the XSS rule does not read (FreeMarker, Velocity, Pebble, Mustache, ...). */
   unsupportedTemplateLibraries: string[];
+  /** Imported cryptography libraries with their own APIs (Bouncy Castle, Tink, Jasypt, ...). */
+  unsupportedCryptoLibraries: string[];
   /** The file calls through reflection next to servlet, URL or HTTP client APIs: those calls are not followed. */
   reflectionWeb: boolean;
   /** Values put into a template model under a fixed name (matched to Thymeleaf templates by name). */
@@ -83,8 +87,10 @@ export function importsOf(source: string): string[] {
   return out;
 }
 
+type JvmFinding = FlowFinding | CryptoFinding | ConfigFinding;
+
 /** Strongest first: request input, then untraced, then inferred; then severity. */
-const strength = (finding: FlowFinding | ConfigFinding): number =>
+const strength = (finding: JvmFinding): number =>
   ({ high: 30, medium: 20, low: 10 })[finding.confidence] +
   ({ critical: 4, high: 3, medium: 2, low: 1, info: 0 } as Record<string, number>)[
     finding.severity
@@ -107,8 +113,9 @@ export function analyzeJvmTree(
   unit.aliases = importAliasesOf(source);
   const sql = analyzeSql(unit);
   const security = analyzeSpringSecurity(unit);
-  const all: Array<FlowFinding | ConfigFinding> = [
+  const all: JvmFinding[] = [
     ...sql.findings,
+    ...cryptoFindings(unit),
     ...security.findings,
     ...analyzeCookies(unit),
     ...annotationFindings(unit).map((finding): FlowFinding => ({
@@ -118,15 +125,15 @@ export function analyzeJvmTree(
   ];
   // Per rule: one finding per line and cause (the strongest), then the cap keeps the strongest
   // findings, so a flood of weak ones can never push out a real one, nor one rule another's.
-  const byRule = new Map<string, Array<FlowFinding | ConfigFinding>>();
+  const byRule = new Map<JvmFinding["ruleId"], JvmFinding[]>();
   for (const finding of all)
     byRule.set(finding.ruleId, [...(byRule.get(finding.ruleId) ?? []), finding]);
   let capped = false;
-  const kept: Array<FlowFinding | ConfigFinding> = [];
+  const kept: JvmFinding[] = [];
   for (const group of byRule.values()) {
     group.sort((a, b) => strength(b) - strength(a) || a.line - b.line);
     const seen = new Set<string>();
-    const unique: Array<FlowFinding | ConfigFinding> = [];
+    const unique: JvmFinding[] = [];
     for (const finding of group) {
       const key = `${finding.line}:${finding.cause}`;
       if (seen.has(key)) continue;
@@ -170,6 +177,7 @@ export function analyzeJvmTree(
       unit.imports.some((name) =>
         WEB_API_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`)),
       ),
+    unsupportedCryptoLibraries: unsupportedCryptoLibraries(unit.imports),
     modelAttributes: sql.modelAttributes,
     unsupportedSecurityForms: security.unsupported,
     usesSpringSecurity: unit.imports.some((name) =>

@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
-import { classifyDependencyVendorDirectory, type DependencyVendorReason } from "@pgard/findings";
+import {
+  classifyDependencyVendorDirectory,
+  isSkipDirectorySourceFile,
+  isUnderJvmSourceRoot,
+  type DependencyVendorReason,
+} from "@pgard/findings";
 import {
   SKIPPED_DEPENDENCY_DIRECTORIES,
   SKIPPED_DIRECTORIES,
@@ -99,7 +104,70 @@ export interface WalkResult {
   unreadableDirectories: string[];
   /** Dependency directories that were not entered, in walk order. */
   skippedDependencyDirectories: SkippedDependencyDirectory[];
+  /**
+   * Build-output and cache directories (`dist`, `build`, `out`, `coverage`, ...) that were not
+   * entered, as repository-relative paths in walk order. `.git` is not listed.
+   */
+  skippedBuildDirectories: string[];
+  /**
+   * Skip-named directories that directly contain source files (see `isSkipDirectorySourceFile`);
+   * these are walked as first-party code and are not in `skippedBuildDirectories`.
+   */
+  walkedBuildDirectories: string[];
+  /** More than `MAX_BUILD_DIRECTORY_PROBES` skipped directories: the rest were not looked into. */
+  buildProbeLimitReached: boolean;
+  /** `.xml` files under a `res` or `target` path segment that were not checked for MyBatis mappers. */
+  skippedResourceXml: string[];
+  /**
+   * Entries the walk would have analyzed but could not `lstat` (permission error, a file removed
+   * during the walk), as repository-relative paths.
+   */
+  unreadableEntries: string[];
+  /** FIFOs, sockets, devices and entries that were no longer regular files; never opened. */
+  skippedSpecialFiles: string[];
   isTruncated: boolean;
+}
+
+/** At most this many skipped directories are looked into for source files (one `readdir` each). */
+export const MAX_BUILD_DIRECTORY_PROBES = 200;
+const JVM_MANIFESTS = [
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+];
+
+/**
+ * A Maven or Gradle manifest (`pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`) in any
+ * ancestor directory, the root included. The walk exemption for a package called `build` applies
+ * to such projects only, and does not depend on the order in which files were found.
+ */
+async function hasJvmManifestAbove(
+  root: string,
+  relativePath: string,
+  cache: Map<string, boolean>,
+): Promise<boolean> {
+  const parts = relativePath.split("/").slice(0, -1);
+  for (let depth = 0; depth <= parts.length; depth += 1) {
+    const directory = path.join(root, ...parts.slice(0, depth));
+    let found = cache.get(directory);
+    if (found === undefined) {
+      found = false;
+      for (const name of JVM_MANIFESTS) {
+        const stats = await lstat(path.join(directory, name)).catch(() => null);
+        if (stats?.isFile()) found = true;
+      }
+      cache.set(directory, found);
+    }
+    if (found) return true;
+  }
+  return false;
+}
+
+async function containsSourceFiles(directory: string): Promise<boolean> {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  return entries.some((entry) => entry.isFile() && isSkipDirectorySourceFile(entry.name));
 }
 
 export const MAX_FILE_BYTES = 1024 * 1024;
@@ -149,6 +217,19 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
  */
 const MINIFIED_BUNDLE = /\.min\.(js|mjs|cjs)$/;
 
+/** A file name the walk would analyze, read or report (declaration files excluded). */
+function isAnalysableFileName(name: string): boolean {
+  if (name.endsWith(".d.ts")) return false;
+  const extension = path.extname(name);
+  const lower = extension.toLowerCase();
+  return (
+    EXTENSIONS[extension] !== undefined ||
+    TREE_SITTER_EXTENSIONS[extension] !== undefined ||
+    lower === ".xml" ||
+    TEMPLATE_EXTENSIONS.has(lower)
+  );
+}
+
 export interface WalkOptions {
   /**
    * Repository-relative POSIX path of an analyzable source file: true leaves it out (counted in
@@ -191,8 +272,31 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     skippedSymlinks: [],
     unreadableDirectories: [],
     skippedDependencyDirectories: [],
+    skippedBuildDirectories: [],
+    walkedBuildDirectories: [],
+    buildProbeLimitReached: false,
+    skippedResourceXml: [],
+    unreadableEntries: [],
+    skippedSpecialFiles: [],
     isTruncated: false,
   };
+  /** `lstat` of a file about to be analyzed; failures and non-regular files are counted, not dropped. */
+  const statRegular = async (absolutePath: string, relativePath: string) => {
+    let stats;
+    try {
+      stats = await lstat(absolutePath);
+    } catch {
+      result.unreadableEntries.push(relativePath);
+      return null;
+    }
+    if (!stats.isFile()) {
+      result.skippedSpecialFiles.push(relativePath);
+      return null;
+    }
+    return stats;
+  };
+  let probes = 0;
+  const manifestCache = new Map<string, boolean>();
   const stack: string[] = [root];
   while (stack.length > 0) {
     const directory = stack.pop() as string;
@@ -227,7 +331,32 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       }
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
-        if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
+        if (entry.name === ".git") continue;
+        if (SKIPPED_DIRECTORIES.has(entry.name)) {
+          // A package named `build`, `out` or `dist` under a JVM source root is first-party code.
+          if (
+            isUnderJvmSourceRoot(relativePath) &&
+            (await hasJvmManifestAbove(root, relativePath, manifestCache))
+          ) {
+            stack.push(absolutePath);
+            continue;
+          }
+          // Any other one is walked when it directly holds source files (a first-party `build/`
+          // script folder), and skipped as generated output otherwise. Only the directory itself
+          // is looked at; nested skip-named directories are probed one at a time.
+          if (probes >= MAX_BUILD_DIRECTORY_PROBES) {
+            result.buildProbeLimitReached = true;
+          } else {
+            probes += 1;
+            if (await containsSourceFiles(absolutePath)) {
+              result.walkedBuildDirectories.push(relativePath);
+              stack.push(absolutePath);
+              continue;
+            }
+          }
+          result.skippedBuildDirectories.push(relativePath);
+          continue;
+        }
         if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {
           result.skippedDependencyDirectories.push({ path: relativePath, reason: null });
           continue;
@@ -250,7 +379,12 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         stack.push(absolutePath);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        // FIFO, socket or device: never opened. Only names the walk would have analyzed are
+        // counted (a `.sock` or `.s.PGSQL.5432` is no concern of a source scan).
+        if (isAnalysableFileName(entry.name)) result.skippedSpecialFiles.push(relativePath);
+        continue;
+      }
       if (entry.name === "package.json") result.packageJsonPaths.push(relativePath);
       if (entry.name === "go.mod") result.goModPaths.push(relativePath);
       const manifestKind = classifyManifest(entry.name, path.basename(directory));
@@ -276,10 +410,14 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         continue;
       }
       if (path.extname(entry.name) === ".xml" && entry.name !== "pom.xml") {
-        const stats = await lstat(absolutePath).catch(() => null);
-        // Android resources and build output hold no MyBatis mappers.
+        // Android resources and build output hold no MyBatis mappers; they are counted, not read.
         const skipped = relativePath.split("/").some((part) => part === "res" || part === "target");
-        if (stats?.isFile() && !skipped) {
+        if (skipped) {
+          result.skippedResourceXml.push(relativePath);
+          continue;
+        }
+        const stats = await statRegular(absolutePath, relativePath);
+        if (stats) {
           // XML files count against the same file limit as source files.
           if (result.files.length + result.xmlFiles.length >= MAX_FILES) {
             result.isTruncated = true;
@@ -291,8 +429,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         continue;
       }
       if (TEMPLATE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-        const stats = await lstat(absolutePath).catch(() => null);
-        if (stats?.isFile()) {
+        const stats = await statRegular(absolutePath, relativePath);
+        if (stats) {
           if (result.templateFiles.length >= MAX_TRACK_FILES) result.templatesTruncated = true;
           else result.templateFiles.push({ absolutePath, relativePath, size: stats.size });
         }
@@ -304,8 +442,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
           noteExcluded(relativePath);
           continue;
         }
-        const stats = await lstat(absolutePath).catch(() => null);
-        if (!stats || !stats.isFile()) continue;
+        const stats = await statRegular(absolutePath, relativePath);
+        if (!stats) continue;
         const list = result.trackFiles[trackLanguage];
         if (list.length >= MAX_TRACK_FILES) result.trackTruncated = true;
         else list.push({ absolutePath, relativePath, size: stats.size });
@@ -323,8 +461,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         result.skippedMinified.push(relativePath);
         continue;
       }
-      const stats = await lstat(absolutePath).catch(() => null);
-      if (!stats || !stats.isFile()) continue;
+      const stats = await statRegular(absolutePath, relativePath);
+      if (!stats) continue;
       if (stats.size > MAX_FILE_BYTES) {
         result.skippedLarge += 1;
         continue;

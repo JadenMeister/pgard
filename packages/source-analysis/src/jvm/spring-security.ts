@@ -144,6 +144,8 @@ interface ChainFacts {
   /** A filter whose name suggests JWT or token auth (only the name is known). */
   tokenFilter: boolean;
   httpBasic: boolean;
+  /** The resource server accepts the token in a form-encoded body. */
+  formToken: boolean;
   scoped: boolean;
   unsupported: Set<string>;
 }
@@ -159,6 +161,7 @@ function emptyFacts(): ChainFacts {
     customBearer: false,
     tokenFilter: false,
     httpBasic: false,
+    formToken: false,
     scoped: false,
     unsupported: new Set(),
   };
@@ -255,6 +258,8 @@ function judgeChain(
   const facts = emptyFacts();
   const calls: Array<{ call: CallExpr; parent: CallExpr | null; seq: number }> = [];
   const visited = new Set<MethodInfo>();
+  /** Local variables of the chain methods, by name (the last initializer wins). */
+  const locals = new Map<string, Expr>();
   const collect = (current: MethodInfo, depth: number): void => {
     if (visited.has(current) || depth > 6) return;
     visited.add(current);
@@ -297,6 +302,9 @@ function judgeChain(
           facts.policy = mergePolicy(facts.policy, policyOf(assign.value));
         }
       },
+      (stmt) => {
+        if (stmt.s === "local" && stmt.init !== null) locals.set(stmt.name, stmt.init);
+      },
     );
   };
   collect(method, 0);
@@ -317,7 +325,7 @@ function judgeChain(
   for (const { call, parent } of calls) {
     const name = call.name;
     if (name === "csrf") {
-      csrfFact(unit, call, parent, facts);
+      csrfFact(unit, call, parent, facts, locals);
     } else if (SESSION_FEATURES.has(name)) {
       if (!off(call, parent)) {
         if (name === "formLogin") facts.formLogin = true;
@@ -337,9 +345,16 @@ function judgeChain(
       if (!off(call, parent)) facts.bearer = true;
     } else if (name === "bearerTokenResolver") {
       facts.customBearer = true;
-    } else if (name === "allowFormEncodedBodyParameter" || name === "allowUriQueryParameter") {
-      // `(false)` keeps the default; anything else lets a token arrive where a cookie can too.
-      if (!isFalse(call.args[0])) facts.customBearer = true;
+    } else if (
+      name === "allowFormEncodedBodyParameter" ||
+      name === "setAllowFormEncodedBodyParameter" ||
+      name === "allowUriQueryParameter" ||
+      name === "setAllowUriQueryParameter"
+    ) {
+      // `(false)` keeps the default. A literal true lets a form post carry the token, which a
+      // forged form can use; anything else is only unclear.
+      if (isTrue(call.args[0]) && /FormEncoded/.test(name)) facts.formToken = true;
+      else if (!isFalse(call.args[0])) facts.customBearer = true;
     } else if (FILTER_ADDERS.has(name)) {
       if (call.args.some((arg) => namesIn(arg).some((part) => BEARER_NAME.test(part)))) {
         facts.tokenFilter = true;
@@ -355,8 +370,49 @@ function judgeChain(
   authorizeFindings(unit, calls, hasSecurityMatcher, selecting, findings);
 }
 
+type Customizer = "full" | "conditional" | "none" | "unknown";
+
+/**
+ * What a customizer expression does to CSRF protection: disables it, disables it only on some
+ * paths of the code (`flag ? withDefaults() : disable`), leaves it on, or cannot be told.
+ * A variable is followed to its initializer in the same chain methods.
+ */
+function classifyCustomizer(expr: Expr, locals: ReadonlyMap<string, Expr>, depth = 0): Customizer {
+  if (depth > 4) return "unknown";
+  if (isDisableRef(expr)) return "full";
+  if (expr.k === "lambda") {
+    const state = disableIn(expr);
+    return state === "yes" ? "full" : state === "conditional" ? "conditional" : "none";
+  }
+  if (expr.k === "cond" || expr.k === "alt") {
+    const options = expr.k === "cond" ? [expr.a, expr.b] : expr.options;
+    const kinds = options.map((option) => classifyCustomizer(option, locals, depth + 1));
+    if (kinds.every((kind) => kind === "full")) return "full";
+    if (kinds.some((kind) => kind === "full" || kind === "conditional")) return "conditional";
+    return kinds.every((kind) => kind === "none") ? "none" : "unknown";
+  }
+  if (expr.k === "id") {
+    const init = locals.get(expr.name);
+    return init === undefined ? "unknown" : classifyCustomizer(init, locals, depth + 1);
+  }
+  if (isCall(expr)) {
+    // `Customizer.withDefaults()` keeps the defaults; Kotlin `Customizer { it.disable() }`.
+    if (expr.name === "withDefaults") return "none";
+    if (expr.name === "Customizer" && expr.recv === null && expr.args[0]?.k === "lambda") {
+      return classifyCustomizer(expr.args[0], locals, depth + 1);
+    }
+  }
+  return "unknown";
+}
+
 /** Reads one `csrf` call: switched off, off in a branch, exempted for paths, or not readable. */
-function csrfFact(unit: Unit, call: CallExpr, parent: CallExpr | null, facts: ChainFacts): void {
+function csrfFact(
+  unit: Unit,
+  call: CallExpr,
+  parent: CallExpr | null,
+  facts: ChainFacts,
+  locals: ReadonlyMap<string, Expr>,
+): void {
   const line = call.line;
   if (call.args.length === 0) {
     if (parent?.name === "disable") {
@@ -367,28 +423,41 @@ function csrfFact(unit: Unit, call: CallExpr, parent: CallExpr | null, facts: Ch
     }
     return;
   }
-  if (call.args.some(isDisableRef) || call.args.some((arg) => disableIn(arg) === "yes")) {
+  const kinds = call.args.map((arg) => classifyCustomizer(arg, locals));
+  if (kinds.includes("full")) {
     facts.csrfDisabled.push({ line, call, kind: "full", paths: [] });
     return;
   }
-  if (call.args.some((arg) => disableIn(arg) === "conditional")) {
+  if (kinds.includes("conditional")) {
     facts.csrfDisabled.push({ line, call, kind: "conditional", paths: [] });
     return;
   }
   const exempting: CallExpr[] = [];
-  for (const arg of call.args) {
-    if (arg.k === "lambda") {
-      walkBody(arg.body, (inner) => {
-        if (IGNORING.test(inner.name)) exempting.push(inner);
-      });
-    }
+  const lambdas = call.args.flatMap((arg) => {
+    if (arg.k === "lambda") return [arg];
+    // A customizer variable or a conditional of lambdas: look at the lambdas it can be.
+    const resolved = arg.k === "id" ? locals.get(arg.name) : arg;
+    const options =
+      resolved?.k === "cond"
+        ? [resolved.a, resolved.b]
+        : resolved?.k === "alt"
+          ? resolved.options
+          : [resolved];
+    return options.filter(
+      (option): option is Extract<Expr, { k: "lambda" }> => option?.k === "lambda",
+    );
+  });
+  for (const lambda of lambdas) {
+    walkBody(lambda.body, (inner) => {
+      if (IGNORING.test(inner.name)) exempting.push(inner);
+    });
   }
   if (exempting.length > 0) {
     const { paths, all } = ignoredPaths(unit, exempting);
     facts.csrfDisabled.push({ line, call, kind: all ? "full" : "partial", paths });
     return;
   }
-  if (call.args.some((arg) => arg.k === "id" || arg.k === "call" || arg.k === "member")) {
+  if (kinds.includes("unknown")) {
     // `csrf(customizer)`: a customizer this file does not show.
     facts.unsupported.add("a CSRF customizer held in a variable or built by a method");
   }
@@ -398,8 +467,8 @@ function mergePolicy(
   previous: ChainFacts["policy"],
   next: "stateless" | "session" | "unknown",
 ): ChainFacts["policy"] {
-  // The last literal assignment wins; an unknown value makes the whole thing unknown.
-  if (next === "unknown" || previous === "unknown") return "unknown";
+  // Spring uses the last setter, so the last call wins; an unknown value is unknown.
+  void previous;
   return next;
 }
 
@@ -445,6 +514,10 @@ function csrfFinding(facts: ChainFacts, fact: Fact, findings: ConfigFinding[]): 
     if (sessionEvidence) {
       medium(
         `${where} on a chain that is STATELESS but also configures ${facts.sessionFeature}; the login there is cookie based`,
+      );
+    } else if (facts.formToken) {
+      medium(
+        `${where} on a STATELESS chain whose resource server accepts the token in a form-encoded body, which a forged form post can carry`,
       );
     } else if (facts.httpBasic) {
       medium(

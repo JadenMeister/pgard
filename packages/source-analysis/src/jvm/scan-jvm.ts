@@ -55,6 +55,12 @@ const CONFIG_RULE_IDS: SourceRuleId[] = ["PG-COOKIE-001", "PG-CONF-001"];
 /** Build files that name Spring Security as a dependency (text search, never executed). */
 const SPRING_SECURITY_DEPENDENCY =
   /spring-boot-starter-security|spring-security-(?:web|config)\b|starter-oauth2-resource-server/i;
+const CRYPTO_RULE_IDS: SourceRuleId[] = [
+  "PG-CRYPTO-001",
+  "PG-CRYPTO-002",
+  "PG-CRYPTO-003",
+  "PG-AUTH-001",
+];
 const JSP_EXTENSIONS = new Set([".jsp", ".jspx", ".jspf", ".tag", ".tagx"]);
 const extensionOf = (relativePath: string): string => {
   const dot = relativePath.lastIndexOf(".");
@@ -68,7 +74,15 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 const METHOD =
-  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002), and Spring Security and session configuration (PG-CSRF-001, PG-COOKIE-001, PG-CONF-001; the CSRF judgement reads one filter chain at a time, application.properties and application.yml are read separately); no cross-file data flow";
+  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002), pattern rules for cryptography (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003) and password storage (PG-AUTH-001), and Spring Security and session configuration (PG-CSRF-001, PG-COOKIE-001, PG-CONF-001; the CSRF judgement reads one filter chain at a time, application.properties and application.yml are read separately); no cross-file data flow";
+
+/** Java or Kotlin files were found, or a Maven or Gradle manifest sits in the tree. */
+export function isJvmWalk(walk: WalkResult): boolean {
+  return (
+    walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
+    walk.trackManifests.some((manifest) => manifest.kind === "maven" || manifest.kind === "gradle")
+  );
+}
 
 /**
  * Parses and analyzes the Java and Kotlin files and the MyBatis mapper XML of a walk with the
@@ -90,6 +104,7 @@ export async function scanJvm(
   const templateLibraries = new Map<string, number>();
   const securityForms = new Map<string, string[]>();
   let usesSpringSecurity = false;
+  const cryptoLibraries = new Map<string, number>();
   /** Template models: the attributes that a controller fills from request input, by name. */
   const modelSources = new Map<string, ModelSource[]>();
   const runtime = new TreeSitterRuntime();
@@ -138,6 +153,9 @@ export async function scanJvm(
                 ]);
               }
             }
+            for (const library of analysis.unsupportedCryptoLibraries) {
+              cryptoLibraries.set(library, (cryptoLibraries.get(library) ?? 0) + 1);
+            }
             for (const library of analysis.unsupportedTemplateLibraries) {
               templateLibraries.set(library, (templateLibraries.get(library) ?? 0) + 1);
             }
@@ -177,7 +195,7 @@ export async function scanJvm(
       }
       for (const [form, paths] of formFiles) {
         problems.push(
-          `${paths.length} file(s) have SQL, command, file-path, response-writing or URL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+          `${paths.length} file(s) have SQL, command, file-path, response-writing, URL or cryptography calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
         );
       }
       for (const [form, paths] of securityForms) {
@@ -236,6 +254,10 @@ export async function scanJvm(
       }
     }
 
+    // Templates are read only in a Java or Kotlin project: a Node or Python repository with
+    // `.html`, `.mustache` or `.vm` files has none of this rule's concern. The same test decides
+    // whether unreadable XML is worth a note (Kotlin-only projects have mappers too).
+    const isJvmProject = isJvmWalk(walk);
     // MyBatis mapper XML: any .xml file that declares <mapper>. Read here, analyzed as text.
     const excludedMapperPaths: string[] = [];
     let mapperFiles = 0;
@@ -304,7 +326,7 @@ export async function scanJvm(
           findings: mapperFindings.filter((finding) => finding.ruleId === ruleId).length,
         });
       }
-    } else if (unreadable + tooLarge > 0 && walk.trackFiles.java.length > 0) {
+    } else if (unreadable + tooLarge > 0 && isJvmProject) {
       coverage.push({
         area: "source:mybatis",
         scope: "code",
@@ -321,13 +343,7 @@ export async function scanJvm(
     let templateTooLarge = 0;
     let templateUnread = 0;
     const engineFiles = new Map<string, number>();
-    // Templates are read only in a Java or Kotlin project: a Node or Python repository with
-    // `.html`, `.mustache` or `.vm` files has none of this rule's concern.
-    const jvmProject =
-      walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
-      walk.trackManifests.some(
-        (manifest) => manifest.kind === "maven" || manifest.kind === "gradle",
-      );
+    const jvmProject = isJvmProject;
     for (const file of walk.templateFiles) {
       throwIfAborted(options.signal);
       const extension = extensionOf(file.relativePath);
@@ -417,11 +433,17 @@ export async function scanJvm(
     let configMalformed: string[] = [];
     let configOversized = 0;
     let configUnreadable = 0;
+    let configNotReached = 0;
     if (jvmProject) {
       for (const file of walk.springConfigFiles) {
         throwIfAborted(options.signal);
         if (options.isExcluded?.(file.relativePath) === true) {
           excludedMapperPaths.push(file.relativePath);
+          continue;
+        }
+        // The scan-wide deadline: files left unread are reported, never treated as clean.
+        if (options.deadline.now() > options.deadline.endsAt) {
+          configNotReached += 1;
           continue;
         }
         if (file.size > MAX_SPRING_CONFIG_BYTES) {
@@ -498,6 +520,11 @@ export async function scanJvm(
         problems.push(`${configUnreadable} configuration file(s) were binary or unreadable`);
       }
       if (walk.springConfigTruncated) problems.push("the configuration file list reached its cap");
+      if (configNotReached > 0) {
+        problems.push(
+          `${configNotReached} configuration file(s) were not read because the scan time budget ran out`,
+        );
+      }
       if (configRead + configOversized + configUnreadable > 0 || problems.length > 0) {
         const entry: Coverage = {
           area: "source:jvm-config",
@@ -532,6 +559,15 @@ export async function scanJvm(
         status: "partial",
         ruleIds: XSS_RULE_IDS,
         note: `${engine} detected in ${count} file(s); its templates are not supported, so output written through them was not evaluated for XSS (not a safe result).`,
+      });
+    }
+    for (const [library, count] of cryptoLibraries) {
+      coverage.push({
+        area: `source:crypto:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        scope: "code",
+        status: "partial",
+        ruleIds: CRYPTO_RULE_IDS,
+        note: `${library} detected in ${count} file(s); its own cryptography APIs are not supported, so keys, ciphers and digests used through it were not evaluated (not a safe result).`,
       });
     }
     for (const [library, count] of libraries) {

@@ -175,7 +175,7 @@ describe("CSRF: tokens, resolvers and basic credentials (M1, M2, m1)", () => {
     ).toBe("medium/low/inferred");
     expect(
       await csrf(`${base}.oauth2ResourceServer(o -> o.jwt().allowFormEncodedBodyParameter(true));`),
-    ).toBe("medium/low/inferred");
+    ).toBe("medium/medium");
     expect(
       await csrf(`${base}.oauth2ResourceServer(o -> o.jwt().allowUriQueryParameter(flag));`),
     ).toBe("medium/low/inferred");
@@ -195,13 +195,18 @@ describe("CSRF: tokens, resolvers and basic credentials (M1, M2, m1)", () => {
       ),
     ).toBe("none");
   });
-  it("a policy that is unknown stays unknown whatever order it is mixed in (M08)", async () => {
+  it("the last session policy wins, as in Spring; an unknown value is unknown (M08)", async () => {
     const unknown = "s -> s.sessionCreationPolicy(policy)";
     expect(
       await csrf(
         `http.csrf(c -> c.disable()).sessionManagement(${STATELESS}).sessionManagement(${unknown});`,
       ),
     ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(${unknown}).sessionManagement(${STATELESS}).oauth2ResourceServer(o -> o.jwt());`,
+      ),
+    ).toBe("none");
     expect(
       await csrf(
         `http.csrf(c -> c.disable()).sessionManagement(${unknown}).sessionManagement(${STATELESS});`,
@@ -336,5 +341,117 @@ describe("cookies: conditional clearing and header attributes (M5, m7)", () => {
     expect(await cookie('r.addHeader("Set-Cookie", "sid=" + id + "; Path=/" + extra());')).toBe(
       "medium/low/inferred",
     );
+  });
+});
+
+describe("review round 3", () => {
+  it("a placeholder with a long run of spaces is read in linear time (flagOf)", () => {
+    const line = `server.servlet.session.cookie.secure=\${A:${" ".repeat(4000)}b`;
+    const started = performance.now();
+    for (let index = 0; index < 20; index += 1) {
+      analyzeSpringConfig(`${line}\n`, "application.properties", "properties");
+      analyzeSpringConfig(
+        `server.servlet.session.cookie.secure: \${A:${" ".repeat(4000)}}\n`,
+        "application.yml",
+        "yaml",
+      );
+    }
+    expect((performance.now() - started) / 40).toBeLessThan(50);
+  });
+
+  it("the 4 KiB line cap is exact in YAML (M43)", () => {
+    const fits = `a: ${"x".repeat(MAX_CONFIG_LINE - 3)}`;
+    expect(fits).toHaveLength(MAX_CONFIG_LINE);
+    expect(parseYaml(`${fits}\n`).malformedLine).toBeNull();
+    expect(parseYaml(`${fits}x\n`).malformedLine).toBe(1);
+  });
+
+  it("a securityMatcher without an earlier restriction lowers the catch-all (M10)", async () => {
+    const source = chain(
+      'http.securityMatcher("/public/**").authorizeHttpRequests(a -> a.anyRequest().permitAll());',
+    );
+    expect(kind(of((await run(source)).findings, "PG-CONF-001"))).toBe("medium/low/inferred");
+    const plain = chain("http.authorizeHttpRequests(a -> a.anyRequest().permitAll());");
+    expect(kind(of((await run(plain)).findings, "PG-CONF-001"))).toBe("medium/medium");
+  });
+
+  it("setAllowFormEncodedBodyParameter(true) on the bearer resolver is medium", async () => {
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(${STATELESS}).oauth2ResourceServer(o -> o.jwt().bearerTokenResolver(resolver));\n    resolver.setAllowFormEncodedBodyParameter(true);`,
+      ),
+    ).toBe("medium/medium");
+  });
+
+  describe("a conditional disable passed as the customizer", () => {
+    it("Java ternary", async () => {
+      expect(
+        await csrf(
+          "http.csrf(flag ? Customizer.withDefaults() : AbstractHttpConfigurer::disable).formLogin();",
+        ),
+      ).toBe("medium/low/inferred");
+      expect(
+        await csrf(
+          "http.csrf(flag ? AbstractHttpConfigurer::disable : AbstractHttpConfigurer::disable).formLogin();",
+        ),
+      ).toBe("medium/medium");
+      expect(
+        await csrf(
+          "http.csrf(flag ? Customizer.withDefaults() : Customizer.withDefaults()).formLogin();",
+        ),
+      ).toBe("none");
+    });
+    it("Java ternary of lambdas", async () => {
+      expect(
+        await csrf("http.csrf(flag ? c -> c.disable() : Customizer.withDefaults()).formLogin();"),
+      ).toBe("medium/low/inferred");
+    });
+    it("a customizer variable", async () => {
+      expect(
+        await csrf(
+          "Customizer<CsrfConfigurer<HttpSecurity>> custom = flag ? Customizer.withDefaults() : AbstractHttpConfigurer::disable;\n    http.csrf(custom).formLogin();",
+        ),
+      ).toBe("medium/low/inferred");
+      expect(
+        await csrf(
+          "Customizer<CsrfConfigurer<HttpSecurity>> custom = c -> c.disable();\n    http.csrf(custom).formLogin();",
+        ),
+      ).toBe("medium/medium");
+      expect(
+        await csrf(
+          "Customizer<CsrfConfigurer<HttpSecurity>> custom = Customizer.withDefaults();\n    http.csrf(custom).formLogin();",
+        ),
+      ).toBe("none");
+    });
+    it("a customizer from elsewhere stays partial, and withDefaults() is not partial", async () => {
+      expect(
+        (await run(chain("http.csrf(customizer).formLogin();"))).unsupportedSecurityForms,
+      ).toHaveLength(1);
+      expect(
+        (await run(chain("http.csrf(Customizer.withDefaults()).formLogin();")))
+          .unsupportedSecurityForms,
+      ).toEqual([]);
+    });
+    it("Kotlin if expression, when expression and variable", async () => {
+      const kotlin = (body: string) =>
+        `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity, flag: Boolean): SecurityFilterChain {\n${body}\n    return http.build()\n  }\n}\n`;
+      const result = async (body: string) =>
+        kind(of((await run(kotlin(body), "C.kt")).findings, "PG-CSRF-001"));
+      expect(
+        await result(
+          "    http.csrf(if (flag) Customizer.withDefaults() else AbstractHttpConfigurer::disable)\n    http.formLogin()",
+        ),
+      ).toBe("medium/low/inferred");
+      expect(
+        await result(
+          "    val c = if (flag) Customizer.withDefaults() else Customizer { it.disable() }\n    http.csrf(c)\n    http.formLogin()",
+        ),
+      ).toBe("medium/low/inferred");
+      expect(
+        await result(
+          "    http.csrf(when { flag -> Customizer.withDefaults() else -> AbstractHttpConfigurer::disable })\n    http.formLogin()",
+        ),
+      ).toBe("medium/low/inferred");
+    });
   });
 });

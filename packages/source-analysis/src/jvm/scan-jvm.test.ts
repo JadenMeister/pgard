@@ -61,6 +61,10 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
           "PG-SSRF-002",
           "PG-CMD-003",
           "PG-PATH-002",
+          "PG-CRYPTO-001",
+          "PG-CRYPTO-002",
+          "PG-CRYPTO-003",
+          "PG-AUTH-001",
           "PG-COOKIE-001",
           "PG-CSRF-001",
           "PG-CONF-001",
@@ -309,7 +313,7 @@ class K { fun f(p: String) {
     const javaEntry = output.coverage.find((item) => item.area === "source:java");
     expect(javaEntry?.status).toBe("partial");
     expect(javaEntry?.note).toContain(
-      "SQL, command, file-path, response-writing or URL calls inside anonymous class bodies",
+      "SQL, command, file-path, response-writing, URL or cryptography calls inside anonymous class bodies",
     );
     const kotlinEntry = output.coverage.find((item) => item.area === "source:kotlin");
     expect(kotlinEntry?.status).toBe("partial");

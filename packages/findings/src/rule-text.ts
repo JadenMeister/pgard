@@ -34,7 +34,7 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
     "Java/Kotlin 파일 접근에 쓰이는 요청 입력 또는 압축 파일 항목에서 온 파일 경로(경로 조작, zip slip)",
   "PG-CRYPTO-001": "비밀번호에 쓰인 약한 해시(MD5/SHA-1)",
   "PG-CRYPTO-002": "하드코딩된 암호화 키 또는 서명 비밀정보",
-  "PG-CRYPTO-003": "취약하거나 더 이상 권장되지 않는 암호화 알고리즘",
+  "PG-CRYPTO-003": "취약하거나 더 이상 권장되지 않는 암호화 알고리즘, 고정 IV, 예측 가능한 난수",
   "PG-AUTH-001": "해시 없이 저장된 비밀번호",
   "PG-COOKIE-001": "HttpOnly/Secure/SameSite가 없는 세션·인증 쿠키",
   "PG-CSRF-001": "CSRF 보호가 보이지 않는 쿠키 인증 상태 변경 라우트",

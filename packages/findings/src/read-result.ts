@@ -142,6 +142,7 @@ export const READER_KEYS = {
     status: true,
     ruleIds: true,
     note: true,
+    walkedDirectories: true,
   } satisfies Record<keyof Coverage, true>,
   target: { repo: true, revision: true, webOrigin: true } satisfies Record<keyof ScanTarget, true>,
   authorization: { decision: true, checks: true } satisfies Record<
@@ -290,13 +291,22 @@ function scopes(value: unknown, path: string): ScanScope[] {
 
 function readCoverage(value: unknown, path: string): Coverage {
   const o = object(value, path);
-  return {
+  const entry: Coverage = {
     area: str(field(o, "area"), `${path}.area`),
     scope: oneOf(field(o, "scope"), SCAN_SCOPES, `${path}.scope`),
     status: oneOf(field(o, "status"), COVERAGE_STATUSES, `${path}.status`),
     ruleIds: strings(field(o, "ruleIds"), `${path}.ruleIds`),
     note: nullableStr(field(o, "note"), `${path}.note`),
   };
+  const walked = field(o, "walkedDirectories");
+  if (walked !== undefined) {
+    const w = object(walked, `${path}.walkedDirectories`);
+    entry.walkedDirectories = {
+      paths: strings(field(w, "paths"), `${path}.walkedDirectories.paths`),
+      complete: bool(field(w, "complete"), `${path}.walkedDirectories.complete`),
+    };
+  }
+  return entry;
 }
 
 function readRuleTarget(value: unknown, path: string): RuleTargetCount {

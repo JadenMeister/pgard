@@ -402,8 +402,11 @@ function flagOf(value: string): Flag {
   if (FALSE_WORDS.has(text)) return "false";
   if (TRUE_WORDS.has(text)) return "true";
   // `${COOKIE_SECURE:false}`: an environment variable with a default of false.
-  const placeholder = /^\$\{[^}:]+:\s*([^}\s]*)\s*\}$/.exec(text);
-  if (placeholder !== null && FALSE_WORDS.has(placeholder[1] as string)) return "default-false";
+  // `[^}:]+` and `[^}]*` cannot overlap with the `:` between them: one linear pass.
+  const placeholder = /^\$\{[^}:]+:([^}]*)\}$/.exec(text);
+  if (placeholder !== null && FALSE_WORDS.has((placeholder[1] as string).trim())) {
+    return "default-false";
+  }
   return "other";
 }
 

@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { scanSourceCode } from "../scan-source.js";
+import { detectLanguageTrack } from "../tree-sitter/language-track.js";
+import { walkSourceTree } from "../walk.js";
+import { scanJvm } from "./scan-jvm.js";
 import { analyzeSpringConfig, parseProperties, parseYaml } from "./spring-config.js";
 
 const roots: string[] = [];
@@ -276,5 +279,28 @@ describe("scanSourceCode and Spring configuration files", () => {
     const entry = output.coverage.find((item) => item.area === "source:java");
     expect(entry?.status).toBe("partial");
     expect(entry?.note).toContain("Spring Security filter chain");
+  });
+
+  it("files left unread when the scan deadline has passed make the area partial", async () => {
+    const root = project({
+      "A.java": JAVA,
+      "application.properties": "server.servlet.session.cookie.secure=false\n",
+      "application-prod.properties": "server.servlet.session.cookie.secure=false\n",
+    });
+    const walk = await walkSourceTree(root);
+    const detection = await detectLanguageTrack(walk);
+    const expired = { endsAt: 0, totalMs: 1, now: () => 1 };
+    const output = await scanJvm(walk, detection, { deadline: expired });
+    const entry = output.coverage.find((item) => item.area === "source:jvm-config");
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain(
+      "2 configuration file(s) were not read because the scan time budget ran out",
+    );
+    expect(output.findings.filter((finding) => finding.ruleId === "PG-COOKIE-001")).toEqual([]);
+    // With time left, the same files are read.
+    const live = await scanJvm(walk, detection, {
+      deadline: { endsAt: Infinity, totalMs: 1, now: () => 1 },
+    });
+    expect(live.findings.filter((finding) => finding.ruleId === "PG-COOKIE-001")).toHaveLength(2);
   });
 });
