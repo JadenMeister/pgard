@@ -396,8 +396,8 @@ export const SOURCE_RULES = [
       },
       {
         language: "python",
-        vulnerable: 'subprocess.run(f"convert {name} out.png", shell=True)',
-        safe: 'subprocess.run(["convert", "--", name, "out.png"], check=True)',
+        vulnerable: 'subprocess.run(f"gzip -k {name}", shell=True)',
+        safe: 'subprocess.run(["gzip", "-k", "--", name], check=True)',
       },
     ],
   },

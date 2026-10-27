@@ -127,12 +127,22 @@ interface Pending {
 
 const isSpread = (v: V): boolean => v.shape === SPREAD;
 
-export function analyzePythonTree(root: Node, source: string, path: string): PythonAnalysis {
-  const ast = toAst(root, source);
-  return analyzeAst(ast, path);
+export interface PythonOptions {
+  /** The project's manifests name Django, so `.raw()` and `.extra()` are Django's even without an import here. */
+  django?: boolean;
 }
 
-function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
+export function analyzePythonTree(
+  root: Node,
+  source: string,
+  path: string,
+  options: PythonOptions = {},
+): PythonAnalysis {
+  const ast = toAst(root, source);
+  return analyzeAst(ast, path, options);
+}
+
+function analyzeAst(ast: AstResult, path: string, options: PythonOptions): PythonAnalysis {
   const text = (n: N): string => ast.source.slice(n.start, n.end);
   const kid = (n: N, field: string): N | undefined => n.children.find((c) => c.field === field);
   const named = (n: N): N[] => n.children.filter((c) => !c.anonymous && c.type !== "comment");
@@ -218,7 +228,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     }
   }
   const hasSqlLibrary = [...importedModules].some((name) => SQL_MODULES.has(name));
-  const hasDjango = importedModules.has("django");
+  const hasDjango = importedModules.has("django") || options.django === true;
 
   const frameworks: string[] = [];
   for (const [module, label] of [
@@ -295,6 +305,14 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
   };
 
   const GUARD_WHY = "value checked against an allowlist";
+  /** Why a variable counts as checked (allowlist, shape test, regex ...). */
+  const guardWhy = new WeakMap<Binding, string>();
+  /** The reason the last check named for each variable it covers. */
+  const whyOf = new Map<string, string>();
+  const mark = (out: Set<string>, name: string, why: string): void => {
+    out.add(name);
+    whyOf.set(name, why);
+  };
 
   /** Reads a variable: request input read through a variable is not direct; a guarded value is inferred. */
   function read(b: Binding, captured: boolean): V {
@@ -304,14 +322,15 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       leaves,
       (captured ? b.ever : base.leaves).map((leaf): Leaf => {
         if (leaf.k === "source") return b.isParam === true ? leaf : { ...leaf, direct: false };
-        if (b.guarded && leaf.k === "unknown") return { k: "inferred", why: GUARD_WHY };
+        if (b.guarded && leaf.k === "unknown")
+          return { k: "inferred", why: guardWhy.get(b) ?? GUARD_WHY };
         return leaf;
       }),
     );
     const out: V = { ...base, leaves };
     if (b.guarded) {
       out.leaves = leaves.map((leaf): Leaf =>
-        leaf.k === "source" ? { k: "inferred", why: GUARD_WHY } : leaf,
+        leaf.k === "source" ? { k: "inferred", why: guardWhy.get(b) ?? GUARD_WHY } : leaf,
       );
       const seen: Leaf[] = [];
       addLeaves(seen, out.leaves);
@@ -343,6 +362,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       return read(found.binding, found.captured);
     }
     const imported = aliases.get(name);
+    if (imported === "sys.argv") return source("command-line arguments sys.argv");
     if (imported !== undefined) {
       if (/^(?:flask|bottle|quart|sanic|falcon|aiohttp|pyramid)\.request$/.test(imported)) {
         return reqValue();
@@ -406,8 +426,8 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
 
   const unwrapParen = (n: N): N => {
     let current = n;
-    while (current.type === "parenthesized_expression") {
-      const inner = named(current)[0];
+    while (current.type === "parenthesized_expression" || current.type === "named_expression") {
+      const inner = current.type === "named_expression" ? kid(current, "value") : named(current)[0];
       if (!inner) break;
       current = inner;
     }
@@ -420,8 +440,10 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     if (["list", "tuple", "set", "dictionary"].includes(node.type)) return true;
     if (node.type === "identifier") {
       const found = env.scope.lookup(text(node));
-      if (found !== null)
-        return (found.binding.value as V).table || constOnly(found.binding.value as V);
+      if (found !== null) {
+        const held = found.binding.value as V;
+        return held.table && held.coll;
+      }
       return isConstantCase(text(node));
     }
     if (node.type === "attribute") {
@@ -446,9 +468,9 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
 
   const isLiteral = (n: N, env: Env): boolean => {
     const node = unwrapParen(n);
-    if (["string", "integer", "float", "concatenated_string"].includes(node.type)) {
-      return !(node.type === "string" && node.children.some((c) => c.type === "interpolation"));
-    }
+    if (node.type === "integer" || node.type === "float") return true;
+    if (node.type === "string") return !node.children.some((c) => c.type === "interpolation");
+    if (node.type === "concatenated_string") return named(node).every((c) => isLiteral(c, env));
     if (node.type === "identifier")
       return isConstantCase(text(node)) && env.scope.lookup(text(node)) === null;
     return false;
@@ -490,10 +512,10 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       const op = operatorBetween(left, right);
       const leftVar = varName(left);
       const rightVar = varName(right);
-      if (op === "in" && leftVar !== null && isAllowlist(right, env)) out.add(leftVar);
+      if (op === "in" && leftVar !== null && isAllowlist(right, env)) mark(out, leftVar, GUARD_WHY);
       if (op === "==") {
-        if (leftVar !== null && isLiteral(right, env)) out.add(leftVar);
-        if (rightVar !== null && isLiteral(left, env)) out.add(rightVar);
+        if (leftVar !== null && isLiteral(right, env)) mark(out, leftVar, GUARD_WHY);
+        if (rightVar !== null && isLiteral(left, env)) mark(out, rightVar, GUARD_WHY);
       }
       return out;
     }
@@ -506,23 +528,27 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
         const method = text(kid(fn, "attribute") as N);
         const obj = kid(fn, "object") as N;
         const objVar = varName(obj);
-        if (SHAPE_TESTS.has(method) && objVar !== null) out.add(objVar);
+        if (SHAPE_TESTS.has(method) && objVar !== null)
+          mark(out, objVar, `value checked with str.${method}() (shape check)`);
         // `re.match(p, x)`, `pattern.fullmatch(x)`
         const chain = chainOf(fn);
         const qualified = chain === null ? null : qualify(chain, env);
         if (["match", "fullmatch", "search"].includes(method)) {
           const target = qualified?.startsWith("re.") ? args[1] : args[0];
           const name = target === undefined ? null : varName(target);
-          if (name !== null) out.add(name);
+          if (name !== null)
+            mark(out, name, "value checked with a regular expression (shape check)");
         }
       } else if (fn?.type === "identifier") {
         const callee = text(fn);
         const only = args.length === 1 ? varName(args[0] as N) : null;
-        if (only !== null && VALIDATOR_NAME.test(callee)) out.add(only);
+        if (only !== null && VALIDATOR_NAME.test(callee))
+          mark(out, only, `value checked with ${callee}()`);
         if (callee === "isinstance" && args.length === 2) {
           const target = varName(args[0] as N);
           const type = text(args[1] as N);
-          if (target !== null && NUMERIC_CLASSES.has(type)) out.add(target);
+          if (target !== null && NUMERIC_CLASSES.has(type))
+            mark(out, target, `value checked to be ${type} (shape check)`);
         }
       }
     }
@@ -553,10 +579,11 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       const op = operatorBetween(left, right);
       const leftVar = varName(left);
       const rightVar = varName(right);
-      if (op === "not in" && leftVar !== null && isAllowlist(right, env)) out.add(leftVar);
+      if (op === "not in" && leftVar !== null && isAllowlist(right, env))
+        mark(out, leftVar, GUARD_WHY);
       if (op === "!=") {
-        if (leftVar !== null && isLiteral(right, env)) out.add(leftVar);
-        if (rightVar !== null && isLiteral(left, env)) out.add(rightVar);
+        if (leftVar !== null && isLiteral(right, env)) mark(out, leftVar, GUARD_WHY);
+        if (rightVar !== null && isLiteral(left, env)) mark(out, rightVar, GUARD_WHY);
       }
     }
     return out;
@@ -570,6 +597,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       if (b !== undefined && !b.guarded) {
         changed.push([b, b.guarded]);
         b.guarded = true;
+        guardWhy.set(b, whyOf.get(name) ?? GUARD_WHY);
       }
     }
     try {
@@ -579,12 +607,32 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     }
   }
 
+  /**
+   * Checks that hold for the rest of a block. A guard made inside a conditional block or a loop
+   * body ends with it (`if bad: continue` guards the rest of the loop body, not what follows the loop).
+   */
+  const guardFrames: Array<Array<[Binding, boolean]>> = [];
   const guardPermanently = (names: Set<string>, env: Env): void => {
     for (const name of names) {
       const b = env.scope.lookup(name)?.binding;
-      if (b !== undefined) b.guarded = true;
+      if (b === undefined) continue;
+      guardFrames[guardFrames.length - 1]?.push([b, b.guarded]);
+      b.guarded = true;
+      guardWhy.set(b, whyOf.get(name) ?? GUARD_WHY);
     }
   };
+  function withFrame<T>(body: () => T): T {
+    const frame: Array<[Binding, boolean]> = [];
+    guardFrames.push(frame);
+    try {
+      return body();
+    } finally {
+      guardFrames.pop();
+      for (const [b, was] of frame.reverse()) b.guarded = was;
+    }
+  }
+  /** Inside the body of a `try` that has an `except`: a `raise` there may be swallowed. */
+  let swallowing = 0;
 
   /** A block that always leaves: `return`, `raise`, `continue`, `break`, `abort(...)`, `sys.exit(...)`. */
   function exits(block: N | undefined): boolean {
@@ -593,8 +641,9 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     const last = stmts[stmts.length - 1];
     if (!last) return false;
     switch (last.type) {
-      case "return_statement":
       case "raise_statement":
+        return swallowing === 0;
+      case "return_statement":
       case "continue_statement":
       case "break_statement":
         return true;
@@ -879,6 +928,8 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       const found = env.scope.lookup(chain);
       if (found !== null) return read(found.binding, found.captured);
     }
+    if (chain === "sys.argv" && qualify(chain, env) === "sys.argv")
+      return source("command-line arguments sys.argv");
     const o = ev(obj, env, depth + 1);
     if (o.req) {
       if (REQUEST_ATTRS.has(attr)) return source(`request.${attr}`);
@@ -1071,6 +1122,8 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     kw: Map<string, V>;
     kwNodes: Map<string, N>;
     kwSplat: boolean;
+    /** Values of `**mapping` arguments. */
+    splats: V[];
   }
 
   function evalCall(n: N, env: Env, depth: number): V {
@@ -1107,6 +1160,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     const kw = new Map<string, V>();
     const kwNodes = new Map<string, N>();
     let kwSplat = false;
+    const splats: V[] = [];
     if (argsNode) {
       const argNodes = argsNode.type === "generator_expression" ? [argsNode] : named(argsNode);
       for (const a of argNodes) {
@@ -1120,7 +1174,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
         } else if (a.type === "dictionary_splat") {
           kwSplat = true;
           const inner = named(a)[0];
-          if (inner) ev(inner, env, depth + 1);
+          if (inner) splats.push(ev(inner, env, depth + 1));
         } else if (a.type === "list_splat") {
           const inner = named(a)[0];
           const v = inner ? ev(inner, env, depth + 1) : unknown("spread");
@@ -1131,6 +1185,19 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
           posNodes.push(a);
         }
       }
+    }
+    const aliasTarget = posNodes[1];
+    if (
+      name === "getattr" &&
+      recvNode === null &&
+      (aliasTarget === undefined
+        ? false
+        : aliasTarget.type !== "string" ||
+          /^["'](?:execute\w*|exec_driver_sql|fetch\w*|system|popen|run|call|check_call|check_output|Popen|getoutput|raw|extra)["']$/.test(
+            text(aliasTarget),
+          ))
+    ) {
+      unsupported.add("calls through getattr(...)");
     }
     const info: CallInfo = {
       node: n,
@@ -1144,6 +1211,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       kw,
       kwNodes,
       kwSplat,
+      splats,
     };
     if (env.report) {
       sqlCheck(info, env);
@@ -1161,7 +1229,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     const { name, qual, recvVal, pos, kw } = info;
     const arg0 = pos[0];
     const q = qual ?? "";
-    const allArgs = [...pos, ...kw.values()];
+    const allArgs = [...pos, ...kw.values(), ...info.splats];
 
     // Connections, cursors and sessions.
     if (
@@ -1182,6 +1250,9 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     if (isTextCall(info)) {
       const base: V = arg0 ? { ...copy(arg0) } : value();
       return { ...base, wrapped: true };
+    }
+    if (name === "parse_args" || name === "parse_known_args") {
+      return source("command-line arguments (argparse)");
     }
     // Request objects.
     if (info.recvNode !== null && recvVal !== null) {
@@ -1274,14 +1345,20 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       }
       return { ...copy(arg0), coll: true, elems: arg0.elems, table: arg0.table };
     }
-    if (bare === "input" && q === "") return unknown("input()");
+    if (bare === "input" && q === "") return source("stdin input()");
     return null;
   }
 
   function methodCall(info: CallInfo, recv: V, env: Env): V | null {
     const { name, pos, kw, recvNode } = info;
     const arg0 = pos[0];
-    if (name === "format") return evalFormat(recv, pos, kw);
+    if (name === "format") return evalFormat(recv, [...pos, ...info.splats], kw);
+    // `text("...").bindparams(...)` is still the same fixed text.
+    if (
+      ["bindparams", "columns", "execution_options", "params"].includes(name) &&
+      recv.wrapped === true
+    )
+      return copy(recv);
     if (name === "join") {
       const iter = arg0 ?? value();
       const elementLeaves =
@@ -1324,7 +1401,13 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       return out;
     }
     if (LOOKUPS.has(name)) {
-      if (recv.table) return inferred("value taken from a fixed allowlist table");
+      if (recv.table) {
+        const fallback = pos.slice(1).filter((item) => nonConst(item.leaves).length > 0);
+        const table = inferred("value taken from a fixed allowlist table");
+        // A literal default keeps the demotion; a default from the caller does not.
+        for (const item of fallback) addLeaves(table.leaves, item.leaves);
+        return table;
+      }
       const out = copy(recv);
       for (const item of pos.slice(1)) addLeaves(out.leaves, item.leaves);
       return { ...out, elems: null };
@@ -1367,7 +1450,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     else if (recvNode !== null) {
       if (DBAPI_SINKS.has(name)) kind = "dbapi";
       else if (name === "raw") kind = "raw";
-      else if (name === "extra" && hasDjango) kind = "extra";
+      else if (name === "extra") kind = "extra";
     }
     if (kind === null) return;
 
@@ -1405,7 +1488,15 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
         : hasSqlLibrary || sqlReceiver || sqlText;
       if (!eligible) return;
     }
-    if (kind === "raw" && !(hasDjango || sqlText)) return;
+    if (
+      kind === "raw" &&
+      !(
+        hasDjango ||
+        sqlText ||
+        (recvNode !== null && /\bobjects\b|_default_manager/.test(text(recvNode)))
+      )
+    )
+      return;
     const judged = judge(argument, argument.composed, false);
     if (judged === null) return;
     // A bare value that is not a built string: request input read directly is reported, and so
@@ -1454,7 +1545,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       judged.kind === "helper"
         ? `value from ${judged.helper}, not followed; inferred`
         : judged.kind === "unknown"
-          ? "(no input source identified)"
+          ? "no input source identified; inferred"
           : `${judged.reasons.slice(0, 2).join("; ")}; inferred`;
     return {
       finding: {
@@ -1462,7 +1553,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
         severity: "medium",
         status: "suspected",
         confidence: "low",
-        evidence: `${judged.shape} -> ${label}${judged.kind === "unknown" ? " " : "; "}${why}`,
+        evidence: `${judged.shape} -> ${label}; ${why}`,
       },
       rank: judged.kind === "unknown" ? 2 : 1,
     };
@@ -1519,7 +1610,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
   const sourceText = (judged: Judged): { text: string; source: SourceLeaf } => {
     const src = (judged.tainted.find((leaf) => leaf.direct) ?? judged.tainted[0]) as SourceLeaf;
     return {
-      text: `request input (${src.label})${src.direct ? "" : " via variable"}`,
+      text: `${/^(?:command-line|stdin)/.test(src.label) ? "command-line input" : "request input"} (${src.label})${src.direct ? "" : " via variable"}`,
       source: src,
     };
   };
@@ -1530,7 +1621,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       : judged.kind === "unknown"
         ? judged.bare
           ? "a value with no identified source (such as a parameter) reaches it; callers not followed; inferred"
-          : "(no input source identified)"
+          : "no input source identified; inferred"
         : `${judged.reasons.slice(0, 2).join("; ")}; inferred`;
 
   const rankOf = (kind: Kind): number => (kind === "tainted" ? 3 : kind === "unknown" ? 2 : 1);
@@ -1583,7 +1674,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
         severity: critical ? "medium" : "low",
         status: "suspected",
         confidence: "low",
-        evidence: `${judged.shape} -> ${detail}${judged.kind === "unknown" && !judged.bare ? " " : "; "}${lowReason(judged)}`,
+        evidence: `${judged.shape} -> ${detail}; ${lowReason(judged)}`,
       },
       rank: rankOf(judged.kind),
     };
@@ -1889,7 +1980,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
   function runConditional(block: N | undefined, env: Env, depth: number): void {
     env.conditional += 1;
     try {
-      execBlock(block, env, depth);
+      withFrame(() => execBlock(block, env, depth));
     } finally {
       env.conditional -= 1;
     }
@@ -1938,10 +2029,12 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     env.loops += 1;
     env.conditional += 1;
     try {
-      for (let i = 0; i < passes; i += 1) {
-        bindFirst();
-        execBlock(kid(n, "body"), env, depth);
-      }
+      withFrame(() => {
+        for (let i = 0; i < passes; i += 1) {
+          bindFirst();
+          execBlock(kid(n, "body"), env, depth);
+        }
+      });
     } finally {
       env.loops -= 1;
       env.conditional -= 1;
@@ -2001,10 +2094,19 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
         execLoop(n, env, depth, () => {});
         break;
       }
-      case "try_statement":
+      case "try_statement": {
+        const handles = named(n).some(
+          (c) => c.type === "except_clause" || c.type === "except_group_clause",
+        );
         for (const c of named(n)) {
-          if (c.field === "body" || c.type === "block") execBlock(c, env, depth);
-          else if (c.type === "except_clause" || c.type === "except_group_clause") {
+          if (c.field === "body" || c.type === "block") {
+            if (handles) swallowing += 1;
+            try {
+              execBlock(c, env, depth);
+            } finally {
+              if (handles) swallowing -= 1;
+            }
+          } else if (c.type === "except_clause" || c.type === "except_group_clause") {
             for (const part of named(c)) {
               if (part.type === "as_pattern") {
                 const alias = named(part).find((x) => x.type === "as_pattern_target");
@@ -2018,6 +2120,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
           }
         }
         break;
+      }
       case "with_statement": {
         const clause = named(n).find((c) => c.type === "with_clause");
         for (const item of clause ? named(clause) : []) {
@@ -2034,6 +2137,24 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
           }
         }
         execBlock(kid(n, "body"), env, depth);
+        break;
+      }
+      case "match_statement": {
+        const subject = kid(n, "subject");
+        const subjectValue: V = subject ? ev(subject, env, depth + 1) : unknown("subject");
+        const body = kid(n, "body");
+        for (const clause of body ? named(body) : []) {
+          if (clause.type !== "case_clause") continue;
+          const stack: N[] = named(clause).filter((c) => c.type === "case_pattern");
+          while (stack.length > 0) {
+            const node = stack.pop() as N;
+            if (node.type === "identifier" && text(node) !== "_") {
+              assign(env, text(node), elementOf(subjectValue));
+            }
+            stack.push(...node.children);
+          }
+          runConditional(kid(clause, "consequence"), env, depth);
+        }
         break;
       }
       case "function_definition":
@@ -2113,6 +2234,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     flask: Set<string> | null,
     routeish: boolean,
     numeric: Set<string>,
+    cli = false,
   ): void {
     const children = named(params);
     children.forEach((p, index) => {
@@ -2163,7 +2285,7 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
       if (numericType !== undefined || numeric.has(name)) {
         v = inferred(`${numericType ?? "converter"} parameter ${name}`);
       } else if (routeish && !depends && !names.some((t) => FRAMEWORK_TYPE.test(t))) {
-        v = source(`route parameter ${name}`);
+        v = source(cli ? `command-line argument ${name}` : `route parameter ${name}`);
       } else {
         v = unknown(`parameter ${name}`);
       }
@@ -2215,7 +2337,10 @@ function analyzeAst(ast: AstResult, path: string): PythonAnalysis {
     }
     const scope = new Scope(p.env.scope, p.env.inFn);
     const env: Env = { ...p.env, scope, conditional: 0, loops: 0, report: true, inFn: true };
-    if (params) bindParams(params, env, null, routeish, numeric);
+    const cli = p.decorators.some((d) =>
+      /^@\s*(?:click\.|typer\.)?\w*\.?(?:command|option|argument)\(|click\.|typer\./.test(text(d)),
+    );
+    if (params) bindParams(params, env, null, routeish || cli, numeric, cli && !routeish0);
     execBlock(body, env, 0);
   }
 

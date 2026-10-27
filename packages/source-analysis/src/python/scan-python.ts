@@ -55,6 +55,8 @@ export async function scanPython(
   const runtime = new TreeSitterRuntime();
   try {
     throwIfAborted(options.signal);
+    const manifestFrameworks =
+      detection.languages.find((entry) => entry.language === "python")?.frameworks ?? [];
     const cappedFiles: string[] = [];
     const incompleteFiles: string[] = [];
     const errorFiles: string[] = [];
@@ -71,9 +73,12 @@ export async function scanPython(
       (file, outcome, source) => {
         throwIfAborted(options.signal);
         try {
-          const analysis = analyzePythonTree(outcome.tree.rootNode, source, file.relativePath);
+          const analysis = analyzePythonTree(outcome.tree.rootNode, source, file.relativePath, {
+            django: manifestFrameworks.includes("Django"),
+          });
           out.analyzedPaths.push(file.relativePath);
-          if (outcome.errorCount > 0) errorFiles.push(file.relativePath);
+          if (outcome.errorCount > 0 || outcome.missingCount > 0)
+            errorFiles.push(file.relativePath);
           out.findings.push(...analysis.findings.map(createSourceFinding));
           if (analysis.capped) cappedFiles.push(file.relativePath);
           if (analysis.incomplete) incompleteFiles.push(file.relativePath);
@@ -119,8 +124,6 @@ export async function scanPython(
       out.coverage.push(base);
       return out;
     }
-    const manifestFrameworks =
-      detection.languages.find((entry) => entry.language === "python")?.frameworks ?? [];
     const frameworks = [...new Set<string>([...manifestFrameworks, ...imported])];
     const detected = frameworks.length > 0 ? `; frameworks: ${frameworks.join(", ")}` : "";
     const lowerBound = detection.truncated ? "at least " : "";
