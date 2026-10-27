@@ -6,3 +6,5 @@ export {
   grammarPath,
   readVerifiedGrammar,
 } from "../packages/source-analysis/dist/tree-sitter/languages.js";
+// The source scanner itself (offline: reads files only), for the installed-tarball PHP smoke.
+export { scanSourceCode } from "../packages/source-analysis/dist/index.js";

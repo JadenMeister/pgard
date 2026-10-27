@@ -227,11 +227,57 @@ try {
     );
   }
 
+  // A PHP project scanned from the installed layout, offline: the scanner only reads files, and
+  // nothing is stored (PGARD_NO_STORE) or sent anywhere. The PHP grammar must load from assets/.
+  process.env.PGARD_NO_STORE = "1";
+  const phpProject = mkdtempSync(join(prefix, "php project "));
+  writeFileSync(
+    join(phpProject, "composer.json"),
+    JSON.stringify({ require: { "laravel/framework": "^11" } }),
+  );
+  writeFileSync(
+    join(phpProject, "users.php"),
+    "<?php\nfunction find($conn) { return mysqli_query($conn, \"SELECT * FROM users WHERE name = '\" . $_GET['name'] . \"'\"); }\n",
+  );
+  writeFileSync(
+    join(phpProject, "ping.php"),
+    "<?php\nfunction ping() { system(\"ping -c 1 \" . $_GET['host']); }\n",
+  );
+  writeFileSync(
+    join(phpProject, "safe.php"),
+    "<?php\nfunction safe($pdo) { $s = $pdo->prepare('SELECT * FROM users WHERE id = ?'); $s->execute([$_GET['id']]); }\n",
+  );
+  const phpScan = await grammar.scanSourceCode(phpProject);
+  const phpRules = phpScan.findings.map((item) => `${item.ruleId}@${item.location.path}`).sort();
+  check(
+    "PHP project scan finds the SQL and command injection and not the prepared statement",
+    JSON.stringify(phpRules) === JSON.stringify(["PG-CMD-004@ping.php", "PG-SQL-006@users.php"]),
+    JSON.stringify(phpRules),
+  );
+  const phpCoverage = phpScan.coverage.find((entry) => entry.area === "source:php");
+  check(
+    "PHP coverage is completed, names Laravel and says what is not checked",
+    phpCoverage?.status === "completed" &&
+      phpCoverage.ruleIds.join() === "PG-SQL-006,PG-CMD-004" &&
+      phpCoverage.note.includes("Laravel") &&
+      phpCoverage.note.includes("Not checked yet for PHP"),
+    JSON.stringify(phpCoverage),
+  );
+  const phpRulesList = pgard(["rules", "list", "--language", "php"], { cwd: root });
+  check(
+    "pgard rules list --language php",
+    phpRulesList.status === 0 &&
+      phpRulesList.stdout.includes("PG-SQL-006") &&
+      phpRulesList.stdout.includes("PG-CMD-004"),
+    phpRulesList.stderr,
+  );
+
   for (const file of [
     "NOTICE.md",
     "LICENSE",
     "assets/fonts/OFL.txt",
     "assets/grammars/LICENSE.tree-sitter-python",
+    "assets/grammars/LICENSE.tree-sitter-php",
   ]) {
     check(`ships ${file}`, existsSync(join(pkgDir, file)));
   }
