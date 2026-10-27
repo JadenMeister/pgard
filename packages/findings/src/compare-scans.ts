@@ -231,6 +231,8 @@ function groupByIdentity(findings: readonly Finding[]): Map<string, Finding[]> {
   return groups;
 }
 
+const MINIFIED_AREA = "source:minified";
+
 function compareAreas(
   previous: readonly Coverage[],
   current: readonly Coverage[],
@@ -251,7 +253,10 @@ function compareAreas(
     if (ran(a) && !ran(b)) reason = "only_in_previous";
     else if (!ran(a) && ran(b)) reason = "only_in_current";
     else if (!ran(a) && !ran(b)) reason = "not_run";
-    else if (a?.status === "partial" || b?.status === "partial") reason = "partial";
+    // Skipped minified bundles stay partial overall, but only a change in the skipped set (the
+    // note) makes the comparison unreliable; see isSkipSignal.
+    else if (area !== MINIFIED_AREA && (a?.status === "partial" || b?.status === "partial"))
+      reason = "partial";
     else if (a?.status === "not_tested" || b?.status === "not_tested") reason = "not_tested";
     else if (isOriginChanged && scope === "web") reason = "other_origin";
     result.set(area, {
@@ -279,6 +284,7 @@ function isSkipSignal(area: string, ctx: Context): boolean {
   const b = ctx.after.get(area);
   const entries = [a, b].filter((entry): entry is Coverage => entry !== undefined);
   if (entries.some((entry) => entry.ruleIds.length > 0)) return false;
+  if (area === MINIFIED_AREA) return a?.note !== b?.note;
   if (entries.some((entry) => entry.status === "partial")) return true;
   const ran = (entry: Coverage | undefined) => entry?.status === "completed";
   if (ran(a) !== ran(b)) return true;

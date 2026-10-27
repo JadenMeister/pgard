@@ -67,6 +67,15 @@ describe("exclude patterns in the source scan", () => {
     expect(area(output, "source:python")?.note ?? "").not.toContain("legacy");
   });
 
+  it("an excluded minified bundle counts as excluded, not as source:minified", async () => {
+    const root = project({ "src/db.ts": SQL_VULN, "public/vendor/jquery.min.js": SQL_VULN });
+    const output = await scanSourceCode(root, {
+      projectConfig: config({ exclude: ["public/**"] }),
+    });
+    expect(area(output, "source:minified")).toBeUndefined();
+    expect(area(output, "source:config-excluded")?.note).toMatch(/^1 file excluded/);
+  });
+
   it("without a config everything is analyzed and no coverage area is added", async () => {
     const root = project(files);
     for (const projectConfig of [undefined, null, config()]) {
