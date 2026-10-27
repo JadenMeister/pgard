@@ -121,7 +121,7 @@ function fixedText(v: Value | undefined): string | null {
   return literalText(v.leaves);
 }
 
-const programName = (text: string | null): string | null => {
+export const programName = (text: string | null): string | null => {
   if (text === null) return null;
   const first = (text.trim().split(/\s+/)[0] ?? "").split(/[\\/]/).pop() ?? "";
   return first.toLowerCase().replace(/\.exe$/, "");
@@ -175,7 +175,7 @@ function afterLaunchers(texts: ReadonlyArray<string | null>): number | null {
 }
 
 /** A shell program followed by its script flag (`sh -c`, `cmd /c`, `bash -lc`), or by something that may be one. */
-function findWrapper(
+export function findWrapper(
   texts: ReadonlyArray<string | null>,
 ): { program: string; flagIndex: number; flag: string | null } | null {
   const at = afterLaunchers(texts);
@@ -209,7 +209,7 @@ function findWrapper(
   return null;
 }
 
-function shellFlag(program: string, text: string): boolean {
+export function shellFlag(program: string, text: string): boolean {
   if (program === "cmd") return SHELL_FLAG_CMD.test(text);
   if (program === "powershell" || program === "pwsh") return SHELL_FLAG_PD.test(text);
   return SHELL_FLAG_POSIX.test(text);
