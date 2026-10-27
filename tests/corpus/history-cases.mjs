@@ -4,7 +4,7 @@
 // run time, so no detector (GitHub push protection, secret scanners) sees a whole token in this
 // file, and none of the values was ever issued by a provider.
 //
-// A case: { rule, kind, name, expect: [rule ids], known?: [{ type: "miss"|"fp", rule, reason }],
+// A case: { rule, kind, name, expect: [rule ids], low?: true (negative: its rule must report only at low confidence), known?: [{ type: "miss"|"fp", rule, reason }],
 // commits: [{ files?: {path: content}, remove?: [path] }] }. `kind` is the directory the case
 // would live in if it were a file: "positive" means `rule` is expected, "negative" means it is not.
 const join = (...parts) => parts.join("");
@@ -18,6 +18,11 @@ const FAKE = {
   slack: join("xox", "b-", "2837461950", "-8Kd7sPq1Zr4Nw"),
   google: join("AI", "zaSy", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"),
   assembled: join("Xk9v", "Lp8W", "z4qR", "t2mN7"),
+  bracket: join("Xk9v", "]Lp8", "Wz4q"),
+  angle: join("Qw3r", "<Ty7u", "Io9p"),
+  paren: join("Zx8c", ")Vb5n", "Mq2w"),
+  colon: join("Hj6k", "Lm4n", "Pq2r:"),
+  capsWords: join("MY_SUPER", "_SECRET", "_KEY"),
   dbPassword: join("Xq9", "!vR2", "#mT7", "pLw4"),
   pem: join(
     "-----BEGIN ",
@@ -202,11 +207,57 @@ export const HISTORY_CASES = [
     kind: "negative",
     name: "code-text-in-escaped-string-single-quoted",
     expect: [],
+    low: true,
     commits: [
       {
         files: {
           "test/fixture.js":
-            "const source = 'const SECRET_PATTERN = /^(secret|token)$/i;\\nfunction check(secret: string) {}\\n';\n",
+            "const source = 'const SECRET_PATTERN = /^(secret|token)$/i;\\nlet n = 1;\\n';\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "codegen-regex-in-double-quoted-string",
+    expect: [],
+    low: true,
+    commits: [
+      {
+        files: {
+          "test/cases.mjs":
+            'const src = "const PASSWORD_RE = /^(pass|pwd)$/i;\\nconst x = 1;\\n";\n',
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "codegen-type-member-in-string",
+    expect: [],
+    low: true,
+    commits: [
+      {
+        files: {
+          "test/gen.ts":
+            'const src = "interface C {\\n  apiKey: Record<string, string>;\\n}\\n";\n',
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "codegen-constant-name-in-string",
+    expect: [],
+    low: true,
+    commits: [
+      {
+        files: {
+          "test/gen.js":
+            'const src = "export const SECRET = SECRET_ENV_NAME;\\nuse(SECRET);\\n";\n',
         },
       },
     ],
@@ -230,6 +281,77 @@ export const HISTORY_CASES = [
     name: "literal-credential-on-its-own-line",
     expect: ["PG-SECRET-002"],
     commits: [{ files: { "config/service.conf": `DEBUG=1\nAPI_SECRET=${FAKE.assembled}\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-string-password-with-bracket",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: { "scripts/conf.js": `const conf = "user=admin\\npassword=${FAKE.bracket}\\n";\n` },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-string-password-with-angle",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      { files: { "scripts/conf.ts": `const yaml = "db:\\n  password: ${FAKE.angle}\\n";\n` } },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-string-password-with-paren",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      { files: { "src/Db.cs": `var cs = "Server=db;User=sa;Password=${FAKE.paren};\\n";\n` } },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-string-password-ending-colon",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "scripts/conf.rb": `conf = "user=admin\\npassword=${FAKE.colon}"\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escape-in-another-string-same-line",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      { files: { "src/app.js": `log("done\\n"); const cfg = "api_key=${FAKE.bracket}";\n` } },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-string-caps-secret-last",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "scripts/seed.js": `write(".env", "PORT=8080\\nJWT_SECRET=${FAKE.capsWords}");\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-string-caps-secret-before-space",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "scripts/run.js": `exec("echo start\\n; ADMIN_PASSWORD=${FAKE.capsWords} node server.js");\n`,
+        },
+      },
+    ],
   },
   {
     rule: "PG-SECRET-002",

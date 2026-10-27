@@ -2,30 +2,70 @@ import { describe, expect, it } from "vitest";
 import { detectSecrets } from "./secret-patterns.js";
 
 // Runtime-assembled so no secret-looking literal is committed.
-const VALUE = ["Xk9vLp8W", "z4qRt2mN7"].join("");
+const j = (...parts: string[]) => parts.join("");
+const RANDOM = j("Xk9v", "Lp8W", "z4qR", "t2mN7");
+const BRACKET = j("Xk9v", "]Lp8", "Wz4q");
+const ANGLE = j("Qw3r", "<Ty7u", "Io9p");
+const PAREN = j("Zx8c", ")Vb5n", "Mq2w");
+const COLON = j("Hj6k", "Lm4n", "Pq2r:");
+const CAPS_WORDS = j("MY_SUPER", "_SECRET", "_KEY");
 
-describe("detectSecrets on code text inside an escaped string (#246)", () => {
-  it("ignores code kept in a double-quoted string with \\n escapes", () => {
-    const text =
-      'files: "export type K = string;\\nconst PASSWORD_NAME = /^(password|pwd)$/i;\\nfunction set(password: string): void {}\\n",\n';
-    expect(detectSecrets(text, { path: "test/cases.mjs" })).toEqual([]);
-  });
+function scan(text: string, path: string) {
+  return detectSecrets(text, { path });
+}
 
-  it("ignores code in a single-quoted string", () => {
-    const text =
-      "const src = 'const SECRET_RE = /^(secret|token)$/i;\\nlet apiKey: string);\\n';\n";
-    expect(detectSecrets(text, { path: "src/gen.ts" })).toEqual([]);
-  });
-
-  it("keeps a real value in a string with \\n escapes", () => {
-    const text = `fs.writeFileSync(".env", "PORT=3000\\nDB_PASSWORD=${VALUE}\\n");\n`;
-    const found = detectSecrets(text, { path: "scripts/seed.js" });
+describe("code text inside a string literal is demoted, never dropped (#246)", () => {
+  it("marks code in a double-quoted string with \\n escapes as code text", () => {
+    const text = `const src = "const PASSWORD_RE = /^(pass|pwd)$/i;\\nconst x = 1;\\n";\n`;
+    const found = scan(text, "test/cases.mjs");
     expect(found).toHaveLength(1);
-    expect(found[0]?.value.startsWith(VALUE)).toBe(true);
+    expect(found[0]?.codeText).toBe(true);
   });
 
-  it("keeps a .env-style value and a quoted literal", () => {
-    expect(detectSecrets(`DEBUG=1\nAPI_SECRET=${VALUE}\n`, { path: "app.env" })).toHaveLength(1);
-    expect(detectSecrets(`const password = "${VALUE}";\n`, { path: "src/a.js" })).toHaveLength(1);
+  it("marks a type member and a constant assigned a constant name as code text", () => {
+    const member = `const src = "interface C {\\n  apiKey: Record<string, string>;\\n}\\n";\n`;
+    expect(scan(member, "test/gen.ts").map((secret) => secret.codeText)).toEqual([true]);
+    const constant = `const src = 'export const SECRET = SECRET_ENV_NAME;\\nuse(SECRET);\\n';\n`;
+    expect(scan(constant, "test/gen.js").map((secret) => secret.codeText)).toEqual([true]);
+  });
+
+  it("does not let a constant-name value alone demote a secret", () => {
+    const text = `write(".env", "PORT=8080\\nJWT_SECRET=${CAPS_WORDS}\\n");\n`;
+    const found = scan(text, "scripts/seed.js");
+    expect(found).toHaveLength(1);
+    expect(found[0]?.codeText).toBeUndefined();
+    expect(found[0]?.value).toBe(CAPS_WORDS);
+  });
+
+  it.each([
+    ["bracket", `const conf = "user=admin\\npassword=${BRACKET}\\n";\n`, BRACKET],
+    ["angle bracket", `const yaml = "db:\\n  password: ${ANGLE}\\n";\n`, ANGLE],
+    ["paren", `var cs = "Server=db;User=sa;Password=${PAREN};\\n";\n`, PAREN],
+    ["ends with a colon", `conf = "user=admin\\npassword=${COLON}"\n`, COLON],
+    [
+      "caps value last in the string",
+      `write(".env", "A=1\\nJWT_SECRET=${CAPS_WORDS}");\n`,
+      CAPS_WORDS,
+    ],
+    [
+      "caps value before a space",
+      `exec("echo a\\n; ADMIN_PASSWORD=${CAPS_WORDS} node s.js");\n`,
+      CAPS_WORDS,
+    ],
+    ["newline in another string", `log("done\\n"); const cfg = "api_key=${BRACKET}";\n`, BRACKET],
+  ])("keeps a real secret at full confidence: %s", (_name, text, value) => {
+    const found = scan(text, "src/app.js");
+    expect(found.map((secret) => secret.value)).toEqual([value]);
+    expect(found[0]?.codeText).toBeUndefined();
+  });
+
+  it("does not take a trailing \\n escape as part of the value", () => {
+    const found = scan(`const env = "DB_PASSWORD=${RANDOM}\\nDEBUG=0";\n`, "scripts/env.js");
+    expect(found.map((secret) => secret.value)).toEqual([RANDOM]);
+  });
+
+  it("keeps .env-style lines and quoted literals", () => {
+    expect(scan(`DEBUG=1\nAPI_SECRET=${RANDOM}\n`, "app.env")).toHaveLength(1);
+    expect(scan(`const password = "${RANDOM}";\n`, "src/a.js")).toHaveLength(1);
   });
 });

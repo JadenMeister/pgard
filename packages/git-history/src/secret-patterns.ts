@@ -24,6 +24,8 @@ export interface DetectedSecret {
   value: string;
   /** A short or simple password in a URL that is still not a placeholder: report it as unsure. */
   weak?: true;
+  /** A generic value that looks like code text inside a string literal: report it as unsure. */
+  codeText?: true;
 }
 
 export const SECRET_KIND_LABEL: Record<DetectedSecretKind, string> = {
@@ -107,7 +109,7 @@ const PATTERNS: Pattern[] = [
     kind: "generic_credential",
     // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
     pattern: new RegExp(
-      `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>[^\\s"'\`,;]{8,256})\\k<valueQuote>`,
+      `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>(?:[^\\s"'\`,;\\\\]|\\\\(?!n)){8,256})\\k<valueQuote>`,
       "gi",
     ),
     group: "value",
@@ -169,18 +171,6 @@ const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
 /** Characters of the line read before a key and after a value to judge whether it is code. */
 const CODE_WINDOW = 200;
 
-/** Whether the physical line around `index` (bounded window) holds a backslash-n escape. */
-function hasEscapedNewlineOnLine(text: string, index: number): boolean {
-  const before = text.slice(Math.max(0, index - CODE_WINDOW), index);
-  const after = text.slice(index, index + CODE_WINDOW);
-  const lineStart = before.lastIndexOf("\n");
-  const lineEnd = after.indexOf("\n");
-  const line =
-    (lineStart === -1 ? before : before.slice(lineStart + 1)) +
-    (lineEnd === -1 ? after : after.slice(0, lineEnd));
-  return line.includes("\\n");
-}
-
 /** Per-text state shared by the matches of one `detectSecrets` call. */
 interface DetectContext {
   text: string;
@@ -213,20 +203,34 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
  * and a trailing comma, or a `string;` type member). The caller has checked that the key is not
  * inside a string literal; anything ambiguous is not treated as code.
  */
-function looksLikeCode(text: string, keyStart: number, end: number, separator: string): boolean {
+function looksLikeCode(
+  text: string,
+  keyStart: number,
+  end: number,
+  separator: string,
+  stringStart = -1,
+): boolean {
   if (separator === ":=") return true;
   // Only a bounded window around the match is read, so a very long line with many matches stays
   // linear. A window cut short of the line start begins with a non-space marker: neither `^`
   // nor an empty `before` can then match at the cut, so a long line is not taken as code there.
-  const windowStart = Math.max(0, keyStart - CODE_WINDOW);
+  // Inside a string literal (`stringStart` is its opening quote) the judged segment stays within
+  // that string, and a `\n` escape is a line break there.
+  const inString = stringStart !== -1;
+  const lowest = inString ? stringStart + 1 : 0;
+  const windowStart = Math.max(lowest, keyStart - CODE_WINDOW);
   const window = text.slice(windowStart, keyStart);
-  const newline = window.lastIndexOf("\n");
+  const escape = inString ? window.lastIndexOf("\\n") : -1;
+  // Index of the last character of a line break: a newline, or the `n` of a `\n` escape.
+  const newline = Math.max(window.lastIndexOf("\n"), escape === -1 ? -1 : escape + 1);
   const before =
-    newline !== -1 ? window.slice(newline + 1) : windowStart > 0 ? `x${window}` : window;
+    newline !== -1 ? window.slice(newline + 1) : windowStart > lowest ? `x${window}` : window;
   if (CODE_BEFORE_KEY.test(before)) return true;
   const afterWindow = text.slice(end, end + CODE_WINDOW);
   const lineEnd = afterWindow.indexOf("\n");
-  const after = lineEnd === -1 ? afterWindow : afterWindow.slice(0, lineEnd);
+  const escapeEnd = inString ? afterWindow.indexOf("\\n") : -1;
+  const stop = [lineEnd, escapeEnd].filter((index) => index !== -1);
+  const after = stop.length === 0 ? afterWindow : afterWindow.slice(0, Math.min(...stop));
   return separator === ":" && before.trim() === "" && CODE_AFTER_VALUE.test(after);
 }
 
@@ -240,7 +244,10 @@ function looksLikeCode(text: string, keyStart: number, end: number, separator: s
  * an all-caps constant name or a bare identifier. Everything else is kept: config files, string
  * literals and ambiguous lines. Erring towards reporting is deliberate.
  */
-function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): boolean {
+function isLiteralAssignment(
+  context: DetectContext,
+  match: RegExpMatchArray,
+): boolean | "code_text" {
   const groups = match.groups ?? {};
   const keyQuote = groups.keyQuote ?? "";
   const separator = groups.separator ?? "=";
@@ -270,13 +277,14 @@ function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): b
   }
   if (!context.isSource) return true;
   if (inString) {
-    // Code text kept in a string with `\n` escapes (a test fixture, a code generator template) is
-    // a string of code, not a credential: its unquoted value is code-shaped (a regex, a type, a
-    // constant name). A real value in such a string (`"API_KEY=Xk9vLp8Wz4q\n"`) is kept.
-    return !(
-      hasEscapedNewlineOnLine(text, start) &&
-      (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value))
-    );
+    // Code text kept in a string (a test fixture, a code generator template) reads like code
+    // within its own string segment: code before the key or after the value, and a code-shaped
+    // value. It is still reported, demoted to a low-confidence inferred finding, because a real
+    // secret can look like that too. A constant-name value counts only with that code context.
+    const isCode =
+      looksLikeCode(text, keyStart, start + match[0].length, separator, stringStart) &&
+      (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value));
+    return isCode ? "code_text" : true;
   }
   if (!looksLikeCode(text, keyStart, start + match[0].length, separator)) return true;
   return (
@@ -422,11 +430,13 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
         const start = match.index ?? 0;
         value = text.slice(start, start + value.length + 256);
       }
-      if (
-        kind === "generic_credential" &&
-        (!isLikelySecretValue(value) || !isLiteralAssignment(context, match))
-      )
-        continue;
+      let codeText = false;
+      if (kind === "generic_credential") {
+        if (!isLikelySecretValue(value)) continue;
+        const assignment = isLiteralAssignment(context, match);
+        if (assignment === false) continue;
+        codeText = assignment === "code_text";
+      }
       const strength = kind === "url_credential" ? urlPasswordStrength(match, value) : "strong";
       if (strength === null) continue;
       if ((kind === "aws_access_key_id" || kind === "github_token") && PLACEHOLDER.test(value))
@@ -437,7 +447,13 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
       seen.add(key);
       if (strength === "weak")
         weakUrls.push({ index: results.length, start: valueStart, end: valueEnd });
-      results.push(strength === "weak" ? { kind, line, value, weak: true } : { kind, line, value });
+      results.push({
+        kind,
+        line,
+        value,
+        ...(strength === "weak" ? { weak: true as const } : {}),
+        ...(codeText ? { codeText: true as const } : {}),
+      });
       if (kind === "generic_credential") genericSpans.push(valueStart, valueEnd);
       else if (strength !== "weak") {
         (kind === "url_credential" ? claimedUrls : claimed).push(valueStart, valueEnd);

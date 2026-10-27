@@ -43,14 +43,14 @@ medium and high confidence findings, on every sample.
 
 ## History rules (scanGitHistory on generated git repositories)
 
-43 samples.
+53 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-SECRET-001 | 5 | 0 | 0 | 38 | 100.0% | 100.0% | 100.0% |
-| PG-SECRET-002 | 13 | 0 | 0 | 30 | 100.0% | 100.0% | 100.0% |
-| PG-SECRET-003 | 4 | 0 | 0 | 39 | 100.0% | 100.0% | 100.0% |
-| PG-HYGIENE-001 | 4 | 0 | 0 | 39 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-001 | 5 | 0 | 0 | 48 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-002 | 20 | 0 | 0 | 33 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-003 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | 100.0% |
+| PG-HYGIENE-001 | 4 | 0 | 0 | 49 | 100.0% | 100.0% | n/a |
 
 ## Web rules (scanLocalWeb against loopback servers)
 

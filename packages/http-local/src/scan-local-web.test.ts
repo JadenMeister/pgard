@@ -275,7 +275,24 @@ describe("scanLocalWeb", () => {
     expect(server.requests).toHaveLength(5);
   });
 
-  it("does not send the null probe when the first probe already found a problem (#246)", async () => {
+  it("skips the null probe once PG-WEB-009 was reported by the first probe (#246)", async () => {
+    const server = await start((request, response) => {
+      const origin = request.headers.origin;
+      response
+        .writeHead(200, {
+          ...(typeof origin === "string"
+            ? { "access-control-allow-origin": origin, "access-control-allow-credentials": "true" }
+            : {}),
+        })
+        .end("{}");
+    });
+    await scanLocalWeb(targetFor(server.port), {});
+    expect(server.requests.some((request) => request.headers.origin === CORS_NULL_ORIGIN)).toBe(
+      false,
+    );
+  });
+
+  it("still sends the null probe after a wildcard-with-credentials hit (#246)", async () => {
     const server = await start((_request, response) => {
       response
         .writeHead(200, {
@@ -284,9 +301,48 @@ describe("scanLocalWeb", () => {
         })
         .end("{}");
     });
-    await scanLocalWeb(targetFor(server.port), {});
+    const output = await scanLocalWeb(targetFor(server.port), {});
     expect(server.requests.some((request) => request.headers.origin === CORS_NULL_ORIGIN)).toBe(
-      false,
+      true,
     );
+    // / + CORS probe + null probe + .env + .git/HEAD
+    expect(server.requests).toHaveLength(5);
+    expect(output.findings.map((finding) => finding.ruleId)).not.toContain("PG-WEB-009");
+  });
+
+  it("does not report a non-null origin or a null origin without credentials (#246)", async () => {
+    for (const headers of [
+      {
+        "access-control-allow-origin": "https://app.example.com",
+        "access-control-allow-credentials": "true",
+      },
+      { "access-control-allow-origin": "null" },
+      { "access-control-allow-origin": "null", "access-control-allow-credentials": "false" },
+    ]) {
+      const server = await start((_request, response) => {
+        response.writeHead(200, headers).end("{}");
+      });
+      const output = await scanLocalWeb(targetFor(server.port), {});
+      expect(output.findings.map((finding) => finding.ruleId)).not.toContain("PG-WEB-009");
+    }
+  });
+
+  it("counts the null-origin response in the PG-WEB-009 stats only (#246)", async () => {
+    const server = await start((request, response) => {
+      const trusted = request.headers.origin === CORS_NULL_ORIGIN;
+      response
+        .writeHead(
+          200,
+          trusted
+            ? { "access-control-allow-origin": "null", "access-control-allow-credentials": "true" }
+            : {},
+        )
+        .end("{}");
+    });
+    const output = await scanLocalWeb(targetFor(server.port), {});
+    const examined = (ruleId: string) =>
+      output.ruleStats?.find((row) => row.ruleId === ruleId)?.targets[0]?.examined;
+    expect(examined("PG-WEB-009")).toBe(2);
+    expect(examined("PG-WEB-008")).toBe(1);
   });
 });

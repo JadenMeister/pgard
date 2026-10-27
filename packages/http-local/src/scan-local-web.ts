@@ -243,9 +243,9 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
     corsResponses += 1;
     const corsFindings = checkCors(corsResult.response.url, corsResult.response.headers);
     findings.push(...corsFindings);
-    // One more GET, only when the arbitrary origin found nothing: a server that allows a fixed
-    // list or the literal `null` origin with credentials is not caught by the first probe.
-    if (corsFindings.length === 0) {
+    // One more GET, unless the first probe already reported PG-WEB-009: a server that allows a
+    // fixed list or the literal `null` origin with credentials is not caught by the first probe.
+    if (!corsFindings.some((finding) => finding.ruleId === WEB_RULES.corsReflectedOrigin.id)) {
       const nullResult = await request("/", { headers: { origin: CORS_NULL_ORIGIN } });
       if (nullResult !== null) {
         nullOriginResponses += 1;

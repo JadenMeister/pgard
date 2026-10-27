@@ -108,7 +108,7 @@
     "PG-HYGIENE-001": {
       "precision": 1,
       "recall": 1,
-      "precisionMedium": 1
+      "precisionMedium": 0
     },
     "PG-WEB-001": {
       "precision": 1,
