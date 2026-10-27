@@ -37,6 +37,7 @@ import { formatAuthorization, formatScanResult } from "../../ui/formatters/resul
 import { safeText, terminalWidth } from "../../ui/formatters/style.js";
 import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
 import type { PreviousScan } from "../../flows/scan-diff-summary.js";
+import { offerPanels } from "../../flows/panels.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
@@ -55,6 +56,8 @@ export interface ScanCommand {
   format?: OutputFormat;
   /** List every finding and location in the text result. */
   allFindings?: boolean;
+  /** `--panels`: open the full-screen panel view after the text result. */
+  panels?: boolean;
   /** `--no-store`. */
   noStore?: boolean;
   /** `--full`: scan everything again instead of building on the last stored scan. */
@@ -341,6 +344,7 @@ async function runScanFlow(
 
   if (result.overallStatus === "blocked") {
     if (command.report !== null) out(context, text.notices.noReportBlocked);
+    if (command.panels === true) err(context, context.errStyle.dim(text.panels.notOpenedBlocked));
     return exitCode;
   }
   await storeScanResult(
@@ -357,11 +361,17 @@ async function runScanFlow(
   if (command.setBaseline === true) {
     isBaselineSaved = await setBaselineFromScan(context, result, scanned.outcome, projectRoot);
   }
+  // The panel view comes before any follow-up question (the report offer in the menu), and after
+  // a report asked for on the command line is saved, so a cancel inside it loses nothing.
+  const panelsResult = (): ScanResult => localizeResult(context, result);
+  const wantsPanels = command.panels === true;
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
-  } else if (context.isMenu) {
-    isReportSaved = await offerReportExport(context, result, projectRoot);
+    await offerPanels(context, panelsResult(), wantsPanels);
+  } else {
+    await offerPanels(context, panelsResult(), wantsPanels);
+    if (context.isMenu) isReportSaved = await offerReportExport(context, result, projectRoot);
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
     exitCode = EXIT_CODES.partial;

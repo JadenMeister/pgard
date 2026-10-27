@@ -191,6 +191,15 @@ Options:
   --all-findings           list every finding and location; by default more than
                            5 findings in test, fixture or vendored code are
                            summarized, and groups show up to 3 locations
+  --panels                 after the text result, open a read-only full-screen
+                           view (summary, charts, coverage, findings) in a
+                           terminal; keys: Tab, arrows, ? help, Esc back. Not
+                           with --format json or sarif; without a terminal only
+                           the text result is printed. Always opens (pgard scan
+                           does not read PGARD_PANELS). The menu opens it by
+                           itself after a scan in a terminal; PGARD_PANELS=off
+                           stops that. pgard dashboard is the
+                           separate local web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
                            then en). JSON and SARIF output are always English
@@ -217,6 +226,7 @@ authorization and continues the scan.
 - `--port N`(`scan web`, `scan all` 전용): 로컬 서비스 포트, 1~65535 정수. 지정해도 서비스 확인은 필요합니다.
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
+- `--panels`(모든 `scan`): 텍스트 결과 뒤에 그 결과를 읽기 전용 전체 화면으로 보여 주는 [패널 화면](#패널-화면)을 엽니다. `--format json`, `sarif`와는 함께 쓸 수 없습니다(로그인·스캔 전에 사용법 오류 2). 터미널이 아니면(CI, 파이프, 리다이렉트) 무시되어 평소처럼 텍스트 결과만 출력되고 stderr에 한 줄 안내가 나갑니다. 대화형 메뉴에서 시작한 스캔은 터미널에서 같은 화면을 자동으로 엽니다. `PGARD_PANELS=off`(`0`, `false`, `no`도 가능)로 끌 수 있고, 명시적인 `--panels`가 이 설정보다 우선합니다. 로컬 웹 앱인 `pgard dashboard`와는 별개입니다.
 - `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 각자의 근거와 함께 나열하며 아무것도 접지 않습니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고). 억제된 발견 항목과 기준선에 있는 발견 항목도 모두 나열합니다([억제](#억제suppressions), [기준선](#기준선baseline) 참고).
 - `--format text|json|sarif`(모든 `scan`, 기본값 `text`): `sarif`는 대신 SARIF 2.1.0을 출력합니다([SARIF 출력](#sarif-출력) 참고). stdout, stderr, `--port`, 종료 코드는 `json`과 같은 규칙을 따릅니다. `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
 - `--lang en|ko`(모든 `scan`, `rules list`): 터미널에 표시되는 규칙 문구(제목, 영향, 조치)의 언어입니다. [규칙 문구의 언어](#규칙-문구의-언어) 참고.
@@ -240,6 +250,7 @@ authorization and continues the scan.
 | 4    | 검사 일부가 실행되지 않아 결과가 부분 완료이거나(예: 웹 대상 미확인, Git 이력 검사가 시간 한도에 도달), 보고서 저장에 실패했습니다. |
 | 5    | 내부 오류. 세부 내용은 숨기며, `PGARD_DEBUG=1`을 설정하면 정리된 메시지를 보여 줍니다.                                              |
 | 130  | 사용자가 취소했습니다.                                                                                                              |
+| 143  | 패널 화면이 열려 있는 동안 SIGTERM으로 종료되었습니다.                                                                              |
 
 `doctor`는 진단을 마치면 0(문제는 `[fail]`·`[warn]` 행으로 표시), 내부 오류면 5로 끝납니다. `pgard login`과 `pgard logout`의 종료 코드는 다음과 같습니다.
 
@@ -489,6 +500,19 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 5. **검사 범위**(영역별)와 **표준 매핑 현황**.
 
 표준 매핑 현황은 네 가지 상태만 씁니다: 규칙 실행됨(`rules ran`), 규칙 일부 실행(`rules partial`), 실행 안 됨(`not run`), 규칙 없음(`no rules`). 항목에 매핑된 PGARD 규칙이 이번 검사에서 실행되었는지를 나타낼 뿐 "안전"이나 "모두 다룸"이라는 뜻이 아니며, 표에 초록색은 쓰지 않습니다.
+
+### 패널 화면
+
+`pgard scan --panels`(또는 터미널에서 대화형 메뉴로 시작한 모든 스캔)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 메뉴에서는 완료·부분 완료된 스캔 뒤에(실패한 스캔은 보여 줄 것이 적어 제외) `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. `pgard scan …`은 `PGARD_PANELS=off`여도 `--panels`를 줄 때만 열립니다. stdin과 stdout이 모두 터미널이 아니면 절대 열리지 않습니다. 화면 자체가 실패하면 터미널을 되돌리고 stderr에 한 줄 안내를 내며 스캔의 종료 코드는 그대로입니다. 차단된 스캔에 `--panels`를 쓰면 열지 않고 이유를 stderr에 알립니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
+
+- **개요**: 텍스트 결과와 같은 요약 블록과 심각도 막대.
+- **차트**: OWASP Top 10 2025 분류별, 영역별 발견 항목.
+- **검사 범위**: 모든 영역의 상태와 설명(완료된 영역이 통과라는 뜻은 아닙니다).
+- **발견 항목**: 심각한 것부터, 한 줄에 심각도, 상태, `파일:줄`(또는 URL, 커밋)이 나오고 터미널이 60칸보다 넓으면 제목도 나옵니다. 근거, 영향, 해결 방법은 이 화면에 표시하지 않습니다.
+
+키: 위/아래(또는 `k`/`j`)는 스크롤하거나 선택을 옮기고, PageUp/PageDown은 한 페이지, Home/End는 처음·마지막 줄, `?`는 도움말, Esc는 도움말을 닫은 뒤 화면을 나가고, `q`는 바로 나가며, Ctrl+C는 `Cancel and exit? [y/N]`을 묻습니다(`y`면 종료 코드 130). Enter는 발견 항목 상세용으로 예약되어 있습니다. 대체 화면을 쓰며, 정상 종료, 오류, SIGINT(취소와 같게 처리), SIGTERM(종료 코드 143)에서 항상 커서와 화면을 되돌리고, 터미널 크기가 바뀌면 다시 그립니다. `NO_COLOR`와 `TERM=dumb`를 따르고(`#` 막대, 색 없음), 60칸 이하에서는 막대 대신 개수 줄을 쓰며, 40칸 또는 10줄 미만이면 "터미널이 너무 작습니다" 메시지만 보여 줍니다. 한국어 화면은 `--lang ko` 또는 `PGARD_LANG=ko`로 켜며, 규칙 제목은 텍스트 결과와 같은 언어 설정을 따릅니다.
+
+테스트와 버그 보고용 비대화형 경로가 있습니다. `PGARD_PANELS_ONCE=1 pgard scan --panels`는 텍스트 결과 뒤에 화면 제어 코드도, 키 입력도 없는 일반 텍스트 한 프레임을 출력하며 크기는 `COLUMNS`와 `LINES`(기본 80x24)로 정합니다. 지원되는 인터페이스는 아닙니다.
 
 ### 표준 coverage와 규칙 통계
 

@@ -20,6 +20,7 @@ import { isMachineFormat, runScanCommand } from "./commands/scan/index.js";
 import { err, out, type CommandContext } from "./context.js";
 import { createDefaultDeps, type CliDeps } from "./deps.js";
 import { EXIT_CODES, type ExitCode } from "./exit-codes.js";
+import { PanelsTerminatedError } from "./flows/panels.js";
 import { getHelpText } from "./help.js";
 import { resolveLanguage } from "./language.js";
 import { parseCommandLine, UsageError, type ParsedCommand } from "./options.js";
@@ -260,10 +261,12 @@ export async function main(
     reportLocale,
     ruleTexts: getRuleTextCatalog(),
     releaseInterrupts: cancel.dispose,
+    suspendInterrupts: cancel.suspend,
   };
   try {
     return command.kind === "menu" ? await runMenu(context) : await runCommand(context, command);
   } catch (error) {
+    if (error instanceof PanelsTerminatedError) return EXIT_CODES.terminated;
     if (error instanceof UserCancelledError) {
       io.stderr.write(`${errStyle.yellow("Cancelled.")}\n`);
       return EXIT_CODES.cancelled;
