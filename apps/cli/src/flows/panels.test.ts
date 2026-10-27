@@ -3,6 +3,7 @@ import { main } from "../app.js";
 import { parseCommandLine, UsageError } from "../options.js";
 import {
   createTestContext,
+  createSignedInCredentialStore,
   createTestDeps,
   createTestIo,
   noInterrupts,
@@ -273,6 +274,7 @@ describe("menu scan, end to end", () => {
       deps: createTestDeps({
         runScan: async () => panelsFixtureResult(),
         createSessionProvider: () => (async () => ({})) as never,
+        credentialStore: createSignedInCredentialStore(),
       }),
       interrupts: noInterrupts,
     });

@@ -251,21 +251,22 @@ Unknown commands and options, invalid values and invalid combinations are reject
 
 ### Exit codes
 
-| Code | Meaning                                                                                                                                                                             |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | The requested scope completed (findings may exist). For `doctor`: the diagnosis completed.                                                                                          |
-| 2    | Invalid command, option, value or combination.                                                                                                                                      |
-| 3    | The repository, authorization or contribution check failed (the scan was blocked).                                                                                                  |
-| 4    | Part of the scan did not run, so the result is partial (for example, no web target was confirmed, or the Git history scan stopped at its time budget), or the report export failed. |
-| 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                 |
-| 130  | Cancelled by the user.                                                                                                                                                              |
-| 143  | Terminated by SIGTERM while the panel view was open.                                                                                                                                |
+| Code | Meaning                                                                                                                                                                                                                        |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0    | The requested scope completed (findings may exist). For `doctor`: the diagnosis completed.                                                                                                                                     |
+| 2    | Invalid command, option, value or combination (also `pgard login` without a terminal).                                                                                                                                         |
+| 3    | The repository, authorization or contribution check failed (the scan was blocked). Without a terminal and without a saved sign-in this is immediate ("Not signed in", see [Without a terminal](#without-a-terminal-ci-pipes)). |
+| 4    | Part of the scan did not run, so the result is partial (for example, no web target was confirmed, or the Git history scan stopped at its time budget), or the report export failed.                                            |
+| 5    | Internal error. Details are hidden; set `PGARD_DEBUG=1` to see a sanitized message.                                                                                                                                            |
+| 130  | Cancelled by the user.                                                                                                                                                                                                         |
+| 143  | Terminated by SIGTERM while the panel view was open.                                                                                                                                                                           |
 
 `doctor` exits with 0 when the diagnosis completed (problems are listed as `[fail]` or `[warn]` rows) and 5 on an internal error. `pgard login` and `pgard logout` use these codes:
 
 | Code | `pgard login`                                                                                                                     | `pgard logout`                                                              |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
 | 0    | Signed in and saved.                                                                                                              | Removed, or nothing was saved.                                              |
+| 2    | No terminal (stdin and stderr must both be terminals): nothing is requested from GitHub.                                          | -                                                                           |
 | 3    | GitHub sign-in failed, or `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id (or `PGARD_GITHUB_APP_SLUG` is not a valid slug). | `PGARD_GITHUB_APP_CLIENT_ID` is not a valid client id; nothing was removed. |
 | 4    | No OS keychain is available, or saving failed; nothing was saved.                                                                 | No OS keychain is available; nothing was removed.                           |
 | 5    | Internal error.                                                                                                                   | Internal error.                                                             |
@@ -286,6 +287,55 @@ PGARD scans a repository only when it has evidence that you are allowed to. Befo
 5. **Contribution.** If you are the **verified owner**, you do not have to prove a contribution of your own, but your local history must still share a commit with the repository's default branch. For a personal repository, your GitHub account id must equal the repository owner's account id (both come from the GitHub API, never from the remote); the reason reads "`<user>` owns `<owner>/<repo>` (verified by GitHub account id); a separate contribution is not required." For an organization repository, you must be an active owner of the organization, proven by the same membership evidence that owner approval obtained in the same run (no second lookup); the reason reads "`<user>` is an owner of the organization "`<org>`"; a separate contribution is not required." In both cases at least one commit of `HEAD`'s ancestry (newest first, up to the same 30 local commits) must be in the default-branch history on GitHub, checked the same way as for a contribution; this ties the code on disk to the repository, so pointing `origin` at another repository you own does not let you scan unrelated code. A passing reason then ends with "Local HEAD is linked to `<owner>/<repo>` by commit `<sha>`." Unpushed local commits are fine as long as an older commit of `HEAD` is on the default branch. If none links (including an empty repository on GitHub), contribution fails with "None of the last `<N>` local commits is on `<owner>/<repo>`'s default branch "`<branch>`"; the local code can't be tied to this repository. Push or pull so local history shares a commit with the default branch." A GitHub API error while checking this makes contribution `unverifiable`. The exemption applies only when owner approval passed in the same run: any error, mismatch or unknown state means no exemption, and the normal rule below applies. It never replaces owner approval or current access, which must still pass on their own. Everyone else needs a contribution in the default-branch history. A commit counts only if GitHub shows it in the default branch, and either it belongs to a pull request you authored that was merged into the default branch, or GitHub verified its signature and attributes the committer to you. Author names or emails, co-author trailers, unmerged pull requests, pull requests merged into other branches or forks, unsigned direct pushes and local-only commits are never accepted as proof. PGARD examines up to 30 local commits (the ancestry of `HEAD`). If none of them qualifies and more local commits exist, contribution is `unverifiable`. When contribution does not pass, the reason ends with how to qualify: "To qualify, get a pull request merged into "`<default branch>`", or sign your commits (GitHub shows them as Verified) and push them to "`<default branch>`"."
 
 Each check is `passed`, `failed` or `unverifiable`, with a reason. The checks are reported in this order, but they are not evaluated strictly in this order: for example, PGARD reads the repository from GitHub (current access) before it checks owner approval. The scan runs only if every check passed. If any evidence is missing or unclear, the scan is **blocked** (exit code 3) and PGARD reports which check failed and why.
+
+### Guided first run (the interactive menu)
+
+In a terminal, `pgard` (the menu) inside a repository walks you through a first run when **no GitHub sign-in is saved yet**. It only adds guidance and retries around the authorization gate described below. Nothing is cached, and no check is skipped, reordered or weakened.
+
+```text
+$ pgard
+You are not signed in to GitHub yet.
+Sign in now? [Y/n] Y
+GitHub sign-in is required to verify your identity and repository access.
+  1. Open https://github.com/login/device
+  2. Enter the code WXYZ-1234 (expires in about 15 min)
+Waiting for approval... (Ctrl+C to cancel)
+Signed in to GitHub as octo.
+Signed in. Checking this repository...
+Checking authorization for this repository (all five checks)...
+Repository octo/app @ 546b9f0284bc
+Authorization: blocked - no analysis ran
+  [passed] repository: Git repository with remote "origin" -> github.com/octo/app.
+  [passed] github identity: Signed in to GitHub as octo.
+  [failed] owner approval: No PGARD GitHub App installation on the owner account "octo" was found for octo/app.
+  [passed] current access: The signed-in user currently has access to octo/app.
+  [passed] contribution: Commit 546b9f0284bc is in the default branch "main" (signature-verified commit by octo).
+This result is not stored. Every scan checks again.
+Owner approval: install the PGARD GitHub App on octo to approve PGARD for octo/app.
+  1. Open https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555
+  2. Choose "Only select repositories" (octo/app) or "All repositories", then click Install.
+Installing the App is the owner approval; PGARD cannot install it for you.
+Press Enter to open the page in your browser (or s to skip)...
+Press Enter after installing (or q to quit)...
+Checking again from scratch, all five authorization checks (try 1 of 3)...
+Repository octo/app @ 546b9f0284bc
+Authorization: allowed
+  [passed] repository: Git repository with remote "origin" -> github.com/octo/app.
+  [passed] github identity: Signed in to GitHub as octo.
+  [passed] owner approval: The PGARD GitHub App is installed by the owner account "octo" and includes octo/app.
+  [passed] current access: The signed-in user currently has access to octo/app.
+  [passed] contribution: octo owns octo/app (verified by GitHub account id); a separate contribution is not required. ...
+This result is not stored. Every scan checks again.
+Authorization passed. Starting the scan...
+```
+
+Then the scan runs as it does from the menu, and the panel view opens by the usual rules.
+
+- **No saved sign-in:** PGARD says so in one line and asks `Sign in now? [Y/n]`. Yes runs the usual device flow (including the Enter before the browser opens). No opens the menu; run `pgard login` whenever you are ready.
+- **Blocked only because the App is not installed on this repository (or not given access to it):** PGARD shows the exact install or configure link for the account or organization, offers to open it after Enter, and waits at `Press Enter after installing (or q to quit)`. Every retry runs **all five checks again from scratch**. There are at most 3 retries; if the App is still missing, the blocked result stays and the menu opens.
+- **Blocked for any other reason** (not an organization owner, no contribution evidence, no read access, not a GitHub remote, ...): the blocked result and its reasons are shown, with no retry loop, because installing the App would not help.
+- Ctrl+C at any of these questions asks `Cancel and exit? [y/N]`; `y` exits with code 130.
+- It starts only when nothing is saved in the OS keychain. With a saved sign-in, or without a usable keychain, the menu opens directly and scans work as described below.
 
 ### First run: sign-in, App install, continue
 
@@ -344,6 +394,10 @@ export PGARD_GITHUB_APP_SLUG=<slug of your own GitHub App>
 ```
 
 When sign-in is needed, PGARD shows the URL `https://github.com/login/device` and a short user code, and in a terminal (unless `--no-browser`) opens the URL in your browser after you press Enter. You open the URL, enter the code and approve. The token is never printed, logged, put in process arguments or environment variables, or written to a file.
+
+#### Without a terminal (CI, pipes)
+
+A sign-in needs a person who types a code on github.com, so PGARD starts the device flow only when **stdin and stderr are terminals**. When one of them is not (a pipe, `< /dev/null`, a CI runner) and there is no usable saved sign-in (the OS keychain is missing, locked, empty or unusable), no command requests a device code or waits. `scan` (every form and format), `baseline` and `project verify` finish immediately with a blocked result, exit code **3**, and this reason on the GitHub identity check: ``Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.`` With `--format json` or `--format sarif`, stdout holds the usual valid blocked document (do not upload a SARIF of a scan that did not run). A usable saved sign-in is still reused without a terminal. `pgard login` itself refuses to run without a terminal (usage error, exit code 2). The dashboard is unaffected: its sign-in is answered in the browser.
 
 #### Saved sign-in (OS keychain)
 
@@ -623,7 +677,7 @@ pgard baseline clear
 
 `pgard scan --format sarif > pgard.sarif` writes the redacted result as [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) to stdout (progress and messages go to stderr, exit codes are unchanged). To keep a file, redirect stdout; PGARD has no output-file option for SARIF, and `--report`/`--output-dir` still only write HTML and PDF reports. **PGARD never uploads anything**: sending the file to GitHub or an IDE is your step.
 
-**When not to upload.** GitHub code scanning does not display PGARD's `toolExecutionNotifications`, and it closes existing alerts that are missing from an upload. A SARIF of a scan that did not fully run would therefore close alerts for areas that were never checked. Upload only when the exit code is `0`. Exit code `3` (blocked), `4` (partial) or `5` (failed) means do not upload; PGARD also prints "Do not upload this SARIF" on stderr for them. Such a file also has `executionSuccessful: false`; GitHub is expected to reject it as an unsuccessful execution, but that is not in GitHub's documentation, so the exit code remains the main safeguard. Projects that import ORMs or query builders PGARD does not analyse (TypeORM, Sequelize, Knex, Drizzle, MikroORM, Objection, Kysely, and for Go ent, Bun, XORM, SQLBoiler, go-pg) always get a partial result (exit 4), so their SARIF is not uploadable by design. There is no CI workflow example: the authorization gate needs a GitHub sign-in that a CI runner does not have today, so a runner would produce a blocked, empty SARIF. A local flow:
+**When not to upload.** GitHub code scanning does not display PGARD's `toolExecutionNotifications`, and it closes existing alerts that are missing from an upload. A SARIF of a scan that did not fully run would therefore close alerts for areas that were never checked. Upload only when the exit code is `0`. Exit code `3` (blocked), `4` (partial) or `5` (failed) means do not upload; PGARD also prints "Do not upload this SARIF" on stderr for them. Such a file also has `executionSuccessful: false`; GitHub is expected to reject it as an unsuccessful execution, but that is not in GitHub's documentation, so the exit code remains the main safeguard. Projects that import ORMs or query builders PGARD does not analyse (TypeORM, Sequelize, Knex, Drizzle, MikroORM, Objection, Kysely, and for Go ent, Bun, XORM, SQLBoiler, go-pg) always get a partial result (exit 4), so their SARIF is not uploadable by design. There is no CI workflow example: the authorization gate needs a GitHub sign-in that a CI runner does not have today, so a runner without a terminal gets a blocked, empty SARIF with exit code 3 immediately (it does not wait for a sign-in). A local flow:
 
 ```sh
 pgard scan --format sarif > pgard.sarif && \
