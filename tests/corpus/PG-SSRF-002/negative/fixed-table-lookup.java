@@ -13,7 +13,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
   private static final Map<String, String> FEEDS = Map.of("news", "https://feeds.example.com/news", "sport", "https://feeds.example.com/sport");
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     return rest.getForObject(FEEDS.get(id), String.class);
   }
 }

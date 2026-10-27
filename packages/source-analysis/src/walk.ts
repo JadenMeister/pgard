@@ -69,6 +69,8 @@ export interface WalkResult {
    * use Thymeleaf. Not counted against `MAX_FILES`.
    */
   templateFiles: TrackedFile[];
+  /** The template list reached its cap (kept apart from `trackTruncated`, which is about source files). */
+  templatesTruncated: boolean;
   /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
   trackTruncated: boolean;
   /** Relative paths of manifests used for ORM detection. */
@@ -81,6 +83,8 @@ export interface WalkResult {
    */
   excluded: { count: number; digest: string };
   skippedLarge: number;
+  /** Repository-relative paths of minified bundles (`*.min.js`, `*.min.mjs`, `*.min.cjs`) not analyzed. */
+  skippedMinified: string[];
   /** Repository-relative paths of every symbolic link (file or directory); never followed. */
   skippedSymlinks: string[];
   /** Repository-relative paths of directories that could not be read ("." is the root). */
@@ -129,11 +133,18 @@ const EXTENSIONS: Record<string, SourceLanguage> = {
   ".go": "go",
 };
 
+/**
+ * Minified bundles: the file name ends in `.min.js`, `.min.mjs` or `.min.cjs`. Only the naming
+ * convention is used (no content sniffing), and these are the names the walk has always skipped.
+ */
+const MINIFIED_BUNDLE = /\.min\.(js|mjs|cjs)$/;
+
 export interface WalkOptions {
   /**
    * Repository-relative POSIX path of an analyzable source file: true leaves it out (counted in
    * `WalkResult.excluded`). Only files that would be analyzed are asked; skipped directories,
-   * symbolic links, declaration files and minified bundles are never listed either way.
+   * symbolic links, declaration files are never listed either way. Minified bundles are asked about too; the ones
+   * not excluded are reported in `WalkResult.skippedMinified`.
    */
   isExcluded?: (relativePath: string) => boolean;
 }
@@ -158,11 +169,13 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     trackManifests: [],
     xmlFiles: [],
     templateFiles: [],
+    templatesTruncated: false,
     trackTruncated: false,
     packageJsonPaths: [],
     goModPaths: [],
     excluded: { count: 0, digest: "" },
     skippedLarge: 0,
+    skippedMinified: [],
     skippedSymlinks: [],
     unreadableDirectories: [],
     skippedDependencyDirectories: [],
@@ -255,7 +268,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       if (TEMPLATE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
         const stats = await lstat(absolutePath).catch(() => null);
         if (stats?.isFile()) {
-          if (result.templateFiles.length >= MAX_TRACK_FILES) result.trackTruncated = true;
+          if (result.templateFiles.length >= MAX_TRACK_FILES) result.templatesTruncated = true;
           else result.templateFiles.push({ absolutePath, relativePath, size: stats.size });
         }
         continue;
@@ -274,10 +287,15 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         continue;
       }
       const language = EXTENSIONS[path.extname(entry.name)];
-      if (!language || entry.name.endsWith(".d.ts") || /\.min\.(js|mjs|cjs)$/.test(entry.name))
-        continue;
+      if (!language || entry.name.endsWith(".d.ts")) continue;
+      // The user's exclude comes first: an excluded minified bundle is counted as excluded, so an
+      // exclude pattern clears the partial `source:minified` area.
       if (options.isExcluded?.(relativePath)) {
         noteExcluded(relativePath);
+        continue;
+      }
+      if (MINIFIED_BUNDLE.test(entry.name)) {
+        result.skippedMinified.push(relativePath);
         continue;
       }
       const stats = await lstat(absolutePath).catch(() => null);

@@ -715,6 +715,18 @@ export function convertKotlin(ast: AstResult): Unit {
         case "function_declaration": {
           const nameNode = named(member, "name");
           const fnBody = ofType(member, "function_body");
+          // An extension function reads its receiver's members without naming it (`writer.write(x)`):
+          // the receiver's type is not followed, so web calls in the body are not analyzed.
+          if (
+            nameNode !== undefined &&
+            member.children.some(
+              (child) => TYPE_NODE.test(child.type) && child.start < nameNode.start,
+            ) &&
+            (WEB_CALL_TEXT.test(text(member)) ||
+              /\b(?:writer|outputStream|contentType)\b/.test(text(member)))
+          ) {
+            unit.unsupported.push("extension function");
+          }
           let stmts: Stmt[] | null = null;
           if (fnBody !== undefined) {
             const inner = nonAnon(fnBody)[0];

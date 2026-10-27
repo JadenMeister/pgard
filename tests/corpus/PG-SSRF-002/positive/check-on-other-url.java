@@ -13,7 +13,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
   private static final Set<String> ALLOWED = Set.of("api.example.com");
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     String other = "https://api.example.com/health";
     if (!ALLOWED.contains(URI.create(other).getHost())) { throw new IllegalStateException(); }
     return rest.getForObject(url, String.class);

@@ -22,6 +22,8 @@ import {
   ESCAPE_ANY_CLASS_NAMES,
   ESCAPE_CLASSES,
   ESCAPE_NAME,
+  NUMBER_WHY,
+  SAFE_SERIALIZERS,
   FLUENT_VERBS,
   HTML_CONTENT,
   HTTP_CLIENT_IMPORTS,
@@ -61,6 +63,8 @@ export interface WebFinding {
 
 /** A value put into a template model under a fixed name (`model.addAttribute("name", v)`). */
 export interface ModelAttribute {
+  /** Views the method that set it returns (empty when none is a literal). */
+  views: string[];
   name: string;
   /** Request input went into the value. */
   tainted: boolean;
@@ -91,6 +95,8 @@ interface Judged {
 const FIXED_BASE = /^\s*(?:https?:)?\/\/[A-Za-z0-9][A-Za-z0-9.-]*(?::\d{1,5})?(?=[/?#])/i;
 const CONFIGURED_BASE = /url|uri|base|host|endpoint|api|server|origin/i;
 const MARKUP = /<[A-Za-z/!]/;
+const COLLECTION_FACTORY_CALL =
+  /^(?:listOf|mapOf|setOf|arrayOf|mutableListOf|mutableMapOf|emptyList|emptyMap|of|asList)$/;
 
 /** Every string and name in an expression, for reading a content type or a client verb. */
 export function exprWords(expr: Expr | null | undefined, depth = 0): string {
@@ -204,6 +210,8 @@ export function createWebSinks(host: WebHost) {
   const modelAttributes: ModelAttribute[] = [];
   /** Content type set on the response so far in this method. */
   let contentType: ContentType = "unset";
+  let methodStart = 0;
+  let views: string[] = [];
 
   const importsAny = (prefixes: readonly string[]): boolean =>
     host.imports.some((name) =>
@@ -217,12 +225,26 @@ export function createWebSinks(host: WebHost) {
 
   // ---------------------------------------------------------------- judging a value
 
-  function judge(v: Value, composed = v.composed): Judged | null {
+  function judge(v: Value, composed = v.composed, forXss = false): Judged | null {
     const leaves: Leaf[] = [];
-    addLeaves(leaves, demoteEscaped(v.leaves));
+    const escapedAway = demoteEscaped(v.leaves);
+    addLeaves(
+      leaves,
+      forXss
+        ? escapedAway.filter((leaf) => !(leaf.k === "inferred" && NUMBER_WHY.test(leaf.why)))
+        : escapedAway,
+    );
     const dynamic = nonConst(leaves);
     if (dynamic.length === 0) return null;
     const callName = v.opaque.replace(/\(\)$/, "");
+    if (SAFE_SERIALIZERS.has(callName)) return null;
+    if (
+      dynamic.every(
+        (leaf) => leaf.k === "unknown" && SAFE_SERIALIZERS.has(leaf.name.replace(/\(\)$/, "")),
+      )
+    ) {
+      return null;
+    }
     const opaque = TEXT_KEEPERS.has(callName) ? "" : v.opaque;
     const tainted = sourcesOf(leaves) as SourceLeaf[];
     const helperLeaf = dynamic.find(
@@ -354,18 +376,15 @@ export function createWebSinks(host: WebHost) {
     if (!ctx.report) return;
     const options = xssOptions(type);
     if (options === null) return;
-    const judged = judge(v);
+    const judged = judge(v, v.composed, true);
     if (judged === null) return;
-    // A value nothing links to request input is told apart from JSON, CSV or plain text only by its
-    // surroundings: an HTML content type, or markup in the text around it.
-    if (judged.kind !== "tainted" && type !== "html" && !MARKUP.test(literalText(v.leaves))) {
-      return;
-    }
     report("PG-XSS-004", judged, line, label, options);
   }
 
-  function noteContentType(arg: Expr | undefined): void {
-    contentType = contentTypeOf(arg);
+  function noteContentType(arg: Expr | undefined, ctx: Context): void {
+    const next = contentTypeOf(arg);
+    // Set in only some branches (or differently in each): not known.
+    contentType = ctx.conditional > 0 && contentType !== next ? "dynamic" : next;
   }
 
   // ---------------------------------------------------------------- SSRF
@@ -430,7 +449,7 @@ export function createWebSinks(host: WebHost) {
     addLeaves(
       leaves,
       arg.leaves.map((leaf): Leaf =>
-        leaf.k === "source" || leaf.k === "unknown" ? { ...leaf, esc: `${why}; inferred` } : leaf,
+        leaf.k === "source" || leaf.k === "unknown" ? { ...leaf, esc: why } : leaf,
       ),
     );
     return value(leaves, { composed: false, shape: arg.shape });
@@ -453,6 +472,7 @@ export function createWebSinks(host: WebHost) {
           : typed || named;
     if (!ok) return;
     modelAttributes.push({
+      views: [],
       name: nameArg.text,
       tainted: sourcesOf(args[1]?.leaves ?? []).length > 0,
       line: expr.line,
@@ -483,12 +503,12 @@ export function createWebSinks(host: WebHost) {
     // ---- servlet responses ----
     if (recv?.web === "response") {
       if (WRITER_GETTERS.has(name)) return value([], { web: "writer" });
-      if (name === "setContentType") noteContentType(firstExpr);
+      if (name === "setContentType") noteContentType(firstExpr, ctx);
       else if (
         (name === "setHeader" || name === "addHeader") &&
         /content-?type/i.test(exprWords(firstExpr))
       ) {
-        noteContentType(expr.args[1]);
+        noteContentType(expr.args[1], ctx);
       }
       return null;
     }
@@ -544,12 +564,9 @@ export function createWebSinks(host: WebHost) {
       if (/^(?:expand|buildAndExpand)$/.test(name)) {
         return urlValue([recv, value([{ k: "const", text: "/" }]), ...args]);
       }
-      if (
-        URL_KEEPERS.has(name) ||
-        (/^(?:build|encode|scheme|port|userInfo|uri)$/.test(name) && name !== "uri")
-      ) {
-        return urlValue([recv]);
-      }
+      // The host, scheme and user info come from the argument: the base is no longer fixed.
+      if (/^(?:host|scheme|userInfo|port)$/.test(name)) return urlValue([...args, recv]);
+      if (URL_KEEPERS.has(name) || /^(?:build|encode)$/.test(name)) return urlValue([recv]);
     }
     if (recv !== null && recv.web !== "url" && recvExpr !== null && name === "toHttpUrl") {
       return urlValue([recv]);
@@ -693,6 +710,8 @@ export function createWebSinks(host: WebHost) {
     ctx: Context,
   ): Value | null {
     const first = args[0];
+    // `new URL(context, spec)`: an absolute spec replaces the context, so the spec comes first.
+    if (type === "URL" && args.length === 2) return urlValue([args[1] as Value, args[0] as Value]);
     if (URL_TYPES.has(type) && args.length >= 1) return urlValue(args);
     if (APACHE_REQUESTS.has(type) && first !== undefined && argExprs[0]?.k !== "lambda") {
       ssrfSink(first, line, `new ${type}`, ctx);
@@ -707,8 +726,10 @@ export function createWebSinks(host: WebHost) {
       return null;
     }
     if (WRITER_WRAPPERS.has(type) && first?.web === "writer") return value([], { web: "writer" });
+    if (type === "ModelAndView" && argExprs[0]?.k === "str") views.push(argExprs[0].text);
     if (type === "ModelAndView" && args.length === 3 && argExprs[1]?.k === "str") {
       modelAttributes.push({
+        views: [],
         name: argExprs[1].text,
         tainted: sourcesOf(args[2]?.leaves ?? []).length > 0,
         line,
@@ -724,12 +745,22 @@ export function createWebSinks(host: WebHost) {
   }
 
   /** `response.contentType = "text/html"` (Kotlin). */
-  function assigned(target: Expr, incoming: Expr): void {
-    if (target.k === "member" && target.name === "contentType") noteContentType(incoming);
+  function assigned(target: Expr, incoming: Expr, ctx: Context): void {
+    if (target.k === "member" && target.name === "contentType") noteContentType(incoming, ctx);
   }
 
+  /** A new method starts: its response has no content type yet, and no view or model attribute. */
   function startMethod(): void {
     contentType = "unset";
+    methodStart = modelAttributes.length;
+    views = [];
+  }
+
+  /** The method ends: the model attributes it set belong to the views it returned. */
+  function endMethod(): void {
+    for (let i = methodStart; i < modelAttributes.length; i += 1) {
+      (modelAttributes[i] as ModelAttribute).views = [...views];
+    }
   }
 
   // ---------------------------------------------------------------- handler return values
@@ -768,38 +799,46 @@ export function createWebSinks(host: WebHost) {
     evalArg: (expr: Expr) => Value,
   ): void {
     if (!ctx.report || method === null) return;
+    if (expr.k === "str" && !/^(?:redirect|forward):/.test(expr.text)) views.push(expr.text);
     if (!method.annotations.some((annotation) => HANDLER_ANNOTATIONS.has(annotation.name))) return;
     const body =
       method.annotations.some((annotation) => annotation.name === "ResponseBody") ||
       (cls?.annotations ?? []).some((annotation) => BODY_CLASS_ANNOTATIONS.has(annotation.name));
     if (!body) return;
+    // A declared type that is not text (a DTO, a Map, a ResponseEntity of one) is a JSON body. An
+    // inferred type (Kotlin expression body) is read from the expression instead.
     const type = (method.returnType ?? "").replace(/\s/g, "");
     const plain = /^(?:String|CharSequence|kotlin\.String)\??$/.test(type);
     const entity = /^ResponseEntity<String\??>$/.test(type);
-    if (!plain && !entity) return;
+    const inferredType = type === "";
+    if (!plain && !entity && !inferredType) return;
+    if (inferredType) {
+      // An object, a collection factory or a lambda is not text.
+      if (expr.k === "new" || expr.k === "array" || expr.k === "lambda" || expr.k === "lit") return;
+      if (expr.k === "call" && COLLECTION_FACTORY_CALL.test(expr.name)) return;
+      // With no declared type a call result (`jdbc.queryForList(..)`) may be any object: only text
+      // built here (a literal, a template, a concatenation, a variable) is read as a String body.
+      if (expr.k === "call" && entityBody(expr) === null) return;
+    }
     let setType: ContentType = "unset";
     for (const annotation of method.annotations) {
       const produces = annotation.named.get("produces");
       if (produces !== undefined) setType = contentTypeOf(produces);
     }
     let target = v;
-    if (entity) {
-      const unwrapped = entityBody(expr);
-      if (unwrapped === null) return;
+    const unwrapped = entity || inferredType ? entityBody(expr) : null;
+    if (entity && unwrapped === null) return;
+    if (unwrapped !== null) {
       // The chain-based sink (`.contentType(TEXT_HTML).body(x)`) already reported it.
       if (unwrapped.type === "html") return;
       if (unwrapped.type !== null) setType = unwrapped.type;
       target = evalArg(unwrapped.body);
-    } else if (expr.k === "call" || expr.k === "new") {
-      // A String handler can still return an object expression the analysis cannot read as text.
-      if (expr.k === "new") return;
+    } else if (expr.k === "new") {
+      return;
     }
     if (setType === "other") return;
-    const judged = judge(target);
+    const judged = judge(target, target.composed, true);
     if (judged === null) return;
-    // Only request input that reaches the returned text through string operations is reported: a
-    // value that passes through a method call (`render(name)`, `rest.getForObject(url)`) is not followed.
-    if (judged.kind !== "tainted") return;
     const markup = MARKUP.test(literalText(target.leaves));
     const options: Options =
       setType === "html"
@@ -820,5 +859,5 @@ export function createWebSinks(host: WebHost) {
     report("PG-XSS-004", judged, expr.line, "response body", options);
   }
 
-  return { call, construct, member, assigned, startMethod, returned, modelAttributes };
+  return { call, construct, member, assigned, startMethod, endMethod, returned, modelAttributes };
 }

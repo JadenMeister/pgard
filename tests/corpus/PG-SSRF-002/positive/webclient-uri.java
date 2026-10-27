@@ -14,7 +14,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
 
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     return org.springframework.web.reactive.function.client.WebClient.create().get().uri(url).retrieve().bodyToMono(String.class).block();
   }
 }

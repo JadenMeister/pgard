@@ -60,6 +60,23 @@ describe("PG-XSS-004: JSP", () => {
       '<c:set var="q" value="${param.q}"/>\n<p>${q}</p>',
       "high/suspected/high",
     ],
+    [
+      "an HTML comment still runs scriptlets",
+      '<!-- <%= request.getParameter("q") %> -->',
+      "high/confirmed/high",
+    ],
+    ["an HTML comment still runs EL", "<!-- ${param.q} -->", "high/confirmed/high"],
+    [
+      "a JSP that sends JSON is not HTML",
+      '<%@ page contentType="application/json" %>\n<%= request.getParameter("q") %>',
+      "none",
+    ],
+    [
+      "fn:escapeXml in one branch of a ternary",
+      "<p>${empty x ? fn:escapeXml(param.q) : param.q}</p>",
+      "high/confirmed/high",
+    ],
+    ["fn:escapeXml around the whole expression", "<p>${fn:escapeXml(param.q)}</p>", "none"],
     ["a taglib tag attribute is not output", '<c:if test="${param.q == 1}">x</c:if>', "none"],
   ];
   for (const [name, source, expected] of cases) {
@@ -78,7 +95,11 @@ describe("PG-XSS-004: JSP", () => {
 });
 
 describe("PG-XSS-004: Thymeleaf", () => {
-  const model = new Map<string, ModelSource>([["comment", { path: "C.java", line: 12 }]]);
+  const model = new Map<string, ModelSource[]>([
+    ["comment", [{ path: "C.java", line: 12, views: ["a"] }]],
+    ["note", [{ path: "D.java", line: 3, views: [] }]],
+    ["title", [{ path: "E.java", line: 9, views: ["search"] }]],
+  ]);
   const cases: Array<[string, string, string]> = [
     ["th:text escapes", '<p th:text="${param.q}"></p>', "none"],
     [
@@ -108,6 +129,36 @@ describe("PG-XSS-004: Thymeleaf", () => {
     ["inline escaped output", "<p>[[${comment}]]</p>", "none"],
     ["data- prefixed attribute", '<p data-th-utext="${param.q}"></p>', "high/confirmed/high"],
     ["a comment", '<!-- <p th:utext="${param.q}"></p> -->\n<p th:text="${x}"></p>', "none"],
+    [
+      "a model value matched by name only (the view is not resolvable)",
+      '<p th:utext="${note}"></p>',
+      "inferred",
+    ],
+    [
+      "a model value set by a handler that returns another view",
+      '<p th:utext="${title}"></p>',
+      "inferred",
+    ],
+    [
+      "an escape helper next to a request parameter",
+      '<p th:utext="${#strings.escapeXml(a) + param.q}"></p>',
+      "high/confirmed/high",
+    ],
+    [
+      "a Spring HtmlUtils call on a request parameter",
+      '<p th:utext="${@htmlUtils.htmlEscape(param.q)}"></p>',
+      "inferred",
+    ],
+    [
+      "a helper that is not an escaper",
+      '<p th:utext="${@util.shorten(param.q)}"></p>',
+      "high/confirmed/high",
+    ],
+    [
+      "a block that only Thymeleaf runs",
+      '<!--/*/ <p th:utext="${param.q}"></p> /*/-->',
+      "high/confirmed/high",
+    ],
   ];
   for (const [name, source, expected] of cases) {
     it(name, () => {
@@ -133,8 +184,11 @@ describe("scanSourceCode with templates", () => {
   const xss = (output: Awaited<ReturnType<typeof scanSourceCode>>) =>
     output.findings.filter((finding) => finding.ruleId === "PG-XSS-004");
 
-  it("reads a JSP with no Java file in the project", async () => {
-    const root = project({ "web/index.jsp": '<p><%= request.getParameter("q") %></p>\n' });
+  it("reads a JSP in a project with a Maven manifest and no Java file", async () => {
+    const root = project({
+      "pom.xml": "<project/>\n",
+      "web/index.jsp": '<p><%= request.getParameter("q") %></p>\n',
+    });
     const output = await scanSourceCode(root);
     expect(xss(output).map((finding) => finding.location.path)).toEqual(["web/index.jsp"]);
     expect(output.coverage.find((item) => item.area === "source:jvm-templates")).toMatchObject({
@@ -167,6 +221,67 @@ class C {
     expect(byModel).toMatchObject({ severity: "high", confidence: "medium", status: "suspected" });
     expect(byModel?.evidence).toContain("C.java:7");
     expect(other).toMatchObject({ confidence: "low" });
+  });
+
+  it("reads no template in a project that is not a Java or Kotlin one", async () => {
+    const root = project({
+      "package.json": "{}\n",
+      "app.js": "console.log(1);\n",
+      "views/index.mustache": "<p>{{name}}</p>\n",
+      "views/page.vm": "<p>$name</p>\n",
+      "public/index.html": '<html xmlns:th="x"><p th:utext="${param.q}"></p></html>\n',
+      "web/index.jsp": '<p><%= request.getParameter("q") %></p>\n',
+    });
+    const output = await scanSourceCode(root);
+    expect(xss(output)).toEqual([]);
+    expect(
+      output.coverage.filter((item) => /^source:(?:jvm-templates|template:)/.test(item.area)),
+    ).toEqual([]);
+  });
+
+  it("honours the exclude patterns for template engine files", async () => {
+    const root = project({
+      "A.java": "class A {}\n",
+      "legacy/page.ftl": "<p>${x}</p>\n",
+    });
+    const output = await scanSourceCode(root, {
+      projectConfig: { version: 1, exclude: ["legacy"], testDirectories: [], suppressions: [] },
+    });
+    expect(output.coverage.some((item) => item.area.startsWith("source:template:"))).toBe(false);
+  });
+
+  it("links a model value only to the template of the handler that sets it", async () => {
+    const controller = (
+      view: string,
+      value: string,
+    ): string => `import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.web.bind.annotation.*;
+@Controller
+class C${view} {
+  @GetMapping("/${view}") String ${view}(@RequestParam String q, Model model) {
+    model.addAttribute("title", ${value});
+    return "${view}";
+  }
+}
+`;
+    const root = project({
+      "src/Search.java": controller("search", "q"),
+      "src/About.java": controller("about", '"About"'),
+      "src/main/resources/templates/search.html":
+        '<html xmlns:th="http://www.thymeleaf.org"><h1 th:utext="${title}"></h1></html>\n',
+      "src/main/resources/templates/about.html":
+        '<html xmlns:th="http://www.thymeleaf.org"><h1 th:utext="${title}"></h1></html>\n',
+    });
+    const output = await scanSourceCode(root);
+    const byPath = new Map(xss(output).map((finding) => [finding.location.path, finding]));
+    expect(byPath.get("src/main/resources/templates/search.html")).toMatchObject({
+      confidence: "medium",
+      severity: "high",
+    });
+    expect(byPath.get("src/main/resources/templates/about.html")).toMatchObject({
+      confidence: "low",
+    });
   });
 
   it("does not read an HTML file that is not a Thymeleaf template", async () => {

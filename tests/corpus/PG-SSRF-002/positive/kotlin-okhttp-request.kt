@@ -8,8 +8,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 class FetchController(private val http: OkHttpClient) {
     @GetMapping("/fetch")
-    fun fetch(@RequestParam url: String): String {
+    fun fetch(@RequestParam url: String) {
         val request = Request.Builder().url(url).build()
-        return http.newCall(request).execute().body!!.string()
+        http.newCall(request).execute()
     }
 }

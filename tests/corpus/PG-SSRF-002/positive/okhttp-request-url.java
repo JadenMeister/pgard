@@ -14,7 +14,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
 
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     okhttp3.Request request = new okhttp3.Request.Builder().url(url).build();
     return new okhttp3.OkHttpClient().newCall(request).execute().body().string();
   }

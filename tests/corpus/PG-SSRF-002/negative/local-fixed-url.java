@@ -15,7 +15,7 @@ public class FetchController {
   enum Feed { NEWS, SPORT }
 
   @GetMapping("/feed")
-  public String feed() {
+  public void feed() {
     String url = "https://feeds.example.com/news";
     return rest.getForObject(url, String.class);
   }

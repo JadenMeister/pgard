@@ -13,6 +13,8 @@ export const MAX_TEMPLATE_FINDINGS_PER_FILE = 25;
 export interface ModelSource {
   path: string;
   line: number;
+  /** Literal view names the method that set it returns; empty when none is known. */
+  views: string[];
 }
 
 export interface TemplateAnalysis {
@@ -20,6 +22,8 @@ export interface TemplateAnalysis {
   capped: boolean;
   /** The file was read as a template of this kind; `null` when it is not one (a plain HTML file). */
   kind: "jsp" | "thymeleaf" | null;
+  /** The file has code forms that are not read (`<jsp:scriptlet>`, `<jsp:expression>`). */
+  unread?: boolean;
 }
 
 type Class = "tainted" | "escaped" | "unknown" | "fixed";
@@ -220,9 +224,30 @@ function elEnd(text: string, at: number): number {
   return -1;
 }
 
+/** Replaces every call that `names` matches (with its balanced arguments) by a literal. */
+function stripCalls(body: string, names: RegExp): { rest: string; removed: boolean } {
+  let rest = body;
+  let removed = false;
+  for (let hops = 0; hops < 20; hops += 1) {
+    const match = new RegExp(names.source).exec(rest);
+    if (match === null) break;
+    const open = match.index + match[0].length - 1;
+    const close = closingParen(rest, open);
+    rest = `${rest.slice(0, match.index)}'x'${close === -1 ? "" : rest.slice(close + 1)}`;
+    removed = true;
+  }
+  return { rest, removed };
+}
+
+const EL_ESCAPE = /(?<!\w)fn\s*:\s*escapeXml\s*\(/;
+
 function elJudge(body: string, vars: ReadonlyMap<string, Class>): Judgement {
-  if (/(?:^|[^\w])fn\s*:\s*escapeXml\s*\(/.test(body))
-    return { cls: "fixed", direct: false, detail: "" };
+  if (EL_ESCAPE.test(body)) {
+    // Only the escaped part is safe: what stays in the expression is judged on its own.
+    const { rest } = stripCalls(body, EL_ESCAPE);
+    const inner = elJudge(rest, vars);
+    return inner.cls === "fixed" ? { cls: "fixed", direct: false, detail: "" } : inner;
+  }
   if (EL_SOURCE.test(body)) {
     const source =
       /(param|paramValues|header|headerValues|cookie)\s*(?:\.|\[)/.exec(body)?.[1] ?? "request";
@@ -276,7 +301,10 @@ function make(
     severity: "low",
     status: "suspected",
     confidence: "low",
-    evidence: `${what}; the value's source is not followed (no input source identified); inferred`,
+    evidence:
+      judged.detail === ""
+        ? `${what}; the value's source is not followed (no input source identified); inferred`
+        : `${what}; ${judged.detail}; inferred`,
   };
 }
 
@@ -354,7 +382,14 @@ function readTag(text: string, at: number): Tag | null {
 
 export function analyzeJsp(source: string, path: string): TemplateAnalysis {
   const lineAt = lineAtOf(lineStartsOf(source));
-  let text = blankComments(blankComments(source, "<%--", "--%>"), "<!--", "-->");
+  // Only JSP comments are blanked: an HTML comment is still output, and its scriptlets and EL run.
+  let text = blankComments(source, "<%--", "--%>");
+  const contentType = /<%@\s*page\b[^%]*\bcontentType\s*=\s*["']([^"']*)["']/.exec(text)?.[1];
+  if (contentType !== undefined && !/html/i.test(contentType)) {
+    // A JSP that sends JSON, XML or plain text is not an HTML page.
+    return { findings: [], capped: false, kind: "jsp" };
+  }
+  const unread = /<jsp:(?:scriptlet|expression|declaration)\b/.test(text);
   const elIgnored = /<%@\s*page\b[^%]*isELIgnored\s*=\s*["']true["']/.test(text);
   const findings: RawSourceFinding[] = [];
   const vars = new Map<string, Class>();
@@ -486,7 +521,7 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
     }
   }
   const limited = limit(findings);
-  return { ...limited, kind: "jsp" };
+  return { ...limited, kind: "jsp", unread };
 }
 
 // ------------------------------------------------------------------ Thymeleaf
@@ -500,42 +535,75 @@ const THYMELEAF_ESCAPE =
 const THYMELEAF_SOURCE =
   /\$\{\s*(?:#?(?:request|httpServletRequest)\s*\.\s*(?:getParameter|getHeader|queryString|getQueryString|requestURI|getRequestURI|getRequestURL|parameterMap|getCookies)|param\s*[.[]|#vars\.param|#request\.getParameter)|(?<![\w.])param\s*[.[]\s*['"\w]/;
 
-function thymeleafJudge(expression: string, model: ReadonlyMap<string, ModelSource>): Judgement {
+/** The view name a template file answers to: its path under `templates/`, without the extension. */
+function viewOf(path: string): string {
+  const at = path.lastIndexOf("templates/");
+  const rest = at === -1 ? (path.split("/").pop() ?? path) : path.slice(at + "templates/".length);
+  return rest.replace(/\.[^./]+$/, "");
+}
+
+const normalizeView = (view: string): string =>
+  (view.split("::")[0] ?? view).trim().replace(/^\//, "");
+
+function thymeleafJudge(
+  expression: string,
+  model: ReadonlyMap<string, ModelSource[]>,
+  view: string,
+): Judgement {
   const body = expression.trim();
   if (/^#\{[^${}]*\}$/.test(body) || /^'[^']*'$/.test(body) || /^\|[^|$#]*\|$/.test(body)) {
     return { cls: "fixed", direct: false, detail: "" };
   }
-  if (THYMELEAF_ESCAPE.test(body)) {
+  const globalEscape = new RegExp(THYMELEAF_ESCAPE.source);
+  if (globalEscape.test(body)) {
     const name =
       /([#\w.]+)\s*\(/.exec(body.slice(body.search(THYMELEAF_ESCAPE)))?.[1] ?? "an escaping helper";
+    // The escaped part is inferred safe; request input left outside the helper is still reported.
+    const inner = thymeleafJudge(stripCalls(body, THYMELEAF_ESCAPE).rest, model, view);
+    if (inner.cls === "tainted") return inner;
     return { cls: "escaped", direct: false, detail: `escaped with ${name}()` };
   }
   if (THYMELEAF_SOURCE.test(body)) {
     return { cls: "tainted", direct: true, detail: "param / request in the expression" };
   }
+  let weak: Judgement | null = null;
   for (const match of body.matchAll(/(?:\$\{|\*\{)\s*!?\(?\s*([A-Za-z_]\w*)/g)) {
-    const found = model.get(match[1] as string);
-    if (found !== undefined) {
+    const name = match[1] as string;
+    const sources = model.get(name) ?? [];
+    // The handler that returns this template is the one whose attribute counts.
+    const linked = sources.find((source) => source.views.some((v) => normalizeView(v) === view));
+    if (linked !== undefined) {
       return {
         cls: "tainted",
         direct: false,
-        detail: `model attribute '${match[1] as string}' is set from request input in ${found.path}:${found.line}`,
+        detail: `model attribute '${name}' is set from request input in ${linked.path}:${linked.line}`,
+      };
+    }
+    const byName = sources.find((source) => source.views.length === 0);
+    if (byName !== undefined && weak === null) {
+      weak = {
+        cls: "unknown",
+        direct: false,
+        detail: `model attribute '${name}' may be set from request input in ${byName.path}:${byName.line} (view not resolvable, matched by name)`,
       };
     }
   }
-  return { cls: "unknown", direct: false, detail: "" };
+  return weak ?? { cls: "unknown", direct: false, detail: "" };
 }
 
 export function analyzeThymeleaf(
   source: string,
   path: string,
-  model: ReadonlyMap<string, ModelSource>,
+  model: ReadonlyMap<string, ModelSource[]>,
 ): TemplateAnalysis {
   const lineAt = lineAtOf(lineStartsOf(source));
-  const text = blankComments(source, "<!--", "-->");
+  const view = viewOf(path);
+  // `<!--/*/ ... /*/-->` is a block that Thymeleaf runs: only its markers are removed.
+  const unwrapped = source.replace(/<!--\/\*\/|\/\*\/-->/g, (marker) => " ".repeat(marker.length));
+  const text = blankComments(unwrapped, "<!--", "-->");
   const findings: RawSourceFinding[] = [];
   const add = (offset: number, expression: string, label: string, what: string): void => {
-    const judged = thymeleafJudge(expression, model);
+    const judged = thymeleafJudge(expression, model, view);
     const found = make(path, lineAt(offset), judged, label, what);
     if (found === null) return;
     // A model value matched by name only is a medium-confidence finding.

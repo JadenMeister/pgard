@@ -13,7 +13,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
 
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     java.net.InetAddress addr = java.net.InetAddress.getByName(new URL(url).getHost());
     if (addr.isLoopbackAddress() || addr.isSiteLocalAddress() || addr.isLinkLocalAddress()) {
       throw new IllegalArgumentException("private address");

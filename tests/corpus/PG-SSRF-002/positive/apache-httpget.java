@@ -14,7 +14,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
 
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     org.apache.http.client.methods.HttpGet get = new org.apache.http.client.methods.HttpGet(url);
     org.apache.http.impl.client.HttpClients.createDefault().execute(get);
     return "done";

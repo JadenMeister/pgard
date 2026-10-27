@@ -13,7 +13,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
 
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     URI target = org.springframework.web.util.UriComponentsBuilder.fromHttpUrl("https://api.example.com").pathSegment(id).build().toUri();
     return rest.getForObject(target, String.class);
   }

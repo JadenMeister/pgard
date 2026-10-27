@@ -7,6 +7,7 @@ import org.springframework.web.client.RestTemplate
 @RestController
 class FetchController(private val restTemplate: RestTemplate) {
     @GetMapping("/fetch")
-    fun fetch(@RequestParam host: String): String? =
+    fun fetch(@RequestParam host: String) {
         restTemplate.getForObject("http://$host/status", String::class.java)
+    }
 }

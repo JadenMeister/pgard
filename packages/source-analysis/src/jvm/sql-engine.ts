@@ -57,6 +57,8 @@ import {
   NON_INPUT_TYPES,
   NUMERIC_MEMBERS,
   NUMERIC_RESULTS,
+  TYPED_NUMERIC_RECEIVERS,
+  TYPED_NUMERIC_RESULTS,
   NUMERIC_TYPES,
   ORM_SINKS,
   PASS_THROUGH,
@@ -705,6 +707,17 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     }
     if (NUMERIC_RESULTS.has(name) && (recv !== null || expr.recv === null)) {
       return inferred(`${name}() gives a number or boolean`);
+    }
+    // These names give a number only on the types that define them, and never on a value that
+    // carries request input (a request DTO can have a `pid()` that returns text).
+    if (
+      TYPED_NUMERIC_RESULTS.has(name) &&
+      expr.recv !== null &&
+      recv !== null &&
+      sourcesOf(recv.leaves).length === 0 &&
+      TYPED_NUMERIC_RECEIVERS.has(baseType(typeOfExpr(expr.recv, ctx)))
+    ) {
+      return inferred(`${name}() gives a number`);
     }
     if (name === "nCopies" && args[1] !== undefined) return value(args[1].leaves);
     if (name === "name" && expr.args.length === 0 && expr.recv !== null) {
@@ -1355,7 +1368,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       // Stored in a field, an array or a collection: a builder can be changed from there.
       escape([incoming], "stored");
       os.escapes(incoming);
-      web.assigned(stmt.target, stmt.value);
+      web.assigned(stmt.target, stmt.value, ctx);
       evalExpr(stmt.target, ctx, depth + 1);
       const root = rootName(stmt.target);
       const written = root === null ? null : ctx.scope.find(root);
@@ -1594,6 +1607,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     bindParameters(method, ctx);
     execStmts(method.body, ctx, 0);
     drainLambdas();
+    web.endMethod();
     currentMethod = null;
     currentClass = null;
   }

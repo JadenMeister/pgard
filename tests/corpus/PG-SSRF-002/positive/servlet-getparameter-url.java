@@ -10,6 +10,6 @@ public class Proxy extends HttpServlet {
   @Override
   protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
     String target = req.getParameter("target");
-    resp.getOutputStream().write(new URL(target).openStream().readAllBytes());
+    byte[] data = new URL(target).openStream().readAllBytes();
   }
 }

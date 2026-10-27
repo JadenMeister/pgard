@@ -28,6 +28,17 @@ export const WRITER_WRAPPERS = new Set([
 /** Calls on a string that give its bytes or characters (the text is kept). */
 export const TEXT_KEEPERS = new Set(["getBytes", "toByteArray", "encodeToByteArray"]);
 
+/** JSON serialisers: their result is known safe text, so it is never reported as HTML output. */
+export const SAFE_SERIALIZERS = new Set([
+  "writeValueAsString",
+  "writeValueAsBytes",
+  "toJson",
+  "toJSONString",
+  "encodeToString",
+]);
+/** Why an inferred value cannot carry markup (a number, a boolean, a date). */
+export const NUMBER_WHY = /number|numeric|boolean|arithmetic|cast to/i;
+
 /** Content types, as words in the expression that sets them. */
 export const HTML_CONTENT = /html/i;
 export const OTHER_CONTENT =

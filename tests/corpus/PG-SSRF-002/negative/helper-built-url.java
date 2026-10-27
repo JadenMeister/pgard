@@ -13,7 +13,7 @@ public class FetchController {
   private final RestTemplate rest = new RestTemplate();
   private String buildUrl(String key) { return "https://api.example.com/" + key; }
   @GetMapping("/fetch")
-  public String fetch(@RequestParam String url, @RequestParam String id) throws Exception {
+  public void fetch(@RequestParam String url, @RequestParam String id) throws Exception {
     return rest.getForObject(buildUrl(id), String.class);
   }
 }

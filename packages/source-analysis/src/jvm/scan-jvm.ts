@@ -79,7 +79,7 @@ export async function scanJvm(
   const osLibraries = new Map<string, { kind: "process" | "file"; count: number }>();
   const templateLibraries = new Map<string, number>();
   /** Template models: the attributes that a controller fills from request input, by name. */
-  const modelSources = new Map<string, ModelSource>();
+  const modelSources = new Map<string, ModelSource[]>();
   const runtime = new TreeSitterRuntime();
   try {
     for (const language of JVM_LANGUAGES) {
@@ -115,11 +115,11 @@ export async function scanJvm(
             }
             if (analysis.reflectionWeb) reflectionFiles.push(file.relativePath);
             for (const attribute of analysis.modelAttributes) {
-              if (attribute.tainted && !modelSources.has(attribute.name)) {
-                modelSources.set(attribute.name, {
-                  path: file.relativePath,
-                  line: attribute.line,
-                });
+              if (attribute.tainted) {
+                modelSources.set(attribute.name, [
+                  ...(modelSources.get(attribute.name) ?? []),
+                  { path: file.relativePath, line: attribute.line, views: attribute.views },
+                ]);
               }
             }
             for (const library of analysis.unsupportedTemplateLibraries) {
@@ -297,12 +297,24 @@ export async function scanJvm(
     let templateCapped = 0;
     let templateUnreadable = 0;
     let templateTooLarge = 0;
+    let templateUnread = 0;
     const engineFiles = new Map<string, number>();
-    for (const file of walk.templateFiles) {
+    // Templates are read only in a Java or Kotlin project: a Node or Python repository with
+    // `.html`, `.mustache` or `.vm` files has none of this rule's concern.
+    const jvmProject =
+      walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
+      walk.trackManifests.some(
+        (manifest) => manifest.kind === "maven" || manifest.kind === "gradle",
+      );
+    for (const file of jvmProject ? walk.templateFiles : []) {
       throwIfAborted(options.signal);
       const extension = extensionOf(file.relativePath);
       const engine = TEMPLATE_ENGINES[extension];
       if (engine !== undefined) {
+        if (options.isExcluded?.(file.relativePath) === true) {
+          excludedMapperPaths.push(file.relativePath);
+          continue;
+        }
         engineFiles.set(engine, (engineFiles.get(engine) ?? 0) + 1);
         continue;
       }
@@ -332,6 +344,7 @@ export async function scanJvm(
       analyzedPaths.push(file.relativePath);
       templateFindings.push(...analysis.findings.map(createSourceFinding));
       if (analysis.capped) templateCapped += 1;
+      if (analysis.unread === true) templateUnread += 1;
     }
     findings.push(...templateFindings);
     if (templatesRead > 0 || templateUnreadable + templateTooLarge > 0) {
@@ -345,7 +358,12 @@ export async function scanJvm(
         problems.push(`${templateUnreadable} JSP file(s) were binary or unreadable`);
       if (templateTooLarge > 0)
         problems.push(`${templateTooLarge} JSP file(s) over 1 MiB were not read`);
-      if (walk.trackTruncated) problems.push("the file list reached its cap");
+      if (templateUnread > 0) {
+        problems.push(
+          `${templateUnread} JSP file(s) use <jsp:scriptlet>, <jsp:expression> or <jsp:declaration>, which are not read`,
+        );
+      }
+      if (walk.templatesTruncated) problems.push("the template file list reached its cap");
       const entry: Coverage = {
         area: "source:jvm-templates",
         scope: "code",

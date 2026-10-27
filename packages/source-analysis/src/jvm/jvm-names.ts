@@ -225,11 +225,20 @@ export const NUMERIC_RESULTS = new Set([
   "lastIndexOf",
   "compareTo",
   "signum",
+]);
+/** Names that give a number only on certain receiver types (see `TYPED_NUMERIC_RECEIVERS`). */
+export const TYPED_NUMERIC_RESULTS = new Set([
   "pid",
   "exitValue",
   "waitFor",
   "getResponseCode",
   "getContentLength",
+]);
+export const TYPED_NUMERIC_RECEIVERS = new Set([
+  "Process",
+  "ProcessHandle",
+  "HttpURLConnection",
+  "URLConnection",
 ]);
 export const NUMERIC_MEMBERS = new Set(["length", "size", "ordinal", "lastIndex", "indices"]);
 

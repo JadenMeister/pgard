@@ -10,6 +10,6 @@ public class AssetServlet extends HttpServlet {
   protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
     String name = request.getParameter("asset");
     String real = getServletContext().getRealPath("/assets/" + name);
-    response.getOutputStream().write(java.nio.file.Files.readAllBytes(new File(real).toPath()));
+    byte[] data = java.nio.file.Files.readAllBytes(new File(real).toPath());
   }
 }
