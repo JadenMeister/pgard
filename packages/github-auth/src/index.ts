@@ -12,7 +12,12 @@ export {
   type OpenerCommand,
   type SpawnOpener,
 } from "./open-url.js";
-export { GitHubAuthError, isGitHubAuthError, type GitHubAuthErrorCode } from "./errors.js";
+export {
+  GitHubAuthError,
+  NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+  isGitHubAuthError,
+  type GitHubAuthErrorCode,
+} from "./errors.js";
 export {
   APP_SLUG_PATTERN,
   DEFAULT_GITHUB_APP_CLIENT_ID,
@@ -68,7 +73,11 @@ export {
   type CredentialKey,
   type CredentialStore,
 } from "./credential-store.js";
-export { createOsCredentialStore } from "./os-keychain.js";
+export {
+  OS_KEYCHAIN_NOT_LOADED_MESSAGE,
+  OS_KEYCHAIN_UNUSABLE_MESSAGE,
+  createOsCredentialStore,
+} from "./os-keychain.js";
 export {
   GITHUB_APP_AUTHORIZATIONS_URL,
   readStoredSignInStatus,

@@ -2,6 +2,7 @@ import { ScanCancelledError } from "@pgard/scan-core";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultDeps, main } from "./app.js";
 import {
+  createSignedInCredentialStore,
   createTestDeps,
   createTestIo,
   noInterrupts,
@@ -163,7 +164,10 @@ describe("main", () => {
     const { stdin } = captured;
     stdin.setRawMode = () => undefined;
     const running = main([], captured.io, {
-      deps: createTestDeps({ createSessionProvider: () => (async () => ({})) as never }),
+      deps: createTestDeps({
+        createSessionProvider: () => (async () => ({})) as never,
+        credentialStore: createSignedInCredentialStore(),
+      }),
       interrupts: noInterrupts,
     });
     const press = async (sequence: string): Promise<void> => {

@@ -9,6 +9,7 @@ import {
 import { err, type CommandContext } from "../context.js";
 import { offerBrowserOpen, stopBrowserOffers } from "./browser.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
+import { localizeKeychainReason } from "../ui/i18n/command-text.js";
 import { safeText } from "../ui/formatters/style.js";
 
 /**
@@ -35,7 +36,7 @@ export function formatSignInNotice(notice: SignInNotice, t: CliText = cliText("e
     case "removed":
       return text.removedNotice(text.removedReason[notice.reason]);
     case "memory_only":
-      return text.memoryOnly(safeText(notice.reason, 200));
+      return text.memoryOnly(localizeKeychainReason(safeText(notice.reason, 200), text));
   }
 }
 
@@ -53,6 +54,14 @@ export function formatGitHubAppOverride(clientId: string, t: CliText = cliText("
 export function showDeviceCode(context: CommandContext, code: DeviceUserCode): void {
   err(context, context.errStyle.bold(formatDeviceCode(code, cliText(context.ruleLocale))));
   offerBrowserOpen(context, code.verificationUri);
+}
+
+/**
+ * A person can answer a device code only when stdin and stderr (where the code is shown) are
+ * terminals. Otherwise a sign-in would wait for nobody: the gate blocks with "not signed in".
+ */
+export function canSignInInteractively(context: CommandContext): boolean {
+  return context.io.stdin.isTTY === true && context.io.stderr.isTTY === true;
 }
 
 /**
@@ -79,6 +88,7 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
         notice.kind === "reused" ? context.errStyle.dim(text) : context.errStyle.yellow(text),
       );
     },
+    canSignInInteractively: canSignInInteractively(context),
     signal: context.signal,
   });
   // The sign-in call ending (approved, denied, expired, cancelled) ends the Enter prompt.
