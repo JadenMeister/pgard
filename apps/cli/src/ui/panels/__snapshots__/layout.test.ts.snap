@@ -1,5 +1,107 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`renderFrame snapshots > en 40x14 charts (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Charts]
+By OWASP Top 10 2025 category
+  A01 Broken Access Control 4
+  A05 Injection             4
+  No OWASP mapping          4
+
+By area
+  code    11
+  history 1
+  web     1
+
+
+Tab: panel  Up/Down: scroll  ?: help ..."
+`;
+
+exports[`renderFrame snapshots > en 40x14 coverage (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Coverage]
+Coverage
+  [ok] source:typescript (Completed)
+  [partial] history:secrets (Partial)
+      Only the last 500 commits were
+      read because the repository
+      history is very long.
+  [not tested] web:anonymous (Not tes...
+      No confirmed local web target.
+  [not selected] dependencies:npm (No...
+
+
+Tab: panel  Up/Down: scroll  ?: help ..."
+`;
+
+exports[`renderFrame snapshots > en 40x14 findings (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (12)]
+12 of 12 | Filters: none
+> [CRITICAL] confirmed     src/module...
+  [HIGH]     suspected     config/.en...
+  [HIGH]     suspected     src/module...
+  [HIGH]     suspected     src/module...
+  [HIGH]     suspected     (suppresse...
+  [MEDIUM]   suspected     http://127...
+  [MEDIUM]   suspected     src/module...
+  [MEDIUM]   suspected     src/module...
+  [MEDIUM]   suspected     (baseline)...
+  [LOW]      suspected     src/module...
+Enter: open  /: search  1-5: ... 1-10/12"
+`;
+
+exports[`renderFrame snapshots > en 40x14 findings (colour) 1`] = `
+"<ESC>[1mPGARD panels  owner/name @ abcdef1234...<ESC>[22m
+[Findings (12)]
+<ESC>[1m12 of 12 | Filters: none<ESC>[22m
+<ESC>[7m> [CRITICAL] confirmed     src/module...<ESC>[27m
+  <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.en...
+  <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
+  <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
+  <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m (suppresse...
+  <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m http://127...
+  <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
+  <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
+  <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m (baseline)...
+  <ESC>[34m[LOW]     <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module...
+<ESC>[2mEnter: open  /: search  1-5: ... 1-10/12<ESC>[22m"
+`;
+
+exports[`renderFrame snapshots > en 40x14 overview (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Overview]
+Summary
+  Areas         3 requested - 1
+                completed, 1 partial, 1
+                not tested (1 not
+                selected)
+  Rules         2 rules ran (1 in
+                partially scanned areas)
+  Max per rule  152 files, 500 commits
+  Elapsed       5.0 s
+
+Findings by severity (12 total)
+Tab: panel  Up/Down: scroll  ... 1-11/16"
+`;
+
+exports[`renderFrame snapshots > en 40x14 overview (colour) 1`] = `
+"<ESC>[1mPGARD panels  owner/name @ abcdef1234...<ESC>[22m
+[Overview]
+<ESC>[1mSummary<ESC>[22m
+  Areas         3 requested — 1
+                completed, <ESC>[33m1 partial<ESC>[39m, <ESC>[33m1<ESC>[0m
+                <ESC>[33mnot tested<ESC>[39m (1 not
+                selected)
+  Rules         2 rules ran (1 in
+                partially scanned areas)
+  Max per rule  152 files, 500 commits
+  Elapsed       5.0 s
+
+<ESC>[1mFindings by severity (12 total)<ESC>[22m
+<ESC>[2mTab: panel  Up/Down: scroll  ... 1-11/16<ESC>[22m"
+`;
+
 exports[`renderFrame snapshots > en 60x20 charts (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  [Charts]  Coverage  Findings (12)
@@ -49,6 +151,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back"
 exports[`renderFrame snapshots > en 60x20 findings (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Findings (12)]
+12 of 12 | Filters: none
 > [CRITICAL] confirmed     src/module1/handler.ts:11
   [HIGH]     suspected     config/.env (commit 0123456789ab)
   [HIGH]     suspected     src/module11/handler.ts:21
@@ -65,13 +168,13 @@ Overview  Charts  Coverage  [Findings (12)]
 
 
 
-
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Enter: open  /: search  1-5: severity  ?: help  Esc: back"
 `;
 
 exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some r...<ESC>[22m
 <ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
+<ESC>[1m12 of 12 | Filters: none<ESC>[22m
 <ESC>[7m> [CRITICAL] confirmed     src/module1/handler.ts:11        <ESC>[27m
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.env (commit 0123456789ab)
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module11/handler.ts:21
@@ -88,8 +191,7 @@ exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
 
 
 
-
-<ESC>[2mTab: panel  Up/Down: scroll  ?: help  Esc: back<ESC>[22m"
+<ESC>[2mEnter: open  /: search  1-5: severity  ?: help  Esc: back<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 60x20 overview (NO_COLOR) 1`] = `
@@ -195,6 +297,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back"
 exports[`renderFrame snapshots > en 80x24 findings (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Findings (12)]
+12 of 12 | Filters: none
 > [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...
   [HIGH]     suspected     config/.env (commit 0123456789ab)  Fixture finding 3
   [HIGH]     suspected     src/module11/handler.ts:21  Fixture finding 11
@@ -215,13 +318,13 @@ Overview  Charts  Coverage  [Findings (12)]
 
 
 
-
-Tab: panel  Up/Down: scroll  ?: help  Esc: back"
+Enter: open  /: search  1-5: severity  ?: help  Esc: back"
 `;
 
 exports[`renderFrame snapshots > en 80x24 findings (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...<ESC>[22m
 <ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
+<ESC>[1m12 of 12 | Filters: none<ESC>[22m
 <ESC>[7m> [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...<ESC>[27m
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.env (commit 0123456789ab)  Fixture finding 3
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module11/handler.ts:21  Fixture finding 11
@@ -242,8 +345,7 @@ exports[`renderFrame snapshots > en 80x24 findings (colour) 1`] = `
 
 
 
-
-<ESC>[2mTab: panel  Up/Down: scroll  ?: help  Esc: back<ESC>[22m"
+<ESC>[2mEnter: open  /: search  1-5: severity  ?: help  Esc: back<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > en 80x24 overview (NO_COLOR) 1`] = `
@@ -300,6 +402,108 @@ exports[`renderFrame snapshots > en 80x24 overview (colour) 1`] = `
 <ESC>[2mTab: panel  Up/Down: scroll  ?: help  Esc: back<ESC>[22m"
 `;
 
+exports[`renderFrame snapshots > ko 40x14 charts (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+개요  [차트]  검사 범위  발견 항목 (12)
+OWASP Top 10 2025 분류별
+  A01 Broken Access Control 4
+  A05 Injection             4
+  OWASP 매핑 없음           4
+
+영역별
+  코드 11
+  이력 1
+  웹   1
+
+
+Tab: 패널  위/아래: 스크롤  ?: 도움말..."
+`;
+
+exports[`renderFrame snapshots > ko 40x14 coverage (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+개요  차트  [검사 범위]  발견 항목 (12)
+검사 범위
+  [완료] source:typescript (완료)
+  [부분 완료] history:secrets (부분 ...
+      (Only the last 500 commits were
+      read because the repository
+      history is very long.)
+  [미검사] web:anonymous (미검사)
+      (No confirmed local web target.)
+  [선택 안 함] dependencies:npm (선택...
+
+
+Tab: 패널  위/아래: 스크롤  ?: 도움말..."
+`;
+
+exports[`renderFrame snapshots > ko 40x14 findings (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+개요  차트  검사 범위  [발견 항목 (12)]
+12개 중 12개 | 필터: 없음
+> [치명적] 확인됨 src/module1/handler...
+  [높음]   의심   config/.env (commit...
+  [높음]   의심   src/module11/handle...
+  [높음]   의심   src/module2/handler...
+  [높음]   의심   (억제됨) src/module...
+  [보통]   의심   http://127.0.0.1:30...
+  [보통]   의심   src/module12/handle...
+  [보통]   의심   src/module5/handler...
+  [보통]   의심   (기준선) src/module...
+  [낮음]   의심   src/module9/handler...
+Enter: 열기  /: 검색  1-5: 심... 1-10/12"
+`;
+
+exports[`renderFrame snapshots > ko 40x14 findings (colour) 1`] = `
+"<ESC>[1mPGARD 패널  owner/name @ abcdef123456...<ESC>[22m
+<ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
+<ESC>[1m12개 중 12개 | 필터: 없음<ESC>[22m
+<ESC>[7m> [치명적] 확인됨 src/module1/handler...<ESC>[27m
+  <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit...
+  <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module11/handle...
+  <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module2/handler...
+  <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m (억제됨) src/module...
+  <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m http://127.0.0.1:30...
+  <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module12/handle...
+  <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module5/handler...
+  <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m (기준선) src/module...
+  <ESC>[34m[낮음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module9/handler...
+<ESC>[2mEnter: 열기  /: 검색  1-5: 심... 1-10/12<ESC>[22m"
+`;
+
+exports[`renderFrame snapshots > ko 40x14 overview (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+[개요]  차트  검사 범위  발견 항목 (12)
+요약
+  영역
+    요청 3 - 완료 1, 부분 완료 1, 미검사
+    1 (선택 안 함 1)
+  규칙
+    규칙 2개 실행됨 (부분 완료 영역에서
+    1개)
+  규칙별 최대 검사 대상
+    파일 152개, 커밋 500개
+  소요 시간
+    5.0초
+Tab: 패널  위/아래: 스크롤  ?... 1-11/18"
+`;
+
+exports[`renderFrame snapshots > ko 40x14 overview (colour) 1`] = `
+"<ESC>[1mPGARD 패널  owner/name @ abcdef123456...<ESC>[22m
+<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m발견 항목 (12)<ESC>[22m
+<ESC>[1m요약<ESC>[22m
+  영역
+    요청 3 — 완료 1, <ESC>[33m부분 완료 1<ESC>[39m, <ESC>[33m미검사<ESC>[0m
+    <ESC>[33m1<ESC>[39m (선택 안 함 1)
+  규칙
+    규칙 2개 실행됨 (부분 완료 영역에서
+    1개)
+  규칙별 최대 검사 대상
+    파일 152개, 커밋 500개
+  소요 시간
+    5.0초
+<ESC>[2mTab: 패널  위/아래: 스크롤  ?... 1-11/18<ESC>[22m"
+`;
+
 exports[`renderFrame snapshots > ko 60x20 charts (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  [차트]  검사 범위  발견 항목 (12)
@@ -349,6 +553,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
 exports[`renderFrame snapshots > ko 60x20 findings (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [발견 항목 (12)]
+12개 중 12개 | 필터: 없음
 > [치명적] 확인됨 src/module1/handler.ts:11
   [높음]   의심   config/.env (commit 0123456789ab)
   [높음]   의심   src/module11/handler.ts:21
@@ -365,13 +570,13 @@ exports[`renderFrame snapshots > ko 60x20 findings (NO_COLOR) 1`] = `
 
 
 
-
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...<ESC>[22m
 <ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
+<ESC>[1m12개 중 12개 | 필터: 없음<ESC>[22m
 <ESC>[7m> [치명적] 확인됨 src/module1/handler.ts:11                 <ESC>[27m
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit 0123456789ab)
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module11/handler.ts:21
@@ -388,8 +593,7 @@ exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
 
 
 
-
-<ESC>[2mTab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로<ESC>[22m"
+<ESC>[2mEnter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 60x20 overview (NO_COLOR) 1`] = `
@@ -495,6 +699,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
 exports[`renderFrame snapshots > ko 80x24 findings (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [발견 항목 (12)]
+12개 중 12개 | 필터: 없음
 > [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret
   [높음]   의심   config/.env (commit 0123456789ab)  Fixture finding 3
   [높음]   의심   src/module11/handler.ts:21  Fixture finding 11
@@ -515,13 +720,13 @@ exports[`renderFrame snapshots > ko 80x24 findings (NO_COLOR) 1`] = `
 
 
 
-
-Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로"
+Enter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 findings (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...<ESC>[22m
 <ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
+<ESC>[1m12개 중 12개 | 필터: 없음<ESC>[22m
 <ESC>[7m> [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret        <ESC>[27m
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit 0123456789ab)  Fixture finding 3
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module11/handler.ts:21  Fixture finding 11
@@ -542,8 +747,7 @@ exports[`renderFrame snapshots > ko 80x24 findings (colour) 1`] = `
 
 
 
-
-<ESC>[2mTab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로<ESC>[22m"
+<ESC>[2mEnter: 열기  /: 검색  1-5: 심각도  ?: 도움말  Esc: 뒤로<ESC>[22m"
 `;
 
 exports[`renderFrame snapshots > ko 80x24 overview (NO_COLOR) 1`] = `

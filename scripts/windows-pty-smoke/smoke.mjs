@@ -48,6 +48,8 @@ const KEYS = {
   down: "\u001b[B",
   pageDown: "\u001b[6~",
   help: "?",
+  slash: "/",
+  enter: "\r",
   esc: "\u001b",
   ctrlC: "\u0003",
 };
@@ -124,7 +126,7 @@ async function settle(run, quiet = 300, timeout = 4000) {
 
 async function press(run, name) {
   const before = run.raw.length;
-  run.term.write(KEYS[name]);
+  run.term.write(KEYS[name] ?? name);
   await waitFor(run, () => run.raw.length > before, `output after ${name}`, 3000);
   await settle(run);
   return run.raw.length > before;
@@ -218,6 +220,36 @@ async function openFindings(scenario, run, presses) {
   noRawControls(scenario, run, "findings panel showing");
 }
 
+/** Search, open a finding, close it, clear the search: the M6-3 keys, in Korean, in a real pty. */
+async function navigateAndFilter(scenario, run) {
+  const has = (text) => run.screen.text().includes(text);
+  await press(run, "slash");
+  check(scenario, "/ opens the search input (Korean hint)", has(t.hints.filter));
+  for (const letter of "Leak") await press(run, letter);
+  check(
+    scenario,
+    "typing filters the list and the filter line shows the search and the count",
+    has(`${t.filter.names.search}: "Leak_"`) && has(t.filter.label),
+  );
+  await press(run, "enter");
+  check(scenario, "Enter keeps the search and returns to the list hints", has(t.hints.findings));
+  await press(run, "enter");
+  check(
+    scenario,
+    "Enter opens the selected finding (detail hints, evidence and fix labels)",
+    has(t.hints.detail) && has(cliText("ko").evidence) && has(cliText("ko").fix),
+  );
+  noRawControls(scenario, run, "detail view showing");
+  await press(run, "esc");
+  check(scenario, "Esc closes the detail view and keeps the list", has(t.hints.findings));
+  await press(run, "esc");
+  check(
+    scenario,
+    "the next Esc clears the search without leaving the view",
+    !has(`${t.filter.names.search}: "Leak"`) && has(t.tabs.findings) && run.exit === null,
+  );
+}
+
 async function firstFrame(scenario, run) {
   const ok = await waitFor(
     run,
@@ -285,6 +317,7 @@ async function runCancel() {
     );
     // Tab was pressed once (charts); two more reach the findings panel.
     await openFindings(scenario, run, 2);
+    await navigateAndFilter(scenario, run);
 
     const mark = run.raw.length;
     run.screen.resize(60, 20);

@@ -73,7 +73,13 @@ export async function offerPanels(
   const t = cliText(locale);
   const { io } = context;
   if (isRequested && io.env[PANELS_ONCE_ENV] === "1") {
-    renderPanelsOnce({ result, locale, stdout: io.stdout, env: io.env });
+    renderPanelsOnce({
+      result,
+      locale,
+      stdout: io.stdout,
+      env: io.env,
+      ruleTexts: context.ruleTexts,
+    });
     return;
   }
   const keys = context.keys;
@@ -97,7 +103,14 @@ export async function offerPanels(
   // The cancel controller must not print its "press Ctrl+C again" text onto the alternate screen.
   const resumeInterrupts = context.suspendInterrupts?.();
   try {
-    const exit = await runPanelsScreen({ result, locale, stdout: io.stdout, env: io.env, keys });
+    const exit = await runPanelsScreen({
+      result,
+      locale,
+      stdout: io.stdout,
+      env: io.env,
+      keys,
+      ruleTexts: context.ruleTexts,
+    });
     if (exit === "cancel") throw new UserCancelledError();
     if (exit === "terminated") throw new PanelsTerminatedError();
   } catch (error) {
