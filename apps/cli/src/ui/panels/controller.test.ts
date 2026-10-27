@@ -98,11 +98,11 @@ describe("runPanelsScreen", () => {
         stdout: out.stream,
         env: EMPTY_ENV,
         keys: keysOf(async () => {
-          throw new UserCancelledError();
+          throw new Error("terminal failed");
         }),
         processEvents,
       }),
-    ).rejects.toBeInstanceOf(UserCancelledError);
+    ).rejects.toThrow("terminal failed");
     expect(out.written().endsWith(LEAVE)).toBe(true);
     expect(processEvents.listenerCount("SIGINT")).toBe(0);
   });
@@ -235,5 +235,78 @@ describe("renderPanelsOnce", () => {
     expect(lines).toHaveLength(15);
     expect(out.written()).not.toContain("\u001b");
     expect(out.written()).toContain("PGARD panels");
+  });
+});
+
+describe("runPanelsScreen, interrupts and end of input", () => {
+  const never = (): KeyReader => keysOf(() => new Promise<Key>(() => undefined));
+
+  it("restores the terminal at the first SIGINT, before anything else runs, and survives more", async () => {
+    const out = fakeStdout();
+    const processEvents = new EventEmitter();
+    const running = runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: never(),
+      processEvents,
+    });
+    // A double interrupt right after the screen was entered, before any key was read.
+    processEvents.emit("SIGINT");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(out.written().endsWith(LEAVE)).toBe(true);
+    processEvents.emit("SIGINT");
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    processEvents.emit("SIGINT");
+    expect(await running).toBe("cancel");
+    expect(out.written().split(LEAVE)).toHaveLength(2);
+    expect(processEvents.listenerCount("SIGINT")).toBe(0);
+  });
+
+  it("restores the terminal at SIGTERM too", async () => {
+    const out = fakeStdout();
+    const processEvents = new EventEmitter();
+    const running = runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: never(),
+      processEvents,
+    });
+    processEvents.emit("SIGTERM");
+    expect(out.written().endsWith(LEAVE)).toBe(true);
+    expect(await running).toBe("terminated");
+  });
+
+  it("leaves like Esc when input ends (a closed terminal)", async () => {
+    const out = fakeStdout();
+    const exit = await runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: keysOf(async () => {
+        throw new UserCancelledError();
+      }),
+      processEvents: new EventEmitter(),
+    });
+    expect(exit).toBe("back");
+    expect(out.written().endsWith(LEAVE)).toBe(true);
+  });
+
+  it("leaves on Ctrl+D", async () => {
+    const out = fakeStdout();
+    const exit = await runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: scripted({ name: "d", sequence: "\u0004", ctrl: true }),
+      processEvents: new EventEmitter(),
+    });
+    expect(exit).toBe("back");
+    expect(out.written().endsWith(LEAVE)).toBe(true);
   });
 });

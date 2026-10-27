@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { testFinding } from "../../test-support.js";
 import { getRuleTextCatalog } from "../../rule-texts.js";
-import { displayWidth, stripAnsi } from "../i18n/display-width.js";
+import { displayWidth, splitAnsiWord, stripAnsi } from "../i18n/display-width.js";
 import { fitLine } from "./fit-lines.js";
 import { realRepoResult } from "./result-fixture.js";
 import { formatScanResult } from "./result-view.js";
@@ -38,14 +39,21 @@ function render(
   });
 }
 
+const STANDARDS_URL_PATTERN =
+  /https:\/\/(?:top10\.owasp\.org|owasp\.org|cwe\.mitre\.org|cmu-sei\.github\.io|wiki\.sei\.cmu\.edu)\/\S*/g;
+
 /**
- * Only an unbreakable URL may run past the width (a cut URL cannot be copied). Everything else is
- * wrapped, so every over-wide line must hold a URL.
+ * Lines that break the width rule. Only PGARD's own standards links (fixed reference URLs) may run
+ * past the width, and any other URL is cut at twice the width. Everything else must fit.
  */
 function overWideLines(text: string, width: number): string[] {
   return stripAnsi(text)
     .split("\n")
-    .filter((line) => displayWidth(line) > width && !/https?:\/\//.test(line));
+    .filter((line) => {
+      if (displayWidth(line) <= width) return false;
+      if (displayWidth(line.replace(STANDARDS_URL_PATTERN, "")) <= width) return false;
+      return !(/https?:\/\//.test(line) && displayWidth(line) <= width * 2);
+    });
 }
 
 /** The text after the last blank line: the closing "Next" paragraph. */
@@ -74,15 +82,44 @@ describe("terminal result, compact (default)", () => {
 
   it("lists at most 10 groups, most severe first, then says what was left out", () => {
     const text = render("en", 80);
-    const titles = text
+    const real = text.slice(text.indexOf("Findings ("), text.indexOf("In test or fixture code"));
+    const titles = real
       .split("\n")
       .filter((line) => /^\s{2}\[(CRITICAL|HIGH|MEDIUM|LOW|INFO)\]/.test(line));
     expect(titles).toHaveLength(10);
     expect(titles[0]).toContain("[CRITICAL]");
     expect(titles[1]).toContain("[CRITICAL]");
-    expect(text).toMatch(/\+17 more findings \(Medium 8, Low 9\) - run with --all-findings/);
+    expect(text).toMatch(/\+\d+ more findings \(Medium \d+, Low \d+\) - run with --all-findings/);
     // Critical and high are all listed before anything lower.
     expect(titles.filter((line) => /\[(CRITICAL|HIGH)\]/.test(line))).toHaveLength(7);
+  });
+
+  it("lists a secret beyond the 10 groups, and says nothing is hidden about it", () => {
+    const base = realRepoResult();
+    const many = Array.from({ length: 12 }, (_, i) =>
+      testFinding({
+        id: `x${i}`,
+        ruleId: `PG-XYZ-${String(i).padStart(3, "0")}`,
+        title: `Medium issue ${i}`,
+        severity: "high",
+        location: { kind: "file", path: `src/x${i}.ts`, line: 1, url: null, commit: null },
+      }),
+    );
+    const secret = testFinding({
+      id: "s1",
+      ruleId: "PG-SECRET-001",
+      title: "Hardcoded credential",
+      severity: "low",
+      location: { kind: "file", path: "src/very-last-secret.ts", line: 3, url: null, commit: null },
+    });
+    const text = formatScanResult({ ...base, findings: [...many, secret] }, plain, {
+      locale: "en",
+      width: 80,
+      unicode: true,
+      isTerminal: true,
+    });
+    expect(text).toContain("src/very-last-secret.ts");
+    expect(text).toContain("+2 more findings (High 2) - run with --all-findings");
   });
 
   it("puts findings first and ends on the summary, charts, coverage and the next step", () => {
@@ -131,13 +168,49 @@ describe("terminal result, compact (default)", () => {
     expect(joined).toContain("Only the last 500 commits were read because the repository history");
   });
 
-  it("keeps test, fixture and vendored code apart, one line each with counts by severity", () => {
+  it("keeps test, fixture and vendored code apart, counted by severity", () => {
     const text = flat(render("en", 80));
     expect(text).toContain("In test or fixture code (14): High 2, Medium 4, Low 8");
     expect(text).toMatch(/Suggestions: in third-party\/vendored code \(11\): Low 6, Info 5/);
-    // Their lines say where the detail is, and the severe ones are counted, not dropped.
-    expect(text).toContain("not listed here; run with --all-findings");
     expect(text).toContain("plus 14 in test or fixture code (2 high)");
+  });
+
+  it("still names critical and high findings in test code, and every secret", () => {
+    for (const width of [60, 80, 120]) {
+      const text = flat(render("en", width));
+      // The high PG-SECRET-001 findings in test/fixtures/ are listed, not only counted.
+      expect(text, String(width)).toContain("[HIGH] Hardcoded credential");
+      expect(text, String(width)).toContain("test/fixtures/aws.json");
+      expect(text, String(width)).toContain("PG-SECRET-001");
+    }
+    const ko = flat(render("ko", 80));
+    expect(ko).toContain("test/fixtures/aws.json");
+  });
+
+  it("lists critical and high vendored findings under the vendored line, with their own cap", () => {
+    const base = realRepoResult();
+    const severe = Array.from({ length: 8 }, (_, i) =>
+      testFinding({
+        id: `v${i}`,
+        ruleId: `PG-VND-${i}`,
+        title: `Vendored problem ${i}`,
+        severity: "critical",
+        context: "vendored",
+        location: { kind: "file", path: `vendor/v${i}.js`, line: 1, url: null, commit: null },
+      }),
+    );
+    const text = flat(
+      formatScanResult({ ...base, findings: severe }, plain, {
+        locale: "en",
+        width: 100,
+        unicode: true,
+        isTerminal: true,
+      }),
+    );
+    expect(text).toContain("vendor/v0.js");
+    expect(text).toContain("vendor/v4.js");
+    expect(text).not.toContain("vendor/v5.js");
+    expect(text).toContain("+3 more findings (Critical 3) - run with --all-findings");
   });
 
   it("shows no evidence, fix or standards lines", () => {
@@ -191,15 +264,24 @@ describe("width invariant", () => {
     }
   }
 
-  it("lets a long URL run past the width instead of cutting it", () => {
+  it("keeps PGARD's standards links whole and cuts any other URL at twice the width", () => {
     const text = render("en", 60, { allFindings: true });
     const lines = stripAnsi(text).split("\n");
     const wide = lines.filter((line) => displayWidth(line) > 60);
     expect(wide.length).toBeGreaterThan(0);
-    for (const line of wide) expect(line).toMatch(/https:\/\//);
-    expect(text).toContain(
-      "https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all",
-    );
+    expect(text).toContain("https://cwe.mitre.org/data/definitions/78.html");
+    const cut = lines.find((line) => line.includes("shop.example.com")) ?? "";
+    expect(displayWidth(cut)).toBeLessThanOrEqual(120);
+    expect(cut.endsWith("...")).toBe(true);
+    expect(overWideLines(text, 60)).toEqual([]);
+  });
+
+  it("does not let a hostile URL push a line to hundreds of columns", () => {
+    const url = `https://evil.example/${"a".repeat(500)}`;
+    for (const width of [40, 60, 80]) {
+      const lines = fitLine(`  src/${url}`, width);
+      for (const line of lines) expect(displayWidth(line)).toBeLessThanOrEqual(width * 2);
+    }
   });
 
   it("hangs a wrapped line under its text, not at column 0", () => {

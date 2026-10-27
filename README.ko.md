@@ -191,18 +191,24 @@ Options:
   --all-findings           list every finding in full (evidence, fix,
                            standards, every location). In a terminal the
                            default is compact: critical and high first, at most
-                           10 groups of one or two lines, then "+N more". Not in
-                           a terminal (pipe, file) the text is always the full
-                           form. It also lists every suppressed finding (see
+                           10 groups of one or two lines, then "+N more"; test
+                           and vendored code is counted, with its critical and
+                           high findings and secrets listed. Not in a terminal
+                           (pipe, file) the text is always the full form. It
+                           also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
   --panels                 open the read-only full-screen view (summary, charts,
                            coverage, findings; keys: Tab, arrows, ? help, Esc
-                           back) after the text result. In a terminal pgard scan
-                           already opens it by itself; PGARD_PANELS=off (also 0,
-                           false, no) stops that, and --panels still forces it.
-                           Never opens without a terminal. Not with --format
-                           json or sarif. pgard dashboard is the separate local
-                           web app
+                           back, Ctrl+D leaves) after the text result. In a
+                           terminal pgard scan already opens it by itself, but
+                           not when CI, GITHUB_ACTIONS, BUILDKITE, TF_BUILD or
+                           JENKINS_URL is set, or TERM=dumb. PGARD_PANELS=off
+                           (also 0, false, no) turns it off: use it for script,
+                           expect, VS Code tasks and docker run -it. --panels
+                           still forces it (not with TERM=dumb); so does
+                           PGARD_PANELS=on in CI. Never opens without a
+                           terminal. Not with --format json or sarif. pgard
+                           dashboard is the separate local web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
                            then en). JSON and SARIF output are always English
@@ -497,14 +503,14 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 터미널에서 `pgard scan`은 발견 항목을 먼저, 요약을 마지막에 출력합니다. 그래서 숫자와 다음 단계가 화면 아래에 남고 위로 밀려 사라지지 않습니다.
 
 1. **머리말**: 상태 줄 하나와 저장소·리비전·범위 줄 하나, 그리고 `pgard.config.json`·억제·기준선에 대한 `!` 안내.
-2. **발견 항목(기본은 간단히)**: 치명적·높음을 먼저, 최대 10개 그룹(같은 규칙·같은 원인)을 그룹마다 한두 줄로 보여 줍니다. 심각도, 제목, 첫 위치(`외 N곳`), 규칙 ID, 상태입니다. 목록 아래에 `+43건 더 있음 (보통 17, 낮음 2) - --all-findings로 실행`이 나오므로 낮은 심각도는 조용히 빠지지 않고 개수로 남으며, 근거·조치·표준은 `--all-findings`, [패널 화면](#패널-화면), 대시보드 또는 보고서에 있다는 안내가 함께 나옵니다. 테스트·fixture 코드와 vendored 코드의 항목은 심각도별 개수와 함께 각각 한 줄로 표시되어(`테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8 - ...`) 구분이 유지되고 치명적·높음 항목도 개수로 드러납니다. 억제된 항목과 기준선의 항목은 자기 구역을 유지하며 치명적 항목은 계속 나열됩니다.
+2. **발견 항목(기본은 간단히)**: 치명적·높음을 먼저, 최대 10개 그룹(같은 규칙·같은 원인)을 그룹마다 한두 줄로 보여 줍니다. 심각도, 제목, 첫 위치(`외 N곳`), 규칙 ID, 상태입니다. 목록 아래에 `+19건 더 있음 (보통 17, 낮음 2) - --all-findings로 실행`이 나오므로 낮은 심각도는 조용히 빠지지 않고 개수로 남으며, 근거·조치·표준은 `--all-findings`, [패널 화면](#패널-화면), 대시보드 또는 보고서에 있다는 안내가 함께 나옵니다. 테스트·fixture 코드와 vendored 코드의 항목은 심각도별 개수가 있는 제목 줄(`테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8`)로 구분되며, 그 아래에 치명적·높음 그룹(그리고 모든 `PG-SECRET-*` 그룹)을 같은 두 줄 형식으로 최대 5개(비밀 값은 제한 없이) 나열하고 나머지는 `+N건 더 있음`으로 셉니다. 비밀 값은 10개 그룹 제한을 넘어서도 나열됩니다. 억제된 항목과 기준선의 항목은 자기 구역을 유지하며, 치명적 항목은 간단한 형식으로 계속 나열됩니다(억제된 항목은 `pgard.config.json`의 사유와 함께).
 3. **마무리 요약**: `결과: <상태> - 발견 N건 (...)`, 검사가 끝까지 되지 않았거나 일부·미검사 영역이 있으면 항상 나오는 `! 안전하다는 결과가 아닙니다` 경고, **요약** 블록(영역, 규칙, "규칙별 최대 검사 대상", 소요 시간, 증분/전체 여부, 지난 검사 이후), 심각도·OWASP Top 10 2025 분류·영역별 **차트**, **검사 범위**(`정상 2, 일부 1, 검사 안 됨 1` 한 줄과, 일부이거나 검사 안 된 영역의 이름과 설명. `--all-findings`에서는 모든 영역 목록), **표준 매핑 현황**(개수 두 줄과 "규칙 실행됨은 통과가 아님" 안내. 표는 `--all-findings`에서), 분석 근거, 그리고 **다음** 줄.
 
-`--all-findings`는 전체 내용(근거, 조치, 링크가 있는 표준, 모든 위치, 접기 없음)을 같은 순서로, 요약을 마지막에 출력합니다. 차트: 색이 켜져 있으면 막대는 심각도 색의 블록 문자이고, `NO_COLOR`·터미널이 아닌 출력·`TERM=dumb`에서는 일반 `#` 막대이며, 60열 미만에서는 막대 없이 `라벨  개수` 줄만 나옵니다. 막대는 터미널 너비에 맞춰집니다.
+터미널에서 `--all-findings`는 전체 내용(근거, 조치, 링크가 있는 표준, 모든 위치, 접기 없음)을 같은 순서로, 요약을 마지막에, 너비에 맞춰 줄바꿈해 출력하고, 터미널이 아니면 안정된 형식을 출력합니다. 차트: 색이 켜져 있으면 막대는 심각도 색의 블록 문자이고, `NO_COLOR`·터미널이 아닌 출력·`TERM=dumb`에서는 일반 `#` 막대이며, 60열 미만에서는 막대 없이 `라벨  개수` 줄만 나옵니다. 막대는 터미널 너비에 맞춰집니다.
 
-**너비.** 모든 줄은 터미널 너비에 맞춰 줄바꿈되며, 이어지는 줄은 라벨(`! `, `[부분 완료] `, `근거: `) 아래로 들여쓰기됩니다. 공백에서만 끊으므로 검사 범위 설명이 단어 중간에서 잘리지 않습니다. 공백 없이 줄보다 긴 단어는(URL이 아니면) 나누어 출력합니다. 유일한 예외는 끊을 수 없는 `http://`·`https://` URL로, 잘린 링크는 복사할 수 없으므로 통째로 두며 오른쪽 끝을 넘을 수 있습니다.
+**너비.** 모든 줄은 터미널 너비에 맞춰 줄바꿈되며, 이어지는 줄은 라벨(`! `, `[부분 완료] `, `근거: `) 아래로 들여쓰기됩니다. 공백에서만 끊으므로 검사 범위 설명이 단어 중간에서 잘리지 않습니다. 공백 없이 줄보다 긴 단어는 글자 단위로 나누어 출력하며(이스케이프 시퀀스나 결합 문자 안에서는 자르지 않고 조각마다 색을 유지합니다), 유일한 예외는 PGARD 자체의 표준 링크(OWASP·CWE·CERT 참조)로, 잘린 링크는 복사할 수 없으므로 통째로 두며 오른쪽 끝을 넘을 수 있습니다. 검사한 코드나 웹 페이지에서 올 수 있는 그 밖의 URL은 너비의 두 배에서 `...`로 줄입니다.
 
-**터미널이 아닐 때**(파이프, 파일, CI) 텍스트 결과는 스크립트를 위해 바뀌지 않고 그대로입니다. 요약과 차트가 먼저, 모든 발견 항목이 전체 내용으로, 그다음 검사 범위가 나오며 줄바꿈과 `다음` 줄은 없습니다. `--format json`, `--format sarif`는 영향을 받지 않습니다.
+**스크립트가 기대할 수 있는 안정된 형식은 터미널이 아닐 때의 출력**(파이프, 파일, CI)이며 바뀌지 않습니다. 요약과 차트가 먼저, 모든 발견 항목이 전체 내용으로, 그다음 검사 범위가 나오며 줄바꿈과 `다음` 줄은 없습니다. `--format json`, `--format sarif`는 영향을 받지 않습니다.
 
 **이전 배치:** 터미널에서 예전의 요약 우선 전체 텍스트를 보려면 출력을 파이프로 넘기세요(`pgard scan | cat`).
 
@@ -512,7 +518,7 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 ### 패널 화면
 
-터미널에서 실행한 모든 `pgard scan`(대화형 메뉴로 시작한 스캔 포함)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 간단한 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 완료·부분 완료된 스캔 뒤에(실패한 스캔은 보여 줄 것이 적어 제외) `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. `--panels`는 `PGARD_PANELS=off`여도 엽니다. stdin과 stdout이 모두 터미널이 아니면, 그리고 `--format json`, `sarif`에서는 절대 열리지 않습니다. 화면 자체가 실패하면 터미널을 되돌리고 stderr에 한 줄 안내를 내며 스캔의 종료 코드는 그대로입니다. 차단된 스캔에 `--panels`를 쓰면 열지 않고 이유를 stderr에 알립니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
+터미널에서 실행한 모든 `pgard scan`(대화형 메뉴로 시작한 스캔 포함)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 간단한 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 완료·부분 완료된 스캔 뒤에(실패한 스캔은 보여 줄 것이 적어 제외) `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. 자동화: `CI`가 비어 있지 않고 `0`·`false`도 아닌 값일 때, `GITHUB_ACTIONS`, `BUILDKITE`, `TF_BUILD`, `JENKINS_URL` 중 하나가 설정되어 있을 때, `TERM=dumb`일 때는 저절로 열리지 않으며 `pgard baseline set --from-current`에서도 열리지 않습니다. `--panels`는 그래도 엽니다(전체 화면을 그릴 수 없는 `TERM=dumb`는 제외하며 stderr에 안내가 나갑니다). 명시적인 `PGARD_PANELS=on`도 마찬가지입니다. **가상 터미널은 있지만 키를 누르는 사람이 없는 곳(`script`, `expect`, VS Code 작업, `docker run -it`, 일부 CI 래퍼)에서 `pgard scan`을 실행한다면 `PGARD_PANELS=off`를 설정하세요.** 그렇지 않으면 화면이 키 입력을 기다립니다. Ctrl+D와 닫힌 터미널은 Esc처럼 화면을 닫습니다. `--panels`는 `PGARD_PANELS=off`여도 엽니다. stdin과 stdout이 모두 터미널이 아니면, 그리고 `--format json`, `sarif`에서는 절대 열리지 않습니다. 화면 자체가 실패하면 터미널을 되돌리고 stderr에 한 줄 안내를 내며 스캔의 종료 코드는 그대로입니다. 차단된 스캔에 `--panels`를 쓰면 열지 않고 이유를 stderr에 알립니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
 
 - **개요**: 텍스트 결과와 같은 요약 블록과 심각도 막대.
 - **차트**: OWASP Top 10 2025 분류별, 영역별 발견 항목.
@@ -671,8 +677,6 @@ pgard scan --format sarif > pgard.sarif && \
 - **coverage는 정직하게 유지합니다.** coverage 설명은 어느 검사에서 파일이나 커밋 몇 개를 재사용했는지 알려 줍니다. 재사용한 발견 항목은 저장된 검사가 알던 내용 그대로이며, 오래된 값이 될 수 있는 변경을 넘어서는 재사용하지 않습니다.
 - **무엇을 저장하나.** 결과와 같은 파일에, 분석한 각 소스 파일의 SHA-256, 가려진 발견 항목(결과가 이미 담는 문구), 프로젝트 전체 검사에 필요한 몇 가지 정보(import, 라우트 줄)를 함께 보관합니다. 소스 텍스트, 비밀정보 값, 절대 경로는 없습니다. 이 데이터는 작업을 건너뛰는 데만 쓰이고 검사할 때마다 실제 파일과 대조합니다. 파일이 너무 커지거나(8 MiB, 소스 파일 약 18,000개) 결과와 같은 검사를 통과하지 못하면 결과만 저장하고, 다음 검사는 전체 검사가 됩니다.
 - **측정.** TypeScript 파일 2,000개와 커밋 301개가 있는 저장소에서 파일 하나가 바뀐 경우 증분 검사 약 0.36초, 전체 검사 약 2.3초입니다(방법은 풀 리퀘스트 참고).
-
-### 테스트·fixture 코드의 발견 항목
 
 ### 테스트·fixture 코드의 발견 항목
 

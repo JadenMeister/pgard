@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 import { main } from "../../app.js";
 import { createTestDeps, createTestIo, noInterrupts } from "../../test-support.js";
 import { displayWidth, stripAnsi } from "../../ui/i18n/display-width.js";
@@ -105,6 +108,35 @@ describe("pgard scan in a terminal", () => {
       expect(captured.stderr()).not.toContain(ENTER);
       expect(() => JSON.parse(captured.stdout())).not.toThrow();
       if (format === "json") expect(captured.stdout()).toBe(reference.stdout());
+    }
+  }, 15_000);
+});
+
+describe("pgard scan --format json --report html in a terminal", () => {
+  it("never opens the panel view, before or after the report is saved", async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "pgard-json-html-"));
+    try {
+      const captured = terminalIo();
+      const writeReports = vi.fn(async () => [{ format: "html" as const, filePath: "/x/r.html" }]);
+      const code = await main(
+        ["scan", "--format", "json", "--report", "html", "--output-dir", directory],
+        captured.io,
+        {
+          deps: createTestDeps({
+            runScan: async () => realRepoResult(),
+            writeReports: writeReports as never,
+            createSessionProvider: () => (async () => ({})) as never,
+          }),
+          interrupts: noInterrupts,
+        },
+      );
+      expect(code).toBe(PARTIAL);
+      expect(writeReports).toHaveBeenCalled();
+      expect(captured.stdout()).not.toContain(ENTER);
+      expect(captured.stderr()).not.toContain(ENTER);
+      expect(() => JSON.parse(captured.stdout())).not.toThrow();
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
   }, 15_000);
 });

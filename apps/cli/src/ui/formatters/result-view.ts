@@ -386,7 +386,11 @@ export function formatSuppressionAndBaselineCounts(
 const isCritical = (finding: Pick<Finding, "severity">): boolean => finding.severity === "critical";
 
 /** Suppressed findings in full, each bucket under the reason the config gave. */
-function formatSuppressedGroups(findings: readonly Finding[], ctx: RenderContext): string {
+function formatSuppressedGroups(
+  findings: readonly Finding[],
+  ctx: RenderContext,
+  list: (members: readonly Finding[], ctx: RenderContext) => string = formatGroups,
+): string {
   const buckets = new Map<string, Finding[]>();
   for (const finding of findings) {
     const suppression = finding.suppression;
@@ -403,7 +407,7 @@ function formatSuppressedGroups(findings: readonly Finding[], ctx: RenderContext
         ctx.style.dim(
           `  ${ctx.t.suppressedReason(JSON.stringify(safeText(suppression?.reason ?? "", 300)), expires)}`,
         ),
-        formatGroups(members, ctx),
+        list(members, ctx),
       ].join("\n");
     })
     .join("\n\n");
@@ -750,19 +754,76 @@ function formatCompactGroups(findings: readonly Finding[], ctx: RenderContext): 
     .join("\n");
 }
 
-/** Compact list of at most `COMPACT_MAX_GROUPS` groups, then what was left out. */
+/** Groups listed in the compact form of test and vendored code (critical and high). */
+export const COMPACT_MAX_CONTEXT_GROUPS = 5;
+
+/** Secrets are always listed, whatever the cap: a leaked value is what a reader must not miss. */
+const isSecretGroup = (group: FindingGroup): boolean =>
+  group.representative.ruleId.startsWith("PG-SECRET-");
+
+/**
+ * The first `max` of `groups`, plus every secret group after them. Returns what is shown and the findings of
+ * the groups left out.
+ */
+function pickCompactGroups(
+  groups: readonly FindingGroup[],
+  max: number,
+): { shown: FindingGroup[]; left: Finding[] } {
+  const shown: FindingGroup[] = [];
+  const left: Finding[] = [];
+  let counted = 0;
+  for (const group of groups) {
+    if (counted < max) {
+      shown.push(group);
+      counted += 1;
+    } else if (isSecretGroup(group)) shown.push(group);
+    else left.push(...group.findings);
+  }
+  return { shown, left };
+}
+
+/** Compact list of at most `COMPACT_MAX_GROUPS` groups (and all secrets), then what was left out. */
 function formatCompactList(
   findings: readonly Finding[],
   ctx: RenderContext,
 ): { lines: string[]; hidden: number } {
   const { style, t } = ctx;
-  const groups = groupFindings(findings);
-  const left = groups.slice(COMPACT_MAX_GROUPS).flatMap((group) => group.findings);
-  const lines = groups.slice(0, COMPACT_MAX_GROUPS).map((group) => formatCompactGroup(group, ctx));
+  const { shown, left } = pickCompactGroups(groupFindings(findings), COMPACT_MAX_GROUPS);
+  const lines = shown.map((group) => formatCompactGroup(group, ctx));
   if (left.length > 0) {
     lines.push(style.bold(`  ${t.compact.more(left.length, severityCounts(left, t))}`));
   }
   lines.push(style.dim(`  ${t.compact.details}`));
+  return { lines, hidden: left.length };
+}
+
+/**
+ * Test, fixture or vendored code in the compact form: a title line with the counts by severity,
+ * then critical and high groups (and every secret) in the two-line form with their own cap, then
+ * the rest as a count.
+ */
+function formatCompactContext(
+  title: string,
+  members: readonly Finding[],
+  ctx: RenderContext,
+): { lines: string[]; hidden: number } {
+  const { style, t } = ctx;
+  const groups = groupFindings(members);
+  const isListed = (group: FindingGroup): boolean =>
+    isSecretGroup(group) || isSevere(group.representative);
+  const { shown, left: overflow } = pickCompactGroups(
+    groups.filter(isListed),
+    COMPACT_MAX_CONTEXT_GROUPS,
+  );
+  const left = [
+    ...overflow,
+    ...groups.filter((group) => !isListed(group)).flatMap((g) => g.findings),
+  ];
+  const lines = [style.bold(t.compact.context(title, members.length, severityCounts(members, t)))];
+  lines.push(...shown.map((group) => formatCompactGroup(group, ctx)));
+  if (left.length > 0) {
+    lines.push(style.dim(`  ${t.compact.more(left.length, severityCounts(left, t))}`));
+  }
   return { lines, hidden: left.length };
 }
 
@@ -876,14 +937,15 @@ function formatTerminalResult(
       );
     }
   } else {
-    // One line each, with counts by severity, so critical and high ones stay visible.
-    const contextLine = (title: string, members: readonly Finding[]): void => {
+    // A title with counts by severity; critical, high and secret groups are listed under it.
+    const contextBlock = (title: string, members: readonly Finding[]): void => {
       if (members.length === 0) return;
-      hidden += members.length;
-      add("", style.bold(t.compact.context(title, members.length, severityCounts(members, t))));
+      const block = formatCompactContext(title, members, ctx);
+      hidden += block.hidden;
+      add("", ...block.lines);
     };
-    contextLine(t.testGroupTitle, test);
-    contextLine(t.report.vendoredTitle, vendored);
+    contextBlock(t.testGroupTitle, test);
+    contextBlock(t.report.vendoredTitle, vendored);
   }
   if (partition.suppressed.length > 0) {
     add(
@@ -893,7 +955,9 @@ function formatTerminalResult(
         partition.suppressed,
         ctx,
         (members) =>
-          allFindings ? formatSuppressedGroups(members, ctx) : formatCompactGroups(members, ctx),
+          allFindings
+            ? formatSuppressedGroups(members, ctx)
+            : formatSuppressedGroups(members, ctx, formatCompactGroups),
       ),
     );
   }

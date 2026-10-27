@@ -368,13 +368,15 @@ async function runScanFlow(
   // a report asked for on the command line is saved, so a cancel inside it loses nothing.
   const panelsResult = (): ScanResult => localizeResult(context, result);
   const wantsPanels = command.panels === true;
+  // `baseline set --from-current` only uses the scan; it does not open the panel view by itself.
+  const isBaselineRun = command.setBaseline === true;
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
-    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels);
+    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun);
   } else {
     // Machine formats keep the terminal untouched: the panel view never opens for them.
-    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels);
+    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun);
     if (context.isMenu) isReportSaved = await offerReportExport(context, result, projectRoot);
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {

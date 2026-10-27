@@ -191,18 +191,24 @@ Options:
   --all-findings           list every finding in full (evidence, fix,
                            standards, every location). In a terminal the
                            default is compact: critical and high first, at most
-                           10 groups of one or two lines, then "+N more". Not in
-                           a terminal (pipe, file) the text is always the full
-                           form. It also lists every suppressed finding (see
+                           10 groups of one or two lines, then "+N more"; test
+                           and vendored code is counted, with its critical and
+                           high findings and secrets listed. Not in a terminal
+                           (pipe, file) the text is always the full form. It
+                           also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
   --panels                 open the read-only full-screen view (summary, charts,
                            coverage, findings; keys: Tab, arrows, ? help, Esc
-                           back) after the text result. In a terminal pgard scan
-                           already opens it by itself; PGARD_PANELS=off (also 0,
-                           false, no) stops that, and --panels still forces it.
-                           Never opens without a terminal. Not with --format
-                           json or sarif. pgard dashboard is the separate local
-                           web app
+                           back, Ctrl+D leaves) after the text result. In a
+                           terminal pgard scan already opens it by itself, but
+                           not when CI, GITHUB_ACTIONS, BUILDKITE, TF_BUILD or
+                           JENKINS_URL is set, or TERM=dumb. PGARD_PANELS=off
+                           (also 0, false, no) turns it off: use it for script,
+                           expect, VS Code tasks and docker run -it. --panels
+                           still forces it (not with TERM=dumb); so does
+                           PGARD_PANELS=on in CI. Never opens without a
+                           terminal. Not with --format json or sarif. pgard
+                           dashboard is the separate local web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
                            then en). JSON and SARIF output are always English
@@ -497,14 +503,14 @@ The terminal result shows a severity chart, the findings (confirmed, suspected o
 In a terminal, `pgard scan` prints the findings first and the summary last, so the screen ends on the numbers and the next step instead of scrolling them away:
 
 1. **Header**: one status line and one line with the repository, revision and scopes, then the `!` notices about `pgard.config.json`, suppressions and the baseline.
-2. **Findings, compact by default**: critical and high first, at most 10 groups (same rule and cause), each in one or two lines: severity, title, the first location (`and N more`), rule id and status. Under the list: `+43 more findings (medium 17, low 2) - run with --all-findings`, so lower severities are counted, never silently dropped, and a line saying where evidence, fix and standards are: `--all-findings`, the [panel view](#the-panel-view), the dashboard or a report. Findings in test or fixture code and in vendored code are one line each with the counts by severity (`In test or fixture code (14): High 2, Medium 4, Low 8 - ...`), so the groups stay distinguishable and a critical or high one is still counted. Suppressed and baseline findings keep their own sections; critical ones are still listed.
+2. **Findings, compact by default**: critical and high first, at most 10 groups (same rule and cause), each in one or two lines: severity, title, the first location (`and N more`), rule id and status. Under the list: `+19 more findings (medium 17, low 2) - run with --all-findings`, so lower severities are counted, never silently dropped, and a line saying where evidence, fix and standards are: `--all-findings`, the [panel view](#the-panel-view), the dashboard or a report. Findings in test or fixture code and in vendored code get a title line with the counts by severity (`In test or fixture code (14): High 2, Medium 4, Low 8`), so the groups stay distinguishable, followed by their critical and high groups (and every `PG-SECRET-*` group) in the same two-line form, at most 5 plus all secrets, and `+N more` for the rest. A secret is listed even beyond the 10-group cap. Suppressed and baseline findings keep their own sections; their critical ones are still listed in the compact form, suppressed ones under the reason from `pgard.config.json`.
 3. **Closing summary**: `Result: <status> - N findings (...)`; a `! Not a safe result` warning whenever the scan is not complete or an area is partial or not tested; the **Summary** block (areas, rules, "Max per rule", elapsed time, incremental or full, since the last scan); the **charts** by severity, OWASP Top 10 2025 category and area; **Coverage** (a count line `2 ok, 1 partial, 1 not tested`, then every partial or not-tested area by name with its note; with `--all-findings` the list of all areas); the **standards coverage** (two count lines and the note that `rules ran` is not a pass; the table with `--all-findings`); the analysis basis; and a **Next** line.
 
-`--all-findings` prints the full detail (evidence, fix, standards with links, every location, no collapsing), in the same order with the summary last. Charts: with colour on, bars use block characters in the severity colours; with `NO_COLOR`, a non-TTY output or `TERM=dumb` they are plain `#` bars; below 60 columns there are no bars, only `label  count` lines. Bars scale to the terminal width.
+`--all-findings` in a terminal prints the full detail (evidence, fix, standards with links, every location, no collapsing) in the same order with the summary last and wrapped to the width; without a terminal it prints the stable form. Charts: with colour on, bars use block characters in the severity colours; with `NO_COLOR`, a non-TTY output or `TERM=dumb` they are plain `#` bars; below 60 columns there are no bars, only `label  count` lines. Bars scale to the terminal width.
 
-**Width.** Every line is wrapped to the terminal width with a hanging indent under its label (`! `, `[partial] `, `Evidence: `), only at spaces, so a coverage note is never cut in the middle of a word. A word longer than the line without being a URL is cut into pieces. The one exception is an unbreakable `http://` or `https://` URL: it stays whole and may run past the right edge, because a cut link cannot be copied.
+**Width.** Every line is wrapped to the terminal width with a hanging indent under its label (`! `, `[partial] `, `Evidence: `), only at spaces, so a coverage note is never cut in the middle of a word. A word longer than the line is cut into pieces by character (never inside an escape sequence or a combined character, and each piece keeps its colour). The one exception is PGARD's own standards links (OWASP, CWE and CERT references): they stay whole and may run past the right edge, because a cut link cannot be copied. Any other URL, which can come from the scanned code or a web page, is cut at twice the width with `...`.
 
-**Not in a terminal** (a pipe, a file, CI), the text result is unchanged and stable for scripts: summary and charts first, every finding in full, then coverage. It is not wrapped and has no `Next` line. `--format json` and `--format sarif` are never affected.
+**The stable, parseable contract is the output that is not a terminal** (a pipe, a file, CI). It is unchanged and stable for scripts: summary and charts first, every finding in full, then coverage. It is not wrapped and has no `Next` line. `--format json` and `--format sarif` are never affected.
 
 **The old layout:** to get the previous summary-first full text in a terminal, pipe the output (`pgard scan | cat`).
 
@@ -512,7 +518,7 @@ The standards map uses four states and nothing else: `rules ran`, `rules partial
 
 ### The panel view
 
-Any `pgard scan` in a terminal (and any scan started from the interactive menu) opens a read-only screen over the finished scan, after the compact text result (which stays on the main screen: Esc returns to it) and after the result was stored. Follow-up questions such as the report export are asked only after the view closes. It opens automatically after completed and partial scans (not after a failed one, which has little to show) unless `PGARD_PANELS=off` (`0`, `false` and `no` work too, in any case); an unknown value prints a one-line hint on stderr and keeps it on. `--panels` opens it even when `PGARD_PANELS=off`. It never opens without a terminal on stdin and stdout, and never with `--format json` or `sarif`. If the view itself fails, the terminal is restored, a one-line note goes to stderr and the scan keeps its own exit code. With `--panels` on a blocked scan nothing opens and a stderr note says why. It makes no network request and changes nothing. Four panels, switched with Tab, Shift+Tab or Left/Right:
+Any `pgard scan` in a terminal (and any scan started from the interactive menu) opens a read-only screen over the finished scan, after the compact text result (which stays on the main screen: Esc returns to it) and after the result was stored. Follow-up questions such as the report export are asked only after the view closes. It opens automatically after completed and partial scans (not after a failed one, which has little to show) unless `PGARD_PANELS=off` (`0`, `false` and `no` work too, in any case); an unknown value prints a one-line hint on stderr and keeps it on. `--panels` opens it even when `PGARD_PANELS=off`. Automation: it does not open by itself when `CI` is set to anything other than empty, `0` or `false`, when `GITHUB_ACTIONS`, `BUILDKITE`, `TF_BUILD` or `JENKINS_URL` is set, or with `TERM=dumb`, and not for `pgard baseline set --from-current`. `--panels` opens it anyway (except with `TERM=dumb`, which cannot draw a full-screen view; a stderr note says so), and so does an explicit `PGARD_PANELS=on`. **If you run `pgard scan` where a pseudo-terminal exists but nobody presses keys (`script`, `expect`, VS Code tasks, `docker run -it`, some CI wrappers), set `PGARD_PANELS=off`**, otherwise the view waits for a key. Ctrl+D and a closed terminal leave the view like Esc. It never opens without a terminal on stdin and stdout, and never with `--format json` or `sarif`. If the view itself fails, the terminal is restored, a one-line note goes to stderr and the scan keeps its own exit code. With `--panels` on a blocked scan nothing opens and a stderr note says why. It makes no network request and changes nothing. Four panels, switched with Tab, Shift+Tab or Left/Right:
 
 - **Overview**: the same summary block as the text result and the severity bars.
 - **Charts**: findings by OWASP Top 10 2025 category and by area.
@@ -671,8 +677,6 @@ By default `pgard scan` builds on this repository's last stored scan, so a secon
 - **Coverage stays honest.** Coverage notes say how many files or commits were reused from which scan. Reused findings keep what the stored scan knew; nothing is reused across a change that could make it stale.
 - **What is stored.** With each result PGARD keeps, in the same file, the SHA-256 of each analyzed source file, its redacted findings (the text the result already holds) and a few facts for the project-wide checks (imports, route lines). No source text, no secret value, no absolute path. The data is only used to skip work and is checked against the files on every scan; the result is stored without it (and the next scan is a full one) if it would make the file too large (8 MiB, roughly 18,000 source files) or fails the same checks as the result.
 - **Measured.** A repository with 2,000 TypeScript files and 301 commits, one file changed: about 0.36 s incremental against about 2.3 s for a full scan (see the pull request for the method).
-
-### Findings in test or fixture code
 
 ### Findings in test or fixture code
 

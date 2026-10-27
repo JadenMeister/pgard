@@ -80,6 +80,11 @@ function scrollTo(state: PanelsState, edge: "start" | "end"): PanelsState {
   return normalize({ ...state, scroll: { ...state.scroll, [state.panel]: huge } });
 }
 
+/** Ctrl+D is end of input: it leaves the view like Esc. */
+function isCtrlD(key: Key): boolean {
+  return key.ctrl && key.name === "d";
+}
+
 function isCtrlC(key: Key): boolean {
   return key.ctrl && key.name === "c";
 }
@@ -101,6 +106,7 @@ export function reduce(state: PanelsState, key: Key): PanelsState {
     return { ...state, overlay: "none" };
   }
   if (isCtrlC(key)) return { ...state, overlay: "confirm-cancel" };
+  if (isCtrlD(key)) return { ...state, exit: "back" };
   const height = bodyHeight(state.size);
   if (key.name === "q") return { ...state, exit: "back" };
   const isHelp = key.sequence === "?";

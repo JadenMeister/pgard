@@ -1658,11 +1658,13 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
   Evidence, fix and standards for each finding: --all-findings, the panel view,
   the dashboard or a report.
 
-In test or fixture code (14): High 2, Medium 4, Low 8 - not listed here; run
-with --all-findings
+In test or fixture code (14): High 2, Medium 4, Low 8
+  [HIGH] Hardcoded credential
+      test/fixtures/aws.json:63 and 1 more  PG-SECRET-001 - suspected
+  +12 more findings (Medium 4, Low 8) - run with --all-findings
 
-Suggestions: in third-party/vendored code (11): Low 6, Info 5 - not
-             listed here; run with --all-findings
+Suggestions: in third-party/vendored code (11): Low 6, Info 5
+  +11 more findings (Low 6, Info 5) - run with --all-findings
 
 Result: Partial - 70 findings (5 critical, 13 high, 24 medium, 23 low, 5 info)
 ! Not a safe result: an area that is partial or not tested was not fully
@@ -1754,9 +1756,13 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
   +17 more findings (Medium 8, Low 9) - run with --all-findings
   Evidence, fix and standards for each finding: --all-findings, the panel view, the dashboard or a report.
 
-In test or fixture code (14): High 2, Medium 4, Low 8 - not listed here; run with --all-findings
+In test or fixture code (14): High 2, Medium 4, Low 8
+  [HIGH] Hardcoded credential
+      test/fixtures/aws.json:63 and 1 more  PG-SECRET-001 - suspected
+  +12 more findings (Medium 4, Low 8) - run with --all-findings
 
-Suggestions: in third-party/vendored code (11): Low 6, Info 5 - not listed here; run with --all-findings
+Suggestions: in third-party/vendored code (11): Low 6, Info 5
+  +11 more findings (Low 6, Info 5) - run with --all-findings
 
 Result: Partial - 70 findings (5 critical, 13 high, 24 medium, 23 low, 5 info)
 ! Not a safe result: an area that is partial or not tested was not fully checked, so no finding there does not mean no
@@ -1843,11 +1849,13 @@ history, web
   각 발견 항목의 근거, 수정 방법, 표준: --all-findings, 패널 화면, 대시보드 또는
   보고서.
 
-테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8 - 여기에 나열하지 않음.
---all-findings로 실행
+테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8
+  [높음] Hardcoded credential
+      test/fixtures/aws.json:63 외 1곳  PG-SECRET-001 - 의심
+  +12건 더 있음 (보통 4, 낮음 8) - --all-findings로 실행
 
-제안: 서드파티/vendored 코드 (11): 낮음 6, 정보 5 - 여기에 나열하지 않음.
-      --all-findings로 실행
+제안: 서드파티/vendored 코드 (11): 낮음 6, 정보 5
+  +11건 더 있음 (낮음 6, 정보 5) - --all-findings로 실행
 
 결과: 부분 완료 - 발견 70건 (치명적 5건, 높음 13건, 보통 24건, 낮음 23건,
       정보 5건)
@@ -1937,9 +1945,13 @@ exports[`terminal result, compact (default) > matches the reviewed layout: ko, 1
   +17건 더 있음 (보통 8, 낮음 9) - --all-findings로 실행
   각 발견 항목의 근거, 수정 방법, 표준: --all-findings, 패널 화면, 대시보드 또는 보고서.
 
-테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8 - 여기에 나열하지 않음. --all-findings로 실행
+테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8
+  [높음] Hardcoded credential
+      test/fixtures/aws.json:63 외 1곳  PG-SECRET-001 - 의심
+  +12건 더 있음 (보통 4, 낮음 8) - --all-findings로 실행
 
-제안: 서드파티/vendored 코드 (11): 낮음 6, 정보 5 - 여기에 나열하지 않음. --all-findings로 실행
+제안: 서드파티/vendored 코드 (11): 낮음 6, 정보 5
+  +11건 더 있음 (낮음 6, 정보 5) - --all-findings로 실행
 
 결과: 부분 완료 - 발견 70건 (치명적 5건, 높음 13건, 보통 24건, 낮음 23건, 정보 5건)
 ! 안전하다는 결과가 아닙니다: 일부 또는 검사하지 못한 영역은 끝까지 확인하지 않았으므로, 그곳에 발견 항목이 없다고

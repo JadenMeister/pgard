@@ -240,6 +240,8 @@ export interface PanelsText {
   notOpenedBlocked: string;
   /** stderr hint for an unknown `PGARD_PANELS` value. */
   badEnv: string;
+  /** stderr note: `--panels` with TERM=dumb, which cannot draw a full-screen view. */
+  dumbTerminal: string;
 }
 
 const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
@@ -349,8 +351,7 @@ const EN: CliText = {
       `+${count} more ${count === 1 ? "finding" : "findings"} (${breakdown}) - run with --all-findings`,
     details:
       "Evidence, fix and standards for each finding: --all-findings, the panel view, the dashboard or a report.",
-    context: (title, count, bySeverity) =>
-      `${title} (${count}): ${bySeverity} - not listed here; run with --all-findings`,
+    context: (title, count, bySeverity) => `${title} (${count}): ${bySeverity}`,
     result: (overall, total, breakdown) =>
       `Result: ${overall} - ${total} ${total === 1 ? "finding" : "findings"}${breakdown === "" ? "" : ` (${breakdown})`}`,
     notSafe:
@@ -510,6 +511,8 @@ const EN: CliText = {
     failed: "The panel view failed and was closed. The scan result above is unaffected.",
     notOpenedBlocked: "--panels: the panel view was not opened because the scan was blocked.",
     badEnv: "PGARD_PANELS is not off, 0, false or no; the panel view stays on.",
+    dumbTerminal:
+      "--panels: the panel view was not opened because TERM=dumb cannot draw a full-screen view.",
   },
 };
 
@@ -610,8 +613,7 @@ const KO: CliText = {
     more: (count, breakdown) => `+${count}건 더 있음 (${breakdown}) - --all-findings로 실행`,
     details:
       "각 발견 항목의 근거, 수정 방법, 표준: --all-findings, 패널 화면, 대시보드 또는 보고서.",
-    context: (title, count, bySeverity) =>
-      `${title} (${count}): ${bySeverity} - 여기에 나열하지 않음. --all-findings로 실행`,
+    context: (title, count, bySeverity) => `${title} (${count}): ${bySeverity}`,
     result: (overall, total, breakdown) =>
       `결과: ${overall} - 발견 ${total}건${breakdown === "" ? "" : ` (${breakdown})`}`,
     notSafe:
@@ -792,6 +794,7 @@ const KO: CliText = {
     failed: "패널 화면에 문제가 생겨 닫았습니다. 위의 검사 결과에는 영향이 없습니다.",
     notOpenedBlocked: "--panels: 검사가 차단되어 패널 화면을 열지 않았습니다.",
     badEnv: "PGARD_PANELS 값이 off, 0, false, no가 아니어서 패널 화면을 그대로 사용합니다.",
+    dumbTerminal: "--panels: TERM=dumb에서는 전체 화면을 그릴 수 없어 패널 화면을 열지 않았습니다.",
   },
 };
 
