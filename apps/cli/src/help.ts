@@ -111,8 +111,10 @@ ${REPORT_HELP}
                            view (summary, charts, coverage, findings) in a
                            terminal; keys: Tab, arrows, ? help, Esc back. Not
                            with --format json or sarif; without a terminal only
-                           the text result is printed. (pgard dashboard is the
-                           separate local web app)
+                           the text result is printed. Wins over PGARD_PANELS=off.
+                           The menu opens it by itself after a scan in a terminal
+                           (PGARD_PANELS=off stops that). pgard dashboard is the
+                           separate local web app
   --format text|json|sarif json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; sarif prints the
                            same result as SARIF 2.1.0 (for GitHub code

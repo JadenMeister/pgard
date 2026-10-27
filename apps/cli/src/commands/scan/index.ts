@@ -360,16 +360,21 @@ async function runScanFlow(
   if (command.setBaseline === true) {
     isBaselineSaved = await setBaselineFromScan(context, result, scanned.outcome, projectRoot);
   }
+  // The panel view comes before any follow-up question (the report offer in the menu), and after
+  // a report asked for on the command line is saved, so a cancel inside it loses nothing.
+  const panelsResult = (): ScanResult => localizeResult(context, result);
+  const wantsPanels = command.panels === true;
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
-  } else if (context.isMenu) {
-    isReportSaved = await offerReportExport(context, result, projectRoot);
+    await offerPanels(context, panelsResult(), wantsPanels);
+  } else {
+    await offerPanels(context, panelsResult(), wantsPanels);
+    if (context.isMenu) isReportSaved = await offerReportExport(context, result, projectRoot);
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
     exitCode = EXIT_CODES.partial;
   }
-  await offerPanels(context, localizeResult(context, result), command.panels === true);
   return exitCode;
 }
 

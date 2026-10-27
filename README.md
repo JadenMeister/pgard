@@ -195,8 +195,10 @@ Options:
                            view (summary, charts, coverage, findings) in a
                            terminal; keys: Tab, arrows, ? help, Esc back. Not
                            with --format json or sarif; without a terminal only
-                           the text result is printed. (pgard dashboard is the
-                           separate local web app)
+                           the text result is printed. Wins over PGARD_PANELS=off.
+                           The menu opens it by itself after a scan in a terminal
+                           (PGARD_PANELS=off stops that). pgard dashboard is the
+                           separate local web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
                            then en). JSON and SARIF output are always English
@@ -223,7 +225,7 @@ authorization and continues the scan.
 - `--port N` (`scan web` and `scan all` only): the local service port, an integer from 1 to 65535. You still have to confirm the service.
 - `--target-port N` (`dashboard` only): pre-selects the local service to check. You still confirm it in the browser. The dashboard itself runs on its own free port.
 - `--report html|pdf|both` and `--output-dir <dir>` (any `scan`): save a report. The two options must be used together. The directory must already exist, and existing files are never overwritten. A directory inside the Git repository needs an explicit `y` (without an interactive terminal it is refused). By default, results are only shown in the terminal.
-- `--panels` (any `scan`): after the text result, open the [panel view](#the-panel-view), a read-only full-screen screen over that result. Not with `--format json` or `sarif` (usage error 2 before any sign-in or scan). Without a terminal (CI, pipes, redirected output) it is ignored: the text result is printed as always, with a one-line note on stderr. The menu offers the same view after a scan. It is unrelated to `pgard dashboard`, the local web app.
+- `--panels` (any `scan`): after the text result, open the [panel view](#the-panel-view), a read-only full-screen screen over that result. Not with `--format json` or `sarif` (usage error 2 before any sign-in or scan). Without a terminal (CI, pipes, redirected output) it is ignored: the text result is printed as always, with a one-line note on stderr. A scan started from the interactive menu opens the same view by itself in a terminal; `PGARD_PANELS=off` (also `0`, `false`, `no`) turns that off, and the explicit `--panels` flag wins over it. It is unrelated to `pgard dashboard`, the local web app.
 - `--all-findings` (any `scan`): list every finding and every location, each with its own evidence, and never collapse anything. This includes suppressed findings and findings in the baseline (see [Suppressions](#suppressions) and [Baseline](#baseline)). By default, groups show up to 3 locations (the evidence is shown once when all members share it, otherwise it says it varies), and when more than 5 findings come from test, fixture or vendored code the lower-severity ones are replaced by a summary (see [Grouping and collapsing](#grouping-and-collapsing)).
 - `--format text|json|sarif` (any `scan`, default `text`): `sarif` prints SARIF 2.1.0 instead (see [SARIF output](#sarif-output)); it follows the same rules as `json` for stdout, stderr, `--port` and exit codes. `json` prints only the redacted scan result to stdout, exactly as described in [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md) and readable with `readScanResult`. Progress, notices and prompts go to stderr, so `pgard scan code --format json > result.json` is valid JSON. Prompts never use stdout: `scan web` and `scan all` need `--port` (without it the command exits with the usage error 2 before scanning). The exit codes do not change. `--all-findings` has no effect on JSON, which always contains every finding. Prompts that are still possible (the `--port` confirmation, the GitHub App install guide, saving a report inside the repository) are shown on stderr when stdin and stderr are terminals, even if stdout is redirected to a file. Stdout holds exactly one document, the final result, which is also a blocked result when authorization failed. Stdout stays empty only for a usage error (exit 2), a cancellation, a directory that is not a repository (exit 3) and an internal error.
 - `--lang en|ko` (any `scan`, `rules list`): language of the rule texts (titles, impact, fix) in the terminal. See [Language of rule texts](#language-of-rule-texts).
@@ -483,7 +485,7 @@ The standards map uses four states and nothing else: `rules ran`, `rules partial
 
 ### The panel view
 
-`pgard scan --panels` (or `y` to "Open the full-screen panel view?" after a scan in the menu) opens a read-only screen over the finished scan, after the text result and after the result was stored and any report saved. It makes no network request and changes nothing. Four panels, switched with Tab, Shift+Tab or Left/Right:
+`pgard scan --panels` (or any scan started from the interactive menu, in a terminal) opens a read-only screen over the finished scan, after the text result (which stays on the main screen: Esc returns to it) and after the result was stored. Follow-up questions such as the report export are asked only after the view closes. In the menu it opens automatically unless `PGARD_PANELS=off` (`0`, `false` and `no` work too, in any case); an unknown value prints a one-line hint on stderr and keeps it on. `pgard scan …` opens it only with `--panels`, even when `PGARD_PANELS=off`. It never opens without a terminal on stdin and stdout. It makes no network request and changes nothing. Four panels, switched with Tab, Shift+Tab or Left/Right:
 
 - **Overview**: the same summary block as the text result and the severity bars.
 - **Charts**: findings by OWASP Top 10 2025 category and by area.

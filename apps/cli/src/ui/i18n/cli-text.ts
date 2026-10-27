@@ -208,8 +208,8 @@ export interface PanelsText {
   inBaseline: string;
   /** Printed (stderr) when `--panels` is given but the output is not a terminal. */
   notTerminal: string;
-  /** Menu question after a scan result. */
-  offer: string;
+  /** stderr hint for an unknown `PGARD_PANELS` value. */
+  badEnv: string;
 }
 
 const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
@@ -459,7 +459,7 @@ const EN: CliText = {
     suppressed: "suppressed",
     inBaseline: "baseline",
     notTerminal: "--panels needs a terminal; the plain text result above is all there is.",
-    offer: "Open the full-screen panel view?",
+    badEnv: "PGARD_PANELS is not off, 0, false or no; the panel view stays on.",
   },
 };
 
@@ -722,7 +722,7 @@ const KO: CliText = {
     suppressed: "억제됨",
     inBaseline: "기준선",
     notTerminal: "--panels는 터미널이 필요합니다. 위의 일반 텍스트 결과만 출력됩니다.",
-    offer: "전체 화면 패널 보기를 열까요?",
+    badEnv: "PGARD_PANELS 값이 off, 0, false, no가 아니어서 패널 화면을 그대로 사용합니다.",
   },
 };
 

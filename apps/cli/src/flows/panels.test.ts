@@ -182,22 +182,66 @@ describe("offerPanels", () => {
     expect(captured.stdout().endsWith(LEAVE)).toBe(true);
   });
 
-  it("asks in the menu and opens only on y", async () => {
-    const yes = terminal();
-    await offerPanels(
-      createTestContext(yes, createTestDeps(), scriptedKeys(["y", "escape"]), true),
-      panelsFixtureResult(),
-      false,
-    );
-    expect(yes.stdout()).toContain("Open the full-screen panel view? [y/N]");
-    expect(yes.stdout()).toContain(ENTER);
-    const no = terminal();
-    await offerPanels(
-      createTestContext(no, createTestDeps(), scriptedKeys(["n"]), true),
-      panelsFixtureResult(),
-      false,
-    );
-    expect(no.stdout()).not.toContain(ENTER);
+  async function menuRun(env: Record<string, string>) {
+    const captured = terminal();
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]), true);
+    context.io.env = env;
+    await offerPanels(context, panelsFixtureResult(), false);
+    return captured;
+  }
+
+  it("opens by itself in the menu in a terminal", async () => {
+    const captured = await menuRun({});
+    expect(captured.stdout()).toContain(ENTER);
+    expect(captured.stdout().endsWith(LEAVE)).toBe(true);
+    expect(captured.stderr()).toBe("");
+  });
+
+  it("does not open in the menu without a terminal", async () => {
+    const captured = createTestIo({ isTTY: false });
+    const context = createTestContext(captured, createTestDeps(), null, true);
+    await offerPanels(context, panelsFixtureResult(), false);
+    expect(captured.stdout()).toBe("");
+    expect(captured.stderr()).toBe("");
+  });
+
+  it("is turned off in the menu by PGARD_PANELS=off, 0, false or no in any case", async () => {
+    for (const value of ["off", "OFF", "0", "false", "False", "no", " No "]) {
+      const captured = await menuRun({ PGARD_PANELS: value });
+      expect(captured.stdout(), value).not.toContain(ENTER);
+      expect(captured.stderr(), value).toBe("");
+    }
+  });
+
+  it("keeps the default on for on-like values and says so for unknown ones", async () => {
+    for (const value of ["on", "1", "true", "yes", ""]) {
+      const captured = await menuRun({ PGARD_PANELS: value });
+      expect(captured.stdout(), value).toContain(ENTER);
+      expect(captured.stderr(), value).toBe("");
+    }
+    const captured = await menuRun({ PGARD_PANELS: "maybe" });
+    expect(captured.stdout()).toContain(ENTER);
+    expect(captured.stderr()).toContain("PGARD_PANELS is not off, 0, false or no");
+    const ko = createTestIo({ isTTY: true, env: { PGARD_PANELS: "maybe" } });
+    const koContext = createTestContext(ko, createTestDeps(), scriptedKeys(["escape"]), true);
+    koContext.ruleLocale = "ko";
+    await offerPanels(koContext, panelsFixtureResult(), false);
+    expect(ko.stderr()).toContain("PGARD_PANELS 값이");
+  });
+
+  it("lets --panels win over PGARD_PANELS=off", async () => {
+    const captured = terminal();
+    captured.io.env = { PGARD_PANELS: "off" };
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]));
+    await offerPanels(context, panelsFixtureResult(), true);
+    expect(captured.stdout()).toContain(ENTER);
+  });
+
+  it("does not open for a plain scan command, whatever PGARD_PANELS says", async () => {
+    const captured = terminal();
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys([]));
+    await offerPanels(context, panelsFixtureResult(), false);
+    expect(captured.stdout()).toBe("");
   });
 
   it("does nothing outside the menu without --panels", async () => {
@@ -206,4 +250,60 @@ describe("offerPanels", () => {
     await offerPanels(context, testResult(), false);
     expect(captured.stdout()).toBe("");
   });
+});
+
+describe("menu scan, end to end", () => {
+  async function runMenu(env: Record<string, string>) {
+    const captured = createTestIo({ isTTY: true, env });
+    const { stdin } = captured;
+    stdin.setRawMode = () => undefined;
+    const running = main([], captured.io, {
+      deps: createTestDeps({
+        runScan: async () => panelsFixtureResult(),
+        createSessionProvider: () => (async () => ({})) as never,
+      }),
+      interrupts: noInterrupts,
+    });
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const press = async (sequence: string, after = 15): Promise<void> => {
+      await wait(after);
+      stdin.write(sequence);
+    };
+    await press("\u001b[B");
+    await press("\u001b[B");
+    await press("\r"); // "Scan code"
+    await wait(250);
+    return { captured, running, press, wait };
+  }
+
+  it("shows the text result, then the panels, then asks the report question", async () => {
+    const { captured, running, press, wait } = await runMenu({});
+    await press("\u001b"); // Esc leaves the panels (readline waits ~500 ms to know it is Esc)
+    await wait(800);
+    await press("\u001b"); // Esc: no report
+    await wait(800);
+    await press("x"); // any key back to the menu
+    await press("\u001b"); // quit
+    await running;
+    const out = captured.stdout();
+    const text = out.indexOf("PGARD scan result");
+    const enter = out.indexOf(ENTER);
+    const leave = out.indexOf(LEAVE);
+    const question = out.indexOf("Save a report?");
+    expect(text).toBeGreaterThan(-1);
+    expect(enter).toBeGreaterThan(text);
+    expect(leave).toBeGreaterThan(enter);
+    expect(question).toBeGreaterThan(leave);
+  }, 15_000);
+
+  it("asks the report question straight away with PGARD_PANELS=off", async () => {
+    const { captured, running, press, wait } = await runMenu({ PGARD_PANELS: "off" });
+    await press("\u001b");
+    await wait(800);
+    await press("x");
+    await press("\u001b");
+    await running;
+    expect(captured.stdout()).not.toContain(ENTER);
+    expect(captured.stdout()).toContain("Save a report?");
+  }, 15_000);
 });
