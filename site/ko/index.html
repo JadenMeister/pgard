@@ -9,8 +9,8 @@
       content="내 프로젝트의 보안 스캐너 — 코드, Git 이력, 로컬 웹을 내 컴퓨터에서 점검합니다. 검사 권한이 있는 GitHub 저장소만 검사하며 결과는 업로드되지 않습니다."
     />
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#0e0f0e" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#fafaf7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <link rel="canonical" href="https://pgard.dev/ko/" />
     <link rel="alternate" hreflang="en" href="https://pgard.dev/" />
     <link rel="alternate" hreflang="ko" href="https://pgard.dev/ko/" />
@@ -521,252 +521,255 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
       </section>
 
       <section id="start" class="sec wrap" aria-labelledby="start-h">
-        <h2 id="start-h">시작하기</h2>
-        <div class="sec-body">
-          <ol class="steps">
-            <li>
-              <div class="step-text">
-                <h3>
-                  <span class="state-unreleased">소스에서 빌드</span
-                  ><span class="state-released">설치</span>
-                </h3>
-                <p class="state-unreleased">
-                  Node.js 22.23.4, 24.22.1 또는 26.12.1(또는 더 새로운 패치)과 Git이 필요합니다. 두
-                  번째 줄은 pgard를 PATH에 올립니다.
-                </p>
-                <p class="state-released">
-                  Node.js 22.23.4, 24.22.1 또는 26.12.1(또는 더 새로운 패치)과 Git이 필요합니다.
-                  Homebrew로도 설치할 수 있습니다.
-                </p>
-              </div>
-              <div class="state-unreleased">
-                <!-- prettier-ignore -->
-                <div class="cmdline"><code id="s1-src"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">git clone https://github.com/JadenMeister/pgard.git &amp;&amp; cd pgard &amp;&amp; npm ci &amp;&amp; npm run build</span></code><button type="button" class="copy" data-copy-target="s1-src" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
-                <!-- prettier-ignore -->
-                <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
-              </div>
-              <div class="state-released">
-                <!-- prettier-ignore -->
-                <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
-              </div>
-            </li>
-            <li>
-              <div class="step-text">
-                <h3>로그인과 승인</h3>
-                <p>
-                  GitHub에 한 번 로그인합니다(OS 키체인에 저장). owner가 PGARD GitHub App을 설치해야
-                  하며, 없으면 PGARD가 링크를 알려 줍니다.
-                </p>
-              </div>
+        <h2 id="start-h" class="sec-h">시작하기. <span class="h-mute">세 단계면 됩니다.</span></h2>
+        <ol class="steps">
+          <li class="card step">
+            <h3>
+              <span class="state-unreleased">소스에서 빌드</span
+              ><span class="state-released">설치</span>
+            </h3>
+            <p class="state-unreleased">
+              Node.js 22.23.4, 24.22.1 또는 26.12.1(또는 더 새로운 패치)과 Git이 필요합니다. 두 번째
+              줄은 pgard를 PATH에 올립니다.
+            </p>
+            <p class="state-released">
+              Node.js 22.23.4, 24.22.1 또는 26.12.1(또는 더 새로운 패치)과 Git이 필요합니다.
+              Homebrew로도 설치할 수 있습니다.
+            </p>
+            <div class="step-cmd state-unreleased">
+              <!-- prettier-ignore -->
+              <div class="cmdline"><code id="s1-src"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">git clone https://github.com/<wbr />JadenMeister/pgard.git &amp;&amp; cd pgard &amp;&amp; npm ci &amp;&amp; npm run build</span></code><button type="button" class="copy" data-copy-target="s1-src" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+              <!-- prettier-ignore -->
+              <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            </div>
+            <div class="step-cmd state-released">
+              <!-- prettier-ignore -->
+              <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            </div>
+          </li>
+          <li class="card step">
+            <h3>로그인과 승인</h3>
+            <p>
+              GitHub에 한 번 로그인합니다(OS 키체인에 저장). owner가 PGARD GitHub App을 설치해야
+              하며, 없으면 PGARD가 링크를 알려 줍니다.
+            </p>
+            <div class="step-cmd">
               <!-- prettier-ignore -->
               <div class="cmdline"><code id="s2"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">pgard login</span></code><button type="button" class="copy" data-copy-target="s2" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
-            </li>
-            <li>
-              <div class="step-text">
-                <h3>검사</h3>
-                <p>
-                  프로젝트 루트에서 실행합니다. 권한을 다시 확인하고, 터미널에서는 완료 또는 부분
-                  완료된 검사의 텍스트 결과 뒤에 패널 보기가 열립니다(CI나
-                  <code>PGARD_PANELS=off</code>에서는 제외).
-                </p>
-              </div>
+            </div>
+          </li>
+          <li class="card step">
+            <h3>검사</h3>
+            <p>
+              프로젝트 루트에서 실행합니다. 권한을 다시 확인하고, 터미널에서는 완료 또는 부분 완료된
+              검사의 텍스트 결과 뒤에 패널 보기가 열립니다(CI나
+              <code>PGARD_PANELS=off</code>에서는 제외).
+            </p>
+            <div class="step-cmd">
               <!-- prettier-ignore -->
               <div class="cmdline"><code id="s3"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">pgard scan</span></code><button type="button" class="copy" data-copy-target="s3" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
-            </li>
-          </ol>
-          <details class="more" id="install">
-            <summary>다른 설치 방법: npm, Homebrew</summary>
-            <div class="more-body">
-              <p class="state-unreleased">
-                npm과 Homebrew는 첫 릴리스와 함께 제공됩니다. 그 전에는
-                <code>npm install -g pgard</code>가 pgard 명령이 없는 자리표시 패키지만 설치하며,
-                Homebrew tap도 아직 없습니다.
-              </p>
-              <!-- prettier-ignore -->
-              <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install jadenmeister/pgard/pgard</span></span></code></div>
-              <!-- prettier-ignore -->
-              <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
-              <p>
-                <code>pgard doctor</code>는 실행 환경을 진단합니다(권한 확인은 아닙니다).
-                <span class="state-unreleased"
-                  ><code>npm link</code>를 하지 않았다면 클론한 폴더에서
-                  <code>node apps/cli/dist/bin/pgard.js</code>를 실행하세요.</span
-                >
-                모든 명령과 옵션은
-                <a
-                  href="https://github.com/JadenMeister/pgard/blob/main/README.ko.md"
-                  rel="noopener"
-                  >README</a
-                >에 있습니다.
-              </p>
             </div>
-          </details>
-        </div>
+          </li>
+        </ol>
+        <details class="more" id="install">
+          <summary>다른 설치 방법: npm, Homebrew</summary>
+          <div class="more-body">
+            <p class="state-unreleased">
+              npm과 Homebrew는 첫 릴리스와 함께 제공됩니다. 그 전에는
+              <code>npm install -g pgard</code>가 pgard 명령이 없는 자리표시 패키지만 설치하며,
+              Homebrew tap도 아직 없습니다.
+            </p>
+            <!-- prettier-ignore -->
+            <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install jadenmeister/pgard/pgard</span></span></code></div>
+            <!-- prettier-ignore -->
+            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            <p>
+              <code>pgard doctor</code>는 실행 환경을 진단합니다(권한 확인은 아닙니다).
+              <span class="state-unreleased"
+                ><code>npm link</code>를 하지 않았다면 클론한 폴더에서
+                <code>node apps/cli/dist/bin/pgard.js</code>를 실행하세요.</span
+              >
+              모든 명령과 옵션은
+              <a href="https://github.com/JadenMeister/pgard/blob/main/README.ko.md" rel="noopener"
+                >README</a
+              >에 있습니다.
+            </p>
+          </div>
+        </details>
       </section>
 
       <section id="checks" class="sec wrap" aria-labelledby="checks-h">
-        <h2 id="checks-h">무엇을 검사하나</h2>
-        <div class="sec-body">
-          <p>
-            세 영역 중에서 검사마다 고릅니다. 모든 결과는 어디까지 검사했는지 알려 줍니다. 전체 규칙
-            목록은 <code>pgard rules list</code>로 볼 수 있습니다.
-          </p>
-          <div class="areas">
-            <article class="area" aria-labelledby="area-code">
-              <h3 id="area-code">code</h3>
-              <ul>
-                <li>SQL 인젝션, XSS, SSRF</li>
-                <li>OS 명령 실행, 경로 조작(path traversal)</li>
-                <li>취약하거나 코드에 박힌 암호화 키, 해시하지 않은 비밀번호</li>
-                <li>쿠키 플래그, CSRF, 로그인 경로의 요청 횟수 제한 부재</li>
-              </ul>
-              <p class="bounds">
-                <span class="bounds-k">범위</span> 커밋하지 않은 파일을 포함한 현재 파일. 빌드
-                산출물과 의존성은 건너뛰고 목록을 알려 줍니다.
-              </p>
-            </article>
-            <article class="area" aria-labelledby="area-history">
-              <h3 id="area-history">history</h3>
-              <ul>
-                <li>커밋된 .env 파일</li>
-                <li>추적 중인 파일의 시크릿</li>
-                <li>이력에만 남은 시크릿</li>
-              </ul>
-              <p class="bounds">
-                <span class="bounds-k">범위</span> 시크릿 값은 모든 출력에서 가려집니다.
-              </p>
-            </article>
-            <article class="area" aria-labelledby="area-web">
-              <h3 id="area-web">web</h3>
-              <ul>
-                <li>보안 헤더, 쿠키 플래그</li>
-                <li>자격 증명을 허용하는 CORS</li>
-                <li>버전 노출, 디렉터리 목록</li>
-                <li>노출된 /.env와 /.git</li>
-              </ul>
-              <p class="bounds">
-                <span class="bounds-k">범위</span> 사용자가 확인한 127.0.0.1의 서비스만. 익명 GET과
-                HEAD, 페이지 20개, 깊이 2, 전체 60초.
-              </p>
-            </article>
-          </div>
-
-          <h3 class="sub">언어별</h3>
-          <div class="table-wrap" role="region" aria-label="언어와 검사 분류" tabindex="0">
-            <table class="stack">
-              <thead>
-                <tr>
-                  <th scope="col">언어</th>
-                  <th scope="col">분류</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">JavaScript, TypeScript</th>
-                  <td>
-                    SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작, 암호화, 비밀번호 저장, 쿠키, CSRF,
-                    요청 횟수 제한
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">React, Vue</th>
-                  <td>dangerouslySetInnerHTML과 v-html의 XSS, 그리고 JS/TS 규칙</td>
-                </tr>
-                <tr>
-                  <th scope="row">Go</th>
-                  <td>SQL 인젝션(database/sql, GORM), 명령 실행, 경로 조작, SSRF, 암호화, 쿠키</td>
-                </tr>
-                <tr class="emph">
-                  <th scope="row">Java, Kotlin</th>
-                  <td>다섯 분류: SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작</td>
-                </tr>
-                <tr class="emph">
-                  <th scope="row">Python, PHP</th>
-                  <td>두 분류만: SQL 인젝션, 명령 실행</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <h3 class="sub" id="features">출력</h3>
-          <dl class="outputs">
-            <div>
-              <dt>terminal</dt>
-              <dd>영역별 검사 범위가 담긴 결과, 이어서 읽기 전용 패널 보기.</dd>
-            </div>
-            <div>
-              <dt>dashboard</dt>
-              <dd><code>pgard dashboard</code>: 127.0.0.1의 로컬 웹 대시보드, 호스팅 없음.</dd>
-            </div>
-            <div>
-              <dt>json</dt>
-              <dd>
-                <code>--format json</code>: 가려 처리된 결과, 버전이 있는
-                <a
-                  href="https://github.com/JadenMeister/pgard/blob/main/docs/RESULT_SCHEMA.md"
-                  rel="noopener"
-                  >스키마</a
-                >.
-              </dd>
-            </div>
-            <div>
-              <dt>sarif</dt>
-              <dd>
-                <code>--format sarif</code>: SARIF 2.1.0, 종료 코드 0일 때만 올리세요(<a
-                  href="https://github.com/JadenMeister/pgard#sarif-output"
-                  rel="noopener"
-                  >방법</a
-                >).
-              </dd>
-            </div>
-            <div>
-              <dt>html, pdf</dt>
-              <dd><code>--report both</code>: 가려 처리된 보고서, 기존 파일을 덮어쓰지 않음.</dd>
-            </div>
-            <div>
-              <dt>baseline</dt>
-              <dd><code>pgard baseline set</code>: 알려진 항목과 새 항목을 구분합니다.</dd>
-            </div>
-            <div>
-              <dt>incremental</dt>
-              <dd>다시 검사할 때는 바뀐 부분만 읽습니다. <code>--full</code>은 전체 재검사.</dd>
-            </div>
-            <div>
-              <dt>standards</dt>
-              <dd>
-                OWASP Top 10 2025, CWE Top 25 2025, SEI CERT Java. “안전”이라고 하지 않습니다.
-              </dd>
-            </div>
-            <div>
-              <dt>language</dt>
-              <dd>결과 화면과 보고서는 한국어 또는 영어.</dd>
-            </div>
-          </dl>
+        <h2 id="checks-h" class="sec-h">
+          무엇을 검사하나. <span class="h-mute">세 영역 중에서 검사마다 고릅니다.</span>
+        </h2>
+        <p class="sec-lead">
+          모든 결과는 어디까지 검사했는지 알려 줍니다. 전체 규칙 목록은
+          <code>pgard rules list</code>로 볼 수 있습니다.
+        </p>
+        <div class="areas">
+          <article class="card area area-code" aria-labelledby="area-code">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M8 7.5 3.5 12 8 16.5M16 7.5l4.5 4.5-4.5 4.5M13.5 5l-3 14" />
+            </svg>
+            <h3 id="area-code">code</h3>
+            <ul>
+              <li>SQL 인젝션, XSS, SSRF</li>
+              <li>OS 명령 실행, 경로 조작(path traversal)</li>
+              <li>취약하거나 코드에 박힌 암호화 키, 해시하지 않은 비밀번호</li>
+              <li>쿠키 플래그, CSRF, 로그인 경로의 요청 횟수 제한 부재</li>
+            </ul>
+            <p class="bounds">
+              <span class="bounds-k">범위</span> 커밋하지 않은 파일을 포함한 현재 파일. 빌드
+              산출물과 의존성은 건너뛰고 목록을 알려 줍니다.
+            </p>
+          </article>
+          <article class="card area" aria-labelledby="area-history">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="6.5" cy="6" r="2.25" />
+              <circle cx="6.5" cy="18" r="2.25" />
+              <circle cx="17.5" cy="9" r="2.25" />
+              <path d="M6.5 8.25v7.5M17.5 11.25c0 3-3 3.75-9 5.25" />
+            </svg>
+            <h3 id="area-history">history</h3>
+            <ul>
+              <li>커밋된 .env 파일</li>
+              <li>추적 중인 파일의 시크릿</li>
+              <li>이력에만 남은 시크릿</li>
+            </ul>
+            <p class="bounds">
+              <span class="bounds-k">범위</span> 시크릿 값은 모든 출력에서 가려집니다.
+            </p>
+          </article>
+          <article class="card area" aria-labelledby="area-web">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="8.5" />
+              <path
+                d="M3.5 12h17M12 3.5c2.4 2.5 3.5 5.3 3.5 8.5s-1.1 6-3.5 8.5c-2.4-2.5-3.5-5.3-3.5-8.5s1.1-6 3.5-8.5z"
+              />
+            </svg>
+            <h3 id="area-web">web</h3>
+            <ul>
+              <li>보안 헤더, 쿠키 플래그</li>
+              <li>자격 증명을 허용하는 CORS</li>
+              <li>버전 노출, 디렉터리 목록</li>
+              <li>노출된 /.env와 /.git</li>
+            </ul>
+            <p class="bounds">
+              <span class="bounds-k">범위</span> 사용자가 확인한 127.0.0.1의 서비스만. 익명 GET과
+              HEAD, 페이지 20개, 깊이 2, 전체 60초.
+            </p>
+          </article>
         </div>
+
+        <h3 class="sub-h">언어별</h3>
+        <dl class="langs">
+          <div class="card lang-wide">
+            <dt>JavaScript, TypeScript</dt>
+            <dd>
+              SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작, 암호화, 비밀번호 저장, 쿠키, CSRF, 요청
+              횟수 제한
+            </dd>
+          </div>
+          <div class="card">
+            <dt>React, Vue</dt>
+            <dd>dangerouslySetInnerHTML과 v-html의 XSS, 그리고 JS/TS 규칙</dd>
+          </div>
+          <div class="card">
+            <dt>Go</dt>
+            <dd>SQL 인젝션(database/sql, GORM), 명령 실행, 경로 조작, SSRF, 암호화, 쿠키</dd>
+          </div>
+          <div class="card emph">
+            <dt>Java, Kotlin</dt>
+            <dd>다섯 분류: SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작</dd>
+          </div>
+          <div class="card emph">
+            <dt>Python, PHP</dt>
+            <dd>두 분류만: SQL 인젝션, 명령 실행</dd>
+          </div>
+        </dl>
+
+        <h3 class="sub-h" id="features">출력</h3>
+        <dl class="outputs">
+          <div class="card">
+            <dt>terminal</dt>
+            <dd>영역별 검사 범위가 담긴 결과, 이어서 읽기 전용 패널 보기.</dd>
+          </div>
+          <div class="card">
+            <dt>dashboard</dt>
+            <dd><code>pgard dashboard</code>: 127.0.0.1의 로컬 웹 대시보드, 호스팅 없음.</dd>
+          </div>
+          <div class="card">
+            <dt>json</dt>
+            <dd>
+              <code>--format json</code>: 가려 처리된 결과, 버전이 있는
+              <a
+                href="https://github.com/JadenMeister/pgard/blob/main/docs/RESULT_SCHEMA.md"
+                rel="noopener"
+                >스키마</a
+              >.
+            </dd>
+          </div>
+          <div class="card">
+            <dt>sarif</dt>
+            <dd>
+              <code>--format sarif</code>: SARIF 2.1.0, 종료 코드 0일 때만 올리세요(<a
+                href="https://github.com/JadenMeister/pgard#sarif-output"
+                rel="noopener"
+                >방법</a
+              >).
+            </dd>
+          </div>
+          <div class="card">
+            <dt>html, pdf</dt>
+            <dd><code>--report both</code>: 가려 처리된 보고서, 기존 파일을 덮어쓰지 않음.</dd>
+          </div>
+          <div class="card">
+            <dt>baseline</dt>
+            <dd><code>pgard baseline set</code>: 알려진 항목과 새 항목을 구분합니다.</dd>
+          </div>
+          <div class="card">
+            <dt>incremental</dt>
+            <dd>다시 검사할 때는 바뀐 부분만 읽습니다. <code>--full</code>은 전체 재검사.</dd>
+          </div>
+          <div class="card">
+            <dt>standards</dt>
+            <dd>OWASP Top 10 2025, CWE Top 25 2025, SEI CERT Java. “안전”이라고 하지 않습니다.</dd>
+          </div>
+          <div class="card">
+            <dt>language</dt>
+            <dd>결과 화면과 보고서는 한국어 또는 영어.</dd>
+          </div>
+        </dl>
       </section>
 
-      <section id="how" class="sec wrap" aria-labelledby="how-h">
-        <h2 id="how-h">권한 확인 방식</h2>
-        <div class="sec-body">
-          <p>
+      <div class="band">
+        <section id="how" class="sec wrap" aria-labelledby="how-h">
+          <h2 id="how-h" class="sec-h">
+            권한 확인 방식. <span class="h-mute">검사 전에 매번 다섯 가지를 확인합니다.</span>
+          </h2>
+          <p class="sec-lead">
             검사 도구는 남의 코드를 들여다보는 데도 쓸 수 있어서, CLI든 대시보드든 모든 검사는 먼저
             다섯 가지를 확인합니다. 재사용하는 것은 로그인뿐이고 건너뛸 수 없습니다. 근거가 없으면
             검사를 막고(종료 코드 3) 실패한 확인을 알려 줍니다.
           </p>
           <ol class="flow">
-            <li><strong>저장소</strong><span>github.com 원격이 하나인 Git 루트.</span></li>
-            <li>
+            <li class="card">
+              <strong>저장소</strong><span>github.com 원격이 하나인 Git 루트.</span>
+            </li>
+            <li class="card">
               <strong>GitHub 신원</strong><span>한 번 로그인하면 OS 키체인에 저장됩니다.</span>
             </li>
-            <li>
+            <li class="card">
               <strong>Owner 승인</strong
               ><span
                 >owner가 PGARD GitHub App을 설치했어야 하며, 조직이라면 내가 조직 owner여야
                 합니다.</span
               >
             </li>
-            <li><strong>현재 접근 권한</strong><span>지금 읽기 권한이 있어야 합니다.</span></li>
-            <li>
+            <li class="card">
+              <strong>현재 접근 권한</strong><span>지금 읽기 권한이 있어야 합니다.</span>
+            </li>
+            <li class="card">
               <strong>기여</strong
               ><span
                 >owner는 기본 브랜치와 이력을 공유해야 하고, 그 외에는 그곳에 병합된 풀 리퀘스트나
@@ -785,14 +788,18 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
               </p>
             </div>
           </details>
-        </div>
-      </section>
+        </section>
 
-      <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
-        <h2 id="privacy-h">남는 것과 나가는 것</h2>
-        <div class="sec-body">
+        <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
+          <h2 id="privacy-h" class="sec-h">
+            남는 것과 나가는 것. <span class="h-mute">코드와 결과는 내 컴퓨터에 남습니다.</span>
+          </h2>
           <div class="ledger">
-            <div>
+            <div class="card ledger-local">
+              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+                <path d="M2 19.5h20" />
+              </svg>
               <h3>내 컴퓨터에 머무는 것</h3>
               <ul>
                 <li>소스 코드, Git 이력, 검사 결과</li>
@@ -804,7 +811,10 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
                 <li>내보낸 보고서는 사용자가 고른 위치에만</li>
               </ul>
             </div>
-            <div>
+            <div class="card">
+              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 17 17 7M9 7h8v8" />
+              </svg>
               <h3>네트워크로 나가는 것</h3>
               <ul>
                 <li>GitHub: 로그인과 권한 확인 메타데이터, 로컬 커밋 SHA 포함</li>
@@ -831,12 +841,12 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
               </p>
             </div>
           </details>
-        </div>
-      </section>
+        </section>
+      </div>
 
       <section id="limits" class="sec wrap" aria-labelledby="limits-h">
-        <h2 id="limits-h">한계</h2>
-        <div class="sec-body">
+        <h2 id="limits-h" class="sec-h">한계. <span class="h-mute">하지 못하는 일.</span></h2>
+        <div class="card limits-card">
           <ul class="limits">
             <li>
               <b>검사 범위</b><span>부분 검사는 그대로 표시하고 종료 코드 4로 끝납니다.</span>
@@ -853,84 +863,80 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
             <li><b>신호</b><span>패턴 기반이라, 발견 없음이 안전을 뜻하지 않습니다.</span></li>
             <li><b>정확도</b><span>코퍼스가 작고(규칙당 약 10개) 개발자가 직접 썼습니다.</span></li>
           </ul>
-          <p>
-            다음 주제(일정 없음): 더 많은 언어와 분류, 의존성과 취약점 권고 대조, pre-commit 검사.
-            <a href="https://github.com/JadenMeister/pgard/issues" rel="noopener">열린 이슈</a>
-          </p>
         </div>
+        <p class="sec-note">
+          다음 주제(일정 없음): 더 많은 언어와 분류, 의존성과 취약점 권고 대조, pre-commit 검사.
+          <a href="https://github.com/JadenMeister/pgard/issues" rel="noopener">열린 이슈</a>
+        </p>
       </section>
 
       <section id="faq" class="sec wrap" aria-labelledby="faq-h">
-        <h2 id="faq-h">FAQ</h2>
-        <div class="sec-body">
-          <div class="faq">
-            <details>
-              <summary>내 코드가 내 컴퓨터를 벗어나나요?</summary>
-              <p>
-                아니요. 코드, Git 이력, 결과는 사용자 컴퓨터에서 처리되며 업로드되지 않습니다.
-                네트워크로 나가는 것의 전체 목록은 <a href="#privacy">위에</a> 있습니다.
-              </p>
-            </details>
-            <details>
-              <summary>왜 GitHub 로그인이 필요한가요?</summary>
-              <p>
-                검사 권한을 증명하기 위해서입니다. 신원, owner의 앱 설치, 현재 접근 권한, 저장소
-                소유 또는 기여를 확인합니다. 토큰은 OS 키체인에 저장되며 파일에는 저장되지 않습니다.
-              </p>
-            </details>
-            <details>
-              <summary>어떤 저장소를 검사할 수 있나요?</summary>
-              <p>
-                내 저장소는 내 계정에 PGARD GitHub App을 설치한 뒤에 가능합니다(PGARD가 안내합니다).
-                다른 사람의 개인 저장소는 owner가 앱을 설치했고, 내게 현재 읽기 접근 권한이 있으며,
-                기본 브랜치에 병합된 풀 리퀘스트 또는 검증된 서명 커밋이 있을 때만 가능합니다. 조직
-                저장소는 내가 조직의 활성 owner이고 앱이 해당 저장소에 설치되어 있을 때만
-                가능합니다. 원격 저장소는 검사하지 않으며, 대상은 항상 현재 디렉터리의 Git
-                루트입니다.
-              </p>
-            </details>
-            <details>
-              <summary>결과가 깨끗하면 안전하다는 증거인가요?</summary>
-              <p>
-                아니요. 모든 결과에는 검사하지 못한 부분이 나오고, 표준 매핑 현황은 한 분류의 약점
-                중 규칙이 있는 것이 얼마나 적은지 보여 줍니다. <a href="#limits">한계</a>를
-                참고하세요.
-              </p>
-            </details>
-            <details>
-              <summary>Windows에서도 동작하나요?</summary>
-              <p>
-                네. macOS, Linux, Windows를 지원하며 CI가 세 환경에서 전체 테스트를 실행합니다.
-                Windows에서는 로그인이 자격 증명 관리자에 저장됩니다. 예전 콘솔 창(legacy conhost)과
-                화면 표시(글꼴, 색, 문자)는 사용자가 직접 확인한 적이 없습니다.
-              </p>
-            </details>
-            <details>
-              <summary>CI에서 쓸 수 있나요?</summary>
-              <p>
-                지금은 어렵습니다. 모든 검사에는 CI 러너에 없는 GitHub 로그인이 필요해서, 러너에서는
-                차단된 결과만 나옵니다. 로컬에서 PGARD를 실행하고 <code>--format json</code> 또는
-                <code>--format sarif</code> 출력과 종료 코드(0 완료, 3 차단, 4 부분 완료)를 직접
-                만든 스크립트에서 사용하세요.
-              </p>
-            </details>
-            <details class="faq-more">
-              <summary>더 많은 질문</summary>
-              <h3>호스팅형 스캐너와 무엇이 다른가요?</h3>
-              <p>
-                코드가 어떤 서비스로도 복사되지 않습니다. 대신 직접 실행해야 하고, 호스팅된
-                대시보드나 상시 모니터링은 없으며, 검사해도 되는지 GitHub에 확인합니다.
-              </p>
-              <h3>PGARD의 취약점은 어떻게 제보하나요?</h3>
-              <p>
-                공개 이슈가 아니라 비공개로, 저장소 Security 탭의 Report a vulnerability 버튼으로
-                제보해 주세요. 범위는
-                <a href="https://github.com/JadenMeister/pgard/blob/main/SECURITY.md" rel="noopener"
-                  >보안 정책</a
-                >을 참고하세요. 현상금은 없습니다.
-              </p>
-            </details>
-          </div>
+        <h2 id="faq-h" class="sec-h">FAQ. <span class="h-mute">자주 묻는 질문.</span></h2>
+        <div class="faq">
+          <details>
+            <summary>내 코드가 내 컴퓨터를 벗어나나요?</summary>
+            <p>
+              아니요. 코드, Git 이력, 결과는 사용자 컴퓨터에서 처리되며 업로드되지 않습니다.
+              네트워크로 나가는 것의 전체 목록은 <a href="#privacy">위에</a> 있습니다.
+            </p>
+          </details>
+          <details>
+            <summary>왜 GitHub 로그인이 필요한가요?</summary>
+            <p>
+              검사 권한을 증명하기 위해서입니다. 신원, owner의 앱 설치, 현재 접근 권한, 저장소 소유
+              또는 기여를 확인합니다. 토큰은 OS 키체인에 저장되며 파일에는 저장되지 않습니다.
+            </p>
+          </details>
+          <details>
+            <summary>어떤 저장소를 검사할 수 있나요?</summary>
+            <p>
+              내 저장소는 내 계정에 PGARD GitHub App을 설치한 뒤에 가능합니다(PGARD가 안내합니다).
+              다른 사람의 개인 저장소는 owner가 앱을 설치했고, 내게 현재 읽기 접근 권한이 있으며,
+              기본 브랜치에 병합된 풀 리퀘스트 또는 검증된 서명 커밋이 있을 때만 가능합니다. 조직
+              저장소는 내가 조직의 활성 owner이고 앱이 해당 저장소에 설치되어 있을 때만 가능합니다.
+              원격 저장소는 검사하지 않으며, 대상은 항상 현재 디렉터리의 Git 루트입니다.
+            </p>
+          </details>
+          <details>
+            <summary>결과가 깨끗하면 안전하다는 증거인가요?</summary>
+            <p>
+              아니요. 모든 결과에는 검사하지 못한 부분이 나오고, 표준 매핑 현황은 한 분류의 약점 중
+              규칙이 있는 것이 얼마나 적은지 보여 줍니다. <a href="#limits">한계</a>를 참고하세요.
+            </p>
+          </details>
+          <details>
+            <summary>Windows에서도 동작하나요?</summary>
+            <p>
+              네. macOS, Linux, Windows를 지원하며 CI가 세 환경에서 전체 테스트를 실행합니다.
+              Windows에서는 로그인이 자격 증명 관리자에 저장됩니다. 예전 콘솔 창(legacy conhost)과
+              화면 표시(글꼴, 색, 문자)는 사용자가 직접 확인한 적이 없습니다.
+            </p>
+          </details>
+          <details>
+            <summary>CI에서 쓸 수 있나요?</summary>
+            <p>
+              지금은 어렵습니다. 모든 검사에는 CI 러너에 없는 GitHub 로그인이 필요해서, 러너에서는
+              차단된 결과만 나옵니다. 로컬에서 PGARD를 실행하고 <code>--format json</code> 또는
+              <code>--format sarif</code> 출력과 종료 코드(0 완료, 3 차단, 4 부분 완료)를 직접 만든
+              스크립트에서 사용하세요.
+            </p>
+          </details>
+          <details class="faq-more">
+            <summary>더 많은 질문</summary>
+            <h3>호스팅형 스캐너와 무엇이 다른가요?</h3>
+            <p>
+              코드가 어떤 서비스로도 복사되지 않습니다. 대신 직접 실행해야 하고, 호스팅된 대시보드나
+              상시 모니터링은 없으며, 검사해도 되는지 GitHub에 확인합니다.
+            </p>
+            <h3>PGARD의 취약점은 어떻게 제보하나요?</h3>
+            <p>
+              공개 이슈가 아니라 비공개로, 저장소 Security 탭의 Report a vulnerability 버튼으로
+              제보해 주세요. 범위는
+              <a href="https://github.com/JadenMeister/pgard/blob/main/SECURITY.md" rel="noopener"
+                >보안 정책</a
+              >을 참고하세요. 현상금은 없습니다.
+            </p>
+          </details>
         </div>
       </section>
     </main>

@@ -9,8 +9,8 @@
       content="Security scanner for your own projects — code, Git history and your local web app, checked on your machine. Only for GitHub repositories you are authorized to scan; results are never uploaded."
     />
     <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#0e0f0e" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#fafaf7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <link rel="canonical" href="https://pgard.dev/" />
     <link rel="alternate" hreflang="en" href="https://pgard.dev/" />
     <link rel="alternate" hreflang="ko" href="https://pgard.dev/ko/" />
@@ -520,255 +520,259 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
       </section>
 
       <section id="start" class="sec wrap" aria-labelledby="start-h">
-        <h2 id="start-h">Get started</h2>
-        <div class="sec-body">
-          <ol class="steps">
-            <li>
-              <div class="step-text">
-                <h3>
-                  <span class="state-unreleased">Build from source</span
-                  ><span class="state-released">Install</span>
-                </h3>
-                <p class="state-unreleased">
-                  Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. The second
-                  line puts pgard on your PATH.
-                </p>
-                <p class="state-released">
-                  Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. Homebrew
-                  works too.
-                </p>
-              </div>
-              <div class="state-unreleased">
-                <!-- prettier-ignore -->
-                <div class="cmdline"><code id="s1-src"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">git clone https://github.com/JadenMeister/pgard.git &amp;&amp; cd pgard &amp;&amp; npm ci &amp;&amp; npm run build</span></code><button type="button" class="copy" data-copy-target="s1-src" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-                <!-- prettier-ignore -->
-                <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-              </div>
-              <div class="state-released">
-                <!-- prettier-ignore -->
-                <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-              </div>
-            </li>
-            <li>
-              <div class="step-text">
-                <h3>Sign in and approve</h3>
-                <p>
-                  Sign in to GitHub once (kept in your OS keychain). The owner installs the PGARD
-                  GitHub App; PGARD prints the link if it is missing.
-                </p>
-              </div>
+        <h2 id="start-h" class="sec-h">Get started. <span class="h-mute">In three steps.</span></h2>
+        <ol class="steps">
+          <li class="card step">
+            <h3>
+              <span class="state-unreleased">Build from source</span
+              ><span class="state-released">Install</span>
+            </h3>
+            <p class="state-unreleased">
+              Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. The second line
+              puts pgard on your PATH.
+            </p>
+            <p class="state-released">
+              Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. Homebrew works
+              too.
+            </p>
+            <div class="step-cmd state-unreleased">
+              <!-- prettier-ignore -->
+              <div class="cmdline"><code id="s1-src"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">git clone https://github.com/<wbr />JadenMeister/pgard.git &amp;&amp; cd pgard &amp;&amp; npm ci &amp;&amp; npm run build</span></code><button type="button" class="copy" data-copy-target="s1-src" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              <!-- prettier-ignore -->
+              <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            </div>
+            <div class="step-cmd state-released">
+              <!-- prettier-ignore -->
+              <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            </div>
+          </li>
+          <li class="card step">
+            <h3>Sign in and approve</h3>
+            <p>
+              Sign in to GitHub once (kept in your OS keychain). The owner installs the PGARD GitHub
+              App; PGARD prints the link if it is missing.
+            </p>
+            <div class="step-cmd">
               <!-- prettier-ignore -->
               <div class="cmdline"><code id="s2"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">pgard login</span></code><button type="button" class="copy" data-copy-target="s2" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-            </li>
-            <li>
-              <div class="step-text">
-                <h3>Scan</h3>
-                <p>
-                  From your project root. Authorization is checked again; in a terminal, the panel
-                  view opens after the text result of a completed or partial scan (not in CI or with
-                  <code>PGARD_PANELS=off</code>).
-                </p>
-              </div>
+            </div>
+          </li>
+          <li class="card step">
+            <h3>Scan</h3>
+            <p>
+              From your project root. Authorization is checked again; in a terminal, the panel view
+              opens after the text result of a completed or partial scan (not in CI or with
+              <code>PGARD_PANELS=off</code>).
+            </p>
+            <div class="step-cmd">
               <!-- prettier-ignore -->
               <div class="cmdline"><code id="s3"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">pgard scan</span></code><button type="button" class="copy" data-copy-target="s3" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-            </li>
-          </ol>
-          <details class="more" id="install">
-            <summary>Other ways to install: npm, Homebrew</summary>
-            <div class="more-body">
-              <p class="state-unreleased">
-                npm and Homebrew come with the first release. Until then
-                <code>npm install -g pgard</code> installs only a placeholder package with no pgard
-                command, and the Homebrew tap does not exist yet.
-              </p>
-              <!-- prettier-ignore -->
-              <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install jadenmeister/pgard/pgard</span></span></code></div>
-              <!-- prettier-ignore -->
-              <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-              <p>
-                <code>pgard doctor</code> checks your setup; it is not an authorization.
-                <span class="state-unreleased"
-                  >Without <code>npm link</code>, run
-                  <code>node apps/cli/dist/bin/pgard.js</code> from the clone.</span
-                >
-                Every command and option is in the
-                <a href="https://github.com/JadenMeister/pgard#readme" rel="noopener">README</a>.
-              </p>
             </div>
-          </details>
-        </div>
+          </li>
+        </ol>
+        <details class="more" id="install">
+          <summary>Other ways to install: npm, Homebrew</summary>
+          <div class="more-body">
+            <p class="state-unreleased">
+              npm and Homebrew come with the first release. Until then
+              <code>npm install -g pgard</code> installs only a placeholder package with no pgard
+              command, and the Homebrew tap does not exist yet.
+            </p>
+            <!-- prettier-ignore -->
+            <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install jadenmeister/pgard/pgard</span></span></code></div>
+            <!-- prettier-ignore -->
+            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            <p>
+              <code>pgard doctor</code> checks your setup; it is not an authorization.
+              <span class="state-unreleased"
+                >Without <code>npm link</code>, run
+                <code>node apps/cli/dist/bin/pgard.js</code> from the clone.</span
+              >
+              Every command and option is in the
+              <a href="https://github.com/JadenMeister/pgard#readme" rel="noopener">README</a>.
+            </p>
+          </div>
+        </details>
       </section>
 
       <section id="checks" class="sec wrap" aria-labelledby="checks-h">
-        <h2 id="checks-h">What it checks</h2>
-        <div class="sec-body">
-          <p>
-            Three areas, picked per scan. Every result says which were fully checked.
-            <code>pgard rules list</code> prints the full catalog.
-          </p>
-          <div class="areas">
-            <article class="area" aria-labelledby="area-code">
-              <h3 id="area-code">code</h3>
-              <ul>
-                <li>SQL injection, XSS, SSRF</li>
-                <li>OS command execution, path traversal</li>
-                <li>Weak or hardcoded cryptography, plaintext passwords</li>
-                <li>Cookie flags, CSRF, no rate limit on login routes</li>
-              </ul>
-              <p class="bounds">
-                <span class="bounds-k">Bounds</span> Current files, uncommitted ones included. Build
-                output and dependencies are skipped and listed.
-              </p>
-            </article>
-            <article class="area" aria-labelledby="area-history">
-              <h3 id="area-history">history</h3>
-              <ul>
-                <li>Committed .env files</li>
-                <li>Secrets in tracked files</li>
-                <li>Secrets that only exist in history</li>
-              </ul>
-              <p class="bounds">
-                <span class="bounds-k">Bounds</span> Secret values are redacted in every output.
-              </p>
-            </article>
-            <article class="area" aria-labelledby="area-web">
-              <h3 id="area-web">web</h3>
-              <ul>
-                <li>Security headers, cookie flags</li>
-                <li>CORS with credentials</li>
-                <li>Version disclosure, directory listing</li>
-                <li>Exposed /.env and /.git</li>
-              </ul>
-              <p class="bounds">
-                <span class="bounds-k">Bounds</span> A service on 127.0.0.1 you confirm. Anonymous
-                GET and HEAD; 20 pages, depth 2, 60 s total.
-              </p>
-            </article>
-          </div>
-
-          <h3 class="sub">By language</h3>
-          <div class="table-wrap" role="region" aria-label="Languages and categories" tabindex="0">
-            <table class="stack">
-              <thead>
-                <tr>
-                  <th scope="col">Language</th>
-                  <th scope="col">Categories</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <th scope="row">JavaScript, TypeScript</th>
-                  <td>
-                    SQL injection, XSS, SSRF, command execution, path traversal, cryptography,
-                    password storage, cookies, CSRF, rate limiting
-                  </td>
-                </tr>
-                <tr>
-                  <th scope="row">React, Vue</th>
-                  <td>XSS in dangerouslySetInnerHTML and v-html, plus the JS and TS rules</td>
-                </tr>
-                <tr>
-                  <th scope="row">Go</th>
-                  <td>
-                    SQL injection (database/sql, GORM), command execution, path traversal, SSRF,
-                    cryptography, cookies
-                  </td>
-                </tr>
-                <tr class="emph">
-                  <th scope="row">Java, Kotlin</th>
-                  <td>
-                    Five categories: SQL injection, XSS, SSRF, command execution, path traversal
-                  </td>
-                </tr>
-                <tr class="emph">
-                  <th scope="row">Python, PHP</th>
-                  <td>Two categories only: SQL injection, command execution</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <h3 class="sub" id="features">Output</h3>
-          <dl class="outputs">
-            <div>
-              <dt>terminal</dt>
-              <dd>The result with coverage per area, then a read-only panel view.</dd>
-            </div>
-            <div>
-              <dt>dashboard</dt>
-              <dd>
-                <code>pgard dashboard</code>: a local web dashboard on 127.0.0.1, not hosted
-                anywhere.
-              </dd>
-            </div>
-            <div>
-              <dt>json</dt>
-              <dd>
-                <code>--format json</code>: the redacted result with a versioned
-                <a
-                  href="https://github.com/JadenMeister/pgard/blob/main/docs/RESULT_SCHEMA.md"
-                  rel="noopener"
-                  >schema</a
-                >.
-              </dd>
-            </div>
-            <div>
-              <dt>sarif</dt>
-              <dd>
-                <code>--format sarif</code>: SARIF 2.1.0; upload only after exit 0 (<a
-                  href="https://github.com/JadenMeister/pgard#sarif-output"
-                  rel="noopener"
-                  >how</a
-                >).
-              </dd>
-            </div>
-            <div>
-              <dt>html, pdf</dt>
-              <dd><code>--report both</code>: redacted reports, never overwriting a file.</dd>
-            </div>
-            <div>
-              <dt>baseline</dt>
-              <dd><code>pgard baseline set</code>: new findings stand out from known ones.</dd>
-            </div>
-            <div>
-              <dt>incremental</dt>
-              <dd>Repeat scans read only what changed; <code>--full</code> rescans.</dd>
-            </div>
-            <div>
-              <dt>standards</dt>
-              <dd>OWASP Top 10 2025, CWE Top 25 2025, SEI CERT Java. Never “safe”.</dd>
-            </div>
-            <div>
-              <dt>language</dt>
-              <dd>Result screens and reports in English or Korean.</dd>
-            </div>
-          </dl>
+        <h2 id="checks-h" class="sec-h">
+          What it checks. <span class="h-mute">Three areas, picked per scan.</span>
+        </h2>
+        <p class="sec-lead">
+          Every result says which were fully checked. <code>pgard rules list</code> prints the full
+          catalog.
+        </p>
+        <div class="areas">
+          <article class="card area area-code" aria-labelledby="area-code">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M8 7.5 3.5 12 8 16.5M16 7.5l4.5 4.5-4.5 4.5M13.5 5l-3 14" />
+            </svg>
+            <h3 id="area-code">code</h3>
+            <ul>
+              <li>SQL injection, XSS, SSRF</li>
+              <li>OS command execution, path traversal</li>
+              <li>Weak or hardcoded cryptography, plaintext passwords</li>
+              <li>Cookie flags, CSRF, no rate limit on login routes</li>
+            </ul>
+            <p class="bounds">
+              <span class="bounds-k">Bounds</span> Current files, uncommitted ones included. Build
+              output and dependencies are skipped and listed.
+            </p>
+          </article>
+          <article class="card area" aria-labelledby="area-history">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="6.5" cy="6" r="2.25" />
+              <circle cx="6.5" cy="18" r="2.25" />
+              <circle cx="17.5" cy="9" r="2.25" />
+              <path d="M6.5 8.25v7.5M17.5 11.25c0 3-3 3.75-9 5.25" />
+            </svg>
+            <h3 id="area-history">history</h3>
+            <ul>
+              <li>Committed .env files</li>
+              <li>Secrets in tracked files</li>
+              <li>Secrets that only exist in history</li>
+            </ul>
+            <p class="bounds">
+              <span class="bounds-k">Bounds</span> Secret values are redacted in every output.
+            </p>
+          </article>
+          <article class="card area" aria-labelledby="area-web">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="8.5" />
+              <path
+                d="M3.5 12h17M12 3.5c2.4 2.5 3.5 5.3 3.5 8.5s-1.1 6-3.5 8.5c-2.4-2.5-3.5-5.3-3.5-8.5s1.1-6 3.5-8.5z"
+              />
+            </svg>
+            <h3 id="area-web">web</h3>
+            <ul>
+              <li>Security headers, cookie flags</li>
+              <li>CORS with credentials</li>
+              <li>Version disclosure, directory listing</li>
+              <li>Exposed /.env and /.git</li>
+            </ul>
+            <p class="bounds">
+              <span class="bounds-k">Bounds</span> A service on 127.0.0.1 you confirm. Anonymous GET
+              and HEAD; 20 pages, depth 2, 60 s total.
+            </p>
+          </article>
         </div>
+
+        <h3 class="sub-h">By language</h3>
+        <dl class="langs">
+          <div class="card lang-wide">
+            <dt>JavaScript, TypeScript</dt>
+            <dd>
+              SQL injection, XSS, SSRF, command execution, path traversal, cryptography, password
+              storage, cookies, CSRF, rate limiting
+            </dd>
+          </div>
+          <div class="card">
+            <dt>React, Vue</dt>
+            <dd>XSS in dangerouslySetInnerHTML and v-html, plus the JS and TS rules</dd>
+          </div>
+          <div class="card">
+            <dt>Go</dt>
+            <dd>
+              SQL injection (database/sql, GORM), command execution, path traversal, SSRF,
+              cryptography, cookies
+            </dd>
+          </div>
+          <div class="card emph">
+            <dt>Java, Kotlin</dt>
+            <dd>Five categories: SQL injection, XSS, SSRF, command execution, path traversal</dd>
+          </div>
+          <div class="card emph">
+            <dt>Python, PHP</dt>
+            <dd>Two categories only: SQL injection, command execution</dd>
+          </div>
+        </dl>
+
+        <h3 class="sub-h" id="features">Output</h3>
+        <dl class="outputs">
+          <div class="card">
+            <dt>terminal</dt>
+            <dd>The result with coverage per area, then a read-only panel view.</dd>
+          </div>
+          <div class="card">
+            <dt>dashboard</dt>
+            <dd>
+              <code>pgard dashboard</code>: a local web dashboard on 127.0.0.1, not hosted anywhere.
+            </dd>
+          </div>
+          <div class="card">
+            <dt>json</dt>
+            <dd>
+              <code>--format json</code>: the redacted result with a versioned
+              <a
+                href="https://github.com/JadenMeister/pgard/blob/main/docs/RESULT_SCHEMA.md"
+                rel="noopener"
+                >schema</a
+              >.
+            </dd>
+          </div>
+          <div class="card">
+            <dt>sarif</dt>
+            <dd>
+              <code>--format sarif</code>: SARIF 2.1.0; upload only after exit 0 (<a
+                href="https://github.com/JadenMeister/pgard#sarif-output"
+                rel="noopener"
+                >how</a
+              >).
+            </dd>
+          </div>
+          <div class="card">
+            <dt>html, pdf</dt>
+            <dd><code>--report both</code>: redacted reports, never overwriting a file.</dd>
+          </div>
+          <div class="card">
+            <dt>baseline</dt>
+            <dd><code>pgard baseline set</code>: new findings stand out from known ones.</dd>
+          </div>
+          <div class="card">
+            <dt>incremental</dt>
+            <dd>Repeat scans read only what changed; <code>--full</code> rescans.</dd>
+          </div>
+          <div class="card">
+            <dt>standards</dt>
+            <dd>OWASP Top 10 2025, CWE Top 25 2025, SEI CERT Java. Never “safe”.</dd>
+          </div>
+          <div class="card">
+            <dt>language</dt>
+            <dd>Result screens and reports in English or Korean.</dd>
+          </div>
+        </dl>
       </section>
 
-      <section id="how" class="sec wrap" aria-labelledby="how-h">
-        <h2 id="how-h">How authorization works</h2>
-        <div class="sec-body">
-          <p>
+      <div class="band">
+        <section id="how" class="sec wrap" aria-labelledby="how-h">
+          <h2 id="how-h" class="sec-h">
+            How authorization works. <span class="h-mute">Five checks before every scan.</span>
+          </h2>
+          <p class="sec-lead">
             A scanner can also probe other people's code, so every scan, in the CLI and the
             dashboard, first runs five checks. Only the sign-in is reused and nothing skips them.
             Missing evidence blocks the scan (exit code 3) and names the failed check.
           </p>
           <ol class="flow">
-            <li><strong>Repository</strong><span>A Git root with one github.com remote.</span></li>
-            <li>
+            <li class="card">
+              <strong>Repository</strong><span>A Git root with one github.com remote.</span>
+            </li>
+            <li class="card">
               <strong>GitHub identity</strong
               ><span>A one-time sign-in, kept in the OS keychain.</span>
             </li>
-            <li>
+            <li class="card">
               <strong>Owner approval</strong
               ><span
                 >The owner installed the PGARD GitHub App; for an organization, you are its
                 owner.</span
               >
             </li>
-            <li><strong>Current access</strong><span>You have read access right now.</span></li>
-            <li>
+            <li class="card">
+              <strong>Current access</strong><span>You have read access right now.</span>
+            </li>
+            <li class="card">
               <strong>Contribution</strong
               ><span
                 >Owners: history shared with the default branch. Others: a merged pull request or a
@@ -788,14 +792,19 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               </p>
             </div>
           </details>
-        </div>
-      </section>
+        </section>
 
-      <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
-        <h2 id="privacy-h">What stays, what leaves</h2>
-        <div class="sec-body">
+        <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
+          <h2 id="privacy-h" class="sec-h">
+            What stays, what leaves.
+            <span class="h-mute">Code and results stay on your machine.</span>
+          </h2>
           <div class="ledger">
-            <div>
+            <div class="card ledger-local">
+              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+                <path d="M2 19.5h20" />
+              </svg>
               <h3>Stays on your machine</h3>
               <ul>
                 <li>Source code, Git history and scan results</li>
@@ -806,7 +815,10 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
                 <li>Reports you export, only where you choose</li>
               </ul>
             </div>
-            <div>
+            <div class="card">
+              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 17 17 7M9 7h8v8" />
+              </svg>
               <h3>Goes over the network</h3>
               <ul>
                 <li>GitHub: sign-in and authorization metadata, incl. local commit SHAs</li>
@@ -832,12 +844,14 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               </p>
             </div>
           </details>
-        </div>
-      </section>
+        </section>
+      </div>
 
       <section id="limits" class="sec wrap" aria-labelledby="limits-h">
-        <h2 id="limits-h">Limits</h2>
-        <div class="sec-body">
+        <h2 id="limits-h" class="sec-h">
+          Limits. <span class="h-mute">What it does not do.</span>
+        </h2>
+        <div class="card limits-card">
           <ul class="limits">
             <li>
               <b>coverage</b
@@ -860,89 +874,87 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               ><span>Small corpus (about ten samples per rule), written by the authors.</span>
             </li>
           </ul>
-          <p>
-            Next, with no dates: more languages and categories, matching dependencies against
-            advisories, a pre-commit check.
-            <a href="https://github.com/JadenMeister/pgard/issues" rel="noopener">Open issues</a>
-          </p>
         </div>
+        <p class="sec-note">
+          Next, with no dates: more languages and categories, matching dependencies against
+          advisories, a pre-commit check.
+          <a href="https://github.com/JadenMeister/pgard/issues" rel="noopener">Open issues</a>
+        </p>
       </section>
 
       <section id="faq" class="sec wrap" aria-labelledby="faq-h">
-        <h2 id="faq-h">FAQ</h2>
-        <div class="sec-body">
-          <div class="faq">
-            <details>
-              <summary>Does my code leave my machine?</summary>
-              <p>
-                No. Code, Git history and results are processed on your computer and not uploaded.
-                The full list of what goes over the network is
-                <a href="#privacy">above</a>.
-              </p>
-            </details>
-            <details>
-              <summary>Why does it need a GitHub sign-in?</summary>
-              <p>
-                To prove you are allowed to scan: your identity, the owner's App installation, your
-                current access and your ownership or contribution. The token is kept in your OS
-                keychain, never in a file.
-              </p>
-            </details>
-            <details>
-              <summary>Which repositories can I scan?</summary>
-              <p>
-                Your own, once the PGARD GitHub App is installed on your account (PGARD guides you
-                through it). Someone else's personal repository only if its owner installed the App
-                and you have current read access plus a merged pull request or a verified signed
-                commit on the default branch. Organization repositories only if you are an active
-                owner of the organization and the App is installed with access to the repository.
-                Remote repositories are never scanned: the target is always the Git root of your
-                current directory.
-              </p>
-            </details>
-            <details>
-              <summary>Is a clean result proof that my project is safe?</summary>
-              <p>
-                No. Every result lists what was not checked, and the standards map shows how few
-                weaknesses in a category have a rule at all. See <a href="#limits">Limits</a>.
-              </p>
-            </details>
-            <details>
-              <summary>Does it run on Windows?</summary>
-              <p>
-                Yes. macOS, Linux and Windows are supported and CI runs the full test suite on all
-                three. On Windows the sign-in is kept in Credential Manager. The old console window
-                (legacy conhost) and visual rendering have not been verified by a user.
-              </p>
-            </details>
-            <details>
-              <summary>Can I use it in CI?</summary>
-              <p>
-                Not today. Every scan needs a GitHub sign-in that a CI runner does not have, so a
-                runner would produce a blocked result. Run PGARD locally and read
-                <code>--format json</code> or <code>--format sarif</code> and the exit codes (0
-                completed, 3 blocked, 4 partial) in your own scripts.
-              </p>
-            </details>
-            <details class="faq-more">
-              <summary>More questions</summary>
-              <h3>How is it different from a hosted scanner?</h3>
-              <p>
-                Your code is not copied to a service. The trade-offs: you run it yourself, there is
-                no hosted dashboard or continuous monitoring, and it asks GitHub whether you are
-                allowed to scan.
-              </p>
-              <h3>How do I report a vulnerability in PGARD?</h3>
-              <p>
-                Privately, not in a public issue: use Report a vulnerability on the repository's
-                Security tab. The
-                <a href="https://github.com/JadenMeister/pgard/blob/main/SECURITY.md" rel="noopener"
-                  >security policy</a
-                >
-                has the scope. There is no bug bounty.
-              </p>
-            </details>
-          </div>
+        <h2 id="faq-h" class="sec-h">FAQ. <span class="h-mute">Common questions.</span></h2>
+        <div class="faq">
+          <details>
+            <summary>Does my code leave my machine?</summary>
+            <p>
+              No. Code, Git history and results are processed on your computer and not uploaded. The
+              full list of what goes over the network is
+              <a href="#privacy">above</a>.
+            </p>
+          </details>
+          <details>
+            <summary>Why does it need a GitHub sign-in?</summary>
+            <p>
+              To prove you are allowed to scan: your identity, the owner's App installation, your
+              current access and your ownership or contribution. The token is kept in your OS
+              keychain, never in a file.
+            </p>
+          </details>
+          <details>
+            <summary>Which repositories can I scan?</summary>
+            <p>
+              Your own, once the PGARD GitHub App is installed on your account (PGARD guides you
+              through it). Someone else's personal repository only if its owner installed the App
+              and you have current read access plus a merged pull request or a verified signed
+              commit on the default branch. Organization repositories only if you are an active
+              owner of the organization and the App is installed with access to the repository.
+              Remote repositories are never scanned: the target is always the Git root of your
+              current directory.
+            </p>
+          </details>
+          <details>
+            <summary>Is a clean result proof that my project is safe?</summary>
+            <p>
+              No. Every result lists what was not checked, and the standards map shows how few
+              weaknesses in a category have a rule at all. See <a href="#limits">Limits</a>.
+            </p>
+          </details>
+          <details>
+            <summary>Does it run on Windows?</summary>
+            <p>
+              Yes. macOS, Linux and Windows are supported and CI runs the full test suite on all
+              three. On Windows the sign-in is kept in Credential Manager. The old console window
+              (legacy conhost) and visual rendering have not been verified by a user.
+            </p>
+          </details>
+          <details>
+            <summary>Can I use it in CI?</summary>
+            <p>
+              Not today. Every scan needs a GitHub sign-in that a CI runner does not have, so a
+              runner would produce a blocked result. Run PGARD locally and read
+              <code>--format json</code> or <code>--format sarif</code> and the exit codes (0
+              completed, 3 blocked, 4 partial) in your own scripts.
+            </p>
+          </details>
+          <details class="faq-more">
+            <summary>More questions</summary>
+            <h3>How is it different from a hosted scanner?</h3>
+            <p>
+              Your code is not copied to a service. The trade-offs: you run it yourself, there is no
+              hosted dashboard or continuous monitoring, and it asks GitHub whether you are allowed
+              to scan.
+            </p>
+            <h3>How do I report a vulnerability in PGARD?</h3>
+            <p>
+              Privately, not in a public issue: use Report a vulnerability on the repository's
+              Security tab. The
+              <a href="https://github.com/JadenMeister/pgard/blob/main/SECURITY.md" rel="noopener"
+                >security policy</a
+              >
+              has the scope. There is no bug bounty.
+            </p>
+          </details>
         </div>
       </section>
     </main>
