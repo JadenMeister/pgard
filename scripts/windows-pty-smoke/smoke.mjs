@@ -171,6 +171,7 @@ const EXPECTED_CSI = [
   /\u001b\[[0-9;]*[HKJ]/gu, // cursor position, erase line, erase screen
   /\u001b\[\?(?:25|1049|9001|1004)[hl]/gu, // cursor, alternate screen, ConPTY modes
   /\u001b\[8;[0-9]+;[0-9]+t/gu, // window size
+  /\u001b\[[0-9]*C/gu, // cursor forward: ConPTY writes `ESC[80C` to skip blank cells
 ];
 const OSC_TITLE = /\u001b\][02];([^\u0007\u001b]*)(?:\u0007|\u001b\\)/gu;
 // Sequences the fixture contains but the CLI never writes (it is the fixture's own text).
