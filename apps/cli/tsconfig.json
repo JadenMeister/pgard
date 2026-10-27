@@ -5,7 +5,7 @@
     "outDir": "dist"
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/test-support.ts"],
+  "exclude": ["src/**/*.test.ts", "src/test-support.ts", "src/ui/formatters/result-fixture.ts"],
   "references": [
     {
       "path": "../../packages/dependencies"

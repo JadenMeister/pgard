@@ -21,6 +21,7 @@ import {
 import { formatLocation, summarizeStatusSplit } from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
 import { renderChart } from "./charts.js";
+import { fitLines } from "./fit-lines.js";
 import { CLI_TEXT, type CliText } from "../i18n/cli-text.js";
 import {
   displayWidth,
@@ -385,7 +386,11 @@ export function formatSuppressionAndBaselineCounts(
 const isCritical = (finding: Pick<Finding, "severity">): boolean => finding.severity === "critical";
 
 /** Suppressed findings in full, each bucket under the reason the config gave. */
-function formatSuppressedGroups(findings: readonly Finding[], ctx: RenderContext): string {
+function formatSuppressedGroups(
+  findings: readonly Finding[],
+  ctx: RenderContext,
+  list: (members: readonly Finding[], ctx: RenderContext) => string = formatGroups,
+): string {
   const buckets = new Map<string, Finding[]>();
   for (const finding of findings) {
     const suppression = finding.suppression;
@@ -402,7 +407,7 @@ function formatSuppressedGroups(findings: readonly Finding[], ctx: RenderContext
         ctx.style.dim(
           `  ${ctx.t.suppressedReason(JSON.stringify(safeText(suppression?.reason ?? "", 300)), expires)}`,
         ),
-        formatGroups(members, ctx),
+        list(members, ctx),
       ].join("\n");
     })
     .join("\n\n");
@@ -547,6 +552,12 @@ export interface ScanResultOptions {
   diff?: ScanDiff | null;
   /** Allow block characters in charts (default: what the terminal can render). */
   unicode?: boolean;
+  /**
+   * Terminal layout: findings first, compact unless `allFindings`, the summary and charts last,
+   * every line wrapped to `width`. Without it the text is the stable form that scripts may
+   * parse (summary first, full findings), unchanged.
+   */
+  isTerminal?: boolean;
 }
 
 function outsideContexts(counts: { test: number; vendored: number }) {
@@ -569,6 +580,7 @@ export function formatScanResult(
     ruleTexts: options.ruleTexts,
     unicode: options.unicode,
   });
+  if (options.isTerminal === true) return formatTerminalResult(result, ctx, options.diff ?? null);
   const allFindings = ctx.allFindings;
   const sections: string[] = [];
   const target = result.target;
@@ -705,4 +717,315 @@ export function formatScanResult(
   }
   sections.push("", style.dim(t.report.analysisBasisNote));
   return sections.join("\n");
+}
+
+/** Groups listed in the compact result: the most severe first. */
+export const COMPACT_MAX_GROUPS = 10;
+
+function severityCounts(findings: readonly Finding[], t: CliText): string {
+  return summarizeCollapsed(findings)
+    .bySeverity.map(
+      (entry) =>
+        `${t.report.severity[entry.severity as Severity] ?? entry.severity} ${entry.count}`,
+    )
+    .join(", ");
+}
+
+/** One or two lines for a group: severity and title; place, rule and status. */
+function formatCompactGroup(group: FindingGroup, ctx: RenderContext): string {
+  const { style, t } = ctx;
+  const finding = group.representative;
+  const rest = group.findings.length - 1;
+  const severity = style.severity(
+    finding.severity,
+    `[${t.report.severity[finding.severity].toUpperCase()}]`,
+  );
+  const status = t.report.findingStatus[finding.status] ?? finding.status;
+  const place = safeText(formatLocation(finding.location), 500);
+  return [
+    `  ${severity} ${style.bold(safeText(finding.title, 300))}`,
+    `      ${place}${rest > 0 ? t.andMore(rest) : ""}  ${style.dim(`${safeText(finding.ruleId, 40)} - ${status}`)}`,
+  ].join("\n");
+}
+
+function formatCompactGroups(findings: readonly Finding[], ctx: RenderContext): string {
+  return groupFindings(findings)
+    .map((group) => formatCompactGroup(group, ctx))
+    .join("\n");
+}
+
+/** Groups listed in the compact form of test and vendored code (critical and high). */
+export const COMPACT_MAX_CONTEXT_GROUPS = 5;
+
+/** Secrets are always listed, whatever the cap: a leaked value is what a reader must not miss. */
+const isSecretGroup = (group: FindingGroup): boolean =>
+  group.representative.ruleId.startsWith("PG-SECRET-");
+
+/**
+ * The first `max` of `groups`, plus every secret group after them. Returns what is shown and the findings of
+ * the groups left out.
+ */
+function pickCompactGroups(
+  groups: readonly FindingGroup[],
+  max: number,
+): { shown: FindingGroup[]; left: Finding[] } {
+  const shown: FindingGroup[] = [];
+  const left: Finding[] = [];
+  let counted = 0;
+  for (const group of groups) {
+    if (counted < max) {
+      shown.push(group);
+      counted += 1;
+    } else if (isSecretGroup(group)) shown.push(group);
+    else left.push(...group.findings);
+  }
+  return { shown, left };
+}
+
+/** Compact list of at most `COMPACT_MAX_GROUPS` groups (and all secrets), then what was left out. */
+function formatCompactList(
+  findings: readonly Finding[],
+  ctx: RenderContext,
+): { lines: string[]; hidden: number } {
+  const { style, t } = ctx;
+  const { shown, left } = pickCompactGroups(groupFindings(findings), COMPACT_MAX_GROUPS);
+  const lines = shown.map((group) => formatCompactGroup(group, ctx));
+  if (left.length > 0) {
+    lines.push(style.bold(`  ${t.compact.more(left.length, severityCounts(left, t))}`));
+  }
+  lines.push(style.dim(`  ${t.compact.details}`));
+  return { lines, hidden: left.length };
+}
+
+/**
+ * Test, fixture or vendored code in the compact form: a title line with the counts by severity,
+ * then critical and high groups (and every secret) in the two-line form with their own cap, then
+ * the rest as a count.
+ */
+function formatCompactContext(
+  title: string,
+  members: readonly Finding[],
+  ctx: RenderContext,
+): { lines: string[]; hidden: number } {
+  const { style, t } = ctx;
+  const groups = groupFindings(members);
+  const isListed = (group: FindingGroup): boolean =>
+    isSecretGroup(group) || isSevere(group.representative);
+  const { shown, left: overflow } = pickCompactGroups(
+    groups.filter(isListed),
+    COMPACT_MAX_CONTEXT_GROUPS,
+  );
+  const left = [
+    ...overflow,
+    ...groups.filter((group) => !isListed(group)).flatMap((g) => g.findings),
+  ];
+  const lines = [style.bold(t.compact.context(title, members.length, severityCounts(members, t)))];
+  lines.push(...shown.map((group) => formatCompactGroup(group, ctx)));
+  if (left.length > 0) {
+    lines.push(style.dim(`  ${t.compact.more(left.length, severityCounts(left, t))}`));
+  }
+  return { lines, hidden: left.length };
+}
+
+function needsAttention(result: ScanResult): boolean {
+  return (
+    result.overallStatus !== "completed" ||
+    result.coverage.some((entry) => entry.status === "partial" || entry.status === "not_tested")
+  );
+}
+
+/**
+ * Terminal layout: header, notices, findings (compact unless `--all-findings`), and last the
+ * summary, charts, coverage, standards and the next step, so the screen ends on them. Every line
+ * is wrapped to the terminal width. What is listed follows the rules of the stable form; partial
+ * and not-tested coverage and the "not a safe result" warnings are shown in both layouts.
+ */
+function formatTerminalResult(
+  result: ScanResult,
+  ctx: RenderContext,
+  diff: ScanDiff | null,
+): string {
+  const { style, t, allFindings } = ctx;
+  const lines: string[] = [];
+  const add = (...texts: string[]): void => {
+    for (const text of texts) lines.push(...fitLines(text, ctx.width));
+  };
+  const target = result.target;
+  add(
+    `${style.bold(t.scanResult)} - ${t.report.overall[result.overallStatus] ?? t.unknown}`,
+    style.dim(
+      `${t.repository} ${safeText(target.repo ?? t.unknown, 120)} @ ${safeText((target.revision ?? t.unknown).slice(0, 12), 20)}` +
+        (target.webOrigin === null ? "" : ` - ${t.web} ${safeText(target.webOrigin, 60)}`) +
+        ` - ${t.scopes}: ${result.requestedScopes.join(", ")}`,
+    ),
+  );
+  if (result.overallStatus === "blocked") {
+    add("", formatAuthorization(result.authorization, style, t));
+    return lines.join("\n");
+  }
+  const configNotices = formatConfigNotices(result.coverage, style, t);
+  if (configNotices.length > 0) add("", ...configNotices);
+  const suppressionLines = formatSuppressionNotices(result, style, t);
+  if (suppressionLines.length > 0) add("", ...suppressionLines);
+  const countLines = formatSuppressionAndBaselineCounts(result, style, t);
+  if (countLines.length > 0) add("", ...countLines);
+
+  const partition = partitionFindings(sortBySeverity(result.findings));
+  const { primary, test, vendored } = splitFindingsByContext(partition.rest);
+  const hasBaseline = result.baseline !== undefined;
+  const extra = [
+    ...(test.length === 0 ? [] : [t.testCount(test.length, severeBreakdown(test, t))]),
+    ...(vendored.length === 0
+      ? []
+      : [t.vendoredCount(vendored.length, severeBreakdown(vendored, t))]),
+    ...(partition.suppressed.length === 0
+      ? []
+      : [t.suppressedCount(partition.suppressed.length, breakdownOf(partition.suppressed, t))]),
+    ...(partition.baseline.length === 0 ? [] : [t.baselineCount(partition.baseline.length)]),
+  ];
+  let hidden = 0;
+
+  // --- Findings ---------------------------------------------------------------------------
+  if (primary.length > 0) {
+    const split = summarizeStatusSplit(primary);
+    add(
+      "",
+      style.bold(
+        t.findingsHeading(
+          hasBaseline,
+          primary.length,
+          t.statusCounts(split.confirmed, split.suspected, split.informational),
+        ),
+      ),
+    );
+    if (allFindings) {
+      add(formatGroups(primary, ctx));
+    } else {
+      const list = formatCompactList(primary, ctx);
+      hidden += list.hidden;
+      add(...list.lines);
+    }
+  } else {
+    add(
+      "",
+      t.noFindings({
+        isNew: hasBaseline,
+        hasUnsuppressed: partition.suppressed.length > 0,
+        outside: outsideContexts({ test: test.length, vendored: vendored.length }),
+        suppressed: partition.suppressed.length,
+        suppressedBreakdown: breakdownOf(partition.suppressed, t),
+      }),
+    );
+  }
+  if (allFindings) {
+    const configCount = configTestFindingCount(result.coverage);
+    // `--all-findings` never collapses: test and vendored findings are all listed.
+    if (test.length > 0) {
+      add(
+        "",
+        style.bold(`${t.testGroupTitle} (${test.length})`),
+        style.dim(`  ${t.testGroupNote}${configCount === 0 ? "" : t.configTestNote(configCount)}`),
+        formatGroups(test, ctx),
+      );
+    }
+    if (vendored.length > 0) {
+      add(
+        "",
+        style.bold(`${t.report.vendoredTitle} (${vendored.length})`),
+        style.dim(`  ${t.report.vendoredNote}`),
+        formatGroups(vendored, ctx),
+      );
+    }
+  } else {
+    // A title with counts by severity; critical, high and secret groups are listed under it.
+    const contextBlock = (title: string, members: readonly Finding[]): void => {
+      if (members.length === 0) return;
+      const block = formatCompactContext(title, members, ctx);
+      hidden += block.hidden;
+      add("", ...block.lines);
+    };
+    contextBlock(t.testGroupTitle, test);
+    contextBlock(t.report.vendoredTitle, vendored);
+  }
+  if (partition.suppressed.length > 0) {
+    add(
+      ...formatOptionalGroup(
+        t.report.suppressedTitle,
+        t.report.suppressedNote,
+        partition.suppressed,
+        ctx,
+        (members) =>
+          allFindings
+            ? formatSuppressedGroups(members, ctx)
+            : formatSuppressedGroups(members, ctx, formatCompactGroups),
+      ),
+    );
+  }
+  if (partition.baseline.length > 0) {
+    add(
+      ...formatOptionalGroup(
+        t.report.baselineTitle,
+        t.report.baselineNote,
+        partition.baseline,
+        ctx,
+        (members) => (allFindings ? formatGroups(members, ctx) : formatCompactGroups(members, ctx)),
+      ),
+    );
+  }
+
+  // --- Closing summary: the last thing on screen ------------------------------------------
+  const total = primary.length + test.length + vendored.length;
+  add(
+    "",
+    style.bold(
+      t.compact.result(
+        // The status word only: the header above has the explanation.
+        (t.report.overall[result.overallStatus] ?? t.unknown).split(" - ")[0] ?? t.unknown,
+        total,
+        breakdownOf([...primary, ...test, ...vendored], t),
+      ),
+    ),
+  );
+  if (needsAttention(result)) add(style.yellow(style.bold(t.compact.notSafe)));
+  const summaryLines = formatSummaryBlock(result, diff, ctx);
+  if (summaryLines.length > 0) add("", ...summaryLines);
+  add(
+    "",
+    ...severityHeading(t.chartBySeverity(hasBaseline, primary.length), extra, ctx),
+    formatSeverityBars(primary, style, t, ctx.width, ctx.unicode),
+    ...formatSecondaryCharts(primary, result.requestedScopes, ctx),
+  );
+  add("", style.bold(t.coverageTitle));
+  if (allFindings) {
+    add(formatCoverage(result.coverage, style, t));
+  } else {
+    const count = (status: string): number =>
+      result.coverage.filter((entry) => entry.status === status).length;
+    add(
+      `  ${t.compact.coverageCount({
+        ok: count("completed"),
+        partial: count("partial"),
+        notTested: count("not_tested"),
+        notSelected: count("not_selected"),
+      })}`,
+    );
+    const attention = result.coverage.filter(
+      (entry) => entry.status === "partial" || entry.status === "not_tested",
+    );
+    if (attention.length > 0) add(formatCoverage(attention, style, t));
+  }
+  if (result.standardsCoverage !== undefined) {
+    add("", style.bold(t.standardsTitle));
+    if (allFindings) {
+      add(formatStandardsCoverage(result.standardsCoverage, style, t));
+    } else {
+      add(
+        `  ${t.compact.owaspLine(countStandardStates(result.standardsCoverage.owasp))}`,
+        `  ${t.cweTop25Line(countStandardStates(result.standardsCoverage.cweTop25))}`,
+      );
+    }
+    add(style.dim(`  ${t.standardsNote}`));
+  }
+  add("", style.dim(t.report.analysisBasisNote), "", style.bold(t.compact.next(hidden > 0)));
+  return lines.join("\n");
 }

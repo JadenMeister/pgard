@@ -103,20 +103,27 @@ Options:
   --port N                 local service port 1-65535 (web and all only). You
                            still confirm the service identity with y/N.
 ${REPORT_HELP}
-  --all-findings           list every finding and location; by default more than
-                           5 findings in test, fixture or vendored code are
-                           summarized, and groups show up to 3 locations. It
+  --all-findings           list every finding in full (evidence, fix,
+                           standards, every location). In a terminal the
+                           default is compact: critical and high first, at most
+                           10 groups of one or two lines, then "+N more"; test
+                           and vendored code is counted, with its critical and
+                           high findings and secrets listed. Not in a terminal
+                           (pipe, file) the text is always the full form. It
                            also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
-  --panels                 after the text result, open a read-only full-screen
-                           view (summary, charts, coverage, findings) in a
-                           terminal; keys: Tab, arrows, ? help, Esc back. Not
-                           with --format json or sarif; without a terminal only
-                           the text result is printed. Always opens (pgard scan
-                           does not read PGARD_PANELS). The menu opens it by
-                           itself after a scan in a terminal; PGARD_PANELS=off
-                           stops that. pgard dashboard is the
-                           separate local web app
+  --panels                 open the read-only full-screen view (summary, charts,
+                           coverage, findings; keys: Tab, arrows, ? help, Esc
+                           back, Ctrl+D leaves) after the text result. In a
+                           terminal pgard scan already opens it by itself, but
+                           not when CI, GITHUB_ACTIONS, BUILDKITE, TF_BUILD or
+                           JENKINS_URL is set, or TERM=dumb. PGARD_PANELS=off
+                           (also 0, false, no) turns it off: use it for script,
+                           expect, VS Code tasks and docker run -it. --panels
+                           still forces it (not with TERM=dumb); so does
+                           PGARD_PANELS=on in CI. Never opens without a
+                           terminal. Not with --format json or sarif. pgard
+                           dashboard is the separate local web app
   --format text|json|sarif json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; sarif prints the
                            same result as SARIF 2.1.0 (for GitHub code
