@@ -184,6 +184,18 @@ const isExpressionWrapper = new Set([
 /** Calls that always end the code that follows (`abort_if` only does when its condition holds). */
 const ALWAYS_EXIT = new Set(["exit", "die", "abort"]);
 
+/** Builtins that call a callable on their data: the position of the callable. */
+const CALLABLE_BUILTINS: Readonly<Record<string, number>> = {
+  array_map: 0,
+  array_walk: 1,
+  array_filter: 1,
+  array_reduce: 1,
+  usort: 1,
+  uasort: 1,
+  uksort: 1,
+  iterator_apply: 1,
+};
+
 const BOOL_OPERATORS = new Set([
   "==",
   "===",
@@ -998,6 +1010,20 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       }
       dynamicCall(args.slice(1));
       return helperResult(name, args);
+    }
+    // Builtins that call a callable on data: a literal command callable is a sink for that data.
+    const callableAt = own(CALLABLE_BUILTINS, name);
+    if (callableAt !== undefined && resolved === undefined) {
+      const callable = args[callableAt]?.value;
+      if (callable !== undefined && !hasDynamic(callable)) {
+        const target = literalCallee(callable);
+        if (target !== null && COMMAND_FUNCTIONS.has(target)) {
+          const data = args.filter((_, index) => index !== callableAt && index < 2);
+          return functionCall(node, env, ctx, depth, { name: target, args: data });
+        }
+      } else if (callable !== undefined) {
+        dynamicCall(args.filter((_, index) => index !== callableAt));
+      }
     }
     if (name === "define") return constant("0");
     // `array_map('intval', $ids)` makes numbers, like a cast.

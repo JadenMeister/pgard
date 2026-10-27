@@ -908,3 +908,47 @@ class Repo {
     expect(analysis.findings.map((finding) => finding.ruleId)).toEqual(["PG-SQL-007"]);
   });
 });
+
+describe("PHP callables, prepared text and bare arguments", () => {
+  it("checks a literal command callable given to a callable-taking builtin", async () => {
+    for (const body of [
+      `array_map('system', $_POST['cmds']);`,
+      `array_walk($_POST['cmds'], 'exec');`,
+      `array_filter($_POST['cmds'], 'shell_exec');`,
+    ]) {
+      const analysis = await run(`<?php\n${body}\n`);
+      expect(
+        analysis.findings.map((finding) => finding.ruleId),
+        body,
+      ).toEqual(["PG-CMD-005"]);
+    }
+    const harmless = await run(`<?php\narray_map('trim', $_POST['cmds']);\n`);
+    expect(harmless.findings).toEqual([]);
+    expect(harmless.unsupportedForms).toEqual([]);
+  });
+
+  it("marks a callable that is not a literal, given data, as an unsupported form", async () => {
+    const analysis = await run(
+      `<?php\nfunction f($cb) { array_map($cb, $_POST['x']); usort($_POST['y'], $cb); }\n`,
+    );
+    expect(analysis.unsupportedForms).toEqual(["dynamic calls"]);
+  });
+
+  it("reports a dynamic ->prepare once, where it is built, not again where it is used", async () => {
+    const analysis = await run(
+      `<?php\nfunction f($wpdb) { $q = $wpdb->prepare("SELECT * FROM t WHERE a = '" . $_GET['a'] . "'"); return $wpdb->get_results($q); }\n`,
+    );
+    expect(analysis.findings.map((finding) => finding.cause)).toEqual(["$wpdb->prepare"]);
+  });
+
+  it("keeps a bare parameter or config value in a fixed-program array low, not dropped", async () => {
+    const parameter = await run(`<?php\nfunction f($arg) { proc_open(['ls', $arg], $d, $p); }\n`);
+    expect(parameter.findings).toHaveLength(1);
+    expect(parameter.findings[0]).toMatchObject({ severity: "low", confidence: "low" });
+    const config = await run(
+      `<?php\n$c = require 'c.php';\n$p = new Process(['ls', $c['dir']]);\n`,
+    );
+    expect(config.findings).toHaveLength(1);
+    expect(config.findings[0]?.evidence).toMatch(/; inferred$/);
+  });
+});
