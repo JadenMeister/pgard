@@ -740,6 +740,7 @@ Guards lower confidence; they never hide a finding. The injection rules (SQL, co
 - The dashboard's rule texts are available in Korean and English; evidence, authorization reasons and coverage notes from the scan are English only, and so are the headings and notes of exported reports.
 - Detection is not complete. Missing findings do not mean the project is secure.
 - Port discovery can be incomplete or unavailable. Type the port by hand in that case.
+- Windows terminal behaviour of the panel view (alternate screen, keys, resize, Ctrl+C, restored cursor) is checked automatically in a real ConPTY by a GitHub Actions workflow (`windows-tty-smoke`) that runs manually and on pull requests that change the smoke files. Legacy conhost (the old console window) and visual rendering (fonts, colours, glyphs) have not been verified by a user. SIGTERM (exit code 143) cannot be sent through ConPTY, so that path is checked on macOS and Linux only.
 
 ## Development
 
