@@ -2323,6 +2323,40 @@ export function analyzeJsSource(
   };
 
   /**
+   * An options object nobody changes after its declaration: never written through a member
+   * (`o.k =`, `o["k"] =`, `delete`, `Object.assign(o, …)`), not aliased, and not handed to a call
+   * that could change it. Being spread into another literal, or passed to the cookie/session
+   * call that consumes it, is not an escape.
+   */
+  const isStableOptionsObject = (name: string): boolean => {
+    if (mutatedRoots.has(name)) return false;
+    const lastSegment = (callee: ts.Expression): string => {
+      const target = unwrap(callee);
+      if (ts.isPropertyAccessExpression(target)) return target.name.text;
+      return ts.isIdentifier(target) ? target.text : "";
+    };
+    return (nonReadUses.get(name) ?? []).every((use) => {
+      const parent = use.parent;
+      if (ts.isSpreadAssignment(parent)) return true;
+      if (ts.isCallExpression(parent) && parent.arguments.some((argument) => argument === use))
+        return /^(cookie|set|setCookie|append)$/.test(lastSegment(parent.expression));
+      // `session({ secret, cookie })`: a config object handed straight to a session middleware.
+      const holder = ts.isShorthandPropertyAssignment(parent)
+        ? parent.parent
+        : ts.isPropertyAssignment(parent) && parent.initializer === use
+          ? parent.parent
+          : undefined;
+      return (
+        holder !== undefined &&
+        ts.isObjectLiteralExpression(holder) &&
+        ts.isCallExpression(holder.parent) &&
+        holder.parent.arguments.some((argument) => argument === holder) &&
+        /session/i.test(lastSegment(holder.parent.expression))
+      );
+    });
+  };
+
+  /**
    * The raw `key` expression of an options object, without substituting identifiers (unlike
    * `resolveOptions`, which looks through same-file consts and is not shadow-aware). Identifiers
    * naming the options object resolve only through the shadow-aware `soleConst`. Unresolvable
@@ -2337,7 +2371,7 @@ export function analyzeJsSource(
     const node = unwrap(options);
     if (ts.isIdentifier(node)) {
       const init = soleConst(node.text, node);
-      return init ? rawOptionValue(init, key, depth + 1) : null;
+      return init && isStableOptionsObject(node.text) ? rawOptionValue(init, key, depth + 1) : null;
     }
     if (!ts.isObjectLiteralExpression(node)) return null;
     let found: ts.Expression | null | undefined;

@@ -77,12 +77,12 @@
     },
     "PG-COOKIE-001": {
       "precision": 1,
-      "recall": 0.863,
+      "recall": 0.869,
       "precisionMedium": 1
     },
     "PG-CSRF-001": {
       "precision": 1,
-      "recall": 0.95,
+      "recall": 0.956,
       "precisionMedium": 0
     },
     "PG-BRUTE-001": {

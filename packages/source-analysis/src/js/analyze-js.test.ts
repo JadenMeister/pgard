@@ -1041,6 +1041,35 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
     );
   });
 
+  it("does not trust a strict options object that is mutated, aliased or handed to a function", () => {
+    const sess = (setup: string) =>
+      analyzeJsSource(`const O = { sameSite: 'strict' }; ${setup} res.cookie('sid', v, O);`, "s.js")
+        .facts.usesCookieSession;
+    expect(sess("")).toBe(false);
+    expect(sess("if (embed) O.sameSite = 'none';")).toBe(true);
+    expect(sess("O['sameSite'] = 'none';")).toBe(true);
+    expect(sess("delete O.sameSite;")).toBe(true);
+    expect(sess("Object.assign(O, other);")).toBe(true);
+    expect(sess("function relax(o) { o['sameSite'] = 'none'; } relax(O);")).toBe(true);
+    expect(sess("const O2 = O;")).toBe(true);
+    // Spreading it into another literal is not an escape.
+    expect(sess("const BASE = { httpOnly: true, ...O };")).toBe(false);
+    expect(
+      analyzeJsSource(
+        "const S = { sameSite: 'strict' }; const B = { secure: true, ...S }; res.cookie('sid', v, { ...B });",
+        "s.js",
+      ).facts.usesCookieSession,
+    ).toBe(false);
+    // express-session: a mutated cookie config is not strict.
+    const express = (extra: string) =>
+      analyzeJsSource(
+        `import session from 'express-session'; const c = { sameSite: 'strict' }; ${extra} app.use(session({ secret: s, cookie: c }));`,
+        "s.ts",
+      ).facts.strictSession;
+    expect(express("")).toBe(true);
+    expect(express("c.sameSite = 'none';")).toBe(false);
+  });
+
   it("keeps a csrf-named cookie a session cookie when its value carries the session", () => {
     const result = analyzeJsSource("res.cookie('csrf_token', req.sessionID, {});", "s.js");
     expect(result.facts.usesCookieSession).toBe(true);
