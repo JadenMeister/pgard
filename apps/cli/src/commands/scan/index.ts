@@ -23,6 +23,8 @@ import {
   checkOutputDir,
   confirmInsideRepository,
   offerReportExport,
+  runReportExport,
+  type ReportExportOutcome,
   saveReports,
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
@@ -375,15 +377,37 @@ async function runScanFlow(
   const trendLoader = (): Promise<TrendData> =>
     loadTrend(context, scanned.outcome, command.noStore === true, result.scanId);
   let isReportSaved = true;
+  // `e` in the panel view: the same prompts and save as the menu's report question.
+  const exportFromPanels = (): Promise<ReportExportOutcome> =>
+    runReportExport(context, result, projectRoot);
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
-    if (!isJson)
-      await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun, trendLoader);
+    if (!isJson) {
+      const isPanelExportOk = await offerPanels(
+        context,
+        panelsResult(),
+        wantsPanels,
+        !isBaselineRun,
+        trendLoader,
+        exportFromPanels,
+      );
+      isReportSaved = isReportSaved && isPanelExportOk;
+    }
   } else {
     // Machine formats keep the terminal untouched: the panel view never opens for them.
-    if (!isJson)
-      await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun, trendLoader);
-    if (context.isMenu) isReportSaved = await offerReportExport(context, result, projectRoot);
+    if (!isJson) {
+      isReportSaved = await offerPanels(
+        context,
+        panelsResult(),
+        wantsPanels,
+        !isBaselineRun,
+        trendLoader,
+        exportFromPanels,
+      );
+    }
+    if (context.isMenu) {
+      isReportSaved = (await offerReportExport(context, result, projectRoot)) && isReportSaved;
+    }
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
     exitCode = EXIT_CODES.partial;

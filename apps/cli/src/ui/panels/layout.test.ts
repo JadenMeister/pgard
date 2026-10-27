@@ -257,3 +257,52 @@ describe("hostile text from the repository", () => {
     expect(text).toContain("(baseline) src/module7");
   });
 });
+
+describe("footer with the export key", () => {
+  const exportable = (locale: RuleLocale, size: Size, panel: PanelId): PanelsState => ({
+    ...createPanelsState(panelsFixtureResult(), locale, size, undefined, undefined, true),
+    panel,
+  });
+
+  it("lists e after the help hint, in English and Korean, on every panel", () => {
+    const size: Size = { columns: 80, rows: 24 };
+    for (const panel of PANEL_IDS) {
+      const en = renderFrame(exportable("en", size, panel), size, plain).at(-1) ?? "";
+      expect(en, panel).toContain("?: help  e: export");
+      const ko = renderFrame(exportable("ko", size, panel), size, plain).at(-1) ?? "";
+      expect(ko, panel).toContain("?: 도움말  e: 내보내기");
+    }
+  });
+
+  it("still fits at 40 columns and keeps the export hint there", () => {
+    const size: Size = { columns: 40, rows: 14 };
+    for (const locale of ["en", "ko"] as const) {
+      for (const panel of PANEL_IDS) {
+        const lines = renderFrame(exportable(locale, size, panel), size, plain);
+        expect(lines, `${locale} ${panel}`).toHaveLength(14);
+        for (const line of lines) expect(displayWidth(stripAnsi(line))).toBeLessThanOrEqual(40);
+        // Whole hints are dropped from the end when the position indicator takes the room.
+        const last = lines.at(-1) ?? "";
+        if (!/\d+-\d+\/\d+/.test(last)) {
+          expect(last).toContain(locale === "en" ? "e: export" : "e: 내보내기");
+        }
+      }
+    }
+  });
+
+  it("is not shown when exporting is not possible, and the help text always names it", () => {
+    const size: Size = { columns: 80, rows: 24 };
+    const plainState = stateFor("en", size, "overview");
+    expect(renderFrame(plainState, size, plain).at(-1)).not.toContain("e: export");
+    const help = renderFrame(
+      reduce(exportable("en", size, "overview"), {
+        name: "?",
+        sequence: "?",
+        ctrl: false,
+      }),
+      size,
+      plain,
+    ).join("\n");
+    expect(help).toContain("e: save a report");
+  });
+});

@@ -8,6 +8,7 @@ import {
   terminalWidth,
 } from "../formatters/style.js";
 import { renderFrame, type RenderOptions } from "./layout.js";
+import { cliText } from "../i18n/cli-text.js";
 import { createPanelsState, reduce, resize } from "./reduce.js";
 import type { PanelsExit, PanelsState, Size, TrendData } from "./types.js";
 
@@ -36,9 +37,18 @@ export interface PanelsScreenOptions {
   ruleTexts?: RuleTextCatalog | undefined;
   /** Stored scan history for the trend panel; default: an empty history. */
   trend?: TrendData | undefined;
+  /**
+   * Makes `e` available: runs the export on the normal screen (the view is closed meanwhile) and
+   * says how it went. `"cancelled"` returns to the panel at once; `"saved"` and `"failed"` wait
+   * for a key first, so the message stays readable. A `UserCancelledError` (confirmed Ctrl+C)
+   * ends the view as `"cancel"`. Without it `e` does nothing.
+   */
+  exportReport?: () => Promise<ExportOutcome>;
   /** Default: the real process. */
   processEvents?: ProcessEvents;
 }
+
+export type ExportOutcome = "saved" | "failed" | "cancelled";
 
 function sizeOf(stdout: { columns?: number; rows?: number }): Size {
   const valid = (value: number | undefined, fallback: number): number =>
@@ -81,6 +91,7 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
     sizeOf(stdout),
     options.ruleTexts,
     options.trend,
+    options.exportReport !== undefined,
   );
   let isOpen = false;
   const restore = (): void => {
@@ -124,6 +135,46 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
     events.off("uncaughtExceptionMonitor", onExit);
     stdout.off("resize", onResize);
   };
+  /**
+   * Gives the terminal back, runs the export on the normal screen and comes back to the same
+   * state. Signals stay watched: SIGINT / SIGTERM during the prompts end the view like they do
+   * inside it (the screen is already restored). A prompt's own confirmed Ctrl+C throws
+   * `UserCancelledError`, which ends it as `"cancel"`.
+   */
+  const runExport = async (
+    exportReport: () => Promise<ExportOutcome>,
+  ): Promise<PanelsExit | null> => {
+    restore();
+    keys.suspend();
+    const exporting = exportReport().then(
+      (outcome) => ({ outcome }),
+      (error: unknown) => ({ error }),
+    );
+    const result = await Promise.race([exporting, interrupted]);
+    if (typeof result === "string") return result;
+    if ("error" in result) {
+      if (result.error instanceof UserCancelledError) return "cancel";
+      throw result.error;
+    }
+    let next = { ...state, exportRequested: false };
+    if (result.outcome !== "cancelled") {
+      stdout.write(`${cliText(state.locale).panels.exportReturn}\n`);
+      const key = await Promise.race([
+        keys.readKey(),
+        interrupted.then((exit): PanelsExit => exit),
+      ]).catch((error: unknown): PanelsExit => {
+        if (error instanceof UserCancelledError) return "back";
+        throw error;
+      });
+      if (typeof key === "string") return key;
+      // Ctrl+C here asks the usual question inside the panel; any other key just returns.
+      if (key.ctrl && key.name === "c") next = reduce(next, key);
+    }
+    state = resize(next, sizeOf(stdout));
+    isOpen = true;
+    stdout.write(ENTER_SCREEN);
+    return null;
+  };
   listen();
   isOpen = true;
   stdout.write(ENTER_SCREEN);
@@ -141,6 +192,14 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
       });
       if (typeof next === "string") return next;
       state = reduce(state, next);
+      if (state.exportRequested) {
+        if (options.exportReport === undefined) {
+          state = { ...state, exportRequested: false };
+        } else {
+          const ended = await runExport(options.exportReport);
+          if (ended !== null) return ended;
+        }
+      }
       draw();
     }
     return state.exit;

@@ -3,7 +3,7 @@ import type { TrendData } from "../ui/panels/types.js";
 import { err, type CommandContext } from "../context.js";
 import { UserCancelledError } from "../ui/components/prompts.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { renderPanelsOnce, runPanelsScreen } from "../ui/panels/controller.js";
+import { renderPanelsOnce, runPanelsScreen, type ExportOutcome } from "../ui/panels/controller.js";
 
 /** Hidden: `1` renders one plain frame to stdout instead of the interactive view (CI, tests). */
 export const PANELS_ONCE_ENV = "PGARD_PANELS_ONCE";
@@ -63,6 +63,8 @@ function autoOpenSetting(env: Readonly<Record<string, string | undefined>>): {
  * - `isAutoAllowed` is false for commands that only use the scan (`baseline set --from-current`).
  * - `PGARD_PANELS_ONCE=1` with `--panels` prints one frame and reads no keys.
  * A confirmed Ctrl+C inside the view ends the command with exit code 130, like any prompt.
+ * `exportReport` makes the `e` key available. Resolves to false when the last export attempt
+ * failed to write (the caller applies the same exit-code rule as for a failed menu export).
  */
 export async function offerPanels(
   context: CommandContext,
@@ -71,7 +73,9 @@ export async function offerPanels(
   isAutoAllowed = true,
   /** Reads the stored history for the trend panel; called only when the view is about to open. */
   loadTrend?: () => Promise<TrendData>,
-): Promise<void> {
+  /** The `e` key: the same export prompts and save as the menu's follow-up question. */
+  exportReport?: () => Promise<ExportOutcome>,
+): Promise<boolean> {
   const locale = context.ruleLocale ?? "en";
   const t = cliText(locale);
   const { io } = context;
@@ -84,26 +88,34 @@ export async function offerPanels(
       env: io.env,
       ruleTexts: context.ruleTexts,
     });
-    return;
+    return true;
   }
   const keys = context.keys;
   if (keys === null || io.stdin.isTTY !== true || io.stdout.isTTY !== true) {
     if (isRequested) err(context, context.errStyle.dim(t.panels.notTerminal));
-    return;
+    return true;
   }
   if (io.env.TERM === "dumb") {
     if (isRequested) err(context, context.errStyle.dim(t.panels.dumbTerminal));
-    return;
+    return true;
   }
   if (!isRequested) {
-    if (!isAutoAllowed) return;
+    if (!isAutoAllowed) return true;
     // A failed scan has little to show; completed and partial ones open.
-    if (result.overallStatus === "failed") return;
+    if (result.overallStatus === "failed") return true;
     const setting = autoOpenSetting(io.env);
     if (setting.isUnknown) err(context, context.errStyle.dim(t.panels.badEnv));
-    if (!setting.isOn) return;
-    if (!setting.isForcedOn && looksAutomated(io.env)) return;
+    if (!setting.isOn) return true;
+    if (!setting.isForcedOn && looksAutomated(io.env)) return true;
   }
+  let lastExport: ExportOutcome | null = null;
+  const trackedExport =
+    exportReport === undefined
+      ? undefined
+      : async (): Promise<ExportOutcome> => {
+          lastExport = await exportReport();
+          return lastExport;
+        };
   // The cancel controller must not print its "press Ctrl+C again" text onto the alternate screen.
   const resumeInterrupts = context.suspendInterrupts?.();
   try {
@@ -116,6 +128,7 @@ export async function offerPanels(
       env: io.env,
       keys,
       ruleTexts: context.ruleTexts,
+      ...(trackedExport === undefined ? {} : { exportReport: trackedExport }),
     });
     if (exit === "cancel") throw new UserCancelledError();
     if (exit === "terminated") throw new PanelsTerminatedError();
@@ -126,4 +139,6 @@ export async function offerPanels(
   } finally {
     resumeInterrupts?.();
   }
+  // A save that was cancelled does not count; the last real attempt decides.
+  return lastExport !== "failed";
 }

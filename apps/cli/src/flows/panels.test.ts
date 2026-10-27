@@ -1,5 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { ReportWriteError } from "@pgard/report";
+import { afterAll, describe, expect, it, vi } from "vitest";
 import { main } from "../app.js";
+import type { CliDeps } from "../deps.js";
+import { runReportExport } from "./export-report.js";
 import { getRuleTextCatalog } from "../rule-texts.js";
 import { parseCommandLine, UsageError } from "../options.js";
 import {
@@ -395,7 +401,7 @@ describe("panel view edge cases", () => {
       close: () => undefined,
     };
     const context = createTestContext(captured, createTestDeps(), keys);
-    await expect(offerPanels(context, panelsFixtureResult(), true)).resolves.toBeUndefined();
+    await expect(offerPanels(context, panelsFixtureResult(), true)).resolves.toBe(true);
     expect(captured.stdout().endsWith(LEAVE)).toBe(true);
     expect(captured.stderr()).toContain("The panel view failed");
     expect(captured.stderr()).not.toContain("view broke");
@@ -556,4 +562,192 @@ describe("automatic opening stays off in automation", () => {
     expect(captured.stdout()).toContain(ENTER);
     expect(captured.stdout().endsWith(LEAVE)).toBe(true);
   });
+});
+
+describe("e: export from the panel view", () => {
+  // Only an empty directory is made; every write goes through an injected writeReports.
+  const outputDir = mkdtempSync(path.join(os.tmpdir(), "pgard-panel-export-"));
+  afterAll(() => rmSync(outputDir, { recursive: true, force: true }));
+
+  const chars = (text: string): string[] => Array.from(text);
+  const HTML = ["down", "return"];
+  const DIR = [...chars(outputDir), "return"];
+
+  function terminal() {
+    const captured = createTestIo({ isTTY: true });
+    const stdout = captured.io.stdout as unknown as { columns: number; rows: number };
+    stdout.columns = 80;
+    stdout.rows = 24;
+    return captured;
+  }
+
+  async function open(
+    keys: (string | { name: string; sequence?: string; ctrl: boolean })[],
+    overrides: Parameters<typeof createTestDeps>[0] = {},
+  ) {
+    const captured = terminal();
+    const writeReports = vi.fn(async () => [{ format: "html" as const, filePath: "/out/r.html" }]);
+    const testDeps = createTestDeps({ writeReports, ...overrides });
+    const context = createTestContext(captured, testDeps, scriptedKeys(keys as never[]));
+    const result = panelsFixtureResult();
+    const outcomes: string[] = [];
+    const isOk = offerPanels(context, result, true, true, undefined, async () => {
+      const outcome = await runReportExport(context, result, "/work/repo");
+      outcomes.push(outcome);
+      return outcome;
+    });
+    return { captured, writeReports: overrides.writeReports ?? writeReports, isOk, outcomes };
+  }
+
+  it("runs the menu's format, directory and save steps, then resumes the panel", async () => {
+    const run = await open(["tab", "e", ...HTML, ...DIR, "x", "q"]);
+    expect(await run.isOk).toBe(true);
+    expect(run.outcomes).toEqual(["saved"]);
+    expect(run.writeReports).toHaveBeenCalledTimes(1);
+    expect(run.writeReports).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ format: "html", outputDir }),
+    );
+    const out = run.captured.stdout();
+    expect(out).toContain("Save a report?");
+    expect(out).toContain("Saved HTML report: /out/r.html");
+    expect(out.split(ENTER)).toHaveLength(3);
+    // The panel that comes back is the one that was left (the Charts tab).
+    expect(out.split(ENTER)[2]).toContain("[Charts]");
+  });
+
+  it("returns to the panel on Esc at the format question, writing nothing", async () => {
+    const run = await open(["e", "escape", "q"]);
+    expect(await run.isOk).toBe(true);
+    expect(run.outcomes).toEqual(["cancelled"]);
+    expect(run.writeReports).not.toHaveBeenCalled();
+    expect(run.captured.stdout().split(ENTER)).toHaveLength(3);
+  });
+
+  it("returns to the panel on Esc at the directory question", async () => {
+    const run = await open(["e", ...HTML, "escape", "q"]);
+    expect(await run.isOk).toBe(true);
+    expect(run.writeReports).not.toHaveBeenCalled();
+  });
+
+  it("asks before writing inside the repository and writes nothing on no", async () => {
+    const run = await open(["e", ...HTML, ...DIR, "n", "escape", "q"], {
+      isPathInsideDirectory: async () => true,
+    });
+    expect(await run.isOk).toBe(true);
+    expect(run.captured.stderr()).toContain("output directory is inside");
+    expect(run.writeReports).not.toHaveBeenCalled();
+  });
+
+  it("shows a write failure, resumes the panel and reports the failure to the caller", async () => {
+    const writeReports = vi.fn(async () => {
+      throw new ReportWriteError("write_failed", "disk full");
+    });
+    const run = await open(["e", ...HTML, ...DIR, "x", "q"], { writeReports });
+    expect(await run.isOk).toBe(false);
+    expect(run.outcomes).toEqual(["failed"]);
+    expect(run.captured.stderr()).toContain("Report not saved: disk full");
+    expect(run.captured.stdout().split(ENTER)).toHaveLength(3);
+    expect(run.captured.stdout().endsWith(LEAVE)).toBe(true);
+  });
+
+  it("lets a later successful export win over an earlier failed one", async () => {
+    let calls = 0;
+    const writeReports = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) throw new ReportWriteError("write_failed", "disk full");
+      return [{ format: "html" as const, filePath: "/out/r.html" }];
+    });
+    const run = await open(["e", ...HTML, ...DIR, "x", "e", ...HTML, ...DIR, "x", "q"], {
+      writeReports,
+    });
+    expect(await run.isOk).toBe(true);
+    expect(run.outcomes).toEqual(["failed", "saved"]);
+  });
+
+  it("ends as a cancellation after Ctrl+C and y inside the export prompts", async () => {
+    const ctrlC = { name: "c", sequence: "\u0003", ctrl: true };
+    const run = await open(["e", ctrlC, "y"]);
+    await expect(run.isOk).rejects.toBeInstanceOf(UserCancelledError);
+    // The screen was given back before the prompts and never taken again.
+    expect(run.captured.stdout().split(ENTER)).toHaveLength(2);
+    expect(run.captured.stdout()).toContain(LEAVE);
+    expect(run.writeReports).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on e without an export (no terminal case never opens the view at all)", async () => {
+    const captured = terminal();
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["e", "q"]));
+    await offerPanels(context, panelsFixtureResult(), true);
+    expect(captured.stdout().split(ENTER)).toHaveLength(2);
+    const piped = createTestIo({ isTTY: false });
+    const pipedContext = createTestContext(piped, createTestDeps(), scriptedKeys(["e"]));
+    await offerPanels(pipedContext, panelsFixtureResult(), true, true, undefined, async () => {
+      throw new Error("must not run");
+    });
+    expect(piped.stdout()).not.toContain(ENTER);
+  });
+});
+
+describe("e: export from the panel view, end to end through main (exit codes)", () => {
+  const outputDir = mkdtempSync(path.join(os.tmpdir(), "pgard-panel-export-e2e-"));
+  afterAll(() => rmSync(outputDir, { recursive: true, force: true }));
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  async function session(
+    writeReports: CliDeps["writeReports"],
+    steps: string[],
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    const captured = createTestIo({ isTTY: true });
+    const stdout = captured.io.stdout as unknown as { columns: number; rows: number };
+    stdout.columns = 80;
+    stdout.rows = 24;
+    captured.stdin.setRawMode = () => undefined;
+    const running = main(["scan", "--panels"], captured.io, {
+      deps: createTestDeps({
+        runScan: async () => ({ ...panelsFixtureResult(), overallStatus: "completed" }),
+        createSessionProvider: () => (async () => ({})) as never,
+        credentialStore: createSignedInCredentialStore(),
+        writeReports,
+      }),
+      interrupts: noInterrupts,
+    });
+    await wait(250);
+    for (const step of steps) {
+      await wait(step === "\u001b" ? 700 : 80);
+      captured.stdin.write(step);
+    }
+    const code = await running;
+    return { code, stdout: captured.stdout(), stderr: captured.stderr() };
+  }
+
+  const toDir = [`${outputDir}\r`];
+  const SAVE = ["e", "\u001b[B", "\r", ...toDir, "x"];
+
+  it("keeps exit 0 after a saved export and q", async () => {
+    const writeReports = vi.fn(async () => [{ format: "html" as const, filePath: "/out/r.html" }]);
+    const run = await session(writeReports as never, [...SAVE, "q"]);
+    expect(run.code).toBe(0);
+    expect(writeReports).toHaveBeenCalledTimes(1);
+    expect(run.stdout).toContain("Saved HTML report");
+  }, 20_000);
+
+  it("exits 4 (partial) after a failed write, like the menu's failed export", async () => {
+    const writeReports = vi.fn(async () => {
+      throw new ReportWriteError("write_failed", "disk full");
+    });
+    const run = await session(writeReports as never, [...SAVE, "q"]);
+    expect(run.code).toBe(4);
+    expect(run.stderr).toContain("Report not saved: disk full");
+  }, 20_000);
+
+  it("exits 130 after Ctrl+C and y inside the export prompts", async () => {
+    const writeReports = vi.fn();
+    const run = await session(writeReports as never, ["e", "\u0003", "y"]);
+    expect(run.code).toBe(130);
+    expect(writeReports).not.toHaveBeenCalled();
+    expect(
+      run.stdout.endsWith("\u001b[?25h\u001b[?1049l") || run.stdout.includes("\u001b[?1049l"),
+    ).toBe(true);
+  }, 20_000);
 });

@@ -77,25 +77,37 @@ export async function saveReports(
   }
 }
 
+/** How an export offer ended: a report was written, writing failed, or nothing was asked/saved. */
+export type ReportExportOutcome = "saved" | "failed" | "cancelled";
+
 /** Menu follow-up: offer to save a report after the result was shown. */
 export async function offerReportExport(
   context: CommandContext,
   result: ScanResult,
   projectRoot: string,
 ): Promise<boolean> {
+  return (await runReportExport(context, result, projectRoot)) !== "failed";
+}
+
+/** The export prompts and save, shared by the menu follow-up and the panel view's `e` key. */
+export async function runReportExport(
+  context: CommandContext,
+  result: ScanResult,
+  projectRoot: string,
+): Promise<ReportExportOutcome> {
   const text = cliText(context.ruleLocale).commands.report;
   const prompts = promptContextOf(context, text.help);
-  if (prompts === null || result.overallStatus === "blocked") return true;
+  if (prompts === null || result.overallStatus === "blocked") return "cancelled";
   const format = await promptChoice<ReportFormat | "none">(prompts, text.savePrompt, [
     { label: text.no, value: "none" },
     { label: "HTML", value: "html" },
     { label: "PDF", value: "pdf" },
     { label: text.both, value: "both" },
   ]);
-  if (format === BACK || format === "none") return true;
+  if (format === BACK || format === "none") return "cancelled";
   for (;;) {
     const typed = await promptText(prompts, text.outputDirPrompt);
-    if (typed === BACK) return true;
+    if (typed === BACK) return "cancelled";
     if (typed.trim() === "") continue;
     const check = await checkOutputDir(context, typed.trim(), projectRoot, "prompt");
     if (check.kind === "invalid") {
@@ -103,6 +115,6 @@ export async function offerReportExport(
       continue;
     }
     if (check.isInsideRepository && !(await confirmInsideRepository(context))) continue;
-    return saveReports(context, result, format, check.outputDir);
+    return (await saveReports(context, result, format, check.outputDir)) ? "saved" : "failed";
   }
 }
