@@ -55,7 +55,17 @@
       "recall": 1,
       "precisionMedium": 1
     },
+    "PG-CMD-003": {
+      "precision": 1,
+      "recall": 1,
+      "precisionMedium": 1
+    },
     "PG-PATH-001": {
+      "precision": 1,
+      "recall": 1,
+      "precisionMedium": 1
+    },
+    "PG-PATH-002": {
       "precision": 1,
       "recall": 1,
       "precisionMedium": 1

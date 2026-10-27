@@ -1,6 +1,6 @@
 import type { Coverage, Finding, RuleStat } from "@pgard/findings";
 import { createSourceFinding } from "../finding-factory.js";
-import { JVM_RULE_IDS } from "../rules.js";
+import { JVM_RULE_IDS, MYBATIS_RULE_IDS } from "../rules.js";
 import {
   parseCoverage,
   parseTrackFiles,
@@ -41,7 +41,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 const METHOD =
-  "tree-sitter syntax trees, intra-procedural source-to-sink tracking, SQL injection only (PG-SQL-005); no cross-file data flow and no other rule category yet";
+  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003) and path traversal (PG-PATH-002); no cross-file data flow and no other rule category yet";
 
 /**
  * Parses and analyzes the Java and Kotlin files and the MyBatis mapper XML of a walk with the
@@ -59,6 +59,7 @@ export async function scanJvm(
   const ruleStats: RuleStat[] = [];
   const analyzedPaths: string[] = [];
   const libraries = new Map<string, number>();
+  const osLibraries = new Map<string, { kind: "process" | "file"; count: number }>();
   const runtime = new TreeSitterRuntime();
   try {
     for (const language of JVM_LANGUAGES) {
@@ -97,6 +98,13 @@ export async function scanJvm(
             for (const library of analysis.unsupportedLibraries) {
               libraries.set(library, (libraries.get(library) ?? 0) + 1);
             }
+            for (const library of analysis.unsupportedOsLibraries) {
+              const known = osLibraries.get(library.label);
+              osLibraries.set(library.label, {
+                kind: library.kind,
+                count: (known?.count ?? 0) + 1,
+              });
+            }
           } catch {
             crashed += 1;
           }
@@ -107,7 +115,7 @@ export async function scanJvm(
       const problems: string[] = [];
       if (cappedFiles.length > 0) {
         problems.push(
-          `${cappedFiles.length} file(s) hit the per-file finding cap; further findings there are not listed`,
+          `${cappedFiles.length} file(s) hit the per-file finding cap (25 findings per rule per file); further findings there are not listed`,
         );
       }
       if (incompleteFiles.length > 0) {
@@ -117,7 +125,7 @@ export async function scanJvm(
       }
       for (const [form, paths] of formFiles) {
         problems.push(
-          `${paths.length} file(s) have SQL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+          `${paths.length} file(s) have SQL, command or file-path calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
         );
       }
       if (errorFiles.length > 0) {
@@ -217,7 +225,7 @@ export async function scanJvm(
         area: "source:mybatis",
         scope: "code",
         status: problems.length > 0 ? "partial" : "completed",
-        ruleIds: JVM_RULE_IDS,
+        ruleIds: MYBATIS_RULE_IDS,
         note: `${mapperFiles} MyBatis mapper XML file(s); \${} substitutions in <select>, <insert>, <update> and <delete> (#{} is bound and not reported); text patterns, not an XML parser.${
           problems.length > 0 ? ` ${problems.join("; ")}.` : ""
         }`,
@@ -249,6 +257,19 @@ export async function scanJvm(
         status: "partial",
         ruleIds: [],
         note: `${library} detected in ${count} file(s); its raw SQL APIs are not supported, so queries made through them were not evaluated (not a safe result).`,
+      });
+    }
+    for (const [library, { kind, count }] of osLibraries) {
+      coverage.push({
+        area: `source:${kind}:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        scope: "code",
+        status: "partial",
+        ruleIds: kind === "process" ? ["PG-CMD-003"] : ["PG-PATH-002"],
+        note: `${library} detected in ${count} file(s); its ${
+          kind === "process" ? "process-running" : "file-access"
+        } APIs are not supported, so ${
+          kind === "process" ? "commands run" : "paths opened"
+        } through it were not evaluated (not a safe result).`,
       });
     }
     return { findings, coverage, ruleStats, analyzedPaths, excludedMapperPaths, mapperFiles };

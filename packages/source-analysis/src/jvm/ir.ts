@@ -11,8 +11,8 @@ interface Base {
 export type Expr = Base &
   (
     | { k: "str"; text: string }
-    /** Number, boolean, char or null literal. */
-    | { k: "lit" }
+    /** Number, boolean, char or null literal (`raw` is the text of a boolean). */
+    | { k: "lit"; raw?: string }
     | { k: "id"; name: string }
     | { k: "member"; obj: Expr; name: string }
     | { k: "index"; obj: Expr; index: Expr }
@@ -27,7 +27,8 @@ export type Expr = Base &
     | { k: "cast"; type: string; expr: Expr }
     | { k: "array"; elems: Expr[] }
     | ({ k: "lambda" } & LambdaBody)
-    | { k: "other"; kids: Expr[] }
+    /** Anything else; `spread` marks a Kotlin `*array` argument. */
+    | { k: "other"; kids: Expr[]; spread?: boolean }
   );
 
 export interface LambdaBody {
@@ -117,6 +118,8 @@ export interface Unit {
   top: ClassInfo;
   /** The file's `import` names, as written (`java.sql.Statement`, `org.foo.*`). */
   imports: string[];
+  /** Kotlin `import a.b.C as D`: `D` -> `C`. */
+  aliases: Map<string, string>;
   /** The tree was deeper than the converter follows; part of the file was not analyzed. */
   incomplete: boolean;
   /**

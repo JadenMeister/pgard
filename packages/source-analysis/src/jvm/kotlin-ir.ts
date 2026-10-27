@@ -11,6 +11,7 @@ import type {
 } from "./ir.js";
 import { unescapeText } from "./java-ir.js";
 import { SQL_CALL_TEXT } from "./jvm-names.js";
+import { OS_CALL_TEXT } from "./os-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
 const MAX_DEPTH = 700;
@@ -58,6 +59,7 @@ export function convertKotlin(ast: AstResult): Unit {
     classes: [],
     top: newClass("", null),
     imports: [],
+    aliases: new Map(),
     incomplete: false,
     unsupported: [],
   };
@@ -335,9 +337,10 @@ export function convertKotlin(ast: AstResult): Unit {
         return lambda(node, depth);
       case "collection_literal":
         return { k: "array", line, elems: nonAnon(node).map((child) => expr(child, depth + 1)) };
+      case "boolean_literal":
+        return { k: "lit", line, raw: text(node) };
       case "number_literal":
       case "character_literal":
-      case "boolean_literal":
       case "null_literal":
       case "range_expression":
       case "in_expression":
@@ -355,10 +358,14 @@ export function convertKotlin(ast: AstResult): Unit {
         const inner = nonAnon(node).find((child) => child.type !== "label");
         return inner === undefined ? { k: "lit", line } : expr(inner, depth + 1);
       }
+      case "spread_expression":
+        return { ...(other(node, depth) as Extract<Expr, { k: "other" }>), spread: true };
       case "callable_reference":
         return other(node, depth);
       case "object_literal":
-        if (SQL_CALL_TEXT.test(text(node))) unit.unsupported.push("anonymous object");
+        if (SQL_CALL_TEXT.test(text(node)) || OS_CALL_TEXT.test(text(node))) {
+          unit.unsupported.push("anonymous object");
+        }
         return other(node, depth);
       default:
         return other(node, depth);
@@ -599,7 +606,7 @@ export function convertKotlin(ast: AstResult): Unit {
       case "class_declaration":
       case "object_declaration":
         // Local functions and classes are not followed.
-        if (SQL_CALL_TEXT.test(text(node))) {
+        if (SQL_CALL_TEXT.test(text(node)) || OS_CALL_TEXT.test(text(node))) {
           unit.unsupported.push(
             node.type === "function_declaration" ? "local function" : "local class",
           );
@@ -613,8 +620,12 @@ export function convertKotlin(ast: AstResult): Unit {
         const callee = nonAnon(inner)[0];
         // `require(...)`, `check(...)` and `assert(...)` state a condition the code relies on.
         if (
-          callee?.type === "identifier" &&
-          ["require", "check", "assert"].includes(text(callee))
+          (callee?.type === "identifier" &&
+            ["require", "check", "assert", "checkArgument", "checkState"].includes(text(callee))) ||
+          (callee?.type === "navigation_expression" &&
+            /^(?:[\w.]+\.)?(?:Preconditions|Assert|Validate)\.(?:checkArgument|checkState|isTrue|state)$/.test(
+              text(callee),
+            ))
         ) {
           const argNode = ofType(inner, "value_arguments")?.children.find(
             (c) => c.type === "value_argument",

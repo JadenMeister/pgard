@@ -51,12 +51,20 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
       "src/main/kotlin/B.kt",
       "src/main/resources/mapper/UserMapper.xml",
     ]);
-    for (const area of ["source:java", "source:kotlin", "source:mybatis"]) {
+    for (const area of ["source:java", "source:kotlin"]) {
       const entry = output.coverage.find((item) => item.area === area);
-      expect(entry, area).toMatchObject({ status: "completed", ruleIds: ["PG-SQL-005"] });
+      expect(entry, area).toMatchObject({
+        status: "completed",
+        ruleIds: ["PG-SQL-005", "PG-CMD-003", "PG-PATH-002"],
+      });
     }
+    // Mapper XML is read for SQL only; the command and path rules do not claim it.
+    expect(output.coverage.find((item) => item.area === "source:mybatis")).toMatchObject({
+      status: "completed",
+      ruleIds: ["PG-SQL-005"],
+    });
     expect(output.coverage.find((item) => item.area === "source:java")?.note).toMatch(
-      /^1 Java file\(s\); frameworks: Spring; .*SQL injection only/,
+      /^1 Java file\(s\); frameworks: Spring; .*SQL injection \(PG-SQL-005\), OS command execution \(PG-CMD-003\) and path traversal \(PG-PATH-002\)/,
     );
     expect(output.coverage.find((item) => item.area === "source:mybatis")?.note).toMatch(
       /^1 MyBatis mapper XML file\(s\)/,
@@ -211,6 +219,92 @@ class C(private val jdbc: JdbcTemplate) { fun f(q: String) {
       expect(entry?.status, area).toBe("partial");
       expect(entry?.note, area).toContain("not a safe result");
     }
+  });
+
+  it("lists process and file libraries the command and path rules do not follow as partial areas", async () => {
+    const output = await scanSourceCode(
+      project({
+        "A.java": "import org.zeroturnaround.exec.ProcessExecutor;\nclass A {}\n",
+        "B.kt": "import com.zaxxer.nuprocess.NuProcessBuilder\nclass B\n",
+        "C.kt": "import okio.FileSystem\nclass C\n",
+        "D.java": "import io.vertx.core.file.FileSystem;\nclass D {}\n",
+      }),
+    );
+    for (const [area, label] of [
+      ["source:process:zt-exec", "zt-exec"],
+      ["source:process:nuprocess", "NuProcess"],
+      ["source:file:okio", "Okio"],
+      ["source:file:vert-x-file-system", "Vert.x file system"],
+    ] as const) {
+      const entry = output.coverage.find((item) => item.area === area);
+      expect(entry?.status, area).toBe("partial");
+      expect(entry?.ruleIds, area).toEqual(
+        area.startsWith("source:process") ? ["PG-CMD-003"] : ["PG-PATH-002"],
+      );
+      expect(entry?.note, area).toContain(label);
+      expect(entry?.note, area).toContain("not a safe result");
+    }
+    // The Java and Kotlin areas themselves still completed: nothing in them was skipped.
+    expect(output.coverage.find((item) => item.area === "source:java")?.status).toBe("completed");
+  });
+
+  it("reports command and path findings with per-area rule statistics", async () => {
+    const java = `import java.io.*;
+import javax.servlet.http.*;
+class A {
+  void f(HttpServletRequest r) throws Exception {
+    Runtime.getRuntime().exec("ls " + r.getParameter("d"));
+    new File("/srv/" + r.getParameter("n")).delete();
+  }
+}
+`;
+    const kotlin = `import java.io.File
+import javax.servlet.http.HttpServletRequest
+fun f(r: HttpServletRequest) {
+    ProcessBuilder("sh", "-c", "ls " + r.getParameter("d")).start()
+    File("/srv", r.getParameter("n")).readText()
+}
+`;
+    const output = await scanSourceCode(project({ "A.java": java, "B.kt": kotlin }));
+    for (const ruleId of ["PG-CMD-003", "PG-PATH-002"]) {
+      expect(output.findings.filter((finding) => finding.ruleId === ruleId)).toHaveLength(2);
+      for (const area of ["source:java", "source:kotlin"]) {
+        expect(
+          output.ruleStats?.find((row) => row.ruleId === ruleId && row.area === area),
+        ).toMatchObject({
+          status: "completed",
+          findings: 1,
+        });
+      }
+    }
+    const [critical] = output.findings.filter((finding) => finding.ruleId === "PG-CMD-003");
+    expect(critical).toMatchObject({ severity: "critical", category: "command_execution" });
+    expect(critical?.references).toMatchObject({ cwe: ["CWE-78"], owasp: ["A05:2025"] });
+    const [path] = output.findings.filter((finding) => finding.ruleId === "PG-PATH-002");
+    expect(path).toMatchObject({ severity: "high", category: "file_handling" });
+    expect(path?.references).toMatchObject({ cwe: ["CWE-22"], owasp: ["A01:2025"] });
+  });
+
+  it("marks the area partial when a command or file call is in an anonymous class or a local function", async () => {
+    const java = `class A { void f(String p) {
+  Runnable r = new Runnable() { public void run() { try { Runtime.getRuntime().exec("x " + p); } catch (Exception e) {} } };
+} }
+`;
+    const kotlin = `import java.io.File
+class K { fun f(p: String) {
+  fun inner() { File(p).delete() }
+  inner()
+} }
+`;
+    const output = await scanSourceCode(project({ "A.java": java, "K.kt": kotlin }));
+    const javaEntry = output.coverage.find((item) => item.area === "source:java");
+    expect(javaEntry?.status).toBe("partial");
+    expect(javaEntry?.note).toContain(
+      "SQL, command or file-path calls inside anonymous class bodies",
+    );
+    const kotlinEntry = output.coverage.find((item) => item.area === "source:kotlin");
+    expect(kotlinEntry?.status).toBe("partial");
+    expect(kotlinEntry?.note).toContain("local function bodies");
   });
 
   it("marks the MyBatis area partial for a statement that is never closed", async () => {

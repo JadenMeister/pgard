@@ -19,7 +19,11 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-SSRF-001": "요청 입력에서 온 URL로 보내는 서버 측 HTTP 요청",
   "PG-CMD-001": "동적 문자열로 만든 셸 명령(child_process)",
   "PG-CMD-002": "셸이나 동적 프로그램을 쓰는 Go exec.Command",
+  "PG-CMD-003":
+    "Java/Kotlin에서 동적 문자열로 만든 OS 명령(Runtime.exec, ProcessBuilder, Commons Exec)",
   "PG-PATH-001": "파일 읽기/다운로드에 쓰이는 요청 입력 파일 경로",
+  "PG-PATH-002":
+    "Java/Kotlin 파일 접근에 쓰이는 요청 입력 또는 압축 파일 항목에서 온 파일 경로(경로 조작, zip slip)",
   "PG-CRYPTO-001": "비밀번호에 쓰인 약한 해시(MD5/SHA-1)",
   "PG-CRYPTO-002": "하드코딩된 암호화 키 또는 서명 비밀정보",
   "PG-CRYPTO-003": "취약하거나 더 이상 권장되지 않는 암호화 알고리즘",
