@@ -11,6 +11,12 @@ import {
   unwrap,
   type TaintKind,
 } from "./taint.js";
+import {
+  DOMPURIFY_FACTORY_MODULES,
+  isTrustedSanitizerCall,
+  SANITIZER_NAME,
+  TRUSTED_SANITIZER_MODULES,
+} from "./sanitizer-modules.js";
 import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-binding.js";
 
 /** Project-level facts used by cross-file heuristics (CSRF, brute force, ORM detection). */
@@ -92,8 +98,6 @@ const HTTP_CLIENT_MODULES = new Set([
 ]);
 /** Process-level values that a request cannot influence. */
 const TRUSTED_PATHS = new Set(["process.execPath", "process.platform", "__dirname", "__filename"]);
-const SANITIZER_CALLS =
-  /^(sanitize|sanitizeHtml|purify|escape|escapeHtml|encode|xss|filterXSS|htmlEscape)$/i;
 const PASSWORD_NAME = /^(password|passwd|pwd|pass|userPassword|newPassword|plainPassword)$/i;
 const PASSWORD_TEXT = /pass(word)?|pwd/i;
 const HASHING_TEXT =
@@ -385,21 +389,108 @@ export function analyzeJsSource(
     return "expression";
   };
 
-  const isSanitizerCall = (expression: ts.Expression): boolean => {
+  /** `f(...)` or `f.method(...)`: the callee identifier and the shape. Deeper chains do not qualify. */
+  const sanitizerCallee = (
+    expression: ts.Expression,
+  ): { root: ts.Identifier; direct: boolean; name: string } | null => {
     const node = unwrap(expression);
-    return ts.isCallExpression(node) && SANITIZER_CALLS.test(calleeName(node) ?? "");
+    if (!ts.isCallExpression(node)) return null;
+    const callee = unwrap(node.expression);
+    if (ts.isIdentifier(callee)) return { root: callee, direct: true, name: callee.text };
+    if (ts.isPropertyAccessExpression(callee)) {
+      const receiver = unwrap(callee.expression);
+      if (ts.isIdentifier(receiver))
+        return { root: receiver, direct: false, name: callee.name.text };
+    }
+    return null;
   };
 
-  const isSanitizedBinding = createSanitizedBindingCheck(sourceFile, isSanitizerCall);
+  /**
+   * A local name that is exactly one declaration (the import), never reassigned and never written
+   * through (`DOMPurify.sanitize = ...`, `Object.assign(DOMPurify, ...)`).
+   */
+  const isSoleBinding = (name: string): boolean =>
+    bindingCount.get(name) === 1 && !reassigned.has(name) && !memberWrittenRoots.has(name);
 
   /**
-   * A sanitizer call, or a variable resolved to its own declaration whose initializer and every
-   * write are sanitizer calls (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
+   * Module whose default export (or `require` result) the sole binding `identifier` holds:
+   * `import DOMPurify from "dompurify"`, or `const purify = createDOMPurify(window)` where the
+   * factory is dompurify's default export (or `createDOMPurify` from a dompurify package).
+   */
+  const trustedModuleOf = (identifier: ts.Identifier): string | null => {
+    if (!isSoleBinding(identifier.text)) return null;
+    const module = namespaceImports.get(identifier.text);
+    if (module !== undefined) return TRUSTED_SANITIZER_MODULES.has(module) ? module : null;
+    const init = soleConst(identifier.text, identifier);
+    const node = init ? unwrap(init) : null;
+    if (!node || !ts.isCallExpression(node)) return null;
+    const factory = unwrap(node.expression);
+    if (!ts.isIdentifier(factory) || !isSoleBinding(factory.text)) return null;
+    const factoryModule = namespaceImports.get(factory.text);
+    if (factoryModule !== undefined) {
+      return DOMPURIFY_FACTORY_MODULES.has(factoryModule) ? factoryModule : null;
+    }
+    const named = namedImports.get(factory.text);
+    return named === "dompurify:createDOMPurify" || named === "isomorphic-dompurify:createDOMPurify"
+      ? named.slice(0, named.indexOf(":"))
+      : null;
+  };
+
+  /**
+   * A call into the sole import binding of a known sanitizer module: `DOMPurify.sanitize(x)`,
+   * `sanitizeHtml(x)`, `filterXSS(x)`, `{ sanitize }` from `isomorphic-dompurify`. Shadowed,
+   * reassigned, modified or re-declared bindings, local functions, re-exports and methods that
+   * are not the module's sanitizing entry point do not qualify.
+   */
+  const isProvenSanitizerCall = (expression: ts.Expression): boolean => {
+    const parts = sanitizerCallee(expression);
+    if (!parts) return false;
+    const { root, direct, name } = parts;
+    const named = direct ? namedImports.get(root.text) : undefined;
+    if (named !== undefined) {
+      if (!isSoleBinding(root.text)) return false;
+      const at = named.lastIndexOf(":");
+      return isTrustedSanitizerCall(named.slice(0, at), "named", "direct", named.slice(at + 1));
+    }
+    const module = trustedModuleOf(root);
+    return (
+      module !== null &&
+      isTrustedSanitizerCall(module, "default", direct ? "direct" : "member", name)
+    );
+  };
+
+  /** A call whose name looks like a sanitizer but is not a proven import: inferred only. */
+  const nameOnlySanitizerCall = (expression: ts.Expression): string | null => {
+    const node = unwrap(expression);
+    if (!ts.isCallExpression(node) || isProvenSanitizerCall(node)) return null;
+    const name = calleeName(node);
+    return name !== null && SANITIZER_NAME.test(name) ? name : null;
+  };
+
+  const isSanitizerCall = isProvenSanitizerCall;
+  const isSanitizedBinding = createSanitizedBindingCheck(sourceFile, isProvenSanitizerCall);
+  const isNameSanitizedBinding = createSanitizedBindingCheck(
+    sourceFile,
+    (expression) => isProvenSanitizerCall(expression) || nameOnlySanitizerCall(expression) !== null,
+  );
+
+  /**
+   * A proven sanitizer call, or a variable resolved to its own declaration whose initializer and
+   * every write are proven sanitizer calls (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
    */
   const isSanitized = (expression: ts.Expression): boolean => {
     if (isSanitizerCall(expression)) return true;
     const node = unwrap(expression);
     return ts.isIdentifier(node) && isSanitizedBinding(node);
+  };
+
+  /** Name of an inferred (name-only) sanitizer the value passes through, else null. */
+  const inferredSanitizer = (expression: ts.Expression): string | null => {
+    const direct = nameOnlySanitizerCall(expression);
+    if (direct) return direct;
+    const node = unwrap(expression);
+    if (!ts.isIdentifier(node) || !isNameSanitizedBinding(node)) return null;
+    return `${node.text}`;
   };
 
   const sqlArgument = (call: ts.CallExpression): ts.Expression | null => {
@@ -593,6 +684,34 @@ export function analyzeJsSource(
       isSanitized(value)
     )
       return;
+    const inferred = inferredSanitizer(value);
+    if (inferred !== null) {
+      const node = unwrap(value);
+      const argument = ts.isCallExpression(node) ? node.arguments[0] : undefined;
+      const base =
+        (argument &&
+          !isStaticString(argument) &&
+          classify(
+            argument,
+            true,
+            { severity: "high", status: "suspected", confidence: "medium" },
+            { severity: "low", status: "suspected", confidence: "low" },
+            sink,
+          )) ||
+        ({
+          severity: "low",
+          status: "suspected",
+          confidence: "low",
+          flow: `${inferred}() result -> ${sink} (no input source identified)`,
+        } satisfies Evidence);
+      report(
+        ruleId,
+        node,
+        demote(base, `sanitizer \`${inferred}\` is not a known sanitizer import; inferred`),
+        sink,
+      );
+      return;
+    }
     const verdict = importSet.has("escape-html") ? escapeHtmlVerdict(value) : null;
     const evidence = classify(
       value,
@@ -1356,6 +1475,8 @@ export function analyzeJsSource(
   // catch variable or function with the same name makes a module constant unusable as evidence.
   const bindingCount = new Map<string, number>();
   const mutatedRoots = new Set<string>();
+  /** Names written through a property (`X.y = ...`, `X["y"] = ...`, `Object.assign(X, ...)`). */
+  const memberWrittenRoots = new Set<string>();
   const tableMisuse = new Set<string>();
   /** Names used as more than a property read or a request argument: aliased, passed on, assigned. */
   const nonReadUses = new Map<string, ts.Node[]>();
@@ -1443,6 +1564,7 @@ export function analyzeJsSource(
       if (!ts.isIdentifier(left)) {
         const root = rootName(left);
         if (root) mutatedRoots.add(root);
+        if (root) memberWrittenRoots.add(root);
       }
     } else if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
@@ -1454,6 +1576,7 @@ export function analyzeJsSource(
     } else if (ts.isDeleteExpression(node)) {
       const root = rootName(node.expression);
       if (root) mutatedRoots.add(root);
+      if (root) memberWrittenRoots.add(root);
     } else if (ts.isCallExpression(node)) {
       const callee = accessPath(node.expression);
       if (
@@ -1465,6 +1588,7 @@ export function analyzeJsSource(
       ) {
         const root = rootName(node.arguments[0]);
         if (root) mutatedRoots.add(root);
+        if (root) memberWrittenRoots.add(root);
       }
       const target = unwrap(node.expression);
       if (ts.isPropertyAccessExpression(target) && MUTATING_METHOD.test(target.name.text)) {
