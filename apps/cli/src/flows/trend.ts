@@ -57,7 +57,11 @@ export async function loadTrend(
     if (typeof repositoryId !== "number") {
       return { kind: "unavailable", why: "no-repository", reason: "" };
     }
-    const listed = await store.list(repositoryId);
+    // At most 20 usable scans are read; older files are only counted, never parsed.
+    const listed = await store.list(repositoryId, {
+      limit: RETENTION_MAX_SCANS_PER_REPO,
+      isUsable: (scan) => !isNewerMinor(scan.sourceVersion),
+    });
     if (listed.scans.length === 0 && listed.warnings.length > 0) {
       return {
         kind: "unavailable",
@@ -65,18 +69,22 @@ export async function loadTrend(
         reason: safeText(listed.warnings[0] ?? "", 100),
       };
     }
-    // `list` is newest first; the panel wants the newest 20, oldest first.
-    const usable = listed.scans.filter((scan) => !isNewerMinor(scan.sourceVersion));
-    const newest = usable.slice(0, RETENTION_MAX_SCANS_PER_REPO);
-    const [latest, previous] = newest;
+    // `list` is newest first (by file name); the panel shows those scans oldest first.
+    const newest = listed.scans;
+    // "Latest" is the current scan when it is stored, and "previous" the next older usable scan
+    // after it, so a file dated in the future cannot reverse the comparison. Without a stored
+    // current scan, the two newest stored scans are compared.
+    const anchor =
+      currentScanId === null ? -1 : newest.findIndex((s) => s.result.scanId === currentScanId);
+    const latest = newest[Math.max(0, anchor)];
+    const previous = newest[Math.max(0, anchor) + 1];
     return {
       kind: "ready",
       scans: newest.map(toTrendScan).reverse(),
       diff: latest !== undefined && previous !== undefined ? diffOf(previous, latest) : null,
       skipped: listed.warnings.length,
-      newerSkipped: listed.scans.length - usable.length,
-      isCurrentStored:
-        currentScanId === null || listed.scans.some((scan) => scan.result.scanId === currentScanId),
+      newerSkipped: listed.rejected,
+      isCurrentStored: currentScanId === null || anchor >= 0,
       now: now(),
     };
   } catch (error) {

@@ -2,7 +2,7 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createResultStore, type ResultStore } from "@pgard/result-store";
+import { createResultStore, type ListOptions, type ResultStore } from "@pgard/result-store";
 import {
   ALLOWED,
   createTestContext,
@@ -117,16 +117,17 @@ describe("loadTrend", () => {
   it("skips scans from a newer schema minor and counts them", async () => {
     await save("a", ["x"]);
     await save("b", ["x"]);
+    const real = store;
     const fake = {
-      list: async () => {
-        const listed = await store.list(REPO_ID);
-        return {
-          ...listed,
-          scans: listed.scans.map((scan, index) =>
-            index === 0 ? { ...scan, sourceVersion: "99.0" } : scan,
-          ),
-        };
-      },
+      list: (id: number, options?: ListOptions) =>
+        real.list(id, {
+          ...options,
+          isUsable: (scan) =>
+            options?.isUsable?.({
+              ...scan,
+              sourceVersion: scan.result.scanId === "b" ? "99.0" : scan.sourceVersion,
+            }) ?? true,
+        }),
     } as unknown as ResultStore;
     const trend = await loadTrend(
       context({}, () => fake),
@@ -138,16 +139,116 @@ describe("loadTrend", () => {
     expect(trend.newerSkipped).toBe(1);
   });
 
-  it("keeps at most 20 scans", async () => {
+  async function saveMany(count: number) {
     store = createResultStore({
       dir: path.join(base, "pgard"),
       now: () => clock,
-      maxScansPerRepo: 30,
+      maxScansPerRepo: 100,
     });
-    for (let i = 0; i < 25; i += 1) await save(`s${i}`, ["x"]);
+    // Scan i has i + 1 findings, so the totals say which scans were kept.
+    for (let i = 0; i < count; i += 1) {
+      await save(
+        `s${i}`,
+        Array.from({ length: i + 1 }, (_, n) => `t${n}`),
+      );
+    }
+  }
+
+  it("keeps the newest 20 of 25 scans, oldest first", async () => {
+    await saveMany(25);
     const trend = await loadTrend(context(), outcome, false);
     if (trend.kind !== "ready") throw new Error("expected ready");
-    expect(trend.scans).toHaveLength(20);
+    expect(trend.scans.map((scan) => scan.total)).toEqual(
+      Array.from({ length: 20 }, (_, i) => i + 6),
+    );
+  });
+
+  it("stops reading after 20 usable scans and only counts the rest", async () => {
+    await saveMany(25);
+    let outcomeSeen: Awaited<ReturnType<ResultStore["list"]>> | null = null;
+    const real = store;
+    const spy = {
+      list: async (id: number, options?: ListOptions) => {
+        outcomeSeen = await real.list(id, options);
+        return outcomeSeen;
+      },
+    } as unknown as ResultStore;
+    await loadTrend(
+      context({}, () => spy),
+      outcome,
+      false,
+    );
+    expect(outcomeSeen).toMatchObject({ unread: 5 });
+    expect((outcomeSeen as unknown as { scans: unknown[] }).scans).toHaveLength(20);
+  });
+
+  it("anchors on the current scan: a future-dated file cannot reverse the comparison", async () => {
+    await save("a", ["x"]);
+    await save("cur", ["x", "y"]);
+    const future = clock;
+    clock = NOW + 40 * DAY;
+    await save("future", []);
+    clock = future;
+    const trend = await loadTrend(context(), outcome, false, "cur", () => NOW);
+    if (trend.kind !== "ready") throw new Error("expected ready");
+    // cur (2 findings) against a (1 finding): one new, none gone.
+    expect(trend.diff).toEqual({ newCount: 1, fixedCount: 0, unchangedCount: 1 });
+    expect(trend.isCurrentStored).toBe(true);
+    expect(trend.scans.at(-1)?.savedAt).toBeGreaterThan(NOW);
+  });
+
+  it("without a current scan id (or an unstored one) compares the two newest stored scans", async () => {
+    await save("a", ["x"]);
+    await save("b", ["x", "y"]);
+    for (const id of [null, "missing"]) {
+      const trend = await loadTrend(context(), outcome, false, id, () => NOW);
+      if (trend.kind !== "ready") throw new Error("expected ready");
+      expect(trend.diff).toEqual({ newCount: 1, fixedCount: 0, unchangedCount: 1 });
+      expect(trend.isCurrentStored).toBe(id === null);
+    }
+  });
+
+  it("counts a moved finding as unchanged", async () => {
+    for (const [id, line] of [
+      ["a", 10],
+      ["b", 80],
+    ] as const) {
+      clock += DAY;
+      await store.save(
+        testResult({
+          scanId: id,
+          findings: [
+            testFinding({
+              location: { kind: "file", path: "src/api/users.ts", line, url: null, commit: null },
+            }),
+          ],
+        }),
+        { repositoryId: REPO_ID },
+      );
+    }
+    const trend = await loadTrend(context(), outcome, false, "b");
+    if (trend.kind !== "ready") throw new Error("expected ready");
+    expect(trend.diff).toEqual({ newCount: 0, fixedCount: 0, unchangedCount: 1 });
+  });
+
+  it("sanitizes and shortens a store warning used as the reason", async () => {
+    const fake = {
+      list: async () => ({
+        scans: [],
+        warnings: [`bad ${String.fromCharCode(27)}[2J\u202e ${"z".repeat(300)}`],
+        rejected: 0,
+        unread: 0,
+      }),
+    } as unknown as ResultStore;
+    const trend = await loadTrend(
+      context({}, () => fake),
+      outcome,
+      false,
+    );
+    if (trend.kind !== "unavailable") throw new Error("expected unavailable");
+    expect(trend.reason).not.toMatch(/[\u001b\u202e]/u);
+    expect(trend.reason.length).toBeLessThanOrEqual(100);
+    expect(trend.reason).toContain("bad");
   });
 
   it("counts hostile stored names and paths without ever returning them", async () => {

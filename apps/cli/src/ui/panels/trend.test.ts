@@ -169,6 +169,55 @@ describe("trend panel content", () => {
     expect(ko).toContain("이 검사는 저장되지 않았습니다.");
   });
 
+  it("puts the not-stored note and a stored-scans heading on the first screen (80x24, 20 scans)", () => {
+    const base = ready(20) as Extract<TrendData, { kind: "ready" }>;
+    const trend = { ...base, isCurrentStored: false };
+    const size = SIZES[0] as Size;
+    const lines = frame(stateFor("en", size, trend), size);
+    const first = lines.slice(2, 8).join("\n");
+    expect(first).toContain("This scan was not stored.");
+    expect(first).toContain("The two newest stored scans");
+    const ko = frame(stateFor("ko", size, trend), size)
+      .slice(2, 8)
+      .join("\n");
+    expect(ko).toContain("이 검사는 저장되지 않았습니다.");
+    // The other empty and single states carry it too.
+    for (const count of [0, 1]) {
+      const small = {
+        ...(ready(count) as Extract<TrendData, { kind: "ready" }>),
+        isCurrentStored: false,
+      };
+      expect(frame(stateFor("en", size, small), size).join("\n")).toContain("not stored");
+    }
+  });
+
+  it("shows the date, not 'just now', for a scan dated after the read", () => {
+    const base = ready(3) as Extract<TrendData, { kind: "ready" }>;
+    const last = base.scans.at(-1) as TrendScan;
+    const future = { ...last, savedAt: NOW + 30 * DAY };
+    const trend = { ...base, scans: [...base.scans.slice(0, -1), future] };
+    for (const size of [SIZES[0] as Size, SIZES[2] as Size]) {
+      const body = frame(stateFor("en", size, trend), size).join("\n");
+      expect(body).not.toContain("just now");
+      expect(body).toContain("11-27");
+    }
+  });
+
+  it("words an unreadable store without a doubled period and keeps the KO sentence whole", () => {
+    const trend: TrendData = {
+      kind: "unavailable",
+      why: "unreadable",
+      reason: "Permission denied.",
+    };
+    const en = frame(stateFor("en", SIZES[0] as Size, trend), SIZES[0] as Size)
+      .slice(2)
+      .join(" ");
+    expect(en).toContain("(reason: Permission denied). The scan");
+    expect(en).not.toContain("..");
+    const ko = frame(stateFor("ko", SIZES[0] as Size, trend), SIZES[0] as Size).join(" ");
+    expect(ko).toContain("(원인: Permission denied)");
+  });
+
   it("each honest state names its reason", () => {
     const body = (trend: TrendData): string => frame(stateFor("en", wide, trend), wide).join(" ");
     expect(body(ready(1))).toContain("only one stored scan");
@@ -181,7 +230,7 @@ describe("trend panel content", () => {
       "No history yet",
     );
     expect(body({ kind: "unavailable", why: "unreadable", reason: "EACCES" })).toContain(
-      "could not be read: EACCES",
+      "could not be read (reason: EACCES)",
     );
   });
 

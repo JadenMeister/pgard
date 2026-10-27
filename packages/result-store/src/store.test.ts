@@ -82,6 +82,32 @@ afterEach(async () => {
 });
 
 describe("save and list", () => {
+  it("list with a limit opens only that many usable files and counts the rest", async () => {
+    store = createResultStore({ dir, now: () => clock, maxScansPerRepo: 50 });
+    for (let i = 0; i < 12; i += 1) {
+      clock += 1000;
+      await store.save(makeResult({ scanId: `s${i}` }), { repositoryId: REPO_ID });
+    }
+    const limited = await store.list(REPO_ID, { limit: 5 });
+    expect(limited.scans.map((scan) => scan.result.scanId)).toEqual([
+      "s11",
+      "s10",
+      "s9",
+      "s8",
+      "s7",
+    ]);
+    expect(limited.unread).toBe(7);
+    const filtered = await store.list(REPO_ID, {
+      limit: 3,
+      isUsable: (scan) => scan.result.scanId !== "s11",
+    });
+    expect(filtered.scans.map((scan) => scan.result.scanId)).toEqual(["s10", "s9", "s8"]);
+    expect(filtered.rejected).toBe(1);
+    const all = await store.list(REPO_ID);
+    expect(all.scans).toHaveLength(12);
+    expect(all.unread).toBe(0);
+  });
+
   it("round-trips a result through the reader", async () => {
     const saved = await store.save(makeResult(), { repositoryId: REPO_ID });
     expect(saved.ok).toBe(true);

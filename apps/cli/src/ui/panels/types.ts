@@ -22,10 +22,10 @@ export interface TrendScan {
   readonly total: number;
 }
 
-/** What the latest stored scan changed against the one before it. */
+/** What the latest scan changed against the next older stored one. */
 export interface TrendDiff {
   readonly newCount: number;
-  /** "No longer reported" in the comparison; the panel words it as fixed with a note. */
+  /** "No longer reported" in the comparison (not the same as fixed). */
   readonly fixedCount: number;
   readonly unchangedCount: number;
 }

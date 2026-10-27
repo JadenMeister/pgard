@@ -232,7 +232,8 @@ export interface TrendPanelText {
   };
   skipped: (count: number) => string;
   latestVsPrevious: string;
-  /** New, fixed and unchanged counts of the latest scan against the previous one. */
+  /** The heading when the current scan is not stored: the two newest stored scans. */
+  newestStored: string;
   /** A note: the scan this view opened for is not among the stored ones. */
   notStored: string;
   /** Stored scans written by a newer PGARD version are left out. */
@@ -551,11 +552,12 @@ const EN: CliText = {
         noRepository:
           "No history yet: this scan is not tied to a GitHub repository, so no history is kept for it.",
         unreadable: (reason) =>
-          `History could not be read${reason === "" ? "" : `: ${reason}`}. The scan itself is unaffected.`,
+          `History could not be read${reason === "" ? "" : ` (reason: ${reason})`}. The scan itself is unaffected.`,
       },
       skipped: (count) =>
         `${count} stored ${count === 1 ? "file was" : "files were"} unreadable and left out.`,
       latestVsPrevious: "Latest scan vs the previous one",
+      newestStored: "The two newest stored scans",
       notStored: "This scan was not stored.",
       newerSkipped: (count) =>
         `${count} ${count === 1 ? "scan" : "scans"} from a newer PGARD version ${count === 1 ? "was" : "were"} skipped.`,
@@ -900,10 +902,11 @@ const KO: CliText = {
         noRepository:
           "아직 이력이 없습니다: 이 검사는 GitHub 저장소와 연결되지 않아 이력을 보관하지 않습니다.",
         unreadable: (reason) =>
-          `이력을 읽을 수 없습니다${reason === "" ? "" : `: ${reason}`}. 검사 결과 자체에는 영향이 없습니다.`,
+          `이력을 읽을 수 없습니다${reason === "" ? "" : ` (원인: ${reason})`}. 검사 결과 자체에는 영향이 없습니다.`,
       },
       skipped: (count) => `저장된 파일 ${count}개를 읽을 수 없어 제외했습니다.`,
       latestVsPrevious: "최근 검사와 직전 검사 비교",
+      newestStored: "저장된 최근 두 검사 비교",
       notStored: "이 검사는 저장되지 않았습니다.",
       newerSkipped: (count) => `더 새로운 PGARD 버전에서 만든 검사 ${count}건을 건너뛰었습니다.`,
       chartTitle: "검사별 발견 항목 (최신순)",

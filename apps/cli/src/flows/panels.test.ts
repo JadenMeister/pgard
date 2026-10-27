@@ -194,6 +194,16 @@ describe("offerPanels", () => {
     expect(second.stderr()).not.toContain("store exploded");
   });
 
+  it("renders the one-frame path even when the history loader throws", async () => {
+    const captured = createTestIo({ isTTY: false, env: { [PANELS_ONCE_ENV]: "1" } });
+    const context = createTestContext(captured, createTestDeps());
+    await offerPanels(context, panelsFixtureResult(), true, true, async () => {
+      throw new Error("store exploded");
+    });
+    expect(captured.stdout()).toContain("PGARD panels");
+    expect(captured.stdout()).not.toContain("store exploded");
+  });
+
   it("ends as a cancellation (exit 130 at the top level) after a confirmed Ctrl+C", async () => {
     const captured = terminal();
     const context = createTestContext(

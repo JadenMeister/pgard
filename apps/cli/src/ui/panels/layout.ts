@@ -146,26 +146,34 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   if (trend.kind === "unavailable") {
     if (trend.why === "no-store-dir") return wrap(text.noHistory.noStoreDir);
     if (trend.why === "no-repository") return wrap(text.noHistory.noRepository);
-    return wrap(text.noHistory.unreadable(safeText(trend.reason, 100)));
+    return wrap(text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")));
   }
   const notes = [
     ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
     ...(trend.newerSkipped > 0 ? [text.newerSkipped(trend.newerSkipped)] : []),
-    ...(trend.isCurrentStored ? [] : [text.notStored]),
   ];
   const skipped = notes.length > 0 ? ["", ...notes.flatMap(wrap)] : [];
+  // First on the screen, so it is seen before the history it qualifies.
+  const notStored = trend.isCurrentStored ? [] : [...wrap(text.notStored), ""];
   const scans = trend.scans;
-  if (scans.length === 0) return [...wrap(text.noHistory.empty), ...skipped];
+  if (scans.length === 0) return [...notStored, ...wrap(text.noHistory.empty), ...skipped];
   const newest = scans[scans.length - 1] as TrendScan;
   if (scans.length === 1) {
-    return [...wrap(text.noHistory.single(trendDate(newest.savedAt, true))), ...skipped];
+    return [
+      ...notStored,
+      ...wrap(text.noHistory.single(trendDate(newest.savedAt, true))),
+      ...skipped,
+    ];
   }
   const isNarrow = size.columns <= NARROW_COLUMNS;
-  const lines: string[] = [style.bold(truncateWidth(text.title(scans.length), size.columns))];
+  const lines: string[] = [
+    ...notStored.map((line) => style.yellow(line)),
+    style.bold(truncateWidth(text.title(scans.length), size.columns)),
+  ];
   if (trend.diff !== null) {
     lines.push(
       "",
-      style.bold(text.latestVsPrevious),
+      style.bold(trend.isCurrentStored ? text.latestVsPrevious : text.newestStored),
       ...wrapWidth(
         [
           t.diff.newCount(trend.diff.newCount, 0, ""),
@@ -177,7 +185,12 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
     );
   }
   const rows = [...scans].reverse();
-  const ages = rows.map((scan) => text.age(Math.max(0, trend.now - scan.savedAt), isNarrow));
+  // A scan dated after the read (clock skew, a copied file) shows its date, never "just now".
+  const ages = rows.map((scan) =>
+    scan.savedAt > trend.now
+      ? trendDate(scan.savedAt, false).slice(isNarrow ? 5 : 0)
+      : text.age(trend.now - scan.savedAt, isNarrow),
+  );
   const ageWidth = Math.max(maxDisplayWidth(ages), displayWidth(text.columns.age));
   const dateWidth = isNarrow ? 10 : 16;
   const dates = rows.map((scan) => trendDate(scan.savedAt, !isNarrow));

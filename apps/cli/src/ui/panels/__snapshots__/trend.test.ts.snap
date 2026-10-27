@@ -115,9 +115,9 @@ Esc: back  ?: help  Tab: panel"
 exports[`trend panel snapshots > en 40x14 unreadable store 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
-History could not be read: Permission
-denied. The scan itself is unaffected.
-
+History could not be read (reason:
+Permission denied). The scan itself is
+unaffected.
 
 
 
@@ -247,8 +247,8 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 60x20 unreadable store 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
-History could not be read: Permission denied. The scan
-itself is unaffected.
+History could not be read (reason: Permission denied). The
+scan itself is unaffected.
 
 
 
@@ -405,8 +405,8 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 80x24 unreadable store 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
-History could not be read: Permission denied. The scan itself is unaffected.
-
+History could not be read (reason: Permission denied). The scan itself is
+unaffected.
 
 
 
@@ -517,9 +517,9 @@ Esc: 뒤로  ?: 도움말  Tab: 패널"
 exports[`trend panel snapshots > ko 40x14 unreadable store 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
-이력을 읽을 수 없습니다: Permission
-denied. 검사 결과 자체에는 영향이
-없습니다.
+이력을 읽을 수 없습니다 (원인:
+Permission denied). 검사 결과 자체에는
+영향이 없습니다.
 
 
 
@@ -649,8 +649,8 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 60x20 unreadable store 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
-이력을 읽을 수 없습니다: Permission denied. 검사 결과
-자체에는 영향이 없습니다.
+이력을 읽을 수 없습니다 (원인: Permission denied). 검사
+결과 자체에는 영향이 없습니다.
 
 
 
@@ -807,8 +807,8 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 80x24 unreadable store 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
-이력을 읽을 수 없습니다: Permission denied. 검사 결과 자체에는 영향이 없습니다.
-
+이력을 읽을 수 없습니다 (원인: Permission denied). 검사 결과 자체에는 영향이
+없습니다.
 
 
 
