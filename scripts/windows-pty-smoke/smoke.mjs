@@ -54,7 +54,7 @@ const KEYS = {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 const results = [];
-const transcripts = [];
+const runs = [];
 
 function check(scenario, name, ok, detail = "") {
   results.push({ scenario, name, ok: Boolean(ok), detail });
@@ -99,6 +99,7 @@ function start(label, columns, rows) {
   term.onExit((event) => {
     run.exit = { exitCode: event.exitCode, signal: event.signal ?? null };
   });
+  runs.push(run);
   return run;
 }
 
@@ -160,28 +161,60 @@ function terminalRestored(scenario, run) {
   check(scenario, "cursor shown again after the last hide", lastHide >= 0 && lastShow > lastHide);
 }
 
-// The only escape sequences the panel view writes itself are CSI ones (cursor, erase, colour,
-// screen switch). The pty layer may add a window title (OSC 0/2); that is removed only when it
-// carries none of the fixture's text. Whatever is left must be plain text.
-const CSI = /\u001b\[[0-9;?]*[ -/]*[@-~]/gu;
+// Only these escape sequences are expected: the ones the panel view writes itself (SGR colour,
+// cursor position, erase, cursor and alternate-screen modes) and the ones ConPTY adds (focus and
+// win32-input modes, window-size reports). Any other CSI is a failure, and so is the title OSC of
+// the pty layer when it carries fixture text. Whatever is left after removing the expected ones
+// must be plain text.
+const EXPECTED_CSI = [
+  /\u001b\[[0-9;]*m/gu, // SGR
+  /\u001b\[[0-9;]*[HKJ]/gu, // cursor position, erase line, erase screen
+  /\u001b\[\?(?:25|1049|9001|1004)[hl]/gu, // cursor, alternate screen, ConPTY modes
+  /\u001b\[8;[0-9]+;[0-9]+t/gu, // window size
+];
 const OSC_TITLE = /\u001b\][02];([^\u0007\u001b]*)(?:\u0007|\u001b\\)/gu;
+// Sequences the fixture contains but the CLI never writes (it is the fixture's own text).
+const FIXTURE_ONLY = ["\u001b[38;5;196m"];
 
-function noRawControls(scenario, run) {
+function noRawControls(scenario, run, when = "end of run") {
   let text = run.raw.replace(OSC_TITLE, (match, title) => (/PWNED|evil/u.test(title) ? match : ""));
-  text = text.replace(CSI, "");
+  for (const pattern of EXPECTED_CSI) text = text.replace(pattern, "");
   const found = [];
+  if (FIXTURE_ONLY.some((sequence) => run.raw.includes(sequence))) found.push("fixture SGR");
+  if (/\u001b\[/u.test(text)) found.push("unexpected CSI");
   if (/\u001b/u.test(text)) found.push("ESC");
   if (/\u0007/u.test(text)) found.push("BEL");
   if (/[\u0080-\u009f]/u.test(text)) found.push("C1");
-  if (/‮/u.test(text)) found.push("U+202E");
+  if (/\u202e/u.test(text)) found.push("U+202E");
   if (/[\u0000-\u0006\u0008\u000b\u000c\u000e-\u001a\u001c-\u001f\u007f]/u.test(text))
     found.push("other C0");
   check(
     scenario,
-    "no raw ESC/OSC/BEL/C1/U+202E from the fixture reach the terminal",
+    `no raw ESC/OSC/BEL/C1/U+202E from the fixture reach the terminal (${when})`,
     found.length === 0,
     found.join(", "),
   );
+}
+
+const widest = (run) => Math.max(0, ...run.screen.lines().map((line) => displayWidth(line)));
+
+/** Tabs to the findings panel and checks that the hostile rows are really drawn, sanitised. */
+async function openFindings(scenario, run, presses) {
+  for (let index = 0; index < presses; index += 1) await press(run, "tab");
+  const text = run.screen.text();
+  check(
+    scenario,
+    "findings panel shows the hostile title and path rows (as plain text)",
+    text.includes("Leak") && text.includes("gnp.js") && text.includes(t.tabs.findings),
+    text.includes("Leak") ? "" : "title row missing",
+  );
+  check(
+    scenario,
+    "the long Korean title is shown at 80 columns, on a line wider than 60",
+    text.includes("한국어 제목") && widest(run) > 60,
+    `widest=${widest(run)}`,
+  );
+  noRawControls(scenario, run, "findings panel showing");
 }
 
 async function firstFrame(scenario, run) {
@@ -207,13 +240,28 @@ function koreanChrome(scenario, run) {
   );
 }
 
+/** The first frame has the overview tab active: `[개요]  차트  검사 범위  발견 항목 (10)`. */
+function koreanWidth(scenario, run) {
+  const row = run.screen.cells.find((cells) => cells.join("").includes(t.tabs.overview));
+  // Hangul is 2 cells wide: "[" 1 + 개요 4 + "]" 1 + 2 spaces = column 8 for 차트, +4+2 for 검사 범위,
+  // +9 (4 + space + 4) +2 for 발견 항목.
+  const expected = { 차: 8, 검: 14, 발: 25 };
+  const actual = Object.fromEntries(Object.keys(expected).map((c) => [c, row?.indexOf(c) ?? -1]));
+  check(
+    scenario,
+    "Korean tab bar keeps its expected display width (wide characters take two columns)",
+    Object.keys(expected).every((c) => actual[c] === expected[c]),
+    JSON.stringify(actual),
+  );
+}
+
 function transcript(run) {
-  transcripts.push(
+  return (
     `===== ${run.label} (exit ${JSON.stringify(run.exit)}) =====\n` +
-      run.chunks
-        .map((chunk) => `${String(chunk.at).padStart(6)}ms ${JSON.stringify(chunk.data)}`)
-        .join("\n") +
-      "\n",
+    run.chunks
+      .map((chunk) => `${String(chunk.at).padStart(6)}ms ${JSON.stringify(chunk.data)}`)
+      .join("\n") +
+    "\n"
   );
 }
 
@@ -224,6 +272,7 @@ async function runCancel() {
   try {
     if (!(await firstFrame(scenario, run))) return run;
     koreanChrome(scenario, run);
+    koreanWidth(scenario, run);
     const redrew = {};
     for (const name of ["tab", "down", "pageDown", "help", "esc"])
       redrew[name] = await press(run, name);
@@ -233,31 +282,39 @@ async function runCancel() {
       Object.values(redrew).every(Boolean),
       JSON.stringify(redrew),
     );
+    // Tab was pressed once (charts); two more reach the findings panel.
+    await openFindings(scenario, run, 2);
 
     const mark = run.raw.length;
     run.screen.resize(60, 20);
     run.term.resize(60, 20);
     await waitFor(run, () => run.raw.length > mark, "redraw after resize", 5000);
+    // The CLI's narrow layout (60 columns or fewer) drops the finding titles; ConPTY's own
+    // repaint of the old 80-column content cannot produce that.
+    const narrow = await waitFor(
+      run,
+      () => run.screen.text().includes("handler.ts") && !run.screen.text().includes("한국어 제목"),
+      "narrow findings layout",
+      5000,
+    );
     await settle(run, 500);
     check(
       scenario,
-      "redraw after the resize",
-      run.raw.length > mark,
-      `${run.raw.length - mark} bytes`,
+      "redraw after the resize is the CLI's narrow layout (titles dropped, locations kept)",
+      narrow,
     );
-    const lines = run.screen.lines();
-    const widest = Math.max(...lines.map((line) => displayWidth(line)));
     check(
       scenario,
-      "after the resize no line is wider than 60 columns",
-      run.screen.overflow === 0 && widest <= 60,
-      `overflow=${run.screen.overflow} widest=${widest}`,
+      "after the resize no line is wider than 60 columns and none wrapped",
+      run.screen.overflow === 0 && widest(run) > 0 && widest(run) <= 60,
+      `overflow=${run.screen.overflow} widest=${widest(run)}`,
     );
     check(
       scenario,
       "the redrawn screen still has the Korean tab labels",
       Object.values(t.tabs).every((label) => run.screen.text().includes(label)),
     );
+    noRawControls(scenario, run, "after the resize");
 
     run.term.write(KEYS.ctrlC);
     const asked = await waitFor(
@@ -285,6 +342,8 @@ async function runQuit() {
   const run = start(scenario, 80, 24);
   try {
     if (!(await firstFrame(scenario, run))) return run;
+    koreanWidth(scenario, run);
+    await openFindings(scenario, run, 3);
     run.term.write("q");
     await waitForExit(run);
     check(scenario, "exit code 0", run.exit?.exitCode === 0, JSON.stringify(run.exit));
@@ -337,24 +396,27 @@ async function runTerminate() {
 }
 
 console.log(`node ${process.version} on ${process.platform}/${process.arch}; output in ${outDir}`);
-for (const scenarioRun of [runCancel, runQuit, runTerminate]) {
-  try {
-    const run = await scenarioRun();
-    if (run) transcript(run);
-  } catch (error) {
-    check(
-      scenarioRun.name,
-      "scenario ran without an exception",
-      false,
-      String(error?.stack ?? error),
-    );
+try {
+  for (const scenarioRun of [runCancel, runQuit, runTerminate]) {
+    try {
+      await scenarioRun();
+    } catch (error) {
+      check(
+        scenarioRun.name,
+        "scenario ran without an exception",
+        false,
+        String(error?.stack ?? error),
+      );
+    }
   }
+} finally {
+  // Written even when a scenario threw: the partial transcript is what explains the failure.
+  writeFileSync(join(outDir, "transcript.txt"), runs.map(transcript).join("\n"));
+  writeFileSync(
+    join(outDir, "results.json"),
+    `${JSON.stringify({ node: process.version, platform: process.platform, results }, null, 2)}\n`,
+  );
 }
-writeFileSync(join(outDir, "transcript.txt"), transcripts.join("\n"));
-writeFileSync(
-  join(outDir, "results.json"),
-  `${JSON.stringify({ node: process.version, platform: process.platform, results }, null, 2)}\n`,
-);
 const failed = results.filter((result) => !result.ok);
 console.log(`\n${results.length - failed.length}/${results.length} checks passed`);
 process.exit(failed.length === 0 ? 0 : 1);

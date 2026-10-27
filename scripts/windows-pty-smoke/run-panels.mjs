@@ -16,8 +16,10 @@ const overallStatus = statusIndex > 0 ? process.argv[statusIndex + 1] : "complet
 
 // Hostile strings that must never reach the terminal as control characters.
 const HOSTILE = {
-  title: "Leak \u001b[31mRED\u001b]0;PWNED-TITLE\u0007 \u009b31m C1 ‮REVERSED",
-  path: "src/\u001b]8;;http://evil.example/\u0007link\u001b]8;;\u0007/‮gnp.js",
+  // ESC[31m is plain SGR the CLI also writes; ESC[38;5;196m and ESC[?1049h are never written by it.
+  title:
+    "Leak \u001b[31mRED\u001b[38;5;196mX\u001b]0;PWNED-TITLE\u0007 \u009b31m C1 \u202eREVERSED",
+  path: "src/\u001b]8;;http://evil.example/\u0007link\u001b]8;;\u0007\u001b[?1049h/\u202egnp.js",
 };
 
 const finding = (n, severity, overrides = {}) => ({
@@ -44,11 +46,11 @@ const finding = (n, severity, overrides = {}) => ({
 });
 
 const findings = [
-  finding(1, "critical", {
-    title: HOSTILE.title,
+  finding(1, "critical", { title: HOSTILE.title }),
+  finding(2, "high", {
+    title: "비밀번호가 코드에 그대로 들어 있습니다",
     location: { kind: "file", path: HOSTILE.path, line: 7, url: null, commit: null },
   }),
-  finding(2, "high", { title: "비밀번호가 코드에 그대로 들어 있습니다" }),
   finding(3, "high", {
     title: "한국어 제목이 아주 길어서 좁은 화면에서는 잘려야 하는 취약점 설명입니다",
   }),
