@@ -251,21 +251,22 @@ authorization and continues the scan.
 
 ### 종료 코드
 
-| 코드 | 의미                                                                                                                                |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | 요청한 범위를 끝까지 검사했습니다(발견 항목이 있을 수 있음). `doctor`는 진단을 마쳤다는 뜻입니다.                                   |
-| 2    | 잘못된 명령·옵션·값·조합.                                                                                                           |
-| 3    | 저장소·권한·기여 확인 실패(검사 차단).                                                                                              |
-| 4    | 검사 일부가 실행되지 않아 결과가 부분 완료이거나(예: 웹 대상 미확인, Git 이력 검사가 시간 한도에 도달), 보고서 저장에 실패했습니다. |
-| 5    | 내부 오류. 세부 내용은 숨기며, `PGARD_DEBUG=1`을 설정하면 정리된 메시지를 보여 줍니다.                                              |
-| 130  | 사용자가 취소했습니다.                                                                                                              |
-| 143  | 패널 화면이 열려 있는 동안 SIGTERM으로 종료되었습니다.                                                                              |
+| 코드 | 의미                                                                                                                                                                                     |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | 요청한 범위를 끝까지 검사했습니다(발견 항목이 있을 수 있음). `doctor`는 진단을 마쳤다는 뜻입니다.                                                                                        |
+| 2    | 잘못된 명령·옵션·값·조합(터미널 없이 실행한 `pgard login` 포함).                                                                                                                         |
+| 3    | 저장소·권한·기여 확인 실패(검사 차단). 터미널이 없고 저장된 로그인도 없으면 기다리지 않고 바로 이 코드("Not signed in")로 끝납니다. [터미널이 없을 때](#터미널이-없을-때ci-파이프) 참고. |
+| 4    | 검사 일부가 실행되지 않아 결과가 부분 완료이거나(예: 웹 대상 미확인, Git 이력 검사가 시간 한도에 도달), 보고서 저장에 실패했습니다.                                                      |
+| 5    | 내부 오류. 세부 내용은 숨기며, `PGARD_DEBUG=1`을 설정하면 정리된 메시지를 보여 줍니다.                                                                                                   |
+| 130  | 사용자가 취소했습니다.                                                                                                                                                                   |
+| 143  | 패널 화면이 열려 있는 동안 SIGTERM으로 종료되었습니다.                                                                                                                                   |
 
 `doctor`는 진단을 마치면 0(문제는 `[fail]`·`[warn]` 행으로 표시), 내부 오류면 5로 끝납니다. `pgard login`과 `pgard logout`의 종료 코드는 다음과 같습니다.
 
 | 코드 | `pgard login`                                                                                                                      | `pgard logout`                                                                |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | 0    | 로그인하고 저장했습니다.                                                                                                           | 지웠거나, 저장된 것이 없었습니다.                                             |
+| 2    | 터미널 없음(stdin과 stderr가 모두 터미널이어야 함). GitHub에는 아무것도 요청하지 않음.                                             | -                                                                             |
 | 3    | GitHub 로그인 실패 또는 `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님(또는 `PGARD_GITHUB_APP_SLUG`가 올바른 slug가 아님). | `PGARD_GITHUB_APP_CLIENT_ID`가 올바른 client id가 아님. 아무것도 지우지 않음. |
 | 4    | 사용할 수 있는 OS 키체인이 없거나 저장에 실패. 아무것도 저장하지 않음.                                                             | 사용할 수 있는 OS 키체인이 없음. 아무것도 지우지 않음.                        |
 | 5    | 내부 오류.                                                                                                                         | 내부 오류.                                                                    |
@@ -286,6 +287,48 @@ PGARD는 사용자에게 검사 권한이 있다는 근거가 있을 때만 저�
 5. **기여.** 사용자가 **검증된 owner**이면 본인의 기여를 증명하지 않아도 되지만, 로컬 이력이 저장소의 기본 브랜치와 커밋을 하나 이상 공유해야 합니다. 개인 저장소에서는 사용자의 GitHub 계정 id가 저장소 owner 계정 id와 같아야 합니다(둘 다 remote 문자열이 아니라 GitHub API에서 읽음). 이때 이유는 "`<user>` owns `<owner>/<repo>` (verified by GitHub account id); a separate contribution is not required."입니다. 조직 저장소에서는 사용자가 조직의 활성 owner여야 하며, 같은 실행에서 owner 승인이 얻은 멤버십 근거를 그대로 사용합니다(다시 조회하지 않음). 이때 이유는 "`<user>` is an owner of the organization "`<org>`"; a separate contribution is not required."입니다. 두 경우 모두 `HEAD`의 조상 커밋(최신순, 같은 최대 30개 로컬 커밋) 중 하나 이상이 GitHub의 기본 브랜치 이력에 있어야 하며, 기여와 같은 방식으로 확인합니다. 이것으로 디스크의 코드를 저장소와 연결하므로, `origin`을 본인이 소유한 다른 저장소로 바꿔도 관계없는 코드를 검사할 수 없습니다. 통과하면 이유 끝에 "Local HEAD is linked to `<owner>/<repo>` by commit `<sha>`."가 붙습니다. `HEAD`의 더 오래된 커밋이 기본 브랜치에 있으면 push하지 않은 로컬 커밋이 있어도 괜찮습니다. 연결되는 커밋이 없으면(GitHub의 저장소가 비어 있는 경우 포함) 기여는 "None of the last `<N>` local commits is on `<owner>/<repo>`'s default branch "`<branch>`"; the local code can't be tied to this repository. Push or pull so local history shares a commit with the default branch." 이유로 실패합니다. 이 확인 중 GitHub API 오류가 나면 기여는 `unverifiable`입니다. 이 예외는 같은 실행에서 owner 승인이 통과했을 때만 적용됩니다. 오류, 불일치, 알 수 없는 상태가 하나라도 있으면 예외는 없고 아래의 일반 규칙을 적용합니다. owner 승인과 현재 접근 권한을 대신하지 않으며, 두 확인은 각자 통과해야 합니다. 그 밖의 사용자는 기여가 기본 브랜치 이력에 있어야 합니다. GitHub가 기본 브랜치에 있다고 보여 주는 커밋이어야 하고, 사용자가 작성해 기본 브랜치에 merge된 pull request에 속하거나, GitHub가 서명을 검증하고 committer를 사용자로 인정한 커밋이어야 합니다. 작성자 이름·이메일, co-author trailer, merge되지 않은 pull request, 다른 브랜치나 fork에 merge된 pull request, 서명 없는 직접 push, 로컬에만 있는 커밋은 근거로 인정하지 않습니다. PGARD는 로컬 커밋(`HEAD`의 조상)을 최대 30개까지 살펴봅니다. 그중 조건을 충족하는 커밋이 없고 로컬 커밋이 더 있으면 기여는 `unverifiable`입니다. 기여가 통과하지 못하면 이유 끝에 자격을 얻는 방법을 덧붙입니다: "To qualify, get a pull request merged into "`<default branch>`", or sign your commits (GitHub shows them as Verified) and push them to "`<default branch>`"."
 
 각 항목은 `passed`, `failed`, `unverifiable` 중 하나이며 이유가 함께 표시됩니다. 항목은 이 순서로 보고하지만 반드시 이 순서로 평가하지는 않습니다. 예를 들어 owner 승인을 확인하기 전에 GitHub에서 저장소를 읽습니다(현재 접근 권한). 모든 항목이 통과해야만 검사합니다. 근거가 없거나 불분명하면 검사는 **차단**되고(종료 코드 3) 어떤 항목이 왜 실패했는지 보고합니다.
+
+### 안내형 첫 실행(대화형 메뉴)
+
+터미널에서 저장소 안에서 `pgard`(메뉴)를 실행했는데 **저장된 GitHub 로그인이 아직 없으면** 첫 실행을 안내합니다. 아래의 권한 확인 게이트 주변에 안내와 재시도만 더할 뿐이며, 아무것도 캐시하지 않고 어떤 확인도 건너뛰거나 순서를 바꾸거나 약화하지 않습니다.
+
+```text
+$ pgard
+아직 GitHub에 로그인하지 않았습니다.
+지금 로그인할까요? [Y/n] Y
+(기존 device 로그인: 코드 입력과 승인)
+octo 계정으로 GitHub에 로그인했습니다.
+로그인했습니다. 이 저장소를 확인합니다...
+이 저장소의 권한을 확인합니다 (5가지 확인 전체)...
+Repository octo/app @ 546b9f0284bc
+권한 확인: 차단됨 - 분석이 실행되지 않았습니다
+  [통과] 저장소 (Git repository with remote "origin" -> github.com/octo/app.)
+  [통과] GitHub 계정 (Signed in to GitHub as octo.)
+  [실패] 소유자 승인 (No PGARD GitHub App installation on the owner account "octo" was found for octo/app.)
+  [통과] 현재 접근 권한 (The signed-in user currently has access to octo/app.)
+  [통과] 기여 이력 (Commit 546b9f0284bc is in the default branch "main" (signature-verified commit by octo).)
+This result is not stored. Every scan checks again.
+소유자 승인: octo/app에 대해 PGARD를 승인하려면 octo에 PGARD GitHub App을 설치하세요.
+  1. 다음 주소를 여세요: https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555
+  2. "Only select repositories"(octo/app) 또는 "All repositories"를 선택한 뒤 Install을 누르세요.
+App을 설치하는 것이 소유자 승인입니다. PGARD가 대신 설치할 수는 없습니다.
+Enter를 누르면 브라우저에서 페이지를 엽니다 (건너뛰려면 s)...
+설치한 뒤 Enter를 누르세요 (종료하려면 q)...
+처음부터 다시 확인합니다. 5가지 권한 확인 전체입니다 (3회 중 1회째)...
+Repository octo/app @ 546b9f0284bc
+권한 확인: 허용됨
+  [통과] 저장소 / GitHub 계정 / 소유자 승인 / 현재 접근 권한 / 기여 이력 (다섯 항목 모두, 각각 이유 포함)
+This result is not stored. Every scan checks again.
+권한 확인을 통과했습니다. 검사를 시작합니다...
+```
+
+그 뒤 메뉴에서와 같이 검사가 실행되고, 패널 화면은 평소 규칙대로 열립니다.
+
+- **저장된 로그인이 없을 때:** 한 줄로 알리고 `지금 로그인할까요? [Y/n]`를 묻습니다. 예를 고르면 기존 device 로그인을 실행합니다(브라우저를 열기 전에 Enter를 묻는 것도 그대로). 아니요를 고르면 메뉴가 열립니다. 준비되면 `pgard login`을 실행하세요.
+- **이 저장소에 App이 설치되지 않았거나 접근 권한이 없어서만 차단된 경우:** 계정 또는 조직의 정확한 설치·설정 링크를 보여 주고, Enter를 누르면 열어 주며, `설치한 뒤 Enter를 누르세요 (종료하려면 q)`에서 기다립니다. 재시도할 때마다 **다섯 항목 전체를 처음부터 다시** 확인합니다. 재시도는 최대 3번이며, 그래도 App이 없으면 차단 결과를 그대로 두고 메뉴를 엽니다.
+- **그 밖의 이유로 차단된 경우**(조직 owner가 아님, 기여 증거 없음, 읽기 권한 없음, GitHub 원격이 아님 등): App을 설치해도 해결되지 않으므로 재시도 없이 차단 결과와 이유만 보여 줍니다.
+- 이 질문들에서 Ctrl+C는 `Cancel and exit? [y/N]`를 묻고, `y`면 종료 코드 130으로 끝납니다.
+- OS 키체인에 저장된 로그인이 없을 때만 시작합니다. 저장된 로그인이 있거나 쓸 수 있는 키체인이 없으면 메뉴가 바로 열리고, 검사는 아래 설명대로 동작합니다.
 
 ### 처음 실행: 로그인, App 설치, 계속 진행
 
@@ -344,6 +387,10 @@ export PGARD_GITHUB_APP_SLUG=<직접 등록한 GitHub App의 slug>
 ```
 
 로그인이 필요하면 PGARD가 `https://github.com/login/device` 주소와 짧은 사용자 코드를 보여 주고, 터미널이면(`--no-browser`가 없을 때) Enter를 누르면 브라우저에서 주소를 엽니다. 주소를 열어 코드를 입력하고 승인하면 됩니다. 토큰은 화면·로그·프로세스 인자·환경 변수에 남기지 않으며 파일에 쓰지 않습니다.
+
+#### 터미널이 없을 때(CI, 파이프)
+
+로그인은 사람이 github.com에 코드를 입력해야 하므로, PGARD는 **stdin과 stderr가 모두 터미널일 때만** device 로그인을 시작합니다. 둘 중 하나라도 터미널이 아니고(파이프, `< /dev/null`, CI 러너) 사용할 수 있는 저장된 로그인이 없으면(OS 키체인이 없거나, 잠겨 있거나, 비어 있거나, 쓸 수 없음) 어떤 명령도 기기 코드를 요청하거나 기다리지 않습니다. `scan`(모든 형태와 형식), `baseline`, `project verify`는 즉시 blocked 결과와 종료 코드 **3**으로 끝나며, GitHub 신원 확인의 이유는 ``Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.`` 입니다. `--format json`/`--format sarif`에서는 stdout에 평소와 같은 올바른 blocked 문서가 나옵니다(실행되지 않은 검사의 SARIF는 업로드하지 마세요). 사용할 수 있는 저장된 로그인이 있으면 터미널이 없어도 그대로 재사용합니다. `pgard login` 자체는 터미널이 없으면 실행을 거부합니다(사용법 오류, 종료 코드 2). 대시보드는 영향이 없습니다. 대시보드의 로그인은 브라우저에서 처리합니다.
 
 #### 저장된 로그인(OS 키체인)
 
@@ -641,7 +688,7 @@ pgard baseline clear
 
 `pgard scan --format sarif > pgard.sarif`는 가려진 결과를 [SARIF 2.1.0](https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html) 형식으로 stdout에 출력합니다(진행 상황과 안내는 stderr, 종료 코드는 그대로). 파일로 저장하려면 stdout을 리다이렉트하세요. SARIF용 출력 파일 옵션은 없으며 `--report`/`--output-dir`는 여전히 HTML과 PDF 보고서만 씁니다. **PGARD는 아무것도 업로드하지 않습니다.** 파일을 GitHub이나 IDE로 보내는 것은 사용자의 몫입니다.
 
-**업로드하면 안 되는 경우.** GitHub 코드 스캐닝은 PGARD의 `toolExecutionNotifications`를 표시하지 않으며, 업로드에 없는 기존 알림을 닫습니다. 완전히 실행되지 않은 스캔의 SARIF를 올리면 검사된 적 없는 영역의 알림이 닫힙니다. 종료 코드가 `0`일 때만 업로드하세요. 종료 코드 `3`(blocked), `4`(partial), `5`(failed)이면 업로드하지 마세요. 이때 PGARD는 stderr에 "Do not upload this SARIF"도 출력합니다. 이런 파일은 `executionSuccessful: false`이기도 하며, GitHub가 이를 실패한 실행으로 거부할 것으로 예상되지만 GitHub 문서에는 없으므로 종료 코드가 주된 안전장치입니다. PGARD가 분석하지 않는 ORM이나 쿼리 빌더(TypeORM, Sequelize, Knex, Drizzle, MikroORM, Objection, Kysely, Go의 ent, Bun, XORM, SQLBoiler, go-pg)를 import하는 프로젝트는 항상 partial 결과(종료 코드 4)를 받으므로, 그 SARIF는 설계상 업로드할 수 없습니다. CI 워크플로 예시는 없습니다. 권한 확인에 필요한 GitHub 로그인이 현재 CI 러너에는 없어서, 러너에서는 blocked 상태의 빈 SARIF가 만들어지기 때문입니다. 로컬 흐름 예시:
+**업로드하면 안 되는 경우.** GitHub 코드 스캐닝은 PGARD의 `toolExecutionNotifications`를 표시하지 않으며, 업로드에 없는 기존 알림을 닫습니다. 완전히 실행되지 않은 스캔의 SARIF를 올리면 검사된 적 없는 영역의 알림이 닫힙니다. 종료 코드가 `0`일 때만 업로드하세요. 종료 코드 `3`(blocked), `4`(partial), `5`(failed)이면 업로드하지 마세요. 이때 PGARD는 stderr에 "Do not upload this SARIF"도 출력합니다. 이런 파일은 `executionSuccessful: false`이기도 하며, GitHub가 이를 실패한 실행으로 거부할 것으로 예상되지만 GitHub 문서에는 없으므로 종료 코드가 주된 안전장치입니다. PGARD가 분석하지 않는 ORM이나 쿼리 빌더(TypeORM, Sequelize, Knex, Drizzle, MikroORM, Objection, Kysely, Go의 ent, Bun, XORM, SQLBoiler, go-pg)를 import하는 프로젝트는 항상 partial 결과(종료 코드 4)를 받으므로, 그 SARIF는 설계상 업로드할 수 없습니다. CI 워크플로 예시는 없습니다. 권한 확인에 필요한 GitHub 로그인이 현재 CI 러너에는 없어서, 터미널이 없는 러너에서는 로그인을 기다리지 않고 곧바로 종료 코드 3과 blocked 상태의 빈 SARIF가 만들어지기 때문입니다. 로컬 흐름 예시:
 
 ```sh
 pgard scan --format sarif > pgard.sarif && \

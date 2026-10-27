@@ -129,6 +129,51 @@ export async function promptConfirm(context: PromptContext, question: string): P
   }
 }
 
+/**
+ * `[Y/n]` confirmation. Enter and `y` are yes; `n` and Esc are no. Ctrl+C asks to cancel.
+ */
+export async function promptConfirmYes(context: PromptContext, question: string): Promise<boolean> {
+  context.out.write(`${question} [Y/n] `);
+  for (;;) {
+    const key = await context.keys.readKey();
+    if (isCtrlC(key)) {
+      await confirmCancel(context);
+      context.out.write(`${question} [Y/n] `);
+      continue;
+    }
+    if (key.name === "y" || key.name === "return" || key.name === "enter") {
+      context.out.write("Y\n");
+      return true;
+    }
+    if (key.name === "n" || key.name === "escape") {
+      context.out.write("n\n");
+      return false;
+    }
+  }
+}
+
+/**
+ * Waits for Enter (`"enter"`) or for `letter` / Esc (`"letter"`); every other key is ignored.
+ * `message` is written first. Ctrl+C asks to cancel.
+ */
+export async function promptEnterOrLetter(
+  context: PromptContext,
+  message: string,
+  letter: string,
+): Promise<"enter" | "letter"> {
+  context.out.write(`${message}\n`);
+  for (;;) {
+    const key = await context.keys.readKey();
+    if (isCtrlC(key)) {
+      await confirmCancel(context);
+      context.out.write(`${message}\n`);
+      continue;
+    }
+    if (key.name === "return" || key.name === "enter") return "enter";
+    if (key.name === letter || key.name === "escape") return "letter";
+  }
+}
+
 /** Single-line text input. Enter submits, Esc returns BACK, Ctrl+C asks to cancel. */
 export async function promptText(
   context: PromptContext,

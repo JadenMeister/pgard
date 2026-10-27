@@ -18,9 +18,13 @@ interface KeyringModule {
   ) => KeyringEntry;
 }
 
-const NOT_LOADED = "the OS keychain module is not available on this platform";
-const NOT_ACCESSIBLE =
+/** Fixed reasons (no native error text); frontends translate them by exact match. */
+export const OS_KEYCHAIN_NOT_LOADED_MESSAGE =
+  "the OS keychain module is not available on this platform";
+export const OS_KEYCHAIN_UNUSABLE_MESSAGE =
   "the OS keychain could not be used (it may be locked, or no keychain service is running)";
+const NOT_LOADED = OS_KEYCHAIN_NOT_LOADED_MESSAGE;
+const NOT_ACCESSIBLE = OS_KEYCHAIN_UNUSABLE_MESSAGE;
 
 /**
  * The OS keychain: macOS Keychain, Windows Credential Manager or the Linux Secret Service,

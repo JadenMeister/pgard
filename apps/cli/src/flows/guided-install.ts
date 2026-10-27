@@ -67,7 +67,7 @@ export function formatOwnerOrAsk(
   return t.commands.install.ownerOrAsk(safeText(accountLogin, 100), url);
 }
 
-type MissingKind = "installation" | "repository" | "access" | "repository_access";
+export type MissingKind = "installation" | "repository" | "access" | "repository_access";
 
 /** "Ask an owner" line when the repository must be added to an existing installation. */
 export function formatAskOwnerToAddRepository(
@@ -81,7 +81,7 @@ export function formatAskOwnerToAddRepository(
   return text.askOwnerToAdd(safeText(accountLogin, 100), target, url);
 }
 
-function formatInstallSteps(
+export function formatInstallSteps(
   accountLogin: string,
   repo: string | null,
   url: string,

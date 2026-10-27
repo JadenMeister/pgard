@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { OS_KEYCHAIN_UNUSABLE_MESSAGE } from "@pgard/scan-core";
 import { CLI_TEXT, cliText } from "./cli-text.js";
+import { localizeKeychainReason } from "./command-text.js";
 
 type Tree = { [key: string]: unknown };
 
@@ -100,5 +102,22 @@ describe("CLI text catalogs", () => {
     expect(CLI_TEXT.ko.elapsedValue(9_960)).toBe("10초");
     expect(CLI_TEXT.en.elapsedValue(9_949)).toBe("9.9 s");
     expect(CLI_TEXT.en.elapsedValue(9_950)).toBe("10 s");
+  });
+
+  it("translates the fixed keychain sentences and leaves other reasons alone", () => {
+    const ko = CLI_TEXT.ko.commands.signIn;
+    const en = CLI_TEXT.en.commands.signIn;
+    const translated = localizeKeychainReason(OS_KEYCHAIN_UNUSABLE_MESSAGE, ko);
+    expect(translated).toBe(ko.keychainUnusable);
+    expect(translated).not.toMatch(/[A-Za-z]{4,}/);
+    expect(localizeKeychainReason("the OS keychain could not be used", ko)).toBe(
+      ko.keychainUnusableShort,
+    );
+    expect(localizeKeychainReason(OS_KEYCHAIN_UNUSABLE_MESSAGE, en)).toBe(
+      OS_KEYCHAIN_UNUSABLE_MESSAGE,
+    );
+    expect(localizeKeychainReason("no keychain service is running", ko)).toBe(
+      "no keychain service is running",
+    );
   });
 });

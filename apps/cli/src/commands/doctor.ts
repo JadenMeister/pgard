@@ -9,6 +9,7 @@ import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
+import { localizeKeychainReason } from "../ui/i18n/command-text.js";
 
 /**
  * Oldest patched release per supported line, from the Node.js security
@@ -89,7 +90,12 @@ async function describeStoredSignIn(
     status = { status: "unavailable", reason: text.keychainUnreadable };
   }
   if (status.status === "unavailable") {
-    return { isOk: false, detail: text.keychainUnavailable(safeText(status.reason, 200)) };
+    return {
+      isOk: false,
+      detail: text.keychainUnavailable(
+        localizeKeychainReason(safeText(status.reason, 200), t.commands.signIn),
+      ),
+    };
   }
   if (status.status === "none") {
     return { isOk: false, detail: text.signInNone };
