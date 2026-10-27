@@ -236,6 +236,24 @@ class C(private val jdbc: JdbcTemplate) { fun f(q: String) {
     expect(output.coverage.some((item) => item.area === "source:mybatis")).toBe(false);
   });
 
+  it("marks the area partial, naming the file, when the parser could not recover from a syntax error", async () => {
+    const source = `import org.springframework.jdbc.core.JdbcTemplate
+class C(private val jdbc: JdbcTemplate) {
+  fun r(s: String): Any {
+    var where = "id"
+    val q = { jdbc.queryForList("SELECT * FROM t$where") }
+    where = s
+    return q()
+  }
+}
+`;
+    const output = await scanSourceCode(project({ "Bad.kt": source }));
+    const entry = output.coverage.find((item) => item.area === "source:kotlin");
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain("syntax errors");
+    expect(entry?.note).toContain("Bad.kt");
+  });
+
   it("stops when the scan is aborted", async () => {
     const controller = new AbortController();
     controller.abort(new Error("stop"));

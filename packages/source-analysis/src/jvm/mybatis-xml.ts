@@ -1,6 +1,8 @@
 import type { RawSourceFinding } from "../finding-factory.js";
 
 export const MAX_MYBATIS_FINDINGS_PER_FILE = 25;
+/** Findings gathered before the strongest are kept. */
+const MAX_COLLECTED = 500;
 
 // A tag may carry a namespace prefix, and an attribute value may contain ">".
 const STATEMENT =
@@ -96,7 +98,7 @@ export function analyzeMybatisXml(text: string, path: string): MybatisAnalysis {
       at = clean.indexOf("${", end);
       if (seen.has(expression)) continue;
       seen.add(expression);
-      if (findings.length >= MAX_MYBATIS_FINDINGS_PER_FILE) {
+      if (findings.length >= MAX_COLLECTED) {
         capped = true;
         break;
       }
@@ -135,5 +137,16 @@ export function analyzeMybatisXml(text: string, path: string): MybatisAnalysis {
     }
     if (capped) break;
   }
-  return { isMapper: true, findings, capped, incomplete };
+  // The cap keeps the strongest findings (confidence medium before low), not the first ones.
+  const rank = (finding: RawSourceFinding): number => (finding.confidence === "low" ? 0 : 1);
+  const kept = [...findings]
+    .sort((a, b) => rank(b) - rank(a) || a.line - b.line)
+    .slice(0, MAX_MYBATIS_FINDINGS_PER_FILE)
+    .sort((a, b) => a.line - b.line);
+  return {
+    isMapper: true,
+    findings: kept,
+    capped: capped || findings.length > MAX_MYBATIS_FINDINGS_PER_FILE,
+    incomplete,
+  };
 }

@@ -426,3 +426,26 @@ export const MYBATIS_PROVIDERS = new Set([
   "UpdateProvider",
   "DeleteProvider",
 ]);
+
+/** Collection types whose contents can be changed. */
+export const MUTABLE_COLLECTIONS = new Set([
+  "List",
+  "ArrayList",
+  "LinkedList",
+  "Map",
+  "HashMap",
+  "LinkedHashMap",
+  "TreeMap",
+  "Set",
+  "HashSet",
+  "LinkedHashSet",
+  "TreeSet",
+  "Collection",
+  "Deque",
+  "ArrayDeque",
+  "Queue",
+  "MutableList",
+  "MutableMap",
+  "MutableSet",
+  "MutableCollection",
+]);

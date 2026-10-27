@@ -294,12 +294,14 @@ export function convertJava(ast: AstResult): Unit {
       case "update_expression":
       case "instanceof_expression":
       case "class_literal":
-      case "method_reference":
         return { k: "lit", line };
       case "assignment_expression": {
         const right = named(node, "right");
         return right === undefined ? { k: "lit", line } : expr(right, depth + 1);
       }
+      case "method_reference":
+        // `sb::append`: the receiver is used, and can be changed through the reference.
+        return other(node, depth);
       default:
         if (LITERAL_TYPES.has(node.type)) return { k: "lit", line };
         return other(node, depth);

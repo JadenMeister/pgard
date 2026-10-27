@@ -12,6 +12,7 @@ import {
   HANDLER_ANNOTATIONS,
   JDBC_SINKS,
   LOOKUPS,
+  MUTABLE_COLLECTIONS,
   NON_INPUT_TYPES,
   NUMERIC_MEMBERS,
   NUMERIC_RESULTS,
@@ -230,6 +231,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   // Names that are written through an index or a mutating call anywhere in the file: a literal
   // array or collection under such a name is not a fixed table.
   const mutatedNames = new Set<string>();
+  const aliasEdges: Array<[string, string]> = [];
   const rootName = (expr: Expr): string | null => {
     let current = expr;
     while (current.k === "member" || current.k === "index") current = current.obj;
@@ -289,8 +291,30 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         const root = rootName(stmt.target);
         if (root !== null) mutatedNames.add(root);
       }
+      // `String[] a = COLS;` and `a = COLS;` make two names for one array.
+      const aliased =
+        stmt.s === "local" && stmt.init !== null
+          ? [stmt.name, stmt.init]
+          : stmt.s === "assign" && stmt.op === "="
+            ? [rootName(stmt.target), stmt.value]
+            : null;
+      if (aliased !== null && typeof aliased[0] === "string") {
+        const from = aliased[1] as Expr;
+        const other = from.k === "id" ? from.name : null;
+        if (other !== null) aliasEdges.push([aliased[0], other]);
+      }
     },
   );
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const [a, b] of aliasEdges) {
+      if (mutatedNames.has(a) !== mutatedNames.has(b)) {
+        mutatedNames.add(a);
+        mutatedNames.add(b);
+        changed = true;
+      }
+    }
+  }
   const pendingLambdas: Array<{
     lambda: LambdaExpr;
     ctx: Context;
@@ -345,7 +369,16 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   function fieldValue(field: FieldInfo, owner: ClassInfo): Value {
     if (fieldValues.has(field)) return fieldValues.get(field) ?? unknown(field.name);
     fieldValues.set(field, null); // cycle guard
-    let result: Value = unknown(field.name);
+    const fieldType = baseType(field.type);
+    // A builder, an array or a collection can be changed from any method, whatever it starts as;
+    // a field that can be assigned is likewise decided where it is assigned.
+    const mutableType =
+      BUILDER_TYPES.has(fieldType) ||
+      /\[\]/.test(field.type ?? "") ||
+      MUTABLE_COLLECTIONS.has(fieldType);
+    let result: Value = unknown(
+      field.isMutable || mutableType ? `mutable field ${field.name}` : field.name,
+    );
     if (field.init !== null && !field.isMutable && !field.overridable) {
       const evaluated = evalExpr(
         field.init,
@@ -355,7 +388,11 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       const dynamic = nonConst(evaluated.leaves);
       // A `final` field or Kotlin `val` that holds a StringBuilder, or an array or collection that
       // is written to somewhere, is not fixed text however it is declared.
-      const mutable = evaluated.builder || (evaluated.table && mutatedNames.has(field.name));
+      const mutable =
+        evaluated.builder ||
+        BUILDER_TYPES.has(fieldType) ||
+        (evaluated.table && mutatedNames.has(field.name)) ||
+        (mutableType && !evaluated.table);
       if (mutable) {
         // Read as text (`base.toString()`), what it holds is decided where it is appended to.
         result = unknown(`mutable field ${field.name}`);
@@ -397,6 +434,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     for (let i = spine.length - 1; i >= 0; i -= 1) {
       const step = spine[i] as Extract<Expr, { k: "bin" }>;
       const right = evalExpr(step.right, ctx, depth + 1);
+      if (step.op === "to") escape([result, right], "pair");
       if (step.op === "+" && owned && result.shape === "string concatenation") {
         addLeaves(result.leaves, right.leaves);
       } else if (step.op === "+" || step.op === "to" || step.op === "plus") {
@@ -635,7 +673,9 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       return unknown(name);
     }
     const implicitBuilder =
-      expr.recv === null && ctx.builders.length > 0 && BUILDER_ADDERS.has(name)
+      (expr.recv === null || (expr.recv.k === "id" && expr.recv.name === "this")) &&
+      ctx.builders.length > 0 &&
+      BUILDER_ADDERS.has(name)
         ? (ctx.builders[ctx.builders.length - 1] as Value)
         : null;
     const builder = recv?.builder === true ? recv : implicitBuilder;
@@ -868,6 +908,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       }
       return unknown(name);
     }
+    // `sb::append` is parsed as a member access: the builder is used through it.
+    if (recv.builder && !NUMERIC_MEMBERS.has(name)) escape([recv], `${name}`);
     if (NUMERIC_MEMBERS.has(name)) return inferred(`${name} gives a number`);
     if (name === "name") return nameOf(obj, recv, ctx);
     if (name === "class") return value();
@@ -1277,12 +1319,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           // Until nothing changes: what a variable holds can only grow, and each kind of value is
           // bounded, so this ends. A late assignment then reaches uses earlier in the body, through
           // any chain of variables (`prev = cur; cur = next`). Deeply nested loops get fewer passes.
-          const passes = ctx.loops >= 6 ? 1 : 8;
+          const passes = ctx.loops >= 6 ? 1 : 40;
           for (let pass = 0; pass < passes; pass += 1) {
             const seen = version;
             execStmts(stmt.body, loopCtx, depth + 1);
             execStmts(stmt.update, loopCtx, depth + 1);
             if (version === seen) break;
+            // The last pass allowed still changed something: a cap never means "safe".
+            if (pass === passes - 1) incomplete = true;
           }
           break;
         }

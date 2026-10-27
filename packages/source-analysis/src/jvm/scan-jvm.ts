@@ -70,6 +70,7 @@ export async function scanJvm(
       const cappedFiles: string[] = [];
       const incompleteFiles: string[] = [];
       const formFiles = new Map<string, string[]>();
+      const errorFiles: string[] = [];
       let crashed = 0;
       const stats = await parseTrackFiles(
         runtime,
@@ -86,6 +87,7 @@ export async function scanJvm(
               language === "kotlin" ? "kotlin" : "java",
             );
             analyzedPaths.push(file.relativePath);
+            if (outcome.errorCount > 0) errorFiles.push(file.relativePath);
             own.push(...analysis.findings.map(createSourceFinding));
             if (analysis.capped) cappedFiles.push(file.relativePath);
             if (analysis.incomplete) incompleteFiles.push(file.relativePath);
@@ -110,12 +112,17 @@ export async function scanJvm(
       }
       if (incompleteFiles.length > 0) {
         problems.push(
-          `${incompleteFiles.length} file(s) were nested too deeply to analyze in full`,
+          `${incompleteFiles.length} file(s) were nested too deeply, or have loops that did not settle, to analyze in full`,
         );
       }
       for (const [form, paths] of formFiles) {
         problems.push(
           `${paths.length} file(s) have SQL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+        );
+      }
+      if (errorFiles.length > 0) {
+        problems.push(
+          `${errorFiles.length} file(s) have syntax errors that the parser could not recover from cleanly (${errorFiles.slice(0, 3).join(", ")})`,
         );
       }
       if (crashed > 0) problems.push(`${crashed} file(s) could not be analyzed`);

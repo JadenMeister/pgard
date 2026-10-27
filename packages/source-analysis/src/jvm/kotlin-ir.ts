@@ -342,7 +342,6 @@ export function convertKotlin(ast: AstResult): Unit {
       case "range_expression":
       case "in_expression":
       case "check_expression":
-      case "callable_reference":
       case "comparison_expression":
       case "equality_expression":
       case "conjunction_expression":
@@ -356,6 +355,8 @@ export function convertKotlin(ast: AstResult): Unit {
         const inner = nonAnon(node).find((child) => child.type !== "label");
         return inner === undefined ? { k: "lit", line } : expr(inner, depth + 1);
       }
+      case "callable_reference":
+        return other(node, depth);
       case "object_literal":
         if (SQL_CALL_TEXT.test(text(node))) unit.unsupported.push("anonymous object");
         return other(node, depth);
