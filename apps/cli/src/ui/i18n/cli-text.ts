@@ -97,6 +97,33 @@ export interface CliText {
   showAllHint: string;
   shortenedGroupsHint: (max: number) => string;
 
+  /** Terminal result: findings first, compact by default, summary and charts last. */
+  compact: {
+    /** "+43 more findings (medium 17, low 2) - ..." (`breakdown` is "medium 17, low 2"). */
+    more: (count: number, breakdown: string) => string;
+    /** Always shown under the compact list: where evidence, fixes and standards are. */
+    details: string;
+    /** One line for test/fixture or vendored code: its title, count and counts by severity. */
+    context: (title: string, count: number, bySeverity: string) => string;
+    /** Status line at the top of the closing summary. */
+    result: (overall: string, total: number, breakdown: string) => string;
+    /** Shown whenever the scan was not complete or an area was partial or not tested. */
+    notSafe: string;
+    /** "Coverage: 3 ok, 1 partial, 1 not tested" */
+    coverageCount: (counts: {
+      ok: number;
+      partial: number;
+      notTested: number;
+      notSelected: number;
+    }) => string;
+    /** One line for the OWASP Top 10 map (the table is in --all-findings). */
+    owaspLine: (
+      counts: Record<"rules_ran" | "rules_partial" | "not_run" | "no_rules", number>,
+    ) => string;
+    /** "Next" line; `hasHidden` is true when the list above left findings out. */
+    next: (hasHidden: boolean) => string;
+  };
+
   // --- Test, vendored and collapsed groups --------------------------------------------
   testGroupTitle: string;
   testGroupNote: string;
@@ -213,6 +240,8 @@ export interface PanelsText {
   notOpenedBlocked: string;
   /** stderr hint for an unknown `PGARD_PANELS` value. */
   badEnv: string;
+  /** stderr note: `--panels` with TERM=dumb, which cannot draw a full-screen view. */
+  dumbTerminal: string;
 }
 
 const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
@@ -317,6 +346,23 @@ const EN: CliText = {
     "Run again with --all-findings to list everything, or save a report (--report html --output-dir <dir>).",
   shortenedGroupsHint: (max) =>
     `Groups show up to ${max} locations. Run again with --all-findings to list every location.`,
+  compact: {
+    more: (count, breakdown) =>
+      `+${count} more ${count === 1 ? "finding" : "findings"} (${breakdown}) - run with --all-findings`,
+    details:
+      "Evidence, fix and standards for each finding: --all-findings, the panel view, the dashboard or a report.",
+    context: (title, count, bySeverity) => `${title} (${count}): ${bySeverity}`,
+    result: (overall, total, breakdown) =>
+      `Result: ${overall} - ${total} ${total === 1 ? "finding" : "findings"}${breakdown === "" ? "" : ` (${breakdown})`}`,
+    notSafe:
+      "! Not a safe result: an area that is partial or not tested was not fully checked, so no finding there does not mean no problem.",
+    coverageCount: (c) =>
+      `${c.ok} ok, ${c.partial} partial, ${c.notTested} not tested${c.notSelected > 0 ? `, ${c.notSelected} not selected` : ""}`,
+    owaspLine: (c) =>
+      `OWASP Top 10 2025: ${c.rules_ran} rules ran, ${c.rules_partial} rules partial, ${c.not_run} not run, ${c.no_rules} no rules (table: --all-findings)`,
+    next: (hasHidden) =>
+      `Next: ${hasHidden ? "pgard scan --all-findings lists everything; " : ""}save a report with --report html --output-dir <dir>, or open pgard dashboard.`,
+  },
   testGroupTitle: "In test or fixture code",
   testGroupNote:
     "Matches in files classified as test or fixture code by their path only (confidence capped at low). Review them: a real value committed in a test is still exposed.",
@@ -465,6 +511,8 @@ const EN: CliText = {
     failed: "The panel view failed and was closed. The scan result above is unaffected.",
     notOpenedBlocked: "--panels: the panel view was not opened because the scan was blocked.",
     badEnv: "PGARD_PANELS is not off, 0, false or no; the panel view stays on.",
+    dumbTerminal:
+      "--panels: the panel view was not opened because TERM=dumb cannot draw a full-screen view.",
   },
 };
 
@@ -561,6 +609,22 @@ const KO: CliText = {
     "모두 보려면 --all-findings로 다시 실행하거나 보고서를 저장하세요 (--report html --output-dir <dir>).",
   shortenedGroupsHint: (max) =>
     `묶음마다 위치를 최대 ${max}곳까지 보여 줍니다. 모든 위치를 보려면 --all-findings로 다시 실행하세요.`,
+  compact: {
+    more: (count, breakdown) => `+${count}건 더 있음 (${breakdown}) - --all-findings로 실행`,
+    details:
+      "각 발견 항목의 근거, 수정 방법, 표준: --all-findings, 패널 화면, 대시보드 또는 보고서.",
+    context: (title, count, bySeverity) => `${title} (${count}): ${bySeverity}`,
+    result: (overall, total, breakdown) =>
+      `결과: ${overall} - 발견 ${total}건${breakdown === "" ? "" : ` (${breakdown})`}`,
+    notSafe:
+      "! 안전하다는 결과가 아닙니다: 일부 또는 검사하지 못한 영역은 끝까지 확인하지 않았으므로, 그곳에 발견 항목이 없다고 문제가 없다는 뜻은 아닙니다.",
+    coverageCount: (c) =>
+      `정상 ${c.ok}, 일부 ${c.partial}, 검사 안 됨 ${c.notTested}${c.notSelected > 0 ? `, 선택 안 함 ${c.notSelected}` : ""}`,
+    owaspLine: (c) =>
+      `OWASP Top 10 2025: 규칙 실행 ${c.rules_ran}, 규칙 일부 ${c.rules_partial}, 미실행 ${c.not_run}, 규칙 없음 ${c.no_rules} (표: --all-findings)`,
+    next: (hasHidden) =>
+      `다음: ${hasHidden ? "pgard scan --all-findings로 전체를 나열하거나 " : ""}--report html --output-dir <dir>로 보고서를 저장하거나 pgard dashboard를 여세요.`,
+  },
   testGroupTitle: "테스트·fixture 코드",
   testGroupNote:
     "경로만으로 테스트·fixture 코드로 분류된 파일의 항목입니다(신뢰도는 최대 낮음). 검토하세요. 테스트에 커밋된 실제 값도 노출된 것입니다.",
@@ -730,6 +794,7 @@ const KO: CliText = {
     failed: "패널 화면에 문제가 생겨 닫았습니다. 위의 검사 결과에는 영향이 없습니다.",
     notOpenedBlocked: "--panels: 검사가 차단되어 패널 화면을 열지 않았습니다.",
     badEnv: "PGARD_PANELS 값이 off, 0, false, no가 아니어서 패널 화면을 그대로 사용합니다.",
+    dumbTerminal: "--panels: TERM=dumb에서는 전체 화면을 그릴 수 없어 패널 화면을 열지 않았습니다.",
   },
 };
 

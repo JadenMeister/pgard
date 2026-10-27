@@ -173,7 +173,12 @@ async function run(
     interrupts?: InterruptSource;
   } = {},
 ) {
-  const captured = createTestIo({ cwd: fixture?.root ?? "/", env: options.env ?? {} });
+  // The panel view would wait for keys after a completed scan in a terminal; these tests are about
+  // the install, so it is off unless a test sets PGARD_PANELS itself.
+  const captured = createTestIo({
+    cwd: fixture?.root ?? "/",
+    env: { PGARD_PANELS: "off", ...options.env },
+  });
   (captured.io.stdout as { isTTY?: boolean }).isTTY = options.stdoutIsTTY ?? true;
   // A real terminal has a TTY stdin too; the install page opens after Enter on it.
   captured.stdin.isTTY = true;

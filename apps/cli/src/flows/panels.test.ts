@@ -63,7 +63,7 @@ describe("--panels option", () => {
       interrupts: noInterrupts,
     });
     expect(captured.stdout()).toContain("--panels");
-    expect(captured.stdout()).toContain("pgard dashboard is the");
+    expect(captured.stdout().replace(/\s+/g, " ")).toContain("pgard dashboard is the");
   });
 });
 
@@ -238,18 +238,30 @@ describe("offerPanels", () => {
     expect(captured.stdout()).toContain(ENTER);
   });
 
-  it("does not open for a plain scan command, whatever PGARD_PANELS says", async () => {
+  it("opens for a plain pgard scan command in a terminal, like the menu", async () => {
     const captured = terminal();
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]));
+    await offerPanels(context, panelsFixtureResult(), false);
+    expect(captured.stdout()).toContain(ENTER);
+    expect(captured.stdout().endsWith(LEAVE)).toBe(true);
+    expect(captured.stderr()).toBe("");
+  });
+
+  it("stays closed for a plain pgard scan command with PGARD_PANELS=off", async () => {
+    const captured = terminal();
+    captured.io.env = { PGARD_PANELS: "off" };
     const context = createTestContext(captured, createTestDeps(), scriptedKeys([]));
     await offerPanels(context, panelsFixtureResult(), false);
     expect(captured.stdout()).toBe("");
+    expect(captured.stderr()).toBe("");
   });
 
-  it("does nothing outside the menu without --panels", async () => {
-    const captured = terminal();
+  it("does not open for a plain pgard scan command without a terminal", async () => {
+    const captured = createTestIo({ isTTY: false });
     const context = createTestContext(captured, createTestDeps(), scriptedKeys([]));
-    await offerPanels(context, testResult(), false);
+    await offerPanels(context, panelsFixtureResult(), false);
     expect(captured.stdout()).toBe("");
+    expect(captured.stderr()).toBe("");
   });
 });
 
@@ -416,4 +428,85 @@ describe("panel view edge cases", () => {
       expect(captured.stdout().endsWith(LEAVE), signal).toBe(true);
     }
   }, 15_000);
+});
+
+describe("automatic opening stays off in automation", () => {
+  function terminalWith(env: Record<string, string>) {
+    const captured = createTestIo({ isTTY: true, env });
+    const stdout = captured.io.stdout as unknown as { columns: number; rows: number };
+    stdout.columns = 80;
+    stdout.rows = 24;
+    return captured;
+  }
+
+  async function auto(env: Record<string, string>, isRequested = false, isAutoAllowed = true) {
+    const captured = terminalWith(env);
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]));
+    await offerPanels(context, panelsFixtureResult(), isRequested, isAutoAllowed);
+    return captured;
+  }
+
+  it("does not open when CI is set to anything but empty, 0 or false", async () => {
+    for (const value of ["true", "1", "yes", "TRUE", "anything"]) {
+      const captured = await auto({ CI: value });
+      expect(captured.stdout(), value).toBe("");
+      expect(captured.stderr(), value).toBe("");
+    }
+    for (const value of ["", "0", "false", "False"]) {
+      expect((await auto({ CI: value })).stdout(), value).toContain(ENTER);
+    }
+  });
+
+  it("does not open under GitHub Actions, Buildkite, Azure Pipelines or Jenkins", async () => {
+    for (const name of ["GITHUB_ACTIONS", "BUILDKITE", "TF_BUILD", "JENKINS_URL"]) {
+      expect((await auto({ [name]: "x" })).stdout(), name).toBe("");
+    }
+  });
+
+  it("does not open with TERM=dumb, and --panels says why instead of drawing", async () => {
+    expect((await auto({ TERM: "dumb" })).stdout()).toBe("");
+    const forced = await auto({ TERM: "dumb" }, true);
+    expect(forced.stdout()).toBe("");
+    expect(forced.stderr()).toContain("TERM=dumb");
+  });
+
+  it("opens in CI only when asked: --panels, or PGARD_PANELS=on", async () => {
+    expect((await auto({ CI: "true" }, true)).stdout()).toContain(ENTER);
+    expect((await auto({ CI: "true", PGARD_PANELS: "on" })).stdout()).toContain(ENTER);
+    // An empty or unset PGARD_PANELS does not override the automation check.
+    expect((await auto({ CI: "true", PGARD_PANELS: "" })).stdout()).toBe("");
+  });
+
+  it("does not open for a command that only uses the scan (baseline set --from-current)", async () => {
+    expect((await auto({}, false, false)).stdout()).toBe("");
+    // The explicit flag still works.
+    expect((await auto({}, true, false)).stdout()).toContain(ENTER);
+  });
+
+  it("goes through the real scan command: baseline set --from-current never opens the view", async () => {
+    const captured = terminalWith({});
+    captured.stdin.setRawMode = () => undefined;
+    const code = await main(["baseline", "set", "--from-current"], captured.io, {
+      deps: createTestDeps({
+        runScan: async () => panelsFixtureResult(),
+        createSessionProvider: () => (async () => ({})) as never,
+      }),
+      interrupts: noInterrupts,
+    });
+    expect(typeof code).toBe("number");
+    expect(captured.stdout()).not.toContain(ENTER);
+  }, 15_000);
+
+  it("does not hang when input has ended: the view is left like Esc", async () => {
+    const captured = terminalWith({});
+    const { UserCancelledError: Cancelled } = await import("../ui/components/prompts.js");
+    const context = createTestContext(captured, createTestDeps(), {
+      readKey: () => Promise.reject(new Cancelled()),
+      suspend: () => undefined,
+      close: () => undefined,
+    });
+    await offerPanels(context, panelsFixtureResult(), false);
+    expect(captured.stdout()).toContain(ENTER);
+    expect(captured.stdout().endsWith(LEAVE)).toBe(true);
+  });
 });

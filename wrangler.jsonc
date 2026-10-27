@@ -1,0 +1,10 @@
+// Cloudflare Workers static-assets config for the pgard.dev landing site (site/).
+// Deploy: `npx wrangler deploy` (Workers Builds runs it on pushes to main).
+{
+  "name": "pgard",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "404-page",
+  },
+}

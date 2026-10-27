@@ -1,5 +1,6 @@
 import type { RuleLocale, ScanResult } from "@pgard/findings";
 import type { KeyReader, OutputStream } from "../../adapters/terminal.js";
+import { UserCancelledError } from "../components/prompts.js";
 import {
   createStyle,
   isUnicodeTerminal,
@@ -84,8 +85,16 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
   const interrupted = new Promise<PanelsExit>((resolve) => {
     interrupt = resolve;
   });
-  const onInterrupt = (): void => interrupt("cancel");
-  const onTerminate = (): void => interrupt("terminated");
+  // The screen is given back at the signal itself, not later in the unwinding: a second
+  // interrupt (or the exit that follows) must find the terminal already restored.
+  const onInterrupt = (): void => {
+    restore();
+    interrupt("cancel");
+  };
+  const onTerminate = (): void => {
+    restore();
+    interrupt("terminated");
+  };
   const onExit = (): void => restore();
   const onResize = (): void => {
     state = resize(state, sizeOf(stdout));
@@ -114,7 +123,12 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
       const next = await Promise.race([
         keys.readKey(),
         interrupted.then((exit): PanelsExit => exit),
-      ]);
+      ]).catch((error: unknown): PanelsExit => {
+        // End of input (a closed terminal, Ctrl+D in line mode): nobody can press a key again,
+        // so the view is left like Esc. Other errors are real.
+        if (error instanceof UserCancelledError) return "back";
+        throw error;
+      });
       if (typeof next === "string") return next;
       state = reduce(state, next);
       draw();

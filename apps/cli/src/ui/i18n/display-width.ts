@@ -157,3 +157,54 @@ function wrapPlain(text: string, width: number): string[] {
   lines.push(line);
   return lines;
 }
+
+const segmenter =
+  typeof Intl.Segmenter === "function"
+    ? new Intl.Segmenter(undefined, { granularity: "grapheme" })
+    : null;
+
+/** Whole characters as a reader sees them: a ZWJ emoji or a letter with its marks is one. */
+function graphemes(text: string): string[] {
+  return segmenter === null
+    ? [...text]
+    : Array.from(segmenter.segment(text), (segment) => segment.segment);
+}
+
+const SGR_SPLIT = new RegExp(`(${String.fromCharCode(27)}\\[[0-9;]*m)`);
+const SGR_ONLY = new RegExp(`^${String.fromCharCode(27)}\\[([0-9;]*)m$`);
+
+/**
+ * Cuts a word without spaces into pieces of at most `room` columns. It cuts the visible text by
+ * grapheme and never inside an escape sequence; every piece that ends inside a colour is closed
+ * and the next piece opens it again, so each piece is styled on its own.
+ */
+export function splitAnsiWord(word: string, room: number): string[] {
+  const limit = Math.max(1, room);
+  const open = new Map<string, string>();
+  const pieces: string[] = [];
+  let piece = "";
+  let width = 0;
+  const reopen = (): string =>
+    [...open.values()].map((code) => `${String.fromCharCode(27)}[${code}m`).join("");
+  for (const part of word.split(SGR_SPLIT)) {
+    if (part === "") continue;
+    const sgr = SGR_ONLY.exec(part);
+    if (sgr !== null) {
+      piece += part;
+      applySgr(open, sgr[1] ?? "");
+      continue;
+    }
+    for (const cluster of graphemes(part)) {
+      const clusterWidth = displayWidth(cluster);
+      if (width + clusterWidth > limit && width > 0) {
+        pieces.push(piece + (open.size > 0 ? RESET : ""));
+        piece = reopen();
+        width = 0;
+      }
+      piece += cluster;
+      width += clusterWidth;
+    }
+  }
+  pieces.push(piece);
+  return pieces;
+}
