@@ -257,6 +257,10 @@ export interface PanelsText {
   trend: TrendPanelText;
   /** Footer key hints for each state of the view; cut at the terminal width. */
   hints: Record<"default" | "findings" | "filter" | "detail" | "help" | "noMatch", string>;
+  /** Footer hint for the export key; shown only when exporting is possible. */
+  exportHint: string;
+  /** Printed on the normal screen after an export, before the view comes back. */
+  exportReturn: string;
   /** Filter line above the findings list. */
   filter: {
     label: string;
@@ -585,6 +589,8 @@ const EN: CliText = {
       help: "?/Esc: close  Up/Down: scroll",
       noMatch: "Esc: back  ?: help  c: clear filters  /: search",
     },
+    exportHint: "e: export",
+    exportReturn: "Press any key to return to the panel view.",
     filter: {
       label: "Filters",
       count: (shown, total) => `${shown} of ${total}`,
@@ -607,6 +613,7 @@ const EN: CliText = {
       "  a: next area (code, history, web), r: next rule, c: clear all filters",
       "  /: search title, rule id and path; Enter keeps it, Esc clears it, then Esc leaves",
       "Trend panel: stored scans of this repository (local store only), newest first; Up/Down scrolls",
+      "e: save a report (HTML, PDF or both): the view closes while you answer and comes back as it was",
       "?: show or hide this help",
       "Esc: close help or a finding, clear the search, or leave the panel view (q leaves at once)",
       "Ctrl+C: ask to cancel (y exits with status 130)",
@@ -933,6 +940,8 @@ const KO: CliText = {
       help: "?/Esc: 닫기  위/아래: 스크롤",
       noMatch: "Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색",
     },
+    exportHint: "e: 내보내기",
+    exportReturn: "아무 키나 누르면 패널 화면으로 돌아갑니다.",
     filter: {
       label: "필터",
       count: (shown, total) => `${total}개 중 ${shown}개`,
@@ -955,6 +964,7 @@ const KO: CliText = {
       "  a: 다음 영역(코드, 이력, 웹), r: 다음 규칙, c: 모든 필터 해제",
       "  /: 제목·규칙 ID·경로 검색. Enter로 유지, Esc로 지우기, 한 번 더 Esc로 나가기",
       "추이 패널: 이 저장소의 저장된 검사(로컬 저장소만), 최신순. 위/아래로 스크롤",
+      "e: 보고서 저장(HTML, PDF 또는 둘 다). 답하는 동안 화면이 닫히고, 끝나면 그대로 돌아옵니다",
       "?: 이 도움말 열기·닫기",
       "Esc: 도움말·상세 닫기, 검색 지우기, 또는 패널 화면 나가기 (q는 바로 나가기)",
       "Ctrl+C: 취소 확인 (y를 누르면 종료 코드 130)",

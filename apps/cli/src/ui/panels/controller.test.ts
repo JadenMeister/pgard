@@ -356,3 +356,277 @@ describe("runPanelsScreen, details and the signal restore", () => {
     expect(writes.at(-1)).toBe(LEAVE);
   });
 });
+
+describe("runPanelsScreen: the e key", () => {
+  const BACK_TEXT = "Press any key to return to the panel view.";
+
+  function run(
+    keys: KeyReader,
+    exportReport?: () => Promise<"saved" | "failed" | "cancelled">,
+    processEvents: EventEmitter = new EventEmitter(),
+  ) {
+    const out = fakeStdout();
+    const done = runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys,
+      processEvents,
+      ...(exportReport === undefined ? {} : { exportReport }),
+    });
+    return { out, done, processEvents };
+  }
+
+  it("leaves the screen, runs the export, then comes back to the same panel", async () => {
+    const seen: string[] = [];
+    const out = fakeStdout();
+    const keys = scripted(
+      press("tab"),
+      press("tab"),
+      press("tab"),
+      press("tab"),
+      press("/"),
+      press("s"),
+      press("q"),
+      press("return"),
+      press("e"),
+      press("x"), // any key after the export
+      press("q"),
+    );
+    // "q" typed into the search must not leave: it is text while the search line is open.
+    const exit = await runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys,
+      processEvents: new EventEmitter(),
+      exportReport: async () => {
+        seen.push(out.written().endsWith(LEAVE) ? "screen left" : "screen still open");
+        return "saved";
+      },
+    });
+    expect(exit).toBe("back");
+    expect(seen).toEqual(["screen left"]);
+    const written = out.written();
+    const parts = written.split(ENTER);
+    // Entered twice: before and after the export.
+    expect(parts).toHaveLength(3);
+    expect(parts[2]).toContain("[Findings (0 of 12)]");
+    expect(parts[2]).toContain('search: "sq"');
+    expect(parts[1]).toContain(BACK_TEXT);
+    expect(written.endsWith(LEAVE)).toBe(true);
+  });
+
+  it("also restores the scroll position of the panel", async () => {
+    const out = fakeStdout(80, 12);
+    const exit = await runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: scripted(
+        press("down"),
+        press("down"),
+        press("down"),
+        press("e"),
+        press("x"),
+        press("q"),
+      ),
+      processEvents: new EventEmitter(),
+      exportReport: async () => "failed",
+    });
+    expect(exit).toBe("back");
+    const parts = out.written().split(ENTER);
+    const lastBefore = parts[1]?.split("\u001b[H").at(-1) ?? "";
+    const firstAfter = parts[2]?.split("\u001b[H")[1] ?? "";
+    expect(firstAfter).toBe(lastBefore.split("\u001b[?25h")[0]);
+  });
+
+  it("returns to the panel at once when the export is cancelled (no key wait)", async () => {
+    // No key is scripted for a pause: waiting for one would throw "no more keys".
+    const { done, out } = (() => {
+      const r = run(scripted(press("e"), press("escape")), async () => "cancelled");
+      return { done: r.done, out: r.out };
+    })();
+    expect(await done).toBe("back");
+    expect(out.written().split(ENTER)).toHaveLength(3);
+    expect(out.written()).not.toContain(BACK_TEXT);
+  });
+
+  it("waits for a key after a failed write and then resumes; the view's exit is unchanged", async () => {
+    const { done, out } = run(
+      scripted(press("e"), press("n"), press("escape")),
+      async () => "failed",
+    );
+    expect(await done).toBe("back");
+    expect(out.written()).toContain(BACK_TEXT);
+  });
+
+  it("shows the return line in Korean", async () => {
+    const out = fakeStdout();
+    await runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "ko",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: scripted(press("e"), press("n"), press("escape")),
+      processEvents: new EventEmitter(),
+      exportReport: async () => "saved",
+    });
+    expect(out.written()).toContain("아무 키나 누르면 패널 화면으로 돌아갑니다.");
+  });
+
+  it("asks the usual cancel question when Ctrl+C is pressed at the pause; y then cancels", async () => {
+    const { done, out } = run(scripted(press("e"), ctrlC, press("y")), async () => "saved");
+    expect(await done).toBe("cancel");
+    expect(out.written()).toContain("Cancel and exit? [y/N]");
+    expect(out.written().endsWith(LEAVE)).toBe(true);
+    const back = run(scripted(press("e"), ctrlC, press("n"), press("escape")), async () => "saved");
+    expect(await back.done).toBe("back");
+  });
+
+  it("ends as cancel when a prompt inside the export confirmed Ctrl+C", async () => {
+    const { done, out, processEvents } = run(scripted(press("e")), async () => {
+      throw new UserCancelledError();
+    });
+    expect(await done).toBe("cancel");
+    expect(out.written().endsWith(LEAVE)).toBe(true);
+    expect(processEvents.listenerCount("SIGTERM")).toBe(0);
+  });
+
+  it("rethrows an unexpected error from the export with the terminal restored", async () => {
+    const { done, out } = run(scripted(press("e")), async () => {
+      throw new Error("export broke");
+    });
+    await expect(done).rejects.toThrow("export broke");
+    expect(out.written().endsWith(LEAVE)).toBe(true);
+  });
+
+  it("ends as terminated on SIGTERM and as cancel on SIGINT during the export prompts", async () => {
+    for (const [signal, expected] of [
+      ["SIGTERM", "terminated"],
+      ["SIGINT", "cancel"],
+    ] as const) {
+      const processEvents = new EventEmitter();
+      const { done, out } = run(
+        scripted(press("e")),
+        () => new Promise<"saved">(() => undefined),
+        processEvents,
+      );
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(out.written().endsWith(LEAVE), signal).toBe(true);
+      processEvents.emit(signal);
+      expect(await done, signal).toBe(expected);
+      expect(out.written().endsWith(LEAVE), signal).toBe(true);
+      expect(processEvents.listenerCount("SIGTERM"), signal).toBe(0);
+    }
+  });
+
+  it("ignores e when no export is given, and keeps the screen open", async () => {
+    const { done, out } = run(scripted(press("e"), press("escape")));
+    expect(await done).toBe("back");
+    expect(out.written().split(ENTER)).toHaveLength(2);
+    expect(out.written()).not.toContain("e: export");
+  });
+});
+
+describe("runPanelsScreen: the e key, hardening", () => {
+  const ctrlD: Key = { name: "d", sequence: "\u0004", ctrl: true };
+
+  function counting(entries: Array<Key | "end">, log: string[]): KeyReader {
+    const queue = [...entries];
+    return {
+      readKey: async () => {
+        log.push("readKey");
+        const next = queue.shift();
+        if (next === undefined || next === "end") throw new UserCancelledError();
+        return next;
+      },
+      suspend: () => {
+        log.push("suspend");
+      },
+      close: () => undefined,
+    };
+  }
+
+  function start(keys: KeyReader, exportReport: () => Promise<"saved" | "failed" | "cancelled">) {
+    const out = fakeStdout();
+    const done = runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys,
+      processEvents: new EventEmitter(),
+      exportReport,
+    });
+    return { out, done };
+  }
+
+  it("does not export on Shift+E", async () => {
+    let calls = 0;
+    const shiftE: Key = { name: "e", sequence: "E", ctrl: false };
+    const log: string[] = [];
+    const { done } = start(counting([shiftE, press("q")], log), async () => {
+      calls += 1;
+      return "saved";
+    });
+    expect(await done).toBe("back");
+    expect(calls).toBe(0);
+    expect(log).not.toContain("suspend");
+  });
+
+  it("suspends the key reader for the export and again before the pause", async () => {
+    const log: string[] = [];
+    const { done } = start(counting([press("e"), press("x"), press("q")], log), async () => {
+      log.push("export");
+      return "saved";
+    });
+    expect(await done).toBe("back");
+    expect(log.slice(0, 6)).toEqual([
+      "readKey",
+      "suspend",
+      "export",
+      "suspend",
+      "readKey",
+      "readKey",
+    ]);
+  });
+
+  it("drops keys queued during the save, Ctrl+C included, instead of answering the pause", async () => {
+    // A reader whose suspend() clears what was typed while the save ran, like the real one.
+    const queue: Key[] = [press("e")];
+    const keys: KeyReader = {
+      readKey: async () => {
+        const next = queue.shift();
+        if (next === undefined) return new Promise<Key>(() => undefined);
+        return next;
+      },
+      suspend: () => {
+        queue.length = 0;
+      },
+      close: () => undefined,
+    };
+    const { out } = start(keys, async () => {
+      queue.push(ctrlC, press("z"));
+      return "saved";
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Nothing is left to answer the pause: the view waits there, with no cancel question.
+    expect(out.written()).toContain("Press any key to return");
+    expect(out.written()).not.toContain("Cancel and exit?");
+    expect(out.written().split(ENTER)).toHaveLength(2);
+  });
+
+  it("leaves the view on Ctrl+D or end of input at the pause", async () => {
+    const byCtrlD = start(counting([press("e"), ctrlD], []), async () => "saved");
+    expect(await byCtrlD.done).toBe("back");
+    expect(byCtrlD.out.written().endsWith(LEAVE)).toBe(true);
+    const byEnd = start(counting([press("e"), "end"], []), async () => "failed");
+    expect(await byEnd.done).toBe("back");
+    // Ended at the pause: the screen was not taken again.
+    expect(byEnd.out.written().split(ENTER)).toHaveLength(2);
+  });
+});
