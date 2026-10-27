@@ -126,7 +126,7 @@ const GENERATED_REASONS: ReadonlySet<string> = new Set<GeneratedDirectoryReason>
 ]);
 const MAX_LISTED_PATHS = 5;
 /** The CLI shows at most 300 characters of a coverage note; the dependency note stays within. */
-export const MAX_DEPENDENCY_NOTE_LENGTH = 300;
+export const MAX_NOTE_LENGTH = 300;
 /** Longer directory paths in the dependency note keep their last characters. */
 const MAX_LABEL_PATH_LENGTH = 60;
 
@@ -147,21 +147,24 @@ function listPaths(paths: string[]): string {
  * Coverage note for minified bundles the walk skipped: the count, the reason and at most
  * MAX_LISTED_PATHS paths (fewer when long, so the count is never cut off by a display limit).
  */
-export function describeSkippedMinified(paths: readonly string[]): string {
+export function describeSkippedMinified(paths: readonly string[], limitReached = false): string {
   const count = paths.length;
+  const tail = limitReached ? " (file limit reached; count may be incomplete)" : "";
   const heading = `${count} minified bundle${count === 1 ? "" : "s"} skipped (minified bundle, not analyzed): `;
   const compose = (labels: string[]) => {
     const rest = count - labels.length;
-    if (labels.length === 0) return `${heading}${count} not listed.`;
-    return `${heading}${labels.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
+    if (labels.length === 0) return `${heading}${count} not listed.${tail}`;
+    return `${heading}${labels.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.${tail}`;
   };
   const labels: string[] = [];
-  for (const item of [...paths].sort((a, b) => a.localeCompare(b, "en"))) {
+  for (const raw of [...paths].sort((a, b) => a.localeCompare(b, "en"))) {
     if (labels.length === MAX_LISTED_PATHS) break;
+    // Redact before measuring, so the label that is measured is the label that is shown.
+    const item = redactEvidence(raw, { maxLength: 500 });
     const shown =
       item.length > MAX_LABEL_PATH_LENGTH ? `…${item.slice(-(MAX_LABEL_PATH_LENGTH - 1))}` : item;
     const next = [...labels, JSON.stringify(shown)];
-    if (compose(next).length > MAX_DEPENDENCY_NOTE_LENGTH) break;
+    if (compose(next).length > MAX_NOTE_LENGTH) break;
     labels.push(next[next.length - 1] as string);
   }
   return compose(labels);
@@ -175,10 +178,11 @@ export function describeSkippedDependencyDirectories(
   directories: readonly SkippedDependencyDirectory[],
 ): string {
   const label = (entry: SkippedDependencyDirectory) => {
+    const redacted = redactEvidence(entry.path, { maxLength: 500 });
     const directory =
-      entry.path.length > MAX_LABEL_PATH_LENGTH
-        ? `…${entry.path.slice(-(MAX_LABEL_PATH_LENGTH - 1))}`
-        : entry.path;
+      redacted.length > MAX_LABEL_PATH_LENGTH
+        ? `…${redacted.slice(-(MAX_LABEL_PATH_LENGTH - 1))}`
+        : redacted;
     const name = /^[\w./@+-]+$/.test(directory) ? `${directory}/` : JSON.stringify(`${directory}/`);
     if (entry.reason === null) return name;
     if (entry.reason === "repository root") {
@@ -201,7 +205,7 @@ export function describeSkippedDependencyDirectories(
   for (const entry of [...directories].sort((a, b) => a.path.localeCompare(b.path, "en"))) {
     if (labels.length === MAX_LISTED_PATHS) break;
     const next = [...labels, label(entry)];
-    if (compose(next).length > MAX_DEPENDENCY_NOTE_LENGTH) break;
+    if (compose(next).length > MAX_NOTE_LENGTH) break;
     labels.push(next[next.length - 1] as string);
   }
   return compose(labels);
@@ -703,7 +707,7 @@ export async function scanSourceCode(
       scope: "code",
       status: "partial",
       ruleIds: [],
-      note: describeSkippedMinified(walk.skippedMinified),
+      note: describeSkippedMinified(walk.skippedMinified, walk.isTruncated),
     });
   }
   if (walk.skippedSymlinks.length > 0) {

@@ -11,7 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
-  MAX_DEPENDENCY_NOTE_LENGTH,
+  MAX_NOTE_LENGTH,
   describeSkippedDependencyDirectories,
   describeSkippedMinified,
   scanSourceCode,
@@ -394,9 +394,12 @@ describe("describeSkippedMinified", () => {
     );
     const long = Array.from({ length: 6 }, (_, i) => `${"a".repeat(200)}${i}.min.js`);
     const note = describeSkippedMinified(long);
-    expect(note.length).toBeLessThanOrEqual(MAX_DEPENDENCY_NOTE_LENGTH);
+    expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
     expect(note).toMatch(/and \d+ more\.$/);
     expect(describeSkippedMinified(["a.min.js"])).toMatch(/^1 minified bundle skipped/);
+    expect(describeSkippedMinified(["a.min.js"], true)).toMatch(
+      /\(file limit reached; count may be incomplete\)$/,
+    );
   });
 });
 
@@ -429,7 +432,7 @@ describe("describeSkippedDependencyDirectories", () => {
       reason: null,
     }));
     const note = describeSkippedDependencyDirectories(directories);
-    expect(note.length).toBeLessThanOrEqual(MAX_DEPENDENCY_NOTE_LENGTH);
+    expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
     expect(note).toMatch(/^Skipped 6 dependency directories/);
     expect(note).toMatch(/ and \d more\.$/);
     // Long paths keep their last characters.

@@ -115,8 +115,8 @@ export interface WalkOptions {
   /**
    * Repository-relative POSIX path of an analyzable source file: true leaves it out (counted in
    * `WalkResult.excluded`). Only files that would be analyzed are asked; skipped directories,
-   * symbolic links, declaration files and minified bundles are never asked about either way (minified bundles are
-   * reported in `WalkResult.skippedMinified`).
+   * symbolic links, declaration files are never listed either way. Minified bundles are asked about too; the ones
+   * not excluded are reported in `WalkResult.skippedMinified`.
    */
   isExcluded?: (relativePath: string) => boolean;
 }
@@ -250,12 +250,14 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       }
       const language = EXTENSIONS[path.extname(entry.name)];
       if (!language || entry.name.endsWith(".d.ts")) continue;
-      if (MINIFIED_BUNDLE.test(entry.name)) {
-        result.skippedMinified.push(relativePath);
-        continue;
-      }
+      // The user's exclude comes first: an excluded minified bundle is counted as excluded, so an
+      // exclude pattern clears the partial `source:minified` area.
       if (options.isExcluded?.(relativePath)) {
         noteExcluded(relativePath);
+        continue;
+      }
+      if (MINIFIED_BUNDLE.test(entry.name)) {
+        result.skippedMinified.push(relativePath);
         continue;
       }
       const stats = await lstat(absolutePath).catch(() => null);
