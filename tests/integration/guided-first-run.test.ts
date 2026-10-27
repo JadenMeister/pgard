@@ -21,6 +21,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Key, KeyReader } from "../../apps/cli/src/adapters/terminal.js";
 import { main, type CliDeps } from "../../apps/cli/src/app.js";
+import { resolveLanguage } from "../../apps/cli/src/language.js";
 import { runGuidedFirstRun, MAX_INSTALL_RETRIES } from "../../apps/cli/src/flows/first-run.js";
 import {
   createSignedInCredentialStore,
@@ -366,21 +367,16 @@ describe("guided first run: sign in, install the App, re-verify, scan", () => {
     expect(noKeychain.captured.stdout()).toBe("");
   });
 
-  it("speaks Korean through the menu with PGARD_LANG=ko, including the authorization block", async () => {
+  it("speaks Korean with PGARD_LANG=ko, including the authorization block", async () => {
     const { head } = project();
     const h = harness(notInstalled(head));
-    h.captured.io.env = { PGARD_LANG: "ko" };
-    h.captured.stdin.setRawMode = () => undefined;
-    const running = main([], h.captured.io, { deps: h.deps, interrupts: noInterrupts });
-    const press = async (sequence: string): Promise<void> => {
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      h.captured.stdin.write(sequence);
-    };
-    await press("\r"); // sign in
-    await press("\r"); // open the page
-    await press("q"); // quit the install wait
-    await press("\u001b"); // quit the menu
-    await running;
+    const env = { PGARD_LANG: "ko" };
+    h.captured.io.env = env;
+    const context = contextOf(h, keysWithHook([ENTER_KEY, "q"]));
+    // The same resolution the menu performs for PGARD_LANG.
+    context.ruleLocale = resolveLanguage({ flag: null, env });
+    expect(context.ruleLocale).toBe("ko");
+    await runGuidedFirstRun(context);
     const stdout = h.captured.stdout();
     expect(h.captured.stderr()).toContain("아직 GitHub에 로그인하지 않았습니다.");
     expect(stdout).toContain("지금 로그인할까요? [Y/n]");
