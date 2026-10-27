@@ -68,4 +68,23 @@ describe("code text inside a string literal is demoted, never dropped (#246)", (
     expect(scan(`DEBUG=1\nAPI_SECRET=${RANDOM}\n`, "app.env")).toHaveLength(1);
     expect(scan(`const password = "${RANDOM}";\n`, "src/a.js")).toHaveLength(1);
   });
+
+  it("keeps a literal backslash-n inside a value in config files (W1, W3)", () => {
+    const conf = scan(`DB_PASSWORD=Ab3\\nXy9Zk2Lm7Q\n`, "config/app.conf");
+    expect(conf.map((secret) => secret.value)).toEqual(["Ab3\\nXy9Zk2Lm7Q"]);
+    const props = scan(`db.password=P@s5\\nw0rdXk9vL\n`, "app.properties");
+    expect(props.map((secret) => secret.value)).toEqual(["P@s5\\nw0rdXk9vL"]);
+  });
+
+  it("keeps an escaped backslash followed by n inside a value in source (W5)", () => {
+    const found = scan(`const s = "password=Ab3\\\\nXy9Zk2Lm7Q";\n`, "src/f.ts");
+    expect(found.map((secret) => secret.value)).toEqual(["Ab3\\\\nXy9Zk2Lm7Q"]);
+  });
+
+  it("reports a duplicate value once, at full confidence when either match is a real one", () => {
+    const text = `const doc = "const api_key = ${BRACKET};"; const api_key = "${BRACKET}";\n`;
+    const found = scan(text, "src/c.js");
+    expect(found).toHaveLength(1);
+    expect(found[0]?.codeText).toBeUndefined();
+  });
 });

@@ -109,7 +109,7 @@ const PATTERNS: Pattern[] = [
     kind: "generic_credential",
     // `key = value`, `key: "value"`, `key := "value"`, `headers["x-api-key"] = "value"`.
     pattern: new RegExp(
-      `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>(?:[^\\s"'\`,;\\\\]|\\\\(?!n)){8,256})\\k<valueQuote>`,
+      `${CREDENTIAL_KEY}(?<keyQuote>["']?)(?<bracket>\\]?)[ \\t]{0,8}(?<separator>:=|[:=])[ \\t]{0,8}(?<valueQuote>["'\`]?)(?<value>[^\\s"'\`,;]{8,256})\\k<valueQuote>`,
       "gi",
     ),
     group: "value",
@@ -170,6 +170,27 @@ const CODE_BEFORE_KEY =
 const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
 /** Characters of the line read before a key and after a value to judge whether it is code. */
 const CODE_WINDOW = 200;
+
+/**
+ * Characters to cut off an unquoted value in a string literal of a source file: from the first
+ * `\n` escape (a backslash-n after an odd number of backslashes) to the end. In the source text
+ * that escape is a line break, so the value ends there. 0 when the value has no such escape or
+ * would be shorter than a value can be (then the value is kept whole).
+ */
+function escapedNewlineTail(value: string): number {
+  for (let index = value.indexOf("n"); index !== -1; index = value.indexOf("n", index + 1)) {
+    let backslashes = 0;
+    while (backslashes < index && value[index - 1 - backslashes] === "\\") backslashes += 1;
+    if (backslashes % 2 === 1) {
+      const head = index - 1;
+      return head >= MIN_VALUE_LENGTH ? value.length - head : 0;
+    }
+  }
+  return 0;
+}
+
+/** Shortest generic value (see the value patterns). */
+const MIN_VALUE_LENGTH = 8;
 
 /** Per-text state shared by the matches of one `detectSecrets` call. */
 interface DetectContext {
@@ -247,6 +268,7 @@ function looksLikeCode(
 function isLiteralAssignment(
   context: DetectContext,
   match: RegExpMatchArray,
+  cut = 0,
 ): boolean | "code_text" {
   const groups = match.groups ?? {};
   const keyQuote = groups.keyQuote ?? "";
@@ -282,11 +304,11 @@ function isLiteralAssignment(
     // value. It is still reported, demoted to a low-confidence inferred finding, because a real
     // secret can look like that too. A constant-name value counts only with that code context.
     const isCode =
-      looksLikeCode(text, keyStart, start + match[0].length, separator, stringStart) &&
+      looksLikeCode(text, keyStart, start + match[0].length - cut, separator, stringStart) &&
       (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value));
     return isCode ? "code_text" : true;
   }
-  if (!looksLikeCode(text, keyStart, start + match[0].length, separator)) return true;
+  if (!looksLikeCode(text, keyStart, start + match[0].length - cut, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&
     !CONSTANT_NAME.test(value) &&
@@ -393,7 +415,7 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
   const lineOfIndex = createLineLookup(text);
   const context = createContext(text, options);
   const results: DetectedSecret[] = [];
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   /** `[start, end)` value spans reported by the specific patterns (not weak URL passwords). */
   const claimed: number[] = [];
   /** The same for URL passwords, which also claim a generic value they lie inside. */
@@ -431,9 +453,19 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
         value = text.slice(start, start + value.length + 256);
       }
       let codeText = false;
+      let cut = 0;
       if (kind === "generic_credential") {
+        // An unquoted value in a string literal of a source file ends at a `\n` escape.
+        if (
+          context.isSource &&
+          match.groups?.valueQuote === "" &&
+          context.stringStartAt(match.index ?? 0) !== -1
+        ) {
+          cut = escapedNewlineTail(value);
+          if (cut > 0) value = value.slice(0, value.length - cut);
+        }
         if (!isLikelySecretValue(value)) continue;
-        const assignment = isLiteralAssignment(context, match);
+        const assignment = isLiteralAssignment(context, match, cut);
         if (assignment === false) continue;
         codeText = assignment === "code_text";
       }
@@ -443,8 +475,17 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
         continue;
       const line = lineOfIndex(match.index ?? 0);
       const key = `${line}:${value}`;
-      if (seen.has(key)) continue; // a specific pattern already reported this value
-      seen.add(key);
+      const duplicate = seen.get(key);
+      if (duplicate !== undefined) {
+        // A specific pattern already reported this value; a code-text report gives way to a
+        // full one for the same value on the same line.
+        if (!codeText && results[duplicate]?.codeText === true) {
+          const { codeText: _demoted, ...full } = results[duplicate] as DetectedSecret;
+          results[duplicate] = full;
+        }
+        continue;
+      }
+      seen.set(key, results.length);
       if (strength === "weak")
         weakUrls.push({ index: results.length, start: valueStart, end: valueEnd });
       results.push({

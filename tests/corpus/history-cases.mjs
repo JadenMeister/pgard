@@ -355,6 +355,27 @@ export const HISTORY_CASES = [
   },
   {
     rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "config-file-password-with-literal-backslash-n",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "config/app.conf": `DB_PASSWORD=Ab3\\nXy9Zk2Lm7Q\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "properties-password-with-literal-backslash-n",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "app.properties": `db.password=P@s5\\nw0rdXk9vL\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "escaped-backslash-n-inside-string-value",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "src/f.ts": `const s = "password=Ab3\\\\nXy9Zk2Lm7Q";\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
     kind: "negative",
     name: "code-that-names-credentials",
     expect: [],
