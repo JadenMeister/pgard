@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { compareScans, findingIdentity, notComparableAreas } from "./compare-scans.js";
+import { SKIPPED_DIRECTORIES } from "./skipped-directories.js";
 import { SCHEMA_VERSION, type Coverage, type Finding, type ScanResult } from "./contract.js";
 
 function finding(overrides: Partial<Finding> & { line?: number | null } = {}): Finding {
@@ -379,6 +380,220 @@ describe("compareScans", () => {
       );
       expect(sameCount.noLongerReported).toEqual([]);
       expect(sameCount.notComparable).toHaveLength(1);
+    });
+
+    describe("skip areas block per path, not per scan", () => {
+      const skip = (area: string, status: Coverage["status"], text: string): Coverage => ({
+        ...cov(area, "code", status, []),
+        note: text,
+      });
+      const at = (findingPath: string) =>
+        finding({ location: { ...finding().location, path: findingPath } });
+      const goneAt = (findingPath: string, previous: Coverage[], current: Coverage[]) =>
+        compareScans(scan([at(findingPath)], previous), scan([], current));
+      const newAt = (findingPath: string, previous: Coverage[], current: Coverage[]) =>
+        compareScans(scan([], previous), scan([at(findingPath)], current));
+      const states = (build: (note: string) => Coverage): [string, Coverage[], Coverage[]][] => [
+        ["appears", JS, [...JS, build("1 skipped (set 11111111): a.")]],
+        ["disappears", [...JS, build("1 skipped (set 11111111): a.")], JS],
+        [
+          "changes",
+          [...JS, build("2 skipped (set 11111111): a, b.")],
+          [...JS, build("3 skipped (set 22222222): a, b, c.")],
+        ],
+      ];
+
+      for (const [area, status, path, other] of [
+        ["source:build-output", "completed", "build/x.js", "lib/x.js"],
+        ["source:xml-skipped", "completed", "app/src/main/res/a.xml", "lib/a.xml"],
+        ["source:special-files", "completed", "build/x.js", "lib/x.js"],
+      ] as const) {
+        it(`${area} appearing, disappearing or changing does not hold back an ordinary finding`, () => {
+          for (const [label, previous, current] of states((note) => skip(area, status, note))) {
+            const result = goneAt(other, previous, current);
+            expect(result.noLongerReported, label).toHaveLength(1);
+            expect(result.notComparable, label).toEqual([]);
+            const added = newAt(other, previous, current);
+            expect(added.new, label).toHaveLength(1);
+            expect(added.newInUncertainAreas, label).toEqual([]);
+            expect(added.uncertainAreas, label).toEqual([]);
+          }
+        });
+
+        it(`${area}: a finding at ${path} stays not comparable when the skip set changes`, () => {
+          if (area === "source:special-files") {
+            const result = goneAt(path, JS, [...JS, skip(area, status, "1 skipped (set 1): a.")]);
+            expect(result.noLongerReported).toHaveLength(1);
+            return;
+          }
+          const withArea = [...JS, skip(area, status, "1 skipped (set 11111111): a.")];
+          expect(goneAt(path, JS, withArea).notComparable).toHaveLength(1);
+          expect(goneAt(path, withArea, JS).notComparable).toHaveLength(1);
+          expect(newAt(path, JS, withArea).newInUncertainAreas).toHaveLength(1);
+          expect(goneAt(path, JS, JS).noLongerReported).toHaveLength(1);
+        });
+      }
+
+      it("source:build-output: the same skip set in both scans holds nothing back", () => {
+        const both = [...JS, skip("source:build-output", "completed", "1 skipped (set 1): a.")];
+        expect(goneAt("build/x.js", both, both).noLongerReported).toHaveLength(1);
+        expect(newAt("build/x.js", both, both).newInUncertainAreas).toEqual([]);
+      });
+
+      it("a JVM package called build is never held back by source:build-output", () => {
+        const foo = "src/main/java/com/acme/build/Foo.java";
+        const before = [...JS, skip("source:build-output", "completed", "1 skipped (set 1): a.")];
+        const after = [...JS, skip("source:build-output", "completed", "2 skipped (set 2): a, b.")];
+        for (const [previous, current] of [
+          [before, before],
+          [JS, before],
+          [before, after],
+          [before, JS],
+        ]) {
+          expect(
+            goneAt(foo, previous as Coverage[], current as Coverage[]).noLongerReported,
+          ).toHaveLength(1);
+          const added = newAt(foo, previous as Coverage[], current as Coverage[]);
+          expect(added.newInUncertainAreas).toEqual([]);
+          expect(added.uncertainAreas).toEqual([]);
+        }
+      });
+
+      it("a source file directly in a skip-named directory is an ordinary finding", () => {
+        const before = [...JS, skip("source:build-output", "completed", "1 skipped (set 1): a.")];
+        const after = [...JS, skip("source:build-output", "completed", "2 skipped (set 2): a, b.")];
+        for (const walked of ["build/gulpfile.ts", "scripts/build/release.ts", "out/gen.go"]) {
+          expect(goneAt(walked, before, after).noLongerReported, walked).toHaveLength(1);
+          expect(goneAt(walked, JS, before).noLongerReported, walked).toHaveLength(1);
+          const added = newAt(walked, before, after);
+          expect(added.newInUncertainAreas, walked).toEqual([]);
+        }
+        // Not source (JavaScript output) and not directly inside: still held when the set changes.
+        for (const held of ["build/x.js", "dist/index.d.ts", "build/lib/y.ts"]) {
+          expect(goneAt(held, before, after).notComparable, held).toHaveLength(1);
+        }
+      });
+
+      describe("findings deeper inside a walked skip-named directory", () => {
+        const withWalked = (note: string, paths: string[] | null, complete = true): Coverage => ({
+          ...skip("source:build-output", "completed", note),
+          ...(paths === null ? {} : { walkedDirectories: { paths, complete } }),
+        });
+        const deep = "build/lib/y.ts";
+
+        it("stay ordinary when coverage/ appears and the finding is fixed", () => {
+          const before = [...JS, withWalked("1 walked (set 1)", ["build"])];
+          const after = [...JS, withWalked("1 skipped (set 2): coverage/", ["build"])];
+          const result = goneAt(deep, before, after);
+          expect(result.noLongerReported).toHaveLength(1);
+          expect(result.notComparable).toEqual([]);
+          const added = newAt(deep, before, after);
+          expect(added.newInUncertainAreas).toEqual([]);
+          expect(added.uncertainAreas).toEqual([]);
+          expect(goneAt("build/y.ts", before, after).noLongerReported).toHaveLength(1);
+        });
+
+        it("stay held when the directory was not walked in both scans", () => {
+          const walked = [...JS, withWalked("1 walked (set 1)", ["build"])];
+          const skipped = [...JS, withWalked("1 skipped (set 2): build/", [])];
+          expect(goneAt(deep, walked, skipped).notComparable).toHaveLength(1);
+          expect(goneAt(deep, skipped, walked).notComparable).toHaveLength(1);
+          expect(goneAt(deep, JS, walked).notComparable).toHaveLength(1);
+          expect(
+            goneAt("other/build/lib/y.ts", walked, [...JS, withWalked("2 (set 3)", ["build"])])
+              .notComparable,
+          ).toHaveLength(1);
+          // A prefix is a whole directory: `buildx` is not `build`.
+          expect(
+            goneAt("buildx/y.ts", walked, [...JS, withWalked("2 (set 3)", ["build"])])
+              .notComparable,
+          ).toEqual([]);
+        });
+
+        it("fall back to the conservative rule for results without the list or with a capped one", () => {
+          const legacy = [...JS, withWalked("1 walked (set 1)", null)];
+          const after = [...JS, withWalked("2 (set 2)", ["build"])];
+          expect(goneAt(deep, legacy, after).notComparable).toHaveLength(1);
+          expect(goneAt(deep, after, legacy).notComparable).toHaveLength(1);
+          const capped = [...JS, withWalked("1 walked (set 1)", ["build"], false)];
+          expect(goneAt(deep, capped, after).notComparable).toHaveLength(1);
+          expect(newAt(deep, capped, after).newInUncertainAreas).toHaveLength(1);
+        });
+      });
+
+      it("note-only areas that stay partial leave their own area comparable", () => {
+        for (const area of ["source:unreadable-files", "source:build-output"]) {
+          const partial = skip(area, "partial", "1 (set 1)");
+          const result = goneAt("lib/x.js", [...JS, partial], [...JS, partial]);
+          const info = result.areas.find((entry) => entry.area === area);
+          expect(info).toMatchObject({ comparable: true, reason: null });
+          expect(notComparableAreas(result)).toEqual([]);
+        }
+      });
+
+      it("source:build-output (partial, no source found) blocks everything when its note changes", () => {
+        const partial = (note: string) => skip("source:build-output", "partial", note);
+        const same = goneAt(
+          "lib/x.js",
+          [...JS, partial("n (set 1)")],
+          [...JS, partial("n (set 1)")],
+        );
+        expect(same.noLongerReported).toHaveLength(1);
+        const changed = goneAt(
+          "lib/x.js",
+          [...JS, partial("n (set 1)")],
+          [...JS, partial("n (set 2)")],
+        );
+        expect(changed.notComparable).toHaveLength(1);
+        expect(goneAt("lib/x.js", JS, [...JS, partial("n (set 1)")]).notComparable).toHaveLength(1);
+        expect(
+          newAt("lib/x.js", [...JS, partial("n (set 1)")], [...JS, partial("n (set 2)")])
+            .newInUncertainAreas,
+        ).toHaveLength(1);
+        // One side partial is enough, even if the other side's area is informational.
+        expect(
+          goneAt(
+            "lib/x.js",
+            [...JS, skip("source:build-output", "completed", "n (set 1)")],
+            [...JS, partial("n (set 1)")],
+          ).noLongerReported,
+        ).toHaveLength(1);
+        expect(
+          goneAt(
+            "lib/x.js",
+            [...JS, skip("source:build-output", "completed", "n (set 1)")],
+            [...JS, partial("n (set 2)")],
+          ).notComparable,
+        ).toHaveLength(1);
+      });
+
+      it("source:unreadable-files (partial) keeps note-change blocking for the whole scope", () => {
+        const unreadable = (note: string) => skip("source:unreadable-files", "partial", note);
+        const same = goneAt(
+          "lib/x.js",
+          [...JS, unreadable("1 (set 1)")],
+          [...JS, unreadable("1 (set 1)")],
+        );
+        expect(same.noLongerReported).toHaveLength(1);
+        const changed = goneAt(
+          "lib/x.js",
+          [...JS, unreadable("1 (set 1)")],
+          [...JS, unreadable("1 (set 2)")],
+        );
+        expect(changed.notComparable).toHaveLength(1);
+        expect(goneAt("lib/x.js", JS, [...JS, unreadable("1 (set 1)")]).notComparable).toHaveLength(
+          1,
+        );
+        expect(
+          newAt("lib/x.js", JS, [...JS, unreadable("1 (set 1)")]).newInUncertainAreas,
+        ).toHaveLength(1);
+      });
+
+      it("SKIPPED_DIRECTORIES has the build directories the walk skips", () => {
+        for (const name of ["dist", "build", "out", "coverage", ".next", ".git"]) {
+          expect(SKIPPED_DIRECTORIES.has(name), name).toBe(true);
+        }
+      });
     });
 
     it("a detected-but-unsupported language (not_tested, no rules) does not block", () => {

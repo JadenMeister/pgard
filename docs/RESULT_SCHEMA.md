@@ -2,7 +2,7 @@
 
 > [한국어](RESULT_SCHEMA.ko.md) translation available. This English file is the reference; the translation follows it.
 
-The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.2`. This document says when that version changes and what a reader must do with a version it did not write.
+The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.3`. This document says when that version changes and what a reader must do with a version it did not write.
 
 ## Version rules
 
@@ -26,7 +26,7 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 
 | Input version                 | Behaviour                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Same (`1.2`)                  | Accepted.                                                                                                                           |
+| Same (`1.3`)                  | Accepted.                                                                                                                           |
 | Older minor of the same major | Accepted. Fields added later are absent; the shape is still valid.                                                                  |
 | Newer minor of the same major | Accepted. Unknown fields are ignored (the reader drops them). `sourceVersion` reports the version the file carried.                 |
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
@@ -51,6 +51,8 @@ Strings are length-capped but not sanitized. Evidence, titles and notes can cont
 `Finding.id` is a stable fingerprint of rule, location and cause. Stored results are compared with later scans by this id, so it is part of the contract even though its type is only `string`. Changing how it is derived makes ids from older results stop matching, so such a change is a **major** version change. Its type or the rule that it never contains secret values cannot change within a major version either.
 
 ## Version history
+
+**1.3** (additive; a minor bump). One optional field on a `coverage` entry, `walkedDirectories`, present only on `source:build-output`: `{ paths, complete }`, the skip-named directories (`build`, `dist`, `out`, ...) that the walk entered because they directly contain source files (redacted repository-relative paths) and whether that list is complete. Scan comparison uses it to treat findings below such a directory as ordinary. Results of `1.2` and older have no such field, and a reader treats that as "not recorded", never as "no directory was walked".
 
 **1.2** (additive; a minor bump). One optional top-level field, `incremental`, present when the launcher offered incremental scans (the CLI does; the dashboard does not). `{ used, reason, basedOn, filesRescanned, filesReused, commitsScanned, commitsReused, code, history }`: `used` is true when an area reused data from an earlier stored scan; `reason` is a stable code (`requested_full`, `no_previous_scan`, `store_unavailable`, `previous_unreadable`, `no_saved_state`, `scopes_changed`, `tool_changed`, `config_changed`, `previous_incomplete`, `head_not_ancestor`, `git_failed`, `rules_unclassified`, `analyzer_changed`, `previous_state_too_large`, `previous_state_rejected`, `history_changed`) for the full scan, else `null`; `basedOn` is `{ scanId, revision }` of the stored scan or `null`; the counts are `null` when the scope did not run; `code` and `history` are `{ mode: "incremental" | "full", reason }` or `null`. In an incremental scan `ruleStats` examined counts include reused files and commits, except the history `blobs` target, which is `null` with a `reason`. Results of `1.0` and `1.1` have no `incremental` field, and a reader treats that as "not recorded".
 
