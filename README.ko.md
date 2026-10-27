@@ -188,18 +188,21 @@ Options:
   --output-dir <dir>       existing directory for the report (requires --report);
                            files are never overwritten; a directory inside the
                            Git repository needs explicit confirmation
-  --all-findings           list every finding and location; by default more than
-                           5 findings in test, fixture or vendored code are
-                           summarized, and groups show up to 3 locations
-  --panels                 after the text result, open a read-only full-screen
-                           view (summary, charts, coverage, findings) in a
-                           terminal; keys: Tab, arrows, ? help, Esc back. Not
-                           with --format json or sarif; without a terminal only
-                           the text result is printed. Always opens (pgard scan
-                           does not read PGARD_PANELS). The menu opens it by
-                           itself after a scan in a terminal; PGARD_PANELS=off
-                           stops that. pgard dashboard is the
-                           separate local web app
+  --all-findings           list every finding in full (evidence, fix,
+                           standards, every location). In a terminal the
+                           default is compact: critical and high first, at most
+                           10 groups of one or two lines, then "+N more". Not in
+                           a terminal (pipe, file) the text is always the full
+                           form. It also lists every suppressed finding (see
+                           pgard.config.json) and every finding in the baseline
+  --panels                 open the read-only full-screen view (summary, charts,
+                           coverage, findings; keys: Tab, arrows, ? help, Esc
+                           back) after the text result. In a terminal pgard scan
+                           already opens it by itself; PGARD_PANELS=off (also 0,
+                           false, no) stops that, and --panels still forces it.
+                           Never opens without a terminal. Not with --format
+                           json or sarif. pgard dashboard is the separate local
+                           web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
                            then en). JSON and SARIF output are always English
@@ -226,8 +229,8 @@ authorization and continues the scan.
 - `--port N`(`scan web`, `scan all` 전용): 로컬 서비스 포트, 1~65535 정수. 지정해도 서비스 확인은 필요합니다.
 - `--target-port N`(`dashboard` 전용): 검사할 로컬 서비스를 미리 선택합니다. 브라우저에서 다시 확인합니다. 대시보드 자체는 별도의 빈 포트에서 실행됩니다.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
-- `--panels`(모든 `scan`): 텍스트 결과 뒤에 그 결과를 읽기 전용 전체 화면으로 보여 주는 [패널 화면](#패널-화면)을 엽니다. `--format json`, `sarif`와는 함께 쓸 수 없습니다(로그인·스캔 전에 사용법 오류 2). 터미널이 아니면(CI, 파이프, 리다이렉트) 무시되어 평소처럼 텍스트 결과만 출력되고 stderr에 한 줄 안내가 나갑니다. 대화형 메뉴에서 시작한 스캔은 터미널에서 같은 화면을 자동으로 엽니다. `PGARD_PANELS=off`(`0`, `false`, `no`도 가능)로 끌 수 있고, 명시적인 `--panels`가 이 설정보다 우선합니다. 로컬 웹 앱인 `pgard dashboard`와는 별개입니다.
-- `--all-findings`(모든 `scan`): 모든 발견 항목과 위치를 각자의 근거와 함께 나열하며 아무것도 접지 않습니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고). 억제된 발견 항목과 기준선에 있는 발견 항목도 모두 나열합니다([억제](#억제suppressions), [기준선](#기준선baseline) 참고).
+- `--panels`(모든 `scan`): 텍스트 결과 뒤에 그 결과를 읽기 전용 전체 화면으로 보여 주는 [패널 화면](#패널-화면)을 엽니다. 터미널에서는 메뉴든 `pgard scan …`이든 모든 스캔이 이 화면을 자동으로 열므로, 이 옵션은 `PGARD_PANELS=off`를 무시하고 열고 싶을 때만 필요합니다. `PGARD_PANELS=off`(`0`, `false`, `no`도 가능)로 자동 열림을 끌 수 있고, 명시적인 `--panels`가 이 설정보다 우선합니다. `--format json`, `sarif`와는 함께 쓸 수 없습니다(로그인·스캔 전에 사용법 오류 2). 터미널이 아니면(CI, 파이프, 리다이렉트) 절대 열리지 않으며 평소처럼 텍스트 결과만 출력되고, `--panels`를 준 경우 stderr에 한 줄 안내가 나갑니다. 로컬 웹 앱인 `pgard dashboard`와는 별개입니다.
+- `--all-findings`(모든 `scan`): 터미널의 간단한 목록 대신 전체 내용을 출력합니다. 모든 발견 항목과 위치를 각자의 근거, 조치, 표준과 함께 나열하며 아무것도 접지 않습니다. 터미널에서 기본값은 간단한 목록이고([터미널 결과 화면](#터미널-결과-화면) 참고), 터미널이 아니면 텍스트는 항상 전체 형식입니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고). 억제된 발견 항목과 기준선에 있는 발견 항목도 모두 나열합니다([억제](#억제suppressions), [기준선](#기준선baseline) 참고).
 - `--format text|json|sarif`(모든 `scan`, 기본값 `text`): `sarif`는 대신 SARIF 2.1.0을 출력합니다([SARIF 출력](#sarif-출력) 참고). stdout, stderr, `--port`, 종료 코드는 `json`과 같은 규칙을 따릅니다. `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
 - `--lang en|ko`(모든 `scan`, `rules list`): 터미널에 표시되는 규칙 문구(제목, 영향, 조치)의 언어입니다. [규칙 문구의 언어](#규칙-문구의-언어) 참고.
 - `--report-lang en|ko`(`--report`와 함께 쓰는 모든 `scan`): 저장되는 HTML·PDF 보고서 전체(규칙 문구만이 아님)의 언어이며, 기본값은 `--lang` 언어입니다.
@@ -491,19 +494,25 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 ### 터미널 결과 화면
 
-`pgard scan`은 위에서 아래로 다음을 출력합니다.
+터미널에서 `pgard scan`은 발견 항목을 먼저, 요약을 마지막에 출력합니다. 그래서 숫자와 다음 단계가 화면 아래에 남고 위로 밀려 사라지지 않습니다.
 
-1. **상태 줄**: 저장소, 리비전, 범위, 그리고 `pgard.config.json`·억제·기준선에 대한 `!` 안내.
-2. **요약**: 요청한 영역과 완료·부분 완료·미검사 개수(부분 완료인 설정 파일도 포함), 실행된 규칙 수(`ruleStats` 기준이며 부분 완료 영역에서 실행된 규칙은 따로 표시), "규칙별 최대 검사 대상"(파일·커밋·페이지: 규칙들이 살펴본 개수 중 가장 큰 값이며 합계도, 저장소 크기도 아님), 소요 시간, 검사가 증분이었는지 전체였는지와 그 이유(**증분 검사: 파일 3개 다시 검사, 1997개 재사용 (검사 1a2b3c4d 기준)** 또는 **전체 검사: <사유>**, [증분 검사](#증분-검사) 참고), 그리고 저장소의 이전 검사가 저장되어 있으면 **지난 검사 대비: `+N 신규 / -N 더 이상 보고되지 않음`**. "해결됨"이 아니라 "더 이상 보고되지 않음"이라고 쓰는 것은 코드가 건너뛰어졌거나 이름이 바뀌었거나 사라졌을 수도 있기 때문이며, 비교하지 못한 영역은 이름을 밝힙니다. 같은 데이터의 더 긴 한 줄이 결과 뒤에 이어집니다. 결과에 데이터가 없는 줄은 생략합니다(PGARD 1.0 결과에는 `ruleStats`가 없음).
-3. **차트**: 심각도별, OWASP Top 10 2025 분류별(발견 항목은 매핑된 분류마다 한 번 셈, 매핑이 없는 항목은 따로 셈), 영역별(코드·이력·웹). 색이 켜져 있으면 막대는 심각도 색의 블록 문자이고, `NO_COLOR`·터미널이 아닌 출력·`TERM=dumb`에서는 일반 `#` 막대이며, 60열 미만에서는 막대 없이 `라벨  개수` 줄만 나옵니다. 막대는 터미널 너비에 맞춰지고(터미널이 아니면 `COLUMNS`, 없으면 80) 라벨은 넘치면 잘립니다.
-4. **발견 항목**: 심각도가 높은 순으로, 위치, 가려진 근거, 조치, 규칙의 공식 표준(OWASP·CWE·CERT 식별자와 링크, https만)을 보여 줍니다. 테스트·fixture·vendored 항목은 각자의 그룹에 이어지며, 5개를 넘으면 심각도가 낮은 항목은 개수로 대체됩니다([그룹화와 접기](#그룹화와-접기) 참고).
-5. **검사 범위**(영역별)와 **표준 매핑 현황**.
+1. **머리말**: 상태 줄 하나와 저장소·리비전·범위 줄 하나, 그리고 `pgard.config.json`·억제·기준선에 대한 `!` 안내.
+2. **발견 항목(기본은 간단히)**: 치명적·높음을 먼저, 최대 10개 그룹(같은 규칙·같은 원인)을 그룹마다 한두 줄로 보여 줍니다. 심각도, 제목, 첫 위치(`외 N곳`), 규칙 ID, 상태입니다. 목록 아래에 `+43건 더 있음 (보통 17, 낮음 2) - --all-findings로 실행`이 나오므로 낮은 심각도는 조용히 빠지지 않고 개수로 남으며, 근거·조치·표준은 `--all-findings`, [패널 화면](#패널-화면), 대시보드 또는 보고서에 있다는 안내가 함께 나옵니다. 테스트·fixture 코드와 vendored 코드의 항목은 심각도별 개수와 함께 각각 한 줄로 표시되어(`테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8 - ...`) 구분이 유지되고 치명적·높음 항목도 개수로 드러납니다. 억제된 항목과 기준선의 항목은 자기 구역을 유지하며 치명적 항목은 계속 나열됩니다.
+3. **마무리 요약**: `결과: <상태> - 발견 N건 (...)`, 검사가 끝까지 되지 않았거나 일부·미검사 영역이 있으면 항상 나오는 `! 안전하다는 결과가 아닙니다` 경고, **요약** 블록(영역, 규칙, "규칙별 최대 검사 대상", 소요 시간, 증분/전체 여부, 지난 검사 이후), 심각도·OWASP Top 10 2025 분류·영역별 **차트**, **검사 범위**(`정상 2, 일부 1, 검사 안 됨 1` 한 줄과, 일부이거나 검사 안 된 영역의 이름과 설명. `--all-findings`에서는 모든 영역 목록), **표준 매핑 현황**(개수 두 줄과 "규칙 실행됨은 통과가 아님" 안내. 표는 `--all-findings`에서), 분석 근거, 그리고 **다음** 줄.
+
+`--all-findings`는 전체 내용(근거, 조치, 링크가 있는 표준, 모든 위치, 접기 없음)을 같은 순서로, 요약을 마지막에 출력합니다. 차트: 색이 켜져 있으면 막대는 심각도 색의 블록 문자이고, `NO_COLOR`·터미널이 아닌 출력·`TERM=dumb`에서는 일반 `#` 막대이며, 60열 미만에서는 막대 없이 `라벨  개수` 줄만 나옵니다. 막대는 터미널 너비에 맞춰집니다.
+
+**너비.** 모든 줄은 터미널 너비에 맞춰 줄바꿈되며, 이어지는 줄은 라벨(`! `, `[부분 완료] `, `근거: `) 아래로 들여쓰기됩니다. 공백에서만 끊으므로 검사 범위 설명이 단어 중간에서 잘리지 않습니다. 공백 없이 줄보다 긴 단어는(URL이 아니면) 나누어 출력합니다. 유일한 예외는 끊을 수 없는 `http://`·`https://` URL로, 잘린 링크는 복사할 수 없으므로 통째로 두며 오른쪽 끝을 넘을 수 있습니다.
+
+**터미널이 아닐 때**(파이프, 파일, CI) 텍스트 결과는 스크립트를 위해 바뀌지 않고 그대로입니다. 요약과 차트가 먼저, 모든 발견 항목이 전체 내용으로, 그다음 검사 범위가 나오며 줄바꿈과 `다음` 줄은 없습니다. `--format json`, `--format sarif`는 영향을 받지 않습니다.
+
+**이전 배치:** 터미널에서 예전의 요약 우선 전체 텍스트를 보려면 출력을 파이프로 넘기세요(`pgard scan | cat`).
 
 표준 매핑 현황은 네 가지 상태만 씁니다: 규칙 실행됨(`rules ran`), 규칙 일부 실행(`rules partial`), 실행 안 됨(`not run`), 규칙 없음(`no rules`). 항목에 매핑된 PGARD 규칙이 이번 검사에서 실행되었는지를 나타낼 뿐 "안전"이나 "모두 다룸"이라는 뜻이 아니며, 표에 초록색은 쓰지 않습니다.
 
 ### 패널 화면
 
-`pgard scan --panels`(또는 터미널에서 대화형 메뉴로 시작한 모든 스캔)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 메뉴에서는 완료·부분 완료된 스캔 뒤에(실패한 스캔은 보여 줄 것이 적어 제외) `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. `pgard scan …`은 `PGARD_PANELS=off`여도 `--panels`를 줄 때만 열립니다. stdin과 stdout이 모두 터미널이 아니면 절대 열리지 않습니다. 화면 자체가 실패하면 터미널을 되돌리고 stderr에 한 줄 안내를 내며 스캔의 종료 코드는 그대로입니다. 차단된 스캔에 `--panels`를 쓰면 열지 않고 이유를 stderr에 알립니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
+터미널에서 실행한 모든 `pgard scan`(대화형 메뉴로 시작한 스캔 포함)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 간단한 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 완료·부분 완료된 스캔 뒤에(실패한 스캔은 보여 줄 것이 적어 제외) `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. `--panels`는 `PGARD_PANELS=off`여도 엽니다. stdin과 stdout이 모두 터미널이 아니면, 그리고 `--format json`, `sarif`에서는 절대 열리지 않습니다. 화면 자체가 실패하면 터미널을 되돌리고 stderr에 한 줄 안내를 내며 스캔의 종료 코드는 그대로입니다. 차단된 스캔에 `--panels`를 쓰면 열지 않고 이유를 stderr에 알립니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
 
 - **개요**: 텍스트 결과와 같은 요약 블록과 심각도 막대.
 - **차트**: OWASP Top 10 2025 분류별, 영역별 발견 항목.

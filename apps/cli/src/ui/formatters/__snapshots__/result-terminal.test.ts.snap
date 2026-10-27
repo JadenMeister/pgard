@@ -1,0 +1,1995 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`terminal result, --all-findings > matches the reviewed layout: en, 80 columns, NO_COLOR 1`] = `
+"PGARD scan result - Partial - some requested areas did not fully run
+Repository acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - scopes: code,
+history, web
+
+Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
+  [CRITICAL] Request input reaches an OS command (confirmed, 3 locations)
+      PG-CMD-001 - confidence medium
+      - scripts/deploy.js:13
+          Evidence: value flows from the request to a sink in scripts/deploy.js
+      - src/jobs/convert.ts:12
+          Evidence: value flows from the request to a sink in
+                    src/jobs/convert.ts
+      - src/jobs/export.ts:11
+          Evidence: value flows from the request to a sink in src/jobs/export.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [CRITICAL] User input concatenated into SQL (confirmed, 2 locations)
+      PG-SQL-001 - confidence medium
+      - src/api/orders.ts:15
+          Evidence: value flows from the request to a sink in src/api/orders.ts
+      - src/api/users.ts:14
+          Evidence: value flows from the request to a sink in src/api/users.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/89.html
+
+  [HIGH] Secret committed in Git history (confirmed, 2 locations)
+      PG-SECRET-003 - confidence medium
+      - config/.env (commit 0123456789ab)
+          Evidence: value flows from the request to a sink in config/.env
+      - deploy/keys.json (commit 0123456789ab)
+          Evidence: value flows from the request to a sink in deploy/keys.json
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures
+        https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        CWE-540 https://cwe.mitre.org/data/definitions/540.html
+        MSC03-J Never hard code sensitive information (via CWE-798)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [HIGH] Customer export reachable without sign-in (고객 목록 내보내기)
+         (suspected)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - confidence medium
+      Evidence: req.query -> concat -> query()
+      Fix: Use parameters
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-201 https://cwe.mitre.org/data/definitions/201.html
+
+  [HIGH] JWT verified without an algorithm allow-list (suspected)
+      src/auth/token.ts:25  PG-AUTH-002 - confidence medium
+      Evidence: value flows from the request to a sink in src/auth/token.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [HIGH] Request input used as a file path (suspected, 3 locations)
+      PG-PATH-001 - confidence medium
+      - src/files/download.ts:22
+          Evidence: value flows from the request to a sink in
+                    src/files/download.ts
+      - src/files/upload.ts:23
+          Evidence: value flows from the request to a sink in
+                    src/files/upload.ts
+      - src/files/zip.ts:24
+          Evidence: value flows from the request to a sink in src/files/zip.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ...
+        https://cwe.mitre.org/data/definitions/22.html
+
+  [HIGH] User input rendered as HTML (suspected, 4 locations)
+      PG-XSS-001 - confidence medium
+      - src/ui/Banner.tsx:21
+          Evidence: value flows from the request to a sink in src/ui/Banner.tsx
+      - src/ui/Comment.tsx:18
+          Evidence: value flows from the request to a sink in src/ui/Comment.tsx
+      - src/ui/Profile.tsx:19
+          Evidence: value flows from the request to a sink in src/ui/Profile.tsx
+      - src/ui/Search.tsx:20
+          Evidence: value flows from the request to a sink in src/ui/Search.tsx
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri...
+        https://cwe.mitre.org/data/definitions/79.html
+
+  [MEDIUM] Weak hash used for passwords (suspected, 2 locations)
+      PG-CRYPTO-002 - confidence medium
+      - src/auth/hash.ts:32
+          Evidence: value flows from the request to a sink in src/auth/hash.ts
+      - src/auth/legacy.ts:33
+          Evidence: value flows from the request to a sink in src/auth/legacy.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A04:2025 Cryptographic Failures
+        https://top10.owasp.org/2025/A04_2025-Cryptographic_Failures/
+        A07:2025 Authentication Failures
+        https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-321 https://cwe.mitre.org/data/definitions/321.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (via CWE-798)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [MEDIUM] Session cookie without the Secure and HttpOnly flags
+           (suspected, 2 locations)
+      PG-COOKIE-001 - confidence medium
+      - src/auth/remember.ts:28
+          Evidence: value flows from the request to a sink in
+                    src/auth/remember.ts
+      - src/auth/session.ts:27
+          Evidence: value flows from the request to a sink in
+                    src/auth/session.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A02:2025 Security Misconfiguration
+        https://top10.owasp.org/2025/A02_2025-Security_Misconfiguration/
+        CWE-1004 https://cwe.mitre.org/data/definitions/1004.html
+        CWE-614 https://cwe.mitre.org/data/definitions/614.html
+        CWE-1275 https://cwe.mitre.org/data/definitions/1275.html
+
+  [MEDIUM] Outbound request to an address taken from the request
+           (suspected, 8 locations)
+      PG-SSRF-001 - confidence medium
+      - src/clients/fetcher0.ts:41
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher0.ts
+      - src/clients/fetcher1.ts:42
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher1.ts
+      - src/clients/fetcher2.ts:43
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher2.ts
+      - src/clients/fetcher3.ts:44
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher3.ts
+      - src/clients/fetcher4.ts:45
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher4.ts
+      - src/clients/fetcher5.ts:46
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher5.ts
+      - src/clients/fetcher6.ts:47
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher6.ts
+      - src/clients/fetcher7.ts:48
+          Evidence: value flows from the request to a sink in
+                    src/clients/fetcher7.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-918 Server-Side Request Forgery (SSRF)
+        https://cwe.mitre.org/data/definitions/918.html
+
+  [MEDIUM] Credentials written to the log (suspected, 3 locations)
+      PG-LOG-001 - confidence medium
+      - src/log/audit.ts:35
+          Evidence: value flows from the request to a sink in src/log/audit.ts
+      - src/log/debug.ts:36
+          Evidence: value flows from the request to a sink in src/log/debug.ts
+      - src/log/request.ts:34
+          Evidence: value flows from the request to a sink in src/log/request.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [MEDIUM] Redirect target taken from the request (suspected, 3 locations)
+      PG-REDIR-001 - confidence medium
+      - src/routes/login.ts:29
+          Evidence: value flows from the request to a sink in
+                    src/routes/login.ts
+      - src/routes/logout.ts:30
+          Evidence: value flows from the request to a sink in
+                    src/routes/logout.ts
+      - src/routes/oauth.ts:31
+          Evidence: value flows from the request to a sink in
+                    src/routes/oauth.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [MEDIUM] CORS allows any origin with credentials (suspected)
+      src/server.ts:26  PG-CORS-001 - confidence medium
+      Evidence: value flows from the request to a sink in src/server.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [MEDIUM] Security headers missing from the response (suspected)
+      src/server.ts:37  PG-HDR-001 - confidence medium
+      Evidence: value flows from the request to a sink in src/server.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [LOW] Stack trace returned to the client (suspected, 6 locations)
+      PG-ERR-001 - confidence medium
+      - src/routes/handler0.ts:49
+          Evidence: value flows from the request to a sink in
+                    src/routes/handler0.ts
+      - src/routes/handler1.ts:50
+          Evidence: value flows from the request to a sink in
+                    src/routes/handler1.ts
+      - src/routes/handler2.ts:51
+          Evidence: value flows from the request to a sink in
+                    src/routes/handler2.ts
+      - src/routes/handler3.ts:52
+          Evidence: value flows from the request to a sink in
+                    src/routes/handler3.ts
+      - src/routes/handler4.ts:53
+          Evidence: value flows from the request to a sink in
+                    src/routes/handler4.ts
+      - src/routes/handler5.ts:54
+          Evidence: value flows from the request to a sink in
+                    src/routes/handler5.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [LOW] No rate limit on the login route (suspected, 2 locations)
+      PG-RATE-001 - confidence medium
+      - src/routes/login.ts:38
+          Evidence: value flows from the request to a sink in
+                    src/routes/login.ts
+      - src/routes/reset.ts:39
+          Evidence: value flows from the request to a sink in
+                    src/routes/reset.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [LOW] Debug mode enabled outside development (informational)
+      config/production.js:40  PG-DEBUG-001 - confidence medium
+      Evidence: value flows from the request to a sink in config/production.js
+      Fix: Validate the value first or pass it as a parameter instead
+
+In test or fixture code (14)
+  Matches in files classified as test or fixture code by their path only
+  (confidence capped at low). Review them: a real value committed in a test is
+  still exposed.
+  [HIGH] Hardcoded credential (suspected, 2 locations)
+      PG-SECRET-001 - confidence low
+      - test/fixtures/aws.json:63
+          Evidence: value flows from the request to a sink in
+                    test/fixtures/aws.json
+      - test/fixtures/stripe.json:64
+          Evidence: value flows from the request to a sink in
+                    test/fixtures/stripe.json
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures
+        https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-538 https://cwe.mitre.org/data/definitions/538.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (via CWE-798)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [MEDIUM] User input rendered as HTML (suspected, 4 locations)
+      PG-XSS-001 - confidence low
+      - test/ui/render0.test.tsx:65
+          Evidence: value flows from the request to a sink in
+                    test/ui/render0.test.tsx
+      - test/ui/render1.test.tsx:66
+          Evidence: value flows from the request to a sink in
+                    test/ui/render1.test.tsx
+      - test/ui/render2.test.tsx:67
+          Evidence: value flows from the request to a sink in
+                    test/ui/render2.test.tsx
+      - test/ui/render3.test.tsx:68
+          Evidence: value flows from the request to a sink in
+                    test/ui/render3.test.tsx
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri...
+        https://cwe.mitre.org/data/definitions/79.html
+
+  [LOW] User input concatenated into SQL (suspected, 8 locations)
+      PG-SQL-001 - confidence low
+      - test/db/case0.test.ts:55
+          Evidence: value flows from the request to a sink in
+                    test/db/case0.test.ts
+      - test/db/case1.test.ts:56
+          Evidence: value flows from the request to a sink in
+                    test/db/case1.test.ts
+      - test/db/case2.test.ts:57
+          Evidence: value flows from the request to a sink in
+                    test/db/case2.test.ts
+      - test/db/case3.test.ts:58
+          Evidence: value flows from the request to a sink in
+                    test/db/case3.test.ts
+      - test/db/case4.test.ts:59
+          Evidence: value flows from the request to a sink in
+                    test/db/case4.test.ts
+      - test/db/case5.test.ts:60
+          Evidence: value flows from the request to a sink in
+                    test/db/case5.test.ts
+      - test/db/case6.test.ts:61
+          Evidence: value flows from the request to a sink in
+                    test/db/case6.test.ts
+      - test/db/case7.test.ts:62
+          Evidence: value flows from the request to a sink in
+                    test/db/case7.test.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/89.html
+
+Suggestions: in third-party/vendored code (11)
+  This code is a committed dependency, not your code. Review it if it's
+  unexpected; otherwise consider removing it from Git (git rm -r --cached
+  <directory>, then add the directory to .gitignore).
+  [LOW] Request input reaches an OS command (suspected, 6 locations)
+      PG-CMD-001 - confidence low
+      - vendor/tool/lib0.js:69
+          Evidence: value flows from the request to a sink in
+                    vendor/tool/lib0.js
+      - vendor/tool/lib1.js:70
+          Evidence: value flows from the request to a sink in
+                    vendor/tool/lib1.js
+      - vendor/tool/lib2.js:71
+          Evidence: value flows from the request to a sink in
+                    vendor/tool/lib2.js
+      - vendor/tool/lib3.js:72
+          Evidence: value flows from the request to a sink in
+                    vendor/tool/lib3.js
+      - vendor/tool/lib4.js:73
+          Evidence: value flows from the request to a sink in
+                    vendor/tool/lib4.js
+      - vendor/tool/lib5.js:74
+          Evidence: value flows from the request to a sink in
+                    vendor/tool/lib5.js
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [INFO] Request input used as a file path (informational, 5 locations)
+      PG-PATH-001 - confidence low
+      - third_party/zip/entry0.js:75
+          Evidence: value flows from the request to a sink in
+                    third_party/zip/entry0.js
+      - third_party/zip/entry1.js:76
+          Evidence: value flows from the request to a sink in
+                    third_party/zip/entry1.js
+      - third_party/zip/entry2.js:77
+          Evidence: value flows from the request to a sink in
+                    third_party/zip/entry2.js
+      - third_party/zip/entry3.js:78
+          Evidence: value flows from the request to a sink in
+                    third_party/zip/entry3.js
+      - third_party/zip/entry4.js:79
+          Evidence: value flows from the request to a sink in
+                    third_party/zip/entry4.js
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ...
+        https://cwe.mitre.org/data/definitions/22.html
+
+Result: Partial - 70 findings (5 critical, 13 high, 24 medium, 23 low, 5 info)
+! Not a safe result: an area that is partial or not tested was not fully
+  checked, so no finding there does not mean no problem.
+
+Summary
+  Areas         4 requested — 2 completed, 1 partial, 1 not tested (1 not
+                selected)
+  Rules         2 rules ran (1 in partially scanned areas)
+  Max per rule  412 files, 500 commits
+  Elapsed       5.0 s
+
+Findings by severity (45 total)
+  plus 14 in test or fixture code (2 high), 11 suggestions in vendored code
+  Critical ######## 5
+  High     ################# 11
+  Medium   ############################## 20
+  Low      ############## 9
+  Info     0
+
+By OWASP Top 10 2025 category
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  No OWASP mapping               ## 1
+
+By area
+  code    ############################## 42
+  history # 2
+  web     # 1
+
+Coverage
+  [ok] source:typescript (Completed)
+  [ok] source:javascript (Completed)
+  [partial] history:secrets (Partial) - Only the last 500 commits were
+            read because the repository history is very long; older secrets are
+            not checked.
+  [not tested] web:anonymous (Not tested) - No local web target was
+               confirmed, so no running service was checked (pass --port to
+               include it).
+  [not selected] dependencies:lockfile (Not selected)
+
+Standards coverage (OWASP Top 10 2025)
+  [rules partial] A01 Broken Access Control - 6 of 40 mapped
+                  CWEs have rules (PG-SECRET-003); partial areas:
+                  history:secrets; code rules not run: areas could not run; no
+                  completed mapped rule covers javascript, typescript (files
+                  that are not yours to scan can be left out with "exclude…
+  [not run]       A02 Security Misconfiguration - 2 of 16 mapped CWEs
+            have rules; no mapped rule ran (PG-COOKIE-001: code areas could not
+            run)
+  [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped
+            CWEs have rules; no mapped rule ran (PG-HYGIENE-001: history areas
+            could not run)
+  [not run]       A04 Cryptographic Failures - 4 of 32 mapped CWEs
+            have rules; no mapped rule ran (PG-CRYPTO-001, PG-CRYPTO-002,
+            PG-CRYPTO-003: code areas could not run)
+  [rules partial] A05 Injection - 3 of 37 mapped CWEs have rules
+                  (PG-CMD-001); no completed mapped rule covers javascript
+                  (files that are not yours to scan can be left out with
+                  "exclude" in pgard.config.json)
+  [not run]       A06 Insecure Design - 1 of 39 mapped CWEs have
+            rules; no mapped rule ran (PG-AUTH-001: code areas could not run)
+  [rules partial] A07 Authentication Failures - 2 of 36 mapped
+                  CWEs have rules (PG-SECRET-003); partial areas:
+                  history:secrets; code rules not run: areas could not run; no
+                  completed mapped rule covers javascript, typescript (files
+                  that are not yours to scan can be left out with "exclude…
+  [no rules]      A08 Software or Data Integrity Failures - no rules
+  [no rules]      A09 Security Logging & Alerting Failures - no rules
+  [no rules]      A10 Mishandling of Exceptional Conditions - no rules
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  Rules ran means the mapped rules ran to completion in this scan. It does not
+  mean the project is safe or that the category is covered: see how many of its
+  CWEs have rules. Full detail per entry: --format json (standardsCoverage,
+  ruleStats).
+
+PGARD does not ship or query a vulnerability database. Findings come from the
+code itself (query statements, server code, configuration), Git history and, if
+selected, local HTTP checks. Dependency versions are not checked against known
+vulnerabilities.
+
+Next: save a report with --report html --output-dir <dir>, or open pgard
+      dashboard."
+`;
+
+exports[`terminal result, --all-findings > matches the reviewed layout: en, 120 columns, NO_COLOR 1`] = `
+"PGARD scan result - Partial - some requested areas did not fully run
+Repository acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - scopes: code, history, web
+
+Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
+  [CRITICAL] Request input reaches an OS command (confirmed, 3 locations)
+      PG-CMD-001 - confidence medium
+      - scripts/deploy.js:13
+          Evidence: value flows from the request to a sink in scripts/deploy.js
+      - src/jobs/convert.ts:12
+          Evidence: value flows from the request to a sink in src/jobs/convert.ts
+      - src/jobs/export.ts:11
+          Evidence: value flows from the request to a sink in src/jobs/export.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [CRITICAL] User input concatenated into SQL (confirmed, 2 locations)
+      PG-SQL-001 - confidence medium
+      - src/api/orders.ts:15
+          Evidence: value flows from the request to a sink in src/api/orders.ts
+      - src/api/users.ts:14
+          Evidence: value flows from the request to a sink in src/api/users.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/89.html
+
+  [HIGH] Secret committed in Git history (confirmed, 2 locations)
+      PG-SECRET-003 - confidence medium
+      - config/.env (commit 0123456789ab)
+          Evidence: value flows from the request to a sink in config/.env
+      - deploy/keys.json (commit 0123456789ab)
+          Evidence: value flows from the request to a sink in deploy/keys.json
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        CWE-540 https://cwe.mitre.org/data/definitions/540.html
+        MSC03-J Never hard code sensitive information (via CWE-798)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [HIGH] Customer export reachable without sign-in (고객 목록 내보내기) (suspected)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - confidence medium
+      Evidence: req.query -> concat -> query()
+      Fix: Use parameters
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-201 https://cwe.mitre.org/data/definitions/201.html
+
+  [HIGH] JWT verified without an algorithm allow-list (suspected)
+      src/auth/token.ts:25  PG-AUTH-002 - confidence medium
+      Evidence: value flows from the request to a sink in src/auth/token.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [HIGH] Request input used as a file path (suspected, 3 locations)
+      PG-PATH-001 - confidence medium
+      - src/files/download.ts:22
+          Evidence: value flows from the request to a sink in src/files/download.ts
+      - src/files/upload.ts:23
+          Evidence: value flows from the request to a sink in src/files/upload.ts
+      - src/files/zip.ts:24
+          Evidence: value flows from the request to a sink in src/files/zip.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ... https://cwe.mitre.org/data/definitions/22.html
+
+  [HIGH] User input rendered as HTML (suspected, 4 locations)
+      PG-XSS-001 - confidence medium
+      - src/ui/Banner.tsx:21
+          Evidence: value flows from the request to a sink in src/ui/Banner.tsx
+      - src/ui/Comment.tsx:18
+          Evidence: value flows from the request to a sink in src/ui/Comment.tsx
+      - src/ui/Profile.tsx:19
+          Evidence: value flows from the request to a sink in src/ui/Profile.tsx
+      - src/ui/Search.tsx:20
+          Evidence: value flows from the request to a sink in src/ui/Search.tsx
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri... https://cwe.mitre.org/data/definitions/79.html
+
+  [MEDIUM] Weak hash used for passwords (suspected, 2 locations)
+      PG-CRYPTO-002 - confidence medium
+      - src/auth/hash.ts:32
+          Evidence: value flows from the request to a sink in src/auth/hash.ts
+      - src/auth/legacy.ts:33
+          Evidence: value flows from the request to a sink in src/auth/legacy.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A04:2025 Cryptographic Failures https://top10.owasp.org/2025/A04_2025-Cryptographic_Failures/
+        A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-321 https://cwe.mitre.org/data/definitions/321.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (via CWE-798)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [MEDIUM] Session cookie without the Secure and HttpOnly flags (suspected, 2 locations)
+      PG-COOKIE-001 - confidence medium
+      - src/auth/remember.ts:28
+          Evidence: value flows from the request to a sink in src/auth/remember.ts
+      - src/auth/session.ts:27
+          Evidence: value flows from the request to a sink in src/auth/session.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A02:2025 Security Misconfiguration https://top10.owasp.org/2025/A02_2025-Security_Misconfiguration/
+        CWE-1004 https://cwe.mitre.org/data/definitions/1004.html
+        CWE-614 https://cwe.mitre.org/data/definitions/614.html
+        CWE-1275 https://cwe.mitre.org/data/definitions/1275.html
+
+  [MEDIUM] Outbound request to an address taken from the request (suspected, 8 locations)
+      PG-SSRF-001 - confidence medium
+      - src/clients/fetcher0.ts:41
+          Evidence: value flows from the request to a sink in src/clients/fetcher0.ts
+      - src/clients/fetcher1.ts:42
+          Evidence: value flows from the request to a sink in src/clients/fetcher1.ts
+      - src/clients/fetcher2.ts:43
+          Evidence: value flows from the request to a sink in src/clients/fetcher2.ts
+      - src/clients/fetcher3.ts:44
+          Evidence: value flows from the request to a sink in src/clients/fetcher3.ts
+      - src/clients/fetcher4.ts:45
+          Evidence: value flows from the request to a sink in src/clients/fetcher4.ts
+      - src/clients/fetcher5.ts:46
+          Evidence: value flows from the request to a sink in src/clients/fetcher5.ts
+      - src/clients/fetcher6.ts:47
+          Evidence: value flows from the request to a sink in src/clients/fetcher6.ts
+      - src/clients/fetcher7.ts:48
+          Evidence: value flows from the request to a sink in src/clients/fetcher7.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-918 Server-Side Request Forgery (SSRF) https://cwe.mitre.org/data/definitions/918.html
+
+  [MEDIUM] Credentials written to the log (suspected, 3 locations)
+      PG-LOG-001 - confidence medium
+      - src/log/audit.ts:35
+          Evidence: value flows from the request to a sink in src/log/audit.ts
+      - src/log/debug.ts:36
+          Evidence: value flows from the request to a sink in src/log/debug.ts
+      - src/log/request.ts:34
+          Evidence: value flows from the request to a sink in src/log/request.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [MEDIUM] Redirect target taken from the request (suspected, 3 locations)
+      PG-REDIR-001 - confidence medium
+      - src/routes/login.ts:29
+          Evidence: value flows from the request to a sink in src/routes/login.ts
+      - src/routes/logout.ts:30
+          Evidence: value flows from the request to a sink in src/routes/logout.ts
+      - src/routes/oauth.ts:31
+          Evidence: value flows from the request to a sink in src/routes/oauth.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [MEDIUM] CORS allows any origin with credentials (suspected)
+      src/server.ts:26  PG-CORS-001 - confidence medium
+      Evidence: value flows from the request to a sink in src/server.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [MEDIUM] Security headers missing from the response (suspected)
+      src/server.ts:37  PG-HDR-001 - confidence medium
+      Evidence: value flows from the request to a sink in src/server.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [LOW] Stack trace returned to the client (suspected, 6 locations)
+      PG-ERR-001 - confidence medium
+      - src/routes/handler0.ts:49
+          Evidence: value flows from the request to a sink in src/routes/handler0.ts
+      - src/routes/handler1.ts:50
+          Evidence: value flows from the request to a sink in src/routes/handler1.ts
+      - src/routes/handler2.ts:51
+          Evidence: value flows from the request to a sink in src/routes/handler2.ts
+      - src/routes/handler3.ts:52
+          Evidence: value flows from the request to a sink in src/routes/handler3.ts
+      - src/routes/handler4.ts:53
+          Evidence: value flows from the request to a sink in src/routes/handler4.ts
+      - src/routes/handler5.ts:54
+          Evidence: value flows from the request to a sink in src/routes/handler5.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [LOW] No rate limit on the login route (suspected, 2 locations)
+      PG-RATE-001 - confidence medium
+      - src/routes/login.ts:38
+          Evidence: value flows from the request to a sink in src/routes/login.ts
+      - src/routes/reset.ts:39
+          Evidence: value flows from the request to a sink in src/routes/reset.ts
+      Fix: Validate the value first or pass it as a parameter instead
+
+  [LOW] Debug mode enabled outside development (informational)
+      config/production.js:40  PG-DEBUG-001 - confidence medium
+      Evidence: value flows from the request to a sink in config/production.js
+      Fix: Validate the value first or pass it as a parameter instead
+
+In test or fixture code (14)
+  Matches in files classified as test or fixture code by their path only (confidence capped at low). Review them: a real
+  value committed in a test is still exposed.
+  [HIGH] Hardcoded credential (suspected, 2 locations)
+      PG-SECRET-001 - confidence low
+      - test/fixtures/aws.json:63
+          Evidence: value flows from the request to a sink in test/fixtures/aws.json
+      - test/fixtures/stripe.json:64
+          Evidence: value flows from the request to a sink in test/fixtures/stripe.json
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-538 https://cwe.mitre.org/data/definitions/538.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (via CWE-798)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [MEDIUM] User input rendered as HTML (suspected, 4 locations)
+      PG-XSS-001 - confidence low
+      - test/ui/render0.test.tsx:65
+          Evidence: value flows from the request to a sink in test/ui/render0.test.tsx
+      - test/ui/render1.test.tsx:66
+          Evidence: value flows from the request to a sink in test/ui/render1.test.tsx
+      - test/ui/render2.test.tsx:67
+          Evidence: value flows from the request to a sink in test/ui/render2.test.tsx
+      - test/ui/render3.test.tsx:68
+          Evidence: value flows from the request to a sink in test/ui/render3.test.tsx
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri... https://cwe.mitre.org/data/definitions/79.html
+
+  [LOW] User input concatenated into SQL (suspected, 8 locations)
+      PG-SQL-001 - confidence low
+      - test/db/case0.test.ts:55
+          Evidence: value flows from the request to a sink in test/db/case0.test.ts
+      - test/db/case1.test.ts:56
+          Evidence: value flows from the request to a sink in test/db/case1.test.ts
+      - test/db/case2.test.ts:57
+          Evidence: value flows from the request to a sink in test/db/case2.test.ts
+      - test/db/case3.test.ts:58
+          Evidence: value flows from the request to a sink in test/db/case3.test.ts
+      - test/db/case4.test.ts:59
+          Evidence: value flows from the request to a sink in test/db/case4.test.ts
+      - test/db/case5.test.ts:60
+          Evidence: value flows from the request to a sink in test/db/case5.test.ts
+      - test/db/case6.test.ts:61
+          Evidence: value flows from the request to a sink in test/db/case6.test.ts
+      - test/db/case7.test.ts:62
+          Evidence: value flows from the request to a sink in test/db/case7.test.ts
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/89.html
+
+Suggestions: in third-party/vendored code (11)
+  This code is a committed dependency, not your code. Review it if it's unexpected; otherwise consider removing it from
+  Git (git rm -r --cached <directory>, then add the directory to .gitignore).
+  [LOW] Request input reaches an OS command (suspected, 6 locations)
+      PG-CMD-001 - confidence low
+      - vendor/tool/lib0.js:69
+          Evidence: value flows from the request to a sink in vendor/tool/lib0.js
+      - vendor/tool/lib1.js:70
+          Evidence: value flows from the request to a sink in vendor/tool/lib1.js
+      - vendor/tool/lib2.js:71
+          Evidence: value flows from the request to a sink in vendor/tool/lib2.js
+      - vendor/tool/lib3.js:72
+          Evidence: value flows from the request to a sink in vendor/tool/lib3.js
+      - vendor/tool/lib4.js:73
+          Evidence: value flows from the request to a sink in vendor/tool/lib4.js
+      - vendor/tool/lib5.js:74
+          Evidence: value flows from the request to a sink in vendor/tool/lib5.js
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [INFO] Request input used as a file path (informational, 5 locations)
+      PG-PATH-001 - confidence low
+      - third_party/zip/entry0.js:75
+          Evidence: value flows from the request to a sink in third_party/zip/entry0.js
+      - third_party/zip/entry1.js:76
+          Evidence: value flows from the request to a sink in third_party/zip/entry1.js
+      - third_party/zip/entry2.js:77
+          Evidence: value flows from the request to a sink in third_party/zip/entry2.js
+      - third_party/zip/entry3.js:78
+          Evidence: value flows from the request to a sink in third_party/zip/entry3.js
+      - third_party/zip/entry4.js:79
+          Evidence: value flows from the request to a sink in third_party/zip/entry4.js
+      Fix: Validate the value first or pass it as a parameter instead
+      Standards:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ... https://cwe.mitre.org/data/definitions/22.html
+
+Result: Partial - 70 findings (5 critical, 13 high, 24 medium, 23 low, 5 info)
+! Not a safe result: an area that is partial or not tested was not fully checked, so no finding there does not mean no
+  problem.
+
+Summary
+  Areas         4 requested — 2 completed, 1 partial, 1 not tested (1 not selected)
+  Rules         2 rules ran (1 in partially scanned areas)
+  Max per rule  412 files, 500 commits
+  Elapsed       5.0 s
+
+Findings by severity (45 total) - plus 14 in test or fixture code (2 high), 11 suggestions in vendored code
+  Critical ######## 5
+  High     ################# 11
+  Medium   ############################## 20
+  Low      ############## 9
+  Info     0
+
+By OWASP Top 10 2025 category
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  No OWASP mapping               ## 1
+
+By area
+  code    ############################## 42
+  history # 2
+  web     # 1
+
+Coverage
+  [ok] source:typescript (Completed)
+  [ok] source:javascript (Completed)
+  [partial] history:secrets (Partial) - Only the last 500 commits were read because the repository history is
+            very long; older secrets are not checked.
+  [not tested] web:anonymous (Not tested) - No local web target was confirmed, so no running service was
+               checked (pass --port to include it).
+  [not selected] dependencies:lockfile (Not selected)
+
+Standards coverage (OWASP Top 10 2025)
+  [rules partial] A01 Broken Access Control - 6 of 40 mapped CWEs have rules (PG-SECRET-003); partial
+                  areas: history:secrets; code rules not run: areas could not run; no completed mapped rule covers
+                  javascript, typescript (files that are not yours to scan can be left out with "exclude…
+  [not run]       A02 Security Misconfiguration - 2 of 16 mapped CWEs have rules; no mapped rule ran
+            (PG-COOKIE-001: code areas could not run)
+  [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped CWEs have rules; no mapped rule ran
+            (PG-HYGIENE-001: history areas could not run)
+  [not run]       A04 Cryptographic Failures - 4 of 32 mapped CWEs have rules; no mapped rule ran
+            (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run)
+  [rules partial] A05 Injection - 3 of 37 mapped CWEs have rules (PG-CMD-001); no completed mapped rule
+                  covers javascript (files that are not yours to scan can be left out with "exclude" in
+                  pgard.config.json)
+  [not run]       A06 Insecure Design - 1 of 39 mapped CWEs have rules; no mapped rule ran (PG-AUTH-001: code
+            areas could not run)
+  [rules partial] A07 Authentication Failures - 2 of 36 mapped CWEs have rules (PG-SECRET-003); partial
+                  areas: history:secrets; code rules not run: areas could not run; no completed mapped rule covers
+                  javascript, typescript (files that are not yours to scan can be left out with "exclude…
+  [no rules]      A08 Software or Data Integrity Failures - no rules
+  [no rules]      A09 Security Logging & Alerting Failures - no rules
+  [no rules]      A10 Mishandling of Exceptional Conditions - no rules
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the
+  category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage,
+  ruleStats).
+
+PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server
+code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known
+vulnerabilities.
+
+Next: save a report with --report html --output-dir <dir>, or open pgard dashboard."
+`;
+
+exports[`terminal result, --all-findings > matches the reviewed layout: ko, 80 columns, NO_COLOR 1`] = `
+"PGARD 검사 결과 - 부분 완료 - 요청한 영역 일부가 끝까지 실행되지 않았습니다
+저장소 acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - 범위: code,
+history, web
+
+발견 항목 (45건): 확인됨 7, 의심 37 (검토 필요), 참고 1
+  [치명적] Request input reaches an OS command (확인됨, 위치 3곳)
+      PG-CMD-001 - 신뢰도 보통
+      - scripts/deploy.js:13
+          근거: value flows from the request to a sink in scripts/deploy.js
+      - src/jobs/convert.ts:12
+          근거: value flows from the request to a sink in src/jobs/convert.ts
+      - src/jobs/export.ts:11
+          근거: value flows from the request to a sink in src/jobs/export.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [치명적] User input concatenated into SQL (확인됨, 위치 2곳)
+      PG-SQL-001 - 신뢰도 보통
+      - src/api/orders.ts:15
+          근거: value flows from the request to a sink in src/api/orders.ts
+      - src/api/users.ts:14
+          근거: value flows from the request to a sink in src/api/users.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/89.html
+
+  [높음] Secret committed in Git history (확인됨, 위치 2곳)
+      PG-SECRET-003 - 신뢰도 보통
+      - config/.env (commit 0123456789ab)
+          근거: value flows from the request to a sink in config/.env
+      - deploy/keys.json (commit 0123456789ab)
+          근거: value flows from the request to a sink in deploy/keys.json
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures
+        https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        CWE-540 https://cwe.mitre.org/data/definitions/540.html
+        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [높음] Customer export reachable without sign-in (고객 목록 내보내기) (의심)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - 신뢰도 보통
+      근거: req.query -> concat -> query()
+      조치: Use parameters
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-201 https://cwe.mitre.org/data/definitions/201.html
+
+  [높음] JWT verified without an algorithm allow-list (의심)
+      src/auth/token.ts:25  PG-AUTH-002 - 신뢰도 보통
+      근거: value flows from the request to a sink in src/auth/token.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [높음] Request input used as a file path (의심, 위치 3곳)
+      PG-PATH-001 - 신뢰도 보통
+      - src/files/download.ts:22
+          근거: value flows from the request to a sink in src/files/download.ts
+      - src/files/upload.ts:23
+          근거: value flows from the request to a sink in src/files/upload.ts
+      - src/files/zip.ts:24
+          근거: value flows from the request to a sink in src/files/zip.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ...
+        https://cwe.mitre.org/data/definitions/22.html
+
+  [높음] User input rendered as HTML (의심, 위치 4곳)
+      PG-XSS-001 - 신뢰도 보통
+      - src/ui/Banner.tsx:21
+          근거: value flows from the request to a sink in src/ui/Banner.tsx
+      - src/ui/Comment.tsx:18
+          근거: value flows from the request to a sink in src/ui/Comment.tsx
+      - src/ui/Profile.tsx:19
+          근거: value flows from the request to a sink in src/ui/Profile.tsx
+      - src/ui/Search.tsx:20
+          근거: value flows from the request to a sink in src/ui/Search.tsx
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri...
+        https://cwe.mitre.org/data/definitions/79.html
+
+  [보통] Weak hash used for passwords (의심, 위치 2곳)
+      PG-CRYPTO-002 - 신뢰도 보통
+      - src/auth/hash.ts:32
+          근거: value flows from the request to a sink in src/auth/hash.ts
+      - src/auth/legacy.ts:33
+          근거: value flows from the request to a sink in src/auth/legacy.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A04:2025 Cryptographic Failures
+        https://top10.owasp.org/2025/A04_2025-Cryptographic_Failures/
+        A07:2025 Authentication Failures
+        https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-321 https://cwe.mitre.org/data/definitions/321.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [보통] Session cookie without the Secure and HttpOnly flags (의심, 위치 2곳)
+      PG-COOKIE-001 - 신뢰도 보통
+      - src/auth/remember.ts:28
+          근거: value flows from the request to a sink in src/auth/remember.ts
+      - src/auth/session.ts:27
+          근거: value flows from the request to a sink in src/auth/session.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A02:2025 Security Misconfiguration
+        https://top10.owasp.org/2025/A02_2025-Security_Misconfiguration/
+        CWE-1004 https://cwe.mitre.org/data/definitions/1004.html
+        CWE-614 https://cwe.mitre.org/data/definitions/614.html
+        CWE-1275 https://cwe.mitre.org/data/definitions/1275.html
+
+  [보통] Outbound request to an address taken from the request (의심, 위치 8곳)
+      PG-SSRF-001 - 신뢰도 보통
+      - src/clients/fetcher0.ts:41
+          근거: value flows from the request to a sink in
+                src/clients/fetcher0.ts
+      - src/clients/fetcher1.ts:42
+          근거: value flows from the request to a sink in
+                src/clients/fetcher1.ts
+      - src/clients/fetcher2.ts:43
+          근거: value flows from the request to a sink in
+                src/clients/fetcher2.ts
+      - src/clients/fetcher3.ts:44
+          근거: value flows from the request to a sink in
+                src/clients/fetcher3.ts
+      - src/clients/fetcher4.ts:45
+          근거: value flows from the request to a sink in
+                src/clients/fetcher4.ts
+      - src/clients/fetcher5.ts:46
+          근거: value flows from the request to a sink in
+                src/clients/fetcher5.ts
+      - src/clients/fetcher6.ts:47
+          근거: value flows from the request to a sink in
+                src/clients/fetcher6.ts
+      - src/clients/fetcher7.ts:48
+          근거: value flows from the request to a sink in
+                src/clients/fetcher7.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-918 Server-Side Request Forgery (SSRF)
+        https://cwe.mitre.org/data/definitions/918.html
+
+  [보통] Credentials written to the log (의심, 위치 3곳)
+      PG-LOG-001 - 신뢰도 보통
+      - src/log/audit.ts:35
+          근거: value flows from the request to a sink in src/log/audit.ts
+      - src/log/debug.ts:36
+          근거: value flows from the request to a sink in src/log/debug.ts
+      - src/log/request.ts:34
+          근거: value flows from the request to a sink in src/log/request.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [보통] Redirect target taken from the request (의심, 위치 3곳)
+      PG-REDIR-001 - 신뢰도 보통
+      - src/routes/login.ts:29
+          근거: value flows from the request to a sink in src/routes/login.ts
+      - src/routes/logout.ts:30
+          근거: value flows from the request to a sink in src/routes/logout.ts
+      - src/routes/oauth.ts:31
+          근거: value flows from the request to a sink in src/routes/oauth.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [보통] CORS allows any origin with credentials (의심)
+      src/server.ts:26  PG-CORS-001 - 신뢰도 보통
+      근거: value flows from the request to a sink in src/server.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [보통] Security headers missing from the response (의심)
+      src/server.ts:37  PG-HDR-001 - 신뢰도 보통
+      근거: value flows from the request to a sink in src/server.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [낮음] Stack trace returned to the client (의심, 위치 6곳)
+      PG-ERR-001 - 신뢰도 보통
+      - src/routes/handler0.ts:49
+          근거: value flows from the request to a sink in src/routes/handler0.ts
+      - src/routes/handler1.ts:50
+          근거: value flows from the request to a sink in src/routes/handler1.ts
+      - src/routes/handler2.ts:51
+          근거: value flows from the request to a sink in src/routes/handler2.ts
+      - src/routes/handler3.ts:52
+          근거: value flows from the request to a sink in src/routes/handler3.ts
+      - src/routes/handler4.ts:53
+          근거: value flows from the request to a sink in src/routes/handler4.ts
+      - src/routes/handler5.ts:54
+          근거: value flows from the request to a sink in src/routes/handler5.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [낮음] No rate limit on the login route (의심, 위치 2곳)
+      PG-RATE-001 - 신뢰도 보통
+      - src/routes/login.ts:38
+          근거: value flows from the request to a sink in src/routes/login.ts
+      - src/routes/reset.ts:39
+          근거: value flows from the request to a sink in src/routes/reset.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [낮음] Debug mode enabled outside development (참고)
+      config/production.js:40  PG-DEBUG-001 - 신뢰도 보통
+      근거: value flows from the request to a sink in config/production.js
+      조치: Validate the value first or pass it as a parameter instead
+
+테스트·fixture 코드 (14)
+  경로만으로 테스트·fixture 코드로 분류된 파일의 항목입니다(신뢰도는 최대 낮음).
+  검토하세요. 테스트에 커밋된 실제 값도 노출된 것입니다.
+  [높음] Hardcoded credential (의심, 위치 2곳)
+      PG-SECRET-001 - 신뢰도 낮음
+      - test/fixtures/aws.json:63
+          근거: value flows from the request to a sink in test/fixtures/aws.json
+      - test/fixtures/stripe.json:64
+          근거: value flows from the request to a sink in
+                test/fixtures/stripe.json
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures
+        https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-538 https://cwe.mitre.org/data/definitions/538.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [보통] User input rendered as HTML (의심, 위치 4곳)
+      PG-XSS-001 - 신뢰도 낮음
+      - test/ui/render0.test.tsx:65
+          근거: value flows from the request to a sink in
+                test/ui/render0.test.tsx
+      - test/ui/render1.test.tsx:66
+          근거: value flows from the request to a sink in
+                test/ui/render1.test.tsx
+      - test/ui/render2.test.tsx:67
+          근거: value flows from the request to a sink in
+                test/ui/render2.test.tsx
+      - test/ui/render3.test.tsx:68
+          근거: value flows from the request to a sink in
+                test/ui/render3.test.tsx
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri...
+        https://cwe.mitre.org/data/definitions/79.html
+
+  [낮음] User input concatenated into SQL (의심, 위치 8곳)
+      PG-SQL-001 - 신뢰도 낮음
+      - test/db/case0.test.ts:55
+          근거: value flows from the request to a sink in test/db/case0.test.ts
+      - test/db/case1.test.ts:56
+          근거: value flows from the request to a sink in test/db/case1.test.ts
+      - test/db/case2.test.ts:57
+          근거: value flows from the request to a sink in test/db/case2.test.ts
+      - test/db/case3.test.ts:58
+          근거: value flows from the request to a sink in test/db/case3.test.ts
+      - test/db/case4.test.ts:59
+          근거: value flows from the request to a sink in test/db/case4.test.ts
+      - test/db/case5.test.ts:60
+          근거: value flows from the request to a sink in test/db/case5.test.ts
+      - test/db/case6.test.ts:61
+          근거: value flows from the request to a sink in test/db/case6.test.ts
+      - test/db/case7.test.ts:62
+          근거: value flows from the request to a sink in test/db/case7.test.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/89.html
+
+제안: 서드파티/vendored 코드 (11)
+  이 코드는 커밋된 의존성 코드이며 사용자의 코드가 아닙니다. 예상치 못한 것이면
+  검토하고, 아니면 Git에서 제거를 고려하세요 (git rm -r --cached <directory>,
+  그다음 해당 디렉터리를 .gitignore에 추가).
+  [낮음] Request input reaches an OS command (의심, 위치 6곳)
+      PG-CMD-001 - 신뢰도 낮음
+      - vendor/tool/lib0.js:69
+          근거: value flows from the request to a sink in vendor/tool/lib0.js
+      - vendor/tool/lib1.js:70
+          근거: value flows from the request to a sink in vendor/tool/lib1.js
+      - vendor/tool/lib2.js:71
+          근거: value flows from the request to a sink in vendor/tool/lib2.js
+      - vendor/tool/lib3.js:72
+          근거: value flows from the request to a sink in vendor/tool/lib3.js
+      - vendor/tool/lib4.js:73
+          근거: value flows from the request to a sink in vendor/tool/lib4.js
+      - vendor/tool/lib5.js:74
+          근거: value flows from the request to a sink in vendor/tool/lib5.js
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El...
+        https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [정보] Request input used as a file path (참고, 위치 5곳)
+      PG-PATH-001 - 신뢰도 낮음
+      - third_party/zip/entry0.js:75
+          근거: value flows from the request to a sink in
+                third_party/zip/entry0.js
+      - third_party/zip/entry1.js:76
+          근거: value flows from the request to a sink in
+                third_party/zip/entry1.js
+      - third_party/zip/entry2.js:77
+          근거: value flows from the request to a sink in
+                third_party/zip/entry2.js
+      - third_party/zip/entry3.js:78
+          근거: value flows from the request to a sink in
+                third_party/zip/entry3.js
+      - third_party/zip/entry4.js:79
+          근거: value flows from the request to a sink in
+                third_party/zip/entry4.js
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control
+        https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ...
+        https://cwe.mitre.org/data/definitions/22.html
+
+결과: 부분 완료 - 발견 70건 (치명적 5건, 높음 13건, 보통 24건, 낮음 23건,
+      정보 5건)
+! 안전하다는 결과가 아닙니다: 일부 또는 검사하지 못한 영역은 끝까지 확인하지
+  않았으므로, 그곳에 발견 항목이 없다고 문제가 없다는 뜻은 아닙니다.
+
+요약
+  영역                   요청 4 — 완료 2, 부분 완료 1, 미검사 1 (선택 안 함 1)
+  규칙                   규칙 2개 실행됨 (부분 완료 영역에서 1개)
+  규칙별 최대 검사 대상  파일 412개, 커밋 500개
+  소요 시간              5.0초
+
+발견 항목 심각도별 (총 45건)
+  별도: 테스트·fixture 코드 14건 (높음 2건), vendored 코드의 제안 11건
+  치명적 ######## 5
+  높음   ################# 11
+  보통   ############################## 20
+  낮음   ############## 9
+  정보   0
+
+OWASP Top 10 2025 분류별
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  OWASP 매핑 없음                ## 1
+
+영역별
+  코드 ############################## 42
+  이력 # 2
+  웹   # 1
+
+검사 범위
+  [완료] source:typescript (완료)
+  [완료] source:javascript (완료)
+  [부분 완료] history:secrets (부분 완료) - (Only the last 500
+              commits were read because the repository history is very long;
+              older secrets are not checked.)
+  [미검사] web:anonymous (미검사) - (No local web target was confirmed,
+           so no running service was checked (pass --port to include it).)
+  [선택 안 함] dependencies:lockfile (선택 안 함)
+
+표준 매핑 현황 (OWASP Top 10 2025)
+  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개
+                   중 6개에 규칙이 있음 (PG-SECRET-003) (partial areas:
+                   history:secrets; code rules not run: areas could not run; no
+                   completed mapped rule covers javascript, typescript (files
+                   that are not yours to scan can be left out with "exclude" in
+                   p…
+  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개
+               중 2개에 규칙이 있음 (no mapped rule ran (PG-COOKIE-001: code
+               areas could not run))
+  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE
+               6개 중 1개에 규칙이 있음 (no mapped rule ran (PG-HYGIENE-001:
+               history areas could not run))
+  [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중
+               4개에 규칙이 있음 (no mapped rule ran (PG-CRYPTO-001,
+               PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
+  [규칙 일부 실행] A05 Injection - 매핑된 CWE 37개 중 3개에
+                   규칙이 있음 (PG-CMD-001) (no completed mapped rule covers
+                   javascript (files that are not yours to scan can be left out
+                   with "exclude" in pgard.config.json))
+  [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에
+               규칙이 있음 (no mapped rule ran (PG-AUTH-001: code areas could
+               not run))
+  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE
+                   36개 중 2개에 규칙이 있음 (PG-SECRET-003) (partial areas:
+                   history:secrets; code rules not run: areas could not run; no
+                   completed mapped rule covers javascript, typescript (files
+                   that are not yours to scan can be left out with "exclude" in
+                   p…
+  [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
+  [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
+  [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다.
+  프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE
+  중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
+  (standardsCoverage, ruleStats).
+
+PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드
+자체(쿼리문, 서버 코드, 설정), Git 이력, 그리고 선택한 경우 로컬 HTTP 검사에서
+나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+
+다음: --report html --output-dir <dir>로 보고서를 저장하거나 pgard
+      dashboard를 여세요."
+`;
+
+exports[`terminal result, --all-findings > matches the reviewed layout: ko, 120 columns, NO_COLOR 1`] = `
+"PGARD 검사 결과 - 부분 완료 - 요청한 영역 일부가 끝까지 실행되지 않았습니다
+저장소 acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - 범위: code, history, web
+
+발견 항목 (45건): 확인됨 7, 의심 37 (검토 필요), 참고 1
+  [치명적] Request input reaches an OS command (확인됨, 위치 3곳)
+      PG-CMD-001 - 신뢰도 보통
+      - scripts/deploy.js:13
+          근거: value flows from the request to a sink in scripts/deploy.js
+      - src/jobs/convert.ts:12
+          근거: value flows from the request to a sink in src/jobs/convert.ts
+      - src/jobs/export.ts:11
+          근거: value flows from the request to a sink in src/jobs/export.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [치명적] User input concatenated into SQL (확인됨, 위치 2곳)
+      PG-SQL-001 - 신뢰도 보통
+      - src/api/orders.ts:15
+          근거: value flows from the request to a sink in src/api/orders.ts
+      - src/api/users.ts:14
+          근거: value flows from the request to a sink in src/api/users.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/89.html
+
+  [높음] Secret committed in Git history (확인됨, 위치 2곳)
+      PG-SECRET-003 - 신뢰도 보통
+      - config/.env (commit 0123456789ab)
+          근거: value flows from the request to a sink in config/.env
+      - deploy/keys.json (commit 0123456789ab)
+          근거: value flows from the request to a sink in deploy/keys.json
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        CWE-540 https://cwe.mitre.org/data/definitions/540.html
+        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [높음] Customer export reachable without sign-in (고객 목록 내보내기) (의심)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - 신뢰도 보통
+      근거: req.query -> concat -> query()
+      조치: Use parameters
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-201 https://cwe.mitre.org/data/definitions/201.html
+
+  [높음] JWT verified without an algorithm allow-list (의심)
+      src/auth/token.ts:25  PG-AUTH-002 - 신뢰도 보통
+      근거: value flows from the request to a sink in src/auth/token.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [높음] Request input used as a file path (의심, 위치 3곳)
+      PG-PATH-001 - 신뢰도 보통
+      - src/files/download.ts:22
+          근거: value flows from the request to a sink in src/files/download.ts
+      - src/files/upload.ts:23
+          근거: value flows from the request to a sink in src/files/upload.ts
+      - src/files/zip.ts:24
+          근거: value flows from the request to a sink in src/files/zip.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ... https://cwe.mitre.org/data/definitions/22.html
+
+  [높음] User input rendered as HTML (의심, 위치 4곳)
+      PG-XSS-001 - 신뢰도 보통
+      - src/ui/Banner.tsx:21
+          근거: value flows from the request to a sink in src/ui/Banner.tsx
+      - src/ui/Comment.tsx:18
+          근거: value flows from the request to a sink in src/ui/Comment.tsx
+      - src/ui/Profile.tsx:19
+          근거: value flows from the request to a sink in src/ui/Profile.tsx
+      - src/ui/Search.tsx:20
+          근거: value flows from the request to a sink in src/ui/Search.tsx
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri... https://cwe.mitre.org/data/definitions/79.html
+
+  [보통] Weak hash used for passwords (의심, 위치 2곳)
+      PG-CRYPTO-002 - 신뢰도 보통
+      - src/auth/hash.ts:32
+          근거: value flows from the request to a sink in src/auth/hash.ts
+      - src/auth/legacy.ts:33
+          근거: value flows from the request to a sink in src/auth/legacy.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A04:2025 Cryptographic Failures https://top10.owasp.org/2025/A04_2025-Cryptographic_Failures/
+        A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-321 https://cwe.mitre.org/data/definitions/321.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [보통] Session cookie without the Secure and HttpOnly flags (의심, 위치 2곳)
+      PG-COOKIE-001 - 신뢰도 보통
+      - src/auth/remember.ts:28
+          근거: value flows from the request to a sink in src/auth/remember.ts
+      - src/auth/session.ts:27
+          근거: value flows from the request to a sink in src/auth/session.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A02:2025 Security Misconfiguration https://top10.owasp.org/2025/A02_2025-Security_Misconfiguration/
+        CWE-1004 https://cwe.mitre.org/data/definitions/1004.html
+        CWE-614 https://cwe.mitre.org/data/definitions/614.html
+        CWE-1275 https://cwe.mitre.org/data/definitions/1275.html
+
+  [보통] Outbound request to an address taken from the request (의심, 위치 8곳)
+      PG-SSRF-001 - 신뢰도 보통
+      - src/clients/fetcher0.ts:41
+          근거: value flows from the request to a sink in src/clients/fetcher0.ts
+      - src/clients/fetcher1.ts:42
+          근거: value flows from the request to a sink in src/clients/fetcher1.ts
+      - src/clients/fetcher2.ts:43
+          근거: value flows from the request to a sink in src/clients/fetcher2.ts
+      - src/clients/fetcher3.ts:44
+          근거: value flows from the request to a sink in src/clients/fetcher3.ts
+      - src/clients/fetcher4.ts:45
+          근거: value flows from the request to a sink in src/clients/fetcher4.ts
+      - src/clients/fetcher5.ts:46
+          근거: value flows from the request to a sink in src/clients/fetcher5.ts
+      - src/clients/fetcher6.ts:47
+          근거: value flows from the request to a sink in src/clients/fetcher6.ts
+      - src/clients/fetcher7.ts:48
+          근거: value flows from the request to a sink in src/clients/fetcher7.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-918 Server-Side Request Forgery (SSRF) https://cwe.mitre.org/data/definitions/918.html
+
+  [보통] Credentials written to the log (의심, 위치 3곳)
+      PG-LOG-001 - 신뢰도 보통
+      - src/log/audit.ts:35
+          근거: value flows from the request to a sink in src/log/audit.ts
+      - src/log/debug.ts:36
+          근거: value flows from the request to a sink in src/log/debug.ts
+      - src/log/request.ts:34
+          근거: value flows from the request to a sink in src/log/request.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [보통] Redirect target taken from the request (의심, 위치 3곳)
+      PG-REDIR-001 - 신뢰도 보통
+      - src/routes/login.ts:29
+          근거: value flows from the request to a sink in src/routes/login.ts
+      - src/routes/logout.ts:30
+          근거: value flows from the request to a sink in src/routes/logout.ts
+      - src/routes/oauth.ts:31
+          근거: value flows from the request to a sink in src/routes/oauth.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [보통] CORS allows any origin with credentials (의심)
+      src/server.ts:26  PG-CORS-001 - 신뢰도 보통
+      근거: value flows from the request to a sink in src/server.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [보통] Security headers missing from the response (의심)
+      src/server.ts:37  PG-HDR-001 - 신뢰도 보통
+      근거: value flows from the request to a sink in src/server.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [낮음] Stack trace returned to the client (의심, 위치 6곳)
+      PG-ERR-001 - 신뢰도 보통
+      - src/routes/handler0.ts:49
+          근거: value flows from the request to a sink in src/routes/handler0.ts
+      - src/routes/handler1.ts:50
+          근거: value flows from the request to a sink in src/routes/handler1.ts
+      - src/routes/handler2.ts:51
+          근거: value flows from the request to a sink in src/routes/handler2.ts
+      - src/routes/handler3.ts:52
+          근거: value flows from the request to a sink in src/routes/handler3.ts
+      - src/routes/handler4.ts:53
+          근거: value flows from the request to a sink in src/routes/handler4.ts
+      - src/routes/handler5.ts:54
+          근거: value flows from the request to a sink in src/routes/handler5.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [낮음] No rate limit on the login route (의심, 위치 2곳)
+      PG-RATE-001 - 신뢰도 보통
+      - src/routes/login.ts:38
+          근거: value flows from the request to a sink in src/routes/login.ts
+      - src/routes/reset.ts:39
+          근거: value flows from the request to a sink in src/routes/reset.ts
+      조치: Validate the value first or pass it as a parameter instead
+
+  [낮음] Debug mode enabled outside development (참고)
+      config/production.js:40  PG-DEBUG-001 - 신뢰도 보통
+      근거: value flows from the request to a sink in config/production.js
+      조치: Validate the value first or pass it as a parameter instead
+
+테스트·fixture 코드 (14)
+  경로만으로 테스트·fixture 코드로 분류된 파일의 항목입니다(신뢰도는 최대 낮음). 검토하세요. 테스트에 커밋된 실제 값도
+  노출된 것입니다.
+  [높음] Hardcoded credential (의심, 위치 2곳)
+      PG-SECRET-001 - 신뢰도 낮음
+      - test/fixtures/aws.json:63
+          근거: value flows from the request to a sink in test/fixtures/aws.json
+      - test/fixtures/stripe.json:64
+          근거: value flows from the request to a sink in test/fixtures/stripe.json
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
+        CWE-538 https://cwe.mitre.org/data/definitions/538.html
+        CWE-798 https://cwe.mitre.org/data/definitions/798.html
+        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+
+  [보통] User input rendered as HTML (의심, 위치 4곳)
+      PG-XSS-001 - 신뢰도 낮음
+      - test/ui/render0.test.tsx:65
+          근거: value flows from the request to a sink in test/ui/render0.test.tsx
+      - test/ui/render1.test.tsx:66
+          근거: value flows from the request to a sink in test/ui/render1.test.tsx
+      - test/ui/render2.test.tsx:67
+          근거: value flows from the request to a sink in test/ui/render2.test.tsx
+      - test/ui/render3.test.tsx:68
+          근거: value flows from the request to a sink in test/ui/render3.test.tsx
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-79 Improper Neutralization of Input Duri... https://cwe.mitre.org/data/definitions/79.html
+
+  [낮음] User input concatenated into SQL (의심, 위치 8곳)
+      PG-SQL-001 - 신뢰도 낮음
+      - test/db/case0.test.ts:55
+          근거: value flows from the request to a sink in test/db/case0.test.ts
+      - test/db/case1.test.ts:56
+          근거: value flows from the request to a sink in test/db/case1.test.ts
+      - test/db/case2.test.ts:57
+          근거: value flows from the request to a sink in test/db/case2.test.ts
+      - test/db/case3.test.ts:58
+          근거: value flows from the request to a sink in test/db/case3.test.ts
+      - test/db/case4.test.ts:59
+          근거: value flows from the request to a sink in test/db/case4.test.ts
+      - test/db/case5.test.ts:60
+          근거: value flows from the request to a sink in test/db/case5.test.ts
+      - test/db/case6.test.ts:61
+          근거: value flows from the request to a sink in test/db/case6.test.ts
+      - test/db/case7.test.ts:62
+          근거: value flows from the request to a sink in test/db/case7.test.ts
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-89 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/89.html
+
+제안: 서드파티/vendored 코드 (11)
+  이 코드는 커밋된 의존성 코드이며 사용자의 코드가 아닙니다. 예상치 못한 것이면 검토하고, 아니면 Git에서 제거를
+  고려하세요 (git rm -r --cached <directory>, 그다음 해당 디렉터리를 .gitignore에 추가).
+  [낮음] Request input reaches an OS command (의심, 위치 6곳)
+      PG-CMD-001 - 신뢰도 낮음
+      - vendor/tool/lib0.js:69
+          근거: value flows from the request to a sink in vendor/tool/lib0.js
+      - vendor/tool/lib1.js:70
+          근거: value flows from the request to a sink in vendor/tool/lib1.js
+      - vendor/tool/lib2.js:71
+          근거: value flows from the request to a sink in vendor/tool/lib2.js
+      - vendor/tool/lib3.js:72
+          근거: value flows from the request to a sink in vendor/tool/lib3.js
+      - vendor/tool/lib4.js:73
+          근거: value flows from the request to a sink in vendor/tool/lib4.js
+      - vendor/tool/lib5.js:74
+          근거: value flows from the request to a sink in vendor/tool/lib5.js
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
+        CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
+        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
+
+  [정보] Request input used as a file path (참고, 위치 5곳)
+      PG-PATH-001 - 신뢰도 낮음
+      - third_party/zip/entry0.js:75
+          근거: value flows from the request to a sink in third_party/zip/entry0.js
+      - third_party/zip/entry1.js:76
+          근거: value flows from the request to a sink in third_party/zip/entry1.js
+      - third_party/zip/entry2.js:77
+          근거: value flows from the request to a sink in third_party/zip/entry2.js
+      - third_party/zip/entry3.js:78
+          근거: value flows from the request to a sink in third_party/zip/entry3.js
+      - third_party/zip/entry4.js:79
+          근거: value flows from the request to a sink in third_party/zip/entry4.js
+      조치: Validate the value first or pass it as a parameter instead
+      표준:
+        A01:2025 Broken Access Control https://top10.owasp.org/2025/A01_2025-Broken_Access_Control/
+        CWE-22 Improper Limitation of a Pathname to ... https://cwe.mitre.org/data/definitions/22.html
+
+결과: 부분 완료 - 발견 70건 (치명적 5건, 높음 13건, 보통 24건, 낮음 23건, 정보 5건)
+! 안전하다는 결과가 아닙니다: 일부 또는 검사하지 못한 영역은 끝까지 확인하지 않았으므로, 그곳에 발견 항목이 없다고
+  문제가 없다는 뜻은 아닙니다.
+
+요약
+  영역                   요청 4 — 완료 2, 부분 완료 1, 미검사 1 (선택 안 함 1)
+  규칙                   규칙 2개 실행됨 (부분 완료 영역에서 1개)
+  규칙별 최대 검사 대상  파일 412개, 커밋 500개
+  소요 시간              5.0초
+
+발견 항목 심각도별 (총 45건) - 별도: 테스트·fixture 코드 14건 (높음 2건), vendored 코드의 제안 11건
+  치명적 ######## 5
+  높음   ################# 11
+  보통   ############################## 20
+  낮음   ############## 9
+  정보   0
+
+OWASP Top 10 2025 분류별
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  OWASP 매핑 없음                ## 1
+
+영역별
+  코드 ############################## 42
+  이력 # 2
+  웹   # 1
+
+검사 범위
+  [완료] source:typescript (완료)
+  [완료] source:javascript (완료)
+  [부분 완료] history:secrets (부분 완료) - (Only the last 500 commits were read because the repository
+              history is very long; older secrets are not checked.)
+  [미검사] web:anonymous (미검사) - (No local web target was confirmed, so no running service was checked (pass
+           --port to include it).)
+  [선택 안 함] dependencies:lockfile (선택 안 함)
+
+표준 매핑 현황 (OWASP Top 10 2025)
+  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 6개에 규칙이 있음 (PG-SECRET-003)
+                   (partial areas: history:secrets; code rules not run: areas could not run; no completed mapped rule
+                   covers javascript, typescript (files that are not yours to scan can be left out with "exclude" in p…
+  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 2개에 규칙이 있음 (no mapped rule ran
+               (PG-COOKIE-001: code areas could not run))
+  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 1개에 규칙이 있음 (no mapped rule
+               ran (PG-HYGIENE-001: history areas could not run))
+  [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음 (no mapped rule ran
+               (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
+  [규칙 일부 실행] A05 Injection - 매핑된 CWE 37개 중 3개에 규칙이 있음 (PG-CMD-001) (no completed
+                   mapped rule covers javascript (files that are not yours to scan can be left out with "exclude" in
+                   pgard.config.json))
+  [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에 규칙이 있음 (no mapped rule ran
+               (PG-AUTH-001: code areas could not run))
+  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003)
+                   (partial areas: history:secrets; code rules not run: areas could not run; no completed mapped rule
+                   covers javascript, typescript (files that are not yours to scan can be left out with "exclude" in p…
+  [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
+  [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
+  [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두
+  다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
+  (standardsCoverage, ruleStats).
+
+PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력,
+그리고 선택한 경우 로컬 HTTP 검사에서 나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+
+다음: --report html --output-dir <dir>로 보고서를 저장하거나 pgard dashboard를 여세요."
+`;
+
+exports[`terminal result, compact (default) > matches the reviewed layout: en, 80 columns, NO_COLOR 1`] = `
+"PGARD scan result - Partial - some requested areas did not fully run
+Repository acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - scopes: code,
+history, web
+
+Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
+  [CRITICAL] Request input reaches an OS command
+      scripts/deploy.js:13 and 2 more  PG-CMD-001 - confirmed
+  [CRITICAL] User input concatenated into SQL
+      src/api/orders.ts:15 and 1 more  PG-SQL-001 - confirmed
+  [HIGH] Secret committed in Git history
+      config/.env (commit 0123456789ab) and 1 more  PG-SECRET-003 - confirmed
+  [HIGH] Customer export reachable without sign-in (고객 목록 내보내기)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - suspected
+  [HIGH] JWT verified without an algorithm allow-list
+      src/auth/token.ts:25  PG-AUTH-002 - suspected
+  [HIGH] Request input used as a file path
+      src/files/download.ts:22 and 2 more  PG-PATH-001 - suspected
+  [HIGH] User input rendered as HTML
+      src/ui/Banner.tsx:21 and 3 more  PG-XSS-001 - suspected
+  [MEDIUM] Weak hash used for passwords
+      src/auth/hash.ts:32 and 1 more  PG-CRYPTO-002 - suspected
+  [MEDIUM] Session cookie without the Secure and HttpOnly flags
+      src/auth/remember.ts:28 and 1 more  PG-COOKIE-001 - suspected
+  [MEDIUM] Outbound request to an address taken from the request
+      src/clients/fetcher0.ts:41 and 7 more  PG-SSRF-001 - suspected
+  +17 more findings (Medium 8, Low 9) - run with --all-findings
+  Evidence, fix and standards for each finding: --all-findings, the panel view,
+  the dashboard or a report.
+
+In test or fixture code (14): High 2, Medium 4, Low 8 - not listed here; run
+with --all-findings
+
+Suggestions: in third-party/vendored code (11): Low 6, Info 5 - not
+             listed here; run with --all-findings
+
+Result: Partial - 70 findings (5 critical, 13 high, 24 medium, 23 low, 5 info)
+! Not a safe result: an area that is partial or not tested was not fully
+  checked, so no finding there does not mean no problem.
+
+Summary
+  Areas         4 requested — 2 completed, 1 partial, 1 not tested (1 not
+                selected)
+  Rules         2 rules ran (1 in partially scanned areas)
+  Max per rule  412 files, 500 commits
+  Elapsed       5.0 s
+
+Findings by severity (45 total)
+  plus 14 in test or fixture code (2 high), 11 suggestions in vendored code
+  Critical ######## 5
+  High     ################# 11
+  Medium   ############################## 20
+  Low      ############## 9
+  Info     0
+
+By OWASP Top 10 2025 category
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  No OWASP mapping               ## 1
+
+By area
+  code    ############################## 42
+  history # 2
+  web     # 1
+
+Coverage
+  2 ok, 1 partial, 1 not tested, 1 not selected
+  [partial] history:secrets (Partial) - Only the last 500 commits were
+            read because the repository history is very long; older secrets are
+            not checked.
+  [not tested] web:anonymous (Not tested) - No local web target was
+               confirmed, so no running service was checked (pass --port to
+               include it).
+
+Standards coverage (OWASP Top 10 2025)
+  OWASP Top 10 2025: 0 rules ran, 3 rules partial, 4 not run, 3 no rules (table:
+  --all-findings)
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  Rules ran means the mapped rules ran to completion in this scan. It does not
+  mean the project is safe or that the category is covered: see how many of its
+  CWEs have rules. Full detail per entry: --format json (standardsCoverage,
+  ruleStats).
+
+PGARD does not ship or query a vulnerability database. Findings come from the
+code itself (query statements, server code, configuration), Git history and, if
+selected, local HTTP checks. Dependency versions are not checked against known
+vulnerabilities.
+
+Next: pgard scan --all-findings lists everything; save a report with
+      --report html --output-dir <dir>, or open pgard dashboard."
+`;
+
+exports[`terminal result, compact (default) > matches the reviewed layout: en, 120 columns, NO_COLOR 1`] = `
+"PGARD scan result - Partial - some requested areas did not fully run
+Repository acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - scopes: code, history, web
+
+Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
+  [CRITICAL] Request input reaches an OS command
+      scripts/deploy.js:13 and 2 more  PG-CMD-001 - confirmed
+  [CRITICAL] User input concatenated into SQL
+      src/api/orders.ts:15 and 1 more  PG-SQL-001 - confirmed
+  [HIGH] Secret committed in Git history
+      config/.env (commit 0123456789ab) and 1 more  PG-SECRET-003 - confirmed
+  [HIGH] Customer export reachable without sign-in (고객 목록 내보내기)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - suspected
+  [HIGH] JWT verified without an algorithm allow-list
+      src/auth/token.ts:25  PG-AUTH-002 - suspected
+  [HIGH] Request input used as a file path
+      src/files/download.ts:22 and 2 more  PG-PATH-001 - suspected
+  [HIGH] User input rendered as HTML
+      src/ui/Banner.tsx:21 and 3 more  PG-XSS-001 - suspected
+  [MEDIUM] Weak hash used for passwords
+      src/auth/hash.ts:32 and 1 more  PG-CRYPTO-002 - suspected
+  [MEDIUM] Session cookie without the Secure and HttpOnly flags
+      src/auth/remember.ts:28 and 1 more  PG-COOKIE-001 - suspected
+  [MEDIUM] Outbound request to an address taken from the request
+      src/clients/fetcher0.ts:41 and 7 more  PG-SSRF-001 - suspected
+  +17 more findings (Medium 8, Low 9) - run with --all-findings
+  Evidence, fix and standards for each finding: --all-findings, the panel view, the dashboard or a report.
+
+In test or fixture code (14): High 2, Medium 4, Low 8 - not listed here; run with --all-findings
+
+Suggestions: in third-party/vendored code (11): Low 6, Info 5 - not listed here; run with --all-findings
+
+Result: Partial - 70 findings (5 critical, 13 high, 24 medium, 23 low, 5 info)
+! Not a safe result: an area that is partial or not tested was not fully checked, so no finding there does not mean no
+  problem.
+
+Summary
+  Areas         4 requested — 2 completed, 1 partial, 1 not tested (1 not selected)
+  Rules         2 rules ran (1 in partially scanned areas)
+  Max per rule  412 files, 500 commits
+  Elapsed       5.0 s
+
+Findings by severity (45 total) - plus 14 in test or fixture code (2 high), 11 suggestions in vendored code
+  Critical ######## 5
+  High     ################# 11
+  Medium   ############################## 20
+  Low      ############## 9
+  Info     0
+
+By OWASP Top 10 2025 category
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  No OWASP mapping               ## 1
+
+By area
+  code    ############################## 42
+  history # 2
+  web     # 1
+
+Coverage
+  2 ok, 1 partial, 1 not tested, 1 not selected
+  [partial] history:secrets (Partial) - Only the last 500 commits were read because the repository history is
+            very long; older secrets are not checked.
+  [not tested] web:anonymous (Not tested) - No local web target was confirmed, so no running service was
+               checked (pass --port to include it).
+
+Standards coverage (OWASP Top 10 2025)
+  OWASP Top 10 2025: 0 rules ran, 3 rules partial, 4 not run, 3 no rules (table: --all-findings)
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the
+  category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage,
+  ruleStats).
+
+PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server
+code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known
+vulnerabilities.
+
+Next: pgard scan --all-findings lists everything; save a report with --report html --output-dir <dir>, or open
+      pgard dashboard."
+`;
+
+exports[`terminal result, compact (default) > matches the reviewed layout: ko, 80 columns, NO_COLOR 1`] = `
+"PGARD 검사 결과 - 부분 완료 - 요청한 영역 일부가 끝까지 실행되지 않았습니다
+저장소 acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - 범위: code,
+history, web
+
+발견 항목 (45건): 확인됨 7, 의심 37 (검토 필요), 참고 1
+  [치명적] Request input reaches an OS command
+      scripts/deploy.js:13 외 2곳  PG-CMD-001 - 확인됨
+  [치명적] User input concatenated into SQL
+      src/api/orders.ts:15 외 1곳  PG-SQL-001 - 확인됨
+  [높음] Secret committed in Git history
+      config/.env (commit 0123456789ab) 외 1곳  PG-SECRET-003 - 확인됨
+  [높음] Customer export reachable without sign-in (고객 목록 내보내기)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - 의심
+  [높음] JWT verified without an algorithm allow-list
+      src/auth/token.ts:25  PG-AUTH-002 - 의심
+  [높음] Request input used as a file path
+      src/files/download.ts:22 외 2곳  PG-PATH-001 - 의심
+  [높음] User input rendered as HTML
+      src/ui/Banner.tsx:21 외 3곳  PG-XSS-001 - 의심
+  [보통] Weak hash used for passwords
+      src/auth/hash.ts:32 외 1곳  PG-CRYPTO-002 - 의심
+  [보통] Session cookie without the Secure and HttpOnly flags
+      src/auth/remember.ts:28 외 1곳  PG-COOKIE-001 - 의심
+  [보통] Outbound request to an address taken from the request
+      src/clients/fetcher0.ts:41 외 7곳  PG-SSRF-001 - 의심
+  +17건 더 있음 (보통 8, 낮음 9) - --all-findings로 실행
+  각 발견 항목의 근거, 수정 방법, 표준: --all-findings, 패널 화면, 대시보드 또는
+  보고서.
+
+테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8 - 여기에 나열하지 않음.
+--all-findings로 실행
+
+제안: 서드파티/vendored 코드 (11): 낮음 6, 정보 5 - 여기에 나열하지 않음.
+      --all-findings로 실행
+
+결과: 부분 완료 - 발견 70건 (치명적 5건, 높음 13건, 보통 24건, 낮음 23건,
+      정보 5건)
+! 안전하다는 결과가 아닙니다: 일부 또는 검사하지 못한 영역은 끝까지 확인하지
+  않았으므로, 그곳에 발견 항목이 없다고 문제가 없다는 뜻은 아닙니다.
+
+요약
+  영역                   요청 4 — 완료 2, 부분 완료 1, 미검사 1 (선택 안 함 1)
+  규칙                   규칙 2개 실행됨 (부분 완료 영역에서 1개)
+  규칙별 최대 검사 대상  파일 412개, 커밋 500개
+  소요 시간              5.0초
+
+발견 항목 심각도별 (총 45건)
+  별도: 테스트·fixture 코드 14건 (높음 2건), vendored 코드의 제안 11건
+  치명적 ######## 5
+  높음   ################# 11
+  보통   ############################## 20
+  낮음   ############## 9
+  정보   0
+
+OWASP Top 10 2025 분류별
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  OWASP 매핑 없음                ## 1
+
+영역별
+  코드 ############################## 42
+  이력 # 2
+  웹   # 1
+
+검사 범위
+  정상 2, 일부 1, 검사 안 됨 1, 선택 안 함 1
+  [부분 완료] history:secrets (부분 완료) - (Only the last 500
+              commits were read because the repository history is very long;
+              older secrets are not checked.)
+  [미검사] web:anonymous (미검사) - (No local web target was confirmed,
+           so no running service was checked (pass --port to include it).)
+
+표준 매핑 현황 (OWASP Top 10 2025)
+  OWASP Top 10 2025: 규칙 실행 0, 규칙 일부 3, 미실행 4, 규칙 없음 3 (표:
+  --all-findings)
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다.
+  프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE
+  중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
+  (standardsCoverage, ruleStats).
+
+PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드
+자체(쿼리문, 서버 코드, 설정), Git 이력, 그리고 선택한 경우 로컬 HTTP 검사에서
+나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+
+다음: pgard scan --all-findings로 전체를 나열하거나 --report html
+      --output-dir <dir>로 보고서를 저장하거나 pgard dashboard를 여세요."
+`;
+
+exports[`terminal result, compact (default) > matches the reviewed layout: ko, 120 columns, NO_COLOR 1`] = `
+"PGARD 검사 결과 - 부분 완료 - 요청한 영역 일부가 끝까지 실행되지 않았습니다
+저장소 acme-corp/storefront-platform-monorepo @ 9f3c2a1b7d4e - 범위: code, history, web
+
+발견 항목 (45건): 확인됨 7, 의심 37 (검토 필요), 참고 1
+  [치명적] Request input reaches an OS command
+      scripts/deploy.js:13 외 2곳  PG-CMD-001 - 확인됨
+  [치명적] User input concatenated into SQL
+      src/api/orders.ts:15 외 1곳  PG-SQL-001 - 확인됨
+  [높음] Secret committed in Git history
+      config/.env (commit 0123456789ab) 외 1곳  PG-SECRET-003 - 확인됨
+  [높음] Customer export reachable without sign-in (고객 목록 내보내기)
+      https://shop.example.com/api/v2/customers/export/download/a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f6071829?format=csv&include=all
+      PG-WEB-004 - 의심
+  [높음] JWT verified without an algorithm allow-list
+      src/auth/token.ts:25  PG-AUTH-002 - 의심
+  [높음] Request input used as a file path
+      src/files/download.ts:22 외 2곳  PG-PATH-001 - 의심
+  [높음] User input rendered as HTML
+      src/ui/Banner.tsx:21 외 3곳  PG-XSS-001 - 의심
+  [보통] Weak hash used for passwords
+      src/auth/hash.ts:32 외 1곳  PG-CRYPTO-002 - 의심
+  [보통] Session cookie without the Secure and HttpOnly flags
+      src/auth/remember.ts:28 외 1곳  PG-COOKIE-001 - 의심
+  [보통] Outbound request to an address taken from the request
+      src/clients/fetcher0.ts:41 외 7곳  PG-SSRF-001 - 의심
+  +17건 더 있음 (보통 8, 낮음 9) - --all-findings로 실행
+  각 발견 항목의 근거, 수정 방법, 표준: --all-findings, 패널 화면, 대시보드 또는 보고서.
+
+테스트·fixture 코드 (14): 높음 2, 보통 4, 낮음 8 - 여기에 나열하지 않음. --all-findings로 실행
+
+제안: 서드파티/vendored 코드 (11): 낮음 6, 정보 5 - 여기에 나열하지 않음. --all-findings로 실행
+
+결과: 부분 완료 - 발견 70건 (치명적 5건, 높음 13건, 보통 24건, 낮음 23건, 정보 5건)
+! 안전하다는 결과가 아닙니다: 일부 또는 검사하지 못한 영역은 끝까지 확인하지 않았으므로, 그곳에 발견 항목이 없다고
+  문제가 없다는 뜻은 아닙니다.
+
+요약
+  영역                   요청 4 — 완료 2, 부분 완료 1, 미검사 1 (선택 안 함 1)
+  규칙                   규칙 2개 실행됨 (부분 완료 영역에서 1개)
+  규칙별 최대 검사 대상  파일 412개, 커밋 500개
+  소요 시간              5.0초
+
+발견 항목 심각도별 (총 45건) - 별도: 테스트·fixture 코드 14건 (높음 2건), vendored 코드의 제안 11건
+  치명적 ######## 5
+  높음   ################# 11
+  보통   ############################## 20
+  낮음   ############## 9
+  정보   0
+
+OWASP Top 10 2025 분류별
+  A01 Broken Access Control      ############################## 15
+  A02 Security Misconfiguration  #### 2
+  A04 Cryptographic Failures     ######## 4
+  A05 Injection                  ################## 9
+  A07 Authentication Failures    ########## 5
+  A09 Security Logging & Aler... ###### 3
+  A10 Mishandling of Exceptio... ############ 6
+  OWASP 매핑 없음                ## 1
+
+영역별
+  코드 ############################## 42
+  이력 # 2
+  웹   # 1
+
+검사 범위
+  정상 2, 일부 1, 검사 안 됨 1, 선택 안 함 1
+  [부분 완료] history:secrets (부분 완료) - (Only the last 500 commits were read because the repository
+              history is very long; older secrets are not checked.)
+  [미검사] web:anonymous (미검사) - (No local web target was confirmed, so no running service was checked (pass
+           --port to include it).)
+
+표준 매핑 현황 (OWASP Top 10 2025)
+  OWASP Top 10 2025: 규칙 실행 0, 규칙 일부 3, 미실행 4, 규칙 없음 3 (표: --all-findings)
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두
+  다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
+  (standardsCoverage, ruleStats).
+
+PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력,
+그리고 선택한 경우 로컬 HTTP 검사에서 나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+
+다음: pgard scan --all-findings로 전체를 나열하거나 --report html --output-dir <dir>로 보고서를 저장하거나 pgard
+      dashboard를 여세요."
+`;

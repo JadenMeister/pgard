@@ -237,18 +237,30 @@ describe("offerPanels", () => {
     expect(captured.stdout()).toContain(ENTER);
   });
 
-  it("does not open for a plain scan command, whatever PGARD_PANELS says", async () => {
+  it("opens for a plain pgard scan command in a terminal, like the menu", async () => {
     const captured = terminal();
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]));
+    await offerPanels(context, panelsFixtureResult(), false);
+    expect(captured.stdout()).toContain(ENTER);
+    expect(captured.stdout().endsWith(LEAVE)).toBe(true);
+    expect(captured.stderr()).toBe("");
+  });
+
+  it("stays closed for a plain pgard scan command with PGARD_PANELS=off", async () => {
+    const captured = terminal();
+    captured.io.env = { PGARD_PANELS: "off" };
     const context = createTestContext(captured, createTestDeps(), scriptedKeys([]));
     await offerPanels(context, panelsFixtureResult(), false);
     expect(captured.stdout()).toBe("");
+    expect(captured.stderr()).toBe("");
   });
 
-  it("does nothing outside the menu without --panels", async () => {
-    const captured = terminal();
+  it("does not open for a plain pgard scan command without a terminal", async () => {
+    const captured = createTestIo({ isTTY: false });
     const context = createTestContext(captured, createTestDeps(), scriptedKeys([]));
-    await offerPanels(context, testResult(), false);
+    await offerPanels(context, panelsFixtureResult(), false);
     expect(captured.stdout()).toBe("");
+    expect(captured.stderr()).toBe("");
   });
 });
 

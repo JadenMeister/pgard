@@ -22,6 +22,8 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
+- `pgard scan` in a terminal now prints the findings first and the summary last, so the screen ends on the status line, the charts, the coverage count (partial and not-tested areas named) and a "Next" line. Findings are compact by default: critical and high first, at most 10 groups of one or two lines, then `+N more (medium 17, low 2)` pointing to `--all-findings`; test, fixture and vendored findings are one line each with counts by severity. Evidence, fix and standards appear with `--all-findings` (the previous full detail), in the panel view, the dashboard and reports. Long lines are wrapped to the terminal width with a hanging indent (only unbreakable URLs may run past it). Output that is not a terminal (pipes, files, CI), `--format json` and `--format sarif` are unchanged. Partial and not-tested coverage and the "not a safe result" warnings are shown in the compact form too.
+- The panel view now opens by itself for `pgard scan` in a terminal, as the menu already did. `PGARD_PANELS=off` (also `0`, `false`, `no`) turns it off, `--panels` still forces it, and it never opens without a terminal or with `--format json` or `sarif`. The text result is printed before it opens and stays on the main screen.
 - The result and report text is localized in Korean and English (CLI, reports, dashboard).
 - Rule rationale and remediation texts and mappings were rewritten against OWASP 2025 and concrete attack and fix examples.
 - Requires Node.js 22.23.4, 24.22.1 or 26.12.1, or a newer patch on the same line; `pgard doctor` fails older releases.

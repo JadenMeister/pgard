@@ -15,11 +15,11 @@ export class PanelsTerminatedError extends Error {
   }
 }
 
-/** `off`, `0`, `false` or `no` (any case) turn the menu's automatic panel view off. */
+/** `off`, `0`, `false` or `no` (any case) turn the automatic panel view off. */
 export const PANELS_ENV = "PGARD_PANELS";
 
-/** The menu's automatic view setting; an unknown value keeps the default and is reported. */
-function menuAutoOpen(env: Readonly<Record<string, string | undefined>>): {
+/** The automatic view setting; an unknown value keeps the default and is reported. */
+function autoOpenSetting(env: Readonly<Record<string, string | undefined>>): {
   isOn: boolean;
   isUnknown: boolean;
 } {
@@ -33,7 +33,7 @@ function menuAutoOpen(env: Readonly<Record<string, string | undefined>>): {
  * The full-screen panel view over a finished scan. Called after the text result (which stays on
  * the main screen) and before any follow-up question.
  * - `--panels` in a terminal opens it, whatever `PGARD_PANELS` says.
- * - A scan from the interactive menu opens it by itself in a terminal, unless
+ * - Every scan, from the menu or `pgard scan ...`, opens it by itself in a terminal, unless
  *   `PGARD_PANELS=off` (an unknown value prints a hint and keeps it on).
  * - Without a terminal (CI, a pipe) it never opens: the text result is all there is, with a
  *   one-line note on stderr when `--panels` was asked for.
@@ -59,8 +59,8 @@ export async function offerPanels(
   }
   if (!isRequested) {
     // A failed scan has little to show; completed and partial ones open.
-    if (!context.isMenu || result.overallStatus === "failed") return;
-    const setting = menuAutoOpen(io.env);
+    if (result.overallStatus === "failed") return;
+    const setting = autoOpenSetting(io.env);
     if (setting.isUnknown) err(context, context.errStyle.dim(t.panels.badEnv));
     if (!setting.isOn) return;
   }

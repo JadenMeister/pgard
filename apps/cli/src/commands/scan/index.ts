@@ -185,6 +185,9 @@ function showText(
       width: terminalWidth(context.io.stdout, context.io.env),
       ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),
       diff: scanDiffOf(result, previous),
+      // A terminal gets the compact layout with the summary last; a pipe or file keeps the
+      // stable form that scripts may parse.
+      isTerminal: context.io.stdout.isTTY === true,
     }),
   );
 }
@@ -368,9 +371,10 @@ async function runScanFlow(
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
-    await offerPanels(context, panelsResult(), wantsPanels);
+    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels);
   } else {
-    await offerPanels(context, panelsResult(), wantsPanels);
+    // Machine formats keep the terminal untouched: the panel view never opens for them.
+    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels);
     if (context.isMenu) isReportSaved = await offerReportExport(context, result, projectRoot);
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
