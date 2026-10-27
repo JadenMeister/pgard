@@ -25,6 +25,7 @@ export const TREE_SITTER_EXTENSIONS: Record<string, TreeSitterLanguage | undefin
   ".kt": "kotlin",
   ".py": "python",
   ".php": "php",
+  ".phtml": "php",
 };
 
 export type ManifestKind =

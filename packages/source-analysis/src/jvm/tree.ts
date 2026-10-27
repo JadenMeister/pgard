@@ -32,7 +32,16 @@ export interface AstResult {
   truncated: boolean;
 }
 
-export function toAst(root: Node, source: string): AstResult {
+/** Operator and keyword tokens of PHP that are kept as anonymous children (`.`, `??`, `and`, ...). */
+export const PHP_OPERATOR_TOKEN =
+  /^(?!(?:->|\?->|=>|::|\.\.\.)$)(?:[-+*/%=!<>&|?:^~.]+|and|or|xor|instanceof)$/;
+
+export function toAst(
+  root: Node,
+  source: string,
+  /** Which anonymous tokens are copied; the default suits Java and Kotlin. */
+  operatorToken: RegExp = OPERATOR_TOKEN,
+): AstResult {
   const cursor = root.walk();
   try {
     const make = (field: string, anonymous: boolean): AstNode => ({
@@ -53,7 +62,7 @@ export function toAst(root: Node, source: string): AstResult {
       const parent = stack[stack.length - 1] as AstNode;
       const named = cursor.nodeIsNamed;
       let node: AstNode | null = null;
-      if (named || OPERATOR_TOKEN.test(cursor.nodeType)) {
+      if (named || operatorToken.test(cursor.nodeType)) {
         if (count >= MAX_AST_NODES) {
           truncated = true;
           break;

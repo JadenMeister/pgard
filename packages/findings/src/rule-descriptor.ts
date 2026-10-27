@@ -2,7 +2,7 @@ import type { FindingCategory, ScanScope, Severity } from "./contract.js";
 import type { RuleMetadata } from "./rule-metadata.js";
 
 export type RuleLanguage =
-  "javascript" | "typescript" | "react" | "vue" | "go" | "java" | "kotlin" | "any";
+  "javascript" | "typescript" | "react" | "vue" | "go" | "java" | "kotlin" | "php" | "any";
 
 /**
  * Catalog entry for a rule, shared by every analyzer and shown by `pgard rules list`.
