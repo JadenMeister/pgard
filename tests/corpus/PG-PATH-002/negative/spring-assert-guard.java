@@ -12,9 +12,9 @@ class SpringAssertController {
   private final Path base = Path.of("/srv/files").toAbsolutePath().normalize();
 
   @GetMapping("/file")
-  String file(@RequestParam String name) throws IOException {
+  void file(@RequestParam String name) throws IOException {
     Path p = base.resolve(name).normalize();
     Assert.isTrue(p.startsWith(base), "outside the base directory");
-    return Files.readString(p);
+    Files.readString(p);
   }
 }

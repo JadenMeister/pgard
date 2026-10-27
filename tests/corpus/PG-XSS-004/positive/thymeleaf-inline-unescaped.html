@@ -1,0 +1,6 @@
+<!-- corpus: expect=PG-XSS-004 -->
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<p>[(${param.q})]</p>
+</body>
+</html>

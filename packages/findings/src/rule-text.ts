@@ -18,7 +18,10 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-XSS-001": "innerHTML/outerHTML/document.write에 쓰는 동적 HTML",
   "PG-XSS-002": "React dangerouslySetInnerHTML에 전달하는 동적 HTML",
   "PG-XSS-003": "Vue v-html에 바인딩한 동적 HTML",
+  "PG-XSS-004":
+    "Java/Kotlin에서 HTML 응답에 이스케이프 없이 쓰는 요청 데이터(서블릿 writer, JSP, Thymeleaf th:utext)",
   "PG-SSRF-001": "요청 입력에서 온 URL로 보내는 서버 측 HTTP 요청",
+  "PG-SSRF-002": "Java/Kotlin에서 요청 입력으로 만든 URL로 보내는 서버 측 HTTP 요청",
   "PG-CMD-001": "동적 문자열로 만든 셸 명령(child_process)",
   "PG-CMD-002": "셸이나 동적 프로그램을 쓰는 Go exec.Command",
   "PG-CMD-003":

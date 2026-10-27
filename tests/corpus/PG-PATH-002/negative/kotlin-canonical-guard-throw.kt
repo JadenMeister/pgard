@@ -9,11 +9,11 @@ class KotlinCanonicalController {
     private val root = File("/srv/kt").canonicalFile
 
     @GetMapping("/kt")
-    fun read(@RequestParam name: String): String {
+    fun read(@RequestParam name: String): Unit {
         val file = File(root, name).canonicalFile
         if (!file.path.startsWith(root.path + File.separator)) {
             throw IllegalArgumentException("outside the root")
         }
-        return file.readText()
+        file.readText()
     }
 }

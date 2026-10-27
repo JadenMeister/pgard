@@ -7,8 +7,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 class KotlinNameController {
     @GetMapping("/kn")
-    fun read(@RequestParam name: String): String {
+    fun read(@RequestParam name: String): Unit {
         val leaf = File(name).name
-        return File("/srv/kn", leaf).readText()
+        File("/srv/kn", leaf).readText()
     }
 }

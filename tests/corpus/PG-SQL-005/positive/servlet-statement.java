@@ -15,7 +15,7 @@ public class AccountServlet extends HttpServlet {
     try (Connection conn = Db.open(); Statement st = conn.createStatement()) {
       ResultSet rs = st.executeQuery("SELECT * FROM accounts WHERE id = " + id);
       while (rs.next()) {
-        response.getWriter().println(rs.getString("owner"));
+        System.out.println(rs.getString("owner"));
       }
     } catch (SQLException e) {
       throw new IOException(e);

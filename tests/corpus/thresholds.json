@@ -50,7 +50,17 @@
       "recall": 1,
       "precisionMedium": 1
     },
+    "PG-XSS-004": {
+      "precision": 1,
+      "recall": 1,
+      "precisionMedium": 1
+    },
     "PG-SSRF-001": {
+      "precision": 1,
+      "recall": 1,
+      "precisionMedium": 1
+    },
+    "PG-SSRF-002": {
       "precision": 1,
       "recall": 1,
       "precisionMedium": 1

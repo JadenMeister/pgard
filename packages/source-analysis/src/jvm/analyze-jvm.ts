@@ -7,6 +7,8 @@ import { analyzeSql, type FlowFinding } from "./sql-engine.js";
 import { MYBATIS_PROVIDERS, UNSUPPORTED_LIBRARIES } from "./jvm-names.js";
 import { PROCESS_AND_FILE_LIBRARIES } from "./os-names.js";
 import { toAst } from "./tree.js";
+import type { ModelAttribute } from "./web-sinks.js";
+import { REFLECTION_TEXT, UNSUPPORTED_TEMPLATE_LIBRARIES } from "./web-names.js";
 
 export { analyzeMybatisXml, type MybatisAnalysis } from "./mybatis-xml.js";
 
@@ -24,7 +26,26 @@ export interface JvmAnalysis {
   unsupportedLibraries: string[];
   /** Imported libraries that run processes or open files with their own API (zt-exec, Okio, ...). */
   unsupportedOsLibraries: Array<{ label: string; kind: "process" | "file" }>;
+  /** Imported template engines the XSS rule does not read (FreeMarker, Velocity, Pebble, Mustache, ...). */
+  unsupportedTemplateLibraries: string[];
+  /** The file calls through reflection next to servlet, URL or HTTP client APIs: those calls are not followed. */
+  reflectionWeb: boolean;
+  /** Values put into a template model under a fixed name (matched to Thymeleaf templates by name). */
+  modelAttributes: ModelAttribute[];
 }
+
+/** Imports of the APIs the XSS and SSRF rules look at. */
+const WEB_API_PREFIXES = [
+  "javax.servlet",
+  "jakarta.servlet",
+  "org.springframework.web",
+  "org.springframework.http",
+  "java.net",
+  "io.ktor",
+  "okhttp3",
+  "org.apache.http",
+  "org.apache.hc",
+];
 
 const IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
 
@@ -117,6 +138,21 @@ export function analyzeJvmTree(
     capped,
     unsupportedForms: sql.unsupported,
     unsupportedLibraries: [...new Set(libraries)],
+    unsupportedTemplateLibraries: [
+      ...new Set(
+        UNSUPPORTED_TEMPLATE_LIBRARIES.filter((library) =>
+          unit.imports.some(
+            (name) => name === library.prefix || name.startsWith(`${library.prefix}.`),
+          ),
+        ).map((library) => library.label),
+      ),
+    ],
+    reflectionWeb:
+      REFLECTION_TEXT.test(source) &&
+      unit.imports.some((name) =>
+        WEB_API_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`)),
+      ),
+    modelAttributes: sql.modelAttributes,
     unsupportedOsLibraries: PROCESS_AND_FILE_LIBRARIES.filter((library) =>
       unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),
     ).map(({ label, kind }) => ({ label, kind })),

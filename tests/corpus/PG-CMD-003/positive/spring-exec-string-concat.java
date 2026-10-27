@@ -9,6 +9,6 @@ class DiagController {
   @GetMapping("/ping")
   String ping(@RequestParam String host) throws IOException {
     Process p = Runtime.getRuntime().exec("ping -c 1 " + host);
-    return "started " + p.pid();
+    return "started";
   }
 }

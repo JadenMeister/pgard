@@ -11,6 +11,7 @@ import type {
 } from "./ir.js";
 import { SQL_CALL_TEXT } from "./jvm-names.js";
 import { OS_CALL_TEXT } from "./os-names.js";
+import { WEB_CALL_TEXT } from "./web-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
 /** Deepest nesting the converter follows; deeper code makes the unit `incomplete`. */
@@ -227,7 +228,9 @@ export function convertJava(ast: AstResult): Unit {
         const body = ofType(node, "class_body");
         if (
           body !== undefined &&
-          (SQL_CALL_TEXT.test(text(body)) || OS_CALL_TEXT.test(text(body)))
+          (SQL_CALL_TEXT.test(text(body)) ||
+            OS_CALL_TEXT.test(text(body)) ||
+            WEB_CALL_TEXT.test(text(body)))
         ) {
           unit.unsupported.push("anonymous class");
         }
@@ -608,7 +611,14 @@ export function convertJava(ast: AstResult): Unit {
       case "throw_statement":
       case "yield_statement": {
         const inner = node.children.find((child) => !child.anonymous);
-        return [{ s: "exit", line, value: inner === undefined ? null : expr(inner, depth + 1) }];
+        return [
+          {
+            s: "exit",
+            line,
+            value: inner === undefined ? null : expr(inner, depth + 1),
+            ...(node.type === "return_statement" ? { ret: true } : {}),
+          },
+        ];
       }
       case "break_statement":
       case "continue_statement":
@@ -622,7 +632,11 @@ export function convertJava(ast: AstResult): Unit {
       default:
         // Local classes, records, enums and interfaces are not followed.
         if (CLASS_KINDS.has(node.type) || node.type === "local_class_declaration") {
-          if (SQL_CALL_TEXT.test(text(node)) || OS_CALL_TEXT.test(text(node))) {
+          if (
+            SQL_CALL_TEXT.test(text(node)) ||
+            OS_CALL_TEXT.test(text(node)) ||
+            WEB_CALL_TEXT.test(text(node))
+          ) {
             unit.unsupported.push("local class");
           }
         }
@@ -670,6 +684,7 @@ export function convertJava(ast: AstResult): Unit {
       initializers: [],
       parent,
       supers: [],
+      annotations: annotations(ofType(node, "modifiers"), 0),
     };
     unit.classes.push(info);
     for (const child of node.children) {
@@ -741,6 +756,7 @@ export function convertJava(ast: AstResult): Unit {
             annotations: annotations(ofType(member, "modifiers"), 0),
             body: body === undefined ? null : block(body, 1),
             line: member.line,
+            returnType: ((type) => (type === undefined ? null : text(type)))(named(member, "type")),
           };
           info.methods.push(method);
         } else if (member.type === "static_initializer" || member.type === "block") {

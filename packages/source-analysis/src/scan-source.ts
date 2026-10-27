@@ -663,7 +663,11 @@ export async function scanSourceCode(
       describeConfigExcluded(
         excludePatterns,
         excludedTotal,
-        walk.files.length + walkTrackedCount(walk) + jvm.mapperFiles + excludedTotal.count,
+        walk.files.length +
+          walkTrackedCount(walk) +
+          jvm.mapperFiles +
+          jvm.templateFiles +
+          excludedTotal.count,
         excludeMatcher.exhausted,
       ),
     );

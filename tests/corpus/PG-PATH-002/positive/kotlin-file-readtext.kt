@@ -7,7 +7,7 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 class NotesController {
     @GetMapping("/notes/{name}")
-    fun note(@PathVariable name: String): String {
-        return File("/data/notes/" + name).readText()
+    fun note(@PathVariable name: String): Unit {
+        File("/data/notes/" + name).readText()
     }
 }
