@@ -150,7 +150,7 @@ function listPaths(paths: string[]): string {
 export function describeSkippedMinified(paths: readonly string[], limitReached = false): string {
   const count = paths.length;
   const tail = limitReached ? " (file limit reached; count may be incomplete)" : "";
-  const heading = `${count} minified bundle${count === 1 ? "" : "s"} skipped (minified bundle, not analyzed): `;
+  const heading = `${count} minified bundle${count === 1 ? "" : "s"} skipped (minified bundle, not analyzed; set ${fingerprintPaths(paths)}): `;
   const compose = (labels: string[]) => {
     const rest = count - labels.length;
     if (labels.length === 0) return `${heading}${count} not listed.${tail}`;

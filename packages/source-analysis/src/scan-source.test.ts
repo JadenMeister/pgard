@@ -372,12 +372,32 @@ describe("minified bundle coverage", () => {
     const result = await scanSourceCode(root);
     const entry = result.coverage.find((item) => item.area === "source:minified");
     expect(entry).toMatchObject({ scope: "code", status: "partial", ruleIds: [] });
-    expect(entry?.note).toBe(
-      '3 minified bundles skipped (minified bundle, not analyzed): "public/vendor/a.min.mjs", "public/vendor/b.min.cjs", "public/vendor/widgets.min.js".',
+    expect(entry?.note).toMatch(
+      /^3 minified bundles skipped \(minified bundle, not analyzed; set [0-9a-f]{8}\): "public\/vendor\/a\.min\.mjs", "public\/vendor\/b\.min\.cjs", "public\/vendor\/widgets\.min\.js"\.$/,
     );
     expect(result.findings.some((finding) => (finding.location.path ?? "").includes(".min."))).toBe(
       false,
     );
+  });
+
+  it("notes a change outside the listed paths: same count, different set", async () => {
+    const bundles = Object.fromEntries(
+      [..."0123456"]
+        .map((n) => [`pub/m${n}.min.js`, "var a=1;"])
+        .concat([["pub/x.min.js", "var a=1;"]]),
+    );
+    const first = await scanSourceCode(
+      project({ "src/db.ts": SQL_VULN, "src/b.ts": SQL_VULN, ...bundles }),
+    );
+    const { "pub/m6.min.js": _gone, ...rest } = bundles;
+    const second = await scanSourceCode(
+      project({ "src/db.ts": SQL_VULN, ...rest, "pub/zz.min.js": SQL_VULN }),
+    );
+    const note = (output: typeof first) =>
+      output.coverage.find((item) => item.area === "source:minified")?.note;
+    expect(note(first)).toMatch(/^8 minified bundles/);
+    expect(note(second)).toMatch(/^8 minified bundles/);
+    expect(note(first)).not.toBe(note(second));
   });
 
   it("adds no entry when nothing was skipped", async () => {
@@ -387,10 +407,16 @@ describe("minified bundle coverage", () => {
 });
 
 describe("describeSkippedMinified", () => {
+  it("changes the note when the set changes outside the listed paths", () => {
+    const base = ["m0", "m1", "m2", "m3", "m4", "m5", "m6", "x"].map((n) => `pub/${n}.min.js`);
+    const changed = [...base.slice(0, 6), "pub/x.min.js", "pub/zz.min.js"];
+    expect(describeSkippedMinified(base)).not.toBe(describeSkippedMinified(changed));
+  });
+
   it("lists at most five paths, sorted, and counts the rest within the note limit", () => {
     const paths = Array.from({ length: 8 }, (_, index) => `d${7 - index}/x.min.js`);
-    expect(describeSkippedMinified(paths)).toBe(
-      '8 minified bundles skipped (minified bundle, not analyzed): "d0/x.min.js", "d1/x.min.js", "d2/x.min.js", "d3/x.min.js", "d4/x.min.js" and 3 more.',
+    expect(describeSkippedMinified(paths)).toMatch(
+      /^8 minified bundles skipped \(minified bundle, not analyzed; set [0-9a-f]{8}\): "d0\/x\.min\.js", "d1\/x\.min\.js", "d2\/x\.min\.js", "d3\/x\.min\.js", "d4\/x\.min\.js" and 3 more\.$/,
     );
     const long = Array.from({ length: 6 }, (_, i) => `${"a".repeat(200)}${i}.min.js`);
     const note = describeSkippedMinified(long);

@@ -372,6 +372,13 @@ describe("compareScans", () => {
       expect(changed.noLongerReported).toEqual([]);
       expect(changed.notComparable).toHaveLength(1);
       expect(gone(JS, [...JS, min("a.min.js")]).noLongerReported).toEqual([]);
+      // Same count and same listed paths, different set fingerprint.
+      const sameCount = gone(
+        [...JS, min("8 skipped (set 11111111): a.min.js and 7 more.")],
+        [...JS, min("8 skipped (set 22222222): a.min.js and 7 more.")],
+      );
+      expect(sameCount.noLongerReported).toEqual([]);
+      expect(sameCount.notComparable).toHaveLength(1);
     });
 
     it("a detected-but-unsupported language (not_tested, no rules) does not block", () => {
