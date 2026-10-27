@@ -425,6 +425,12 @@ html[data-released="true"] .meta .meta-state::before {
   text-wrap: balance;
 }
 
+/* One accented phrase; the heading text itself is unchanged */
+.hero h1 .accent {
+  color: var(--accent);
+  white-space: nowrap;
+}
+
 .lead {
   font-size: clamp(1.075rem, 1rem + 0.4vw, 1.3rem);
   line-height: 1.5;
