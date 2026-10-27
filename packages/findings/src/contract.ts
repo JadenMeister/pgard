@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.2" as const;
+export const SCHEMA_VERSION = "1.3" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -89,6 +89,14 @@ export interface Coverage {
   status: CoverageStatus;
   ruleIds: string[];
   note: string | null;
+  /**
+   * Only on `source:build-output` (JSON v1.3). The skip-named directories (`build`, `dist`, ...)
+   * that the walk entered because they directly contain source files, as redacted
+   * repository-relative paths; `complete` is false when the walk stopped early and the list may
+   * be missing some. Comparison uses it to treat findings below them as ordinary. Absent: not
+   * recorded (a result older than 1.3), which a reader must treat as "unknown".
+   */
+  walkedDirectories?: { paths: string[]; complete: boolean };
 }
 
 export type LocationKind = "file" | "url" | "commit";

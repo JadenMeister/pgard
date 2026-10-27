@@ -734,6 +734,74 @@ const CASES: Case[] = [
     ),
     expect: { "PG-AUTH-001": "low" },
   },
+  {
+    name: "a bare jwt.key default is low by name alone",
+    source: java(`${V}("\${jwt.key:dev-key-material-x}") String c;`),
+    expect: { "PG-CRYPTO-002": "low" },
+  },
+  {
+    name: "an IV from a literal @Value default is medium, not high",
+    source: java(
+      `${V}("\${app.iv:fixed-iv-0123456}") String iv;
+      IvParameterSpec spec() { return new IvParameterSpec(iv.getBytes()); }`,
+    ),
+    expect: { "PG-CRYPTO-003": "medium" },
+  },
+  {
+    name: "an IV from a non-final field is medium",
+    source: java(
+      `private byte[] iv = "fixed-iv-0123456".getBytes();
+      IvParameterSpec spec() { return new IvParameterSpec(iv); }`,
+    ),
+    expect: { "PG-CRYPTO-003": "medium" },
+  },
+  {
+    name: "a deprecated encoder with a Spring Security import is high",
+    source: java(
+      `Object a() { return new StandardPasswordEncoder("x"); }`,
+      "import org.springframework.security.crypto.password.StandardPasswordEncoder;",
+    ),
+    expect: { "PG-CRYPTO-001": "high" },
+  },
+  {
+    name: "a deprecated encoder name without a Spring Security import is low",
+    source: java(`Object a() { return new Md5PasswordEncoder(); }`),
+    expect: { "PG-CRYPTO-001": "low" },
+    evidence: /; inferred$/,
+  },
+  {
+    name: "Kotlin apply with a setPassword call, then save",
+    path: "A.kt",
+    source: kotlin(
+      `fun signup(password: String, repo: UserRepository) {
+        val user = User().apply { setPassword(password) }
+        repo.save(user)
+      }`,
+    ),
+    expect: { "PG-AUTH-001": "low" },
+  },
+  {
+    name: "Kotlin with(u) block sets this.password, then save",
+    path: "A.kt",
+    source: kotlin(
+      `fun signup(req: SignupRequest, u: User, repo: UserRepository) {
+        with(u) { this.password = req.password }
+        repo.save(u)
+      }`,
+    ),
+    expect: { "PG-AUTH-001": "medium" },
+  },
+  {
+    name: "Kotlin u.apply block as a statement, then save",
+    path: "A.kt",
+    source: kotlin(
+      `fun signup(password: String, u: User, repo: UserRepository) {
+        u.apply { this.password = password }
+        repo.save(u)
+      }`,
+    ),
+    expect: { "PG-AUTH-001": "low" },
+  },
 ];
 
 describe("cryptography rules on the JVM engine", () => {

@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.2`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.3`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.2`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.3`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -51,6 +51,8 @@
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
 
 ## 버전 이력
+
+**1.3**(추가만 있는 변경, minor 올림). `coverage` 항목에 선택 필드 `walkedDirectories`가 추가되었으며 `source:build-output`에만 들어갑니다. `{ paths, complete }` 형식으로, 소스 파일을 직접 담고 있어 검사가 들어간 이름 기반 제외 디렉터리(`build`, `dist`, `out` 등)의 경로(마스킹된 저장소 상대 경로)와 그 목록이 완전한지를 나타냅니다. 검사 비교는 이 디렉터리 아래의 발견 항목을 일반 항목으로 다루는 데 이를 사용합니다. `1.2` 이하 결과에는 이 필드가 없으며, 읽는 쪽은 이를 "기록되지 않음"으로 다루고 "들어간 디렉터리가 없음"으로 해석하지 않습니다.
 
 **1.2**(추가만 있는 변경, minor 올림). 최상위 선택 필드 `incremental` 하나가 추가되었습니다. 런처가 증분 검사를 제공할 때(CLI는 제공하고 대시보드는 제공하지 않음) 들어갑니다. `{ used, reason, basedOn, filesRescanned, filesReused, commitsScanned, commitsReused, code, history }`: `used`는 어떤 영역이 이전에 저장된 검사의 데이터를 재사용했을 때 true, `reason`은 전체 검사의 안정적인 코드(`requested_full`, `no_previous_scan`, `store_unavailable`, `previous_unreadable`, `no_saved_state`, `scopes_changed`, `tool_changed`, `config_changed`, `previous_incomplete`, `head_not_ancestor`, `git_failed`, `rules_unclassified`, `analyzer_changed`, `previous_state_too_large`, `previous_state_rejected`, `history_changed`)이거나 `null`, `basedOn`은 저장된 검사의 `{ scanId, revision }` 또는 `null`입니다. 범위가 실행되지 않았으면 개수는 `null`이고 `code`와 `history`는 `{ mode: "incremental" | "full", reason }` 또는 `null`입니다. 증분 검사에서 `ruleStats`의 examined 개수는 재사용한 파일과 커밋을 포함하며, 이력 `blobs` 대상만 `reason`과 함께 `null`입니다. `1.0`, `1.1` 결과에는 `incremental` 필드가 없으며 읽는 쪽은 이를 "기록되지 않음"으로 다룹니다.
 

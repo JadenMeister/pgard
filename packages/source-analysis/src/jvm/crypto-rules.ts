@@ -167,6 +167,9 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
   const classByName = new Map<string, ClassInfo>();
   for (const cls of unit.classes) if (!classByName.has(cls.name)) classByName.set(cls.name, cls);
   const consumed = new Set<Annotation>();
+  const importsSpringSecurity = unit.imports.some((name) =>
+    name.startsWith("org.springframework.security"),
+  );
   const importsJasypt = unit.imports.some((name) => name.startsWith("org.jasypt"));
 
   // ---------------------------------------------------------------- small readers
@@ -1193,13 +1196,20 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
 
       // ---- PG-CRYPTO-001: deprecated Spring Security password encoders
       if (type !== null && WEAK_PASSWORD_ENCODERS.has(type)) {
+        // A project class that happens to share the name is not the Spring one.
+        const qualified =
+          (expr.k === "new" && expr.type.includes("org.springframework.security")) ||
+          (expr.k === "call" && expr.recv !== null && packagePath(expr.recv));
+        const sure = qualified || importsSpringSecurity;
         report({
           ruleId: "PG-CRYPTO-001",
           line,
-          severity: "high",
-          status: "confirmed",
-          confidence: "high",
-          evidence: `deprecated ${type}: a fast, weakly salted hash for passwords`,
+          severity: sure ? "high" : "medium",
+          status: sure ? "confirmed" : "suspected",
+          confidence: sure ? "high" : "low",
+          evidence: sure
+            ? `deprecated ${type}: a fast, weakly salted hash for passwords`
+            : `${type} by name only, no Spring Security import: a fast, weakly salted hash for passwords; inferred`,
           cause: "weak-password-encoder",
         });
       }
@@ -1218,6 +1228,21 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
           evidence: "NoOpPasswordEncoder stores and compares passwords as plain text",
           cause: "password:noop",
         });
+      }
+      if (expr.k === "call" && !hashed && expr.lambdas.length > 0) {
+        // `u.apply { password = pw }` and `with(u) { this.password = pw }` on an existing variable.
+        const target =
+          expr.name === "with" && expr.args[0]?.k === "id"
+            ? expr.args[0].name
+            : expr.recv?.k === "id"
+              ? expr.recv.name
+              : null;
+        if (target !== null) {
+          for (const lambda of expr.lambdas) {
+            const level = lambdaLevel(lambda);
+            if (level !== null) carriers.set(target, level);
+          }
+        }
       }
       if (expr.k === "call" && !hashed) {
         const setter = /^set([A-Z]\w*)$/.exec(expr.name)?.[1];
@@ -1307,6 +1332,31 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
     };
 
     /** A value that holds a plain password: `new User(email, password)`, `User.builder().password(p)`. */
+    /** A scope-function lambda (`apply`, `also`, `with`, `run`) that sets a plain password. */
+    const lambdaLevel = (lambda: { body: Stmt[] }): Level => {
+      const found: Level[] = [];
+      walkStatements(
+        lambda.body,
+        () => {},
+        (stmt) => {
+          if (stmt.s !== "assign") return;
+          const target = stmt.target;
+          const name = target.k === "id" ? target.name : target.k === "member" ? target.name : "";
+          if (PASSWORD_NAME.test(name)) found.push(plainLevel(stmt.value, ctx));
+        },
+      );
+      walkStatements(
+        lambda.body,
+        (inner) => {
+          const setter = inner.k === "call" ? /^set([A-Z]\w*)$/.exec(inner.name)?.[1] : undefined;
+          if (inner.k === "call" && setter !== undefined && PASSWORD_NAME.test(setter)) {
+            found.push(inner.args[0] === undefined ? null : plainLevel(inner.args[0], ctx));
+          }
+        },
+        () => {},
+      );
+      return found.find((l) => l !== null) ?? null;
+    };
     const carrierLevel = (expr: Expr): Level => {
       if (expr.k === "id") return carriers.get(expr.name) ?? null;
       if (expr.k !== "call" && expr.k !== "new") return null;
@@ -1324,20 +1374,8 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
         if (current.k === "call") {
           // Kotlin `User().apply { password = pw }` and builder DSL lambdas.
           for (const lambda of current.lambdas) {
-            const found: Level[] = [];
-            walkStatements(
-              lambda.body,
-              () => {},
-              (stmt) => {
-                if (stmt.s !== "assign") return;
-                const target = stmt.target;
-                const name =
-                  target.k === "id" ? target.name : target.k === "member" ? target.name : "";
-                if (PASSWORD_NAME.test(name)) found.push(plainLevel(stmt.value, ctx));
-              },
-            );
-            const level = found.find((l) => l !== null);
-            if (level !== undefined) return level;
+            const level = lambdaLevel(lambda);
+            if (level !== null) return level;
           }
         }
         if (current.k === "call" && /password|passwd|pwd|copy/i.test(current.name)) {
