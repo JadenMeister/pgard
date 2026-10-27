@@ -1,0 +1,49 @@
+name: windows-tty-smoke
+
+# Manual check of the CLI panel view in a real Windows pseudo console (ConPTY). Not part of the
+# required `check`. It starts the built CLI with a fixture scan result (no GitHub sign-in, no
+# network), types scripted keys through node-pty and asserts on the terminal output.
+# node-pty is installed into the runner's temp directory for this job only: it is not in any
+# package.json or lockfile of this repository.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-pty-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      # Actions are pinned to the commit of the v4 tag, like a reviewer would check by hand.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          check-latest: true
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      # 1.1.0 ships prebuilt win32-x64 and win32-arm64 binaries (prebuilds/), so nothing is
+      # compiled on the runner. It lives in $RUNNER_TEMP, outside the checkout.
+      - name: Install node-pty outside the repository
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/pty"
+          cd "$RUNNER_TEMP/pty"
+          npm init -y > /dev/null
+          npm install --save-exact --no-audit --no-fund node-pty@1.1.0
+      - name: Drive the panel view in ConPTY
+        shell: bash
+        env:
+          PGARD_NODE_PTY: ${{ runner.temp }}/pty
+          PGARD_SMOKE_OUT: ${{ runner.temp }}/pty-smoke-out
+        run: node scripts/windows-pty-smoke/smoke.mjs
+      - name: Upload the transcript
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-pty-transcript
+          path: ${{ runner.temp }}/pty-smoke-out
+          if-no-files-found: warn
