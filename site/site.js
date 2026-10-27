@@ -82,6 +82,13 @@
       function done(ok) {
         if (!ok) return;
         btn.textContent = btn.getAttribute("data-copied") || "Copied";
+        var status = document.getElementById("copy-status");
+        if (status) {
+          status.textContent = "";
+          setTimeout(function () {
+            status.textContent = btn.getAttribute("data-copied") || "Copied";
+          }, 50);
+        }
         btn.setAttribute("data-done", "");
         clearTimeout(timer);
         timer = setTimeout(function () {

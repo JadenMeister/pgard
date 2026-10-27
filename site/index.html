@@ -98,9 +98,7 @@
             ><a href="#faq">FAQ</a>
           </nav>
           <div class="nav-actions">
-            <a class="lang" href="/ko/" hreflang="ko" lang="ko" aria-label="Switch to Korean"
-              >한국어</a
-            >
+            <a class="lang" href="/ko/" hreflang="ko" lang="ko">한국어</a>
             <a class="gh" href="https://github.com/JadenMeister/pgard" rel="noopener"
               ><svg class="ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <circle cx="6" cy="6" r="2.5" />
@@ -147,6 +145,7 @@
         </button>
       </div>
     </header>
+    <span class="sr-only" id="copy-status" role="status" aria-live="polite"></span>
 
     <main id="main">
       <section class="hero wrap" aria-labelledby="h1">
@@ -225,7 +224,10 @@
           <li><strong>3</strong><span>areas: code, Git history, your local web service</span></li>
           <li><strong>5</strong><span>authorization checks before every scan</span></li>
           <li>
-            <strong>EN · KO</strong><span>CLI, reports and dashboard in English and Korean</span>
+            <strong>EN · KO</strong
+            ><span
+              >most output in English and Korean; evidence and coverage notes stay English</span
+            >
           </li>
         </ul>
       </section>
@@ -367,7 +369,7 @@
   143  terminated by SIGTERM while the panel view was open</code></pre>
             </figure>
           </div>
-          <div class="tabpanel" role="tabpanel" id="panel-1" aria-labelledby="tab-1">
+          <div class="tabpanel" role="tabpanel" id="panel-1" hidden aria-labelledby="tab-1">
             <figure class="term">
               <figcaption>
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span
@@ -415,7 +417,7 @@
   - Known-vulnerability (CVE/advisory) lookups for dependencies: PGARD ships no vulnerability database</code></pre>
             </figure>
           </div>
-          <div class="tabpanel" role="tabpanel" id="panel-2" aria-labelledby="tab-2">
+          <div class="tabpanel" role="tabpanel" id="panel-2" hidden aria-labelledby="tab-2">
             <figure class="term term-wide">
               <figcaption>
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span
@@ -424,14 +426,14 @@
               <pre
                 tabindex="0"
               ><code><span class="prompt">$</span> <span class="cmd">pgard scan</span>
-<b>PGARD scan result - Completed</b>
+<b>PGARD scan result - Partial - some requested areas did not fully run</b>
 <b>Repository owner/name @ abcdef123456 - scopes: code, history</b>
 
 <b>Summary</b>
-  Areas            2 requested — 1 completed, 1 partial (1 not selected)
-  Rules            3 rules ran (1 in partially scanned areas)
-  Max per rule     152 files, 340 commits
-  Elapsed          5.0 s
+  Areas         2 requested — 1 completed, 1 partial (1 not selected)
+  Rules         3 rules ran (1 in partially scanned areas)
+  Max per rule  152 files, 340 commits
+  Elapsed       5.0 s
 
 <b>Findings by severity (3 total)</b>
   Critical <span class="bar">##############################</span> 1
@@ -440,13 +442,7 @@
   Low      0
   Info     0
 
-<b>By OWASP Top 10 2025 category</b>
-  A05 Injection    <span class="bar">##############################</span> 2
-  No OWASP mapping <span class="bar">###############</span> 1
-
-<b>By area</b>
-  code    <span class="bar">##############################</span> 2
-  history <span class="bar">###############</span> 1
+<b>...</b>
 
 <b>Findings (3): 1 confirmed, 2 suspected (needs review)</b>
   <span class="sev-crit">[CRITICAL]</span> User input concatenated into SQL (confirmed)
@@ -464,14 +460,16 @@
   <span class="dim">[not selected]</span> web:anonymous (Not selected)
 
 <b>Standards coverage (OWASP Top 10 2025)</b>
+  ...
   <span class="ok">[rules ran]</span>     A05 Injection - 3 of 37 mapped CWEs have rules (<span class="rule">PG-SQL-001</span>, <span class="rule">PG-XSS-001</span>)
-  <span class="dim">[no rules]</span>      A08 Software or Data Integrity Failures - no rules
-  <span class="dim">[no rules]</span>      A09 Security Logging &amp; Alerting Failures - no rules
-  <span class="dim">[no rules]</span>      A10 Mishandling of Exceptional Conditions - no rules
-  CWE Top 25 2025: 2 rules ran, 0 rules partial, 4 not run, 19 no rules</code></pre>
+  ...
+  CWE Top 25 2025: 2 rules ran, 0 rules partial, 4 not run, 19 no rules
+  Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage, ruleStats).
+
+<b>PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.</b></code></pre>
             </figure>
           </div>
-          <div class="tabpanel" role="tabpanel" id="panel-3" aria-labelledby="tab-3">
+          <div class="tabpanel" role="tabpanel" id="panel-3" hidden aria-labelledby="tab-3">
             <div class="frames">
               <figure class="term frame">
                 <figcaption>
@@ -612,7 +610,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             <h3>SARIF, JSON, HTML, PDF</h3>
             <p>
               Machine-readable output for scripts and code scanning, and reports you can read or
-              share. English and Korean.
+              share. Rule texts and report headings in English or Korean; scan evidence stays
+              English.
             </p>
           </article>
           <article class="card">
@@ -785,9 +784,14 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             </svg>
             <h3>SARIF to code scanning</h3>
             <p>
-              SARIF 2.1.0 on stdout, ready to upload to GitHub code scanning in your own workflow.
-              Upload only when the exit code is 0: a partial scan would close alerts for areas that
+              SARIF 2.1.0 on stdout. After a local scan that exits 0, upload it to GitHub code
+              scanning yourself, for example with gh api; the README shows the exact command. There
+              is no CI workflow, because a CI runner cannot pass the authorization gate. Never
+              upload after exit code 3, 4 or 5: a partial scan would close alerts for areas that
               were never checked.
+              <a href="https://github.com/JadenMeister/pgard#sarif-output" rel="noopener"
+                >README: SARIF output</a
+              >
             </p>
             <!-- prettier-ignore -->
             <div class="cmdline"><code id="out-sarif"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">pgard scan --format sarif &gt; pgard.sarif</span></code><button type="button" class="copy" data-copy-target="out-sarif" data-copied="Copied" aria-label="Copy command">Copy</button></div>
@@ -818,8 +822,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             </svg>
             <h3>HTML and PDF reports</h3>
             <p>
-              Redacted reports in English or Korean, written to an existing folder you choose.
-              Existing files are never overwritten.
+              Redacted reports in English or Korean (scan evidence stays English), written to an
+              existing folder you choose. Existing files are never overwritten.
             </p>
             <!-- prettier-ignore -->
             <div class="cmdline"><code id="out-report"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">pgard scan --report both --output-dir ./reports</span></code><button type="button" class="copy" data-copy-target="out-report" data-copied="Copied" aria-label="Copy command">Copy</button></div>
@@ -993,8 +997,9 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             </svg>
             <h3>Teams reviewing their own repositories</h3>
             <p>
-              Keep a baseline so new findings stand out, and send SARIF to code scanning from your
-              own workflow. Organization repositories can be scanned by an organization owner.
+              Keep a baseline so new findings stand out, and upload SARIF to code scanning yourself
+              after a local scan. An organization repository can be scanned by an organization
+              owner.
             </p>
           </article>
           <article class="card">
@@ -1053,14 +1058,20 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               ><span class="tag ok state-released">Available</span>
             </h3>
             <div class="pkg-cmd">
-              <!-- prettier-ignore -->
-              <div class="cmdline"><code id="i-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="i-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
-              <!-- prettier-ignore -->
-              <div class="cmdline"><code id="i-npx"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npx pgard doctor</span></code><button type="button" class="copy" data-copy-target="i-npx" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              <div class="state-released">
+                <!-- prettier-ignore -->
+                <div class="cmdline"><code id="i-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="i-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+                <!-- prettier-ignore -->
+                <div class="cmdline"><code id="i-npx"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npx pgard doctor</span></code><button type="button" class="copy" data-copy-target="i-npx" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              </div>
+              <div class="state-unreleased">
+                <!-- prettier-ignore -->
+                <div class="cmdline cmdblock plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npx pgard doctor</span></span></code></div>
+              </div>
             </div>
             <p class="small state-unreleased">
-              Until the first release, npm install -g pgard installs only a placeholder package with
-              no pgard command.
+              Available after the first release; shown here for reference, not copyable. Until then,
+              npm install -g pgard installs only a placeholder package with no pgard command.
             </p>
           </article>
           <article class="card pkg">
@@ -1069,11 +1080,20 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               ><span class="tag ok state-released">Available</span>
             </h3>
             <div class="pkg-cmd">
-              <!-- prettier-ignore -->
-              <div class="cmdline cmdblock"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              <div class="state-released">
+                <!-- prettier-ignore -->
+                <div class="cmdline cmdblock"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              </div>
+              <div class="state-unreleased">
+                <!-- prettier-ignore -->
+                <div class="cmdline cmdblock plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code></div>
+              </div>
             </div>
             <p class="small">Or in one line: brew install jadenmeister/pgard/pgard</p>
-            <p class="small state-unreleased">The tap is created with the first release.</p>
+            <p class="small state-unreleased">
+              The tap is created with the first release; these commands are shown for reference
+              until then.
+            </p>
           </article>
           <article class="card pkg">
             <h3>Build from source<span class="tag ok">Works today</span></h3>
@@ -1119,11 +1139,13 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
           <details>
             <summary>Which repositories can I scan?</summary>
             <p>
-              A repository you own, or an organization repository where you are an active owner,
-              provided the PGARD GitHub App is installed on it. Other people need the owner to
-              install the App, and a merged pull request or a verified signed commit in the default
-              branch. Remote repositories are never scanned: the target is always the Git root of
-              your current directory.
+              Your own repositories, once the PGARD GitHub App is installed on your account (PGARD
+              guides you through it). Someone else's personal repository only if its owner installed
+              the App and you have current read access plus a merged pull request or a verified
+              signed commit on the default branch. Organization repositories only if you are an
+              active owner of the organization and the App is installed with access to the
+              repository. Remote repositories are never scanned: the target is always the Git root
+              of your current directory.
             </p>
           </details>
           <details>
@@ -1153,9 +1175,10 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
           <details>
             <summary>Can I use it in CI?</summary>
             <p>
-              Not as a documented setup yet. Sign-in is interactive and every scan checks
-              authorization live. What exists today: --format json and --format sarif, and exit
-              codes (0 completed, 3 blocked, 4 partial) that scripts can read on your own machine.
+              Not today. Every scan needs a GitHub sign-in that a CI runner does not have, so a
+              runner would produce a blocked result. What works: run PGARD locally and read --format
+              json or --format sarif and the exit codes (0 completed, 3 blocked, 4 partial) in your
+              own scripts.
             </p>
           </details>
           <details>
