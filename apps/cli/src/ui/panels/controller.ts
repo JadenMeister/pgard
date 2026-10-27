@@ -9,7 +9,7 @@ import {
 } from "../formatters/style.js";
 import { renderFrame, type RenderOptions } from "./layout.js";
 import { createPanelsState, reduce, resize } from "./reduce.js";
-import type { PanelsExit, PanelsState, Size } from "./types.js";
+import type { PanelsExit, PanelsState, Size, TrendData } from "./types.js";
 
 const ENTER_SCREEN = "\u001b[?1049h\u001b[?25l";
 const LEAVE_SCREEN = "\u001b[?25h\u001b[?1049l";
@@ -34,6 +34,8 @@ export interface PanelsScreenOptions {
   keys: KeyReader;
   /** Rule catalog: the standards links in the finding detail. */
   ruleTexts?: RuleTextCatalog | undefined;
+  /** Stored scan history for the trend panel; default: an empty history. */
+  trend?: TrendData | undefined;
   /** Default: the real process. */
   processEvents?: ProcessEvents;
 }
@@ -78,6 +80,7 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
     options.locale,
     sizeOf(stdout),
     options.ruleTexts,
+    options.trend,
   );
   let isOpen = false;
   const restore = (): void => {
@@ -160,7 +163,13 @@ export function renderPanelsOnce(
     columns: terminalWidth(options.stdout, options.env),
     rows: Number.isInteger(rows) && rows > 0 ? rows : DEFAULT_ROWS,
   };
-  const state = createPanelsState(options.result, options.locale, size, options.ruleTexts);
+  const state = createPanelsState(
+    options.result,
+    options.locale,
+    size,
+    options.ruleTexts,
+    options.trend,
+  );
   const lines = renderFrame(state, size, renderOptionsOf(options));
   options.stdout.write(`${lines.map((line) => line.trimEnd()).join("\n")}\n`);
 }

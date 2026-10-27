@@ -22,7 +22,7 @@ export function formatScanTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function isNewerMinor(sourceVersion: string): boolean {
+export function isNewerMinor(sourceVersion: string): boolean {
   const [major = 0, minor = 0] = sourceVersion.split(".").map(Number);
   const [currentMajor = 0, currentMinor = 0] = SCHEMA_VERSION.split(".").map(Number);
   return major > currentMajor || (major === currentMajor && minor > currentMinor);

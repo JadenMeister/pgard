@@ -38,6 +38,8 @@ import { safeText, terminalWidth } from "../../ui/formatters/style.js";
 import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
 import type { PreviousScan } from "../../flows/scan-diff-summary.js";
 import { offerPanels } from "../../flows/panels.js";
+import { loadTrend } from "../../flows/trend.js";
+import type { TrendData } from "../../ui/panels/types.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
@@ -370,13 +372,17 @@ async function runScanFlow(
   const wantsPanels = command.panels === true;
   // `baseline set --from-current` only uses the scan; it does not open the panel view by itself.
   const isBaselineRun = command.setBaseline === true;
+  const trendLoader = (): Promise<TrendData> =>
+    loadTrend(context, scanned.outcome, command.noStore === true, result.scanId);
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
-    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun);
+    if (!isJson)
+      await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun, trendLoader);
   } else {
     // Machine formats keep the terminal untouched: the panel view never opens for them.
-    if (!isJson) await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun);
+    if (!isJson)
+      await offerPanels(context, panelsResult(), wantsPanels, !isBaselineRun, trendLoader);
     if (context.isMenu) isReportSaved = await offerReportExport(context, result, projectRoot);
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
