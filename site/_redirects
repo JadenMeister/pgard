@@ -1,0 +1,4 @@
+# Cloudflare Pages redirects. The www -> apex redirect is set in Cloudflare (see the PR), not here.
+/docs     https://github.com/JadenMeister/pgard#readme                  302
+/ko/docs  https://github.com/JadenMeister/pgard/blob/main/README.ko.md  302
+/github   https://github.com/JadenMeister/pgard                         302
