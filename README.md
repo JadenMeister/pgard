@@ -76,8 +76,16 @@ The first release (planned v0.1.0) is not published yet. Until then the npm name
 ```sh
 npm install -g pgard   # installs the `pgard` command
 npx pgard doctor       # or run it once without installing
-brew install jadenmeister/pgard/pgard   # Homebrew (macOS and Linux), after the first release
 ```
+
+With Homebrew (macOS and Linux), after the first release:
+
+```sh
+brew tap jadenmeister/pgard   # once
+brew install pgard            # later: brew upgrade pgard
+```
+
+The one-line form `brew install jadenmeister/pgard/pgard` also works; it adds the tap automatically.
 
 The package is `pgard` and its command is `pgard`. Versions and the release process are described in [docs/RELEASING.md](docs/RELEASING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
