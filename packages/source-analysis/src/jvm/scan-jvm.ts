@@ -58,6 +58,7 @@ export async function scanJvm(
   const coverage: Coverage[] = [];
   const ruleStats: RuleStat[] = [];
   const analyzedPaths: string[] = [];
+  const libraries = new Map<string, number>();
   const runtime = new TreeSitterRuntime();
   try {
     for (const language of JVM_LANGUAGES) {
@@ -68,6 +69,7 @@ export async function scanJvm(
       const own: Finding[] = [];
       const cappedFiles: string[] = [];
       const incompleteFiles: string[] = [];
+      const formFiles = new Map<string, string[]>();
       let crashed = 0;
       const stats = await parseTrackFiles(
         runtime,
@@ -87,6 +89,12 @@ export async function scanJvm(
             own.push(...analysis.findings.map(createSourceFinding));
             if (analysis.capped) cappedFiles.push(file.relativePath);
             if (analysis.incomplete) incompleteFiles.push(file.relativePath);
+            for (const form of analysis.unsupportedForms) {
+              formFiles.set(form, [...(formFiles.get(form) ?? []), file.relativePath]);
+            }
+            for (const library of analysis.unsupportedLibraries) {
+              libraries.set(library, (libraries.get(library) ?? 0) + 1);
+            }
           } catch {
             crashed += 1;
           }
@@ -103,6 +111,11 @@ export async function scanJvm(
       if (incompleteFiles.length > 0) {
         problems.push(
           `${incompleteFiles.length} file(s) were nested too deeply to analyze in full`,
+        );
+      }
+      for (const [form, paths] of formFiles) {
+        problems.push(
+          `${paths.length} file(s) have SQL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
         );
       }
       if (crashed > 0) problems.push(`${crashed} file(s) could not be analyzed`);
@@ -151,6 +164,7 @@ export async function scanJvm(
     let unreadable = 0;
     let tooLarge = 0;
     let capped = 0;
+    let unclosed = 0;
     const mapperFindings: Finding[] = [];
     // Any .xml file may be a mapper; only the ones that declare <mapper> are analyzed.
     for (const file of walk.xmlFiles) {
@@ -174,6 +188,7 @@ export async function scanJvm(
       analyzedPaths.push(file.relativePath);
       mapperFindings.push(...analysis.findings.map(createSourceFinding));
       if (analysis.capped) capped += 1;
+      if (analysis.incomplete) unclosed += 1;
     }
     findings.push(...mapperFindings);
     if (mapperFiles > 0) {
@@ -186,6 +201,11 @@ export async function scanJvm(
       if (unreadable > 0) problems.push(`${unreadable} XML file(s) were binary or unreadable`);
       if (tooLarge > 0) problems.push(`${tooLarge} XML file(s) over 1 MiB were not read`);
       if (walk.trackTruncated) problems.push("the file list reached its cap");
+      if (unclosed > 0) {
+        problems.push(
+          `${unclosed} file(s) have a statement tag that is never closed; the rest of each was not read`,
+        );
+      }
       const entry: Coverage = {
         area: "source:mybatis",
         scope: "code",
@@ -213,6 +233,15 @@ export async function scanJvm(
         status: "partial",
         ruleIds: [],
         note: `${unreadable + tooLarge} XML file(s) were binary, unreadable or over 1 MiB, so MyBatis mapper XML in them was not checked.`,
+      });
+    }
+    for (const [library, count] of libraries) {
+      coverage.push({
+        area: `source:orm:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        scope: "code",
+        status: "partial",
+        ruleIds: [],
+        note: `${library} detected in ${count} file(s); its raw SQL APIs are not supported, so queries made through them were not evaluated (not a safe result).`,
       });
     }
     return { findings, coverage, ruleStats, analyzedPaths, excludedMapperPaths, mapperFiles };

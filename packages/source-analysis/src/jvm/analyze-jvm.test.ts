@@ -216,7 +216,7 @@ const CASES: Case[] = [
     expected: "none",
   },
   {
-    name: "createQuery(CriteriaQuery) is not SQL text",
+    name: "the result of a helper passed to createQuery is reported low, not followed",
     source: java(
       JPA_IMPORTS,
       `EntityManager em;
@@ -224,7 +224,7 @@ const CASES: Case[] = [
         em.createQuery(buildCriteria(n));
       }`,
     ),
-    expected: "none",
+    expected: "inferred",
   },
   // ---- sources ----
   {
@@ -854,7 +854,7 @@ const KOTLIN_CASES: Case[] = [
     expected: "none",
   },
   {
-    name: "a Kotlin val that is not const is only inferred fixed",
+    name: "a Kotlin private val initialized with a literal is fixed text",
     path: "A.kt",
     source: kotlin(
       "import org.springframework.jdbc.core.JdbcTemplate",
@@ -863,7 +863,7 @@ const KOTLIN_CASES: Case[] = [
         fun f() { jdbc.queryForList("SELECT * FROM $TABLE") }
       }`,
     ),
-    expected: "inferred",
+    expected: "none",
   },
   {
     name: "Kotlin local that shadows a const val",
@@ -1027,8 +1027,407 @@ const KOTLIN_CASES: Case[] = [
   },
 ];
 
+const REVIEW_CASES: Case[] = [
+  // ---- labeled statements ----
+  {
+    name: "a sink inside a labeled loop",
+    source: java(
+      JDBC_IMPORTS,
+      `void f(Connection conn, HttpServletRequest req) throws Exception {
+        rows:
+        for (String id : req.getParameterValues("id")) {
+          conn.createStatement().executeUpdate("DELETE FROM t WHERE id = '" + id + "'");
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  {
+    name: "a sink inside a labeled block",
+    source: java(
+      JDBC_IMPORTS,
+      `void f(Connection conn, HttpServletRequest req) throws Exception {
+        blk: {
+          conn.createStatement().executeUpdate("DELETE FROM t WHERE id = '" + req.getParameter("id") + "'");
+        }
+      }`,
+    ),
+    expected: "confirmed",
+  },
+  // ---- helper results ----
+  {
+    name: "the result of a helper is reported low, not followed",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/x") Object f(@RequestParam String q) {
+        String sql = buildSql(q);
+        return jdbc.queryForList(sql);
+      }`,
+    ),
+    expected: "inferred",
+  },
+  {
+    name: "a helper wrapped around a sanitizer-looking call is still reported",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/x") Object f(@RequestParam String q) {
+        return jdbc.queryForList(buildQuery(clean(q)));
+      }`,
+    ),
+    expected: "inferred",
+  },
+  {
+    name: "a CriteriaQuery variable is not SQL text",
+    source: java(
+      JPA_IMPORTS + "import javax.persistence.criteria.*;\n",
+      `EntityManager em;
+      @GetMapping("/x") Object f(@RequestParam String c) {
+        CriteriaBuilder cb = em.getCriteriaBuilder();
+        CriteriaQuery<Object> cq = cb.createQuery(Object.class);
+        return em.createQuery(cq).getResultList();
+      }`,
+    ),
+    expected: "none",
+  },
+  // ---- the leaf cap never turns a finding into silence ----
+  {
+    name: "200 literals do not push out an unknown value",
+    source: java(
+      JDBC_IMPORTS,
+      `void f(Statement st, String a) throws Exception {
+        st.executeQuery("SELECT 1" ${Array.from({ length: 300 }, (_, i) => `+ " c${i}"`).join(" ")} + a);
+      }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "200 literals do not push out request input",
+    source: java(
+      JDBC_IMPORTS,
+      `void f(Statement st, HttpServletRequest r) throws Exception {
+        st.executeQuery("SELECT 1" ${Array.from({ length: 300 }, (_, i) => `+ " c${i}"`).join(" ")} + r.getParameter("a"));
+      }`,
+    ),
+    expected: "confirmed",
+  },
+  // ---- builders that escape ----
+  {
+    name: "a builder aliased through a local",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/a") Object a(@RequestParam String sort) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM t");
+        StringBuilder tail = sql;
+        tail.append(" ORDER BY ").append(sort);
+        return jdbc.queryForList(sql.toString());
+      }`,
+    ),
+    expected: "suspected",
+  },
+  {
+    name: "a builder aliased conditionally",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/a") Object a(@RequestParam String sort, boolean x) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM t");
+        StringBuilder target = new StringBuilder();
+        if (x) { target = sql; }
+        target.append(" ORDER BY ").append(sort);
+        return jdbc.queryForList(sql.toString());
+      }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "a builder stored in a list",
+    source: java(
+      SPRING_IMPORTS + "import java.util.*;\n",
+      `JdbcTemplate jdbc;
+      @GetMapping("/a") Object a(@RequestParam String sort) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM t");
+        List<StringBuilder> parts = List.of(sql);
+        parts.get(0).append(" ORDER BY ").append(sort);
+        return jdbc.queryForList(sql.toString());
+      }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "a builder stored in a field",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc; StringBuilder saved;
+      @GetMapping("/a") Object a() {
+        StringBuilder sql = new StringBuilder("SELECT * FROM t");
+        this.saved = sql;
+        return jdbc.queryForList(sql.toString());
+      }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "a builder in an array",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/a") Object a() {
+        StringBuilder sql = new StringBuilder("SELECT * FROM t");
+        StringBuilder[] all = { sql };
+        return jdbc.queryForList(sql.toString());
+      }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "a final field that holds a builder is not fixed text",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      private final StringBuilder base = new StringBuilder("SELECT * FROM t");
+      @GetMapping("/r") Object run() { return jdbc.queryForList(base.toString()); }
+      @GetMapping("/f") void filter(@RequestParam String where) { base.append(" WHERE ").append(where); }`,
+    ),
+    expected: "inferred",
+  },
+  {
+    name: "a static final array that is written to is not a fixed table",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      static final String[] COLS = {"id", "name"};
+      @GetMapping("/s") void set(@RequestParam String c) { COLS[0] = c; }
+      @GetMapping("/r") Object run() { return jdbc.queryForList("SELECT * FROM t ORDER BY " + COLS[0]); }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "a fixed array that nothing writes to stays an allowlist table",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      static final String[] COLS = {"id", "name"};
+      @GetMapping("/r") Object run(@RequestParam int i) { return jdbc.queryForList("SELECT * FROM t ORDER BY " + COLS[i]); }`,
+    ),
+    expected: "inferred",
+  },
+  // ---- lambdas run after later assignments ----
+  {
+    name: "a Kotlin var captured by a lambda and reassigned afterwards",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate\nimport org.springframework.web.bind.annotation.*",
+      `class C(private val jdbc: JdbcTemplate) {
+        @GetMapping("/a") fun a(@RequestParam sort: String): Any {
+          var col = "id"
+          val q = { jdbc.queryForList("SELECT * FROM t ORDER BY $col") }
+          col = sort
+          return q()
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  {
+    name: "a builder appended to after a lambda that reads it is defined",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/a") Object a(@RequestParam String sort) {
+        StringBuilder sb = new StringBuilder("SELECT * FROM t ORDER BY ");
+        java.util.function.Supplier<Object> q = () -> jdbc.queryForList(sb.toString());
+        sb.append(sort);
+        return q.get();
+      }`,
+    ),
+    expected: "suspected",
+  },
+  // ---- Kotlin scope functions on a builder ----
+  {
+    name: "Kotlin also { it.append(x) }",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate\nimport org.springframework.web.bind.annotation.*",
+      `class C(private val jdbc: JdbcTemplate) {
+        @GetMapping("/a") fun a(@RequestParam sort: String): Any {
+          val sb = StringBuilder("SELECT * FROM t ORDER BY ")
+          sb.also { it.append(sort) }
+          return jdbc.queryForList(sb.toString())
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  {
+    name: "Kotlin let { b -> b.append(x) }",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate\nimport org.springframework.web.bind.annotation.*",
+      `class C(private val jdbc: JdbcTemplate) {
+        @GetMapping("/a") fun a(@RequestParam sort: String): Any {
+          val sb = StringBuilder("SELECT * FROM t ORDER BY ")
+          sb.let { b -> b.append(sort) }
+          return jdbc.queryForList(sb.toString())
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  {
+    name: "Kotlin with(sb) { append(x) }",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate\nimport org.springframework.web.bind.annotation.*",
+      `class C(private val jdbc: JdbcTemplate) {
+        @GetMapping("/a") fun a(@RequestParam sort: String): Any {
+          val sb = StringBuilder("SELECT * FROM t ORDER BY ")
+          with(sb) { append(sort) }
+          return jdbc.queryForList(sb.toString())
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  // ---- loops iterate until nothing changes ----
+  {
+    name: "a chain prev = cur; cur = n in a loop",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @PostMapping("/a") void a(@RequestBody java.util.List<String> names) {
+        String prev = "none";
+        String cur = "none";
+        for (String n : names) {
+          jdbc.update("INSERT INTO pairs(a) VALUES ('" + prev + "')");
+          prev = cur;
+          cur = n;
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  {
+    name: "a longer chain through four variables",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @PostMapping("/a") void a(@RequestBody java.util.List<String> names) {
+        String a = "x", b = "x", c = "x", d = "x";
+        for (String n : names) {
+          jdbc.update("INSERT INTO pairs(a) VALUES ('" + d + "')");
+          d = c; c = b; b = a; a = n;
+        }
+      }`,
+    ),
+    expected: "suspected",
+  },
+  // ---- name() ----
+  {
+    name: "name() on a request body record is request input (not an enum)",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      record Person(String name) {}
+      @PostMapping("/a") void a(@RequestBody Person p) {
+        jdbc.update("INSERT INTO people(name) VALUES ('" + p.name() + "')");
+      }`,
+    ),
+    expected: "confirmed",
+  },
+  {
+    name: "name on a Kotlin data class from the request body is request input",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate\nimport org.springframework.web.bind.annotation.*",
+      `data class Person(val name: String)
+      class C(private val jdbc: JdbcTemplate) {
+        @PostMapping("/a") fun a(@RequestBody p: Person) {
+          jdbc.update("INSERT INTO people(name) VALUES ('\${p.name}')")
+        }
+      }`,
+    ),
+    expected: "confirmed",
+  },
+  {
+    name: "name() on an unknown type is unknown, not an enum",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      void f(Thing t) { jdbc.update("INSERT INTO people(name) VALUES ('" + t.name() + "')"); }`,
+    ),
+    expected: "untraced",
+  },
+  {
+    name: "Enum.valueOf(...).name() of an enum in the file is fixed text",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      enum SortCol { ID, NAME }
+      @GetMapping("/a") Object a(@RequestParam String s) {
+        return jdbc.queryForList("SELECT * FROM t ORDER BY " + SortCol.valueOf(s).name());
+      }`,
+    ),
+    expected: "none",
+  },
+  {
+    name: "an enum that overrides toString() is not fixed text",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      @GetMapping("/a") Object a(@RequestParam String v) {
+        Col c = Col.NAME; c.raw = v;
+        return jdbc.queryForList("SELECT * FROM t ORDER BY " + c);
+      }
+      enum Col { NAME; String raw = ""; public String toString() { return raw; } }`,
+    ),
+    expected: "inferred",
+  },
+  // ---- constants ----
+  {
+    name: "an interface constant reached through implements is fixed text",
+    source: java(
+      SPRING_IMPORTS,
+      `JdbcTemplate jdbc;
+      interface Cols { String NAME = "name"; }
+      class Impl implements Cols {
+        Object run() { return jdbc.queryForList("SELECT " + NAME + " FROM t"); }
+      }`,
+    ),
+    expected: "none",
+  },
+  {
+    name: "a Kotlin private val in a companion or at top level is fixed text",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate\nimport org.springframework.web.bind.annotation.*",
+      `private val ORDER = " ORDER BY id"
+      class C(private val jdbc: JdbcTemplate) {
+        companion object { private val BASE = "SELECT * FROM t" }
+        @GetMapping("/a") fun a(@RequestParam desc: Boolean): Any =
+          jdbc.queryForList(BASE + ORDER + (if (desc) " DESC" else ""))
+      }`,
+    ),
+    expected: "none",
+  },
+  {
+    name: "an open Kotlin val can be overridden and is not fixed text",
+    path: "A.kt",
+    source: kotlin(
+      "import org.springframework.jdbc.core.JdbcTemplate",
+      `open class C(private val jdbc: JdbcTemplate) {
+        open val table = "users"
+        fun a(): Any = jdbc.queryForList("SELECT * FROM " + table)
+      }`,
+    ),
+    expected: "untraced",
+  },
+];
+
 describe("PG-SQL-005 Java and Kotlin SQL injection", () => {
-  for (const testCase of [...CASES, ...KOTLIN_CASES]) {
+  for (const testCase of [...CASES, ...KOTLIN_CASES, ...REVIEW_CASES]) {
     it(testCase.name, async () => {
       const analysis = await run(testCase.source, testCase.path);
       expect(kindOf(analysis.findings), JSON.stringify(analysis.findings, null, 1)).toBe(
@@ -1155,6 +1554,19 @@ describe("robustness", () => {
       ),
     );
     expect(analysis.findings.length).toBeGreaterThan(0);
+  });
+
+  it("the cap keeps the strongest findings, not the first ones", async () => {
+    const weak = Array.from(
+      { length: 30 },
+      (_, i) =>
+        `void w${i}(Statement st, String c) throws Exception { st.executeQuery("SELECT " + c + " FROM t${i}"); }`,
+    ).join("\n");
+    const strong = `void s(Statement st, HttpServletRequest r) throws Exception { st.executeQuery("SELECT * FROM t WHERE a = " + r.getParameter("a")); }`;
+    const analysis = await run(java(JDBC_IMPORTS, `${weak}\n${strong}`));
+    expect(analysis.capped).toBe(true);
+    expect(analysis.findings).toHaveLength(25);
+    expect(analysis.findings.some((f) => f.confidence === "high")).toBe(true);
   });
 
   it("caps the number of findings per file", async () => {
@@ -1294,7 +1706,7 @@ describe("MyBatis mapper XML", () => {
 
   it("ignores XML that is not a mapper", () => {
     const analysis = analyzeMybatisXml(`<project><name>\${x}</name></project>`, "pom.xml");
-    expect(analysis).toEqual({ isMapper: false, findings: [], capped: false });
+    expect(analysis).toEqual({ isMapper: false, findings: [], capped: false, incomplete: false });
   });
 
   it("lowers numeric parameterType, OGNL static fields and <sql> fragments to inferred", () => {
@@ -1316,7 +1728,45 @@ describe("MyBatis mapper XML", () => {
     const started = performance.now();
     const analysis = analyzeMybatisXml(mapper(body), "m.xml");
     expect(analysis.findings).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(2000);
+    expect(performance.now() - started).toBeLessThan(2000 * SLOW);
+  });
+
+  it("reads a closing tag with whitespace, a namespaced tag, CDATA that looks like a comment and a > in an attribute", () => {
+    const analysis = analyzeMybatisXml(
+      mapper(`<select id="a">SELECT * FROM t WHERE o = '\${o}'
+</select >
+<mb:update id="b">UPDATE t SET a = \${a}</mb:update>
+<select id="c"><![CDATA[ SELECT '<!--' AS a FROM t WHERE y = '\${y}' -- --> ]]></select>
+<select id="d" databaseId="a>b">SELECT * FROM t ORDER BY \${col}</select>`),
+      "m.xml",
+    );
+    expect(analysis.findings.map((f) => f.cause)).toEqual([
+      "select:a:o",
+      "update:b:a",
+      "select:c:y",
+      "select:d:col",
+    ]);
+    expect(analysis.incomplete).toBe(false);
+  });
+
+  it("does not treat a mybatis-config <mappers> list as a mapper", () => {
+    const analysis = analyzeMybatisXml(
+      `<configuration><mappers><mapper resource="a/B.xml"/><mapper class="a.C"/></mappers></configuration>`,
+      "mybatis-config.xml",
+    );
+    expect(analysis.isMapper).toBe(false);
+  });
+
+  it("says when a statement is never closed", () => {
+    const analysis = analyzeMybatisXml(mapper(`<select id="a">SELECT \${x}`), "m.xml");
+    expect(analysis.incomplete).toBe(true);
+  });
+
+  it("many unclosed opening tags without > cost bounded time", () => {
+    const hostile = `<mapper namespace="a">${"<select ".repeat(100_000)}`;
+    const started = performance.now();
+    analyzeMybatisXml(hostile, "m.xml");
+    expect(performance.now() - started).toBeLessThan(5000 * SLOW);
   });
 
   it("caps findings per file", () => {

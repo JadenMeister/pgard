@@ -408,3 +408,21 @@ export const SQL_PRODUCERS = new Set([
 
 /** Conditions that name an allowlist or validator. */
 export const VALIDATOR_NAME = /allow|valid|whitelist|permit|safe|legit|known|support|sanitiz/i;
+
+/** Text of a skipped code form that makes it matter: a call that looks like a SQL call. */
+export const SQL_CALL_TEXT =
+  /\b(?:executeQuery|executeUpdate|executeLargeUpdate|addBatch|prepareStatement|prepareCall|query\w*|update|batchUpdate|execute|createQuery|createNativeQuery|createSQLQuery|createNativeMutationQuery|createSelectionQuery|createMutationQuery)\s*\(/;
+
+/** Libraries with their own SQL APIs that the rule does not analyze. */
+export const UNSUPPORTED_LIBRARIES: ReadonlyArray<{ prefix: string; label: string }> = [
+  { prefix: "org.jooq", label: "jOOQ" },
+  { prefix: "org.jetbrains.exposed", label: "Exposed" },
+  { prefix: "androidx.room", label: "Room" },
+];
+/** MyBatis annotations that name a class which builds the SQL. */
+export const MYBATIS_PROVIDERS = new Set([
+  "SelectProvider",
+  "InsertProvider",
+  "UpdateProvider",
+  "DeleteProvider",
+]);

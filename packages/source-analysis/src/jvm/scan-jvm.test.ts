@@ -154,6 +154,88 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
     expect(output.findings.filter((f) => f.ruleId === "PG-SQL-005")).toHaveLength(25);
   });
 
+  it("marks the area partial when a SQL call is in an anonymous class, a local class or a local function", async () => {
+    const anonymous = `import org.springframework.jdbc.core.JdbcTemplate;
+class A { JdbcTemplate jdbc; void f(String q) {
+  Runnable r = new Runnable() { public void run() { jdbc.execute("DELETE FROM t WHERE n = '" + q + "'"); } };
+} }
+`;
+    const local = `import org.springframework.jdbc.core.JdbcTemplate;
+class B { JdbcTemplate jdbc; void f(String q) {
+  class Local { void go() { jdbc.execute("DELETE FROM t WHERE n = '" + q + "'"); } }
+} }
+`;
+    const kotlinLocal = `import org.springframework.jdbc.core.JdbcTemplate
+class C(private val jdbc: JdbcTemplate) { fun f(q: String) {
+  fun inner() { jdbc.execute("DELETE FROM t WHERE n = '$q'") }
+  inner()
+} }
+`;
+    const java = await scanSourceCode(project({ "A.java": anonymous, "B.java": local }));
+    const javaEntry = java.coverage.find((item) => item.area === "source:java");
+    expect(javaEntry?.status).toBe("partial");
+    expect(javaEntry?.note).toContain("anonymous class bodies");
+    expect(javaEntry?.note).toContain("local class bodies");
+    const kt = await scanSourceCode(project({ "C.kt": kotlinLocal }));
+    const ktEntry = kt.coverage.find((item) => item.area === "source:kotlin");
+    expect(ktEntry?.status).toBe("partial");
+    expect(ktEntry?.note).toContain("local function bodies");
+  });
+
+  it("an anonymous class without a SQL-looking call does not make the area partial", async () => {
+    const output = await scanSourceCode(
+      project({
+        "A.java": "class A { Runnable r = new Runnable() { public void run() { go(); } }; }\n",
+      }),
+    );
+    expect(output.coverage.find((item) => item.area === "source:java")?.status).toBe("completed");
+  });
+
+  it("lists jOOQ, Exposed, Room and MyBatis providers as partial, not tested areas", async () => {
+    const output = await scanSourceCode(
+      project({
+        "A.java": "import org.jooq.DSLContext;\nclass A {}\n",
+        "B.kt": "import org.jetbrains.exposed.sql.transactions.transaction\nclass B\n",
+        "C.kt": "import androidx.room.Query\nclass C\n",
+        "D.java":
+          'import org.apache.ibatis.annotations.*;\ninterface D { @SelectProvider(type = P.class, method = "m") Object f(); }\n',
+      }),
+    );
+    for (const area of [
+      "source:orm:jooq",
+      "source:orm:exposed",
+      "source:orm:room",
+      "source:orm:mybatis-sql-providers",
+    ]) {
+      const entry = output.coverage.find((item) => item.area === area);
+      expect(entry?.status, area).toBe("partial");
+      expect(entry?.note, area).toContain("not a safe result");
+    }
+  });
+
+  it("marks the MyBatis area partial for a statement that is never closed", async () => {
+    const output = await scanSourceCode(
+      project({
+        "M.xml": `<mapper namespace="a.B">\n<select id="x">SELECT \${c} FROM t\n</mapper>\n`,
+      }),
+    );
+    const entry = output.coverage.find((item) => item.area === "source:mybatis");
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain("never closed");
+  });
+
+  it("does not read XML under res/ or target/, nor a mybatis-config", async () => {
+    const output = await scanSourceCode(
+      project({
+        "app/src/main/res/layout/M.xml": MAPPER,
+        "target/classes/M.xml": MAPPER,
+        "mybatis-config.xml": `<configuration><mappers><mapper resource="M.xml"/></mappers></configuration>`,
+      }),
+    );
+    expect(output.findings.filter((f) => f.ruleId === "PG-SQL-005")).toEqual([]);
+    expect(output.coverage.some((item) => item.area === "source:mybatis")).toBe(false);
+  });
+
   it("stops when the scan is aborted", async () => {
     const controller = new AbortController();
     controller.abort(new Error("stop"));

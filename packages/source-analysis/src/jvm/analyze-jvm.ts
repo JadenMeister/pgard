@@ -4,6 +4,7 @@ import { annotationFindings } from "./annotation-rules.js";
 import { convertJava } from "./java-ir.js";
 import { convertKotlin } from "./kotlin-ir.js";
 import { analyzeSql, type SqlFinding } from "./sql-engine.js";
+import { MYBATIS_PROVIDERS, UNSUPPORTED_LIBRARIES } from "./jvm-names.js";
 import { toAst } from "./tree.js";
 
 export { analyzeMybatisXml, type MybatisAnalysis } from "./mybatis-xml.js";
@@ -16,6 +17,10 @@ export interface JvmAnalysis {
   incomplete: boolean;
   /** The per-file finding cap was reached. */
   capped: boolean;
+  /** Anonymous and local classes and local functions with a SQL-looking call: not followed. */
+  unsupportedForms: string[];
+  /** Imported libraries with their own SQL APIs (jOOQ, Exposed, Room, MyBatis providers). */
+  unsupportedLibraries: string[];
 }
 
 const IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
@@ -26,6 +31,13 @@ export function importsOf(source: string): string[] {
   for (const match of source.matchAll(IMPORT)) out.push(match[1] as string);
   return out;
 }
+
+/** Strongest first: request input, then untraced, then inferred; then severity. */
+const strength = (finding: SqlFinding): number =>
+  ({ high: 30, medium: 20, low: 10 })[finding.confidence] +
+  ({ critical: 4, high: 3, medium: 2, low: 1, info: 0 } as Record<string, number>)[
+    finding.severity
+  ]!;
 
 /**
  * Runs the SQL injection rule over one parsed Java or Kotlin file. `root` is the root node of the
@@ -43,23 +55,38 @@ export function analyzeJvmTree(
   unit.imports = importsOf(source);
   const sql = analyzeSql(unit);
   const all: SqlFinding[] = [...sql.findings, ...annotationFindings(unit)];
-  // Same line and cause once; the strongest first.
-  const confidenceRank = { high: 3, medium: 2, low: 1 } as const;
-  all.sort(
-    (a, b) => a.line - b.line || confidenceRank[b.confidence] - confidenceRank[a.confidence],
-  );
+  // One finding per line and cause: the strongest. The cap then keeps the strongest findings,
+  // so a flood of weak ones can never push a real one out.
+  all.sort((a, b) => strength(b) - strength(a) || a.line - b.line);
   const seen = new Set<string>();
-  const findings: RawSourceFinding[] = [];
-  let capped = false;
+  const unique: SqlFinding[] = [];
   for (const finding of all) {
     const key = `${finding.line}:${finding.cause}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    if (findings.length >= MAX_JVM_FINDINGS_PER_FILE) {
-      capped = true;
-      break;
-    }
-    findings.push({ ruleId: "PG-SQL-005", path, ...finding });
+    unique.push(finding);
   }
-  return { findings, incomplete: sql.incomplete || unit.incomplete || ast.truncated, capped };
+  const capped = unique.length > MAX_JVM_FINDINGS_PER_FILE;
+  const findings = unique
+    .slice(0, MAX_JVM_FINDINGS_PER_FILE)
+    .sort((a, b) => a.line - b.line)
+    .map((finding): RawSourceFinding => ({ ruleId: "PG-SQL-005", path, ...finding }));
+  // Libraries with their own SQL APIs, and forms not followed, make the coverage partial.
+  const libraries = UNSUPPORTED_LIBRARIES.filter((library) =>
+    unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),
+  ).map((library) => library.label);
+  for (const cls of [unit.top, ...unit.classes]) {
+    for (const method of cls.methods) {
+      if (method.annotations.some((annotation) => MYBATIS_PROVIDERS.has(annotation.name))) {
+        libraries.push("MyBatis SQL providers");
+      }
+    }
+  }
+  return {
+    findings,
+    incomplete: sql.incomplete || unit.incomplete || ast.truncated,
+    capped,
+    unsupportedForms: sql.unsupported,
+    unsupportedLibraries: [...new Set(libraries)],
+  };
 }

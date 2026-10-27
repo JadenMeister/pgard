@@ -1,5 +1,6 @@
 import type { Confidence, FindingStatus, Severity } from "@pgard/findings";
 import { guardedWhenFalse, guardedWhenTrue } from "./guards.js";
+import { walkUnit } from "./ir-walk.js";
 import type { ClassInfo, Expr, FieldInfo, LambdaExpr, MethodInfo, Stmt, Unit } from "./ir.js";
 import {
   BUILDER_ADDERS,
@@ -43,6 +44,8 @@ export interface SqlAnalysis {
   findings: SqlFinding[];
   /** The tree was deeper than the analysis follows: part of the file was not analyzed. */
   incomplete: boolean;
+  /** Code forms with a SQL-looking call that are not followed (anonymous and local classes, ...). */
+  unsupported: string[];
 }
 
 // ------------------------------------------------------------------ values
@@ -73,12 +76,15 @@ interface Value {
   req: boolean;
   /** A fixed collection of literals (allowlist table). */
   table: boolean;
-  /** The result of a call the analysis does not know, carrying request input that went into it. */
-  opaque: boolean;
+  /**
+   * Set (to the call, such as `buildSql()`) on the result of a call the analysis does not know
+   * that carries request input which went into it.
+   */
+  opaque: string;
 }
 
 const MAX_LEAVES = 200;
-const MAX_DEPTH = 300;
+const MAX_DEPTH = 800;
 const MAX_FINDINGS = 200;
 
 const value = (leaves: Leaf[] = [], extra: Partial<Value> = {}): Value => ({
@@ -88,7 +94,7 @@ const value = (leaves: Leaf[] = [], extra: Partial<Value> = {}): Value => ({
   builder: false,
   req: false,
   table: false,
-  opaque: false,
+  opaque: "",
   ...extra,
 });
 const constant = (text: string): Value => value([{ k: "const", text }]);
@@ -104,20 +110,31 @@ const leafKey = (leaf: Leaf): string =>
         ? `i:${leaf.why}`
         : "";
 
-/** Appends `from` to `into`, keeping constants in order and every other kind once. */
+const MAX_SOURCE_LEAVES = 400;
+const MAX_OTHER_LEAVES = 100;
+
+/**
+ * Appends `from` to `into`, keeping constants in order and every other kind once. Each kind has its
+ * own bound, so a long chain of distinct names costs a constant per step and a flood of constants
+ * can never push out the first unknown, inferred or request-input leaf: reaching a bound loses
+ * detail, never a finding.
+ */
 function addLeaves(into: Leaf[], from: readonly Leaf[]): void {
+  const counts = { const: 0, source: 0, unknown: 0, inferred: 0 };
+  for (const leaf of into) counts[leaf.k] += 1;
   for (const leaf of from) {
     if (leaf.k === "const") {
-      if (into.length < MAX_LEAVES) into.push(leaf);
+      if (counts.const < MAX_LEAVES) {
+        into.push(leaf);
+        counts.const += 1;
+      }
       continue;
     }
-    // Bounded, so a long chain of distinct names costs a constant per step, not a scan of all
-    // earlier ones. Request input is kept beyond the bound: it must never be dropped.
-    const limit = leaf.k === "source" ? MAX_LEAVES * 2 : MAX_LEAVES;
-    if (into.length >= limit) continue;
+    if (counts[leaf.k] >= (leaf.k === "source" ? MAX_SOURCE_LEAVES : MAX_OTHER_LEAVES)) continue;
     const key = leafKey(leaf);
     if (!into.some((existing) => existing.k === leaf.k && leafKey(existing) === key)) {
       into.push(leaf);
+      counts[leaf.k] += 1;
     }
   }
 }
@@ -159,15 +176,26 @@ interface Binding {
   guarded: boolean;
   /** A method parameter: request input in it is read directly, not "via variable". */
   isParam?: boolean;
+  /** Everything the variable has held, for a lambda that runs after later assignments. */
+  ever: Leaf[];
 }
 
 class Scope {
   readonly vars = new Map<string, Binding>();
-  constructor(readonly parent: Scope | null) {}
+  constructor(
+    readonly parent: Scope | null,
+    /** The scope of a lambda body: names found beyond it are captured. */
+    readonly isLambda = false,
+  ) {}
   find(name: string): Binding | null {
+    return this.lookup(name)?.binding ?? null;
+  }
+  lookup(name: string): { binding: Binding; captured: boolean } | null {
+    let captured = false;
     for (let scope: Scope | null = this; scope !== null; scope = scope.parent) {
       const found = scope.vars.get(name);
-      if (found !== undefined) return found;
+      if (found !== undefined) return { binding: found, captured };
+      if (scope.isLambda) captured = true;
     }
     return null;
   }
@@ -180,8 +208,10 @@ interface Context {
   conditional: number;
   /** Builders that an unqualified `append(...)` (Kotlin `buildString { }`) writes to. */
   builders: Value[];
-  /** Loops around this code: bodies are walked twice, but only for the outer ones. */
+  /** Loops around this code. */
   loops: number;
+  /** Running a lambda body after the code that defines it: captured variables hold all they held. */
+  deferred: boolean;
   /** Report sinks (off while a field initializer is evaluated only for its value). */
   report: boolean;
 }
@@ -197,18 +227,109 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     SQL_IMPORT_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`)),
   );
   const fieldValues = new Map<FieldInfo, Value | null>();
+  // Names that are written through an index or a mutating call anywhere in the file: a literal
+  // array or collection under such a name is not a fixed table.
+  const mutatedNames = new Set<string>();
+  const rootName = (expr: Expr): string | null => {
+    let current = expr;
+    while (current.k === "member" || current.k === "index") current = current.obj;
+    return current.k === "id" ? current.name : null;
+  };
+  const MUTATORS = new Set([
+    "set",
+    "put",
+    "putAll",
+    "putIfAbsent",
+    "add",
+    "addAll",
+    "addFirst",
+    "addLast",
+    "remove",
+    "removeAll",
+    "removeIf",
+    "retainAll",
+    "clear",
+    "replace",
+    "replaceAll",
+    "compute",
+    "merge",
+    "computeIfAbsent",
+    "computeIfPresent",
+    "push",
+    "pop",
+    "sort",
+    "fill",
+    "setAll",
+  ]);
+  const STATIC_MUTATORS = new Set([
+    "fill",
+    "addAll",
+    "swap",
+    "sort",
+    "reverse",
+    "shuffle",
+    "copy",
+    "setAll",
+  ]);
+  walkUnit(
+    unit,
+    (expr) => {
+      if (expr.k !== "call") return;
+      if (MUTATORS.has(expr.name) && expr.recv !== null) {
+        const root = rootName(expr.recv);
+        if (root !== null) mutatedNames.add(root);
+      }
+      if (STATIC_MUTATORS.has(expr.name) && expr.args[0] !== undefined) {
+        const root = rootName(expr.args[0]);
+        if (root !== null) mutatedNames.add(root);
+      }
+    },
+    (stmt) => {
+      if (stmt.s === "assign" && (stmt.target.k === "index" || stmt.target.k === "member")) {
+        const root = rootName(stmt.target);
+        if (root !== null) mutatedNames.add(root);
+      }
+    },
+  );
+  const pendingLambdas: Array<{
+    lambda: LambdaExpr;
+    ctx: Context;
+    guarded: Binding[];
+  }> = [];
+  const seenLambdas = new Set<LambdaExpr>();
+  // Bumped when a variable or builder gains a kind of value it did not hold: a loop is walked
+  // again until nothing changes.
+  let version = 0;
 
   const lookupField = (
     cls: ClassInfo | null,
     name: string,
   ): { field: FieldInfo; owner: ClassInfo } | null => {
     for (let current: ClassInfo | null = cls; current !== null; current = current.parent) {
-      const field = current.fields.get(name);
-      if (field !== undefined) return { field, owner: current };
+      const found = fieldOf(current, name);
+      if (found !== null) return found;
     }
     const top = unit.top.fields.get(name);
     return top === undefined ? null : { field: top, owner: unit.top };
   };
+  /** A field of the class, or of a class or interface it extends or implements in this file. */
+  function fieldOf(
+    cls: ClassInfo,
+    name: string,
+    seen = new Set<ClassInfo>(),
+  ): { field: FieldInfo; owner: ClassInfo } | null {
+    if (seen.has(cls) || seen.size > 12) return null;
+    seen.add(cls);
+    const own = cls.fields.get(name);
+    if (own !== undefined) return { field: own, owner: cls };
+    for (const superName of cls.supers) {
+      const parent = classByName.get(superName);
+      if (parent === undefined) continue;
+      const inherited = fieldOf(parent, name, seen);
+      if (inherited !== null) return inherited;
+    }
+    return null;
+  }
 
   const rootContext = (cls: ClassInfo | null, report: boolean): Context => ({
     cls,
@@ -216,6 +337,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     conditional: 0,
     builders: [],
     loops: 0,
+    deferred: false,
     report,
   });
 
@@ -224,20 +346,21 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     if (fieldValues.has(field)) return fieldValues.get(field) ?? unknown(field.name);
     fieldValues.set(field, null); // cycle guard
     let result: Value = unknown(field.name);
-    if (field.init !== null && !field.isMutable) {
+    if (field.init !== null && !field.isMutable && !field.overridable) {
       const evaluated = evalExpr(
         field.init,
         rootContext(owner === unit.top ? null : owner, false),
         0,
       );
       const dynamic = nonConst(evaluated.leaves);
-      // Java `final` and Kotlin `const val` are fixed. A Kotlin `val` that is not `const` can be
-      // overridden, so it is only inferred to be fixed.
-      const fixed = field.isConst || (field.isFinal && unit.language === "java");
-      if (dynamic.length === 0 && (fixed || evaluated.table)) {
-        result = evaluated;
+      // A `final` field or Kotlin `val` that holds a StringBuilder, or an array or collection that
+      // is written to somewhere, is not fixed text however it is declared.
+      const mutable = evaluated.builder || (evaluated.table && mutatedNames.has(field.name));
+      if (mutable) {
+        // Read as text (`base.toString()`), what it holds is decided where it is appended to.
+        result = unknown(`mutable field ${field.name}`);
       } else if (dynamic.length === 0) {
-        result = inferred("Kotlin val that is not const");
+        result = evaluated;
       } else if (dynamic.every((leaf) => leaf.k === "inferred")) {
         result = evaluated;
       }
@@ -341,6 +464,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return fixed ? value(leaves, { table: true }) : value(leaves);
   }
 
+  function guardedBindings(scope: Scope): Binding[] {
+    const out: Binding[] = [];
+    for (let current: Scope | null = scope; current !== null; current = current.parent) {
+      for (const binding of current.vars.values()) if (binding.guarded) out.push(binding);
+    }
+    return out;
+  }
+
   function runLambda(
     lambda: LambdaExpr,
     ctx: Context,
@@ -348,22 +479,52 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     implicit: Value | null,
     /** The value the lambda is applied to (a Kotlin let block, a Java forEach lambda). */
     receiver: Value | null = null,
+    /** A builder that the lambda's parameter (`it`, or the named one) is. */
+    bindTo: Value | null = null,
   ): void {
-    const scope = new Scope(ctx.scope);
+    // A lambda may run after the code that defines it (and after later assignments to the
+    // variables it captures): it is also run once at the end of the method, with those variables
+    // holding everything they held.
+    if (implicit === null && bindTo === null && !seenLambdas.has(lambda)) {
+      seenLambdas.add(lambda);
+      pendingLambdas.push({ lambda, ctx, guarded: guardedBindings(ctx.scope) });
+    }
+    execLambda(lambda, ctx, depth, implicit, receiver, bindTo);
+  }
+
+  function execLambda(
+    lambda: LambdaExpr,
+    ctx: Context,
+    depth: number,
+    implicit: Value | null,
+    receiver: Value | null,
+    bindTo: Value | null,
+  ): void {
+    const scope = new Scope(ctx.scope, true);
     // Request input in the receiver reaches the lambda's parameter.
     const carried = receiver === null ? [] : sourcesOf(receiver.leaves);
     const parameter = (name: string): Value =>
-      carried.length > 0
-        ? value(
-            carried.map((leaf): Leaf => (leaf.k === "source" ? { ...leaf, direct: false } : leaf)),
-          )
-        : unknown(name);
-    for (const name of lambda.params) {
-      scope.vars.set(name, { name, type: null, value: parameter(name), guarded: false });
-    }
-    if (lambda.params.length === 0) {
-      scope.vars.set("it", { name: "it", type: null, value: parameter("it"), guarded: false });
-    }
+      bindTo !== null
+        ? bindTo
+        : carried.length > 0
+          ? value(
+              carried.map((leaf): Leaf =>
+                leaf.k === "source" ? { ...leaf, direct: false } : leaf,
+              ),
+            )
+          : unknown(name);
+    const bind = (name: string): void => {
+      const initial = parameter(name);
+      scope.vars.set(name, {
+        name,
+        type: null,
+        value: initial,
+        guarded: false,
+        ever: [...initial.leaves],
+      });
+    };
+    for (const name of lambda.params) bind(name);
+    if (lambda.params.length === 0) bind("it");
     const inner: Context = {
       ...ctx,
       scope,
@@ -371,6 +532,25 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       builders: implicit === null ? ctx.builders : [...ctx.builders, implicit],
     };
     execStmts(lambda.body, inner, depth + 1);
+  }
+
+  function drainLambdas(): void {
+    while (pendingLambdas.length > 0) {
+      const next = pendingLambdas.shift();
+      if (next === undefined) break;
+      const restore: Binding[] = [];
+      for (const binding of next.guarded) {
+        if (!binding.guarded) {
+          binding.guarded = true;
+          restore.push(binding);
+        }
+      }
+      try {
+        execLambda(next.lambda, { ...next.ctx, deferred: true }, 0, null, null, null);
+      } finally {
+        for (const binding of restore) binding.guarded = false;
+      }
+    }
   }
 
   /** `java.util.Map` as a receiver: a package of lower-case names, then a class. */
@@ -411,14 +591,24 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       args.push(arg.k === "lambda" ? value() : evalExpr(arg, ctx, depth + 1));
     }
 
-    // Kotlin scope functions on a builder: `StringBuilder().apply { append(x) }`.
+    // Kotlin scope functions on a builder: `StringBuilder().apply { append(x) }`, `sb.also { it.append(x) }`,
+    // `sb.let { b -> b.append(x) }`, `with(sb) { append(x) }`.
+    const scoped =
+      recv?.builder === true
+        ? recv
+        : name === "with" && expr.recv === null && args[0]?.builder === true
+          ? args[0]
+          : null;
     if (
-      recv?.builder === true &&
+      scoped !== null &&
       expr.lambdas.length > 0 &&
       ["apply", "also", "run", "let", "with"].includes(name)
     ) {
-      for (const lambda of expr.lambdas) runLambda(lambda, ctx, depth, recv);
-      return name === "apply" || name === "also" ? recv : copy(recv);
+      const asParameter = name === "also" || name === "let";
+      for (const lambda of expr.lambdas) {
+        runLambda(lambda, ctx, depth, scoped, null, asParameter ? scoped : null);
+      }
+      return name === "apply" || name === "also" || name === "with" ? scoped : copy(scoped);
     }
     if (expr.recv === null && name === "buildString" && expr.lambdas.length > 0) {
       const builder = value([], { builder: true, composed: true, shape: "StringBuilder" });
@@ -429,6 +619,10 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       if (!(recv?.builder === true)) runLambda(lambda, ctx, depth, null, recv);
     }
 
+    const sinkCall =
+      expr.recv !== null &&
+      (JDBC_SINKS.has(name) || GENERIC_SINKS.has(name) || ORM_SINKS.has(name));
+    if (!sinkCall) escape(args, `${name}()`);
     if (ctx.report) checkSink(expr, args, ctx);
 
     // ---- what the call returns ----
@@ -448,7 +642,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     if (builder !== null) {
       if (BUILDER_ADDERS.has(name)) {
         const relevant = name === "insert" ? args.slice(1) : args;
-        addLeaves(builder.leaves, join("StringBuilder", ...relevant).leaves);
+        addTracked(builder.leaves, join("StringBuilder", ...relevant).leaves);
         builder.composed = true;
         builder.shape = builder.shape || "StringBuilder";
         return builder;
@@ -491,7 +685,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     }
     if (name === "nCopies" && args[1] !== undefined) return value(args[1].leaves);
     if (name === "name" && expr.args.length === 0 && expr.recv !== null) {
-      return enumName(expr.recv, recv, ctx);
+      return nameOf(expr.recv, recv, ctx);
     }
     if (COLLECTION_FACTORIES.has(name) && (typeReceiver || expr.recv === null)) {
       return tableOf(args);
@@ -514,13 +708,9 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       if (!merged.composed) merged.shape = recv?.shape ?? "";
       return merged;
     }
-    // A builder handed to an unknown call can be appended to there.
-    for (const arg of args) {
-      if (arg.builder) addLeaves(arg.leaves, [{ k: "unknown", name: `${name}()` }]);
-    }
     // Unknown call: request input that goes in is assumed to come out.
     const carried = sourcesOf([...(recv?.leaves ?? []), ...args.flatMap((arg) => arg.leaves)]);
-    if (carried.length > 0) return value(carried, { opaque: true });
+    if (carried.length > 0) return value(carried, { opaque: `${name}()` });
     if (name === "invoke") return unknown("call");
     return unknown(`${name}()`);
   }
@@ -536,28 +726,64 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return unknown("lookup");
   }
 
-  function enumName(recvExpr: Expr, recv: Value | null, ctx: Context): Value {
+  /** The enum a receiver provably is: a type declared in this file, or `Type.valueOf(...)`. */
+  function provableEnum(recvExpr: Expr, ctx: Context): ClassInfo | null {
     if (recvExpr.k === "member" && recvExpr.obj.k === "id") {
       const owner = classByName.get(recvExpr.obj.name);
-      if (owner?.isEnum === true && owner.enumConstants.includes(recvExpr.name)) {
-        return constant(recvExpr.name);
+      if (owner?.isEnum === true && owner.enumConstants.includes(recvExpr.name)) return owner;
+    }
+    if (recvExpr.k === "call" && recvExpr.name === "valueOf" && recvExpr.recv?.k === "id") {
+      const owner = classByName.get(recvExpr.recv.name);
+      if (owner?.isEnum === true) return owner;
+      const first = recvExpr.args[0];
+      if (
+        recvExpr.recv.name === "Enum" &&
+        first?.k === "member" &&
+        first.name === "class" &&
+        first.obj.k === "id"
+      ) {
+        const typed = classByName.get(first.obj.name);
+        if (typed?.isEnum === true) return typed;
       }
     }
-    const type = baseType(typeOfExpr(recvExpr, ctx));
-    if (type !== "" && classByName.get(type)?.isEnum === true) return constant("ENUM");
-    if (type !== "" && type !== "String" && type !== "Object" && type !== "CharSequence") {
-      return inferred("enum name()");
+    const owner = classByName.get(baseType(typeOfExpr(recvExpr, ctx)));
+    return owner?.isEnum === true ? owner : null;
+  }
+
+  /**
+   * `x.name()` / `x.name`. Fixed text only when the receiver is provably an enum of this file;
+   * request input in the receiver (a record or data class `name`) is checked next and stays
+   * request input; anything else is unknown.
+   */
+  function nameOf(recvExpr: Expr, recv: Value | null, ctx: Context): Value {
+    if (provableEnum(recvExpr, ctx) !== null) return constant("ENUM");
+    const carried = recv === null ? [] : sourcesOf(recv.leaves);
+    return carried.length > 0 ? value(carried) : unknown("name()");
+  }
+
+  /** An enum constant used as text is its `toString()`, which an enum can override. */
+  function enumConstantValue(owner: ClassInfo, name: string): Value {
+    return owner.methods.some((method) => method.name === "toString")
+      ? inferred("enum with its own toString()")
+      : constant(name);
+  }
+
+  /** `addLeaves` that records a change when a new kind of value arrives (loops iterate on it). */
+  function addTracked(into: Leaf[], from: readonly Leaf[]): void {
+    const before = into.length;
+    addLeaves(into, from);
+    if (into.slice(before).some((leaf) => leaf.k !== "const")) version += 1;
+  }
+
+  /**
+   * A builder used in any way other than as the receiver of append/insert/delete/replace/
+   * setLength/toString, or as a sink argument, can be changed where the analysis cannot see it
+   * (a field, a collection, an array, another method): it then also holds an unknown value.
+   */
+  function escape(values: readonly Value[], where: string): void {
+    for (const candidate of values) {
+      if (candidate.builder) addTracked(candidate.leaves, [{ k: "unknown", name: where }]);
     }
-    if (recvExpr.k === "member" && recvExpr.obj.k === "id" && isTypeName(recvExpr.obj.name)) {
-      return inferred("enum name()");
-    }
-    return recv === null
-      ? unknown("name()")
-      : value(
-          sourcesOf(recv.leaves).length > 0
-            ? sourcesOf(recv.leaves)
-            : [{ k: "unknown", name: "name()" }],
-        );
   }
 
   function newBuilder(args: Value[]): Value {
@@ -568,8 +794,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
 
   function evalIdentifier(name: string, ctx: Context): Value {
     if (name === "true" || name === "false" || name === "null") return value();
-    const binding = ctx.scope.find(name);
-    if (binding !== null) return readBinding(binding);
+    const hit = ctx.scope.lookup(name);
+    if (hit !== null) return readBinding(hit.binding, ctx.deferred && hit.captured);
     const found = lookupField(ctx.cls, name);
     if (found !== null) return fieldRead(found.field, found.owner);
     if (isConstantCase(name)) return inferred("constant-style name defined in another file");
@@ -583,15 +809,16 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return fieldValue(field, owner);
   }
 
-  function readBinding(binding: Binding): Value {
+  function readBinding(binding: Binding, everHeld = false): Value {
     const stored = binding.value;
     if (stored.builder) return stored;
-    const leaves = stored.leaves.map((leaf): Leaf => {
+    const held = everHeld ? binding.ever : stored.leaves;
+    const leaves = held.map((leaf): Leaf => {
       if (leaf.k === "source")
         return { ...leaf, direct: binding.isParam === true ? leaf.direct : false };
       return leaf;
     });
-    let result = { ...stored, leaves };
+    let result = everHeld ? { ...stored, leaves, table: false } : { ...stored, leaves };
     if (binding.guarded && nonConst(leaves).length > 0) {
       const seen: Leaf[] = [];
       addLeaves(
@@ -621,9 +848,11 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     ) {
       const owner = classByName.get(obj.name);
       if (owner !== undefined) {
-        const field = owner.fields.get(name);
-        if (field !== undefined) return fieldRead(field, owner);
-        if (owner.isEnum && owner.enumConstants.includes(name)) return constant(name);
+        const inherited = fieldOf(owner, name);
+        if (inherited !== null) return fieldRead(inherited.field, inherited.owner);
+        if (owner.isEnum && owner.enumConstants.includes(name)) {
+          return enumConstantValue(owner, name);
+        }
       }
       if (name === "class" || name === "java") return value();
       if (isConstantCase(name)) return inferred("constant-style name defined in another file");
@@ -640,7 +869,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       return unknown(name);
     }
     if (NUMERIC_MEMBERS.has(name)) return inferred(`${name} gives a number`);
-    if (name === "name") return enumName(obj, recv, ctx);
+    if (name === "name") return nameOf(obj, recv, ctx);
     if (name === "class") return value();
     const carried = sourcesOf(recv.leaves);
     if (carried.length > 0) return value(carried);
@@ -673,6 +902,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           arg.k === "lambda" ? value() : evalExpr(arg, ctx, depth + 1),
         );
         const type = baseType(expr.type);
+        escape(args, `new ${type}`);
         if (BUILDER_TYPES.has(type)) return newBuilder(type === "StringJoiner" ? [] : args);
         if (NUMERIC_TYPES.has(type)) return inferred(`new ${type}(...) gives a number`);
         if (type === "String") return join("string operation", ...args);
@@ -683,9 +913,6 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           type === "LinkedList"
         ) {
           return unknown(type);
-        }
-        for (const arg of args) {
-          if (arg.builder) addLeaves(arg.leaves, [{ k: "unknown", name: `new ${type}` }]);
         }
         const carried = sourcesOf(args.flatMap((arg) => arg.leaves));
         return carried.length > 0 ? value(carried) : unknown(`new ${type}`);
@@ -716,6 +943,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       }
       case "array": {
         const elems = expr.elems.map((elem) => evalExpr(elem, ctx, depth + 1));
+        escape(elems, "array");
         return tableOf(elems);
       }
       case "lambda":
@@ -723,6 +951,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         return value();
       case "other": {
         const kids = expr.kids.map((kid) => evalExpr(kid, ctx, depth + 1));
+        escape(kids, "expression");
         const carried = sourcesOf(kids.flatMap((kid) => kid.leaves));
         return carried.length > 0 ? value(carried) : unknown("expression");
       }
@@ -730,6 +959,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   }
 
   function alternatives(options: Value[]): Value {
+    escape(options, "one of several values");
     const leaves: Leaf[] = [];
     for (const option of options) addLeaves(leaves, option.leaves);
     return value(leaves, {
@@ -803,11 +1033,34 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     if ((isJdbc || isOrm) && !(hasSqlLibrary || sqlText || sqlReceiver)) return;
     const dynamic = nonConst(argument.leaves);
     if (dynamic.length === 0) return;
-    const tainted = sourcesOf(argument.leaves);
-    // A bare value that is not a built string is only reported when request input reaches it
-    // and the call is certainly SQL.
-    if (!argument.composed && (tainted.length === 0 || argument.opaque)) return;
-    if (!argument.composed && !sqlReceiver && !sqlText) return;
+    let tainted = sourcesOf(argument.leaves);
+    // The result of a helper method (`buildSql(input)`) is a value the analysis cannot follow.
+    const helperLeaf = dynamic.find(
+      (leaf) => leaf.k === "unknown" && /\(\)$|^mutable field /.test(leaf.name),
+    );
+    const helper =
+      argument.opaque !== "" ? argument.opaque : helperLeaf?.k === "unknown" ? helperLeaf.name : "";
+    if (!argument.composed) {
+      // A bare value that is not a built string: request input read directly is reported; the
+      // result of a helper is reported at low confidence; anything else (a parameter, a field)
+      // says nothing about how the text was made.
+      if (!sqlReceiver && !sqlText) return;
+      if (argument.opaque !== "" || tainted.length === 0) {
+        if (helper === "") return;
+        // A variable of a type that is not text (a CriteriaQuery) is not SQL.
+        const declared = typeOfExpr(argExpr, ctx);
+        if (
+          declared !== null &&
+          !/^(?:String|CharSequence|StringBuilder|StringBuffer|var|val|Object)$/.test(
+            baseType(declared),
+          )
+        ) {
+          return;
+        }
+        tainted = [];
+      }
+    }
+    const fromHelper = !argument.composed && helper !== "" && tainted.length === 0;
     const label = `${describeReceiver(expr.recv) || "call"}.${name}`;
     const shape = argument.shape || (argument.composed ? "built string" : "variable");
     let finding: SqlFinding;
@@ -820,6 +1073,15 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         status: source.direct ? "confirmed" : "suspected",
         confidence: "high",
         evidence: `request input (${source.label})${source.direct ? "" : " via variable"} -> ${shape} -> ${label}`,
+        cause: label,
+      };
+    } else if (fromHelper) {
+      finding = {
+        line: expr.line,
+        severity: "medium",
+        status: "suspected",
+        confidence: "low",
+        evidence: `${shape} -> ${label}; value from ${helper}, not followed; inferred`,
         cause: label,
       };
     } else if (dynamic.some((leaf) => leaf.k === "unknown")) {
@@ -844,7 +1106,10 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         cause: label,
       };
     }
-    record(finding, tainted.length > 0 ? 3 : dynamic.some((leaf) => leaf.k === "unknown") ? 2 : 1);
+    record(
+      finding,
+      tainted.length > 0 ? 3 : !fromHelper && dynamic.some((leaf) => leaf.k === "unknown") ? 2 : 1,
+    );
   }
 
   function record(finding: SqlFinding, rank: number): void {
@@ -876,7 +1141,12 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     );
 
   function declare(ctx: Context, name: string, type: string | null, initial: Value): Binding {
-    const binding: Binding = { name, type, value: initial, guarded: false };
+    // A literal array or collection that is written to somewhere is not a fixed table.
+    if (initial.table && mutatedNames.has(name)) {
+      initial = { ...initial, table: false, leaves: [...initial.leaves, { k: "unknown", name }] };
+    }
+    const binding: Binding = { name, type, value: initial, guarded: false, ever: [] };
+    addLeaves(binding.ever, initial.leaves);
     ctx.scope.vars.set(name, binding);
     return binding;
   }
@@ -884,31 +1154,41 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   function assign(stmt: Extract<Stmt, { s: "assign" }>, ctx: Context, depth: number): void {
     const incoming = evalExpr(stmt.value, ctx, depth + 1);
     if (stmt.target.k !== "id") {
+      // Stored in a field, an array or a collection: a builder can be changed from there.
+      escape([incoming], "stored");
       evalExpr(stmt.target, ctx, depth + 1);
       return;
     }
     const binding = ctx.scope.find(stmt.target.name);
-    if (binding === null) return;
+    if (binding === null) {
+      escape([incoming], "stored");
+      return;
+    }
     const old = binding.value;
+    const before = new Set(nonConst(old.leaves).map(leafKey));
     binding.guarded = false;
     if (stmt.op === "=") {
       if (ctx.conditional === 0) {
         binding.value = incoming;
       } else {
+        // Both builders may be the one that is appended to afterwards.
+        escape([old, incoming], "assigned conditionally");
         const merged = alternatives([old, incoming]);
-        merged.builder = incoming.builder;
+        merged.builder = old.builder || incoming.builder;
         binding.value = merged;
       }
     } else if (stmt.op === "+=") {
       if (old.builder) {
-        addLeaves(old.leaves, incoming.leaves);
+        addTracked(old.leaves, incoming.leaves);
       } else {
-        const merged = join("string concatenation", old, incoming);
-        binding.value = merged;
+        binding.value = join("string concatenation", old, incoming);
       }
     }
-    if (isNumericType(binding.type))
+    if (isNumericType(binding.type)) {
       binding.value = inferred(`numeric type ${baseType(binding.type)}`);
+    }
+    if (nonConst(binding.value.leaves).some((leaf) => !before.has(leafKey(leaf)))) version += 1;
+    addLeaves(binding.ever, binding.value.leaves);
   }
 
   function execStmts(stmts: readonly Stmt[], ctx: Context, depth: number): void {
@@ -994,11 +1274,16 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
               isNumericType(stmt.each.type) ? inferred("numeric type") : element,
             );
           }
-          // Twice, so a later assignment in the body reaches a use earlier in it (not for deeply
-          // nested loops: two passes per level would multiply).
-          execStmts(stmt.body, loopCtx, depth + 1);
-          execStmts(stmt.update, loopCtx, depth + 1);
-          if (ctx.loops < 3) execStmts(stmt.body, loopCtx, depth + 1);
+          // Until nothing changes: what a variable holds can only grow, and each kind of value is
+          // bounded, so this ends. A late assignment then reaches uses earlier in the body, through
+          // any chain of variables (`prev = cur; cur = next`). Deeply nested loops get fewer passes.
+          const passes = ctx.loops >= 6 ? 1 : 8;
+          for (let pass = 0; pass < passes; pass += 1) {
+            const seen = version;
+            execStmts(stmt.body, loopCtx, depth + 1);
+            execStmts(stmt.update, loopCtx, depth + 1);
+            if (version === seen) break;
+          }
           break;
         }
         case "block": {
@@ -1068,6 +1353,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         value: initial,
         guarded: false,
         isParam: true,
+        ever: [...initial.leaves],
       });
     }
   }
@@ -1077,6 +1363,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     const ctx = rootContext(cls, true);
     bindParameters(method, ctx);
     execStmts(method.body, ctx, 0);
+    drainLambdas();
   }
 
   const scopes: ClassInfo[] = [unit.top, ...unit.classes];
@@ -1086,12 +1373,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       if (field.init !== null) evalExpr(field.init, ctx, 0);
     }
     execStmts(cls.initializers, ctx, 0);
+    drainLambdas();
     for (const method of cls.methods) analyzeMethod(method, cls);
   }
 
-  const ordered = [...findings.values()].sort((a, b) => a.line - b.line || b.rank - a.rank);
+  const ordered = [...findings.values()].sort((a, b) => b.rank - a.rank || a.line - b.line);
   return {
     findings: ordered.slice(0, MAX_FINDINGS).map(({ rank: _rank, ...finding }) => finding),
     incomplete,
+    unsupported: [...new Set(unit.unsupported)],
   };
 }

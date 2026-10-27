@@ -9,10 +9,11 @@ import type {
   Stmt,
   Unit,
 } from "./ir.js";
+import { SQL_CALL_TEXT } from "./jvm-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
 /** Deepest nesting the converter follows; deeper code makes the unit `incomplete`. */
-const MAX_DEPTH = 250;
+const MAX_DEPTH = 700;
 
 const CLASS_KINDS = new Set([
   "class_declaration",
@@ -83,9 +84,11 @@ export function convertJava(ast: AstResult): Unit {
       methods: [],
       initializers: [],
       parent: null,
+      supers: [],
     },
     imports: [],
     incomplete: false,
+    unsupported: [],
   };
 
   // ---- expressions ----
@@ -215,6 +218,10 @@ export function convertJava(ast: AstResult): Unit {
       case "object_creation_expression": {
         const type = named(node, "type");
         const { args } = callArgs(named(node, "arguments"), depth);
+        const body = ofType(node, "class_body");
+        if (body !== undefined && SQL_CALL_TEXT.test(text(body))) {
+          unit.unsupported.push("anonymous class");
+        }
         return { k: "new", line, type: type === undefined ? "" : text(type), args };
       }
       case "binary_expression": {
@@ -558,7 +565,9 @@ export function convertJava(ast: AstResult): Unit {
           : [{ s: "block", line, body: block(body, depth), params: [] }];
       }
       case "labeled_statement": {
-        const inner = node.children.find((child) => child.type !== "identifier");
+        const inner = node.children.find(
+          (child) => !child.anonymous && child.type !== "identifier",
+        );
         return inner === undefined ? [] : stmt(inner, depth + 1);
       }
       case "return_statement":
@@ -577,6 +586,10 @@ export function convertJava(ast: AstResult): Unit {
           : [{ s: "assert", line, test: expr(test, depth + 1), testText: text(test) }];
       }
       default:
+        // Local classes, records, enums and interfaces are not followed.
+        if (CLASS_KINDS.has(node.type) || node.type === "local_class_declaration") {
+          if (SQL_CALL_TEXT.test(text(node))) unit.unsupported.push("local class");
+        }
         return [];
     }
   }
@@ -620,8 +633,19 @@ export function convertJava(ast: AstResult): Unit {
       methods: [],
       initializers: [],
       parent,
+      supers: [],
     };
     unit.classes.push(info);
+    for (const child of node.children) {
+      if (["superclass", "super_interfaces", "extends_interfaces"].includes(child.type)) {
+        const stack = [child];
+        while (stack.length > 0) {
+          const current = stack.pop() as AstNode;
+          if (current.type === "type_identifier") info.supers.push(text(current));
+          stack.push(...current.children);
+        }
+      }
+    }
     const isInterface =
       node.type === "interface_declaration" || node.type === "annotation_type_declaration";
     // Record components are fields of the record.
@@ -634,6 +658,7 @@ export function convertJava(ast: AstResult): Unit {
           isStatic: false,
           isConst: false,
           isMutable: false,
+          overridable: false,
           init: null,
           line: node.line,
         });
@@ -646,7 +671,7 @@ export function convertJava(ast: AstResult): Unit {
         } else if (member.type === "enum_constant") {
           const name = named(member, "name");
           if (name !== undefined) info.enumConstants.push(text(name));
-        } else if (member.type === "field_declaration") {
+        } else if (member.type === "field_declaration" || member.type === "constant_declaration") {
           const words = modifierWords(ofType(member, "modifiers"));
           const type = named(member, "type");
           for (const declarator of all(member, "declarator")) {
@@ -661,6 +686,7 @@ export function convertJava(ast: AstResult): Unit {
               isStatic: isInterface || /\bstatic\b/.test(words),
               isConst: false,
               isMutable: !(isInterface || /\bfinal\b/.test(words)),
+              overridable: false,
               init: value === undefined ? null : expr(value, 1),
               line: declarator.line,
             };

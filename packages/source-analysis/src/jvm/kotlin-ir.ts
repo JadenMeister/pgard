@@ -10,9 +10,10 @@ import type {
   Unit,
 } from "./ir.js";
 import { unescapeText } from "./java-ir.js";
+import { SQL_CALL_TEXT } from "./jvm-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
-const MAX_DEPTH = 250;
+const MAX_DEPTH = 700;
 const IDENT_START = /^([A-Za-z_][A-Za-z0-9_]*)([\s\S]*)$/;
 const TYPE_NODE = /(?:^|_)type$/;
 const NON_INIT = new Set([
@@ -50,6 +51,7 @@ export function convertKotlin(ast: AstResult): Unit {
     methods: [],
     initializers: [],
     parent,
+    supers: [],
   });
   const unit: Unit = {
     language: "kotlin",
@@ -57,6 +59,7 @@ export function convertKotlin(ast: AstResult): Unit {
     top: newClass("", null),
     imports: [],
     incomplete: false,
+    unsupported: [],
   };
 
   // ---- expressions ----
@@ -152,6 +155,18 @@ export function convertKotlin(ast: AstResult): Unit {
         const value = lambda(child, depth + 1);
         lambdas.push(value);
         args.push(value);
+      }
+    }
+    // `f(a) { ... }` and `x.f(a) { ... }`: the call `f(a)` with the lambda as its last argument.
+    if (callee.type === "call_expression" && argNode === undefined && lambdas.length > 0) {
+      const inner = call(callee, depth + 1);
+      if (inner.k === "call") {
+        return {
+          ...inner,
+          line: node.line,
+          args: [...inner.args, ...lambdas],
+          lambdas: [...inner.lambdas, ...lambdas],
+        };
       }
     }
     if (callee.type === "navigation_expression") {
@@ -341,6 +356,9 @@ export function convertKotlin(ast: AstResult): Unit {
         const inner = nonAnon(node).find((child) => child.type !== "label");
         return inner === undefined ? { k: "lit", line } : expr(inner, depth + 1);
       }
+      case "object_literal":
+        if (SQL_CALL_TEXT.test(text(node))) unit.unsupported.push("anonymous object");
+        return other(node, depth);
       default:
         return other(node, depth);
     }
@@ -579,6 +597,12 @@ export function convertKotlin(ast: AstResult): Unit {
       case "function_declaration":
       case "class_declaration":
       case "object_declaration":
+        // Local functions and classes are not followed.
+        if (SQL_CALL_TEXT.test(text(node))) {
+          unit.unsupported.push(
+            node.type === "function_declaration" ? "local function" : "local class",
+          );
+        }
         return [];
       case "call_expression": {
         const value = call(node, depth);
@@ -651,6 +675,9 @@ export function convertKotlin(ast: AstResult): Unit {
               isStatic: false,
               isConst,
               isMutable: !declared.isFinal,
+              overridable: /\b(?:open|abstract|override)\b/.test(
+                mods === undefined ? "" : text(mods),
+              ),
               init: declared.init,
               line: declared.line,
             });
@@ -720,6 +747,13 @@ export function convertKotlin(ast: AstResult): Unit {
     );
     const info = newClass(nameNode === undefined ? "" : text(nameNode), parent, isEnum);
     unit.classes.push(info);
+    for (const specifiers of node.children) {
+      if (specifiers.type !== "delegation_specifiers") continue;
+      for (const specifier of specifiers.children) {
+        const type = specifier.children.find((child) => child.type === "user_type");
+        if (type !== undefined) info.supers.push(simple(text(type).replace(/<.*>/s, "")));
+      }
+    }
     const constructor = ofType(node, "primary_constructor");
     for (const parameter of parameters(
       constructor === undefined ? undefined : ofType(constructor, "class_parameters"),
@@ -732,6 +766,7 @@ export function convertKotlin(ast: AstResult): Unit {
         isStatic: false,
         isConst: false,
         isMutable: true,
+        overridable: false,
         init: null,
         line: node.line,
       });

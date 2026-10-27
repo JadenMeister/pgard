@@ -212,9 +212,16 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       }
       if (path.extname(entry.name) === ".xml" && entry.name !== "pom.xml") {
         const stats = await lstat(absolutePath).catch(() => null);
-        if (stats?.isFile()) {
-          if (result.xmlFiles.length >= MAX_TRACK_FILES) result.trackTruncated = true;
-          else result.xmlFiles.push({ absolutePath, relativePath, size: stats.size });
+        // Android resources and build output hold no MyBatis mappers.
+        const skipped = relativePath.split("/").some((part) => part === "res" || part === "target");
+        if (stats?.isFile() && !skipped) {
+          // XML files count against the same file limit as source files.
+          if (result.files.length + result.xmlFiles.length >= MAX_FILES) {
+            result.isTruncated = true;
+            result.trackTruncated = true;
+          } else {
+            result.xmlFiles.push({ absolutePath, relativePath, size: stats.size });
+          }
         }
         continue;
       }

@@ -1,0 +1,6 @@
+<!-- corpus: expect=PG-SQL-005 -->
+<mapper namespace="demo.C">
+  <select id="q" resultType="map" databaseId="a>b">
+    SELECT * FROM t ORDER BY ${col}
+  </select>
+</mapper>

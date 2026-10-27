@@ -2,7 +2,12 @@ import type { RawSourceFinding } from "../finding-factory.js";
 
 export const MAX_MYBATIS_FINDINGS_PER_FILE = 25;
 
-const STATEMENT = /<(select|insert|update|delete|sql)\b([^>]*)>/g;
+// A tag may carry a namespace prefix, and an attribute value may contain ">".
+const STATEMENT =
+  /<(?:[\w.-]+:)?(select|insert|update|delete|sql)\b((?:[^>"']|"[^"]{0,1000}"|'[^']{0,1000}'){0,1000})>/g;
+/** A mapper file opens `<mapper ...>`; the `<mapper resource="..."/>` entries of a config do not. */
+const MAPPER_OPEN =
+  /<(?:[\w.-]+:)?mapper\b(?:[^>"']|"[^"]{0,1000}"|'[^']{0,1000}'){0,1000}(?<!\/)>/;
 const NUMERIC_PARAMETER_TYPE =
   /parameterType\s*=\s*["'](?:int|integer|long|short|byte|double|float|boolean|_int|_long|_integer|_double|_boolean|java\.lang\.(?:Integer|Long|Short|Byte|Double|Float|Boolean)|java\.math\.(?:BigDecimal|BigInteger))["']/i;
 
@@ -11,12 +16,16 @@ export interface MybatisAnalysis {
   isMapper: boolean;
   findings: RawSourceFinding[];
   capped: boolean;
+  /** A statement was never closed: the rest of the file was not read. */
+  incomplete: boolean;
 }
 
-/** Blanks out comments, keeping the length and the line breaks. */
+/** Blanks out comments, keeping the length and the line breaks. CDATA text is kept as it is. */
 function blankComments(text: string): string {
   if (!text.includes("<!--")) return text;
-  return text.replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => comment.replace(/[^\n]/g, " "));
+  return text.replace(/<!\[CDATA\[[\s\S]*?(?:\]\]>|$)|<!--[\s\S]*?(?:-->|$)/g, (match) =>
+    match.startsWith("<!--") ? match.replace(/[^\n]/g, " ") : match,
+  );
 }
 
 /**
@@ -32,9 +41,13 @@ function blankComments(text: string): string {
  */
 export function analyzeMybatisXml(text: string, path: string): MybatisAnalysis {
   const clean = blankComments(text);
-  if (!/<mapper[\s>]/.test(clean)) return { isMapper: false, findings: [], capped: false };
+  if (!MAPPER_OPEN.test(clean)) {
+    return { isMapper: false, findings: [], capped: false, incomplete: false };
+  }
   const findings: RawSourceFinding[] = [];
   let capped = false;
+  let incomplete = false;
+  const closers = new Map<string, RegExp>();
   const lineStarts: number[] = [0];
   for (let i = clean.indexOf("\n"); i !== -1; i = clean.indexOf("\n", i + 1))
     lineStarts.push(i + 1);
@@ -57,10 +70,20 @@ export function analyzeMybatisXml(text: string, path: string): MybatisAnalysis {
     const attributes = open[2] as string;
     if (attributes.endsWith("/")) continue;
     const bodyStart = open.index + open[0].length;
-    const close = clean.indexOf(`</${tag}>`, bodyStart);
+    let closer = closers.get(tag);
+    if (closer === undefined) {
+      closer = new RegExp(`</(?:[\\w.-]+:)?${tag}\\s*>`, "g");
+      closers.set(tag, closer);
+    }
+    closer.lastIndex = bodyStart;
+    const closeMatch = closer.exec(clean);
     // No closing tag here means none later either (statements do not nest): stop, so a hostile
-    // file of unclosed tags costs one scan.
-    if (close === -1) break;
+    // file of unclosed tags costs one scan, and say that the rest was not read.
+    if (closeMatch === null) {
+      incomplete = true;
+      break;
+    }
+    const close = closeMatch.index;
     STATEMENT.lastIndex = close;
     const id = /\bid\s*=\s*["']([^"']*)["']/.exec(attributes)?.[1] ?? "?";
     const numeric = NUMERIC_PARAMETER_TYPE.test(attributes);
@@ -112,5 +135,5 @@ export function analyzeMybatisXml(text: string, path: string): MybatisAnalysis {
     }
     if (capped) break;
   }
-  return { isMapper: true, findings, capped };
+  return { isMapper: true, findings, capped, incomplete };
 }

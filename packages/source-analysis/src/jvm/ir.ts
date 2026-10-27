@@ -91,6 +91,8 @@ export interface FieldInfo {
   isConst: boolean;
   /** Kotlin `var`, or a Java field that is not final. */
   isMutable: boolean;
+  /** Kotlin `open`, `abstract` or `override`: a subclass can change what it holds. */
+  overridable: boolean;
   init: Expr | null;
   line: number;
 }
@@ -104,6 +106,8 @@ export interface ClassInfo {
   /** Field initializers and initializer blocks, run as a method with no parameters. */
   initializers: Stmt[];
   parent: ClassInfo | null;
+  /** Names of the classes and interfaces it extends or implements. */
+  supers: string[];
 }
 
 export interface Unit {
@@ -115,4 +119,9 @@ export interface Unit {
   imports: string[];
   /** The tree was deeper than the converter follows; part of the file was not analyzed. */
   incomplete: boolean;
+  /**
+   * Forms the analysis does not follow (anonymous classes, local classes, local functions) that
+   * contain a call that looks like a SQL call. They make the file's coverage partial.
+   */
+  unsupported: string[];
 }
