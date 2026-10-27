@@ -1,7 +1,7 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ReportWriteError } from "@pgard/report";
+import { ReportWriteError, writeReports } from "@pgard/report";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { main } from "../app.js";
 import type { CliDeps } from "../deps.js";
@@ -672,22 +672,102 @@ describe("e: export from the panel view", () => {
     expect(byNo.outcomes).toEqual(["failed", "cancelled"]);
   });
 
-  it("counts a repeat of an export this session saved as saved, and never overwrites", async () => {
-    const target = path.join(outputDir, "r.html");
-    let calls = 0;
-    const writeReports = vi.fn(async () => {
-      calls += 1;
-      if (calls === 1) return [{ format: "html" as const, filePath: target }];
-      throw new ReportWriteError("file_exists", "Already there.", target);
+  describe("with the real writeReports (temp directories only)", () => {
+    const dirs: string[] = [];
+    afterAll(() => {
+      for (const dir of dirs) rmSync(dir, { recursive: true, force: true });
     });
-    const run = await open(["e", ...HTML, ...DIR, "x", "e", ...HTML, ...DIR, "x", "q"], {
-      writeReports,
-    });
-    expect(await run.isOk).toBe(true);
-    expect(run.outcomes).toEqual(["saved", "saved"]);
-    expect(run.captured.stdout()).toContain(`This report was already saved to ${target}.`);
-    // The message is worded differently here: detection uses the path field, not the text.
-    expect(run.captured.stderr()).not.toContain("Already there");
+    const freshDir = (): string => {
+      const dir = mkdtempSync(path.join(os.tmpdir(), "pgard-panel-export-real-"));
+      dirs.push(dir);
+      return dir;
+    };
+    const CHOICE = {
+      html: ["down", "return"],
+      pdf: ["down", "down", "return"],
+      both: ["down", "down", "down", "return"],
+    };
+    const exportKeys = (format: keyof typeof CHOICE, dir: string): string[] => [
+      "e",
+      ...CHOICE[format],
+      ...Array.from(dir),
+      "return",
+      "x",
+    ];
+    const files = (dir: string): string[] => readdirSync(dir).sort();
+
+    it("html then both: the PDF is written, the HTML is reported as already saved", async () => {
+      const dir = freshDir();
+      const run = await open([...exportKeys("html", dir), ...exportKeys("both", dir), "q"], {
+        writeReports,
+      });
+      expect(await run.isOk).toBe(true);
+      expect(run.outcomes).toEqual(["saved", "saved"]);
+      expect(files(dir).map((name) => path.extname(name))).toEqual([".html", ".pdf"]);
+      expect(run.captured.stdout()).toContain("This report was already saved to");
+      expect(run.captured.stdout()).toContain("Saved PDF report");
+      expect(run.captured.stderr()).not.toContain("not saved");
+    }, 30_000);
+
+    it("both then html: already saved, nothing new written", async () => {
+      const dir = freshDir();
+      const run = await open([...exportKeys("both", dir), ...exportKeys("html", dir), "q"], {
+        writeReports,
+      });
+      expect(await run.isOk).toBe(true);
+      expect(files(dir)).toHaveLength(2);
+      expect(run.captured.stdout()).toContain("This report was already saved to");
+    }, 30_000);
+
+    it("html then pdf writes the PDF as a new file", async () => {
+      const dir = freshDir();
+      const run = await open([...exportKeys("html", dir), ...exportKeys("pdf", dir), "q"], {
+        writeReports,
+      });
+      expect(await run.isOk).toBe(true);
+      expect(files(dir).map((name) => path.extname(name))).toEqual([".html", ".pdf"]);
+      expect(run.captured.stdout()).not.toContain("already saved");
+    }, 30_000);
+
+    it("still refuses a file that existed before the session (a failure)", async () => {
+      const dir = freshDir();
+      const result = panelsFixtureResult();
+      await writeReports(result, { format: "html", outputDir: dir });
+      const before = readdirSync(dir);
+      const run = await open(exportKeys("html", dir).concat("q"), { writeReports });
+      expect(await run.isOk).toBe(false);
+      expect(run.outcomes).toEqual(["failed"]);
+      expect(run.captured.stderr()).toContain("Refusing to overwrite");
+      expect(readdirSync(dir)).toEqual(before);
+    }, 30_000);
+
+    it("end to end through the scan command: html then both exits 0 and writes both files", async () => {
+      const dir = freshDir();
+      const captured = createTestIo({ isTTY: true });
+      const stdout = captured.io.stdout as unknown as { columns: number; rows: number };
+      stdout.columns = 80;
+      stdout.rows = 24;
+      const keys = scriptedKeys([...exportKeys("html", dir), ...exportKeys("both", dir), "q"]);
+      const context = {
+        ...createTestContext(
+          captured,
+          createTestDeps({
+            runScan: async () => ({ ...panelsFixtureResult(), overallStatus: "completed" }),
+            writeReports,
+          }),
+          keys,
+        ),
+        ruleLocale: "en" as const,
+      };
+      const code = await runScanCommand(context, {
+        variant: "code",
+        port: null,
+        report: null,
+        panels: true,
+      });
+      expect(code).toBe(0);
+      expect(files(dir).map((name) => path.extname(name))).toEqual([".html", ".pdf"]);
+    }, 30_000);
   });
 
   it("still fails for a file this session did not save", async () => {

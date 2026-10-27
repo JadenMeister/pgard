@@ -45,6 +45,33 @@ describe("writeReports", () => {
     expect(path.basename((error as ReportWriteError).path ?? "")).toMatch(/\.html$/);
   });
 
+  it("skips an existing file listed in skipExisting, writes the rest, refuses other files", async () => {
+    const [first] = await writeReports(scanResult(), { format: "html", outputDir: directory });
+    const known = new Set([first?.filePath ?? ""]);
+    const both = await writeReports(scanResult(), {
+      format: "both",
+      outputDir: directory,
+      skipExisting: known,
+    });
+    expect(both.map((entry) => [entry.format, entry.skipped === true])).toEqual([
+      ["html", true],
+      ["pdf", false],
+    ]);
+    expect(await readdir(directory)).toHaveLength(2);
+    // Nothing is in the set now: the same request is refused.
+    const error = await writeReports(scanResult(), { format: "both", outputDir: directory }).catch(
+      (caught: unknown) => caught,
+    );
+    expect((error as ReportWriteError).code).toBe("file_exists");
+    // A set that lists only the HTML still refuses the existing PDF.
+    const partial = await writeReports(scanResult(), {
+      format: "both",
+      outputDir: directory,
+      skipExisting: known,
+    }).catch((caught: unknown) => caught);
+    expect((partial as ReportWriteError).code).toBe("file_exists");
+  });
+
   it("does not follow a pre-planted symlink at the target name", async () => {
     const victim = path.join(directory, "victim.txt");
     await writeFile(victim, "original");

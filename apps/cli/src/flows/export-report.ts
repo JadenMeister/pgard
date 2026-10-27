@@ -1,4 +1,4 @@
-import { stat } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
 import { ReportWriteError, type ReportFormat } from "@pgard/report";
@@ -56,7 +56,11 @@ export async function saveReports(
   result: ScanResult,
   format: ReportFormat,
   outputDir: string,
-  /** Paths this session already saved: refusing to overwrite one of them is not a failure. */
+  /**
+   * Files this session already saved. They are never overwritten; a planned file in the set is
+   * reported as already saved, and the attempt counts as saved when every file was written or
+   * skipped this way.
+   */
   savedPaths?: Set<string>,
 ): Promise<boolean> {
   const text = cliText(context.ruleLocale).commands.report;
@@ -64,22 +68,25 @@ export async function saveReports(
     const written = await context.deps.writeReports(result, {
       format,
       outputDir,
+      ...(savedPaths === undefined ? {} : { skipExisting: savedPaths }),
       ...(context.reportLocale === undefined ? {} : { lang: context.reportLocale }),
       ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),
     });
     for (const entry of written) {
+      if (entry.skipped === true) {
+        out(context, text.alreadySaved(safeText(entry.filePath, 500)));
+        continue;
+      }
       savedPaths?.add(entry.filePath);
+      await realpath(entry.filePath).then(
+        (real) => savedPaths?.add(real),
+        () => undefined,
+      );
       out(context, text.saved(entry.format.toUpperCase(), safeText(entry.filePath, 500)));
       if (entry.warning !== undefined) err(context, text.warning(safeText(entry.warning, 500)));
     }
     return true;
   } catch (error) {
-    if (error instanceof ReportWriteError && error.code === "file_exists") {
-      if (error.path !== undefined && savedPaths?.has(error.path) === true) {
-        out(context, text.alreadySaved(safeText(error.path, 500)));
-        return true;
-      }
-    }
     const message = error instanceof ReportWriteError ? error.message : text.unexpectedWriteError;
     err(context, context.errStyle.red(text.notSaved(safeText(message, 500))));
     return false;
@@ -94,8 +101,9 @@ export async function offerReportExport(
   context: CommandContext,
   result: ScanResult,
   projectRoot: string,
+  savedPaths?: Set<string>,
 ): Promise<boolean> {
-  return (await runReportExport(context, result, projectRoot)) !== "failed";
+  return (await runReportExport(context, result, projectRoot, savedPaths)) !== "failed";
 }
 
 /** The export prompts and save, shared by the menu follow-up and the panel view's `e` key. */

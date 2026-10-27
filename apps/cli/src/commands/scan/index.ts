@@ -377,12 +377,20 @@ async function runScanFlow(
   const trendLoader = (): Promise<TrendData> =>
     loadTrend(context, scanned.outcome, command.noStore === true, result.scanId);
   let isReportSaved = true;
-  // `e` in the panel view: the same prompts and save as the menu's report question.
+  // Reports this run saved (`--report`, `e` in the panel, the menu question): never overwritten,
+  // and a repeat is reported as already saved.
   const panelSavedPaths = new Set<string>();
+  // `e` in the panel view: the same prompts and save as the menu's report question.
   const exportFromPanels = (): Promise<ReportExportOutcome> =>
     runReportExport(context, result, projectRoot, panelSavedPaths);
   if (command.report !== null && reportDir !== null) {
-    isReportSaved = await saveReports(context, result, command.report.format, reportDir);
+    isReportSaved = await saveReports(
+      context,
+      result,
+      command.report.format,
+      reportDir,
+      panelSavedPaths,
+    );
     if (!isJson) {
       const isPanelExportOk = await offerPanels(
         context,
@@ -407,7 +415,8 @@ async function runScanFlow(
       );
     }
     if (context.isMenu) {
-      isReportSaved = (await offerReportExport(context, result, projectRoot)) && isReportSaved;
+      isReportSaved =
+        (await offerReportExport(context, result, projectRoot, panelSavedPaths)) && isReportSaved;
     }
   }
   if (!(isReportSaved && isBaselineSaved) && exitCode === EXIT_CODES.ok) {
