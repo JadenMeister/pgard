@@ -306,9 +306,11 @@ export async function scanJvm(
       walk.trackManifests.some(
         (manifest) => manifest.kind === "maven" || manifest.kind === "gradle",
       );
-    for (const file of jvmProject ? walk.templateFiles : []) {
+    for (const file of walk.templateFiles) {
       throwIfAborted(options.signal);
       const extension = extensionOf(file.relativePath);
+      // JSP files are Java EE files whatever the project looks like; the rest need a JVM project.
+      if (!jvmProject && !JSP_EXTENSIONS.has(extension)) continue;
       const engine = TEMPLATE_ENGINES[extension];
       if (engine !== undefined) {
         if (options.isExcluded?.(file.relativePath) === true) {

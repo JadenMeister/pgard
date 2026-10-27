@@ -230,13 +230,19 @@ class C {
       "views/index.mustache": "<p>{{name}}</p>\n",
       "views/page.vm": "<p>$name</p>\n",
       "public/index.html": '<html xmlns:th="x"><p th:utext="${param.q}"></p></html>\n',
-      "web/index.jsp": '<p><%= request.getParameter("q") %></p>\n',
     });
     const output = await scanSourceCode(root);
     expect(xss(output)).toEqual([]);
     expect(
       output.coverage.filter((item) => /^source:(?:jvm-templates|template:)/.test(item.area)),
     ).toEqual([]);
+  });
+
+  it("reads a JSP-only directory with no Java file and no manifest", async () => {
+    const root = project({ "web/index.jsp": '<p><%= request.getParameter("q") %></p>\n' });
+    const output = await scanSourceCode(root);
+    expect(xss(output).map((finding) => finding.location.path)).toEqual(["web/index.jsp"]);
+    expect(output.coverage.find((item) => item.area === "source:jvm-templates")).toBeDefined();
   });
 
   it("honours the exclude patterns for template engine files", async () => {
