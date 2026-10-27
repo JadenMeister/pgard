@@ -40,12 +40,14 @@ describe("reduce", () => {
     let state = fresh();
     state = press(state, key("tab"));
     expect(state.panel).toBe("charts");
-    state = press(state, key("right"), key("right"));
+    state = press(state, key("right"), key("right"), key("right"));
     expect(state.panel).toBe("findings");
     state = press(state, key("tab"));
     expect(state.panel).toBe("overview");
     state = press(state, key("tab", { sequence: "\u001b[Z" }));
     expect(state.panel).toBe("findings");
+    state = press(state, key("left"));
+    expect(state.panel).toBe("trend");
     state = press(state, key("left"));
     expect(state.panel).toBe("coverage");
   });

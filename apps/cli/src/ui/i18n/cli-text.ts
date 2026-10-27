@@ -219,10 +219,39 @@ export interface CliText {
   panels: PanelsText;
 }
 
+export interface TrendPanelText {
+  title: (count: number) => string;
+  /** "No history yet" states; each says why and what to do. */
+  noHistory: {
+    empty: string;
+    single: (date: string) => string;
+    disabled: string;
+    noStoreDir: string;
+    noRepository: string;
+    unreadable: (reason: string) => string;
+  };
+  skipped: (count: number) => string;
+  latestVsPrevious: string;
+  /** New, fixed and unchanged counts of the latest scan against the previous one. */
+  diff: (newCount: number, fixedCount: number, unchangedCount: number) => string;
+  fixedNote: string;
+  chartTitle: string;
+  /** Legend of the bar characters: `symbols` in the severity order, then the severity names. */
+  legend: (pairs: string) => string;
+  tableTitle: string;
+  columns: { date: string; age: string; total: string };
+  /** One letter (or syllable) per severity, for the narrow table and the legend. */
+  letters: Record<Severity, string>;
+  /** Relative age from a millisecond difference; `short` for the narrow table. */
+  age: (ms: number, short: boolean) => string;
+}
+
 export interface PanelsText {
   title: string;
   /** Tab labels, in tab order. */
-  tabs: Record<"overview" | "charts" | "coverage" | "findings", string>;
+  tabs: Record<"overview" | "charts" | "coverage" | "trend" | "findings", string>;
+  /** The trend panel: stored scans of this repository over time. */
+  trend: TrendPanelText;
   /** Footer key hints for each state of the view; cut at the terminal width. */
   hints: Record<"default" | "findings" | "filter" | "detail" | "help" | "noMatch", string>;
   /** Filter line above the findings list. */
@@ -498,7 +527,51 @@ const EN: CliText = {
   },
   panels: {
     title: "PGARD panels",
-    tabs: { overview: "Overview", charts: "Charts", coverage: "Coverage", findings: "Findings" },
+    tabs: {
+      overview: "Overview",
+      charts: "Charts",
+      coverage: "Coverage",
+      trend: "Trend",
+      findings: "Findings",
+    },
+    trend: {
+      title: (count) =>
+        `Trend: ${count} stored ${count === 1 ? "scan" : "scans"} of this repository`,
+      noHistory: {
+        empty:
+          "No history yet: no earlier scan of this repository is stored. Scan again later to see a trend.",
+        single: (date) =>
+          `No history yet: only one stored scan (${date}). Scan again later to see a trend.`,
+        disabled:
+          "No history yet: storing is off (--no-store or PGARD_NO_STORE=1), so there is nothing to compare.",
+        noStoreDir:
+          "No history yet: no app-data directory could be determined, so nothing is stored.",
+        noRepository:
+          "No history yet: this scan is not tied to a GitHub repository, so no history is kept for it.",
+        unreadable: (reason) =>
+          `History could not be read${reason === "" ? "" : `: ${reason}`}. The scan itself is unaffected.`,
+      },
+      skipped: (count) =>
+        `${count} stored ${count === 1 ? "file was" : "files were"} unreadable and left out.`,
+      latestVsPrevious: "Latest scan vs the previous one",
+      diff: (n, f, u) => `${n} new, ${f} fixed*, ${u} unchanged`,
+      fixedNote: "* fixed = no longer reported (the code may also have been skipped or removed).",
+      chartTitle: "Findings per scan (newest first)",
+      legend: (pairs) => `Legend: ${pairs}`,
+      tableTitle: "Findings per scan by severity (newest first)",
+      columns: { date: "Date", age: "Age", total: "Total" },
+      letters: { critical: "C", high: "H", medium: "M", low: "L", info: "I" },
+      age: (ms, short) => {
+        const minutes = Math.floor(ms / 60000);
+        if (minutes < 1) return short ? "now" : "just now";
+        if (minutes < 60) return short ? `${minutes}m` : `${minutes} min ago`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return short ? `${hours}h` : `${hours} h ago`;
+        const days = Math.floor(hours / 24);
+        if (days === 1 && !short) return "yesterday";
+        return short ? `${days}d` : `${days} days ago`;
+      },
+    },
     hints: {
       default: "Esc: back  ?: help  Tab: panel  Up/Down: scroll",
       findings: "Esc: back  ?: help  Enter: open  /: search  1-5: severity",
@@ -528,6 +601,7 @@ const EN: CliText = {
       "  1-5: show one severity (1 critical ... 5 info; again to clear), 0 or s: next severity",
       "  a: next area (code, history, web), r: next rule, c: clear all filters",
       "  /: search title, rule id and path; Enter keeps it, Esc clears it, then Esc leaves",
+      "Trend panel: stored scans of this repository (local store only), newest first; Up/Down scrolls",
       "?: show or hide this help",
       "Esc: close help or a finding, clear the search, or leave the panel view (q leaves at once)",
       "Ctrl+C: ask to cancel (y exits with status 130)",
@@ -802,7 +876,49 @@ const KO: CliText = {
   },
   panels: {
     title: "PGARD 패널",
-    tabs: { overview: "개요", charts: "차트", coverage: "검사 범위", findings: "발견 항목" },
+    tabs: {
+      overview: "개요",
+      charts: "차트",
+      coverage: "검사 범위",
+      trend: "추이",
+      findings: "발견 항목",
+    },
+    trend: {
+      title: (count) => `추이: 이 저장소의 저장된 검사 ${count}건`,
+      noHistory: {
+        empty:
+          "아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지 않습니다. 나중에 다시 검사하면 추이를 볼 수 있습니다.",
+        single: (date) =>
+          `아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (${date}). 나중에 다시 검사하면 추이를 볼 수 있습니다.`,
+        disabled:
+          "아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는 PGARD_NO_STORE=1) 비교할 대상이 없습니다.",
+        noStoreDir:
+          "아직 이력이 없습니다: 앱 데이터 폴더를 찾을 수 없어 아무것도 저장되지 않습니다.",
+        noRepository:
+          "아직 이력이 없습니다: 이 검사는 GitHub 저장소와 연결되지 않아 이력을 보관하지 않습니다.",
+        unreadable: (reason) =>
+          `이력을 읽을 수 없습니다${reason === "" ? "" : `: ${reason}`}. 검사 결과 자체에는 영향이 없습니다.`,
+      },
+      skipped: (count) => `저장된 파일 ${count}개를 읽을 수 없어 제외했습니다.`,
+      latestVsPrevious: "최근 검사와 직전 검사 비교",
+      diff: (n, f, u) => `신규 ${n}, 해결 ${f}*, 변동 없음 ${u}`,
+      fixedNote: "* 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나 삭제되었을 수도 있습니다).",
+      chartTitle: "검사별 발견 항목 (최신순)",
+      legend: (pairs) => `범례: ${pairs}`,
+      tableTitle: "검사별 심각도 (최신순)",
+      columns: { date: "날짜", age: "경과", total: "합계" },
+      letters: { critical: "치", high: "높", medium: "중", low: "낮", info: "정" },
+      age: (ms, short) => {
+        const minutes = Math.floor(ms / 60000);
+        if (minutes < 1) return short ? "방금" : "방금 전";
+        if (minutes < 60) return short ? `${minutes}분` : `${minutes}분 전`;
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return short ? `${hours}시간` : `${hours}시간 전`;
+        const days = Math.floor(hours / 24);
+        if (days === 1 && !short) return "어제";
+        return short ? `${days}일` : `${days}일 전`;
+      },
+    },
     hints: {
       default: "Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤",
       findings: "Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도",
@@ -832,6 +948,7 @@ const KO: CliText = {
       "  1-5: 한 심각도만 보기(1 치명 ... 5 정보, 다시 누르면 해제), 0 또는 s: 다음 심각도",
       "  a: 다음 영역(코드, 이력, 웹), r: 다음 규칙, c: 모든 필터 해제",
       "  /: 제목·규칙 ID·경로 검색. Enter로 유지, Esc로 지우기, 한 번 더 Esc로 나가기",
+      "추이 패널: 이 저장소의 저장된 검사(로컬 저장소만), 최신순. 위/아래로 스크롤",
       "?: 이 도움말 열기·닫기",
       "Esc: 도움말·상세 닫기, 검색 지우기, 또는 패널 화면 나가기 (q는 바로 나가기)",
       "Ctrl+C: 취소 확인 (y를 누르면 종료 코드 130)",

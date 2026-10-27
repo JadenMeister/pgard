@@ -1,0 +1,832 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`trend panel snapshots > colour (unicode) 80x24, 20 scans 1`] = `
+"<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...<ESC>[22m
+<ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[1m<ESC>[7m[Trend]<ESC>[27m<ESC>[22m  <ESC>[2mFindings (12)<ESC>[22m
+<ESC>[1mTrend: 20 stored scans of this repository<ESC>[22m
+
+<ESC>[1mLatest scan vs the previous one<ESC>[22m
+  2 new, 1 fixed*, 9 unchanged
+<ESC>[2m  * fixed = no longer reported (the code may also have been skipped or<ESC>[22m
+<ESC>[2m  removed).<ESC>[22m
+
+<ESC>[1mFindings per scan (newest first)<ESC>[22m
+<ESC>[2mLegend: █ Critical  ▓ High  ▒ Medium  ░ Low  · Info<ESC>[22m
+<ESC>[2m  Date              Age          Total<ESC>[22m
+  2026-10-27 12:00  yesterday       15  <ESC>[35m███<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+  2026-10-26 12:00  2 days ago      11  <ESC>[31m▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m···
+  2026-10-25 12:00  3 days ago      12  <ESC>[35m█████<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+  2026-10-24 12:00  4 days ago       8  <ESC>[35m███<ESC>[39m<ESC>[31m▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m···
+  2026-10-23 12:00  5 days ago      10  <ESC>[31m▓▓▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+  2026-10-22 12:00  6 days ago      14  <ESC>[35m█████<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m···
+  2026-10-21 12:00  7 days ago      12  <ESC>[35m███<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+  2026-10-20 12:00  8 days ago       8  <ESC>[31m▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m···
+  2026-10-19 12:00  9 days ago      13  <ESC>[35m█████<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+  2026-10-18 12:00  10 days ago      9  <ESC>[35m███<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒<ESC>[39m···
+  2026-10-17 12:00  11 days ago     12  <ESC>[31m▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+<ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/30<ESC>[22m"
+`;
+
+exports[`trend panel snapshots > en 40x14 0 scans 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+No history yet: no earlier scan of this
+repository is stored. Scan again later
+to see a trend.
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel"
+`;
+
+exports[`trend panel snapshots > en 40x14 1 scans 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+No history yet: only one stored scan
+(2026-10-27 12:00). Scan again later to
+see a trend.
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel"
+`;
+
+exports[`trend panel snapshots > en 40x14 2 scans 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+Trend: 2 stored scans of this repository
+
+Latest scan vs the previous one
+  2 new, 1 fixed*, 9 unchanged
+  * fixed = no longer reported (the
+  code may also have been skipped or
+  removed).
+
+Findings per scan by severity (newest...
+Legend: C=Critical H=High M=Medium
+L=Low I=Info
+Esc: back  ?: help  Tab: panel   1-11/14"
+`;
+
+exports[`trend panel snapshots > en 40x14 20 scans 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+Trend: 20 stored scans of this reposi...
+
+Latest scan vs the previous one
+  2 new, 1 fixed*, 9 unchanged
+  * fixed = no longer reported (the
+  code may also have been skipped or
+  removed).
+
+Findings per scan by severity (newest...
+Legend: C=Critical H=High M=Medium
+L=Low I=Info
+Esc: back  ?: help  Tab: panel   1-11/32"
+`;
+
+exports[`trend panel snapshots > en 40x14 store disabled 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+No history yet: storing is off
+(--no-store or PGARD_NO_STORE=1), so
+there is nothing to compare.
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel"
+`;
+
+exports[`trend panel snapshots > en 40x14 unreadable store 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+History could not be read: Permission
+denied. The scan itself is unaffected.
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel"
+`;
+
+exports[`trend panel snapshots > en 60x20 0 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: no earlier scan of this repository is
+stored. Scan again later to see a trend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 60x20 1 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: only one stored scan (2026-10-27 12:00).
+Scan again later to see a trend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 60x20 2 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend: 2 stored scans of this repository
+
+Latest scan vs the previous one
+  2 new, 1 fixed*, 9 unchanged
+  * fixed = no longer reported (the code may also have been
+  skipped or removed).
+
+Findings per scan by severity (newest first)
+Legend: C=Critical H=High M=Medium L=Low I=Info
+Date       Age C H M L I Total
+2026-10-27 1d  1 5 7 1 1    15
+2026-10-26 2d  0 4 6 0 1    11
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 60x20 20 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend: 20 stored scans of this repository
+
+Latest scan vs the previous one
+  2 new, 1 fixed*, 9 unchanged
+  * fixed = no longer reported (the code may also have been
+  skipped or removed).
+
+Findings per scan by severity (newest first)
+Legend: C=Critical H=High M=Medium L=Low I=Info
+Date       Age C H M L I Total
+2026-10-27 1d  1 5 7 1 1    15
+2026-10-26 2d  0 4 6 0 1    11
+2026-10-25 3d  2 3 5 1 1    12
+2026-10-24 4d  1 2 4 0 1     8
+2026-10-23 5d  0 5 3 1 1    10
+2026-10-22 6d  2 4 7 0 1    14
+2026-10-21 7d  1 3 6 1 1    12
+Esc: back  ?: help  Tab: panel  Up/Down: scroll      1-17/30"
+`;
+
+exports[`trend panel snapshots > en 60x20 store disabled 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: storing is off (--no-store or
+PGARD_NO_STORE=1), so there is nothing to compare.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 60x20 unreadable store 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+History could not be read: Permission denied. The scan
+itself is unaffected.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 80x24 0 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: no earlier scan of this repository is stored. Scan again later
+to see a trend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 80x24 1 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: only one stored scan (2026-10-27 12:00). Scan again later to
+see a trend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 80x24 2 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend: 2 stored scans of this repository
+
+Latest scan vs the previous one
+  2 new, 1 fixed*, 9 unchanged
+  * fixed = no longer reported (the code may also have been skipped or
+  removed).
+
+Findings per scan (newest first)
+Legend: # Critical  = High  + Medium  - Low  : Info
+  Date              Age         Total
+  2026-10-27 12:00  yesterday      15  ###=============++++++++++++++++++---:::
+  2026-10-26 12:00  2 days ago     11  ===========++++++++++++++++:::
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 80x24 20 scans 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend: 20 stored scans of this repository
+
+Latest scan vs the previous one
+  2 new, 1 fixed*, 9 unchanged
+  * fixed = no longer reported (the code may also have been skipped or
+  removed).
+
+Findings per scan (newest first)
+Legend: # Critical  = High  + Medium  - Low  : Info
+  Date              Age          Total
+  2026-10-27 12:00  yesterday       15  ###=============++++++++++++++++++---:::
+  2026-10-26 12:00  2 days ago      11  ===========++++++++++++++++:::
+  2026-10-25 12:00  3 days ago      12  #####========+++++++++++++---:::
+  2026-10-24 12:00  4 days ago       8  ###=====+++++++++++:::
+  2026-10-23 12:00  5 days ago      10  =============++++++++---:::
+  2026-10-22 12:00  6 days ago      14  #####===========+++++++++++++++++++:::
+  2026-10-21 12:00  7 days ago      12  ###========++++++++++++++++---:::
+  2026-10-20 12:00  8 days ago       8  =====+++++++++++++:::
+  2026-10-19 12:00  9 days ago      13  #####=============+++++++++++---:::
+  2026-10-18 12:00  10 days ago      9  ###===========++++++++:::
+  2026-10-17 12:00  11 days ago     12  ========+++++++++++++++++++---:::
+Esc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/30"
+`;
+
+exports[`trend panel snapshots > en 80x24 store disabled 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: storing is off (--no-store or PGARD_NO_STORE=1), so there is
+nothing to compare.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > en 80x24 unreadable store 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+History could not be read: Permission denied. The scan itself is unaffected.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
+exports[`trend panel snapshots > ko 40x14 0 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 이 저장소의 이전
+검사가 저장되어 있지 않습니다. 나중에
+다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널"
+`;
+
+exports[`trend panel snapshots > ko 40x14 1 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 저장된 검사가
+1건뿐입니다 (2026-10-27 12:00). 나중에
+다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널"
+`;
+
+exports[`trend panel snapshots > ko 40x14 2 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+추이: 이 저장소의 저장된 검사 2건
+
+최근 검사와 직전 검사 비교
+  신규 2, 해결 1*, 변동 없음 9
+  * 해결 = 더 이상 보고되지 않음
+  (코드가 건너뛰어졌거나 삭제되었을
+  수도 있습니다).
+
+검사별 심각도 (최신순)
+범례: 치=치명적 높=높음 중=보통 낮=낮음
+정=정보
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/14"
+`;
+
+exports[`trend panel snapshots > ko 40x14 20 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+추이: 이 저장소의 저장된 검사 20건
+
+최근 검사와 직전 검사 비교
+  신규 2, 해결 1*, 변동 없음 9
+  * 해결 = 더 이상 보고되지 않음
+  (코드가 건너뛰어졌거나 삭제되었을
+  수도 있습니다).
+
+검사별 심각도 (최신순)
+범례: 치=치명적 높=높음 중=보통 낮=낮음
+정=정보
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/32"
+`;
+
+exports[`trend panel snapshots > ko 40x14 store disabled 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 저장이 꺼져
+있어(--no-store 또는 PGARD_NO_STORE=1)
+비교할 대상이 없습니다.
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널"
+`;
+
+exports[`trend panel snapshots > ko 40x14 unreadable store 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+이력을 읽을 수 없습니다: Permission
+denied. 검사 결과 자체에는 영향이
+없습니다.
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널"
+`;
+
+exports[`trend panel snapshots > ko 60x20 0 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지
+않습니다. 나중에 다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 60x20 1 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (2026-10-27
+12:00). 나중에 다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 60x20 2 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이: 이 저장소의 저장된 검사 2건
+
+최근 검사와 직전 검사 비교
+  신규 2, 해결 1*, 변동 없음 9
+  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나
+  삭제되었을 수도 있습니다).
+
+검사별 심각도 (최신순)
+범례: 치=치명적 높=높음 중=보통 낮=낮음 정=정보
+날짜       경과 치 높 중 낮 정 합계
+2026-10-27 1일   1  5  7  1  1   15
+2026-10-26 2일   0  4  6  0  1   11
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 60x20 20 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이: 이 저장소의 저장된 검사 20건
+
+최근 검사와 직전 검사 비교
+  신규 2, 해결 1*, 변동 없음 9
+  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나
+  삭제되었을 수도 있습니다).
+
+검사별 심각도 (최신순)
+범례: 치=치명적 높=높음 중=보통 낮=낮음 정=정보
+날짜       경과 치 높 중 낮 정 합계
+2026-10-27 1일   1  5  7  1  1   15
+2026-10-26 2일   0  4  6  0  1   11
+2026-10-25 3일   2  3  5  1  1   12
+2026-10-24 4일   1  2  4  0  1    8
+2026-10-23 5일   0  5  3  1  1   10
+2026-10-22 6일   2  4  7  0  1   14
+2026-10-21 7일   1  3  6  1  1   12
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤     1-17/30"
+`;
+
+exports[`trend panel snapshots > ko 60x20 store disabled 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는
+PGARD_NO_STORE=1) 비교할 대상이 없습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 60x20 unreadable store 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+이력을 읽을 수 없습니다: Permission denied. 검사 결과
+자체에는 영향이 없습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 80x24 0 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지 않습니다. 나중에
+다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 80x24 1 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (2026-10-27 12:00). 나중에 다시
+검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 80x24 2 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이: 이 저장소의 저장된 검사 2건
+
+최근 검사와 직전 검사 비교
+  신규 2, 해결 1*, 변동 없음 9
+  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나 삭제되었을 수도
+  있습니다).
+
+검사별 발견 항목 (최신순)
+범례: # 치명적  = 높음  + 보통  - 낮음  : 정보
+  날짜              경과    합계
+  2026-10-27 12:00  어제      15  ###=============++++++++++++++++++---:::
+  2026-10-26 12:00  2일 전    11  ===========++++++++++++++++:::
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 80x24 20 scans 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이: 이 저장소의 저장된 검사 20건
+
+최근 검사와 직전 검사 비교
+  신규 2, 해결 1*, 변동 없음 9
+  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나 삭제되었을 수도
+  있습니다).
+
+검사별 발견 항목 (최신순)
+범례: # 치명적  = 높음  + 보통  - 낮음  : 정보
+  날짜              경과     합계
+  2026-10-27 12:00  어제       15  ###=============++++++++++++++++++---:::
+  2026-10-26 12:00  2일 전     11  ===========++++++++++++++++:::
+  2026-10-25 12:00  3일 전     12  #####========+++++++++++++---:::
+  2026-10-24 12:00  4일 전      8  ###=====+++++++++++:::
+  2026-10-23 12:00  5일 전     10  =============++++++++---:::
+  2026-10-22 12:00  6일 전     14  #####===========+++++++++++++++++++:::
+  2026-10-21 12:00  7일 전     12  ###========++++++++++++++++---:::
+  2026-10-20 12:00  8일 전      8  =====+++++++++++++:::
+  2026-10-19 12:00  9일 전     13  #####=============+++++++++++---:::
+  2026-10-18 12:00  10일 전     9  ###===========++++++++:::
+  2026-10-17 12:00  11일 전    12  ========+++++++++++++++++++---:::
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤                         1-21/30"
+`;
+
+exports[`trend panel snapshots > ko 80x24 store disabled 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는 PGARD_NO_STORE=1) 비교할
+대상이 없습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
+exports[`trend panel snapshots > ko 80x24 unreadable store 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+이력을 읽을 수 없습니다: Permission denied. 검사 결과 자체에는 영향이 없습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
