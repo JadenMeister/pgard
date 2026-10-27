@@ -10,6 +10,7 @@ import {
   wrapWidth,
 } from "../i18n/display-width.js";
 import { renderChart, type ChartOptions } from "../formatters/charts.js";
+import { fitLines } from "../formatters/fit-lines.js";
 import {
   areaChartRows,
   formatSummaryBlock,
@@ -18,6 +19,7 @@ import {
   type RenderContext,
 } from "../formatters/result-summary.js";
 import { createStyle, MIN_CHART_WIDTH, safeText, type Style } from "../formatters/style.js";
+import { hasFilters } from "./filter.js";
 import {
   CHROME_ROWS,
   MIN_SIZE,
@@ -161,7 +163,145 @@ export function panelLines(state: PanelsState, size: Size, opts: RenderOptions =
 /** How many scrollable lines (rows for the findings list) the panel has. */
 export function panelLength(state: PanelsState, size: Size): number {
   if (state.overlay === "help") return helpLines(state, size, {}).length;
-  return state.panel === "findings" ? state.findings.length : panelLines(state, size).length;
+  if (state.overlay === "detail") return detailLines(state, size, {}).length;
+  return state.panel === "findings" ? state.visible.length : panelLines(state, size).length;
+}
+
+/** Lines for the count and the severity, area and rule filters; the search has its own line. */
+const MAX_HEADER_LINES = 3;
+/** Longest rule id shown in the header. */
+const MAX_HEADER_RULE = 24;
+
+/** The end of `text` that fits `room` columns, with `...` in front when the start was cut. */
+function tailWidth(text: string, room: number): string {
+  if (displayWidth(text) <= room) return text;
+  const chars = Array.from(text);
+  let tail = "";
+  let used = 3;
+  for (let i = chars.length - 1; i >= 0; i -= 1) {
+    const char = chars[i] ?? "";
+    const next = displayWidth(char);
+    if (used + next > room) break;
+    tail = char + tail;
+    used += next;
+  }
+  return `...${tail}`;
+}
+
+/** Breaks `text` into pieces of at most `width` columns, cutting anywhere and adding nothing. */
+function hardBreak(text: string, width: number): string[] {
+  const pieces: string[] = [];
+  let piece = "";
+  let used = 0;
+  for (const char of text) {
+    const next = displayWidth(char);
+    if (used + next > width && piece !== "") {
+      pieces.push(piece);
+      piece = "";
+      used = 0;
+    }
+    piece += char;
+    used += next;
+  }
+  if (piece !== "") pieces.push(piece);
+  return pieces;
+}
+
+/**
+ * The line(s) above the findings list: how many of all findings it shows and which filters are
+ * active (or the search being typed). Plain text, none when the scan has no findings at all. The
+ * count and the severity, area and rule filters take at most three lines (a rule id is cut at
+ * `MAX_HEADER_RULE`); the search gets one line of its own, shows the END of the typed text (cut
+ * from the left with `...`) and always shows the cursor, so a long search never hides a filter
+ * and a filter never hides the cursor.
+ */
+export function filterHeader(state: PanelsState, size: Size): string[] {
+  if (state.findings.length === 0) return [];
+  const t = cliText(state.locale);
+  const { filters } = state;
+  const isTyping = state.overlay === "filter";
+  const parts: string[] = [];
+  if (filters.severity !== null) {
+    parts.push(`${t.panels.filter.names.severity}: ${t.report.severity[filters.severity]}`);
+  }
+  if (filters.area !== null) {
+    parts.push(`${t.panels.filter.names.area}: ${t.scopeName[filters.area]}`);
+  }
+  if (filters.rule !== null) {
+    parts.push(`${t.panels.filter.names.rule}: ${safeText(filters.rule, MAX_HEADER_RULE)}`);
+  }
+  const count = t.panels.filter.count(state.visible.length, state.findings.length);
+  const active = parts.length === 0 ? t.panels.filter.none : parts.join(", ");
+  const lines = wrapWidth(`${count} | ${t.panels.filter.label}: ${active}`, size.columns).slice(
+    0,
+    MAX_HEADER_LINES,
+  );
+  if (filters.text !== "" || isTyping) {
+    const cursor = isTyping ? "_" : "";
+    const frame = `${t.panels.filter.names.search}: ""`;
+    const room = Math.max(4, size.columns - displayWidth(frame) - cursor.length);
+    lines.push(
+      `${t.panels.filter.names.search}: "${tailWidth(safeText(filters.text, 200), room)}${cursor}"`,
+    );
+  }
+  return lines;
+}
+
+/** Rows the findings list can show: the body minus the filter header. */
+export function listHeight(state: PanelsState, size: Size): number {
+  return Math.max(1, bodyHeight(size) - filterHeader(state, size).length);
+}
+
+/** Longest standards list shown for one finding. */
+const MAX_STANDARD_LINKS = 5;
+
+/**
+ * The opened finding. Every text that comes from the scan goes through `safeText` and a length
+ * cap; the evidence is the redacted text the result screen prints (never anything more). Only
+ * https links are shown, and the standards come from PGARD's rule catalog, not from the finding.
+ */
+export function detailLines(state: PanelsState, size: Size, opts: RenderOptions = {}): string[] {
+  const finding = state.visible[state.selected];
+  if (finding === undefined) return [];
+  const style = opts.style ?? PLAIN;
+  const t = cliText(state.locale);
+  const width = Math.max(10, size.columns);
+  const lines: string[] = [];
+  const add = (...text: string[]): void => {
+    for (const line of text) lines.push(...fitLines(line, width));
+  };
+  const tag = `${severityTag(finding, t)} ${statusWord(finding, t)}`;
+  lines.push(...fitLines(tag, width).map((line) => style.severity(finding.severity, line)));
+  lines.push(...fitLines(safeText(finding.title, 200), width).map((line) => style.bold(line)));
+  add(
+    `${t.panels.detail.rule}: ${safeText(finding.ruleId, 60)}`,
+    `${t.panels.detail.where}: ${safeText(formatLocation(finding.location), 300)}`,
+    "",
+    `${t.evidence}: ${safeText(finding.evidence, 500)}`,
+    "",
+    `${t.fix}: ${safeText(finding.recommendation, 500)}`,
+  );
+  const ids = [...finding.references.owasp, ...finding.references.cwe, ...finding.references.cve];
+  if (ids.length > 0) {
+    add("", `${t.panels.detail.references}: ${ids.map((id) => safeText(id, 30)).join(", ")}`);
+  }
+  const links = (state.ruleTexts?.get(finding.ruleId)?.details?.standards ?? []).filter((link) =>
+    link.url.startsWith("https://"),
+  );
+  if (links.length > 0) {
+    add("", `${t.standards}:`);
+    for (const link of links.slice(0, MAX_STANDARD_LINKS)) {
+      const title = link.title === null ? "" : ` ${safeText(link.title, 80)}`;
+      const via = link.viaCwe === undefined ? "" : ` (${t.report.viaCwe(link.viaCwe)})`;
+      add(`  ${safeText(link.id, 20)}${title}${via}`);
+      // A link is never shortened (a cut link cannot be copied): it is broken at the width with
+      // nothing added, so the lines joined are the whole address.
+      lines.push(...hardBreak(safeText(link.url, 200), width));
+    }
+    const rest = links.length - MAX_STANDARD_LINKS;
+    if (rest > 0) add(`  +${rest}`);
+  }
+  return lines;
 }
 
 interface RowColumns {
@@ -223,8 +363,11 @@ function findingRow(
 
 function tabBar(state: PanelsState, size: Size, style: Style): string {
   const t = cliText(state.locale);
+  const findingsCount = hasFilters(state.filters)
+    ? t.panels.filter.count(state.visible.length, state.findings.length)
+    : String(state.findings.length);
   const labels = PANEL_IDS.map((id: PanelId) =>
-    id === "findings" ? `${t.panels.tabs[id]} (${state.findings.length})` : t.panels.tabs[id],
+    id === "findings" ? `${t.panels.tabs[id]} (${findingsCount})` : t.panels.tabs[id],
   );
   const plain = PANEL_IDS.map((id, index) =>
     id === state.panel ? `[${labels[index]}]` : (labels[index] ?? ""),
@@ -239,6 +382,20 @@ function tabBar(state: PanelsState, size: Size, style: Style): string {
   ).join("  ");
 }
 
+/**
+ * The hints that fit: they are written most important first (Esc, `?`), separated by two
+ * spaces, and whole hints are dropped from the end instead of one being cut in the middle.
+ */
+function fitHints(text: string, room: number): string {
+  let out = "";
+  for (const hint of text.split("  ")) {
+    const next = out === "" ? hint : `${out}  ${hint}`;
+    if (displayWidth(next) > room) break;
+    out = next;
+  }
+  return out === "" ? truncateWidth(text, room) : out;
+}
+
 function footer(
   state: PanelsState,
   size: Size,
@@ -250,9 +407,17 @@ function footer(
   const t = cliText(state.locale);
   if (state.overlay === "confirm-cancel") return style.yellow(t.panels.confirmCancel);
   const position =
-    total > to - from + 1 && state.overlay === "none" ? t.panels.position(from, to, total) : "";
+    total > to - from + 1 && state.overlay !== "help" ? t.panels.position(from, to, total) : "";
   const room = size.columns - (position === "" ? 0 : displayWidth(position) + 1);
-  const hints = padEndWidth(truncateWidth(t.panels.hints, Math.max(0, room)), Math.max(0, room));
+  const hintText =
+    state.overlay === "filter" || state.overlay === "detail" || state.overlay === "help"
+      ? t.panels.hints[state.overlay]
+      : state.panel !== "findings"
+        ? t.panels.hints.default
+        : state.visible.length === 0 && state.findings.length > 0
+          ? t.panels.hints.noMatch
+          : t.panels.hints.findings;
+  const hints = padEndWidth(fitHints(hintText, Math.max(0, room)), Math.max(0, room));
   return style.dim(position === "" ? hints.trimEnd() : `${hints} ${position}`);
 }
 
@@ -285,23 +450,39 @@ export function renderFrame(state: PanelsState, size: Size, opts: RenderOptions 
   let body: string[];
   let total: number;
   let top: number;
+  let pageRows = height;
   if (state.overlay === "help") {
     const lines = helpLines(state, size, opts);
     total = lines.length;
     top = Math.min(state.helpScroll, Math.max(0, total - height));
     body = lines.slice(top, top + height);
+  } else if (state.overlay === "detail") {
+    const lines = detailLines(state, size, opts);
+    total = lines.length;
+    top = Math.min(state.detailScroll, Math.max(0, total - height));
+    body = lines.slice(top, top + height);
   } else if (state.panel === "findings") {
-    total = state.findings.length;
-    top = Math.min(state.scroll.findings, Math.max(0, total - height));
-    if (total === 0) {
+    total = state.visible.length;
+    const header = filterHeader(state, size);
+    pageRows = Math.max(1, height - header.length);
+    top = Math.min(state.scroll.findings, Math.max(0, total - pageRows));
+    if (state.findings.length === 0) {
       body = [t.panels.noFindings];
+    } else if (total === 0) {
+      body = [
+        ...header.map((line) => style.bold(line)),
+        ...wrapWidth(t.panels.filter.noMatch(state.findings.length), size.columns),
+      ];
     } else {
-      const columns = rowColumns(state.findings, t);
-      body = state.findings
-        .slice(top, top + height)
-        .map((finding, index) =>
-          findingRow(finding, top + index === state.selected, columns, size, t, style),
-        );
+      const columns = rowColumns(state.visible, t);
+      body = [
+        ...header.map((line) => style.bold(line)),
+        ...state.visible
+          .slice(top, top + pageRows)
+          .map((finding, index) =>
+            findingRow(finding, top + index === state.selected, columns, size, t, style),
+          ),
+      ];
     }
   } else {
     const lines = panelLines(state, size, opts);
@@ -309,7 +490,7 @@ export function renderFrame(state: PanelsState, size: Size, opts: RenderOptions 
     top = Math.min(state.scroll[state.panel], Math.max(0, total - height));
     body = lines.slice(top, top + height);
   }
-  const shown = Math.min(top + height, total);
+  const shown = Math.min(top + pageRows, total);
   const frame = [
     titleLine(state, size, style),
     tabBar(state, size, style),

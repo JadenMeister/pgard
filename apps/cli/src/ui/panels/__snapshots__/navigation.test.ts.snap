@@ -1,0 +1,805 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`rendering > en 40x14: active filters are shown with the count 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (0 of 12)]
+0 of 12 | Filters: severity: High, area:
+code, rule: PG-FIX-001
+No finding matches these filters, but 12
+findings exist. Press c to clear the
+filters.
+
+
+
+
+
+
+Esc: back  ?: help  c: clear filters"
+`;
+
+exports[`rendering > en 40x14: detail of a finding with standards 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (1)]
+[CRITICAL] suspected
+User input concatenated into SQL
+Rule: PG-SQL-001
+Where: src/api/users.ts:42
+
+Evidence: req.query -> concat -> query()
+
+Fix: Use parameters
+
+References: A05:2025, CWE-89
+
+Esc/Enter: close                 1-11/18"
+`;
+
+exports[`rendering > en 40x14: help lists the new keys 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (12)]
+Panel view help
+
+Tab, Shift+Tab, Left, Right: next or
+  previous panel
+Up, Down, j, k: scroll (in the findings
+  list: move the selection)
+PageUp, PageDown: scroll one page
+Home, End: first or last line
+Findings list:
+Enter: open the selected finding
+  (evidence, fix, standards); Enter or
+?/Esc: close  Up/Down: scroll"
+`;
+
+exports[`rendering > en 40x14: nothing matches 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (0 of 12)]
+0 of 12 | Filters: none
+search: "zzz"
+No finding matches these filters, but 12
+findings exist. Press c to clear the
+filters.
+
+
+
+
+
+
+Esc: back  ?: help  c: clear filters"
+`;
+
+exports[`rendering > en 40x14: the search input shows the text and a cursor 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (12 of 12)]
+12 of 12 | Filters: none
+search: "fix_"
+> [CRITICAL] confirmed     src/module...
+  [HIGH]     suspected     config/.en...
+  [HIGH]     suspected     src/module...
+  [HIGH]     suspected     src/module...
+  [HIGH]     suspected     (suppresse...
+  [MEDIUM]   suspected     http://127...
+  [MEDIUM]   suspected     src/module...
+  [MEDIUM]   suspected     src/module...
+  [MEDIUM]   suspected     (baseline)...
+Esc: clear  Enter: keep           1-9/12"
+`;
+
+exports[`rendering > en 40x14: the unfiltered list shows "N of N" and the key help 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+[Findings (12)]
+12 of 12 | Filters: none
+> [CRITICAL] confirmed     src/module...
+  [HIGH]     suspected     config/.en...
+  [HIGH]     suspected     src/module...
+  [HIGH]     suspected     src/module...
+  [HIGH]     suspected     (suppresse...
+  [MEDIUM]   suspected     http://127...
+  [MEDIUM]   suspected     src/module...
+  [MEDIUM]   suspected     src/module...
+  [MEDIUM]   suspected     (baseline)...
+  [LOW]      suspected     src/module...
+Esc: back  ?: help  Enter: open  1-10/12"
+`;
+
+exports[`rendering > en 60x20: active filters are shown with the count 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Findings (0 of 12)]
+0 of 12 | Filters: severity: High, area: code, rule:
+PG-FIX-001
+No finding matches these filters, but 12 findings exist.
+Press c to clear the filters.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  c: clear filters  /: search"
+`;
+
+exports[`rendering > en 60x20: detail of a finding with standards 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Completed
+Overview  Charts  Coverage  [Findings (1)]
+[CRITICAL] suspected
+User input concatenated into SQL
+Rule: PG-SQL-001
+Where: src/api/users.ts:42
+
+Evidence: req.query -> concat -> query()
+
+Fix: Use parameters
+
+References: A05:2025, CWE-89
+
+Standards:
+  A05:2025 Injection
+https://top10.owasp.org/2025/A05_2025-Injection/
+  CWE-89 SQL Injection (via CWE-89)
+https://cwe.mitre.org/data/definitions/89.html
+
+Esc/Enter: close  Up/Down: scroll"
+`;
+
+exports[`rendering > en 60x20: help lists the new keys 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Findings (12)]
+Panel view help
+
+Tab, Shift+Tab, Left, Right: next or previous panel
+Up, Down, j, k: scroll (in the findings list: move the
+  selection)
+PageUp, PageDown: scroll one page
+Home, End: first or last line
+Findings list:
+Enter: open the selected finding (evidence, fix,
+  standards); Enter or Esc closes it
+1-5: show one severity (1 critical ... 5 info; again to
+  clear), 0 or s: next severity
+a: next area (code, history, web), r: next rule, c: clear
+  all filters
+/: search title, rule id and path; Enter keeps it, Esc
+  clears it, then Esc leaves
+?: show or hide this help
+?/Esc: close  Up/Down: scroll"
+`;
+
+exports[`rendering > en 60x20: nothing matches 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Findings (0 of 12)]
+0 of 12 | Filters: none
+search: "zzz"
+No finding matches these filters, but 12 findings exist.
+Press c to clear the filters.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  c: clear filters  /: search"
+`;
+
+exports[`rendering > en 60x20: the search input shows the text and a cursor 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Findings (12 of 12)]
+12 of 12 | Filters: none
+search: "fix_"
+> [CRITICAL] confirmed     src/module1/handler.ts:11
+  [HIGH]     suspected     config/.env (commit 0123456789ab)
+  [HIGH]     suspected     src/module11/handler.ts:21
+  [HIGH]     suspected     src/module2/handler.ts:12
+  [HIGH]     suspected     (suppressed) src/module4/handl...
+  [MEDIUM]   suspected     http://127.0.0.1:3000/admin
+  [MEDIUM]   suspected     src/module12/handler.ts:22
+  [MEDIUM]   suspected     src/module5/handler.ts:15
+  [MEDIUM]   suspected     (baseline) src/module7/handler...
+  [LOW]      suspected     src/module9/handler.ts:19
+  [LOW]      informational src/module8/handler.ts:18
+  [INFO]     informational src/module10/handler.ts:20
+
+
+
+Esc: clear  Enter: keep  Type to search"
+`;
+
+exports[`rendering > en 60x20: the unfiltered list shows "N of N" and the key help 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Findings (12)]
+12 of 12 | Filters: none
+> [CRITICAL] confirmed     src/module1/handler.ts:11
+  [HIGH]     suspected     config/.env (commit 0123456789ab)
+  [HIGH]     suspected     src/module11/handler.ts:21
+  [HIGH]     suspected     src/module2/handler.ts:12
+  [HIGH]     suspected     (suppressed) src/module4/handl...
+  [MEDIUM]   suspected     http://127.0.0.1:3000/admin
+  [MEDIUM]   suspected     src/module12/handler.ts:22
+  [MEDIUM]   suspected     src/module5/handler.ts:15
+  [MEDIUM]   suspected     (baseline) src/module7/handler...
+  [LOW]      suspected     src/module9/handler.ts:19
+  [LOW]      informational src/module8/handler.ts:18
+  [INFO]     informational src/module10/handler.ts:20
+
+
+
+
+Esc: back  ?: help  Enter: open  /: search  1-5: severity"
+`;
+
+exports[`rendering > en 80x24: active filters are shown with the count 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Findings (0 of 12)]
+0 of 12 | Filters: severity: High, area: code, rule: PG-FIX-001
+No finding matches these filters, but 12 findings exist. Press c to clear the
+filters.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  c: clear filters  /: search"
+`;
+
+exports[`rendering > en 80x24: detail of a finding with standards 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Completed
+Overview  Charts  Coverage  [Findings (1)]
+[CRITICAL] suspected
+User input concatenated into SQL
+Rule: PG-SQL-001
+Where: src/api/users.ts:42
+
+Evidence: req.query -> concat -> query()
+
+Fix: Use parameters
+
+References: A05:2025, CWE-89
+
+Standards:
+  A05:2025 Injection
+https://top10.owasp.org/2025/A05_2025-Injection/
+  CWE-89 SQL Injection (via CWE-89)
+https://cwe.mitre.org/data/definitions/89.html
+
+
+
+
+
+Esc/Enter: close  Up/Down: scroll"
+`;
+
+exports[`rendering > en 80x24: help lists the new keys 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Findings (12)]
+Panel view help
+
+Tab, Shift+Tab, Left, Right: next or previous panel
+Up, Down, j, k: scroll (in the findings list: move the selection)
+PageUp, PageDown: scroll one page
+Home, End: first or last line
+Findings list:
+Enter: open the selected finding (evidence, fix, standards); Enter or Esc
+  closes it
+1-5: show one severity (1 critical ... 5 info; again to clear), 0 or s: next
+  severity
+a: next area (code, history, web), r: next rule, c: clear all filters
+/: search title, rule id and path; Enter keeps it, Esc clears it, then Esc
+  leaves
+?: show or hide this help
+Esc: close help or a finding, clear the search, or leave the panel view (q
+  leaves at once)
+Ctrl+C: ask to cancel (y exits with status 130)
+
+Read-only: nothing is changed or uploaded. Evidence is shown redacted, as in
+  the result.
+?/Esc: close  Up/Down: scroll"
+`;
+
+exports[`rendering > en 80x24: nothing matches 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Findings (0 of 12)]
+0 of 12 | Filters: none
+search: "zzz"
+No finding matches these filters, but 12 findings exist. Press c to clear the
+filters.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  c: clear filters  /: search"
+`;
+
+exports[`rendering > en 80x24: the search input shows the text and a cursor 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Findings (12 of 12)]
+12 of 12 | Filters: none
+search: "fix_"
+> [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...
+  [HIGH]     suspected     config/.env (commit 0123456789ab)  Fixture finding 3
+  [HIGH]     suspected     src/module11/handler.ts:21  Fixture finding 11
+  [HIGH]     suspected     src/module2/handler.ts:12  비밀번호가 코드에 그대...
+  [HIGH]     suspected     src/module4/handler.ts:14  (suppressed) Fixture fi...
+  [MEDIUM]   suspected     http://127.0.0.1:3000/admin  Fixture finding 6
+  [MEDIUM]   suspected     src/module12/handler.ts:22  Fixture finding 12
+  [MEDIUM]   suspected     src/module5/handler.ts:15  Fixture finding 5
+  [MEDIUM]   suspected     src/module7/handler.ts:17  (baseline) Fixture find...
+  [LOW]      suspected     src/module9/handler.ts:19  Fixture finding 9
+  [LOW]      informational src/module8/handler.ts:18  Fixture finding 8
+  [INFO]     informational src/module10/handler.ts:20  Fixture finding 10
+
+
+
+
+
+
+
+Esc: clear  Enter: keep  Type to search"
+`;
+
+exports[`rendering > en 80x24: the unfiltered list shows "N of N" and the key help 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Findings (12)]
+12 of 12 | Filters: none
+> [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...
+  [HIGH]     suspected     config/.env (commit 0123456789ab)  Fixture finding 3
+  [HIGH]     suspected     src/module11/handler.ts:21  Fixture finding 11
+  [HIGH]     suspected     src/module2/handler.ts:12  비밀번호가 코드에 그대...
+  [HIGH]     suspected     src/module4/handler.ts:14  (suppressed) Fixture fi...
+  [MEDIUM]   suspected     http://127.0.0.1:3000/admin  Fixture finding 6
+  [MEDIUM]   suspected     src/module12/handler.ts:22  Fixture finding 12
+  [MEDIUM]   suspected     src/module5/handler.ts:15  Fixture finding 5
+  [MEDIUM]   suspected     src/module7/handler.ts:17  (baseline) Fixture find...
+  [LOW]      suspected     src/module9/handler.ts:19  Fixture finding 9
+  [LOW]      informational src/module8/handler.ts:18  Fixture finding 8
+  [INFO]     informational src/module10/handler.ts:20  Fixture finding 10
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Enter: open  /: search  1-5: severity"
+`;
+
+exports[`rendering > ko 40x14: active filters are shown with the count 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+[발견 항목 (12개 중 0개)]
+12개 중 0개 | 필터: 심각도: 높음, 영역:
+코드, 규칙: PG-FIX-001
+이 필터에 맞는 항목이 없지만 발견 항목은
+12개 있습니다. c를 누르면 필터를
+지웁니다.
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  c: 필터 해제"
+`;
+
+exports[`rendering > ko 40x14: detail of a finding with standards 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+개요  차트  검사 범위  [발견 항목 (1)]
+[치명적] 의심
+User input concatenated into SQL
+규칙: PG-SQL-001
+위치: src/api/users.ts:42
+
+근거: req.query -> concat -> query()
+
+조치: Use parameters
+
+참조: A05:2025, CWE-89
+
+Esc/Enter: 닫기  위/아래: 스크롤 1-11/18"
+`;
+
+exports[`rendering > ko 40x14: help lists the new keys 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+개요  차트  검사 범위  [발견 항목 (12)]
+패널 화면 도움말
+
+Tab, Shift+Tab, 왼쪽, 오른쪽: 다음·이전
+  패널
+위, 아래, j, k: 스크롤 (발견 항목에서는
+  선택 이동)
+PageUp, PageDown: 한 페이지 스크롤
+Home, End: 처음 또는 마지막 줄
+발견 항목 목록:
+Enter: 선택한 항목 열기(증거, 수정
+  방법, 표준). Enter나 Esc로 닫기
+?/Esc: 닫기  위/아래: 스크롤"
+`;
+
+exports[`rendering > ko 40x14: nothing matches 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+[발견 항목 (12개 중 0개)]
+12개 중 0개 | 필터: 없음
+검색: "zzz"
+이 필터에 맞는 항목이 없지만 발견 항목은
+12개 있습니다. c를 누르면 필터를
+지웁니다.
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  c: 필터 해제"
+`;
+
+exports[`rendering > ko 40x14: the search input shows the text and a cursor 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+[발견 항목 (12개 중 12개)]
+12개 중 12개 | 필터: 없음
+검색: "fix_"
+> [치명적] 확인됨 src/module1/handler...
+  [높음]   의심   config/.env (commit...
+  [높음]   의심   src/module11/handle...
+  [높음]   의심   src/module2/handler...
+  [높음]   의심   (억제됨) src/module...
+  [보통]   의심   http://127.0.0.1:30...
+  [보통]   의심   src/module12/handle...
+  [보통]   의심   src/module5/handler...
+  [보통]   의심   (기준선) src/module...
+Esc: 지우기  Enter: 유지          1-9/12"
+`;
+
+exports[`rendering > ko 40x14: the unfiltered list shows "N of N" and the key help 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+개요  차트  검사 범위  [발견 항목 (12)]
+12개 중 12개 | 필터: 없음
+> [치명적] 확인됨 src/module1/handler...
+  [높음]   의심   config/.env (commit...
+  [높음]   의심   src/module11/handle...
+  [높음]   의심   src/module2/handler...
+  [높음]   의심   (억제됨) src/module...
+  [보통]   의심   http://127.0.0.1:30...
+  [보통]   의심   src/module12/handle...
+  [보통]   의심   src/module5/handler...
+  [보통]   의심   (기준선) src/module...
+  [낮음]   의심   src/module9/handler...
+Esc: 뒤로  ?: 도움말             1-10/12"
+`;
+
+exports[`rendering > ko 60x20: active filters are shown with the count 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [발견 항목 (12개 중 0개)]
+12개 중 0개 | 필터: 심각도: 높음, 영역: 코드, 규칙:
+PG-FIX-001
+이 필터에 맞는 항목이 없지만 발견 항목은 12개 있습니다. c를
+누르면 필터를 지웁니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
+`;
+
+exports[`rendering > ko 60x20: detail of a finding with standards 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  완료
+개요  차트  검사 범위  [발견 항목 (1)]
+[치명적] 의심
+User input concatenated into SQL
+규칙: PG-SQL-001
+위치: src/api/users.ts:42
+
+근거: req.query -> concat -> query()
+
+조치: Use parameters
+
+참조: A05:2025, CWE-89
+
+표준:
+  A05:2025 Injection
+https://top10.owasp.org/2025/A05_2025-Injection/
+  CWE-89 SQL Injection (CWE-89 경유)
+https://cwe.mitre.org/data/definitions/89.html
+
+Esc/Enter: 닫기  위/아래: 스크롤"
+`;
+
+exports[`rendering > ko 60x20: help lists the new keys 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [발견 항목 (12)]
+패널 화면 도움말
+
+Tab, Shift+Tab, 왼쪽, 오른쪽: 다음·이전 패널
+위, 아래, j, k: 스크롤 (발견 항목에서는 선택 이동)
+PageUp, PageDown: 한 페이지 스크롤
+Home, End: 처음 또는 마지막 줄
+발견 항목 목록:
+Enter: 선택한 항목 열기(증거, 수정 방법, 표준). Enter나
+  Esc로 닫기
+1-5: 한 심각도만 보기(1 치명 ... 5 정보, 다시 누르면 해제),
+  0 또는 s: 다음 심각도
+a: 다음 영역(코드, 이력, 웹), r: 다음 규칙, c: 모든 필터
+  해제
+/: 제목·규칙 ID·경로 검색. Enter로 유지, Esc로 지우기, 한
+  번 더 Esc로 나가기
+?: 이 도움말 열기·닫기
+Esc: 도움말·상세 닫기, 검색 지우기, 또는 패널 화면 나가기
+?/Esc: 닫기  위/아래: 스크롤"
+`;
+
+exports[`rendering > ko 60x20: nothing matches 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [발견 항목 (12개 중 0개)]
+12개 중 0개 | 필터: 없음
+검색: "zzz"
+이 필터에 맞는 항목이 없지만 발견 항목은 12개 있습니다. c를
+누르면 필터를 지웁니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
+`;
+
+exports[`rendering > ko 60x20: the search input shows the text and a cursor 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [발견 항목 (12개 중 12개)]
+12개 중 12개 | 필터: 없음
+검색: "fix_"
+> [치명적] 확인됨 src/module1/handler.ts:11
+  [높음]   의심   config/.env (commit 0123456789ab)
+  [높음]   의심   src/module11/handler.ts:21
+  [높음]   의심   src/module2/handler.ts:12
+  [높음]   의심   (억제됨) src/module4/handler.ts:14
+  [보통]   의심   http://127.0.0.1:3000/admin
+  [보통]   의심   src/module12/handler.ts:22
+  [보통]   의심   src/module5/handler.ts:15
+  [보통]   의심   (기준선) src/module7/handler.ts:17
+  [낮음]   의심   src/module9/handler.ts:19
+  [낮음]   참고   src/module8/handler.ts:18
+  [정보]   참고   src/module10/handler.ts:20
+
+
+
+Esc: 지우기  Enter: 유지  입력해서 검색"
+`;
+
+exports[`rendering > ko 60x20: the unfiltered list shows "N of N" and the key help 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [발견 항목 (12)]
+12개 중 12개 | 필터: 없음
+> [치명적] 확인됨 src/module1/handler.ts:11
+  [높음]   의심   config/.env (commit 0123456789ab)
+  [높음]   의심   src/module11/handler.ts:21
+  [높음]   의심   src/module2/handler.ts:12
+  [높음]   의심   (억제됨) src/module4/handler.ts:14
+  [보통]   의심   http://127.0.0.1:3000/admin
+  [보통]   의심   src/module12/handler.ts:22
+  [보통]   의심   src/module5/handler.ts:15
+  [보통]   의심   (기준선) src/module7/handler.ts:17
+  [낮음]   의심   src/module9/handler.ts:19
+  [낮음]   참고   src/module8/handler.ts:18
+  [정보]   참고   src/module10/handler.ts:20
+
+
+
+
+Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
+`;
+
+exports[`rendering > ko 80x24: active filters are shown with the count 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [발견 항목 (12개 중 0개)]
+12개 중 0개 | 필터: 심각도: 높음, 영역: 코드, 규칙: PG-FIX-001
+이 필터에 맞는 항목이 없지만 발견 항목은 12개 있습니다. c를 누르면 필터를
+지웁니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
+`;
+
+exports[`rendering > ko 80x24: detail of a finding with standards 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  완료
+개요  차트  검사 범위  [발견 항목 (1)]
+[치명적] 의심
+User input concatenated into SQL
+규칙: PG-SQL-001
+위치: src/api/users.ts:42
+
+근거: req.query -> concat -> query()
+
+조치: Use parameters
+
+참조: A05:2025, CWE-89
+
+표준:
+  A05:2025 Injection
+https://top10.owasp.org/2025/A05_2025-Injection/
+  CWE-89 SQL Injection (CWE-89 경유)
+https://cwe.mitre.org/data/definitions/89.html
+
+
+
+
+
+Esc/Enter: 닫기  위/아래: 스크롤"
+`;
+
+exports[`rendering > ko 80x24: help lists the new keys 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [발견 항목 (12)]
+패널 화면 도움말
+
+Tab, Shift+Tab, 왼쪽, 오른쪽: 다음·이전 패널
+위, 아래, j, k: 스크롤 (발견 항목에서는 선택 이동)
+PageUp, PageDown: 한 페이지 스크롤
+Home, End: 처음 또는 마지막 줄
+발견 항목 목록:
+Enter: 선택한 항목 열기(증거, 수정 방법, 표준). Enter나 Esc로 닫기
+1-5: 한 심각도만 보기(1 치명 ... 5 정보, 다시 누르면 해제), 0 또는 s: 다음
+  심각도
+a: 다음 영역(코드, 이력, 웹), r: 다음 규칙, c: 모든 필터 해제
+/: 제목·규칙 ID·경로 검색. Enter로 유지, Esc로 지우기, 한 번 더 Esc로 나가기
+?: 이 도움말 열기·닫기
+Esc: 도움말·상세 닫기, 검색 지우기, 또는 패널 화면 나가기 (q는 바로 나가기)
+Ctrl+C: 취소 확인 (y를 누르면 종료 코드 130)
+
+읽기 전용입니다. 아무것도 바꾸거나 업로드하지 않으며, 증거는 결과 화면처럼
+  가려진 상태로 표시합니다.
+
+
+
+?/Esc: 닫기  위/아래: 스크롤"
+`;
+
+exports[`rendering > ko 80x24: nothing matches 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [발견 항목 (12개 중 0개)]
+12개 중 0개 | 필터: 없음
+검색: "zzz"
+이 필터에 맞는 항목이 없지만 발견 항목은 12개 있습니다. c를 누르면 필터를
+지웁니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색"
+`;
+
+exports[`rendering > ko 80x24: the search input shows the text and a cursor 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [발견 항목 (12개 중 12개)]
+12개 중 12개 | 필터: 없음
+검색: "fix_"
+> [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret
+  [높음]   의심   config/.env (commit 0123456789ab)  Fixture finding 3
+  [높음]   의심   src/module11/handler.ts:21  Fixture finding 11
+  [높음]   의심   src/module2/handler.ts:12  비밀번호가 코드에 그대로 들어 있...
+  [높음]   의심   src/module4/handler.ts:14  (억제됨) Fixture finding 4
+  [보통]   의심   http://127.0.0.1:3000/admin  Fixture finding 6
+  [보통]   의심   src/module12/handler.ts:22  Fixture finding 12
+  [보통]   의심   src/module5/handler.ts:15  Fixture finding 5
+  [보통]   의심   src/module7/handler.ts:17  (기준선) Fixture finding 7
+  [낮음]   의심   src/module9/handler.ts:19  Fixture finding 9
+  [낮음]   참고   src/module8/handler.ts:18  Fixture finding 8
+  [정보]   참고   src/module10/handler.ts:20  Fixture finding 10
+
+
+
+
+
+
+
+Esc: 지우기  Enter: 유지  입력해서 검색"
+`;
+
+exports[`rendering > ko 80x24: the unfiltered list shows "N of N" and the key help 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [발견 항목 (12)]
+12개 중 12개 | 필터: 없음
+> [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret
+  [높음]   의심   config/.env (commit 0123456789ab)  Fixture finding 3
+  [높음]   의심   src/module11/handler.ts:21  Fixture finding 11
+  [높음]   의심   src/module2/handler.ts:12  비밀번호가 코드에 그대로 들어 있...
+  [높음]   의심   src/module4/handler.ts:14  (억제됨) Fixture finding 4
+  [보통]   의심   http://127.0.0.1:3000/admin  Fixture finding 6
+  [보통]   의심   src/module12/handler.ts:22  Fixture finding 12
+  [보통]   의심   src/module5/handler.ts:15  Fixture finding 5
+  [보통]   의심   src/module7/handler.ts:17  (기준선) Fixture finding 7
+  [낮음]   의심   src/module9/handler.ts:19  Fixture finding 9
+  [낮음]   참고   src/module8/handler.ts:18  Fixture finding 8
+  [정보]   참고   src/module10/handler.ts:20  Fixture finding 10
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
+`;

@@ -21,6 +21,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 - Single installable npm package `pgard` built with `npm run pack:pgard` and checked by `npm run smoke:pack`; release workflow, Homebrew formula template and release procedure (nothing published yet).
 - Guided first run for the interactive menu: with no saved sign-in it offers to sign in, then, when the PGARD GitHub App is the only thing missing, shows the install link, waits for Enter and re-runs all five authorization checks (at most 3 retries), then scans. Other blocked reasons are shown as before with no retry loop. The authorization gate is unchanged (nothing cached, nothing skipped). English and Korean text.
 - Docs: [TUI approach evaluation](docs/TUI_EVALUATION.md) for the M6 CLI dashboard (no code change).
+- Panel view, Findings panel: keyboard navigation, filters and finding details. `Enter` opens the selected finding (redacted evidence, fix, OWASP/CWE/CERT links) and `Enter` or Esc closes it; `1` to `5` and `s` filter by severity, `a` by area, `r` by rule, `c` clears the filters, and `/` searches title, rule id and path (Esc clears the search, the next Esc leaves). A line above the list always shows `N of M` and the active filters. The footer and the `?` help list the keys in English and Korean. Exit codes, terminal restore and resize handling are unchanged.
 
 ### Changed
 

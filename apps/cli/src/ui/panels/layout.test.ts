@@ -22,6 +22,7 @@ function text(lines: readonly string[]): string {
 const SIZES: Size[] = [
   { columns: 80, rows: 24 },
   { columns: 60, rows: 20 },
+  { columns: 40, rows: 14 },
 ];
 
 describe("renderFrame snapshots", () => {
@@ -102,8 +103,9 @@ describe("renderFrame invariants", () => {
   it("lists findings in severity order with file:line and status", () => {
     const size = SIZES[0] as Size;
     const body = renderFrame(stateFor("en", size, "findings"), size, plain);
-    expect(body[2]).toMatch(/^> \[CRITICAL\] confirmed {1,}src\/module1\/handler\.ts:11/);
-    expect(body[3]).toMatch(/^ {2}\[HIGH\] +suspected +config\/\.env/);
+    expect(body[2]).toContain("12 of 12");
+    expect(body[3]).toMatch(/^> \[CRITICAL\] confirmed {1,}src\/module1\/handler\.ts:11/);
+    expect(body[4]).toMatch(/^ {2}\[HIGH\] +suspected +config\/\.env/);
     expect(body.join("\n")).toContain("(suppressed)");
   });
 
@@ -173,7 +175,7 @@ describe("renderFrame invariants", () => {
       state = reduce(state, { name: "down", sequence: undefined, ctrl: false });
     const lines = renderFrame(state, size, plain);
     expect(lines.join("\n")).toContain("> ");
-    expect(lines.at(-1)).toContain("4-12/12");
+    expect(lines.at(-1)).toContain("5-12/12");
   });
 });
 
