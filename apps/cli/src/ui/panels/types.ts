@@ -132,4 +132,8 @@ export interface PanelsState {
   readonly size: Size;
   /** Set when the view should close; the controller reads it after every key. */
   readonly exit: PanelsExit | null;
+  /** Whether the `e` key can export (the caller gave the controller an export). */
+  readonly canExport: boolean;
+  /** Set by `e`; the controller runs the export, then clears it. The rest of the state stays. */
+  readonly exportRequested: boolean;
 }

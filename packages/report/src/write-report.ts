@@ -21,10 +21,13 @@ export type ReportWriteErrorCode =
 
 export class ReportWriteError extends Error {
   readonly code: ReportWriteErrorCode;
-  constructor(code: ReportWriteErrorCode, message: string) {
+  /** The file the error is about, for per-file errors (exists, create, write); else unset. */
+  readonly path?: string;
+  constructor(code: ReportWriteErrorCode, message: string, path?: string) {
     super(message);
     this.name = "ReportWriteError";
     this.code = code;
+    if (path !== undefined) this.path = path;
   }
 }
 
@@ -33,12 +36,20 @@ export interface WrittenReport {
   filePath: string;
   /** Set when the report was written but degraded (for example, the PDF fell back to Latin-1). */
   warning?: string;
+  /** True when nothing was written: the file exists and the caller listed it in `skipExisting`. */
+  skipped?: true;
 }
 
 export interface WriteReportsOptions extends ReportLanguageOptions {
   format: ReportFormat;
   /** Directory chosen by the user. It must already exist; PGARD never creates or picks one. */
   outputDir: string;
+  /**
+   * Files the caller itself saved earlier (as returned, or their real paths). A planned file in
+   * this set that already exists is reported as `skipped`, not refused and never overwritten.
+   * Any other existing file is still refused.
+   */
+  skipExisting?: ReadonlySet<string>;
 }
 
 /** Base file name: `pgard-report-<UTC timestamp>-<scan id prefix>`. */
@@ -80,16 +91,20 @@ async function writeExclusive(filePath: string, content: string | Buffer): Promi
     handle = await open(filePath, "wx", 0o600);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-      throw new ReportWriteError("file_exists", `Refusing to overwrite existing file: ${filePath}`);
+      throw new ReportWriteError(
+        "file_exists",
+        `Refusing to overwrite existing file: ${filePath}`,
+        filePath,
+      );
     }
-    throw new ReportWriteError("write_failed", `Could not create ${filePath}`);
+    throw new ReportWriteError("write_failed", `Could not create ${filePath}`, filePath);
   }
   let isWritten = false;
   try {
     await handle.writeFile(content);
     isWritten = true;
   } catch {
-    throw new ReportWriteError("write_failed", `Could not write ${filePath}`);
+    throw new ReportWriteError("write_failed", `Could not write ${filePath}`, filePath);
   } finally {
     await handle.close().catch(() => undefined);
     if (!isWritten) await unlink(filePath).catch(() => undefined);
@@ -169,11 +184,18 @@ export async function writeReports(
       ...(warning === undefined ? {} : { warning }),
     });
   }
+  const skipped = new Set<string>();
   for (const entry of planned) {
     if (await pathExists(entry.filePath)) {
+      const real = await realpath(entry.filePath).catch(() => entry.filePath);
+      if (options.skipExisting?.has(entry.filePath) === true || options.skipExisting?.has(real)) {
+        skipped.add(entry.filePath);
+        continue;
+      }
       throw new ReportWriteError(
         "file_exists",
         `Refusing to overwrite existing file: ${entry.filePath}`,
+        entry.filePath,
       );
     }
   }
@@ -181,6 +203,10 @@ export async function writeReports(
   const written: WrittenReport[] = [];
   try {
     for (const entry of planned) {
+      if (skipped.has(entry.filePath)) {
+        written.push({ format: entry.format, filePath: entry.filePath, skipped: true });
+        continue;
+      }
       await writeExclusive(entry.filePath, entry.content);
       written.push({
         format: entry.format,
@@ -189,7 +215,11 @@ export async function writeReports(
       });
     }
   } catch (error) {
-    await Promise.all(written.map((entry) => unlink(entry.filePath).catch(() => undefined)));
+    await Promise.all(
+      written
+        .filter((entry) => entry.skipped !== true)
+        .map((entry) => unlink(entry.filePath).catch(() => undefined)),
+    );
     throw error;
   }
   return written;

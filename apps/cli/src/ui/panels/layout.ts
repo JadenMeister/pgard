@@ -544,6 +544,14 @@ function fitHints(text: string, room: number): string {
   return out === "" ? truncateWidth(text, room) : out;
 }
 
+/** Puts the export hint right after `?: help` (the first two hints), where a narrow footer keeps it. */
+function withExportHint(text: string, state: PanelsState, hint: string): string {
+  if (!state.canExport || state.overlay !== "none") return text;
+  const parts = text.split("  ");
+  parts.splice(2, 0, hint);
+  return parts.join("  ");
+}
+
 function footer(
   state: PanelsState,
   size: Size,
@@ -565,7 +573,10 @@ function footer(
         : state.visible.length === 0 && state.findings.length > 0
           ? t.panels.hints.noMatch
           : t.panels.hints.findings;
-  const hints = padEndWidth(fitHints(hintText, Math.max(0, room)), Math.max(0, room));
+  const hints = padEndWidth(
+    fitHints(withExportHint(hintText, state, t.panels.exportHint), Math.max(0, room)),
+    Math.max(0, room),
+  );
   return style.dim(position === "" ? hints.trimEnd() : `${hints} ${position}`);
 }
 
