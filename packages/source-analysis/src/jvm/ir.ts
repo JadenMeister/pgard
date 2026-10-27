@@ -56,7 +56,8 @@ export type Stmt = Base &
     | { s: "block"; body: Stmt[]; params: string[] }
     /** Alternatives of which some run (switch/when arms, catch clauses). */
     | { s: "arms"; subject: Expr | null; arms: Array<{ params: string[]; body: Stmt[] }> }
-    | { s: "exit"; value: Expr | null }
+    /** `ret`: a return (the value is what the method gives back), not a throw, break or continue. */
+    | { s: "exit"; value: Expr | null; ret?: boolean }
     | { s: "assert"; test: Expr; testText: string }
   );
 
@@ -81,6 +82,8 @@ export interface MethodInfo {
   annotations: Annotation[];
   body: Stmt[] | null;
   line: number;
+  /** The declared return type, as written, when the language adapter read it. */
+  returnType?: string | null;
 }
 
 export interface FieldInfo {
@@ -109,6 +112,8 @@ export interface ClassInfo {
   parent: ClassInfo | null;
   /** Names of the classes and interfaces it extends or implements. */
   supers: string[];
+  /** Annotations on the class (`@RestController`), when the language adapter read them. */
+  annotations?: Annotation[];
 }
 
 export interface Unit {

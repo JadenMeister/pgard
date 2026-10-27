@@ -56,6 +56,16 @@ export const RULE_LOCALITY: Readonly<Record<string, RuleLocalityEntry>> = {
     reason:
       "Intra-procedural analysis of one PHP file; constants are resolved inside the file only, never across files.",
   },
+  "PG-XSS-004": {
+    locality: "file-local",
+    reason:
+      "Intra-procedural analysis of one Java or Kotlin file, or one JSP or Thymeleaf template; a model attribute set in a controller is matched to a template by name only, never followed across files.",
+  },
+  "PG-SSRF-002": {
+    locality: "file-local",
+    reason:
+      "Intra-procedural analysis of one Java or Kotlin file; constants are resolved inside the file only, never across files.",
+  },
   "PG-PATH-002": {
     locality: "file-local",
     reason:

@@ -12,6 +12,7 @@ import type {
 import { unescapeText } from "./java-ir.js";
 import { SQL_CALL_TEXT } from "./jvm-names.js";
 import { OS_CALL_TEXT } from "./os-names.js";
+import { WEB_CALL_TEXT } from "./web-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
 const MAX_DEPTH = 700;
@@ -363,7 +364,11 @@ export function convertKotlin(ast: AstResult): Unit {
       case "callable_reference":
         return other(node, depth);
       case "object_literal":
-        if (SQL_CALL_TEXT.test(text(node)) || OS_CALL_TEXT.test(text(node))) {
+        if (
+          SQL_CALL_TEXT.test(text(node)) ||
+          OS_CALL_TEXT.test(text(node)) ||
+          WEB_CALL_TEXT.test(text(node))
+        ) {
           unit.unsupported.push("anonymous object");
         }
         return other(node, depth);
@@ -596,7 +601,14 @@ export function convertKotlin(ast: AstResult): Unit {
       case "return_expression":
       case "throw_expression": {
         const inner = nonAnon(node)[0];
-        return [{ s: "exit", line, value: inner === undefined ? null : expr(inner, depth + 1) }];
+        return [
+          {
+            s: "exit",
+            line,
+            value: inner === undefined ? null : expr(inner, depth + 1),
+            ...(node.type === "return_expression" ? { ret: true } : {}),
+          },
+        ];
       }
       case "labeled_expression": {
         const inner = nonAnon(node).find((child) => child.type !== "label");
@@ -606,7 +618,11 @@ export function convertKotlin(ast: AstResult): Unit {
       case "class_declaration":
       case "object_declaration":
         // Local functions and classes are not followed.
-        if (SQL_CALL_TEXT.test(text(node)) || OS_CALL_TEXT.test(text(node))) {
+        if (
+          SQL_CALL_TEXT.test(text(node)) ||
+          OS_CALL_TEXT.test(text(node)) ||
+          WEB_CALL_TEXT.test(text(node))
+        ) {
           unit.unsupported.push(
             node.type === "function_declaration" ? "local function" : "local class",
           );
@@ -704,7 +720,7 @@ export function convertKotlin(ast: AstResult): Unit {
             const inner = nonAnon(fnBody)[0];
             if (inner === undefined) stmts = [];
             else if (inner.type === "block") stmts = block(inner, 1);
-            else stmts = [{ s: "exit", line: inner.line, value: expr(inner, 1) }];
+            else stmts = [{ s: "exit", line: inner.line, value: expr(inner, 1), ret: true }];
           }
           info.methods.push({
             name: nameNode === undefined ? "" : text(nameNode),
@@ -712,6 +728,7 @@ export function convertKotlin(ast: AstResult): Unit {
             annotations: annotationsOf(ofType(member, "modifiers"), 0),
             body: stmts,
             line: member.line,
+            returnType: declType(member),
           } satisfies MethodInfo);
           break;
         }
@@ -758,6 +775,7 @@ export function convertKotlin(ast: AstResult): Unit {
       (child) => child.type === "class_modifier" && text(child) === "enum",
     );
     const info = newClass(nameNode === undefined ? "" : text(nameNode), parent, isEnum);
+    info.annotations = annotationsOf(mods, 0);
     unit.classes.push(info);
     for (const specifiers of node.children) {
       if (specifiers.type !== "delegation_specifiers") continue;

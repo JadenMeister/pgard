@@ -63,6 +63,12 @@ export interface WalkResult {
    * them and keeps only the ones that declare a `<mapper>`. Not counted against `MAX_FILES`.
    */
   xmlFiles: TrackedFile[];
+  /**
+   * Template files that the Java/Kotlin XSS rule reads (`.jsp`, Thymeleaf `.html`) or reports as
+   * not analyzed (FreeMarker, Velocity, Mustache, Pebble); the scan keeps the `.html` files that
+   * use Thymeleaf. Not counted against `MAX_FILES`.
+   */
+  templateFiles: TrackedFile[];
   /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
   trackTruncated: boolean;
   /** Relative paths of manifests used for ORM detection. */
@@ -89,6 +95,26 @@ export const MAX_FILES = 20_000;
 /** Cap per tree-sitter language and for manifests. */
 export const MAX_TRACK_FILES = 20_000;
 export const MAX_TRACK_MANIFESTS = 200;
+
+/** Server-side template files of the Java stack (the XSS rule reads some, reports the rest). */
+const TEMPLATE_EXTENSIONS: ReadonlySet<string> = new Set([
+  ".jsp",
+  ".jspx",
+  ".jspf",
+  ".tag",
+  ".tagx",
+  ".html",
+  ".htm",
+  ".ftl",
+  ".ftlh",
+  ".ftlx",
+  ".vm",
+  ".vtl",
+  ".mustache",
+  ".peb",
+  ".pebble",
+  ".jte",
+]);
 
 const EXTENSIONS: Record<string, SourceLanguage> = {
   ".js": "javascript",
@@ -131,6 +157,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     trackFiles: { java: [], kotlin: [], python: [], php: [] },
     trackManifests: [],
     xmlFiles: [],
+    templateFiles: [],
     trackTruncated: false,
     packageJsonPaths: [],
     goModPaths: [],
@@ -225,6 +252,14 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         }
         continue;
       }
+      if (TEMPLATE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
+        const stats = await lstat(absolutePath).catch(() => null);
+        if (stats?.isFile()) {
+          if (result.templateFiles.length >= MAX_TRACK_FILES) result.trackTruncated = true;
+          else result.templateFiles.push({ absolutePath, relativePath, size: stats.size });
+        }
+        continue;
+      }
       const trackLanguage = TREE_SITTER_EXTENSIONS[path.extname(entry.name)];
       if (trackLanguage) {
         if (options.isExcluded?.(relativePath)) {
@@ -274,6 +309,7 @@ function finishTrack(result: WalkResult): void {
   }
   result.trackManifests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   result.xmlFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  result.templateFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 /** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */

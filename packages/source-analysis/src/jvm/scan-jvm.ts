@@ -1,6 +1,6 @@
 import type { Coverage, Finding, RuleStat } from "@pgard/findings";
 import { createSourceFinding } from "../finding-factory.js";
-import { JVM_RULE_IDS, MYBATIS_RULE_IDS } from "../rules.js";
+import { JVM_RULE_IDS, MYBATIS_RULE_IDS, type SourceRuleId } from "../rules.js";
 import {
   parseCoverage,
   parseTrackFiles,
@@ -12,6 +12,14 @@ import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { readTextFile, type TrackedFile, type WalkResult } from "../walk.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
 import { analyzeMybatisXml } from "./mybatis-xml.js";
+import {
+  analyzeJsp,
+  analyzeThymeleaf,
+  looksLikeThymeleaf,
+  type ModelSource,
+  type TemplateAnalysis,
+} from "./templates.js";
+import { TEMPLATE_ENGINES } from "./web-names.js";
 
 export const JVM_LANGUAGES: readonly TreeSitterLanguage[] = ["java", "kotlin"];
 
@@ -32,7 +40,16 @@ export interface JvmScanOutput {
   excludedMapperPaths: string[];
   /** Files read as MyBatis mapper XML. */
   mapperFiles: number;
+  /** JSP and Thymeleaf template files that were read. */
+  templateFiles: number;
 }
+
+const XSS_RULE_IDS: SourceRuleId[] = ["PG-XSS-004"];
+const JSP_EXTENSIONS = new Set([".jsp", ".jspx", ".jspf", ".tag", ".tagx"]);
+const extensionOf = (relativePath: string): string => {
+  const dot = relativePath.lastIndexOf(".");
+  return dot === -1 ? "" : relativePath.slice(dot).toLowerCase();
+};
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
   if (signal?.aborted) {
@@ -41,7 +58,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 const METHOD =
-  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003) and path traversal (PG-PATH-002); no cross-file data flow and no other rule category yet";
+  "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-005), OS command execution (PG-CMD-003), path traversal (PG-PATH-002), XSS (PG-XSS-004; servlet and Spring responses here, JSP and Thymeleaf templates separately) and SSRF (PG-SSRF-002); no cross-file data flow and no other rule category yet";
 
 /**
  * Parses and analyzes the Java and Kotlin files and the MyBatis mapper XML of a walk with the
@@ -60,6 +77,9 @@ export async function scanJvm(
   const analyzedPaths: string[] = [];
   const libraries = new Map<string, number>();
   const osLibraries = new Map<string, { kind: "process" | "file"; count: number }>();
+  const templateLibraries = new Map<string, number>();
+  /** Template models: the attributes that a controller fills from request input, by name. */
+  const modelSources = new Map<string, ModelSource>();
   const runtime = new TreeSitterRuntime();
   try {
     for (const language of JVM_LANGUAGES) {
@@ -72,6 +92,7 @@ export async function scanJvm(
       const incompleteFiles: string[] = [];
       const formFiles = new Map<string, string[]>();
       const errorFiles: string[] = [];
+      const reflectionFiles: string[] = [];
       let crashed = 0;
       const stats = await parseTrackFiles(
         runtime,
@@ -88,7 +109,22 @@ export async function scanJvm(
               language === "kotlin" ? "kotlin" : "java",
             );
             analyzedPaths.push(file.relativePath);
-            if (outcome.errorCount > 0) errorFiles.push(file.relativePath);
+            // `MISSING` nodes (tokens the parser inserted to recover) count like error nodes (#324).
+            if (outcome.errorCount > 0 || outcome.missingCount > 0) {
+              errorFiles.push(file.relativePath);
+            }
+            if (analysis.reflectionWeb) reflectionFiles.push(file.relativePath);
+            for (const attribute of analysis.modelAttributes) {
+              if (attribute.tainted && !modelSources.has(attribute.name)) {
+                modelSources.set(attribute.name, {
+                  path: file.relativePath,
+                  line: attribute.line,
+                });
+              }
+            }
+            for (const library of analysis.unsupportedTemplateLibraries) {
+              templateLibraries.set(library, (templateLibraries.get(library) ?? 0) + 1);
+            }
             own.push(...analysis.findings.map(createSourceFinding));
             if (analysis.capped) cappedFiles.push(file.relativePath);
             if (analysis.incomplete) incompleteFiles.push(file.relativePath);
@@ -125,7 +161,12 @@ export async function scanJvm(
       }
       for (const [form, paths] of formFiles) {
         problems.push(
-          `${paths.length} file(s) have SQL, command or file-path calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+          `${paths.length} file(s) have SQL, command, file-path, response-writing or URL calls inside ${form} bodies that are not followed (${[...new Set(paths)].slice(0, 3).join(", ")})`,
+        );
+      }
+      if (reflectionFiles.length > 0) {
+        problems.push(
+          `${reflectionFiles.length} file(s) call through reflection next to servlet, URL or HTTP client APIs; calls made that way are not followed (${reflectionFiles.slice(0, 3).join(", ")})`,
         );
       }
       if (errorFiles.length > 0) {
@@ -250,6 +291,95 @@ export async function scanJvm(
         note: `${unreadable + tooLarge} XML file(s) were binary, unreadable or over 1 MiB, so MyBatis mapper XML in them was not checked.`,
       });
     }
+    // Templates: JSP and Thymeleaf are read; other engines are reported as not analyzed.
+    const templateFindings: Finding[] = [];
+    let templatesRead = 0;
+    let templateCapped = 0;
+    let templateUnreadable = 0;
+    let templateTooLarge = 0;
+    const engineFiles = new Map<string, number>();
+    for (const file of walk.templateFiles) {
+      throwIfAborted(options.signal);
+      const extension = extensionOf(file.relativePath);
+      const engine = TEMPLATE_ENGINES[extension];
+      if (engine !== undefined) {
+        engineFiles.set(engine, (engineFiles.get(engine) ?? 0) + 1);
+        continue;
+      }
+      const isJsp = JSP_EXTENSIONS.has(extension);
+      // Any `.html` file may be a Thymeleaf template; big ones are generated pages and are not read.
+      if (file.size > 1024 * 1024) {
+        if (isJsp) templateTooLarge += 1;
+        continue;
+      }
+      const text = await readTextFile(file.absolutePath);
+      if (text === null) {
+        if (isJsp) templateUnreadable += 1;
+        continue;
+      }
+      let analysis: TemplateAnalysis | null = null;
+      if (isJsp) {
+        analysis = analyzeJsp(text, file.relativePath);
+      } else if (looksLikeThymeleaf(text)) {
+        analysis = analyzeThymeleaf(text, file.relativePath, modelSources);
+      }
+      if (analysis === null) continue;
+      if (options.isExcluded?.(file.relativePath) === true) {
+        excludedMapperPaths.push(file.relativePath);
+        continue;
+      }
+      templatesRead += 1;
+      analyzedPaths.push(file.relativePath);
+      templateFindings.push(...analysis.findings.map(createSourceFinding));
+      if (analysis.capped) templateCapped += 1;
+    }
+    findings.push(...templateFindings);
+    if (templatesRead > 0 || templateUnreadable + templateTooLarge > 0) {
+      const problems: string[] = [];
+      if (templateCapped > 0) {
+        problems.push(
+          `${templateCapped} file(s) hit the per-file finding cap; further findings there are not listed`,
+        );
+      }
+      if (templateUnreadable > 0)
+        problems.push(`${templateUnreadable} JSP file(s) were binary or unreadable`);
+      if (templateTooLarge > 0)
+        problems.push(`${templateTooLarge} JSP file(s) over 1 MiB were not read`);
+      if (walk.trackTruncated) problems.push("the file list reached its cap");
+      const entry: Coverage = {
+        area: "source:jvm-templates",
+        scope: "code",
+        status: problems.length > 0 ? "partial" : "completed",
+        ruleIds: XSS_RULE_IDS,
+        note: `${templatesRead} JSP and Thymeleaf template file(s); raw output (<%= %>, out.print, \${} in template text, th:utext, [( )], c:out escapeXml="false") is judged by where its value comes from; th:text, <c:out> and fn:escapeXml are escaped and not reported; a Thymeleaf model value is matched to a controller by attribute name only; patterns, not a template engine.${
+          problems.length > 0 ? ` ${problems.join("; ")}.` : ""
+        }`,
+      };
+      coverage.push(entry);
+      for (const ruleId of entry.ruleIds) {
+        ruleStats.push({
+          ruleId,
+          area: entry.area,
+          scope: "code",
+          status: entry.status as "completed" | "partial",
+          targets: [{ unit: "files", examined: templatesRead, reason: null }],
+          findings: templateFindings.filter((finding) => finding.ruleId === ruleId).length,
+        });
+      }
+    }
+    const engines = new Map<string, number>(engineFiles);
+    for (const [library, count] of templateLibraries) {
+      engines.set(library, Math.max(engines.get(library) ?? 0, count));
+    }
+    for (const [engine, count] of engines) {
+      coverage.push({
+        area: `source:template:${engine.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
+        scope: "code",
+        status: "partial",
+        ruleIds: XSS_RULE_IDS,
+        note: `${engine} detected in ${count} file(s); its templates are not supported, so output written through them was not evaluated for XSS (not a safe result).`,
+      });
+    }
     for (const [library, count] of libraries) {
       coverage.push({
         area: `source:orm:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
@@ -272,7 +402,15 @@ export async function scanJvm(
         } through it were not evaluated (not a safe result).`,
       });
     }
-    return { findings, coverage, ruleStats, analyzedPaths, excludedMapperPaths, mapperFiles };
+    return {
+      findings,
+      coverage,
+      ruleStats,
+      analyzedPaths,
+      excludedMapperPaths,
+      mapperFiles,
+      templateFiles: templatesRead,
+    };
   } finally {
     runtime.dispose();
   }

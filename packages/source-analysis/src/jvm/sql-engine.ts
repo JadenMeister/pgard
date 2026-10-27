@@ -31,6 +31,8 @@ import {
   type Value,
 } from "./flow-values.js";
 import { createOsSinks, type OsFinding } from "./os-sinks.js";
+import { createWebSinks, type ModelAttribute, type WebFinding } from "./web-sinks.js";
+import { RESPONSE_NAME, RESPONSE_TYPES } from "./web-names.js";
 import {
   ARCHIVE_IMPORT_PREFIXES,
   COLLECTION_CLASSES,
@@ -81,7 +83,9 @@ export interface SqlFinding {
 }
 
 /** A finding of one of the rules that run on the flow analysis. */
-export type FlowFinding = SqlFinding & { ruleId: "PG-SQL-005" | OsFinding["ruleId"] };
+export type FlowFinding = SqlFinding & {
+  ruleId: "PG-SQL-005" | OsFinding["ruleId"] | WebFinding["ruleId"];
+};
 
 export interface SqlAnalysis {
   findings: FlowFinding[];
@@ -89,6 +93,8 @@ export interface SqlAnalysis {
   incomplete: boolean;
   /** Code forms with a SQL-looking call that are not followed (anonymous and local classes, ...). */
   unsupported: string[];
+  /** Values put into a template model under a fixed name (for the template rules). */
+  modelAttributes: ModelAttribute[];
 }
 
 /** Classes whose static methods are imported by name (`import static ...Files.readAllBytes`). */
@@ -96,6 +102,10 @@ const STATIC_OWNERS: ReadonlyArray<[string, string]> = [
   ["java.nio.file.Files", "Files"],
   ["org.apache.commons.io.FileUtils", "FileUtils"],
 ];
+
+/** Methods and Kotlin properties that read a part of a URL or convert it. */
+const URL_UNWRAP =
+  /^(?:getHost|getHostName|getAuthority|getHostAddress|host|hostName|authority|toURL|toURI|toString|trim|toLowerCase|lowercase|toHttpUrl|toUri)$/;
 
 const MAX_DEPTH = 800;
 const MAX_FINDINGS = 200;
@@ -147,6 +157,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       (name) => name === IMPORTS_COMMONS_EXEC || name.startsWith(`${IMPORTS_COMMONS_EXEC}.`),
     ),
   });
+  const web = createWebSinks({
+    typeOfExpr: (expr, ctx) => typeOfExpr(expr, ctx),
+    record: (finding, rank) => record(finding, rank),
+    imports: unit.imports,
+  });
+  /** The method and class being analyzed (a handler's return value is a sink of the XSS rule). */
+  let currentMethod: MethodInfo | null = null;
+  let currentClass: ClassInfo | null = null;
   const fieldValues = new Map<FieldInfo, Value | null>();
   // Names that are written through an index or a mutating call anywhere in the file: a literal
   // array or collection under such a name is not a fixed table.
@@ -619,11 +637,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     const made =
       /^[A-Z]/.test(name) &&
       (expr.recv === null ? ctx.scope.find(name) === null : isPackageName(expr.recv))
-        ? os.construct(realName(name), expr.line, expr.args, args, ctx, false)
+        ? (os.construct(realName(name), expr.line, expr.args, args, ctx, false) ??
+          web.construct(realName(name), expr.line, expr.args, args, ctx))
         : null;
     if (made !== null) return made;
     const osValue = os.call(expr, recv, args, typeReceiver, realName(className), ctx);
     if (osValue !== null) return osValue;
+    const webValue = web.call(expr, recv, args, typeReceiver, realName(className), ctx);
+    if (webValue !== null) return webValue;
 
     // ---- what the call returns ----
     if (recv?.req === true) {
@@ -807,6 +828,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
 
   function fieldRead(field: FieldInfo, owner: ClassInfo): Value {
     if (REQUEST_TYPES.has(baseType(field.type))) return value([], { req: true });
+    if (RESPONSE_TYPES.has(baseType(field.type))) return value([], { web: "response" });
     if (field.init === null && REQUEST_NAME.test(field.name)) return value([], { req: true });
     return fieldValue(field, owner);
   }
@@ -885,6 +907,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     }
     const osMember = os.member(expr, recv, ctx);
     if (osMember !== null) return osMember;
+    const webMember = web.member(name, recv);
+    if (webMember !== null) return webMember;
     // `sb::append` is parsed as a member access: the builder is used through it.
     if (recv.builder && !NUMERIC_MEMBERS.has(name)) escape([recv], `${name}`);
     if (NUMERIC_MEMBERS.has(name)) return inferred(`${name} gives a number`);
@@ -922,7 +946,9 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         );
         const type = baseType(expr.type);
         escape(args, `new ${type}`);
-        const made = os.construct(type, expr.line, expr.args, args, ctx);
+        const made =
+          os.construct(type, expr.line, expr.args, args, ctx) ??
+          web.construct(type, expr.line, expr.args, args, ctx);
         if (made !== null) return made;
         if (BUILDER_TYPES.has(type)) return newBuilder(type === "StringJoiner" ? [] : args);
         if (NUMERIC_TYPES.has(type)) return inferred(`new ${type}(...) gives a number`);
@@ -1035,8 +1061,18 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   function applyGuards(set: GuardSet, ctx: Context, permanent = true): Array<() => void> {
     const restore: Array<() => void> = [];
     for (const name of set.allow) {
-      const binding = ctx.scope.find(name);
-      if (binding !== null && !binding.guarded) {
+      // The checked variable, and the URL it was read out of (a host check covers the URL).
+      const covered: Binding[] = [];
+      const first = ctx.scope.find(name);
+      if (first !== null) covered.push(first);
+      for (let i = 0; i < covered.length && covered.length < 8; i += 1) {
+        for (const parent of covered[i]?.urlOf ?? []) {
+          const next = ctx.scope.find(parent);
+          if (next !== null && !covered.includes(next)) covered.push(next);
+        }
+      }
+      for (const binding of covered) {
+        if (binding.guarded) continue;
         binding.guarded = true;
         noteGuard(binding, permanent);
         restore.push(() => {
@@ -1268,6 +1304,40 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     return current !== null && current !== init && current.k === "id" ? [current.name] : [];
   }
 
+  /**
+   * `host = new URL(url).getHost()`, `u = URI.create(url)`, `addr = InetAddress.getByName(host)`:
+   * the variable the value was parsed or read out of, so a check on the host also covers the URL.
+   */
+  function urlSourcesOf(init: Expr | null): string[] {
+    let current: Expr | null = init;
+    for (let hops = 0; current !== null && hops < 8; hops += 1) {
+      if (current.k === "id") return current === init ? [] : [current.name];
+      if (current.k === "call") {
+        if (current.recv !== null && current.args.length === 0 && URL_UNWRAP.test(current.name)) {
+          current = current.recv;
+        } else if (
+          current.args[0] !== undefined &&
+          (((current.recv?.k === "id" || current.recv?.k === "member") &&
+            /^(?:URI|URL|HttpUrl|InetAddress|Uri)$/.test(
+              current.recv.k === "id" ? current.recv.name : current.recv.name,
+            )) ||
+            (current.recv === null && /^(?:URI|URL)$/.test(current.name)))
+        ) {
+          current = current.args[0];
+        } else {
+          return [];
+        }
+      } else if (current.k === "new" && /^(?:URI|URL)$/.test(baseType(current.type))) {
+        current = current.args[0] ?? null;
+      } else if (current.k === "member" && URL_UNWRAP.test(current.name)) {
+        current = current.obj;
+      } else {
+        return [];
+      }
+    }
+    return [];
+  }
+
   function declare(ctx: Context, name: string, type: string | null, initial: Value): Binding {
     // A literal array or collection that is written to somewhere is not a fixed table.
     if (initial.table && mutatedNames.has(name)) {
@@ -1285,6 +1355,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       // Stored in a field, an array or a collection: a builder can be changed from there.
       escape([incoming], "stored");
       os.escapes(incoming);
+      web.assigned(stmt.target, stmt.value);
       evalExpr(stmt.target, ctx, depth + 1);
       const root = rootName(stmt.target);
       const written = root === null ? null : ctx.scope.find(root);
@@ -1303,6 +1374,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     binding.pathGuarded = false;
     if (stmt.op === "=") {
       binding.derived = derivedOf(stmt.value);
+      binding.urlOf = urlSourcesOf(stmt.value);
       if (ctx.conditional === 0) {
         binding.value = incoming;
       } else {
@@ -1340,7 +1412,9 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           let initial = stmt.init === null ? value() : evalExpr(stmt.init, ctx, depth + 1);
           if (isNumericType(stmt.type)) initial = inferred(`numeric type ${baseType(stmt.type)}`);
           else if (initial.builder) initial = { ...initial };
-          declare(ctx, stmt.name, stmt.type, initial).derived = derivedOf(stmt.init);
+          const declared = declare(ctx, stmt.name, stmt.type, initial);
+          declared.derived = derivedOf(stmt.init);
+          declared.urlOf = urlSourcesOf(stmt.init);
           break;
         }
         case "assign":
@@ -1350,7 +1424,15 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
           evalExpr(stmt.expr, ctx, depth + 1);
           break;
         case "exit":
-          if (stmt.value !== null) os.escapes(evalExpr(stmt.value, ctx, depth + 1));
+          if (stmt.value !== null) {
+            const returned = evalExpr(stmt.value, ctx, depth + 1);
+            os.escapes(returned);
+            if (stmt.ret === true) {
+              web.returned(stmt.value, returned, ctx, currentMethod, currentClass, (arg) =>
+                evalExpr(arg, ctx, depth + 1),
+              );
+            }
+          }
           break;
         case "assert": {
           evalExpr(stmt.test, ctx, depth + 1);
@@ -1467,6 +1549,8 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       let initial: Value;
       if (REQUEST_TYPES.has(type)) {
         initial = value([], { req: true });
+      } else if (RESPONSE_TYPES.has(type) || (type === "" && RESPONSE_NAME.test(param.name))) {
+        initial = value([], { web: "response" });
       } else if (isNumericType(param.type)) {
         initial = inferred(`numeric type ${type}`);
       } else if (classByName.get(type)?.isEnum === true) {
@@ -1504,9 +1588,14 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   function analyzeMethod(method: MethodInfo, cls: ClassInfo): void {
     if (method.body === null) return;
     const ctx = rootContext(cls, true);
+    currentMethod = method;
+    currentClass = cls;
+    web.startMethod();
     bindParameters(method, ctx);
     execStmts(method.body, ctx, 0);
     drainLambdas();
+    currentMethod = null;
+    currentClass = null;
   }
 
   const scopes: ClassInfo[] = [unit.top, ...unit.classes];
@@ -1532,5 +1621,6 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     findings: kept.map(({ rank: _rank, ...finding }) => finding),
     incomplete,
     unsupported: [...new Set(unit.unsupported)],
+    modelAttributes: web.modelAttributes,
   };
 }

@@ -108,7 +108,7 @@ describe("language detection and coverage", () => {
     // Java has the SQL injection rule: it is analyzed, not "detected, no rules yet".
     expect(output.coverage.find((item) => item.area === "source:java")).toMatchObject({
       status: "completed",
-      ruleIds: ["PG-SQL-005", "PG-CMD-003", "PG-PATH-002"],
+      ruleIds: ["PG-SQL-005", "PG-XSS-004", "PG-SSRF-002", "PG-CMD-003", "PG-PATH-002"],
     });
     // PHP has the SQL injection and command execution rules.
     expect(output.coverage.find((item) => item.area === "source:php")).toMatchObject({

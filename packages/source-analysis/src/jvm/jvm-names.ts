@@ -225,6 +225,11 @@ export const NUMERIC_RESULTS = new Set([
   "lastIndexOf",
   "compareTo",
   "signum",
+  "pid",
+  "exitValue",
+  "waitFor",
+  "getResponseCode",
+  "getContentLength",
 ]);
 export const NUMERIC_MEMBERS = new Set(["length", "size", "ordinal", "lastIndex", "indices"]);
 

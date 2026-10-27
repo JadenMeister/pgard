@@ -313,6 +313,70 @@ export const SOURCE_RULES = [
     ],
   },
   {
+    id: "PG-XSS-004",
+    title:
+      "Request data written to an HTML response in Java/Kotlin (servlet writer, JSP, Thymeleaf th:utext)",
+    category: "xss",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["java", "kotlin"],
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
+    rationale: {
+      en: 'Request data (`request.getParameter()`, a Spring `@RequestParam`, a Ktor `call.parameters` value) written unescaped into an HTML response lets an attacker inject `<img src=x onerror=...>` and run script as the user. Forms: `response.getWriter().write(...)`, a `@ResponseBody` handler returning HTML, JSP `<%= %>` or `${param.x}`, `<c:out escapeXml="false">`, Thymeleaf `th:utext`. JSON, `th:text`, `<c:out>` and `fn:escapeXml` escape and are not reported. Escaping helpers: low confidence.',
+      ko: '요청 데이터(`request.getParameter()`, Spring `@RequestParam`, Ktor `call.parameters`)를 이스케이프 없이 HTML 응답에 쓰면 공격자가 `<img src=x onerror=...>` 같은 마크업을 주입해 사용자 권한으로 스크립트를 실행할 수 있습니다. 해당 형태: `response.getWriter().write(...)`, HTML을 반환하는 `@ResponseBody`, JSP `<%= %>`·`out.print`·`${param.x}`, `<c:out escapeXml="false">`, Thymeleaf `th:utext`. JSON, `th:text`, `<c:out>`, `fn:escapeXml`은 이스케이프하므로 보고하지 않으며, 이스케이프 도우미를 거친 값은 낮은 신뢰도로 보고합니다.',
+    },
+    remediation: {
+      en: 'Let the template escape: Thymeleaf `th:text` (not `th:utext`), JSP `<c:out value="${param.name}"/>` or `${fn:escapeXml(param.name)}`. In a servlet or `@ResponseBody` method return JSON or plain text, or call `HtmlUtils.htmlEscape(name)` / `Encode.forHtml(name)` before writing markup. Add a Content-Security-Policy as a second layer. `th:utext` and `escapeXml="false"` are only for HTML you wrote or sanitized.',
+      ko: '템플릿이 이스케이프하게 하세요. Thymeleaf는 `th:utext` 대신 `th:text`, JSP는 `<c:out value="${param.name}"/>` 또는 `${fn:escapeXml(param.name)}`를 씁니다. 서블릿이나 `@ResponseBody`에서는 JSON이나 일반 텍스트로 응답하거나, 마크업을 쓰기 전에 `HtmlUtils.htmlEscape(name)` / `Encode.forHtml(name)`을 호출하세요. 보조 방어선으로 Content-Security-Policy도 두세요. `th:utext`와 `escapeXml="false"`는 직접 작성했거나 sanitize한 HTML에만 쓰세요.',
+    },
+    examples: [
+      {
+        language: "java",
+        vulnerable:
+          'response.setContentType("text/html");\nresponse.getWriter().println("<h1>Hello " + request.getParameter("name") + "</h1>");',
+        safe: 'response.setContentType("text/html");\nresponse.getWriter().println("<h1>Hello " + HtmlUtils.htmlEscape(request.getParameter("name")) + "</h1>");',
+        note: {
+          en: "`name` set to `<img src=x onerror=alert(1)>` runs the script in the first form; the second form shows it as text. A template (`th:text`, `<c:out>`) does this for you.",
+          ko: "`name`이 `<img src=x onerror=alert(1)>`이면 첫 번째 코드는 스크립트를 실행하고, 두 번째 코드는 텍스트로 보여 줍니다. 템플릿(`th:text`, `<c:out>`)은 이 작업을 대신해 줍니다.",
+        },
+      },
+    ],
+  },
+  {
+    id: "PG-SSRF-002",
+    title: "Server-side HTTP request to a URL from request input in Java/Kotlin",
+    category: "ssrf",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["java", "kotlin"],
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-918"], cert: [] },
+    rationale: {
+      en: "A URL built from request input and fetched by the server (`URL.openConnection()`, `HttpRequest.newBuilder(URI.create(x))`, `RestTemplate.getForObject`, `WebClient.get().uri(x)`, OkHttp `url(x)`, `new HttpGet(x)`, Ktor `client.get(x)`) lets an attacker reach internal targets such as `http://169.254.169.254/` (cloud credentials) or `http://localhost:6379`. A fixed host with only a path or query from the request, or a host checked against an allowlist, is reported at low confidence.",
+      ko: "서버가 요청 입력으로 만든 URL(`URL.openConnection()`, `HttpRequest.newBuilder(URI.create(x))`, `RestTemplate.getForObject`, `WebClient.get().uri(x)`, OkHttp `url(x)`, `new HttpGet(x)`, Ktor `client.get(x)`)을 가져오면 공격자는 `http://169.254.169.254/`(클라우드 자격 증명)나 `http://localhost:6379` 같은 내부 대상에 닿을 수 있습니다. 호스트가 고정이고 경로·쿼리만 요청에서 오거나 호스트를 허용 목록으로 검사한 경우는 낮은 신뢰도로 보고합니다.",
+    },
+    remediation: {
+      en: "Prefer an id that maps to a fixed URL (`FEEDS.get(id)`). Otherwise parse the URL, allow only `https` and allowlisted hosts (compare the whole host, not `endsWith`), resolve the host and reject loopback, link-local and private addresses, connect to the address you checked, and disable redirects or re-check each hop. For a user path segment use `UriComponentsBuilder.pathSegment(...)` and reject `..`. Require IMDSv2 on cloud metadata. Review low-confidence findings by hand.",
+      ko: "고정 URL에 대응하는 id를 쓰는 편이 좋습니다(`FEEDS.get(id)`). 그렇지 않다면 URL을 파싱해 `https`와 허용 목록의 호스트만 허용하고(`endsWith`가 아니라 호스트 전체 비교), 호스트를 IP로 확인해 loopback·링크 로컬·사설 주소를 거부하세요. 검사한 주소로 연결하고 리다이렉트는 끄거나 단계마다 다시 검사합니다. 사용자 경로 조각은 `UriComponentsBuilder.pathSegment(...)`로 만들고 `..`를 거부하세요. 클라우드 메타데이터에는 IMDSv2를 적용하세요. 낮은 신뢰도 항목은 직접 검토하세요.",
+    },
+    examples: [
+      {
+        language: "java",
+        vulnerable:
+          'String body = restTemplate.getForObject(request.getParameter("url"), String.class);',
+        safe: 'String body = restTemplate.getForObject(FEEDS.get(request.getParameter("id")), String.class); // FEEDS maps ids to fixed https URLs',
+        note: {
+          en: "`url` set to `http://169.254.169.254/latest/meta-data/` returns the instance credentials in the first form; the second form can only reach the listed feeds.",
+          ko: "`url`이 `http://169.254.169.254/latest/meta-data/`이면 첫 번째 코드는 인스턴스 자격 증명을 반환하고, 두 번째 코드는 목록에 있는 피드에만 닿습니다.",
+        },
+      },
+      {
+        language: "kotlin",
+        vulnerable: 'val page = client.get(call.parameters["url"]!!).bodyAsText()',
+        safe: 'val host = URI(url).host\nrequire(host in ALLOWED_HOSTS) { "host" }\nval page = client.get(url).bodyAsText()',
+      },
+    ],
+  },
+  {
     id: "PG-CMD-001",
     title: "Shell command built from dynamic strings (child_process)",
     category: "command_execution",

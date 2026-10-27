@@ -9,14 +9,15 @@ import { NUMERIC_TYPES } from "./jvm-names.js";
  *   constant name). The only kind that is not reported.
  * - `inferred`: probably safe, for a reason the analysis cannot prove (allowlist check, numeric
  *   coercion or type, lookup in a fixed table, constant-style name from another file).
- * - `source`: request input.
+ * - `source`: request input. `esc` (also on `unknown`) says an HTML or URL escaping helper was
+ *   applied: only the XSS and SSRF rules read it (as "inferred"), the other rules ignore it.
  * - `unknown`: dynamic, and nothing says where it comes from.
  */
 export type Leaf =
   | { k: "const"; text: string }
   | { k: "inferred"; why: string }
-  | { k: "source"; label: string; direct: boolean; pg?: boolean; pgWhy?: string }
-  | { k: "unknown"; name: string; pg?: boolean; pgWhy?: string };
+  | { k: "source"; label: string; direct: boolean; pg?: boolean; pgWhy?: string; esc?: string }
+  | { k: "unknown"; name: string; pg?: boolean; pgWhy?: string; esc?: string };
 
 /**
  * A file path made by `new File(...)`, `Paths.get(...)`, `resolve(...)` and the like. The path
@@ -93,6 +94,11 @@ export interface Value {
   proc: boolean;
   /** A `Runtime`. */
   rt: boolean;
+  /**
+   * What a value is for the web rules: a URL or URI (`url`), an HTTP servlet response (`response`)
+   * or the writer or stream of one (`writer`). Empty for anything else.
+   */
+  web: "" | "url" | "response" | "writer";
 }
 
 export const MAX_LEAVES = 200;
@@ -112,6 +118,7 @@ export const value = (leaves: Leaf[] = [], extra: Partial<Value> = {}): Value =>
   coll: false,
   proc: false,
   rt: false,
+  web: "",
   ...extra,
 });
 export const constant = (text: string): Value => value([{ k: "const", text }]);
@@ -120,9 +127,9 @@ export const inferred = (why: string): Value => value([{ k: "inferred", why }]);
 
 export const leafKey = (leaf: Leaf): string =>
   leaf.k === "source"
-    ? `s:${leaf.label}:${leaf.direct}${leaf.pg === true ? `:pg${leaf.pgWhy ?? ""}` : ""}`
+    ? `s:${leaf.label}:${leaf.direct}${leaf.pg === true ? `:pg${leaf.pgWhy ?? ""}` : ""}${leaf.esc === undefined ? "" : `:esc${leaf.esc}`}`
     : leaf.k === "unknown"
-      ? `u:${leaf.name}${leaf.pg === true ? `:pg${leaf.pgWhy ?? ""}` : ""}`
+      ? `u:${leaf.name}${leaf.pg === true ? `:pg${leaf.pgWhy ?? ""}` : ""}${leaf.esc === undefined ? "" : `:esc${leaf.esc}`}`
       : leaf.k === "inferred"
         ? `i:${leaf.why}`
         : "";
@@ -203,6 +210,8 @@ export interface Binding {
   written?: Leaf[];
   /** Variables this one was made from by a path conversion (`canonical = dest.getCanonicalPath()`). */
   derived?: string[];
+  /** Variables this one was parsed from or read out of as a URL (`host = new URL(url).getHost()`). */
+  urlOf?: string[];
   /** A method parameter: request input in it is read directly, not "via variable". */
   isParam?: boolean;
   /** Everything the variable has held, for a lambda that runs after later assignments. */
