@@ -678,7 +678,7 @@ html:not(.js) .tabpanel + .tabpanel {
 
 @media (max-width: 60rem) {
   .frames {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1165,7 +1165,7 @@ tr.emph td::before {
 }
 
 /* Hangul in a monospace stack falls back with full-width spaces; Korean display text uses sans. */
-:lang(ko) :is(.hero h1, .sec > h2, .cmd-label, .banner, .status, .nf h1) {
+:lang(ko) :is(.hero h1, .sec > h2, .foot h2, .cmd-label, .banner, .status, .nf h1) {
   font-family: var(--sans);
 }
 

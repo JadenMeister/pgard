@@ -623,8 +623,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
                 <tr>
                   <th scope="row">html, pdf</th>
                   <td>
-                    <code>--report both --output-dir ./reports</code> writes redacted reports to a
-                    folder you choose, never overwriting a file.
+                    <code>--report both --output-dir ./reports</code> writes redacted reports to an
+                    existing folder you choose, never overwriting a file.
                   </td>
                 </tr>
                 <tr>
@@ -652,7 +652,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
                   <th scope="row">language</th>
                   <td>
                     Rule texts, result screens and report headings in English or Korean. Scan
-                    evidence stays English.
+                    evidence, coverage notes and authorization reasons stay English.
                   </td>
                 </tr>
               </tbody>
@@ -666,9 +666,10 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
         <div class="sec-body">
           <p>
             A scanner is also a tool for probing other people's code. So before every scan, in the
-            CLI and the dashboard, PGARD runs five checks against GitHub again. There is no option
-            to skip them and no cached approval. If any evidence is missing or unclear, the scan is
-            blocked (exit code 3) and PGARD says which check failed and how to fix it.
+            CLI and the dashboard, PGARD runs the five checks again. Only the GitHub sign-in is
+            reused; there is no option to skip them and no cached approval. If any evidence is
+            missing or unclear, the scan is blocked (exit code 3) and PGARD says which check failed
+            and why.
           </p>
           <ol class="flow">
             <li>
