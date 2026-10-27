@@ -175,5 +175,66 @@ const clean = computed(() => DOMPurify.sanitize(a));
       const [mixed] = vhtml("DOMPurify.sanitize(a) + b", "import DOMPurify from 'dompurify';");
       expect(mixed).toBeDefined();
     });
+
+    it.each([
+      [
+        "a config getter",
+        "DOMPurify.getConfig($route.query.q)",
+        "import DOMPurify from 'dompurify';",
+      ],
+      [
+        "an xss-filters attribute filter",
+        "xssFilters.inDoubleQuotedAttr($route.query.q)",
+        "import xssFilters from 'xss-filters';",
+      ],
+      [
+        "a modified import",
+        "DOMPurify.sanitize($route.query.q)",
+        "import DOMPurify from 'dompurify';\nDOMPurify.sanitize = (s) => s;",
+      ],
+      [
+        "an import re-declared by a function",
+        "DOMPurify.sanitize($route.query.q)",
+        "import DOMPurify from 'dompurify';\nfunction DOMPurify() {}",
+      ],
+    ])("does not trust %s", (_label, expression, script) => {
+      const [finding] = vhtml(expression, script);
+      expect(finding).toBeDefined();
+      expect(finding?.severity === "high" || finding?.confidence === "low").toBe(true);
+      if (finding?.confidence === "low") expect(finding.evidence).toContain(NOTE);
+    });
+
+    it("keeps xssFilters.inDoubleQuotedAttr at high severity and trusts inHTMLData", () => {
+      expect(
+        vhtml(
+          "xssFilters.inDoubleQuotedAttr($route.query.q)",
+          "import xssFilters from 'xss-filters';",
+        )[0],
+      ).toMatchObject({ severity: "high", confidence: "medium" });
+      expect(vhtml("xssFilters.inHTMLData(html)", "import xssFilters from 'xss-filters';")).toEqual(
+        [],
+      );
+    });
+
+    it("does not count imports of a plain options-API <script> as proof for the template", () => {
+      const result = analyzeVueSource(
+        `<template><div v-html="DOMPurify.sanitize(html)"></div></template>
+<script>
+import DOMPurify from "dompurify";
+export default { props: { html: String } };
+</script>`,
+        "src/O.vue",
+      ).findings.filter((finding) => finding.ruleId === "PG-XSS-003");
+      expect(result[0]?.confidence).toBe("low");
+      expect(result[0]?.evidence).toContain(NOTE);
+    });
+
+    it("does not treat a sanitizer applied to part of the value as covering all of it", () => {
+      const [finding] = vhtml(
+        "DOMPurify.sanitize(a) + $route.query.b",
+        "import DOMPurify from 'dompurify';",
+      );
+      expect(finding?.severity).toBe("medium");
+    });
   });
 });

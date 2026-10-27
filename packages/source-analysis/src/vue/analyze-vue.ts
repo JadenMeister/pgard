@@ -1,7 +1,7 @@
 import { parse } from "@vue/compiler-sfc";
 import ts from "typescript-api";
 import type { RawSourceFinding } from "../finding-factory.js";
-import { TRUSTED_SANITIZER_MODULES } from "../js/sanitizer-modules.js";
+import { isTrustedSanitizerCall, TRUSTED_SANITIZER_MODULES } from "../js/sanitizer-modules.js";
 import { analyzeJsSource, type JsFileFacts } from "../js/analyze-js.js";
 
 export interface VueAnalysis {
@@ -32,11 +32,54 @@ const SANITIZED = /\b(sanitize|sanitizeHtml|purify|DOMPurify|escapeHtml|xss)\b/i
 
 const SANITIZER_MODULES = new Set([...TRUSTED_SANITIZER_MODULES, "escape-html"]);
 
+interface SanitizerRoot {
+  module: string;
+  /** The imported name of a named import; null for a default or namespace import. */
+  named: string | null;
+}
+
 interface ScriptSanitizers {
   /** Computed properties whose whole value is one call to an imported sanitizer: name -> module. */
   computeds: Map<string, string>;
   /** Sole, never-reassigned import bindings of a sanitizer module: local name -> module. */
-  roots: Map<string, string>;
+  roots: Map<string, SanitizerRoot>;
+}
+
+const OBJECT_WRITERS = new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]);
+
+/** Name written through a property or element, or handed to `Object.assign`-like writers. */
+function memberWriteRoot(node: ts.Node): string | null {
+  const rootOf = (expression: ts.Expression): string | null => {
+    let current = expression;
+    while (
+      ts.isPropertyAccessExpression(current) ||
+      ts.isElementAccessExpression(current) ||
+      ts.isParenthesizedExpression(current) ||
+      ts.isNonNullExpression(current) ||
+      ts.isAsExpression(current)
+    )
+      current = current.expression;
+    return ts.isIdentifier(current) ? current.text : null;
+  };
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+    (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left))
+  )
+    return rootOf(node.left);
+  if (ts.isDeleteExpression(node)) return rootOf(node.expression);
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    (node.expression.expression.text === "Object" ||
+      node.expression.expression.text === "Reflect") &&
+    (OBJECT_WRITERS.has(node.expression.name.text) || node.expression.name.text === "set") &&
+    node.arguments[0]
+  )
+    return rootOf(node.arguments[0]);
+  return null;
 }
 
 /**
@@ -44,7 +87,11 @@ interface ScriptSanitizers {
  * `const clean = computed(() => DOMPurify.sanitize(html))` and the options-API `computed: { clean() {} }`.
  * The template only sees the name, so the sanitizing is inferred, never proven: the finding stays.
  */
-function scriptSanitizers(content: string, scriptKind: ts.ScriptKind): ScriptSanitizers {
+function scriptSanitizers(
+  content: string,
+  scriptKind: ts.ScriptKind,
+  exposesImports: boolean,
+): ScriptSanitizers {
   const found = new Map<string, string>();
   const source = ts.createSourceFile(
     "pgard-vue.tsx",
@@ -54,6 +101,7 @@ function scriptSanitizers(content: string, scriptKind: ts.ScriptKind): ScriptSan
     scriptKind,
   );
   const imported = new Map<string, string>();
+  const importedName = new Map<string, string>();
   const importCount = new Map<string, number>();
   const count = (name: string) => importCount.set(name, (importCount.get(name) ?? 0) + 1);
   const collect = (node: ts.Node): void => {
@@ -64,7 +112,10 @@ function scriptSanitizers(content: string, scriptKind: ts.ScriptKind): ScriptSan
       const bindings = clause?.namedBindings;
       if (bindings && ts.isNamespaceImport(bindings)) imported.set(bindings.name.text, module);
       else if (bindings && ts.isNamedImports(bindings))
-        for (const element of bindings.elements) imported.set(element.name.text, module);
+        for (const element of bindings.elements) {
+          imported.set(element.name.text, module);
+          importedName.set(element.name.text, (element.propertyName ?? element.name).text);
+        }
     }
     if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && ts.isIdentifier(node.name))
       count(node.name.text);
@@ -77,6 +128,9 @@ function scriptSanitizers(content: string, scriptKind: ts.ScriptKind): ScriptSan
     )
       count(node.left.text);
     if (ts.isFunctionDeclaration(node) && node.name) count(node.name.text);
+    // `X.sanitize = ...`, `X["sanitize"] = ...`, `Object.assign(X, ...)` change what X does.
+    const written = memberWriteRoot(node);
+    if (written) count(written);
     ts.forEachChild(node, collect);
   };
   collect(source);
@@ -144,14 +198,24 @@ function scriptSanitizers(content: string, scriptKind: ts.ScriptKind): ScriptSan
     ts.forEachChild(node, visit);
   };
   visit(source);
-  const roots = new Map<string, string>();
-  for (const [name, module] of imported)
-    if (SANITIZER_MODULES.has(module) && !importCount.has(name)) roots.set(name, module);
+  const roots = new Map<string, SanitizerRoot>();
+  // Only `<script setup>` bindings are visible to the template; imports of a plain `<script>` are not.
+  if (exposesImports)
+    for (const [name, module] of imported)
+      if (SANITIZER_MODULES.has(module) && !importCount.has(name))
+        roots.set(name, { module, named: importedName.get(name) ?? null });
   return { computeds: found, roots };
 }
 
-/** The whole expression as one call into a name in `roots` (`DOMPurify.sanitize(html)`), else null. */
-function sanitizerRootOf(expression: string, roots: Map<string, string>): string | null {
+/**
+ * The whole expression as one call `f(x)` or `f.method(x)` on a sanitizer import in `roots`
+ * (`DOMPurify.sanitize(html)`), else null. `proven` is false for a method that is not the
+ * module's sanitizing entry point (`DOMPurify.getConfig`, `xssFilters.inDoubleQuotedAttr`).
+ */
+function sanitizerRootOf(
+  expression: string,
+  roots: Map<string, SanitizerRoot>,
+): { module: string; proven: boolean } | null {
   if (roots.size === 0) return null;
   const source = ts.createSourceFile(
     "pgard-vue-expression.ts",
@@ -166,9 +230,28 @@ function sanitizerRootOf(expression: string, roots: Map<string, string>): string
   let node: ts.Expression = statement.expression;
   while (ts.isParenthesizedExpression(node)) node = node.expression;
   if (!ts.isCallExpression(node)) return null;
-  let callee: ts.Expression = node.expression;
-  while (ts.isPropertyAccessExpression(callee)) callee = callee.expression;
-  return ts.isIdentifier(callee) ? (roots.get(callee.text) ?? null) : null;
+  const callee = node.expression;
+  const direct = ts.isIdentifier(callee);
+  const receiver = direct
+    ? callee
+    : ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)
+      ? callee.expression
+      : null;
+  if (!receiver) return null;
+  const root = roots.get(receiver.text);
+  if (!root) return null;
+  const name = direct
+    ? (root.named ?? receiver.text)
+    : (callee as ts.PropertyAccessExpression).name.text;
+  return {
+    module: root.module,
+    proven: isTrustedSanitizerCall(
+      root.module,
+      root.named === null ? "default" : "named",
+      direct ? "direct" : "member",
+      name,
+    ),
+  };
 }
 
 type Classification = Omit<RawSourceFinding, "ruleId" | "path" | "line" | "cause">;
@@ -191,8 +274,9 @@ function classifyVHtml(
     };
   }
   if (/^(['"`])[^'"`$]*\1$/.test(trimmed)) return null;
-  const rootModule = sanitizerRootOf(trimmed, scripts.roots);
-  if (rootModule !== null && TRUSTED_SANITIZER_MODULES.has(rootModule)) return null;
+  const root = sanitizerRootOf(trimmed, scripts.roots);
+  if (root?.proven) return null;
+  const rootModule = root?.module ?? null;
   const finding = classifyUnsanitized(trimmed);
   const named = SANITIZED.exec(trimmed);
   if (!named) return finding;
@@ -244,9 +328,13 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
   for (const block of [descriptor.script, descriptor.scriptSetup]) {
     if (!block) continue;
     const isTs = block.lang === "ts" || block.lang === "tsx";
-    const found = scriptSanitizers(block.content, isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX);
+    const found = scriptSanitizers(
+      block.content,
+      isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
+      block === descriptor.scriptSetup,
+    );
     for (const [name, module] of found.computeds) scripts.computeds.set(name, module);
-    for (const [name, module] of found.roots) scripts.roots.set(name, module);
+    for (const [name, root] of found.roots) scripts.roots.set(name, root);
     const analysis = analyzeJsSource(block.content, path, {
       lineOffset: block.loc.start.line - 1,
       scriptKind: isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,

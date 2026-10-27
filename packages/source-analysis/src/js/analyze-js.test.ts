@@ -1911,4 +1911,72 @@ describe("XSS sanitizers are trusted only through an import binding (#272)", () 
     );
     expect(jq[0]).toMatchObject({ ruleId: "PG-XSS-001", confidence: "low" });
   });
+
+  it.each([
+    ["inDoubleQuotedAttr", "xssFilters.inDoubleQuotedAttr(location.hash)"],
+    ["inSingleQuotedAttr", "xssFilters.inSingleQuotedAttr(location.hash)"],
+    ["inHTMLComment", "xssFilters.inHTMLComment(location.hash)"],
+    ["uriInDoubleQuotedAttr", "xssFilters.uriInDoubleQuotedAttr(location.hash)"],
+    ["a DOMPurify config getter", "DOMPurify.getConfig(location.hash)"],
+    ["a method that merely starts with sanitize", "DOMPurify.sanitizeX(location.hash)"],
+    ["a sanitize-html helper", "sanitizeHtml.simpleTransform(location.hash)"],
+  ])("does not trust %s as an HTML sanitizer", (_label, call) => {
+    const [finding] = xss(
+      `import xssFilters from 'xss-filters';\nimport DOMPurify from 'dompurify';\nimport sanitizeHtml from 'sanitize-html';\nel.innerHTML = ${call};`,
+    );
+    expect(finding).toMatchObject({ severity: "high", confidence: "medium" });
+  });
+
+  it("trusts only inHTMLData among xss-filters methods, by member and by named import", () => {
+    expect(
+      xss(
+        "import xssFilters from 'xss-filters';\nel.innerHTML = xssFilters.inHTMLData(location.hash);",
+      ),
+    ).toEqual([]);
+    expect(
+      xss("import { inHTMLData } from 'xss-filters';\nel.innerHTML = inHTMLData(location.hash);"),
+    ).toEqual([]);
+    expect(
+      xss(
+        "import { inDoubleQuotedAttr } from 'xss-filters';\nel.innerHTML = inDoubleQuotedAttr(location.hash);",
+      )[0],
+    ).toMatchObject({ confidence: "medium" });
+  });
+
+  it("does not treat a sanitizer applied to part of the value as covering all of it", () => {
+    const [finding] = xss(
+      "import DOMPurify from 'dompurify';\nel.innerHTML = DOMPurify.sanitize(a) + location.hash;",
+    );
+    expect(finding).toMatchObject({ severity: "high", confidence: "medium" });
+  });
+
+  it.each([
+    ["a property write", "DOMPurify.sanitize = (s) => s;"],
+    ["an element write", "DOMPurify['sanitize'] = (s) => s;"],
+    ["Object.assign", "Object.assign(DOMPurify, { sanitize: (s) => s });"],
+    ["Object.defineProperty", "Object.defineProperty(DOMPurify, 'sanitize', { value: (s) => s });"],
+    ["a delete", "delete DOMPurify.sanitize;"],
+  ])("does not trust an import that is modified through %s", (_label, write) => {
+    const [finding] = xss(
+      `import DOMPurify from 'dompurify';\n${write}\nel.innerHTML = DOMPurify.sanitize(location.hash);`,
+    );
+    expect(finding?.confidence).toBe("low");
+    expect(finding?.evidence).toContain(NOTE);
+  });
+
+  it("follows a factory only when it is dompurify's own", () => {
+    const [spoof] = xss(
+      "import sanitizeHtml from 'sanitize-html';\nconst purify = sanitizeHtml('x');\nel.innerHTML = purify.sanitize(location.hash);",
+    );
+    expect(spoof?.confidence).toBe("low");
+    const [other] = xss(
+      "import make from 'lodash';\nconst purify = make(window);\nel.innerHTML = purify.sanitize(location.hash);",
+    );
+    expect(other?.confidence).toBe("low");
+    expect(
+      xss(
+        "import { createDOMPurify } from 'isomorphic-dompurify';\nconst purify = createDOMPurify(window);\nel.innerHTML = purify.sanitize(location.hash);",
+      ),
+    ).toEqual([]);
+  });
 });

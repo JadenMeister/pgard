@@ -12,8 +12,9 @@ import {
   type TaintKind,
 } from "./taint.js";
 import {
+  DOMPURIFY_FACTORY_MODULES,
+  isTrustedSanitizerCall,
   SANITIZER_NAME,
-  TRUSTED_SANITIZER_METHOD,
   TRUSTED_SANITIZER_MODULES,
 } from "./sanitizer-modules.js";
 import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-binding.js";
@@ -388,65 +389,74 @@ export function analyzeJsSource(
     return "expression";
   };
 
-  /** Root identifier of `a.b.c(...)`'s callee, with the callee's own final name. */
+  /** `f(...)` or `f.method(...)`: the callee identifier and the shape. Deeper chains do not qualify. */
   const sanitizerCallee = (
     expression: ts.Expression,
-  ): { call: ts.CallExpression; root: ts.Identifier; direct: boolean; name: string } | null => {
+  ): { root: ts.Identifier; direct: boolean; name: string } | null => {
     const node = unwrap(expression);
     if (!ts.isCallExpression(node)) return null;
-    let callee = unwrap(node.expression);
-    const direct = ts.isIdentifier(callee);
-    const name = calleeName(node);
-    if (!name) return null;
-    while (ts.isPropertyAccessExpression(callee)) callee = unwrap(callee.expression);
-    return ts.isIdentifier(callee) ? { call: node, root: callee, direct, name } : null;
+    const callee = unwrap(node.expression);
+    if (ts.isIdentifier(callee)) return { root: callee, direct: true, name: callee.text };
+    if (ts.isPropertyAccessExpression(callee)) {
+      const receiver = unwrap(callee.expression);
+      if (ts.isIdentifier(receiver))
+        return { root: receiver, direct: false, name: callee.name.text };
+    }
+    return null;
   };
 
-  /** A local name that is exactly one declaration (the import) and is never reassigned. */
+  /**
+   * A local name that is exactly one declaration (the import), never reassigned and never written
+   * through (`DOMPurify.sanitize = ...`, `Object.assign(DOMPurify, ...)`).
+   */
   const isSoleBinding = (name: string): boolean =>
-    bindingCount.get(name) === 1 && !reassigned.has(name);
+    bindingCount.get(name) === 1 && !reassigned.has(name) && !memberWrittenRoots.has(name);
 
-  /** Module of the sole import binding `name` resolves to (`createDOMPurify(window)` included). */
-  const trustedModuleOf = (identifier: ts.Identifier, depth = 0): string | null => {
+  /**
+   * Module whose default export (or `require` result) the sole binding `identifier` holds:
+   * `import DOMPurify from "dompurify"`, or `const purify = createDOMPurify(window)` where the
+   * factory is dompurify's default export (or `createDOMPurify` from a dompurify package).
+   */
+  const trustedModuleOf = (identifier: ts.Identifier): string | null => {
     if (!isSoleBinding(identifier.text)) return null;
     const module = namespaceImports.get(identifier.text);
     if (module !== undefined) return TRUSTED_SANITIZER_MODULES.has(module) ? module : null;
-    if (depth > 0) return null;
-    // `const purify = createDOMPurify(window)`: the instance of a factory imported from dompurify.
     const init = soleConst(identifier.text, identifier);
-    const factory = init ? sanitizerFactory(init) : null;
-    return factory ? trustedModuleOf(factory, depth + 1) : null;
-  };
-  const sanitizerFactory = (init: ts.Expression): ts.Identifier | null => {
-    const node = unwrap(init);
-    if (!ts.isCallExpression(node)) return null;
-    const callee = unwrap(node.expression);
-    return ts.isIdentifier(callee) ? callee : null;
+    const node = init ? unwrap(init) : null;
+    if (!node || !ts.isCallExpression(node)) return null;
+    const factory = unwrap(node.expression);
+    if (!ts.isIdentifier(factory) || !isSoleBinding(factory.text)) return null;
+    const factoryModule = namespaceImports.get(factory.text);
+    if (factoryModule !== undefined) {
+      return DOMPURIFY_FACTORY_MODULES.has(factoryModule) ? factoryModule : null;
+    }
+    const named = namedImports.get(factory.text);
+    return named === "dompurify:createDOMPurify" || named === "isomorphic-dompurify:createDOMPurify"
+      ? named.slice(0, named.indexOf(":"))
+      : null;
   };
 
   /**
    * A call into the sole import binding of a known sanitizer module: `DOMPurify.sanitize(x)`,
    * `sanitizeHtml(x)`, `filterXSS(x)`, `{ sanitize }` from `isomorphic-dompurify`. Shadowed,
-   * reassigned or re-declared bindings, local functions and re-exports do not qualify.
+   * reassigned, modified or re-declared bindings, local functions, re-exports and methods that
+   * are not the module's sanitizing entry point do not qualify.
    */
   const isProvenSanitizerCall = (expression: ts.Expression): boolean => {
     const parts = sanitizerCallee(expression);
     if (!parts) return false;
     const { root, direct, name } = parts;
-    if (direct) {
-      const named = namedImports.get(root.text);
-      if (named !== undefined && isSoleBinding(root.text)) {
-        const [module, imported] = splitNamedImport(named);
-        return TRUSTED_SANITIZER_MODULES.has(module) && TRUSTED_SANITIZER_METHOD.test(imported);
-      }
-      // A default or namespace import called directly: `import clean from "sanitize-html"`.
-      return trustedModuleOf(root) !== null && namespaceImports.get(root.text) !== undefined;
+    const named = direct ? namedImports.get(root.text) : undefined;
+    if (named !== undefined) {
+      if (!isSoleBinding(root.text)) return false;
+      const at = named.lastIndexOf(":");
+      return isTrustedSanitizerCall(named.slice(0, at), "named", "direct", named.slice(at + 1));
     }
-    return trustedModuleOf(root) !== null && TRUSTED_SANITIZER_METHOD.test(name);
-  };
-  const splitNamedImport = (value: string): [string, string] => {
-    const at = value.lastIndexOf(":");
-    return [value.slice(0, at), value.slice(at + 1)];
+    const module = trustedModuleOf(root);
+    return (
+      module !== null &&
+      isTrustedSanitizerCall(module, "default", direct ? "direct" : "member", name)
+    );
   };
 
   /** A call whose name looks like a sanitizer but is not a proven import: inferred only. */
@@ -1465,6 +1475,8 @@ export function analyzeJsSource(
   // catch variable or function with the same name makes a module constant unusable as evidence.
   const bindingCount = new Map<string, number>();
   const mutatedRoots = new Set<string>();
+  /** Names written through a property (`X.y = ...`, `X["y"] = ...`, `Object.assign(X, ...)`). */
+  const memberWrittenRoots = new Set<string>();
   const tableMisuse = new Set<string>();
   /** Names used as more than a property read or a request argument: aliased, passed on, assigned. */
   const nonReadUses = new Map<string, ts.Node[]>();
@@ -1552,6 +1564,7 @@ export function analyzeJsSource(
       if (!ts.isIdentifier(left)) {
         const root = rootName(left);
         if (root) mutatedRoots.add(root);
+        if (root) memberWrittenRoots.add(root);
       }
     } else if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
@@ -1563,6 +1576,7 @@ export function analyzeJsSource(
     } else if (ts.isDeleteExpression(node)) {
       const root = rootName(node.expression);
       if (root) mutatedRoots.add(root);
+      if (root) memberWrittenRoots.add(root);
     } else if (ts.isCallExpression(node)) {
       const callee = accessPath(node.expression);
       if (
@@ -1574,6 +1588,7 @@ export function analyzeJsSource(
       ) {
         const root = rootName(node.arguments[0]);
         if (root) mutatedRoots.add(root);
+        if (root) memberWrittenRoots.add(root);
       }
       const target = unwrap(node.expression);
       if (ts.isPropertyAccessExpression(target) && MUTATING_METHOD.test(target.name.text)) {
