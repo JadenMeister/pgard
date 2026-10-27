@@ -58,6 +58,11 @@ export interface WalkResult {
   /** Files of the tree-sitter language track, per language. Not counted against `MAX_FILES`. */
   trackFiles: Record<TreeSitterLanguage, TrackedFile[]>;
   trackManifests: ManifestFile[];
+  /**
+   * `.xml` files that may be MyBatis mapper XML (every `.xml` except `pom.xml`); the scan reads
+   * them and keeps only the ones that declare a `<mapper>`. Not counted against `MAX_FILES`.
+   */
+  xmlFiles: TrackedFile[];
   /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
   trackTruncated: boolean;
   /** Relative paths of manifests used for ORM detection. */
@@ -125,6 +130,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     files: [],
     trackFiles: { java: [], kotlin: [], python: [], php: [] },
     trackManifests: [],
+    xmlFiles: [],
     trackTruncated: false,
     packageJsonPaths: [],
     goModPaths: [],
@@ -204,6 +210,21 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         }
         // `setup.py` is both a manifest and Python source, so there is no `continue` here.
       }
+      if (path.extname(entry.name) === ".xml" && entry.name !== "pom.xml") {
+        const stats = await lstat(absolutePath).catch(() => null);
+        // Android resources and build output hold no MyBatis mappers.
+        const skipped = relativePath.split("/").some((part) => part === "res" || part === "target");
+        if (stats?.isFile() && !skipped) {
+          // XML files count against the same file limit as source files.
+          if (result.files.length + result.xmlFiles.length >= MAX_FILES) {
+            result.isTruncated = true;
+            result.trackTruncated = true;
+          } else {
+            result.xmlFiles.push({ absolutePath, relativePath, size: stats.size });
+          }
+        }
+        continue;
+      }
       const trackLanguage = TREE_SITTER_EXTENSIONS[path.extname(entry.name)];
       if (trackLanguage) {
         if (options.isExcluded?.(relativePath)) {
@@ -252,6 +273,7 @@ function finishTrack(result: WalkResult): void {
     result.trackFiles[language].sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   }
   result.trackManifests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  result.xmlFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 /** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */

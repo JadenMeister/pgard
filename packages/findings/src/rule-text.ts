@@ -12,6 +12,7 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-SQL-002": "동적 SQL을 쓰는 Prisma unsafe raw 쿼리",
   "PG-SQL-003": "fmt.Sprintf나 문자열 연결로 만든 Go database/sql 쿼리",
   "PG-SQL-004": "fmt.Sprintf나 문자열 연결로 만든 GORM raw SQL 또는 조건",
+  "PG-SQL-005": "Java/Kotlin JDBC, JPA/Hibernate, MyBatis 코드에서 동적 문자열로 만든 SQL",
   "PG-XSS-001": "innerHTML/outerHTML/document.write에 쓰는 동적 HTML",
   "PG-XSS-002": "React dangerouslySetInnerHTML에 전달하는 동적 HTML",
   "PG-XSS-003": "Vue v-html에 바인딩한 동적 HTML",

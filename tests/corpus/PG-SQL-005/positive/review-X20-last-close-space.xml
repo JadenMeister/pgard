@@ -1,0 +1,6 @@
+<!-- corpus: expect=PG-SQL-005 -->
+<mapper namespace="demo.A">
+  <select id="byOwner" resultType="map">
+    SELECT * FROM accounts WHERE owner = '${owner}'
+  </select >
+</mapper>

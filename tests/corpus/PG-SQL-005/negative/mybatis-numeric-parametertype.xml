@@ -1,0 +1,6 @@
+<!-- corpus: expect=low -->
+<mapper namespace="com.example.TopMapper">
+  <select id="top" parameterType="int" resultType="com.example.Row">
+    SELECT * FROM rows ORDER BY score DESC LIMIT ${limit}
+  </select>
+</mapper>

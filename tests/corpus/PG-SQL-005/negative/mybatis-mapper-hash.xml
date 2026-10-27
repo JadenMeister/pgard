@@ -1,0 +1,13 @@
+<!-- corpus: expect=none -->
+<mapper namespace="com.example.UserMapper">
+  <select id="findByName" resultType="com.example.User">
+    SELECT id, name FROM users WHERE name = #{name}
+  </select>
+  <update id="rename">
+    UPDATE users SET name = #{newName} WHERE id = #{id}
+  </update>
+  <select id="byIds" resultType="com.example.User">
+    SELECT * FROM users WHERE id IN
+    <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+  </select>
+</mapper>

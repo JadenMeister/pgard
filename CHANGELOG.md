@@ -7,6 +7,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 ### Added
 
 - Scanning: `scan code`, `scan history`, `scan web` and `scan all` for the Git root of the current directory, with rules for JavaScript/TypeScript, React, Vue and Go, plus committed `.env` files and secrets in Git history.
+- Java and Kotlin SQL injection rule `PG-SQL-005` (JDBC, Spring JdbcTemplate, JPA/Hibernate, Spring Data `@Query` SpEL, MyBatis `${}` in mapper XML and annotations); intra-procedural, SQL injection only.
 - Authorization gate: GitHub sign-in stored in the OS keychain, owner approval through the PGARD GitHub App (including a guided install and re-check), organization-owner support and the contribution check.
 - Loopback dashboard (English and Korean) and redacted HTML and PDF reports, with an embedded Korean-capable PDF font.
 - Output formats: `--format json` (result schema 1.1, `readScanResult`) and `--format sarif` (SARIF 2.1.0); a grouped, severity-sorted terminal result screen.

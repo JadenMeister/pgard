@@ -18,7 +18,13 @@ import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js
 import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
-import { detectLanguageTrack, languageTrackCoverage } from "./tree-sitter/language-track.js";
+import { scanJvm, JVM_LANGUAGES } from "./jvm/scan-jvm.js";
+import {
+  createTrackDeadline,
+  MAX_TRACK_PARSE_MS,
+  detectLanguageTrack,
+  languageTrackCoverage,
+} from "./tree-sitter/language-track.js";
 import { analyzeVueSource } from "./vue/analyze-vue.js";
 import {
   readTextFile,
@@ -585,17 +591,35 @@ export async function scanSourceCode(
     GO_RULE_IDS,
     "syntax-level heuristics (lexer and patterns, no type information or cross-file data flow)",
   );
-  // Java, Kotlin, Python and PHP: detected only; no grammar is loaded until rules exist.
-  // When language rules are wired here, parse through parseTrackFiles and report with
-  // parseCoverage: a grammar that fails its checksum surfaces as `unavailable` there and becomes
-  // a not_tested coverage entry. Do not call TreeSitterRuntime.parse directly and drop it.
-  coverage.push(...languageTrackCoverage(await detectLanguageTrack(walk)));
+  // Java and Kotlin (and MyBatis mapper XML) have the SQL injection rule; Python and PHP are only
+  // detected, and no grammar is loaded for a language without rules. Java and Kotlin go through
+  // `parseTrackFiles` inside `scanJvm`, so a grammar that fails its checksum, an oversized file or
+  // a timeout shows up as a partial or not_tested area, never as a safe result.
+  const detection = await detectLanguageTrack(walk);
+  const jvm = await scanJvm(walk, detection, {
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    deadline: createTrackDeadline(Math.min(MAX_TRACK_PARSE_MS, timeBudgetMs)),
+    ...(excludeMatcher === null
+      ? {}
+      : { isExcluded: (relativePath: string) => excludeMatcher.matches(relativePath) }),
+  });
+  findings.push(...jvm.findings);
+  coverage.push(...jvm.coverage);
+  ruleStats.push(...jvm.ruleStats);
+  coverage.push(...languageTrackCoverage(detection, new Set(JVM_LANGUAGES)));
+  const excludedTotal = {
+    count: walk.excluded.count + jvm.excludedMapperPaths.length,
+    digest:
+      jvm.excludedMapperPaths.length === 0
+        ? walk.excluded.digest
+        : fingerprintPaths([walk.excluded.digest, ...jvm.excludedMapperPaths]),
+  };
   if (excludeMatcher !== null) {
     coverage.push(
       describeConfigExcluded(
         excludePatterns,
-        walk.excluded,
-        walk.files.length + walkTrackedCount(walk) + walk.excluded.count,
+        excludedTotal,
+        walk.files.length + walkTrackedCount(walk) + jvm.mapperFiles + excludedTotal.count,
         excludeMatcher.exhausted,
       ),
     );
@@ -604,6 +628,7 @@ export async function scanSourceCode(
     const analyzed = [
       ...walk.files.map((file) => file.relativePath),
       ...Object.values(walk.trackFiles).flatMap((list) => list.map((file) => file.relativePath)),
+      ...jvm.analyzedPaths.filter((analyzed) => analyzed.endsWith(".xml")),
     ];
     coverage.push(
       describeConfigTestDirectories(

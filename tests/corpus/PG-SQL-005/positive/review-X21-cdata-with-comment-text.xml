@@ -1,0 +1,6 @@
+<!-- corpus: expect=PG-SQL-005 -->
+<mapper namespace="demo.B">
+  <select id="q" resultType="map"><![CDATA[
+    SELECT '<!--' AS a, x FROM t WHERE y = '${y}' -- -->
+  ]]></select>
+</mapper>

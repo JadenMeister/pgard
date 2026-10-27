@@ -132,7 +132,8 @@ function loadSourceSamples() {
 async function scanSource(sample) {
   const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-corpus-")));
   try {
-    // Header line stays: it is a comment in every sample language.
+    // Header line stays: it is a comment in every sample language (`//` in JavaScript, Go, Java
+    // and Kotlin, `<!-- -->` in MyBatis mapper XML).
     copyFileSync(sample.file, path.join(root, sample.name));
     const output = await scanSourceCode(root);
     // rule -> confidences of its findings on this sample

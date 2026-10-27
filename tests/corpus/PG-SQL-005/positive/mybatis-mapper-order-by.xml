@@ -1,0 +1,12 @@
+<!-- corpus: expect=PG-SQL-005 -->
+<mapper namespace="com.example.ReportMapper">
+  <!-- ${legacy} in a comment is not code -->
+  <select id="page" parameterType="map" resultType="map">
+    SELECT * FROM ${table}
+    <where>
+      <if test="status != null">status = #{status}</if>
+    </where>
+    ORDER BY ${orderBy}
+  </select>
+  <delete id="purge">DELETE FROM sessions WHERE user_id = #{id}</delete>
+</mapper>

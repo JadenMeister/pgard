@@ -41,7 +41,7 @@ Usage:
   pgard scan all [--port N]     code + history + local HTTP service
   pgard dashboard [--target-port N]
                                 start the local web dashboard
-  pgard rules list [--language js|ts|react|vue|go] [--lang en|ko]
+  pgard rules list [--language js|ts|react|vue|go|java|kotlin] [--lang en|ko]
                                 supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
                                 delete stored scan results (all, or one repository)
@@ -155,9 +155,9 @@ not installed for this repository.
 
 ${EXIT_CODE_HELP}`,
   rules: `Usage:
-  pgard rules list [--language js|ts|react|vue|go]`,
+  pgard rules list [--language js|ts|react|vue|go|java|kotlin]`,
   "rules list": `Usage:
-  pgard rules list [--language js|ts|react|vue|go] [--lang en|ko]
+  pgard rules list [--language js|ts|react|vue|go|java|kotlin] [--lang en|ko]
 
 Lists supported rules and unsupported areas.
 --language react and vue also include the JavaScript/TypeScript rules.
