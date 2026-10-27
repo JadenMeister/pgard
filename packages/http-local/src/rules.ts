@@ -219,15 +219,15 @@ export const WEB_RULES = {
   }),
   corsReflectedOrigin: rule({
     id: "PG-WEB-009",
-    title: "CORS reflects an arbitrary Origin with credentials",
+    title: "CORS reflects an arbitrary Origin or trusts `null` with credentials",
     category: "access_control",
     severity: "high",
     status: "suspected",
     confidence: "medium",
     standards: { owasp: ["A02:2025"], cwe: ["CWE-942"], cert: [] },
     rationale: {
-      en: "The server echoes whatever Origin the request sends and allows credentials. A page on any website the logged-in user visits can then call this service with `fetch()` using the user's cookies and read the response: profile data, tokens, anything that user can see.",
-      ko: "서버가 요청이 보낸 Origin을 그대로 돌려주면서 자격 증명을 허용합니다. 그러면 로그인한 사용자가 방문한 아무 웹사이트의 페이지가 사용자의 쿠키로 이 서비스를 `fetch()`로 호출해 프로필 정보, 토큰 등 그 사용자가 볼 수 있는 모든 응답을 읽을 수 있습니다.",
+      en: "The server echoes whatever Origin the request sends and allows credentials. The same holds when it trusts the literal `null` origin, which a sandboxed iframe or local file can send. A page on any website the logged-in user visits can then call this service with `fetch()` using the user's cookies and read the response: profile data, tokens, anything that user can see.",
+      ko: "서버가 요청이 보낸 Origin을 그대로 돌려주면서 자격 증명을 허용합니다. 리터럴 `null` Origin(샌드박스 iframe이나 로컬 파일이 보낼 수 있음)을 신뢰할 때도 같습니다. 그러면 로그인한 사용자가 방문한 아무 웹사이트의 페이지가 사용자의 쿠키로 이 서비스를 `fetch()`로 호출해 프로필 정보, 토큰 등 그 사용자가 볼 수 있는 모든 응답을 읽을 수 있습니다.",
     },
     remediation: {
       en: "Compare `Origin` with an exact allowlist and reply only with a matching value (plus `Vary: Origin`); otherwise send no CORS headers. Never reflect the header, never allow `null`, and avoid substring or regex checks that also match hosts like `evil-example.com`.",

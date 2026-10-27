@@ -49,13 +49,13 @@ describe("scanLocalWeb rule stats", () => {
   it("counts the pages and responses each web rule really looked at", async () => {
     const server = await start(app);
     const output = await scanLocalWeb(targetFor(server.port), {});
-    // / , /files/ , /about are crawled; then the CORS probe, /.env and /.git/HEAD (404 answers
+    // / , /files/ , /about are crawled; then the CORS probe, the null-origin probe, /.env and /.git/HEAD (404 answers
     // still count as responses).
     expect(stat(output, "PG-WEB-005")).toMatchObject({
       area: WEB_AREA_ANONYMOUS,
       scope: "web",
       status: "completed",
-      targets: [{ unit: "responses", examined: 6, reason: null }],
+      targets: [{ unit: "responses", examined: 7, reason: null }],
       findings: 1,
     });
     expect(stat(output, "PG-WEB-011")).toMatchObject({
