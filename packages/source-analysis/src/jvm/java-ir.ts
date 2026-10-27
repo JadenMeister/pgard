@@ -10,6 +10,7 @@ import type {
   Unit,
 } from "./ir.js";
 import { SQL_CALL_TEXT } from "./jvm-names.js";
+import { OS_CALL_TEXT } from "./os-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
 /** Deepest nesting the converter follows; deeper code makes the unit `incomplete`. */
@@ -87,6 +88,7 @@ export function convertJava(ast: AstResult): Unit {
       supers: [],
     },
     imports: [],
+    aliases: new Map(),
     incomplete: false,
     unsupported: [],
   };
@@ -219,7 +221,10 @@ export function convertJava(ast: AstResult): Unit {
         const type = named(node, "type");
         const { args } = callArgs(named(node, "arguments"), depth);
         const body = ofType(node, "class_body");
-        if (body !== undefined && SQL_CALL_TEXT.test(text(body))) {
+        if (
+          body !== undefined &&
+          (SQL_CALL_TEXT.test(text(body)) || OS_CALL_TEXT.test(text(body)))
+        ) {
           unit.unsupported.push("anonymous class");
         }
         return { k: "new", line, type: type === undefined ? "" : text(type), args };
@@ -303,6 +308,9 @@ export function convertJava(ast: AstResult): Unit {
         // `sb::append`: the receiver is used, and can be changed through the reference.
         return other(node, depth);
       default:
+        if (node.type === "true" || node.type === "false") {
+          return { k: "lit", line, raw: node.type };
+        }
         if (LITERAL_TYPES.has(node.type)) return { k: "lit", line };
         return other(node, depth);
     }
@@ -590,7 +598,9 @@ export function convertJava(ast: AstResult): Unit {
       default:
         // Local classes, records, enums and interfaces are not followed.
         if (CLASS_KINDS.has(node.type) || node.type === "local_class_declaration") {
-          if (SQL_CALL_TEXT.test(text(node))) unit.unsupported.push("local class");
+          if (SQL_CALL_TEXT.test(text(node)) || OS_CALL_TEXT.test(text(node))) {
+            unit.unsupported.push("local class");
+          }
         }
         return [];
     }

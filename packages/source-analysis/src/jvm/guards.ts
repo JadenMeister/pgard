@@ -101,6 +101,106 @@ function allowed(term: string): string[] {
   return [];
 }
 
+// ------------------------------------------------------------------ path guards
+
+/** A name that a path check covers. `needsCanon`: only counts when the value was canonicalized. */
+export interface PathGuard {
+  name: string;
+  needsCanon: boolean;
+}
+
+const CANON_CALL =
+  /\.(?:normalize|toRealPath|getCanonicalPath|getCanonicalFile|canonicalPath|canonicalFile)\b/;
+const DOT_DOT_CONTAINS = new RegExp(
+  `^(${IDENT})\\.contains\\(\\s*"(?:\\.\\./?|\\.\\.\\\\\\\\|/|\\\\\\\\)"\\s*\\)$`,
+);
+const NOT_DOT_DOT_CONTAINS = new RegExp(`^!\\s*${DOT_DOT_CONTAINS.source.slice(1)}`);
+const PLAIN_CHAIN = /^[A-Za-z_]\w*(?:\.\w+(?:\(\))?)*$/;
+const NOT_NAMES = new Set(["new", "this", "super", "true", "false", "null", "it"]);
+
+/** Identifiers in `text` that are variables: not members (after a dot), not calls, not types. */
+function variableNames(text: string): string[] {
+  const bare = text.replace(/"(?:[^"\\]|\\.)*"/g, '""');
+  const out: string[] = [];
+  for (const match of bare.matchAll(/(?<![.\w])([A-Za-z_]\w*)(?!\w)(?!\s*\()/g)) {
+    const name = match[1] as string;
+    if (NOT_NAMES.has(name) || /^[A-Z]/.test(name)) continue;
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** `<path>.startsWith(<base>)` is a guard when `<path>` was resolved (`normalize()`, real path). */
+function startsWithGuard(value: string): PathGuard[] {
+  const at = value.lastIndexOf(".startsWith(");
+  if (at <= 0) return [];
+  const call = value.slice(at + ".startsWith".length);
+  if (!call.startsWith("(") || !closesAtEnd(call)) return [];
+  const receiver = value.slice(0, at).trim();
+  if (CANON_CALL.test(receiver)) {
+    return variableNames(receiver).map((name) => ({ name, needsCanon: false }));
+  }
+  // `p.startsWith(base)` on a value that was resolved when it was made: checked against its value.
+  if (PLAIN_CHAIN.test(receiver)) {
+    const root = /^[A-Za-z_]\w*/.exec(receiver)?.[0] as string;
+    return [{ name: root, needsCanon: true }];
+  }
+  return [];
+}
+
+/** Names x for which `term` being true means x passed a path check. */
+function pathAllowed(term: string): PathGuard[] {
+  const value = unwrap(term);
+  let match: RegExpExecArray | null;
+  if ((match = NOT_DOT_DOT_CONTAINS.exec(value))) {
+    return [{ name: match[1] as string, needsCanon: false }];
+  }
+  if (value.startsWith("!")) return [];
+  return startsWithGuard(value);
+}
+
+/** Names for which `term` being false means the same. */
+function pathRejected(term: string): PathGuard[] {
+  const value = unwrap(term);
+  if (value.startsWith("!") && !value.startsWith("!="))
+    return startsWithGuard(unwrap(value.slice(1)));
+  const match = DOT_DOT_CONTAINS.exec(value);
+  return match === null ? [] : [{ name: match[1] as string, needsCanon: false }];
+}
+
+const intersectGuards = (lists: PathGuard[][]): PathGuard[] => {
+  const [first, ...rest] = lists;
+  if (first === undefined) return [];
+  return first
+    .filter((guard) => rest.every((list) => list.some((other) => other.name === guard.name)))
+    .map((guard) => ({
+      name: guard.name,
+      needsCanon:
+        guard.needsCanon ||
+        rest.some((list) => list.find((o) => o.name === guard.name)?.needsCanon),
+    }));
+};
+
+/** Path checks that passed whenever `condition` is true. */
+export function pathGuardedWhenTrue(condition: string): PathGuard[] {
+  const value = unwrap(condition);
+  const either = splitTop(value, "||");
+  if (either.length > 1) return intersectGuards(either.map(pathGuardedWhenTrue));
+  const all = splitTop(value, "&&");
+  if (all.length > 1) return all.flatMap(pathGuardedWhenTrue);
+  return pathAllowed(value);
+}
+
+/** Path checks that passed whenever `condition` is false. */
+export function pathGuardedWhenFalse(condition: string): PathGuard[] {
+  const value = unwrap(condition);
+  const all = splitTop(value, "&&");
+  if (all.length > 1) return intersectGuards(all.map(pathGuardedWhenFalse));
+  const either = splitTop(value, "||");
+  if (either.length > 1) return either.flatMap(pathGuardedWhenFalse);
+  return pathRejected(value);
+}
+
 /** Names for which `term` being false means the same. */
 function rejected(term: string): string[] {
   const value = unwrap(term);

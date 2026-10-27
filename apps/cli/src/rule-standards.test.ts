@@ -132,7 +132,10 @@ describe("rule references against bundled standards data", () => {
     expect(certs).toEqual({
       "PG-CMD-001": ["IDS07-J via CWE-78"],
       "PG-CMD-002": ["IDS07-J via CWE-78"],
+      // IDS07-J and FIO16-J are about Runtime.exec and path canonicalization themselves.
+      "PG-CMD-003": ["IDS07-J"],
       "PG-CRYPTO-002": ["MSC03-J via CWE-798"],
+      "PG-PATH-002": ["FIO16-J"],
       "PG-SECRET-001": ["MSC03-J via CWE-798"],
       "PG-SECRET-002": ["MSC03-J via CWE-798"],
       "PG-SECRET-003": ["MSC03-J via CWE-798"],
@@ -153,7 +156,7 @@ describe("rule references against bundled standards data", () => {
         expect(example.vulnerable.length, rule.id).toBeGreaterThan(0);
       }
     }
-    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(17);
+    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(19);
   });
 
   it("survives output redaction unchanged: findings carry impact and recommendation through redactEvidence", () => {

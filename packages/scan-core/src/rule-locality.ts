@@ -41,6 +41,16 @@ export const RULE_LOCALITY: Readonly<Record<string, RuleLocalityEntry>> = {
     reason:
       "Intra-procedural analysis of one Java or Kotlin file (or one MyBatis mapper XML file); constants are resolved inside the file only, never across files.",
   },
+  "PG-CMD-003": {
+    locality: "file-local",
+    reason:
+      "Intra-procedural analysis of one Java or Kotlin file; constants are resolved inside the file only, never across files.",
+  },
+  "PG-PATH-002": {
+    locality: "file-local",
+    reason:
+      "Intra-procedural analysis of one Java or Kotlin file; constants and path conversions are resolved inside the file only, never across files.",
+  },
   "PG-XSS-001": { locality: "file-local", reason: LOCAL },
   "PG-XSS-002": { locality: "file-local", reason: LOCAL },
   "PG-XSS-003": { locality: "file-local", reason: LOCAL },

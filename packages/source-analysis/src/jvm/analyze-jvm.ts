@@ -3,8 +3,9 @@ import type { RawSourceFinding } from "../finding-factory.js";
 import { annotationFindings } from "./annotation-rules.js";
 import { convertJava } from "./java-ir.js";
 import { convertKotlin } from "./kotlin-ir.js";
-import { analyzeSql, type SqlFinding } from "./sql-engine.js";
+import { analyzeSql, type FlowFinding } from "./sql-engine.js";
 import { MYBATIS_PROVIDERS, UNSUPPORTED_LIBRARIES } from "./jvm-names.js";
+import { PROCESS_AND_FILE_LIBRARIES } from "./os-names.js";
 import { toAst } from "./tree.js";
 
 export { analyzeMybatisXml, type MybatisAnalysis } from "./mybatis-xml.js";
@@ -21,9 +22,23 @@ export interface JvmAnalysis {
   unsupportedForms: string[];
   /** Imported libraries with their own SQL APIs (jOOQ, Exposed, Room, MyBatis providers). */
   unsupportedLibraries: string[];
+  /** Imported libraries that run processes or open files with their own API (zt-exec, Okio, ...). */
+  unsupportedOsLibraries: Array<{ label: string; kind: "process" | "file" }>;
 }
 
 const IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
+
+const IMPORT_ALIAS = /^\s*import\s+([\w.]+)\s+as\s+(\w+)/gm;
+
+/** Kotlin import aliases: the name used in the file -> the class it stands for. */
+export function importAliasesOf(source: string): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const match of source.matchAll(IMPORT_ALIAS)) {
+    const real = (match[1] as string).slice((match[1] as string).lastIndexOf(".") + 1);
+    out.set(match[2] as string, real);
+  }
+  return out;
+}
 
 /** The imports of a file, as written (`java.sql.Statement`, `org.springframework.jdbc.core.*`). */
 export function importsOf(source: string): string[] {
@@ -33,7 +48,7 @@ export function importsOf(source: string): string[] {
 }
 
 /** Strongest first: request input, then untraced, then inferred; then severity. */
-const strength = (finding: SqlFinding): number =>
+const strength = (finding: FlowFinding): number =>
   ({ high: 30, medium: 20, low: 10 })[finding.confidence] +
   ({ critical: 4, high: 3, medium: 2, low: 1, info: 0 } as Record<string, number>)[
     finding.severity
@@ -53,24 +68,38 @@ export function analyzeJvmTree(
   const ast = toAst(root, source);
   const unit = language === "java" ? convertJava(ast) : convertKotlin(ast);
   unit.imports = importsOf(source);
+  unit.aliases = importAliasesOf(source);
   const sql = analyzeSql(unit);
-  const all: SqlFinding[] = [...sql.findings, ...annotationFindings(unit)];
-  // One finding per line and cause: the strongest. The cap then keeps the strongest findings,
-  // so a flood of weak ones can never push a real one out.
-  all.sort((a, b) => strength(b) - strength(a) || a.line - b.line);
-  const seen = new Set<string>();
-  const unique: SqlFinding[] = [];
-  for (const finding of all) {
-    const key = `${finding.line}:${finding.cause}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(finding);
+  const all: FlowFinding[] = [
+    ...sql.findings,
+    ...annotationFindings(unit).map((finding): FlowFinding => ({
+      ...finding,
+      ruleId: "PG-SQL-005",
+    })),
+  ];
+  // Per rule: one finding per line and cause (the strongest), then the cap keeps the strongest
+  // findings, so a flood of weak ones can never push out a real one, nor one rule another's.
+  const byRule = new Map<FlowFinding["ruleId"], FlowFinding[]>();
+  for (const finding of all)
+    byRule.set(finding.ruleId, [...(byRule.get(finding.ruleId) ?? []), finding]);
+  let capped = false;
+  const kept: FlowFinding[] = [];
+  for (const group of byRule.values()) {
+    group.sort((a, b) => strength(b) - strength(a) || a.line - b.line);
+    const seen = new Set<string>();
+    const unique: FlowFinding[] = [];
+    for (const finding of group) {
+      const key = `${finding.line}:${finding.cause}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(finding);
+    }
+    if (unique.length > MAX_JVM_FINDINGS_PER_FILE) capped = true;
+    kept.push(...unique.slice(0, MAX_JVM_FINDINGS_PER_FILE));
   }
-  const capped = unique.length > MAX_JVM_FINDINGS_PER_FILE;
-  const findings = unique
-    .slice(0, MAX_JVM_FINDINGS_PER_FILE)
+  const findings = kept
     .sort((a, b) => a.line - b.line)
-    .map((finding): RawSourceFinding => ({ ruleId: "PG-SQL-005", path, ...finding }));
+    .map((finding): RawSourceFinding => ({ path, ...finding }));
   // Libraries with their own SQL APIs, and forms not followed, make the coverage partial.
   const libraries = UNSUPPORTED_LIBRARIES.filter((library) =>
     unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),
@@ -88,5 +117,8 @@ export function analyzeJvmTree(
     capped,
     unsupportedForms: sql.unsupported,
     unsupportedLibraries: [...new Set(libraries)],
+    unsupportedOsLibraries: PROCESS_AND_FILE_LIBRARIES.filter((library) =>
+      unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),
+    ).map(({ label, kind }) => ({ label, kind })),
   };
 }
