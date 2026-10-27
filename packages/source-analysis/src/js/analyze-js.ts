@@ -1264,19 +1264,25 @@ export function analyzeJsSource(
   /** Names of destructured handler parameters that carry request data: `({ body }) => ...`. */
   const requestAliases = new Set<string>();
   const reassigned = new Set<string>();
+  /** Plain `name = value` assignments per name, to treat `let v; v = req.body.pw` as a single binding. */
+  const plainAssignments = new Map<string, ts.Expression[]>();
+  const writeCounts = new Map<string, number>();
   /** Marks every identifier a write target names: `x =`, `[x] =`, `({ a, b: c = 1 } =`, `for (x of`. */
   const markWrite = (target: ts.Node): void => {
     const node = ts.isExpression(target) ? unwrap(target) : target;
     if (ts.isIdentifier(node)) {
       reassigned.add(node.text);
+      writeCounts.set(node.text, (writeCounts.get(node.text) ?? 0) + 1);
     } else if (ts.isArrayLiteralExpression(node)) {
       for (const element of node.elements)
         markWrite(ts.isSpreadElement(element) ? element.expression : element);
     } else if (ts.isObjectLiteralExpression(node)) {
       for (const property of node.properties) {
         if (ts.isPropertyAssignment(property)) markWrite(property.initializer);
-        else if (ts.isShorthandPropertyAssignment(property)) reassigned.add(property.name.text);
-        else if (ts.isSpreadAssignment(property)) markWrite(property.expression);
+        else if (ts.isShorthandPropertyAssignment(property)) {
+          reassigned.add(property.name.text);
+          writeCounts.set(property.name.text, (writeCounts.get(property.name.text) ?? 0) + 1);
+        } else if (ts.isSpreadAssignment(property)) markWrite(property.expression);
       }
     } else if (
       ts.isBinaryExpression(node) &&
@@ -1292,6 +1298,12 @@ export function analyzeJsSource(
       node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
     ) {
       markWrite(node.left);
+      const target = unwrap(node.left);
+      if (node.operatorToken.kind === ts.SyntaxKind.EqualsToken && ts.isIdentifier(target)) {
+        const list = plainAssignments.get(target.text) ?? [];
+        list.push(node.right);
+        plainAssignments.set(target.text, list);
+      }
     } else if (
       (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
       (node.operator === ts.SyntaxKind.PlusPlusToken ||
@@ -1319,9 +1331,20 @@ export function analyzeJsSource(
         node.initializer !== undefined &&
         ts.isVariableDeclarationList(node.parent) &&
         ((node.parent.flags & ts.NodeFlags.Const) !== 0 || !reassigned.has(node.name.text));
+      // `let v; v = req.body.pw`: no initialiser and exactly one write, a plain assignment.
+      const soleAssignment =
+        node.initializer === undefined &&
+        ts.isVariableDeclarationList(node.parent) &&
+        !ts.isForInStatement(node.parent.parent) &&
+        !ts.isForOfStatement(node.parent.parent) &&
+        writeCounts.get(node.name.text) === 1 &&
+        plainAssignments.get(node.name.text)?.length === 1
+          ? plainAssignments.get(node.name.text)?.[0]
+          : undefined;
       const list = constInits.get(node.name.text) ?? [];
       // Reassigned `let`/`var` bindings: two entries make the name ambiguous.
       if (isConstLike && node.initializer) list.push(node.initializer);
+      else if (soleAssignment) list.push(soleAssignment);
       else list.push(node.name, node.name);
       constInits.set(node.name.text, list);
     } else if (ts.isVariableDeclaration(node) && node.initializer) {
@@ -2287,6 +2310,18 @@ export function analyzeJsSource(
     return result;
   };
 
+  /** `sameSite: "strict"` written as a literal or a sole same-file const; inferred values never count. */
+  const isStrictSameSite = (value: ts.Expression | undefined, depth = 0): boolean => {
+    if (!value || depth > 3) return false;
+    const inner = unwrap(value);
+    if (ts.isStringLiteralLike(inner)) return inner.text.toLowerCase() === "strict";
+    if (ts.isIdentifier(inner)) {
+      const init = singleConst(inner.text);
+      return init ? isStrictSameSite(init, depth + 1) : false;
+    }
+    return false;
+  };
+
   const isNextCookieStore = (expression: ts.Expression, depth: number): boolean => {
     if (depth > 3) return false;
     const node = unwrap(expression);
@@ -2668,11 +2703,7 @@ export function analyzeJsSource(
     const sameSite = cookieOptions?.get("sameSite");
     if (!sameSite || sameSite.kind === ts.SyntaxKind.FalseKeyword) missing.push("sameSite");
     // SameSite=Strict keeps the session cookie off every cross-site request, so it is not CSRF-able.
-    const isStrict =
-      sameSite !== undefined &&
-      ts.isStringLiteralLike(unwrap(sameSite)) &&
-      (unwrap(sameSite) as ts.StringLiteral).text.toLowerCase() === "strict";
-    if (isStrict) facts.strictSession = true;
+    if (isStrictSameSite(sameSite)) facts.strictSession = true;
     else facts.usesCookieSession = true;
     if (missing.length > 0) {
       report(
@@ -2782,13 +2813,19 @@ export function analyzeJsSource(
       nameNode && ts.isStringLiteralLike(nameNode)
         ? nameNode.text
         : (nameNode?.getText(sourceFile).slice(0, 80) ?? "");
-    const nameWords = identifierWords(nameText.replace(/^__(host|secure)-/i, ""));
-    const isStrongName =
-      /connect\.sid/i.test(nameText) || nameWords.some((word) => SESSION_NAME_WORDS.has(word));
+    // csrf/xsrf cookies are readable by script on purpose: neither a session nor missing httpOnly.
+    if (/[cx]srf/i.test(nameText)) return;
+    const nameWords = identifierWords(nameText);
+    const isStrongName = nameWords.some((word) => SESSION_NAME_WORDS.has(word));
     const isWeakName = !isStrongName && nameWords.some((word) => WEAK_NAME_WORDS.has(word));
     const isSessionLike = isStrongName || isWeakName;
-    // A hand-rolled session cookie is a cookie session for PG-CSRF-001.
-    if (isStrongName) facts.usesCookieSession = true;
+    // A hand-rolled session cookie is a cookie session for PG-CSRF-001, unless it is resolved
+    // SameSite=Strict (never sent cross-site). Anything not resolved syntactically still counts.
+    if (isStrongName) {
+      const sameSiteValue = options ? resolveOptions(options, 0)?.get("sameSite") : undefined;
+      if (isStrictSameSite(sameSiteValue)) facts.strictSession = true;
+      else facts.usesCookieSession = true;
+    }
     // A cookie with a non-session name still counts when it carries a session or token value.
     const valueNode = cookieValue ? unwrap(cookieValue) : undefined;
     const carriesToken =

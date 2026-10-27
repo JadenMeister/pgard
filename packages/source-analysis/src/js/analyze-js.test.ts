@@ -835,6 +835,12 @@ describe("PG-AUTH-001 request-derived identifiers", () => {
     expect(create("const { password: v } = req.body;")).toEqual(["PG-AUTH-001"]);
     expect(create("const { newPass: v } = req.body;")).toEqual(["PG-AUTH-001"]);
     expect(create("let v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    expect(create("let v; v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    expect(create("var v; v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
+    // Two writes, a compound write or a loop binding are not a single assignment.
+    expect(create("let v; v = req.body.pw; v = hash(v);")).toEqual([]);
+    expect(create("let v; v += req.body.pw;")).toEqual([]);
+    expect(create("let v; for (v of req.body.list) {}")).toEqual([]);
     expect(create("const v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
     expect(
       rulesIn(
@@ -858,6 +864,17 @@ describe("PG-AUTH-001 request-derived identifiers", () => {
     expect(create("const v = secure(req.body.pw);")).toEqual([]);
     expect(create("const { pw: v } = await lookup(req);")).toEqual([]);
     expect(create("const { v } = config;")).toEqual([]);
+    // A name bound by destructuring in two places is ambiguous, so it is not proven plain.
+    expect(
+      rulesIn(
+        "async function a(req) { const { code } = req.body; } async function b(x) { const { code } = x(); await User.create({ password: code }); }",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "async function a(req) { const { code } = req.body; await User.create({ password: code }); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
     // A property of a call result is not a request value either.
     expect(
       rulesIn("async function f() { await Backup.create({ password: getUser().password }); }"),
@@ -902,6 +919,42 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
     expect(analyzeJsSource("res.cookie('theme', v, {});", "s.js").facts.usesCookieSession).toBe(
       false,
     );
+  });
+
+  it("does not mark a weak-named cookie as a cookie session", () => {
+    expect(
+      analyzeJsSource("res.cookie('user_prefs', v, {});", "s.js").facts.usesCookieSession,
+    ).toBe(false);
+    expect(analyzeJsSource("res.cookie('uid', v, {});", "s.js").facts.usesCookieSession).toBe(
+      false,
+    );
+  });
+
+  it("treats a resolved SameSite=Strict strong-named cookie as strict, not a cookie session", () => {
+    const facts = (code: string) => analyzeJsSource(code, "s.js").facts;
+    const strict = facts("res.cookie('refresh_token', v, { sameSite: 'Strict' });");
+    expect(strict.strictSession).toBe(true);
+    expect(strict.usesCookieSession).toBe(false);
+    const viaConst = facts("const S = 'strict'; res.cookie('sid', v, { sameSite: S });");
+    expect(viaConst.usesCookieSession).toBe(false);
+    // Not resolvable, or not strict: still a cookie session.
+    expect(facts("res.cookie('sid', v, { sameSite: pick() });").usesCookieSession).toBe(true);
+    expect(facts("res.cookie('sid', v, { sameSite: 'lax' });").usesCookieSession).toBe(true);
+    expect(facts("res.cookie('sid', v, {});").usesCookieSession).toBe(true);
+  });
+
+  it("ignores csrf and xsrf cookies entirely", () => {
+    for (const name of ["csrf_token", "XSRF-TOKEN", "csrfToken", "_csrf", "__Host-csrf"]) {
+      const result = analyzeJsSource(`res.cookie('${name}', v, {});`, "s.js");
+      expect(result.findings, name).toEqual([]);
+      expect(result.facts.usesCookieSession, name).toBe(false);
+    }
+  });
+
+  it("recognises prefixed and connect.sid cookie names through identifier words", () => {
+    for (const name of ["__Host-session", "__Secure-sid", "connect.sid"])
+      expect(rulesIn(`res.cookie('${name}', v);`), name).toEqual(["PG-COOKIE-001"]);
+    expect(rulesIn("res.cookie('__Host-theme', v);")).toEqual([]);
   });
 
   it("resolves sameSite and cookie options held in consts for express-session", () => {

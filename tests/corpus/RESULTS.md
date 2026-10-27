@@ -18,28 +18,28 @@ medium and high confidence findings, on every sample.
 
 ## Source rules (scanSourceCode)
 
-395 samples.
+405 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-SQL-001 | 17 | 0 | 0 | 378 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-002 | 12 | 0 | 0 | 383 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-003 | 13 | 0 | 0 | 382 | 100.0% | 100.0% | 100.0% |
-| PG-SQL-004 | 5 | 0 | 0 | 390 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-001 | 21 | 0 | 0 | 374 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-002 | 9 | 0 | 0 | 386 | 100.0% | 100.0% | 100.0% |
-| PG-XSS-003 | 8 | 0 | 0 | 387 | 100.0% | 100.0% | 100.0% |
-| PG-SSRF-001 | 26 | 0 | 0 | 369 | 100.0% | 100.0% | 100.0% |
-| PG-CMD-001 | 15 | 0 | 0 | 380 | 100.0% | 100.0% | 100.0% |
-| PG-CMD-002 | 12 | 0 | 0 | 383 | 100.0% | 100.0% | 100.0% |
-| PG-PATH-001 | 18 | 0 | 0 | 377 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-001 | 9 | 0 | 0 | 386 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-002 | 10 | 0 | 0 | 385 | 100.0% | 100.0% | 100.0% |
-| PG-CRYPTO-003 | 9 | 0 | 0 | 386 | 100.0% | 100.0% | 100.0% |
-| PG-AUTH-001 | 15 | 0 | 2 | 378 | 100.0% | 88.2% | 100.0% |
-| PG-COOKIE-001 | 16 | 0 | 2 | 377 | 100.0% | 88.9% | 100.0% |
-| PG-CSRF-001 | 13 | 0 | 0 | 382 | 100.0% | 100.0% | n/a |
-| PG-BRUTE-001 | 6 | 0 | 0 | 389 | 100.0% | 100.0% | n/a |
+| PG-SQL-001 | 17 | 0 | 0 | 388 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-002 | 12 | 0 | 0 | 393 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-003 | 13 | 0 | 0 | 392 | 100.0% | 100.0% | 100.0% |
+| PG-SQL-004 | 5 | 0 | 0 | 400 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-001 | 21 | 0 | 0 | 384 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-002 | 9 | 0 | 0 | 396 | 100.0% | 100.0% | 100.0% |
+| PG-XSS-003 | 8 | 0 | 0 | 397 | 100.0% | 100.0% | 100.0% |
+| PG-SSRF-001 | 26 | 0 | 0 | 379 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-001 | 15 | 0 | 0 | 390 | 100.0% | 100.0% | 100.0% |
+| PG-CMD-002 | 12 | 0 | 0 | 393 | 100.0% | 100.0% | 100.0% |
+| PG-PATH-001 | 18 | 0 | 0 | 387 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-001 | 9 | 0 | 0 | 396 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-002 | 10 | 0 | 0 | 395 | 100.0% | 100.0% | 100.0% |
+| PG-CRYPTO-003 | 9 | 0 | 0 | 396 | 100.0% | 100.0% | 100.0% |
+| PG-AUTH-001 | 17 | 2 | 2 | 384 | 89.5% | 89.5% | 93.3% |
+| PG-COOKIE-001 | 16 | 0 | 3 | 386 | 100.0% | 84.2% | 100.0% |
+| PG-CSRF-001 | 13 | 0 | 1 | 391 | 100.0% | 92.9% | n/a |
+| PG-BRUTE-001 | 6 | 0 | 0 | 399 | 100.0% | 100.0% | n/a |
 
 ## History rules (scanGitHistory on generated git repositories)
 
@@ -79,9 +79,13 @@ reason; fixing a rule should remove its entry here and raise its threshold.
 
 | Rule | Kind | Sample | Reason |
 | --- | --- | --- | --- |
+| PG-AUTH-001 | false positive (FP) | `PG-AUTH-001/negative/followup-destructure-from-call.js` | a password-named binding destructured from a call result is treated as plain |
+| PG-AUTH-001 | false positive (FP) | `PG-AUTH-001/negative/followup-let-reassigned-hash.js` | a destructured let reassigned from a hashing helper is still treated as the plain request password |
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-mysql-set-object.js` | mysql "SET ?" with an object of column values is not parsed |
 | PG-AUTH-001 | miss (FN) | `PG-AUTH-001/positive/heldout2-pgp-named-placeholders.js` | pg-promise ${name} placeholders with db.none are not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-fastify-reply-setcookie.js` | Fastify reply.setCookie() is not recognised |
 | PG-COOKIE-001 | miss (FN) | `PG-COOKIE-001/positive/heldout2-raw-set-cookie-header.js` | a raw Set-Cookie header string is not parsed |
+| PG-COOKIE-001 | miss (FN) | `PG-CSRF-001/positive/followup-koa-session-router-post.js` | koa-session default cookie options are not judged |
+| PG-CSRF-001 | miss (FN) | `PG-CSRF-001/positive/followup-koa-session-router-post.js` | koa-session is not recognised as a cookie session |
 | PG-WEB-009 | miss (FN) | `web/cors-null-origin-with-credentials` | the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected |
 
