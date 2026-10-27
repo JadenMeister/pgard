@@ -11,10 +11,10 @@ export interface PhpFileAnalysis {
   incomplete: boolean;
   /** The per-file finding cap was reached. */
   capped: boolean;
-  /** Code forms with SQL-looking text that are not followed (dynamic calls). */
+  /** Dynamic calls given non-constant data that are not followed. */
   unsupportedForms: string[];
   /** Libraries with their own SQL or process APIs, which are not supported. */
-  unsupportedLibraries: Array<{ label: string; kind: "sql" | "process" }>;
+  unsupportedLibraries: Array<{ label: string; kind: "sql" | "process"; detail?: string }>;
 }
 
 /** Strongest first: request input, then untraced, then inferred; then severity. */

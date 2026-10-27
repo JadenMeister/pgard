@@ -404,6 +404,29 @@ const SQL: Case[] = [
     expected: "suspected",
   },
   {
+    name: "WordPress table prefix is demoted with its own reason",
+    params: "$wpdb",
+    body: `$wpdb->query("DELETE FROM {$wpdb->prefix}logs");`,
+    expected: "inferred",
+  },
+  {
+    name: "wpdb get_results with request input",
+    params: "$wpdb",
+    body: `$wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE a = '" . $_GET['a'] . "'");`,
+    expected: "confirmed",
+  },
+  {
+    name: "wpdb get_results with only the table prefix is demoted",
+    params: "$wpdb",
+    body: `$wpdb->get_results("SELECT * FROM {$wpdb->prefix}posts WHERE status = 'publish'");`,
+    expected: "inferred",
+  },
+  {
+    name: "a (string) cast of request input into SQL is still reported",
+    body: `mysqli_query($conn, "SELECT * FROM t WHERE a = '" . (string) $_GET['a'] . "'");`,
+    expected: "confirmed",
+  },
+  {
     name: "array_map intval then implode is fixed safe",
     body: `$ids = implode(',', array_map('intval', $_GET['ids']));\nmysqli_query($conn, "SELECT * FROM t WHERE id IN ($ids)");`,
     expected: "none",
@@ -526,15 +549,41 @@ const CMD: Case[] = [
     rule: "PG-CMD-005",
   },
   {
-    name: "array-form Process with a constant program is safe",
+    name: "array-form Process with a fixed program reports argument injection",
     body: `$p = new Process(['git', 'log', $_GET['ref']]);`,
+    expected: "suspected",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "array-form Process with an all-constant array is safe",
+    body: `$p = new Process(['git', 'log', '--oneline']);`,
     expected: "none",
     rule: "PG-CMD-005",
   },
   {
-    name: "array-form proc_open with a constant program is safe",
+    name: "request input after the option separator is low",
+    body: `$p = new Process(['git', 'log', '--end-of-options', $_GET['ref'], '--']);`,
+    expected: "inferred",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "Laravel Process::run array with request input",
+    params: "Request $request",
+    body: `Process::run(['git', 'checkout', $request->input('branch')]);`,
+    expected: "suspected",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "Process array with a path from a request bag",
+    params: "Request $request",
+    body: `$p = new Process(['convert', $request->files->get('img')->getPathname(), 'out.png']);`,
+    expected: "suspected",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "array-form proc_open with a fixed program reports argument injection",
     body: `proc_open(['ls', '-la', $_GET['d']], $d, $pipes);`,
-    expected: "none",
+    expected: "suspected",
     rule: "PG-CMD-005",
   },
   {
@@ -544,10 +593,76 @@ const CMD: Case[] = [
     rule: "PG-CMD-005",
   },
   {
-    name: "a bare parameter command is not guessed",
+    name: "a bare parameter reaching a command is reported low",
     params: "$cmd",
     body: `exec($cmd);`,
+    expected: "inferred",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "a bare value from an included file reaching a command",
+    body: `$config = require 'c.php';\nsystem($config['cmd']);`,
+    expected: "inferred",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "a bare inferred value is demoted, not dropped",
+    body: `system(escapeshellcmd($_GET['c']));`,
+    expected: "inferred",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "call_user_func with a literal callee is followed",
+    body: `call_user_func('system', $_GET['c']);`,
+    expected: "confirmed",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "call_user_func_array with a literal callee is followed",
+    body: `call_user_func_array('exec', [$_GET['c']]);`,
+    expected: "confirmed",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "a literal function name in a variable is followed",
+    body: `$f = 'exec';\n$f($_GET['c']);`,
+    expected: "confirmed",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "a function name that may change is not resolved",
+    body: `$f = 'exec';\nif ($x) { $f = 'strlen'; }\n$f($_GET['c']);`,
     expected: "none",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "check or a non-exiting right side is not a guard",
+    body: `$h = $_GET['h'];\nctype_alnum($h) or $x = 1;\nexec("ping -c 1 $h");`,
+    expected: "suspected",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "check or abort_if is not a guard",
+    body: `$h = $_GET['h'];\nctype_alnum($h) or abort_if($y, 404);\nexec("ping -c 1 $h");`,
+    expected: "suspected",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "abort_if in the failure branch does not exit unconditionally",
+    body: `$h = $_GET['h'];\nif (!ctype_alnum($h)) { abort_if($y, 404); }\nexec("ping -c 1 $h");`,
+    expected: "suspected",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "abort in the failure branch exits",
+    body: `$h = $_GET['h'];\nif (!ctype_alnum($h)) { abort(404); }\nexec("ping -c 1 $h");`,
+    expected: "inferred",
+    rule: "PG-CMD-005",
+  },
+  {
+    name: "a (string) cast is not a fixed cast",
+    body: `exec('ping ' . (string) $_GET['h']);`,
+    expected: "confirmed",
     rule: "PG-CMD-005",
   },
   {
@@ -659,7 +774,7 @@ describe("PHP analysis details", () => {
     const analysis = await run(
       `<?php\nfunction f($wpdb) { global $wpdb; $wpdb->get_results("SELECT 1"); }\n`,
     );
-    expect(analysis.unsupportedLibraries).toEqual([{ label: "WordPress wpdb", kind: "sql" }]);
+    expect(analysis.unsupportedLibraries).toMatchObject([{ label: "WordPress wpdb", kind: "sql" }]);
   });
 
   it("analyzes PHP embedded in HTML", async () => {
@@ -667,6 +782,42 @@ describe("PHP analysis details", () => {
       `<html><body><?php mysqli_query($c, "SELECT * FROM t WHERE a = " . $_GET['a']); ?></body></html>`,
     );
     expect(analysis.findings).toHaveLength(1);
+  });
+
+  it("reports argument injection at medium severity and confidence, low after a separator", async () => {
+    const before = await run(`<?php\nproc_open(['git', 'log', $_GET['ref']], $d, $p);\n`);
+    expect(before.findings[0]).toMatchObject({
+      ruleId: "PG-CMD-005",
+      severity: "medium",
+      confidence: "medium",
+      status: "suspected",
+    });
+    expect(before.findings[0]?.evidence).toContain("argument injection (fixed program, no shell)");
+    const after = await run(`<?php\nproc_open(['git', 'log', '--', $_GET['ref']], $d, $p);\n`);
+    expect(after.findings[0]).toMatchObject({ severity: "low", confidence: "low" });
+  });
+
+  it("keeps the demoted command severity at medium, and a bare value too", async () => {
+    const demoted = await run(`<?php\nexec('ping ' . escapeshellarg($_GET['h']));\n`);
+    expect(demoted.findings[0]).toMatchObject({ severity: "medium", confidence: "low" });
+    const bare = await run(`<?php\nfunction r($cmd) { system($cmd); }\n`);
+    expect(bare.findings[0]).toMatchObject({ severity: "medium", confidence: "low" });
+    expect(bare.findings[0]?.evidence).toContain("callers not followed");
+  });
+
+  it("marks unresolved dynamic calls with data as an unsupported form", async () => {
+    const hidden = await run(`<?php\nfunction f($fn) { $fn($_GET['c']); }\n`);
+    expect(hidden.unsupportedForms).toEqual(["dynamic calls"]);
+    const method = await run(`<?php\nfunction f($o, $m) { $o->$m($_GET['c']); }\n`);
+    expect(method.unsupportedForms).toEqual(["dynamic calls"]);
+    const fixed = await run(`<?php\nfunction f($fn) { $fn('x'); }\n`);
+    expect(fixed.unsupportedForms).toEqual([]);
+  });
+
+  it("says so when wrappers are nested too deeply to follow", async () => {
+    const deep = `${"(".repeat(70)}$_GET['c']${")".repeat(70)}`;
+    const analysis = await run(`<?php\nexec(${deep});\n`);
+    expect(analysis.incomplete).toBe(true);
   });
 
   it("keeps one finding per line and cause", async () => {

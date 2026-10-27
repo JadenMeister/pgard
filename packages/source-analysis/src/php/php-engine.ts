@@ -58,10 +58,10 @@ export interface PhpAnalysis {
   findings: PhpFinding[];
   /** Part of the file was not analyzed (nesting too deep, or the work budget ran out). */
   incomplete: boolean;
-  /** Dynamic calls (`$fn(...)`, `$o->$m(...)`, `call_user_func`) with SQL-looking text: not followed. */
+  /** Dynamic calls (`$fn(...)`, `$o->$m(...)`, `call_user_func`) given non-constant data that cannot be resolved: not followed. */
   unsupported: string[];
   /** Libraries with their own SQL or process APIs that the file uses. */
-  libraries: Array<{ label: string; kind: "sql" | "process" }>;
+  libraries: Array<{ label: string; kind: "sql" | "process"; detail?: string }>;
 }
 
 // ------------------------------------------------------------------ values
@@ -181,6 +181,9 @@ const isExpressionWrapper = new Set([
   "print_intrinsic",
 ]);
 
+/** Calls that always end the code that follows (`abort_if` only does when its condition holds). */
+const ALWAYS_EXIT = new Set(["exit", "die", "abort"]);
+
 const BOOL_OPERATORS = new Set([
   "==",
   "===",
@@ -234,9 +237,14 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
   };
   const unwrap = (node: AstNode): AstNode => {
     let current = node;
-    for (let i = 0; i < 50 && isExpressionWrapper.has(current.type); i += 1) {
+    for (let i = 0; isExpressionWrapper.has(current.type); i += 1) {
       const inner = named(current)[0];
       if (inner === undefined) break;
+      if (i >= 50) {
+        // Too many nested wrappers: stop here and say so, rather than lose a value silently.
+        incomplete = true;
+        break;
+      }
       current = inner;
     }
     return current;
@@ -539,10 +547,12 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     source?: Extract<Leaf, { k: "source" }>;
     helper?: string;
     reasons?: string[];
+    /** A bare value with no identified source (such as a parameter). */
+    bare?: boolean;
   }
 
   /** Classifies what reaches a sink; null when it is fixed (nothing to report). */
-  function judge(value: PV): Judged | null {
+  function judge(value: PV, allowBare = false): Judged | null {
     const dynamic = nonConst(value.leaves);
     if (dynamic.length === 0) return null;
     const tainted = sourcesOf(value.leaves);
@@ -567,8 +577,9 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       if (dynamic.every((leaf) => leaf.k === "inferred")) {
         return { kind: "inferred", shape, reasons: reasonsOf(dynamic) };
       }
-      // A bare parameter or variable says nothing about how the text was made.
-      return null;
+      // A bare parameter or variable says nothing about how the text was made: SQL leaves it
+      // alone, a command string does not.
+      return allowBare ? { kind: "unknown", shape, bare: true } : null;
     }
     if (tainted.length > 0) {
       return {
@@ -601,7 +612,9 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     judged.kind === "helper"
       ? `; value from ${judged.helper}, not followed; inferred`
       : judged.kind === "unknown"
-        ? " (no input source identified)"
+        ? judged.bare === true
+          ? "; a value with no identified source (such as a parameter) reaches it; callers not followed; inferred"
+          : " (no input source identified)"
         : `; ${(judged.reasons ?? []).join("; ")}; inferred`;
 
   function reportSql(value: PV | undefined, line: number, label: string): void {
@@ -645,7 +658,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     scope: "string" | "program",
   ): void {
     if (value === undefined) return;
-    const judged = judge(value);
+    const judged = judge(value, true);
     if (judged === null) return;
     const detail = scope === "program" ? `${sink} (program)` : sink;
     const cause = `${sink}:${scope}`;
@@ -679,7 +692,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     );
   }
 
-  /** `proc_open([...])` and `new Process([...])`: no shell, so only a program from data or a shell wrapper counts. */
+  /** `proc_open([...])` and `new Process([...])`: no shell; a program from data, a shell wrapper or an argument from data counts. */
   function reportArrayCommand(value: PV, line: number, sink: string): void {
     const elems = value.elems;
     if (elems === null && hasDynamic(value)) {
@@ -708,7 +721,10 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       .replace(/^.*[\\/]/, "")
       .replace(/\.exe$/i, "")
       .toLowerCase();
-    if (!SHELL_PROGRAMS.has(name)) return;
+    if (!SHELL_PROGRAMS.has(name)) {
+      reportArguments(elems, line, sink);
+      return;
+    }
     for (let i = 1; i < elems.length - 1; i += 1) {
       const flag = elems[i] as PV;
       if (hasDynamic(flag)) continue;
@@ -728,6 +744,67 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
         return;
       }
     }
+    reportArguments(elems, line, sink);
+  }
+
+  /**
+   * An argument array with a fixed program starts no shell, but a value like `--output=x` is still
+   * read as an option (argument injection). Request input before an option separator (`--`,
+   * `--end-of-options`) is medium; after it, and anything not tied to request input, is low.
+   */
+  function reportArguments(elems: readonly PV[], line: number, sink: string): void {
+    let separated = false;
+    let best: { finding: PhpFinding; rank: number } | null = null;
+    for (const [index, elem] of elems.entries()) {
+      if (index === 0) continue;
+      if (!hasDynamic(elem)) {
+        const fixed = literalText(elem.leaves).trim();
+        if (fixed === "--" || fixed === "--end-of-options") separated = true;
+        continue;
+      }
+      const judged = judge(elem, true);
+      if (judged === null) continue;
+      const cause = `${sink}:argument`;
+      let candidate: { finding: PhpFinding; rank: number };
+      if (judged.kind === "tainted" && judged.source !== undefined && !separated) {
+        const origin = judged.source;
+        candidate = {
+          finding: {
+            ruleId: "PG-CMD-005",
+            line,
+            severity: "medium",
+            status: "suspected",
+            confidence: "medium",
+            evidence: `request input (${origin.label})${origin.direct ? "" : " via variable"} -> command array -> ${sink}; argument injection (fixed program, no shell)`,
+            cause,
+          },
+          rank: 3,
+        };
+      } else {
+        const why =
+          judged.kind === "tainted"
+            ? separated
+              ? "request input after the option separator"
+              : "request input"
+            : lowReason(judged)
+                .replace(/^[;\s]+/, "")
+                .replace(/; inferred$/, "");
+        candidate = {
+          finding: {
+            ruleId: "PG-CMD-005",
+            line,
+            severity: "low",
+            status: "suspected",
+            confidence: "low",
+            evidence: `command array -> ${sink}; ${why}; argument of a fixed program, no shell; inferred`,
+            cause,
+          },
+          rank: judged.kind === "tainted" ? 2 : 1,
+        };
+      }
+      if (best === null || candidate.rank > best.rank) best = candidate;
+    }
+    if (best !== null) record(best.finding, best.rank);
   }
 
   // ---------------------------------------------------------------- calls
@@ -770,23 +847,46 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     return pv([{ k: "unknown", name: `${name}()` }], { opaque: carries ? `${name}()` : "" });
   }
 
+  /** A call whose target is not known and which is given non-constant data: not followed. */
   const dynamicCall = (args: readonly Arg[]): void => {
-    if (args.some((arg) => arg.value.composed && SQL_TEXT.test(literalText(arg.value.leaves)))) {
-      unsupported.add("dynamic calls");
-    }
+    if (args.some((arg) => hasDynamic(arg.value))) unsupported.add("dynamic calls");
   };
 
-  function functionCall(node: AstNode, env: Env, ctx: Ctx, depth: number): PV {
+  /** A function name held in a variable as a single literal (`$f = 'exec'`), if it is one. */
+  function literalCallee(value: PV): string | null {
+    if (value.leaves.length !== 1) return null;
+    const only = value.leaves[0] as Leaf;
+    if (only.k !== "const") return null;
+    const trimmed = only.text.trim();
+    return /^\\?[A-Za-z_][\w\\]*$/.test(trimmed) ? lastSegment(trimmed).toLowerCase() : null;
+  }
+
+  function functionCall(
+    node: AstNode,
+    env: Env,
+    ctx: Ctx,
+    depth: number,
+    /** `call_user_func('system', ...)`: the call it stands for. */
+    resolved?: { name: string; args: Arg[] },
+  ): PV {
     const callee = field(node, "function");
     const line = node.line;
-    const name = calleeName(callee);
-    if (name === null) {
-      if (callee !== undefined) evaluate(callee, env, ctx, depth + 1);
-      const args = argsOf(node, env, ctx, depth);
-      dynamicCall(args);
-      return helperResult("call", args);
+    let name = resolved === undefined ? calleeName(callee) : resolved.name;
+    let args: Arg[];
+    if (resolved !== undefined) {
+      args = resolved.args;
+    } else if (name === null) {
+      const target = callee === undefined ? pv() : evaluate(callee, env, ctx, depth + 1);
+      args = argsOf(node, env, ctx, depth);
+      name = callee !== undefined && callee.type === "variable_name" ? literalCallee(target) : null;
+      if (name === null) {
+        dynamicCall(args);
+        return helperResult("call", args);
+      }
+    } else {
+      args = argsOf(node, env, ctx, depth);
     }
-    const args = argsOf(node, env, ctx, depth);
+    if (name === null) return helperResult("call", args);
     const arg0 = args[0]?.value;
 
     // SQL
@@ -881,7 +981,22 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       return constant("0");
     }
     if (name === "call_user_func" || name === "call_user_func_array") {
-      dynamicCall(args);
+      const target = args[0]?.value;
+      const callee = target !== undefined && !hasDynamic(target) ? literalCallee(target) : null;
+      if (callee !== null && resolved === undefined) {
+        const rest = args.slice(1);
+        const forwarded =
+          name === "call_user_func_array" && rest[0] !== undefined
+            ? (rest[0].value.elems ?? [rest[0].value]).map((value): Arg => ({
+                node: rest[0]!.node,
+                value,
+                name: null,
+                spread: false,
+              }))
+            : rest;
+        return functionCall(node, env, ctx, depth, { name: callee, args: forwarded });
+      }
+      dynamicCall(args.slice(1));
       return helperResult(name, args);
     }
     if (name === "define") return constant("0");
@@ -956,6 +1071,11 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       if (looksLikeDb(object, recv) || sqlText || rootIsDbFacade(object)) {
         reportSql(arg0, line, label);
       }
+      // `$wpdb->prepare('... %d', $x)` returns SQL text: fixed when its text is, otherwise
+      // already reported here and not reported again where it is used.
+      if (lower === "prepare") {
+        return hasDynamic(arg0) ? { ...unknown("prepare()"), raw: true } : constant("prepared");
+      }
       return unknown(`${name}()`);
     }
     if (SQL_FACADE_METHODS.has(lower) && arg0 !== undefined) {
@@ -968,7 +1088,16 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       return pv([], { db: true });
     }
     if (lower === "getrequest" && isThis(object)) return pv([], { req: true });
-    // Methods of a value that carries request input return something derived from it.
+    // Accessors of a value that carries request input (`->getPathname()`, `->first()`) return
+    // that input; any other method returns something derived from it that is not followed.
+    if (
+      sourcesOf(recv.leaves).length > 0 &&
+      /^(?:get\w*|to\w*|as\w*|first|last|value|values|all|string|str|input|pluck|only|except|path|name|original\w*)$/i.test(
+        name,
+      )
+    ) {
+      return { ...recv, composed: false, shape: "", elems: null, table: false };
+    }
     return helperResult(name, args, recv);
   }
 
@@ -1161,6 +1290,13 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
           evaluate(nameNode, env, ctx, depth + 1);
         if (base.req) {
           return REQUEST_BAGS.has(propName) ? pv([], { req: true }) : source(key ?? propName);
+        }
+        if (
+          (propName === "prefix" || propName === "base_prefix") &&
+          object !== undefined &&
+          /^(?:\$wpdb|\$this->wpdb)$/.test(text(object).replace(/\s+/g, ""))
+        ) {
+          return inferred("WordPress table prefix");
         }
         if (isThis(object)) return propertyValue(object, propName, ctx.cls);
         if (hasDynamic(base))
@@ -1772,7 +1908,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
               tail.type === "throw_expression" ||
               tail.type === "exit_statement" ||
               (tail.type === "function_call_expression" &&
-                EXIT_FUNCTIONS.has(calleeName(field(tail, "function")) ?? ""));
+                ALWAYS_EXIT.has(calleeName(field(tail, "function")) ?? ""));
             if (exits) applyGuards(env, guardKeys(left, true));
           }
         }
@@ -2055,7 +2191,7 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
 
   // ---------------------------------------------------------------- libraries
 
-  const libraries: Array<{ label: string; kind: "sql" | "process" }> = [];
+  const libraries: PhpAnalysis["libraries"] = [];
 
   return run();
 
@@ -2066,7 +2202,12 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     // are declared, each with its own scope.
     block(ast.root, env, ctx, 0);
     for (const library of UNSUPPORTED_LIBRARIES) {
-      if (library.pattern.test(src)) libraries.push({ label: library.label, kind: library.kind });
+      if (library.pattern.test(src))
+        libraries.push({
+          label: library.label,
+          kind: library.kind,
+          ...(library.detail === undefined ? {} : { detail: library.detail }),
+        });
     }
     return {
       findings: [...findings.values()]

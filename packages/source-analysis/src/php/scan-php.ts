@@ -61,7 +61,10 @@ export async function scanPhp(
     const incompleteFiles: string[] = [];
     const errorFiles: string[] = [];
     const formFiles: string[] = [];
-    const libraries = new Map<string, { kind: "sql" | "process"; count: number }>();
+    const libraries = new Map<
+      string,
+      { kind: "sql" | "process"; count: number; detail?: string }
+    >();
     const namespaceFrameworks = new Set<Framework>();
     let crashed = 0;
     const stats = await parseTrackFiles(
@@ -84,6 +87,7 @@ export async function scanPhp(
             libraries.set(library.label, {
               kind: library.kind,
               count: (known?.count ?? 0) + 1,
+              ...(library.detail === undefined ? {} : { detail: library.detail }),
             });
           }
           for (const framework of detectPhpNamespaceFrameworks(source)) {
@@ -109,7 +113,7 @@ export async function scanPhp(
     }
     if (formFiles.length > 0) {
       problems.push(
-        `${formFiles.length} file(s) have SQL-looking calls through dynamic call forms ($fn(...), $object->$method(...), call_user_func) that are not followed (${formFiles.slice(0, 3).join(", ")})`,
+        `${formFiles.length} file(s) have calls through dynamic call forms ($fn(...), $object->$method(...), call_user_func with a computed name) that are given non-constant data and could reach a SQL or command sink, but are not followed (${formFiles.slice(0, 3).join(", ")})`,
       );
     }
     if (errorFiles.length > 0) {
@@ -165,17 +169,20 @@ export async function scanPhp(
         note: `${blade} Blade template(s) detected. Only their <?php ?> blocks were parsed; Blade directives and output ({{ }}, {!! !!}, @php) are not analyzed, and the Blade XSS checks come later. This is not a safe result.`,
       });
     }
-    for (const [library, { kind, count }] of libraries) {
+    for (const [library, { kind, count, detail }] of libraries) {
       output.coverage.push({
         area: `source:${kind === "sql" ? "orm" : "process"}:${library.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         scope: "code",
         status: "partial",
         ruleIds: kind === "sql" ? ["PG-SQL-007"] : ["PG-CMD-005"],
-        note: `${library} detected in ${count} file(s); its ${
-          kind === "sql" ? "SQL" : "process-running"
-        } APIs are not supported, so ${
-          kind === "sql" ? "queries" : "commands run"
-        } through it were not evaluated (not a safe result).`,
+        note:
+          detail === undefined
+            ? `${library} detected in ${count} file(s); its ${
+                kind === "sql" ? "SQL" : "process-running"
+              } APIs are not supported, so ${
+                kind === "sql" ? "queries" : "commands run"
+              } through it were not evaluated (not a safe result).`
+            : `${library} detected in ${count} file(s); ${detail}.`,
       });
     }
     return output;

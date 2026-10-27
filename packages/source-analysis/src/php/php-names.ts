@@ -127,6 +127,10 @@ export const SQL_HANDLE_METHODS = new Set([
   "prepare",
   "real_query",
   "multi_query",
+  "get_results",
+  "get_row",
+  "get_var",
+  "get_col",
   "executequery",
   "executestatement",
   "executeupdate",
@@ -424,8 +428,16 @@ export const UNSUPPORTED_LIBRARIES: ReadonlyArray<{
   label: string;
   kind: "sql" | "process";
   pattern: RegExp;
+  /** Replaces the generic "its APIs are not supported" sentence of the coverage note. */
+  detail?: string;
 }> = [
-  { label: "WordPress wpdb", kind: "sql", pattern: /\$wpdb\b|\bwpdb\b/ },
+  {
+    label: "WordPress wpdb",
+    kind: "sql",
+    pattern: /\$wpdb\b|\bwpdb\b/,
+    detail:
+      "->query, ->prepare, get_results, get_row, get_var and get_col are evaluated, but insert, update, delete, replace and the other helper methods are not, so queries made through those were not evaluated (not a safe result)",
+  },
   {
     label: "Doctrine QueryBuilder",
     kind: "sql",
