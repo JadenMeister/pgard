@@ -136,6 +136,8 @@ describe("rule references against bundled standards data", () => {
       "PG-SECRET-001": ["MSC03-J via CWE-798"],
       "PG-SECRET-002": ["MSC03-J via CWE-798"],
       "PG-SECRET-003": ["MSC03-J via CWE-798"],
+      // IDS00-J is about SQL injection itself, so the link is direct.
+      "PG-SQL-005": ["IDS00-J"],
     });
   });
 
@@ -151,7 +153,7 @@ describe("rule references against bundled standards data", () => {
         expect(example.vulnerable.length, rule.id).toBeGreaterThan(0);
       }
     }
-    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(16);
+    expect(allRules().filter((rule) => (rule.metadata.examples ?? []).length > 0).length).toBe(17);
   });
 
   it("survives output redaction unchanged: findings carry impact and recommendation through redactEvidence", () => {

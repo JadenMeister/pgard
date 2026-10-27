@@ -1,0 +1,7 @@
+<!-- corpus: expect=low -->
+<mapper namespace="com.example.JoinMapper">
+  <sql id="columns">${alias}.id, ${alias}.name</sql>
+  <select id="all" resultType="com.example.Row">
+    SELECT <include refid="columns"><property name="alias" value="t"/></include> FROM things t
+  </select>
+</mapper>

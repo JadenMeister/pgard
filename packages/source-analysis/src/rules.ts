@@ -112,6 +112,44 @@ export const SOURCE_RULES = [
     ],
   },
   {
+    id: "PG-SQL-005",
+    title: "SQL built from dynamic strings in Java/Kotlin JDBC, JPA/Hibernate or MyBatis code",
+    category: "injection",
+    defaultSeverity: "high",
+    scope: "code",
+    languages: ["java", "kotlin"],
+    standards: {
+      owasp: ["A05:2025"],
+      cwe: ["CWE-89"],
+      cert: [{ kind: "direct", id: "IDS00-J" }],
+    },
+    rationale: {
+      en: "When request data (a Spring `@RequestParam`, `request.getParameter()`, a Ktor `call.parameters` value) is concatenated, formatted or templated into SQL passed to JDBC, JdbcTemplate, JPA/Hibernate or a MyBatis `${}`, an attacker can close the string literal and add conditions such as `' OR '1'='1` or a `UNION SELECT`. That reads other rows and tables, skips a login check and, with stacked statements, changes data. A MyBatis `${}` is pasted into the SQL text, while `#{}` is bound as a parameter.",
+      ko: "요청 데이터(Spring `@RequestParam`, `request.getParameter()`, Ktor `call.parameters` 값)를 JDBC, JdbcTemplate, JPA/Hibernate나 MyBatis `${}` 자리표시자에 넘기는 SQL 문자열에 이어 붙이거나 포맷하거나 템플릿으로 끼워 넣으면, 공격자가 문자열 리터럴을 닫고 `' OR '1'='1`이나 `UNION SELECT` 같은 조건을 덧붙일 수 있습니다. 그러면 다른 행과 테이블을 읽고 로그인 확인을 건너뛰며, 드라이버가 여러 문장을 허용하면 데이터도 바꿀 수 있습니다. MyBatis의 `${}`는 SQL 문자열에 그대로 붙지만 `#{}`는 매개변수로 바인딩됩니다.",
+    },
+    remediation: {
+      en: "Keep the SQL text constant and bind the values: `?` with `PreparedStatement.setString`, `jdbcTemplate.query(sql, mapper, id)`, JPA `:name` with `setParameter`, and `#{name}` in MyBatis. Table and column names cannot be bound, so choose them from a fixed allowlist (a `switch` or a `Map.of(...)` lookup) instead of using the input. A numeric value should be parsed first (`Integer.parseInt`), and it then still has to be bound.",
+      ko: "SQL 문자열은 고정해 두고 값은 바인딩하세요. `PreparedStatement.setString`과 `?`, `jdbcTemplate.query(sql, mapper, id)`, JPA의 `:name`과 `setParameter`, MyBatis의 `#{name}`을 사용합니다. 테이블 이름과 컬럼 이름은 바인딩할 수 없으므로 입력을 그대로 쓰지 말고 고정된 허용 목록(`switch`나 `Map.of(...)` 조회)에서 고르세요. 숫자 값은 먼저 `Integer.parseInt`로 변환하되, 그 뒤에도 바인딩해야 합니다.",
+    },
+    examples: [
+      {
+        language: "java",
+        vulnerable:
+          'jdbcTemplate.query("SELECT * FROM users WHERE name = \'" + name + "\'", mapper);',
+        safe: 'jdbcTemplate.query("SELECT * FROM users WHERE name = ?", mapper, name);',
+        note: {
+          en: "`name` set to `' OR '1'='1` returns every user in the first form and nothing in the second.",
+          ko: "`name`이 `' OR '1'='1`이면 첫 번째 코드는 모든 사용자를 반환하고 두 번째 코드는 아무것도 반환하지 않습니다.",
+        },
+      },
+      {
+        language: "xml",
+        vulnerable: "<select id=\"byName\">SELECT * FROM users WHERE name = '${name}'</select>",
+        safe: '<select id="byName">SELECT * FROM users WHERE name = #{name}</select>',
+      },
+    ],
+  },
+  {
     id: "PG-XSS-001",
     title: "Dynamic HTML written to innerHTML/outerHTML/document.write/jQuery .html()",
     category: "xss",
@@ -479,3 +517,8 @@ export const GO_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
 ).map((rule) => rule.id);
 
 export const VUE_RULE_IDS: SourceRuleId[] = ["PG-XSS-003"];
+
+/** Rules that run on Java and Kotlin sources (and on MyBatis mapper XML). */
+export const JVM_RULE_IDS: SourceRuleId[] = SOURCE_RULES.filter((rule) =>
+  rule.languages.some((language: RuleLanguage) => language === "java" || language === "kotlin"),
+).map((rule) => rule.id);

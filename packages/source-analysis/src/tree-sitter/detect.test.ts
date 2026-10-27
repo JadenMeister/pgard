@@ -102,11 +102,19 @@ describe("language detection and coverage", () => {
     expect(coverage[3]?.note).toContain("Laravel");
   });
 
-  it("appears in the source scan coverage and loads nothing", async () => {
-    const root = project({ "A.java": "class A {}\n" });
+  it("appears in the source scan coverage and loads nothing for a language without files", async () => {
+    const root = project({ "A.java": "class A {}\n", "a.php": "<?php\n" });
     const output = await scanSourceCode(root);
-    const entry = output.coverage.find((item) => item.area === "source:java");
-    expect(entry).toMatchObject({ status: "not_tested", ruleIds: [] });
+    // Java has the SQL injection rule: it is analyzed, not "detected, no rules yet".
+    expect(output.coverage.find((item) => item.area === "source:java")).toMatchObject({
+      status: "completed",
+      ruleIds: ["PG-SQL-005"],
+    });
+    // PHP is still only detected.
+    expect(output.coverage.find((item) => item.area === "source:php")).toMatchObject({
+      status: "not_tested",
+      ruleIds: [],
+    });
     expect(output.coverage.some((item) => item.area === "source:kotlin")).toBe(false);
   });
 });

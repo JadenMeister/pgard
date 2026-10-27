@@ -78,20 +78,26 @@ function listQuoted(items: readonly string[]): string {
  * Coverage for the detected languages: `not_tested` with "detected, no rules yet" until rules for
  * the language exist. Manifests that could not be read or were unsafe make a `partial` entry.
  */
-export function languageTrackCoverage(detection: LanguageTrackDetection): Coverage[] {
-  const coverage: Coverage[] = detection.languages.map((entry) => {
-    const label = TREE_SITTER_LANGUAGE_LABEL[entry.language];
-    const frameworks =
-      entry.frameworks.length > 0 ? `; frameworks: ${entry.frameworks.join(", ")}` : "";
-    const lowerBound = detection.truncated ? "at least " : "";
-    return {
-      area: `source:${entry.language}`,
-      scope: "code",
-      status: "not_tested",
-      ruleIds: [],
-      note: `${label} ${NO_RULES_NOTE} (${lowerBound}${entry.files} file(s)${frameworks}). These files were not analyzed and are not a safe result.`,
-    };
-  });
+export function languageTrackCoverage(
+  detection: LanguageTrackDetection,
+  /** Languages that have rules and report their own coverage; no "detected, no rules yet" entry. */
+  skip: ReadonlySet<TreeSitterLanguage> = new Set(),
+): Coverage[] {
+  const coverage: Coverage[] = detection.languages
+    .filter((entry) => !skip.has(entry.language))
+    .map((entry) => {
+      const label = TREE_SITTER_LANGUAGE_LABEL[entry.language];
+      const frameworks =
+        entry.frameworks.length > 0 ? `; frameworks: ${entry.frameworks.join(", ")}` : "";
+      const lowerBound = detection.truncated ? "at least " : "";
+      return {
+        area: `source:${entry.language}`,
+        scope: "code",
+        status: "not_tested",
+        ruleIds: [],
+        note: `${label} ${NO_RULES_NOTE} (${lowerBound}${entry.files} file(s)${frameworks}). These files were not analyzed and are not a safe result.`,
+      };
+    });
   if (detection.manifestIssues.length > 0) {
     coverage.push({
       area: "source:manifests",
@@ -190,7 +196,11 @@ export async function parseTrackFiles(
     deadline?: TrackDeadline;
     maxTimeouts?: number;
   } = {},
-  visit?: (file: TrackedFile, outcome: Extract<ParseOutcome, { status: "parsed" }>) => void,
+  visit?: (
+    file: TrackedFile,
+    outcome: Extract<ParseOutcome, { status: "parsed" }>,
+    source: string,
+  ) => void,
 ): Promise<ParseStats> {
   const maxBytes = options.maxBytes ?? DEFAULT_PARSE_LIMITS.maxBytes;
   const maxTimeouts = options.maxTimeouts ?? MAX_PARSE_TIMEOUTS_PER_LANGUAGE;
@@ -248,7 +258,7 @@ export async function parseTrackFiles(
           stats.errorNodes += outcome.errorCount;
         }
         try {
-          visit?.(file, outcome);
+          visit?.(file, outcome, source);
         } finally {
           outcome.dispose();
         }
