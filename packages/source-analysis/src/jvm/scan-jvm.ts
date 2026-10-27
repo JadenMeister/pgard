@@ -53,7 +53,8 @@ export interface JvmScanOutput {
 const XSS_RULE_IDS: SourceRuleId[] = ["PG-XSS-004"];
 const CONFIG_RULE_IDS: SourceRuleId[] = ["PG-COOKIE-001", "PG-CONF-001"];
 /** Build files that name Spring Security as a dependency (text search, never executed). */
-const SPRING_SECURITY_DEPENDENCY = /spring-security|spring-boot-starter-security|starter-oauth2/i;
+const SPRING_SECURITY_DEPENDENCY =
+  /spring-boot-starter-security|spring-security-(?:web|config)\b|starter-oauth2-resource-server/i;
 const JSP_EXTENSIONS = new Set([".jsp", ".jspx", ".jspf", ".tag", ".tagx"]);
 const extensionOf = (relativePath: string): string => {
   const dot = relativePath.lastIndexOf(".");

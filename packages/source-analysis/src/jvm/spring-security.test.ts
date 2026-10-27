@@ -62,20 +62,20 @@ describe("PG-CSRF-001: Spring Security CSRF judgement", () => {
       "none",
     ],
     [
-      "stateless with a JWT filter: silent",
+      "stateless with a filter known only by its name: low, inferred",
       "A.java",
       chain(
         "http.csrf().disable().sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS).and().addFilterBefore(new JwtAuthFilter(), X.class);",
       ),
-      "none",
+      "medium/low/inferred",
     ],
     [
-      "stateless without bearer: low, inferred",
+      "stateless with httpBasic: basic credentials are ambient, medium",
       "A.java",
       chain(
         "http.csrf(c -> c.disable()).sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS)).httpBasic(b -> {});",
       ),
-      "medium/low/inferred",
+      "medium/medium",
     ],
     [
       "policy from a variable: low, inferred",
@@ -84,10 +84,10 @@ describe("PG-CSRF-001: Spring Security CSRF judgement", () => {
       "medium/low/inferred",
     ],
     [
-      "csrf left on",
+      "csrf exempted for some paths: low, inferred",
       "A.java",
       chain('http.csrf(c -> c.ignoringRequestMatchers("/hook")).formLogin();'),
-      "none",
+      "medium/low/inferred",
     ],
     ["Kotlin DSL", "A.kt", kchain("    csrf { disable() }\n    formLogin { }"), "medium/medium"],
     [

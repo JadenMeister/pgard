@@ -94,7 +94,9 @@ export function literalText(expr: Expr | null | undefined): string | null {
 
 /** Splits an identifier or cookie name into lower-case words (`sessionId`, `SESSION_ID`, `x-sid`). */
 export function wordsOf(text: string): string[] {
+  // Names are short; the cap keeps the case-splitting patterns cheap on a hostile literal.
   return text
+    .slice(0, 200)
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
     .split(/[^A-Za-z0-9]+/)

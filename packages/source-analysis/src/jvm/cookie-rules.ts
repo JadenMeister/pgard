@@ -111,7 +111,8 @@ function boolState(expr: Expr | undefined): State {
 function applyAssignment(t: Tracked, name: string, value: Expr, c: WalkContext): void {
   if (name === "isHttpOnly" || name === "httpOnly") setState(t, "httpOnly", boolState(value), c);
   else if (name === "secure" || name === "isSecure") setState(t, "secure", boolState(value), c);
-  else if (name === "maxAge" && isZero(value)) t.cleared = true;
+  // Only an unconditional `maxAge(0)` clears the cookie; in a branch it is still sent otherwise.
+  else if (name === "maxAge" && isZero(value) && !c.conditional) t.cleared = true;
 }
 
 function applyCall(t: Tracked, call: CallExpr, c: WalkContext): void {
@@ -130,7 +131,7 @@ function applyCall(t: Tracked, call: CallExpr, c: WalkContext): void {
       break;
     case "setMaxAge":
     case "maxAge":
-      if (isZero(first)) t.cleared = true;
+      if (isZero(first) && !c.conditional) t.cleared = true;
       break;
     case "setAttribute": {
       const attribute = (literalText(first) ?? "").toLowerCase();
@@ -427,18 +428,24 @@ function rawSetCookie(call: CallExpr): ConfigFinding | null {
   const name = text.slice(0, text.indexOf("=")).replace(/\u0000/g, "");
   const nameExpr: Expr = { k: "str", line: call.line, text: name };
   if (strengthOf(nameExpr, call.args[1] ?? null) !== "strong") return null;
-  const lowered = text.toLowerCase();
+  // Attributes are whole tokens between `;` (`Secure`, `HttpOnly`), not substrings (`NotSecure`).
+  const attributes = text
+    .split(";")
+    .slice(1)
+    .map((token) => token.trim().toLowerCase());
   const missing: string[] = [];
-  if (!lowered.includes("httponly")) missing.push("HttpOnly");
-  if (!lowered.includes("secure")) missing.push("Secure");
+  if (!attributes.includes("httponly")) missing.push("HttpOnly");
+  if (!attributes.includes("secure")) missing.push("Secure");
   if (missing.length === 0) return null;
+  // An attribute part that is built at run time may supply the flag.
+  const dynamic = attributes.some((token) => token.includes("\u0000"));
   return {
     ruleId: "PG-COOKIE-001",
     line: call.line,
     severity: "medium",
     status: "suspected",
-    confidence: "medium",
-    evidence: `Set-Cookie header for "${shorten(name || "cookie", 40)}" is written by hand without ${missing.join(" and ")}`,
+    confidence: dynamic ? "low" : "medium",
+    evidence: `Set-Cookie header for "${shorten(name || "cookie", 40)}" is written by hand without ${missing.join(" and ")}${dynamic ? " (part of the attributes is built at run time); inferred" : ""}`,
     cause: `set-cookie-header:${shorten(name, 40)}`,
   };
 }

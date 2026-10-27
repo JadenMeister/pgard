@@ -107,10 +107,10 @@ describe("Spring configuration rules", () => {
     ).toEqual(["PG-COOKIE-001:1:medium", "PG-COOKIE-001:2:medium"]);
   });
 
-  it("is silent for true, for placeholders without a default and for same-site", () => {
+  it("is silent for true, on and same-site", () => {
     expect(
       rulesOf(
-        "server.servlet.session.cookie.http-only=true\nserver.servlet.session.cookie.secure=${S}\nserver.servlet.session.cookie.same-site=none\n",
+        "server.servlet.session.cookie.http-only=true\nserver.servlet.session.cookie.secure=on\nserver.servlet.session.cookie.same-site=none\n",
         "application.properties",
         "properties",
       ),
@@ -225,11 +225,25 @@ describe("scanSourceCode and Spring configuration files", () => {
 
     const withImport = await scanSourceCode(
       project({
-        "A.java": "import org.springframework.security.core.Authentication;\nclass A {}\n",
+        "A.java":
+          "import org.springframework.security.config.annotation.web.builders.HttpSecurity;\nclass A {}\n",
         "application.properties": exposure,
       }),
     );
     expect(withImport.findings.filter((finding) => finding.ruleId === "PG-CONF-001")).toEqual([]);
+
+    // An encoder or the security context is not web security.
+    const cryptoOnly = await scanSourceCode(
+      project({
+        "A.java":
+          "import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;\nclass A {}\n",
+        "pom.xml": "<project><artifactId>spring-security-crypto</artifactId></project>",
+        "application.properties": exposure,
+      }),
+    );
+    expect(cryptoOnly.findings.filter((finding) => finding.ruleId === "PG-CONF-001")).toHaveLength(
+      1,
+    );
 
     const withDependency = await scanSourceCode(
       project({

@@ -54,6 +54,14 @@ const WEB_API_PREFIXES = [
   "org.apache.hc",
 ];
 
+/** Imports that show web security is configured (not only an encoder or the security context). */
+const WEB_SECURITY_PREFIXES = [
+  "org.springframework.security.config.annotation.web",
+  "org.springframework.security.config.web",
+  "org.springframework.security.web",
+  "org.springframework.security.oauth2.server.resource",
+];
+
 const IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
 
 const IMPORT_ALIAS = /^\s*import\s+([\w.]+)\s+as\s+(\w+)/gm;
@@ -164,9 +172,8 @@ export function analyzeJvmTree(
       ),
     modelAttributes: sql.modelAttributes,
     unsupportedSecurityForms: security.unsupported,
-    usesSpringSecurity: unit.imports.some(
-      (name) =>
-        name === "org.springframework.security" || name.startsWith("org.springframework.security."),
+    usesSpringSecurity: unit.imports.some((name) =>
+      WEB_SECURITY_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`)),
     ),
     unsupportedOsLibraries: PROCESS_AND_FILE_LIBRARIES.filter((library) =>
       unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),

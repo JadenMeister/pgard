@@ -4,9 +4,10 @@ import type { RawSourceFinding } from "../finding-factory.js";
  * Spring Boot configuration files: `application.properties`, `application-*.properties`,
  * `application.yml`, `application-*.yml` (and `.yaml`). Read as text with a small parser of
  * their own (no YAML dependency): block mappings, lists of scalars, flow lists, quoted scalars,
- * comments and `---` documents. Anchors, multi-line flow collections and tabs for indentation
- * are not followed; they make the file "malformed" for this reader, which the scan reports as
- * partial, never as a clean result.
+ * comments and `---` documents. Anchors (`&`), aliases (`*`), merge keys (`<<`), nested or
+ * multi-line flow collections, tabs for indentation and lines over 4 KiB are not followed: they
+ * make the file "malformed" for this reader, which the scan reports as partial
+ * (`source:jvm-config`), never as a clean result.
  */
 export const MAX_SPRING_CONFIG_BYTES = 256 * 1024;
 export const SPRING_CONFIG_NAME = /^application(?:-[\w.-]+)?\.(?:properties|ya?ml)$/i;
@@ -27,28 +28,75 @@ export interface ParsedConfig {
 
 // ------------------------------------------------------------------------------- properties
 
+/**
+ * A line longer than this is not read (it makes the file malformed). Every scan of a line is
+ * linear, and the cap keeps even a hostile line cheap.
+ */
+export const MAX_CONFIG_LINE = 4096;
+
+/** Number of backslashes that end the text. */
+function trailingBackslashes(text: string): number {
+  let count = 0;
+  while (count < text.length && text[text.length - 1 - count] === "\\") count += 1;
+  return count;
+}
+
+const trimStart = (text: string): string => {
+  let index = 0;
+  while (
+    index < text.length &&
+    (text[index] === " " || text[index] === "\t" || text[index] === "\f")
+  ) {
+    index += 1;
+  }
+  return text.slice(index);
+};
+
 export function parseProperties(text: string): ParsedConfig {
   const entries: ConfigEntry[] = [];
   let malformedLine: number | null = null;
-  const lines = text.split(/\r\n|\r|\n/);
+  const lines = text.replace(/^﻿/, "").split(/\r\n|\r|\n/);
   for (let index = 0; index < lines.length; index += 1) {
     const start = index + 1;
-    let line = (lines[index] as string).replace(/^[ \t\f]+/, "");
+    let line = trimStart(lines[index] as string);
     if (line === "" || line.startsWith("#") || line.startsWith("!")) continue;
     // A trailing backslash (an odd number of them) continues the line.
-    while (/(?:^|[^\\])(?:\\\\)*\\$/.test(line) && index + 1 < lines.length) {
+    let tooLong = line.length > MAX_CONFIG_LINE;
+    while (!tooLong && trailingBackslashes(line) % 2 === 1 && index + 1 < lines.length) {
       index += 1;
-      line = `${line.slice(0, -1)}${(lines[index] as string).replace(/^[ \t\f]+/, "")}`;
+      line = `${line.slice(0, -1)}${trimStart(lines[index] as string)}`;
+      tooLong = line.length > MAX_CONFIG_LINE;
     }
-    const match = /^((?:[^\s=:\\]|\\.)*)[ \t\f]*(?:[=:][ \t\f]*|[ \t\f]+)?(.*)$/s.exec(line);
-    if (match === null) continue;
+    if (tooLong) {
+      malformedLine ??= start;
+      continue;
+    }
+    // The key ends at the first unescaped `=`, `:` or white space.
+    let split = 0;
+    while (split < line.length) {
+      const char = line[split] as string;
+      if (char === "\\") split += 2;
+      else if (char === "=" || char === ":" || char === " " || char === "\t" || char === "\f")
+        break;
+      else split += 1;
+    }
     if (/\\u(?![0-9a-fA-F]{4})/.test(line)) malformedLine ??= start;
-    const key = (match[1] as string).replace(/\\(.)/g, "$1").replace(/\[\d+\]/g, "");
+    const key = line
+      .slice(0, split)
+      .replace(/\\(.)/g, "$1")
+      .replace(/\[\d+\]/g, "");
     if (key === "") {
       malformedLine ??= start;
       continue;
     }
-    entries.push({ key, value: (match[2] as string).trim(), line: start });
+    let valueStart = split;
+    while (valueStart < line.length && /[ \t\f]/.test(line[valueStart] as string)) valueStart += 1;
+    if (line[valueStart] === "=" || line[valueStart] === ":") {
+      valueStart += 1;
+      while (valueStart < line.length && /[ \t\f]/.test(line[valueStart] as string))
+        valueStart += 1;
+    }
+    entries.push({ key, value: line.slice(valueStart).trim(), line: start });
   }
   return { documents: [entries], malformedLine };
 }
@@ -57,18 +105,23 @@ export function parseProperties(text: string): ParsedConfig {
 
 function stripComment(raw: string): string {
   let quote: string | null = null;
+  // The last character that was not white space, for "does a scalar start here".
+  let previous = "";
   for (let index = 0; index < raw.length; index += 1) {
     const char = raw[index] as string;
     if (quote !== null) {
       if (char === "\\" && quote === '"') index += 1;
       else if (char === quote) quote = null;
-    } else if (char === '"' || char === "'") {
+      previous = char;
+      continue;
+    }
+    if (char === '"' || char === "'") {
       // A quote only opens a string at the start of a scalar.
-      const before = raw.slice(0, index).trimEnd();
-      if (before === "" || /[:,[{-]$/.test(before)) quote = char;
+      if (previous === "" || ":,[{-".includes(previous)) quote = char;
     } else if (char === "#" && (index === 0 || /\s/.test(raw[index - 1] as string))) {
       return raw.slice(0, index).trimEnd();
     }
+    if (!/\s/.test(char)) previous = char;
   }
   return raw.trimEnd();
 }
@@ -104,6 +157,9 @@ function flowList(value: string): string | null {
     } else if (char === '"' || char === "'") {
       quote = char;
       current += char;
+    } else if (char === "[" || char === "{") {
+      // A nested collection: not followed.
+      return null;
     } else if (char === ",") {
       parts.push(current);
       current = "";
@@ -113,14 +169,60 @@ function flowList(value: string): string | null {
   }
   if (quote !== null) return null;
   parts.push(current);
-  return parts
+  const items = parts.map((part) => part.trim());
+  // Anchors, aliases and tags in a flow list are not followed.
+  if (items.some((item) => /^[&*]/.test(item))) return null;
+  return items
     .map((part) => unquote(part).text)
     .filter((part) => part !== "")
     .join(",");
 }
 
-const KEY_LINE =
-  /^("(?:[^"\\]|\\.)*"|'(?:[^']|'')*'|[^\s:#'"[\]{},&*!|>%@`-][^:#]*?|-[^\s:][^:#]*?)\s*:(?:\s+(.*))?$/;
+/**
+ * Splits a block mapping line at its key: a quoted key, or the text before the first `:` that
+ * is followed by white space or the end of the line. One pass over the line, no backtracking.
+ * Returns null when the line is not `key: value` (or starts with an indicator this reader does
+ * not follow: flow collections, anchors, aliases, tags, block scalar and directive marks).
+ */
+function splitKey(content: string): { key: string; value: string } | null {
+  const first = content[0] as string;
+  let keyEnd = -1;
+  let key: string;
+  if (first === '"' || first === "'") {
+    let index = 1;
+    for (; index < content.length; index += 1) {
+      const char = content[index] as string;
+      if (first === '"' && char === "\\") index += 1;
+      else if (char === first) {
+        if (first === "'" && content[index + 1] === "'") index += 1;
+        else break;
+      }
+    }
+    if (index >= content.length) return null;
+    key = unquote(content.slice(0, index + 1)).text;
+    keyEnd = index + 1;
+    while (keyEnd < content.length && content[keyEnd] === " ") keyEnd += 1;
+    if (content[keyEnd] !== ":") return null;
+  } else {
+    if ("[]{},&*!|>%@`#'\"".includes(first)) return null;
+    if (first === "-" && (content.length === 1 || /\s/.test(content[1] as string))) return null;
+    for (let index = 0; index < content.length; index += 1) {
+      if (
+        content[index] === ":" &&
+        (index + 1 === content.length || /\s/.test(content[index + 1] as string))
+      ) {
+        keyEnd = index;
+        break;
+      }
+    }
+    if (keyEnd === -1) return null;
+    key = content.slice(0, keyEnd).trimEnd();
+    if (key === "") return null;
+  }
+  const after = content.slice(keyEnd + 1);
+  if (after !== "" && !/^\s/.test(after)) return null;
+  return { key, value: after.trim() };
+}
 
 export function parseYaml(text: string): ParsedConfig {
   const documents: ConfigEntry[][] = [[]];
@@ -137,16 +239,20 @@ export function parseYaml(text: string): ParsedConfig {
   for (let index = 0; index < lines.length; index += 1) {
     const number = index + 1;
     const raw = lines[index] as string;
-    const indentMatch = /^( *)(.*)$/.exec(raw) as RegExpExecArray;
-    const indent = (indentMatch[1] as string).length;
-    const rest = indentMatch[2] as string;
-    if (rest.startsWith("\t") || (indentMatch[1] as string).includes("\t")) {
+    if (raw.length > MAX_CONFIG_LINE) {
+      bad(number);
+      continue;
+    }
+    let indent = 0;
+    while (raw[indent] === " ") indent += 1;
+    const rest = raw.slice(indent);
+    if (rest.startsWith("\t")) {
       bad(number);
       continue;
     }
     const content = stripComment(rest);
     if (content === "") continue;
-    if (/^---(?:\s|$)/.test(content)) {
+    if (content === "---" || content.startsWith("--- ")) {
       documents.push([]);
       stack = [];
       listOwner = null;
@@ -157,9 +263,10 @@ export function parseYaml(text: string): ParsedConfig {
     const document = documents[documents.length - 1] as ConfigEntry[];
     if (content === "-" || content.startsWith("- ")) {
       const item = content === "-" ? "" : content.slice(2).trim();
-      if (listOwner !== null && listOwner.entry !== null && indent >= listOwner.indent) {
+      if (/^[&*!{]/.test(item)) bad(number);
+      else if (listOwner !== null && listOwner.entry !== null && indent >= listOwner.indent) {
         // A map inside a list (`- name: x`) is not a scalar list: nothing to read from it.
-        if (!KEY_LINE.test(item) || /^["']/.test(item)) {
+        if (/^["']/.test(item) || splitKey(item) === null) {
           const scalar = unquote(item);
           if (!scalar.ok) bad(number);
           listOwner.entry.value =
@@ -168,17 +275,19 @@ export function parseYaml(text: string): ParsedConfig {
       }
       continue;
     }
-    const match = KEY_LINE.exec(content);
-    if (match === null) {
+    const split = splitKey(content);
+    if (split === null) {
       bad(number);
       continue;
     }
     while (stack.length > 0 && (stack[stack.length - 1] as { indent: number }).indent >= indent) {
       stack.pop();
     }
-    const key = unquote(match[1] as string).text;
-    const rawValue = (match[2] ?? "").trim();
-    if (rawValue === "" || rawValue.startsWith("&")) {
+    const key = split.key;
+    // A merge key pulls in a whole mapping: not followed.
+    if (key === "<<") bad(number);
+    const rawValue = split.value;
+    if (rawValue === "") {
       // A container; a list under it (at the same indent or deeper) fills its value.
       const entry: ConfigEntry = { key: pathOf(key), value: "", line: number };
       document.push(entry);
@@ -187,31 +296,43 @@ export function parseYaml(text: string): ParsedConfig {
       continue;
     }
     listOwner = null;
+    if (rawValue.startsWith("&") || rawValue.startsWith("*")) {
+      // An anchor or an alias: not followed.
+      bad(number);
+      continue;
+    }
     if (rawValue.startsWith("|") || rawValue.startsWith(">")) {
       // A block scalar: skip its lines.
       document.push({ key: pathOf(key), value: "", line: number });
       while (index + 1 < lines.length) {
         const next = lines[index + 1] as string;
-        if (next.trim() === "" || /^ */.exec(next)![0].length > indent) index += 1;
+        let nextIndent = 0;
+        while (next[nextIndent] === " ") nextIndent += 1;
+        if (next.trim() === "" || nextIndent > indent) index += 1;
         else break;
       }
       continue;
     }
     if (rawValue.startsWith("{")) {
-      // A one-line flow map of scalars: `{a: b, c: d}`; anything longer is not followed.
-      if (!rawValue.endsWith("}")) {
+      // A one-line flow map of scalars: `{a: b, c: d}`; nesting and longer maps are not followed.
+      const inner = rawValue.slice(1, -1);
+      if (!rawValue.endsWith("}") || /[{}[\]]/.test(inner)) {
         bad(number);
         continue;
       }
-      for (const part of rawValue.slice(1, -1).split(",")) {
-        const pair = /^\s*([^:]+?)\s*:\s*(.*?)\s*$/.exec(part);
-        if (pair === null) {
+      for (const part of inner.split(",")) {
+        const colon = part.indexOf(":");
+        if (colon === -1) {
           if (part.trim() !== "") bad(number);
           continue;
         }
+        if (/^\s*[&*]/.test(part.slice(colon + 1))) {
+          bad(number);
+          continue;
+        }
         document.push({
-          key: pathOf(`${key}.${unquote(pair[1] as string).text}`),
-          value: unquote(pair[2] as string).text,
+          key: pathOf(`${key}.${unquote(part.slice(0, colon)).text}`),
+          value: unquote(part.slice(colon + 1)).text,
           line: number,
         });
       }
@@ -259,13 +380,30 @@ function profileSaysDevelopment(profiles: string[]): boolean {
   return names.length > 0 && names.every((name) => DEV_PROFILE.test(name));
 }
 
-type Flag = "false" | "default-false" | "other";
+type Flag = "false" | "true" | "default-false" | "other";
 
+const FALSE_WORDS = new Set(["false", "off", "no", "n", "0"]);
+const TRUE_WORDS = new Set(["true", "on", "yes", "y", "1"]);
+
+/**
+ * `false`, `off`, `no` and `0` (quoted or not, any case) are false; `true`, `on`, `yes` and `1`
+ * are the only safe values. Everything else (a `${VAR}` placeholder, `@token@`, `!!bool false`)
+ * cannot be read as a fixed value: it is `other`, and `${VAR:false}` is `default-false`.
+ */
 function flagOf(value: string): Flag {
-  const text = value.trim().toLowerCase();
-  if (text === "false") return "false";
+  let text = value.trim().toLowerCase();
+  if (
+    text.length >= 2 &&
+    (text[0] === '"' || text[0] === "'") &&
+    text.endsWith(text[0] as string)
+  ) {
+    text = text.slice(1, -1).trim();
+  }
+  if (FALSE_WORDS.has(text)) return "false";
+  if (TRUE_WORDS.has(text)) return "true";
   // `${COOKIE_SECURE:false}`: an environment variable with a default of false.
-  if (/^\$\{[^}:]+:\s*false\s*\}$/.test(text)) return "default-false";
+  const placeholder = /^\$\{[^}:]+:\s*([^}\s]*)\s*\}$/.exec(text);
+  if (placeholder !== null && FALSE_WORDS.has(placeholder[1] as string)) return "default-false";
   return "other";
 }
 
@@ -300,9 +438,9 @@ export function analyzeSpringConfig(
         key,
       );
       const flag = flagOf(entry.value);
-      if (cookie !== null && flag !== "other") {
+      if (cookie !== null && flag !== "true") {
         const name = cookie[1] === "httponly" ? "HttpOnly" : "Secure";
-        const inferred = flag === "default-false" || development;
+        const inferred = flag !== "false" || development;
         push({
           ruleId: "PG-COOKIE-001",
           path,
@@ -310,7 +448,11 @@ export function analyzeSpringConfig(
           severity: "medium",
           status: "suspected",
           confidence: inferred ? "low" : "medium",
-          evidence: `${entry.key}=${entry.value} sends the session cookie without ${name}${profileNote}${
+          evidence: `${entry.key}=${entry.value} ${
+            flag === "other"
+              ? `is not a fixed true, so the session cookie may be sent without ${name}`
+              : `sends the session cookie without ${name}`
+          }${profileNote}${
             flag === "default-false"
               ? "; the value is an environment variable that defaults to false"
               : ""

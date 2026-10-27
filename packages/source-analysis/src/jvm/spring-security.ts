@@ -84,24 +84,51 @@ function isDisableRef(expr: Expr): boolean {
   return false;
 }
 
-/** A lambda that disables what it configures: `c -> c.disable()`, `{ disable() }`, `{ it.disable() }`. */
-function isDisableLambda(expr: Expr): boolean {
-  if (expr.k !== "lambda") return false;
-  return expr.body.some(
-    (stmt) =>
-      stmt.s === "expr" &&
-      isCall(stmt.expr) &&
-      stmt.expr.name === "disable" &&
-      stmt.expr.args.length === 0 &&
-      (stmt.expr.recv === null || stmt.expr.recv.k === "id"),
-  );
+/**
+ * Whether a lambda disables what it configures: `c -> c.disable()`, `{ disable() }`,
+ * `{ it.disable() }`. "conditional" when the call is only in a branch.
+ */
+function disableIn(expr: Expr): "yes" | "conditional" | null {
+  if (expr.k !== "lambda") return null;
+  let found: "yes" | "conditional" | null = null;
+  walkBody(expr.body, (call, context) => {
+    if (
+      call.name === "disable" &&
+      call.args.length === 0 &&
+      (call.recv === null || call.recv.k === "id")
+    ) {
+      if (!context.conditional) found = "yes";
+      else found ??= "conditional";
+    }
+  });
+  return found;
 }
 
-const isDisablingArg = (expr: Expr): boolean => isDisableRef(expr) || isDisableLambda(expr);
+const isDisablingArg = (expr: Expr): boolean => isDisableRef(expr) || disableIn(expr) === "yes";
+
+const IGNORING = /^ignoring(?:Request|Ant|Mvc)Matchers?$/;
+
+/** Paths a `csrf` customizer exempts with `ignoringRequestMatchers(...)` (and its older names). */
+function ignoredPaths(unit: Unit, calls: readonly CallExpr[]): { paths: string[]; all: boolean } {
+  const paths: string[] = [];
+  let all = false;
+  for (const call of calls) {
+    for (const arg of call.args) {
+      if (isCall(arg) && CATCH_ALL_NAMES.has(arg.name)) all = true;
+      const resolved = resolveStrings(unit, arg.k === "new" ? (arg.args[0] ?? arg) : arg);
+      if (resolved.values.some((value) => value === "/**" || value === "/**/*")) all = true;
+      paths.push(...resolved.values);
+    }
+  }
+  return { paths, all };
+}
 
 interface Fact {
   line: number;
   call: CallExpr;
+  /** Switched off for everything, only in a branch, or only for some paths. */
+  kind: "full" | "conditional" | "partial";
+  paths: string[];
 }
 
 interface ChainFacts {
@@ -110,7 +137,13 @@ interface ChainFacts {
   sessionFeature: string | null;
   sessionManagement: boolean;
   policy: "stateless" | "session" | "unknown" | null;
+  /** `oauth2ResourceServer` with Spring's default bearer handling. */
   bearer: boolean;
+  /** A custom `bearerTokenResolver` or a form or query parameter token on the resource server. */
+  customBearer: boolean;
+  /** A filter whose name suggests JWT or token auth (only the name is known). */
+  tokenFilter: boolean;
+  httpBasic: boolean;
   scoped: boolean;
   unsupported: Set<string>;
 }
@@ -123,6 +156,9 @@ function emptyFacts(): ChainFacts {
     sessionManagement: false,
     policy: null,
     bearer: false,
+    customBearer: false,
+    tokenFilter: false,
+    httpBasic: false,
     scoped: false,
     unsupported: new Set(),
   };
@@ -266,28 +302,29 @@ function judgeChain(
   collect(method, 0);
 
   let hasSecurityMatcher = false;
+  // Calls inside `securityMatchers(...)` select the chain; they are not authorization rules.
+  const selecting = new Set<CallExpr>();
+  for (const { call } of calls) {
+    if (call.name !== "securityMatcher" && call.name !== "securityMatchers") continue;
+    for (const arg of call.args) {
+      const body: Stmt[] =
+        arg.k === "lambda" ? arg.body : [{ s: "expr", line: arg.line, expr: arg }];
+      walkBody(body, (inner) => selecting.add(inner));
+    }
+  }
+  const off = (call: CallExpr, parent: CallExpr | null): boolean =>
+    parent?.name === "disable" || call.args.some(isDisablingArg);
   for (const { call, parent } of calls) {
     const name = call.name;
     if (name === "csrf") {
-      if (call.args.length === 0) {
-        if (parent?.name === "disable") facts.csrfDisabled.push({ line: call.line, call });
-      } else if (call.args.some(isDisablingArg)) {
-        facts.csrfDisabled.push({ line: call.line, call });
-      } else if (
-        call.args.some((arg) => arg.k === "id" || arg.k === "call" || arg.k === "member")
-      ) {
-        // `csrf(customizer)`: a customizer this file does not show.
-        const arg = call.args[0] as Expr;
-        if (!(arg.k === "member" && isDisableRef(arg))) {
-          facts.unsupported.add("a CSRF customizer held in a variable or built by a method");
-        }
-      }
+      csrfFact(unit, call, parent, facts);
     } else if (SESSION_FEATURES.has(name)) {
-      const disabled = parent?.name === "disable" || call.args.some(isDisablingArg);
-      if (!disabled) {
+      if (!off(call, parent)) {
         if (name === "formLogin") facts.formLogin = true;
         facts.sessionFeature ??= name;
       }
+    } else if (name === "httpBasic") {
+      if (!off(call, parent)) facts.httpBasic = true;
     } else if (name === "sessionManagement") {
       facts.sessionManagement = true;
     } else if (name === "sessionCreationPolicy") {
@@ -297,10 +334,15 @@ function judgeChain(
         facts.policy = mergePolicy(facts.policy, "stateless");
       }
     } else if (BEARER_FEATURES.has(name)) {
-      if (!(parent?.name === "disable" || call.args.some(isDisablingArg))) facts.bearer = true;
+      if (!off(call, parent)) facts.bearer = true;
+    } else if (name === "bearerTokenResolver") {
+      facts.customBearer = true;
+    } else if (name === "allowFormEncodedBodyParameter" || name === "allowUriQueryParameter") {
+      // `(false)` keeps the default; anything else lets a token arrive where a cookie can too.
+      if (!isFalse(call.args[0])) facts.customBearer = true;
     } else if (FILTER_ADDERS.has(name)) {
       if (call.args.some((arg) => namesIn(arg).some((part) => BEARER_NAME.test(part)))) {
-        facts.bearer = true;
+        facts.tokenFilter = true;
       }
     } else if (name === "securityMatcher" || name === "securityMatchers" || name === "antMatcher") {
       hasSecurityMatcher = true;
@@ -310,7 +352,46 @@ function judgeChain(
   for (const form of facts.unsupported) unsupported.add(form);
 
   for (const fact of facts.csrfDisabled) csrfFinding(facts, fact, findings);
-  authorizeFindings(unit, calls, hasSecurityMatcher, findings);
+  authorizeFindings(unit, calls, hasSecurityMatcher, selecting, findings);
+}
+
+/** Reads one `csrf` call: switched off, off in a branch, exempted for paths, or not readable. */
+function csrfFact(unit: Unit, call: CallExpr, parent: CallExpr | null, facts: ChainFacts): void {
+  const line = call.line;
+  if (call.args.length === 0) {
+    if (parent?.name === "disable") {
+      facts.csrfDisabled.push({ line, call, kind: "full", paths: [] });
+    } else if (parent !== null && IGNORING.test(parent.name)) {
+      const { paths, all } = ignoredPaths(unit, [parent]);
+      facts.csrfDisabled.push({ line, call, kind: all ? "full" : "partial", paths });
+    }
+    return;
+  }
+  if (call.args.some(isDisableRef) || call.args.some((arg) => disableIn(arg) === "yes")) {
+    facts.csrfDisabled.push({ line, call, kind: "full", paths: [] });
+    return;
+  }
+  if (call.args.some((arg) => disableIn(arg) === "conditional")) {
+    facts.csrfDisabled.push({ line, call, kind: "conditional", paths: [] });
+    return;
+  }
+  const exempting: CallExpr[] = [];
+  for (const arg of call.args) {
+    if (arg.k === "lambda") {
+      walkBody(arg.body, (inner) => {
+        if (IGNORING.test(inner.name)) exempting.push(inner);
+      });
+    }
+  }
+  if (exempting.length > 0) {
+    const { paths, all } = ignoredPaths(unit, exempting);
+    facts.csrfDisabled.push({ line, call, kind: all ? "full" : "partial", paths });
+    return;
+  }
+  if (call.args.some((arg) => arg.k === "id" || arg.k === "call" || arg.k === "member")) {
+    // `csrf(customizer)`: a customizer this file does not show.
+    facts.unsupported.add("a CSRF customizer held in a variable or built by a method");
+  }
 }
 
 function mergePolicy(
@@ -324,73 +405,96 @@ function mergePolicy(
 
 function csrfFinding(facts: ChainFacts, fact: Fact, findings: ConfigFinding[]): void {
   const where = "Spring Security CSRF protection is disabled";
-  const base = { ruleId: "PG-CSRF-001" as const, line: fact.line, cause: "csrf-disabled" };
-  const partial = facts.unsupported.size > 0;
-  const sessionEvidence = facts.sessionFeature !== null;
-  if (facts.policy === "stateless" && facts.bearer && !sessionEvidence) return;
-  if (facts.policy === "stateless" && sessionEvidence) {
+  const base = { ruleId: "PG-CSRF-001" as const, line: fact.line };
+  const low = (evidence: string, cause = "csrf-disabled"): void => {
     findings.push({
       ...base,
+      cause,
       severity: "medium",
       status: "suspected",
       confidence: "low",
-      evidence: `${where} on a chain that is STATELESS but also configures ${facts.sessionFeature}; whether a cookie carries the login is unclear; inferred`,
+      evidence: `${evidence}; inferred`,
     });
-    return;
-  }
-  if (facts.policy === "stateless") {
+  };
+  const medium = (evidence: string): void => {
     findings.push({
       ...base,
-      severity: "medium",
-      status: "suspected",
-      confidence: "low",
-      evidence: `${where} on a STATELESS chain with no recognised bearer or JWT setup (no oauth2ResourceServer or token filter); a cookie may still carry the login; inferred`,
-    });
-    return;
-  }
-  if (facts.policy === "unknown") {
-    findings.push({
-      ...base,
-      severity: "medium",
-      status: "suspected",
-      confidence: "low",
-      evidence: `${where}; the session creation policy is not a fixed value, so whether the chain uses cookies is unclear; inferred`,
-    });
-    return;
-  }
-  if (sessionEvidence || facts.policy === "session") {
-    findings.push({
-      ...base,
+      cause: "csrf-disabled",
       severity: "medium",
       status: "suspected",
       confidence: "medium",
-      evidence: `${where} on a session-based chain (${
+      evidence,
+    });
+  };
+  if (fact.kind === "conditional") {
+    low(`${where} only in a branch of the csrf customizer`, "csrf-conditional");
+    return;
+  }
+  if (fact.kind === "partial") {
+    const shown = fact.paths.slice(0, 3).join(", ");
+    low(
+      `CSRF protection is disabled for ${shown === "" ? "paths this file does not show" : shown}`,
+      `csrf-ignoring:${shown}`,
+    );
+    return;
+  }
+  const partial = facts.unsupported.size > 0;
+  const sessionEvidence = facts.sessionFeature !== null;
+  const defaultBearer = facts.bearer && !facts.customBearer;
+  if (facts.policy === "stateless") {
+    if (sessionEvidence) {
+      medium(
+        `${where} on a chain that is STATELESS but also configures ${facts.sessionFeature}; the login there is cookie based`,
+      );
+    } else if (facts.httpBasic) {
+      medium(
+        `${where} on a STATELESS chain with httpBasic: the browser sends basic credentials with every request, so a forged request carries them`,
+      );
+    } else if (defaultBearer) {
+      // STATELESS with Spring's default bearer handling: no ambient credential to ride on.
+      return;
+    } else if (facts.bearer || facts.tokenFilter) {
+      low(
+        `${where} on a STATELESS chain; the token is read by a custom bearer resolver or a filter that is only known by its name, so it may also come from a cookie`,
+      );
+    } else {
+      low(
+        `${where} on a STATELESS chain with no recognised bearer setup (no oauth2ResourceServer); a cookie may still carry the login`,
+      );
+    }
+    return;
+  }
+  if (facts.policy === "unknown") {
+    low(
+      `${where}; the session creation policy is not a fixed value, so whether the chain uses cookies is unclear`,
+    );
+    return;
+  }
+  if (sessionEvidence || facts.policy === "session") {
+    medium(
+      `${where} on a session-based chain (${
         facts.sessionFeature !== null
           ? facts.sessionFeature
           : "sessionCreationPolicy is not STATELESS"
       }): a form on another site can make the browser send the session cookie`,
-    });
+    );
     return;
   }
-  if (facts.bearer) {
-    findings.push({
-      ...base,
-      severity: "medium",
-      status: "suspected",
-      confidence: "low",
-      evidence: `${where} on a chain with a bearer-token setup but no sessionCreationPolicy(STATELESS); sessions may still be created; inferred`,
-    });
+  if (facts.bearer || facts.tokenFilter) {
+    low(
+      `${where} on a chain with a token setup but no sessionCreationPolicy(STATELESS); sessions may still be created`,
+    );
     return;
   }
-  findings.push({
-    ...base,
-    severity: "medium",
-    status: "suspected",
-    confidence: partial ? "low" : "medium",
-    evidence: `${where} and the chain sets no STATELESS session policy (Spring creates sessions by default)${
-      partial ? "; the chain is also built by code this file does not show; inferred" : ""
-    }`,
-  });
+  if (partial) {
+    low(
+      `${where} and the chain sets no STATELESS session policy; the chain is also built by code this file does not show`,
+    );
+    return;
+  }
+  medium(
+    `${where} and the chain sets no STATELESS session policy (Spring creates sessions by default)`,
+  );
 }
 
 // ------------------------------------------------------------------------- catch-all and ignoring
@@ -399,6 +503,7 @@ function authorizeFindings(
   unit: Unit,
   calls: Array<{ call: CallExpr; parent: CallExpr | null; seq: number }>,
   scoped: boolean,
+  selecting: ReadonlySet<CallExpr>,
   findings: ConfigFinding[],
 ): void {
   type Rule = {
@@ -410,6 +515,7 @@ function authorizeFindings(
   };
   const rules: Rule[] = [];
   for (const { call, parent, seq } of calls) {
+    if (selecting.has(call)) continue;
     if (call.name === "authorize") {
       // Kotlin DSL: authorize(matcher, access).
       const matcher = call.args[0];
