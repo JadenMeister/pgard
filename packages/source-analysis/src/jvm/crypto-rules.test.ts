@@ -44,6 +44,8 @@ const java = (members: string, imports = ""): string =>
 const kotlin = (body: string, imports = ""): string =>
   `import java.security.*\nimport javax.crypto.*\nimport javax.crypto.spec.*\n${imports}\n${body}\n`;
 
+const V = "@org.springframework.beans.factory.annotation.Value";
+
 interface Case {
   name: string;
   source: string;
@@ -265,7 +267,7 @@ const CASES: Case[] = [
       `@org.springframework.beans.factory.annotation.Value("\${jwt.secret:default-secret-value}")
       private String secret;`,
     ),
-    expect: { "PG-CRYPTO-002": "medium" },
+    expect: { "PG-CRYPTO-002": "low" },
   },
   {
     name: "Spring @Value default read at a key API is reported once, at the API",
@@ -322,7 +324,7 @@ const CASES: Case[] = [
       `class S(@Value("\\\${app.signing-key:dev-signing-key}") val key: String)`,
       "import org.springframework.beans.factory.annotation.Value",
     ),
-    expect: { "PG-CRYPTO-002": "medium" },
+    expect: { "PG-CRYPTO-002": "low" },
   },
   {
     name: "Kotlin elvis fallback to a literal",
@@ -611,6 +613,127 @@ const CASES: Case[] = [
     ),
     expect: { "PG-AUTH-001": "medium" },
   },
+  // ---------------------------------------------------------------- review round
+  {
+    name: "name-only @Value defaults of non-secrets are silent",
+    source: java(
+      `${V}("\${cache.key:users}") String a;
+      ${V}("\${stripe.publishable-key:pk_test_123}") String b;
+      ${V}("\${recaptcha.site-key:6Lc_test}") String c;
+      ${V}("\${app.sort.key:createdAt}") String d;`,
+    ),
+    expect: {},
+  },
+  {
+    name: "name-only @Value defaults of hmac and signing keys are low",
+    source: java(
+      `${V}("\${app.hmac.key:dev-hmac-material}") String a;
+      ${V}("\${jwt.signing-key:dev-signing-material}") String b;
+      ${V}("\${jwt.key:dev-key-material-x}") String c;`,
+    ),
+    expect: { "PG-CRYPTO-002": "low" },
+    evidence: /; inferred$/,
+  },
+  {
+    name: "a password property default is low",
+    source: java(`${V}("\${jasypt.encryptor.password:changeit-value}") String p;`),
+    expect: { "PG-CRYPTO-002": "low" },
+  },
+  {
+    name: "a nested placeholder without a default is silent",
+    source: java(`${V}("\${jwt.secret:\${JWT_SECRET}}") String s;`),
+    expect: {},
+  },
+  {
+    name: "a non-final field with a literal is medium, and low when written elsewhere",
+    source: java(
+      `private String secret = "non-final-field-material";
+      Object a() { return com.auth0.jwt.algorithms.Algorithm.HMAC256(secret); }`,
+    ),
+    expect: { "PG-CRYPTO-002": "medium" },
+    evidence: /non-final field secret/,
+  },
+  {
+    name: "a non-final field overwritten elsewhere is low",
+    source: java(
+      `private String secret = "non-final-field-material";
+      void load(String s) { this.secret = s; }
+      Object a() { return com.auth0.jwt.algorithms.Algorithm.HMAC256(secret); }`,
+    ),
+    expect: { "PG-CRYPTO-002": "low" },
+  },
+  {
+    name: "deprecated Spring password encoders",
+    source: java(
+      `Object a() { return new org.springframework.security.crypto.password.StandardPasswordEncoder("x"); }
+      Object b() { return new MessageDigestPasswordEncoder("SHA-256"); }`,
+    ),
+    expect: { "PG-CRYPTO-001": "high" },
+  },
+  {
+    name: "Shiro setCipherKey with a literal",
+    source: java(
+      `void f(org.apache.shiro.web.mgt.CookieRememberMeManager m) { m.setCipherKey("shiro-literal-cipher-key".getBytes()); }`,
+    ),
+    expect: { "PG-CRYPTO-002": "high" },
+  },
+  {
+    name: "encoder.matches is not a hash call",
+    source: java(
+      `void f(SignupRequest dto, UserRepository repo, PasswordEncoder encoder, User u) {
+        if (encoder.matches("a", "b")) return;
+        u.setPassword(dto.getPassword());
+        repo.save(u);
+      }`,
+    ),
+    expect: { "PG-AUTH-001": "medium" },
+  },
+  {
+    name: "a free hashPassword helper counts as hashing",
+    source: java(
+      `void f(SignupRequest dto, UserRepository repo, User u) {
+        u.setPassword(hashPassword(dto.getPassword()));
+        repo.save(u);
+      }
+      String hashPassword(String raw) { return raw; }`,
+    ),
+    expect: {},
+  },
+  {
+    name: "NoOpPasswordEncoder through the constructor and getInstance, Java and Kotlin",
+    source: java(
+      `Object a() { return new NoOpPasswordEncoder(); }
+      Object b() { return NoOpPasswordEncoder.getInstance(); }`,
+    ),
+    expect: { "PG-AUTH-001": "high" },
+  },
+  {
+    name: "Kotlin NoOpPasswordEncoder",
+    path: "A.kt",
+    source: kotlin(`fun e() = NoOpPasswordEncoder.getInstance()`),
+    expect: { "PG-AUTH-001": "high" },
+  },
+  {
+    name: "Kotlin apply block sets the password, then save",
+    path: "A.kt",
+    source: kotlin(
+      `fun signup(req: SignupRequest, repo: UserRepository) {
+        val user = User().apply { password = req.password }
+        repo.save(user)
+      }`,
+    ),
+    expect: { "PG-AUTH-001": "medium" },
+  },
+  {
+    name: "Kotlin apply block with this.password inline in save",
+    path: "A.kt",
+    source: kotlin(
+      `fun signup(password: String, repo: UserRepository) {
+        repo.save(User().apply { this.password = password })
+      }`,
+    ),
+    expect: { "PG-AUTH-001": "low" },
+  },
 ];
 
 describe("cryptography rules on the JVM engine", () => {
@@ -745,5 +868,35 @@ describe("coverage", () => {
       kotlin(`fun c(): Cipher = Cipher.getInstance("AES/ECB/PKCS5Padding")`),
     );
     expect(output.findings.map((finding) => finding.ruleId)).toContain("PG-CRYPTO-003");
+  });
+
+  it("a Bouncy Castle provider registration keeps the area completed", async () => {
+    const output = await scan(
+      "A.java",
+      'import org.bouncycastle.jce.provider.BouncyCastleProvider;\nimport java.security.*;\nimport javax.crypto.*;\nclass A { void f() throws Exception { Security.addProvider(new BouncyCastleProvider()); Cipher.getInstance("AES/GCM/NoPadding"); } }\n',
+    );
+    expect(
+      output.coverage.find((item) => item.area === "source:crypto:bouncy-castle"),
+    ).toBeUndefined();
+    expect(output.coverage.find((item) => item.area === "source:java")?.status).toBe("completed");
+  });
+
+  it("setPassword from the environment or a Random in a Comparator is not a partial form", async () => {
+    const output = await scan(
+      "A.java",
+      java(
+        `Object a(User u) { return new Runnable() { public void run() { u.setPassword(System.getenv("P")); } }; }
+        Object b() { return new Comparator<String>() { public int compare(String x, String y) { return new Random().nextInt(3) - 1; } }; }`,
+      ),
+    );
+    expect(output.coverage.find((item) => item.area === "source:java")?.status).toBe("completed");
+  });
+
+  it("a cryptography call in a Kotlin anonymous object makes the area partial", async () => {
+    const output = await scan(
+      "A.kt",
+      kotlin(`val r = object : Runnable { override fun run() { Cipher.getInstance("DES") } }`),
+    );
+    expect(output.coverage.find((item) => item.area === "source:kotlin")?.status).toBe("partial");
   });
 });

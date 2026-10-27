@@ -414,7 +414,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
   <span class="rule">PG-CMD-003</span>     high     OS command built from dynamic strings in Java/Kotlin (Runtime.exec, ProcessBuilder, Commons Exec) [java, kotlin]
   <span class="rule">PG-CRYPTO-001</span>  high     Weak hash (MD5/SHA-1) used for passwords [javascript, typescript, go, java, kotlin]
   <span class="rule">PG-CRYPTO-002</span>  high     Hardcoded cryptographic key or signing secret [javascript, typescript, go, java, kotlin]
-  <span class="rule">PG-CRYPTO-003</span>  medium   Broken or deprecated cipher [javascript, typescript, java, kotlin]
+  <span class="rule">PG-CRYPTO-003</span>  medium   Broken or deprecated cipher, fixed IV or predictable random value [javascript, typescript, java, kotlin]
   <span class="rule">PG-PATH-002</span>    high     File path from request input or an archive entry used in Java/Kotlin file access (path traversal, zip slip) [java, kotlin]
   <span class="rule">PG-SQL-005</span>     high     SQL built from dynamic strings in Java/Kotlin JDBC, JPA/Hibernate or MyBatis code [java, kotlin]
   <span class="rule">PG-SSRF-002</span>    high     Server-side HTTP request to a URL from request input in Java/Kotlin [java, kotlin]

@@ -1,7 +1,7 @@
 import type { Node } from "web-tree-sitter";
 import type { RawSourceFinding } from "../finding-factory.js";
 import { annotationFindings } from "./annotation-rules.js";
-import { UNSUPPORTED_CRYPTO_LIBRARIES } from "./crypto-names.js";
+import { unsupportedCryptoLibraries } from "./crypto-names.js";
 import { cryptoFindings, type CryptoFinding } from "./crypto-rules.js";
 import { convertJava } from "./java-ir.js";
 import { convertKotlin } from "./kotlin-ir.js";
@@ -159,15 +159,7 @@ export function analyzeJvmTree(
       unit.imports.some((name) =>
         WEB_API_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`)),
       ),
-    unsupportedCryptoLibraries: [
-      ...new Set(
-        UNSUPPORTED_CRYPTO_LIBRARIES.filter((library) =>
-          unit.imports.some(
-            (name) => name === library.prefix || name.startsWith(`${library.prefix}.`),
-          ),
-        ).map((library) => library.label),
-      ),
-    ],
+    unsupportedCryptoLibraries: unsupportedCryptoLibraries(unit.imports),
     modelAttributes: sql.modelAttributes,
     unsupportedOsLibraries: PROCESS_AND_FILE_LIBRARIES.filter((library) =>
       unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),

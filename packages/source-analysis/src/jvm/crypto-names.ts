@@ -2,7 +2,7 @@
 
 /** Text of a skipped code form that makes it matter: a call of the cryptography rules. */
 export const CRYPTO_CALL_TEXT =
-  /\b(?:MessageDigest|SecretKeySpec|IvParameterSpec|GCMParameterSpec|Cipher|DigestUtils|Hashing|hmacShaKeyFor|signWith|setSigningKey|HMAC(?:256|384|512)|MACSigner|MACVerifier|RandomStringUtils|setPassword|PasswordEncoder|NoOpPasswordEncoder)\b|\bnew\s+Random\b|\bMath\.random\b/;
+  /\b(?:MessageDigest|SecretKeySpec|IvParameterSpec|GCMParameterSpec|Cipher|DigestUtils|Hashing|hmacShaKeyFor|signWith|setSigningKey|setCipherKey|HMAC(?:256|384|512)|MACSigner|MACVerifier|RandomStringUtils|NoOpPasswordEncoder|StandardPasswordEncoder|LdapShaPasswordEncoder|MessageDigestPasswordEncoder|Md4PasswordEncoder)\b/;
 
 /** Imported cryptography libraries with their own APIs that these rules do not read. */
 export const UNSUPPORTED_CRYPTO_LIBRARIES: ReadonlyArray<{ prefix: string; label: string }> = [
@@ -11,6 +11,23 @@ export const UNSUPPORTED_CRYPTO_LIBRARIES: ReadonlyArray<{ prefix: string; label
   { prefix: "org.jasypt", label: "Jasypt" },
   { prefix: "org.apache.shiro.crypto", label: "Apache Shiro crypto" },
 ];
+
+/** Import paths of a library that only register a JCA provider: calls through the JCA are still read. */
+const PROVIDER_ONLY = ["org.bouncycastle.jce.provider", "org.bouncycastle.jcajce.provider"];
+
+/** The unsupported cryptography libraries a file imports, by label. */
+export function unsupportedCryptoLibraries(imports: readonly string[]): string[] {
+  const labels = new Set<string>();
+  for (const library of UNSUPPORTED_CRYPTO_LIBRARIES) {
+    const hit = imports.some(
+      (name) =>
+        (name === library.prefix || name.startsWith(`${library.prefix}.`)) &&
+        !PROVIDER_ONLY.some((only) => name === only || name.startsWith(`${only}.`)),
+    );
+    if (hit) labels.add(library.label);
+  }
+  return [...labels];
+}
 
 /** A cipher that is broken or deprecated whatever the mode. */
 const WEAK_CIPHER_NAME =
@@ -83,6 +100,15 @@ export const PASSWORD_NAME =
 /** A call that hashes: a password hashing function or an encoder. */
 export const HASH_CALL =
   /^(?:encode|encodePassword|hashpw|hashPassword|hash|hashToString|bcrypt|argon2|scrypt|pbkdf2|digest|crypt|sha\d*Hex|md5Hex|hashString)$/i;
+/** Deprecated Spring Security password encoders (fast or unsalted hashes). */
+export const WEAK_PASSWORD_ENCODERS = new Set([
+  "StandardPasswordEncoder",
+  "LdapShaPasswordEncoder",
+  "MessageDigestPasswordEncoder",
+  "Md4PasswordEncoder",
+  "Md5PasswordEncoder",
+  "ShaPasswordEncoder",
+]);
 export const HASH_OWNER = /bcrypt|argon2|scrypt|pbkdf2|passwordEncoder|encoder|hasher/i;
 export const HASH_TYPE = /Encoder|BCrypt|Argon2|SCrypt|Pbkdf2|Hasher/;
 

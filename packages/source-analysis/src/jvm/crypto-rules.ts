@@ -6,6 +6,7 @@ import {
   HASH_CALL,
   HASH_OWNER,
   HASH_TYPE,
+  WEAK_PASSWORD_ENCODERS,
   isPasswordWord,
   isSecretContextName,
   JDBC_UPDATE_CALLS,
@@ -134,6 +135,9 @@ const KEY_PROPERTY =
   /secret|hmac|passphrase|private[-_.]?key|signing[-_.]?key|encryption[-_.]?key|crypto[-_.]?key|aes[-_.]?key|jwt[-_.]?key|(?:^|[-_.])key$/i;
 const NOT_A_KEY_PROPERTY =
   /public|prefix|header|name|[-_.]id$|path|url|algorithm|expir|ttl|file|location|issuer|alias|length|size/i;
+const NOT_A_KEY_PROPERTY_FULL =
+  /publishable|site[-_.]?key|sort|cache|public|(?:^|[-_.])api[-_.]?id/i;
+const PASSWORD_PROPERTY = /(?:^|[-_.])(?:password|passwd|passphrase)$/i;
 const KEY_FIELD =
   /secret|signingKey|hmac|privateKey|encryptionKey|aesKey|jwtKey|^key$|^secretKey$/i;
 
@@ -931,7 +935,12 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
               /^(?:BCrypt|Argon2|SCrypt|Hashing|DigestUtils|MessageDigest|Pbkdf2)/i.test(owner))
           )
             hit = true;
-          if (expr.recv !== null && HASH_OWNER.test(rootName(expr.recv))) hit = true;
+          if (
+            HASH_CALL.test(expr.name) &&
+            expr.recv !== null &&
+            HASH_OWNER.test(rootName(expr.recv))
+          )
+            hit = true;
         }
       },
       () => {},
@@ -1031,6 +1040,9 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
       } else if (owner === "Algorithm" && /^HMAC(?:256|384|512)$/.test(name)) {
         keyArg = args[0];
         keyWhere = `${name} secret`;
+      } else if (name === "setCipherKey" && args.length === 1) {
+        keyArg = args[0];
+        keyWhere = "Shiro rememberMe cipher key";
       } else if (name === "setSigningKey" && args.length === 1) {
         keyArg = args[0];
         keyWhere = "JWT signing key";
@@ -1179,6 +1191,19 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
         }
       }
 
+      // ---- PG-CRYPTO-001: deprecated Spring Security password encoders
+      if (type !== null && WEAK_PASSWORD_ENCODERS.has(type)) {
+        report({
+          ruleId: "PG-CRYPTO-001",
+          line,
+          severity: "high",
+          status: "confirmed",
+          confidence: "high",
+          evidence: `deprecated ${type}: a fast, weakly salted hash for passwords`,
+          cause: "weak-password-encoder",
+        });
+      }
+
       // ---- PG-AUTH-001
       if (
         type === "NoOpPasswordEncoder" ||
@@ -1295,6 +1320,25 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
             .map((arg) => plainLevel(arg, ctx))
             .find((l) => l !== null);
           if (level !== undefined) return level;
+        }
+        if (current.k === "call") {
+          // Kotlin `User().apply { password = pw }` and builder DSL lambdas.
+          for (const lambda of current.lambdas) {
+            const found: Level[] = [];
+            walkStatements(
+              lambda.body,
+              () => {},
+              (stmt) => {
+                if (stmt.s !== "assign") return;
+                const target = stmt.target;
+                const name =
+                  target.k === "id" ? target.name : target.k === "member" ? target.name : "";
+                if (PASSWORD_NAME.test(name)) found.push(plainLevel(stmt.value, ctx));
+              },
+            );
+            const level = found.find((l) => l !== null);
+            if (level !== undefined) return level;
+          }
         }
         if (current.k === "call" && /password|passwd|pwd|copy/i.test(current.name)) {
           const level = current.args.map((arg) => plainLevel(arg, ctx)).find((l) => l !== null);
@@ -1447,18 +1491,23 @@ export function cryptoFindings(unit: Unit): CryptoFinding[] {
       const parsed = text === null ? null : placeholderDefault(text);
       if (parsed === null) continue;
       const last = parsed.name.slice(parsed.name.lastIndexOf(".") + 1);
+      const excluded = NOT_A_KEY_PROPERTY.test(last) || NOT_A_KEY_PROPERTY_FULL.test(parsed.name);
       const keyed =
-        (KEY_PROPERTY.test(last) && !NOT_A_KEY_PROPERTY.test(last)) ||
-        (KEY_FIELD.test(fieldName) && !NOT_A_KEY_PROPERTY.test(fieldName));
+        !excluded &&
+        (KEY_PROPERTY.test(last) ||
+          PASSWORD_PROPERTY.test(last) ||
+          (KEY_FIELD.test(fieldName) && !NOT_A_KEY_PROPERTY.test(fieldName)));
       if (!keyed) continue;
       consumed.add(annotation);
+      // Only the name says it is a key: low confidence. A default that reaches a key API is
+      // reported there, at medium.
       report({
         ruleId: "PG-CRYPTO-002",
         line: annotationLine(annotation),
         severity: "medium",
         status: "suspected",
-        confidence: "medium",
-        evidence: `default value in source (value redacted) for configuration key ${parsed.name}, used when it is missing`,
+        confidence: "low",
+        evidence: `default value in source (value redacted) for configuration key ${parsed.name}, which is named like a secret; inferred`,
         cause: "key:@Value default",
       });
     }
