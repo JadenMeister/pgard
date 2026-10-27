@@ -2454,17 +2454,58 @@ export function analyzeJsSource(
    */
   const isStableOptionsObject = (name: string): boolean => {
     if (mutatedRoots.has(name)) return false;
-    const lastSegment = (callee: ts.Expression): string => {
+    /** A real cookie-setting call: `res.cookie`, `*.cookies.set`, `cookies().set`, `reply.setCookie`, `res.append("Set-Cookie", …)`. */
+    const isCookieSetCall = (call: ts.CallExpression): boolean => {
+      const callee = unwrap(call.expression);
+      if (!ts.isPropertyAccessExpression(callee)) return false;
+      const method = callee.name.text;
+      const receiver = unwrap(callee.expression);
+      const receiverPath = accessPath(receiver);
+      if (method === "cookie" || method === "setCookie")
+        return receiverPath !== null && /^(res|response|reply)$/.test(receiverPath);
+      if (method === "set")
+        return (
+          (receiverPath !== null && /(^|\.)(cookies|cookieStore)$/i.test(receiverPath)) ||
+          (ts.isCallExpression(receiver) &&
+            ts.isIdentifier(unwrap(receiver.expression)) &&
+            (unwrap(receiver.expression) as ts.Identifier).text === "cookies")
+        );
+      if (method === "append") {
+        const first = call.arguments[0] ? unwrap(call.arguments[0]) : undefined;
+        return (
+          receiverPath !== null &&
+          /^(res|response|reply)$/.test(receiverPath) &&
+          first !== undefined &&
+          ts.isStringLiteralLike(first) &&
+          first.text.toLowerCase() === "set-cookie"
+        );
+      }
+      return false;
+    };
+    /** The actual express-session / cookie-session middleware factory, imported or required inline. */
+    const isSessionFactory = (callee: ts.Expression): boolean => {
       const target = unwrap(callee);
-      if (ts.isPropertyAccessExpression(target)) return target.name.text;
-      return ts.isIdentifier(target) ? target.text : "";
+      if (ts.isIdentifier(target)) {
+        const module = namespaceImports.get(target.text);
+        return module === "express-session" || module === "cookie-session";
+      }
+      if (ts.isCallExpression(target) && ts.isIdentifier(unwrap(target.expression))) {
+        const first = target.arguments[0] ? unwrap(target.arguments[0]) : undefined;
+        return (
+          (unwrap(target.expression) as ts.Identifier).text === "require" &&
+          first !== undefined &&
+          ts.isStringLiteralLike(first) &&
+          (first.text === "express-session" || first.text === "cookie-session")
+        );
+      }
+      return false;
     };
     return (nonReadUses.get(name) ?? []).every((use) => {
       const parent = use.parent;
       if (ts.isSpreadAssignment(parent)) return true;
       if (ts.isCallExpression(parent) && parent.arguments.some((argument) => argument === use))
-        return /^(cookie|set|setCookie|append)$/.test(lastSegment(parent.expression));
-      // `session({ secret, cookie })`: a config object handed straight to a session middleware.
+        return isCookieSetCall(parent);
+      // `session({ secret, cookie })`: a config object handed straight to the session middleware.
       const holder = ts.isShorthandPropertyAssignment(parent)
         ? parent.parent
         : ts.isPropertyAssignment(parent) && parent.initializer === use
@@ -2475,7 +2516,7 @@ export function analyzeJsSource(
         ts.isObjectLiteralExpression(holder) &&
         ts.isCallExpression(holder.parent) &&
         holder.parent.arguments.some((argument) => argument === holder) &&
-        /session/i.test(lastSegment(holder.parent.expression))
+        isSessionFactory(holder.parent.expression)
       );
     });
   };

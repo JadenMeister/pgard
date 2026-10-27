@@ -1067,6 +1067,16 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
         "s.js",
       ).facts.usesCookieSession,
     ).toBe(false);
+    // Only real cookie-setting calls consume it; any other .set/.append/session-named call escapes.
+    expect(sess("registry.set('cookie', O); registry.get('cookie').sameSite = 'none';")).toBe(true);
+    expect(sess("headers.append('x', O);")).toBe(true);
+    expect(sess("withSessionDefaults({ cookie: O });")).toBe(true);
+    expect(sess("res.append('Set-Cookie', O);")).toBe(false);
+    expect(sess("res.append('X-Other', O);")).toBe(true);
+    expect(sess("response.cookies.set('sid', v, O);")).toBe(false);
+    expect(sess("cookies().set('sid', v, O);")).toBe(false);
+    expect(sess("reply.setCookie('sid', v, O);")).toBe(false);
+    expect(sess("other.cookie('sid', v, O);")).toBe(true);
     // express-session: a mutated cookie config is not strict.
     const express = (extra: string) =>
       analyzeJsSource(

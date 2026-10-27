@@ -82,7 +82,7 @@
     },
     "PG-CSRF-001": {
       "precision": 1,
-      "recall": 0.956,
+      "recall": 0.96,
       "precisionMedium": 0
     },
     "PG-BRUTE-001": {
