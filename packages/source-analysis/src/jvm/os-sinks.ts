@@ -179,7 +179,24 @@ function findWrapper(
   texts: ReadonlyArray<string | null>,
 ): { program: string; flagIndex: number; flag: string | null } | null {
   const at = afterLaunchers(texts);
-  if (at === null) return null;
+  if (at === null) {
+    // A launcher argument is dynamic (`timeout secs sh -c script`): a shell with its flag later on
+    // is still the script's.
+    if (!LAUNCHERS.has(programName(texts[0] ?? null) ?? "")) return null;
+    for (let j = 1; j < Math.min(texts.length - 1, 8); j += 1) {
+      const program = programName(texts[j] ?? null);
+      const flag = texts[j + 1] ?? null;
+      if (
+        program !== null &&
+        SHELL_PROGRAMS.has(program) &&
+        flag !== null &&
+        shellFlag(program, flag)
+      ) {
+        return { program, flagIndex: j + 1, flag };
+      }
+    }
+    return null;
+  }
   const program = programName(texts[at] ?? null);
   if (program === null || !SHELL_PROGRAMS.has(program) || texts.length < at + 2) return null;
   for (let i = at + 1; i < Math.min(texts.length, at + 5); i += 1) {
@@ -1123,9 +1140,8 @@ export function createOsSinks(host: OsHost) {
   function flush(): void {
     for (const origin of origins) {
       if (origin.consumed) continue;
-      // Checked and then never used: nothing to say. Used under the check: inferred. Otherwise as made.
-      if (origin.guarded) origin.report(true);
-      else if (!origin.checked) origin.report(false);
+      // Checked and then used in a way the rules do not follow, or not used: inferred. Otherwise as made.
+      origin.report(origin.guarded || origin.checked);
     }
   }
 

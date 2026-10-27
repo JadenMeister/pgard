@@ -2086,7 +2086,7 @@ describe("a check counts only when the code exits on failure or the use is insid
     }
   });
 
-  it("says nothing about a path that is checked and never used", async () => {
+  it("reports a path that is checked and never seen used at low confidence", async () => {
     const analysis = await run(
       handler(
         "Path x = base.resolve(p).normalize(); if (!x.startsWith(base)) throw new SecurityException();",
@@ -2094,7 +2094,45 @@ describe("a check counts only when the code exits on failure or the use is insid
         BASE2,
       ),
     );
-    expect(of(analysis, PATH)).toEqual([]);
+    expect(kind(of(analysis, PATH))).toBe("inferred");
+  });
+
+  it("reports a checked path used by a call the rules do not know, or stored in a field, as low", async () => {
+    const forms = [
+      "Path x = base.resolve(p).normalize(); if (!x.startsWith(base)) throw new SecurityException(); x.toFile().setReadOnly();",
+      "Path x = base.resolve(p).normalize(); if (!x.startsWith(base)) throw new SecurityException(); current = x;",
+      "Path x = base.resolve(p).normalize(); if (!x.startsWith(base)) throw new SecurityException(); this.current = x;",
+      "Path x = base.resolve(p).normalize(); if (!x.startsWith(base)) throw new SecurityException(); registry.keep(x);",
+    ];
+    for (const form of forms) {
+      const analysis = await run(
+        handler(
+          form,
+          SPRING,
+          `${BASE2}\nPath current; Registry registry; interface Registry { void keep(Path p); }`,
+        ),
+      );
+      expect(kind(of(analysis, PATH)), form).toBe("inferred");
+      expect(of(analysis, PATH), form).toHaveLength(1);
+    }
+    const unchecked = await run(
+      handler("Path x = base.resolve(p).normalize(); x.toFile().setReadOnly();", SPRING, BASE2),
+    );
+    expect(kind(of(unchecked, PATH))).toBe("high/confirmed");
+    const file = await run(
+      java(
+        SPRING,
+        'File current; void h(@RequestParam String p) throws Exception { File f = new File("/srv", p).getCanonicalFile(); if (!f.getPath().startsWith("/srv/")) throw new IOException(); current = f; }',
+      ),
+    );
+    expect(kind(of(file, PATH))).toBe("inferred");
+    const fileUnchecked = await run(
+      java(
+        SPRING,
+        'File current; void h(@RequestParam String p) throws Exception { File f = new File("/srv", p).getCanonicalFile(); current = f; }',
+      ),
+    );
+    expect(kind(of(fileUnchecked, PATH))).toBe("high/confirmed");
   });
 
   it("still reports the use of another variable next to a checked one that is never used", async () => {
@@ -2105,8 +2143,103 @@ describe("a check counts only when the code exits on failure or the use is insid
         BASE2,
       ),
     );
-    expect(of(analysis, PATH)).toHaveLength(1);
-    expect(kind(of(analysis, PATH))).toBe("high/confirmed");
+    expect(of(analysis, PATH)).toHaveLength(2);
+    expect(
+      of(analysis, PATH)
+        .map((finding) => finding.confidence)
+        .sort(),
+    ).toEqual(["high", "low"]);
+  });
+});
+
+describe("assertion helpers, archive iterators and launchers with dynamic arguments", () => {
+  const BASE3 = 'final Path base = Paths.get("/srv").toAbsolutePath().normalize();';
+  const imports = `${SPRING}import com.google.common.base.Preconditions;\nimport org.springframework.util.Assert;\nimport org.apache.commons.lang3.Validate;\nimport static com.google.common.base.Preconditions.checkArgument;\n`;
+
+  it.each([
+    "Preconditions.checkArgument(x.startsWith(base));",
+    'Preconditions.checkState(x.startsWith(base), "outside");',
+    "com.google.common.base.Preconditions.checkArgument(x.startsWith(base));",
+    "checkArgument(x.startsWith(base));",
+    'Assert.isTrue(x.startsWith(base), "outside");',
+    'Assert.state(x.startsWith(base), "outside");',
+    "Validate.isTrue(x.startsWith(base));",
+  ])("%s throws on failure, so the check counts", async (check) => {
+    const analysis = await run(
+      handler(
+        `Path x = base.resolve(p).normalize(); ${check} Files.readAllBytes(x);`,
+        imports,
+        BASE3,
+      ),
+    );
+    expect(kind(of(analysis, PATH)), check).toBe("inferred");
+  });
+
+  it("does not take other isTrue / state calls, or a check on another variable, for a guard", async () => {
+    const other = await run(
+      handler(
+        "Path x = base.resolve(p).normalize(); Other.isTrue(x.startsWith(base)); Files.readAllBytes(x);",
+        imports,
+        `${BASE3}\nstatic class Other { static void isTrue(boolean b) {} }`,
+      ),
+    );
+    expect(kind(of(other, PATH))).toBe("high/suspected");
+    const wrong = await run(
+      handler(
+        "Path x = base.resolve(p).normalize(); Path y = base.resolve(q).normalize(); Preconditions.checkArgument(y.startsWith(base)); Files.readAllBytes(x);",
+        imports,
+        BASE3,
+      ),
+    );
+    expect(wrong.findings.some((finding) => finding.confidence === "high")).toBe(true);
+  });
+
+  it("reads the assertion helpers in Kotlin", async () => {
+    const analysis = await run(
+      kotlin(
+        'val x = Paths.get("/srv").resolve(p).normalize(); Preconditions.checkArgument(x.startsWith(Paths.get("/srv"))); Files.readAllBytes(x)',
+        "import com.google.common.base.Preconditions\nimport org.springframework.util.Assert",
+      ),
+      "K.kt",
+    );
+    expect(kind(of(analysis, PATH))).toBe("inferred");
+  });
+
+  it("takes the Kotlin property forms of the next-entry calls for archive entries", async () => {
+    const forms = [
+      "zis.nextZipEntry",
+      "tis.nextTarEntry",
+      "jis.nextJarEntry",
+      "cis.nextCpioEntry",
+      "ais.nextArEntry",
+    ];
+    for (const form of forms) {
+      const analysis = await run(
+        `import java.io.File
+import java.util.zip.ZipInputStream
+fun a(zis: Any, tis: Any, jis: Any, cis: Any, ais: Any, dest: File) { File(dest, ${form}.name).mkdirs() }
+`,
+        "K.kt",
+      );
+      expect(of(analysis, PATH)[0], form).toMatchObject({ severity: "high", confidence: "high" });
+    }
+  });
+
+  it("still finds `sh -c script` behind a launcher with a dynamic argument", async () => {
+    const forms = [
+      'new ProcessBuilder("timeout", q, "sh", "-c", p).start();',
+      'new ProcessBuilder("sudo", "-u", q, "bash", "-lc", p).start();',
+      'Runtime.getRuntime().exec(new String[] {"nice", "-n", q, "sh", "-c", p});',
+    ];
+    for (const form of forms) {
+      const analysis = await run(handler(form));
+      expect(of(analysis, CMD)[0], form).toMatchObject({
+        severity: "critical",
+        cause: expect.stringMatching(/:shell$/),
+      });
+    }
+    const none = await run(handler('new ProcessBuilder("timeout", q, "git", "log", p).start();'));
+    expect(of(none, CMD)[0]).toMatchObject({ severity: "medium" });
   });
 });
 

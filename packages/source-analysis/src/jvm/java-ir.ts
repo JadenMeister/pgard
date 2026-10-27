@@ -36,6 +36,10 @@ const LITERAL_TYPES = new Set([
   "null_literal",
 ]);
 
+/** Calls that throw when their first argument is false. */
+const ASSERTION_CALL = /^(?:checkArgument|checkState|isTrue|state)$/;
+const ASSERTION_OWNER = /^(?:Preconditions|Assert|Validate)$/;
+
 const ESCAPES: Record<string, string> = {
   n: "\n",
   t: "\t",
@@ -443,6 +447,26 @@ export function convertJava(ast: AstResult): Unit {
               value: expr(right, depth + 1),
             },
           ];
+        }
+        // Guava `Preconditions.checkArgument(c)`, Spring `Assert.isTrue(c, ...)`, commons-lang
+        // `Validate.isTrue(c)` throw when the condition is false, like `assert`.
+        if (inner.type === "method_invocation") {
+          const nameNode = named(inner, "name");
+          const owner = named(inner, "object");
+          const first = named(inner, "arguments")?.children.find((child) => !child.anonymous);
+          if (
+            nameNode !== undefined &&
+            first !== undefined &&
+            ASSERTION_CALL.test(simple(text(nameNode)))
+          ) {
+            const ownerName = owner === undefined ? "" : simple(text(owner));
+            if (
+              ASSERTION_OWNER.test(ownerName) ||
+              (owner === undefined && /^check(?:Argument|State)$/.test(text(nameNode)))
+            ) {
+              return [{ s: "assert", line, test: expr(first, depth + 1), testText: text(first) }];
+            }
+          }
         }
         return [{ s: "expr", line, expr: expr(inner, depth + 1) }];
       }

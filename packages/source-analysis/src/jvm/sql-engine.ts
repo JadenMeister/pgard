@@ -1294,6 +1294,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     const binding = ctx.scope.find(stmt.target.name);
     if (binding === null) {
       escape([incoming], "stored");
+      os.escapes(incoming);
       return;
     }
     const old = binding.value;

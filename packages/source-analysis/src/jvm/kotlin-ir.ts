@@ -620,8 +620,12 @@ export function convertKotlin(ast: AstResult): Unit {
         const callee = nonAnon(inner)[0];
         // `require(...)`, `check(...)` and `assert(...)` state a condition the code relies on.
         if (
-          callee?.type === "identifier" &&
-          ["require", "check", "assert"].includes(text(callee))
+          (callee?.type === "identifier" &&
+            ["require", "check", "assert", "checkArgument", "checkState"].includes(text(callee))) ||
+          (callee?.type === "navigation_expression" &&
+            /^(?:[\w.]+\.)?(?:Preconditions|Assert|Validate)\.(?:checkArgument|checkState|isTrue|state)$/.test(
+              text(callee),
+            ))
         ) {
           const argNode = ofType(inner, "value_arguments")?.children.find(
             (c) => c.type === "value_argument",

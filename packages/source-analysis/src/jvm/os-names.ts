@@ -105,6 +105,11 @@ export const ARCHIVE_NEXT = new Set([
   "getNextCpioEntry",
   "getNextArEntry",
   "nextEntry",
+  "nextZipEntry",
+  "nextTarEntry",
+  "nextJarEntry",
+  "nextCpioEntry",
+  "nextArEntry",
   "getNextFileHeader",
 ]);
 
