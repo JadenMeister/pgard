@@ -341,8 +341,34 @@ describe("rendering", () => {
             }),
           ],
         });
+        // Short link titles: the ellipsis of a cut title differs between platforms.
+        const catalog = new Map([
+          [
+            "PG-SQL-001",
+            {
+              title: { en: "t", ko: "t" },
+              impact: { en: "i", ko: "i" },
+              recommendation: { en: "r", ko: "r" },
+              details: {
+                standards: [
+                  {
+                    id: "A05:2025",
+                    title: "Injection",
+                    url: "https://top10.owasp.org/2025/A05_2025-Injection/",
+                  },
+                  {
+                    id: "CWE-89",
+                    title: "SQL Injection",
+                    url: "https://cwe.mitre.org/data/definitions/89.html",
+                    viaCwe: "CWE-89",
+                  },
+                ],
+              },
+            },
+          ],
+        ]) as unknown as ReturnType<typeof getRuleTextCatalog>;
         const state = {
-          ...createPanelsState(result, locale, size, getRuleTextCatalog()),
+          ...createPanelsState(result, locale, size, catalog),
           panel: "findings" as const,
         };
         const opened = press(state, key("return"));
