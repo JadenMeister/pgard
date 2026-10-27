@@ -16,6 +16,7 @@ import {
 } from "./checks/exposure.js";
 import { checkSecurityHeaders, checkVersionDisclosure } from "./checks/headers.js";
 import {
+  CORS_NULL_ORIGIN,
   CORS_PROBE_ORIGIN,
   MAX_CRAWL_DEPTH,
   MAX_WEB_PAGES,
@@ -131,7 +132,8 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
   let responsesReceived = 0;
   let htmlPages = 0;
   let headerResponses = 0;
-  let corsResponses = 0;
+  let corsResponses = 0; // the arbitrary-origin probe: judged for wildcard and reflection
+  let nullOriginResponses = 0; // the Origin: null probe: judged for reflection only
   let envResponses = 0;
   let gitResponses = 0;
 
@@ -239,7 +241,19 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
   const corsResult = await request("/", { headers: { origin: CORS_PROBE_ORIGIN } });
   if (corsResult !== null) {
     corsResponses += 1;
-    findings.push(...checkCors(corsResult.response.url, corsResult.response.headers));
+    const corsFindings = checkCors(corsResult.response.url, corsResult.response.headers);
+    findings.push(...corsFindings);
+    // One more GET, only when the arbitrary origin found nothing: a server that allows a fixed
+    // list or the literal `null` origin with credentials is not caught by the first probe.
+    if (corsFindings.length === 0) {
+      const nullResult = await request("/", { headers: { origin: CORS_NULL_ORIGIN } });
+      if (nullResult !== null) {
+        nullOriginResponses += 1;
+        findings.push(
+          ...checkCors(nullResult.response.url, nullResult.response.headers, CORS_NULL_ORIGIN),
+        );
+      }
+    }
   }
 
   const envResult = await request(SENSITIVE_PATHS.envFile);
@@ -283,10 +297,8 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
       ],
       responses(responsesReceived),
     ],
-    [
-      [WEB_RULES.corsWildcardWithCredentials.id, WEB_RULES.corsReflectedOrigin.id],
-      responses(corsResponses),
-    ],
+    [[WEB_RULES.corsWildcardWithCredentials.id], responses(corsResponses)],
+    [[WEB_RULES.corsReflectedOrigin.id], responses(corsResponses + nullOriginResponses)],
     [[WEB_RULES.directoryListing.id], [{ unit: "pages", examined: htmlPages, reason: null }]],
     [[WEB_RULES.exposedEnvFile.id], responses(envResponses)],
     [[WEB_RULES.exposedGitDirectory.id], responses(gitResponses)],

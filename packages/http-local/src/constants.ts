@@ -18,3 +18,10 @@ export const USER_AGENT = "pgard (local read-only check)";
 
 /** Origin sent once to see whether the service reflects arbitrary origins with credentials. */
 export const CORS_PROBE_ORIGIN = "http://pgard-cors-check.invalid";
+
+/**
+ * Origin sent in one extra GET, only when the arbitrary-origin probe found nothing, to see
+ * whether the service trusts the literal origin `null` (sandboxed iframes, `file:` pages) with
+ * credentials.
+ */
+export const CORS_NULL_ORIGIN = "null";

@@ -169,6 +169,18 @@ const CODE_AFTER_VALUE = /^\s*(?:[),;{]|=>)/;
 /** Characters of the line read before a key and after a value to judge whether it is code. */
 const CODE_WINDOW = 200;
 
+/** Whether the physical line around `index` (bounded window) holds a backslash-n escape. */
+function hasEscapedNewlineOnLine(text: string, index: number): boolean {
+  const before = text.slice(Math.max(0, index - CODE_WINDOW), index);
+  const after = text.slice(index, index + CODE_WINDOW);
+  const lineStart = before.lastIndexOf("\n");
+  const lineEnd = after.indexOf("\n");
+  const line =
+    (lineStart === -1 ? before : before.slice(lineStart + 1)) +
+    (lineEnd === -1 ? after : after.slice(0, lineEnd));
+  return line.includes("\\n");
+}
+
 /** Per-text state shared by the matches of one `detectSecrets` call. */
 interface DetectContext {
   text: string;
@@ -256,7 +268,16 @@ function isLiteralAssignment(context: DetectContext, match: RegExpMatchArray): b
   if (CALL_SHAPED_VALUE.test(value) && (value.endsWith(")") || (context.isSource && !inString))) {
     return false;
   }
-  if (!context.isSource || inString) return true;
+  if (!context.isSource) return true;
+  if (inString) {
+    // Code text kept in a string with `\n` escapes (a test fixture, a code generator template) is
+    // a string of code, not a credential: its unquoted value is code-shaped (a regex, a type, a
+    // constant name). A real value in such a string (`"API_KEY=Xk9vLp8Wz4q\n"`) is kept.
+    return !(
+      hasEscapedNewlineOnLine(text, start) &&
+      (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value))
+    );
+  }
   if (!looksLikeCode(text, keyStart, start + match[0].length, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&

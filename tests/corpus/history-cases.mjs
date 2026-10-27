@@ -17,6 +17,7 @@ const FAKE = {
   stripe: join("sk", "_live_", "4eC39HqLyjWDarjtT1zdp7dc"),
   slack: join("xox", "b-", "2837461950", "-8Kd7sPq1Zr4Nw"),
   google: join("AI", "zaSy", "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q"),
+  assembled: join("Xk9v", "Lp8W", "z4qR", "t2mN7"),
   dbPassword: join("Xq9", "!vR2", "#mT7", "pLw4"),
   pem: join(
     "-----BEGIN ",
@@ -195,6 +196,40 @@ export const HISTORY_CASES = [
     name: "low-entropy-value",
     expect: [],
     commits: [{ files: { "src/cfg.js": 'const password = "aaaaaaaaaaaa";\n' } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "code-text-in-escaped-string-single-quoted",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "test/fixture.js":
+            "const source = 'const SECRET_PATTERN = /^(secret|token)$/i;\\nfunction check(secret: string) {}\\n';\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "env-text-in-escaped-string",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "scripts/seed.js": `fs.writeFileSync(".env", "PORT=3000\\nDB_PASSWORD=${FAKE.assembled}\\n");\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "literal-credential-on-its-own-line",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "config/service.conf": `DEBUG=1\nAPI_SECRET=${FAKE.assembled}\n` } }],
   },
   {
     rule: "PG-SECRET-002",
