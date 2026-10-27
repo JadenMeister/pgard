@@ -193,7 +193,14 @@ async function scanHistoryCase(testCase) {
     });
     for (const [file, content] of Object.entries(testCase.untracked ?? {})) write(file, content);
     const output = await scanGitHistory(root);
-    return new Set(output.findings.map((finding) => finding.ruleId));
+    const confidences = new Map();
+    for (const finding of output.findings) {
+      confidences.set(finding.ruleId, [
+        ...(confidences.get(finding.ruleId) ?? []),
+        finding.confidence,
+      ]);
+    }
+    return confidences;
   } finally {
     rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
@@ -261,6 +268,7 @@ for (const testCase of HISTORY_CASES) {
     id: `history/${testCase.name}`,
     expect: testCase.expect,
     known: testCase.known ?? [],
+    low: testCase.low === true,
     run: () => scanHistoryCase(testCase),
   });
 }
@@ -296,7 +304,7 @@ const deviations = []; // { sample, rule, type, reason | null }
 
 for (const sample of samples) {
   const raw = await sample.run();
-  // History and web rules have no confidence levels: every finding counts as high.
+  // Web rules have no confidence levels (every finding counts as high); history cases report theirs.
   const found = raw instanceof Map ? raw : new Map([...raw].map((id) => [id, ["high"]]));
   const expectLow = sample.low === true;
   const universe = RULES[sample.domain];

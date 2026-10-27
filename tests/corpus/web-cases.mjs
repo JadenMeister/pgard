@@ -250,19 +250,33 @@ export const WEB_CASES = [
   {
     name: "cors-null-origin-with-credentials",
     expect: ["PG-WEB-009"],
-    known: [
-      {
-        type: "miss",
-        rule: "PG-WEB-009",
-        reason:
-          "the probe only sends one unrelated origin, so a server that trusts the literal origin null is not detected",
-      },
-    ],
-    // Truly vulnerable (it trusts Origin: null) but the probe never sends that origin.
+    // Trusts the literal origin null (sandboxed iframe, file: page) and reflects nothing else.
     cors: (origin) =>
       origin === "null"
         ? { "access-control-allow-origin": "null", "access-control-allow-credentials": "true" }
         : {},
+  },
+  {
+    name: "cors-null-origin-beside-an-allowlist",
+    expect: ["PG-WEB-009"],
+    cors: (origin) => ({
+      "access-control-allow-origin": origin === "null" ? "null" : "https://app.example.com",
+      "access-control-allow-credentials": "true",
+    }),
+  },
+  {
+    name: "cors-exact-allowlist-with-credentials",
+    expect: [],
+    cors: () => ({
+      "access-control-allow-origin": "https://app.example.com",
+      "access-control-allow-credentials": "true",
+      vary: "Origin",
+    }),
+  },
+  {
+    name: "cors-null-origin-without-credentials",
+    expect: [],
+    cors: (origin) => (origin === "null" ? { "access-control-allow-origin": "null" } : {}),
   },
 
   // ---- disclosure ----
