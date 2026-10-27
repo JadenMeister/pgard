@@ -13,6 +13,7 @@ import {
   scanSourceCode,
 } from "./scan-source.js";
 import { isUnderJvmSourceRoot } from "@pgard/findings";
+import { MAX_FILES } from "./walk.js";
 
 const roots: string[] = [];
 const restore: string[] = [];
@@ -52,7 +53,10 @@ const CONTROL = /[\u0000-\u001f]/;
 const noteOf = (
   paths: string[],
   extra: Partial<Parameters<typeof describeSkippedBuildDirectories>[0]> = {},
-) => describeSkippedBuildDirectories({ paths, withSource: [], noSourceElsewhere: false, ...extra });
+) => describeSkippedBuildDirectories({ paths, noSourceElsewhere: false, ...extra });
+
+const VULN_TS =
+  'import { Pool } from "pg";\nconst pool = new Pool();\nexport const q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n';
 
 describe("directories skipped by name", () => {
   it("lists them as an informational area with a set fingerprint and a reason", async () => {
@@ -84,7 +88,23 @@ describe("directories skipped by name", () => {
     expect(area(await scanSourceCode(root), "source:build-output")?.status).toBe("completed");
   });
 
-  it("is partial when no source was found anywhere, and says why", async () => {
+  it("still skips tsc output: dist/ and out/ with .js, .d.ts and .map only", async () => {
+    const root = project({
+      "src/a.ts": VULN_TS,
+      "dist/a.js": VULN_TS,
+      "dist/a.d.ts": "export {};\n",
+      "dist/a.js.map": "{}",
+      "out/b.js": VULN_TS,
+      "out/b.d.ts": "export {};\n",
+    });
+    const result = await scanSourceCode(root);
+    const entry = area(result, "source:build-output");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(/^2 directories skipped by name/);
+    expect(result.findings.map((finding) => finding.location.path)).toEqual(["src/a.ts"]);
+  });
+
+  it("is partial when nothing but skipped directories exist, and says why", async () => {
     const root = project({ "dist/index.js": SRC, "README.md": "x" });
     const entry = area(await scanSourceCode(root), "source:build-output");
     expect(entry?.status).toBe("partial");
@@ -108,52 +128,109 @@ describe("directories skipped by name", () => {
     expect(entry?.status).toBe("completed");
   });
 
-  it("is partial and names a skipped Go directory that holds source", async () => {
+  it("walks a VS Code-like build/ of first-party TypeScript: findings reported, completed", async () => {
     const root = project({
-      "cmd/main.go": "package main\n",
-      "build/build.go": "package build\n",
+      "src/a.ts": SRC,
+      "build/lib/x.js": SRC,
+      "build/gulpfile.ts": VULN_TS,
+      "build/gulpfile.d.ts": "export {};\n",
       "dist/index.js": SRC,
     });
-    const entry = area(await scanSourceCode(root), "source:build-output");
-    expect(entry?.status).toBe("partial");
-    expect(entry?.note).toContain('"build/ (contains source)"');
-    expect(entry?.note).toContain("Contains source files; skipped by name.");
-    expect((entry?.note ?? "").length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
+    const result = await scanSourceCode(root);
+    expect(result.findings.map((finding) => finding.location.path)).toContain("build/gulpfile.ts");
+    const entry = area(result, "source:build-output");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(/^1 directory skipped by name/);
+    expect(entry?.note).toContain("1 more walked because they contain source.");
   });
 
-  it("is partial for Python, PHP, Java and Kotlin files directly in a skipped directory", async () => {
-    for (const file of ["out/a.py", "out/a.php", "out/A.java", "out/A.kt", "out/a.kts"]) {
-      const root = project({ "src/a.ts": SRC, [file]: "x" });
-      expect(area(await scanSourceCode(root), "source:build-output")?.status, file).toBe("partial");
-    }
-  });
-
-  it("walks a package named build under a JVM source root like any other directory", async () => {
+  it("lists the walked directories when none was skipped (scripts/build/release.ts)", async () => {
     const root = project({
-      "src/main/java/com/acme/build/Foo.java": JAVA,
+      "src/a.ts": SRC,
+      "scripts/build/release.ts": VULN_TS,
+      "tools/dist/gen.py": "x = 1\n",
+    });
+    const result = await scanSourceCode(root);
+    expect(result.findings.map((finding) => finding.location.path)).toContain(
+      "scripts/build/release.ts",
+    );
+    const entry = area(result, "source:build-output");
+    expect(entry?.status).toBe("completed");
+    expect(entry?.note).toMatch(
+      /^2 skip-named directories \(dist, build, out, \.\.\.\) walked because they contain source \(set [0-9a-f]{8}\): "scripts\/build\/", "tools\/dist\/"\.$/,
+    );
+  });
+
+  it("walks Go, Python, PHP, Java, Kotlin and TypeScript source in a skip-named directory", async () => {
+    for (const file of [
+      "out/a.py",
+      "out/a.php",
+      "out/A.java",
+      "out/A.kt",
+      "out/a.kts",
+      "out/a.tsx",
+    ]) {
+      const root = project({ "src/a.ts": SRC, [file]: "x" });
+      const entry = area(await scanSourceCode(root), "source:build-output");
+      expect(entry?.status, file).toBe("completed");
+      expect(entry?.note, file).toMatch(
+        /^1 skip-named directory .* walked because it contains source/,
+      );
+    }
+    const go = project({ "cmd/main.go": "package main\n", "build/build.go": "package build\n" });
+    expect(area(await scanSourceCode(go), "source:build-output")?.note).toContain('"build/"');
+  });
+
+  it("probes nested skip-named directories one at a time", async () => {
+    const root = project({
+      "src/a.ts": SRC,
+      "build/index.ts": SRC,
+      "build/out/gen.js": SRC,
+      "build/dist/real.ts": SRC,
+    });
+    const entry = area(await scanSourceCode(root), "source:build-output");
+    expect(entry?.note).toMatch(/^1 directory skipped by name .*"build\/out\/"/);
+    expect(entry?.note).toContain("2 more walked");
+  });
+
+  it("walks a package named build under a JVM source root with a manifest", async () => {
+    const root = project({
+      "src/main/java/com/acme/build/sub/Foo.java": JAVA,
       "pom.xml": "<project/>",
     });
     const result = await scanSourceCode(root);
-    expect(area(result, "source:build-output")).toBeUndefined();
-    expect(result.findings.some((f) => f.location.path?.endsWith("build/Foo.java"))).toBe(true);
+    expect(result.findings.some((f) => f.location.path?.endsWith("build/sub/Foo.java"))).toBe(true);
     expect(area(result, "source:java")?.note).toMatch(/^1 Java file/);
   });
 
-  it("walks a Gradle package called build too, but not under a JavaScript repository", async () => {
-    const gradle = project({
-      "src/main/kotlin/com/acme/out/Foo.kt": "fun f() {}\n",
-      "build.gradle.kts": "x",
-      "build/classes/A.class": "x",
+  it("finds the manifest in any ancestor: a subproject pom, a root settings.gradle.kts", async () => {
+    const sub = project({
+      "services/api/pom.xml": "<project/>",
+      "services/api/src/main/java/com/acme/build/sub/Foo.java": JAVA,
     });
-    const result = await scanSourceCode(gradle);
-    expect(area(result, "source:kotlin")?.note).toMatch(/^1 Kotlin file/);
-    expect(area(result, "source:build-output")?.note).toMatch(/^1 director/);
-    const js = project({ "app.ts": SRC, "src/main/java/build/Widget.js": SRC });
-    const jsResult = await scanSourceCode(js);
-    expect(jsResult.findings).toEqual([]);
-    expect(area(jsResult, "source:build-output")?.note).toMatch(/^1 director/);
-    const jsFiles = project({ "src/java/build/a.ts": SRC, "app.ts": SRC });
-    expect(area(await scanSourceCode(jsFiles), "source:build-output")).toBeDefined();
+    expect(area(await scanSourceCode(sub), "source:java")?.note).toMatch(/^1 Java file/);
+    const gradle = project({
+      "settings.gradle.kts": "x",
+      "app/src/main/kotlin/com/acme/out/sub/Foo.kt": "fun f() {}\n",
+    });
+    expect(area(await scanSourceCode(gradle), "source:kotlin")?.note).toMatch(/^1 Kotlin file/);
+    for (const manifest of ["build.gradle", "build.gradle.kts", "settings.gradle"]) {
+      const other = project({
+        [manifest]: "x",
+        "src/main/java/a/build/sub/Foo.java": JAVA,
+      });
+      expect(area(await scanSourceCode(other), "source:java")?.note, manifest).toMatch(
+        /^1 Java file/,
+      );
+    }
+  });
+
+  it("does not walk a JVM-looking root without a manifest, unless the directory holds source", async () => {
+    const nested = project({ "app.ts": SRC, "src/main/java/build/sub/Foo.java": JAVA });
+    const skipped = area(await scanSourceCode(nested), "source:build-output");
+    expect(skipped?.note).toMatch(/^1 directory skipped by name/);
+    const direct = project({ "app.ts": SRC, "src/main/java/build/Foo.java": JAVA });
+    expect(area(await scanSourceCode(direct), "source:java")?.note).toMatch(/^1 Java file/);
   });
 
   it("recognises JVM source roots", () => {
@@ -180,38 +257,15 @@ describe("directories skipped by name", () => {
     }
   });
 
-  it("counts TypeScript in a skipped directory as source, but not declarations", async () => {
-    const pkg = project({ "app.py": "x=1\n", "packages/angular/build/index.ts": "export {};\n" });
-    expect(area(await scanSourceCode(pkg), "source:build-output")?.status).toBe("partial");
-    const tsx = project({ "app.py": "x=1\n", "build/App.tsx": "export {};\n" });
-    expect(area(await scanSourceCode(tsx), "source:build-output")?.status).toBe("partial");
+  it("does not count declaration files, maps or JavaScript as source", async () => {
     const dist = project({
       "app.py": "x=1\n",
       "dist/index.js": SRC,
       "dist/index.d.ts": "export {};\n",
       "dist/index.js.map": "{}",
     });
-    expect(area(await scanSourceCode(dist), "source:build-output")?.status).toBe("completed");
-  });
-
-  it("says a directory holds source once: in its label, and in the tail", () => {
-    const note = noteOf(["build"], { withSource: ["build"] });
-    expect(note.match(/contains source/gi)).toHaveLength(2);
-    expect(note).not.toContain("contains source files; skipped by name)");
-  });
-
-  it("changes the note with each reason and tail, and drops them when they do not apply", () => {
-    const plain = noteOf(["dist"]);
-    expect(plain).not.toMatch(/No source file|Contains source|file limit|first 200/);
-    expect(noteOf(["dist"], { noSourceElsewhere: true })).toContain(
-      " No source file was found outside these directories. Move",
-    );
-    expect(noteOf(["dist"], { limitReached: true })).toContain(
-      "(file limit reached; count may be incomplete) Move",
-    );
-    expect(noteOf(["dist"], { probeLimit: 200 })).toContain("(first 200 checked for source) Move");
-    expect(noteOf(["dist"], { withSource: ["dist"] })).toContain(
-      " Contains source files; skipped by name. Move",
+    expect(area(await scanSourceCode(dist), "source:build-output")?.note).toMatch(
+      /^1 directory skipped by name/,
     );
   });
 
@@ -244,16 +298,20 @@ describe("directories skipped by name", () => {
     );
   });
 
-  it("fingerprints the whole set, in any order, including which entries hold source", () => {
+  it("fingerprints the whole set, in any order, including the walked ones", () => {
     const names = Array.from({ length: 7 }, (_, index) => `d${index}/dist`);
     const base = noteOf(names);
     expect(noteOf([...names].reverse())).toBe(base);
     // Same count and same five listed paths; only the unlisted tail differs.
     expect(noteOf([...names.slice(0, 6), "zz/out"])).not.toBe(base);
-    const withSix = noteOf(names, { withSource: names.slice(0, 6) });
-    const withLast = noteOf(names, { withSource: [...names.slice(0, 5), names[6] as string] });
-    expect(withSix).not.toBe(withLast);
-    expect(withSix).not.toBe(base);
+    expect(noteOf(names, { walked: ["a/build"] })).not.toBe(noteOf(names, { walked: ["b/build"] }));
+    expect(noteOf(["dist"], { walked: ["a/build"] })).toContain("1 more walked");
+    const walkedOnly = (list: string[]) =>
+      describeSkippedBuildDirectories({ paths: [], walked: list, noSourceElsewhere: false });
+    expect(walkedOnly(["a/build", "b/out"])).not.toBe(walkedOnly(["a/build", "b/dist"]));
+    expect(walkedOnly(["a/build"])).toMatch(
+      /^1 skip-named directory .* walked because it contains/,
+    );
   });
 
   it("caps the list, counts the rest, and sanitises hostile names", () => {
@@ -272,15 +330,13 @@ describe("directories skipped by name", () => {
 
   it("redacts before measuring: a key in a directory name cannot push the note over the limit", () => {
     const keys = Array.from({ length: 6 }, (_, index) => `x${index}-${AWS_KEY}/dist`);
-    for (const paths of [keys]) {
-      for (const input of [
-        { paths, withSource: [], noSourceElsewhere: true, limitReached: true, probeLimit: 200 },
-        { paths, withSource: paths, noSourceElsewhere: true, limitReached: true, probeLimit: 200 },
-      ]) {
-        const note = describeSkippedBuildDirectories(input);
-        expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
-        expect(note).not.toContain(AWS_KEY);
-      }
+    for (const input of [
+      { paths: keys, noSourceElsewhere: true, limitReached: true, probeLimit: 200, walked: keys },
+      { paths: [], walked: keys, noSourceElsewhere: false, limitReached: true, probeLimit: 200 },
+    ]) {
+      const note = describeSkippedBuildDirectories(input);
+      expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
+      expect(note).not.toContain(AWS_KEY);
     }
     expect(
       describeSkippedResourceXml(keys.map((item) => `res/${item}.xml`)).length,
@@ -288,9 +344,10 @@ describe("directories skipped by name", () => {
   });
 
   it("keeps the longest possible note within the limit even with nothing listed", () => {
+    const long = `${"z".repeat(400)}/dist`;
     const note = describeSkippedBuildDirectories({
-      paths: [`${"z".repeat(400)}/dist`],
-      withSource: [`${"z".repeat(400)}/dist`],
+      paths: [long],
+      walked: [long],
       noSourceElsewhere: true,
       limitReached: true,
       probeLimit: 200,
@@ -298,6 +355,18 @@ describe("directories skipped by name", () => {
     expect(note.length).toBeLessThanOrEqual(MAX_NOTE_LENGTH);
     expect(note).toContain("file limit reached");
     expect(note).toContain("No source file was found outside these directories.");
+  });
+
+  it("changes the note with each reason and tail, and drops them when they do not apply", () => {
+    const plain = noteOf(["dist"]);
+    expect(plain).not.toMatch(/No source file|walked|file limit|first 200/);
+    expect(noteOf(["dist"], { noSourceElsewhere: true })).toContain(
+      " No source file was found outside these directories. Move",
+    );
+    expect(noteOf(["dist"], { limitReached: true })).toContain(
+      "(file limit reached; count may be incomplete) Move",
+    );
+    expect(noteOf(["dist"], { probeLimit: 200 })).toContain("(first 200 checked for source) Move");
   });
 });
 
@@ -417,4 +486,32 @@ describe("JVM XML without Java files", () => {
     const root = project({ "src/a.ts": SRC, "conf/big.xml": BIG_XML });
     expect(area(await scanSourceCode(root), "source:mybatis")).toBeUndefined();
   });
+});
+
+describe("file limit reached", () => {
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "adds the limit tail to the xml-skipped and unreadable notes of a scan",
+    async () => {
+      const files: Record<string, string> = {
+        "pom.xml": "<project/>",
+        "zres/res/layout.xml": "<a/>",
+        "zlocked/b.ts": SRC,
+      };
+      // Visited last (the walk pops the last-sorted directory first), so the two entries above are
+      // recorded before the walk stops at MAX_FILES.
+      const root = project(files);
+      mkdirSync(path.join(root, "a"));
+      for (let index = 0; index <= MAX_FILES; index += 1) {
+        writeFileSync(path.join(root, "a", `f${index}.ts`), "");
+      }
+      const locked = path.join(root, "zlocked");
+      chmodSync(locked, 0o644);
+      restore.push(locked);
+      const result = await scanSourceCode(root);
+      const tail = /\(file limit reached; count may be incomplete\)$/;
+      expect(area(result, "source:xml-skipped")?.note).toMatch(tail);
+      expect(area(result, "source:unreadable-files")?.note).toMatch(tail);
+    },
+    180_000,
+  );
 });

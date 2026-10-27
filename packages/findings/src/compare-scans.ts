@@ -1,7 +1,11 @@
 import type { Coverage, Finding, ScanResult } from "./contract.js";
 import { createFindingFingerprint } from "./fingerprint.js";
 import { redactEvidence } from "./redact.js";
-import { SKIPPED_DIRECTORIES, isUnderJvmSourceRoot } from "./skipped-directories.js";
+import {
+  SKIPPED_DIRECTORIES,
+  isFileInWalkedSkipDirectory,
+  isUnderJvmSourceRoot,
+} from "./skipped-directories.js";
 
 /**
  * Scan comparison: which findings are new, no longer reported, unchanged or moved between two
@@ -252,6 +256,7 @@ function isUnderSkippedDirectory(findingPath: string | null | undefined): boolea
   return (
     typeof findingPath === "string" &&
     !isUnderJvmSourceRoot(findingPath) &&
+    !isFileInWalkedSkipDirectory(findingPath) &&
     findingPath.split("/").some((s) => SKIPPED_DIRECTORIES.has(s))
   );
 }

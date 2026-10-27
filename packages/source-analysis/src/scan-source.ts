@@ -200,10 +200,10 @@ export function describeSkippedMinified(paths: readonly string[], limitReached =
 }
 
 export interface BuildDirectoryNoteInput {
-  /** Every directory skipped by name. */
+  /** Directories skipped by name. */
   paths: readonly string[];
-  /** The ones that directly contain Go, Python, PHP, Java or Kotlin files. */
-  withSource: readonly string[];
+  /** Skip-named directories that were walked because they directly contain source. */
+  walked?: readonly string[];
   /** No analyzable source file was found anywhere else. */
   noSourceElsewhere: boolean;
   limitReached?: boolean;
@@ -211,27 +211,35 @@ export interface BuildDirectoryNoteInput {
 }
 
 /**
- * Coverage note for directories skipped by name (`dist`, `build`, `out`, ...). `pgard.config.json`
- * has no "include" option, so the note says how to get such a directory analyzed.
+ * Coverage note for directories named like build output (`dist`, `build`, `out`, ...). The skipped
+ * ones are listed; the ones that were walked because they directly contain source are counted
+ * (or listed, when nothing was skipped). `pgard.config.json` has no "include" option, so the note
+ * says how to get a skipped directory analyzed.
  */
 export function describeSkippedBuildDirectories(input: BuildDirectoryNoteInput): string {
-  const { paths, withSource, noSourceElsewhere } = input;
+  const { paths, noSourceElsewhere } = input;
+  const walked = input.walked ?? [];
+  const limit = input.limitReached === true ? LIMIT_TAIL : "";
+  const probe = input.probeLimit == null ? "" : ` (first ${input.probeLimit} checked for source)`;
+  const fingerprint = fingerprintPaths([...paths, ...walked.map((item) => `+${item}`)]);
+  if (paths.length === 0) {
+    const count = walked.length;
+    return describeCappedPaths(
+      `${count} skip-named director${count === 1 ? "y" : "ies"} (dist, build, out, ...) walked because ${count === 1 ? "it contains" : "they contain"} source (set ${fingerprint}): `,
+      walked,
+      `${limit}${probe}`,
+      "/",
+    );
+  }
   const count = paths.length;
-  const reasons = [
-    withSource.length > 0 ? " Contains source files; skipped by name." : "",
-    noSourceElsewhere ? " No source file was found outside these directories." : "",
-  ].join("");
-  const tail = `${input.limitReached === true ? LIMIT_TAIL : ""}${
-    input.probeLimit == null ? "" : ` (first ${input.probeLimit} checked for source)`
-  }${reasons} Move code out to analyze it.`;
-  const marked = [...paths].map((item) => (withSource.includes(item) ? `${item}*` : item));
+  const walkedTail =
+    walked.length > 0 ? ` ${walked.length} more walked because they contain source.` : "";
+  const reason = noSourceElsewhere ? " No source file was found outside these directories." : "";
   return describeCappedPaths(
-    `${count} director${count === 1 ? "y" : "ies"} skipped by name (dist, build, out, ...; not analyzed; set ${fingerprintPaths(marked)}): `,
+    `${count} director${count === 1 ? "y" : "ies"} skipped by name (dist, build, out, ...; not analyzed; set ${fingerprint}): `,
     paths,
-    tail,
+    `${limit}${probe}${walkedTail}${reason} Move code out to analyze it.`,
     "/",
-    new Set(withSource),
-    " (contains source)",
   );
 }
 
@@ -812,12 +820,12 @@ export async function scanSourceCode(
   const limitReached = walk.isTruncated;
   // Excluded files count as source here: an exclude pattern must not turn the area partial.
   const noSourceElsewhere = walk.files.length + walkTrackedCount(walk) + walk.excluded.count === 0;
-  if (walk.skippedBuildDirectories.length > 0) {
-    // Informational like the dependency directories: JavaScript build output is generated, so
-    // skipping it does not make a scan partial. Partial when a skipped directory directly holds
-    // Go, Python, PHP, Java or Kotlin files, or when no source file was found anywhere else (the
-    // only source may live there): that code was not analyzed and the scan must say so.
-    const isPartial = noSourceElsewhere || walk.buildDirectoriesWithSource.length > 0;
+  if (walk.skippedBuildDirectories.length > 0 || walk.walkedBuildDirectories.length > 0) {
+    // Informational like the dependency directories: build output is generated, so skipping it
+    // does not make a scan partial. A skip-named directory that directly holds source is walked
+    // as first-party code instead. Partial only when something was skipped and no source file
+    // was found anywhere else (the only source may live in the skipped directories).
+    const isPartial = walk.skippedBuildDirectories.length > 0 && noSourceElsewhere;
     coverage.push({
       area: "source:build-output",
       scope: "code",
@@ -825,7 +833,7 @@ export async function scanSourceCode(
       ruleIds: [],
       note: describeSkippedBuildDirectories({
         paths: walk.skippedBuildDirectories,
-        withSource: walk.buildDirectoriesWithSource,
+        walked: walk.walkedBuildDirectories,
         noSourceElsewhere,
         limitReached,
         probeLimit: walk.buildProbeLimitReached ? MAX_BUILD_DIRECTORY_PROBES : null,

@@ -4,6 +4,7 @@ import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
   classifyDependencyVendorDirectory,
+  isSkipDirectorySourceFile,
   isUnderJvmSourceRoot,
   type DependencyVendorReason,
 } from "@pgard/findings";
@@ -100,8 +101,11 @@ export interface WalkResult {
    * entered, as repository-relative paths in walk order. `.git` is not listed.
    */
   skippedBuildDirectories: string[];
-  /** The skipped directories above that directly contain Go, Python, PHP, Java or Kotlin files. */
-  buildDirectoriesWithSource: string[];
+  /**
+   * Skip-named directories that directly contain source files (see `isSkipDirectorySourceFile`);
+   * these are walked as first-party code and are not in `skippedBuildDirectories`.
+   */
+  walkedBuildDirectories: string[];
   /** More than `MAX_BUILD_DIRECTORY_PROBES` skipped directories: the rest were not looked into. */
   buildProbeLimitReached: boolean;
   /** `.xml` files under a `res` or `target` path segment that were not checked for MyBatis mappers. */
@@ -118,18 +122,6 @@ export interface WalkResult {
 
 /** At most this many skipped directories are looked into for source files (one `readdir` each). */
 export const MAX_BUILD_DIRECTORY_PROBES = 200;
-/** Extensions that make a skipped-by-name directory look like first-party source. */
-const PROBE_SOURCE_EXTENSIONS: ReadonlySet<string> = new Set([
-  ".go",
-  ".py",
-  ".php",
-  ".java",
-  ".kt",
-  ".kts",
-  ".ts",
-  ".tsx",
-]);
-
 const JVM_MANIFESTS = [
   "pom.xml",
   "build.gradle",
@@ -139,17 +131,15 @@ const JVM_MANIFESTS = [
 ];
 
 /**
- * A Maven or Gradle manifest in an ancestor directory, or Java/Kotlin files already seen: the
- * walk exemption for a package called `build` applies to JVM projects only, so a JavaScript
- * repository with `src/main/java/build/` is not affected.
+ * A Maven or Gradle manifest (`pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`) in any
+ * ancestor directory, the root included. The walk exemption for a package called `build` applies
+ * to such projects only, and does not depend on the order in which files were found.
  */
-async function isJvmProjectSoFar(
+async function hasJvmManifestAbove(
   root: string,
   relativePath: string,
-  result: WalkResult,
   cache: Map<string, boolean>,
 ): Promise<boolean> {
-  if (result.trackFiles.java.length + result.trackFiles.kotlin.length > 0) return true;
   const parts = relativePath.split("/").slice(0, -1);
   for (let depth = 0; depth <= parts.length; depth += 1) {
     const directory = path.join(root, ...parts.slice(0, depth));
@@ -169,12 +159,7 @@ async function isJvmProjectSoFar(
 
 async function containsSourceFiles(directory: string): Promise<boolean> {
   const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
-  return entries.some(
-    (entry) =>
-      entry.isFile() &&
-      !entry.name.endsWith(".d.ts") &&
-      PROBE_SOURCE_EXTENSIONS.has(path.extname(entry.name).toLowerCase()),
-  );
+  return entries.some((entry) => entry.isFile() && isSkipDirectorySourceFile(entry.name));
 }
 
 export const MAX_FILE_BYTES = 1024 * 1024;
@@ -276,7 +261,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     unreadableDirectories: [],
     skippedDependencyDirectories: [],
     skippedBuildDirectories: [],
-    buildDirectoriesWithSource: [],
+    walkedBuildDirectories: [],
     buildProbeLimitReached: false,
     skippedResourceXml: [],
     unreadableEntries: [],
@@ -339,20 +324,25 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
           // A package named `build`, `out` or `dist` under a JVM source root is first-party code.
           if (
             isUnderJvmSourceRoot(relativePath) &&
-            (await isJvmProjectSoFar(root, relativePath, result, manifestCache))
+            (await hasJvmManifestAbove(root, relativePath, manifestCache))
           ) {
             stack.push(absolutePath);
             continue;
           }
-          result.skippedBuildDirectories.push(relativePath);
+          // Any other one is walked when it directly holds source files (a first-party `build/`
+          // script folder), and skipped as generated output otherwise. Only the directory itself
+          // is looked at; nested skip-named directories are probed one at a time.
           if (probes >= MAX_BUILD_DIRECTORY_PROBES) {
             result.buildProbeLimitReached = true;
           } else {
             probes += 1;
             if (await containsSourceFiles(absolutePath)) {
-              result.buildDirectoriesWithSource.push(relativePath);
+              result.walkedBuildDirectories.push(relativePath);
+              stack.push(absolutePath);
+              continue;
             }
           }
+          result.skippedBuildDirectories.push(relativePath);
           continue;
         }
         if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {

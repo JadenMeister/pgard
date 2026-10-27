@@ -459,6 +459,21 @@ describe("compareScans", () => {
         }
       });
 
+      it("a source file directly in a skip-named directory is an ordinary finding", () => {
+        const before = [...JS, skip("source:build-output", "completed", "1 skipped (set 1): a.")];
+        const after = [...JS, skip("source:build-output", "completed", "2 skipped (set 2): a, b.")];
+        for (const walked of ["build/gulpfile.ts", "scripts/build/release.ts", "out/gen.go"]) {
+          expect(goneAt(walked, before, after).noLongerReported, walked).toHaveLength(1);
+          expect(goneAt(walked, JS, before).noLongerReported, walked).toHaveLength(1);
+          const added = newAt(walked, before, after);
+          expect(added.newInUncertainAreas, walked).toEqual([]);
+        }
+        // Not source (JavaScript output) and not directly inside: still held when the set changes.
+        for (const held of ["build/x.js", "dist/index.d.ts", "build/lib/y.ts"]) {
+          expect(goneAt(held, before, after).notComparable, held).toHaveLength(1);
+        }
+      });
+
       it("note-only areas that stay partial leave their own area comparable", () => {
         for (const area of ["source:unreadable-files", "source:build-output"]) {
           const partial = skip(area, "partial", "1 (set 1)");

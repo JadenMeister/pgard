@@ -28,3 +28,28 @@ export function isUnderJvmSourceRoot(relativePath: string): boolean {
   }
   return false;
 }
+
+const SOURCE_EXTENSIONS = /\.(go|py|php|java|kt|kts|ts|tsx)$/i;
+
+/**
+ * A file name that makes a skip-named directory first-party code (the walk enters such a
+ * directory): Go, Python, PHP, Java, Kotlin and TypeScript source; never a `.d.ts` declaration.
+ */
+export function isSkipDirectorySourceFile(name: string): boolean {
+  return SOURCE_EXTENSIONS.test(name) && !/\.d\.ts$/i.test(name);
+}
+
+/**
+ * A source file directly inside a skip-named directory (`build/release.ts`, `scripts/build/a.go`).
+ * The walk enters such a directory because of the file itself, so a finding there is an ordinary
+ * finding and is never held back as "skipped".
+ */
+export function isFileInWalkedSkipDirectory(filePath: string): boolean {
+  const segments = filePath.split("/");
+  const parent = segments.at(-2);
+  return (
+    parent !== undefined &&
+    SKIPPED_DIRECTORIES.has(parent) &&
+    isSkipDirectorySourceFile(segments.at(-1) ?? "")
+  );
+}

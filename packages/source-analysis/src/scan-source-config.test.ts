@@ -161,7 +161,7 @@ describe("exclude patterns in the source scan", () => {
   it("never lists dependency or build directories as excluded files", async () => {
     const root = project({
       "node_modules/p/i.ts": SQL_VULN,
-      "dist/a.ts": SQL_VULN,
+      "dist/a.js": SQL_VULN,
       "src/a.ts": SQL_VULN,
     });
     const walk = await walkSourceTree(root, { isExcluded: () => true });
