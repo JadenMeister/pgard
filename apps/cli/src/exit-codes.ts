@@ -14,6 +14,8 @@ export const EXIT_CODES = {
   internal: 5,
   /** Cancelled by the user. */
   cancelled: 130,
+  /** Ended by SIGTERM while the panel view was open. */
+  terminated: 143,
 } as const;
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];

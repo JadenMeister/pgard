@@ -6,7 +6,8 @@ const EXIT_CODE_HELP = `Exit codes:
   3    repository, authorization or contribution check failed
   4    part of the scan or the report export failed
   5    internal error
-  130  cancelled`;
+  130  cancelled
+  143  terminated by SIGTERM while the panel view was open`;
 
 const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (device sign-in, App
                            install) in the browser; the links are printed.
@@ -107,6 +108,15 @@ ${REPORT_HELP}
                            summarized, and groups show up to 3 locations. It
                            also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
+  --panels                 after the text result, open a read-only full-screen
+                           view (summary, charts, coverage, findings) in a
+                           terminal; keys: Tab, arrows, ? help, Esc back. Not
+                           with --format json or sarif; without a terminal only
+                           the text result is printed. Always opens (pgard scan
+                           does not read PGARD_PANELS). The menu opens it by
+                           itself after a scan in a terminal; PGARD_PANELS=off
+                           stops that. pgard dashboard is the
+                           separate local web app
   --format text|json|sarif json prints only the redacted result (schema in
                            docs/RESULT_SCHEMA.md) to stdout; sarif prints the
                            same result as SARIF 2.1.0 (for GitHub code

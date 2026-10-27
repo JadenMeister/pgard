@@ -41,6 +41,8 @@ export type ParsedCommand =
       noStore?: boolean;
       /** `--full`: do not build on an earlier stored scan; scan everything again. */
       full?: boolean;
+      /** `--panels`: after the text result, open the full-screen panel view (terminals only). */
+      panels?: boolean;
       /** `--lang`: language of rule texts in the terminal result. */
       lang?: RuleLocale;
       /** `--report-lang`: language of rule texts in saved reports. */
@@ -119,6 +121,9 @@ const FROM_CURRENT_FLAG = "--from-current";
 /** Flag (no value), `pgard scan` only: scan everything again instead of building on the last stored scan. */
 const FULL_FLAG = "--full";
 
+/** Flag (no value), `pgard scan` only: open the full-screen panel view over the result. */
+const PANELS_FLAG = "--panels";
+
 /** Flag (no value): list every finding and location in the terminal result. */
 const ALL_FINDINGS_FLAG = "--all-findings";
 
@@ -133,6 +138,7 @@ interface SplitArgs {
   allFindings: boolean;
   fromCurrent: boolean;
   full: boolean;
+  panels: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -147,6 +153,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let allFindings = false;
   let fromCurrent = false;
   let full = false;
+  let panels = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -181,6 +188,11 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     if (arg === FULL_FLAG) {
       if (full) throw new UsageError(`Option ${FULL_FLAG} was given more than once.`, topic());
       full = true;
+      continue;
+    }
+    if (arg === PANELS_FLAG) {
+      if (panels) throw new UsageError(`Option ${PANELS_FLAG} was given more than once.`, topic());
+      panels = true;
       continue;
     }
     if (arg === FROM_CURRENT_FLAG) {
@@ -227,6 +239,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     allFindings,
     fromCurrent,
     full,
+    panels,
   };
 }
 
@@ -345,6 +358,9 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   if (split.full && command !== "scan") {
     throw new UsageError(`Option ${FULL_FLAG} is only available for pgard scan.`, "main");
   }
+  if (split.panels && command !== "scan") {
+    throw new UsageError(`Option ${PANELS_FLAG} is only available for pgard scan.`, "main");
+  }
   if (split.all && !(command === "history" && sub === "clear")) {
     throw new UsageError(`Option ${ALL_FLAG} is only available for pgard history clear.`, "main");
   }
@@ -405,6 +421,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       if (reportLang !== undefined && split.options.get("--report") === undefined) {
         throw new UsageError("--report-lang needs --report and --output-dir.", topic);
       }
+      if (split.panels && parseFormat(split) !== "text") {
+        throw new UsageError(
+          `${PANELS_FLAG} cannot be combined with --format ${parseFormat(split)}: stdout carries only the result document.`,
+          topic,
+        );
+      }
       const portValue = split.options.get("--port");
       const port = portValue === undefined ? null : parsePortOption("--port", portValue, topic);
       return {
@@ -417,6 +439,7 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         allFindings: split.allFindings,
         ...(split.noStore ? { noStore: true } : {}),
         ...(split.full ? { full: true } : {}),
+        ...(split.panels ? { panels: true } : {}),
         ...(lang === undefined ? {} : { lang }),
         ...(reportLang === undefined ? {} : { reportLang }),
       };
