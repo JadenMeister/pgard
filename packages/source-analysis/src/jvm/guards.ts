@@ -25,6 +25,36 @@ const MATCHES_ARG = new RegExp(
 );
 const PATTERN_MATCHES = new RegExp(`Pattern\\.matches\\([^,]+,\\s*(${IDENT})\\s*\\)$`);
 const VALIDATOR_CALL = new RegExp(`(?:^|[.\\s])(${IDENT})\\(\\s*(${IDENT})\\s*\\)$`);
+// URL and host checks (SSRF): the checked host stands for the URL it was read from.
+const URL_AFFIX = new RegExp(
+  `^(${IDENT})\\.(?:startsWith\\(\\s*"https?://[^"]*/"|endsWith\\(\\s*"\\.[\\w-]+\\.[\\w.-]+")\\s*\\)$`,
+);
+const ADDRESS_CHECK = new RegExp(
+  `^(${IDENT})\\.(?:isLoopbackAddress|isSiteLocalAddress|isLinkLocalAddress|isAnyLocalAddress|isMulticastAddress)(?:\\(\\))?$`,
+);
+const HOST_OF_PARSED = new RegExp(
+  `(?:new\\s+)?(?:URI|URL)(?:\\.create)?\\(\\s*(${IDENT})\\s*\\)(?:\\.to(?:URL|URI)\\(\\))?\\.(?:getHost|getAuthority|host|authority)(?:\\(\\))?`,
+  "g",
+);
+const HOST_OF_NAME = new RegExp(
+  `(${IDENT})\\.(?:getHost|getHostName|getAuthority|getHostAddress)\\(\\)|(${IDENT})\\.(?:host|hostName|authority)(?![\\w(])`,
+  "g",
+);
+const ADDRESS_OF = new RegExp(
+  `InetAddress\\.(?:getByName|getAllByName)\\(\\s*(${IDENT})\\s*\\)`,
+  "g",
+);
+
+/** `u.getHost()`, `URI.create(url).getHost()`, `InetAddress.getByName(h)`: the name that is checked. */
+function hostChecks(text: string): string {
+  return text
+    .replace(HOST_OF_PARSED, "$1")
+    .replace(
+      HOST_OF_NAME,
+      (_all, call: string | undefined, member: string | undefined) => call ?? member ?? "",
+    )
+    .replace(ADDRESS_OF, "$1");
+}
 
 /** Removes redundant outer parentheses. */
 function unwrap(text: string): string {
@@ -85,7 +115,11 @@ export function splitTop(text: string, operator: "&&" | "||"): string[] {
 /** Names `x` for which `term` being true means x passed an allowlist or validation check. */
 function allowed(term: string): string[] {
   const value = unwrap(term);
-  if (value.startsWith("!")) return [];
+  if (value.startsWith("!")) {
+    // `!addr.isSiteLocalAddress()`: the address passed the check.
+    const negated = ADDRESS_CHECK.exec(unwrap(value.slice(1)));
+    return negated === null ? [] : [negated[1] as string];
+  }
   let match: RegExpExecArray | null;
   if ((match = CONTAINS.exec(value))) return [match[1] as string];
   if ((match = IN_FORM.exec(value))) return [match[1] as string];
@@ -98,6 +132,7 @@ function allowed(term: string): string[] {
   if ((match = VALIDATOR_CALL.exec(value)) && VALIDATOR_NAME.test(match[1] as string)) {
     return [match[2] as string];
   }
+  if ((match = URL_AFFIX.exec(value))) return [match[1] as string];
   return [];
 }
 
@@ -208,6 +243,7 @@ function rejected(term: string): string[] {
   let match: RegExpExecArray | null;
   if ((match = NOT_IN_FORM.exec(value))) return [match[1] as string];
   if ((match = NE_LEFT.exec(value))) return [match[1] as string];
+  if ((match = ADDRESS_CHECK.exec(value))) return [match[1] as string];
   return [];
 }
 
@@ -218,7 +254,7 @@ const intersect = (lists: string[][]): string[] => {
 
 /** Names that passed an allowlist check whenever `condition` is true. */
 export function guardedWhenTrue(condition: string): string[] {
-  const value = unwrap(condition);
+  const value = unwrap(hostChecks(condition));
   const either = splitTop(value, "||");
   if (either.length > 1) return intersect(either.map(guardedWhenTrue));
   const all = splitTop(value, "&&");
@@ -228,7 +264,7 @@ export function guardedWhenTrue(condition: string): string[] {
 
 /** Names that passed an allowlist check whenever `condition` is false. */
 export function guardedWhenFalse(condition: string): string[] {
-  const value = unwrap(condition);
+  const value = unwrap(hostChecks(condition));
   const all = splitTop(value, "&&");
   if (all.length > 1) return intersect(all.map(guardedWhenFalse));
   const either = splitTop(value, "||");

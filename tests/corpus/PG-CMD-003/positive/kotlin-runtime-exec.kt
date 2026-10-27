@@ -6,8 +6,8 @@ import org.springframework.web.bind.annotation.RestController
 @RestController
 class LsController {
     @GetMapping("/ls")
-    fun ls(@RequestParam dir: String): String {
+    fun ls(@RequestParam dir: String): Unit {
         val p = Runtime.getRuntime().exec("ls -l $dir")
-        return p.inputStream.bufferedReader().readText()
+        p.inputStream.bufferedReader().readText()
     }
 }

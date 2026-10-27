@@ -1,0 +1,6 @@
+<!-- corpus: expect=PG-XSS-004 -->
+<html>
+<body>
+<p data-th-utext="${param.q}">query</p>
+</body>
+</html>

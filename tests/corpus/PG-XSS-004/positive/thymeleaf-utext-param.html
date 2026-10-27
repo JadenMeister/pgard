@@ -1,0 +1,6 @@
+<!-- corpus: expect=PG-XSS-004 -->
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<p th:utext="${param.q[0]}">query</p>
+</body>
+</html>

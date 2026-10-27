@@ -55,7 +55,7 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
       const entry = output.coverage.find((item) => item.area === area);
       expect(entry, area).toMatchObject({
         status: "completed",
-        ruleIds: ["PG-SQL-005", "PG-CMD-003", "PG-PATH-002"],
+        ruleIds: ["PG-SQL-005", "PG-XSS-004", "PG-SSRF-002", "PG-CMD-003", "PG-PATH-002"],
       });
     }
     // Mapper XML is read for SQL only; the command and path rules do not claim it.
@@ -64,7 +64,7 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
       ruleIds: ["PG-SQL-005"],
     });
     expect(output.coverage.find((item) => item.area === "source:java")?.note).toMatch(
-      /^1 Java file\(s\); frameworks: Spring; .*SQL injection \(PG-SQL-005\), OS command execution \(PG-CMD-003\) and path traversal \(PG-PATH-002\)/,
+      /^1 Java file\(s\); frameworks: Spring; .*SQL injection \(PG-SQL-005\), OS command execution \(PG-CMD-003\), path traversal \(PG-PATH-002\), XSS \(PG-XSS-004[^)]*\) and SSRF \(PG-SSRF-002\)/,
     );
     expect(output.coverage.find((item) => item.area === "source:mybatis")?.note).toMatch(
       /^1 MyBatis mapper XML file\(s\)/,
@@ -300,7 +300,7 @@ class K { fun f(p: String) {
     const javaEntry = output.coverage.find((item) => item.area === "source:java");
     expect(javaEntry?.status).toBe("partial");
     expect(javaEntry?.note).toContain(
-      "SQL, command or file-path calls inside anonymous class bodies",
+      "SQL, command, file-path, response-writing or URL calls inside anonymous class bodies",
     );
     const kotlinEntry = output.coverage.find((item) => item.area === "source:kotlin");
     expect(kotlinEntry?.status).toBe("partial");
