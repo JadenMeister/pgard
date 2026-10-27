@@ -21,6 +21,14 @@ import {
 import { runDoctor } from "./doctor.js";
 import { runLogin, runLogout } from "./login.js";
 
+/** An interactive terminal for stdin and stderr, as `pgard login` and a device flow need. */
+function terminalIo(options: Parameters<typeof createTestIo>[0] = {}): CapturedIo {
+  const captured = createTestIo(options);
+  captured.stdin.isTTY = true;
+  (captured.io.stderr as { isTTY?: boolean }).isTTY = true;
+  return captured;
+}
+
 const CLIENT_ID = "Iv23liTestClient";
 const ENV = { PGARD_GITHUB_APP_CLIENT_ID: CLIENT_ID };
 const ACCESS_TOKEN = ["ghu", "cliSecretAccessTokenForTests000"].join("_");
@@ -97,7 +105,7 @@ describe("pgard login", () => {
   it("signs in with the device flow, saves to the keychain and never prints a token", async () => {
     const store = await storeWith(null);
     const github = fakeFetch();
-    const captured = createTestIo({ env: ENV });
+    const captured = terminalIo({ env: ENV });
     const deps = createTestDeps({
       credentialStore: store,
       signInAndStore: (options) =>
@@ -117,7 +125,7 @@ describe("pgard login", () => {
 
   it("stops before the device flow when no keychain is available (exit 4)", async () => {
     const signIn = vi.fn();
-    const captured = createTestIo({ env: ENV });
+    const captured = terminalIo({ env: ENV });
     const deps = createTestDeps({
       credentialStore: createUnavailableCredentialStore("no keychain service is running"),
       signInAndStore: signIn,
@@ -130,7 +138,7 @@ describe("pgard login", () => {
   });
 
   it("reports a failed sign-in with exit 3", async () => {
-    const denied = createTestIo({ env: ENV });
+    const denied = terminalIo({ env: ENV });
     const deps = createTestDeps({
       signInAndStore: async () => {
         throw new GitHubAuthError("access_denied", "GitHub sign-in was denied by the user.");
@@ -143,7 +151,7 @@ describe("pgard login", () => {
   it("signs in with the built-in PGARD App when no override is set, or the override when set", async () => {
     const clientIdFor = async (env: Record<string, string>): Promise<string | undefined> => {
       const signIn = vi.fn(async () => ({ login: "octo", savedError: null }));
-      const captured = createTestIo({ env });
+      const captured = terminalIo({ env });
       expect(
         await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn }))),
       ).toBe(0);
@@ -159,7 +167,7 @@ describe("pgard login", () => {
 
   it("says on stdout when the override is in use, and not for the built-in App", async () => {
     const run = async (env: Record<string, string>) => {
-      const captured = createTestIo({ env });
+      const captured = terminalIo({ env });
       const signIn = async () => ({ login: "octo", savedError: null });
       await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn })));
       return captured;
@@ -173,7 +181,7 @@ describe("pgard login", () => {
 
   it("exits 3 for a malformed override before any sign-in, without printing the value", async () => {
     const signIn = vi.fn();
-    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });
+    const captured = terminalIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });
     expect(
       await runLogin(createTestContext(captured, createTestDeps({ signInAndStore: signIn }))),
     ).toBe(3);
@@ -185,7 +193,7 @@ describe("pgard login", () => {
   });
 
   it("reports a keychain that refused to save with exit 4", async () => {
-    const captured = createTestIo({ env: ENV });
+    const captured = terminalIo({ env: ENV });
     const deps = createTestDeps({
       signInAndStore: async () => ({ login: "octo", savedError: "the keychain is locked" }),
     });
@@ -194,7 +202,7 @@ describe("pgard login", () => {
   });
 
   it("is reachable through main with its own help text", async () => {
-    const captured = createTestIo();
+    const captured = terminalIo();
     expect(
       await main(["login", "--help"], captured.io, {
         deps: createTestDeps(),
@@ -202,7 +210,7 @@ describe("pgard login", () => {
       }),
     ).toBe(0);
     expect(captured.stdout()).toContain("never written to a file");
-    const mainHelp = createTestIo();
+    const mainHelp = terminalIo();
     await main(["--help"], mainHelp.io, { deps: createTestDeps(), interrupts: noInterrupts });
     expect(mainHelp.stdout()).toContain("pgard login");
     expect(mainHelp.stdout()).toContain("pgard logout");
@@ -210,7 +218,7 @@ describe("pgard login", () => {
 
   it("documents the built-in App and the override, and no 'not set' exit code", async () => {
     const help = async (args: string[]): Promise<string> => {
-      const captured = createTestIo();
+      const captured = terminalIo();
       expect(
         await main(args, captured.io, { deps: createTestDeps(), interrupts: noInterrupts }),
       ).toBe(0);
@@ -241,7 +249,7 @@ describe("pgard login", () => {
 describe("pgard logout", () => {
   it("removes the entry, names the account and explains how to revoke at GitHub", async () => {
     const store = await storeWith(storedEntry());
-    const captured = createTestIo({ env: ENV });
+    const captured = terminalIo({ env: ENV });
     expect(
       await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
     ).toBe(0);
@@ -254,7 +262,7 @@ describe("pgard logout", () => {
   });
 
   it("says when nothing is saved and exits 0", async () => {
-    const captured = createTestIo({ env: ENV });
+    const captured = terminalIo({ env: ENV });
     expect(await runLogout(createTestContext(captured, createTestDeps()))).toBe(0);
     expect(captured.stdout()).toContain("No GitHub sign-in is saved in the OS keychain");
   });
@@ -266,7 +274,7 @@ describe("pgard logout", () => {
     };
     const store = await storeWith(storedEntry());
     await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
-    const captured = createTestIo();
+    const captured = terminalIo();
     expect(
       await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
     ).toBe(0);
@@ -282,7 +290,7 @@ describe("pgard logout", () => {
     };
     const store = await storeWith(null);
     await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
-    const captured = createTestIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });
+    const captured = terminalIo({ env: { PGARD_GITHUB_APP_CLIENT_ID: '"bad id"' } });
     expect(
       await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
     ).toBe(3);
@@ -300,7 +308,7 @@ describe("pgard logout", () => {
     };
     const store = await storeWith(null);
     await store.set(builtInKey, storedEntry({ clientId: DEFAULT_GITHUB_APP_CLIENT_ID }));
-    const captured = createTestIo({ env: { PGARD_GITHUB_APP_SLUG: "Not A Slug!" } });
+    const captured = terminalIo({ env: { PGARD_GITHUB_APP_SLUG: "Not A Slug!" } });
     expect(
       await runLogout(createTestContext(captured, createTestDeps({ credentialStore: store }))),
     ).toBe(0);
@@ -309,7 +317,7 @@ describe("pgard logout", () => {
 
     // With an overridden client id, the slug is ignored the same way.
     await store.set(KEY, storedEntry());
-    const fork = createTestIo({ env: { ...ENV, PGARD_GITHUB_APP_SLUG: "Not A Slug!" } });
+    const fork = terminalIo({ env: { ...ENV, PGARD_GITHUB_APP_SLUG: "Not A Slug!" } });
     expect(
       await runLogout(createTestContext(fork, createTestDeps({ credentialStore: store }))),
     ).toBe(0);
@@ -317,7 +325,7 @@ describe("pgard logout", () => {
   });
 
   it("exits 4 when no keychain is available", async () => {
-    const captured = createTestIo({ env: ENV });
+    const captured = terminalIo({ env: ENV });
     const deps = createTestDeps({ credentialStore: createUnavailableCredentialStore("locked") });
     expect(await runLogout(createTestContext(captured, deps))).toBe(4);
     expect(captured.stderr()).toContain("Nothing was removed.");
@@ -326,7 +334,7 @@ describe("pgard logout", () => {
 
 describe("doctor: saved GitHub sign-in", () => {
   const doctor = async (store: CredentialStore, env: Record<string, string> = ENV) => {
-    const captured = createTestIo({ env });
+    const captured = terminalIo({ env });
     expect(
       await runDoctor(createTestContext(captured, createTestDeps({ credentialStore: store }))),
     ).toBe(0);
@@ -378,12 +386,12 @@ describe("scan sign-in reuse", () => {
           sleep: async () => {},
         }),
     });
-    const firstRun = createTestIo({ env: ENV });
+    const firstRun = terminalIo({ env: ENV });
     await createSessionProvider(createTestContext(firstRun, deps))();
     expect(firstRun.stderr()).toContain("Enter the code WXYZ-1234");
     expect(firstRun.stderr()).toContain("Saved the GitHub sign-in for octo in the OS keychain");
 
-    const secondRun = createTestIo({ env: ENV });
+    const secondRun = terminalIo({ env: ENV });
     await createSessionProvider(createTestContext(secondRun, deps))();
     expect(secondRun.stderr()).not.toContain("Enter the code");
     expect(secondRun.stderr()).toContain(
@@ -398,7 +406,7 @@ describe("scan sign-in reuse", () => {
     const deps = createTestDeps({
       createSessionProvider: () => Object.assign(async () => ({}) as never, {}) as never,
     });
-    const mixed = createTestIo({ env: { PGARD_GITHUB_APP_SLUG: "my-fork" } });
+    const mixed = terminalIo({ env: { PGARD_GITHUB_APP_SLUG: "my-fork" } });
     createSessionProvider(createTestContext(mixed, deps));
     const warnings = mixed
       .stderr()
@@ -408,7 +416,7 @@ describe("scan sign-in reuse", () => {
       );
     expect(warnings).toHaveLength(1);
 
-    const consistent = createTestIo({
+    const consistent = terminalIo({
       env: { PGARD_GITHUB_APP_SLUG: "my-fork", PGARD_GITHUB_APP_CLIENT_ID: CLIENT_ID },
     });
     createSessionProvider(createTestContext(consistent, deps));
@@ -428,7 +436,7 @@ describe("scan sign-in reuse", () => {
           sleep: async () => {},
         }),
     });
-    const run = createTestIo({ env: ENV });
+    const run = terminalIo({ env: ENV });
     await createSessionProvider(createTestContext(run, deps))();
     expect(run.stderr()).toContain(
       "The GitHub sign-in is kept in memory for this run only: no keychain service is running.",
@@ -448,7 +456,7 @@ describe("scan sign-in reuse", () => {
           sleep: async () => {},
         }),
     });
-    const run = createTestIo({ env: ENV });
+    const run = terminalIo({ env: ENV });
     await createSessionProvider(createTestContext(run, deps))();
     expect(run.stderr()).toContain(
       "The saved GitHub sign-in has expired and was removed from the OS keychain.",

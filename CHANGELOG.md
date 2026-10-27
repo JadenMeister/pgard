@@ -19,6 +19,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 - Project configuration file `pgard.config.json`, suppressions and baselines, a local result store with retention and history clearing, and comparison with the previous scan.
 - Windows support; an accuracy corpus with precision and recall checked in CI.
 - Single installable npm package `pgard` built with `npm run pack:pgard` and checked by `npm run smoke:pack`; release workflow, Homebrew formula template and release procedure (nothing published yet).
+- Guided first run for the interactive menu: with no saved sign-in it offers to sign in, then, when the PGARD GitHub App is the only thing missing, shows the install link, waits for Enter and re-runs all five authorization checks (at most 3 retries), then scans. Other blocked reasons are shown as before with no retry loop. The authorization gate is unchanged (nothing cached, nothing skipped). English and Korean text.
 - Docs: [TUI approach evaluation](docs/TUI_EVALUATION.md) for the M6 CLI dashboard (no code change).
 
 ### Changed
@@ -32,6 +33,8 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
+- Without a terminal (stdin or stderr not a TTY) and without a usable saved sign-in, `scan` (all forms and formats), `baseline` and `project verify` no longer start the GitHub device flow and wait up to 15 minutes: they exit 3 at once with a blocked result ("Not signed in ... Run `pgard login` in a terminal first"), valid JSON or SARIF for those formats. `pgard login` without a terminal is a usage error (exit 2). Interactive behaviour is unchanged (#296).
+- The keychain sentence "the OS keychain could not be used ..." is now translated in Korean output (#300, part).
 - Many false negatives and false positives in secret, auth, cookie and CSRF detection and in Git history checks.
 - Port-discovery and dashboard port-gate races, keychain sign-in races, and layout at narrow widths.
 - Install guidance for private repositories outside the App installation and for a 404 when the App already covers all repositories.

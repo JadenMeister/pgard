@@ -7,7 +7,11 @@ import {
   type ScanResult,
 } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
-import { createInMemoryCredentialStore } from "@pgard/scan-core";
+import {
+  createInMemoryCredentialStore,
+  DEFAULT_GITHUB_APP_CLIENT_ID,
+  type CredentialStore,
+} from "@pgard/scan-core";
 import type { InterruptSource } from "./adapters/cancel.js";
 import type { CliIo, Key, KeyReader } from "./adapters/terminal.js";
 import type { CommandContext } from "./context.js";
@@ -162,6 +166,30 @@ export const HTTP_IDENTITY: ServiceIdentity = {
   redirectStop: null,
   error: null,
 };
+
+/**
+ * A fake keychain that already holds a valid sign-in for any App, so the menu does not start its
+ * guided first run (which only applies when nothing is stored). Never touches the real keychain.
+ */
+export function createSignedInCredentialStore(): CredentialStore {
+  const entry = JSON.stringify({
+    version: 1,
+    host: "github.com",
+    clientId: DEFAULT_GITHUB_APP_CLIENT_ID,
+    accessToken: "stored-access-token-for-tests",
+    expiresAt: Date.UTC(2099, 0, 1),
+    refreshToken: null,
+    refreshTokenExpiresAt: null,
+    login: "octo",
+    userId: 7,
+    savedAt: 0,
+  });
+  return {
+    get: async () => entry,
+    set: async () => undefined,
+    delete: async () => true,
+  };
+}
 
 /** Deps whose every call fails loudly unless a test overrides it. */
 export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {

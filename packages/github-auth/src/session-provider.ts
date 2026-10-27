@@ -11,7 +11,7 @@ import {
   type UserTokenSet,
 } from "./device-flow.js";
 import { INVALID_CLIENT_ID_OVERRIDE_MESSAGE } from "./env.js";
-import { GitHubAuthError, isGitHubAuthError } from "./errors.js";
+import { GitHubAuthError, NOT_SIGNED_IN_NO_TERMINAL_MESSAGE, isGitHubAuthError } from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import type { GitHubClient, GitHubUser } from "./github-client.js";
 import {
@@ -77,6 +77,12 @@ export interface DeviceFlowSessionProviderOptions {
    */
   credentialStore?: CredentialStore | null;
   onNotice?: (notice: SignInNotice) => void;
+  /**
+   * `false`: nobody can answer a device code (no terminal). A usable stored sign-in is still
+   * reused and refreshed, but when none is left the call fails with `not_signed_in` before any
+   * request to GitHub. Defaults to `true`.
+   */
+  canSignInInteractively?: boolean;
   fetch?: FetchLike;
   signal?: AbortSignal;
   /** Test hooks forwarded to the device flow. */
@@ -446,6 +452,9 @@ export function createDeviceFlowSessionProvider(
       }
     }
 
+    if (options.canSignInInteractively === false) {
+      throw new GitHubAuthError("not_signed_in", NOT_SIGNED_IN_NO_TERMINAL_MESSAGE);
+    }
     const tokens = await requestDeviceFlowTokens(deviceFlowOptions(options, clientId));
     const session = createSessionFromToken(tokens.accessToken, tokens.expiresAt, options);
     current = store;

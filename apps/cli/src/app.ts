@@ -20,6 +20,7 @@ import { isMachineFormat, runScanCommand } from "./commands/scan/index.js";
 import { err, out, type CommandContext } from "./context.js";
 import { createDefaultDeps, type CliDeps } from "./deps.js";
 import { EXIT_CODES, type ExitCode } from "./exit-codes.js";
+import { runGuidedFirstRun } from "./flows/first-run.js";
 import { PanelsTerminatedError } from "./flows/panels.js";
 import { getHelpText } from "./help.js";
 import { resolveLanguage } from "./language.js";
@@ -168,6 +169,8 @@ async function runMenu(context: CommandContext): Promise<ExitCode> {
     style: context.style,
     helpText: MENU_HELP,
   };
+  // A first run (no stored sign-in) is walked through sign-in, App install and a first scan.
+  await runGuidedFirstRun(context);
   let lastExitCode: ExitCode = EXIT_CODES.ok;
   for (;;) {
     out(context, "");
