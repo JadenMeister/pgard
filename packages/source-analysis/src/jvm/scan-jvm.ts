@@ -214,6 +214,14 @@ export async function scanJvm(
       }
     }
 
+    // Templates are read only in a Java or Kotlin project: a Node or Python repository with
+    // `.html`, `.mustache` or `.vm` files has none of this rule's concern. The same test decides
+    // whether unreadable XML is worth a note (Kotlin-only projects have mappers too).
+    const isJvmProject =
+      walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
+      walk.trackManifests.some(
+        (manifest) => manifest.kind === "maven" || manifest.kind === "gradle",
+      );
     // MyBatis mapper XML: any .xml file that declares <mapper>. Read here, analyzed as text.
     const excludedMapperPaths: string[] = [];
     let mapperFiles = 0;
@@ -282,7 +290,7 @@ export async function scanJvm(
           findings: mapperFindings.filter((finding) => finding.ruleId === ruleId).length,
         });
       }
-    } else if (unreadable + tooLarge > 0 && walk.trackFiles.java.length > 0) {
+    } else if (unreadable + tooLarge > 0 && isJvmProject) {
       coverage.push({
         area: "source:mybatis",
         scope: "code",
@@ -299,13 +307,7 @@ export async function scanJvm(
     let templateTooLarge = 0;
     let templateUnread = 0;
     const engineFiles = new Map<string, number>();
-    // Templates are read only in a Java or Kotlin project: a Node or Python repository with
-    // `.html`, `.mustache` or `.vm` files has none of this rule's concern.
-    const jvmProject =
-      walk.trackFiles.java.length + walk.trackFiles.kotlin.length > 0 ||
-      walk.trackManifests.some(
-        (manifest) => manifest.kind === "maven" || manifest.kind === "gradle",
-      );
+    const jvmProject = isJvmProject;
     for (const file of walk.templateFiles) {
       throwIfAborted(options.signal);
       const extension = extensionOf(file.relativePath);

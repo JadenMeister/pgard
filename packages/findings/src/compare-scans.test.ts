@@ -381,6 +381,37 @@ describe("compareScans", () => {
       expect(sameCount.notComparable).toHaveLength(1);
     });
 
+    it.each([
+      ["source:build-output", "completed"],
+      ["source:build-output", "partial"],
+      ["source:xml-skipped", "completed"],
+      ["source:unreadable-files", "partial"],
+      ["source:special-files", "completed"],
+    ] as const)(
+      "%s (%s) blocks only when its note, with the set fingerprint, changes",
+      (area, status) => {
+        const skip = (text: string): Coverage => ({
+          ...cov(area, "code", status, []),
+          note: text,
+        });
+        const same = gone(
+          [...JS, skip("2 skipped (set 11111111): a, b.")],
+          [...JS, skip("2 skipped (set 11111111): a, b.")],
+        );
+        expect(same.noLongerReported).toHaveLength(1);
+        expect(notComparableAreas(same)).toEqual([]);
+        const changed = gone(
+          [...JS, skip("8 skipped (set 11111111): a and 7 more.")],
+          [...JS, skip("8 skipped (set 22222222): a and 7 more.")],
+        );
+        expect(changed.noLongerReported).toEqual([]);
+        expect(changed.notComparable).toHaveLength(1);
+        expect(gone(JS, [...JS, skip("1 skipped (set 11111111): a.")]).noLongerReported).toEqual(
+          [],
+        );
+      },
+    );
+
     it("a detected-but-unsupported language (not_tested, no rules) does not block", () => {
       const java = cov("source:java", "code", "not_tested", []);
       expect(gone(JS, [...JS, java]).noLongerReported).toHaveLength(1);

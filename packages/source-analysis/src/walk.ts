@@ -91,6 +91,20 @@ export interface WalkResult {
   unreadableDirectories: string[];
   /** Dependency directories that were not entered, in walk order. */
   skippedDependencyDirectories: SkippedDependencyDirectory[];
+  /**
+   * Build-output and cache directories (`dist`, `build`, `out`, `coverage`, ...) that were not
+   * entered, as repository-relative paths in walk order. `.git` is not listed.
+   */
+  skippedBuildDirectories: string[];
+  /** `.xml` files under a `res` or `target` path segment that were not checked for MyBatis mappers. */
+  skippedResourceXml: string[];
+  /**
+   * Entries the walk would have analyzed but could not `lstat` (permission error, a file removed
+   * during the walk), as repository-relative paths.
+   */
+  unreadableEntries: string[];
+  /** FIFOs, sockets, devices and entries that were no longer regular files; never opened. */
+  skippedSpecialFiles: string[];
   isTruncated: boolean;
 }
 
@@ -179,7 +193,26 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     skippedSymlinks: [],
     unreadableDirectories: [],
     skippedDependencyDirectories: [],
+    skippedBuildDirectories: [],
+    skippedResourceXml: [],
+    unreadableEntries: [],
+    skippedSpecialFiles: [],
     isTruncated: false,
+  };
+  /** `lstat` of a file about to be analyzed; failures and non-regular files are counted, not dropped. */
+  const statRegular = async (absolutePath: string, relativePath: string) => {
+    let stats;
+    try {
+      stats = await lstat(absolutePath);
+    } catch {
+      result.unreadableEntries.push(relativePath);
+      return null;
+    }
+    if (!stats.isFile()) {
+      result.skippedSpecialFiles.push(relativePath);
+      return null;
+    }
+    return stats;
   };
   const stack: string[] = [root];
   while (stack.length > 0) {
@@ -215,7 +248,11 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       }
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
-        if (SKIPPED_DIRECTORIES.has(entry.name)) continue;
+        if (entry.name === ".git") continue;
+        if (SKIPPED_DIRECTORIES.has(entry.name)) {
+          result.skippedBuildDirectories.push(relativePath);
+          continue;
+        }
         if (SKIPPED_DEPENDENCY_DIRECTORIES.has(entry.name)) {
           result.skippedDependencyDirectories.push({ path: relativePath, reason: null });
           continue;
@@ -238,7 +275,11 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         stack.push(absolutePath);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        // FIFO, socket or device: never opened, counted once in a note.
+        result.skippedSpecialFiles.push(relativePath);
+        continue;
+      }
       if (entry.name === "package.json") result.packageJsonPaths.push(relativePath);
       if (entry.name === "go.mod") result.goModPaths.push(relativePath);
       const manifestKind = classifyManifest(entry.name, path.basename(directory));
@@ -251,10 +292,14 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         // `setup.py` is both a manifest and Python source, so there is no `continue` here.
       }
       if (path.extname(entry.name) === ".xml" && entry.name !== "pom.xml") {
-        const stats = await lstat(absolutePath).catch(() => null);
-        // Android resources and build output hold no MyBatis mappers.
+        // Android resources and build output hold no MyBatis mappers; they are counted, not read.
         const skipped = relativePath.split("/").some((part) => part === "res" || part === "target");
-        if (stats?.isFile() && !skipped) {
+        if (skipped) {
+          result.skippedResourceXml.push(relativePath);
+          continue;
+        }
+        const stats = await statRegular(absolutePath, relativePath);
+        if (stats) {
           // XML files count against the same file limit as source files.
           if (result.files.length + result.xmlFiles.length >= MAX_FILES) {
             result.isTruncated = true;
@@ -266,8 +311,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         continue;
       }
       if (TEMPLATE_EXTENSIONS.has(path.extname(entry.name).toLowerCase())) {
-        const stats = await lstat(absolutePath).catch(() => null);
-        if (stats?.isFile()) {
+        const stats = await statRegular(absolutePath, relativePath);
+        if (stats) {
           if (result.templateFiles.length >= MAX_TRACK_FILES) result.templatesTruncated = true;
           else result.templateFiles.push({ absolutePath, relativePath, size: stats.size });
         }
@@ -279,8 +324,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
           noteExcluded(relativePath);
           continue;
         }
-        const stats = await lstat(absolutePath).catch(() => null);
-        if (!stats || !stats.isFile()) continue;
+        const stats = await statRegular(absolutePath, relativePath);
+        if (!stats) continue;
         const list = result.trackFiles[trackLanguage];
         if (list.length >= MAX_TRACK_FILES) result.trackTruncated = true;
         else list.push({ absolutePath, relativePath, size: stats.size });
@@ -298,8 +343,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         result.skippedMinified.push(relativePath);
         continue;
       }
-      const stats = await lstat(absolutePath).catch(() => null);
-      if (!stats || !stats.isFile()) continue;
+      const stats = await statRegular(absolutePath, relativePath);
+      if (!stats) continue;
       if (stats.size > MAX_FILE_BYTES) {
         result.skippedLarge += 1;
         continue;

@@ -144,13 +144,18 @@ function listPaths(paths: string[]): string {
 }
 
 /**
- * Coverage note for minified bundles the walk skipped: the count, the reason and at most
- * MAX_LISTED_PATHS paths (fewer when long, so the count is never cut off by a display limit).
+ * Shared shape of the counted-skip notes: `<heading>: "a", "b" and N more.<tail>`. At most
+ * MAX_LISTED_PATHS paths are listed, fewer when long, so the count and the set fingerprint in the
+ * heading are never cut off by a display limit. Paths are redacted before they are measured, so
+ * the label that is measured is the label that is shown.
  */
-export function describeSkippedMinified(paths: readonly string[], limitReached = false): string {
+function describeCappedPaths(
+  heading: string,
+  paths: readonly string[],
+  tail: string,
+  suffix = "",
+): string {
   const count = paths.length;
-  const tail = limitReached ? " (file limit reached; count may be incomplete)" : "";
-  const heading = `${count} minified bundle${count === 1 ? "" : "s"} skipped (minified bundle, not analyzed; set ${fingerprintPaths(paths)}): `;
   const compose = (labels: string[]) => {
     const rest = count - labels.length;
     if (labels.length === 0) return `${heading}${count} not listed.${tail}`;
@@ -159,15 +164,76 @@ export function describeSkippedMinified(paths: readonly string[], limitReached =
   const labels: string[] = [];
   for (const raw of [...paths].sort((a, b) => a.localeCompare(b, "en"))) {
     if (labels.length === MAX_LISTED_PATHS) break;
-    // Redact before measuring, so the label that is measured is the label that is shown.
     const item = redactEvidence(raw, { maxLength: 500 });
     const shown =
       item.length > MAX_LABEL_PATH_LENGTH ? `…${item.slice(-(MAX_LABEL_PATH_LENGTH - 1))}` : item;
-    const next = [...labels, JSON.stringify(shown)];
+    const next = [...labels, JSON.stringify(`${shown}${suffix}`)];
     if (compose(next).length > MAX_NOTE_LENGTH) break;
     labels.push(next[next.length - 1] as string);
   }
   return compose(labels);
+}
+
+const LIMIT_TAIL = " (file limit reached; count may be incomplete)";
+
+/**
+ * Coverage note for minified bundles the walk skipped: the count, the reason and at most
+ * MAX_LISTED_PATHS paths (fewer when long, so the count is never cut off by a display limit).
+ */
+export function describeSkippedMinified(paths: readonly string[], limitReached = false): string {
+  const count = paths.length;
+  return describeCappedPaths(
+    `${count} minified bundle${count === 1 ? "" : "s"} skipped (minified bundle, not analyzed; set ${fingerprintPaths(paths)}): `,
+    paths,
+    limitReached ? LIMIT_TAIL : "",
+  );
+}
+
+/**
+ * Coverage note for build-output and cache directories the walk did not enter. `pgard.config.json`
+ * has no "include" option, so the note says how to get such a directory analyzed.
+ */
+export function describeSkippedBuildDirectories(
+  paths: readonly string[],
+  limitReached = false,
+): string {
+  const count = paths.length;
+  return describeCappedPaths(
+    `${count} build output director${count === 1 ? "y" : "ies"} skipped (build output, not analyzed; set ${fingerprintPaths(paths)}): `,
+    paths,
+    `${limitReached ? LIMIT_TAIL : ""} Not configurable; move first-party code out to analyze it.`,
+    "/",
+  );
+}
+
+/** Coverage note for `.xml` files under `res/` or `target/` that were not checked for mappers. */
+export function describeSkippedResourceXml(paths: readonly string[], limitReached = false): string {
+  const count = paths.length;
+  return describeCappedPaths(
+    `${count} XML file${count === 1 ? "" : "s"} under res/ or target/ not checked for MyBatis mappers (Android resources or build output, not analyzed; set ${fingerprintPaths(paths)}): `,
+    paths,
+    limitReached ? LIMIT_TAIL : "",
+  );
+}
+
+/** Coverage note for files the walk could not stat, so they were not analyzed. */
+export function describeUnreadableEntries(paths: readonly string[]): string {
+  const count = paths.length;
+  return describeCappedPaths(
+    `${count} file${count === 1 ? "" : "s"} could not be read (permission error or removed during the scan, not analyzed; set ${fingerprintPaths(paths)}): `,
+    paths,
+    "",
+  );
+}
+
+/** Coverage note for FIFOs, sockets and devices, which are never opened. */
+export function describeSpecialFiles(paths: readonly string[]): string {
+  const count = paths.length;
+  return describeCappedPaths(
+    `${count} special file${count === 1 ? "" : "s"} skipped (FIFO, socket, device or not a regular file, never opened; set ${fingerprintPaths(paths)}): `,
+    paths,
+    "",
+  );
 }
 
 /**
@@ -712,6 +778,48 @@ export async function scanSourceCode(
       status: "partial",
       ruleIds: [],
       note: describeSkippedMinified(walk.skippedMinified, walk.isTruncated),
+    });
+  }
+  const limitReached = walk.isTruncated;
+  const unanalyzed = walk.files.length + walkTrackedCount(walk) === 0;
+  if (walk.skippedBuildDirectories.length > 0) {
+    // Informational like the dependency directories: build output is generated, so skipping it
+    // does not make a scan partial. Exception: when no source file was found anywhere, the only
+    // source may live in such a directory (a first-party `build/` or `out/` package), and
+    // then the scan says so by being partial.
+    coverage.push({
+      area: "source:build-output",
+      scope: "code",
+      status: unanalyzed ? "partial" : "completed",
+      ruleIds: [],
+      note: describeSkippedBuildDirectories(walk.skippedBuildDirectories, limitReached),
+    });
+  }
+  if (walk.skippedResourceXml.length > 0) {
+    coverage.push({
+      area: "source:xml-skipped",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: describeSkippedResourceXml(walk.skippedResourceXml, limitReached),
+    });
+  }
+  if (walk.unreadableEntries.length > 0) {
+    coverage.push({
+      area: "source:unreadable-files",
+      scope: "code",
+      status: "partial",
+      ruleIds: [],
+      note: describeUnreadableEntries(walk.unreadableEntries),
+    });
+  }
+  if (walk.skippedSpecialFiles.length > 0) {
+    coverage.push({
+      area: "source:special-files",
+      scope: "code",
+      status: "completed",
+      ruleIds: [],
+      note: describeSpecialFiles(walk.skippedSpecialFiles),
     });
   }
   if (walk.skippedSymlinks.length > 0) {
