@@ -3,7 +3,7 @@ import type { ScanResult } from "./contract.js";
 import { buildSarif } from "./sarif.js";
 
 const base = (incremental?: ScanResult["incremental"]): ScanResult => ({
-  schemaVersion: "1.2",
+  schemaVersion: "1.3",
   scanId: "s",
   startedAt: "2026-10-24T00:00:00.000Z",
   finishedAt: "2026-10-24T00:00:05.000Z",

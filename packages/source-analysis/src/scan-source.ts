@@ -838,6 +838,11 @@ export async function scanSourceCode(
         limitReached,
         probeLimit: walk.buildProbeLimitReached ? MAX_BUILD_DIRECTORY_PROBES : null,
       }),
+      // Findings below a walked directory are ordinary; comparison reads this list.
+      walkedDirectories: {
+        paths: walk.walkedBuildDirectories.map((item) => redactEvidence(item, { maxLength: 500 })),
+        complete: !walk.isTruncated,
+      },
     });
   }
   if (walk.skippedResourceXml.length > 0 && isJvmWalk(walk)) {

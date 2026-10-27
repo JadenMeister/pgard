@@ -261,6 +261,26 @@ function isUnderSkippedDirectory(findingPath: string | null | undefined): boolea
   );
 }
 
+/**
+ * The path is below a skip-named directory that the walk entered in both scans (they recorded it
+ * as containing source), so the finding is ordinary. A scan that has the area but not the list (a
+ * result older than 1.3) or a list that may be incomplete gives no such guarantee.
+ */
+function isUnderWalkedInBoth(
+  findingPath: string | null | undefined,
+  a: Coverage | undefined,
+  b: Coverage | undefined,
+): boolean {
+  if (typeof findingPath !== "string" || a === undefined || b === undefined) return false;
+  const lists = [a.walkedDirectories, b.walkedDirectories];
+  if (lists.some((list) => list === undefined || !list.complete)) return false;
+  return lists.every((list) =>
+    (list as { paths: string[] }).paths.some(
+      (prefix) => findingPath === prefix || findingPath.startsWith(`${prefix}/`),
+    ),
+  );
+}
+
 /** An `.xml` file under a `res` or `target` segment, which the walk does not check for mappers. */
 function isSkippedResourceXml(findingPath: string | null | undefined): boolean {
   return (
@@ -327,7 +347,11 @@ function isSkipSignal(area: string, ctx: Context, finding: Finding): boolean {
   // form (no source found elsewhere) is a whole-scope signal that follows its note.
   if (area === BUILD_OUTPUT_AREA && !entries.some((entry) => entry.status === "partial")) {
     // Same skip set in both scans: such a finding could not have been analyzed in only one.
-    return a?.note !== b?.note && isUnderSkippedDirectory(finding.location.path);
+    return (
+      a?.note !== b?.note &&
+      isUnderSkippedDirectory(finding.location.path) &&
+      !isUnderWalkedInBoth(finding.location.path, a, b)
+    );
   }
   if (NOTE_ONLY_AREAS.has(area)) return a?.note !== b?.note;
   if (entries.some((entry) => entry.status === "partial")) return true;

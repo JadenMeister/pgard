@@ -181,6 +181,28 @@ describe("directories skipped by name", () => {
     expect(area(await scanSourceCode(go), "source:build-output")?.note).toContain('"build/"');
   });
 
+  it("records the walked directories in a structured field, redacted", async () => {
+    const root = project({
+      "src/a.ts": SRC,
+      "build/index.ts": SRC,
+      "build/lib/y.ts": VULN_TS,
+      "coverage/lcov.js": SRC,
+      [`pkg-${AWS_KEY}/dist/gen.py`]: "x = 1\n",
+    });
+    const result = await scanSourceCode(root);
+    const walked = area(result, "source:build-output")?.walkedDirectories;
+    expect(walked?.complete).toBe(true);
+    expect(walked?.paths).toHaveLength(2);
+    expect(walked?.paths).toContain("build");
+    expect(JSON.stringify(walked)).not.toContain(AWS_KEY);
+    expect(result.findings.map((finding) => finding.location.path)).toContain("build/lib/y.ts");
+    const none = await scanSourceCode(project({ "src/a.ts": SRC, "dist/a.js": SRC }));
+    expect(area(none, "source:build-output")?.walkedDirectories).toEqual({
+      paths: [],
+      complete: true,
+    });
+  });
+
   it("probes nested skip-named directories one at a time", async () => {
     const root = project({
       "src/a.ts": SRC,

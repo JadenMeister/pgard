@@ -474,6 +474,53 @@ describe("compareScans", () => {
         }
       });
 
+      describe("findings deeper inside a walked skip-named directory", () => {
+        const withWalked = (note: string, paths: string[] | null, complete = true): Coverage => ({
+          ...skip("source:build-output", "completed", note),
+          ...(paths === null ? {} : { walkedDirectories: { paths, complete } }),
+        });
+        const deep = "build/lib/y.ts";
+
+        it("stay ordinary when coverage/ appears and the finding is fixed", () => {
+          const before = [...JS, withWalked("1 walked (set 1)", ["build"])];
+          const after = [...JS, withWalked("1 skipped (set 2): coverage/", ["build"])];
+          const result = goneAt(deep, before, after);
+          expect(result.noLongerReported).toHaveLength(1);
+          expect(result.notComparable).toEqual([]);
+          const added = newAt(deep, before, after);
+          expect(added.newInUncertainAreas).toEqual([]);
+          expect(added.uncertainAreas).toEqual([]);
+          expect(goneAt("build/y.ts", before, after).noLongerReported).toHaveLength(1);
+        });
+
+        it("stay held when the directory was not walked in both scans", () => {
+          const walked = [...JS, withWalked("1 walked (set 1)", ["build"])];
+          const skipped = [...JS, withWalked("1 skipped (set 2): build/", [])];
+          expect(goneAt(deep, walked, skipped).notComparable).toHaveLength(1);
+          expect(goneAt(deep, skipped, walked).notComparable).toHaveLength(1);
+          expect(goneAt(deep, JS, walked).notComparable).toHaveLength(1);
+          expect(
+            goneAt("other/build/lib/y.ts", walked, [...JS, withWalked("2 (set 3)", ["build"])])
+              .notComparable,
+          ).toHaveLength(1);
+          // A prefix is a whole directory: `buildx` is not `build`.
+          expect(
+            goneAt("buildx/y.ts", walked, [...JS, withWalked("2 (set 3)", ["build"])])
+              .notComparable,
+          ).toEqual([]);
+        });
+
+        it("fall back to the conservative rule for results without the list or with a capped one", () => {
+          const legacy = [...JS, withWalked("1 walked (set 1)", null)];
+          const after = [...JS, withWalked("2 (set 2)", ["build"])];
+          expect(goneAt(deep, legacy, after).notComparable).toHaveLength(1);
+          expect(goneAt(deep, after, legacy).notComparable).toHaveLength(1);
+          const capped = [...JS, withWalked("1 walked (set 1)", ["build"], false)];
+          expect(goneAt(deep, capped, after).notComparable).toHaveLength(1);
+          expect(newAt(deep, capped, after).newInUncertainAreas).toHaveLength(1);
+        });
+      });
+
       it("note-only areas that stay partial leave their own area comparable", () => {
         for (const area of ["source:unreadable-files", "source:build-output"]) {
           const partial = skip(area, "partial", "1 (set 1)");
