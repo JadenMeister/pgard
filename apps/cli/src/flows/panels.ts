@@ -113,8 +113,10 @@ export async function offerPanels(
     exportReport === undefined
       ? undefined
       : async (): Promise<ExportOutcome> => {
-          lastExport = await exportReport();
-          return lastExport;
+          const outcome = await exportReport();
+          // Only a real attempt counts: cancelling must not clear an earlier failure.
+          if (outcome !== "cancelled") lastExport = outcome;
+          return outcome;
         };
   // The cancel controller must not print its "press Ctrl+C again" text onto the alternate screen.
   const resumeInterrupts = context.suspendInterrupts?.();

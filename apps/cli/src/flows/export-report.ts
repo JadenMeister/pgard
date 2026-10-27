@@ -50,12 +50,17 @@ export async function confirmInsideRepository(context: CommandContext): Promise<
   return promptConfirm(prompts, text.confirmInside);
 }
 
+/** Start of the message `writeReports` gives for a file that already exists. */
+const REFUSAL_PREFIX = "Refusing to overwrite existing file: ";
+
 /** Writes the report files; returns false (exit 4) when writing failed. */
 export async function saveReports(
   context: CommandContext,
   result: ScanResult,
   format: ReportFormat,
   outputDir: string,
+  /** Paths this session already saved: refusing to overwrite one of them is not a failure. */
+  savedPaths?: Set<string>,
 ): Promise<boolean> {
   const text = cliText(context.ruleLocale).commands.report;
   try {
@@ -66,11 +71,19 @@ export async function saveReports(
       ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),
     });
     for (const entry of written) {
+      savedPaths?.add(entry.filePath);
       out(context, text.saved(entry.format.toUpperCase(), safeText(entry.filePath, 500)));
       if (entry.warning !== undefined) err(context, text.warning(safeText(entry.warning, 500)));
     }
     return true;
   } catch (error) {
+    if (error instanceof ReportWriteError && error.code === "file_exists") {
+      const existing = error.message.slice(REFUSAL_PREFIX.length);
+      if (error.message.startsWith(REFUSAL_PREFIX) && savedPaths?.has(existing) === true) {
+        out(context, text.alreadySaved(safeText(existing, 500)));
+        return true;
+      }
+    }
     const message = error instanceof ReportWriteError ? error.message : text.unexpectedWriteError;
     err(context, context.errStyle.red(text.notSaved(safeText(message, 500))));
     return false;
@@ -94,6 +107,7 @@ export async function runReportExport(
   context: CommandContext,
   result: ScanResult,
   projectRoot: string,
+  savedPaths?: Set<string>,
 ): Promise<ReportExportOutcome> {
   const text = cliText(context.ruleLocale).commands.report;
   const prompts = promptContextOf(context, text.help);
@@ -115,6 +129,8 @@ export async function runReportExport(
       continue;
     }
     if (check.isInsideRepository && !(await confirmInsideRepository(context))) continue;
-    return (await saveReports(context, result, format, check.outputDir)) ? "saved" : "failed";
+    return (await saveReports(context, result, format, check.outputDir, savedPaths))
+      ? "saved"
+      : "failed";
   }
 }

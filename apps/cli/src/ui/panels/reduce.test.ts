@@ -197,6 +197,10 @@ describe("reduce: the export key", () => {
     expect(press(detail, key("e")).exportRequested).toBe(false);
   });
 
+  it("is ignored for Shift+E", () => {
+    expect(press(exportable(), key("e", { sequence: "E" })).exportRequested).toBe(false);
+  });
+
   it("is ignored with Ctrl, on a too-small screen, and when no export is wired", () => {
     expect(press(exportable(), key("e", { ctrl: true })).exportRequested).toBe(false);
     const tiny = createPanelsState(

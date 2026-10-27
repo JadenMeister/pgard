@@ -378,8 +378,9 @@ async function runScanFlow(
     loadTrend(context, scanned.outcome, command.noStore === true, result.scanId);
   let isReportSaved = true;
   // `e` in the panel view: the same prompts and save as the menu's report question.
+  const panelSavedPaths = new Set<string>();
   const exportFromPanels = (): Promise<ReportExportOutcome> =>
-    runReportExport(context, result, projectRoot);
+    runReportExport(context, result, projectRoot, panelSavedPaths);
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
     if (!isJson) {

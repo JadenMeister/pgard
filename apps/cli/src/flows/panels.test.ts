@@ -5,6 +5,7 @@ import { ReportWriteError } from "@pgard/report";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { main } from "../app.js";
 import type { CliDeps } from "../deps.js";
+import { runScanCommand } from "../commands/scan/index.js";
 import { runReportExport } from "./export-report.js";
 import { getRuleTextCatalog } from "../rule-texts.js";
 import { parseCommandLine, UsageError } from "../options.js";
@@ -591,8 +592,9 @@ describe("e: export from the panel view", () => {
     const context = createTestContext(captured, testDeps, scriptedKeys(keys as never[]));
     const result = panelsFixtureResult();
     const outcomes: string[] = [];
+    const savedPaths = new Set<string>();
     const isOk = offerPanels(context, result, true, true, undefined, async () => {
-      const outcome = await runReportExport(context, result, "/work/repo");
+      const outcome = await runReportExport(context, result, "/work/repo", savedPaths);
       outcomes.push(outcome);
       return outcome;
     });
@@ -649,6 +651,52 @@ describe("e: export from the panel view", () => {
     expect(run.captured.stderr()).toContain("Report not saved: disk full");
     expect(run.captured.stdout().split(ENTER)).toHaveLength(3);
     expect(run.captured.stdout().endsWith(LEAVE)).toBe(true);
+  });
+
+  const failing = () =>
+    vi.fn(async () => {
+      throw new ReportWriteError("write_failed", "disk full");
+    });
+
+  it("keeps a failure when the next export is cancelled with Esc or answered No", async () => {
+    const byEsc = await open(["e", ...HTML, ...DIR, "x", "e", "escape", "q"], {
+      writeReports: failing(),
+    });
+    expect(await byEsc.isOk).toBe(false);
+    expect(byEsc.outcomes).toEqual(["failed", "cancelled"]);
+    // "No" is the first choice of the format question.
+    const byNo = await open(["e", ...HTML, ...DIR, "x", "e", "return", "q"], {
+      writeReports: failing(),
+    });
+    expect(await byNo.isOk).toBe(false);
+    expect(byNo.outcomes).toEqual(["failed", "cancelled"]);
+  });
+
+  it("counts a repeat of an export this session saved as saved, and never overwrites", async () => {
+    const target = path.join(outputDir, "r.html");
+    let calls = 0;
+    const writeReports = vi.fn(async () => {
+      calls += 1;
+      if (calls === 1) return [{ format: "html" as const, filePath: target }];
+      throw new ReportWriteError("file_exists", `Refusing to overwrite existing file: ${target}`);
+    });
+    const run = await open(["e", ...HTML, ...DIR, "x", "e", ...HTML, ...DIR, "x", "q"], {
+      writeReports,
+    });
+    expect(await run.isOk).toBe(true);
+    expect(run.outcomes).toEqual(["saved", "saved"]);
+    expect(run.captured.stdout()).toContain(`This report was already saved to ${target}.`);
+    expect(run.captured.stderr()).not.toContain("Refusing");
+  });
+
+  it("still fails for a file this session did not save", async () => {
+    const other = path.join(outputDir, "other.html");
+    const writeReports = vi.fn(async () => {
+      throw new ReportWriteError("file_exists", `Refusing to overwrite existing file: ${other}`);
+    });
+    const run = await open(["e", ...HTML, ...DIR, "x", "q"], { writeReports });
+    expect(await run.isOk).toBe(false);
+    expect(run.captured.stderr()).toContain("Refusing to overwrite");
   });
 
   it("lets a later successful export win over an earlier failed one", async () => {
@@ -750,4 +798,46 @@ describe("e: export from the panel view, end to end through main (exit codes)", 
       run.stdout.endsWith("\u001b[?25h\u001b[?1049l") || run.stdout.includes("\u001b[?1049l"),
     ).toBe(true);
   }, 20_000);
+});
+
+describe("menu scan: panel export failure then No at the menu question", () => {
+  it("exits 4 for an otherwise ok scan", async () => {
+    const outputDir = mkdtempSync(path.join(os.tmpdir(), "pgard-panel-export-menu-"));
+    try {
+      const captured = createTestIo({ isTTY: true });
+      const stdout = captured.io.stdout as unknown as { columns: number; rows: number };
+      stdout.columns = 80;
+      stdout.rows = 24;
+      const writeReports = vi.fn(async () => {
+        throw new ReportWriteError("write_failed", "disk full");
+      });
+      const keys = scriptedKeys([
+        "e",
+        "down",
+        "return",
+        ...Array.from(outputDir),
+        "return",
+        "x",
+        "q", // leaves the panel; the menu's report question follows
+        "return", // "No"
+      ]);
+      const context = {
+        ...createTestContext(
+          captured,
+          createTestDeps({
+            runScan: async () => ({ ...panelsFixtureResult(), overallStatus: "completed" }),
+            writeReports,
+          }),
+          keys,
+          true,
+        ),
+        ruleLocale: "en" as const,
+      };
+      const code = await runScanCommand(context, { variant: "code", port: null, report: null });
+      expect(code).toBe(4);
+      expect(writeReports).toHaveBeenCalledTimes(1);
+    } finally {
+      rmSync(outputDir, { recursive: true, force: true });
+    }
+  });
 });

@@ -306,3 +306,17 @@ describe("footer with the export key", () => {
     expect(help).toContain("e: save a report");
   });
 });
+
+describe("the export hint stays out of the overlays' footers", () => {
+  it("is absent in help, detail and search", () => {
+    const size: Size = { columns: 80, rows: 24 };
+    const base = {
+      ...createPanelsState(panelsFixtureResult(), "en", size, undefined, undefined, true),
+      panel: "findings" as PanelId,
+    };
+    for (const overlay of ["help", "detail", "filter"] as const) {
+      const lines = renderFrame({ ...base, overlay }, size, plain);
+      expect(lines.at(-1), overlay).not.toContain("e: export");
+    }
+  });
+});

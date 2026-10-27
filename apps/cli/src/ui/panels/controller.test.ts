@@ -531,3 +531,102 @@ describe("runPanelsScreen: the e key", () => {
     expect(out.written()).not.toContain("e: export");
   });
 });
+
+describe("runPanelsScreen: the e key, hardening", () => {
+  const ctrlD: Key = { name: "d", sequence: "\u0004", ctrl: true };
+
+  function counting(entries: Array<Key | "end">, log: string[]): KeyReader {
+    const queue = [...entries];
+    return {
+      readKey: async () => {
+        log.push("readKey");
+        const next = queue.shift();
+        if (next === undefined || next === "end") throw new UserCancelledError();
+        return next;
+      },
+      suspend: () => {
+        log.push("suspend");
+      },
+      close: () => undefined,
+    };
+  }
+
+  function start(keys: KeyReader, exportReport: () => Promise<"saved" | "failed" | "cancelled">) {
+    const out = fakeStdout();
+    const done = runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys,
+      processEvents: new EventEmitter(),
+      exportReport,
+    });
+    return { out, done };
+  }
+
+  it("does not export on Shift+E", async () => {
+    let calls = 0;
+    const shiftE: Key = { name: "e", sequence: "E", ctrl: false };
+    const log: string[] = [];
+    const { done } = start(counting([shiftE, press("q")], log), async () => {
+      calls += 1;
+      return "saved";
+    });
+    expect(await done).toBe("back");
+    expect(calls).toBe(0);
+    expect(log).not.toContain("suspend");
+  });
+
+  it("suspends the key reader for the export and again before the pause", async () => {
+    const log: string[] = [];
+    const { done } = start(counting([press("e"), press("x"), press("q")], log), async () => {
+      log.push("export");
+      return "saved";
+    });
+    expect(await done).toBe("back");
+    expect(log.slice(0, 6)).toEqual([
+      "readKey",
+      "suspend",
+      "export",
+      "suspend",
+      "readKey",
+      "readKey",
+    ]);
+  });
+
+  it("drops keys queued during the save, Ctrl+C included, instead of answering the pause", async () => {
+    // A reader whose suspend() clears what was typed while the save ran, like the real one.
+    const queue: Key[] = [press("e")];
+    const keys: KeyReader = {
+      readKey: async () => {
+        const next = queue.shift();
+        if (next === undefined) return new Promise<Key>(() => undefined);
+        return next;
+      },
+      suspend: () => {
+        queue.length = 0;
+      },
+      close: () => undefined,
+    };
+    const { out } = start(keys, async () => {
+      queue.push(ctrlC, press("z"));
+      return "saved";
+    });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Nothing is left to answer the pause: the view waits there, with no cancel question.
+    expect(out.written()).toContain("Press any key to return");
+    expect(out.written()).not.toContain("Cancel and exit?");
+    expect(out.written().split(ENTER)).toHaveLength(2);
+  });
+
+  it("leaves the view on Ctrl+D or end of input at the pause", async () => {
+    const byCtrlD = start(counting([press("e"), ctrlD], []), async () => "saved");
+    expect(await byCtrlD.done).toBe("back");
+    expect(byCtrlD.out.written().endsWith(LEAVE)).toBe(true);
+    const byEnd = start(counting([press("e"), "end"], []), async () => "failed");
+    expect(await byEnd.done).toBe("back");
+    // Ended at the pause: the screen was not taken again.
+    expect(byEnd.out.written().split(ENTER)).toHaveLength(2);
+  });
+});

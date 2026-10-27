@@ -158,6 +158,9 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
     }
     let next = { ...state, exportRequested: false };
     if (result.outcome !== "cancelled") {
+      // Keys typed while the save ran were queued: drop them (and, as after any suspend, those
+      // arriving in the first moments), so none answers the pause or opens the cancel question.
+      keys.suspend();
       stdout.write(`${cliText(state.locale).panels.exportReturn}\n`);
       const key = await Promise.race([
         keys.readKey(),
