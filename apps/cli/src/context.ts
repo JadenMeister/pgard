@@ -32,6 +32,8 @@ export interface CommandContext {
   ruleTexts?: RuleTextCatalog;
   /** Stops listening for SIGINT (e.g. before handing the terminal to the dashboard process). */
   releaseInterrupts: () => void;
+  /** Pauses the SIGINT handling of the cancel controller; call the result to resume it. */
+  suspendInterrupts?: () => () => void;
 }
 
 /**

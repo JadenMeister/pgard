@@ -195,9 +195,10 @@ Options:
                            view (summary, charts, coverage, findings) in a
                            terminal; keys: Tab, arrows, ? help, Esc back. Not
                            with --format json or sarif; without a terminal only
-                           the text result is printed. Wins over PGARD_PANELS=off.
-                           The menu opens it by itself after a scan in a terminal
-                           (PGARD_PANELS=off stops that). pgard dashboard is the
+                           the text result is printed. Always opens (pgard scan
+                           does not read PGARD_PANELS). The menu opens it by
+                           itself after a scan in a terminal; PGARD_PANELS=off
+                           stops that. pgard dashboard is the
                            separate local web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
@@ -485,14 +486,14 @@ The standards map uses four states and nothing else: `rules ran`, `rules partial
 
 ### The panel view
 
-`pgard scan --panels` (or any scan started from the interactive menu, in a terminal) opens a read-only screen over the finished scan, after the text result (which stays on the main screen: Esc returns to it) and after the result was stored. Follow-up questions such as the report export are asked only after the view closes. In the menu it opens automatically unless `PGARD_PANELS=off` (`0`, `false` and `no` work too, in any case); an unknown value prints a one-line hint on stderr and keeps it on. `pgard scan …` opens it only with `--panels`, even when `PGARD_PANELS=off`. It never opens without a terminal on stdin and stdout. It makes no network request and changes nothing. Four panels, switched with Tab, Shift+Tab or Left/Right:
+`pgard scan --panels` (or any scan started from the interactive menu, in a terminal) opens a read-only screen over the finished scan, after the text result (which stays on the main screen: Esc returns to it) and after the result was stored. Follow-up questions such as the report export are asked only after the view closes. In the menu it opens automatically after completed and partial scans (not after a failed one, which has little to show) unless `PGARD_PANELS=off` (`0`, `false` and `no` work too, in any case); an unknown value prints a one-line hint on stderr and keeps it on. `pgard scan …` opens it only with `--panels`, even when `PGARD_PANELS=off`. It never opens without a terminal on stdin and stdout. If the view itself fails, the terminal is restored, a one-line note goes to stderr and the scan keeps its own exit code. With `--panels` on a blocked scan nothing opens and a stderr note says why. It makes no network request and changes nothing. Four panels, switched with Tab, Shift+Tab or Left/Right:
 
 - **Overview**: the same summary block as the text result and the severity bars.
 - **Charts**: findings by OWASP Top 10 2025 category and by area.
 - **Coverage**: every area with its status and note (a completed area is not a pass).
 - **Findings**: worst first, one row each with severity, status and `file:line` (or URL, or commit), plus the title when the terminal is wider than 60 columns. Evidence, impact and fixes are not shown in this view.
 
-Keys: Up/Down (or `k`/`j`) scroll or move the selection, PageUp/PageDown scroll a page, Home/End jump to the first or last line, `?` shows help, Esc closes help and then leaves the view, and Ctrl+C asks `Cancel and exit? [y/N]` (`y` exits with code 130). Enter is reserved for finding details. The view uses the alternate screen and always restores the cursor and the screen on exit, on an error, on SIGINT or SIGTERM and when the terminal is resized (it redraws). It follows `NO_COLOR` and `TERM=dumb` (`#` bars, no colour), uses count lines instead of bars at 60 columns or fewer, and shows only a "terminal too small" message below 40 columns or 10 rows. Korean chrome comes with `--lang ko` or `PGARD_LANG=ko`; rule titles follow the same language setting as the text result.
+Keys: Up/Down (or `k`/`j`) scroll or move the selection, PageUp/PageDown scroll a page, Home/End jump to the first or last line, `?` shows help, Esc closes help and then leaves the view, `q` leaves at once, and Ctrl+C asks `Cancel and exit? [y/N]` (`y` exits with code 130). Enter is reserved for finding details. The view uses the alternate screen and always restores the cursor and the screen on exit, on an error, on SIGINT (treated like a cancel) or SIGTERM (exit code 143) and when the terminal is resized (it redraws). It follows `NO_COLOR` and `TERM=dumb` (`#` bars, no colour), uses count lines instead of bars at 60 columns or fewer, and shows only a "terminal too small" message below 40 columns or 10 rows. Korean chrome comes with `--lang ko` or `PGARD_LANG=ko`; rule titles follow the same language setting as the text result.
 
 For tests and bug reports there is a non-interactive path: `PGARD_PANELS_ONCE=1 pgard scan --panels` prints the text result and then one plain frame (no screen-control codes, no key reads), sized by `COLUMNS` and `LINES` (80x24 by default). It is not part of the supported interface.
 

@@ -60,8 +60,10 @@ function paint(stdout: OutputStream, lines: readonly string[]): void {
 /**
  * Shows the panel view until Esc (`"back"`) or a confirmed Ctrl+C (`"cancel"`, the caller exits
  * 130). The alternate screen is left and the cursor shown again on every way out: a normal end,
- * an error thrown by a key read, SIGINT or SIGTERM (which end the view as `"cancel"`), process
- * exit and an uncaught exception. Resizing the terminal (SIGWINCH reaches Node as the stream's
+ * an error thrown by a key read, SIGINT (`"cancel"`), SIGTERM (`"terminated"`), process exit and
+ * an uncaught exception or unhandled rejection. The last two are only observed
+ * (`uncaughtExceptionMonitor`, which Node also fires for rejections it turns into exceptions), so
+ * Node keeps its default message and exit code. Resizing the terminal (SIGWINCH reaches Node as the stream's
  * `resize` event) redraws the frame. The caller must make sure both streams are terminals.
  */
 export async function runPanelsScreen(options: PanelsScreenOptions): Promise<PanelsExit> {
@@ -82,29 +84,25 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
   const interrupted = new Promise<PanelsExit>((resolve) => {
     interrupt = resolve;
   });
-  const onSignal = (): void => interrupt("cancel");
+  const onInterrupt = (): void => interrupt("cancel");
+  const onTerminate = (): void => interrupt("terminated");
   const onExit = (): void => restore();
-  const onUncaught = (error: unknown): void => {
-    restore();
-    unlisten();
-    throw error;
-  };
   const onResize = (): void => {
     state = resize(state, sizeOf(stdout));
     draw();
   };
   const listen = (): void => {
-    events.on("SIGINT", onSignal);
-    events.on("SIGTERM", onSignal);
+    events.on("SIGINT", onInterrupt);
+    events.on("SIGTERM", onTerminate);
     events.on("exit", onExit);
-    events.on("uncaughtException", onUncaught);
+    events.on("uncaughtExceptionMonitor", onExit);
     stdout.on("resize", onResize);
   };
   const unlisten = (): void => {
-    events.off("SIGINT", onSignal);
-    events.off("SIGTERM", onSignal);
+    events.off("SIGINT", onInterrupt);
+    events.off("SIGTERM", onTerminate);
     events.off("exit", onExit);
-    events.off("uncaughtException", onUncaught);
+    events.off("uncaughtExceptionMonitor", onExit);
     stdout.off("resize", onResize);
   };
   listen();

@@ -344,6 +344,7 @@ async function runScanFlow(
 
   if (result.overallStatus === "blocked") {
     if (command.report !== null) out(context, text.notices.noReportBlocked);
+    if (command.panels === true) err(context, context.errStyle.dim(text.panels.notOpenedBlocked));
     return exitCode;
   }
   await storeScanResult(

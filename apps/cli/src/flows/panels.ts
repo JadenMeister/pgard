@@ -1,11 +1,19 @@
 import type { ScanResult } from "@pgard/findings";
-import { err, promptContextOf, type CommandContext } from "../context.js";
+import { err, type CommandContext } from "../context.js";
 import { UserCancelledError } from "../ui/components/prompts.js";
 import { cliText } from "../ui/i18n/cli-text.js";
 import { renderPanelsOnce, runPanelsScreen } from "../ui/panels/controller.js";
 
 /** Hidden: `1` renders one plain frame to stdout instead of the interactive view (CI, tests). */
 export const PANELS_ONCE_ENV = "PGARD_PANELS_ONCE";
+
+/** SIGTERM arrived while the view was open: the command exits 143. */
+export class PanelsTerminatedError extends Error {
+  constructor() {
+    super("Terminated.");
+    this.name = "PanelsTerminatedError";
+  }
+}
 
 /** `off`, `0`, `false` or `no` (any case) turn the menu's automatic panel view off. */
 export const PANELS_ENV = "PGARD_PANELS";
@@ -50,11 +58,23 @@ export async function offerPanels(
     return;
   }
   if (!isRequested) {
-    if (!context.isMenu) return;
+    // A failed scan has little to show; completed and partial ones open.
+    if (!context.isMenu || result.overallStatus === "failed") return;
     const setting = menuAutoOpen(io.env);
     if (setting.isUnknown) err(context, context.errStyle.dim(t.panels.badEnv));
     if (!setting.isOn) return;
   }
-  const exit = await runPanelsScreen({ result, locale, stdout: io.stdout, env: io.env, keys });
-  if (exit === "cancel") throw new UserCancelledError();
+  // The cancel controller must not print its "press Ctrl+C again" text onto the alternate screen.
+  const resumeInterrupts = context.suspendInterrupts?.();
+  try {
+    const exit = await runPanelsScreen({ result, locale, stdout: io.stdout, env: io.env, keys });
+    if (exit === "cancel") throw new UserCancelledError();
+    if (exit === "terminated") throw new PanelsTerminatedError();
+  } catch (error) {
+    if (error instanceof UserCancelledError || error instanceof PanelsTerminatedError) throw error;
+    // The terminal is already restored. The scan finished and was stored: keep its exit code.
+    err(context, context.errStyle.yellow(t.panels.failed));
+  } finally {
+    resumeInterrupts?.();
+  }
 }

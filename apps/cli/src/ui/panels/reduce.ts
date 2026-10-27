@@ -91,12 +91,18 @@ function isCtrlC(key: Key): boolean {
  */
 export function reduce(state: PanelsState, key: Key): PanelsState {
   if (state.exit !== null) return state;
+  // Two Esc presses that arrive in one read are two presses, not one.
+  if (key.name === "escape" && key.sequence === "\u001b\u001b") {
+    const single: Key = { ...key, sequence: "\u001b" };
+    return reduce(reduce(state, single), single);
+  }
   if (state.overlay === "confirm-cancel") {
     if (key.name === "y" || isCtrlC(key)) return { ...state, exit: "cancel" };
     return { ...state, overlay: "none" };
   }
   if (isCtrlC(key)) return { ...state, overlay: "confirm-cancel" };
   const height = bodyHeight(state.size);
+  if (key.name === "q") return { ...state, exit: "back" };
   const isHelp = key.sequence === "?";
   if (state.overlay === "help") {
     if (isHelp || key.name === "escape" || key.name === "return" || key.name === "enter") {

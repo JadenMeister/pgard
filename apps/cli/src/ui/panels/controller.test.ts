@@ -107,8 +107,11 @@ describe("runPanelsScreen", () => {
     expect(processEvents.listenerCount("SIGINT")).toBe(0);
   });
 
-  it("restores the terminal and ends as cancel on SIGINT and on SIGTERM", async () => {
-    for (const signal of ["SIGINT", "SIGTERM"]) {
+  it("ends as cancel on SIGINT and as terminated on SIGTERM, restoring the terminal", async () => {
+    for (const [signal, expected] of [
+      ["SIGINT", "cancel"],
+      ["SIGTERM", "terminated"],
+    ] as const) {
       const out = fakeStdout();
       const processEvents = new EventEmitter();
       const never = keysOf(() => new Promise<Key>(() => undefined));
@@ -123,28 +126,27 @@ describe("runPanelsScreen", () => {
       // The first draw happens synchronously; the signal arrives while a key is awaited.
       expect(out.written().startsWith(ENTER)).toBe(true);
       processEvents.emit(signal);
-      expect(await running, signal).toBe("cancel");
+      expect(await running, signal).toBe(expected);
       expect(out.written().endsWith(LEAVE), signal).toBe(true);
       expect(processEvents.listenerCount(signal)).toBe(0);
     }
   });
 
-  it("restores the terminal when the process exits or throws unexpectedly", async () => {
+  it("only observes an uncaught exception: it restores and does not rethrow or hide it", async () => {
     const out = fakeStdout();
     const processEvents = new EventEmitter();
-    const never = keysOf(() => new Promise<Key>(() => undefined));
     void runPanelsScreen({
       result: panelsFixtureResult(),
       locale: "en",
       stdout: out.stream,
       env: EMPTY_ENV,
-      keys: never,
+      keys: keysOf(() => new Promise<Key>(() => undefined)),
       processEvents,
     });
-    const boom = new Error("boom");
-    expect(() => processEvents.emit("uncaughtException", boom)).toThrow(boom);
+    // No "uncaughtException" listener: Node keeps its own message and exit code.
+    expect(processEvents.listenerCount("uncaughtException")).toBe(0);
+    expect(() => processEvents.emit("uncaughtExceptionMonitor", new Error("boom"))).not.toThrow();
     expect(out.written().endsWith(LEAVE)).toBe(true);
-    // Restoring twice writes nothing more.
     const length = out.written().length;
     processEvents.emit("exit");
     expect(out.written().length).toBe(length);

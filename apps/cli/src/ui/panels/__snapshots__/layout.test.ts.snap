@@ -53,11 +53,11 @@ Overview  Charts  Coverage  [Findings (12)]
   [HIGH]     suspected     config/.env (commit 0123456789ab)
   [HIGH]     suspected     src/module11/handler.ts:21
   [HIGH]     suspected     src/module2/handler.ts:12
-  [HIGH]     suspected     src/module4/handler.ts:14
+  [HIGH]     suspected     (suppressed) src/module4/handl...
   [MEDIUM]   suspected     http://127.0.0.1:3000/admin
   [MEDIUM]   suspected     src/module12/handler.ts:22
   [MEDIUM]   suspected     src/module5/handler.ts:15
-  [MEDIUM]   suspected     src/module7/handler.ts:17
+  [MEDIUM]   suspected     (baseline) src/module7/handler...
   [LOW]      suspected     src/module9/handler.ts:19
   [LOW]      informational src/module8/handler.ts:18
   [INFO]     informational src/module10/handler.ts:20
@@ -76,11 +76,11 @@ exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.env (commit 0123456789ab)
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module11/handler.ts:21
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module2/handler.ts:12
-  <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module4/handler.ts:14
+  <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m (suppressed) src/module4/handl...
   <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m http://127.0.0.1:3000/admin
   <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module12/handler.ts:22
   <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module5/handler.ts:15
-  <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module7/handler.ts:17
+  <ESC>[33m[MEDIUM]  <ESC>[39m <ESC>[2msuspected    <ESC>[22m (baseline) src/module7/handler...
   <ESC>[34m[LOW]     <ESC>[39m <ESC>[2msuspected    <ESC>[22m src/module9/handler.ts:19
   <ESC>[34m[LOW]     <ESC>[39m <ESC>[2minformational<ESC>[22m src/module8/handler.ts:18
   [INFO]     <ESC>[2minformational<ESC>[22m src/module10/handler.ts:20
@@ -353,11 +353,11 @@ exports[`renderFrame snapshots > ko 60x20 findings (NO_COLOR) 1`] = `
   [높음]   의심   config/.env (commit 0123456789ab)
   [높음]   의심   src/module11/handler.ts:21
   [높음]   의심   src/module2/handler.ts:12
-  [높음]   의심   src/module4/handler.ts:14
+  [높음]   의심   (억제됨) src/module4/handler.ts:14
   [보통]   의심   http://127.0.0.1:3000/admin
   [보통]   의심   src/module12/handler.ts:22
   [보통]   의심   src/module5/handler.ts:15
-  [보통]   의심   src/module7/handler.ts:17
+  [보통]   의심   (기준선) src/module7/handler.ts:17
   [낮음]   의심   src/module9/handler.ts:19
   [낮음]   참고   src/module8/handler.ts:18
   [정보]   참고   src/module10/handler.ts:20
@@ -376,11 +376,11 @@ exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit 0123456789ab)
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module11/handler.ts:21
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module2/handler.ts:12
-  <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module4/handler.ts:14
+  <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m (억제됨) src/module4/handler.ts:14
   <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m http://127.0.0.1:3000/admin
   <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module12/handler.ts:22
   <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module5/handler.ts:15
-  <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module7/handler.ts:17
+  <ESC>[33m[보통]  <ESC>[39m <ESC>[2m의심  <ESC>[22m (기준선) src/module7/handler.ts:17
   <ESC>[34m[낮음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m src/module9/handler.ts:19
   <ESC>[34m[낮음]  <ESC>[39m <ESC>[2m참고  <ESC>[22m src/module8/handler.ts:18
   [정보]   <ESC>[2m참고  <ESC>[22m src/module10/handler.ts:20

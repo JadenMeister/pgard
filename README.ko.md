@@ -195,9 +195,10 @@ Options:
                            view (summary, charts, coverage, findings) in a
                            terminal; keys: Tab, arrows, ? help, Esc back. Not
                            with --format json or sarif; without a terminal only
-                           the text result is printed. Wins over PGARD_PANELS=off.
-                           The menu opens it by itself after a scan in a terminal
-                           (PGARD_PANELS=off stops that). pgard dashboard is the
+                           the text result is printed. Always opens (pgard scan
+                           does not read PGARD_PANELS). The menu opens it by
+                           itself after a scan in a terminal; PGARD_PANELS=off
+                           stops that. pgard dashboard is the
                            separate local web app
   --lang en|ko             language of the result screen, progress lines and rule
                            texts (default: PGARD_LANG, then the system locale,
@@ -485,14 +486,14 @@ PGARD는 현재 파일에 비밀정보나 `.env` 파일이 더 이상 없다는 
 
 ### 패널 화면
 
-`pgard scan --panels`(또는 터미널에서 대화형 메뉴로 시작한 모든 스캔)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 메뉴에서는 `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. `pgard scan …`은 `PGARD_PANELS=off`여도 `--panels`를 줄 때만 열립니다. stdin과 stdout이 모두 터미널이 아니면 절대 열리지 않습니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
+`pgard scan --panels`(또는 터미널에서 대화형 메뉴로 시작한 모든 스캔)은 끝난 스캔 위에 읽기 전용 화면을 엽니다. 텍스트 결과(주 화면에 그대로 남으며 Esc로 돌아옵니다)를 출력하고 결과를 저장한 다음에 열립니다. 보고서 저장 같은 후속 질문은 화면을 닫은 뒤에만 합니다. 메뉴에서는 완료·부분 완료된 스캔 뒤에(실패한 스캔은 보여 줄 것이 적어 제외) `PGARD_PANELS=off`(대소문자 무관하게 `0`, `false`, `no`도 가능)가 아니면 자동으로 열리며, 알 수 없는 값이면 stderr에 한 줄 안내를 내고 켠 채로 둡니다. `pgard scan …`은 `PGARD_PANELS=off`여도 `--panels`를 줄 때만 열립니다. stdin과 stdout이 모두 터미널이 아니면 절대 열리지 않습니다. 화면 자체가 실패하면 터미널을 되돌리고 stderr에 한 줄 안내를 내며 스캔의 종료 코드는 그대로입니다. 차단된 스캔에 `--panels`를 쓰면 열지 않고 이유를 stderr에 알립니다. 네트워크 요청을 하지 않고 아무것도 바꾸지 않습니다. 패널은 네 개이며 Tab, Shift+Tab, 왼쪽/오른쪽으로 전환합니다.
 
 - **개요**: 텍스트 결과와 같은 요약 블록과 심각도 막대.
 - **차트**: OWASP Top 10 2025 분류별, 영역별 발견 항목.
 - **검사 범위**: 모든 영역의 상태와 설명(완료된 영역이 통과라는 뜻은 아닙니다).
 - **발견 항목**: 심각한 것부터, 한 줄에 심각도, 상태, `파일:줄`(또는 URL, 커밋)이 나오고 터미널이 60칸보다 넓으면 제목도 나옵니다. 근거, 영향, 해결 방법은 이 화면에 표시하지 않습니다.
 
-키: 위/아래(또는 `k`/`j`)는 스크롤하거나 선택을 옮기고, PageUp/PageDown은 한 페이지, Home/End는 처음·마지막 줄, `?`는 도움말, Esc는 도움말을 닫은 뒤 화면을 나가며, Ctrl+C는 `Cancel and exit? [y/N]`을 묻습니다(`y`면 종료 코드 130). Enter는 발견 항목 상세용으로 예약되어 있습니다. 대체 화면을 쓰며, 정상 종료, 오류, SIGINT, SIGTERM에서 항상 커서와 화면을 되돌리고, 터미널 크기가 바뀌면 다시 그립니다. `NO_COLOR`와 `TERM=dumb`를 따르고(`#` 막대, 색 없음), 60칸 이하에서는 막대 대신 개수 줄을 쓰며, 40칸 또는 10줄 미만이면 "터미널이 너무 작습니다" 메시지만 보여 줍니다. 한국어 화면은 `--lang ko` 또는 `PGARD_LANG=ko`로 켜며, 규칙 제목은 텍스트 결과와 같은 언어 설정을 따릅니다.
+키: 위/아래(또는 `k`/`j`)는 스크롤하거나 선택을 옮기고, PageUp/PageDown은 한 페이지, Home/End는 처음·마지막 줄, `?`는 도움말, Esc는 도움말을 닫은 뒤 화면을 나가고, `q`는 바로 나가며, Ctrl+C는 `Cancel and exit? [y/N]`을 묻습니다(`y`면 종료 코드 130). Enter는 발견 항목 상세용으로 예약되어 있습니다. 대체 화면을 쓰며, 정상 종료, 오류, SIGINT(취소와 같게 처리), SIGTERM(종료 코드 143)에서 항상 커서와 화면을 되돌리고, 터미널 크기가 바뀌면 다시 그립니다. `NO_COLOR`와 `TERM=dumb`를 따르고(`#` 막대, 색 없음), 60칸 이하에서는 막대 대신 개수 줄을 쓰며, 40칸 또는 10줄 미만이면 "터미널이 너무 작습니다" 메시지만 보여 줍니다. 한국어 화면은 `--lang ko` 또는 `PGARD_LANG=ko`로 켜며, 규칙 제목은 텍스트 결과와 같은 언어 설정을 따릅니다.
 
 테스트와 버그 보고용 비대화형 경로가 있습니다. `PGARD_PANELS_ONCE=1 pgard scan --panels`는 텍스트 결과 뒤에 화면 제어 코드도, 키 입력도 없는 일반 텍스트 한 프레임을 출력하며 크기는 `COLUMNS`와 `LINES`(기본 80x24)로 정합니다. 지원되는 인터페이스는 아닙니다.
 

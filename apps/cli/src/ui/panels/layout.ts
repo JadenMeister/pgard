@@ -206,10 +206,14 @@ function findingRow(
       : finding.inBaseline === true
         ? `(${t.panels.inBaseline}) `
         : "";
-  const title = size.columns <= NARROW_COLUMNS ? "" : `  ${flag}${safeText(finding.title, 200)}`;
+  const isNarrow = size.columns <= NARROW_COLUMNS;
+  const title = isNarrow ? "" : `  ${flag}${safeText(finding.title, 200)}`;
   const marker = isSelected ? ">" : " ";
   const fixed = 1 + 1 + columns.tag + 1 + columns.status + 1;
-  const rest = truncateWidth(`${place}${title}`, Math.max(4, size.columns - fixed));
+  const rest = truncateWidth(
+    `${isNarrow ? flag : ""}${place}${title}`,
+    Math.max(4, size.columns - fixed),
+  );
   if (isSelected) {
     const line = `${marker} ${tag} ${status} ${rest}`;
     return style.inverse(style.enabled ? padEndWidth(line, size.columns) : line);

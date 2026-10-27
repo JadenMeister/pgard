@@ -176,3 +176,82 @@ describe("renderFrame invariants", () => {
     expect(lines.at(-1)).toContain("4-12/12");
   });
 });
+
+describe("hostile text from the repository", () => {
+  // ESC/CSI, OSC, BEL, C1 (CSI 0x9b, NEL 0x85) and a right-to-left override, around a marker.
+  const hostile = (name: string): string =>
+    `${name}\u001b[31m\u001b]0;pwned\u0007\u009b31m\u0085‮${name}`;
+  const FORBIDDEN = ["\u001b", "\u0007", "\u009b", "\u0085", "‮"];
+  const size: Size = { columns: 120, rows: 60 };
+
+  function hostileState(locale: RuleLocale, panel: PanelId, overlay: "none" | "help"): PanelsState {
+    const base = panelsFixtureResult();
+    const at = (index: number, patch: Partial<(typeof base.findings)[number]>) => ({
+      ...(base.findings[index] as (typeof base.findings)[number]),
+      ...patch,
+    });
+    const findings = [
+      at(0, {
+        title: hostile("title"),
+        location: { kind: "file", path: hostile("path"), line: 3, url: null, commit: null },
+      }),
+      at(1, {
+        location: { kind: "url", path: null, line: null, url: hostile("url"), commit: null },
+      }),
+      at(2, {
+        location: { kind: "commit", path: null, line: null, url: null, commit: hostile("commit") },
+      }),
+      ...base.findings.slice(3),
+    ];
+    const result = {
+      ...base,
+      target: { ...base.target, repo: hostile("repo"), revision: hostile("rev") },
+      findings,
+    };
+    return { ...createPanelsState(result, locale, size), panel, overlay };
+  }
+
+  for (const locale of ["en", "ko"] as const) {
+    for (const panel of PANEL_IDS) {
+      for (const overlay of ["none", "help"] as const) {
+        it(`${locale} ${panel} ${overlay}: nothing but our own colour codes reaches the terminal`, () => {
+          const state = hostileState(locale, panel, overlay);
+          const noColour = renderFrame(state, size, plain);
+          for (const line of noColour) {
+            for (const bad of FORBIDDEN) expect(line).not.toContain(bad);
+          }
+          // With colour, removing our own SGR codes must give the very same text: any
+          // injected sequence would survive as an extra character or code.
+          const coloured = renderFrame(state, size, { style: createStyle(true), unicode: false });
+          expect(coloured.map((line) => stripAnsi(line).trimEnd())).toEqual(
+            noColour.map((line) => line.trimEnd()),
+          );
+          for (const line of coloured) {
+            const withoutOurs = line.replace(new RegExp(`${ESC}\\[[0-9;]*m`, "g"), "");
+            for (const bad of FORBIDDEN) expect(withoutOurs).not.toContain(bad);
+          }
+        });
+      }
+    }
+  }
+
+  it("still shows the visible part of each hostile field", () => {
+    const text = (panel: PanelId): string =>
+      renderFrame(hostileState("en", panel, "none"), size, plain).join("\n");
+    expect(text("overview")).toContain("repo");
+    expect(text("findings")).toContain("title");
+    const list = text("findings");
+    for (const marker of ["path", "url", "commit"]) expect(list).toContain(marker);
+  });
+
+  it("keeps the suppressed flag in the narrow layout", () => {
+    const narrow: Size = { columns: 60, rows: 20 };
+    const state = {
+      ...createPanelsState(panelsFixtureResult(), "en", narrow),
+      panel: "findings" as const,
+    };
+    const text = renderFrame(state, narrow, plain).join("\n");
+    expect(text).toContain("(suppressed) src/module4");
+    expect(text).toContain("(baseline) src/module7");
+  });
+});

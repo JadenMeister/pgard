@@ -26,7 +26,8 @@ export const CHROME_ROWS = 3;
 export type Overlay = "none" | "help" | "confirm-cancel";
 
 /** How the view ended: Esc (`back`) or a confirmed Ctrl+C (`cancel`, exit 130). */
-export type PanelsExit = "back" | "cancel";
+/** `terminated` is SIGTERM: the caller exits 143. */
+export type PanelsExit = "back" | "cancel" | "terminated";
 
 export interface PanelsState {
   /** The completed scan, rule texts already in the terminal language. Never mutated. */

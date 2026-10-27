@@ -9,6 +9,8 @@ export interface InterruptSource {
 export interface CancelController {
   signal: AbortSignal;
   dispose: () => void;
+  /** Stops listening for SIGINT until the returned function is called (a full-screen view owns Ctrl+C). */
+  suspend: () => () => void;
 }
 
 /**
@@ -37,6 +39,12 @@ export function createCancelController(
     signal: controller.signal,
     dispose: () => {
       source.off("SIGINT", onInterrupt);
+    },
+    suspend: () => {
+      source.off("SIGINT", onInterrupt);
+      return () => {
+        source.on("SIGINT", onInterrupt);
+      };
     },
   };
 }

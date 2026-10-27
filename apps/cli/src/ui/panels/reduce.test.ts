@@ -108,6 +108,16 @@ describe("reduce", () => {
     expect(state.helpScroll).toBe(0);
   });
 
+  it("leaves at once with q, and reads two Esc in one read as two presses", () => {
+    expect(press(fresh(), key("q")).exit).toBe("back");
+    expect(press(press(fresh(), key("?")), key("q")).exit).toBe("back");
+    const both = key("escape", { sequence: "\u001b\u001b" });
+    // Help open: the first closes it, the second leaves.
+    expect(press(press(fresh(), key("?")), both).exit).toBe("back");
+    expect(press(fresh(), both).exit).toBe("back");
+    expect(press(press(fresh(), key("?")), key("escape")).exit).toBeNull();
+  });
+
   it("asks before Ctrl+C cancels; only y (or Ctrl+C again) confirms", () => {
     let state = press(fresh(), ctrlC);
     expect(state.overlay).toBe("confirm-cancel");

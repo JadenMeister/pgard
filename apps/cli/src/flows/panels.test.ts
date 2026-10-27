@@ -307,3 +307,111 @@ describe("menu scan, end to end", () => {
     expect(captured.stdout()).toContain("Save a report?");
   }, 15_000);
 });
+
+describe("panel view edge cases", () => {
+  function terminal() {
+    const captured = createTestIo({ isTTY: true });
+    const stdout = captured.io.stdout as unknown as { columns: number; rows: number };
+    stdout.columns = 80;
+    stdout.rows = 24;
+    return captured;
+  }
+
+  it("does not auto-open in the menu after a failed scan, but does for completed and partial", async () => {
+    for (const [status, opens] of [
+      ["failed", false],
+      ["completed", true],
+      ["partial", true],
+    ] as const) {
+      const captured = terminal();
+      const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]), true);
+      await offerPanels(context, { ...panelsFixtureResult(), overallStatus: status }, false);
+      expect(captured.stdout().includes(ENTER), status).toBe(opens);
+    }
+  });
+
+  it("still opens for a failed scan when --panels is given", async () => {
+    const captured = terminal();
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]));
+    await offerPanels(context, { ...panelsFixtureResult(), overallStatus: "failed" }, true);
+    expect(captured.stdout()).toContain(ENTER);
+  });
+
+  it("restores the terminal, says so on stderr and does not throw when the view itself fails", async () => {
+    const captured = terminal();
+    const keys = {
+      readKey: async (): Promise<never> => {
+        throw new Error("view broke");
+      },
+      suspend: () => undefined,
+      close: () => undefined,
+    };
+    const context = createTestContext(captured, createTestDeps(), keys);
+    await expect(offerPanels(context, panelsFixtureResult(), true)).resolves.toBeUndefined();
+    expect(captured.stdout().endsWith(LEAVE)).toBe(true);
+    expect(captured.stderr()).toContain("The panel view failed");
+    expect(captured.stderr()).not.toContain("view broke");
+  });
+
+  it("pauses the cancel controller's SIGINT handling while the view is open", async () => {
+    const captured = terminal();
+    const calls: string[] = [];
+    const context = createTestContext(captured, createTestDeps(), scriptedKeys(["escape"]));
+    context.suspendInterrupts = () => {
+      calls.push("suspend");
+      return () => calls.push("resume");
+    };
+    await offerPanels(context, panelsFixtureResult(), true);
+    expect(calls).toEqual(["suspend", "resume"]);
+  });
+
+  it("notes on stderr that --panels did not open on a blocked scan", async () => {
+    const captured = createTestIo({ isTTY: false });
+    const code = await main(["scan", "--panels"], captured.io, {
+      deps: createTestDeps({
+        runScan: async () => ({ ...panelsFixtureResult(), overallStatus: "blocked" }),
+      }),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(3);
+    expect(captured.stderr()).toContain("not opened because the scan was blocked");
+    expect(captured.stdout()).not.toContain(ENTER);
+  });
+
+  it("ends the command with 143 after SIGTERM in the view, 130 after SIGINT", async () => {
+    for (const [signal, expected] of [
+      ["SIGTERM", 143],
+      ["SIGINT", 130],
+    ] as const) {
+      const captured = terminal();
+      captured.stdin.setRawMode = () => undefined;
+      // Capture the view's own signal listener instead of signalling the test process.
+      const listeners: Record<string, () => void> = {};
+      const original = process.on.bind(process) as (event: string, listener: unknown) => unknown;
+      const spy = vi.spyOn(process, "on").mockImplementation(((
+        event: string,
+        listener: (...args: never[]) => void,
+      ) => {
+        if (event === "SIGTERM" || event === "SIGINT") listeners[event] = listener as () => void;
+        else original(event, listener);
+        return process;
+      }) as never);
+      try {
+        const running = main(["scan", "--panels"], captured.io, {
+          deps: createTestDeps({
+            runScan: async () => ({ ...panelsFixtureResult(), overallStatus: "completed" }),
+          }),
+          interrupts: noInterrupts,
+        });
+        for (let waited = 0; waited < 60 && listeners[signal] === undefined; waited += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 50));
+        }
+        listeners[signal]?.();
+        expect(await running, signal).toBe(expected);
+      } finally {
+        spy.mockRestore();
+      }
+      expect(captured.stdout().endsWith(LEAVE), signal).toBe(true);
+    }
+  }, 15_000);
+});

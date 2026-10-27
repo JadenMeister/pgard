@@ -208,6 +208,9 @@ export interface PanelsText {
   inBaseline: string;
   /** Printed (stderr) when `--panels` is given but the output is not a terminal. */
   notTerminal: string;
+  /** stderr notes: the view crashed; `--panels` on a blocked scan. */
+  failed: string;
+  notOpenedBlocked: string;
   /** stderr hint for an unknown `PGARD_PANELS` value. */
   badEnv: string;
 }
@@ -446,7 +449,7 @@ const EN: CliText = {
       "Home, End: first or last line",
       "Enter: reserved for finding details",
       "?: show or hide this help",
-      "Esc: close help, or leave the panel view",
+      "Esc: close help, or leave the panel view (q leaves at once)",
       "Ctrl+C: ask to cancel (y exits with status 130)",
       "",
       "Read-only: nothing is changed or uploaded. Evidence is not shown here.",
@@ -459,6 +462,8 @@ const EN: CliText = {
     suppressed: "suppressed",
     inBaseline: "baseline",
     notTerminal: "--panels needs a terminal; the plain text result above is all there is.",
+    failed: "The panel view failed and was closed. The scan result above is unaffected.",
+    notOpenedBlocked: "--panels: the panel view was not opened because the scan was blocked.",
     badEnv: "PGARD_PANELS is not off, 0, false or no; the panel view stays on.",
   },
 };
@@ -709,7 +714,7 @@ const KO: CliText = {
       "Home, End: 처음 또는 마지막 줄",
       "Enter: 발견 항목 상세용으로 예약됨",
       "?: 이 도움말 열기·닫기",
-      "Esc: 도움말 닫기, 또는 패널 화면 나가기",
+      "Esc: 도움말 닫기, 또는 패널 화면 나가기 (q는 바로 나가기)",
       "Ctrl+C: 취소 확인 (y를 누르면 종료 코드 130)",
       "",
       "읽기 전용입니다. 아무것도 바꾸거나 업로드하지 않으며, 증거 내용은 여기 표시하지 않습니다.",
@@ -722,6 +727,8 @@ const KO: CliText = {
     suppressed: "억제됨",
     inBaseline: "기준선",
     notTerminal: "--panels는 터미널이 필요합니다. 위의 일반 텍스트 결과만 출력됩니다.",
+    failed: "패널 화면에 문제가 생겨 닫았습니다. 위의 검사 결과에는 영향이 없습니다.",
+    notOpenedBlocked: "--panels: 검사가 차단되어 패널 화면을 열지 않았습니다.",
     badEnv: "PGARD_PANELS 값이 off, 0, false, no가 아니어서 패널 화면을 그대로 사용합니다.",
   },
 };
