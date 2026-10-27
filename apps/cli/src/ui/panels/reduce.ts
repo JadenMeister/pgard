@@ -6,11 +6,13 @@ import { bodyHeight, isTooSmall, listHeight, panelLength } from "./layout.js";
 import {
   MAX_SEARCH_LENGTH,
   NO_FILTERS,
+  NO_TREND,
   PANEL_IDS,
   type Filters,
   type PanelId,
   type PanelsState,
   type Size,
+  type TrendData,
 } from "./types.js";
 
 const SHIFT_TAB = "\u001b[Z";
@@ -20,17 +22,19 @@ export function createPanelsState(
   locale: RuleLocale,
   size: Size,
   ruleTexts?: RuleTextCatalog,
+  trend: TrendData = NO_TREND,
 ): PanelsState {
   const findings = sortBySeverity(result.findings);
   return {
     result,
     locale,
     ruleTexts,
+    trend,
     findings,
     filters: NO_FILTERS,
     visible: findings,
     panel: "overview",
-    scroll: { overview: 0, charts: 0, coverage: 0, findings: 0 },
+    scroll: { overview: 0, charts: 0, coverage: 0, trend: 0, findings: 0 },
     selected: 0,
     helpScroll: 0,
     detailScroll: 0,

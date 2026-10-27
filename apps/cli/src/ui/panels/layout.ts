@@ -5,6 +5,7 @@ import {
   displayWidth,
   maxDisplayWidth,
   padEndWidth,
+  padStartWidth,
   stripAnsi,
   truncateWidth,
   wrapWidth,
@@ -28,7 +29,9 @@ import {
   type PanelId,
   type PanelsState,
   type Size,
+  type TrendScan,
 } from "./types.js";
+import { SEVERITY_ORDER_DESC, trendBarRow, trendDate, trendSymbol } from "./trend.js";
 
 export interface RenderOptions {
   /** Colours; default plain (no colour codes), which is what `NO_COLOR` and a pipe get. */
@@ -133,6 +136,134 @@ function coverageLines(state: PanelsState, size: Size, opts: RenderOptions): str
   return lines;
 }
 
+function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string[] {
+  const style = opts.style ?? PLAIN;
+  const t = cliText(state.locale);
+  const text = t.panels.trend;
+  const wrap = (line: string): string[] => wrapWidth(line, Math.max(10, size.columns - 1));
+  const trend = state.trend;
+  if (trend.kind === "disabled") return wrap(text.noHistory.disabled);
+  if (trend.kind === "unavailable") {
+    if (trend.why === "no-store-dir") return wrap(text.noHistory.noStoreDir);
+    if (trend.why === "no-repository") return wrap(text.noHistory.noRepository);
+    return wrap(text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")));
+  }
+  const notes = [
+    ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
+    ...(trend.newerSkipped > 0 ? [text.newerSkipped(trend.newerSkipped)] : []),
+  ];
+  const skipped = notes.length > 0 ? ["", ...notes.flatMap(wrap)] : [];
+  // First on the screen, so it is seen before the history it qualifies.
+  const notStored = trend.isCurrentStored ? [] : [...wrap(text.notStored), ""];
+  const scans = trend.scans;
+  if (scans.length === 0) return [...notStored, ...wrap(text.noHistory.empty), ...skipped];
+  const newest = scans[scans.length - 1] as TrendScan;
+  if (scans.length === 1) {
+    return [
+      ...notStored,
+      ...wrap(text.noHistory.single(trendDate(newest.savedAt, true))),
+      ...skipped,
+    ];
+  }
+  const isNarrow = size.columns <= NARROW_COLUMNS;
+  const lines: string[] = [
+    ...notStored.map((line) => style.yellow(line)),
+    style.bold(truncateWidth(text.title(scans.length), size.columns)),
+  ];
+  if (trend.diff !== null) {
+    lines.push(
+      "",
+      style.bold(trend.isCurrentStored ? text.latestVsPrevious : text.newestStored),
+      ...wrapWidth(
+        [
+          t.diff.newCount(trend.diff.newCount, 0, ""),
+          t.diff.noLongerReported(trend.diff.fixedCount),
+          t.diff.unchanged(trend.diff.unchangedCount),
+        ].join(", "),
+        Math.max(10, size.columns - 3),
+      ).map((line) => `  ${line}`),
+    );
+  }
+  const rows = [...scans].reverse();
+  // A scan dated after the read (clock skew, a copied file) shows its date, never "just now".
+  const ages = rows.map((scan) =>
+    scan.savedAt > trend.now
+      ? trendDate(scan.savedAt, false).slice(isNarrow ? 5 : 0)
+      : text.age(trend.now - scan.savedAt, isNarrow),
+  );
+  const ageWidth = Math.max(maxDisplayWidth(ages), displayWidth(text.columns.age));
+  const dateWidth = isNarrow ? 10 : 16;
+  const dates = rows.map((scan) => trendDate(scan.savedAt, !isNarrow));
+  const totalWidth = Math.max(
+    displayWidth(text.columns.total),
+    ...rows.map((scan) => String(scan.total).length),
+  );
+  const unicode = opts.unicode === true;
+  const barRoom = size.columns - 2 - dateWidth - 2 - ageWidth - 2 - totalWidth - 2;
+  if (!isNarrow && barRoom >= 12) {
+    const barWidth = Math.min(40, barRoom);
+    const maxTotal = Math.max(1, ...rows.map((scan) => scan.total));
+    const pairs = SEVERITY_ORDER_DESC.map(
+      (severity) => `${trendSymbol(severity, 1, unicode)} ${t.report.severity[severity]}`,
+    ).join("  ");
+    lines.push(
+      "",
+      style.bold(text.chartTitle),
+      ...wrap(text.legend(pairs)).map((line) => style.dim(line)),
+    );
+    lines.push(
+      style.dim(
+        `  ${padEndWidth(text.columns.date, dateWidth)}  ${padEndWidth(text.columns.age, ageWidth)}  ${padStartWidth(text.columns.total, totalWidth)}`,
+      ),
+    );
+    rows.forEach((scan, index) => {
+      const bar = trendBarRow(scan.counts, maxTotal, barWidth, unicode)
+        .map((part) => style.severity(part.severity, part.text))
+        .join("");
+      lines.push(
+        `  ${padEndWidth(dates[index] ?? "", dateWidth)}  ${padEndWidth(ages[index] ?? "", ageWidth)}  ${padStartWidth(String(scan.total), totalWidth)}  ${bar}`,
+      );
+    });
+  } else {
+    // Narrow (or too tight for bars): a plain table, one letter per severity, no colour needed.
+    const letters = SEVERITY_ORDER_DESC.map((severity) => text.letters[severity]);
+    const widths = SEVERITY_ORDER_DESC.map((severity, index) =>
+      Math.max(
+        displayWidth(letters[index] ?? ""),
+        ...rows.map((scan) => String(scan.counts[severity]).length),
+      ),
+    );
+    const pairs = SEVERITY_ORDER_DESC.map(
+      (severity, index) => `${letters[index]}=${t.report.severity[severity]}`,
+    ).join(" ");
+    lines.push(
+      "",
+      style.bold(text.tableTitle),
+      ...wrap(text.legend(pairs)).map((line) => style.dim(line)),
+    );
+    const head = [
+      padEndWidth(text.columns.date, dateWidth),
+      padEndWidth(text.columns.age, ageWidth),
+      ...letters.map((letter, index) => padStartWidth(letter, widths[index] ?? 1)),
+      padStartWidth(text.columns.total, totalWidth),
+    ];
+    lines.push(style.dim(head.join(" ")));
+    rows.forEach((scan, index) => {
+      lines.push(
+        [
+          padEndWidth(dates[index] ?? "", dateWidth),
+          padEndWidth(ages[index] ?? "", ageWidth),
+          ...SEVERITY_ORDER_DESC.map((severity, column) =>
+            padStartWidth(String(scan.counts[severity]), widths[column] ?? 1),
+          ),
+          padStartWidth(String(scan.total), totalWidth),
+        ].join(" "),
+      );
+    });
+  }
+  return [...lines, ...skipped];
+}
+
 function helpLines(state: PanelsState, size: Size, opts: RenderOptions): string[] {
   const style = opts.style ?? PLAIN;
   const t = cliText(state.locale);
@@ -155,6 +286,8 @@ export function panelLines(state: PanelsState, size: Size, opts: RenderOptions =
       return chartsLines(state, size, opts);
     case "coverage":
       return coverageLines(state, size, opts);
+    case "trend":
+      return trendLines(state, size, opts);
     case "findings":
       return [];
   }
@@ -369,17 +502,32 @@ function tabBar(state: PanelsState, size: Size, style: Style): string {
   const labels = PANEL_IDS.map((id: PanelId) =>
     id === "findings" ? `${t.panels.tabs[id]} (${findingsCount})` : t.panels.tabs[id],
   );
-  const plain = PANEL_IDS.map((id, index) =>
-    id === state.panel ? `[${labels[index]}]` : (labels[index] ?? ""),
-  ).join("  ");
-  if (displayWidth(plain) > size.columns) {
-    return truncateWidth(`[${labels[PANEL_IDS.indexOf(state.panel)]}]`, size.columns);
+  const current = PANEL_IDS.indexOf(state.panel);
+  const plainOf = (from: number, to: number): string => {
+    const shown = labels
+      .slice(from, to + 1)
+      .map((label, offset) => (from + offset === current ? `[${label}]` : label))
+      .join("  ");
+    return `${from > 0 ? "< " : ""}${shown}${to < labels.length - 1 ? " >" : ""}`;
+  };
+  // Too wide: drop tabs from the end farther from the current one ("<" and ">" show there are
+  // more), and as a last resort show only the current tab.
+  let from = 0;
+  let to = labels.length - 1;
+  while (displayWidth(plainOf(from, to)) > size.columns && to > from) {
+    if (current - from >= to - current) from += 1;
+    else to -= 1;
   }
-  return PANEL_IDS.map((id, index) =>
-    id === state.panel
-      ? style.bold(style.inverse(`[${labels[index]}]`))
-      : style.dim(labels[index] ?? ""),
-  ).join("  ");
+  if (displayWidth(plainOf(from, to)) > size.columns) {
+    return truncateWidth(`[${labels[current]}]`, size.columns);
+  }
+  const shown = labels
+    .slice(from, to + 1)
+    .map((label, offset) =>
+      from + offset === current ? style.bold(style.inverse(`[${label}]`)) : style.dim(label),
+    )
+    .join("  ");
+  return `${from > 0 ? "< " : ""}${shown}${to < labels.length - 1 ? " >" : ""}`;
 }
 
 /**

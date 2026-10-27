@@ -8,11 +8,64 @@ import type {
 } from "@pgard/findings";
 
 /**
- * The panels of the full-screen view, in tab order. M6-4 (trend) adds an id here and a case in
+ * The panels of the full-screen view, in tab order. A new panel adds an id here and a case in
  * `layout.ts`; nothing else enumerates the panels.
  */
-export const PANEL_IDS = ["overview", "charts", "coverage", "findings"] as const;
+export const PANEL_IDS = ["overview", "charts", "coverage", "trend", "findings"] as const;
 export type PanelId = (typeof PANEL_IDS)[number];
+
+/** One stored scan as the trend panel needs it: counts only, never findings or paths. */
+export interface TrendScan {
+  /** When PGARD stored it (epoch ms). */
+  readonly savedAt: number;
+  readonly counts: Readonly<Record<Severity, number>>;
+  readonly total: number;
+}
+
+/** What the latest scan changed against the next older stored one. */
+export interface TrendDiff {
+  readonly newCount: number;
+  /** "No longer reported" in the comparison (not the same as fixed). */
+  readonly fixedCount: number;
+  readonly unchangedCount: number;
+}
+
+/** Why the trend has no data. `reason` is already sanitized, short text (or empty). */
+export type TrendUnavailable = "no-store-dir" | "no-repository" | "unreadable";
+
+/**
+ * What the trend panel shows, read once from the local store before the view opens. The panel
+ * itself never touches the disk.
+ */
+export type TrendData =
+  | { readonly kind: "disabled" }
+  | { readonly kind: "unavailable"; readonly why: TrendUnavailable; readonly reason: string }
+  | {
+      readonly kind: "ready";
+      /** Oldest first, at most 20. */
+      readonly scans: readonly TrendScan[];
+      /** Newest vs the one before; null with fewer than two scans or when they do not compare. */
+      readonly diff: TrendDiff | null;
+      /** Stored files that could not be read and were left out. */
+      readonly skipped: number;
+      /** Stored scans from a newer PGARD schema, left out like the previous-scan lookup does. */
+      readonly newerSkipped: number;
+      /** False when the scan this view opened for is not among the stored ones. */
+      readonly isCurrentStored: boolean;
+      /** Epoch ms of the read, for the relative labels. */
+      readonly now: number;
+    };
+
+/** Used when no store was consulted (hand-built states): an empty history. */
+export const NO_TREND: TrendData = {
+  kind: "ready",
+  scans: [],
+  diff: null,
+  skipped: 0,
+  newerSkipped: 0,
+  isCurrentStored: true,
+  now: 0,
+};
 
 export interface Size {
   columns: number;
@@ -57,6 +110,8 @@ export interface PanelsState {
   readonly locale: RuleLocale;
   /** Rule catalog, for the standards links in the detail view. Optional (hand-built results). */
   readonly ruleTexts: RuleTextCatalog | undefined;
+  /** Stored scan history of this repository, for the trend panel. */
+  readonly trend: TrendData;
   /** Every finding, in the order of the text result (severity first). Never filtered. */
   readonly findings: readonly Finding[];
   readonly filters: Filters;

@@ -2,7 +2,7 @@
 
 exports[`renderFrame snapshots > en 40x14 charts (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
-[Charts]
+Overview  [Charts]  Coverage  Trend >
 By OWASP Top 10 2025 category
   A01 Broken Access Control 4
   A05 Injection             4
@@ -19,7 +19,7 @@ Esc: back  ?: help  Tab: panel"
 
 exports[`renderFrame snapshots > en 40x14 coverage (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
-[Coverage]
+< Charts  [Coverage]  Trend >
 Coverage
   [ok] source:typescript (Completed)
   [partial] history:secrets (Partial)
@@ -36,7 +36,7 @@ Esc: back  ?: help  Tab: panel"
 
 exports[`renderFrame snapshots > en 40x14 findings (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
-[Findings (12)]
+< Coverage  Trend  [Findings (12)]
 12 of 12 | Filters: none
 > [CRITICAL] confirmed     src/module...
   [HIGH]     suspected     config/.en...
@@ -53,7 +53,7 @@ Esc: back  ?: help  Enter: open  1-10/12"
 
 exports[`renderFrame snapshots > en 40x14 findings (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef1234...<ESC>[22m
-[Findings (12)]
+< <ESC>[2mCoverage<ESC>[22m  <ESC>[2mTrend<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
 <ESC>[1m12 of 12 | Filters: none<ESC>[22m
 <ESC>[7m> [CRITICAL] confirmed     src/module...<ESC>[27m
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.en...
@@ -70,7 +70,7 @@ exports[`renderFrame snapshots > en 40x14 findings (colour) 1`] = `
 
 exports[`renderFrame snapshots > en 40x14 overview (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
-[Overview]
+[Overview]  Charts  Coverage  Trend >
 Summary
   Areas         3 requested - 1
                 completed, 1 partial, 1
@@ -87,7 +87,7 @@ Esc: back  ?: help  Tab: panel   1-11/16"
 
 exports[`renderFrame snapshots > en 40x14 overview (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef1234...<ESC>[22m
-[Overview]
+<ESC>[1m<ESC>[7m[Overview]<ESC>[27m<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mTrend<ESC>[22m >
 <ESC>[1mSummary<ESC>[22m
   Areas         3 requested — 1
                 completed, <ESC>[33m1 partial<ESC>[39m, <ESC>[33m1<ESC>[0m
@@ -102,9 +102,26 @@ exports[`renderFrame snapshots > en 40x14 overview (colour) 1`] = `
 <ESC>[2mEsc: back  ?: help  Tab: panel   1-11/16<ESC>[22m"
 `;
 
+exports[`renderFrame snapshots > en 40x14 trend (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef1234...
+< Coverage  [Trend]  Findings (12)
+No history yet: no earlier scan of this
+repository is stored. Scan again later
+to see a trend.
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel"
+`;
+
 exports[`renderFrame snapshots > en 60x20 charts (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
-Overview  [Charts]  Coverage  Findings (12)
+Overview  [Charts]  Coverage  Trend  Findings (12)
 By OWASP Top 10 2025 category
   A01 Broken Access Control 4
   A05 Injection             4
@@ -127,7 +144,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 
 exports[`renderFrame snapshots > en 60x20 coverage (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
-Overview  Charts  [Coverage]  Findings (12)
+Overview  Charts  [Coverage]  Trend  Findings (12)
 Coverage
   [ok] source:typescript (Completed)
   [partial] history:secrets (Partial)
@@ -150,7 +167,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 
 exports[`renderFrame snapshots > en 60x20 findings (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
-Overview  Charts  Coverage  [Findings (12)]
+Overview  Charts  Coverage  Trend  [Findings (12)]
 12 of 12 | Filters: none
 > [CRITICAL] confirmed     src/module1/handler.ts:11
   [HIGH]     suspected     config/.env (commit 0123456789ab)
@@ -173,7 +190,7 @@ Esc: back  ?: help  Enter: open  /: search  1-5: severity"
 
 exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some r...<ESC>[22m
-<ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
+<ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mTrend<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
 <ESC>[1m12 of 12 | Filters: none<ESC>[22m
 <ESC>[7m> [CRITICAL] confirmed     src/module1/handler.ts:11        <ESC>[27m
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.env (commit 0123456789ab)
@@ -196,7 +213,7 @@ exports[`renderFrame snapshots > en 60x20 findings (colour) 1`] = `
 
 exports[`renderFrame snapshots > en 60x20 overview (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
-[Overview]  Charts  Coverage  Findings (12)
+[Overview]  Charts  Coverage  Trend  Findings (12)
 Summary
   Areas         3 requested - 1 completed, 1 partial, 1 not
                 tested (1 not selected)
@@ -219,7 +236,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 
 exports[`renderFrame snapshots > en 60x20 overview (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some r...<ESC>[22m
-<ESC>[1m<ESC>[7m[Overview]<ESC>[27m<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mFindings (12)<ESC>[22m
+<ESC>[1m<ESC>[7m[Overview]<ESC>[27m<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mTrend<ESC>[22m  <ESC>[2mFindings (12)<ESC>[22m
 <ESC>[1mSummary<ESC>[22m
   Areas         3 requested — 1 completed, <ESC>[33m1 partial<ESC>[39m, <ESC>[33m1 not<ESC>[0m
                 <ESC>[33mtested<ESC>[39m (1 not selected)
@@ -240,9 +257,32 @@ exports[`renderFrame snapshots > en 60x20 overview (colour) 1`] = `
 <ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll<ESC>[22m"
 `;
 
+exports[`renderFrame snapshots > en 60x20 trend (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some r...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: no earlier scan of this repository is
+stored. Scan again later to see a trend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
 exports[`renderFrame snapshots > en 80x24 charts (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
-Overview  [Charts]  Coverage  Findings (12)
+Overview  [Charts]  Coverage  Trend  Findings (12)
 By OWASP Top 10 2025 category
   A01 Broken Access Control ############################## 4
   A05 Injection             ############################## 4
@@ -269,7 +309,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 
 exports[`renderFrame snapshots > en 80x24 coverage (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
-Overview  Charts  [Coverage]  Findings (12)
+Overview  Charts  [Coverage]  Trend  Findings (12)
 Coverage
   [ok] source:typescript (Completed)
   [partial] history:secrets (Partial)
@@ -296,7 +336,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 
 exports[`renderFrame snapshots > en 80x24 findings (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
-Overview  Charts  Coverage  [Findings (12)]
+Overview  Charts  Coverage  Trend  [Findings (12)]
 12 of 12 | Filters: none
 > [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...
   [HIGH]     suspected     config/.env (commit 0123456789ab)  Fixture finding 3
@@ -323,7 +363,7 @@ Esc: back  ?: help  Enter: open  /: search  1-5: severity"
 
 exports[`renderFrame snapshots > en 80x24 findings (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...<ESC>[22m
-<ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
+<ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mTrend<ESC>[22m  <ESC>[1m<ESC>[7m[Findings (12)]<ESC>[27m<ESC>[22m
 <ESC>[1m12 of 12 | Filters: none<ESC>[22m
 <ESC>[7m> [CRITICAL] confirmed     src/module1/handler.ts:11  Hardcoded production se...<ESC>[27m
   <ESC>[31m[HIGH]    <ESC>[39m <ESC>[2msuspected    <ESC>[22m config/.env (commit 0123456789ab)  Fixture finding 3
@@ -350,7 +390,7 @@ exports[`renderFrame snapshots > en 80x24 findings (colour) 1`] = `
 
 exports[`renderFrame snapshots > en 80x24 overview (NO_COLOR) 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
-[Overview]  Charts  Coverage  Findings (12)
+[Overview]  Charts  Coverage  Trend  Findings (12)
 Summary
   Areas         3 requested - 1 completed, 1 partial, 1 not tested (1 not
                 selected)
@@ -377,7 +417,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 
 exports[`renderFrame snapshots > en 80x24 overview (colour) 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...<ESC>[22m
-<ESC>[1m<ESC>[7m[Overview]<ESC>[27m<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mFindings (12)<ESC>[22m
+<ESC>[1m<ESC>[7m[Overview]<ESC>[27m<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[2mTrend<ESC>[22m  <ESC>[2mFindings (12)<ESC>[22m
 <ESC>[1mSummary<ESC>[22m
   Areas         3 requested — 1 completed, <ESC>[33m1 partial<ESC>[39m, <ESC>[33m1 not tested<ESC>[39m (1 not
                 selected)
@@ -402,9 +442,36 @@ exports[`renderFrame snapshots > en 80x24 overview (colour) 1`] = `
 <ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll<ESC>[22m"
 `;
 
+exports[`renderFrame snapshots > en 80x24 trend (NO_COLOR) 1`] = `
+"PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
+Overview  Charts  Coverage  [Trend]  Findings (12)
+No history yet: no earlier scan of this repository is stored. Scan again later
+to see a trend.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel  Up/Down: scroll"
+`;
+
 exports[`renderFrame snapshots > ko 40x14 charts (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
-개요  [차트]  검사 범위  발견 항목 (12)
+개요  [차트]  검사 범위  추이 >
 OWASP Top 10 2025 분류별
   A01 Broken Access Control 4
   A05 Injection             4
@@ -421,7 +488,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널"
 
 exports[`renderFrame snapshots > ko 40x14 coverage (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
-개요  차트  [검사 범위]  발견 항목 (12)
+< 차트  [검사 범위]  추이 >
 검사 범위
   [완료] source:typescript (완료)
   [부분 완료] history:secrets (부분 ...
@@ -438,7 +505,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널"
 
 exports[`renderFrame snapshots > ko 40x14 findings (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
-개요  차트  검사 범위  [발견 항목 (12)]
+< 검사 범위  추이  [발견 항목 (12)]
 12개 중 12개 | 필터: 없음
 > [치명적] 확인됨 src/module1/handler...
   [높음]   의심   config/.env (commit...
@@ -455,7 +522,7 @@ Esc: 뒤로  ?: 도움말             1-10/12"
 
 exports[`renderFrame snapshots > ko 40x14 findings (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456...<ESC>[22m
-<ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
+< <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m추이<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
 <ESC>[1m12개 중 12개 | 필터: 없음<ESC>[22m
 <ESC>[7m> [치명적] 확인됨 src/module1/handler...<ESC>[27m
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit...
@@ -472,7 +539,7 @@ exports[`renderFrame snapshots > ko 40x14 findings (colour) 1`] = `
 
 exports[`renderFrame snapshots > ko 40x14 overview (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
-[개요]  차트  검사 범위  발견 항목 (12)
+[개요]  차트  검사 범위  추이 >
 요약
   영역
     요청 3 - 완료 1, 부분 완료 1, 미검사
@@ -489,7 +556,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/18"
 
 exports[`renderFrame snapshots > ko 40x14 overview (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456...<ESC>[22m
-<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m발견 항목 (12)<ESC>[22m
+<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m추이<ESC>[22m >
 <ESC>[1m요약<ESC>[22m
   영역
     요청 3 — 완료 1, <ESC>[33m부분 완료 1<ESC>[39m, <ESC>[33m미검사<ESC>[0m
@@ -504,9 +571,26 @@ exports[`renderFrame snapshots > ko 40x14 overview (colour) 1`] = `
 <ESC>[2mEsc: 뒤로  ?: 도움말  Tab: 패널  1-11/18<ESC>[22m"
 `;
 
+exports[`renderFrame snapshots > ko 40x14 trend (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456...
+< 검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 이 저장소의 이전
+검사가 저장되어 있지 않습니다. 나중에
+다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널"
+`;
+
 exports[`renderFrame snapshots > ko 60x20 charts (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
-개요  [차트]  검사 범위  발견 항목 (12)
+개요  [차트]  검사 범위  추이  발견 항목 (12)
 OWASP Top 10 2025 분류별
   A01 Broken Access Control 4
   A05 Injection             4
@@ -529,7 +613,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 
 exports[`renderFrame snapshots > ko 60x20 coverage (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
-개요  차트  [검사 범위]  발견 항목 (12)
+개요  차트  [검사 범위]  추이  발견 항목 (12)
 검사 범위
   [완료] source:typescript (완료)
   [부분 완료] history:secrets (부분 완료)
@@ -552,7 +636,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 
 exports[`renderFrame snapshots > ko 60x20 findings (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
-개요  차트  검사 범위  [발견 항목 (12)]
+개요  차트  검사 범위  추이  [발견 항목 (12)]
 12개 중 12개 | 필터: 없음
 > [치명적] 확인됨 src/module1/handler.ts:11
   [높음]   의심   config/.env (commit 0123456789ab)
@@ -575,7 +659,7 @@ Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
 
 exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...<ESC>[22m
-<ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
+<ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m추이<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
 <ESC>[1m12개 중 12개 | 필터: 없음<ESC>[22m
 <ESC>[7m> [치명적] 확인됨 src/module1/handler.ts:11                 <ESC>[27m
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit 0123456789ab)
@@ -598,7 +682,7 @@ exports[`renderFrame snapshots > ko 60x20 findings (colour) 1`] = `
 
 exports[`renderFrame snapshots > ko 60x20 overview (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
-[개요]  차트  검사 범위  발견 항목 (12)
+[개요]  차트  검사 범위  추이  발견 항목 (12)
 요약
   영역                   요청 3 - 완료 1, 부분 완료 1,
                          미검사 1 (선택 안 함 1)
@@ -621,7 +705,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 
 exports[`renderFrame snapshots > ko 60x20 overview (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...<ESC>[22m
-<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m발견 항목 (12)<ESC>[22m
+<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m추이<ESC>[22m  <ESC>[2m발견 항목 (12)<ESC>[22m
 <ESC>[1m요약<ESC>[22m
   영역                   요청 3 — 완료 1, <ESC>[33m부분 완료 1<ESC>[39m,
                          <ESC>[33m미검사 1<ESC>[39m (선택 안 함 1)
@@ -642,9 +726,32 @@ exports[`renderFrame snapshots > ko 60x20 overview (colour) 1`] = `
 <ESC>[2mEsc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤<ESC>[22m"
 `;
 
+exports[`renderFrame snapshots > ko 60x20 trend (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지
+않습니다. 나중에 다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
+`;
+
 exports[`renderFrame snapshots > ko 80x24 charts (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
-개요  [차트]  검사 범위  발견 항목 (12)
+개요  [차트]  검사 범위  추이  발견 항목 (12)
 OWASP Top 10 2025 분류별
   A01 Broken Access Control ############################## 4
   A05 Injection             ############################## 4
@@ -671,7 +778,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 
 exports[`renderFrame snapshots > ko 80x24 coverage (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
-개요  차트  [검사 범위]  발견 항목 (12)
+개요  차트  [검사 범위]  추이  발견 항목 (12)
 검사 범위
   [완료] source:typescript (완료)
   [부분 완료] history:secrets (부분 완료)
@@ -698,7 +805,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 
 exports[`renderFrame snapshots > ko 80x24 findings (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
-개요  차트  검사 범위  [발견 항목 (12)]
+개요  차트  검사 범위  추이  [발견 항목 (12)]
 12개 중 12개 | 필터: 없음
 > [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret
   [높음]   의심   config/.env (commit 0123456789ab)  Fixture finding 3
@@ -725,7 +832,7 @@ Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도"
 
 exports[`renderFrame snapshots > ko 80x24 findings (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...<ESC>[22m
-<ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
+<ESC>[2m개요<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m추이<ESC>[22m  <ESC>[1m<ESC>[7m[발견 항목 (12)]<ESC>[27m<ESC>[22m
 <ESC>[1m12개 중 12개 | 필터: 없음<ESC>[22m
 <ESC>[7m> [치명적] 확인됨 src/module1/handler.ts:11  Hardcoded production secret        <ESC>[27m
   <ESC>[31m[높음]  <ESC>[39m <ESC>[2m의심  <ESC>[22m config/.env (commit 0123456789ab)  Fixture finding 3
@@ -752,7 +859,7 @@ exports[`renderFrame snapshots > ko 80x24 findings (colour) 1`] = `
 
 exports[`renderFrame snapshots > ko 80x24 overview (NO_COLOR) 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
-[개요]  차트  검사 범위  발견 항목 (12)
+[개요]  차트  검사 범위  추이  발견 항목 (12)
 요약
   영역                   요청 3 - 완료 1, 부분 완료 1, 미검사 1 (선택 안 함 1)
   규칙                   규칙 2개 실행됨 (부분 완료 영역에서 1개)
@@ -779,7 +886,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 
 exports[`renderFrame snapshots > ko 80x24 overview (colour) 1`] = `
 "<ESC>[1mPGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...<ESC>[22m
-<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m발견 항목 (12)<ESC>[22m
+<ESC>[1m<ESC>[7m[개요]<ESC>[27m<ESC>[22m  <ESC>[2m차트<ESC>[22m  <ESC>[2m검사 범위<ESC>[22m  <ESC>[2m추이<ESC>[22m  <ESC>[2m발견 항목 (12)<ESC>[22m
 <ESC>[1m요약<ESC>[22m
   영역                   요청 3 — 완료 1, <ESC>[33m부분 완료 1<ESC>[39m, <ESC>[33m미검사 1<ESC>[39m (선택 안 함 1)
   규칙                   규칙 2개 실행됨 (부분 완료 영역에서 1개)
@@ -802,4 +909,31 @@ exports[`renderFrame snapshots > ko 80x24 overview (colour) 1`] = `
 
 
 <ESC>[2mEsc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤<ESC>[22m"
+`;
+
+exports[`renderFrame snapshots > ko 80x24 trend (NO_COLOR) 1`] = `
+"PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
+개요  차트  검사 범위  [추이]  발견 항목 (12)
+아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지 않습니다. 나중에
+다시 검사하면 추이를 볼 수 있습니다.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 `;

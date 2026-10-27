@@ -1,4 +1,5 @@
 import type { ScanResult } from "@pgard/findings";
+import type { TrendData } from "../ui/panels/types.js";
 import { err, type CommandContext } from "../context.js";
 import { UserCancelledError } from "../ui/components/prompts.js";
 import { cliText } from "../ui/i18n/cli-text.js";
@@ -68,12 +69,15 @@ export async function offerPanels(
   result: ScanResult,
   isRequested: boolean,
   isAutoAllowed = true,
+  /** Reads the stored history for the trend panel; called only when the view is about to open. */
+  loadTrend?: () => Promise<TrendData>,
 ): Promise<void> {
   const locale = context.ruleLocale ?? "en";
   const t = cliText(locale);
   const { io } = context;
   if (isRequested && io.env[PANELS_ONCE_ENV] === "1") {
     renderPanelsOnce({
+      trend: await loadTrend?.().catch(() => undefined),
       result,
       locale,
       stdout: io.stdout,
@@ -103,7 +107,9 @@ export async function offerPanels(
   // The cancel controller must not print its "press Ctrl+C again" text onto the alternate screen.
   const resumeInterrupts = context.suspendInterrupts?.();
   try {
+    const trend = await loadTrend?.().catch(() => undefined);
     const exit = await runPanelsScreen({
+      trend,
       result,
       locale,
       stdout: io.stdout,

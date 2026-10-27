@@ -134,6 +134,17 @@ export interface ListOutcome {
   scans: StoredScan[];
   /** One line per file that was skipped (corrupt, oversized, unsupported version, unsafe). */
   warnings: string[];
+  /** Readable scans that `isUsable` turned down (counted, not returned). Only with `ListOptions`. */
+  rejected: number;
+  /** Result files not opened because `limit` was reached. Only with `ListOptions`. */
+  unread: number;
+}
+
+export interface ListOptions {
+  /** Stop after this many usable scans; the files after that are counted in `unread`. */
+  limit?: number;
+  /** Scans for which this returns false are counted in `rejected` and do not use up `limit`. */
+  isUsable?: (scan: StoredScan) => boolean;
 }
 
 export interface FindNewestOutcome {
@@ -175,7 +186,7 @@ export interface ResultStoreOptions {
 export interface ResultStore {
   readonly dir: string;
   save(result: ScanResult, options: SaveOptions): Promise<SaveOutcome>;
-  list(repositoryId: number): Promise<ListOutcome>;
+  list(repositoryId: number, options?: ListOptions): Promise<ListOutcome>;
   load(repositoryId: number, file: string): Promise<LoadOutcome>;
   /**
    * Reads stored scans newest first and stops at the first one that is readable and that
@@ -724,8 +735,11 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
       }
     },
 
-    async list(repositoryId) {
-      const outcome: ListOutcome = { scans: [], warnings: [] };
+    async list(repositoryId, listOptions = {}) {
+      const outcome: ListOutcome = { scans: [], warnings: [], rejected: 0, unread: 0 };
+      const limit = listOptions.limit ?? Number.POSITIVE_INFINITY;
+      // Files opened at most: a directory of unusable files must not be read to the end either.
+      const maxOpened = limit * 5;
       if (!isRepositoryId(repositoryId)) return outcome;
       const dir = path.join(reposDir, String(repositoryId));
       let names: string[];
@@ -738,12 +752,24 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         if (errnoOf(error) !== "ENOENT") outcome.warnings.push(toStoreError(error).message);
         return outcome;
       }
-      for (const name of names
+      const files = names
         .filter((n) => RESULT_FILE_PATTERN.test(n))
         .sort()
-        .reverse()) {
+        .reverse();
+      let opened = 0;
+      for (const [index, name] of files.entries()) {
+        if (outcome.scans.length >= limit || opened >= maxOpened) {
+          outcome.unread = files.length - index;
+          break;
+        }
+        opened += 1;
         try {
-          outcome.scans.push(parseStored(name, await readCapped(path.join(dir, name))));
+          const scan = parseStored(name, await readCapped(path.join(dir, name)));
+          if (listOptions.isUsable === undefined || listOptions.isUsable(scan)) {
+            outcome.scans.push(scan);
+          } else {
+            outcome.rejected += 1;
+          }
         } catch (error) {
           outcome.warnings.push(`Skipped stored result ${name}: ${toStoreError(error).message}`);
         }
