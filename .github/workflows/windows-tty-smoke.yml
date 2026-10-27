@@ -7,6 +7,12 @@ name: windows-tty-smoke
 # package.json or lockfile of this repository.
 on:
   workflow_dispatch:
+  # A workflow that exists only on a branch cannot be dispatched, so a pull request that changes
+  # this workflow or the smoke script runs it once. No other pull request triggers it.
+  pull_request:
+    paths:
+      - .github/workflows/windows-tty-smoke.yml
+      - scripts/windows-pty-smoke/**
 
 permissions:
   contents: read
