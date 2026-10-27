@@ -717,13 +717,22 @@ export function convertKotlin(ast: AstResult): Unit {
           const fnBody = ofType(member, "function_body");
           // An extension function reads its receiver's members without naming it (`writer.write(x)`):
           // the receiver's type is not followed, so web calls in the body are not analyzed.
+          const receiverType =
+            nameNode === undefined
+              ? undefined
+              : member.children.find(
+                  (child) => TYPE_NODE.test(child.type) && child.start < nameNode.start,
+                );
+          // Only a servlet or HTTP client receiver, or a sink reached through the implicit `this`
+          // (`writer.write(x)`, not `call.writer`), is lost; a Ktor `Application.module()` is not.
           if (
-            nameNode !== undefined &&
-            member.children.some(
-              (child) => TYPE_NODE.test(child.type) && child.start < nameNode.start,
-            ) &&
-            (WEB_CALL_TEXT.test(text(member)) ||
-              /\b(?:writer|outputStream|contentType)\b/.test(text(member)))
+            receiverType !== undefined &&
+            (/^(?:Http)?Servlet(?:Request|Response)\b|^HttpServlet\w*|^(?:URL|URI|HttpClient|WebClient|RestTemplate|OkHttpClient)\b/.test(
+              text(receiverType),
+            ) ||
+              /(?<![.\w])(?:writer|outputStream|getWriter\(\)|getOutputStream\(\))/.test(
+                text(member),
+              ))
           ) {
             unit.unsupported.push("extension function");
           }

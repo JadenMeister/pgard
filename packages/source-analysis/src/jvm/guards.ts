@@ -27,7 +27,7 @@ const PATTERN_MATCHES = new RegExp(`Pattern\\.matches\\([^,]+,\\s*(${IDENT})\\s*
 const VALIDATOR_CALL = new RegExp(`(?:^|[.\\s])(${IDENT})\\(\\s*(${IDENT})\\s*\\)$`);
 // URL and host checks (SSRF): the checked host stands for the URL it was read from.
 const URL_AFFIX = new RegExp(
-  `^(${IDENT})\\.(?:startsWith\\(\\s*"https?://[^"]*/"|endsWith\\(\\s*"\\.?[\\w-]+\\.[\\w.-]+")\\s*\\)$`,
+  `^(${IDENT})\\.(?:startsWith\\(\\s*"https?://[^"]*/"|endsWith\\(\\s*"\\.[\\w-]+\\.[\\w.-]+")\\s*\\)$`,
 );
 const ADDRESS_CHECK = new RegExp(
   `^(${IDENT})\\.(?:isLoopbackAddress|isSiteLocalAddress|isLinkLocalAddress|isAnyLocalAddress|isMulticastAddress)(?:\\(\\))?$`,

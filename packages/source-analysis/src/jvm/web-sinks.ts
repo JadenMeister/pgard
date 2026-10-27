@@ -170,15 +170,23 @@ const hint = (expr: Expr | null | undefined): string =>
       ? expr.name
       : "";
 
-const demoteEscaped = (leaves: readonly Leaf[]): Leaf[] => {
+/**
+ * Escaped leaves become "inferred". A leaf that went through a JSON serialiser (`json:...`) is
+ * dropped for the XSS rule unless the response is HTML and the serialiser is Jackson, which does
+ * not escape `<`.
+ */
+const demoteEscaped = (leaves: readonly Leaf[], forXss: boolean, html: boolean): Leaf[] => {
   const out: Leaf[] = [];
   addLeaves(
     out,
-    leaves.map((leaf): Leaf =>
-      (leaf.k === "source" || leaf.k === "unknown") && leaf.esc !== undefined
-        ? { k: "inferred", why: leaf.esc }
-        : leaf,
-    ),
+    leaves.flatMap((leaf): Leaf[] => {
+      if ((leaf.k !== "source" && leaf.k !== "unknown") || leaf.esc === undefined) return [leaf];
+      if (leaf.esc.startsWith("json:")) {
+        if (forXss && !(html && leaf.esc === "json:Jackson")) return [];
+        return [{ k: "inferred", why: "JSON-serialised; Jackson does not escape '<'" }];
+      }
+      return [{ k: "inferred", why: leaf.esc }];
+    }),
   );
   return out;
 };
@@ -225,9 +233,9 @@ export function createWebSinks(host: WebHost) {
 
   // ---------------------------------------------------------------- judging a value
 
-  function judge(v: Value, composed = v.composed, forXss = false): Judged | null {
+  function judge(v: Value, composed = v.composed, forXss = false, html = false): Judged | null {
     const leaves: Leaf[] = [];
-    const escapedAway = demoteEscaped(v.leaves);
+    const escapedAway = demoteEscaped(v.leaves, forXss, html);
     addLeaves(
       leaves,
       forXss
@@ -237,14 +245,6 @@ export function createWebSinks(host: WebHost) {
     const dynamic = nonConst(leaves);
     if (dynamic.length === 0) return null;
     const callName = v.opaque.replace(/\(\)$/, "");
-    if (SAFE_SERIALIZERS.has(callName)) return null;
-    if (
-      dynamic.every(
-        (leaf) => leaf.k === "unknown" && SAFE_SERIALIZERS.has(leaf.name.replace(/\(\)$/, "")),
-      )
-    ) {
-      return null;
-    }
     const opaque = TEXT_KEEPERS.has(callName) ? "" : v.opaque;
     const tainted = sourcesOf(leaves) as SourceLeaf[];
     const helperLeaf = dynamic.find(
@@ -376,7 +376,7 @@ export function createWebSinks(host: WebHost) {
     if (!ctx.report) return;
     const options = xssOptions(type);
     if (options === null) return;
-    const judged = judge(v, v.composed, true);
+    const judged = judge(v, v.composed, true, type === "html");
     if (judged === null) return;
     report("PG-XSS-004", judged, line, label, options);
   }
@@ -444,6 +444,31 @@ export function createWebSinks(host: WebHost) {
     return null;
   }
 
+  /** The library a JSON serialiser call belongs to, when the receiver or class says so. */
+  function serializerOf(
+    name: string,
+    className: string,
+    recvExpr: Expr | null,
+    ctx: Context,
+  ): "Jackson" | "other" | null {
+    const type = recvExpr === null ? "" : baseType(host.typeOfExpr(recvExpr, ctx));
+    const word = hint(recvExpr);
+    if (name === "writeValueAsString" || name === "writeValueAsBytes") {
+      return /^(?:ObjectMapper|ObjectWriter|JsonMapper)$/.test(type) ||
+        /mapper|objectWriter/i.test(word)
+        ? "Jackson"
+        : null;
+    }
+    if (name === "toJson") return type === "Gson" || /gson/i.test(word) ? "other" : null;
+    if (name === "toJSONString") {
+      return /^(?:JSON|JSONObject|JSONArray)$/.test(className || type) ? "other" : null;
+    }
+    if (name === "encodeToString") {
+      return className === "Json" || type === "Json" || /^json$/i.test(word) ? "other" : null;
+    }
+    return null;
+  }
+
   function escaped(arg: Value, why: string): Value {
     const leaves: Leaf[] = [];
     addLeaves(
@@ -495,6 +520,17 @@ export function createWebSinks(host: WebHost) {
     const firstExpr = expr.args[0];
     const firstIsLambda = firstExpr?.k === "lambda";
 
+    const serial = SAFE_SERIALIZERS.has(name) ? serializerOf(name, className, recvExpr, ctx) : null;
+    if (serial !== null && first !== undefined && !firstIsLambda) {
+      const leaves: Leaf[] = [];
+      addLeaves(
+        leaves,
+        first.leaves.map((leaf): Leaf =>
+          leaf.k === "source" || leaf.k === "unknown" ? { ...leaf, esc: `json:${serial}` } : leaf,
+        ),
+      );
+      return value(leaves, { shape: first.shape });
+    }
     const why = escapeLabel(name, className, recvExpr);
     if (why !== null && first !== undefined && !firstIsLambda) return escaped(first, why);
 
@@ -545,6 +581,7 @@ export function createWebSinks(host: WebHost) {
       return urlValue(args);
     }
     if (typeReceiver && /^(?:UriComponentsBuilder|UriBuilder|HttpUrl|Uri)$/.test(className)) {
+      if (name === "newInstance" && args.length === 0) return urlValue([]);
       if (/^(?:from\w*|newInstance|parse|get)$/.test(name) && args.length >= 1 && !firstIsLambda) {
         return urlValue(args);
       }
@@ -837,7 +874,7 @@ export function createWebSinks(host: WebHost) {
       return;
     }
     if (setType === "other") return;
-    const judged = judge(target, target.composed, true);
+    const judged = judge(target, target.composed, true, setType === "html");
     if (judged === null) return;
     const markup = MARKUP.test(literalText(target.leaves));
     const options: Options =
