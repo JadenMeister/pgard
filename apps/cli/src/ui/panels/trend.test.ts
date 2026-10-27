@@ -45,6 +45,8 @@ function ready(count: number): TrendData {
     scans: Array.from({ length: count }, (_, index) => scan(index + 20 - count)),
     diff: count >= 2 ? { newCount: 2, fixedCount: 1, unchangedCount: 9 } : null,
     skipped: 0,
+    newerSkipped: 0,
+    isCurrentStored: true,
     now: NOW,
   };
 }
@@ -123,8 +125,10 @@ describe("trend panel content", () => {
 
   it("says what changed and marks fixed as not reported any more", () => {
     const body = frame(stateFor("en", wide, ready(5)), wide).join("\n");
-    expect(body).toContain("2 new, 1 fixed*, 9 unchanged");
-    expect(body).toContain("no longer reported");
+    expect(body).toContain("2 new, 1 no longer reported, 9 unchanged");
+    expect(body).not.toContain("fixed");
+    const ko = frame(stateFor("ko", wide, ready(5)), wide).join("\n");
+    expect(ko).toContain("신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건");
   });
 
   it("separates severities by character, not colour (ASCII and Unicode)", () => {
@@ -153,6 +157,16 @@ describe("trend panel content", () => {
   it("reports unreadable files that were left out", () => {
     const trend = { ...(ready(3) as Extract<TrendData, { kind: "ready" }>), skipped: 2 };
     expect(frame(stateFor("en", wide, trend), wide).join("\n")).toContain("2 stored files were");
+  });
+
+  it("notes a scan that was not stored and scans skipped for a newer version", () => {
+    const base = ready(3) as Extract<TrendData, { kind: "ready" }>;
+    const trend = { ...base, newerSkipped: 2, isCurrentStored: false };
+    const body = frame(stateFor("en", wide, trend), wide).join("\n");
+    expect(body).toContain("This scan was not stored.");
+    expect(body).toContain("2 scans from a newer PGARD version were skipped.");
+    const ko = frame(stateFor("ko", wide, trend), wide).join("\n");
+    expect(ko).toContain("이 검사는 저장되지 않았습니다.");
   });
 
   it("each honest state names its reason", () => {

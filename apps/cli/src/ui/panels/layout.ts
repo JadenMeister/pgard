@@ -148,7 +148,12 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
     if (trend.why === "no-repository") return wrap(text.noHistory.noRepository);
     return wrap(text.noHistory.unreadable(safeText(trend.reason, 100)));
   }
-  const skipped = trend.skipped > 0 ? ["", ...wrap(text.skipped(trend.skipped))] : [];
+  const notes = [
+    ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
+    ...(trend.newerSkipped > 0 ? [text.newerSkipped(trend.newerSkipped)] : []),
+    ...(trend.isCurrentStored ? [] : [text.notStored]),
+  ];
+  const skipped = notes.length > 0 ? ["", ...notes.flatMap(wrap)] : [];
   const scans = trend.scans;
   if (scans.length === 0) return [...wrap(text.noHistory.empty), ...skipped];
   const newest = scans[scans.length - 1] as TrendScan;
@@ -161,10 +166,14 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
     lines.push(
       "",
       style.bold(text.latestVsPrevious),
-      `  ${text.diff(trend.diff.newCount, trend.diff.fixedCount, trend.diff.unchangedCount)}`,
-      ...wrapWidth(text.fixedNote, Math.max(10, size.columns - 3)).map((line) =>
-        style.dim(`  ${line}`),
-      ),
+      ...wrapWidth(
+        [
+          t.diff.newCount(trend.diff.newCount, 0, ""),
+          t.diff.noLongerReported(trend.diff.fixedCount),
+          t.diff.unchanged(trend.diff.unchangedCount),
+        ].join(", "),
+        Math.max(10, size.columns - 3),
+      ).map((line) => `  ${line}`),
     );
   }
   const rows = [...scans].reverse();

@@ -48,6 +48,10 @@ export type TrendData =
       readonly diff: TrendDiff | null;
       /** Stored files that could not be read and were left out. */
       readonly skipped: number;
+      /** Stored scans from a newer PGARD schema, left out like the previous-scan lookup does. */
+      readonly newerSkipped: number;
+      /** False when the scan this view opened for is not among the stored ones. */
+      readonly isCurrentStored: boolean;
       /** Epoch ms of the read, for the relative labels. */
       readonly now: number;
     };
@@ -58,6 +62,8 @@ export const NO_TREND: TrendData = {
   scans: [],
   diff: null,
   skipped: 0,
+  newerSkipped: 0,
+  isCurrentStored: true,
   now: 0,
 };
 

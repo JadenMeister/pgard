@@ -233,8 +233,10 @@ export interface TrendPanelText {
   skipped: (count: number) => string;
   latestVsPrevious: string;
   /** New, fixed and unchanged counts of the latest scan against the previous one. */
-  diff: (newCount: number, fixedCount: number, unchangedCount: number) => string;
-  fixedNote: string;
+  /** A note: the scan this view opened for is not among the stored ones. */
+  notStored: string;
+  /** Stored scans written by a newer PGARD version are left out. */
+  newerSkipped: (count: number) => string;
   chartTitle: string;
   /** Legend of the bar characters: `symbols` in the severity order, then the severity names. */
   legend: (pairs: string) => string;
@@ -554,8 +556,9 @@ const EN: CliText = {
       skipped: (count) =>
         `${count} stored ${count === 1 ? "file was" : "files were"} unreadable and left out.`,
       latestVsPrevious: "Latest scan vs the previous one",
-      diff: (n, f, u) => `${n} new, ${f} fixed*, ${u} unchanged`,
-      fixedNote: "* fixed = no longer reported (the code may also have been skipped or removed).",
+      notStored: "This scan was not stored.",
+      newerSkipped: (count) =>
+        `${count} ${count === 1 ? "scan" : "scans"} from a newer PGARD version ${count === 1 ? "was" : "were"} skipped.`,
       chartTitle: "Findings per scan (newest first)",
       legend: (pairs) => `Legend: ${pairs}`,
       tableTitle: "Findings per scan by severity (newest first)",
@@ -901,8 +904,8 @@ const KO: CliText = {
       },
       skipped: (count) => `저장된 파일 ${count}개를 읽을 수 없어 제외했습니다.`,
       latestVsPrevious: "최근 검사와 직전 검사 비교",
-      diff: (n, f, u) => `신규 ${n}, 해결 ${f}*, 변동 없음 ${u}`,
-      fixedNote: "* 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나 삭제되었을 수도 있습니다).",
+      notStored: "이 검사는 저장되지 않았습니다.",
+      newerSkipped: (count) => `더 새로운 PGARD 버전에서 만든 검사 ${count}건을 건너뛰었습니다.`,
       chartTitle: "검사별 발견 항목 (최신순)",
       legend: (pairs) => `범례: ${pairs}`,
       tableTitle: "검사별 심각도 (최신순)",

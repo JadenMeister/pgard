@@ -85,7 +85,7 @@ describe("loadTrend", () => {
   });
 
   it("is an empty history when nothing is stored", async () => {
-    expect(await loadTrend(context(), outcome, false, () => NOW)).toMatchObject({
+    expect(await loadTrend(context(), outcome, false, null, () => NOW)).toMatchObject({
       kind: "ready",
       scans: [],
       diff: null,
@@ -95,7 +95,7 @@ describe("loadTrend", () => {
   it("returns oldest-first counts and the newest-vs-previous comparison", async () => {
     await save("a", ["one", "two"]);
     await save("b", ["one", "two", "three"]);
-    const trend = await loadTrend(context(), outcome, false, () => NOW);
+    const trend = await loadTrend(context(), outcome, false, null, () => NOW);
     if (trend.kind !== "ready") throw new Error("expected ready");
     expect(trend.scans.map((scan) => scan.total)).toEqual([2, 3]);
     expect(trend.scans[0]?.savedAt).toBeLessThan(trend.scans[1]?.savedAt ?? 0);
@@ -103,6 +103,39 @@ describe("loadTrend", () => {
     expect(trend.now).toBe(NOW);
     // Counts only: no titles, paths or repository names travel in the data.
     expect(JSON.stringify(trend)).not.toMatch(/owner|one|users\.ts/);
+  });
+
+  it("says when the current scan is not among the stored ones", async () => {
+    await save("a", ["x"]);
+    await save("b", ["x"]);
+    const stored = await loadTrend(context(), outcome, false, "b");
+    expect(stored).toMatchObject({ kind: "ready", isCurrentStored: true });
+    const missing = await loadTrend(context(), outcome, false, "not-saved");
+    expect(missing).toMatchObject({ kind: "ready", isCurrentStored: false });
+  });
+
+  it("skips scans from a newer schema minor and counts them", async () => {
+    await save("a", ["x"]);
+    await save("b", ["x"]);
+    const fake = {
+      list: async () => {
+        const listed = await store.list(REPO_ID);
+        return {
+          ...listed,
+          scans: listed.scans.map((scan, index) =>
+            index === 0 ? { ...scan, sourceVersion: "99.0" } : scan,
+          ),
+        };
+      },
+    } as unknown as ResultStore;
+    const trend = await loadTrend(
+      context({}, () => fake),
+      outcome,
+      false,
+    );
+    if (trend.kind !== "ready") throw new Error("expected ready");
+    expect(trend.scans).toHaveLength(1);
+    expect(trend.newerSkipped).toBe(1);
   });
 
   it("keeps at most 20 scans", async () => {

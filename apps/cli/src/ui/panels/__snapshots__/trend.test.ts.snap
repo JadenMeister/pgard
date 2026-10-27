@@ -6,9 +6,7 @@ exports[`trend panel snapshots > colour (unicode) 80x24, 20 scans 1`] = `
 <ESC>[1mTrend: 20 stored scans of this repository<ESC>[22m
 
 <ESC>[1mLatest scan vs the previous one<ESC>[22m
-  2 new, 1 fixed*, 9 unchanged
-<ESC>[2m  * fixed = no longer reported (the code may also have been skipped or<ESC>[22m
-<ESC>[2m  removed).<ESC>[22m
+  2 new, 1 no longer reported, 9 unchanged
 
 <ESC>[1mFindings per scan (newest first)<ESC>[22m
 <ESC>[2mLegend: █ Critical  ▓ High  ▒ Medium  ░ Low  · Info<ESC>[22m
@@ -24,7 +22,9 @@ exports[`trend panel snapshots > colour (unicode) 80x24, 20 scans 1`] = `
   2026-10-19 12:00  9 days ago      13  <ESC>[35m█████<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
   2026-10-18 12:00  10 days ago      9  <ESC>[35m███<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒<ESC>[39m···
   2026-10-17 12:00  11 days ago     12  <ESC>[31m▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
-<ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/30<ESC>[22m"
+  2026-10-16 12:00  12 days ago     11  <ESC>[35m█████<ESC>[39m<ESC>[31m▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m···
+  2026-10-15 12:00  13 days ago     13  <ESC>[35m███<ESC>[39m<ESC>[31m▓▓▓▓▓▓▓▓▓▓▓▓▓<ESC>[39m<ESC>[33m▒▒▒▒▒▒▒▒▒▒▒▒▒<ESC>[39m<ESC>[34m░░░<ESC>[39m···
+<ESC>[2mEsc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/28<ESC>[22m"
 `;
 
 exports[`trend panel snapshots > en 40x14 0 scans 1`] = `
@@ -67,15 +67,15 @@ exports[`trend panel snapshots > en 40x14 2 scans 1`] = `
 Trend: 2 stored scans of this repository
 
 Latest scan vs the previous one
-  2 new, 1 fixed*, 9 unchanged
-  * fixed = no longer reported (the
-  code may also have been skipped or
-  removed).
+  2 new, 1 no longer reported, 9
+  unchanged
 
 Findings per scan by severity (newest...
 Legend: C=Critical H=High M=Medium
 L=Low I=Info
-Esc: back  ?: help  Tab: panel   1-11/14"
+Date       Age C H M L I Total
+2026-10-27 1d  1 5 7 1 1    15
+Esc: back  ?: help  Tab: panel   1-11/12"
 `;
 
 exports[`trend panel snapshots > en 40x14 20 scans 1`] = `
@@ -84,15 +84,15 @@ exports[`trend panel snapshots > en 40x14 20 scans 1`] = `
 Trend: 20 stored scans of this reposi...
 
 Latest scan vs the previous one
-  2 new, 1 fixed*, 9 unchanged
-  * fixed = no longer reported (the
-  code may also have been skipped or
-  removed).
+  2 new, 1 no longer reported, 9
+  unchanged
 
 Findings per scan by severity (newest...
 Legend: C=Critical H=High M=Medium
 L=Low I=Info
-Esc: back  ?: help  Tab: panel   1-11/32"
+Date       Age C H M L I Total
+2026-10-27 1d  1 5 7 1 1    15
+Esc: back  ?: help  Tab: panel   1-11/30"
 `;
 
 exports[`trend panel snapshots > en 40x14 store disabled 1`] = `
@@ -181,15 +181,15 @@ Overview  Charts  Coverage  [Trend]  Findings (12)
 Trend: 2 stored scans of this repository
 
 Latest scan vs the previous one
-  2 new, 1 fixed*, 9 unchanged
-  * fixed = no longer reported (the code may also have been
-  skipped or removed).
+  2 new, 1 no longer reported, 9 unchanged
 
 Findings per scan by severity (newest first)
 Legend: C=Critical H=High M=Medium L=Low I=Info
 Date       Age C H M L I Total
 2026-10-27 1d  1 5 7 1 1    15
 2026-10-26 2d  0 4 6 0 1    11
+
+
 
 
 
@@ -204,9 +204,7 @@ Overview  Charts  Coverage  [Trend]  Findings (12)
 Trend: 20 stored scans of this repository
 
 Latest scan vs the previous one
-  2 new, 1 fixed*, 9 unchanged
-  * fixed = no longer reported (the code may also have been
-  skipped or removed).
+  2 new, 1 no longer reported, 9 unchanged
 
 Findings per scan by severity (newest first)
 Legend: C=Critical H=High M=Medium L=Low I=Info
@@ -218,7 +216,9 @@ Date       Age C H M L I Total
 2026-10-23 5d  0 5 3 1 1    10
 2026-10-22 6d  2 4 7 0 1    14
 2026-10-21 7d  1 3 6 1 1    12
-Esc: back  ?: help  Tab: panel  Up/Down: scroll      1-17/30"
+2026-10-20 8d  0 2 5 0 1     8
+2026-10-19 9d  2 5 4 1 1    13
+Esc: back  ?: help  Tab: panel  Up/Down: scroll      1-17/28"
 `;
 
 exports[`trend panel snapshots > en 60x20 store disabled 1`] = `
@@ -327,15 +327,15 @@ Overview  Charts  Coverage  [Trend]  Findings (12)
 Trend: 2 stored scans of this repository
 
 Latest scan vs the previous one
-  2 new, 1 fixed*, 9 unchanged
-  * fixed = no longer reported (the code may also have been skipped or
-  removed).
+  2 new, 1 no longer reported, 9 unchanged
 
 Findings per scan (newest first)
 Legend: # Critical  = High  + Medium  - Low  : Info
   Date              Age         Total
   2026-10-27 12:00  yesterday      15  ###=============++++++++++++++++++---:::
   2026-10-26 12:00  2 days ago     11  ===========++++++++++++++++:::
+
+
 
 
 
@@ -354,9 +354,7 @@ Overview  Charts  Coverage  [Trend]  Findings (12)
 Trend: 20 stored scans of this repository
 
 Latest scan vs the previous one
-  2 new, 1 fixed*, 9 unchanged
-  * fixed = no longer reported (the code may also have been skipped or
-  removed).
+  2 new, 1 no longer reported, 9 unchanged
 
 Findings per scan (newest first)
 Legend: # Critical  = High  + Medium  - Low  : Info
@@ -372,7 +370,9 @@ Legend: # Critical  = High  + Medium  - Low  : Info
   2026-10-19 12:00  9 days ago      13  #####=============+++++++++++---:::
   2026-10-18 12:00  10 days ago      9  ###===========++++++++:::
   2026-10-17 12:00  11 days ago     12  ========+++++++++++++++++++---:::
-Esc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/30"
+  2026-10-16 12:00  12 days ago     11  #####=====++++++++++++++++:::
+  2026-10-15 12:00  13 days ago     13  ###=============+++++++++++++---:::
+Esc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/28"
 `;
 
 exports[`trend panel snapshots > en 80x24 store disabled 1`] = `
@@ -469,15 +469,15 @@ exports[`trend panel snapshots > ko 40x14 2 scans 1`] = `
 추이: 이 저장소의 저장된 검사 2건
 
 최근 검사와 직전 검사 비교
-  신규 2, 해결 1*, 변동 없음 9
-  * 해결 = 더 이상 보고되지 않음
-  (코드가 건너뛰어졌거나 삭제되었을
-  수도 있습니다).
+  신규 2건, 더 이상 보고되지 않음 1건,
+  변화 없음 9건
 
 검사별 심각도 (최신순)
 범례: 치=치명적 높=높음 중=보통 낮=낮음
 정=정보
-Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/14"
+날짜       경과 치 높 중 낮 정 합계
+2026-10-27 1일   1  5  7  1  1   15
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/12"
 `;
 
 exports[`trend panel snapshots > ko 40x14 20 scans 1`] = `
@@ -486,15 +486,15 @@ exports[`trend panel snapshots > ko 40x14 20 scans 1`] = `
 추이: 이 저장소의 저장된 검사 20건
 
 최근 검사와 직전 검사 비교
-  신규 2, 해결 1*, 변동 없음 9
-  * 해결 = 더 이상 보고되지 않음
-  (코드가 건너뛰어졌거나 삭제되었을
-  수도 있습니다).
+  신규 2건, 더 이상 보고되지 않음 1건,
+  변화 없음 9건
 
 검사별 심각도 (최신순)
 범례: 치=치명적 높=높음 중=보통 낮=낮음
 정=정보
-Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/32"
+날짜       경과 치 높 중 낮 정 합계
+2026-10-27 1일   1  5  7  1  1   15
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/30"
 `;
 
 exports[`trend panel snapshots > ko 40x14 store disabled 1`] = `
@@ -583,15 +583,15 @@ exports[`trend panel snapshots > ko 60x20 2 scans 1`] = `
 추이: 이 저장소의 저장된 검사 2건
 
 최근 검사와 직전 검사 비교
-  신규 2, 해결 1*, 변동 없음 9
-  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나
-  삭제되었을 수도 있습니다).
+  신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
 
 검사별 심각도 (최신순)
 범례: 치=치명적 높=높음 중=보통 낮=낮음 정=정보
 날짜       경과 치 높 중 낮 정 합계
 2026-10-27 1일   1  5  7  1  1   15
 2026-10-26 2일   0  4  6  0  1   11
+
+
 
 
 
@@ -606,9 +606,7 @@ exports[`trend panel snapshots > ko 60x20 20 scans 1`] = `
 추이: 이 저장소의 저장된 검사 20건
 
 최근 검사와 직전 검사 비교
-  신규 2, 해결 1*, 변동 없음 9
-  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나
-  삭제되었을 수도 있습니다).
+  신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
 
 검사별 심각도 (최신순)
 범례: 치=치명적 높=높음 중=보통 낮=낮음 정=정보
@@ -620,7 +618,9 @@ exports[`trend panel snapshots > ko 60x20 20 scans 1`] = `
 2026-10-23 5일   0  5  3  1  1   10
 2026-10-22 6일   2  4  7  0  1   14
 2026-10-21 7일   1  3  6  1  1   12
-Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤     1-17/30"
+2026-10-20 8일   0  2  5  0  1    8
+2026-10-19 9일   2  5  4  1  1   13
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤     1-17/28"
 `;
 
 exports[`trend panel snapshots > ko 60x20 store disabled 1`] = `
@@ -729,15 +729,15 @@ exports[`trend panel snapshots > ko 80x24 2 scans 1`] = `
 추이: 이 저장소의 저장된 검사 2건
 
 최근 검사와 직전 검사 비교
-  신규 2, 해결 1*, 변동 없음 9
-  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나 삭제되었을 수도
-  있습니다).
+  신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
 
 검사별 발견 항목 (최신순)
 범례: # 치명적  = 높음  + 보통  - 낮음  : 정보
   날짜              경과    합계
   2026-10-27 12:00  어제      15  ###=============++++++++++++++++++---:::
   2026-10-26 12:00  2일 전    11  ===========++++++++++++++++:::
+
+
 
 
 
@@ -756,9 +756,7 @@ exports[`trend panel snapshots > ko 80x24 20 scans 1`] = `
 추이: 이 저장소의 저장된 검사 20건
 
 최근 검사와 직전 검사 비교
-  신규 2, 해결 1*, 변동 없음 9
-  * 해결 = 더 이상 보고되지 않음 (코드가 건너뛰어졌거나 삭제되었을 수도
-  있습니다).
+  신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
 
 검사별 발견 항목 (최신순)
 범례: # 치명적  = 높음  + 보통  - 낮음  : 정보
@@ -774,7 +772,9 @@ exports[`trend panel snapshots > ko 80x24 20 scans 1`] = `
   2026-10-19 12:00  9일 전     13  #####=============+++++++++++---:::
   2026-10-18 12:00  10일 전     9  ###===========++++++++:::
   2026-10-17 12:00  11일 전    12  ========+++++++++++++++++++---:::
-Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤                         1-21/30"
+  2026-10-16 12:00  12일 전    11  #####=====++++++++++++++++:::
+  2026-10-15 12:00  13일 전    13  ###=============+++++++++++++---:::
+Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤                         1-21/28"
 `;
 
 exports[`trend panel snapshots > ko 80x24 store disabled 1`] = `

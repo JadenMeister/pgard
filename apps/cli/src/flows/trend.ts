@@ -4,6 +4,7 @@ import { RETENTION_MAX_SCANS_PER_REPO, type StoredScan } from "@pgard/result-sto
 import type { CommandContext } from "../context.js";
 import { safeText } from "../ui/formatters/style.js";
 import { type TrendData, type TrendDiff, type TrendScan } from "../ui/panels/types.js";
+import { isNewerMinor } from "./scan-diff-summary.js";
 import { NO_STORE_ENV } from "./store-result.js";
 
 const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
@@ -44,6 +45,8 @@ export async function loadTrend(
   context: CommandContext,
   outcome: AuthorizationOutcome | null,
   noStoreFlag: boolean,
+  /** The scan the view opened for: the panel says so when it is not among the stored ones. */
+  currentScanId: string | null = null,
   now: () => number = Date.now,
 ): Promise<TrendData> {
   try {
@@ -63,13 +66,17 @@ export async function loadTrend(
       };
     }
     // `list` is newest first; the panel wants the newest 20, oldest first.
-    const newest = listed.scans.slice(0, RETENTION_MAX_SCANS_PER_REPO);
+    const usable = listed.scans.filter((scan) => !isNewerMinor(scan.sourceVersion));
+    const newest = usable.slice(0, RETENTION_MAX_SCANS_PER_REPO);
     const [latest, previous] = newest;
     return {
       kind: "ready",
       scans: newest.map(toTrendScan).reverse(),
       diff: latest !== undefined && previous !== undefined ? diffOf(previous, latest) : null,
       skipped: listed.warnings.length,
+      newerSkipped: listed.scans.length - usable.length,
+      isCurrentStored:
+        currentScanId === null || listed.scans.some((scan) => scan.result.scanId === currentScanId),
       now: now(),
     };
   } catch (error) {

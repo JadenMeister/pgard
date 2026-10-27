@@ -373,7 +373,7 @@ async function runScanFlow(
   // `baseline set --from-current` only uses the scan; it does not open the panel view by itself.
   const isBaselineRun = command.setBaseline === true;
   const trendLoader = (): Promise<TrendData> =>
-    loadTrend(context, scanned.outcome, command.noStore === true);
+    loadTrend(context, scanned.outcome, command.noStore === true, result.scanId);
   let isReportSaved = true;
   if (command.report !== null && reportDir !== null) {
     isReportSaved = await saveReports(context, result, command.report.format, reportDir);
