@@ -4,7 +4,7 @@ const express = require("express");
 const app = express();
 
 app.get("/", (req, res) => {
-  res.cookie("XSRF-TOKEN", makeToken());
+  res.cookie("XSRF-TOKEN", makeToken(), { secure: true, sameSite: "lax" });
   res.sendStatus(204);
 });
 

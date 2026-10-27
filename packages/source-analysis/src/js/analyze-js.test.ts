@@ -840,6 +840,31 @@ describe("PG-AUTH-001 request-derived identifiers", () => {
     // Two writes, a compound write or a loop binding are not a single assignment.
     expect(create("let v; v = req.body.pw; v = hash(v);")).toEqual([]);
     expect(create("let v; v += req.body.pw;")).toEqual([]);
+    expect(create("let v; v = req.body.pw; v++;")).toEqual([]);
+    expect(create("let v; v = req.body.pw; [v] = other;")).toEqual([]);
+    expect(create("let v; for (v in req.body) {}")).toEqual([]);
+    expect(create("for (let v of req.body.list) {}")).toEqual([]);
+    expect(create("for (let v in req.body) {}")).toEqual([]);
+    // The sole assignment only ADDS evidence: a non-plain value falls back to the name test.
+    expect(
+      rulesIn(
+        "async function f(req) { let password; password = req.body.password.trim(); await User.create({ password }); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "async function f(req) { let password; password = req.body.password || ''; await User.create({ password }); }",
+      ),
+    ).toEqual(["PG-AUTH-001"]);
+    expect(
+      rulesIn(
+        "async function f(req) { let v; v = await hashIt(req.body.pw); await User.create({ password: v }); }",
+      ),
+    ).toEqual([]);
+    // A bare `let` assignment must not leak into other rules' constant resolution (jQuery factory).
+    expect(rulesIn("let $; $ = require('jquery'); $('#out').html(location.hash);")).toEqual([
+      "PG-XSS-001",
+    ]);
     expect(create("let v; for (v of req.body.list) {}")).toEqual([]);
     expect(create("const v = req.body.pw;")).toEqual(["PG-AUTH-001"]);
     expect(
@@ -933,22 +958,63 @@ describe("PG-COOKIE-001 option resolution and name filter", () => {
   it("treats a resolved SameSite=Strict strong-named cookie as strict, not a cookie session", () => {
     const facts = (code: string) => analyzeJsSource(code, "s.js").facts;
     const strict = facts("res.cookie('refresh_token', v, { sameSite: 'Strict' });");
-    expect(strict.strictSession).toBe(true);
+    // A hand-rolled cookie never sets the project-wide strictSession (it would hide the
+    // express-session/cookie-session import fallback); it just does not mark a cookie session.
+    expect(strict.strictSession).toBe(false);
     expect(strict.usesCookieSession).toBe(false);
     const viaConst = facts("const S = 'strict'; res.cookie('sid', v, { sameSite: S });");
     expect(viaConst.usesCookieSession).toBe(false);
+    const viaChain = facts(
+      "const A = 'strict'; const S = A; res.cookie('sid', v, { sameSite: S });",
+    );
+    expect(viaChain.usesCookieSession).toBe(false);
+    // A later or conditional assignment is not a syntactic strict value.
+    expect(
+      facts("let ss; res.cookie('sid', v, { sameSite: ss }); ss = 'strict';").usesCookieSession,
+    ).toBe(true);
+    expect(
+      facts("let ss = 'lax'; if (prod) ss = 'strict'; res.cookie('sid', v, { sameSite: ss });")
+        .usesCookieSession,
+    ).toBe(true);
+    expect(
+      facts("let ss; if (prod) ss = 'strict'; res.cookie('sid', v, { sameSite: ss });")
+        .usesCookieSession,
+    ).toBe(true);
     // Not resolvable, or not strict: still a cookie session.
     expect(facts("res.cookie('sid', v, { sameSite: pick() });").usesCookieSession).toBe(true);
     expect(facts("res.cookie('sid', v, { sameSite: 'lax' });").usesCookieSession).toBe(true);
     expect(facts("res.cookie('sid', v, {});").usesCookieSession).toBe(true);
   });
 
-  it("ignores csrf and xsrf cookies entirely", () => {
+  it("treats csrf/xsrf token cookies as readable by design: no session, no httpOnly finding", () => {
     for (const name of ["csrf_token", "XSRF-TOKEN", "csrfToken", "_csrf", "__Host-csrf"]) {
-      const result = analyzeJsSource(`res.cookie('${name}', v, {});`, "s.js");
-      expect(result.findings, name).toEqual([]);
-      expect(result.facts.usesCookieSession, name).toBe(false);
+      const full = analyzeJsSource(
+        `res.cookie('${name}', v, { secure: true, sameSite: 'lax' });`,
+        "s.js",
+      );
+      expect(full.findings, name).toEqual([]);
+      expect(full.facts.usesCookieSession, name).toBe(false);
+      // Other missing flags are still reported, at low confidence.
+      const bare = analyzeJsSource(`res.cookie('${name}', v, {});`, "s.js");
+      expect(bare.facts.usesCookieSession, name).toBe(false);
+      expect(bare.findings, name).toHaveLength(1);
+      expect(bare.findings[0], name).toMatchObject({ confidence: "low", severity: "low" });
+      expect(bare.findings[0]?.evidence, name).not.toContain("httpOnly");
+      expect(bare.findings[0]?.evidence, name).toContain("secure, sameSite");
     }
+  });
+
+  it("keeps session cookies that merely mention csrf/xsrf, and non-literal names", () => {
+    for (const name of ["xsrf_session_id", "__Host-csrf-sess", "csrf-sid", "nocsrf_sid"]) {
+      const result = analyzeJsSource(`res.cookie('${name}', v, {});`, "s.js");
+      expect(result.facts.usesCookieSession, name).toBe(true);
+      expect(result.findings[0], name).toMatchObject({ confidence: "medium" });
+      expect(result.findings[0]?.evidence, name).toContain("httpOnly");
+    }
+    // A non-literal name is judged by its words, never excluded as a csrf token cookie.
+    const dynamic = analyzeJsSource("res.cookie(CSRF_SESSION, v, {});", "s.js");
+    expect(dynamic.facts.usesCookieSession).toBe(true);
+    expect(dynamic.findings[0]?.evidence).toContain("httpOnly");
   });
 
   it("recognises prefixed and connect.sid cookie names through identifier words", () => {

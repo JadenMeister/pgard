@@ -1267,6 +1267,8 @@ export function analyzeJsSource(
   /** Plain `name = value` assignments per name, to treat `let v; v = req.body.pw` as a single binding. */
   const plainAssignments = new Map<string, ts.Expression[]>();
   const writeCounts = new Map<string, number>();
+  /** Names declared by `let v;` / `var v;` without an initialiser (loop bindings excluded). */
+  const bareLets = new Map<string, number>();
   /** Marks every identifier a write target names: `x =`, `[x] =`, `({ a, b: c = 1 } =`, `for (x of`. */
   const markWrite = (target: ts.Node): void => {
     const node = ts.isExpression(target) ? unwrap(target) : target;
@@ -1331,20 +1333,17 @@ export function analyzeJsSource(
         node.initializer !== undefined &&
         ts.isVariableDeclarationList(node.parent) &&
         ((node.parent.flags & ts.NodeFlags.Const) !== 0 || !reassigned.has(node.name.text));
-      // `let v; v = req.body.pw`: no initialiser and exactly one write, a plain assignment.
-      const soleAssignment =
+      // `let v;` declarations (not loop bindings): see `soleAssignedValue`.
+      if (
         node.initializer === undefined &&
         ts.isVariableDeclarationList(node.parent) &&
         !ts.isForInStatement(node.parent.parent) &&
-        !ts.isForOfStatement(node.parent.parent) &&
-        writeCounts.get(node.name.text) === 1 &&
-        plainAssignments.get(node.name.text)?.length === 1
-          ? plainAssignments.get(node.name.text)?.[0]
-          : undefined;
+        !ts.isForOfStatement(node.parent.parent)
+      )
+        bareLets.set(node.name.text, (bareLets.get(node.name.text) ?? 0) + 1);
       const list = constInits.get(node.name.text) ?? [];
       // Reassigned `let`/`var` bindings: two entries make the name ambiguous.
       if (isConstLike && node.initializer) list.push(node.initializer);
-      else if (soleAssignment) list.push(soleAssignment);
       else list.push(node.name, node.name);
       constInits.set(node.name.text, list);
     } else if (ts.isVariableDeclaration(node) && node.initializer) {
@@ -1369,6 +1368,18 @@ export function analyzeJsSource(
     ts.forEachChild(node, collectConsts);
   };
   collectConsts(sourceFile);
+  /**
+   * `let v; v = req.body.pw`: the value of the only write to a once-declared, uninitialised binding.
+   * Deliberately separate from `singleConst`, which other rules rely on staying initialiser-only.
+   * Used only to ADD plain-password evidence for PG-AUTH-001.
+   */
+  const soleAssignedValue = (name: string): ts.Expression | null => {
+    const declared = constInits.get(name);
+    if (bareLets.get(name) !== 1 || declared?.length !== 2) return null;
+    if (writeCounts.get(name) !== 1) return null;
+    const assigned = plainAssignments.get(name);
+    return assigned?.length === 1 ? (assigned[0] ?? null) : null;
+  };
   const singleConst = (name: string): ts.Expression | null => {
     const list = constInits.get(name);
     return list && list.length === 1 ? (list[0] ?? null) : null;
@@ -2316,6 +2327,7 @@ export function analyzeJsSource(
     const inner = unwrap(value);
     if (ts.isStringLiteralLike(inner)) return inner.text.toLowerCase() === "strict";
     if (ts.isIdentifier(inner)) {
+      // Initialiser-only and reassignment-aware: an inferred value never counts as strict.
       const init = singleConst(inner.text);
       return init ? isStrictSameSite(init, depth + 1) : false;
     }
@@ -2468,6 +2480,9 @@ export function analyzeJsSource(
     if (ts.isIdentifier(inner)) {
       const init = singleConst(inner.text);
       if (init) return isPlainPassword(init, depth + 1);
+      // `let v; v = req.body.pw` adds evidence only; anything else falls back to the name test.
+      const assigned = soleAssignedValue(inner.text);
+      if (assigned && isPlainPassword(assigned, depth + 1)) return true;
       // Bound by destructuring a request object: `const { password: plain } = req.body`.
       const sources = destructuredFrom.get(inner.text);
       if (sources?.length === 1 && sources[0]) {
@@ -2813,18 +2828,24 @@ export function analyzeJsSource(
       nameNode && ts.isStringLiteralLike(nameNode)
         ? nameNode.text
         : (nameNode?.getText(sourceFile).slice(0, 80) ?? "");
-    // csrf/xsrf cookies are readable by script on purpose: neither a session nor missing httpOnly.
-    if (/[cx]srf/i.test(nameText)) return;
     const nameWords = identifierWords(nameText);
-    const isStrongName = nameWords.some((word) => SESSION_NAME_WORDS.has(word));
+    // A csrf/xsrf token cookie is readable by script on purpose: not a session, no httpOnly wanted.
+    // Only a literal name counts, and any session word (`xsrf_session_id`) keeps it a session cookie.
+    const isCsrfToken =
+      nameNode !== undefined &&
+      ts.isStringLiteralLike(nameNode) &&
+      nameWords.some((word) => word === "csrf" || word === "xsrf") &&
+      !nameWords.some(
+        (word) => SESSION_NAME_WORDS.has(word) && word !== "token" && word !== "tokens",
+      );
+    const isStrongName = !isCsrfToken && nameWords.some((word) => SESSION_NAME_WORDS.has(word));
     const isWeakName = !isStrongName && nameWords.some((word) => WEAK_NAME_WORDS.has(word));
-    const isSessionLike = isStrongName || isWeakName;
+    const isSessionLike = isStrongName || isWeakName || isCsrfToken;
     // A hand-rolled session cookie is a cookie session for PG-CSRF-001, unless it is resolved
     // SameSite=Strict (never sent cross-site). Anything not resolved syntactically still counts.
     if (isStrongName) {
       const sameSiteValue = options ? resolveOptions(options, 0)?.get("sameSite") : undefined;
-      if (isStrictSameSite(sameSiteValue)) facts.strictSession = true;
-      else facts.usesCookieSession = true;
+      if (!isStrictSameSite(sameSiteValue)) facts.usesCookieSession = true;
     }
     // A cookie with a non-session name still counts when it carries a session or token value.
     const valueNode = cookieValue ? unwrap(cookieValue) : undefined;
@@ -2837,7 +2858,11 @@ export function analyzeJsSource(
       );
     if (!isSessionLike && !carriesToken) return;
     const severity = isStrongName ? "medium" : "low";
-    const kind = isSessionLike ? "session-like name" : "session or token value";
+    const kind = isCsrfToken
+      ? "csrf token cookie"
+      : isSessionLike
+        ? "session-like name"
+        : "session or token value";
     let resolved: Map<string, ts.Expression> | null = new Map();
     if (options) resolved = resolveOptions(options, 0);
     if (!resolved) {
@@ -2862,7 +2887,8 @@ export function analyzeJsSource(
     const httpOnlyDefault =
       defaults.httpOnly === true && resolved.get("httpOnly")?.kind !== ts.SyntaxKind.FalseKeyword;
     const missing = [
-      ...(isTrue("httpOnly") || httpOnlyDefault ? [] : ["httpOnly"]),
+      // A csrf token cookie is read by script on purpose, so httpOnly is not expected.
+      ...(isTrue("httpOnly") || httpOnlyDefault || isCsrfToken ? [] : ["httpOnly"]),
       ...(isTrue("secure") ? [] : ["secure"]),
       ...(hasSameSite ? [] : ["sameSite"]),
     ];
