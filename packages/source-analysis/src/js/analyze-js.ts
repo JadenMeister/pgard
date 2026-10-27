@@ -11,6 +11,11 @@ import {
   unwrap,
   type TaintKind,
 } from "./taint.js";
+import {
+  SANITIZER_NAME,
+  TRUSTED_SANITIZER_METHOD,
+  TRUSTED_SANITIZER_MODULES,
+} from "./sanitizer-modules.js";
 import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-binding.js";
 
 /** Project-level facts used by cross-file heuristics (CSRF, brute force, ORM detection). */
@@ -92,8 +97,6 @@ const HTTP_CLIENT_MODULES = new Set([
 ]);
 /** Process-level values that a request cannot influence. */
 const TRUSTED_PATHS = new Set(["process.execPath", "process.platform", "__dirname", "__filename"]);
-const SANITIZER_CALLS =
-  /^(sanitize|sanitizeHtml|purify|escape|escapeHtml|encode|xss|filterXSS|htmlEscape)$/i;
 const PASSWORD_NAME = /^(password|passwd|pwd|pass|userPassword|newPassword|plainPassword)$/i;
 const PASSWORD_TEXT = /pass(word)?|pwd/i;
 const HASHING_TEXT =
@@ -385,21 +388,99 @@ export function analyzeJsSource(
     return "expression";
   };
 
-  const isSanitizerCall = (expression: ts.Expression): boolean => {
+  /** Root identifier of `a.b.c(...)`'s callee, with the callee's own final name. */
+  const sanitizerCallee = (
+    expression: ts.Expression,
+  ): { call: ts.CallExpression; root: ts.Identifier; direct: boolean; name: string } | null => {
     const node = unwrap(expression);
-    return ts.isCallExpression(node) && SANITIZER_CALLS.test(calleeName(node) ?? "");
+    if (!ts.isCallExpression(node)) return null;
+    let callee = unwrap(node.expression);
+    const direct = ts.isIdentifier(callee);
+    const name = calleeName(node);
+    if (!name) return null;
+    while (ts.isPropertyAccessExpression(callee)) callee = unwrap(callee.expression);
+    return ts.isIdentifier(callee) ? { call: node, root: callee, direct, name } : null;
   };
 
-  const isSanitizedBinding = createSanitizedBindingCheck(sourceFile, isSanitizerCall);
+  /** A local name that is exactly one declaration (the import) and is never reassigned. */
+  const isSoleBinding = (name: string): boolean =>
+    bindingCount.get(name) === 1 && !reassigned.has(name);
+
+  /** Module of the sole import binding `name` resolves to (`createDOMPurify(window)` included). */
+  const trustedModuleOf = (identifier: ts.Identifier, depth = 0): string | null => {
+    if (!isSoleBinding(identifier.text)) return null;
+    const module = namespaceImports.get(identifier.text);
+    if (module !== undefined) return TRUSTED_SANITIZER_MODULES.has(module) ? module : null;
+    if (depth > 0) return null;
+    // `const purify = createDOMPurify(window)`: the instance of a factory imported from dompurify.
+    const init = soleConst(identifier.text, identifier);
+    const factory = init ? sanitizerFactory(init) : null;
+    return factory ? trustedModuleOf(factory, depth + 1) : null;
+  };
+  const sanitizerFactory = (init: ts.Expression): ts.Identifier | null => {
+    const node = unwrap(init);
+    if (!ts.isCallExpression(node)) return null;
+    const callee = unwrap(node.expression);
+    return ts.isIdentifier(callee) ? callee : null;
+  };
 
   /**
-   * A sanitizer call, or a variable resolved to its own declaration whose initializer and every
-   * write are sanitizer calls (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
+   * A call into the sole import binding of a known sanitizer module: `DOMPurify.sanitize(x)`,
+   * `sanitizeHtml(x)`, `filterXSS(x)`, `{ sanitize }` from `isomorphic-dompurify`. Shadowed,
+   * reassigned or re-declared bindings, local functions and re-exports do not qualify.
+   */
+  const isProvenSanitizerCall = (expression: ts.Expression): boolean => {
+    const parts = sanitizerCallee(expression);
+    if (!parts) return false;
+    const { root, direct, name } = parts;
+    if (direct) {
+      const named = namedImports.get(root.text);
+      if (named !== undefined && isSoleBinding(root.text)) {
+        const [module, imported] = splitNamedImport(named);
+        return TRUSTED_SANITIZER_MODULES.has(module) && TRUSTED_SANITIZER_METHOD.test(imported);
+      }
+      // A default or namespace import called directly: `import clean from "sanitize-html"`.
+      return trustedModuleOf(root) !== null && namespaceImports.get(root.text) !== undefined;
+    }
+    return trustedModuleOf(root) !== null && TRUSTED_SANITIZER_METHOD.test(name);
+  };
+  const splitNamedImport = (value: string): [string, string] => {
+    const at = value.lastIndexOf(":");
+    return [value.slice(0, at), value.slice(at + 1)];
+  };
+
+  /** A call whose name looks like a sanitizer but is not a proven import: inferred only. */
+  const nameOnlySanitizerCall = (expression: ts.Expression): string | null => {
+    const node = unwrap(expression);
+    if (!ts.isCallExpression(node) || isProvenSanitizerCall(node)) return null;
+    const name = calleeName(node);
+    return name !== null && SANITIZER_NAME.test(name) ? name : null;
+  };
+
+  const isSanitizerCall = isProvenSanitizerCall;
+  const isSanitizedBinding = createSanitizedBindingCheck(sourceFile, isProvenSanitizerCall);
+  const isNameSanitizedBinding = createSanitizedBindingCheck(
+    sourceFile,
+    (expression) => isProvenSanitizerCall(expression) || nameOnlySanitizerCall(expression) !== null,
+  );
+
+  /**
+   * A proven sanitizer call, or a variable resolved to its own declaration whose initializer and
+   * every write are proven sanitizer calls (`const clean = DOMPurify.sanitize(html); el.innerHTML = clean;`).
    */
   const isSanitized = (expression: ts.Expression): boolean => {
     if (isSanitizerCall(expression)) return true;
     const node = unwrap(expression);
     return ts.isIdentifier(node) && isSanitizedBinding(node);
+  };
+
+  /** Name of an inferred (name-only) sanitizer the value passes through, else null. */
+  const inferredSanitizer = (expression: ts.Expression): string | null => {
+    const direct = nameOnlySanitizerCall(expression);
+    if (direct) return direct;
+    const node = unwrap(expression);
+    if (!ts.isIdentifier(node) || !isNameSanitizedBinding(node)) return null;
+    return `${node.text}`;
   };
 
   const sqlArgument = (call: ts.CallExpression): ts.Expression | null => {
@@ -593,6 +674,34 @@ export function analyzeJsSource(
       isSanitized(value)
     )
       return;
+    const inferred = inferredSanitizer(value);
+    if (inferred !== null) {
+      const node = unwrap(value);
+      const argument = ts.isCallExpression(node) ? node.arguments[0] : undefined;
+      const base =
+        (argument &&
+          !isStaticString(argument) &&
+          classify(
+            argument,
+            true,
+            { severity: "high", status: "suspected", confidence: "medium" },
+            { severity: "low", status: "suspected", confidence: "low" },
+            sink,
+          )) ||
+        ({
+          severity: "low",
+          status: "suspected",
+          confidence: "low",
+          flow: `${inferred}() result -> ${sink} (no input source identified)`,
+        } satisfies Evidence);
+      report(
+        ruleId,
+        node,
+        demote(base, `sanitizer \`${inferred}\` is not a known sanitizer import; inferred`),
+        sink,
+      );
+      return;
+    }
     const verdict = importSet.has("escape-html") ? escapeHtmlVerdict(value) : null;
     const evidence = classify(
       value,

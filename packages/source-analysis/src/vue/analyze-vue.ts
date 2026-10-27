@@ -1,6 +1,7 @@
 import { parse } from "@vue/compiler-sfc";
 import ts from "typescript-api";
 import type { RawSourceFinding } from "../finding-factory.js";
+import { TRUSTED_SANITIZER_MODULES } from "../js/sanitizer-modules.js";
 import { analyzeJsSource, type JsFileFacts } from "../js/analyze-js.js";
 
 export interface VueAnalysis {
@@ -29,20 +30,21 @@ const BROWSER_INPUT =
   /\$route\b|\broute\.(query|params|hash)|\blocation\.|\bquery\b|\bparams\b|searchParams/;
 const SANITIZED = /\b(sanitize|sanitizeHtml|purify|DOMPurify|escapeHtml|xss)\b/i;
 
-const SANITIZER_MODULES = new Set([
-  "dompurify",
-  "isomorphic-dompurify",
-  "sanitize-html",
-  "xss",
-  "escape-html",
-]);
+const SANITIZER_MODULES = new Set([...TRUSTED_SANITIZER_MODULES, "escape-html"]);
+
+interface ScriptSanitizers {
+  /** Computed properties whose whole value is one call to an imported sanitizer: name -> module. */
+  computeds: Map<string, string>;
+  /** Sole, never-reassigned import bindings of a sanitizer module: local name -> module. */
+  roots: Map<string, string>;
+}
 
 /**
  * Computed properties whose whole value is one call to an imported sanitizer, by name:
  * `const clean = computed(() => DOMPurify.sanitize(html))` and the options-API `computed: { clean() {} }`.
  * The template only sees the name, so the sanitizing is inferred, never proven: the finding stays.
  */
-function sanitizedComputeds(content: string, scriptKind: ts.ScriptKind): Map<string, string> {
+function scriptSanitizers(content: string, scriptKind: ts.ScriptKind): ScriptSanitizers {
   const found = new Map<string, string>();
   const source = ts.createSourceFile(
     "pgard-vue.tsx",
@@ -66,6 +68,15 @@ function sanitizedComputeds(content: string, scriptKind: ts.ScriptKind): Map<str
     }
     if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && ts.isIdentifier(node.name))
       count(node.name.text);
+    // A reassigned import, or a function declared under the same name, is not the module's export.
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      ts.isIdentifier(node.left)
+    )
+      count(node.left.text);
+    if (ts.isFunctionDeclaration(node) && node.name) count(node.name.text);
     ts.forEachChild(node, collect);
   };
   collect(source);
@@ -133,16 +144,44 @@ function sanitizedComputeds(content: string, scriptKind: ts.ScriptKind): Map<str
     ts.forEachChild(node, visit);
   };
   visit(source);
-  return found;
+  const roots = new Map<string, string>();
+  for (const [name, module] of imported)
+    if (SANITIZER_MODULES.has(module) && !importCount.has(name)) roots.set(name, module);
+  return { computeds: found, roots };
 }
+
+/** The whole expression as one call into a name in `roots` (`DOMPurify.sanitize(html)`), else null. */
+function sanitizerRootOf(expression: string, roots: Map<string, string>): string | null {
+  if (roots.size === 0) return null;
+  const source = ts.createSourceFile(
+    "pgard-vue-expression.ts",
+    `(${expression});`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const statement = source.statements[0];
+  if (!statement || !ts.isExpressionStatement(statement) || source.statements.length !== 1)
+    return null;
+  let node: ts.Expression = statement.expression;
+  while (ts.isParenthesizedExpression(node)) node = node.expression;
+  if (!ts.isCallExpression(node)) return null;
+  let callee: ts.Expression = node.expression;
+  while (ts.isPropertyAccessExpression(callee)) callee = callee.expression;
+  return ts.isIdentifier(callee) ? (roots.get(callee.text) ?? null) : null;
+}
+
+type Classification = Omit<RawSourceFinding, "ruleId" | "path" | "line" | "cause">;
 
 /** Classifies a `v-html` expression without evaluating it. */
 function classifyVHtml(
   expression: string,
-  computeds: Map<string, string> = new Map(),
-): Omit<RawSourceFinding, "ruleId" | "path" | "line" | "cause"> | null {
+  scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map() },
+): Classification | null {
   const trimmed = expression.trim();
-  const viaComputed = /^[A-Za-z_$][\w$]*$/.test(trimmed) ? computeds.get(trimmed) : undefined;
+  const viaComputed = /^[A-Za-z_$][\w$]*$/.test(trimmed)
+    ? scripts.computeds.get(trimmed)
+    : undefined;
   if (viaComputed !== undefined) {
     return {
       severity: "low",
@@ -151,9 +190,28 @@ function classifyVHtml(
       evidence: `bound value -> v-html (computed "${trimmed}" wraps a ${viaComputed} call; inferred from the script, verify it covers the whole value and is not configured to allow script or event handlers)`,
     };
   }
-  if (/^(['"`])[^'"`$]*\1$/.test(trimmed) || SANITIZED.test(trimmed)) {
-    return null;
-  }
+  if (/^(['"`])[^'"`$]*\1$/.test(trimmed)) return null;
+  const rootModule = sanitizerRootOf(trimmed, scripts.roots);
+  if (rootModule !== null && TRUSTED_SANITIZER_MODULES.has(rootModule)) return null;
+  const finding = classifyUnsanitized(trimmed);
+  const named = SANITIZED.exec(trimmed);
+  if (!named) return finding;
+  // The name looks like a sanitizer but is not a proven import (a Vue method, a local function,
+  // a global) or is escape-html, which does not cover every context: keep the finding, inferred.
+  const note =
+    rootModule === "escape-html"
+      ? `escape-html only escapes & < > " ' and is not sufficient in an attribute, URL or script context; inferred`
+      : `sanitizer \`${named[1] ?? "sanitizer"}\` is not a known sanitizer import; inferred`;
+  return {
+    severity:
+      finding.severity === "high" || finding.severity === "critical" ? "medium" : finding.severity,
+    status: "suspected",
+    confidence: "low",
+    evidence: `${finding.evidence} (${note})`,
+  };
+}
+
+function classifyUnsanitized(trimmed: string): Classification {
   if (BROWSER_INPUT.test(trimmed)) {
     return {
       severity: "high",
@@ -181,16 +239,14 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
   let facts: JsFileFacts | null = null;
   let hasParseErrors = errors.length > 0;
   const cappedRules = new Set<string>();
-  const computeds = new Map<string, string>();
+  const scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map() };
 
   for (const block of [descriptor.script, descriptor.scriptSetup]) {
     if (!block) continue;
     const isTs = block.lang === "ts" || block.lang === "tsx";
-    for (const [name, module] of sanitizedComputeds(
-      block.content,
-      isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
-    ))
-      computeds.set(name, module);
+    const found = scriptSanitizers(block.content, isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX);
+    for (const [name, module] of found.computeds) scripts.computeds.set(name, module);
+    for (const [name, module] of found.roots) scripts.roots.set(name, module);
     const analysis = analyzeJsSource(block.content, path, {
       lineOffset: block.loc.start.line - 1,
       scriptKind: isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
@@ -223,7 +279,7 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
     if (node.type === NODE_ELEMENT) {
       for (const prop of node.props ?? []) {
         if (prop.type === PROP_DIRECTIVE && prop.name === "html" && prop.exp) {
-          const classification = classifyVHtml(prop.exp.content, computeds);
+          const classification = classifyVHtml(prop.exp.content, scripts);
           if (classification) {
             findings.push({
               ruleId: "PG-XSS-003",
