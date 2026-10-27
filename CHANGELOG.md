@@ -16,6 +16,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 - Project configuration file `pgard.config.json`, suppressions and baselines, a local result store with retention and history clearing, and comparison with the previous scan.
 - Windows support; an accuracy corpus with precision and recall checked in CI.
 - Single installable npm package `pgard` built with `npm run pack:pgard` and checked by `npm run smoke:pack`; release workflow, Homebrew formula template and release procedure (nothing published yet).
+- Docs: [TUI approach evaluation](docs/TUI_EVALUATION.md) for the M6 CLI dashboard (no code change).
 
 ### Changed
 
