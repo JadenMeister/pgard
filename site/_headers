@@ -9,10 +9,10 @@
   Strict-Transport-Security: max-age=31536000
 
 /*.css
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, max-age=0, must-revalidate
 
 /*.js
-  Cache-Control: public, max-age=3600
+  Cache-Control: public, max-age=0, must-revalidate
 
 /*.svg
   Cache-Control: public, max-age=86400
