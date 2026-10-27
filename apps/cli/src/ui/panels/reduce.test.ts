@@ -74,7 +74,7 @@ describe("reduce", () => {
     state = press(state, key("end"));
     expect(state.selected).toBe(state.findings.length - 1);
     expect(state.scroll.findings).toBeGreaterThan(0);
-    const visible = SIZE.rows - 3;
+    const visible = SIZE.rows - 3 - 1;
     expect(state.selected).toBeLessThan(state.scroll.findings + visible);
     state = press(state, key("down"));
     expect(state.selected).toBe(state.findings.length - 1);
@@ -82,7 +82,7 @@ describe("reduce", () => {
     expect(state.selected).toBe(0);
     expect(state.scroll.findings).toBe(0);
     state = press(state, key("pagedown"));
-    expect(state.selected).toBe(SIZE.rows - 3 - 1);
+    expect(state.selected).toBe(SIZE.rows - 3 - 1 - 1);
   });
 
   it("opens and closes help with ? and Esc, and Esc then leaves", () => {
@@ -148,7 +148,7 @@ describe("reduce", () => {
     expect(state.scroll.findings).toBe(0);
     state = resize(state, { columns: 60, rows: 10 });
     expect(state.selected).toBe(11);
-    expect(state.scroll.findings).toBe(11 - (10 - 3) + 1);
+    expect(state.scroll.findings).toBe(11 - (10 - 3 - 1) + 1);
     state = resize(state, { columns: 80, rows: 40 });
     expect(state.scroll.findings).toBe(0);
   });

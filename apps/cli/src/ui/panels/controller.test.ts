@@ -2,7 +2,8 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it } from "vitest";
 import type { Key, KeyReader } from "../../adapters/terminal.js";
-import { panelsFixtureResult } from "../../test-support.js";
+import { getRuleTextCatalog } from "../../rule-texts.js";
+import { panelsFixtureResult, testFinding, testResult } from "../../test-support.js";
 import { UserCancelledError } from "../components/prompts.js";
 import { renderPanelsOnce, runPanelsScreen } from "./controller.js";
 
@@ -308,5 +309,50 @@ describe("runPanelsScreen, interrupts and end of input", () => {
     });
     expect(exit).toBe("back");
     expect(out.written().endsWith(LEAVE)).toBe(true);
+  });
+});
+
+describe("runPanelsScreen, details and the signal restore", () => {
+  it("passes the rule catalog to the view (standards links in the opened finding)", async () => {
+    const out = fakeStdout();
+    const exit = await runPanelsScreen({
+      result: testResult({ findings: [testFinding({ ruleId: "PG-SQL-001" })] }),
+      locale: "en",
+      stdout: out.stream,
+      env: EMPTY_ENV,
+      keys: scripted(press("left"), press("return"), press("escape"), press("escape")),
+      ruleTexts: getRuleTextCatalog(),
+      processEvents: new EventEmitter(),
+    });
+    expect(exit).toBe("back");
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(out.written()).toContain("https://cwe.mitre.org/data/definitions/89.html");
+  });
+
+  it("gives the screen back synchronously at SIGINT, before the key wait unwinds", () => {
+    const writes: string[] = [];
+    const stdout = {
+      isTTY: true,
+      columns: 80,
+      rows: 24,
+      write: (chunk: string) => {
+        writes.push(chunk);
+        return true;
+      },
+      on: () => stdout,
+      off: () => stdout,
+    };
+    const processEvents = new EventEmitter();
+    void runPanelsScreen({
+      result: panelsFixtureResult(),
+      locale: "en",
+      stdout: stdout as never,
+      env: EMPTY_ENV,
+      keys: keysOf(() => new Promise<Key>(() => undefined)),
+      processEvents,
+    });
+    processEvents.emit("SIGINT");
+    // No await: the terminal is already restored when the signal handler returns.
+    expect(writes.at(-1)).toBe(LEAVE);
   });
 });

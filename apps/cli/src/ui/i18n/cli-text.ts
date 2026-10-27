@@ -223,8 +223,21 @@ export interface PanelsText {
   title: string;
   /** Tab labels, in tab order. */
   tabs: Record<"overview" | "charts" | "coverage" | "findings", string>;
-  /** Footer key hints. */
-  hints: string;
+  /** Footer key hints for each state of the view; cut at the terminal width. */
+  hints: Record<"default" | "findings" | "filter" | "detail" | "help" | "noMatch", string>;
+  /** Filter line above the findings list. */
+  filter: {
+    label: string;
+    /** "3 of 12": how many of all findings the list shows. */
+    count: (shown: number, total: number) => string;
+    none: string;
+    names: Record<"severity" | "area" | "rule" | "search", string>;
+    searchPrompt: string;
+    /** The list is empty because of the filters, not because there are no findings. */
+    noMatch: (total: number) => string;
+  };
+  /** Labels in the opened finding. */
+  detail: { where: string; rule: string; references: string };
   helpTitle: string;
   helpLines: string[];
   confirmCancel: string;
@@ -486,19 +499,40 @@ const EN: CliText = {
   panels: {
     title: "PGARD panels",
     tabs: { overview: "Overview", charts: "Charts", coverage: "Coverage", findings: "Findings" },
-    hints: "Tab: panel  Up/Down: scroll  ?: help  Esc: back",
+    hints: {
+      default: "Esc: back  ?: help  Tab: panel  Up/Down: scroll",
+      findings: "Esc: back  ?: help  Enter: open  /: search  1-5: severity",
+      filter: "Esc: clear  Enter: keep  Type to search",
+      detail: "Esc/Enter: close  Up/Down: scroll",
+      help: "?/Esc: close  Up/Down: scroll",
+      noMatch: "Esc: back  ?: help  c: clear filters  /: search",
+    },
+    filter: {
+      label: "Filters",
+      count: (shown, total) => `${shown} of ${total}`,
+      none: "none",
+      names: { severity: "severity", area: "area", rule: "rule", search: "search" },
+      searchPrompt: "Search",
+      noMatch: (total) =>
+        `No finding matches these filters, but ${total} ${total === 1 ? "finding exists" : "findings exist"}. Press c to clear the filters.`,
+    },
+    detail: { where: "Where", rule: "Rule", references: "References" },
     helpTitle: "Panel view help",
     helpLines: [
       "Tab, Shift+Tab, Left, Right: next or previous panel",
-      "Up, Down: scroll (in the findings list: move the selection)",
+      "Up, Down, j, k: scroll (in the findings list: move the selection)",
       "PageUp, PageDown: scroll one page",
       "Home, End: first or last line",
-      "Enter: reserved for finding details",
+      "Findings list:",
+      "  Enter: open the selected finding (evidence, fix, standards); Enter or Esc closes it",
+      "  1-5: show one severity (1 critical ... 5 info; again to clear), 0 or s: next severity",
+      "  a: next area (code, history, web), r: next rule, c: clear all filters",
+      "  /: search title, rule id and path; Enter keeps it, Esc clears it, then Esc leaves",
       "?: show or hide this help",
-      "Esc: close help, or leave the panel view (q leaves at once)",
+      "Esc: close help or a finding, clear the search, or leave the panel view (q leaves at once)",
       "Ctrl+C: ask to cancel (y exits with status 130)",
       "",
-      "Read-only: nothing is changed or uploaded. Evidence is not shown here.",
+      "Read-only: nothing is changed or uploaded. Evidence is shown redacted, as in the result.",
     ],
     confirmCancel: "Cancel and exit? [y/N]",
     tooSmall: (columns, rows, minColumns, minRows) =>
@@ -769,19 +803,40 @@ const KO: CliText = {
   panels: {
     title: "PGARD 패널",
     tabs: { overview: "개요", charts: "차트", coverage: "검사 범위", findings: "발견 항목" },
-    hints: "Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로",
+    hints: {
+      default: "Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤",
+      findings: "Esc: 뒤로  ?: 도움말  Enter: 열기  /: 검색  1-5: 심각도",
+      filter: "Esc: 지우기  Enter: 유지  입력해서 검색",
+      detail: "Esc/Enter: 닫기  위/아래: 스크롤",
+      help: "?/Esc: 닫기  위/아래: 스크롤",
+      noMatch: "Esc: 뒤로  ?: 도움말  c: 필터 해제  /: 검색",
+    },
+    filter: {
+      label: "필터",
+      count: (shown, total) => `${total}개 중 ${shown}개`,
+      none: "없음",
+      names: { severity: "심각도", area: "영역", rule: "규칙", search: "검색" },
+      searchPrompt: "검색",
+      noMatch: (total) =>
+        `이 필터에 맞는 항목이 없지만 발견 항목은 ${total}개 있습니다. c를 누르면 필터를 지웁니다.`,
+    },
+    detail: { where: "위치", rule: "규칙", references: "참조" },
     helpTitle: "패널 화면 도움말",
     helpLines: [
       "Tab, Shift+Tab, 왼쪽, 오른쪽: 다음·이전 패널",
-      "위, 아래: 스크롤 (발견 항목에서는 선택 이동)",
+      "위, 아래, j, k: 스크롤 (발견 항목에서는 선택 이동)",
       "PageUp, PageDown: 한 페이지 스크롤",
       "Home, End: 처음 또는 마지막 줄",
-      "Enter: 발견 항목 상세용으로 예약됨",
+      "발견 항목 목록:",
+      "  Enter: 선택한 항목 열기(증거, 수정 방법, 표준). Enter나 Esc로 닫기",
+      "  1-5: 한 심각도만 보기(1 치명 ... 5 정보, 다시 누르면 해제), 0 또는 s: 다음 심각도",
+      "  a: 다음 영역(코드, 이력, 웹), r: 다음 규칙, c: 모든 필터 해제",
+      "  /: 제목·규칙 ID·경로 검색. Enter로 유지, Esc로 지우기, 한 번 더 Esc로 나가기",
       "?: 이 도움말 열기·닫기",
-      "Esc: 도움말 닫기, 또는 패널 화면 나가기 (q는 바로 나가기)",
+      "Esc: 도움말·상세 닫기, 검색 지우기, 또는 패널 화면 나가기 (q는 바로 나가기)",
       "Ctrl+C: 취소 확인 (y를 누르면 종료 코드 130)",
       "",
-      "읽기 전용입니다. 아무것도 바꾸거나 업로드하지 않으며, 증거 내용은 여기 표시하지 않습니다.",
+      "읽기 전용입니다. 아무것도 바꾸거나 업로드하지 않으며, 증거는 결과 화면처럼 가려진 상태로 표시합니다.",
     ],
     confirmCancel: "취소하고 종료할까요? [y/N]",
     tooSmall: (columns, rows, minColumns, minRows) =>

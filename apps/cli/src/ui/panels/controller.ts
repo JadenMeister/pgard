@@ -1,4 +1,4 @@
-import type { RuleLocale, ScanResult } from "@pgard/findings";
+import type { RuleLocale, RuleTextCatalog, ScanResult } from "@pgard/findings";
 import type { KeyReader, OutputStream } from "../../adapters/terminal.js";
 import { UserCancelledError } from "../components/prompts.js";
 import {
@@ -32,6 +32,8 @@ export interface PanelsScreenOptions {
   stdout: OutputStream & { rows?: number };
   env: Readonly<Record<string, string | undefined>>;
   keys: KeyReader;
+  /** Rule catalog: the standards links in the finding detail. */
+  ruleTexts?: RuleTextCatalog | undefined;
   /** Default: the real process. */
   processEvents?: ProcessEvents;
 }
@@ -71,7 +73,12 @@ export async function runPanelsScreen(options: PanelsScreenOptions): Promise<Pan
   const { stdout, keys } = options;
   const events = options.processEvents ?? process;
   const renderOptions = renderOptionsOf(options);
-  let state: PanelsState = createPanelsState(options.result, options.locale, sizeOf(stdout));
+  let state: PanelsState = createPanelsState(
+    options.result,
+    options.locale,
+    sizeOf(stdout),
+    options.ruleTexts,
+  );
   let isOpen = false;
   const restore = (): void => {
     if (!isOpen) return;
@@ -153,7 +160,7 @@ export function renderPanelsOnce(
     columns: terminalWidth(options.stdout, options.env),
     rows: Number.isInteger(rows) && rows > 0 ? rows : DEFAULT_ROWS,
   };
-  const state = createPanelsState(options.result, options.locale, size);
+  const state = createPanelsState(options.result, options.locale, size, options.ruleTexts);
   const lines = renderFrame(state, size, renderOptionsOf(options));
   options.stdout.write(`${lines.map((line) => line.trimEnd()).join("\n")}\n`);
 }
