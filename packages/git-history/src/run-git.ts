@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { resolveGitExecutable } from "./git-executable.js";
 
 export interface GitRunOptions {
@@ -16,6 +16,8 @@ export interface GitRunOptions {
    * `output_limit` (e.g. to read only the start of a large blob).
    */
   truncate?: boolean;
+  /** Overrides the 60 s time limit (tests only). */
+  timeoutMs?: number;
 }
 
 /**
@@ -320,6 +322,48 @@ export function buildGitArgs(
   return args;
 }
 
+/** Git children that have started and not yet closed. */
+const liveChildren = new Set<ChildProcess>();
+let exitHooksInstalled = false;
+
+/** Kills every live git child at once (used on process exit and termination signals). */
+export function killAllGitChildren(): void {
+  for (const child of liveChildren) {
+    child.kill("SIGKILL");
+  }
+}
+
+/** Process ids of live git children (test seam: lets tests check none is left alive). */
+export function liveGitChildPids(): number[] {
+  return [...liveChildren].flatMap((child) => (child.pid === undefined ? [] : [child.pid]));
+}
+
+function onTerminationSignal(signal: "SIGINT" | "SIGTERM"): void {
+  // Another handler (the CLI's Ctrl+C handler) owns this signal and cancels through the abort
+  // path, which kills the child right away; do not preempt it. If only this listener is left,
+  // Node's default (terminate) was replaced by it, so kill the children and restore the default.
+  if (process.listenerCount(signal) > 1) return;
+  killAllGitChildren();
+  process.removeListener(signal, signalListeners[signal]);
+  process.kill(process.pid, signal);
+}
+
+const signalListeners = {
+  SIGINT: () => onTerminationSignal("SIGINT"),
+  SIGTERM: () => onTerminationSignal("SIGTERM"),
+};
+
+function trackChild(child: ChildProcess): void {
+  liveChildren.add(child);
+  if (exitHooksInstalled) return;
+  exitHooksInstalled = true;
+  // A blocked git child would otherwise outlive PGARD. `exit` also fires on process.exit and on
+  // uncaught exceptions; a hard kill (SIGKILL) of PGARD cannot be intercepted by any process.
+  process.on("exit", killAllGitChildren);
+  process.on("SIGINT", signalListeners.SIGINT);
+  process.on("SIGTERM", signalListeners.SIGTERM);
+}
+
 function execGit(args: readonly string[], options: GitRunOptions): Promise<string> {
   const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
@@ -336,6 +380,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       windowsHide: true,
       stdio: ["pipe", "pipe", "ignore"],
     });
+    trackChild(child);
     const chunks: Buffer[] = [];
     let size = 0;
     let failure: GitCommandError | null = null;
@@ -343,7 +388,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     const timer = setTimeout(() => {
       failure = new GitCommandError("git command timed out", null, "timeout");
       child.kill("SIGKILL");
-    }, DEFAULT_TIMEOUT_MS);
+    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     const onAbort = () => {
       failure ??= new GitCommandError("git command was cancelled", null, "cancelled");
       child.kill("SIGKILL");
@@ -370,6 +415,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       failure ??= new GitCommandError("git could not be started", null);
     });
     child.on("close", (code) => {
+      liveChildren.delete(child);
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onAbort);
       if (failure) {
