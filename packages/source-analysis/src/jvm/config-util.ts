@@ -179,72 +179,131 @@ export interface WalkContext {
   conditional: boolean;
 }
 
-/** True when an expression contains a `return` or `throw` jump (lambdas are not entered). */
-function exprLeaves(expr: Expr | null | undefined): boolean {
-  if (expr === null || expr === undefined) return false;
-  switch (expr.k) {
-    case "lit":
-      return expr.jump === true;
-    case "member":
-      return exprLeaves(expr.obj);
-    case "index":
-      return exprLeaves(expr.obj) || exprLeaves(expr.index);
-    case "call":
-      return exprLeaves(expr.recv) || expr.args.some((arg) => exprLeaves(arg));
-    case "new":
-      return expr.args.some((arg) => exprLeaves(arg));
-    case "bin":
-      return exprLeaves(expr.left) || exprLeaves(expr.right);
-    case "tmpl":
-      return expr.parts.some((part) => typeof part !== "string" && exprLeaves(part));
-    case "cond":
-      return exprLeaves(expr.test) || exprLeaves(expr.a) || exprLeaves(expr.b);
-    case "alt":
-      return expr.options.some((option) => exprLeaves(option));
-    case "cast":
-      return exprLeaves(expr.expr);
-    case "array":
-      return expr.elems.some((elem) => exprLeaves(elem));
-    case "other":
-      return expr.kids.some((kid) => exprLeaves(kid));
-    default:
-      return false;
+/**
+ * `nested` is null in the block being walked. Inside a nested lambda it lists the names of the
+ * calls that take the lambdas between the block and the statement (Kotlin's implicit labels).
+ */
+type Nested = readonly string[] | null;
+
+/** True when an expression contains a jump out of the block (see `leaves`). */
+function exprLeaves(expr: Expr | null | undefined, nested: Nested): boolean {
+  let current: Expr | null | undefined = expr;
+  // Binary operators and receiver chains are walked in loops: a long chain must not overflow.
+  while (current !== null && current !== undefined) {
+    switch (current.k) {
+      case "lit":
+        return jumpLeaves(current.jump, nested);
+      case "member":
+        current = current.obj;
+        continue;
+      case "index":
+        if (exprLeaves(current.index, nested)) return true;
+        current = current.obj;
+        continue;
+      case "call": {
+        for (const arg of current.args) {
+          if (arg.k === "lambda") {
+            // Kotlin labels a lambda with the name of the function it is passed to.
+            if (listLeaves(arg.body, true, [...(nested ?? []), (current as CallExpr).name]))
+              return true;
+          } else if (exprLeaves(arg, nested)) {
+            return true;
+          }
+        }
+        current = current.recv;
+        continue;
+      }
+      case "new":
+        return current.args.some((arg) => exprLeaves(arg, nested));
+      case "bin":
+        if (exprLeaves(current.right, nested)) return true;
+        current = current.left;
+        continue;
+      case "tmpl":
+        return current.parts.some((part) => typeof part !== "string" && exprLeaves(part, nested));
+      case "cond":
+        return (
+          exprLeaves(current.test, nested) ||
+          exprLeaves(current.a, nested) ||
+          exprLeaves(current.b, nested)
+        );
+      case "alt":
+        return current.options.some((option) => exprLeaves(option, nested));
+      case "cast":
+        current = current.expr;
+        continue;
+      case "array":
+        return current.elems.some((elem) => exprLeaves(elem, nested));
+      case "lambda":
+        return listLeaves(current.body, true, [...(nested ?? []), "<lambda>"]);
+      case "other":
+        return current.kids.some((kid) => exprLeaves(kid, nested));
+      default:
+        return false;
+    }
   }
+  return false;
+}
+
+function jumpLeaves(
+  jump: { kind: "return" | "throw"; label: string | null } | undefined,
+  nested: Nested,
+): boolean {
+  if (jump === undefined) return false;
+  if (jump.kind === "throw") return true;
+  // In a nested lambda only a labelled return to an outer block leaves it.
+  return nested === null || (jump.label !== null && !nested.includes(jump.label));
+}
+
+function listLeaves(list: readonly Stmt[] | null, inLoopOrArms: boolean, nested: Nested): boolean {
+  return (list ?? []).some((item) => leaves(item, inLoopOrArms, nested));
 }
 
 /**
  * Whether a statement can leave the enclosing lambda or method: a `return`, a `throw`, or a Kotlin
- * `return`/`throw` inside an expression, anywhere in its subtree (nested lambdas are not entered).
- * A `break` or `continue` only leaves a loop or `switch`, so inside a loop or an arms block
- * (switch, when, catch) only a `return` counts: it never makes the code after the loop conditional.
+ * `return`/`throw` inside an expression, anywhere in its subtree. A `throw` counts everywhere (a
+ * caught throw skips the rest of its `try`). A `break` or `continue` only leaves a loop or
+ * `switch`, so inside a loop or an arms block only a `return` or `throw` counts: it never makes
+ * the code after the loop conditional. Nested lambdas are entered only for a `throw` and for a
+ * labelled return (`return@outer`) whose label is not the lambda's own or one in between.
  */
-function leaves(stmt: Stmt, inLoopOrArms: boolean): boolean {
-  const list = (stmts: readonly Stmt[] | null, inner: boolean): boolean =>
-    (stmts ?? []).some((item) => leaves(item, inner));
+function leaves(stmt: Stmt, inLoopOrArms: boolean, nested: Nested): boolean {
   switch (stmt.s) {
     case "exit":
-      return stmt.ret === true || !inLoopOrArms || exprLeaves(stmt.value);
+      if (stmt.throw === true) return true;
+      if (nested !== null) {
+        return (
+          (stmt.ret === true && stmt.label !== undefined && !nested.includes(stmt.label)) ||
+          exprLeaves(stmt.value, nested)
+        );
+      }
+      return stmt.ret === true || !inLoopOrArms || exprLeaves(stmt.value, nested);
     case "local":
-      return exprLeaves(stmt.init);
+      return exprLeaves(stmt.init, nested);
     case "assign":
-      return exprLeaves(stmt.value);
+      return exprLeaves(stmt.value, nested);
     case "expr":
-      return exprLeaves(stmt.expr);
+      return exprLeaves(stmt.expr, nested);
     case "if":
       return (
-        exprLeaves(stmt.test) || list(stmt.then, inLoopOrArms) || list(stmt.else, inLoopOrArms)
+        exprLeaves(stmt.test, nested) ||
+        listLeaves(stmt.then, inLoopOrArms, nested) ||
+        listLeaves(stmt.else, inLoopOrArms, nested)
       );
     case "loop":
       return (
-        list(stmt.init, inLoopOrArms) ||
-        exprLeaves(stmt.test) ||
-        list(stmt.body, true) ||
-        list(stmt.update, true)
+        listLeaves(stmt.init, inLoopOrArms, nested) ||
+        exprLeaves(stmt.test, nested) ||
+        listLeaves(stmt.body, true, nested) ||
+        listLeaves(stmt.update, true, nested)
       );
     case "block":
-      return list(stmt.body, inLoopOrArms);
+      return listLeaves(stmt.body, inLoopOrArms, nested);
     case "arms":
-      return exprLeaves(stmt.subject) || stmt.arms.some((arm) => list(arm.body, true));
+      return (
+        exprLeaves(stmt.subject, nested) ||
+        stmt.arms.some((arm) => listLeaves(arm.body, true, nested))
+      );
     case "assert":
       return false;
   }
@@ -275,7 +334,7 @@ export function walkBody(
     for (const stmt of list ?? []) {
       stmtVisit(stmt, current);
       // After a statement that can leave the block, what follows may not run.
-      if (options.exits === true && !current.conditional && leaves(stmt, false)) {
+      if (options.exits === true && !current.conditional && leaves(stmt, false, null)) {
         current = { conditional: true };
       }
     }

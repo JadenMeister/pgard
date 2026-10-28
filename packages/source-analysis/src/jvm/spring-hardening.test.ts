@@ -706,3 +706,78 @@ describe("review round 6: any statement that can leave makes the rest conditiona
     expect((await run(kotlin, "C.kt")).findings).toEqual([]);
   });
 });
+
+describe("review round 7: labelled returns, throws and long expressions", () => {
+  const LOW = "medium/low/inferred";
+  const dsl = (line: string) =>
+    `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity, legacy: Boolean): SecurityFilterChain = http {\n    csrf { disable() }\n    sessionManagement {\n      ${line}\n      sessionCreationPolicy = SessionCreationPolicy.STATELESS\n    }\n    oauth2ResourceServer { jwt { } }\n  }\n}\n`;
+  const kotlin = async (line: string) =>
+    kind(of((await run(dsl(line), "C.kt")).findings, "PG-CSRF-001"));
+
+  it("a labelled return inside an inline lambda leaves the block (Kotlin)", async () => {
+    expect(await kotlin("if (legacy) run { return@sessionManagement }")).toBe(LOW);
+    expect(await kotlin("legacy.takeIf { it }?.let { return@sessionManagement }")).toBe(LOW);
+    expect(
+      await kotlin("listOf(1).forEach { x -> if (x > 0) { run { return@sessionManagement } } }"),
+    ).toBe(LOW);
+  });
+  it("a return to the lambda's own label, or to one in between, does not leave", async () => {
+    expect(await kotlin("sessionFixation { return@sessionFixation }")).toBe("none");
+    expect(await kotlin("run { run { return@run } }")).toBe("none");
+    expect(await kotlin("legacy.takeIf { it }?.let { return@let }")).toBe("none");
+  });
+  it("an unlabelled return in a nested lambda does not count", async () => {
+    expect(await kotlin("listOf(1).forEach { if (it > 0) return@forEach }")).toBe("none");
+  });
+  it("a throw inside a nested lambda counts", async () => {
+    expect(await kotlin("run { if (legacy) throw IllegalStateException() }")).toBe(LOW);
+  });
+
+  const javaPolicy = async (inside: string) =>
+    csrf(
+      `http.csrf(c -> c.disable()).sessionManagement(s -> { ${inside} s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); }).oauth2ResourceServer(o -> o.jwt());`,
+    );
+  it("a throw makes the rest conditional, also inside loops, switches and catches", async () => {
+    expect(
+      await javaPolicy(
+        "try { for (String r : required) { if (r == null) throw new IllegalArgumentException(); } s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); } catch (IllegalArgumentException e) { }",
+      ),
+    ).toBe(LOW);
+    expect(
+      await javaPolicy(
+        "for (String r : required) { if (r == null) throw new IllegalStateException(); }",
+      ),
+    ).toBe(LOW);
+    expect(
+      await javaPolicy(
+        "switch (mode) { case 1: throw new IllegalStateException(); default: break; }",
+      ),
+    ).toBe(LOW);
+    expect(
+      await javaPolicy(
+        "try { work(); } catch (Exception e) { throw new IllegalStateException(e); }",
+      ),
+    ).toBe(LOW);
+    // A break in the same places still does not.
+    expect(await javaPolicy("for (String r : required) { if (r == null) break; }")).toBe("none");
+  });
+  it("a Kotlin throw statement inside a loop counts", async () => {
+    expect(await kotlin("for (i in 1..3) { if (i == 2) throw IllegalStateException() }")).toBe(LOW);
+    expect(await kotlin("for (i in 1..3) { if (i == 2) break }")).toBe("none");
+  });
+
+  it("a very long string concatenation in the chain method does not lose the file (exits on)", async () => {
+    const terms = Array.from({ length: 10_000 }, () => '"a"').join(" + ");
+    const source = chain(`String banner = ${terms};\n    http.csrf(c -> c.disable()).formLogin();`);
+    const analysis = await run(source);
+    expect(analysis.incomplete).toBe(false);
+    expect(kind(of(analysis.findings, "PG-CSRF-001"))).toBe("medium/medium");
+  });
+  it("a very long receiver chain in an expression does not overflow", async () => {
+    const calls = Array.from({ length: 5_000 }, () => ".append(1)").join("");
+    const source = chain(
+      `Object x = new StringBuilder()${calls};\n    http.csrf(c -> c.disable()).formLogin();`,
+    );
+    expect(kind(of((await run(source)).findings, "PG-CSRF-001"))).toBe("medium/medium");
+  });
+});

@@ -620,7 +620,11 @@ export function convertJava(ast: AstResult): Unit {
             s: "exit",
             line,
             value: inner === undefined ? null : expr(inner, depth + 1),
-            ...(node.type === "return_statement" ? { ret: true } : {}),
+            ...(node.type === "return_statement"
+              ? { ret: true }
+              : node.type === "throw_statement"
+                ? { throw: true }
+                : {}),
           },
         ];
       }

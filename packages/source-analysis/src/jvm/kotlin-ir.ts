@@ -34,6 +34,12 @@ const NON_INIT = new Set([
   "label",
 ]);
 
+/** `return`, `return@label` or `throw` at the start of a Kotlin jump expression; `break` and `continue` are not jumps out of a block. */
+function jumpOf(source: string): { kind: "return" | "throw"; label: string | null } | null {
+  const match = /^(return|throw)(?:@([A-Za-z_][A-Za-z0-9_]*))?(?![A-Za-z0-9_@])/.exec(source);
+  return match === null ? null : { kind: match[1] as "return" | "throw", label: match[2] ?? null };
+}
+
 export function convertKotlin(ast: AstResult): Unit {
   let incomplete = false;
   const text = (node: AstNode): string => textOf(ast, node);
@@ -359,9 +365,9 @@ export function convertKotlin(ast: AstResult): Unit {
       case "throw_expression":
         // A `return` or `throw` inside an expression (`x ?: return@label`) leaves the block; a
         // `break` or `continue` only leaves a loop.
-        return /^(?:return|throw)\b/.test(text(node))
-          ? { k: "lit", line, jump: true }
-          : { k: "lit", line };
+        return jumpOf(text(node)) === null
+          ? { k: "lit", line }
+          : { k: "lit", line, jump: jumpOf(text(node)) as NonNullable<ReturnType<typeof jumpOf>> };
       case "labeled_expression": {
         const inner = nonAnon(node).find((child) => child.type !== "label");
         return inner === undefined ? { k: "lit", line } : expr(inner, depth + 1);
@@ -614,7 +620,14 @@ export function convertKotlin(ast: AstResult): Unit {
             s: "exit",
             line,
             value: inner === undefined ? null : expr(inner, depth + 1),
-            ...(node.type === "return_expression" ? { ret: true } : {}),
+            ...(node.type === "return_expression"
+              ? {
+                  ret: true,
+                  ...(jumpOf(text(node))?.label
+                    ? { label: jumpOf(text(node))?.label as string }
+                    : {}),
+                }
+              : { throw: true }),
           },
         ];
       }
