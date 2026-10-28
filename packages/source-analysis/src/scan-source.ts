@@ -7,6 +7,7 @@ import {
   isVendoredPath,
   matchesEverything,
   redactEvidence,
+  redactLocationPath,
   type AnalyzerOutput,
   type CachedSourceFile,
   type Coverage,
@@ -14,9 +15,16 @@ import {
   type ProjectConfig,
   type RuleStat,
 } from "@pgard/findings";
+import {
+  createInlineAnalyzer,
+  createWorkerAnalyzer,
+  DEFAULT_PER_FILE_LIMIT_MS,
+  defaultAnalysisWorker,
+  MIN_FILE_LIMIT_MS,
+  type FileOutcome,
+} from "./file-worker.js";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
-import { analyzeGoSource } from "./go/analyze-go.js";
-import { analyzeJsSource, type JsFileFacts } from "./js/analyze-js.js";
+import type { JsFileFacts } from "./js/analyze-js.js";
 import { GO_RULE_IDS, JS_RULE_IDS, VUE_RULE_IDS } from "./rules.js";
 import { scanJvm, isJvmWalk, JVM_LANGUAGES } from "./jvm/scan-jvm.js";
 import { scanPhp } from "./php/scan-php.js";
@@ -27,9 +35,9 @@ import {
   detectLanguageTrack,
   languageTrackCoverage,
 } from "./tree-sitter/language-track.js";
-import { analyzeVueSource } from "./vue/analyze-vue.js";
 import {
   MAX_BUILD_DIRECTORY_PROBES,
+  MAX_WALK_ENTRIES,
   readTextFile,
   walkSourceTree,
   type SourceFile,
@@ -53,6 +61,18 @@ export interface SourceScanOptions {
    * project-wide checks and every coverage note are still computed from all files.
    */
   reuse?: { files: ReadonlyMap<string, CachedSourceFile>; label: string } | null;
+  /**
+   * Hard limit for one JavaScript, TypeScript, Vue or Go file (default 20 s); the remaining time
+   * budget can stop a file earlier. A stopped file is not analyzed and its area is partial.
+   */
+  perFileTimeLimitMs?: number;
+  /**
+   * Worker entry that runs the per-file analysis. Defaults to the built worker next to this
+   * module; null runs the analysis in this thread, without the hard limit (tests from source).
+   */
+  analysisWorker?: URL | null;
+  /** Directory entries the walk may visit (tests); defaults to `MAX_WALK_ENTRIES`. */
+  maxWalkEntries?: number;
 }
 
 /** What a source scan hands back besides its findings: the cache for the next scan. */
@@ -117,6 +137,30 @@ interface LanguageStats {
   /** Files that hit the per-file finding cap (relative paths). */
   cappedFiles: string[];
   skippedForTime: number;
+  /** Files not analyzed because the parser or analyzer reached the stack limit. */
+  stackLimited: string[];
+  /** Files not analyzed because their analysis ran out of memory. */
+  memoryLimited: string[];
+  /** Files whose analysis was stopped at the per-file time limit. */
+  timedOut: string[];
+  /** Files whose analysis was stopped because the scan's time budget ran out. */
+  stoppedForBudget: string[];
+}
+
+function emptyStats(): LanguageStats {
+  return {
+    files: 0,
+    analyzed: 0,
+    unparsable: 0,
+    unreadable: 0,
+    overran: 0,
+    cappedFiles: [],
+    skippedForTime: 0,
+    stackLimited: [],
+    memoryLimited: [],
+    timedOut: [],
+    stoppedForBudget: [],
+  };
 }
 
 const GENERATED_REASONS: ReadonlySet<string> = new Set<GeneratedDirectoryReason>([
@@ -138,7 +182,7 @@ const MAX_LABEL_PATH_LENGTH = 60;
 function listPaths(paths: string[]): string {
   const listed = paths
     .slice(0, MAX_LISTED_PATHS)
-    .map((item) => JSON.stringify(item))
+    .map((item) => JSON.stringify(redactEvidence(item, { maxLength: 200 })))
     .join(", ");
   const rest = paths.length - MAX_LISTED_PATHS;
   return rest > 0 ? `${listed} and ${rest} more` : listed;
@@ -314,6 +358,11 @@ export function describeSkippedDependencyDirectories(
   return compose(labels);
 }
 
+/** `20 s`, `1.5 s`. */
+function formatSeconds(ms: number): string {
+  return `${Number((ms / 1000).toFixed(1))} s`;
+}
+
 /** Capitalizes the first letter so a clause can start a sentence in a note. */
 function sentence(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
@@ -329,60 +378,6 @@ function matchesModule(imports: Set<string>, candidates: string[]): boolean {
   return [...imports].some((name) =>
     candidates.some((candidate) => name === candidate || name.startsWith(`${candidate}/`)),
   );
-}
-
-/**
- * The facts as they are kept, in a scan and in the stored state alike: a route path is redacted
- * like evidence (it ends up in finding evidence and in a finding's identity), so what is stored
- * never holds more than the result does, and a stored fact gives the same finding as a fresh one.
- */
-function storableFacts(facts: JsFileFacts): Record<string, unknown> {
-  return {
-    ...facts,
-    authRoutes: facts.authRoutes.map((route) => ({
-      ...route,
-      routePath: redactEvidence(route.routePath, { maxLength: 200 }),
-    })),
-  } as unknown as Record<string, unknown>;
-}
-
-/** Analyzes one file's text. Everything a later scan needs to reuse the result is in the entry. */
-function analyzeFile(file: SourceFile, content: string, hash: string): CachedSourceFile {
-  const base = { path: file.relativePath, language: file.language, hash };
-  if (file.language === "go") {
-    const analysis = analyzeGoSource(content, file.relativePath);
-    return {
-      ...base,
-      findings: analysis.findings.map(createSourceFinding),
-      facts: null,
-      goImports: [...analysis.imports],
-      hasJsx: false,
-      hasParseErrors: analysis.hasParseErrors,
-      capped: analysis.cappedRules.length > 0,
-    };
-  }
-  if (file.language === "vue") {
-    const analysis = analyzeVueSource(content, file.relativePath);
-    return {
-      ...base,
-      findings: analysis.findings.map(createSourceFinding),
-      facts: analysis.facts ? storableFacts(analysis.facts) : null,
-      goImports: [],
-      hasJsx: false,
-      hasParseErrors: analysis.hasParseErrors,
-      capped: analysis.cappedRules.length > 0,
-    };
-  }
-  const analysis = analyzeJsSource(content, file.relativePath);
-  return {
-    ...base,
-    findings: analysis.findings.map(createSourceFinding),
-    facts: storableFacts(analysis.facts),
-    goImports: [],
-    hasJsx: analysis.facts.hasJsx,
-    hasParseErrors: analysis.hasParseErrors,
-    capped: analysis.cappedRules.length > 0,
-  };
 }
 
 const isNumberList = (value: unknown): boolean =>
@@ -430,10 +425,19 @@ export async function scanSourceCode(
   const excludeMatcher = excludePatterns.length > 0 ? compilePathMatcher(excludePatterns) : null;
   const testPatterns = options.projectConfig?.testDirectories ?? [];
   const testMatcher = testPatterns.length > 0 ? compilePathMatcher(testPatterns) : null;
-  const walk = await walkSourceTree(
-    projectRoot,
-    excludeMatcher ? { isExcluded: (relativePath) => excludeMatcher.matches(relativePath) } : {},
-  );
+  const now = options.now ?? Date.now;
+  // The walk counts against the time budget too: a tree of countless empty folders cannot hold
+  // the scan past it.
+  const startedAt = now();
+  const timeBudgetMs = options.timeBudgetMs ?? 120_000;
+  const walk = await walkSourceTree(projectRoot, {
+    ...(excludeMatcher
+      ? { isExcluded: (relativePath) => excludeMatcher.matches(relativePath) }
+      : {}),
+    shouldStop: () => options.signal?.aborted === true || now() - startedAt > timeBudgetMs,
+    ...(options.maxWalkEntries === undefined ? {} : { maxEntries: options.maxWalkEntries }),
+  });
+  throwIfAborted(options.signal);
   const findings: Finding[] = [];
   const fileCache: CachedSourceFile[] = [];
   let reusedFiles = 0;
@@ -445,42 +449,10 @@ export async function scanSourceCode(
     go: 0,
   };
   const stats: Record<SourceLanguage, LanguageStats> = {
-    javascript: {
-      files: 0,
-      analyzed: 0,
-      unparsable: 0,
-      unreadable: 0,
-      overran: 0,
-      cappedFiles: [],
-      skippedForTime: 0,
-    },
-    typescript: {
-      files: 0,
-      analyzed: 0,
-      unparsable: 0,
-      unreadable: 0,
-      overran: 0,
-      cappedFiles: [],
-      skippedForTime: 0,
-    },
-    vue: {
-      files: 0,
-      analyzed: 0,
-      unparsable: 0,
-      unreadable: 0,
-      overran: 0,
-      cappedFiles: [],
-      skippedForTime: 0,
-    },
-    go: {
-      files: 0,
-      analyzed: 0,
-      unparsable: 0,
-      unreadable: 0,
-      overran: 0,
-      cappedFiles: [],
-      skippedForTime: 0,
-    },
+    javascript: emptyStats(),
+    typescript: emptyStats(),
+    vue: emptyStats(),
+    go: emptyStats(),
   };
   const jsFacts: { path: string; facts: JsFileFacts }[] = [];
   const goImports = new Set<string>();
@@ -488,24 +460,28 @@ export async function scanSourceCode(
   const jsxPaths = new Set<string>();
   const languageOfPath = new Map<string, SourceLanguage>();
 
-  const now = options.now ?? Date.now;
-  const startedAt = now();
-  const timeBudgetMs = options.timeBudgetMs ?? 120_000;
-  for (const file of walk.files) {
-    throwIfAborted(options.signal);
-    const languageStats = stats[file.language];
-    languageStats.files += 1;
-    languageOfPath.set(file.relativePath, file.language);
-    if (now() - startedAt > timeBudgetMs) {
-      languageStats.skippedForTime += 1;
-      continue;
-    }
-    const content = await readTextFile(file.absolutePath);
-    if (content === null) {
-      languageStats.unreadable += 1;
-      continue;
-    }
-    try {
+  const perFileLimitMs = options.perFileTimeLimitMs ?? DEFAULT_PER_FILE_LIMIT_MS;
+  const workerUrl =
+    options.analysisWorker === undefined ? defaultAnalysisWorker() : options.analysisWorker;
+  const analyzer =
+    workerUrl === null || walk.files.length === 0
+      ? createInlineAnalyzer()
+      : createWorkerAnalyzer(workerUrl);
+  try {
+    for (const file of walk.files) {
+      throwIfAborted(options.signal);
+      const languageStats = stats[file.language];
+      languageStats.files += 1;
+      languageOfPath.set(file.relativePath, file.language);
+      if (now() - startedAt > timeBudgetMs) {
+        languageStats.skippedForTime += 1;
+        continue;
+      }
+      const content = await readTextFile(file.absolutePath);
+      if (content === null) {
+        languageStats.unreadable += 1;
+        continue;
+      }
       // A file whose text is the one a stored scan analyzed (same path, language and SHA-256)
       // keeps that scan's result; anything else, or no stored scan, is analyzed now.
       const hash = createHash("sha256").update(content).digest("hex");
@@ -521,10 +497,33 @@ export async function scanSourceCode(
         reusedFiles += 1;
         reusedByLanguage[file.language] += 1;
       } else {
-        entry = analyzeFile(file, content, hash);
+        // The file gets the per-file limit, or what is left of the budget when that is less.
+        const remainingMs = timeBudgetMs - (now() - startedAt);
+        const limitMs = Math.max(MIN_FILE_LIMIT_MS, Math.min(perFileLimitMs, remainingMs));
+        // Rejects only when the scan is aborted (Ctrl+C), which ends the scan.
+        const outcome: FileOutcome = await analyzer.analyze(
+          { relativePath: file.relativePath, language: file.language },
+          content,
+          hash,
+          limitMs,
+          options.signal,
+        );
+        if (outcome.kind !== "done") {
+          if (outcome.kind === "stack") languageStats.stackLimited.push(file.relativePath);
+          else if (outcome.kind === "memory") languageStats.memoryLimited.push(file.relativePath);
+          else if (outcome.kind === "timeout") {
+            if (limitMs < perFileLimitMs) languageStats.stoppedForBudget.push(file.relativePath);
+            else languageStats.timedOut.push(file.relativePath);
+          } else languageStats.unparsable += 1;
+          throwIfAborted(options.signal);
+          continue;
+        }
+        entry = outcome.entry;
         rescannedFiles += 1;
       }
-      fileCache.push(entry);
+      // The cache is stored as is: a path that redaction would change (a secret-shaped or
+      // control-character file name) is not kept there, and the file is analyzed again next time.
+      if (redactLocationPath(file.relativePath) === file.relativePath) fileCache.push(entry);
       findings.push(...entry.findings);
       if (entry.language === "go") {
         for (const name of entry.goImports) goImports.add(name);
@@ -538,12 +537,12 @@ export async function scanSourceCode(
       if (entry.hasParseErrors) languageStats.unparsable += 1;
       languageStats.analyzed += 1;
       if (entry.capped) languageStats.cappedFiles.push(file.relativePath);
-    } catch {
-      languageStats.unparsable += 1;
+      // Checked after every file (including the last), so a slow file is always visible.
+      throwIfAborted(options.signal);
+      if (now() - startedAt > timeBudgetMs) languageStats.overran += 1;
     }
-    // Checked after every file (including the last), so a slow file is always visible.
-    throwIfAborted(options.signal);
-    if (now() - startedAt > timeBudgetMs) languageStats.overran += 1;
+  } finally {
+    analyzer.release();
   }
 
   // Dependency manifests for ORM detection (read-only, never executed).
@@ -680,7 +679,27 @@ export async function scanSourceCode(
       problems.push(
         `${languageStats.skippedForTime} file(s) not analyzed because the time budget was used`,
       );
+    if (languageStats.stackLimited.length > 0)
+      problems.push(
+        `${languageStats.stackLimited.length} file(s) nested too deeply to analyze (stack limit reached; not analyzed: ${listPaths(languageStats.stackLimited)})`,
+      );
+    if (languageStats.memoryLimited.length > 0)
+      problems.push(
+        `${languageStats.memoryLimited.length} file(s) needed more memory than the analysis may use (stopped; not analyzed: ${listPaths(languageStats.memoryLimited)})`,
+      );
+    if (languageStats.timedOut.length > 0)
+      problems.push(
+        `${languageStats.timedOut.length} file(s) took longer than the per-file limit of ${formatSeconds(perFileLimitMs)} (stopped; not analyzed: ${listPaths(languageStats.timedOut)})`,
+      );
+    if (languageStats.stoppedForBudget.length > 0)
+      problems.push(
+        `${languageStats.stoppedForBudget.length} file(s) stopped when the time budget ran out (not analyzed: ${listPaths(languageStats.stoppedForBudget)})`,
+      );
     if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
+    if (walk.stoppedEarly !== null)
+      problems.push(
+        `the directory walk stopped early (see source:walk); files beyond it were not found`,
+      );
     const isPartial = problems.length > 0;
     const entry: Coverage = {
       area: `source:${language}`,
@@ -689,7 +708,7 @@ export async function scanSourceCode(
       ruleIds: languageStats.files > 0 ? ruleIds : [],
       note:
         languageStats.files === 0
-          ? `No ${label} files found.`
+          ? `No ${label} files found.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}`
           : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}${reusedByLanguage[language] > 0 && options.reuse ? ` ${reusedByLanguage[language]} file(s) reused from scan ${options.reuse.label} (content unchanged).` : ""}`,
     };
     coverage.push(entry);
@@ -797,6 +816,18 @@ export async function scanSourceCode(
       status: "partial",
       ruleIds: [],
       note: CONFIG_BUDGET_NOTE,
+    });
+  }
+  if (walk.stoppedEarly !== null) {
+    coverage.push({
+      area: "source:walk",
+      scope: "code",
+      status: "partial",
+      ruleIds: [],
+      note:
+        walk.stoppedEarly.reason === "entries"
+          ? `The directory walk stopped after ${walk.stoppedEarly.visited} entries (limit ${options.maxWalkEntries ?? MAX_WALK_ENTRIES}); files beyond that point were not found or analyzed. Exclude generated or junk directories to scan the rest.`
+          : `The directory walk stopped after ${walk.stoppedEarly.visited} entries because the time budget ran out; files beyond that point were not found or analyzed.`,
     });
   }
   if (walk.skippedLarge > 0) {

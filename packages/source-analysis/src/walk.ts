@@ -126,6 +126,12 @@ export interface WalkResult {
   /** FIFOs, sockets, devices and entries that were no longer regular files; never opened. */
   skippedSpecialFiles: string[];
   isTruncated: boolean;
+  /**
+   * The walk stopped before it had seen the whole tree: it visited `MAX_WALK_ENTRIES` entries
+   * (`entries`), or the scan's time budget ran out or the scan was cancelled (`time`). Files
+   * beyond that point were not found, so no area may read as complete.
+   */
+  stoppedEarly: { reason: "entries" | "time"; visited: number } | null;
 }
 
 /** At most this many skipped directories are looked into for source files (one `readdir` each). */
@@ -177,6 +183,11 @@ export const MAX_TRACK_FILES = 20_000;
 export const MAX_TRACK_MANIFESTS = 200;
 /** Spring configuration files listed by the walk. */
 export const MAX_SPRING_CONFIG_FILES = 2_000;
+/**
+ * Directory entries (files, folders, links, anything) the walk looks at before it stops. Skipped
+ * directories are not entered, so this bounds trees of empty folders or junk files, not projects.
+ */
+export const MAX_WALK_ENTRIES = 300_000;
 
 /** Server-side template files of the Java stack (the XSS rule reads some, reports the rest). */
 const TEMPLATE_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -238,6 +249,10 @@ export interface WalkOptions {
    * not excluded are reported in `WalkResult.skippedMinified`.
    */
   isExcluded?: (relativePath: string) => boolean;
+  /** Asked every 64 directories: true stops the walk (time budget used up, scan cancelled). */
+  shouldStop?: () => boolean;
+  /** Entry cap (tests); defaults to `MAX_WALK_ENTRIES`. */
+  maxEntries?: number;
 }
 
 /**
@@ -279,6 +294,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     unreadableEntries: [],
     skippedSpecialFiles: [],
     isTruncated: false,
+    stoppedEarly: null,
   };
   /** `lstat` of a file about to be analyzed; failures and non-regular files are counted, not dropped. */
   const statRegular = async (absolutePath: string, relativePath: string) => {
@@ -298,7 +314,16 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
   let probes = 0;
   const manifestCache = new Map<string, boolean>();
   const stack: string[] = [root];
-  while (stack.length > 0) {
+  const maxEntries = options.maxEntries ?? MAX_WALK_ENTRIES;
+  let visited = 0;
+  let directories = 0;
+  walk: while (stack.length > 0) {
+    // Asked every 64 directories: often enough to stop within moments, with few clock reads.
+    directories += 1;
+    if (directories % 64 === 0 && options.shouldStop?.() === true) {
+      result.stoppedEarly = { reason: "time", visited };
+      break;
+    }
     const directory = stack.pop() as string;
     let entries;
     try {
@@ -324,6 +349,11 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     // it cannot hide a first-party vendor/ from analysis.
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
+      if (visited >= maxEntries) {
+        result.stoppedEarly = { reason: "entries", visited };
+        break walk;
+      }
+      visited += 1;
       const absolutePath = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) {
         result.skippedSymlinks.push(path.relative(root, absolutePath).split(path.sep).join("/"));

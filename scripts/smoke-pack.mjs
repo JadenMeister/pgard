@@ -266,6 +266,32 @@ try {
     ),
   );
 
+  // JavaScript and Go run in the per-file analysis worker (dist/source-worker.js): the packed
+  // scan must start it and keep its findings, and a file that overruns the limit is reported.
+  const jsProject = mkdtempSync(join(prefix, "js project "));
+  writeFileSync(
+    join(jsProject, "db.js"),
+    'const { Pool } = require("pg");\nconst pool = new Pool();\nexports.q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n',
+  );
+  writeFileSync(
+    join(jsProject, "slow.go"),
+    `package main\nfunc f() {\n${"var a\n".repeat(150000)}}\n`,
+  );
+  const jsScan = await grammar.scanSourceCode(jsProject, { perFileTimeLimitMs: 1000 });
+  const jsCoverage = jsScan.coverage.find((entry) => entry.area === "source:javascript");
+  const goCoverage = jsScan.coverage.find((entry) => entry.area === "source:go");
+  check(
+    "installed package analyzes JavaScript in the worker",
+    jsScan.findings.some((item) => item.ruleId === "PG-SQL-001") &&
+      jsCoverage?.status === "completed",
+    JSON.stringify(jsCoverage),
+  );
+  check(
+    "a file over the per-file limit is stopped and reported, not left hanging",
+    goCoverage?.status === "partial" && /per-file limit/.test(goCoverage.note ?? ""),
+    JSON.stringify(goCoverage),
+  );
+
   // A PHP project scanned from the installed layout, offline: the scanner only reads files, and
   // nothing is stored (PGARD_NO_STORE) or sent anywhere. The PHP grammar must load from assets/.
   process.env.PGARD_NO_STORE = "1";
