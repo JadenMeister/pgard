@@ -89,16 +89,23 @@ function isDisableRef(expr: Expr): boolean {
 function disableIn(expr: Expr): "yes" | "conditional" | null {
   if (expr.k !== "lambda") return null;
   let found: "yes" | "conditional" | null = null;
-  walkBody(expr.body, (call, context) => {
-    if (
-      call.name === "disable" &&
-      call.args.length === 0 &&
-      (call.recv === null || call.recv.k === "id")
-    ) {
-      if (!context.conditional) found = "yes";
-      else found ??= "conditional";
-    }
-  });
+  walkBody(
+    expr.body,
+    (call, context) => {
+      if (
+        call.name === "disable" &&
+        call.args.length === 0 &&
+        (call.recv === null || call.recv.k === "id")
+      ) {
+        if (!context.conditional) found = "yes";
+        else found ??= "conditional";
+      }
+    },
+    undefined,
+    undefined,
+    undefined,
+    { exits: true },
+  );
   return found;
 }
 
@@ -330,6 +337,8 @@ function judgeChain(
           }
         }
       },
+      undefined,
+      { exits: true },
     );
   };
   collect(method, 0);

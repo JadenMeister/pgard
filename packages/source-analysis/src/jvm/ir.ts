@@ -12,7 +12,7 @@ export type Expr = Base &
   (
     | { k: "str"; text: string }
     /** Number, boolean, char or null literal (`raw` is the text of a boolean). */
-    | { k: "lit"; raw?: string }
+    | { k: "lit"; raw?: string; jump?: boolean }
     | { k: "id"; name: string }
     | { k: "member"; obj: Expr; name: string }
     | { k: "index"; obj: Expr; index: Expr }

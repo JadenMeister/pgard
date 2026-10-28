@@ -357,7 +357,11 @@ export function convertKotlin(ast: AstResult): Unit {
       case "jump_expression":
       case "return_expression":
       case "throw_expression":
-        return { k: "lit", line };
+        // A `return` or `throw` inside an expression (`x ?: return@label`) leaves the block; a
+        // `break` or `continue` only leaves a loop.
+        return /^(?:return|throw)\b/.test(text(node))
+          ? { k: "lit", line, jump: true }
+          : { k: "lit", line };
       case "labeled_expression": {
         const inner = nonAnon(node).find((child) => child.type !== "label");
         return inner === undefined ? { k: "lit", line } : expr(inner, depth + 1);

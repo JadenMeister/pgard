@@ -179,22 +179,83 @@ export interface WalkContext {
   conditional: boolean;
 }
 
-/** A statement list that can leave the enclosing block or lambda (return, break, continue, throw). */
-function exits(list: readonly Stmt[] | null): boolean {
-  return (list ?? []).some((stmt) => {
-    switch (stmt.s) {
-      case "exit":
-        return true;
-      case "if":
-        return exits(stmt.then) || exits(stmt.else);
-      case "block":
-        return exits(stmt.body);
-      case "arms":
-        return stmt.arms.some((arm) => exits(arm.body));
-      default:
-        return false;
-    }
-  });
+/** True when an expression contains a `return` or `throw` jump (lambdas are not entered). */
+function exprLeaves(expr: Expr | null | undefined): boolean {
+  if (expr === null || expr === undefined) return false;
+  switch (expr.k) {
+    case "lit":
+      return expr.jump === true;
+    case "member":
+      return exprLeaves(expr.obj);
+    case "index":
+      return exprLeaves(expr.obj) || exprLeaves(expr.index);
+    case "call":
+      return exprLeaves(expr.recv) || expr.args.some((arg) => exprLeaves(arg));
+    case "new":
+      return expr.args.some((arg) => exprLeaves(arg));
+    case "bin":
+      return exprLeaves(expr.left) || exprLeaves(expr.right);
+    case "tmpl":
+      return expr.parts.some((part) => typeof part !== "string" && exprLeaves(part));
+    case "cond":
+      return exprLeaves(expr.test) || exprLeaves(expr.a) || exprLeaves(expr.b);
+    case "alt":
+      return expr.options.some((option) => exprLeaves(option));
+    case "cast":
+      return exprLeaves(expr.expr);
+    case "array":
+      return expr.elems.some((elem) => exprLeaves(elem));
+    case "other":
+      return expr.kids.some((kid) => exprLeaves(kid));
+    default:
+      return false;
+  }
+}
+
+/**
+ * Whether a statement can leave the enclosing lambda or method: a `return`, a `throw`, or a Kotlin
+ * `return`/`throw` inside an expression, anywhere in its subtree (nested lambdas are not entered).
+ * A `break` or `continue` only leaves a loop or `switch`, so inside a loop or an arms block
+ * (switch, when, catch) only a `return` counts: it never makes the code after the loop conditional.
+ */
+function leaves(stmt: Stmt, inLoopOrArms: boolean): boolean {
+  const list = (stmts: readonly Stmt[] | null, inner: boolean): boolean =>
+    (stmts ?? []).some((item) => leaves(item, inner));
+  switch (stmt.s) {
+    case "exit":
+      return stmt.ret === true || !inLoopOrArms || exprLeaves(stmt.value);
+    case "local":
+      return exprLeaves(stmt.init);
+    case "assign":
+      return exprLeaves(stmt.value);
+    case "expr":
+      return exprLeaves(stmt.expr);
+    case "if":
+      return (
+        exprLeaves(stmt.test) || list(stmt.then, inLoopOrArms) || list(stmt.else, inLoopOrArms)
+      );
+    case "loop":
+      return (
+        list(stmt.init, inLoopOrArms) ||
+        exprLeaves(stmt.test) ||
+        list(stmt.body, true) ||
+        list(stmt.update, true)
+      );
+    case "block":
+      return list(stmt.body, inLoopOrArms);
+    case "arms":
+      return exprLeaves(stmt.subject) || stmt.arms.some((arm) => list(arm.body, true));
+    case "assert":
+      return false;
+  }
+}
+
+export interface WalkOptions {
+  /**
+   * After a statement that can leave the enclosing lambda or method (`if (x) return;`, a return in
+   * a loop or `try`, a Kotlin `x ?: return`), the rest of that list is visited as conditional.
+   */
+  exits?: boolean;
 }
 
 /**
@@ -207,13 +268,14 @@ export function walkBody(
   onAssign: (stmt: Extract<Stmt, { s: "assign" }>, context: WalkContext) => void = () => {},
   onStmt: (stmt: Stmt, context: WalkContext) => void = () => {},
   onNew: (expr: Extract<Expr, { k: "new" }>, context: WalkContext) => void = () => {},
+  options: WalkOptions = {},
 ): void {
   const stmts = (list: readonly Stmt[] | null, context: WalkContext): void => {
     let current = context;
     for (const stmt of list ?? []) {
       stmtVisit(stmt, current);
-      // After a branch that can leave (`if (x) return;`), what follows may not run.
-      if (!current.conditional && (stmt.s === "if" || stmt.s === "arms") && exits([stmt])) {
+      // After a statement that can leave the block, what follows may not run.
+      if (options.exits === true && !current.conditional && leaves(stmt, false)) {
         current = { conditional: true };
       }
     }

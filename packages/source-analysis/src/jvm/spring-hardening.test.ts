@@ -639,3 +639,70 @@ describe("review round 5", () => {
     expect(readable.unsupportedSecurityForms).toEqual([]);
   });
 });
+
+describe("review round 6: any statement that can leave makes the rest conditional", () => {
+  const bearer = ".oauth2ResourceServer(o -> o.jwt())";
+  const policy = async (inside: string) =>
+    csrf(
+      `http.csrf(c -> c.disable()).sessionManagement(s -> { ${inside} s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); })${bearer};`,
+    );
+  const LOW = "medium/low/inferred";
+  it("a return inside a loop", async () => {
+    expect(await policy("for (String p : paths) { if (p.isEmpty()) return; }")).toBe(LOW);
+    expect(await policy("while (more()) { return; }")).toBe(LOW);
+  });
+  it("a return inside try, catch or finally", async () => {
+    expect(await policy("try { if (x) return; } finally { cleanup(); }")).toBe(LOW);
+    expect(await policy("try { work(); } catch (Exception e) { return; }")).toBe(LOW);
+    expect(await policy("try { work(); } finally { return; }")).toBe(LOW);
+  });
+  it("a return only in a switch arm, only in an else arm, or in a nested block", async () => {
+    expect(await policy("switch (mode) { case 1: return; default: log(); }")).toBe(LOW);
+    expect(await policy("if (x) { log(); } else { return; }")).toBe(LOW);
+    expect(await policy("{ { if (x) { return; } } }")).toBe(LOW);
+    expect(await policy("if (x) { if (y) { return; } }")).toBe(LOW);
+  });
+  it("a throw guard is conservative: low", async () => {
+    expect(await policy("if (x) throw new IllegalStateException();")).toBe(LOW);
+  });
+  it("break and continue only leave their loop or switch", async () => {
+    expect(await policy("switch (mode) { case 1: log(); break; default: break; }")).toBe("none");
+    expect(
+      await policy("for (String p : paths) { if (p.isEmpty()) break; if (p.isBlank()) continue; }"),
+    ).toBe("none");
+    // Inside the loop body, what follows a continue is conditional.
+    expect(
+      await csrf(
+        "for (String p : paths) { if (p.isEmpty()) continue; http.csrf(c -> c.disable()); }\n    http.formLogin();",
+      ),
+    ).toBe(LOW);
+  });
+  it("a statement that cannot leave changes nothing", async () => {
+    expect(
+      await policy("if (x) { log(); } else { other(); } for (String p : paths) { use(p); }"),
+    ).toBe("none");
+    expect(await policy("try { work(); } catch (Exception e) { log(); }")).toBe("none");
+  });
+  it("a jump inside a Kotlin expression", async () => {
+    const dsl = (line: string) =>
+      `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity): SecurityFilterChain = http {\n    csrf { disable() }\n    sessionManagement {\n      ${line}\n      sessionCreationPolicy = SessionCreationPolicy.STATELESS\n    }\n    oauth2ResourceServer { jwt { } }\n  }\n}\n`;
+    const result = async (line: string) =>
+      kind(of((await run(dsl(line), "C.kt")).findings, "PG-CSRF-001"));
+    expect(await result('val cfg = System.getenv("X") ?: return@sessionManagement')).toBe(LOW);
+    expect(await result('val cfg = System.getenv("X") ?: throw IllegalStateException()')).toBe(LOW);
+    expect(await result('println(System.getenv("X") ?: return@sessionManagement)')).toBe(LOW);
+    expect(await result('val cfg = System.getenv("X") ?: "default"')).toBe("none");
+    expect(await result("for (i in 1..3) { if (i == 2) break }")).toBe("none");
+  });
+  it("a return in a nested lambda does not leave the outer one", async () => {
+    expect(await policy("paths.forEach(p -> { if (p.isEmpty()) return; });")).toBe("none");
+  });
+  it("the cookie walk is not affected by early returns", async () => {
+    const source =
+      'import javax.servlet.http.Cookie;\nclass C {\n  void f(HttpServletResponse res, String token) {\n    if (token == null) return;\n    Cookie c = new Cookie("session", token);\n    c.setHttpOnly(true);\n    c.setSecure(true);\n    res.addCookie(c);\n  }\n}\n';
+    expect((await run(source)).findings).toEqual([]);
+    const kotlin =
+      'import javax.servlet.http.Cookie\nclass C {\n  fun f(res: HttpServletResponse, token: String?) {\n    val t = token ?: return\n    val c = Cookie("session", t)\n    c.isHttpOnly = true\n    c.secure = true\n    res.addCookie(c)\n  }\n}\n';
+    expect((await run(kotlin, "C.kt")).findings).toEqual([]);
+  });
+});
