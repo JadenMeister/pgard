@@ -64,7 +64,6 @@ export {
   readStoredSignInStatus,
   removeStoredSignIn,
   signInAndStore,
-  windowsExplorerPath,
   type CredentialStore,
   type DeviceUserCode,
   type GitHubAppClientIdSource,

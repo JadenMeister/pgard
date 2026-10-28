@@ -331,19 +331,47 @@ describe("runReport", () => {
     expect(opened).toEqual([]);
   });
 
-  it("skips a stored result for a different repository name, ignoring case", async () => {
+  it("accepts a result stored under an old repository name and says so (EN and KO)", async () => {
     await save(REPO_ID, {
-      target: { repo: "someone/else", revision: SCAN_REVISION, webOrigin: null },
+      target: { repo: "old/name", revision: SCAN_REVISION, webOrigin: null },
     });
-    const refused = await report();
-    expect(refused.code).toBe(2);
-    expect(refused.captured.stderr()).toContain("different repository name");
-    expect(opened).toEqual([]);
-    await rm(store.dir, { recursive: true, force: true });
+    const en = await report({ ...HTML, noOpen: true });
+    expect(en.code).toBe(0);
+    expect(en.captured.stdout()).toContain(
+      "This scan was stored when the repository was named old/name.",
+    );
+    const ko = await report({ ...HTML, noOpen: true }, { locale: "ko" });
+    expect(ko.code).toBe(0);
+    expect(ko.captured.stdout()).toContain(
+      "이 검사는 저장소 이름이 old/name이던 때 저장되었습니다.",
+    );
+  });
+
+  it("prints no rename note when only the case differs", async () => {
     await save(REPO_ID, {
       target: { repo: "Owner/NAME", revision: SCAN_REVISION, webOrigin: null },
     });
-    expect((await report({ ...HTML, noOpen: true })).code).toBe(0);
+    const { captured, code } = await report({ ...HTML, noOpen: true });
+    expect(code).toBe(0);
+    expect(captured.stdout()).not.toContain("was named");
+  });
+
+  it("removes the private default directory when saving fails, but keeps an explicit one", async () => {
+    await save(REPO_ID);
+    const failing = {
+      ...deps(),
+      writeReports: async () => {
+        throw new Error("render failed");
+      },
+    } as CliDeps;
+    const auto = await report(HTML, { deps: failing });
+    expect(auto.code).toBe(4);
+    await expect(stat(reportDir)).rejects.toThrow();
+    const explicit = path.join(base, "explicit-kept");
+    await mkdir(explicit);
+    const kept = await report({ ...HTML, outputDir: explicit }, { deps: failing });
+    expect(kept.code).toBe(4);
+    expect((await stat(explicit)).isDirectory()).toBe(true);
   });
 
   it("skips stored results that are blocked, failed or not allowed by the gate", async () => {

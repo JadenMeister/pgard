@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import { windowsExplorerPath } from "@pgard/scan-core";
 
 export interface OpenerCommand {
   command: string;
@@ -9,6 +8,13 @@ export interface OpenerCommand {
 
 /** Only the two report formats are ever opened, and only as an absolute path. */
 const OPENABLE_REPORT = /\.(html|pdf)$/i;
+
+/** `%SystemRoot%\explorer.exe` as an absolute path (a bare name would be searched in the cwd). */
+function windowsExplorerPath(env: NodeJS.ProcessEnv): string {
+  const root = env.SystemRoot ?? env.SYSTEMROOT ?? "";
+  const isTrusted = /^[A-Za-z]:\\[A-Za-z0-9 _.\\()-]*$/.test(root) && !root.includes("..");
+  return path.win32.join(isTrusted ? root : "C:\\Windows", "explorer.exe");
+}
 
 /** A Windows path must start with a drive letter or a UNC prefix. */
 const WINDOWS_ABSOLUTE = /^(?:[A-Za-z]:\\|\\\\[^\\/]+[\\/][^\\/]+)/;

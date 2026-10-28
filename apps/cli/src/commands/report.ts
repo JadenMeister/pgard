@@ -1,7 +1,7 @@
 import { rmdir } from "node:fs/promises";
-import type { ScanResult } from "@pgard/findings";
 import type { WrittenReport } from "@pgard/report";
-import { AUTHORIZATION_CHECK_ORDER, isAuthorizationAllowed } from "@pgard/scan-core";
+import { isAllowedByGate } from "@pgard/result-store";
+import { isAuthorizationAllowed } from "@pgard/scan-core";
 import {
   err,
   out,
@@ -38,18 +38,6 @@ function mayOpen(context: CommandContext, noOpen: boolean): boolean {
   return !looksAutomated(io.env);
 }
 
-/** The gate allowed this scan: exactly the five known checks, all passed. */
-function isGateAllowed(result: ScanResult): boolean {
-  const { decision, checks } = result.authorization;
-  return (
-    decision === "allowed" &&
-    checks.length === AUTHORIZATION_CHECK_ORDER.length &&
-    AUTHORIZATION_CHECK_ORDER.every(
-      (id, index) => checks[index]?.id === id && checks[index]?.status === "passed",
-    )
-  );
-}
-
 function shortCommit(revision: string | null, unknown: string): string {
   return revision === null ? unknown : safeText(revision.slice(0, 12), 12);
 }
@@ -62,8 +50,8 @@ function shortCommit(revision: string | null, unknown: string): string {
  * checks run first and the store is read only under the GitHub repository id that this very run
  * got back from an allowed outcome. Result files carry no repository id of their own: the
  * store's per-id directory is the key. As defence in depth, a stored result whose `target.repo`
- * differs from the verified `owner/name` (ignoring case), whose status is blocked or failed, or
- * that the gate did not allow is skipped with a warning. If identity cannot be confirmed nothing
+ * whose status is blocked or failed, or that the gate did not allow, is skipped with a warning.
+ * A different `target.repo` is accepted with a note: a GitHub rename keeps the id. If identity cannot be confirmed nothing
  * is read: there is no other way to a result.
  *
  * Without `--output-dir` each run writes into a fresh private directory (`mkdtemp`, 0700), so
@@ -132,7 +120,6 @@ export async function runReport(
   }
   const name = safeText(outcome.repo ?? text.unknown, 120);
 
-  const verifiedRepo = outcome.repo?.toLowerCase() ?? null;
   const found = await store.findNewest(outcome.repositoryId, (scan) => {
     if (isNewerMinor(scan.sourceVersion)) {
       return `it uses schema version ${safeText(scan.sourceVersion, 12)}, newer than this PGARD understands.`;
@@ -140,10 +127,7 @@ export async function runReport(
     if (scan.result.overallStatus === "blocked" || scan.result.overallStatus === "failed") {
       return `its status is ${scan.result.overallStatus}.`;
     }
-    if (!isGateAllowed(scan.result)) return "the authorization gate did not allow it.";
-    if (verifiedRepo === null || scan.result.target.repo?.toLowerCase() !== verifiedRepo) {
-      return "it was stored for a different repository name.";
-    }
+    if (!isAllowedByGate(scan.result)) return "the authorization gate did not allow it.";
     return null;
   });
   for (const line of formatWarnings(found.warnings, text)) {
@@ -154,6 +138,12 @@ export async function runReport(
     return EXIT_CODES.usage;
   }
   const { result, savedAt } = found.scan;
+
+  // The repository id is the identity; a rename or transfer keeps it, so only say so.
+  const storedName = result.target.repo;
+  if (storedName !== null && storedName.toLowerCase() !== (outcome.repo ?? "").toLowerCase()) {
+    out(context, context.style.dim(t.renamedNote(safeText(storedName, 120))));
+  }
 
   const scanCommit = shortCommit(result.target.revision, text.unknown);
   const scanTime = formatScanTime(savedAt);

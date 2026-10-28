@@ -253,7 +253,7 @@ function isNewerVersion(sourceVersion: string): boolean {
 }
 
 /** The gate allowed this scan: exactly the five known checks, all passed. */
-function isAllowedByGate(result: ScanResult): boolean {
+export function isAllowedByGate(result: ScanResult): boolean {
   const { decision, checks } = result.authorization;
   return (
     decision === "allowed" &&

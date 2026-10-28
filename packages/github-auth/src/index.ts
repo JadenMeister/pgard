@@ -9,7 +9,6 @@ export {
   openGitHubUrl,
   openerCommandFor,
   spawnOpener,
-  windowsExplorerPath,
   type OpenerCommand,
   type SpawnOpener,
 } from "./open-url.js";
