@@ -10,7 +10,8 @@ export const SENSITIVE_PATHS = {
   gitHead: "/.git/HEAD",
 } as const;
 
-const ENV_ASSIGNMENT = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=/gm;
+// Leading blanks stay on the line (`\s*` ran across empty lines and rescanned them per line).
+const ENV_ASSIGNMENT = /^[^\S\n\r\u2028\u2029]*(?:export\s+)?[A-Za-z_][A-Za-z0-9_]*\s*=/gm;
 
 function looksLikeHtml(response: LoopbackResponse, text: string): boolean {
   return isHtmlResponse(response.headers) || /^\s*</.test(text);

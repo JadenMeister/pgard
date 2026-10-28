@@ -145,6 +145,8 @@ interface LanguageStats {
   timedOut: string[];
   /** Files whose analysis was stopped because the scan's time budget ran out. */
   stoppedForBudget: string[];
+  /** Files not analyzed because the analysis worker failed (start-up, crash, malformed answer). */
+  workerFailed: string[];
 }
 
 function emptyStats(): LanguageStats {
@@ -160,6 +162,7 @@ function emptyStats(): LanguageStats {
     memoryLimited: [],
     timedOut: [],
     stoppedForBudget: [],
+    workerFailed: [],
   };
 }
 
@@ -176,13 +179,21 @@ export const MAX_NOTE_LENGTH = 300;
 const MAX_LABEL_PATH_LENGTH = 60;
 
 /**
+ * A repository path as a note shows it: secrets masked and control, bidi and zero-width
+ * characters marked as visible `\uXXXX` text, as in finding paths, so two names never look alike.
+ */
+function displayPath(raw: string, maxLength = 500): string {
+  return redactEvidence(redactLocationPath(raw) ?? raw, { maxLength });
+}
+
+/**
  * Joins paths for a coverage note, listing at most MAX_LISTED_PATHS of them. Each path is quoted
  * (JSON string syntax) so names containing ", ", quotes or newlines stay unambiguous.
  */
 function listPaths(paths: string[]): string {
   const listed = paths
     .slice(0, MAX_LISTED_PATHS)
-    .map((item) => JSON.stringify(redactEvidence(item, { maxLength: 200 })))
+    .map((item) => JSON.stringify(displayPath(item, 200)))
     .join(", ");
   const rest = paths.length - MAX_LISTED_PATHS;
   return rest > 0 ? `${listed} and ${rest} more` : listed;
@@ -215,7 +226,7 @@ function describeCappedPaths(
   const labels: string[] = [];
   for (const raw of ordered) {
     if (labels.length === MAX_LISTED_PATHS) break;
-    const item = redactEvidence(raw, { maxLength: 500 });
+    const item = displayPath(raw);
     const shown =
       item.length > MAX_LABEL_PATH_LENGTH ? `…${item.slice(-(MAX_LABEL_PATH_LENGTH - 1))}` : item;
     const next = [
@@ -325,7 +336,7 @@ export function describeSkippedDependencyDirectories(
   directories: readonly SkippedDependencyDirectory[],
 ): string {
   const label = (entry: SkippedDependencyDirectory) => {
-    const redacted = redactEvidence(entry.path, { maxLength: 500 });
+    const redacted = displayPath(entry.path);
     const directory =
       redacted.length > MAX_LABEL_PATH_LENGTH
         ? `…${redacted.slice(-(MAX_LABEL_PATH_LENGTH - 1))}`
@@ -511,6 +522,7 @@ export async function scanSourceCode(
         if (outcome.kind !== "done") {
           if (outcome.kind === "stack") languageStats.stackLimited.push(file.relativePath);
           else if (outcome.kind === "memory") languageStats.memoryLimited.push(file.relativePath);
+          else if (outcome.kind === "worker") languageStats.workerFailed.push(file.relativePath);
           else if (outcome.kind === "timeout") {
             if (limitMs < perFileLimitMs) languageStats.stoppedForBudget.push(file.relativePath);
             else languageStats.timedOut.push(file.relativePath);
@@ -695,11 +707,11 @@ export async function scanSourceCode(
       problems.push(
         `${languageStats.stoppedForBudget.length} file(s) stopped when the time budget ran out (not analyzed: ${listPaths(languageStats.stoppedForBudget)})`,
       );
-    if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
-    if (walk.stoppedEarly !== null)
+    if (languageStats.workerFailed.length > 0)
       problems.push(
-        `the directory walk stopped early (see source:walk); files beyond it were not found`,
+        `${languageStats.workerFailed.length} file(s) not analyzed: the analysis worker failed (${listPaths(languageStats.workerFailed)})`,
       );
+    if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
     const isPartial = problems.length > 0;
     const entry: Coverage = {
       area: `source:${language}`,
@@ -871,8 +883,8 @@ export async function scanSourceCode(
       }),
       // Findings below a walked directory are ordinary; comparison reads this list.
       walkedDirectories: {
-        paths: walk.walkedBuildDirectories.map((item) => redactEvidence(item, { maxLength: 500 })),
-        complete: !walk.isTruncated,
+        paths: walk.walkedBuildDirectories.map((item) => displayPath(item)),
+        complete: !walk.isTruncated && walk.stoppedEarly === null,
       },
     });
   }
@@ -975,6 +987,8 @@ export async function scanSourceCode(
   // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file.
   addRuleStats(heuristicsEntry, jsFacts.length, () => true);
 
+  if (walk.stoppedEarly !== null) markWalkStoppedEarly(coverage, ruleStats);
+
   return {
     findings,
     coverage,
@@ -982,6 +996,31 @@ export async function scanSourceCode(
     fileCache,
     reuse: { rescanned: rescannedFiles, reused: reusedFiles },
   };
+}
+
+/** Leads every note of an area that a walk stopped early left incomplete. */
+export const WALK_STOPPED_NOTE =
+  "The directory walk stopped early (see source:walk); files beyond that point were not found.";
+
+/**
+ * Every source area reads what the walk found (files of each language, manifests, configuration,
+ * templates, skipped directories), so when the walk stopped early none of them may read as
+ * complete: each completed area becomes partial and every area's note starts with
+ * WALK_STOPPED_NOTE (first, so a display limit never cuts it off). Rule statistics follow.
+ */
+function markWalkStoppedEarly(coverage: Coverage[], ruleStats: RuleStat[]): void {
+  const changed = new Set<string>();
+  for (const entry of coverage) {
+    if (!entry.area.startsWith("source:") || entry.area === "source:walk") continue;
+    if (entry.status === "completed") {
+      entry.status = "partial";
+      changed.add(entry.area);
+    }
+    entry.note = entry.note === null ? WALK_STOPPED_NOTE : `${WALK_STOPPED_NOTE} ${entry.note}`;
+  }
+  for (const stat of ruleStats) {
+    if (changed.has(stat.area) && stat.status === "completed") stat.status = "partial";
+  }
 }
 
 function walkTrackedCount(walk: WalkResult): number {

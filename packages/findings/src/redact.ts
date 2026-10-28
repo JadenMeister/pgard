@@ -303,6 +303,20 @@ const UNSAFE_CHARS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
 /** `\u202e` for U+202E: the escape as visible text. */
 const escapeCharacter = (char: string) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
 
+const MARKED_CHARACTER = /\\u([0-9a-f]{4})/g;
+
+/**
+ * Turns the `\uXXXX` marks `redactLocationPath` writes back into the characters, for a consumer
+ * that encodes them itself (a SARIF uri is percent-encoded, which keeps them inert) and must
+ * point at the real file. Only marks of characters in the unsafe set are turned back.
+ */
+export function unmarkLocationPath(locationPath: string): string {
+  return locationPath.replace(MARKED_CHARACTER, (mark, hex: string) => {
+    const char = String.fromCharCode(Number.parseInt(hex, 16));
+    return new RegExp(UNSAFE_DISPLAY_CHARACTERS).test(char) ? char : mark;
+  });
+}
+
 /**
  * Characters JSON.stringify leaves raw although a terminal acts on them or shows them misleadingly:
  * DEL and C1 controls, the Arabic letter mark, zero-width marks, line and paragraph separators and

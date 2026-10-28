@@ -50,11 +50,17 @@ const isTypeChar = (code: number) =>
 export function readLineAssignments(code: string): LineAssignment[] {
   const out: LineAssignment[] = [];
   let start = 0;
+  // The next "=" at or after `start` (searched forward once, so the whole scan stays linear).
+  let nextEquals = -1;
   while (start <= code.length) {
     let end = code.indexOf("\n", start);
     if (end === -1) end = code.length;
+    if (nextEquals !== -2 && nextEquals < start) {
+      nextEquals = code.indexOf("=", start);
+      if (nextEquals === -1) nextEquals = -2;
+    }
     // The operator always contains "=", so a line without one cannot match.
-    if (code.lastIndexOf("=", end - 1) >= start) {
+    if (nextEquals >= start && nextEquals < end) {
       const found = matchLine(code.slice(start, end));
       if (found !== null) out.push(found);
     }

@@ -339,6 +339,28 @@ describe("buildSarif", () => {
     );
   });
 
+  it("percent-encodes the real bidi and control characters of a marked path (#368)", () => {
+    for (const path of ["src/a‮b.js", "src/a\\u202eb.js"]) {
+      const log = buildSarif(
+        result({ findings: [finding({ location: { ...finding().location, path } })] }),
+        CATALOG,
+      ) as Obj;
+      expect(log.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+        "src/a%E2%80%AEb.js",
+      );
+    }
+    // A mark of an ordinary character is a real backslash in the name and stays one.
+    const plain = buildSarif(
+      result({
+        findings: [finding({ location: { ...finding().location, path: "src/a\\u0041.js" } })],
+      }),
+      CATALOG,
+    ) as Obj;
+    expect(plain.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+      "src/a%5Cu0041.js",
+    );
+  });
+
   it("keeps suppressed findings with an external suppression and sets baselineState only with a baseline", () => {
     const suppressed = finding({
       id: "s",

@@ -275,7 +275,8 @@ try {
   );
   writeFileSync(
     join(jsProject, "slow.go"),
-    `package main\nfunc f() {\n${"var a\n".repeat(150000)}}\n`,
+    // Quadratic in the Go analyzer's per-constant scope check: far longer than the limit.
+    `package main\n${Array.from({ length: 40000 }, (_, i) => `const c${i} = 1\n`).join("")}`,
   );
   const jsScan = await grammar.scanSourceCode(jsProject, { perFileTimeLimitMs: 1000 });
   const jsCoverage = jsScan.coverage.find((entry) => entry.area === "source:javascript");

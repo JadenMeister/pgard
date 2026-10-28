@@ -130,6 +130,13 @@ describe("readLineAssignments", () => {
     expect(performance.now() - started).toBeLessThan(1000);
   });
 
+  it("scans 400,000 short lines without an operator in linear time", () => {
+    const code = `${GO_HEADER}${"x\n".repeat(400_000)}a = b\n`;
+    const started = performance.now();
+    expect(readLineAssignments(code).map((found) => found.names)).toEqual(["a"]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("scans a 256 KiB identifier and a 256 KiB name list in linear time", () => {
     for (const body of ["a".repeat(256 * 1024), "a,".repeat(128 * 1024), "a.".repeat(128 * 1024)]) {
       const started = performance.now();
