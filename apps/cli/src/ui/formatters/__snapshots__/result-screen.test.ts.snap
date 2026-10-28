@@ -45,7 +45,7 @@ Findings (3): 1 confirmed, 2 suspected (needs review)
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
         CWE-540 https://cwe.mitre.org/data/definitions/540.html
-        MSC03-J Never hard code sensitive information (via CWE-798) https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798) https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [MEDIUM] User input rendered as HTML (suspected)
       src/view.ts:3  PG-XSS-001 - confidence medium
@@ -122,7 +122,7 @@ OWASP Top 10 2025 분류별
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
         CWE-540 https://cwe.mitre.org/data/definitions/540.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유) https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유) https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [보통] User input rendered as HTML (의심)
       src/view.ts:3  PG-XSS-001 - 신뢰도 보통

@@ -1,4 +1,4 @@
-import type { Finding } from "@pgard/findings";
+import { noDirectCertFor, standardsForPath, type Finding } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { useI18n } from "../../i18n/I18nProvider";
 import { ExternalLink } from "../standards/ExternalLink";
@@ -29,6 +29,15 @@ export function RuleDetailsBlock({
   const remediation = details.remediation[language];
   const showRationale = rationale !== finding.impact;
   const showRemediation = remediation !== finding.recommendation;
+  // A direct CERT Java link is only valid for a finding in a Java or Kotlin file.
+  const standards = standardsForPath(
+    details.standards,
+    finding.location.path,
+    finding.references.cert,
+  );
+  const noDirectCert = noDirectCertFor(details, finding.location.path, finding.references.cert)?.[
+    language
+  ];
   return (
     <div className="rule-details">
       {(showRationale || showRemediation) && (
@@ -47,19 +56,28 @@ export function RuleDetailsBlock({
           )}
         </dl>
       )}
-      {details.standards.length > 0 && (
+      {(standards.length > 0 || noDirectCert !== undefined) && (
         <div className="finding-standards">
           <strong>{m.details.standards}</strong>
           <ul>
-            {details.standards.map((link) => (
+            {standards.map((link) => (
               <li key={`${link.kind}:${link.id}`}>
                 <ExternalLink url={link.url} hint={m.details.opensExternally}>
                   {link.id}
                 </ExternalLink>
                 {link.title === null ? "" : ` ${link.title}`}
-                {link.viaCwe === undefined ? "" : ` (${m.details.viaCwe(link.viaCwe)})`}
+                {link.viaCwe !== undefined
+                  ? ` (${m.details.viaCwe(link.viaCwe)})`
+                  : link.direct === true
+                    ? ` (${m.details.certDirect})`
+                    : ""}
               </li>
             ))}
+            {noDirectCert !== undefined && (
+              <li>
+                {m.details.certNone}: {noDirectCert}
+              </li>
+            )}
           </ul>
         </div>
       )}

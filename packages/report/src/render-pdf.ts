@@ -21,6 +21,7 @@ import {
   cweTop25CountsText,
   cweTop25Rows,
   findingDetails,
+  standardMark,
   localizedSuppressionNotices,
   noFindingsLine,
   owaspRows,
@@ -325,7 +326,7 @@ function writeStandardsLinks(
       .fillColor("#0f172a")
       .text(
         style.text(
-          `${link.id}${link.title === null ? "" : ` ${link.title}`}${link.viaCwe === undefined ? "" : ` (${ctx.t.viaCwe(link.viaCwe)})`}: `,
+          `${link.id}${link.title === null ? "" : ` ${link.title}`}${standardMark(link, ctx.t)}: `,
         ),
         {
           continued: true,

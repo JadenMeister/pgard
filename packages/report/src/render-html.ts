@@ -1,5 +1,6 @@
 import {
   SEVERITIES,
+  pickText,
   configTestGroupNote,
   projectConfigNotices,
   type Coverage,
@@ -22,6 +23,7 @@ import {
   cweTop25CountsText,
   cweTop25Rows,
   findingDetails,
+  standardMark,
   localizedSuppressionNotices,
   noFindingsLine,
   owaspRows,
@@ -116,14 +118,19 @@ function renderReferences(finding: Finding, ctx: ReportContext): string {
 
 function renderStandards(finding: Finding, ctx: ReportContext): string {
   const details = findingDetails(finding, ctx);
-  if (details === undefined || details.standards.length === 0) return "";
+  if (details === undefined) return "";
+  if (details.standards.length === 0 && details.noDirectCert === undefined) return "";
   const items = details.standards
     .map((link) => {
-      const via = link.viaCwe === undefined ? "" : ` (${escapeHtml(ctx.t.viaCwe(link.viaCwe))})`;
+      const via = escapeHtml(standardMark(link, ctx.t));
       return `<li>${externalLink(link.url, link.id)}${link.title === null ? "" : ` ${escapeHtml(link.title)}`}${via}</li>`;
     })
     .join("");
-  return `<div class="standards"><strong>${escapeHtml(ctx.t.standards)}</strong><ul>${items}</ul></div>`;
+  const none =
+    details.noDirectCert === undefined
+      ? ""
+      : `<li>${escapeHtml(ctx.t.certNone)}: ${escapeHtml(pickText(details.noDirectCert, ctx.chrome))}</li>`;
+  return `<div class="standards"><strong>${escapeHtml(ctx.t.standards)}</strong><ul>${items}${none}</ul></div>`;
 }
 
 interface Piece {

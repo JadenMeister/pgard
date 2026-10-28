@@ -70,7 +70,12 @@ export interface ReportText {
   ruleRationale: string;
   ruleRemediation: string;
   standards: string;
+  /** Label of an indirect CERT link: it goes through a CWE and is not a direct mapping. */
   viaCwe: (cwe: string) => string;
+  /** Label of a direct CERT Java link (shown on Java and Kotlin findings only). */
+  certDirect: string;
+  /** "No direct CERT rule" marker line of a Java or Kotlin rule; the reason follows. */
+  certNone: string;
   examples: (count: number) => string;
   /** Link text on a finding whose rule examples and guidance were written on an earlier finding. */
   ruleDetailsAbove: (ruleId: string) => string;
@@ -242,7 +247,9 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     ruleRationale: "Why the rule matters",
     ruleRemediation: "General fix",
     standards: "Standards",
-    viaCwe: (cwe) => `via ${cwe}`,
+    viaCwe: (cwe) => `indirect, via ${cwe}`,
+    certDirect: "direct, Java/Kotlin",
+    certNone: "SEI CERT Java: no direct rule",
     examples: (count) => `Examples (${count})`,
     examplesInAppendix: "Examples: see Appendix B",
     ruleDetailsAbove: (ruleId) => `Examples and guidance: see the first ${ruleId} finding`,
@@ -391,7 +398,9 @@ export const REPORT_TEXT: Record<RuleLocale, ReportText> = {
     ruleRationale: "규칙이 중요한 이유",
     ruleRemediation: "일반적인 조치",
     standards: "표준",
-    viaCwe: (cwe) => `${cwe} 경유`,
+    viaCwe: (cwe) => `간접, ${cwe} 경유`,
+    certDirect: "직접, Java/Kotlin",
+    certNone: "SEI CERT Java: 직접 대응하는 규칙 없음",
     examples: (count) => `예시 (${count})`,
     examplesInAppendix: "예시: 부록 B 참고",
     ruleDetailsAbove: (ruleId) => `예시와 안내: 첫 번째 ${ruleId} 발견 항목을 참고하세요`,

@@ -1,11 +1,13 @@
 import { PGARD_VERSION, listSupportedRules, type RuleDescriptor } from "@pgard/scan-core";
 import { describe, expect, it } from "vitest";
 import type { CliDeps } from "../../deps.js";
+import { cliText } from "../../ui/i18n/cli-text.js";
 import { createTestContext, createTestDeps, createTestIo } from "../../test-support.js";
 import {
   OTHER_RULES_HEADING,
   RULE_CRITERIA_VERSION,
   filterRulesByLanguage,
+  certLines,
   groupRulesByScope,
   runRulesList,
 } from "./list.js";
@@ -158,5 +160,33 @@ describe("groupRulesByScope", () => {
       expect(groupRulesByScope(shuffled)).toEqual(expected);
     }
     expect(groupRulesByScope([...rules].reverse())).toEqual(expected);
+  });
+});
+
+describe("SEI CERT Java lines in the rule list", () => {
+  it("marks direct links as Java and Kotlin only, and gives every other JVM rule its reason", async () => {
+    const stdout = await runList(null);
+    for (const id of ["IDS00-J", "IDS07-J", "FIO16-J", "IDS04-J", "MSC03-J", "MSC02-J"]) {
+      expect(stdout).toMatch(new RegExp(`direct \\(Java and Kotlin files only\\): .*${id}`));
+    }
+    expect(stdout).toContain("SEI CERT Java: no direct rule. No CERT rule maps directly");
+    expect(stdout).toContain("not a compliance claim");
+    const lines = stdout.split("\n");
+    const next = (id: string): string | undefined =>
+      lines[lines.findIndex((l) => l.includes(id)) + 1];
+    // A JavaScript-only rule shows its link as indirect, never as direct.
+    expect(next("PG-CMD-001")).toContain("indirect (cross-reference through a CWE)");
+    expect(next("PG-CMD-001")).not.toContain("direct (Java");
+  });
+
+  it("builds the lines in Korean too, and none for a rule with nothing to say", () => {
+    const rules = listSupportedRules();
+    const find = (id: string): RuleDescriptor =>
+      rules.find((rule) => rule.id === id) as RuleDescriptor;
+    expect(certLines(find("PG-XSS-004"), "ko", cliText("ko"))[0]).toContain(
+      "직접 대응하는 규칙 없음",
+    );
+    expect(certLines(find("PG-CMD-003"), "ko", cliText("ko"))[0]).toContain("직접 연결");
+    expect(certLines(find("PG-CMD-004"), "en", cliText("en"))).toEqual([]);
   });
 });

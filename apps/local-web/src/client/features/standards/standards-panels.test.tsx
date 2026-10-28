@@ -125,7 +125,7 @@ function mapFor(coverage: ScanResult["coverage"], ruleStats: RuleStat[]) {
 
 function resultV11(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.3",
+    schemaVersion: "1.4",
     scanId: "s1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",
@@ -177,7 +177,7 @@ describe("finding details in the dashboard", () => {
       expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
       expect(html).toContain("&quot;quoted&quot; &amp; &lt;b&gt;");
       expect(html).toContain(language === "en" ? "Examples (1)" : "예시 (1)");
-      expect(html).toContain(language === "en" ? "(via CWE-89)" : "(CWE-89 경유)");
+      expect(html).toContain(language === "en" ? "(indirect, via CWE-89)" : "(간접, CWE-89 경유)");
       expect(html).toContain(language === "en" ? "Vulnerable" : "취약한 코드");
       // The examples sit in a collapsed details element.
       expect(html).toMatch(/<details class="rule-examples">/);
