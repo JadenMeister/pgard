@@ -593,21 +593,27 @@ export const SOURCE_RULES = [
     category: "cryptography",
     defaultSeverity: "high",
     scope: "code",
-    languages: ["javascript", "typescript", "go"],
+    languages: ["javascript", "typescript", "go", "java", "kotlin"],
     standards: { owasp: ["A04:2025"], cwe: ["CWE-916", "CWE-328"], cert: [] },
     rationale: {
-      en: "MD5 and SHA-1 are fast hashes. After a database leak an attacker can test billions of guesses per second on a GPU, so most passwords are recovered quickly. Both are also broken against collisions.",
-      ko: "MD5와 SHA-1은 빠른 해시입니다. 데이터베이스가 유출되면 공격자가 GPU로 초당 수십억 번의 추측을 시도할 수 있어 대부분의 비밀번호가 빠르게 복구됩니다. 두 알고리즘 모두 충돌에 대해서도 이미 깨졌습니다.",
+      en: 'MD5 and SHA-1 are fast hashes. After a database leak an attacker can test billions of guesses per second on a GPU, so most passwords are recovered quickly. Both are also broken against collisions. In Java and Kotlin the rule reads `MessageDigest.getInstance("MD5"|"SHA-1")`, Guava `Hashing.md5()` and Commons Codec `DigestUtils.md5Hex` applied to a password-named value; a digest of anything else is not reported.',
+      ko: 'MD5와 SHA-1은 빠른 해시입니다. 데이터베이스가 유출되면 공격자가 GPU로 초당 수십억 번의 추측을 시도할 수 있어 대부분의 비밀번호가 빠르게 복구됩니다. 두 알고리즘 모두 충돌에 대해서도 이미 깨졌습니다. Java와 Kotlin에서는 비밀번호 이름의 값에 적용한 `MessageDigest.getInstance("MD5"|"SHA-1")`, Guava `Hashing.md5()`, Commons Codec `DigestUtils.md5Hex`를 읽고, 다른 값의 해시는 보고하지 않습니다.',
     },
     remediation: {
-      en: "Hash passwords with a slow, salted algorithm built for that purpose (Argon2id, scrypt or bcrypt), for example `await bcrypt.hash(password, 12)` or `golang.org/x/crypto/bcrypt`. The library generates the per-user salt. Rehash existing users at their next login.",
-      ko: "비밀번호 해시용으로 만들어진 느리고 salt가 적용되는 알고리즘(Argon2id, scrypt, bcrypt)으로 해시하세요. 예: `await bcrypt.hash(password, 12)`, Go는 `golang.org/x/crypto/bcrypt`. 사용자별 salt는 라이브러리가 만듭니다. 기존 사용자는 다음 로그인 때 다시 해시하세요.",
+      en: "Hash passwords with a slow, salted algorithm built for that purpose (Argon2id, scrypt or bcrypt), for example `await bcrypt.hash(password, 12)` or `golang.org/x/crypto/bcrypt`; in Java and Kotlin `new BCryptPasswordEncoder().encode(password)`. The library generates the per-user salt. Rehash existing users at their next login.",
+      ko: "비밀번호 해시용으로 만들어진 느리고 salt가 적용되는 알고리즘(Argon2id, scrypt, bcrypt)으로 해시하세요. 예: `await bcrypt.hash(password, 12)`, Go는 `golang.org/x/crypto/bcrypt`, Java와 Kotlin은 `new BCryptPasswordEncoder().encode(password)`. 사용자별 salt는 라이브러리가 만듭니다. 기존 사용자는 다음 로그인 때 다시 해시하세요.",
     },
     examples: [
       {
         language: "javascript",
         vulnerable: "const hash = crypto.createHash('md5').update(password).digest('hex');",
         safe: "const hash = await bcrypt.hash(password, 12);",
+      },
+      {
+        language: "java",
+        vulnerable:
+          'MessageDigest md = MessageDigest.getInstance("MD5");\nbyte[] hash = md.digest(password.getBytes(StandardCharsets.UTF_8));',
+        safe: "String hash = new BCryptPasswordEncoder().encode(password);",
       },
     ],
   },
@@ -617,19 +623,19 @@ export const SOURCE_RULES = [
     category: "cryptography",
     defaultSeverity: "high",
     scope: "code",
-    languages: ["javascript", "typescript", "go"],
+    languages: ["javascript", "typescript", "go", "java", "kotlin"],
     standards: {
       owasp: ["A04:2025", "A07:2025"],
       cwe: ["CWE-321", "CWE-798"],
       cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
     },
     rationale: {
-      en: "A key or signing secret written in the source is available to everyone who can read the repository, its history, a build artifact or a bundle. With it an attacker can decrypt stored data and forge tokens (for example a JWT signed with a known secret), and the key cannot be changed without a new release.",
-      ko: "소스에 적어 둔 키나 서명용 비밀정보는 저장소, 그 이력, 빌드 산출물, 번들을 읽을 수 있는 모든 사람이 가질 수 있습니다. 이를 이용해 공격자는 저장된 데이터를 복호화하고 토큰을 위조할 수 있으며(예: 알려진 비밀정보로 서명한 JWT), 새 릴리스 없이는 키를 바꿀 수도 없습니다.",
+      en: "A key or signing secret written in the source is available to everyone who can read the repository, its history, a build artifact or a bundle. With it an attacker can decrypt stored data and forge tokens (for example a JWT signed with a known secret), and the key cannot be changed without a new release. In Java and Kotlin a literal given to `SecretKeySpec`, JJWT `signWith` or Auth0 `HMAC256`, or the literal default of a Spring `@Value` key, is reported.",
+      ko: "소스에 적어 둔 키나 서명용 비밀정보는 저장소, 그 이력, 빌드 산출물, 번들을 읽을 수 있는 모든 사람이 가질 수 있습니다. 이를 이용해 공격자는 저장된 데이터를 복호화하고 토큰을 위조할 수 있으며(예: 알려진 비밀정보로 서명한 JWT), 새 릴리스 없이는 키를 바꿀 수도 없습니다. Java와 Kotlin에서는 `SecretKeySpec`, JJWT `signWith`, Auth0 `HMAC256`에 전달되는 리터럴과 Spring `@Value` 키의 리터럴 기본값을 보고합니다.",
     },
     remediation: {
-      en: "Load the key at runtime from an environment variable or a secret manager, and generate it with a CSPRNG (`crypto.randomBytes(32)`). Treat the exposed key as compromised: rotate it, since it remains in Git history and old releases, then re-sign tokens and re-encrypt data under the new key.",
-      ko: "키는 실행 시점에 환경 변수나 비밀정보 관리 도구(secret manager)에서 불러오고, CSPRNG(`crypto.randomBytes(32)`)로 생성하세요. 노출된 키는 Git 이력과 이전 릴리스에 남아 있으므로 유출된 것으로 간주하고 교체(rotate)한 뒤, 새 키로 토큰을 다시 서명하고 데이터를 다시 암호화하세요.",
+      en: "Load the key at runtime from an environment variable or a secret manager, and generate it with a CSPRNG (`crypto.randomBytes(32)`; Java and Kotlin: `SecureRandom`, no default in `@Value`). Treat the exposed key as compromised: rotate it, since it remains in Git history and old releases, then re-sign tokens and re-encrypt data under the new key.",
+      ko: "키는 실행 시점에 환경 변수나 비밀정보 관리 도구(secret manager)에서 불러오고, CSPRNG(`crypto.randomBytes(32)`, Java와 Kotlin은 `SecureRandom`, `@Value`에는 기본값 없음)로 생성하세요. 노출된 키는 Git 이력과 이전 릴리스에 남아 있으므로 유출된 것으로 간주하고 교체(rotate)한 뒤, 새 키로 토큰을 다시 서명하고 데이터를 다시 암호화하세요.",
     },
     examples: [
       {
@@ -637,29 +643,40 @@ export const SOURCE_RULES = [
         vulnerable: "const token = jwt.sign(payload, 'my-secret-key');",
         safe: "const token = jwt.sign(payload, process.env.JWT_SECRET);",
       },
+      {
+        language: "java",
+        vulnerable:
+          'SecretKey key = new SecretKeySpec("my-secret-key-123".getBytes(), "HmacSHA256");',
+        safe: 'SecretKey key = new SecretKeySpec(System.getenv("JWT_SECRET").getBytes(), "HmacSHA256");',
+      },
     ],
   },
   {
     id: "PG-CRYPTO-003",
-    title: "Broken or deprecated cipher",
+    title: "Broken or deprecated cipher, fixed IV or predictable random value",
     category: "cryptography",
     defaultSeverity: "medium",
     scope: "code",
-    languages: JS_TS,
+    languages: [...JS_TS, "java", "kotlin"],
     standards: { owasp: ["A04:2025"], cwe: ["CWE-327"], cert: [] },
     rationale: {
-      en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection.",
-      ko: "DES, 3DES, RC4 같은 암호나 ECB 같은 모드는 깨졌거나 평문의 구조를 드러냅니다. 암호문을 가로챈 공격자는 데이터를 복구할 수 있고, 인증(GCM 태그나 MAC)이 없으면 탐지되지 않게 변조할 수도 있습니다.",
+      en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token lets an attacker guess it. In Java and Kotlin the rule also reads bare `AES` (ECB), a fixed IV and such random values.",
+      ko: "DES, 3DES, RC4 같은 암호나 ECB 같은 모드는 깨졌거나 평문의 구조를 드러냅니다. 암호문을 가로챈 공격자는 데이터를 복구할 수 있고, 인증(GCM 태그나 MAC)이 없으면 탐지되지 않게 변조할 수도 있습니다. 키·IV·salt·토큰에 쓰는 예측 가능한 난수(`java.util.Random`, `Math.random()`)는 공격자가 추측할 수 있습니다. Java와 Kotlin에서는 모드 없는 `AES`(ECB), 고정 IV, 이런 난수 값도 읽습니다.",
     },
     remediation: {
-      en: "Use an AEAD cipher: AES-256-GCM through `crypto.createCipheriv('aes-256-gcm', key, iv)`, with a new random 12-byte IV for every message. Store the tag from `getAuthTag()` after encrypting. When decrypting, create the decipher with `{ authTagLength: 16 }` (or check the stored tag is 16 bytes) and call `setAuthTag()` before `final()`, so a truncated tag is rejected. Never reuse an IV with the same key.",
-      ko: "AEAD 암호를 사용하세요. `crypto.createCipheriv('aes-256-gcm', key, iv)`로 AES-256-GCM을 쓰고, 메시지마다 새 무작위 12바이트 IV를 만들며, 암호화한 뒤 `getAuthTag()`로 얻은 태그를 함께 저장하세요. 복호화할 때는 `{ authTagLength: 16 }`으로 decipher를 만들고(또는 저장된 태그가 16바이트인지 확인하고) `final()` 전에 `setAuthTag()`를 호출해 잘린 태그를 거부하세요. 같은 키로 IV를 재사용하지 마세요.",
+      en: "Use an AEAD cipher: AES-256-GCM through `crypto.createCipheriv('aes-256-gcm', key, iv)`, with a new random 12-byte IV for every message. Store the tag from `getAuthTag()` after encrypting. When decrypting, create the decipher with `{ authTagLength: 16 }` (or check the stored tag is 16 bytes) and call `setAuthTag()` before `final()`, so a truncated tag is rejected. Never reuse an IV with the same key. In Java use `AES/GCM/NoPadding` and `SecureRandom`.",
+      ko: "AEAD 암호를 사용하세요. `crypto.createCipheriv('aes-256-gcm', key, iv)`로 AES-256-GCM을 쓰고, 메시지마다 새 무작위 12바이트 IV를 만들며, 암호화한 뒤 `getAuthTag()`로 얻은 태그를 함께 저장하세요. 복호화할 때는 `{ authTagLength: 16 }`으로 decipher를 만들고(또는 저장된 태그가 16바이트인지 확인하고) `final()` 전에 `setAuthTag()`를 호출해 잘린 태그를 거부하세요. 같은 키로 IV를 재사용하지 마세요. Java에서는 `AES/GCM/NoPadding`과 `SecureRandom`을 쓰세요.",
     },
     examples: [
       {
         language: "javascript",
         vulnerable: "const cipher = crypto.createCipheriv('des-ede3-cbc', key, iv);",
         safe: "const iv = crypto.randomBytes(12);\nconst cipher = crypto.createCipheriv('aes-256-gcm', key, iv, { authTagLength: 16 });",
+      },
+      {
+        language: "java",
+        vulnerable: 'Cipher cipher = Cipher.getInstance("AES");',
+        safe: 'byte[] iv = new byte[12];\nnew SecureRandom().nextBytes(iv);\nCipher cipher = Cipher.getInstance("AES/GCM/NoPadding");\ncipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(128, iv));',
       },
     ],
   },
@@ -669,21 +686,26 @@ export const SOURCE_RULES = [
     category: "cryptography",
     defaultSeverity: "high",
     scope: "code",
-    languages: JS_TS,
+    languages: [...JS_TS, "java", "kotlin"],
     standards: { owasp: ["A06:2025"], cwe: ["CWE-256"], cert: [] },
     rationale: {
-      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too. PGARD also flags password-named values passed to repository or ORM calls without a hash call in the same function, at low confidence when the value is not read from a request.",
-      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다. PGARD는 같은 함수에 해시 호출 없이 저장소·ORM 호출로 넘어가는 비밀번호 이름의 값도 보고하며, 값이 요청에서 읽은 것이 아니면 낮은 신뢰도로 보고합니다.",
+      en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too. PGARD also flags password-named values passed to repository or ORM calls without a hash call in the same function, at low confidence when the value is not read from a request. In Java and Kotlin: a password saved without `passwordEncoder.encode`, or `NoOpPasswordEncoder`.",
+      ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다. PGARD는 같은 함수에 해시 호출 없이 저장소·ORM 호출로 넘어가는 비밀번호 이름의 값도 보고하며, 값이 요청에서 읽은 것이 아니면 낮은 신뢰도로 보고합니다. Java와 Kotlin은 `passwordEncoder.encode` 없이 저장한 비밀번호와 `NoOpPasswordEncoder`입니다.",
     },
     remediation: {
-      en: "Never store the password itself. Store a hash from a password hashing function with a per-user salt: Argon2id (preferred), scrypt or bcrypt, for example `await argon2.hash(password)` when the user signs up and `argon2.verify(hash, password)` at login.",
-      ko: "비밀번호 자체를 저장하지 마세요. 사용자별 salt를 적용한 비밀번호 해시 함수(Argon2id 권장, scrypt, bcrypt)의 결과만 저장하세요. 예: 가입할 때 `await argon2.hash(password)`, 로그인할 때 `argon2.verify(hash, password)`.",
+      en: "Never store the password itself. Store a hash from a password hashing function with a per-user salt: Argon2id (preferred), scrypt or bcrypt, for example `await argon2.hash(password)` when the user signs up and `argon2.verify(hash, password)` at login. In Java: `passwordEncoder.encode(password)`.",
+      ko: "비밀번호 자체를 저장하지 마세요. 사용자별 salt를 적용한 비밀번호 해시 함수(Argon2id 권장, scrypt, bcrypt)의 결과만 저장하세요. 예: 가입할 때 `await argon2.hash(password)`, 로그인할 때 `argon2.verify(hash, password)`. Java: `passwordEncoder.encode(password)`.",
     },
     examples: [
       {
         language: "javascript",
         vulnerable: "await User.create({ email, password });",
         safe: "await User.create({ email, passwordHash: await argon2.hash(password) });",
+      },
+      {
+        language: "java",
+        vulnerable: "user.setPassword(request.getPassword());\nuserRepository.save(user);",
+        safe: "user.setPassword(passwordEncoder.encode(request.getPassword()));\nuserRepository.save(user);",
       },
     ],
   },

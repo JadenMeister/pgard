@@ -12,6 +12,7 @@ import type {
 import { unescapeText } from "./java-ir.js";
 import { SQL_CALL_TEXT } from "./jvm-names.js";
 import { OS_CALL_TEXT } from "./os-names.js";
+import { CRYPTO_CALL_TEXT } from "./crypto-names.js";
 import { WEB_CALL_TEXT } from "./web-names.js";
 import { textOf, type AstNode, type AstResult } from "./tree.js";
 
@@ -367,7 +368,8 @@ export function convertKotlin(ast: AstResult): Unit {
         if (
           SQL_CALL_TEXT.test(text(node)) ||
           OS_CALL_TEXT.test(text(node)) ||
-          WEB_CALL_TEXT.test(text(node))
+          WEB_CALL_TEXT.test(text(node)) ||
+          CRYPTO_CALL_TEXT.test(text(node))
         ) {
           unit.unsupported.push("anonymous object");
         }
@@ -621,7 +623,8 @@ export function convertKotlin(ast: AstResult): Unit {
         if (
           SQL_CALL_TEXT.test(text(node)) ||
           OS_CALL_TEXT.test(text(node)) ||
-          WEB_CALL_TEXT.test(text(node))
+          WEB_CALL_TEXT.test(text(node)) ||
+          CRYPTO_CALL_TEXT.test(text(node))
         ) {
           unit.unsupported.push(
             node.type === "function_declaration" ? "local function" : "local class",
@@ -708,6 +711,7 @@ export function convertKotlin(ast: AstResult): Unit {
               ),
               init: declared.init,
               line: declared.line,
+              annotations: annotationsOf(mods, 1),
             });
           }
           break;
@@ -820,6 +824,7 @@ export function convertKotlin(ast: AstResult): Unit {
         overridable: false,
         init: null,
         line: node.line,
+        annotations: parameter.annotations,
       });
     }
     // The class parameters are also parameters of the primary constructor.
