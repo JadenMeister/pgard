@@ -516,6 +516,7 @@ export const en = {
     label: "About this section",
     authDetails: "Authorization details",
     signOut: "What the sign-out options do",
+    session: "GitHub session",
   },
   table: {
     severity: "Severity",

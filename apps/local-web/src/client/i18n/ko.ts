@@ -489,6 +489,7 @@ export const ko: Messages = {
     label: "이 영역 설명",
     authDetails: "권한 확인 세부 내용",
     signOut: "로그아웃 옵션 설명",
+    session: "GitHub 세션",
   },
   table: {
     severity: "심각도",

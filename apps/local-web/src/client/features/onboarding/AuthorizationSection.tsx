@@ -1,14 +1,12 @@
 import type { SessionInfo } from "../../../shared/api-types";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Badge } from "../../components/ui/Badge";
-import { Button } from "../../components/ui/Button";
-import { HelpTip } from "../../components/ui/HelpTip";
 import { Notice } from "../../components/ui/Notice";
 import { Section } from "../../components/ui/Section";
 import { formatTime } from "../../i18n/format";
 import { useI18n } from "../../i18n/I18nProvider";
 import { InstallAppNotice } from "./InstallAppNotice";
-import { describeGitHubApp, describeStoredSignIn, signOutTexts } from "./sign-in-text";
+import { describeGitHubApp, describeStoredSignIn } from "./sign-in-text";
 import type { Authorization } from "./use-authorization";
 
 export const AUTHORIZATION_SECTION_ID = "authorization";
@@ -26,14 +24,11 @@ export function AuthorizationSection({
   authorization: Authorization;
 }) {
   const { m, language } = useI18n();
-  const { status, error, verify, signOut } = authorization;
-  const { labels, hints } = signOutTexts(m);
+  const { status, error, verify } = authorization;
   const checkLabels: Record<string, string> = m.auth.checks;
   const statusLabels: Record<string, string> = m.status;
   const signInLine = status ? describeStoredSignIn(status.storedSignIn, m) : null;
   const githubAppLine = describeGitHubApp(session.githubApp, m);
-  const canEndSession = status?.status === "done" || status?.storedSignIn.status === "stored";
-  const canRemoveStored = status?.storedSignIn.status === "stored";
   const isBlocked = status?.summary?.decision === "blocked";
 
   return (
@@ -117,30 +112,6 @@ export function AuthorizationSection({
           </details>
         ) : (
           signInLine && <p className="muted small">{signInLine}</p>
-        )}
-        {(canEndSession || canRemoveStored) && (
-          <div className="button-row">
-            {canEndSession && (
-              <Button size="sm" title={hints.sessionOnly} onClick={() => void signOut(false)}>
-                {labels.sessionOnly}
-              </Button>
-            )}
-            {canRemoveStored && (
-              <Button size="sm" title={hints.removeStored} onClick={() => void signOut(true)}>
-                {labels.removeStored}
-              </Button>
-            )}
-            <HelpTip label={m.help.signOut}>
-              <p>
-                <strong>{labels.sessionOnly}</strong>: {hints.sessionOnly}
-              </p>
-              {canRemoveStored && (
-                <p>
-                  <strong>{labels.removeStored}</strong>: {hints.removeStored}
-                </p>
-              )}
-            </HelpTip>
-          </div>
         )}
       </Section>
     </div>

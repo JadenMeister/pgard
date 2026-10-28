@@ -5,6 +5,7 @@ import type { AuthStatus } from "../../shared/api-types";
 import { authState } from "../features/onboarding/auth-state";
 import type { Authorization } from "../features/onboarding/use-authorization";
 import { AuthorizationSection } from "../features/onboarding/AuthorizationSection";
+import { SessionActions } from "../features/onboarding/SessionActions";
 import { coverageCounts, statusLine } from "../features/findings/result-summary";
 import { ScanStrip } from "../features/scan/ScanStrip";
 import type { ScanControl } from "../features/scan/use-scan";
@@ -133,5 +134,53 @@ describe("result status line", () => {
     expect(statusLine(partial, ko)).toBe("부분 완료 · 2개 영역이 끝나지 않음");
     expect(statusLine(result("completed", [area("completed")]))).toBe("Completed");
     expect(statusLine(result("blocked", []))).toBe("Blocked · no analysis ran");
+  });
+});
+
+describe("session actions in the tab row", () => {
+  const render = (status: AuthStatus | null, language = "en-US"): string => {
+    vi.stubGlobal("navigator", { languages: [language] });
+    return renderToStaticMarkup(
+      <I18nProvider>
+        <SessionActions authorization={authorization(status)} />
+      </I18nProvider>,
+    );
+  };
+
+  it("offers both sign-out actions with their help, inline and in the narrow-screen menu", () => {
+    const html = render(blocked);
+    expect(html).toContain(
+      '<div class="session-actions" role="group" aria-label="GitHub session">',
+    );
+    expect(html).toContain('<details class="session-menu"><summary>GitHub session</summary>');
+    expect(html.split(">End dashboard session (keep keychain sign-in)</button>").length - 1).toBe(
+      2,
+    );
+    expect(html.split(">Sign out and remove from OS keychain</button>").length - 1).toBe(2);
+    expect(html).toContain('aria-label="What the sign-out options do"');
+    expect(render(blocked, "ko-KR")).toContain(">로그아웃하고 OS 키체인에서 삭제<");
+  });
+
+  it("shows nothing without a session, and only the session action without a keychain sign-in", () => {
+    expect(render(null)).toBe("");
+    const sessionOnly = render({ ...blocked, storedSignIn: { status: "none" } });
+    expect(sessionOnly).toContain("End dashboard session");
+    expect(sessionOnly).not.toContain("Sign out and remove from OS keychain");
+  });
+
+  it("leaves the authorization section with the status, the reason line and the details", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const html = renderToStaticMarkup(
+      <I18nProvider>
+        <AuthorizationSection
+          session={{ githubApp: { source: "default" }, githubAppWarning: null } as never}
+          authorization={authorization(blocked)}
+        />
+      </I18nProvider>,
+    );
+    expect(html).toContain("A check failed, so no analysis runs.");
+    expect(html).toContain("Authorization details");
+    expect(html).not.toContain("End dashboard session");
+    expect(html).not.toContain("Sign out and remove");
   });
 });

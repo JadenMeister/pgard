@@ -20,6 +20,7 @@ import {
   AUTHORIZATION_SECTION_ID,
   AuthorizationSection,
 } from "../features/onboarding/AuthorizationSection";
+import { SessionActions } from "../features/onboarding/SessionActions";
 import { useAuthorization } from "../features/onboarding/use-authorization";
 import { ReportPanel } from "../features/reports/ReportPanel";
 import { CoverageView } from "../features/scan/CoverageView";
@@ -253,28 +254,33 @@ export function App() {
             target={target}
             onShowAuthorization={() => goTo("overview", AUTHORIZATION_SECTION_ID)}
           />
-          <nav className="viewnav" aria-label={m.nav.label}>
-            <ul className="wrap viewnav-list">
-              {VIEWS.map((entry) => (
-                <li key={entry}>
-                  <a
-                    href={`#${entry}`}
-                    aria-current={entry === view ? "page" : undefined}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      if (entry === "findings") openFindings({});
-                      else goTo(entry);
-                    }}
-                  >
-                    {m.nav[entry]}
-                    {entry === "findings" && findingCount !== null && (
-                      <span className="viewnav-count num">{findingCount}</span>
-                    )}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </nav>
+          <div className="viewnav">
+            <div className="wrap viewnav-in">
+              <nav aria-label={m.nav.label}>
+                <ul className="viewnav-list">
+                  {VIEWS.map((entry) => (
+                    <li key={entry}>
+                      <a
+                        href={`#${entry}`}
+                        aria-current={entry === view ? "page" : undefined}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          if (entry === "findings") openFindings({});
+                          else goTo(entry);
+                        }}
+                      >
+                        {m.nav[entry]}
+                        {entry === "findings" && findingCount !== null && (
+                          <span className="viewnav-count num">{findingCount}</span>
+                        )}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
+              <SessionActions authorization={authorization} />
+            </div>
+          </div>
         </>
       )}
       <main id="main" ref={mainRef} className="wrap main" tabIndex={-1} lang={language}>
