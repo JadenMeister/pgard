@@ -8,7 +8,7 @@ import type {
 } from "../../shared/api-types";
 import { apiGet, hasSessionToken } from "../api/client";
 import { loadWithRetry } from "../api/retry";
-import { Notice } from "../components/ui/Card";
+import { Notice } from "../components/ui/Notice";
 import { LanguageToggle, useI18n } from "../i18n/I18nProvider";
 import { FindingsDashboard } from "../features/findings/FindingsDashboard";
 import { LegalNotice } from "../features/legal/LegalNotice";
@@ -56,48 +56,61 @@ export function App() {
   }, []);
 
   return (
-    <div className="page">
-      <header className="page-header">
-        <div className="page-title">
-          <h1>PGARD</h1>
+    <>
+      <a className="skip-link" href="#main">
+        {m.app.skipToContent}
+      </a>
+      <header className="topbar">
+        <div className="wrap topbar-in">
+          <p className="brand">
+            <span className="brand-name">pgard</span>
+            <span>{m.app.subtitle(session ? session.version : null)}</span>
+          </p>
           <LanguageToggle />
         </div>
-        <p className="muted">{m.app.subtitle(session ? session.version : null)}</p>
       </header>
-      <main>
-        {error && (
-          <Notice tone="error">
-            {error === "token" ? m.app.errorNoToken : m.app.errorSession}
-          </Notice>
-        )}
-        {ruleTextsFailed && ruleTexts === null && language === "ko" && (
-          <Notice tone="error">{m.app.errorRuleTexts}</Notice>
-        )}
-        {session !== null && !hasAcceptedNotice && (
-          <LegalNotice onAccept={() => setHasAcceptedNotice(true)} />
-        )}
-        {session !== null && hasAcceptedNotice && (
-          <>
-            <AuthorizationPanel session={session} onStatus={setAuth} />
-            <TargetPanel
-              auth={auth}
-              presetPort={session.presetTargetPort}
-              target={target}
-              onTarget={setTarget}
-            />
-            <ScanPanel target={target} scan={scan} onScan={setScan} />
-            {scan?.result && <FindingsDashboard result={scan.result} ruleTexts={ruleTexts} />}
-            {scan?.result && scan.result.overallStatus !== "blocked" && (
-              <>
-                <StandardsCoveragePanel result={scan.result} />
-                <RuleStatsPanel result={scan.result} ruleTexts={ruleTexts} />
-                <ReportPanel />
-              </>
-            )}
-          </>
-        )}
+      <main id="main" className="wrap" tabIndex={-1}>
+        <div className="hero">
+          <h1 className="page-title">{session === null ? m.app.title : session.projectName}</h1>
+          <p className="page-lead">{m.app.lead}</p>
+        </div>
+        <div className="stack">
+          {error && (
+            <Notice tone="error">
+              {error === "token" ? m.app.errorNoToken : m.app.errorSession}
+            </Notice>
+          )}
+          {ruleTextsFailed && ruleTexts === null && language === "ko" && (
+            <Notice tone="error">{m.app.errorRuleTexts}</Notice>
+          )}
+          {session !== null && !hasAcceptedNotice && (
+            <LegalNotice onAccept={() => setHasAcceptedNotice(true)} />
+          )}
+          {session !== null && hasAcceptedNotice && (
+            <>
+              <AuthorizationPanel session={session} onStatus={setAuth} />
+              <TargetPanel
+                auth={auth}
+                presetPort={session.presetTargetPort}
+                target={target}
+                onTarget={setTarget}
+              />
+              <ScanPanel target={target} scan={scan} onScan={setScan} />
+              {scan?.result && <FindingsDashboard result={scan.result} ruleTexts={ruleTexts} />}
+              {scan?.result && scan.result.overallStatus !== "blocked" && (
+                <>
+                  <StandardsCoveragePanel result={scan.result} />
+                  <RuleStatsPanel result={scan.result} ruleTexts={ruleTexts} />
+                  <ReportPanel />
+                </>
+              )}
+            </>
+          )}
+        </div>
       </main>
-      <footer className="page-footer muted small">{m.app.footer}</footer>
-    </div>
+      <footer className="page-footer">
+        <div className="wrap">{m.app.footer}</div>
+      </footer>
+    </>
   );
 }

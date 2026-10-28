@@ -6,7 +6,8 @@ import {
   type ScanResult,
   type StandardCoverageEntry,
 } from "@pgard/findings";
-import { Card, Notice } from "../../components/ui/Card";
+import { Card } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import { ExternalLink } from "./ExternalLink";
 
@@ -106,7 +107,9 @@ export function StandardsCoveragePanel({ result }: { result: ScanResult }) {
           <tbody>
             {standards.cweTop25.map((entry) => (
               <tr key={entry.id}>
-                <td data-label={text.cweColumns.rank}>{entry.rank ?? ""}</td>
+                <td data-label={text.cweColumns.rank} className="num">
+                  {entry.rank ?? ""}
+                </td>
                 <td data-label={text.cweColumns.id}>
                   <ExternalLink
                     url={CWE_ID_PATTERN.test(entry.id) ? cweUrl(entry.id) : ""}

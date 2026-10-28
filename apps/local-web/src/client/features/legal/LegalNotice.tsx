@@ -1,3 +1,4 @@
+import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { en } from "../../i18n/en";
 import { useI18n } from "../../i18n/I18nProvider";
@@ -14,9 +15,9 @@ export function LegalNotice({ onAccept }: { onAccept: () => void }) {
           <li key={point}>{point}</li>
         ))}
       </ul>
-      <button type="button" className="button primary" onClick={onAccept}>
+      <Button variant="primary" onClick={onAccept}>
         {m.legal.accept}
-      </button>
+      </Button>
     </Card>
   );
 }

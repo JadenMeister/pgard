@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import type { AuthStatus, SessionInfo, SignOutRequestDto } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
-import { Card, Notice } from "../../components/ui/Card";
+import { Badge } from "../../components/ui/Badge";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { usePolling } from "../../hooks/use-polling";
 import { useI18n } from "../../i18n/I18nProvider";
 import { InstallAppNotice } from "./InstallAppNotice";
@@ -73,28 +76,18 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
       step={1}
       actions={
         canEndSession || canRemoveStored ? (
-          <span className="button-row">
+          <>
             {canEndSession && (
-              <button
-                type="button"
-                className="button"
-                title={SIGN_OUT_HINTS.sessionOnly}
-                onClick={() => void signOut(false)}
-              >
+              <Button title={SIGN_OUT_HINTS.sessionOnly} onClick={() => void signOut(false)}>
                 {SIGN_OUT_LABELS.sessionOnly}
-              </button>
+              </Button>
             )}
             {canRemoveStored && (
-              <button
-                type="button"
-                className="button"
-                title={SIGN_OUT_HINTS.removeStored}
-                onClick={() => void signOut(true)}
-              >
+              <Button title={SIGN_OUT_HINTS.removeStored} onClick={() => void signOut(true)}>
                 {SIGN_OUT_LABELS.removeStored}
-              </button>
+              </Button>
             )}
-          </span>
+          </>
         ) : null
       }
     >
@@ -143,9 +136,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
                 <tr key={check.id}>
                   <td data-label={m.auth.columns.check}>{checkLabels[check.id] ?? check.id}</td>
                   <td data-label={m.auth.columns.status}>
-                    <span className={`badge badge-${check.status}`}>
-                      {statusLabels[check.status] ?? check.status}
-                    </span>
+                    <Badge kind={check.status}>{statusLabels[check.status] ?? check.status}</Badge>
                   </td>
                   <td data-label={m.auth.columns.reason}>{check.reason}</td>
                 </tr>
@@ -175,14 +166,13 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
       )}
       {status?.message && <Notice tone="error">{status.message}</Notice>}
       {error && <Notice tone="error">{error}</Notice>}
-      <button
-        type="button"
-        className="button primary"
+      <Button
+        variant="primary"
         disabled={status?.status === "running"}
         onClick={() => void verify()}
       >
         {status?.summary ? m.auth.recheck : m.auth.verify}
-      </button>
+      </Button>
     </Card>
   );
 }

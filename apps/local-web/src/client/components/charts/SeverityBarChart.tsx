@@ -1,12 +1,13 @@
 import type { Severity } from "@pgard/findings";
 import { useI18n } from "../../i18n/I18nProvider";
-import { SEVERITY_COLOR_VARS, SEVERITY_ORDER } from "./severity-scale";
+import { SEVERITY_ORDER, severityClass } from "./severity-scale";
 
-const ROW_HEIGHT = 30;
-const LABEL_WIDTH = 72;
-const VALUE_WIDTH = 36;
-const WIDTH = 420;
-const BAR_HEIGHT = 14;
+const ROW_HEIGHT = 34;
+const LABEL_WIDTH = 74;
+const VALUE_WIDTH = 40;
+// Close to the rendered width on a phone, so 14-unit text never drops below 13px.
+const WIDTH = 300;
+const BAR_HEIGHT = 10;
 
 interface SeverityBarChartProps {
   counts: Record<Severity, number>;
@@ -33,6 +34,7 @@ export function SeverityBarChart({ counts, activeSeverity, onSelect }: SeverityB
         const count = counts[severity];
         const width = count === 0 ? 0 : Math.max(4, Math.round((count / maxCount) * barSpace));
         const isDimmed = activeSeverity !== null && activeSeverity !== severity;
+        const barY = y + (ROW_HEIGHT - BAR_HEIGHT) / 2;
         return (
           <g
             key={severity}
@@ -41,21 +43,29 @@ export function SeverityBarChart({ counts, activeSeverity, onSelect }: SeverityB
           >
             <title>{m.charts.barTitle(m.severity[severity], count)}</title>
             {/* Hit target spans the whole row, larger than the bar. */}
-            <rect x={0} y={y} width={WIDTH} height={ROW_HEIGHT} className="hit-target" />
-            <text x={0} y={y + ROW_HEIGHT / 2 + 4} className="chart-label">
+            <rect x={0} y={y} width={WIDTH} height={ROW_HEIGHT} rx={6} className="hit-target" />
+            <text x={0} y={y + ROW_HEIGHT / 2 + 5} className="chart-label">
               {m.severity[severity]}
             </text>
+            <rect
+              x={LABEL_WIDTH}
+              y={barY}
+              width={barSpace}
+              height={BAR_HEIGHT}
+              rx={BAR_HEIGHT / 2}
+              className="bar-track"
+            />
             {width > 0 && (
               <rect
                 x={LABEL_WIDTH}
-                y={y + (ROW_HEIGHT - BAR_HEIGHT) / 2}
+                y={barY}
                 width={width}
                 height={BAR_HEIGHT}
-                rx={4}
-                fill={SEVERITY_COLOR_VARS[severity]}
+                rx={BAR_HEIGHT / 2}
+                className={`bar-fill ${severityClass(severity)}`}
               />
             )}
-            <text x={LABEL_WIDTH + width + 6} y={y + ROW_HEIGHT / 2 + 4} className="chart-value">
+            <text x={WIDTH} y={y + ROW_HEIGHT / 2 + 5} textAnchor="end" className="chart-value">
               {count}
             </text>
           </g>

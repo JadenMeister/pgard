@@ -6,7 +6,9 @@ import type {
   TargetInfo,
 } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
-import { Card, Notice } from "../../components/ui/Card";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   isAuthorizationRequiredError,
@@ -136,9 +138,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
             {m.target.confirmedTarget} <code>{target.origin}</code>
             {target.title ? ` - ${target.title}` : ""}
           </p>
-          <button type="button" className="button" onClick={() => void clear()}>
-            {m.target.chooseAnother}
-          </button>
+          <Button onClick={() => void clear()}>{m.target.chooseAnother}</Button>
         </div>
       ) : blockedMessage !== null ? (
         <Notice tone={auth?.status === "running" || auth === null ? "info" : "warning"}>
@@ -184,17 +184,12 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
                 aria-invalid={otherPort !== "" && otherPortValue === null}
               />
             </label>
-            <button type="submit" className="button" disabled={otherPortValue === null || isBusy}>
+            <Button type="submit" disabled={otherPortValue === null || isBusy}>
               {m.target.check}
-            </button>
-            <button
-              type="button"
-              className="button"
-              disabled={isBusy}
-              onClick={() => void refresh()}
-            >
+            </Button>
+            <Button disabled={isBusy} onClick={() => void refresh()}>
               {m.target.refresh}
-            </button>
+            </Button>
           </form>
           {identity !== null && (
             <div className="identity" role="group" aria-label={m.target.identityLabel}>
@@ -220,12 +215,10 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
               {identity.isHttp ? (
                 <div className="confirm-row">
                   <p>{m.target.question}</p>
-                  <button type="button" className="button primary" onClick={() => void confirm()}>
+                  <Button variant="primary" onClick={() => void confirm()}>
                     {m.target.yes}
-                  </button>
-                  <button type="button" className="button" onClick={() => setIdentity(null)}>
-                    {m.target.no}
-                  </button>
+                  </Button>
+                  <Button onClick={() => setIdentity(null)}>{m.target.no}</Button>
                 </div>
               ) : (
                 <Notice tone="warning">{m.target.notHttp}</Notice>

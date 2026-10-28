@@ -1,37 +1,33 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
+import { SectionHeader } from "./SectionHeader";
 
 interface CardProps {
   title: string;
+  /** Step number in the dashboard flow, shown before the title. */
   step?: number;
+  /** One muted line under the title. */
+  description?: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
+  className?: string;
 }
 
-export function Card({ title, step, children, actions }: CardProps) {
+/** An unfilled, outlined region with a heading; labelled by that heading for assistive tech. */
+export function Card({ title, step, description, children, actions, className }: CardProps) {
+  const headingId = useId();
   return (
-    <section className="card" aria-label={title}>
-      <header className="card-header">
-        <h2>
-          {step === undefined ? null : <span className="step">{step}</span>}
-          {title}
-        </h2>
-        {actions}
-      </header>
+    <section
+      className={className === undefined ? "card" : `card ${className}`}
+      aria-labelledby={headingId}
+    >
+      <SectionHeader
+        id={headingId}
+        title={title}
+        step={step}
+        description={description}
+        actions={actions}
+      />
       {children}
     </section>
-  );
-}
-
-export function Notice({
-  tone,
-  children,
-}: {
-  tone: "info" | "warning" | "error";
-  children: ReactNode;
-}) {
-  return (
-    <p className={`notice notice-${tone}`} role={tone === "error" ? "alert" : "status"}>
-      {children}
-    </p>
   );
 }

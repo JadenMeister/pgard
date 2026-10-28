@@ -20,6 +20,9 @@ export const en = {
   app: {
     subtitle: (version: string | null): string =>
       `Local security dashboard${version === null ? "" : ` - v${version}`}`,
+    title: "Security dashboard",
+    lead: "Check authorization, choose what to scan and review the findings. Everything runs on this computer.",
+    skipToContent: "Skip to content",
     footer:
       "Runs on 127.0.0.1 only. Dashboard scans are not stored: their results and the session are discarded when the dashboard stops.",
     errorNoToken:
@@ -227,6 +230,23 @@ export const en = {
     },
     run: "Run scan",
     cancel: "Cancel",
+    progress: {
+      title: "Scanning",
+      elapsed: (time: string): string => `Elapsed ${time}`,
+      areasLabel: "Scan progress by area",
+      authorization: "Authorization",
+      states: {
+        waiting: "Waiting",
+        running: "Running",
+        done: "Done",
+        failed: "Failed",
+        skipped: "Skipped",
+      },
+      pages: (count: number): string => `${count} page${count === 1 ? "" : "s"} checked`,
+      announce: (area: string, state: string): string => `${area}: ${state}`,
+      note: "Each area reports when it starts and when it finishes; PGARD does not estimate how much is left.",
+      log: "Activity log",
+    },
   },
   coverage: {
     caption: "Coverage",
@@ -327,6 +347,16 @@ export const en = {
     baselineNote:
       "These findings were already in the baseline (pgard baseline). They are not new, but they are still reported.",
     newBadge: "NEW",
+    pager: {
+      showing: (start: number, end: number, total: number): string =>
+        `Showing ${start}–${end} of ${total}`,
+      label: (list: string): string => `Pages: ${list}`,
+      previous: "Previous",
+      next: "Next",
+      page: (page: number): string => `Page ${page}`,
+      pageSize: "Per page",
+      regular: "Findings",
+    },
     noDatabase:
       "PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
     location: {

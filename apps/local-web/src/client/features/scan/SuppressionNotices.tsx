@@ -4,7 +4,7 @@ import {
   type ScanResult,
   type SuppressionNotice,
 } from "@pgard/findings";
-import { Notice } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 
 type Text = ReturnType<typeof useI18n>["m"]["scan"]["suppressionNotice"];

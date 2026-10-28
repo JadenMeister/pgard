@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useReducer } from "react";
 import {
   configTestFindingCount,
   type Finding,
@@ -10,85 +10,48 @@ import {
 import { SeverityBarChart } from "../../components/charts/SeverityBarChart";
 import { SeverityDonutChart } from "../../components/charts/SeverityDonutChart";
 import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
-import { Card, Notice } from "../../components/ui/Card";
+import { Card } from "../../components/ui/Card";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Notice } from "../../components/ui/Notice";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { localizeFindingText } from "./rule-texts";
-import { RuleDetailsBlock } from "./RuleDetailsBlock";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
   buildFindingsView,
-  EMPTY_FILTERS,
-  formatLocation,
   formatSeverityBreakdown,
   partitionFindings,
   type FindingFilters,
 } from "./filter-findings";
+import { FindingList } from "./FindingList";
+import {
+  findingsListReducer,
+  INITIAL_LIST_STATE,
+  type FindingListId,
+  type FindingsListState,
+} from "./pagination";
 
-function FindingItem({
-  finding,
-  ruleTexts,
-  isNew = false,
-}: {
-  finding: Finding;
-  ruleTexts: RuleTextsResponse | null;
-  isNew?: boolean;
-}) {
-  const { m } = useI18n();
-  const statusLabels: Record<string, string> = m.status;
-  const confidenceLabels: Record<string, string> = m.confidence;
-  const location = formatLocation(finding.location, m);
-  return (
-    <li className={`finding sev-${finding.severity}`}>
-      <div className="finding-head">
-        {isNew && <span className="badge badge-new">{m.findings.newBadge}</span>}
-        <span className={`badge sev-badge sev-${finding.severity}`}>
-          {m.severity[finding.severity]}
-        </span>
-        <span className={`badge badge-${finding.status}`}>
-          {statusLabels[finding.status] ?? finding.status}
-        </span>
-        <span className="muted">
-          {m.findings.confidence(confidenceLabels[finding.confidence] ?? finding.confidence)}
-        </span>
-      </div>
-      <h3>{finding.title}</h3>
-      {finding.suppression !== undefined && (
-        <p className="suppression-reason">
-          {m.findings.suppressedReason(
-            finding.suppression.reason,
-            finding.suppression.expires ?? "",
-          )}
-        </p>
-      )}
-      <p className="location">
-        <code title={location}>{location}</code> <span className="muted">{finding.ruleId}</span>
-      </p>
-      <dl>
-        <dt>{m.findings.evidence}</dt>
-        <dd>
-          <pre>{finding.evidence}</pre>
-        </dd>
-        <dt>{m.findings.impact}</dt>
-        <dd>{finding.impact}</dd>
-        <dt>{m.findings.recommendation}</dt>
-        <dd>{finding.recommendation}</dd>
-      </dl>
-      <RuleDetailsBlock finding={finding} ruleTexts={ruleTexts} />
-    </li>
-  );
-}
-
-/** Charts, filters and the finding list for the current session's result (already redacted). */
+/** Charts, filters and the paged finding lists for the current session's result (already redacted). */
 export function FindingsDashboard({
   result,
   ruleTexts = null,
+  initialState = INITIAL_LIST_STATE,
 }: {
   result: ScanResult;
   /** Rule texts from `GET /api/rule-texts`; without them findings show their stored English text. */
   ruleTexts?: RuleTextsResponse | null;
+  /** Starting filters and pages (tests); the panel always starts at page 1 with no filter. */
+  initialState?: FindingsListState;
 }) {
   const { m, language } = useI18n();
-  const [filters, setFilters] = useState<FindingFilters>(EMPTY_FILTERS);
+  const [state, dispatch] = useReducer(findingsListReducer, initialState);
+  const { filters, pageSize } = state;
+  const setFilter = (patch: Partial<FindingFilters>): void => dispatch({ type: "filter", patch });
+  const listProps = (list: FindingListId) => ({
+    page: state.pages[list] ?? 1,
+    pageSize,
+    onPage: (page: number) => dispatch({ type: "page", list, page }),
+    onPageSize: (size: number) => dispatch({ type: "pageSize", pageSize: size }),
+  });
   // Headline counts and charts cover regular code; test and fixture findings are listed after,
   // and suggestions in vendored code come last (see buildFindingsView).
   const findings = useMemo(
@@ -110,9 +73,21 @@ export function FindingsDashboard({
     );
   }
 
+  const groupList = (section: (typeof view.sections)[number], label: string) =>
+    section.visible.length === 0 ? (
+      <EmptyState title={m.findings.noMatch} />
+    ) : (
+      <FindingList
+        label={label}
+        findings={section.visible}
+        ruleTexts={ruleTexts}
+        {...listProps(section.kind)}
+      />
+    );
+
   return (
     <Card title={m.cards.results} step={4}>
-      <p className={`overall overall-${result.overallStatus}`}>
+      <p className={`headline overall-${result.overallStatus}`}>
         {m.findings.headline(
           overallLabels[result.overallStatus] ?? m.findings.overall.unknown,
           view.total,
@@ -135,7 +110,7 @@ export function FindingsDashboard({
         <SeverityBarChart
           counts={counts}
           activeSeverity={filters.severity}
-          onSelect={(severity) => setFilters((current) => ({ ...current, severity }))}
+          onSelect={(severity) => setFilter({ severity })}
         />
         <SeverityDonutChart counts={counts} />
       </div>
@@ -145,10 +120,7 @@ export function FindingsDashboard({
           <select
             value={filters.severity ?? ""}
             onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                severity: (event.target.value || null) as Severity | null,
-              }))
+              setFilter({ severity: (event.target.value || null) as Severity | null })
             }
           >
             <option value="">{m.common.all}</option>
@@ -164,10 +136,7 @@ export function FindingsDashboard({
           <select
             value={filters.status ?? ""}
             onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                status: (event.target.value || null) as FindingStatus | null,
-              }))
+              setFilter({ status: (event.target.value || null) as FindingStatus | null })
             }
           >
             <option value="">{m.common.all}</option>
@@ -181,10 +150,7 @@ export function FindingsDashboard({
           <select
             value={filters.source ?? ""}
             onChange={(event) =>
-              setFilters((current) => ({
-                ...current,
-                source: (event.target.value || null) as ScanScope | null,
-              }))
+              setFilter({ source: (event.target.value || null) as ScanScope | null })
             }
           >
             <option value="">{m.common.all}</option>
@@ -193,30 +159,25 @@ export function FindingsDashboard({
             <option value="web">{m.findings.sources.web}</option>
           </select>
         </label>
-        <label>
+        <label className="filter-search">
           {m.findings.search}
           <input
             type="search"
             value={filters.text}
-            onChange={(event) =>
-              setFilters((current) => ({ ...current, text: event.target.value }))
-            }
+            onChange={(event) => setFilter({ text: event.target.value })}
           />
         </label>
       </div>
       {view.emptyMessage !== null ? (
-        <p className="muted">{view.emptyMessage}</p>
+        <EmptyState title={view.emptyMessage} />
       ) : (
-        <ul className="findings">
-          {visible.map((finding) => (
-            <FindingItem
-              key={finding.id}
-              finding={finding}
-              ruleTexts={ruleTexts}
-              isNew={result.baseline !== undefined}
-            />
-          ))}
-        </ul>
+        <FindingList
+          label={m.findings.pager.regular}
+          findings={visible}
+          ruleTexts={ruleTexts}
+          isNew={result.baseline !== undefined}
+          {...listProps("primary")}
+        />
       )}
       {view.sections.map((section) =>
         section.kind === "suppressed" || section.kind === "baseline" ? (
@@ -224,8 +185,8 @@ export function FindingsDashboard({
           // holding a critical finding is open.
           <details
             key={section.kind}
-            className="test-findings collapsible-findings"
-            open={section.visible.some((finding) => finding.severity === "critical")}
+            className="finding-group collapsible-findings"
+            open={section.visible.some((finding: Finding) => finding.severity === "critical")}
             aria-label={
               section.kind === "suppressed" ? m.findings.suppressedAria : m.findings.baselineAria
             }
@@ -234,21 +195,18 @@ export function FindingsDashboard({
             <p className="muted small">
               {section.kind === "suppressed" ? m.findings.suppressedNote : m.findings.baselineNote}
             </p>
-            {section.visible.length === 0 ? (
-              <p className="muted">{m.findings.noMatch}</p>
-            ) : (
-              <ul className="findings">
-                {section.visible.map((finding) => (
-                  <FindingItem key={finding.id} finding={finding} ruleTexts={ruleTexts} />
-                ))}
-              </ul>
+            {groupList(
+              section,
+              section.kind === "suppressed" ? m.findings.suppressedAria : m.findings.baselineAria,
             )}
           </details>
         ) : (
           <section
             key={section.kind}
             className={
-              section.kind === "test" ? "test-findings" : "test-findings vendored-findings"
+              section.kind === "test"
+                ? "finding-group test-findings"
+                : "finding-group vendored-findings"
             }
             aria-label={section.kind === "test" ? m.findings.testAria : m.findings.vendoredAria}
           >
@@ -270,14 +228,9 @@ export function FindingsDashboard({
                 <p className="muted small">{m.findings.vendoredNote}</p>
               </>
             )}
-            {section.visible.length === 0 ? (
-              <p className="muted">{m.findings.noMatch}</p>
-            ) : (
-              <ul className="findings">
-                {section.visible.map((finding) => (
-                  <FindingItem key={finding.id} finding={finding} ruleTexts={ruleTexts} />
-                ))}
-              </ul>
+            {groupList(
+              section,
+              section.kind === "test" ? m.findings.testAria : m.findings.vendoredAria,
             )}
           </section>
         ),

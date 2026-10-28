@@ -1,10 +1,10 @@
 import type { Severity } from "@pgard/findings";
 import { useI18n } from "../../i18n/I18nProvider";
-import { SEVERITY_COLOR_VARS, SEVERITY_ORDER } from "./severity-scale";
+import { SEVERITY_ORDER, severityClass } from "./severity-scale";
 
 const SIZE = 180;
 const RADIUS = 70;
-const STROKE = 22;
+const STROKE = 18;
 const GAP_RADIANS = 0.02;
 
 interface SeverityDonutChartProps {
@@ -47,7 +47,7 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
             r={RADIUS}
             fill="none"
             strokeWidth={STROKE}
-            stroke={SEVERITY_COLOR_VARS[present[0] as Severity]}
+            className={`donut-arc ${severityClass(present[0] as Severity)}`}
           >
             <title>{m.charts.donutSingleTitle(m.severity[present[0] as Severity], total)}</title>
           </circle>
@@ -63,17 +63,17 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
                 d={arcPath(start, Math.max(start, end))}
                 fill="none"
                 strokeWidth={STROKE}
-                stroke={SEVERITY_COLOR_VARS[severity]}
+                className={`donut-arc ${severityClass(severity)}`}
               >
                 <title>{m.charts.donutTitle(m.severity[severity], counts[severity], total)}</title>
               </path>
             );
           })
         )}
-        <text x={SIZE / 2} y={SIZE / 2 - 2} textAnchor="middle" className="donut-total">
+        <text x={SIZE / 2} y={SIZE / 2 + 4} textAnchor="middle" className="donut-total">
           {total}
         </text>
-        <text x={SIZE / 2} y={SIZE / 2 + 18} textAnchor="middle" className="chart-label">
+        <text x={SIZE / 2} y={SIZE / 2 + 26} textAnchor="middle" className="chart-label">
           {m.charts.findings}
         </text>
       </svg>
@@ -81,12 +81,8 @@ export function SeverityDonutChart({ counts }: SeverityDonutChartProps) {
         <ul className="legend">
           {SEVERITY_ORDER.map((severity) => (
             <li key={severity}>
-              <span
-                className="swatch"
-                style={{ background: SEVERITY_COLOR_VARS[severity] }}
-                aria-hidden="true"
-              />
-              {m.severity[severity]} <span className="muted">{counts[severity]}</span>
+              <span className={`swatch ${severityClass(severity)}`} aria-hidden="true" />
+              {m.severity[severity]} <span className="num">{counts[severity]}</span>
             </li>
           ))}
         </ul>

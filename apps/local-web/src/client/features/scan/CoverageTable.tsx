@@ -1,4 +1,5 @@
 import type { Coverage } from "@pgard/findings";
+import { Badge } from "../../components/ui/Badge";
 import { useI18n } from "../../i18n/I18nProvider";
 
 /** What ran and what did not. "No findings" is never shown as "safe". */
@@ -22,9 +23,7 @@ export function CoverageTable({ coverage }: { coverage: readonly Coverage[] }) {
               <code>{entry.area}</code>
             </td>
             <td data-label={m.coverage.status}>
-              <span className={`badge badge-${entry.status}`}>
-                {labels[entry.status] ?? m.status.unknownStatus}
-              </span>
+              <Badge kind={entry.status}>{labels[entry.status] ?? m.status.unknownStatus}</Badge>
             </td>
             <td data-label={m.coverage.note}>{entry.note ?? ""}</td>
           </tr>

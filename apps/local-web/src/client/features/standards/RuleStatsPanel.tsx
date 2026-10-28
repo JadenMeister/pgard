@@ -1,5 +1,6 @@
 import type { RuleStat, ScanResult } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
+import { Badge } from "../../components/ui/Badge";
 import { Card } from "../../components/ui/Card";
 import { useI18n } from "../../i18n/I18nProvider";
 
@@ -66,11 +67,13 @@ export function RuleStatsPanel({
                       )
                       .join(", ")}
                   </td>
-                  <td data-label={text.columns.findings}>{stat.findings}</td>
+                  <td data-label={text.columns.findings} className="num">
+                    {stat.findings}
+                  </td>
                   <td data-label={text.columns.status}>
-                    <span className={`badge badge-${stat.status}`}>
+                    <Badge kind={stat.status}>
                       {statusLabels[stat.status] ?? m.status.unknownStatus}
-                    </span>
+                    </Badge>
                   </td>
                 </tr>
               );

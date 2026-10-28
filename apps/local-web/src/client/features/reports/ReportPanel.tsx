@@ -1,7 +1,9 @@
 import { useState } from "react";
 import type { ReportFormatDto } from "../../../shared/api-types";
 import { apiDownload, ApiRequestError } from "../../api/client";
-import { Card, Notice } from "../../components/ui/Card";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { Messages } from "../../i18n/types";
 import { triggerDownload } from "./download";
@@ -48,22 +50,12 @@ export function ReportPanel() {
   return (
     <Card title={m.cards.report} step={5}>
       <div className="button-row">
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy !== null}
-          onClick={() => void download("html")}
-        >
+        <Button variant="primary" disabled={busy !== null} onClick={() => void download("html")}>
           {m.report.downloadHtml}
-        </button>
-        <button
-          type="button"
-          className="button primary"
-          disabled={busy !== null}
-          onClick={() => void download("pdf")}
-        >
+        </Button>
+        <Button variant="primary" disabled={busy !== null} onClick={() => void download("pdf")}>
           {m.report.downloadPdf}
-        </button>
+        </Button>
       </div>
       <p className="muted small">{m.report.note}</p>
       {busy !== null && (

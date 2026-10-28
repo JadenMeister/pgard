@@ -110,7 +110,7 @@ describe("dashboard suppressed and baseline sections", () => {
       ),
     );
     expect(html).toContain("<details");
-    expect(html).not.toContain('<details class="test-findings collapsible-findings" open');
+    expect(html).not.toContain('<details class="finding-group collapsible-findings" open');
     expect(html).toContain("Suppressed (1)");
     expect(html).toContain("1 suppressed");
     expect(html).toContain(
@@ -124,7 +124,7 @@ describe("dashboard suppressed and baseline sections", () => {
       "en",
       suppressed([at("a", "scripts/a.ts", { severity: "critical" })], [{ path: "scripts/**" }]),
     );
-    expect(html).toMatch(/<details[^>]* open/);
+    expect(html).toContain('<details class="finding-group collapsible-findings" open=""');
     expect(html).toContain("1 suppressed finding is high or critical (0 high, 1 critical)");
     expect(html).toContain("plus 1 suppressed (1 critical)");
     expect(html).toContain(

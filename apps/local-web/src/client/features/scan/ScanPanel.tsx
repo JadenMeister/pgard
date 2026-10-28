@@ -3,12 +3,15 @@ import type { ScanScope } from "@pgard/findings";
 import type { ScanStatus, TargetInfo } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
-import { Card, Notice } from "../../components/ui/Card";
+import { Button } from "../../components/ui/Button";
+import { Card } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { usePolling } from "../../hooks/use-polling";
 import { useI18n } from "../../i18n/I18nProvider";
 import { ConfigNotices } from "./ConfigNotices";
 import { SuppressionNotices } from "./SuppressionNotices";
 import { CoverageTable } from "./CoverageTable";
+import { ActivityLog, ScanProgress, useElapsedSeconds } from "./ScanProgress";
 
 const SCOPES: readonly ScanScope[] = ["code", "history", "web"];
 
@@ -24,6 +27,7 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
   const [scopes, setScopes] = useState<ScanScope[]>(["code", "history"]);
   const [error, setError] = useState<string | null>(null);
   const isRunning = scan?.status === "running";
+  const elapsedSeconds = useElapsedSeconds(isRunning);
 
   usePolling(async () => onScan(await apiGet<ScanStatus>("/api/scan")), 1000, isRunning);
 
@@ -58,8 +62,8 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
               onChange={() => toggle(scope)}
             />
             <span>
-              {m.scan.scopes[scope].label}{" "}
-              <span className="muted">- {m.scan.scopes[scope].hint}</span>
+              <span className="scope-label">{m.scan.scopes[scope].label}</span>
+              <span className="scope-hint">{m.scan.scopes[scope].hint}</span>
             </span>
           </label>
         ))}
@@ -68,31 +72,20 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
         <Notice tone="warning">{m.scan.noWebTarget}</Notice>
       )}
       <div className="button-row">
-        <button
-          type="button"
-          className="button primary"
+        <Button
+          variant="primary"
           disabled={isRunning || scopes.length === 0}
           onClick={() => void start()}
         >
           {m.scan.run}
-        </button>
-        {isRunning && (
-          <button type="button" className="button" onClick={() => void cancel()}>
-            {m.scan.cancel}
-          </button>
-        )}
+        </Button>
+        {isRunning && <Button onClick={() => void cancel()}>{m.scan.cancel}</Button>}
       </div>
       {isRunning && scan?.deviceCode && <DeviceCodeNotice deviceCode={scan.deviceCode} />}
-      {scan !== null && scan.progress.length > 0 && (
-        <ol className="progress" aria-live="polite">
-          {scan.progress.slice(-8).map((event, index) => (
-            <li key={`${index}-${event.stage}-${event.status}`}>
-              <strong>{event.stage}</strong> {event.status}
-              {event.message ? ` - ${event.message}` : ""}
-            </li>
-          ))}
-        </ol>
+      {isRunning && scan !== null && (
+        <ScanProgress scopes={scan.scopes} events={scan.progress} elapsedSeconds={elapsedSeconds} />
       )}
+      {!isRunning && scan !== null && <ActivityLog events={scan.progress} />}
       {scan?.message && (
         <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>{scan.message}</Notice>
       )}

@@ -1,4 +1,5 @@
 import type { DeviceCodeInfo } from "../../../shared/api-types";
+import { ButtonLink } from "../ui/Button";
 import { useI18n } from "../../i18n/I18nProvider";
 import { formatExpiry, isGitHubUrl } from "./device-code";
 
@@ -21,14 +22,14 @@ export function DeviceCodeNotice({ deviceCode }: { deviceCode: DeviceCodeInfo })
       <p className="code">{deviceCode.userCode}</p>
       {isGitHubUrl(deviceCode.verificationUri) && (
         <p>
-          <a
-            className="button primary"
+          <ButtonLink
+            variant="primary"
             href={deviceCode.verificationUri}
             target="_blank"
             rel="noreferrer noopener"
           >
             {m.deviceCode.openButton}
-          </a>
+          </ButtonLink>
         </p>
       )}
       <p className="muted">{formatExpiry(deviceCode.expiresIn, m)}</p>

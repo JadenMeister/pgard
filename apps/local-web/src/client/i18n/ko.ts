@@ -15,6 +15,9 @@ export const ko: Messages = {
   },
   app: {
     subtitle: (version) => `로컬 보안 대시보드${version === null ? "" : ` - v${version}`}`,
+    title: "보안 대시보드",
+    lead: "권한을 확인하고 검사할 범위를 고른 뒤 결과를 살펴보세요. 모든 작업은 이 컴퓨터에서만 이루어집니다.",
+    skipToContent: "본문으로 건너뛰기",
     footer:
       "127.0.0.1에서만 실행됩니다. 대시보드 검사는 저장되지 않으며, 대시보드를 종료하면 그 결과와 세션이 버려집니다.",
     errorNoToken:
@@ -211,6 +214,23 @@ export const ko: Messages = {
     },
     run: "검사 실행",
     cancel: "취소",
+    progress: {
+      title: "검사 중",
+      elapsed: (time) => `경과 시간 ${time}`,
+      areasLabel: "영역별 검사 진행 상황",
+      authorization: "권한 확인",
+      states: {
+        waiting: "대기 중",
+        running: "진행 중",
+        done: "완료",
+        failed: "실패",
+        skipped: "건너뜀",
+      },
+      pages: (count) => `페이지 ${count}개 확인함`,
+      announce: (area, state) => `${area}: ${state}`,
+      note: "각 영역은 시작과 완료만 알려 주며, 남은 작업량은 추정하지 않습니다.",
+      log: "진행 기록",
+    },
   },
   coverage: {
     caption: "검사 범위",
@@ -303,6 +323,15 @@ export const ko: Messages = {
     baselineNote:
       "이 항목들은 이미 기준선(pgard baseline)에 있었습니다. 새 항목은 아니지만 계속 보고됩니다.",
     newBadge: "신규",
+    pager: {
+      showing: (start, end, total) => `전체 ${total}건 중 ${start}–${end}건`,
+      label: (list) => `페이지: ${list}`,
+      previous: "이전",
+      next: "다음",
+      page: (page) => `${page}페이지`,
+      pageSize: "페이지당",
+      regular: "발견 항목",
+    },
     noDatabase:
       "PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력, 그리고 선택한 경우 로컬 HTTP 검사에서 나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.",
     location: {

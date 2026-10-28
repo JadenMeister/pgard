@@ -7,14 +7,11 @@ export const SEVERITY_ORDER: readonly Severity[] = ["critical", "high", "medium"
 export const SEVERITY_LABELS: Record<Severity, string> = en.severity;
 
 /**
- * Severity is ordinal, so it uses one hue (blue) from light to dark, validated with the
- * dataviz palette checker (--ordinal) on both surfaces. Colors are CSS variables so dark mode
- * gets its own validated steps; labels and counts always accompany the color.
+ * Severity colours are CSS custom properties (`--severity-*` in tokens.css), applied through
+ * `sev-<severity>` classes so nothing needs an inline style under the dashboard's CSP. Severity is
+ * ordinal: the loud warm end is critical and high, the quiet end low and info. Labels and counts
+ * always accompany the colour.
  */
-export const SEVERITY_COLOR_VARS: Record<Severity, string> = {
-  critical: "var(--severity-critical)",
-  high: "var(--severity-high)",
-  medium: "var(--severity-medium)",
-  low: "var(--severity-low)",
-  info: "var(--severity-info)",
-};
+export function severityClass(severity: Severity): string {
+  return `sev-${severity}`;
+}

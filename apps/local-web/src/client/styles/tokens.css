@@ -1,51 +1,105 @@
+/*
+ * Design tokens for the dashboard, in the same visual language as pgard.dev: system fonts only,
+ * a near-white page with unfilled cards outlined in 1px, large bold headings and a green accent
+ * used sparingly. No gradients, glows, tinted cards or heavy shadows. Every colour pair used for
+ * text meets WCAG AA (4.5:1) on both page colours; see tokens.test.ts.
+ */
 :root {
   color-scheme: light dark;
-  --surface-0: #f6f6f4;
-  --surface-1: #fcfcfb;
-  --border: #dedcd6;
-  --text-primary: #1b1b19;
-  --text-secondary: #4a4a46;
-  --text-muted: #6b6b66;
-  --accent: #256abf;
-  --accent-text: #ffffff;
-  --warning-bg: #fff4dc;
-  --warning-border: #d9a227;
-  --error-bg: #fde8e7;
-  --error-border: #c4302b;
-  --info-bg: #e7f0fb;
-  --info-border: #256abf;
-  /* Ordinal severity ramp (one hue), validated with the dataviz checker --ordinal on #fcfcfb. */
-  --severity-critical: #104281;
-  --severity-high: #1c5cab;
-  --severity-medium: #2a78d6;
-  --severity-low: #5598e7;
-  --severity-info: #86b6ef;
-  --radius: 8px;
-  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+  /* Colour: light theme (default). */
+  --color-page: #fafafa;
+  --color-ink: #1d1d1f;
+  --color-muted: #6e6e73;
+  --color-line: #e5e5e5;
+  --color-line-strong: #c7c7cc;
+  --color-fill: #f5f5f7;
+  /* Outline of inputs and secondary buttons: 3:1 against the page (WCAG 1.4.11). */
+  --color-control: #8e8e93;
+  --color-accent: #19753a;
+  --color-accent-ink: #ffffff;
+  --color-danger: #b42318;
+  --color-warning: #8a5a00;
+  --color-focus: #19753a;
+
+  /*
+   * Severity is ordinal: critical and high are the warm, loud end; low and info are quiet. The
+   * colour is only ever a dot, an outline or a bar next to the severity's name and count.
+   */
+  --severity-critical: #c4281c;
+  --severity-high: #c25400;
+  --severity-medium: #9a6c00;
+  --severity-low: #3f6ea8;
+  --severity-info: #86868b;
+
+  /* Type. Mono is only for code, paths, commands, rule ids and numbers in tables. */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI",
+    Roboto, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Helvetica Neue", Arial,
+    sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono",
+    "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", monospace;
+  /* 13px is the floor for secondary text. */
+  --text-xs: 0.8125rem; /* 13px */
+  --text-sm: 0.875rem; /* 14px */
+  --text-md: 0.9375rem; /* 15px, body */
+  --text-lg: 1.0625rem; /* 17px */
+  --text-xl: 1.375rem; /* 22px, card titles */
+  --text-2xl: clamp(1.5rem, 1.2rem + 1vw, 1.875rem); /* section titles */
+  --text-display: clamp(2rem, 1.3rem + 2.4vw, 3rem); /* page title */
+  --leading-tight: 1.15;
+  --leading-body: 1.55;
+
+  /* Spacing (4px base). */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.25rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-10: 2.5rem;
+  --space-12: 3rem;
+  --space-16: 4rem;
+  --gutter: 1rem;
+  --content-width: 72rem;
+
+  /* Radius. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  --duration: 160ms;
 }
 
+@media (min-width: 48rem) {
+  :root {
+    --gutter: 2rem;
+  }
+}
+
+/* Dark theme: the same structure on a near-black page. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface-0: #121211;
-    --surface-1: #1a1a19;
-    --border: #383835;
-    --text-primary: #ecebe7;
-    --text-secondary: #c4c3be;
-    --text-muted: #9a9993;
-    --accent: #5598e7;
-    --accent-text: #0d1b2e;
-    --warning-bg: #3a2e12;
-    --warning-border: #d9a227;
-    --error-bg: #3d1716;
-    --error-border: #e66767;
-    --info-bg: #13243a;
-    --info-border: #5598e7;
-    /* Dark steps of the same ramp, validated --ordinal on #1a1a19: severe = most contrast. */
-    --severity-critical: #b7d3f6;
-    --severity-high: #86b6ef;
-    --severity-medium: #5598e7;
-    --severity-low: #2a78d6;
-    --severity-info: #1c5cab;
+    --color-page: #0b0b0c;
+    --color-ink: #f5f5f7;
+    --color-muted: #a1a1a6;
+    --color-line: #2c2c2e;
+    --color-line-strong: #48484a;
+    --color-fill: #161618;
+    --color-control: #6e6e73;
+    --color-accent: #7bd88f;
+    --color-accent-ink: #08130b;
+    --color-danger: #ff7b72;
+    --color-warning: #e5b45a;
+    --color-focus: #7bd88f;
+    --severity-critical: #ff6b5e;
+    --severity-high: #ff9f45;
+    --severity-medium: #e5c07b;
+    --severity-low: #8cc8ff;
+    --severity-info: #8e8e93;
   }
 }
