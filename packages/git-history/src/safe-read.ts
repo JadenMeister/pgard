@@ -1,13 +1,18 @@
 import { constants } from "node:fs";
 import { lstat, open } from "node:fs/promises";
 
+/** What made a file unsafe to read, so a block reason can say what was actually found. */
+export type UnsafeKind = "symlink" | "special" | "too-large" | "unreadable";
+
 /**
  * Result of reading a small metadata file from inside a scanned repository's `.git` directory.
  * `unsafe` covers everything that is not a plain, small, regular file: a symbolic link, a FIFO,
  * a device, a directory, an oversized file, a read error, or a file that changed while opening.
  */
 export type SafeReadResult =
-  { state: "absent" } | { state: "ok"; text: string } | { state: "unsafe" };
+  { state: "absent" } | { state: "ok"; text: string } | { state: "unsafe"; found: UnsafeKind };
+
+const unsafe = (found: UnsafeKind): SafeReadResult => ({ state: "unsafe", found });
 
 /**
  * Reads at most `maxBytes` of a regular file without following symlinks and without ever
@@ -25,11 +30,11 @@ export async function readSmallRegularFile(
   if (stats instanceof Error) {
     return (stats as NodeJS.ErrnoException).code === "ENOENT"
       ? { state: "absent" }
-      : { state: "unsafe" };
+      : unsafe("unreadable");
   }
-  if (!stats.isFile() || stats.size > BigInt(maxBytes)) {
-    return { state: "unsafe" };
-  }
+  if (stats.isSymbolicLink()) return unsafe("symlink");
+  if (!stats.isFile()) return unsafe("special");
+  if (stats.size > BigInt(maxBytes)) return unsafe("too-large");
   const noFollow = constants.O_NOFOLLOW;
   let handle;
   try {
@@ -40,21 +45,18 @@ export async function readSmallRegularFile(
       constants.O_RDONLY | (noFollow ?? 0) | (constants.O_NONBLOCK ?? 0),
     );
     const opened = await handle.stat({ bigint: true });
-    if (!opened.isFile() || opened.size > BigInt(maxBytes)) {
-      return { state: "unsafe" };
-    }
+    if (!opened.isFile()) return unsafe("special");
+    if (opened.size > BigInt(maxBytes)) return unsafe("too-large");
     // Where O_NOFOLLOW does not exist (Windows), the handle must be the inspected file.
     if (noFollow === undefined && (opened.dev !== stats.dev || opened.ino !== stats.ino)) {
-      return { state: "unsafe" };
+      return unsafe("unreadable");
     }
     const buffer = Buffer.alloc(maxBytes + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    if (bytesRead > maxBytes) {
-      return { state: "unsafe" };
-    }
+    if (bytesRead > maxBytes) return unsafe("too-large");
     return { state: "ok", text: buffer.toString("utf8", 0, bytesRead) };
   } catch {
-    return { state: "unsafe" };
+    return unsafe("unreadable");
   } finally {
     await handle?.close().catch(() => undefined);
   }

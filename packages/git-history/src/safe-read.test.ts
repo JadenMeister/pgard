@@ -25,11 +25,11 @@ describe("readSmallRegularFile", () => {
   it("reads a small regular file and reports a missing one as absent", async () => {
     const dir = temp();
     writeFileSync(path.join(dir, "f"), "hello\n");
-    expect(await readSmallRegularFile(path.join(dir, "f"), 100)).toEqual({
+    expect(await readSmallRegularFile(path.join(dir, "f"), 100)).toMatchObject({
       state: "ok",
       text: "hello\n",
     });
-    expect(await readSmallRegularFile(path.join(dir, "missing"), 100)).toEqual({
+    expect(await readSmallRegularFile(path.join(dir, "missing"), 100)).toMatchObject({
       state: "absent",
     });
   });
@@ -40,7 +40,7 @@ describe("readSmallRegularFile", () => {
     async () => {
       const dir = temp();
       writeFileSync(path.join(dir, "parent"), "x");
-      expect(await readSmallRegularFile(path.join(dir, "parent", "child"), 100)).toEqual({
+      expect(await readSmallRegularFile(path.join(dir, "parent", "child"), 100)).toMatchObject({
         state: "unsafe",
       });
     },
@@ -53,7 +53,7 @@ describe("readSmallRegularFile", () => {
       mkdirSync(path.join(dir, "locked"));
       writeFileSync(path.join(dir, "locked", "f"), "x");
       chmodSync(path.join(dir, "locked"), 0o000);
-      expect(await readSmallRegularFile(path.join(dir, "locked", "f"), 100)).toEqual({
+      expect(await readSmallRegularFile(path.join(dir, "locked", "f"), 100)).toMatchObject({
         state: "unsafe",
       });
     },
@@ -62,6 +62,9 @@ describe("readSmallRegularFile", () => {
   it("treats a file over the cap as unsafe", async () => {
     const dir = temp();
     writeFileSync(path.join(dir, "f"), "x".repeat(101));
-    expect(await readSmallRegularFile(path.join(dir, "f"), 100)).toEqual({ state: "unsafe" });
+    expect(await readSmallRegularFile(path.join(dir, "f"), 100)).toEqual({
+      state: "unsafe",
+      found: "too-large",
+    });
   });
 });

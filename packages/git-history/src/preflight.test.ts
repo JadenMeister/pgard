@@ -54,14 +54,146 @@ describe("preflightIsolation", () => {
     expect(await preflightIsolation(linked)).toBeNull();
   });
 
-  it.skipIf(posixOnly)("blocks a symlinked .git", async () => {
-    const fixture = repo();
-    const work = mkdtempSync(path.join(tmpdir(), "pgard-dotgit-link-"));
+  const reasonOf = (result: Awaited<ReturnType<typeof preflightIsolation>>) =>
+    result && !result.isIsolated ? result.reason : "";
+  const workWith = () => {
+    const work = mkdtempSync(path.join(tmpdir(), "pgard-link-"));
     temps.push(work);
-    symlinkSync(path.join(fixture.root, ".git"), path.join(work, ".git"));
-    const result = await preflightIsolation(work);
-    expect(result?.isIsolated).toBe(false);
-    expect(result && !result.isIsolated && result.reason).toMatch(/\.git entry/);
+    return work;
+  };
+
+  describe.skipIf(posixOnly)("symlinked layouts pass, links to FIFOs and devices block", () => {
+    it("follows a symlinked .git directory (repo-tool layout) but not one aimed at a FIFO or /dev/zero", async () => {
+      const fixture = repo();
+      const work = workWith();
+      symlinkSync(path.join(fixture.root, ".git"), path.join(work, ".git"));
+      expect(await preflightIsolation(work)).toBeNull();
+      const toZero = workWith();
+      symlinkSync("/dev/zero", path.join(toZero, ".git"));
+      expect(reasonOf(await preflightIsolation(toZero))).toMatch(/\.git entry/);
+      const toFifo = workWith();
+      fifo(path.join(toFifo, "pipe"));
+      symlinkSync(path.join(toFifo, "pipe"), path.join(toFifo, ".git"));
+      expect(reasonOf(await preflightIsolation(toFifo))).toMatch(/\.git entry/);
+    });
+
+    it("follows a symlinked HEAD (core.preferSymlinkRefs) but not one aimed at a FIFO or /dev/zero", async () => {
+      const fixture = repo();
+      const head = path.join(fixture.root, ".git", "HEAD");
+      writeFileSync(path.join(fixture.root, ".git", "HEAD.real"), "ref: refs/heads/main\n");
+      rmSync(head);
+      symlinkSync("HEAD.real", head);
+      expect(await preflightIsolation(fixture.root)).toBeNull();
+      for (const makeTarget of [zero, fifo]) {
+        rmSync(head);
+        const target = path.join(fixture.root, ".git", "HEAD.bad");
+        rmSync(target, { force: true });
+        makeTarget(target);
+        symlinkSync("HEAD.bad", head);
+        const reason = reasonOf(await preflightIsolation(fixture.root));
+        expect(reason).toMatch(/HEAD/);
+        expect(reason).toMatch(/preferSymlinkRefs/);
+      }
+    });
+
+    it("follows symlinked config, packed-refs, refs and objects (shared-object layouts)", async () => {
+      const fixture = repo();
+      const git = path.join(fixture.root, ".git");
+      const shared = workWith();
+      for (const name of ["config", "refs", "objects"]) {
+        rmSync(path.join(shared, name), { recursive: true, force: true });
+        execFileSync("cp", ["-R", path.join(git, name), path.join(shared, name)]);
+        rmSync(path.join(git, name), { recursive: true, force: true });
+        symlinkSync(path.join(shared, name), path.join(git, name));
+      }
+      writeFileSync(path.join(shared, "packed-refs"), "# pack-refs\n");
+      symlinkSync(path.join(shared, "packed-refs"), path.join(git, "packed-refs"));
+      expect(await preflightIsolation(fixture.root)).toBeNull();
+    });
+
+    it.each(["config", "packed-refs"])(
+      "blocks a symlinked %s aimed at a FIFO or /dev/zero, without deletion advice",
+      async (name) => {
+        for (const makeTarget of [zero, fifo]) {
+          const fixture = repo();
+          const git = path.join(fixture.root, ".git");
+          const target = path.join(workWith(), "target");
+          makeTarget(target);
+          rmSync(path.join(git, name), { force: true });
+          symlinkSync(target, path.join(git, name));
+          const reason = reasonOf(await preflightIsolation(fixture.root));
+          expect(reason).toContain(name);
+          expect(reason).not.toMatch(/remove|delete|replace/i);
+          expect(reason).toMatch(/git clone/);
+        }
+      },
+    );
+
+    it("blocks a ref symlinked to a FIFO and never advises deleting refs", async () => {
+      const fixture = repo();
+      const ref = path.join(fixture.root, ".git", "refs", "heads", "main");
+      const target = path.join(workWith(), "target");
+      fifo(target);
+      rmSync(ref);
+      symlinkSync(target, ref);
+      const reason = reasonOf(await preflightIsolation(fixture.root));
+      expect(reason).toMatch(/refs/);
+      expect(reason).not.toMatch(/remove|delete|replace/i);
+    });
+
+    it.each([
+      ["objects/info/commit-graph", /commit-graph/],
+      ["objects/info/commit-graphs/commit-graph-chain", /commit-graphs/],
+      ["config.worktree", /config\.worktree/],
+    ])("blocks a FIFO %s", async (relative, pattern) => {
+      const fixture = repo();
+      fifo(path.join(fixture.root, ".git", ...relative.split("/")));
+      expect(reasonOf(await preflightIsolation(fixture.root))).toMatch(pattern);
+    });
+  });
+
+  describe("includes Git reads differently from PGARD are refused", () => {
+    const withInclude = async (configText: string) => {
+      const fixture = repo();
+      writeFileSync(path.join(fixture.root, ".git", "config"), configText);
+      return reasonOf(await preflightIsolation(fixture.root));
+    };
+    it.each([
+      ["a line continuation", "[include]\n\tpath = fi\\\nfo\n"],
+      ["partial quoting", '[include]\n\tpath = fi"fo"\n'],
+      ["an unbalanced quote", '[include]\n\tpath = "fifo\n'],
+      ["a ~user path", "[include]\n\tpath = ~root/x.cfg\n"],
+    ])("blocks %s", async (_name, text) => {
+      expect(await withInclude(text)).toMatch(/include path PGARD can't interpret/);
+    });
+
+    it("accepts plain, quoted and ~/ includes", async () => {
+      expect(
+        await withInclude('[include]\n\tpath = a.cfg\n\tpath = "b.cfg" # note\n\tpath = ~/c.cfg\n'),
+      ).toBe("");
+    });
+
+    it("blocks a chain of more than 50 included files", async () => {
+      const fixture = repo();
+      const git = path.join(fixture.root, ".git");
+      for (let index = 0; index < 55; index += 1) {
+        writeFileSync(
+          path.join(git, `c${index}.cfg`),
+          index < 54 ? `[include]\n\tpath = c${index + 1}.cfg\n` : "",
+        );
+      }
+      writeFileSync(path.join(git, "config"), "[include]\n\tpath = c0.cfg\n");
+      expect(reasonOf(await preflightIsolation(fixture.root))).toMatch(/more than 50 files/);
+    });
+
+    it("terminates on an include loop", async () => {
+      const fixture = repo();
+      const git = path.join(fixture.root, ".git");
+      writeFileSync(path.join(git, "a.cfg"), "[include]\n\tpath = b.cfg\n");
+      writeFileSync(path.join(git, "b.cfg"), "[include]\n\tpath = a.cfg\n");
+      writeFileSync(path.join(git, "config"), "[include]\n\tpath = a.cfg\n");
+      expect(await preflightIsolation(fixture.root)).toBeNull();
+    });
   });
 
   const faults: [string, (g: string) => void, RegExp][] = [
