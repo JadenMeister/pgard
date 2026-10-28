@@ -6,7 +6,7 @@ import {
   type ScanResult,
   type StandardCoverageEntry,
 } from "@pgard/findings";
-import { Card } from "../../components/ui/Card";
+import { Section } from "../../components/ui/Section";
 import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import { ExternalLink } from "./ExternalLink";
@@ -37,15 +37,14 @@ export function StandardsCoveragePanel({ result }: { result: ScanResult }) {
   const standards = result.standardsCoverage;
   if (standards === undefined) {
     return (
-      <Card title={m.cards.standards}>
+      <Section title={m.cards.standards}>
         <Notice tone="info">{text.notRecorded}</Notice>
-      </Card>
+      </Section>
     );
   }
   const counts = countStandardStates(standards.cweTop25);
   return (
-    <Card title={m.cards.standards}>
-      <p className="muted small standards-note">{text.note}</p>
+    <Section title={m.cards.standards} help={<p>{text.note}</p>}>
       <table className="table standards-map">
         <thead>
           <tr>
@@ -138,6 +137,6 @@ export function StandardsCoveragePanel({ result }: { result: ScanResult }) {
           <li>{text.attributionCert}</li>
         </ul>
       </div>
-    </Card>
+    </Section>
   );
 }

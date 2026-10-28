@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReportFormatDto } from "../../../shared/api-types";
 import { apiDownload, ApiRequestError } from "../../api/client";
 import { Button } from "../../components/ui/Button";
-import { Card } from "../../components/ui/Card";
+import { Section } from "../../components/ui/Section";
 import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { Messages } from "../../i18n/types";
@@ -48,12 +48,12 @@ export function ReportPanel() {
   };
 
   return (
-    <Card title={m.cards.report} step={5}>
+    <Section title={m.cards.report}>
       <div className="button-row">
         <Button variant="primary" disabled={busy !== null} onClick={() => void download("html")}>
           {m.report.downloadHtml}
         </Button>
-        <Button variant="primary" disabled={busy !== null} onClick={() => void download("pdf")}>
+        <Button disabled={busy !== null} onClick={() => void download("pdf")}>
           {m.report.downloadPdf}
         </Button>
       </div>
@@ -69,6 +69,6 @@ export function ReportPanel() {
         </Notice>
       )}
       {error && <Notice tone="error">{error}</Notice>}
-    </Card>
+    </Section>
   );
 }

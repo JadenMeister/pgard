@@ -8,7 +8,7 @@ const app = readFileSync(new URL("./app.css", import.meta.url), "utf8");
 /** `--name: #hex` pairs of one CSS block. */
 function colours(block: string): Record<string, string> {
   return Object.fromEntries(
-    [...block.matchAll(/--(color-[a-z-]+):\s*(#[0-9a-f]{6})/gi)].map((match) => [
+    [...block.matchAll(/--((?:color|severity)-[a-z-]+):\s*(#[0-9a-f]{6})/gi)].map((match) => [
       match[1] as string,
       (match[2] as string).toLowerCase(),
     ]),
@@ -36,7 +36,7 @@ describe.each([
   ["light", light],
   ["dark", dark],
 ])("%s theme tokens", (_name, theme) => {
-  const text = ["color-ink", "color-muted", "color-accent", "color-danger", "color-warning"];
+  const text = ["color-ink", "color-muted", "color-danger", "color-warning"];
 
   it.each(text)("%s meets WCAG AA (4.5:1) on the page and on subtle fills", (token) => {
     expect(contrast(theme[token] as string, theme["color-page"] as string)).toBeGreaterThanOrEqual(
@@ -46,6 +46,15 @@ describe.each([
       4.5,
     );
   });
+
+  it.each(["critical", "high", "medium", "low", "info"])(
+    "severity-%s marks (squares, bars) reach 3:1 on the page",
+    (severity) => {
+      expect(
+        contrast(theme[`severity-${severity}`] as string, theme["color-page"] as string),
+      ).toBeGreaterThanOrEqual(3);
+    },
+  );
 
   it("gives controls a 3:1 outline and primary buttons readable text", () => {
     expect(
@@ -59,14 +68,27 @@ describe.each([
 });
 
 describe("type scale", () => {
-  it("never sets text below 13px", () => {
+  it("never sets text below 12px, and keeps 12px for meta labels only", () => {
     const sizes = [
       ...[...tokens.matchAll(/--text-[a-z0-9]+:\s*([0-9.]+)rem/g)].map((m) => Number(m[1]) * 16),
       ...[...app.matchAll(/font(?:-size)?:[^;]*?\b([0-9.]+)px/g)].map((m) => Number(m[1])),
       ...[...app.matchAll(/font-size:\s*([0-9.]+)rem/g)].map((m) => Number(m[1]) * 16),
     ];
     expect(sizes.length).toBeGreaterThan(5);
-    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(13);
+    expect(Math.min(...sizes)).toBeGreaterThanOrEqual(12);
+    // 12px is the one meta size (column headers, ids, counts); everything else is 13px or more.
+    const small = [...tokens.matchAll(/--(text-[a-z0-9]+):\s*([0-9.]+)rem/g)].filter(
+      (m) => Number(m[2]) * 16 < 13,
+    );
+    expect(small.map((m) => m[1])).toEqual(["text-meta"]);
+  });
+
+  it("keeps corners small: no radius above 6px except round dots", () => {
+    const radii = [...tokens.matchAll(/--radius-([a-z]+):\s*([0-9]+)px/g)];
+    for (const [, name, value] of radii) {
+      if (name !== "pill") expect(Number(value)).toBeLessThanOrEqual(6);
+    }
+    expect(app).not.toMatch(/border-radius:\s*(?:[7-9]|[1-9][0-9])px/);
   });
 
   it("uses no gradients, glows or heavy shadows", () => {

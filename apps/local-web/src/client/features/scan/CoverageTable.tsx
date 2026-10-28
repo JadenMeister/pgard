@@ -8,7 +8,7 @@ export function CoverageTable({ coverage }: { coverage: readonly Coverage[] }) {
   const labels: Record<string, string> = m.status;
   return (
     <table className="table coverage">
-      <caption>{m.coverage.caption}</caption>
+      <caption className="sr-only">{m.coverage.caption}</caption>
       <thead>
         <tr>
           <th>{m.coverage.area}</th>

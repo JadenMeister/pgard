@@ -7,7 +7,7 @@ import type {
 } from "../../../shared/api-types";
 import { apiGet, apiPost } from "../../api/client";
 import { Button } from "../../components/ui/Button";
-import { Card } from "../../components/ui/Card";
+import { Section } from "../../components/ui/Section";
 import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
@@ -131,7 +131,7 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
   const otherPortValue = parsePortInput(otherPort.trim());
 
   return (
-    <Card title={m.cards.target} step={2}>
+    <Section title={m.cards.target} help={<p>{m.target.intro}</p>}>
       {target !== null ? (
         <div className="target-confirmed">
           <p>
@@ -146,7 +146,6 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
         </Notice>
       ) : (
         <>
-          <p className="muted">{m.target.intro}</p>
           <div className="service-list">
             {services?.services.map((service) => (
               <button
@@ -228,6 +227,6 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
         </>
       )}
       {error && <Notice tone="error">{error}</Notice>}
-    </Card>
+    </Section>
   );
 }

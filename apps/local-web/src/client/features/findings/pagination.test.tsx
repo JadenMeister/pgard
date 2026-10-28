@@ -62,7 +62,7 @@ function render(findings: Finding[], state?: FindingsListState): string {
   );
 }
 
-const rowCount = (html: string): number => html.split('<details class="finding sev-').length - 1;
+const rowCount = (html: string): number => html.split('<tr class="finding-row sev-').length - 1;
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -124,9 +124,9 @@ describe("paged results panel", () => {
     const html = render(many(250));
     expect(rowCount(html)).toBe(25);
     expect(html).toContain("Showing 1–25 of 250");
-    // Headline and charts count all 250, not the page.
-    expect(html).toContain("250 finding(s)");
-    expect(html).toContain("250 findings in total");
+    // The title count and the severity strip count all 250, not the page.
+    expect(html).toContain('<span class="section-meta"><span class="num">250</span></span>');
+    expect(html).toContain('<span class="num">50</span> critical');
     expect(html).toContain('aria-label="Pages: Findings"');
     expect(html).toContain('aria-current="page"');
   });
@@ -147,7 +147,8 @@ describe("paged results panel", () => {
     );
     const html = render(many(250), filtered);
     expect(html).toContain("Showing 1–25 of 50");
-    expect(html).toContain("250 finding(s)");
+    expect(html).toContain('<span class="section-meta"><span class="num">250</span></span>');
+    expect(html).toContain('aria-pressed="true"');
   });
 
   it("has no page controls for a short list, and Korean range text", () => {
@@ -240,9 +241,9 @@ describe("paged results panel", () => {
         suppression: { reason: "accepted", expires: "2027-01-31" },
       } as Partial<Finding>),
     ]);
-    const summaries = html.match(/<summary>[^]*?<\/summary>/g) ?? [];
-    expect(summaries.some((summary) => summary.includes("badge-confirmed"))).toBe(true);
-    expect(summaries.some((summary) => summary.includes("Suppressed until 2027-01-31"))).toBe(true);
+    const rows = html.match(/<tr class="finding-row[^]*?<\/tr>/g) ?? [];
+    expect(rows.some((row) => row.includes('<td class="col-status">Confirmed</td>'))).toBe(true);
+    expect(rows.some((row) => row.includes("Suppressed until 2027-01-31"))).toBe(true);
     vi.stubGlobal("navigator", { languages: ["ko-KR"] });
     expect(
       render([
@@ -251,11 +252,17 @@ describe("paged results panel", () => {
     ).toContain("2027-01-31까지 억제됨");
   });
 
-  it("uses h3 titles in the main list and h4 inside a group", () => {
+  it("labels every table and keeps the detail rows hidden until opened", () => {
     vi.stubGlobal("navigator", { languages: ["en-US"] });
     const html = render([finding(1), finding(2, { context: "test", confidence: "low" })]);
-    expect(html).toContain('<h3 class="finding-title">Finding number 1</h3>');
-    expect(html).toContain('<h4 class="finding-title">Finding number 2</h4>');
+    expect(html).toContain('<table class="findings-table" aria-label="Findings">');
+    expect(html).toContain('aria-label="Findings in test or fixture code"');
+    expect(html).toMatch(
+      /<button type="button" class="row-toggle" aria-expanded="false" aria-controls="([^"]+)">Finding number 1<\/button>/,
+    );
+    const id = /aria-controls="([^"]+)">Finding number 1/.exec(html)?.[1];
+    expect(html).toContain(`<tr class="finding-detail" id="${id}" hidden="">`);
+    expect(html.split('<th scope="col"').length - 1).toBe(12);
   });
 });
 

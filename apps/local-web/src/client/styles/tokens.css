@@ -1,55 +1,51 @@
 /*
- * Design tokens for the dashboard, in the same visual language as pgard.dev: system fonts only,
- * a near-white page with unfilled cards outlined in 1px, large bold headings and a green accent
- * used sparingly. No gradients, glows, tinted cards or heavy shadows. Every colour pair used for
- * text meets WCAG AA (4.5:1) on both page colours; see tokens.test.ts.
+ * Design tokens for the dashboard: a developer-tool look in the pgard.dev language. System
+ * fonts, a flat page, one neutral palette plus severity colours, dense type (14px base, 12px
+ * meta), small radii and no shadows. Every text colour meets WCAG AA (4.5:1) on the page and on
+ * subtle fills in both themes; see tokens.test.ts.
  */
 :root {
   color-scheme: light dark;
 
-  /* Colour: light theme (default). */
+  /* Neutral palette: light theme (default). */
   --color-page: #fafafa;
   --color-ink: #1d1d1f;
   --color-muted: #6e6e73;
   --color-line: #e5e5e5;
   --color-line-strong: #c7c7cc;
-  --color-fill: #f5f5f7;
+  --color-fill: #f4f4f6;
+  --color-hover: #f0f0f2;
   /* Outline of inputs and secondary buttons: 3:1 against the page (WCAG 1.4.11). */
   --color-control: #8e8e93;
-  --color-accent: #19753a;
-  --color-accent-ink: #ffffff;
-  --color-danger: #b42318;
-  --color-warning: #8a5a00;
-  --color-focus: #19753a;
+  --color-focus: #1d1d1f;
 
   /*
-   * Severity is ordinal: critical and high are the warm, loud end; low and info are quiet. The
-   * colour is only ever a dot, an outline or a bar next to the severity's name and count.
+   * Severity colours, the only hues on the page. Also used for state: critical for blocked or
+   * failed, medium for warnings. Always next to a written label.
    */
   --severity-critical: #c4281c;
   --severity-high: #c25400;
   --severity-medium: #9a6c00;
   --severity-low: #3f6ea8;
   --severity-info: #86868b;
+  --color-danger: #b42318;
+  --color-warning: #8a5a00;
 
   /* Type. Mono is only for code, paths, commands, rule ids and numbers in tables. */
   --font-sans:
-    -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI",
-    Roboto, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Helvetica Neue", Arial,
-    sans-serif;
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Roboto,
+    "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", "Helvetica Neue", Arial, sans-serif;
   --font-mono:
     ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono",
     "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", monospace;
-  /* 13px is the floor for secondary text. */
-  --text-xs: 0.8125rem; /* 13px */
-  --text-sm: 0.875rem; /* 14px */
-  --text-md: 0.9375rem; /* 15px, body */
-  --text-lg: 1.0625rem; /* 17px */
-  --text-xl: 1.375rem; /* 22px, card titles */
-  --text-2xl: clamp(1.5rem, 1.2rem + 1vw, 1.875rem); /* section titles */
-  --text-display: clamp(2rem, 1.3rem + 2.4vw, 3rem); /* page title */
-  --leading-tight: 1.15;
-  --leading-body: 1.55;
+  --text-meta: 0.75rem; /* 12px: column headers, ids, small labels */
+  --text-sm: 0.8125rem; /* 13px: secondary text */
+  --text-md: 0.875rem; /* 14px: body */
+  --text-lg: 1rem; /* 16px */
+  --text-xl: 1.25rem; /* 20px: view titles */
+  --text-stat: 1.5rem; /* 24px: stat numbers */
+  --leading-tight: 1.25;
+  --leading-body: 1.5;
 
   /* Spacing (4px base). */
   --space-1: 0.25rem;
@@ -60,24 +56,21 @@
   --space-6: 1.5rem;
   --space-8: 2rem;
   --space-10: 2.5rem;
-  --space-12: 3rem;
-  --space-16: 4rem;
   --gutter: 1rem;
-  --content-width: 72rem;
+  --content-width: 80rem;
 
-  /* Radius. */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  /* Radius: small and flat. */
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-pill: 999px;
 
-  --duration: 160ms;
+  --row-height: 2.25rem;
+  --duration: 120ms;
 }
 
 @media (min-width: 48rem) {
   :root {
-    --gutter: 2rem;
+    --gutter: 1.5rem;
   }
 }
 
@@ -90,16 +83,15 @@
     --color-line: #2c2c2e;
     --color-line-strong: #48484a;
     --color-fill: #161618;
+    --color-hover: #1c1c1e;
     --color-control: #6e6e73;
-    --color-accent: #7bd88f;
-    --color-accent-ink: #08130b;
-    --color-danger: #ff7b72;
-    --color-warning: #e5b45a;
-    --color-focus: #7bd88f;
+    --color-focus: #f5f5f7;
     --severity-critical: #ff6b5e;
     --severity-high: #ff9f45;
     --severity-medium: #e5c07b;
     --severity-low: #8cc8ff;
     --severity-info: #8e8e93;
+    --color-danger: #ff7b72;
+    --color-warning: #e5b45a;
   }
 }

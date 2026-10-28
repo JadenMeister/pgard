@@ -4,6 +4,7 @@ import { applyBaseline, applySuppressions, type Finding, type ScanResult } from 
 import { I18nProvider } from "../../i18n/I18nProvider";
 import { SuppressionNotices } from "../scan/SuppressionNotices";
 import { FindingsDashboard } from "./FindingsDashboard";
+import { ResultOverview } from "./ResultOverview";
 import { EMPTY_FILTERS, buildFindingsView, partitionFindings } from "./filter-findings";
 
 const NOW = new Date("2026-10-27T00:00:00Z");
@@ -63,6 +64,7 @@ function render(language: "en" | "ko", result: ScanResult): string {
   return renderToStaticMarkup(
     <I18nProvider>
       <SuppressionNotices result={result} />
+      <ResultOverview result={result} />
       <FindingsDashboard result={result} />
     </I18nProvider>,
   );
@@ -157,7 +159,8 @@ describe("dashboard suppressed and baseline sections", () => {
     expect(html).toContain("baseline: 1 in baseline (1 high), 1 new");
     expect(html).toContain("In baseline (1)");
     expect(html).toContain(">NEW<");
-    expect(html.split(">NEW<")).toHaveLength(2);
+    // The one new finding: once in the overview's top findings, once in the findings table.
+    expect(html.split(">NEW<")).toHaveLength(3);
     expect(render("ko", result)).toContain("기준선에 있음 (1)");
   });
 
