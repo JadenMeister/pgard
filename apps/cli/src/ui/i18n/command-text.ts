@@ -166,6 +166,11 @@ export interface CommandText {
     httpHeading: string;
     notCoveredHeading: string;
     unsupportedAreas: readonly string[];
+    /** CERT Java lines under a rule: direct (Java and Kotlin only), none (with reason), indirect. */
+    certDirect: (ids: string) => string;
+    certNone: (reason: string) => string;
+    certIndirect: (refs: string) => string;
+    certNote: string;
   };
 }
 
@@ -376,6 +381,11 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     httpHeading: "Local HTTP rules (anonymous GET, any language)",
     notCoveredHeading: "Not covered in this version",
     unsupportedAreas: UNSUPPORTED_AREAS_EN,
+    certDirect: (ids) => `SEI CERT Java, direct (Java and Kotlin files only): ${ids}`,
+    certNone: (reason) => `SEI CERT Java: no direct rule. ${reason}`,
+    certIndirect: (refs) => `SEI CERT Java, indirect (cross-reference through a CWE): ${refs}`,
+    certNote:
+      "CERT Java links point to related rules of the SEI CERT Oracle Coding Standard for Java. They are not a compliance claim: PGARD checks only the weaknesses its own rules detect, not conformance to that standard.",
   },
 };
 
@@ -584,5 +594,10 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       "양식 제출 및 상태를 바꾸는 요청",
       "의존성의 알려진 취약점(CVE/권고) 조회: PGARD는 취약점 데이터베이스를 포함하지 않습니다",
     ],
+    certDirect: (ids) => `SEI CERT Java, 직접 연결 (Java와 Kotlin 파일만 해당): ${ids}`,
+    certNone: (reason) => `SEI CERT Java: 직접 대응하는 규칙 없음. ${reason}`,
+    certIndirect: (refs) => `SEI CERT Java, 간접 연결 (CWE를 거친 상호 참조): ${refs}`,
+    certNote:
+      "CERT Java 링크는 SEI CERT Oracle Coding Standard for Java의 관련 규칙을 가리킬 뿐입니다. 준수(compliance)를 주장하지 않습니다. PGARD는 자체 규칙이 탐지하는 약점만 확인하며, 해당 표준의 준수 여부는 확인하지 않습니다.",
   },
 };

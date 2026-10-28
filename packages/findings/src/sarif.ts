@@ -7,6 +7,7 @@ import {
 } from "./contract.js";
 import { findingIdentity } from "./compare-scans.js";
 import { redactEvidence, redactFinding, redactSecrets, unmarkLocationPath } from "./redact.js";
+import { isJvmSourcePath, standardsForFindings, type StandardLink } from "./rule-details.js";
 import type { RuleTextCatalog } from "./rule-text.js";
 
 /**
@@ -152,6 +153,10 @@ function buildResult(
     confidence: finding.confidence,
     sources: [...finding.sources],
   };
+  // Direct CERT Java rules: present on Java and Kotlin findings only.
+  if (finding.references.cert !== undefined && finding.references.cert.length > 0) {
+    pgard.certJava = [...finding.references.cert];
+  }
   if (finding.context !== undefined) pgard.context = finding.context;
   if (finding.location.commit !== null) pgard.commit = finding.location.commit;
   if (finding.location.url !== null) pgard.url = finding.location.url;
@@ -183,6 +188,11 @@ function buildResult(
   return result;
 }
 
+function certMark(link: StandardLink): string {
+  if (link.viaCwe !== undefined) return ` (indirect, via ${link.viaCwe})`;
+  return link.direct === true ? " (direct, Java and Kotlin files only)" : "";
+}
+
 function buildRule(
   id: string,
   catalog: RuleTextCatalog,
@@ -199,13 +209,18 @@ function buildRule(
   );
   const rationale = details?.rationale.en ?? sample?.impact ?? title;
   const remediation = details?.remediation.en ?? sample?.recommendation ?? title;
-  const links = details?.standards ?? [];
+  const links = standardsForFindings(details?.standards ?? [], findings);
+  const hasJvmFinding = findings.some((f) => isJvmSourcePath(f.location.path));
+  const noDirectCert =
+    details?.noDirectCert !== undefined && hasJvmFinding ? details.noDirectCert.en : undefined;
   const tags = ["security"];
   for (const link of links) {
     if (link.kind === "cwe") {
       tags.push(link.id, `external/cwe/${link.id.toLowerCase()}`);
     } else if (link.kind === "owasp") {
       tags.push(`OWASP-${link.id}`);
+    } else if (link.direct === true) {
+      tags.push(`CERT-Java-${link.id}`);
     }
   }
   const helpLink = links.find((l) => l.kind === "cwe") ?? links[0];
@@ -220,7 +235,10 @@ function buildRule(
     text: remediation,
     markdown: [
       remediation,
-      ...links.map((l) => `- [${l.id}${l.title === null ? "" : ` ${l.title}`}](${l.url})`),
+      ...links.map(
+        (l) => `- [${l.id}${l.title === null ? "" : ` ${l.title}`}](${l.url})${certMark(l)}`,
+      ),
+      ...(noDirectCert === undefined ? [] : [`- SEI CERT Java: no direct rule. ${noDirectCert}`]),
     ].join("\n\n"),
   };
   if (strongest !== null) {

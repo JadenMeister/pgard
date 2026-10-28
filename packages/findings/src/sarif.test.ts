@@ -569,4 +569,80 @@ describe("buildSarif", () => {
     expect(log.runs[0].tool.driver.rules.map((r: Obj) => r.id)).toEqual(["PG-SQL-001"]);
     expect(JSON.stringify(input)).toBe(before);
   });
+
+  describe("CERT Java links", () => {
+    const certCatalog = buildRuleTextCatalog([
+      {
+        id: "PG-CMD-003",
+        title: "Command execution",
+        metadata: {
+          standards: {
+            owasp: ["A05:2025"],
+            cwe: ["CWE-78"],
+            cert: [
+              { kind: "direct", id: "IDS07-J" },
+              { kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" },
+            ],
+          },
+          rationale: { en: "Shell.", ko: "셸." },
+          remediation: { en: "Avoid it.", ko: "피하세요." },
+        },
+      },
+      {
+        id: "PG-XSS-004",
+        title: "XSS",
+        metadata: {
+          standards: {
+            owasp: ["A05:2025"],
+            cwe: ["CWE-79"],
+            cert: [],
+            noDirectCert: { en: "No CERT rule is about XSS.", ko: "XSS 규칙 없음." },
+          },
+          rationale: { en: "XSS.", ko: "XSS." },
+          remediation: { en: "Encode.", ko: "인코딩." },
+        },
+      },
+    ]);
+    const rule = (log: ReturnType<typeof buildSarif>, id: string) =>
+      JSON.parse(JSON.stringify(log)).runs[0].tool.driver.rules.find(
+        (r: { id: string }) => r.id === id,
+      );
+    const at = (ruleId: string, path: string, cert?: string[]): Finding =>
+      finding({
+        id: `${ruleId}:${path}`,
+        ruleId,
+        location: { kind: "file", path, line: 1, url: null, commit: null },
+        references: { cwe: ["CWE-78"], owasp: [], cve: [], ...(cert ? { cert } : {}) },
+      });
+
+    it("lists the direct rule on a Java finding and the indirect one for other languages", () => {
+      const java = buildSarif(
+        result({ findings: [at("PG-CMD-003", "A.java", ["IDS07-J"])] }),
+        certCatalog,
+      );
+      expect(rule(java, "PG-CMD-003").help.markdown).toContain(
+        "(direct, Java and Kotlin files only)",
+      );
+      expect(rule(java, "PG-CMD-003").help.markdown).not.toContain("indirect");
+      expect(rule(java, "PG-CMD-003").properties.tags).toContain("CERT-Java-IDS07-J");
+      expect(JSON.parse(JSON.stringify(java)).runs[0].results[0].properties.pgard.certJava).toEqual(
+        ["IDS07-J"],
+      );
+
+      const js = buildSarif(result({ findings: [at("PG-CMD-003", "a.js")] }), certCatalog);
+      expect(rule(js, "PG-CMD-003").help.markdown).toContain("(indirect, via CWE-78)");
+      expect(rule(js, "PG-CMD-003").help.markdown).not.toContain("direct, Java");
+      expect(rule(js, "PG-CMD-003").properties.tags).not.toContain("CERT-Java-IDS07-J");
+      expect(
+        JSON.parse(JSON.stringify(js)).runs[0].results[0].properties.pgard.certJava,
+      ).toBeUndefined();
+    });
+
+    it("says there is no direct rule only for Java and Kotlin findings", () => {
+      const java = buildSarif(result({ findings: [at("PG-XSS-004", "A.kt")] }), certCatalog);
+      expect(rule(java, "PG-XSS-004").help.markdown).toContain("no direct rule");
+      const other = buildSarif(result({ findings: [at("PG-XSS-004", "a.ts")] }), certCatalog);
+      expect(rule(other, "PG-XSS-004").help.markdown).not.toContain("no direct rule");
+    });
+  });
 });

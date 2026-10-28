@@ -31,7 +31,7 @@ Fix: Use parameters
 
 References: A05:2025, CWE-89
 
-Esc/Enter: close                 1-11/18"
+Esc/Enter: close                 1-11/19"
 `;
 
 exports[`rendering > en 40x14: help lists the new keys 1`] = `
@@ -142,7 +142,7 @@ References: A05:2025, CWE-89
 Standards:
   A05:2025 Injection
 https://top10.owasp.org/2025/A05_2025-Injection/
-  CWE-89 SQL Injection (via CWE-89)
+  CWE-89 SQL Injection (indirect, via CWE-89)
 https://cwe.mitre.org/data/definitions/89.html
 
 Esc/Enter: close  Up/Down: scroll"
@@ -284,7 +284,7 @@ References: A05:2025, CWE-89
 Standards:
   A05:2025 Injection
 https://top10.owasp.org/2025/A05_2025-Injection/
-  CWE-89 SQL Injection (via CWE-89)
+  CWE-89 SQL Injection (indirect, via CWE-89)
 https://cwe.mitre.org/data/definitions/89.html
 
 
@@ -433,7 +433,7 @@ User input concatenated into SQL
 
 참조: A05:2025, CWE-89
 
-Esc/Enter: 닫기  위/아래: 스크롤 1-11/18"
+Esc/Enter: 닫기  위/아래: 스크롤 1-11/19"
 `;
 
 exports[`rendering > ko 40x14: help lists the new keys 1`] = `
@@ -544,7 +544,7 @@ User input concatenated into SQL
 표준:
   A05:2025 Injection
 https://top10.owasp.org/2025/A05_2025-Injection/
-  CWE-89 SQL Injection (CWE-89 경유)
+  CWE-89 SQL Injection (간접, CWE-89 경유)
 https://cwe.mitre.org/data/definitions/89.html
 
 Esc/Enter: 닫기  위/아래: 스크롤"
@@ -686,7 +686,7 @@ User input concatenated into SQL
 표준:
   A05:2025 Injection
 https://top10.owasp.org/2025/A05_2025-Injection/
-  CWE-89 SQL Injection (CWE-89 경유)
+  CWE-89 SQL Injection (간접, CWE-89 경유)
 https://cwe.mitre.org/data/definitions/89.html
 
 

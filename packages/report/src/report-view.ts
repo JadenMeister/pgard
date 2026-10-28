@@ -7,6 +7,8 @@ import {
   cweUrl,
   formatSeverityBreakdown,
   localizedRuleTitle,
+  isJvmSourcePath,
+  standardsForPath,
   pickText,
   suppressionNotices,
   type Finding,
@@ -56,10 +58,19 @@ const isHttpsUrl = (url: string): boolean => url.startsWith("https://");
 export function findingDetails(finding: Finding, ctx: ReportContext): RuleDetails | undefined {
   const details = ctx.ruleTexts?.get(finding.ruleId)?.details;
   if (details === undefined) return undefined;
+  const { noDirectCert, ...rest } = details;
   return {
-    ...details,
+    ...rest,
+    // The "no direct CERT rule" marker belongs to Java and Kotlin findings only.
+    ...(noDirectCert !== undefined && isJvmSourcePath(finding.location.path)
+      ? { noDirectCert }
+      : {}),
     // Only official https links are ever rendered as links.
-    standards: details.standards.filter((link) => isHttpsUrl(link.url)),
+    // A direct CERT Java link is only valid for a finding in a Java or Kotlin file.
+    standards: standardsForPath(
+      details.standards.filter((link) => isHttpsUrl(link.url)),
+      finding.location.path,
+    ),
     examples: details.examples.map((example) => ({
       ...example,
       vulnerable: truncateField(example.vulnerable, MAX_EVIDENCE_CHARS),
@@ -87,11 +98,20 @@ export function ruleGuidance(
   };
 }
 
+/** " (direct, Java/Kotlin)" or " (indirect, via CWE-78)" for a CERT link; empty for the rest. */
+export function standardMark(
+  link: StandardLink,
+  t: Pick<ReportText, "viaCwe" | "certDirect">,
+): string {
+  if (link.viaCwe !== undefined) return ` (${t.viaCwe(link.viaCwe)})`;
+  if (link.direct === true) return ` (${t.certDirect})`;
+  return "";
+}
+
 /** "CWE-89 (Improper ...)"; OWASP and CERT entries name their title. */
 export function standardLabel(link: StandardLink, t: ReportText): string {
   const title = link.title === null ? "" : ` ${link.title}`;
-  const via = link.viaCwe === undefined ? "" : ` (${t.viaCwe(link.viaCwe)})`;
-  return `${link.id}${title}${via}`;
+  return `${link.id}${title}${standardMark(link, t)}`;
 }
 
 function breakdownText(counts: Readonly<Record<Severity, number>>, ctx: ReportContext): string {
@@ -356,7 +376,8 @@ export function standardsLinksOf(findings: readonly Finding[], ctx: ReportContex
   const byId = new Map<string, StandardLink>();
   for (const finding of findings) {
     for (const link of findingDetails(finding, ctx)?.standards ?? []) {
-      if (!byId.has(link.id)) byId.set(link.id, link);
+      const key = `${link.id}:${link.direct === true ? "direct" : (link.viaCwe ?? "")}`;
+      if (!byId.has(key)) byId.set(key, link);
     }
   }
   const order = { owasp: 0, cwe: 1, cert: 2 } as const;

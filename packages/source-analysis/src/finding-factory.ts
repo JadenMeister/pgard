@@ -1,5 +1,6 @@
 import {
   createFindingFingerprint,
+  directCertIdsForPath,
   redactEvidence,
   type Confidence,
   type Finding,
@@ -32,6 +33,7 @@ export function createSourceFinding(raw: RawSourceFinding): Finding {
     url: null,
     commit: null,
   };
+  const cert = directCertIdsForPath(rule.metadata.standards, raw.path);
   return {
     id: createFindingFingerprint({ ruleId: raw.ruleId, location, cause: raw.cause }),
     ruleId: raw.ruleId,
@@ -44,7 +46,12 @@ export function createSourceFinding(raw: RawSourceFinding): Finding {
     evidence: redactEvidence(raw.evidence, { maxLength: 300 }),
     impact: rule.impact,
     recommendation: rule.recommendation,
-    references: { cwe: [...rule.cwe], owasp: [...rule.owasp], cve: [] },
+    references: {
+      cwe: [...rule.cwe],
+      owasp: [...rule.owasp],
+      cve: [],
+      ...(cert.length > 0 ? { cert } : {}),
+    },
     sources: ["code"],
   };
 }

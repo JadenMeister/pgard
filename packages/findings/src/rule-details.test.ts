@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildRuleDetails, resolveStandardLinks } from "./rule-details.js";
+import {
+  buildRuleDetails,
+  directCertIdsForPath,
+  isJvmSourcePath,
+  resolveStandardLinks,
+  standardsForFindings,
+  standardsForPath,
+} from "./rule-details.js";
 import { buildRuleTextCatalog } from "./rule-text.js";
 import type { RuleMetadata } from "./rule-metadata.js";
 
@@ -63,5 +70,74 @@ describe("rule details in the catalog", () => {
     const catalog = buildRuleTextCatalog([{ id: "R-1", title: "Rule", metadata }]);
     expect(catalog.get("R-1")?.details?.standards.length).toBe(5);
     expect(catalog.get("R-1")?.details?.remediation.ko).toBe("조치");
+  });
+});
+
+describe("direct CERT links only for Java and Kotlin files", () => {
+  const links = resolveStandardLinks(metadata.standards);
+  const certOf = (path: string | null): string[] =>
+    standardsForPath(links, path)
+      .filter((link) => link.kind === "cert")
+      .map((link) =>
+        link.direct === true ? `${link.id} direct` : `${link.id} via ${link.viaCwe}`,
+      );
+
+  it("marks the direct link and keeps the indirect one", () => {
+    expect(links.filter((l) => l.kind === "cert").map((l) => l.direct)).toEqual([true, undefined]);
+  });
+
+  it("shows a direct link on .java and .kt files, in place of the redundant indirect one", () => {
+    expect(certOf("src/A.java")).toEqual(["IDS00-J direct"]);
+    expect(certOf("app/src/Main.KT")).toEqual(["IDS00-J direct"]);
+  });
+
+  it("never shows a direct link on any other file, a missing path or a Gradle script", () => {
+    for (const path of [
+      "a.ts",
+      "a.js",
+      "a.go",
+      "a.py",
+      "a.php",
+      "a.vue",
+      "build.gradle.kts",
+      null,
+    ]) {
+      expect(certOf(path), String(path)).toEqual(["IDS00-J via CWE-89"]);
+    }
+    // The input is not mutated.
+    expect(links).toHaveLength(5);
+  });
+
+  it("decides per group of findings: direct for a JVM finding, indirect for the others", () => {
+    const java = { location: { path: "A.java" } };
+    const js = { location: { path: "a.js" } };
+    const certs = (group: Array<{ location: { path: string | null } }>): string[] =>
+      standardsForFindings(links, group)
+        .filter((link) => link.kind === "cert")
+        .map((link) => (link.direct === true ? "direct" : "via"));
+    expect(certs([java])).toEqual(["direct"]);
+    expect(certs([js])).toEqual(["via"]);
+    expect(certs([java, js])).toEqual(["direct", "via"]);
+  });
+
+  it("derives the finding references from the metadata and the path", () => {
+    expect(directCertIdsForPath(metadata.standards, "A.java")).toEqual(["IDS00-J"]);
+    expect(directCertIdsForPath(metadata.standards, "a.ts")).toEqual([]);
+    expect(directCertIdsForPath(metadata.standards, null)).toEqual([]);
+    expect(isJvmSourcePath("x/Y.kt")).toBe(true);
+    expect(isJvmSourcePath("x/Y.kts")).toBe(false);
+  });
+
+  it("carries the no-direct marker into the rule details", () => {
+    const marked = buildRuleDetails({
+      ...metadata,
+      standards: {
+        ...metadata.standards,
+        cert: [],
+        noDirectCert: { en: "None.", ko: "없음." },
+      },
+    });
+    expect(marked.noDirectCert).toEqual({ en: "None.", ko: "없음." });
+    expect(buildRuleDetails(metadata).noDirectCert).toBeUndefined();
   });
 });

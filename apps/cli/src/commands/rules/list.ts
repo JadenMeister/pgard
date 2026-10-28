@@ -1,4 +1,4 @@
-import { localizedRuleTitle } from "@pgard/findings";
+import { isJvmRuleLanguages, localizedRuleTitle, pickText, type RuleLocale } from "@pgard/findings";
 import { WEB_RULE_LIST } from "@pgard/http-local";
 import {
   PGARD_VERSION,
@@ -92,6 +92,26 @@ function formatRule(rule: RuleDescriptor, title: string): string {
   return `  ${rule.id.padEnd(14)} ${rule.defaultSeverity.padEnd(8)} ${title} [${rule.languages.join(", ")}]`;
 }
 
+/**
+ * The SEI CERT Java lines under a rule. A direct link is for Java and Kotlin files only, a Java or
+ * Kotlin rule without one says so (with its reason), and a link through a CWE is labelled indirect.
+ */
+export function certLines(rule: RuleDescriptor, locale: RuleLocale, t: CliText): string[] {
+  const { standards } = rule.metadata;
+  const text = t.commands.rulesList;
+  const direct = standards.cert.filter((ref) => ref.kind === "direct").map((ref) => ref.id);
+  const indirect = standards.cert.flatMap((ref) =>
+    ref.kind === "via-cwe" ? [`${ref.id} via ${ref.cwe}`] : [],
+  );
+  const lines: string[] = [];
+  if (direct.length > 0) lines.push(text.certDirect(direct.join(", ")));
+  else if (standards.noDirectCert !== undefined && isJvmRuleLanguages(rule.languages)) {
+    lines.push(text.certNone(pickText(standards.noDirectCert, locale)));
+  }
+  if (indirect.length > 0) lines.push(text.certIndirect(indirect.join(", ")));
+  return lines;
+}
+
 /** `pgard rules list`: works outside a project; never touches GitHub or the network. */
 export async function runRulesList(
   context: CommandContext,
@@ -113,7 +133,12 @@ export async function runRulesList(
     out(context, "");
     out(context, style.bold(text.headings[group.scope]));
     if (group.rules.length === 0) out(context, style.dim(text.noRules));
-    for (const rule of group.rules) out(context, formatRule(rule, titleOf(rule.id, rule.title)));
+    for (const rule of group.rules) {
+      out(context, formatRule(rule, titleOf(rule.id, rule.title)));
+      for (const line of certLines(rule, context.ruleLocale ?? "en", t)) {
+        out(context, style.dim(`      ${line}`));
+      }
+    }
   }
   out(context, "");
   out(context, style.bold(text.httpHeading));
@@ -123,6 +148,8 @@ export async function runRulesList(
       `  ${rule.id.padEnd(14)} ${rule.severity.padEnd(8)} ${titleOf(rule.id, rule.title)}`,
     );
   }
+  out(context, "");
+  out(context, style.dim(text.certNote));
   out(context, "");
   out(context, style.bold(text.notCoveredHeading));
   for (const area of text.unsupportedAreas) out(context, `  - ${area}`);

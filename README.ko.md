@@ -691,6 +691,22 @@ HTML·PDF 보고서와 대시보드는 터미널과 같은 정보에 더해 다�
 - **이전 결과.** 스키마 1.0으로 저장된 결과에는 `ruleStats`와 `standardsCoverage`가 없으며, 보고서와 대시보드는 두 구역 대신 짧은 안내를 보여 주고 오류를 내지 않습니다. 규칙 상세에는 규칙 카탈로그가 필요합니다. CLI와 대시보드는 항상 넘기며, `ruleTexts` 없이 만든 보고서는 이 정보 없이 발견 항목만 보여 줍니다.
 - **라이선스.** 표준의 식별자, 제목, 링크만 보여 주고 본문은 보여 주지 않습니다. 보고서 하단과 표준 패널에 [NOTICE.md](NOTICE.md)가 요구하는 출처 표기가 있습니다. OWASP Top 10:2025는 CC BY-SA 4.0, CWE는 MITRE CWE 이용 약관, SEI CERT는 CC BY 4.0이며 Carnegie Mellon University나 SEI의 보증을 받지 않았습니다.
 
+### SEI CERT Java 매핑 (Java, Kotlin)
+
+Java 또는 Kotlin에 적용되는 모든 규칙은 같은 약점을 다루는 SEI CERT Oracle Coding Standard for Java 규칙에 **직접** 연결되거나, 직접 대응하는 규칙이 없다고 명시합니다. id와 규칙-CWE 표는 번들 데이터(SEI `secure-coding-standards` 커밋 `72e8a32`, 2026-10-26 수집, CC BY 4.0)에서 가져옵니다. SEI가 규칙이 아니라 권고(recommendation)로만 두는 항목(예: MSC61-J)은 연결하지 않습니다.
+
+| PGARD 규칙                                                                                                                  | 직접 연결되는 CERT Java 규칙                                              |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `PG-SQL-005` SQL 인젝션                                                                                                     | IDS00-J Prevent SQL injection                                             |
+| `PG-CMD-003` OS 명령 실행                                                                                                   | IDS07-J Sanitize untrusted data passed to the Runtime.exec() method       |
+| `PG-PATH-002` 경로 탐색                                                                                                     | FIO16-J Canonicalize path names before validating them                    |
+| `PG-CRYPTO-002` 하드코딩된 키·서명 비밀정보                                                                                 | MSC03-J Never hard code sensitive information                             |
+| `PG-XSS-004`, `PG-SSRF-002`, `PG-CRYPTO-001`, `PG-CRYPTO-003`, `PG-AUTH-001`, `PG-COOKIE-001`, `PG-CSRF-001`, `PG-CONF-001` | 없음: "직접 대응하는 CERT 규칙 없음"과 그 이유를 표시(`pgard rules list`) |
+
+- **Java와 Kotlin 발견 항목에만.** 직접 링크(와 JSON 결과의 `references.cert` 필드, 스키마 1.4)는 `.java` 또는 `.kt` 파일의 발견 항목에만 나타납니다. JavaScript, TypeScript, Go, Python, PHP 발견 항목에는 나타나지 않습니다. 이런 규칙이 CERT Java 규칙 링크를 유지하는 경우(`PG-CMD-001`과 `PG-CMD-002`는 CWE-78, `PG-CRYPTO-002`와 비밀정보 규칙은 CWE-798 경유)에는 연결에 쓰인 CWE와 함께 **간접**으로 표시합니다. 매핑이 아니라 Java 표준에 대한 상호 참조입니다.
+- **표시되는 곳.** `pgard rules list`(Java·Kotlin 규칙마다 CERT 줄, `--lang`으로 영어·한국어), 터미널 결과와 패널 화면, JSON 결과(`references.cert`), SARIF(규칙 태그 `CERT-Java-<id>`, 규칙 도움말, 결과의 `properties.pgard.certJava`), HTML·PDF 보고서와 대시보드. 모두 영어와 한국어로 제공합니다.
+- **준수(compliance) 주장이 아닙니다.** 링크는 CERT 표준의 관련 규칙을 가리킬 뿐입니다. PGARD는 자체 규칙이 탐지하는 약점만 확인하며 CERT 표준의 준수 여부는 확인하지 않습니다. "직접 대응하는 CERT 규칙 없음"은 그 표준에 해당 약점을 다루는 규칙이 없다는 뜻이지 코드가 괜찮다는 뜻이 아닙니다. SEI도 자신의 CWE 표가 "SEI CERT가 검증하지 않았다"고 밝힙니다.
+
 ### 규칙 문구의 언어
 
 규칙 제목, 영향 설명, 조치 설명을 한국어나 영어로 볼 수 있습니다. 언어는 `--lang en|ko`, 환경 변수 `PGARD_LANG`(`en` 또는 `ko`), 시스템 로케일(`LC_ALL`, `LC_MESSAGES`, `LANG` 중 먼저 값이 있는 것이 결정하며 `ko`로 시작하면 한국어, 보통 이 변수가 없는 Windows에서는 런타임 로케일 사용), 마지막으로 영어 순서로 정해집니다. 값은 대소문자를 구분하지 않습니다(`KO`도 가능). `--lang`, `--report-lang`, `PGARD_LANG`에 잘못된 값을 주면 사용법 오류(종료 코드 2)이며, 언어 옵션이 있는 명령(`scan`, `rules list`, 메뉴)에서는 이 경우가 모두 사용법 오류입니다. `doctor`, `login`, `logout`은 `--lang` 옵션이 없지만 `PGARD_LANG`과 시스템 로케일을 똑같이 읽으며, `PGARD_LANG` 값이 잘못되어도 멈추지 않고 stderr에 한 줄을 출력한 뒤 시스템 언어를 사용합니다. `project verify`, `dashboard`, `advisories update`, `history clear`, `baseline`은 영어로 유지됩니다.

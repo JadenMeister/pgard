@@ -54,6 +54,12 @@ export interface RuleStandards {
   /** CWE ids, for example `CWE-89`. */
   cwe: readonly string[];
   cert: readonly CertReference[];
+  /**
+   * The explicit "no direct CERT rule" marker of a rule that applies to Java or Kotlin: why no
+   * SEI CERT Oracle Java rule is about this weakness. A JVM rule has either a `direct` CERT
+   * reference or this marker, never both and never neither; other rules have neither.
+   */
+  noDirectCert?: LocalizedText;
   /** Reasons for departures from the mapping policy. Each field is required in exactly its case. */
   mappingNote?: RuleMappingNote;
 }
@@ -79,13 +85,23 @@ export function pickText(text: LocalizedText, locale: RuleLocale = DEFAULT_RULE_
   return text[locale];
 }
 
+/** True when a rule's language list includes Java or Kotlin (the languages CERT Java applies to). */
+export function isJvmRuleLanguages(languages: readonly string[]): boolean {
+  return languages.some((language) => language === "java" || language === "kotlin");
+}
+
 const HANGUL = /[ㄱ-ㆎ가-힣]/;
 
 /**
  * Checks a rule's metadata against the bundled standards data and the translation rules.
  * Returns human-readable problems; an empty list means the metadata is valid.
  */
-export function validateRuleMetadata(rule: { id: string; metadata: RuleMetadata }): string[] {
+export function validateRuleMetadata(rule: {
+  id: string;
+  metadata: RuleMetadata;
+  /** When given, the direct-CERT policy for JVM rules is checked too. */
+  languages?: readonly string[];
+}): string[] {
   const problems: string[] = [];
   const { standards, rationale, remediation, examples } = rule.metadata;
   const fail = (message: string): void => {
@@ -150,8 +166,23 @@ export function validateRuleMetadata(rule: { id: string; metadata: RuleMetadata 
   const certKeys = standards.cert.map((ref) => `${ref.kind}:${ref.id}`);
   if (new Set(certKeys).size !== certKeys.length) fail("duplicate CERT references");
 
+  if (rule.languages !== undefined) {
+    const jvm = isJvmRuleLanguages(rule.languages);
+    const direct = standards.cert.some((ref) => ref.kind === "direct");
+    const marker = standards.noDirectCert !== undefined;
+    if (jvm && !direct && !marker) {
+      fail("applies to Java or Kotlin but has no direct CERT reference and no noDirectCert marker");
+    }
+    if (direct && marker) fail("has both a direct CERT reference and a noDirectCert marker");
+    if (!jvm && direct) fail("has a direct CERT reference but does not apply to Java or Kotlin");
+    if (!jvm && marker) fail("has a noDirectCert marker but does not apply to Java or Kotlin");
+  }
+
   const prose: Array<[string, LocalizedText]> = [
     ["rationale", rationale],
+    ...(standards.noDirectCert === undefined
+      ? []
+      : ([["standards.noDirectCert", standards.noDirectCert]] as Array<[string, LocalizedText]>)),
     ["remediation", remediation],
     ...(Object.entries(standards.mappingNote ?? {}) as Array<[string, LocalizedText]>).map(
       ([kind, text]): [string, LocalizedText] => [`standards.mappingNote.${kind}`, text],

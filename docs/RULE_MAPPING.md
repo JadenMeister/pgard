@@ -36,7 +36,13 @@ SEI CERT Java has no web-rule mappings of its own, so PGARD links a rule to a CE
 
 A sourced but unrelated link is dropped. MSC02-J ("Generate strong random numbers") lists CWE-327, but PG-CRYPTO-003 detects a broken cipher, not weak randomness, so the link was removed.
 
-Use `kind: "direct"` only when the CERT rule is about the rule's weakness itself.
+Use `kind: "direct"` only when the CERT rule is about the rule's weakness itself, and only for a rule that applies to Java or Kotlin. A `direct` entry:
+
+- must name a rule that exists in `CERT_JAVA_RULES` (the SEI **rules**, not its recommendations: MSC61-J is a recommendation and cannot be linked);
+- is judged on topic, because the CWE table is incomplete (it lists only CWE-116 for IDS00-J and CWE-171 and CWE-647 for FIO16-J). Where the table lists one of the rule's CWEs, that is further support; where it does not, the entry stays only if the CERT rule's title and text are about the same weakness. `apps/cli/src/rule-standards.test.ts` pins every direct entry and names the topical ones;
+- is shown only on findings in `.java` and `.kt` files (`references.cert`, `standardsForPath`). A finding in any other language never shows a direct CERT link.
+
+Every rule that applies to Java or Kotlin has either a `direct` entry or the explicit marker `standards.noDirectCert` (an English and Korean reason why no CERT Java rule is about the weakness); `validateRuleMetadata` rejects a rule with neither, with both, or with either on a rule that does not apply to Java or Kotlin. If you are unsure that a CERT rule is about the weakness, leave it out and use the marker. A mapping is a cross-reference and never a compliance claim.
 
 Presentation (coverage views and the UI): show `via-cwe` as a secondary "Related (via CWE-xxx)" group, never as "Maps to"; always name the bridging CWE and note that SEI has not verified its CWE table; never count it toward CERT coverage.
 

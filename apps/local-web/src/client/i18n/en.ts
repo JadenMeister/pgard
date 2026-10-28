@@ -338,7 +338,9 @@ export const en = {
   },
   details: {
     standards: "Standards",
-    viaCwe: (cwe: string): string => `via ${cwe}`,
+    viaCwe: (cwe: string): string => `indirect, via ${cwe}`,
+    certDirect: "direct, Java/Kotlin",
+    certNone: "SEI CERT Java: no direct rule",
     examples: (count: number): string => `Examples (${count})`,
     vulnerable: "Vulnerable",
     safe: "Safe",

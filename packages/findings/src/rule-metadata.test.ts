@@ -19,7 +19,13 @@ const definition = (overrides: Partial<RuleDefinition> = {}): RuleDefinition => 
   ...overrides,
 });
 
-const problems = (overrides: Partial<RuleDefinition> = {}): string[] =>
+const problems = (overrides: Partial<RuleDefinition> = {}): string[] => {
+  const { id, metadata } = defineRule(definition(overrides));
+  return validateRuleMetadata({ id, metadata });
+};
+
+/** With the rule's languages, so the direct-CERT policy for Java and Kotlin rules is checked. */
+const jvmProblems = (overrides: Partial<RuleDefinition>): string[] =>
   validateRuleMetadata(defineRule(definition(overrides)));
 
 describe("defineRule", () => {
@@ -176,6 +182,63 @@ describe("validateRuleMetadata", () => {
     expect(problems({ examples: [{ ...example, note: { en: "", ko: "메모" } }] })).toEqual([
       "PG-TEST-001: examples[0].note.en is empty",
     ]);
+  });
+
+  describe("direct CERT policy for Java and Kotlin rules", () => {
+    const direct = { kind: "direct", id: "IDS07-J" } as const;
+    const marker = {
+      en: "No SEI CERT Java rule is about this weakness.",
+      ko: "이 약점을 다루는 SEI CERT Java 규칙이 없습니다.",
+    };
+    const standards = (
+      cert: NonNullable<RuleDefinition["standards"]>["cert"],
+      noDirectCert?: LocalizedText,
+    ): RuleDefinition["standards"] => ({
+      owasp: ["A05:2025"],
+      cwe: ["CWE-78"],
+      cert,
+      ...(noDirectCert === undefined ? {} : { noDirectCert }),
+    });
+
+    it("needs a direct reference or the explicit marker on a Java or Kotlin rule", () => {
+      for (const languages of [["java"], ["kotlin"], ["javascript", "kotlin"]] as const) {
+        expect(jvmProblems({ languages, standards: standards([direct]) })).toEqual([]);
+        expect(jvmProblems({ languages, standards: standards([], marker) })).toEqual([]);
+        expect(jvmProblems({ languages, standards: standards([]) })).toEqual([
+          "PG-TEST-001: applies to Java or Kotlin but has no direct CERT reference and no noDirectCert marker",
+        ]);
+      }
+      // A link through a CWE is not a direct entry.
+      expect(
+        jvmProblems({
+          languages: ["java"],
+          standards: standards([{ kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" }]),
+        }),
+      ).toHaveLength(1);
+    });
+
+    it("rejects both a direct reference and the marker, and a marker without Korean", () => {
+      expect(jvmProblems({ languages: ["java"], standards: standards([direct], marker) })).toEqual([
+        "PG-TEST-001: has both a direct CERT reference and a noDirectCert marker",
+      ]);
+      expect(
+        jvmProblems({
+          languages: ["java"],
+          standards: standards([], { en: "Reason.", ko: "reason" }),
+        }),
+      ).toEqual(["PG-TEST-001: standards.noDirectCert.ko contains no Korean"]);
+    });
+
+    it("rejects a direct reference or marker on a rule that does not apply to Java or Kotlin", () => {
+      expect(
+        jvmProblems({ languages: ["javascript", "go"], standards: standards([direct]) }),
+      ).toEqual(["PG-TEST-001: has a direct CERT reference but does not apply to Java or Kotlin"]);
+      expect(jvmProblems({ languages: ["python"], standards: standards([], marker) })).toEqual([
+        "PG-TEST-001: has a noDirectCert marker but does not apply to Java or Kotlin",
+      ]);
+      // Indirect links are fine for other languages.
+      expect(jvmProblems({ languages: ["go"], standards: standards([]) })).toEqual([]);
+    });
   });
 
   describe("mapping policy", () => {
