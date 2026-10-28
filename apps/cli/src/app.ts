@@ -60,7 +60,7 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
     case "doctor":
       return runDoctor(context);
     case "advisories-update":
-      return runAdvisoriesUpdate(context);
+      return runAdvisoriesUpdate(context, command.force === true);
     case "login":
       return runLogin(context);
     case "logout":

@@ -26,6 +26,16 @@ export { createDefaultServerDeps, type ServerDeps } from "./deps.js";
 export const MAX_BODY_BYTES = 16 * 1024;
 export const LOOPBACK_HOST = "127.0.0.1";
 
+/**
+ * Connection limits for the loopback server. Every route answers quickly: a scan is started with
+ * one short POST and read by polling `GET /api/scan`, so no route needs a long request (there is
+ * no streaming route). Scans of any length are therefore unaffected by `REQUEST_TIMEOUT_MS`.
+ */
+export const HEADERS_TIMEOUT_MS = 10_000;
+export const REQUEST_TIMEOUT_MS = 30_000;
+export const KEEP_ALIVE_TIMEOUT_MS = 5_000;
+export const MAX_CONNECTIONS = 64;
+
 export interface LocalWebServerOptions {
   /** Git root confirmed by the launcher in the terminal. Fixed for the server's lifetime. */
   projectRoot: string;
@@ -47,6 +57,8 @@ export interface LocalWebServer {
   port: number;
   token: string;
   state: SessionState;
+  /** The underlying HTTP server (exposed for limit checks in tests). */
+  server: http.Server;
   close: () => Promise<void>;
 }
 
@@ -129,7 +141,9 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     github,
   };
 
-  const server = http.createServer((request, response) => {
+  // `connectionsCheckingInterval` makes `headersTimeout` fire close to 10 s (the default checks
+  // only every 30 s).
+  const server = http.createServer({ connectionsCheckingInterval: 1000 }, (request, response) => {
     applySecurityHeaders(response);
     const hostCheck = checkHost(request, port);
     if (!hostCheck.isAllowed) return reject(response, hostCheck);
@@ -180,6 +194,11 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     response.end(method === "HEAD" ? undefined : asset.body);
   });
 
+  server.headersTimeout = HEADERS_TIMEOUT_MS;
+  server.requestTimeout = REQUEST_TIMEOUT_MS;
+  server.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+  server.maxConnections = MAX_CONNECTIONS;
+
   await new Promise<void>((resolve, rejectListen) => {
     server.once("error", rejectListen);
     server.listen(0, LOOPBACK_HOST, () => resolve());
@@ -191,6 +210,7 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     port,
     token,
     state,
+    server,
     close: async () => {
       // Stops a pending device flow too, so the process can exit right away.
       github.dispose();
