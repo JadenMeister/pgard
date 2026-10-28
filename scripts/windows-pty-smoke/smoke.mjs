@@ -221,6 +221,22 @@ async function openFindings(scenario, run, presses) {
 }
 
 /** Search, open a finding, close it, clear the search: the M6-3 keys, in Korean, in a real pty. */
+/**
+ * True when the footer (last non-blank row) shows the findings-list hints. The panel view offers
+ * export, so `exportHint` sits after the first two hints (`Esc`, `?`), and a narrow footer drops
+ * whole hints from the end: the footer must start with that list's first three hints.
+ */
+function showsListHints(run) {
+  const parts = t.hints.findings.split("  ");
+  parts.splice(2, 0, t.exportHint);
+  const footer =
+    run.screen
+      .lines()
+      .filter((line) => line !== "")
+      .at(-1) ?? "";
+  return footer.startsWith(parts.slice(0, 3).join("  "));
+}
+
 async function navigateAndFilter(scenario, run) {
   const has = (text) => run.screen.text().includes(text);
   await press(run, "slash");
@@ -232,7 +248,7 @@ async function navigateAndFilter(scenario, run) {
     has(`${t.filter.names.search}: "Leak_"`) && has(t.filter.label),
   );
   await press(run, "enter");
-  check(scenario, "Enter keeps the search and returns to the list hints", has(t.hints.findings));
+  check(scenario, "Enter keeps the search and returns to the list hints", showsListHints(run));
   await press(run, "enter");
   check(
     scenario,
@@ -241,7 +257,7 @@ async function navigateAndFilter(scenario, run) {
   );
   noRawControls(scenario, run, "detail view showing");
   await press(run, "esc");
-  check(scenario, "Esc closes the detail view and keeps the list", has(t.hints.findings));
+  check(scenario, "Esc closes the detail view and keeps the list", showsListHints(run));
   await press(run, "esc");
   check(
     scenario,
@@ -273,12 +289,13 @@ function koreanChrome(scenario, run) {
   );
 }
 
-/** The first frame has the overview tab active: `[개요]  차트  검사 범위  발견 항목 (10)`. */
+/** The first frame has the overview tab active: `[개요]  차트  검사 범위  추이  발견 항목 (10)`. */
 function koreanWidth(scenario, run) {
   const row = run.screen.cells.find((cells) => cells.join("").includes(t.tabs.overview));
   // Hangul is 2 cells wide: "[" 1 + 개요 4 + "]" 1 + 2 spaces = column 8 for 차트, +4+2 for 검사 범위,
-  // +9 (4 + space + 4) +2 for 발견 항목.
-  const expected = { 차: 8, 검: 14, 발: 25 };
+  // +9 (4 + space + 4) +2 for 추이,
+  // +4 +2 for 발견 항목.
+  const expected = { 차: 8, 검: 14, 추: 25, 발: 31 };
   const actual = Object.fromEntries(Object.keys(expected).map((c) => [c, row?.indexOf(c) ?? -1]));
   check(
     scenario,
@@ -315,8 +332,8 @@ async function runCancel() {
       Object.values(redrew).every(Boolean),
       JSON.stringify(redrew),
     );
-    // Tab was pressed once (charts); two more reach the findings panel.
-    await openFindings(scenario, run, 2);
+    // Tab was pressed once (charts); three more reach the findings panel (coverage, trend, findings).
+    await openFindings(scenario, run, 3);
     await navigateAndFilter(scenario, run);
 
     const mark = run.raw.length;
@@ -377,7 +394,7 @@ async function runQuit() {
   try {
     if (!(await firstFrame(scenario, run))) return run;
     koreanWidth(scenario, run);
-    await openFindings(scenario, run, 3);
+    await openFindings(scenario, run, 4);
     run.term.write("q");
     await waitForExit(run);
     check(scenario, "exit code 0", run.exit?.exitCode === 0, JSON.stringify(run.exit));
