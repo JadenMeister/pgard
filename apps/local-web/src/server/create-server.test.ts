@@ -23,6 +23,7 @@ import { renderHtmlReport, renderReport } from "@pgard/report";
 import type { RuleTextsDto } from "../shared/api-types.js";
 import type { ServerDeps } from "./deps.js";
 import { reportDownloadName } from "./routes/api.js";
+import { setAuth } from "./session/session-state.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnop";
@@ -1879,5 +1880,55 @@ describe("local web guided App install", () => {
     );
     await authorize(running);
     expect(JSON.parse((await apiGet(running, "/api/auth")).body).installWaitEndsAt).toBeNull();
+  });
+});
+
+describe("local web connection limits", () => {
+  it("sets header, request, keep-alive and connection limits", async () => {
+    const running = await start(fakeDeps());
+    expect(running.server.headersTimeout).toBe(10_000);
+    expect(running.server.requestTimeout).toBe(30_000);
+    expect(running.server.keepAliveTimeout).toBe(5_000);
+    expect(running.server.maxConnections).toBe(64);
+  });
+
+  it("keeps a long scan working: start and poll are short requests", async () => {
+    let finish: (value: ScanResult) => void = () => undefined;
+    const running = await start(
+      fakeDeps({
+        verifyProject: ALLOWED_VERIFY,
+        runScan: () => new Promise<ScanResult>((resolve) => (finish = resolve)),
+      }),
+    );
+    const started = await apiPost(running, "/api/scan", { scopes: ["code"] });
+    expect(started.status).toBe(200);
+    for (let poll = 0; poll < 3; poll += 1) {
+      const response = await apiGet(running, "/api/scan");
+      expect(JSON.parse(response.body).status).toBe("running");
+    }
+    finish(result({ requestedScopes: ["code"] }));
+    await waitFor(
+      () => apiGet(running, "/api/scan"),
+      (response) => JSON.parse(response.body).status === "done",
+    );
+  });
+});
+
+describe("local web confirmed target", () => {
+  it("is cleared on sign-out and whenever the authorization changes", async () => {
+    const running = await start(fakeDeps({ verifyProject: ALLOWED_VERIFY }));
+    await authorize(running);
+    await apiPost(running, "/api/ports/probe", { port: 3000 });
+    await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true });
+    expect(running.state.confirmedTarget).not.toBeNull();
+    await apiPost(running, "/api/auth/sign-out");
+    expect(running.state.confirmedTarget).toBeNull();
+
+    await authorize(running);
+    await apiPost(running, "/api/ports/probe", { port: 3000 });
+    await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true });
+    expect(running.state.confirmedTarget).not.toBeNull();
+    setAuth(running.state, { status: "idle", outcome: null, finishedAt: null, message: null });
+    expect(running.state.confirmedTarget).toBeNull();
   });
 });

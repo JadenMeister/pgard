@@ -237,7 +237,7 @@ Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 Subcommands:
   update   download the public OSV vulnerability data for npm and Go`,
   "advisories update": `Usage:
-  pgard advisories update
+  pgard advisories update [--force]
 
 Downloads the public OSV bulk exports for npm and Go from
 https://osv-vulnerabilities.storage.googleapis.com/ (https only, that host only)
@@ -247,6 +247,10 @@ request is a plain GET of a fixed file, with no package names, no project data
 and no sign-in. The npm export is about 220 MB; the download is verified (zip
 structure, per-record checksums, size limit, timeout) and replaces the old data
 only when everything checks out. If anything fails, the old data stays.
+
+A download whose newest record is older than the installed data, or that holds
+fewer than half as many records, is refused and the installed data stays (this
+guards against a replayed old archive). --force accepts it anyway.
 
 Exit codes:
   0    all ecosystems updated

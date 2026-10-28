@@ -137,6 +137,8 @@ async function describeAdvisoryData(context: CommandContext, t: CliText): Promis
             entry.fetchedAt.slice(0, 10),
             entry.ageDays,
             entry.state === "damaged",
+            entry.modifiedMax === null ? null : entry.modifiedMax.slice(0, 10),
+            entry.dataAgeDays,
           ),
     )
     .join(", ");

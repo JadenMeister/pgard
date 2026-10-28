@@ -16,6 +16,8 @@ export interface EcosystemAdvisoryStatus {
   /** Whole days since `fetchedAt`, or null when there is no data. */
   ageDays: number | null;
   modifiedMax: string | null;
+  /** Whole days since the newest record (`modifiedRange.max`), or null when unknown. */
+  dataAgeDays: number | null;
 }
 
 export interface AdvisoryStatus {
@@ -42,17 +44,28 @@ export async function readAdvisoryStatus(
         fetchedAt: null,
         ageDays: null,
         modifiedMax: null,
+        dataAgeDays: null,
       });
       continue;
     }
     const ageDays = Math.max(0, Math.floor((now - fetched) / DAY_MS));
+    const modifiedMax = meta.modifiedRange?.max ?? null;
+    const maxTime = modifiedMax === null ? Number.NaN : Date.parse(modifiedMax);
+    const dataAgeDays = Number.isNaN(maxTime)
+      ? null
+      : Math.max(0, Math.floor((now - maxTime) / DAY_MS));
+    // Stale when either the download or the newest record is old: a replayed old archive has a
+    // fresh `fetchedAt` but old data.
+    const isOld =
+      ageDays >= staleAfterDays || (dataAgeDays !== null && dataAgeDays >= staleAfterDays);
     const intact = await filesMatchMeta(osvDir, meta);
     ecosystems.push({
       ecosystem,
-      state: !intact ? "damaged" : ageDays >= staleAfterDays ? "stale" : "fresh",
+      state: !intact ? "damaged" : isOld ? "stale" : "fresh",
       fetchedAt: meta.fetchedAt,
       ageDays,
-      modifiedMax: meta.modifiedRange?.max ?? null,
+      modifiedMax,
+      dataAgeDays,
     });
   }
   const states = ecosystems.map((entry) => entry.state);

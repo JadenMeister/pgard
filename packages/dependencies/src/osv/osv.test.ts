@@ -789,3 +789,78 @@ describe("lock edge cases", () => {
     expect(await readdir(osv)).toEqual([]);
   });
 });
+
+describe("rollback protection", () => {
+  const entries = (modified: string, count: number): TestZipEntry[] =>
+    Array.from({ length: count }, (_, index) => ({
+      name: `GHSA-r${index}.json`,
+      content: osvRecord(`GHSA-r${index}`, `pkg-${index}`, { modified }),
+    }));
+  const serve = (body: Buffer) => fakeFetch(() => ({ body })).impl;
+  const run = (body: Buffer, extra: { force?: boolean; now?: number } = {}) =>
+    updateOsvData({
+      appDataDir: dir,
+      ecosystems: ["npm"],
+      fetch: serve(body),
+      now: () => extra.now ?? Date.parse("2026-10-28T00:00:00Z"),
+      ...(extra.force === undefined ? {} : { force: extra.force }),
+    });
+  const advisoriesFile = () => path.join(osvDataDir(dir), "npm", "advisories.jsonl.gz");
+
+  it("accepts the first install", async () => {
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)));
+    expect(outcome?.ok).toBe(true);
+  });
+
+  it("refuses older data, keeps the installed data and names both dates", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 2)));
+    const before = await readFile(advisoriesFile());
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)));
+    expect(outcome?.ok).toBe(false);
+    if (outcome === undefined || outcome.ok) return;
+    expect(outcome.refusal).toBe("older-data");
+    expect(outcome.error).toContain("2024-01-01");
+    expect(outcome.error).toContain("2026-10-27");
+    expect(await readFile(advisoriesFile())).toEqual(before);
+    const status = await readAdvisoryStatus(dir, Date.parse("2026-10-28T00:00:00Z"));
+    expect(status.ecosystems.find((e) => e.ecosystem === "npm")?.modifiedMax).toBe(
+      "2026-10-27T00:00:00Z",
+    );
+    expect((await readdir(path.join(osvDataDir(dir), "npm"))).sort()).not.toContain("archive.zip");
+  });
+
+  it("refuses a big drop in the record count", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
+    const before = await readFile(advisoriesFile());
+    const [outcome] = await run(makeZip(entries("2026-10-27T00:00:00Z", 4)));
+    expect(outcome?.ok).toBe(false);
+    if (outcome === undefined || outcome.ok) return;
+    expect(outcome.refusal).toBe("smaller-data");
+    expect(outcome.error).toContain("(4)");
+    expect(outcome.error).toContain("(10;");
+    expect(await readFile(advisoriesFile())).toEqual(before);
+  });
+
+  it("accepts a small drop and the same newest date", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
+    const [outcome] = await run(makeZip(entries("2026-10-27T00:00:00Z", 6)));
+    expect(outcome?.ok).toBe(true);
+  });
+
+  it("accepts older data with force", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 2)));
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)), { force: true });
+    expect(outcome?.ok).toBe(true);
+  });
+
+  it("reports data as stale by the age of its newest record, not only by fetchedAt", async () => {
+    await run(makeZip(entries("2026-09-01T00:00:00Z", 2)));
+    const now = Date.parse("2026-10-28T00:00:00Z");
+    const status = await readAdvisoryStatus(dir, now);
+    const npm = status.ecosystems.find((e) => e.ecosystem === "npm");
+    expect(npm?.ageDays).toBe(0);
+    expect(npm?.dataAgeDays).toBe(57);
+    expect(npm?.state).toBe("stale");
+    expect(status.overall).toBe("none");
+  });
+});

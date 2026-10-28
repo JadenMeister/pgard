@@ -138,6 +138,9 @@ export function setAuth(state: SessionState, auth: SessionState["auth"]): void {
   state.portAccessController = new AbortController();
   state.auth = auth;
   state.authAccount = null;
+  // A confirmed web target was approved under the previous authorization; sign-out or any new
+  // check must not leave it usable.
+  state.confirmedTarget = null;
 }
 
 /** Said when the signed-in account changed after the latest check. */

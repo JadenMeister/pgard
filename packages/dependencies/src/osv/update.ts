@@ -18,6 +18,7 @@ import {
   MALWARE_FILE,
   STORE_SCHEMA,
   makeStagingDir,
+  readMeta,
   removeLeftovers,
   swapIntoPlace,
   writeMeta,
@@ -38,6 +39,8 @@ export interface UpdateOptions {
   idleTimeoutMs?: number;
   allowedHosts?: readonly string[];
   zipLimits?: ZipLimits;
+  /** Accept data that is older than, or much smaller than, the installed data. Default: refuse. */
+  force?: boolean;
   onProgress?: (ecosystem: Ecosystem, receivedBytes: number, totalBytes: number | null) => void;
 }
 
@@ -49,7 +52,58 @@ export type UpdateOutcome =
       downloadMs: number;
       indexMs: number;
     }
-  | { ecosystem: Ecosystem; ok: false; error: string };
+  | {
+      ecosystem: Ecosystem;
+      ok: false;
+      error: string;
+      /** Set when the new data was refused because it would replace newer or larger data. */
+      refusal?: "older-data" | "smaller-data";
+    };
+
+/**
+ * The new archive is refused when it holds fewer than this share of the installed record count.
+ * OSV exports only grow (withdrawn records stay in the export marked withdrawn), so a real drop is
+ * a sign of a truncated or replayed archive. Half leaves room for a large clean-up by OSV while
+ * still catching a rollback to a much older snapshot; `--force` accepts a deliberate change.
+ */
+export const MIN_RECORD_SHARE = 0.5;
+
+export class RollbackRefusedError extends Error {
+  constructor(
+    message: string,
+    readonly reason: "older-data" | "smaller-data",
+  ) {
+    super(message);
+    this.name = "RollbackRefusedError";
+  }
+}
+
+const day = (iso: string): string => iso.slice(0, 10);
+
+/** Throws {@link RollbackRefusedError} when `next` would replace newer or much larger data. */
+export function assertNotRollback(installed: OsvMeta | null, next: OsvMeta): void {
+  if (installed === null) return;
+  const oldMax = installed.modifiedRange?.max;
+  const newMax = next.modifiedRange?.max;
+  if (oldMax !== undefined && newMax !== undefined) {
+    const oldTime = Date.parse(oldMax);
+    const newTime = Date.parse(newMax);
+    if (!Number.isNaN(oldTime) && !Number.isNaN(newTime) && newTime < oldTime) {
+      throw new RollbackRefusedError(
+        `The downloaded data is older than the installed data (newest record ${day(newMax)} against ${day(oldMax)} installed), so it was not installed.`,
+        "older-data",
+      );
+    }
+  }
+  const oldCount = installed.counts.advisories + installed.counts.malware;
+  const newCount = next.counts.advisories + next.counts.malware;
+  if (oldCount > 0 && newCount < oldCount * MIN_RECORD_SHARE) {
+    throw new RollbackRefusedError(
+      `The downloaded data has far fewer records (${newCount}) than the installed data (${oldCount}; newest record ${oldMax === undefined ? "unknown" : day(oldMax)}), so it was not installed.`,
+      "smaller-data",
+    );
+  }
+}
 
 function describeFailure(error: unknown): string {
   if (
@@ -59,6 +113,7 @@ function describeFailure(error: unknown): string {
   ) {
     return error.message;
   }
+  if (error instanceof RollbackRefusedError) return error.message;
   if (error instanceof Error && error.name === "AbortError") return "Cancelled.";
   return "Could not store the data (disk error or unexpected format).";
 }
@@ -148,13 +203,19 @@ async function updateOne(ecosystem: Ecosystem, options: UpdateOptions): Promise<
       modifiedRange: min === null || max === null ? null : { min, max },
       files,
     };
+    if (options.force !== true) assertNotRollback(await readMeta(osvDir, ecosystem), meta);
     await writeMeta(stagingDir, meta);
     await swapIntoPlace(osvDir, ecosystem, stagingDir);
     stagingDir = null;
     return { ecosystem, ok: true, meta, downloadMs: download.durationMs, indexMs };
   } catch (error) {
     for (const writer of writers) writer.abort();
-    return { ecosystem, ok: false, error: describeFailure(error) };
+    return {
+      ecosystem,
+      ok: false,
+      error: describeFailure(error),
+      ...(error instanceof RollbackRefusedError ? { refusal: error.reason } : {}),
+    };
   } finally {
     if (stagingDir !== null)
       await rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);

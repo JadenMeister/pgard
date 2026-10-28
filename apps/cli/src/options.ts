@@ -56,7 +56,7 @@ export type ParsedCommand =
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
   | { kind: "rules-list"; language: RuleLanguage | null; lang?: RuleLocale }
   | { kind: "doctor" }
-  | { kind: "advisories-update" }
+  | { kind: "advisories-update"; force?: boolean }
   | { kind: "login"; noBrowser: boolean }
   | { kind: "logout" };
 
@@ -127,6 +127,9 @@ const FULL_FLAG = "--full";
 /** Flag (no value), `pgard scan` only: open the full-screen panel view over the result. */
 const PANELS_FLAG = "--panels";
 
+/** Flag (no value), `pgard advisories update` only: accept data older than the installed data. */
+const FORCE_FLAG = "--force";
+
 /** Flag (no value): list every finding and location in the terminal result. */
 const ALL_FINDINGS_FLAG = "--all-findings";
 
@@ -142,6 +145,7 @@ interface SplitArgs {
   fromCurrent: boolean;
   full: boolean;
   panels: boolean;
+  force: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -157,6 +161,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let fromCurrent = false;
   let full = false;
   let panels = false;
+  let force = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -191,6 +196,11 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     if (arg === FULL_FLAG) {
       if (full) throw new UsageError(`Option ${FULL_FLAG} was given more than once.`, topic());
       full = true;
+      continue;
+    }
+    if (arg === FORCE_FLAG) {
+      if (force) throw new UsageError(`Option ${FORCE_FLAG} was given more than once.`, topic());
+      force = true;
       continue;
     }
     if (arg === PANELS_FLAG) {
@@ -243,6 +253,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     fromCurrent,
     full,
     panels,
+    force,
   };
 }
 
@@ -360,6 +371,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   }
   if (split.full && command !== "scan") {
     throw new UsageError(`Option ${FULL_FLAG} is only available for pgard scan.`, "main");
+  }
+  if (split.force && !(command === "advisories" && sub === "update")) {
+    throw new UsageError(
+      `Option ${FORCE_FLAG} is only available for pgard advisories update.`,
+      "main",
+    );
   }
   if (split.panels && command !== "scan") {
     throw new UsageError(`Option ${PANELS_FLAG} is only available for pgard scan.`, "main");
@@ -547,7 +564,9 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       }
       rejectExtraPositionals(rest, topic);
       rejectOptions(split, [], topic, "pgard advisories update");
-      return { kind: "advisories-update" };
+      return split.force
+        ? { kind: "advisories-update", force: true }
+        : { kind: "advisories-update" };
     }
     case "login":
     case "logout": {

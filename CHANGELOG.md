@@ -49,6 +49,8 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Security
 
+- `pgard advisories update` refuses data whose newest record is older than the installed data, or that holds fewer than half as many records, and keeps the installed data (`--force` accepts it); advisory freshness now also considers the age of the newest record, shown in `pgard doctor` (#360). The dashboard server sets header (10 s), request (30 s), keep-alive (5 s) and connection (64) limits, clears its confirmed web target on sign-out and on any new authorization state, and the GitHub API client no longer follows redirects automatically (a renamed repository's redirect to `/repositories/{id}` on `api.github.com` is repeated once by hand).
+
 - Dashboard and web checks are loopback-only; reports and results are redacted, and the dashboard gates port discovery on the full authorization outcome.
 - Packaged grammars are checksum-pinned and verified; the package has no install scripts and only exact-pinned direct dependencies.
 

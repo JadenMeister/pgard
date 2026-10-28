@@ -10,7 +10,10 @@ const formatSeconds = (ms: number): string => `${(ms / 1000).toFixed(1)} s`;
  * `pgard advisories update`: the only command that downloads advisory data. It is user-run, talks
  * to the OSV export host only, sends no package names, and keeps the old data on any failure.
  */
-export async function runAdvisoriesUpdate(context: CommandContext): Promise<ExitCode> {
+export async function runAdvisoriesUpdate(
+  context: CommandContext,
+  force = false,
+): Promise<ExitCode> {
   const { deps, style } = context;
   const appDataDir = deps.appDataDir;
   if (appDataDir === null) {
@@ -29,6 +32,7 @@ export async function runAdvisoriesUpdate(context: CommandContext): Promise<Exit
     appDataDir,
     signal: context.signal,
     now: deps.now,
+    ...(force ? { force: true } : {}),
     onProgress: (ecosystem, received, total) => {
       if (total === null || !context.io.stderr.isTTY) return;
       const percent = Math.floor((received / total) * 10) * 10;
@@ -47,6 +51,12 @@ export async function runAdvisoriesUpdate(context: CommandContext): Promise<Exit
         context,
         `  ${style.red("[fail]")} ${outcome.ecosystem}: ${outcome.error} The previous data (if any) is unchanged.`,
       );
+      if (outcome.refusal !== undefined) {
+        out(
+          context,
+          `    This protects you from a stale or replayed download. If you are sure the new data is what you want, run \`pgard advisories update --force\`.`,
+        );
+      }
       continue;
     }
     const { meta } = outcome;
