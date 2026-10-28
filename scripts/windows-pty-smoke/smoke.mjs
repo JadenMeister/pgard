@@ -221,6 +221,22 @@ async function openFindings(scenario, run, presses) {
 }
 
 /** Search, open a finding, close it, clear the search: the M6-3 keys, in Korean, in a real pty. */
+/**
+ * True when the footer (last non-blank row) shows the findings-list hints. The panel view offers
+ * export, so `exportHint` sits after the first two hints (`Esc`, `?`), and a narrow footer drops
+ * whole hints from the end: the footer must start with that list's first three hints.
+ */
+function showsListHints(run) {
+  const parts = t.hints.findings.split("  ");
+  parts.splice(2, 0, t.exportHint);
+  const footer =
+    run.screen
+      .lines()
+      .filter((line) => line !== "")
+      .at(-1) ?? "";
+  return footer.startsWith(parts.slice(0, 3).join("  "));
+}
+
 async function navigateAndFilter(scenario, run) {
   const has = (text) => run.screen.text().includes(text);
   await press(run, "slash");
@@ -232,7 +248,7 @@ async function navigateAndFilter(scenario, run) {
     has(`${t.filter.names.search}: "Leak_"`) && has(t.filter.label),
   );
   await press(run, "enter");
-  check(scenario, "Enter keeps the search and returns to the list hints", has(t.hints.findings));
+  check(scenario, "Enter keeps the search and returns to the list hints", showsListHints(run));
   await press(run, "enter");
   check(
     scenario,
@@ -241,7 +257,7 @@ async function navigateAndFilter(scenario, run) {
   );
   noRawControls(scenario, run, "detail view showing");
   await press(run, "esc");
-  check(scenario, "Esc closes the detail view and keeps the list", has(t.hints.findings));
+  check(scenario, "Esc closes the detail view and keeps the list", showsListHints(run));
   await press(run, "esc");
   check(
     scenario,
