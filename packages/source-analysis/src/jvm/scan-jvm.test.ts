@@ -65,6 +65,9 @@ describe("scanSourceCode with Java, Kotlin and MyBatis", () => {
           "PG-CRYPTO-002",
           "PG-CRYPTO-003",
           "PG-AUTH-001",
+          "PG-COOKIE-001",
+          "PG-CSRF-001",
+          "PG-CONF-001",
         ],
       });
     }

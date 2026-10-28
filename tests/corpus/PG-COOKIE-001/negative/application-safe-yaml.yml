@@ -1,0 +1,7 @@
+# corpus: expect=none
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        secure: true

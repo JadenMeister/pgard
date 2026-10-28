@@ -1,10 +1,13 @@
 import type { Node } from "web-tree-sitter";
 import type { RawSourceFinding } from "../finding-factory.js";
 import { annotationFindings } from "./annotation-rules.js";
+import { analyzeCookies } from "./cookie-rules.js";
+import type { ConfigFinding } from "./config-util.js";
 import { unsupportedCryptoLibraries } from "./crypto-names.js";
 import { cryptoFindings, type CryptoFinding } from "./crypto-rules.js";
 import { convertJava } from "./java-ir.js";
 import { convertKotlin } from "./kotlin-ir.js";
+import { analyzeSpringSecurity } from "./spring-security.js";
 import { analyzeSql, type FlowFinding } from "./sql-engine.js";
 import { MYBATIS_PROVIDERS, UNSUPPORTED_LIBRARIES } from "./jvm-names.js";
 import { PROCESS_AND_FILE_LIBRARIES } from "./os-names.js";
@@ -36,6 +39,10 @@ export interface JvmAnalysis {
   reflectionWeb: boolean;
   /** Values put into a template model under a fixed name (matched to Thymeleaf templates by name). */
   modelAttributes: ModelAttribute[];
+  /** Spring Security forms that were not followed (a custom configurer, a helper outside the file). */
+  unsupportedSecurityForms: string[];
+  /** The file imports Spring Security. */
+  usesSpringSecurity: boolean;
 }
 
 /** Imports of the APIs the XSS and SSRF rules look at. */
@@ -49,6 +56,14 @@ const WEB_API_PREFIXES = [
   "okhttp3",
   "org.apache.http",
   "org.apache.hc",
+];
+
+/** Imports that show web security is configured (not only an encoder or the security context). */
+const WEB_SECURITY_PREFIXES = [
+  "org.springframework.security.config.annotation.web",
+  "org.springframework.security.config.web",
+  "org.springframework.security.web",
+  "org.springframework.security.oauth2.server.resource",
 ];
 
 const IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
@@ -72,7 +87,7 @@ export function importsOf(source: string): string[] {
   return out;
 }
 
-type JvmFinding = FlowFinding | CryptoFinding;
+type JvmFinding = FlowFinding | CryptoFinding | ConfigFinding;
 
 /** Strongest first: request input, then untraced, then inferred; then severity. */
 const strength = (finding: JvmFinding): number =>
@@ -97,9 +112,12 @@ export function analyzeJvmTree(
   unit.imports = importsOf(source);
   unit.aliases = importAliasesOf(source);
   const sql = analyzeSql(unit);
+  const security = analyzeSpringSecurity(unit);
   const all: JvmFinding[] = [
     ...sql.findings,
     ...cryptoFindings(unit),
+    ...security.findings,
+    ...analyzeCookies(unit),
     ...annotationFindings(unit).map((finding): FlowFinding => ({
       ...finding,
       ruleId: "PG-SQL-005",
@@ -161,6 +179,10 @@ export function analyzeJvmTree(
       ),
     unsupportedCryptoLibraries: unsupportedCryptoLibraries(unit.imports),
     modelAttributes: sql.modelAttributes,
+    unsupportedSecurityForms: security.unsupported,
+    usesSpringSecurity: unit.imports.some((name) =>
+      WEB_SECURITY_PREFIXES.some((prefix) => name === prefix || name.startsWith(`${prefix}.`)),
+    ),
     unsupportedOsLibraries: PROCESS_AND_FILE_LIBRARIES.filter((library) =>
       unit.imports.some((name) => name === library.prefix || name.startsWith(`${library.prefix}.`)),
     ).map(({ label, kind }) => ({ label, kind })),
