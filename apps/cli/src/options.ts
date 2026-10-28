@@ -91,6 +91,41 @@ export type HelpTopic =
   | "history clear"
   | "baseline";
 
+/** Every help topic, as a value so `pgard help <cmd> [<sub>]` can resolve to one. */
+export const HELP_TOPICS: readonly HelpTopic[] = [
+  "main",
+  "project",
+  "project verify",
+  "scan",
+  "report",
+  "dashboard",
+  "rules",
+  "rules list",
+  "doctor",
+  "advisories",
+  "advisories update",
+  "login",
+  "logout",
+  "history",
+  "history clear",
+  "baseline",
+];
+
+/** Maps `pgard help [<cmd> [<sub>]]` to a help topic; `undefined` when there is none. */
+function resolveHelpTopic(cmd: string | undefined, sub: string | undefined): HelpTopic | undefined {
+  if (cmd === undefined) return "main";
+  const joined = sub === undefined ? cmd : `${cmd} ${sub}`;
+  const exact = HELP_TOPICS.find((topic) => topic === joined);
+  if (exact !== undefined && exact !== "main") return exact;
+  if (sub === undefined) return undefined;
+  const parent = HELP_TOPICS.find((topic) => topic === cmd && topic !== "main");
+  if (parent === undefined) return undefined;
+  // `scan code` and `baseline set` have no topic of their own: they share the command's help.
+  if (cmd === "scan" && SCAN_VARIANTS[sub] !== undefined) return parent;
+  if (cmd === "baseline" && BASELINE_ACTIONS.some((action) => action === sub)) return parent;
+  return undefined;
+}
+
 export class UsageError extends Error {
   readonly helpTopic: HelpTopic;
   constructor(message: string, helpTopic: HelpTopic = "main") {
@@ -365,6 +400,20 @@ function parseFormat(split: SplitArgs): OutputFormat {
   return value as OutputFormat;
 }
 
+/** Every option name the parser accepts for some command (checked by options-help.test.ts). */
+export const ALL_OPTION_NAMES: readonly string[] = [
+  ...VALUE_OPTIONS,
+  NO_BROWSER_FLAG,
+  NO_STORE_FLAG,
+  NO_OPEN_FLAG,
+  ALL_FLAG,
+  FROM_CURRENT_FLAG,
+  FULL_FLAG,
+  PANELS_FLAG,
+  FORCE_FLAG,
+  ALL_FINDINGS_FLAG,
+];
+
 const SCAN_VARIANTS: Record<string, ScanVariant> = {
   code: "code",
   history: "history",
@@ -419,6 +468,21 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   }
 
   switch (command) {
+    case "help": {
+      rejectExtraPositionals(rest.slice(1), "main");
+      rejectOptions(split, [], "main", "pgard help");
+      const helpTopic = resolveHelpTopic(sub, rest[0]);
+      if (helpTopic === undefined) {
+        throw new UsageError(
+          `No help for: ${[sub, rest[0]]
+            .filter((part) => part !== undefined)
+            .join(" ")
+            .slice(0, 40)}`,
+          "main",
+        );
+      }
+      return { kind: "help", topic: helpTopic };
+    }
     case "project": {
       topic = sub === "verify" ? "project verify" : "project";
       if (split.isHelp) return { kind: "help", topic };
