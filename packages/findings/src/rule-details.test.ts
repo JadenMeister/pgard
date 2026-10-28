@@ -141,3 +141,35 @@ describe("direct CERT links only for Java and Kotlin files", () => {
     expect(buildRuleDetails(metadata).noDirectCert).toBeUndefined();
   });
 });
+
+describe("direct CERT links scoped to a cause", () => {
+  const links = resolveStandardLinks({
+    owasp: [],
+    cwe: ["CWE-327"],
+    cert: [{ kind: "direct", id: "MSC02-J", cause: "weak-random" }],
+  });
+  const ids = (path: string | null, cert?: string[]): string[] =>
+    standardsForPath(links, path, cert)
+      .filter((l) => l.kind === "cert")
+      .map((l) => l.id);
+
+  it("carries the cause on the link", () => {
+    expect(links.find((l) => l.kind === "cert")?.cause).toBe("weak-random");
+  });
+
+  it("shows the link only for a JVM finding whose references.cert names it", () => {
+    expect(ids("A.java", ["MSC02-J"])).toEqual(["MSC02-J"]);
+    expect(ids("A.java", [])).toEqual([]);
+    expect(ids("A.java")).toEqual([]);
+    expect(ids("a.ts", ["MSC02-J"])).toEqual([]);
+  });
+
+  it("decides a group per finding", () => {
+    const withCert = { location: { path: "A.java" }, references: { cert: ["MSC02-J"] } };
+    const without = { location: { path: "B.java" }, references: {} };
+    const count = (group: Array<typeof withCert | typeof without>): number =>
+      standardsForFindings(links, group).filter((l) => l.kind === "cert").length;
+    expect(count([without])).toBe(0);
+    expect(count([without, withCert])).toBe(1);
+  });
+});

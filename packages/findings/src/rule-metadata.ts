@@ -20,9 +20,21 @@ export const DEFAULT_RULE_LOCALE: RuleLocale = "en";
  */
 export type LocalizedText = Record<RuleLocale, string>;
 
+/**
+ * The cause of a finding that a direct CERT reference can be scoped to, when the CERT rule covers
+ * only part of what the PGARD rule reports. The analyzer decides it from the evidence it builds
+ * (`certCausesOf` in source-analysis).
+ * - `weak-random`: a non-cryptographic random source used as a key, IV, salt or token.
+ * - `archive-entry`: the path comes from an archive entry name (zip slip).
+ * - `other-than-archive-entry`: any other path finding of the same rule.
+ */
+export type CertCause = "weak-random" | "archive-entry" | "other-than-archive-entry";
+
 /** A CERT Java rule that applies to the rule's weakness itself. */
 export interface DirectCertReference {
   kind: "direct";
+  /** When set, the reference holds only for findings of this cause; otherwise for every finding. */
+  cause?: CertCause;
   /** CERT Java rule id such as `IDS00-J`. */
   id: string;
 }

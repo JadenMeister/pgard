@@ -30,7 +30,11 @@ export function RuleDetailsBlock({
   const showRationale = rationale !== finding.impact;
   const showRemediation = remediation !== finding.recommendation;
   // A direct CERT Java link is only valid for a finding in a Java or Kotlin file.
-  const standards = standardsForPath(details.standards, finding.location.path);
+  const standards = standardsForPath(
+    details.standards,
+    finding.location.path,
+    finding.references.cert,
+  );
   const noDirectCert =
     details.noDirectCert !== undefined && isJvmSourcePath(finding.location.path)
       ? details.noDirectCert[language]

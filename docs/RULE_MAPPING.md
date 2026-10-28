@@ -34,12 +34,13 @@ SEI CERT Java has no web-rule mappings of its own, so PGARD links a rule to a CE
 1. SEI's "MITRE CWE" related-guidelines table lists the CWE for that CERT rule (`CERT_JAVA_RULES`). SEI states that this table "was provided by outside contributors and has not been verified by SEI CERT".
 2. The CERT rule is **topically related** to what the PGARD rule detects.
 
-A sourced but unrelated link is dropped. MSC02-J ("Generate strong random numbers") lists CWE-327, but PG-CRYPTO-003 detects a broken cipher, not weak randomness, so the link was removed.
+A sourced but unrelated link is dropped. MSC02-J ("Generate strong random numbers") lists CWE-327, but only part of PG-CRYPTO-003 is about it: DES, ECB and fixed-IV findings are not about random numbers. So MSC02-J is a direct link scoped to the weak-random-source findings (below), not a link of the whole rule.
 
 Use `kind: "direct"` only when the CERT rule is about the rule's weakness itself, and only for a rule that applies to Java or Kotlin. A `direct` entry:
 
 - must name a rule that exists in `CERT_JAVA_RULES` (the SEI **rules**, not its recommendations: MSC61-J is a recommendation and cannot be linked);
-- is judged on topic, because the CWE table is incomplete (it lists only CWE-116 for IDS00-J and CWE-171 and CWE-647 for FIO16-J). Where the table lists one of the rule's CWEs, that is further support; where it does not, the entry stays only if the CERT rule's title and text are about the same weakness. `apps/cli/src/rule-standards.test.ts` pins every direct entry and names the topical ones;
+- is judged on topic, because the CWE table is incomplete (it lists only CWE-116 for IDS00-J CWE-171 and CWE-647 for FIO16-J, only CWE-409 for IDS04-J). Where the table lists one of the rule's CWEs, that is further support; where it does not, the entry stays only if the CERT rule's title and text are about the same weakness. `apps/cli/src/rule-standards.test.ts` pins every direct entry and names the topical ones;
+- may be scoped to one cause (`cause` on the reference, set per finding by `certCausesOf` in `finding-factory.ts` from the evidence kind) when the CERT rule covers only part of the rule: MSC02-J for the weak random source findings of PG-CRYPTO-003, IDS04-J for the archive entry (zip slip) findings of PG-PATH-002 and FIO16-J for its other findings. A scoped link shows only on findings whose `references.cert` names it;
 - is shown only on findings in `.java` and `.kt` files (`references.cert`, `standardsForPath`). A finding in any other language never shows a direct CERT link.
 
 Every rule that applies to Java or Kotlin has either a `direct` entry or the explicit marker `standards.noDirectCert` (an English and Korean reason why no CERT Java rule is about the weakness); `validateRuleMetadata` rejects a rule with neither, with both, or with either on a rule that does not apply to Java or Kotlin. If you are unsure that a CERT rule is about the weakness, leave it out and use the marker. A mapping is a cross-reference and never a compliance claim.

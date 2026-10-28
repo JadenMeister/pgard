@@ -139,7 +139,8 @@ describe("rule references against bundled standards data", () => {
       // MSC03-J names hard coded encryption keys itself: direct for Java and Kotlin findings, and
       // still the indirect link for the other languages of the rule.
       "PG-CRYPTO-002": ["MSC03-J", "MSC03-J via CWE-798"],
-      "PG-PATH-002": ["FIO16-J"],
+      "PG-CRYPTO-003": ["MSC02-J"],
+      "PG-PATH-002": ["FIO16-J", "IDS04-J"],
       "PG-SECRET-001": ["MSC03-J via CWE-798"],
       "PG-SECRET-002": ["MSC03-J via CWE-798"],
       "PG-SECRET-003": ["MSC03-J via CWE-798"],
@@ -170,13 +171,16 @@ describe("rule references against bundled standards data", () => {
     // Direct entries: the CERT rule is about the weakness itself (not merely a related CWE).
     //   PG-SQL-005    IDS00-J  "Prevent SQL injection"
     //   PG-CMD-003    IDS07-J  "Sanitize untrusted data passed to the Runtime.exec() method" (CWE-78)
-    //   PG-PATH-002   FIO16-J  "Canonicalize path names before validating them"
+    //   PG-PATH-002   FIO16-J  "Canonicalize path names before validating them" (path findings other than archive entries)
+    //                 IDS04-J  "Safely extract files from ZipInputStream" (archive entry findings: zip slip)
+    //   PG-CRYPTO-003 MSC02-J  "Generate strong random numbers" (weak random source findings only; table lists CWE-327)
     //   PG-CRYPTO-002 MSC03-J  "Never hard code sensitive information", names encryption keys (CWE-798)
     expect(direct).toEqual({
       "PG-SQL-005": ["IDS00-J"],
       "PG-CMD-003": ["IDS07-J"],
-      "PG-PATH-002": ["FIO16-J"],
+      "PG-PATH-002": ["FIO16-J", "IDS04-J"],
       "PG-CRYPTO-002": ["MSC03-J"],
+      "PG-CRYPTO-003": ["MSC02-J"],
     });
     // Marked "no direct CERT rule": no rule of the SEI CERT Oracle Java standard is about them.
     expect(none.sort()).toEqual([
@@ -184,7 +188,6 @@ describe("rule references against bundled standards data", () => {
       "PG-CONF-001",
       "PG-COOKIE-001",
       "PG-CRYPTO-001",
-      "PG-CRYPTO-003",
       "PG-CSRF-001",
       "PG-SSRF-002",
       "PG-XSS-004",

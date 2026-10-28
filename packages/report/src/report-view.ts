@@ -70,6 +70,7 @@ export function findingDetails(finding: Finding, ctx: ReportContext): RuleDetail
     standards: standardsForPath(
       details.standards.filter((link) => isHttpsUrl(link.url)),
       finding.location.path,
+      finding.references.cert,
     ),
     examples: details.examples.map((example) => ({
       ...example,

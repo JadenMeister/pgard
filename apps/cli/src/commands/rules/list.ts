@@ -99,7 +99,11 @@ function formatRule(rule: RuleDescriptor, title: string): string {
 export function certLines(rule: RuleDescriptor, locale: RuleLocale, t: CliText): string[] {
   const { standards } = rule.metadata;
   const text = t.commands.rulesList;
-  const direct = standards.cert.filter((ref) => ref.kind === "direct").map((ref) => ref.id);
+  const direct = standards.cert.flatMap((ref) =>
+    ref.kind === "direct"
+      ? [ref.cause === undefined ? ref.id : `${ref.id} (${text.certCause[ref.cause]})`]
+      : [],
+  );
   const indirect = standards.cert.flatMap((ref) =>
     ref.kind === "via-cwe" ? [`${ref.id} via ${ref.cwe}`] : [],
   );

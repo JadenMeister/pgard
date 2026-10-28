@@ -166,10 +166,10 @@ describe("groupRulesByScope", () => {
 describe("SEI CERT Java lines in the rule list", () => {
   it("marks direct links as Java and Kotlin only, and gives every other JVM rule its reason", async () => {
     const stdout = await runList(null);
-    for (const id of ["IDS00-J", "IDS07-J", "FIO16-J", "MSC03-J"]) {
-      expect(stdout).toContain(`SEI CERT Java, direct (Java and Kotlin files only): ${id}`);
+    for (const id of ["IDS00-J", "IDS07-J", "FIO16-J", "IDS04-J", "MSC03-J", "MSC02-J"]) {
+      expect(stdout).toMatch(new RegExp(`direct \\(Java and Kotlin files only\\): .*${id}`));
     }
-    expect(stdout).toContain("SEI CERT Java: no direct rule. No SEI CERT Oracle Java rule");
+    expect(stdout).toContain("SEI CERT Java: no direct rule. No CERT rule maps directly");
     expect(stdout).toContain("not a compliance claim");
     const lines = stdout.split("\n");
     const next = (id: string): string | undefined =>

@@ -171,6 +171,8 @@ export interface CommandText {
     certNone: (reason: string) => string;
     certIndirect: (refs: string) => string;
     certNote: string;
+    /** Suffix of a direct CERT id that covers only one cause of the rule's findings. */
+    certCause: Record<"weak-random" | "archive-entry" | "other-than-archive-entry", string>;
   };
 }
 
@@ -384,6 +386,11 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     certDirect: (ids) => `SEI CERT Java, direct (Java and Kotlin files only): ${ids}`,
     certNone: (reason) => `SEI CERT Java: no direct rule. ${reason}`,
     certIndirect: (refs) => `SEI CERT Java, indirect (cross-reference through a CWE): ${refs}`,
+    certCause: {
+      "weak-random": "random-number findings only",
+      "archive-entry": "archive entry (zip slip) findings only",
+      "other-than-archive-entry": "findings other than archive entries",
+    },
     certNote:
       "CERT Java links point to related rules of the SEI CERT Oracle Coding Standard for Java. They are not a compliance claim: PGARD checks only the weaknesses its own rules detect, not conformance to that standard.",
   },
@@ -597,6 +604,11 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     certDirect: (ids) => `SEI CERT Java, 직접 연결 (Java와 Kotlin 파일만 해당): ${ids}`,
     certNone: (reason) => `SEI CERT Java: 직접 대응하는 규칙 없음. ${reason}`,
     certIndirect: (refs) => `SEI CERT Java, 간접 연결 (CWE를 거친 상호 참조): ${refs}`,
+    certCause: {
+      "weak-random": "난수 관련 발견 항목만",
+      "archive-entry": "압축 파일 항목(zip slip) 발견 항목만",
+      "other-than-archive-entry": "압축 파일 항목이 아닌 발견 항목",
+    },
     certNote:
       "CERT Java 링크는 SEI CERT Oracle Coding Standard for Java의 관련 규칙을 가리킬 뿐입니다. 준수(compliance)를 주장하지 않습니다. PGARD는 자체 규칙이 탐지하는 약점만 확인하며, 해당 표준의 준수 여부는 확인하지 않습니다.",
   },

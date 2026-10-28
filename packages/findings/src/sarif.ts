@@ -219,7 +219,11 @@ function buildRule(
       tags.push(link.id, `external/cwe/${link.id.toLowerCase()}`);
     } else if (link.kind === "owasp") {
       tags.push(`OWASP-${link.id}`);
-    } else if (link.direct === true) {
+    } else if (
+      link.direct === true &&
+      findings.every((f) => f.references.cert?.includes(link.id))
+    ) {
+      // A rule-level tag applies to every alert of the rule, so it needs every result to have it.
       tags.push(`CERT-Java-${link.id}`);
     }
   }

@@ -325,8 +325,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-79"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about cross-site scripting or output encoding. IDS00-J covers SQL injection, so it is not linked.",
-        ko: "SEI CERT Oracle Java에는 크로스 사이트 스크립팅(XSS)이나 출력 인코딩을 다루는 규칙이 없습니다. IDS00-J는 SQL 인젝션을 다루므로 연결하지 않습니다.",
+        en: "No CERT rule maps directly; related recommendation: IDS51-J Properly encode or escape output (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: IDS51-J Properly encode or escape output (권고는 연결하지 않습니다).",
       },
     },
     rationale: {
@@ -362,8 +362,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-918"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about server-side request forgery.",
-        ko: "SEI CERT Oracle Java에는 서버 측 요청 위조(SSRF)를 다루는 규칙이 없습니다.",
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
       },
     },
     rationale: {
@@ -576,7 +576,14 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["java", "kotlin"],
-    standards: { owasp: ["A01:2025"], cwe: ["CWE-22"], cert: [{ kind: "direct", id: "FIO16-J" }] },
+    standards: {
+      owasp: ["A01:2025"],
+      cwe: ["CWE-22"],
+      cert: [
+        { kind: "direct", id: "FIO16-J", cause: "other-than-archive-entry" },
+        { kind: "direct", id: "IDS04-J", cause: "archive-entry" },
+      ],
+    },
     rationale: {
       en: "Using request data (`@RequestParam`, `request.getParameter()`, `MultipartFile.getOriginalFilename()`, a Ktor `call.parameters` value) or `ZipEntry.getName()` as part of a path in `new File(...)`, `Paths.get(...)`, `Path.resolve(...)`, `Files.*` or `FileInputStream` lets an attacker send `../../etc/passwd` to read, overwrite or delete files outside the intended directory. An archive entry named `../../app/run.sh` does the same when it is extracted (zip slip).",
       ko: "요청 데이터(`@RequestParam`, `request.getParameter()`, `MultipartFile.getOriginalFilename()`, Ktor `call.parameters` 값)나 `ZipEntry.getName()`을 `new File(...)`, `Paths.get(...)`, `Path.resolve(...)`, `Files.*`, `FileInputStream`의 경로 일부로 쓰면 공격자가 `../../etc/passwd`를 보내 의도한 디렉터리 밖의 파일을 읽거나 덮어쓰거나 지울 수 있습니다. 압축 파일 항목 이름이 `../../app/run.sh`이면 압축을 풀 때 같은 일이 일어납니다(zip slip).",
@@ -615,8 +622,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-916", "CWE-328"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about password hashing. MSC61-J (weak cryptographic algorithms) is a recommendation, not a rule, so it is not linked.",
-        ko: "SEI CERT Oracle Java에는 비밀번호 해시를 다루는 규칙이 없습니다. MSC61-J(취약한 암호 알고리즘)는 규칙이 아니라 권고(recommendation)이므로 연결하지 않습니다.",
+        en: "No CERT rule maps directly; related recommendation: MSC62-J Store passwords using a hash function (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: MSC62-J Store passwords using a hash function (권고는 연결하지 않습니다).",
       },
     },
     rationale: {
@@ -688,11 +695,7 @@ export const SOURCE_RULES = [
     standards: {
       owasp: ["A04:2025"],
       cwe: ["CWE-327"],
-      cert: [],
-      noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about broken ciphers or fixed IVs. MSC61-J is a recommendation, not a rule, and MSC02-J is about random numbers, not ciphers, so neither is linked.",
-        ko: "SEI CERT Oracle Java에는 깨진 암호나 고정 IV를 다루는 규칙이 없습니다. MSC61-J는 규칙이 아니라 권고이고, MSC02-J는 암호가 아니라 난수를 다루므로 둘 다 연결하지 않습니다.",
-      },
+      cert: [{ kind: "direct", id: "MSC02-J", cause: "weak-random" }],
     },
     rationale: {
       en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token lets an attacker guess it. In Java and Kotlin the rule also reads bare `AES` (ECB), a fixed IV and such random values.",
@@ -727,8 +730,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-256"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about plaintext password storage or password encoding.",
-        ko: "SEI CERT Oracle Java에는 비밀번호 평문 저장이나 비밀번호 인코딩을 다루는 규칙이 없습니다.",
+        en: "No CERT rule maps directly; related recommendation: MSC62-J Store passwords using a hash function (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: MSC62-J Store passwords using a hash function (권고는 연결하지 않습니다).",
       },
     },
     rationale: {
@@ -764,8 +767,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-1004", "CWE-614", "CWE-1275"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about cookie attributes (Secure, HttpOnly, SameSite).",
-        ko: "SEI CERT Oracle Java에는 쿠키 속성(Secure, HttpOnly, SameSite)을 다루는 규칙이 없습니다.",
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
       },
     },
     rationale: {
@@ -801,8 +804,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-352"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about cross-site request forgery.",
-        ko: "SEI CERT Oracle Java에는 교차 사이트 요청 위조(CSRF)를 다루는 규칙이 없습니다.",
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
       },
     },
     rationale: {
@@ -843,8 +846,8 @@ export const SOURCE_RULES = [
       cwe: ["CWE-942", "CWE-862"],
       cert: [],
       noDirectCert: {
-        en: "No SEI CERT Oracle Java rule is about web framework authorization or CORS configuration.",
-        ko: "SEI CERT Oracle Java에는 웹 프레임워크의 권한 설정이나 CORS 설정을 다루는 규칙이 없습니다.",
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
       },
     },
     rationale: {

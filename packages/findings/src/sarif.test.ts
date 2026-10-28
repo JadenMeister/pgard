@@ -638,6 +638,25 @@ describe("buildSarif", () => {
       ).toBeUndefined();
     });
 
+    it("keeps the rule-level CERT tag only when every result of the rule has the reference", () => {
+      const java = at("PG-CMD-003", "A.java", ["IDS07-J"]);
+      const js = at("PG-CMD-003", "a.js");
+      const tags = (findings: Finding[]): string[] =>
+        rule(buildSarif(result({ findings }), certCatalog), "PG-CMD-003").properties.tags;
+      expect(tags([java])).toContain("CERT-Java-IDS07-J");
+      expect(tags([java, at("PG-CMD-003", "B.kt", ["IDS07-J"])])).toContain("CERT-Java-IDS07-J");
+      expect(tags([java, js])).not.toContain("CERT-Java-IDS07-J");
+      expect(tags([js])).not.toContain("CERT-Java-IDS07-J");
+      // Per-result references stay exact in the mixed run.
+      const mixed = JSON.parse(
+        JSON.stringify(buildSarif(result({ findings: [java, js] }), certCatalog)),
+      );
+      const certs = mixed.runs[0].results.map(
+        (r: { properties: { pgard: { certJava?: string[] } } }) => r.properties.pgard.certJava,
+      );
+      expect(certs.filter(Boolean)).toEqual([["IDS07-J"]]);
+    });
+
     it("says there is no direct rule only for Java and Kotlin findings", () => {
       const java = buildSarif(result({ findings: [at("PG-XSS-004", "A.kt")] }), certCatalog);
       expect(rule(java, "PG-XSS-004").help.markdown).toContain("no direct rule");

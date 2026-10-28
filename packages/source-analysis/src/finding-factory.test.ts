@@ -49,3 +49,50 @@ describe("direct CERT Java references on findings", () => {
     expect(createSourceFinding(raw("PG-XSS-004", "src/A.java")).references.cert).toBeUndefined();
   });
 });
+
+describe("direct CERT references scoped to the cause of a finding", () => {
+  const withEvidence = (ruleId: SourceRuleId, path: string, evidence: string) =>
+    createSourceFinding({ ...raw(ruleId, path), evidence }).references.cert;
+
+  it("gives MSC02-J to a weak random source finding and not to a cipher or fixed IV finding", () => {
+    const random = [
+      "non-cryptographic random value used as an IV",
+      "non-cryptographic random value stored in token (a token, key, IV or salt by name); inferred",
+      "non-cryptographic random bytes written into salt (a key, IV, salt or token by name); inferred",
+    ];
+    for (const evidence of random) {
+      expect(withEvidence("PG-CRYPTO-003", "A.java", evidence), evidence).toEqual(["MSC02-J"]);
+      expect(withEvidence("PG-CRYPTO-003", "A.kt", evidence), evidence).toEqual(["MSC02-J"]);
+    }
+    for (const evidence of [
+      "weak cipher: DES cipher",
+      "weak cipher: AES in ECB mode",
+      "weak cipher: DESede cipher",
+      "fixed IV: all-zero byte array used in IvParameterSpec",
+    ]) {
+      expect(withEvidence("PG-CRYPTO-003", "A.java", evidence), evidence).toBeUndefined();
+    }
+    // The same evidence in a JavaScript file never gets a Java CERT rule.
+    expect(
+      withEvidence("PG-CRYPTO-003", "a.ts", "non-cryptographic random value used as a key"),
+    ).toBeUndefined();
+  });
+
+  it("gives IDS04-J to an archive entry path and FIO16-J to every other path finding", () => {
+    expect(
+      withEvidence(
+        "PG-PATH-002",
+        "Z.java",
+        "archive entry name (getName) via variable -> path -> File.mkdirs",
+      ),
+    ).toEqual(["IDS04-J"]);
+    for (const evidence of [
+      "request input (@RequestParam name) -> path -> Files.readAllBytes",
+      "request input (uploaded file name (getOriginalFilename)) -> new File",
+      "path -> File.mkdirs (no input source identified)",
+      "path -> FileOutputStream; checked by a path guard (canonical prefix test or '..' rejection); inferred",
+    ]) {
+      expect(withEvidence("PG-PATH-002", "P.kt", evidence), evidence).toEqual(["FIO16-J"]);
+    }
+  });
+});

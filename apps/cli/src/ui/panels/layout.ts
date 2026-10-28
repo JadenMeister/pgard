@@ -425,9 +425,11 @@ export function detailLines(state: PanelsState, size: Size, opts: RenderOptions 
   }
   const details = state.ruleTexts?.get(finding.ruleId)?.details;
   // A direct CERT Java link is only for a finding in a Java or Kotlin file.
-  const links = standardsForPath(details?.standards ?? [], finding.location.path).filter((link) =>
-    link.url.startsWith("https://"),
-  );
+  const links = standardsForPath(
+    details?.standards ?? [],
+    finding.location.path,
+    finding.references.cert,
+  ).filter((link) => link.url.startsWith("https://"));
   if (links.length > 0) {
     add("", `${t.standards}:`);
     for (const link of links.slice(0, MAX_STANDARD_LINKS)) {
