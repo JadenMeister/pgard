@@ -4,7 +4,7 @@
   color-scheme: dark light;
   --bg: #0b0b0c;
   --bg-2: #161618;
-  --card: #161618;
+  --line: #2c2c2e;
   --fg: #f5f5f7;
   --muted: #a1a1a6;
   --mute-h: #86868b;
@@ -13,8 +13,6 @@
   --accent: #7bd88f;
   --accent-ink: #08130b;
   --warn: #e5b45a;
-  --band-bg: #151517;
-  --band-card: #232326;
   --mono:
     ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", "DejaVu Sans Mono",
     "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", monospace;
@@ -30,9 +28,9 @@
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
-    --bg: #ffffff;
+    --bg: #fafafa;
     --bg-2: #f5f5f7;
-    --card: #f5f5f7;
+    --line: #e5e5e5;
     --fg: #1d1d1f;
     --muted: #6e6e73;
     --mute-h: #86868b;
@@ -41,8 +39,6 @@
     --accent: #19753a;
     --accent-ink: #ffffff;
     --warn: #8a5a00;
-    --band-bg: #0a0a0b;
-    --band-card: #1c1c1e;
   }
 }
 
@@ -52,9 +48,9 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #ffffff;
+  --bg: #fafafa;
   --bg-2: #f5f5f7;
-  --card: #f5f5f7;
+  --line: #e5e5e5;
   --fg: #1d1d1f;
   --muted: #6e6e73;
   --mute-h: #86868b;
@@ -63,8 +59,6 @@
   --accent: #19753a;
   --accent-ink: #ffffff;
   --warn: #8a5a00;
-  --band-bg: #0a0a0b;
-  --band-card: #1c1c1e;
 }
 
 /* The terminal keeps its own dark palette in both themes. */
@@ -381,8 +375,7 @@ kbd {
   }
 
   /* Tap targets of at least 44px */
-  .brand,
-  .meta-ci a {
+  .brand {
     display: inline-flex;
     align-items: center;
     min-height: 2.75rem;
@@ -426,16 +419,6 @@ kbd {
 
 html[data-released="true"] .meta .meta-state::before {
   color: var(--accent);
-}
-
-.meta .meta-ci {
-  padding: 0;
-  border: 0;
-}
-
-.meta .meta-ci img {
-  height: 20px;
-  width: auto;
 }
 
 /* A bold system display face for the headline; mono stays for terminal, labels and nav. */
@@ -990,8 +973,8 @@ html:not(.js) .tabpanel + .tabpanel {
 .card {
   min-width: 0;
   padding: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--card);
 }
 
 .card h3 {
@@ -999,11 +982,11 @@ html:not(.js) .tabpanel + .tabpanel {
   letter-spacing: -0.015em;
 }
 
-/* Command lines that sit on a grey card turn white and rounded */
+/* Command lines inside a card: a soft fill, rounded, no border */
 .card .cmdline {
   border: 0;
   border-radius: 12px;
-  background: var(--bg);
+  background: var(--bg-2);
   overflow: hidden;
 }
 
@@ -1104,8 +1087,8 @@ html:not(.js) .tabpanel + .tabpanel {
   place-items: center;
   width: 1.5rem;
   height: 1.5rem;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--card);
   color: var(--accent);
   font: 500 1.05rem/1 var(--sans);
 }
@@ -1296,22 +1279,7 @@ html:not(.js) .tabpanel + .tabpanel {
   color: var(--muted);
 }
 
-/* ---------- Dark band: authorization and privacy ---------- */
-.band {
-  --bg: var(--band-bg);
-  --card: var(--band-card);
-  --fg: #f5f5f7;
-  --muted: #a1a1a6;
-  --mute-h: #86868b;
-  --rule: #2c2c2e;
-  --rule-strong: #48484a;
-  --accent: #7bd88f;
-  --warn: #e5b45a;
-  padding: clamp(1.5rem, 1rem + 3vw, 4rem) 0;
-  background: var(--bg);
-  color: var(--fg);
-}
-
+/* ---------- Authorization and privacy ---------- */
 /* Five checks: three across, then two */
 .flow {
   list-style: none;
@@ -1395,12 +1363,8 @@ html:not(.js) .tabpanel + .tabpanel {
   border-radius: 50%;
 }
 
-.ledger-local {
-  background: #12281a;
-}
-
-.ledger-local li {
-  color: #c7d3ca;
+.ledger-local h3 {
+  color: var(--accent);
 }
 
 .ledger-local li::before {
@@ -1446,8 +1410,8 @@ html:not(.js) .tabpanel + .tabpanel {
 }
 
 .faq details {
+  border: 1px solid var(--line);
   border-radius: 18px;
-  background: var(--card);
 }
 
 /* Custom marker: the native one is hidden in every engine, a +/- sits inside the row. */
@@ -1482,8 +1446,8 @@ html:not(.js) .tabpanel + .tabpanel {
   width: 1.75rem;
   height: 1.75rem;
   margin-top: -0.875rem;
+  border: 1px solid var(--line);
   border-radius: 999px;
-  background: var(--bg);
   font: 500 1.1rem/1 var(--sans);
   color: var(--accent);
 }

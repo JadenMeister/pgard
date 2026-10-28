@@ -10,7 +10,7 @@
     />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
     <link rel="canonical" href="https://pgard.dev/ko/" />
     <link rel="alternate" hreflang="en" href="https://pgard.dev/" />
     <link rel="alternate" hreflang="ko" href="https://pgard.dev/ko/" />
@@ -144,17 +144,6 @@
               <li class="meta-state">
                 <span class="state-unreleased">사전 출시, v0.1.0 아직 배포 전</span
                 ><span class="state-released">v0.1.0</span>
-              </li>
-              <li class="meta-ci">
-                <a
-                  href="https://github.com/JadenMeister/pgard/actions/workflows/ci.yml"
-                  rel="noopener"
-                  ><img
-                    src="https://github.com/JadenMeister/pgard/actions/workflows/ci.yml/badge.svg"
-                    alt="CI 상태"
-                    width="88"
-                    height="20"
-                /></a>
               </li>
             </ul>
             <h1 id="h1">남보다 먼저, <span class="accent">내 코드</span>를 검사하세요.</h1>
@@ -748,107 +737,105 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
         </dl>
       </section>
 
-      <div class="band">
-        <section id="how" class="sec wrap" aria-labelledby="how-h">
-          <h2 id="how-h" class="sec-h">
-            권한 확인 방식. <span class="h-mute">검사 전에 매번 다섯 가지를 확인합니다.</span>
-          </h2>
-          <p class="sec-lead">
-            검사 도구는 남의 코드를 들여다보는 데도 쓸 수 있어서, CLI든 대시보드든 모든 검사는 먼저
-            다섯 가지를 확인합니다. 재사용하는 것은 로그인뿐이고 건너뛸 수 없습니다. 근거가 없으면
-            검사를 막고(종료 코드 3) 실패한 확인을 알려 줍니다.
-          </p>
-          <ol class="flow">
-            <li class="card">
-              <strong>저장소</strong><span>github.com 원격이 하나인 Git 루트.</span>
-            </li>
-            <li class="card">
-              <strong>GitHub 신원</strong><span>한 번 로그인하면 OS 키체인에 저장됩니다.</span>
-            </li>
-            <li class="card">
-              <strong>Owner 승인</strong
-              ><span
-                >owner가 PGARD GitHub App을 설치했어야 하며, 조직이라면 내가 조직 owner여야
-                합니다.</span
-              >
-            </li>
-            <li class="card">
-              <strong>현재 접근 권한</strong><span>지금 읽기 권한이 있어야 합니다.</span>
-            </li>
-            <li class="card">
-              <strong>기여</strong
-              ><span
-                >owner는 기본 브랜치와 이력을 공유해야 하고, 그 외에는 그곳에 병합된 풀 리퀘스트나
-                검증된 서명 커밋이 필요합니다.</span
-              >
-            </li>
-          </ol>
-          <details class="more">
-            <summary>GitHub App에 대해</summary>
-            <div class="more-body">
-              <p>
-                owner 계정에 앱을 설치하는 것이 곧 owner의 승인이며, PGARD가 대신 설치할 수는
-                없습니다. 앱에는 공개 client id가 내장되어 있고 client secret은 없습니다. 설치만
-                빠져 있다면 설치 링크를 출력하고 최대 10분 동안 기다린 뒤 다섯 가지 확인을 처음부터
-                다시 합니다. <code>pgard project verify</code>는 검사 없이 확인만 실행합니다.
-              </p>
-            </div>
-          </details>
-        </section>
-
-        <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
-          <h2 id="privacy-h" class="sec-h">
-            남는 것과 나가는 것. <span class="h-mute">코드와 결과는 내 컴퓨터에 남습니다.</span>
-          </h2>
-          <div class="ledger">
-            <div class="card ledger-local">
-              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
-                <path d="M2 19.5h20" />
-              </svg>
-              <h3>내 컴퓨터에 머무는 것</h3>
-              <ul>
-                <li>소스 코드, Git 이력, 검사 결과</li>
-                <li>
-                  저장소별 최근 결과 20회, 90일간.
-                  <code>--no-store</code>로 끕니다
-                </li>
-                <li>GitHub 로그인은 OS 키체인에 저장되며 파일에는 쓰지 않습니다</li>
-                <li>내보낸 보고서는 사용자가 고른 위치에만</li>
-              </ul>
-            </div>
-            <div class="card">
-              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M7 17 17 7M9 7h8v8" />
-              </svg>
-              <h3>네트워크로 나가는 것</h3>
-              <ul>
-                <li>GitHub: 로그인과 권한 확인 메타데이터, 로컬 커밋 SHA 포함</li>
-                <li>OSV 데이터: 사용자가 <code>pgard advisories update</code>를 실행할 때만</li>
-                <li>루프백: 로컬 포트마다 GET / 한 번</li>
-              </ul>
-            </div>
+      <section id="how" class="sec wrap" aria-labelledby="how-h">
+        <h2 id="how-h" class="sec-h">
+          권한 확인 방식. <span class="h-mute">검사 전에 매번 다섯 가지를 확인합니다.</span>
+        </h2>
+        <p class="sec-lead">
+          검사 도구는 남의 코드를 들여다보는 데도 쓸 수 있어서, CLI든 대시보드든 모든 검사는 먼저
+          다섯 가지를 확인합니다. 재사용하는 것은 로그인뿐이고 건너뛸 수 없습니다. 근거가 없으면
+          검사를 막고(종료 코드 3) 실패한 확인을 알려 줍니다.
+        </p>
+        <ol class="flow">
+          <li class="card">
+            <strong>저장소</strong><span>github.com 원격이 하나인 Git 루트.</span>
+          </li>
+          <li class="card">
+            <strong>GitHub 신원</strong><span>한 번 로그인하면 OS 키체인에 저장됩니다.</span>
+          </li>
+          <li class="card">
+            <strong>Owner 승인</strong
+            ><span
+              >owner가 PGARD GitHub App을 설치했어야 하며, 조직이라면 내가 조직 owner여야
+              합니다.</span
+            >
+          </li>
+          <li class="card">
+            <strong>현재 접근 권한</strong><span>지금 읽기 권한이 있어야 합니다.</span>
+          </li>
+          <li class="card">
+            <strong>기여</strong
+            ><span
+              >owner는 기본 브랜치와 이력을 공유해야 하고, 그 외에는 그곳에 병합된 풀 리퀘스트나
+              검증된 서명 커밋이 필요합니다.</span
+            >
+          </li>
+        </ol>
+        <details class="more">
+          <summary>GitHub App에 대해</summary>
+          <div class="more-body">
+            <p>
+              owner 계정에 앱을 설치하는 것이 곧 owner의 승인이며, PGARD가 대신 설치할 수는
+              없습니다. 앱에는 공개 client id가 내장되어 있고 client secret은 없습니다. 설치만 빠져
+              있다면 설치 링크를 출력하고 최대 10분 동안 기다린 뒤 다섯 가지 확인을 처음부터 다시
+              합니다. <code>pgard project verify</code>는 검사 없이 확인만 실행합니다.
+            </p>
           </div>
-          <details class="more">
-            <summary>자세히</summary>
-            <div class="more-body">
-              <p>
-                저장된 결과는 macOS·Linux에서 소유자만 읽을 수 있습니다. 권한 확인 메타데이터는
-                신원, 앱 설치 여부, 조직 멤버십, 접근 권한, 기여 내역입니다. 루프백 GET은 권한
-                확인이 통과한 뒤에만 보냅니다. 저장된 결과는
-                <code>pgard history clear --all</code>로 지웁니다. OSV 내려받기는 공개 취약점
-                데이터입니다. 루프백 GET은 사용자가 포트를 확인하기 전에 각 로컬 포트의 정체를 보여
-                주기 위한 것입니다.
-              </p>
-              <p>
-                이 웹사이트는 정적 페이지입니다. 아무것도 검사하지 않고 데이터를 수집하지 않으며
-                로그인이나 업로드 기능이 없습니다. 대시보드도 아닙니다. 대시보드는 사용자 컴퓨터에서
-                실행됩니다.
-              </p>
-            </div>
-          </details>
-        </section>
-      </div>
+        </details>
+      </section>
+
+      <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
+        <h2 id="privacy-h" class="sec-h">
+          남는 것과 나가는 것. <span class="h-mute">코드와 결과는 내 컴퓨터에 남습니다.</span>
+        </h2>
+        <div class="ledger">
+          <div class="card ledger-local">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+              <path d="M2 19.5h20" />
+            </svg>
+            <h3>내 컴퓨터에 머무는 것</h3>
+            <ul>
+              <li>소스 코드, Git 이력, 검사 결과</li>
+              <li>
+                저장소별 최근 결과 20회, 90일간.
+                <code>--no-store</code>로 끕니다
+              </li>
+              <li>GitHub 로그인은 OS 키체인에 저장되며 파일에는 쓰지 않습니다</li>
+              <li>내보낸 보고서는 사용자가 고른 위치에만</li>
+            </ul>
+          </div>
+          <div class="card">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
+            <h3>네트워크로 나가는 것</h3>
+            <ul>
+              <li>GitHub: 로그인과 권한 확인 메타데이터, 로컬 커밋 SHA 포함</li>
+              <li>OSV 데이터: 사용자가 <code>pgard advisories update</code>를 실행할 때만</li>
+              <li>루프백: 로컬 포트마다 GET / 한 번</li>
+            </ul>
+          </div>
+        </div>
+        <details class="more">
+          <summary>자세히</summary>
+          <div class="more-body">
+            <p>
+              저장된 결과는 macOS·Linux에서 소유자만 읽을 수 있습니다. 권한 확인 메타데이터는 신원,
+              앱 설치 여부, 조직 멤버십, 접근 권한, 기여 내역입니다. 루프백 GET은 권한 확인이 통과한
+              뒤에만 보냅니다. 저장된 결과는
+              <code>pgard history clear --all</code>로 지웁니다. OSV 내려받기는 공개 취약점
+              데이터입니다. 루프백 GET은 사용자가 포트를 확인하기 전에 각 로컬 포트의 정체를 보여
+              주기 위한 것입니다.
+            </p>
+            <p>
+              이 웹사이트는 정적 페이지입니다. 아무것도 검사하지 않고 데이터를 수집하지 않으며
+              로그인이나 업로드 기능이 없습니다. 대시보드도 아닙니다. 대시보드는 사용자 컴퓨터에서
+              실행됩니다.
+            </p>
+          </div>
+        </details>
+      </section>
 
       <section id="limits" class="sec wrap" aria-labelledby="limits-h">
         <h2 id="limits-h" class="sec-h">한계. <span class="h-mute">하지 못하는 일.</span></h2>
@@ -1053,9 +1040,8 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
             참고하세요.
           </p>
           <p>
-            이 페이지는 GitHub 별 개수(api.github.com)와 CI 배지(github.com)를 가져옵니다.
-            Cloudflare Web Analytics로 쿠키 없이 방문 수만 집계합니다. 그 밖의 트래커와 쿠키는
-            없습니다.
+            이 페이지는 api.github.com에서 GitHub 별 개수를 가져옵니다. Cloudflare Web Analytics로
+            쿠키 없이 방문 수만 집계합니다. 그 밖의 트래커와 쿠키는 없습니다.
           </p>
           <p>© 2026 JadenMeister</p>
         </div>
