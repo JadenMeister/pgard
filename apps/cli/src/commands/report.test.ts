@@ -296,7 +296,7 @@ describe("runReport", () => {
     expect(reportDir).not.toBe(firstDir);
     expect(await readdir(firstDir)).toHaveLength(1);
     expect(await readdir(reportDir)).toHaveLength(1);
-    expect(second.captured.stdout()).toContain(reportDir);
+    expect(second.captured.stdout()).toContain((await readdir(reportDir))[0]);
   });
 
   it("opens only the file it just wrote", async () => {
