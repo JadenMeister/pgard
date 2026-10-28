@@ -7,6 +7,7 @@ import { Button } from "../../components/ui/Button";
 import { Card } from "../../components/ui/Card";
 import { Notice } from "../../components/ui/Notice";
 import { usePolling } from "../../hooks/use-polling";
+import { formatTime } from "../../i18n/format";
 import { useI18n } from "../../i18n/I18nProvider";
 import { InstallAppNotice } from "./InstallAppNotice";
 import { describeGitHubApp, describeStoredSignIn, signOutTexts } from "./sign-in-text";
@@ -18,7 +19,7 @@ interface AuthorizationPanelProps {
 
 /** Runs the same authorization gate a scan runs and shows each check's reason. */
 export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProps) {
-  const { m } = useI18n();
+  const { m, language } = useI18n();
   const { labels: SIGN_OUT_LABELS, hints: SIGN_OUT_HINTS } = signOutTexts(m);
   const checkLabels: Record<string, string> = m.auth.checks;
   const statusLabels: Record<string, string> = m.status;
@@ -158,9 +159,7 @@ export function AuthorizationPanel({ session, onStatus }: AuthorizationPanelProp
           )}
           <p className="muted">{m.auth.notStored}</p>
           {typeof status.expiresAt === "number" && (
-            <p className="muted">
-              {m.auth.expiresAt(new Date(status.expiresAt).toLocaleTimeString())}
-            </p>
+            <p className="muted">{m.auth.expiresAt(formatTime(status.expiresAt, language))}</p>
           )}
         </>
       )}

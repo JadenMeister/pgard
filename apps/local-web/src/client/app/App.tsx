@@ -18,6 +18,7 @@ import { ScanPanel } from "../features/scan/ScanPanel";
 import { RuleStatsPanel } from "../features/standards/RuleStatsPanel";
 import { StandardsCoveragePanel } from "../features/standards/StandardsCoveragePanel";
 import { TargetPanel } from "../features/target/TargetPanel";
+import { targetRefreshKey } from "../features/target/target-refresh";
 
 export function App() {
   const [session, setSession] = useState<SessionInfo | null>(null);
@@ -42,14 +43,30 @@ export function App() {
     );
   }, [hasResult, ruleTexts]);
 
+  // The confirmed target: read at start, and again whenever the authorization changes (a check
+  // finished, either sign-out, another account), because the server may have cleared it. A stale
+  // "Confirmed target" would otherwise hide the "no web target" guidance of the scan panel.
+  const targetKey = targetRefreshKey(auth);
+  useEffect(() => {
+    if (!hasSessionToken()) return undefined;
+    let isCurrent = true;
+    apiGet<TargetInfo | null>("/api/target")
+      .then((next) => {
+        if (isCurrent) setTarget(next);
+      })
+      .catch(() => {
+        if (isCurrent && targetKey !== null) setTarget(null);
+      });
+    return () => {
+      isCurrent = false;
+    };
+  }, [targetKey]);
+
   useEffect(() => {
     if (!hasSessionToken()) {
       setError("token");
       return;
     }
-    apiGet<TargetInfo | null>("/api/target")
-      .then(setTarget)
-      .catch(() => undefined);
     apiGet<SessionInfo>("/api/session")
       .then(setSession)
       .catch(() => setError("session"));
