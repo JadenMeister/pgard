@@ -7,7 +7,12 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Notice } from "../components/ui/Notice";
 import { Section } from "../components/ui/Section";
 import { LanguageToggle, useI18n } from "../i18n/I18nProvider";
-import { buildFindingsView, EMPTY_FILTERS } from "../features/findings/filter-findings";
+import {
+  buildFindingsView,
+  EMPTY_FILTERS,
+  type FindingFilters,
+} from "../features/findings/filter-findings";
+import { INITIAL_LIST_STATE } from "../features/findings/pagination";
 import { FindingsDashboard } from "../features/findings/FindingsDashboard";
 import { ResultOverview } from "../features/findings/ResultOverview";
 import { LegalNotice } from "../features/legal/LegalNotice";
@@ -62,6 +67,17 @@ export function App() {
   const goTo = (next: View, sectionId: string | null = null): void => {
     setView(next);
     setFocusRequest((current) => ({ id: sectionId, count: current.count + 1 }));
+  };
+
+  // Filters the Findings view starts with when the overview links to it (a severity or a
+  // category); a new key remounts the view so the filter applies even if it was open before.
+  const [findingsPreset, setFindingsPreset] = useState<{
+    filters: Partial<FindingFilters>;
+    key: number;
+  }>({ filters: {}, key: 0 });
+  const openFindings = (filters: Partial<FindingFilters>): void => {
+    setFindingsPreset((current) => ({ filters, key: current.key + 1 }));
+    goTo("findings");
   };
 
   // Rule texts in both languages, fetched once when a result is first shown.
@@ -126,51 +142,65 @@ export function App() {
     switch (view) {
       case "overview":
         return (
-          <>
-            <Section title={m.nav.overview}>
-              {control.isRunning && scan !== null && (
-                <ScanProgress
-                  scopes={scan.scopes}
-                  events={scan.progress}
-                  elapsedSeconds={control.elapsedSeconds}
+          <ResultOverview
+            result={result}
+            ruleTexts={ruleTexts}
+            emptyText={control.isRunning ? null : m.overview.noScan}
+            onFilter={openFindings}
+            onCoverage={() => goTo("coverage")}
+            lead={
+              <>
+                {control.isRunning && scan !== null && (
+                  <ScanProgress
+                    scopes={scan.scopes}
+                    events={scan.progress}
+                    elapsedSeconds={control.elapsedSeconds}
+                  />
+                )}
+                {control.isRunning && scan?.deviceCode && (
+                  <DeviceCodeNotice deviceCode={scan.deviceCode} />
+                )}
+                {isStopped && scan !== null && scan.progress.length > 0 && (
+                  <ScanProgress
+                    scopes={scan.scopes}
+                    events={scan.progress}
+                    elapsedSeconds={0}
+                    isStopped
+                  />
+                )}
+                {scan?.message && (
+                  <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>
+                    {scan.message}
+                  </Notice>
+                )}
+              </>
+            }
+            aside={
+              <>
+                <AuthorizationSection session={session} authorization={authorization} />
+                <TargetPanel
+                  auth={auth}
+                  presetPort={session.presetTargetPort}
+                  target={target}
+                  onTarget={setTarget}
                 />
-              )}
-              {control.isRunning && scan?.deviceCode && (
-                <DeviceCodeNotice deviceCode={scan.deviceCode} />
-              )}
-              {isStopped && scan !== null && scan.progress.length > 0 && (
-                <ScanProgress
-                  scopes={scan.scopes}
-                  events={scan.progress}
-                  elapsedSeconds={0}
-                  isStopped
-                />
-              )}
-              {scan?.message && (
-                <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>
-                  {scan.message}
-                </Notice>
-              )}
-              {result !== null ? (
-                <ResultOverview result={result} ruleTexts={ruleTexts} />
-              ) : (
-                !control.isRunning && <p className="muted">{m.overview.noScan}</p>
-              )}
-            </Section>
-            <AuthorizationSection session={session} authorization={authorization} />
-            <TargetPanel
-              auth={auth}
-              presetPort={session.presetTargetPort}
-              target={target}
-              onTarget={setTarget}
-            />
-          </>
+              </>
+            }
+          />
         );
       case "findings":
         return result === null ? (
           noResult(m.nav.findings)
         ) : (
-          <FindingsDashboard result={result} ruleTexts={ruleTexts} />
+          <FindingsDashboard
+            key={findingsPreset.key}
+            result={result}
+            ruleTexts={ruleTexts}
+            initialState={{
+              ...INITIAL_LIST_STATE,
+              filters: { ...EMPTY_FILTERS, ...findingsPreset.filters },
+            }}
+          />
         );
       case "coverage":
         return result === null || scan === null ? (
@@ -232,7 +262,8 @@ export function App() {
                     aria-current={entry === view ? "page" : undefined}
                     onClick={(event) => {
                       event.preventDefault();
-                      goTo(entry);
+                      if (entry === "findings") openFindings({});
+                      else goTo(entry);
                     }}
                   >
                     {m.nav[entry]}

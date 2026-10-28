@@ -477,6 +477,40 @@ export const en = {
     coverageLink: "View coverage",
     topTitle: "Top findings",
     allFindings: (count: number): string => `View all ${count} findings`,
+    summaryTitle: "Summary",
+    statusMeaning: {
+      confirmed: "Confirmed: the evidence shows the problem directly.",
+      suspected: "Suspected: a risky pattern without enough evidence to confirm it; review it.",
+      informational: "Informational: worth knowing, not proof of a vulnerability.",
+    },
+    severityBar: (summary: string): string => `Findings by severity: ${summary}`,
+    severityFilterHint: "Select a severity to list only those findings.",
+    partialMeaning:
+      "Partial means only part of an area ran; the note says what is missing. Not tested means it could not run.",
+    categoryTitle: "By category",
+    categoryLink: (count: number, category: string): string =>
+      `${count} ${category} findings, show them`,
+    categoryEmpty: "No findings in any category.",
+    scopeLine: "Scope",
+    authAllowedWhy: "Every check passed, so scans of this repository may run.",
+    authBlockedWhy:
+      "A check failed, so no analysis runs. The failing check and how to fix it are below.",
+    authNotChecked:
+      "Verify the project before a scan: PGARD checks owner approval, your access and a merged contribution.",
+  },
+  categories: {
+    injection: "Injection (SQL and others)",
+    xss: "Cross-site scripting (XSS)",
+    ssrf: "Server-side request forgery (SSRF)",
+    access_control: "Access control",
+    authentication: "Authentication",
+    brute_force: "Brute force",
+    cryptography: "Cryptography",
+    misconfiguration: "Misconfiguration",
+    csrf: "CSRF",
+    file_handling: "File handling and paths",
+    command_execution: "Command execution",
+    secret_exposure: "Secrets",
   },
   help: {
     label: "About this section",
@@ -491,6 +525,7 @@ export const en = {
     rule: "Rule",
     details: "Details",
     severityFilter: "Filter by severity",
+    category: "Category",
   },
   report: {
     downloadHtml: "Download HTML",

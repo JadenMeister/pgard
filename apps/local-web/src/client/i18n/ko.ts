@@ -451,6 +451,39 @@ export const ko: Messages = {
     coverageLink: "검사 범위 보기",
     topTitle: "주요 발견 항목",
     allFindings: (count) => `발견 항목 ${count}건 모두 보기`,
+    summaryTitle: "요약",
+    statusMeaning: {
+      confirmed: "확인됨: 증거가 문제를 직접 보여 줍니다.",
+      suspected: "의심: 위험한 패턴이지만 확정할 증거가 부족하니 직접 검토하세요.",
+      informational: "참고: 알아 두면 좋은 내용이며 취약점의 증거는 아닙니다.",
+    },
+    severityBar: (summary) => `심각도별 발견 항목: ${summary}`,
+    severityFilterHint: "심각도를 고르면 해당 발견 항목만 보여 줍니다.",
+    partialMeaning:
+      "부분은 영역의 일부만 실행되었다는 뜻이며, 빠진 내용은 메모에 있습니다. 미검사는 실행하지 못한 영역입니다.",
+    categoryTitle: "분류별",
+    categoryLink: (count, category) => `${category} 발견 항목 ${count}건 보기`,
+    categoryEmpty: "분류에 해당하는 발견 항목이 없습니다.",
+    scopeLine: "검사 범위",
+    authAllowedWhy: "모든 항목을 통과해 이 저장소를 검사할 수 있습니다.",
+    authBlockedWhy:
+      "통과하지 못한 항목이 있어 분석을 실행하지 않습니다. 실패한 항목과 해결 방법은 아래에 있습니다.",
+    authNotChecked:
+      "검사 전에 프로젝트를 확인하세요. PGARD는 소유자 승인, 내 접근 권한, 병합된 기여를 확인합니다.",
+  },
+  categories: {
+    injection: "인젝션(SQL 등)",
+    xss: "크로스 사이트 스크립팅(XSS)",
+    ssrf: "서버 측 요청 위조(SSRF)",
+    access_control: "접근 제어",
+    authentication: "인증",
+    brute_force: "무차별 대입",
+    cryptography: "암호화",
+    misconfiguration: "설정 오류",
+    csrf: "CSRF",
+    file_handling: "파일 처리·경로",
+    command_execution: "명령 실행",
+    secret_exposure: "비밀 정보 노출",
   },
   help: {
     label: "이 영역 설명",
@@ -465,6 +498,7 @@ export const ko: Messages = {
     rule: "규칙",
     details: "자세히",
     severityFilter: "심각도로 필터",
+    category: "분류",
   },
   report: {
     downloadHtml: "HTML 다운로드",

@@ -1,11 +1,12 @@
 import { useMemo, useReducer } from "react";
 import {
   configTestFindingCount,
+  type FindingCategory,
   type FindingStatus,
   type ScanResult,
   type ScanScope,
 } from "@pgard/findings";
-import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
+import { SeverityBar } from "../../components/charts/SeverityBar";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { HelpTip } from "../../components/ui/HelpTip";
 import { Notice } from "../../components/ui/Notice";
@@ -53,6 +54,12 @@ export function FindingsDashboard({
   );
   const view = useMemo(() => buildFindingsView(findings, filters, m), [findings, filters, m]);
   const configTestCount = configTestFindingCount(result.coverage);
+  // Categories present in this result, plus the selected one so the select always shows it.
+  const categoryOptions = useMemo(() => {
+    const present = new Set(findings.map((finding) => finding.category));
+    if (filters.category !== null) present.add(filters.category);
+    return [...present].sort((a, b) => m.categories[a].localeCompare(m.categories[b]));
+  }, [findings, filters.category, m]);
 
   if (result.overallStatus === "blocked") {
     return (
@@ -82,22 +89,12 @@ export function FindingsDashboard({
       meta={<span className="num">{view.total}</span>}
       help={<p>{m.findings.noDatabase}</p>}
     >
+      <SeverityBar
+        counts={view.counts}
+        selected={filters.severity}
+        onSelect={(severity) => setFilter({ severity })}
+      />
       <div className="toolbar">
-        <div className="sev-filter" role="group" aria-label={m.table.severityFilter}>
-          {SEVERITY_ORDER.map((severity) => (
-            <button
-              key={severity}
-              type="button"
-              className={`sev-chip sev-${severity}`}
-              aria-pressed={filters.severity === severity}
-              onClick={() =>
-                setFilter({ severity: filters.severity === severity ? null : severity })
-              }
-            >
-              <span className="num">{view.counts[severity]}</span> {m.severityInline[severity]}
-            </button>
-          ))}
-        </div>
         <div className="filters" role="group" aria-label={m.findings.filters}>
           <label>
             <span className="sr-only">{m.findings.status}</span>
@@ -129,6 +126,24 @@ export function FindingsDashboard({
               <option value="code">{m.findings.sources.code}</option>
               <option value="history">{m.findings.sources.history}</option>
               <option value="web">{m.findings.sources.web}</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">{m.table.category}</span>
+            <select
+              value={filters.category ?? ""}
+              onChange={(event) =>
+                setFilter({ category: (event.target.value || null) as FindingCategory | null })
+              }
+            >
+              <option value="">
+                {m.table.category}: {m.common.all}
+              </option>
+              {categoryOptions.map((category) => (
+                <option key={category} value={category}>
+                  {m.categories[category]}
+                </option>
+              ))}
             </select>
           </label>
           <label className="filter-search">

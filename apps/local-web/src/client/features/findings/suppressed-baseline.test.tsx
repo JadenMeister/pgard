@@ -64,7 +64,13 @@ function render(language: "en" | "ko", result: ScanResult): string {
   return renderToStaticMarkup(
     <I18nProvider>
       <SuppressionNotices result={result} />
-      <ResultOverview result={result} />
+      <ResultOverview
+        result={result}
+        aside={null}
+        emptyText={null}
+        onFilter={() => undefined}
+        onCoverage={() => undefined}
+      />
       <FindingsDashboard result={result} />
     </I18nProvider>,
   );

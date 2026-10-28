@@ -50,6 +50,14 @@ export function AuthorizationSection({
         }
         help={<p>{m.auth.intro}</p>}
       >
+        <p className="lead-line">
+          {status?.summary
+            ? isBlocked
+              ? m.overview.authBlockedWhy
+              : m.overview.authAllowedWhy
+            : m.overview.authNotChecked}{" "}
+          {status?.summary ? m.auth.notStored : ""}
+        </p>
         {githubAppLine?.tone === "warning" && <Notice tone="warning">{githubAppLine.text}</Notice>}
         {session.githubAppWarning && <Notice tone="warning">{session.githubAppWarning}</Notice>}
         {status?.signInNotice && <Notice tone="info">{status.signInNotice}</Notice>}
@@ -102,7 +110,6 @@ export function AuthorizationSection({
             <ul className="fact-list">
               {githubAppLine?.tone === "info" && <li>{githubAppLine.text}</li>}
               {signInLine && <li>{signInLine}</li>}
-              <li>{m.auth.notStored}</li>
               {typeof status.expiresAt === "number" && (
                 <li>{m.auth.expiresAt(formatTime(status.expiresAt, language))}</li>
               )}

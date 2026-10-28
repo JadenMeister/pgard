@@ -38,13 +38,16 @@ describe.each([
 ])("%s theme tokens", (_name, theme) => {
   const text = ["color-ink", "color-muted", "color-danger", "color-warning"];
 
-  it.each(text)("%s meets WCAG AA (4.5:1) on the page and on subtle fills", (token) => {
+  it.each(text)("%s meets WCAG AA (4.5:1) on the page, panels and subtle fills", (token) => {
     expect(contrast(theme[token] as string, theme["color-page"] as string)).toBeGreaterThanOrEqual(
       4.5,
     );
     expect(contrast(theme[token] as string, theme["color-fill"] as string)).toBeGreaterThanOrEqual(
       4.5,
     );
+    expect(
+      contrast(theme[token] as string, theme["color-surface"] as string),
+    ).toBeGreaterThanOrEqual(4.5);
   });
 
   it.each(["critical", "high", "medium", "low", "info"])(

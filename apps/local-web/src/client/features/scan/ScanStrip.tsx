@@ -1,6 +1,5 @@
 import type { TargetInfo } from "../../../shared/api-types";
 import { Button } from "../../components/ui/Button";
-import { HelpTip } from "../../components/ui/HelpTip";
 import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 import { authState } from "../onboarding/auth-state";
@@ -66,15 +65,6 @@ export function ScanStrip({
                 {m.scan.scopes[scope].label}
               </label>
             ))}
-            <HelpTip label={m.scan.scope}>
-              <ul className="fact-list">
-                {SCAN_SCOPES.map((scope) => (
-                  <li key={scope}>
-                    <strong>{m.scan.scopes[scope].label}</strong>: {m.scan.scopes[scope].hint}
-                  </li>
-                ))}
-              </ul>
-            </HelpTip>
           </fieldset>
           <span className="strip-target">
             {target === null ? m.strip.noTarget : m.strip.target(target.origin)}
@@ -100,14 +90,19 @@ export function ScanStrip({
           )}
         </div>
       </div>
-      {(scopes.includes("web") && target === null) || control.error ? (
-        <div className="wrap strip-notes">
-          {scopes.includes("web") && target === null && (
-            <Notice tone="warning">{m.scan.noWebTarget}</Notice>
-          )}
-          {control.error && <Notice tone="error">{control.error}</Notice>}
-        </div>
-      ) : null}
+      <div className="wrap strip-notes">
+        <p className="scope-line">
+          {SCAN_SCOPES.map((scope) => (
+            <span key={scope}>
+              <strong>{m.scan.scopes[scope].label}</strong> {m.scan.scopes[scope].hint}
+            </span>
+          ))}
+        </p>
+        {scopes.includes("web") && target === null && (
+          <Notice tone="warning">{m.scan.noWebTarget}</Notice>
+        )}
+        {control.error && <Notice tone="error">{control.error}</Notice>}
+      </div>
     </section>
   );
 }
