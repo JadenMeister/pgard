@@ -1,3 +1,4 @@
+import { lstat } from "node:fs/promises";
 import path from "node:path";
 import { runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 import { readSmallRegularFile } from "./safe-read.js";
@@ -16,34 +17,16 @@ async function probeFile(filePath: string): Promise<Probe> {
   return result.text.trim().length > 0 ? "content" : "empty";
 }
 
-/**
- * Verifies the repository only uses its own objects and real history. Alternates
- * (`objects/info/alternates`, `http-alternates`) would let git read objects from other
- * repositories on disk; grafts and replace refs rewrite history. Any of them makes the checkout
- * an unreliable basis for authorization and analysis, so it is rejected.
- */
-export async function readRepositoryIsolation(
-  projectRoot: string,
-  runner: GitRunner = defaultRunGit,
-): Promise<RepositoryIsolation> {
-  let commonDir: string;
-  try {
-    const output = (
-      await runner({ subcommand: "rev-parse", flags: ["--git-common-dir"] }, { cwd: projectRoot })
-    ).trim();
-    if (output.length === 0) {
-      return { isIsolated: false, reason: "Could not locate the Git directory." };
-    }
-    commonDir = path.resolve(projectRoot, output);
-  } catch {
-    return { isIsolated: false, reason: "Could not locate the Git directory." };
-  }
-  for (const [relative, label] of [
-    [path.join("objects", "info", "alternates"), "object alternates"],
-    [path.join("objects", "info", "http-alternates"), "object alternates"],
-    [path.join("info", "grafts"), "grafts"],
-  ] as const) {
-    const probe = await probeFile(path.join(commonDir, relative));
+const METADATA_FILES = [
+  [path.join("objects", "info", "alternates"), "object alternates"],
+  [path.join("objects", "info", "http-alternates"), "object alternates"],
+  [path.join("info", "grafts"), "grafts"],
+] as const;
+
+/** Returns a blocking result when an alternates or grafts file is present or unsafe to read. */
+async function checkMetadataFiles(gitDir: string): Promise<RepositoryIsolation | null> {
+  for (const [relative, label] of METADATA_FILES) {
+    const probe = await probeFile(path.join(gitDir, relative));
     if (probe === "unsafe") {
       return {
         isIsolated: false,
@@ -57,6 +40,43 @@ export async function readRepositoryIsolation(
       };
     }
   }
+  return null;
+}
+
+/**
+ * Verifies the repository only uses its own objects and real history. Alternates
+ * (`objects/info/alternates`, `http-alternates`) would let git read objects from other
+ * repositories on disk; grafts and replace refs rewrite history. Any of them makes the checkout
+ * an unreliable basis for authorization and analysis, so it is rejected. A metadata file that
+ * cannot be read safely (symlink, FIFO, directory, oversized, unreadable) also rejects: the check
+ * never fails open.
+ */
+export async function readRepositoryIsolation(
+  projectRoot: string,
+  runner: GitRunner = defaultRunGit,
+): Promise<RepositoryIsolation> {
+  // Before any Git process starts: Git itself may open an alternates file, which could block on a
+  // FIFO. A plain `.git` directory is the normal case; a gitfile or worktree is checked below.
+  const dotGit = path.join(projectRoot, ".git");
+  const dotGitStats = await lstat(dotGit).catch(() => null);
+  if (dotGitStats?.isDirectory()) {
+    const early = await checkMetadataFiles(dotGit);
+    if (early !== null) return early;
+  }
+  let commonDir: string;
+  try {
+    const output = (
+      await runner({ subcommand: "rev-parse", flags: ["--git-common-dir"] }, { cwd: projectRoot })
+    ).trim();
+    if (output.length === 0) {
+      return { isIsolated: false, reason: "Could not locate the Git directory." };
+    }
+    commonDir = path.resolve(projectRoot, output);
+  } catch {
+    return { isIsolated: false, reason: "Could not locate the Git directory." };
+  }
+  const blocked = await checkMetadataFiles(commonDir);
+  if (blocked !== null) return blocked;
   try {
     const replaceRefs = (
       await runner(

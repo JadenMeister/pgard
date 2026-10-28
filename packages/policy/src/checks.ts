@@ -69,6 +69,12 @@ export async function verifyRepository(
       revision: null,
     };
   }
+  // Isolation first: reading HEAD opens the object store, which alternates could redirect (or a
+  // FIFO in their place could block).
+  const isolation = await readRepositoryIsolation(projectRoot, runner);
+  if (!isolation.isIsolated) {
+    return { check: failed(isolation.reason), repo: null, revision: null };
+  }
   const revision = await readHeadRevision(projectRoot, runner);
   if (revision === null) {
     return {
@@ -76,10 +82,6 @@ export async function verifyRepository(
       repo: null,
       revision: null,
     };
-  }
-  const isolation = await readRepositoryIsolation(projectRoot, runner);
-  if (!isolation.isIsolated) {
-    return { check: failed(isolation.reason), repo: null, revision };
   }
   const remote = await readGitHubRemote(projectRoot, runner);
   if (!remote.isResolved) {
