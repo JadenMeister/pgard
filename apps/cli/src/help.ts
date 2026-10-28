@@ -164,18 +164,23 @@ ${EXIT_CODE_HELP}`,
   pgard report [--format html|pdf] [--output-dir DIR] [--no-open] [--lang en|ko]
 
 Builds an HTML (default) or PDF report from the last scan stored for this
-repository and opens it. It does not scan again and does not send anything.
+repository and opens it. It does not scan again and uploads nothing; the
+repository checks contact GitHub, as for pgard baseline.
 The repository is identified the way pgard baseline and the panel view do it: the
 repository checks run first, and only a result stored under this repository's
 GitHub id is read. If the repository cannot be verified, nothing is read (exit 3).
 
 Options:
   --format html|pdf        report format (default html)
-  --output-dir DIR         existing directory for the report (default: the
-                           system temporary directory). Files have fixed names
-                           (pgard-report-<time>-<scan>), are created with mode
-                           0600 and never overwritten; a directory inside the
-                           Git repository needs explicit confirmation
+  --output-dir DIR         existing directory for the report. Files have fixed
+                           names (pgard-report-<time>-<scan>), are created with
+                           mode 0600 and never overwritten; a directory inside
+                           the Git repository needs explicit confirmation.
+                           Without it, each run writes into a new private
+                           directory (mode 0700) under the system temporary
+                           directory and prints its path. Browsers installed as
+                           snap packages on Linux may not be able to read /tmp:
+                           use --output-dir ~/Downloads (or similar) then
   --no-open                write the file and print its path without opening it.
                            Without a terminal, and when CI, GITHUB_ACTIONS,
                            BUILDKITE, TF_BUILD or JENKINS_URL is set or TERM=dumb,

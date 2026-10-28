@@ -4,7 +4,7 @@ import { openLocalFile, openerCommandForFile } from "./open-file.js";
 describe("openerCommandForFile", () => {
   it("uses a fixed argument vector per platform", () => {
     expect(openerCommandForFile("darwin", "/tmp/r.html")).toEqual({
-      command: "open",
+      command: "/usr/bin/open",
       args: ["/tmp/r.html"],
     });
     expect(openerCommandForFile("linux", "/tmp/r.pdf")).toEqual({
@@ -22,6 +22,9 @@ describe("openerCommandForFile", () => {
     expect(openerCommandForFile("linux", "/tmp/r.exe")).toBeNull();
     expect(openerCommandForFile("linux", "/tmp/r.html\n")).toBeNull();
     expect(openerCommandForFile("linux", "-x.html")).toBeNull();
+    expect(openerCommandForFile("win32", "\\rooted.html")).toBeNull();
+    expect(openerCommandForFile("win32", "C:rel.html")).toBeNull();
+    expect(openerCommandForFile("win32", "\\\\host\\share\\r.html")).not.toBeNull();
   });
 });
 
@@ -33,7 +36,7 @@ describe("openLocalFile", () => {
       return true;
     };
     expect(await openLocalFile("/tmp/r.html", { platform: "darwin", spawn })).toBe(true);
-    expect(calls).toEqual([["open", ["/tmp/r.html"]]]);
+    expect(calls).toEqual([["/usr/bin/open", ["/tmp/r.html"]]]);
     expect(await openLocalFile("relative.html", { platform: "darwin", spawn })).toBe(false);
     expect(
       await openLocalFile("/tmp/r.html", {

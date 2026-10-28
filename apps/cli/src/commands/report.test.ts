@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
@@ -7,7 +7,7 @@ import { createResultStore, type ResultStore } from "@pgard/result-store";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../app.js";
-import type { CliDeps } from "../deps.js";
+import { makeReportDirDefault, type CliDeps } from "../deps.js";
 import {
   ALLOWED,
   BLOCKED,
@@ -88,7 +88,10 @@ function deps(
     openResultStore: () => resultStore,
     verifyProject: async () => outcome,
     writeReports,
-    reportDefaultDir: () => reportDir,
+    makeReportDir: async () => {
+      reportDir = await mkdtemp(path.join(base, "auto-"));
+      return reportDir;
+    },
     openLocalFile: async (file) => {
       opened.push(file);
       return true;
@@ -269,15 +272,108 @@ describe("runReport", () => {
     expect(captured.stdout()).toContain(SCAN_REVISION.slice(0, 12));
   });
 
-  it("never overwrites: a second run for the same scan exits 4 and keeps the file", async () => {
+  it("with an explicit --output-dir never overwrites: a second run exits 4 and keeps the file", async () => {
     await save(REPO_ID);
-    expect((await report({ ...HTML, noOpen: true })).code).toBe(0);
-    const [name] = await readdir(reportDir);
-    const before = await readFile(path.join(reportDir, name ?? ""), "utf8");
-    const second = await report({ ...HTML, noOpen: true });
+    const explicit = path.join(base, "explicit");
+    await mkdir(explicit);
+    const command = { ...HTML, noOpen: true, outputDir: explicit };
+    expect((await report(command)).code).toBe(0);
+    const [name] = await readdir(explicit);
+    const before = await readFile(path.join(explicit, name ?? ""), "utf8");
+    const second = await report(command);
     expect(second.code).toBe(4);
     expect(second.captured.stderr()).toContain("never overwritten");
-    expect(await readFile(path.join(reportDir, name ?? ""), "utf8")).toBe(before);
+    expect(await readFile(path.join(explicit, name ?? ""), "utf8")).toBe(before);
+  });
+
+  it("without --output-dir every run gets its own new directory and both succeed", async () => {
+    await save(REPO_ID);
+    const first = await report({ ...HTML, noOpen: true });
+    const firstDir = reportDir;
+    const second = await report({ ...HTML, noOpen: true });
+    expect(first.code).toBe(0);
+    expect(second.code).toBe(0);
+    expect(reportDir).not.toBe(firstDir);
+    expect(await readdir(firstDir)).toHaveLength(1);
+    expect(await readdir(reportDir)).toHaveLength(1);
+    expect(second.captured.stdout()).toContain(reportDir);
+  });
+
+  it("opens only the file it just wrote", async () => {
+    await save(REPO_ID);
+    await report();
+    expect(opened).toEqual([
+      path.join(await realpath(reportDir), (await readdir(reportDir))[0] ?? ""),
+    ]);
+  });
+
+  it("the default directory is created private (0700) under the temp directory", async () => {
+    const dir = await makeReportDirDefault();
+    try {
+      expect(path.dirname(dir)).toBe(os.tmpdir());
+      expect(path.basename(dir)).toMatch(/^pgard-report-/);
+      if (process.platform !== "win32") expect((await stat(dir)).mode & 0o777).toBe(0o700);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reads nothing for a blocked outcome that still carries a repository id", async () => {
+    await save(REPO_ID);
+    const { code } = await report(HTML, {
+      deps: deps({
+        outcome: { summary: BLOCKED, repo: "owner/name", revision: "abc", repositoryId: REPO_ID },
+      }),
+    });
+    expect(code).toBe(3);
+    expect(readIds).toEqual([]);
+    expect(await readdir(reportDir)).toEqual([]);
+    expect(opened).toEqual([]);
+  });
+
+  it("skips a stored result for a different repository name, ignoring case", async () => {
+    await save(REPO_ID, {
+      target: { repo: "someone/else", revision: SCAN_REVISION, webOrigin: null },
+    });
+    const refused = await report();
+    expect(refused.code).toBe(2);
+    expect(refused.captured.stderr()).toContain("different repository name");
+    expect(opened).toEqual([]);
+    await rm(store.dir, { recursive: true, force: true });
+    await save(REPO_ID, {
+      target: { repo: "Owner/NAME", revision: SCAN_REVISION, webOrigin: null },
+    });
+    expect((await report({ ...HTML, noOpen: true })).code).toBe(0);
+  });
+
+  it("skips stored results that are blocked, failed or not allowed by the gate", async () => {
+    const blocked = testResult({
+      overallStatus: "blocked",
+      target: { repo: "owner/name", revision: SCAN_REVISION, webOrigin: null },
+    });
+    const failed = { ...blocked, overallStatus: "failed" as const };
+    const notAllowed = { ...blocked, overallStatus: "completed" as const, authorization: BLOCKED };
+    for (const result of [blocked, failed, notAllowed]) {
+      const fake: ResultStore = {
+        ...store,
+        findNewest: async (_id, accept) => {
+          const scan = {
+            file: "x.json",
+            savedAt: new Date(0),
+            result,
+            sourceVersion: result.schemaVersion,
+            incrementalState: null,
+            incrementalStateOmitted: null,
+          };
+          const reason = accept(scan);
+          return reason === null ? { scan, warnings: [] } : { scan: null, warnings: [reason] };
+        },
+      };
+      const { code, captured } = await report(HTML, { deps: deps({ resultStore: fake }) });
+      expect(code).toBe(2);
+      expect(captured.stderr()).toContain("pgard scan");
+    }
+    expect(opened).toEqual([]);
   });
 
   it("says when the report was written but could not be opened", async () => {
@@ -315,7 +411,7 @@ describe("menu entry", () => {
     };
     // verify, scan, scan code, scan history, scan web, scan all, then the report entry.
     for (let index = 0; index < 6; index += 1) await press("\u001b[B");
-    for (const key of keysAfterMenu) await press(key, key === "\u001b" ? 700 : 300);
+    for (const key of keysAfterMenu) await press(key, key === "\u001b" || key === "x" ? 800 : 300);
     return { captured, code: await running };
   }
 
@@ -327,6 +423,15 @@ describe("menu entry", () => {
     expect(captured.stdout()).toContain("Saved HTML report:");
     expect(opened).toHaveLength(1);
     expect(await readdir(reportDir)).toHaveLength(1);
+  }, 10_000);
+
+  it("goes back to the menu when the format prompt is cancelled", async () => {
+    await save(REPO_ID);
+    const { captured, code } = await runMenu({}, ["\r", "\u001b", "x", "\u001b"]);
+    expect(code).toBe(0);
+    expect(captured.stdout()).toContain("(exit status 130)");
+    expect(opened).toEqual([]);
+    expect(await readdir(reportDir)).toEqual([]);
   }, 10_000);
 
   it("lists the entry in Korean", async () => {

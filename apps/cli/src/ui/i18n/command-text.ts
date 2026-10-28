@@ -127,6 +127,7 @@ export interface CommandText {
     notOpened: string;
     openHint: string;
     fileExistsHint: string;
+    cannotCreateDir: string;
   };
   doctor: {
     title: string;
@@ -351,6 +352,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     openHint: "Open the file above yourself, or pass --no-open to only print its path.",
     fileExistsHint:
       "Reports are never overwritten. Remove that file, or use --output-dir with another directory.",
+    cannotCreateDir: "A private directory for the report could not be created. Use --output-dir.",
   },
   doctor: {
     title: "pgard doctor (diagnosis only, not an authorization)",
@@ -572,6 +574,7 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     openHint: "위 파일을 직접 열거나, --no-open으로 경로만 출력하세요.",
     fileExistsHint:
       "보고서는 절대 덮어쓰지 않습니다. 그 파일을 지우거나 --output-dir로 다른 디렉터리를 지정하세요.",
+    cannotCreateDir: "보고서를 둘 비공개 디렉터리를 만들지 못했습니다. --output-dir을 사용하세요.",
   },
   doctor: {
     title: "pgard doctor (진단만 수행하며 권한 확인이 아닙니다)",
