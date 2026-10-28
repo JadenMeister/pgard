@@ -562,3 +562,80 @@ describe("review round 4", () => {
     ).toBe("medium/medium");
   });
 });
+
+describe("review round 5", () => {
+  const bearer = ".oauth2ResourceServer(o -> o.jwt())";
+  it("code after an early return in a policy lambda is conditional (Java)", async () => {
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(s -> { if (!stateless) return; s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); })${bearer};`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(s -> { if (legacy) { return; } s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); })${bearer};`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(s -> { if (legacy) { log(); } s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); })${bearer};`,
+      ),
+    ).toBe("none");
+  });
+  it("code after an early return in the Kotlin DSL is conditional", async () => {
+    const dsl = (guard: string) =>
+      `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity, legacy: Boolean): SecurityFilterChain = http {\n    csrf { disable() }\n    sessionManagement {\n      ${guard}\n      sessionCreationPolicy = SessionCreationPolicy.STATELESS\n    }\n    oauth2ResourceServer { jwt { } }\n  }\n}\n`;
+    expect(
+      kind(
+        of(
+          (await run(dsl("if (legacy) return@sessionManagement"), "C.kt")).findings,
+          "PG-CSRF-001",
+        ),
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      kind(
+        of(
+          (await run(dsl("if (!legacy) return@sessionManagement"), "C.kt")).findings,
+          "PG-CSRF-001",
+        ),
+      ),
+    ).toBe("medium/low/inferred");
+    expect(kind(of((await run(dsl(""), "C.kt")).findings, "PG-CSRF-001"))).toBe("none");
+  });
+  it("a guard before the csrf disable is low", async () => {
+    expect(await csrf("http.csrf(c -> { if (prod) return; c.disable(); }).formLogin();")).toBe(
+      "medium/low/inferred",
+    );
+    expect(
+      await csrf(
+        "if (prod) { return http.build(); }\n    http.csrf(c -> c.disable()).formLogin();",
+      ),
+    ).toBe("medium/low/inferred");
+    expect(await csrf("http.csrf(c -> c.disable()).formLogin();")).toBe("medium/medium");
+  });
+  it("a loop with break or continue guards what follows only inside it", async () => {
+    expect(
+      await csrf(
+        "for (String p : paths) { if (p.isEmpty()) continue; http.csrf(c -> c.disable()); }\n    http.formLogin();",
+      ),
+    ).toBe("medium/low/inferred");
+  });
+  it("a reassigned customizer has accurate wording and an unknown value makes the area partial", async () => {
+    const source = chain(
+      "Customizer<CsrfConfigurer<HttpSecurity>> custom = AbstractHttpConfigurer::disable;\n    custom = buildCsrf();\n    http.csrf(custom).formLogin();",
+    );
+    const analysis = await run(source);
+    const [finding] = of(analysis.findings, "PG-CSRF-001");
+    expect(finding?.confidence).toBe("low");
+    expect(finding?.evidence).not.toContain("only in a branch of the csrf customizer");
+    expect(finding?.evidence).toContain("reassigned customizer");
+    expect(analysis.unsupportedSecurityForms).toHaveLength(1);
+    const readable = await run(
+      chain(
+        "Customizer<CsrfConfigurer<HttpSecurity>> custom = AbstractHttpConfigurer::disable;\n    custom = Customizer.withDefaults();\n    http.csrf(custom).formLogin();",
+      ),
+    );
+    expect(readable.unsupportedSecurityForms).toEqual([]);
+  });
+});

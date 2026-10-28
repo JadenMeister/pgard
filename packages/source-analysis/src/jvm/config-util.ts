@@ -179,6 +179,24 @@ export interface WalkContext {
   conditional: boolean;
 }
 
+/** A statement list that can leave the enclosing block or lambda (return, break, continue, throw). */
+function exits(list: readonly Stmt[] | null): boolean {
+  return (list ?? []).some((stmt) => {
+    switch (stmt.s) {
+      case "exit":
+        return true;
+      case "if":
+        return exits(stmt.then) || exits(stmt.else);
+      case "block":
+        return exits(stmt.body);
+      case "arms":
+        return stmt.arms.some((arm) => exits(arm.body));
+      default:
+        return false;
+    }
+  });
+}
+
 /**
  * Calls back for every call and assignment of a statement list in source order: a call's
  * receiver chain first, then the call, then its arguments (lambda bodies included).
@@ -191,7 +209,14 @@ export function walkBody(
   onNew: (expr: Extract<Expr, { k: "new" }>, context: WalkContext) => void = () => {},
 ): void {
   const stmts = (list: readonly Stmt[] | null, context: WalkContext): void => {
-    for (const stmt of list ?? []) stmtVisit(stmt, context);
+    let current = context;
+    for (const stmt of list ?? []) {
+      stmtVisit(stmt, current);
+      // After a branch that can leave (`if (x) return;`), what follows may not run.
+      if (!current.conditional && (stmt.s === "if" || stmt.s === "arms") && exits([stmt])) {
+        current = { conditional: true };
+      }
+    }
   };
   const exprs = (
     list: ReadonlyArray<Expr | null | undefined>,

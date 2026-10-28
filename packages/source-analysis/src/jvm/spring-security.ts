@@ -413,8 +413,13 @@ function classifyCustomizer(
   expr: Expr,
   locals: ReadonlyMap<string, LocalValues>,
   depth = 0,
+  seen: { unknown: boolean } = { unknown: false },
 ): Customizer {
-  if (depth > 4) return "unknown";
+  const unknown = (): Customizer => {
+    seen.unknown = true;
+    return "unknown";
+  };
+  if (depth > 4) return unknown();
   if (isDisableRef(expr)) return "full";
   if (expr.k === "lambda") {
     const state = disableIn(expr);
@@ -422,28 +427,28 @@ function classifyCustomizer(
   }
   if (expr.k === "cond" || expr.k === "alt") {
     const options = expr.k === "cond" ? [expr.a, expr.b] : expr.options;
-    const kinds = options.map((option) => classifyCustomizer(option, locals, depth + 1));
+    const kinds = options.map((option) => classifyCustomizer(option, locals, depth + 1, seen));
     if (kinds.every((kind) => kind === "full")) return "full";
     if (kinds.some((kind) => kind === "full" || kind === "conditional")) return "conditional";
-    return kinds.every((kind) => kind === "none") ? "none" : "unknown";
+    return kinds.every((kind) => kind === "none") ? "none" : unknown();
   }
   if (expr.k === "id") {
     const known = locals.get(expr.name);
-    if (known === undefined) return "unknown";
-    const kinds = known.values.map((value) => classifyCustomizer(value, locals, depth + 1));
+    if (known === undefined) return unknown();
+    const kinds = known.values.map((value) => classifyCustomizer(value, locals, depth + 1, seen));
     if (known.fixed && kinds.length === 1) return kinds[0] as Customizer;
     // Reassigned, or assigned in a branch: which value reaches `csrf(...)` is not fixed.
     if (kinds.some((kind) => kind === "full" || kind === "conditional")) return "conditional";
-    return kinds.every((kind) => kind === "none") ? "none" : "unknown";
+    return kinds.every((kind) => kind === "none") ? "none" : unknown();
   }
   if (isCall(expr)) {
     // `Customizer.withDefaults()` keeps the defaults; Kotlin `Customizer { it.disable() }`.
     if (expr.name === "withDefaults") return "none";
     if (expr.name === "Customizer" && expr.recv === null && expr.args[0]?.k === "lambda") {
-      return classifyCustomizer(expr.args[0], locals, depth + 1);
+      return classifyCustomizer(expr.args[0], locals, depth + 1, seen);
     }
   }
-  return "unknown";
+  return unknown();
 }
 
 /** Reads one `csrf` call: switched off, off in a branch, exempted for paths, or not readable. */
@@ -470,7 +475,8 @@ function csrfFact(
     }
     return;
   }
-  const kinds = call.args.map((arg) => classifyCustomizer(arg, locals));
+  const seen = { unknown: false };
+  const kinds = call.args.map((arg) => classifyCustomizer(arg, locals, 0, seen));
   if (kinds.includes("full")) {
     // A disable that only runs in a branch is not a fixed disable.
     facts.csrfDisabled.push({ line, call, kind: conditional ? "conditional" : "full", paths: [] });
@@ -478,6 +484,9 @@ function csrfFact(
   }
   if (kinds.includes("conditional")) {
     facts.csrfDisabled.push({ line, call, kind: "conditional", paths: [] });
+    // Part of what the customizer can be is not readable: the area is partial.
+    if (seen.unknown)
+      facts.unsupported.add("a CSRF customizer held in a variable or built by a method");
     return;
   }
   const exempting: CallExpr[] = [];
@@ -547,7 +556,10 @@ function csrfFinding(facts: ChainFacts, fact: Fact, findings: ConfigFinding[]): 
     });
   };
   if (fact.kind === "conditional") {
-    low(`${where} only in a branch of the csrf customizer`, "csrf-conditional");
+    low(
+      `${where} only on some code paths (a branch, code after an early return, or a conditional or reassigned customizer variable)`,
+      "csrf-conditional",
+    );
     return;
   }
   if (fact.kind === "partial") {
