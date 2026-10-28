@@ -2,7 +2,7 @@
 
 > [한국어](RESULT_SCHEMA.ko.md) translation available. This English file is the reference; the translation follows it.
 
-The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.3`. This document says when that version changes and what a reader must do with a version it did not write.
+The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.4`. This document says when that version changes and what a reader must do with a version it did not write.
 
 ## Version rules
 
@@ -26,7 +26,7 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 
 | Input version                 | Behaviour                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Same (`1.3`)                  | Accepted.                                                                                                                           |
+| Same (`1.4`)                  | Accepted.                                                                                                                           |
 | Older minor of the same major | Accepted. Fields added later are absent; the shape is still valid.                                                                  |
 | Newer minor of the same major | Accepted. Unknown fields are ignored (the reader drops them). `sourceVersion` reports the version the file carried.                 |
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
@@ -51,6 +51,8 @@ Strings are length-capped but not sanitized. Evidence, titles and notes can cont
 `Finding.id` is a stable fingerprint of rule, location and cause. Stored results are compared with later scans by this id, so it is part of the contract even though its type is only `string`. Changing how it is derived makes ids from older results stop matching, so such a change is a **major** version change. Its type or the rule that it never contains secret values cannot change within a major version either.
 
 ## Version history
+
+**1.4** (additive; a minor bump). One optional field on a finding's `references`, `cert`: the SEI CERT Oracle Java rule ids (`IDS00-J`) that the finding's rule is directly about. It is present only on findings in `.java` and `.kt` files whose rule has such a mapping, and absent everywhere else (other languages link to CERT only indirectly, through a CWE, in the rule details). It is a cross-reference, not a compliance claim. Results of `1.3` and older have no such field, and a reader treats that as "not recorded".
 
 **1.3** (additive; a minor bump). One optional field on a `coverage` entry, `walkedDirectories`, present only on `source:build-output`: `{ paths, complete }`, the skip-named directories (`build`, `dist`, `out`, ...) that the walk entered because they directly contain source files (redacted repository-relative paths) and whether that list is complete. Scan comparison uses it to treat findings below such a directory as ordinary. Results of `1.2` and older have no such field, and a reader treats that as "not recorded", never as "no directory was walked".
 

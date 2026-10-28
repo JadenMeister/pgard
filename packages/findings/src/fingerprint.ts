@@ -134,6 +134,9 @@ export function mergeFindings(findings: readonly Finding[]): Finding[] {
         cwe: union(...group.map((finding) => finding.references.cwe)),
         owasp: union(...group.map((finding) => finding.references.owasp)),
         cve: union(...group.map((finding) => finding.references.cve)),
+        ...(group.some((finding) => finding.references.cert !== undefined)
+          ? { cert: union(...group.map((finding) => finding.references.cert ?? [])) }
+          : {}),
       },
       sources: canonicalSources(group.flatMap((finding) => finding.sources)),
     };

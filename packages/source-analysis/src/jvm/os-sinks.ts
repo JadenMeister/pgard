@@ -1,4 +1,4 @@
-import type { Confidence, FindingStatus, Severity } from "@pgard/findings";
+import type { CertCause, Confidence, FindingStatus, Severity } from "@pgard/findings";
 import {
   addLeaves,
   baseType,
@@ -62,6 +62,11 @@ export interface OsFinding {
   confidence: Confidence;
   evidence: string;
   cause: string;
+  /**
+   * Which part of the rule this finding is, for the direct CERT references that cover only part
+   * of it (set by the analyzer from what it saw, not from the evidence text). Absent: no cause.
+   */
+  certCause?: CertCause;
 }
 
 export interface OsHost {
@@ -310,6 +315,10 @@ export function createOsSinks(host: OsHost) {
       return {
         finding: {
           ...base,
+          // The path comes from the name of an archive entry (zip slip), not from request input.
+          certCause: source.label.startsWith("archive entry")
+            ? ("archive-entry" as const)
+            : ("other-than-archive-entry" as const),
           severity: "high",
           status: source.direct ? "confirmed" : "suspected",
           confidence: source.label.includes("by its name") ? "medium" : "high",

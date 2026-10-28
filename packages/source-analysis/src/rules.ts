@@ -320,7 +320,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["java", "kotlin"],
-    standards: { owasp: ["A05:2025"], cwe: ["CWE-79"], cert: [] },
+    standards: {
+      owasp: ["A05:2025"],
+      cwe: ["CWE-79"],
+      cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly; related recommendation: IDS51-J Properly encode or escape output (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: IDS51-J Properly encode or escape output (권고는 연결하지 않습니다).",
+      },
+    },
     rationale: {
       en: 'Request data (`request.getParameter()`, a Spring `@RequestParam`, a Ktor `call.parameters` value) written unescaped into an HTML response lets an attacker inject `<img src=x onerror=...>` and run script as the user. Forms: `response.getWriter().write(...)`, a `@ResponseBody` handler returning HTML, JSP `<%= %>` or `${param.x}`, `<c:out escapeXml="false">`, Thymeleaf `th:utext`. JSON, `th:text`, `<c:out>` and `fn:escapeXml` escape and are not reported. Escaping helpers: low confidence.',
       ko: '요청 데이터(`request.getParameter()`, Spring `@RequestParam`, Ktor `call.parameters`)를 이스케이프 없이 HTML 응답에 쓰면 공격자가 `<img src=x onerror=...>` 같은 마크업을 주입해 사용자 권한으로 스크립트를 실행할 수 있습니다. 해당 형태: `response.getWriter().write(...)`, HTML을 반환하는 `@ResponseBody`, JSP `<%= %>`·`out.print`·`${param.x}`, `<c:out escapeXml="false">`, Thymeleaf `th:utext`. JSON, `th:text`, `<c:out>`, `fn:escapeXml`은 이스케이프하므로 보고하지 않으며, 이스케이프 도우미를 거친 값은 낮은 신뢰도로 보고합니다.',
@@ -349,7 +357,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["java", "kotlin"],
-    standards: { owasp: ["A01:2025"], cwe: ["CWE-918"], cert: [] },
+    standards: {
+      owasp: ["A01:2025"],
+      cwe: ["CWE-918"],
+      cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
+      },
+    },
     rationale: {
       en: "A URL built from request input and fetched by the server (`URL.openConnection()`, `HttpRequest.newBuilder(URI.create(x))`, `RestTemplate.getForObject`, `WebClient.get().uri(x)`, OkHttp `url(x)`, `new HttpGet(x)`, Ktor `client.get(x)`) lets an attacker reach internal targets such as `http://169.254.169.254/` (cloud credentials) or `http://localhost:6379`. A fixed host with only a path or query from the request, or a host checked against an allowlist, is reported at low confidence.",
       ko: "서버가 요청 입력으로 만든 URL(`URL.openConnection()`, `HttpRequest.newBuilder(URI.create(x))`, `RestTemplate.getForObject`, `WebClient.get().uri(x)`, OkHttp `url(x)`, `new HttpGet(x)`, Ktor `client.get(x)`)을 가져오면 공격자는 `http://169.254.169.254/`(클라우드 자격 증명)나 `http://localhost:6379` 같은 내부 대상에 닿을 수 있습니다. 호스트가 고정이고 경로·쿼리만 요청에서 오거나 호스트를 허용 목록으로 검사한 경우는 낮은 신뢰도로 보고합니다.",
@@ -560,7 +576,14 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["java", "kotlin"],
-    standards: { owasp: ["A01:2025"], cwe: ["CWE-22"], cert: [{ kind: "direct", id: "FIO16-J" }] },
+    standards: {
+      owasp: ["A01:2025"],
+      cwe: ["CWE-22"],
+      cert: [
+        { kind: "direct", id: "FIO16-J", cause: "other-than-archive-entry" },
+        { kind: "direct", id: "IDS04-J", cause: "archive-entry" },
+      ],
+    },
     rationale: {
       en: "Using request data (`@RequestParam`, `request.getParameter()`, `MultipartFile.getOriginalFilename()`, a Ktor `call.parameters` value) or `ZipEntry.getName()` as part of a path in `new File(...)`, `Paths.get(...)`, `Path.resolve(...)`, `Files.*` or `FileInputStream` lets an attacker send `../../etc/passwd` to read, overwrite or delete files outside the intended directory. An archive entry named `../../app/run.sh` does the same when it is extracted (zip slip).",
       ko: "요청 데이터(`@RequestParam`, `request.getParameter()`, `MultipartFile.getOriginalFilename()`, Ktor `call.parameters` 값)나 `ZipEntry.getName()`을 `new File(...)`, `Paths.get(...)`, `Path.resolve(...)`, `Files.*`, `FileInputStream`의 경로 일부로 쓰면 공격자가 `../../etc/passwd`를 보내 의도한 디렉터리 밖의 파일을 읽거나 덮어쓰거나 지울 수 있습니다. 압축 파일 항목 이름이 `../../app/run.sh`이면 압축을 풀 때 같은 일이 일어납니다(zip slip).",
@@ -594,7 +617,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: ["javascript", "typescript", "go", "java", "kotlin"],
-    standards: { owasp: ["A04:2025"], cwe: ["CWE-916", "CWE-328"], cert: [] },
+    standards: {
+      owasp: ["A04:2025"],
+      cwe: ["CWE-916", "CWE-328"],
+      cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly; related recommendation: MSC62-J Store passwords using a hash function (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: MSC62-J Store passwords using a hash function (권고는 연결하지 않습니다).",
+      },
+    },
     rationale: {
       en: 'MD5 and SHA-1 are fast hashes. After a database leak an attacker can test billions of guesses per second on a GPU, so most passwords are recovered quickly. Both are also broken against collisions. In Java and Kotlin the rule reads `MessageDigest.getInstance("MD5"|"SHA-1")`, Guava `Hashing.md5()` and Commons Codec `DigestUtils.md5Hex` applied to a password-named value; a digest of anything else is not reported.',
       ko: 'MD5와 SHA-1은 빠른 해시입니다. 데이터베이스가 유출되면 공격자가 GPU로 초당 수십억 번의 추측을 시도할 수 있어 대부분의 비밀번호가 빠르게 복구됩니다. 두 알고리즘 모두 충돌에 대해서도 이미 깨졌습니다. Java와 Kotlin에서는 비밀번호 이름의 값에 적용한 `MessageDigest.getInstance("MD5"|"SHA-1")`, Guava `Hashing.md5()`, Commons Codec `DigestUtils.md5Hex`를 읽고, 다른 값의 해시는 보고하지 않습니다.',
@@ -627,7 +658,10 @@ export const SOURCE_RULES = [
     standards: {
       owasp: ["A04:2025", "A07:2025"],
       cwe: ["CWE-321", "CWE-798"],
-      cert: [{ kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" }],
+      cert: [
+        { kind: "direct", id: "MSC03-J" },
+        { kind: "via-cwe", id: "MSC03-J", cwe: "CWE-798" },
+      ],
     },
     rationale: {
       en: "A key or signing secret written in the source is available to everyone who can read the repository, its history, a build artifact or a bundle. With it an attacker can decrypt stored data and forge tokens (for example a JWT signed with a known secret), and the key cannot be changed without a new release. In Java and Kotlin a literal given to `SecretKeySpec`, JJWT `signWith` or Auth0 `HMAC256`, or the literal default of a Spring `@Value` key, is reported.",
@@ -658,7 +692,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: [...JS_TS, "java", "kotlin"],
-    standards: { owasp: ["A04:2025"], cwe: ["CWE-327"], cert: [] },
+    standards: {
+      owasp: ["A04:2025"],
+      cwe: ["CWE-327"],
+      cert: [{ kind: "direct", id: "MSC02-J", cause: "weak-random" }],
+      noDirectCertOther: {
+        en: "No CERT rule maps directly; related recommendation: MSC61-J Do not use insecure or weak cryptographic algorithms (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: MSC61-J Do not use insecure or weak cryptographic algorithms (권고는 연결하지 않습니다).",
+      },
+    },
     rationale: {
       en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token lets an attacker guess it. In Java and Kotlin the rule also reads bare `AES` (ECB), a fixed IV and such random values.",
       ko: "DES, 3DES, RC4 같은 암호나 ECB 같은 모드는 깨졌거나 평문의 구조를 드러냅니다. 암호문을 가로챈 공격자는 데이터를 복구할 수 있고, 인증(GCM 태그나 MAC)이 없으면 탐지되지 않게 변조할 수도 있습니다. 키·IV·salt·토큰에 쓰는 예측 가능한 난수(`java.util.Random`, `Math.random()`)는 공격자가 추측할 수 있습니다. Java와 Kotlin에서는 모드 없는 `AES`(ECB), 고정 IV, 이런 난수 값도 읽습니다.",
@@ -687,7 +729,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "high",
     scope: "code",
     languages: [...JS_TS, "java", "kotlin"],
-    standards: { owasp: ["A06:2025"], cwe: ["CWE-256"], cert: [] },
+    standards: {
+      owasp: ["A06:2025"],
+      cwe: ["CWE-256"],
+      cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly; related recommendation: MSC62-J Store passwords using a hash function (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: MSC62-J Store passwords using a hash function (권고는 연결하지 않습니다).",
+      },
+    },
     rationale: {
       en: "A password saved as plain text, or in any reversible form, is exposed in full by any database leak, backup, log or SQL injection. Staff with database access can read it, and every user who reused it elsewhere is at risk too. PGARD also flags password-named values passed to repository or ORM calls without a hash call in the same function, at low confidence when the value is not read from a request. In Java and Kotlin: a password saved without `passwordEncoder.encode`, or `NoOpPasswordEncoder`.",
       ko: "평문이나 되돌릴 수 있는 형태로 저장한 비밀번호는 데이터베이스 유출, 백업, 로그, SQL 인젝션 어느 경우에나 그대로 노출됩니다. 데이터베이스에 접근하는 직원도 읽을 수 있고, 다른 곳에서 같은 비밀번호를 쓰는 사용자도 위험해집니다. PGARD는 같은 함수에 해시 호출 없이 저장소·ORM 호출로 넘어가는 비밀번호 이름의 값도 보고하며, 값이 요청에서 읽은 것이 아니면 낮은 신뢰도로 보고합니다. Java와 Kotlin은 `passwordEncoder.encode` 없이 저장한 비밀번호와 `NoOpPasswordEncoder`입니다.",
@@ -720,6 +770,10 @@ export const SOURCE_RULES = [
       owasp: ["A01:2025", "A02:2025"],
       cwe: ["CWE-1004", "CWE-614", "CWE-1275"],
       cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
+      },
     },
     rationale: {
       en: "A session cookie without HttpOnly can be read by injected script, so XSS becomes session theft. Without Secure it can travel over plain HTTP. Without SameSite other sites can make the browser attach it, enabling CSRF. Only cookies that look like session or auth cookies are judged: a name with sess, sid, token, auth, jwt, login, remember, refresh or access, or a session or token value. Theme or locale cookies are not reported. Also checked in Java, Kotlin and Spring Boot config.",
@@ -749,7 +803,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: [...JS_TS, "java", "kotlin"],
-    standards: { owasp: ["A01:2025"], cwe: ["CWE-352"], cert: [] },
+    standards: {
+      owasp: ["A01:2025"],
+      cwe: ["CWE-352"],
+      cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
+      },
+    },
     rationale: {
       en: "A route that changes state and authenticates only by cookie can be triggered by any website the user visits: the browser attaches the cookie to a forged form post or fetch. PGARD counts POST routes. PUT, PATCH and DELETE need a CORS preflight, so they count unless CORS is provably restrictive (none, or a fixed origin list); unresolvable CORS options, hand-set credentials headers and method-override keep them in. Java/Kotlin: Spring Security `csrf().disable()` on a session-based chain.",
       ko: "상태를 바꾸면서 쿠키로만 인증하는 라우트는 로그인한 사용자가 방문한 아무 웹사이트에서나 호출될 수 있습니다. 브라우저가 위조된 폼 전송이나 fetch에도 쿠키를 실어 보내기 때문입니다. 공격자는 피해자 권한으로 계정 이메일을 바꾸거나, 송금하거나, 데이터를 삭제할 수 있습니다. PGARD는 POST 라우트를 대상으로 합니다. PUT, PATCH, DELETE는 CORS preflight가 필요하므로 CORS가 확실히 제한적(없거나 고정 출처 목록)이지 않으면 포함합니다. 해석할 수 없는 CORS 옵션, 직접 설정한 credentials 헤더, method-override가 있으면 계속 포함합니다. Java/Kotlin: 세션 기반 체인의 Spring Security `csrf().disable()`도 보고합니다.",
@@ -783,7 +845,15 @@ export const SOURCE_RULES = [
     defaultSeverity: "medium",
     scope: "code",
     languages: ["java", "kotlin"],
-    standards: { owasp: ["A01:2025", "A02:2025"], cwe: ["CWE-942", "CWE-862"], cert: [] },
+    standards: {
+      owasp: ["A01:2025", "A02:2025"],
+      cwe: ["CWE-942", "CWE-862"],
+      cert: [],
+      noDirectCert: {
+        en: "No CERT rule maps directly.",
+        ko: "직접 대응하는 CERT 규칙이 없습니다.",
+      },
+    },
     rationale: {
       en: "Some Spring configuration removes access control. `anyRequest().permitAll()` as the last rule opens every path no earlier rule names. `web.ignoring()` takes paths out of the filter chain (no authentication, headers or CSRF); only static resources belong there. CORS with every origin (`*`) and credentials lets any site read authenticated responses. Low severity: security debug logging, and `management.endpoints.web.exposure.include=*` without Spring Security.",
       ko: "일부 Spring 설정은 접근 제어를 없앱니다. 마지막 규칙이 `anyRequest().permitAll()`이면 앞선 규칙에 없는 모든 경로가 열립니다. `web.ignoring()`은 경로를 필터 체인에서 빼 인증, 보안 헤더, CSRF가 모두 사라지므로 정적 리소스에만 써야 합니다. 모든 출처(`*`)와 자격 증명을 함께 허용하는 CORS는 아무 사이트나 인증된 응답을 읽게 합니다. 낮은 심각도: 보안 디버그 로그, Spring Security 없는 프로젝트의 `management.endpoints.web.exposure.include=*`.",

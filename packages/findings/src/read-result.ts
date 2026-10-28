@@ -135,7 +135,10 @@ export const READER_KEYS = {
     url: true,
     commit: true,
   } satisfies Record<keyof FindingLocation, true>,
-  references: { cwe: true, owasp: true, cve: true } satisfies Record<keyof FindingReferences, true>,
+  references: { cwe: true, owasp: true, cve: true, cert: true } satisfies Record<
+    keyof FindingReferences,
+    true
+  >,
   coverage: {
     area: true,
     scope: true,
@@ -461,6 +464,8 @@ function readFinding(value: unknown, path: string): Finding {
     },
     sources: scopes(field(o, "sources"), `${path}.sources`),
   };
+  const cert = field(refs, "cert");
+  if (cert !== undefined) finding.references.cert = strings(cert, `${path}.references.cert`);
   const context = field(o, "context");
   if (context !== undefined) {
     finding.context = oneOf(context, FINDING_CONTEXTS, `${path}.context`);
