@@ -216,6 +216,7 @@ export const ko: Messages = {
     cancel: "취소",
     progress: {
       title: "검사 중",
+      stoppedTitle: "검사 중단됨",
       elapsed: (time) => `경과 시간 ${time}`,
       areasLabel: "영역별 검사 진행 상황",
       authorization: "권한 확인",
@@ -225,8 +226,9 @@ export const ko: Messages = {
         done: "완료",
         failed: "실패",
         skipped: "건너뜀",
+        stopped: "중단됨",
       },
-      pages: (count) => `페이지 ${count}개 확인함`,
+      pages: (count) => `${count}개 페이지 확인`,
       announce: (area, state) => `${area}: ${state}`,
       note: "각 영역은 시작과 완료만 알려 주며, 남은 작업량은 추정하지 않습니다.",
       log: "진행 기록",
@@ -323,13 +325,14 @@ export const ko: Messages = {
     baselineNote:
       "이 항목들은 이미 기준선(pgard baseline)에 있었습니다. 새 항목은 아니지만 계속 보고됩니다.",
     newBadge: "신규",
+    suppressedMarker: (expires) => (expires === "" ? "억제됨" : `${expires}까지 억제됨`),
     pager: {
       showing: (start, end, total) => `전체 ${total}건 중 ${start}–${end}건`,
       label: (list) => `페이지: ${list}`,
       previous: "이전",
       next: "다음",
       page: (page) => `${page}페이지`,
-      pageSize: "페이지당",
+      pageSize: "페이지당 개수",
       regular: "발견 항목",
     },
     noDatabase:

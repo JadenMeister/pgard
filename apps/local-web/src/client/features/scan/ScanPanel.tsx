@@ -85,7 +85,10 @@ export function ScanPanel({ target, scan, onScan }: ScanPanelProps) {
       {isRunning && scan !== null && (
         <ScanProgress scopes={scan.scopes} events={scan.progress} elapsedSeconds={elapsedSeconds} />
       )}
-      {!isRunning && scan !== null && <ActivityLog events={scan.progress} />}
+      {(scan?.status === "cancelled" || scan?.status === "failed") && scan.progress.length > 0 && (
+        <ScanProgress scopes={scan.scopes} events={scan.progress} elapsedSeconds={0} isStopped />
+      )}
+      {scan?.status === "done" && <ActivityLog events={scan.progress} />}
       {scan?.message && (
         <Notice tone={scan.status === "cancelled" ? "warning" : "error"}>{scan.message}</Notice>
       )}

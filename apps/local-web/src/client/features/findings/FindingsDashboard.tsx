@@ -81,6 +81,7 @@ export function FindingsDashboard({
         label={label}
         findings={section.visible}
         ruleTexts={ruleTexts}
+        headingLevel={4}
         {...listProps(section.kind)}
       />
     );

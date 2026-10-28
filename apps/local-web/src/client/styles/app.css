@@ -1450,3 +1450,17 @@ pre.code {
 main:focus {
   outline: none;
 }
+
+.state-stopped .area-marker {
+  border-color: var(--color-warning);
+}
+
+.state-stopped .progress-area-state {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
+.badge-suppressed {
+  --badge-dot: var(--color-muted);
+  border-style: dashed;
+}

@@ -232,6 +232,7 @@ export const en = {
     cancel: "Cancel",
     progress: {
       title: "Scanning",
+      stoppedTitle: "Scan stopped",
       elapsed: (time: string): string => `Elapsed ${time}`,
       areasLabel: "Scan progress by area",
       authorization: "Authorization",
@@ -241,6 +242,7 @@ export const en = {
         done: "Done",
         failed: "Failed",
         skipped: "Skipped",
+        stopped: "Stopped",
       },
       pages: (count: number): string => `${count} page${count === 1 ? "" : "s"} checked`,
       announce: (area: string, state: string): string => `${area}: ${state}`,
@@ -347,6 +349,8 @@ export const en = {
     baselineNote:
       "These findings were already in the baseline (pgard baseline). They are not new, but they are still reported.",
     newBadge: "NEW",
+    suppressedMarker: (expires: string): string =>
+      expires === "" ? "Suppressed" : `Suppressed until ${expires}`,
     pager: {
       showing: (start: number, end: number, total: number): string =>
         `Showing ${start}–${end} of ${total}`,

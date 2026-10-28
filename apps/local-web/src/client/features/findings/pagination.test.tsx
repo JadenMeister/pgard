@@ -7,6 +7,7 @@ import { EMPTY_FILTERS } from "./filter-findings";
 import {
   findingsListReducer,
   INITIAL_LIST_STATE,
+  pageRequest,
   pageWindow,
   paginate,
   type FindingsListState,
@@ -112,7 +113,8 @@ describe("findingsListReducer", () => {
     expect(filtered.pages).toEqual({});
     expect(filtered.filters).toEqual({ ...EMPTY_FILTERS, severity: "high" });
     const resized = findingsListReducer(paged, { type: "pageSize", pageSize: 50 });
-    expect(resized).toMatchObject({ pageSize: 50, pages: {} });
+    expect(resized).toEqual({ filters: EMPTY_FILTERS, pageSize: 50, pages: {} });
+    expect(Object.keys(resized.pages)).toHaveLength(0);
   });
 });
 
@@ -167,5 +169,103 @@ describe("paged results panel", () => {
     });
     expect(html).toContain("Showing 1–3 of 3");
     expect(html).toContain("Showing 26–30 of 30");
+  });
+
+  it("pages the vendored, suppressed and baseline groups each on their own", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const group = (offset: number, extra: Partial<Finding>) =>
+      Array.from({ length: 30 }, (_, index) => finding(offset + index, extra));
+    const findings = [
+      ...many(3),
+      ...group(2000, { context: "vendored", confidence: "low" }),
+      ...group(3000, {
+        suppression: { reason: "accepted", expires: "2027-01-31" },
+      } as Partial<Finding>),
+      ...group(4000, { inBaseline: true }),
+    ];
+    const html = render(findings, {
+      ...INITIAL_LIST_STATE,
+      pages: { vendored: 2, baseline: 2 },
+    });
+    expect(html).toContain('aria-label="Pages: Suggestions in third-party or vendored code"');
+    expect(html).toContain('aria-label="Pages: Suppressed findings"');
+    expect(html).toContain('aria-label="Pages: Findings in the baseline"');
+    // Vendored and baseline on page 2, suppressed still on page 1.
+    expect(html.split("Showing 26–30 of 30").length - 1).toBe(2);
+    expect(html.split("Showing 1–25 of 30").length - 1).toBe(1);
+  });
+
+  it("has no pager for exactly one page of 25", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const html = render(many(25));
+    expect(rowCount(html)).toBe(25);
+    expect(html).toContain("Showing 1–25 of 25");
+    expect(html).not.toContain("<nav");
+    expect(html).not.toContain("Per page");
+    const next = render(many(26));
+    expect(html).not.toContain('aria-label="Pages: Findings"');
+    expect(next).toContain('aria-label="Pages: Findings"');
+  });
+
+  it("shows the page size chosen in the select", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const html = render(many(250), { ...INITIAL_LIST_STATE, pageSize: 50 });
+    expect(rowCount(html)).toBe(50);
+    expect(html).toContain("Showing 1–50 of 250");
+    expect(html).toMatch(/Per page<select>[^]*<option value="50" selected="">50<\/option>/);
+    expect(html).toContain('<option value="25">25</option>');
+    expect(html).toContain('<option value="100">100</option>');
+  });
+
+  it("clamps to the last page after a filter shrinks the list, and marks that page current", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    // 50 critical findings: page 9 no longer exists, page 2 is the last.
+    const state = {
+      ...INITIAL_LIST_STATE,
+      filters: { ...EMPTY_FILTERS, severity: "critical" as const },
+      pages: { primary: 9 },
+    };
+    const html = render(many(250), state);
+    expect(html).toContain("Showing 26–50 of 50");
+    expect(html).toContain('aria-label="Page 2" aria-current="page"');
+    expect(html).not.toContain('aria-label="Page 1" aria-current="page"');
+    expect(html).not.toContain('aria-label="Page 9"');
+  });
+
+  it("keeps the status and a suppression visible in the collapsed row", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const html = render([
+      finding(1, { status: "confirmed" }),
+      finding(2, {
+        suppression: { reason: "accepted", expires: "2027-01-31" },
+      } as Partial<Finding>),
+    ]);
+    const summaries = html.match(/<summary>[^]*?<\/summary>/g) ?? [];
+    expect(summaries.some((summary) => summary.includes("badge-confirmed"))).toBe(true);
+    expect(summaries.some((summary) => summary.includes("Suppressed until 2027-01-31"))).toBe(true);
+    vi.stubGlobal("navigator", { languages: ["ko-KR"] });
+    expect(
+      render([
+        finding(2, { suppression: { reason: "x", expires: "2027-01-31" } } as Partial<Finding>),
+      ]),
+    ).toContain("2027-01-31까지 억제됨");
+  });
+
+  it("uses h3 titles in the main list and h4 inside a group", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const html = render([finding(1), finding(2, { context: "test", confidence: "low" })]);
+    expect(html).toContain('<h3 class="finding-title">Finding number 1</h3>');
+    expect(html).toContain('<h4 class="finding-title">Finding number 2</h4>');
+  });
+});
+
+describe("pageRequest", () => {
+  it("asks for a page change only when the page actually changes", () => {
+    // Only a real change moves focus; clicking the current page must not leave a pending focus.
+    expect(pageRequest(3, 3, 9)).toBeNull();
+    expect(pageRequest(1, 0, 9)).toBeNull();
+    expect(pageRequest(9, 10, 9)).toBeNull();
+    expect(pageRequest(3, 4, 9)).toBe(4);
+    expect(pageRequest(3, 1, 9)).toBe(1);
   });
 });

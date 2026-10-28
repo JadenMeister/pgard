@@ -1,31 +1,36 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Finding } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { Badge, SeverityPill } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n/I18nProvider";
 import { formatLocation } from "./filter-findings";
-import { pageWindow, paginate, PAGE_SIZES } from "./pagination";
+import { pageRequest, pageWindow, paginate, PAGE_SIZES } from "./pagination";
 import { RuleDetailsBlock } from "./RuleDetailsBlock";
 
 /**
- * One finding as a disclosure row: severity, title, location and rule id are always visible;
- * evidence, impact, recommendation and the rule details open on demand (Enter or Space on the
- * summary). Everything stays in the markup, so find-in-page reaches the text of the page shown.
+ * One finding as a disclosure row: severity, title, status, location, rule id and a suppression
+ * are always visible; evidence, impact, recommendation and the rule details open on demand
+ * (Enter or Space on the summary). Everything stays in the markup, so find-in-page reaches the
+ * text of the page shown.
  */
 export function FindingItem({
   finding,
   ruleTexts,
   isNew = false,
+  headingLevel = 3,
 }: {
   finding: Finding;
   ruleTexts: RuleTextsResponse | null;
   isNew?: boolean;
+  /** 3 for the regular list (under the card's h2), 4 inside a group with its own h3. */
+  headingLevel?: 3 | 4;
 }) {
   const { m } = useI18n();
   const statusLabels: Record<string, string> = m.status;
   const confidenceLabels: Record<string, string> = m.confidence;
   const location = formatLocation(finding.location, m);
+  const Title = headingLevel === 3 ? "h3" : "h4";
   return (
     <li>
       <details className={`finding sev-${finding.severity}`}>
@@ -33,9 +38,15 @@ export function FindingItem({
           <span className="finding-sev">
             <SeverityPill severity={finding.severity} />
           </span>
-          <h3 className="finding-title">{finding.title}</h3>
+          <Title className="finding-title">{finding.title}</Title>
           <span className="finding-meta">
             {isNew && <Badge kind="new">{m.findings.newBadge}</Badge>}
+            <Badge kind={finding.status}>{statusLabels[finding.status] ?? finding.status}</Badge>
+            {finding.suppression !== undefined && (
+              <Badge kind="suppressed">
+                {m.findings.suppressedMarker(finding.suppression.expires ?? "")}
+              </Badge>
+            )}
             <code className="finding-location" title={location}>
               {location}
             </code>
@@ -43,11 +54,8 @@ export function FindingItem({
           </span>
         </summary>
         <div className="finding-body">
-          <p className="finding-tags">
-            <Badge kind={finding.status}>{statusLabels[finding.status] ?? finding.status}</Badge>
-            <span className="muted">
-              {m.findings.confidence(confidenceLabels[finding.confidence] ?? finding.confidence)}
-            </span>
+          <p className="finding-tags muted">
+            {m.findings.confidence(confidenceLabels[finding.confidence] ?? finding.confidence)}
           </p>
           {finding.suppression !== undefined && (
             <p className="suppression-reason">
@@ -80,6 +88,7 @@ interface FindingListProps {
   findings: readonly Finding[];
   ruleTexts: RuleTextsResponse | null;
   isNew?: boolean;
+  headingLevel?: 3 | 4;
   page: number;
   pageSize: number;
   onPage: (page: number) => void;
@@ -88,15 +97,19 @@ interface FindingListProps {
 
 /**
  * A page of findings with the range shown ("Showing 26–50 of 213") and page controls. Only the
- * current page is rendered; filters, counts and report exports always cover every finding. After
- * a page change, focus moves to the range line so keyboard and screen-reader users land at the
- * top of the new page.
+ * current page is rendered; filters, counts and report exports always cover every finding.
+ *
+ * The range line is not a live region (several lists and every filter keystroke would make it
+ * chatty). Instead, a page change made with the page buttons moves focus to it, so
+ * keyboard and screen-reader users hear the new range once and land at the top of the new page.
+ * Filter and page-size changes never move focus.
  */
 export function FindingList({
   label,
   findings,
   ruleTexts,
   isNew = false,
+  headingLevel = 3,
   page,
   pageSize,
   onPage,
@@ -106,28 +119,35 @@ export function FindingList({
   const text = m.findings.pager;
   const view = paginate(findings, page, pageSize);
   const statusRef = useRef<HTMLParagraphElement>(null);
-  const shouldFocus = useRef(false);
+  // Bumped only by the page controls; the effect focuses once per bump.
+  const [focusRequest, setFocusRequest] = useState(0);
 
   useEffect(() => {
-    if (!shouldFocus.current) return;
-    shouldFocus.current = false;
-    statusRef.current?.focus();
-  }, [view.page]);
+    if (focusRequest > 0) statusRef.current?.focus();
+  }, [focusRequest]);
 
   const goTo = (next: number): void => {
-    shouldFocus.current = true;
-    onPage(next);
+    const target = pageRequest(view.page, next, view.pageCount);
+    if (target === null) return;
+    setFocusRequest((count) => count + 1);
+    onPage(target);
   };
 
   const showControls = view.total > PAGE_SIZES[0];
   return (
     <>
-      <p className="list-status" ref={statusRef} tabIndex={-1} aria-live="polite">
-        <span>{text.showing(view.start, view.end, view.total)}</span>
+      <p className="list-status" ref={statusRef} tabIndex={-1}>
+        {text.showing(view.start, view.end, view.total)}
       </p>
       <ul className="findings" aria-label={label}>
         {view.items.map((finding) => (
-          <FindingItem key={finding.id} finding={finding} ruleTexts={ruleTexts} isNew={isNew} />
+          <FindingItem
+            key={finding.id}
+            finding={finding}
+            ruleTexts={ruleTexts}
+            isNew={isNew}
+            headingLevel={headingLevel}
+          />
         ))}
       </ul>
       {showControls && (
@@ -171,6 +191,7 @@ export function FindingList({
           </nav>
           <label className="pager-size">
             {text.pageSize}
+            {/* Focus stays on the select: changing a value must not move the user elsewhere. */}
             <select value={pageSize} onChange={(event) => onPageSize(Number(event.target.value))}>
               {PAGE_SIZES.map((size) => (
                 <option key={size} value={size}>

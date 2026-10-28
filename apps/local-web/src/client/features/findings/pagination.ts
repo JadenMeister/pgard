@@ -51,6 +51,15 @@ export function pageWindow(page: number, pageCount: number): Array<number | null
   return output;
 }
 
+/**
+ * The page a pager button should go to, or `null` when the click changes nothing (the current
+ * page, or outside 1..pageCount). Only a real page change moves focus to the range line.
+ */
+export function pageRequest(current: number, next: number, pageCount: number): number | null {
+  if (next === current || next < 1 || next > pageCount) return null;
+  return next;
+}
+
 /** Lists that page on their own: the regular findings and each separate group. */
 export type FindingListId = "primary" | "test" | "vendored" | "suppressed" | "baseline";
 

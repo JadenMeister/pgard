@@ -86,7 +86,8 @@ describe("scan progress panel", () => {
     vi.stubGlobal("navigator", { languages: ["en-US"] });
     const html = render();
     expect(html).toContain("Elapsed 1:05");
-    expect(html).toContain('aria-busy="true"');
+    // No aria-busy: it would keep the live region below from being announced.
+    expect(html).not.toContain("aria-busy");
     expect(html).toContain('aria-label="Scan progress by area"');
     expect(html).toMatch(/state-done[^]*Authorization[^]*Done/);
     expect(html).toMatch(/state-running[^]*Code[^]*Running/);
@@ -103,5 +104,30 @@ describe("scan progress panel", () => {
     expect(html).toContain("권한 확인");
     expect(html).toContain("코드: 진행 중");
     expect(html).toContain("대기 중");
+    const web = renderToStaticMarkup(
+      <I18nProvider>
+        <ScanProgress
+          scopes={["web"]}
+          events={[event("web", "started", "12 page(s) checked")]}
+          elapsedSeconds={0}
+        />
+      </I18nProvider>,
+    );
+    expect(web).toContain("12개 페이지 확인");
+  });
+
+  it("stays visible after a cancel or failure, frozen where it stopped, with the log open", () => {
+    vi.stubGlobal("navigator", { languages: ["en-US"] });
+    const html = renderToStaticMarkup(
+      <I18nProvider>
+        <ScanProgress scopes={["code", "history"]} events={events} elapsedSeconds={0} isStopped />
+      </I18nProvider>,
+    );
+    expect(html).toContain("Scan stopped");
+    expect(html).not.toContain("Elapsed");
+    expect(html).not.toContain("progress-track");
+    expect(html).toMatch(/state-stopped[^]*Code[^]*Stopped/);
+    expect(html).toMatch(/role="status" aria-live="polite">Code: Stopped</);
+    expect(html).toContain('<details class="activity-log" open="">');
   });
 });
