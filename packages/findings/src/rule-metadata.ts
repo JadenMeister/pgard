@@ -20,9 +20,21 @@ export const DEFAULT_RULE_LOCALE: RuleLocale = "en";
  */
 export type LocalizedText = Record<RuleLocale, string>;
 
+/**
+ * The cause of a finding that a direct CERT reference can be scoped to, when the CERT rule covers
+ * only part of what the PGARD rule reports. The analyzer decides it from the evidence it builds
+ * (`certCausesOf` in source-analysis).
+ * - `weak-random`: a non-cryptographic random source used as a key, IV, salt or token.
+ * - `archive-entry`: the path comes from an archive entry name (zip slip).
+ * - `other-than-archive-entry`: any other path finding of the same rule.
+ */
+export type CertCause = "weak-random" | "archive-entry" | "other-than-archive-entry";
+
 /** A CERT Java rule that applies to the rule's weakness itself. */
 export interface DirectCertReference {
   kind: "direct";
+  /** When set, the reference holds only for findings of this cause; otherwise for every finding. */
+  cause?: CertCause;
   /** CERT Java rule id such as `IDS00-J`. */
   id: string;
 }
@@ -54,6 +66,18 @@ export interface RuleStandards {
   /** CWE ids, for example `CWE-89`. */
   cwe: readonly string[];
   cert: readonly CertReference[];
+  /**
+   * The explicit "no direct CERT rule" marker of a rule that applies to Java or Kotlin: why no
+   * SEI CERT Oracle Java rule is about this weakness. A JVM rule has either a `direct` CERT
+   * reference or this marker, never both and never neither; other rules have neither.
+   */
+  noDirectCert?: LocalizedText;
+  /**
+   * For a rule whose direct references are scoped to a cause: why the findings of the other
+   * causes have no direct CERT rule. Shown only on Java and Kotlin findings without a
+   * `references.cert`. Allowed only next to a scoped direct reference.
+   */
+  noDirectCertOther?: LocalizedText;
   /** Reasons for departures from the mapping policy. Each field is required in exactly its case. */
   mappingNote?: RuleMappingNote;
 }
@@ -79,13 +103,23 @@ export function pickText(text: LocalizedText, locale: RuleLocale = DEFAULT_RULE_
   return text[locale];
 }
 
+/** True when a rule's language list includes Java or Kotlin (the languages CERT Java applies to). */
+export function isJvmRuleLanguages(languages: readonly string[]): boolean {
+  return languages.some((language) => language === "java" || language === "kotlin");
+}
+
 const HANGUL = /[ㄱ-ㆎ가-힣]/;
 
 /**
  * Checks a rule's metadata against the bundled standards data and the translation rules.
  * Returns human-readable problems; an empty list means the metadata is valid.
  */
-export function validateRuleMetadata(rule: { id: string; metadata: RuleMetadata }): string[] {
+export function validateRuleMetadata(rule: {
+  id: string;
+  metadata: RuleMetadata;
+  /** When given, the direct-CERT policy for JVM rules is checked too. */
+  languages?: readonly string[];
+}): string[] {
   const problems: string[] = [];
   const { standards, rationale, remediation, examples } = rule.metadata;
   const fail = (message: string): void => {
@@ -150,8 +184,34 @@ export function validateRuleMetadata(rule: { id: string; metadata: RuleMetadata 
   const certKeys = standards.cert.map((ref) => `${ref.kind}:${ref.id}`);
   if (new Set(certKeys).size !== certKeys.length) fail("duplicate CERT references");
 
+  if (rule.languages !== undefined) {
+    const jvm = isJvmRuleLanguages(rule.languages);
+    const direct = standards.cert.some((ref) => ref.kind === "direct");
+    const marker = standards.noDirectCert !== undefined;
+    if (jvm && !direct && !marker) {
+      fail("applies to Java or Kotlin but has no direct CERT reference and no noDirectCert marker");
+    }
+    if (direct && marker) fail("has both a direct CERT reference and a noDirectCert marker");
+    if (!jvm && direct) fail("has a direct CERT reference but does not apply to Java or Kotlin");
+    if (!jvm && marker) fail("has a noDirectCert marker but does not apply to Java or Kotlin");
+    if (
+      standards.noDirectCertOther !== undefined &&
+      !standards.cert.some((ref) => ref.kind === "direct" && ref.cause !== undefined)
+    ) {
+      fail("has a noDirectCertOther marker but no direct CERT reference scoped to a cause");
+    }
+  }
+
   const prose: Array<[string, LocalizedText]> = [
     ["rationale", rationale],
+    ...(standards.noDirectCertOther === undefined
+      ? []
+      : ([["standards.noDirectCertOther", standards.noDirectCertOther]] as Array<
+          [string, LocalizedText]
+        >)),
+    ...(standards.noDirectCert === undefined
+      ? []
+      : ([["standards.noDirectCert", standards.noDirectCert]] as Array<[string, LocalizedText]>)),
     ["remediation", remediation],
     ...(Object.entries(standards.mappingNote ?? {}) as Array<[string, LocalizedText]>).map(
       ([kind, text]): [string, LocalizedText] => [`standards.mappingNote.${kind}`, text],

@@ -109,6 +109,28 @@ export interface CommandText {
     both: string;
     outputDirPrompt: string;
   };
+  /** `pgard report`: a report from the last stored result, without scanning. */
+  reportCommand: {
+    menuLabel: string;
+    menuHint: string;
+    storeOff: string;
+    noStoreDir: string;
+    /** Identity could not be confirmed: nothing was read from the store. */
+    notVerified: string;
+    noResult: (repo: string) => string;
+    formatPrompt: string;
+    formatHelp: string;
+    staleNote: (scanTime: string, scanCommit: string, headCommit: string) => string;
+    /** The report header line when the stored result is current. */
+    usingResult: (scanTime: string, scanCommit: string) => string;
+    opened: string;
+    notOpened: string;
+    openHint: string;
+    fileExistsHint: string;
+    cannotCreateDir: string;
+    /** The stored scan carries another repository name than the verified one (a rename). */
+    renamedNote: (storedName: string) => string;
+  };
   doctor: {
     title: string;
     labels: {
@@ -146,6 +168,8 @@ export interface CommandText {
       date: string,
       days: number | null,
       isDamaged: boolean,
+      dataDate: string | null,
+      dataDays: number | null,
     ) => string;
     advisoryStale: (ages: string) => string;
     advisoryDamaged: (ages: string) => string;
@@ -164,6 +188,14 @@ export interface CommandText {
     httpHeading: string;
     notCoveredHeading: string;
     unsupportedAreas: readonly string[];
+    /** CERT Java lines under a rule: direct (Java and Kotlin only), none (with reason), indirect. */
+    certDirect: (ids: string) => string;
+    certNone: (reason: string) => string;
+    certNoneOther: (reason: string) => string;
+    certIndirect: (refs: string) => string;
+    certNote: string;
+    /** Suffix of a direct CERT id that covers only one cause of the rule's findings. */
+    certCause: Record<"weak-random" | "archive-entry" | "other-than-archive-entry", string>;
   };
 }
 
@@ -310,6 +342,29 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     both: "HTML and PDF",
     outputDirPrompt: "Output directory (must exist):",
   },
+  reportCommand: {
+    menuLabel: "Build report from last scan",
+    menuHint: "pgard report",
+    storeOff:
+      "The report is built from the local result store, which is turned off by PGARD_NO_STORE=1. Unset it to use pgard report.",
+    noStoreDir: "No app-data directory could be determined.",
+    notVerified:
+      "Stored results are kept per verified repository, and this repository could not be verified, so no stored result was read. Run pgard project verify.",
+    noResult: (repo) => `No stored scan of ${repo}. Run pgard scan first, then pgard report.`,
+    formatPrompt: "Report format",
+    formatHelp: "The report is built from the last stored scan; nothing is scanned again.",
+    staleNote: (scanTime, scanCommit, headCommit) =>
+      `Note: this report is from the scan of ${scanTime} at commit ${scanCommit}; HEAD is now ${headCommit}. Run pgard scan for current results.`,
+    usingResult: (scanTime, scanCommit) =>
+      `Using the stored scan of ${scanTime} at commit ${scanCommit}.`,
+    opened: "Opened the report.",
+    notOpened: "The report could not be opened automatically.",
+    openHint: "Open the file above yourself, or pass --no-open to only print its path.",
+    fileExistsHint:
+      "Reports are never overwritten. Remove that file, or use --output-dir with another directory.",
+    cannotCreateDir: "A private directory for the report could not be created. Use --output-dir.",
+    renamedNote: (name) => `This scan was stored when the repository was named ${name}.`,
+  },
   doctor: {
     title: "pgard doctor (diagnosis only, not an authorization)",
     labels: {
@@ -347,8 +402,8 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     advisoryNoHome: "no home directory found, so there is nowhere to store it",
     advisoryUnreadable: "could not be read",
     advisoryNone: (ecosystem) => `${ecosystem} none`,
-    advisoryAge: (ecosystem, date, days, isDamaged) =>
-      `${ecosystem} ${date} (${days} ${plural(days, "day", "days")} old${isDamaged ? ", files damaged" : ""})`,
+    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays) =>
+      `${ecosystem} ${date} (${days} ${plural(days, "day", "days")} old${dataDate === null || dataDays === null ? "" : `; newest record ${dataDate}, ${dataDays} ${plural(dataDays, "day", "days")} old`}${isDamaged ? ", files damaged" : ""})`,
     advisoryStale: (ages) =>
       `stale: ${ages}; run \`pgard advisories update\` (it downloads public OSV data, uploads nothing)`,
     advisoryDamaged: (ages) => `damaged: ${ages}; run \`pgard advisories update\``,
@@ -374,6 +429,17 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     httpHeading: "Local HTTP rules (anonymous GET, any language)",
     notCoveredHeading: "Not covered in this version",
     unsupportedAreas: UNSUPPORTED_AREAS_EN,
+    certDirect: (ids) => `SEI CERT Java, direct (Java and Kotlin files only): ${ids}`,
+    certNone: (reason) => `SEI CERT Java: no direct rule. ${reason}`,
+    certNoneOther: (reason) => `SEI CERT Java, other findings: no direct rule. ${reason}`,
+    certIndirect: (refs) => `SEI CERT Java, indirect (cross-reference through a CWE): ${refs}`,
+    certCause: {
+      "weak-random": "random-number findings only",
+      "archive-entry": "archive entry (zip slip) findings only",
+      "other-than-archive-entry": "findings other than archive entries",
+    },
+    certNote:
+      "CERT Java links point to related rules of the SEI CERT Oracle Coding Standard for Java. They are not a compliance claim: PGARD checks only the weaknesses its own rules detect, not conformance to that standard.",
   },
 };
 
@@ -509,6 +575,30 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     both: "HTML과 PDF",
     outputDirPrompt: "출력 디렉터리 (이미 있어야 함):",
   },
+  reportCommand: {
+    menuLabel: "마지막 검사로 보고서 만들기",
+    menuHint: "pgard report",
+    storeOff:
+      "보고서는 로컬 결과 저장소에서 만드는데, PGARD_NO_STORE=1 때문에 저장소가 꺼져 있습니다. 해제한 뒤 pgard report를 사용하세요.",
+    noStoreDir: "앱 데이터 디렉터리를 찾을 수 없습니다.",
+    notVerified:
+      "저장된 결과는 확인된 저장소별로 보관되는데 이 저장소를 확인하지 못해 저장된 결과를 읽지 않았습니다. pgard project verify를 실행하세요.",
+    noResult: (repo) =>
+      `${repo}의 저장된 검사가 없습니다. 먼저 pgard scan을 실행한 뒤 pgard report를 실행하세요.`,
+    formatPrompt: "보고서 형식",
+    formatHelp: "마지막으로 저장된 검사로 보고서를 만들며 다시 검사하지 않습니다.",
+    staleNote: (scanTime, scanCommit, headCommit) =>
+      `참고: 이 보고서는 ${scanTime}의 검사(커밋 ${scanCommit})입니다. 지금 HEAD는 ${headCommit}입니다. 최신 결과는 pgard scan을 실행하세요.`,
+    usingResult: (scanTime, scanCommit) =>
+      `${scanTime}에 저장된 검사(커밋 ${scanCommit})를 사용합니다.`,
+    opened: "보고서를 열었습니다.",
+    notOpened: "보고서를 자동으로 열지 못했습니다.",
+    openHint: "위 파일을 직접 열거나, --no-open으로 경로만 출력하세요.",
+    fileExistsHint:
+      "보고서는 절대 덮어쓰지 않습니다. 그 파일을 지우거나 --output-dir로 다른 디렉터리를 지정하세요.",
+    cannotCreateDir: "보고서를 둘 비공개 디렉터리를 만들지 못했습니다. --output-dir을 사용하세요.",
+    renamedNote: (name) => `이 검사는 저장소 이름이 ${name}이던 때 저장되었습니다.`,
+  },
   doctor: {
     title: "pgard doctor (진단만 수행하며 권한 확인이 아닙니다)",
     labels: {
@@ -547,8 +637,8 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     advisoryNoHome: "홈 디렉터리를 찾을 수 없어 저장할 곳이 없습니다",
     advisoryUnreadable: "읽을 수 없었습니다",
     advisoryNone: (ecosystem) => `${ecosystem} 없음`,
-    advisoryAge: (ecosystem, date, days, isDamaged) =>
-      `${ecosystem} ${date} (${days}일 전${isDamaged ? ", 파일 손상" : ""})`,
+    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays) =>
+      `${ecosystem} ${date} (${days}일 전${dataDate === null || dataDays === null ? "" : `; 가장 최근 레코드 ${dataDate}, ${dataDays}일 전`}${isDamaged ? ", 파일 손상" : ""})`,
     advisoryStale: (ages) =>
       `오래됨: ${ages}. \`pgard advisories update\`를 실행하세요 (공개 OSV 데이터를 내려받으며 아무것도 올리지 않습니다)`,
     advisoryDamaged: (ages) => `손상됨: ${ages}. \`pgard advisories update\`를 실행하세요`,
@@ -582,5 +672,17 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       "양식 제출 및 상태를 바꾸는 요청",
       "의존성의 알려진 취약점(CVE/권고) 조회: PGARD는 취약점 데이터베이스를 포함하지 않습니다",
     ],
+    certDirect: (ids) => `SEI CERT Java, 직접 연결 (Java와 Kotlin 파일만 해당): ${ids}`,
+    certNone: (reason) => `SEI CERT Java: 직접 대응하는 규칙 없음. ${reason}`,
+    certNoneOther: (reason) =>
+      `SEI CERT Java, 그 밖의 발견 항목: 직접 대응하는 규칙 없음. ${reason}`,
+    certIndirect: (refs) => `SEI CERT Java, 간접 연결 (CWE를 거친 상호 참조): ${refs}`,
+    certCause: {
+      "weak-random": "난수 관련 발견 항목만",
+      "archive-entry": "압축 파일 항목(zip slip) 발견 항목만",
+      "other-than-archive-entry": "압축 파일 항목이 아닌 발견 항목",
+    },
+    certNote:
+      "CERT Java 링크는 SEI CERT Oracle Coding Standard for Java의 관련 규칙을 가리킬 뿐입니다. 준수(compliance)를 주장하지 않습니다. PGARD는 자체 규칙이 탐지하는 약점만 확인하며, 해당 표준의 준수 여부는 확인하지 않습니다.",
   },
 };

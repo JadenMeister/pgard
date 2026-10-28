@@ -1,0 +1,6 @@
+# corpus: expect=none
+management:
+  endpoints:
+    web:
+      exposure:
+        include: [health, info]

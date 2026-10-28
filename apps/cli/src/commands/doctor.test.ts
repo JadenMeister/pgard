@@ -72,6 +72,7 @@ describe("runDoctor", () => {
         fetchedAt: "2026-10-20T08:00:00.000Z",
         ageDays,
         modifiedMax: null,
+        dataAgeDays: null,
       })),
     });
     const fresh = createTestIo();
@@ -89,6 +90,33 @@ describe("runDoctor", () => {
     expect(stale.stdout()).toContain(
       "[warn] Advisory data (OSV): stale: npm 2026-10-20 (9 days old)",
     );
+  });
+
+  it("shows the age of the newest record in English and Korean", async () => {
+    const status = async () => ({
+      overall: "stale" as const,
+      ecosystems: [
+        {
+          ecosystem: "npm" as const,
+          state: "stale" as const,
+          fetchedAt: "2026-10-27T08:00:00.000Z",
+          ageDays: 1,
+          modifiedMax: "2024-01-01T00:00:00Z",
+          dataAgeDays: 300,
+        },
+      ],
+    });
+    const en = createTestIo();
+    await runDoctor(createTestContext(en, createTestDeps({ readAdvisoryStatus: status })));
+    expect(en.stdout()).toContain(
+      "npm 2026-10-27 (1 day old; newest record 2024-01-01, 300 days old)",
+    );
+    const ko = createTestIo();
+    await runDoctor({
+      ...createTestContext(ko, createTestDeps({ readAdvisoryStatus: status })),
+      ruleLocale: "ko",
+    });
+    expect(ko.stdout()).toContain("가장 최근 레코드 2024-01-01, 300일 전");
   });
 
   it("says where advisory data cannot be stored when there is no home directory", async () => {

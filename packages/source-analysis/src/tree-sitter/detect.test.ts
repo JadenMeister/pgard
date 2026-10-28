@@ -118,6 +118,9 @@ describe("language detection and coverage", () => {
         "PG-CRYPTO-002",
         "PG-CRYPTO-003",
         "PG-AUTH-001",
+        "PG-COOKIE-001",
+        "PG-CSRF-001",
+        "PG-CONF-001",
       ],
     });
     // PHP has the SQL injection and command execution rules.

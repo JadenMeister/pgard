@@ -129,8 +129,8 @@ describe("HTML per-finding details", () => {
       expect(anchor).toContain('rel="noopener noreferrer"');
       expect(anchor).toContain('target="_blank"');
     }
-    expect(html).toContain("(via CWE-89)");
-    expect(renderHtmlReport(scanResultV11(), KO)).toContain("(CWE-89 경유)");
+    expect(html).toContain("(indirect, via CWE-89)");
+    expect(renderHtmlReport(scanResultV11(), KO)).toContain("(간접, CWE-89 경유)");
   });
 
   it("shows the rule's general text only when the finding carries its own different text", () => {

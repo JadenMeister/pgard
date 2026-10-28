@@ -23,6 +23,7 @@ import { renderHtmlReport, renderReport } from "@pgard/report";
 import type { RuleTextsDto, ScanStatus } from "../shared/api-types.js";
 import type { ServerDeps } from "./deps.js";
 import { reportDownloadName } from "./routes/api.js";
+import { setAuth } from "./session/session-state.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnop";
@@ -1913,5 +1914,82 @@ describe("local web guided App install", () => {
     );
     await authorize(running);
     expect(JSON.parse((await apiGet(running, "/api/auth")).body).installWaitEndsAt).toBeNull();
+  });
+});
+
+describe("local web connection limits", () => {
+  it("sets header, request, keep-alive and connection limits", async () => {
+    const running = await start(fakeDeps());
+    expect(running.server.headersTimeout).toBe(10_000);
+    expect(running.server.requestTimeout).toBe(30_000);
+    expect(running.server.keepAliveTimeout).toBe(5_000);
+    expect(running.server.maxConnections).toBe(64);
+  });
+
+  it("keeps a long scan working: start and poll are short requests", async () => {
+    let finish: (value: ScanResult) => void = () => undefined;
+    const running = await start(
+      fakeDeps({
+        verifyProject: ALLOWED_VERIFY,
+        runScan: () => new Promise<ScanResult>((resolve) => (finish = resolve)),
+      }),
+    );
+    const started = await apiPost(running, "/api/scan", { scopes: ["code"] });
+    expect(started.status).toBe(200);
+    for (let poll = 0; poll < 3; poll += 1) {
+      const response = await apiGet(running, "/api/scan");
+      expect(JSON.parse(response.body).status).toBe("running");
+    }
+    finish(result({ requestedScopes: ["code"] }));
+    await waitFor(
+      () => apiGet(running, "/api/scan"),
+      (response) => JSON.parse(response.body).status === "done",
+    );
+  });
+});
+
+describe("local web confirmed target", () => {
+  async function confirmed(account: { current: { login: string; userId: number } }) {
+    const running = await start(
+      fakeDeps({ verifyProject: async () => ({ ...outcome(), account: account.current }) }),
+    );
+    await authorize(running);
+    await apiPost(running, "/api/ports/probe", { port: 3000 });
+    await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true });
+    expect(running.state.confirmedTarget).not.toBeNull();
+    return running;
+  }
+
+  it("is kept when the same account checks again", async () => {
+    const account = { current: { login: "octo", userId: 7 } };
+    const running = await confirmed(account);
+    await authorize(running);
+    expect(running.state.confirmedTarget).not.toBeNull();
+    // It stays while the new check is still running, too.
+    expect((await apiGet(running, "/api/target")).status).toBe(200);
+  });
+
+  it("is cleared when the account changes", async () => {
+    const account = { current: { login: "octo", userId: 7 } };
+    const running = await confirmed(account);
+    account.current = { login: "hubot", userId: 8 };
+    await authorize(running);
+    expect(running.state.confirmedTarget).toBeNull();
+  });
+
+  it("is cleared on sign-out, with or without removing the stored sign-in", async () => {
+    for (const body of [{}, { removeStored: true }]) {
+      const running = await confirmed({ current: { login: "octo", userId: 7 } });
+      await apiPost(running, "/api/auth/sign-out", body);
+      expect(running.state.confirmedTarget).toBeNull();
+      await running.close();
+      server = null;
+    }
+  });
+
+  it("is cleared when the authorization changes outside a re-check", async () => {
+    const running = await confirmed({ current: { login: "octo", userId: 7 } });
+    setAuth(running.state, { status: "idle", outcome: null, finishedAt: null, message: null });
+    expect(running.state.confirmedTarget).toBeNull();
   });
 });

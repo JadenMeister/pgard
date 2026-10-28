@@ -1,0 +1,6 @@
+# corpus: expect=low
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false

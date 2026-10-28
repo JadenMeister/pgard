@@ -108,6 +108,28 @@ try {
   );
   const help = pgard(["--help"], { cwd: root });
   check("pgard --help", help.status === 0 && help.stdout.includes("Usage:"), help.stderr);
+  const reportHelp = pgard(["report", "--help"], { cwd: root });
+  check(
+    "pgard report --help",
+    reportHelp.status === 0 &&
+      reportHelp.stdout.includes("pgard report") &&
+      reportHelp.stdout.includes("--no-open"),
+    reportHelp.stderr,
+  );
+  const subHelp = pgard(["scan", "code", "--help"], { cwd: root });
+  check(
+    "pgard scan code --help",
+    subHelp.status === 0 &&
+      subHelp.stdout.includes("pgard scan") &&
+      subHelp.stdout.includes("--full"),
+    subHelp.stderr,
+  );
+  const helpAlias = pgard(["help", "scan"], { cwd: root });
+  check(
+    "pgard help scan",
+    helpAlias.status === 0 && helpAlias.stdout === subHelp.stdout,
+    helpAlias.stderr,
+  );
   const rules = pgard(["rules", "list"], { cwd: root });
   check("pgard rules list", rules.status === 0 && rules.stdout.includes("PG-"), rules.stderr);
   // PGARD_SMOKE_SKIP_DOCTOR=1 is for a developer machine whose keychain doctor would read.
@@ -264,6 +286,33 @@ try {
     pyScan.coverage.some(
       (item) => item.area === "source:python:other-categories" && item.status === "not_tested",
     ),
+  );
+
+  // JavaScript and Go run in the per-file analysis worker (dist/source-worker.js): the packed
+  // scan must start it and keep its findings, and a file that overruns the limit is reported.
+  const jsProject = mkdtempSync(join(prefix, "js project "));
+  writeFileSync(
+    join(jsProject, "db.js"),
+    'const { Pool } = require("pg");\nconst pool = new Pool();\nexports.q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n',
+  );
+  writeFileSync(
+    join(jsProject, "slow.go"),
+    // Quadratic in the Go analyzer's per-constant scope check: far longer than the limit.
+    `package main\n${Array.from({ length: 40000 }, (_, i) => `const c${i} = 1\n`).join("")}`,
+  );
+  const jsScan = await grammar.scanSourceCode(jsProject, { perFileTimeLimitMs: 1000 });
+  const jsCoverage = jsScan.coverage.find((entry) => entry.area === "source:javascript");
+  const goCoverage = jsScan.coverage.find((entry) => entry.area === "source:go");
+  check(
+    "installed package analyzes JavaScript in the worker",
+    jsScan.findings.some((item) => item.ruleId === "PG-SQL-001") &&
+      jsCoverage?.status === "completed",
+    JSON.stringify(jsCoverage),
+  );
+  check(
+    "a file over the per-file limit is stopped and reported, not left hanging",
+    goCoverage?.status === "partial" && /per-file limit/.test(goCoverage.note ?? ""),
+    JSON.stringify(goCoverage),
   );
 
   // A PHP project scanned from the installed layout, offline: the scanner only reads files, and

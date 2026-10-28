@@ -20,7 +20,7 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El...
         https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        IDS07-J Sanitize untrusted data passed to the... (indirect, via CWE-78)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [CRITICAL] User input concatenated into SQL (confirmed, 2 locations)
@@ -49,7 +49,7 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
         https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
         CWE-540 https://cwe.mitre.org/data/definitions/540.html
-        MSC03-J Never hard code sensitive information (via CWE-798)
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [HIGH] Customer export reachable without sign-in (고객 목록 내보내기)
@@ -115,7 +115,7 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
         https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-321 https://cwe.mitre.org/data/definitions/321.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (via CWE-798)
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [MEDIUM] Session cookie without the Secure and HttpOnly flags
@@ -261,7 +261,7 @@ In test or fixture code (14)
         https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-538 https://cwe.mitre.org/data/definitions/538.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (via CWE-798)
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [MEDIUM] User input rendered as HTML (suspected, 4 locations)
@@ -345,7 +345,7 @@ Suggestions: in third-party/vendored code (11)
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El...
         https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        IDS07-J Sanitize untrusted data passed to the... (indirect, via CWE-78)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [INFO] Request input used as a file path (informational, 5 locations)
@@ -418,14 +418,14 @@ Coverage
   [not selected] dependencies:lockfile (Not selected)
 
 Standards coverage (OWASP Top 10 2025)
-  [rules partial] A01 Broken Access Control - 6 of 40 mapped
+  [rules partial] A01 Broken Access Control - 7 of 40 mapped
                   CWEs have rules (PG-SECRET-003); partial areas:
                   history:secrets; code rules not run: areas could not run; no
                   completed mapped rule covers javascript, typescript (files
                   that are not yours to scan can be left out with "exclude…
-  [not run]       A02 Security Misconfiguration - 2 of 16 mapped CWEs
-            have rules; no mapped rule ran (PG-COOKIE-001: code areas could not
-            run)
+  [not run]       A02 Security Misconfiguration - 3 of 16 mapped CWEs
+            have rules; no mapped rule ran (PG-CONF-001, PG-COOKIE-001: code
+            areas could not run)
   [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped
             CWEs have rules; no mapped rule ran (PG-HYGIENE-001: history areas
             could not run)
@@ -446,7 +446,7 @@ Standards coverage (OWASP Top 10 2025)
   [no rules]      A08 Software or Data Integrity Failures - no rules
   [no rules]      A09 Security Logging & Alerting Failures - no rules
   [no rules]      A10 Mishandling of Exceptional Conditions - no rules
-  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 6 not run, 18 no rules
   Rules ran means the mapped rules ran to completion in this scan. It does not
   mean the project is safe or that the category is covered: see how many of its
   CWEs have rules. Full detail per entry: --format json (standardsCoverage,
@@ -478,7 +478,7 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
       Standards:
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        IDS07-J Sanitize untrusted data passed to the... (indirect, via CWE-78)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [CRITICAL] User input concatenated into SQL (confirmed, 2 locations)
@@ -504,7 +504,7 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
         CWE-540 https://cwe.mitre.org/data/definitions/540.html
-        MSC03-J Never hard code sensitive information (via CWE-798)
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [HIGH] Customer export reachable without sign-in (고객 목록 내보내기) (suspected)
@@ -561,7 +561,7 @@ Findings (45): 7 confirmed, 37 suspected (needs review), 1 informational
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-321 https://cwe.mitre.org/data/definitions/321.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (via CWE-798)
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [MEDIUM] Session cookie without the Secure and HttpOnly flags (suspected, 2 locations)
@@ -675,7 +675,7 @@ In test or fixture code (14)
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-538 https://cwe.mitre.org/data/definitions/538.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (via CWE-798)
+        MSC03-J Never hard code sensitive information (indirect, via CWE-798)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [MEDIUM] User input rendered as HTML (suspected, 4 locations)
@@ -737,7 +737,7 @@ Suggestions: in third-party/vendored code (11)
       Standards:
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (via CWE-78)
+        IDS07-J Sanitize untrusted data passed to the... (indirect, via CWE-78)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [INFO] Request input used as a file path (informational, 5 locations)
@@ -799,11 +799,11 @@ Coverage
   [not selected] dependencies:lockfile (Not selected)
 
 Standards coverage (OWASP Top 10 2025)
-  [rules partial] A01 Broken Access Control - 6 of 40 mapped CWEs have rules (PG-SECRET-003); partial
+  [rules partial] A01 Broken Access Control - 7 of 40 mapped CWEs have rules (PG-SECRET-003); partial
                   areas: history:secrets; code rules not run: areas could not run; no completed mapped rule covers
                   javascript, typescript (files that are not yours to scan can be left out with "exclude…
-  [not run]       A02 Security Misconfiguration - 2 of 16 mapped CWEs have rules; no mapped rule ran
-            (PG-COOKIE-001: code areas could not run)
+  [not run]       A02 Security Misconfiguration - 3 of 16 mapped CWEs have rules; no mapped rule ran
+            (PG-CONF-001, PG-COOKIE-001: code areas could not run)
   [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped CWEs have rules; no mapped rule ran
             (PG-HYGIENE-001: history areas could not run)
   [not run]       A04 Cryptographic Failures - 4 of 32 mapped CWEs have rules; no mapped rule ran
@@ -819,7 +819,7 @@ Standards coverage (OWASP Top 10 2025)
   [no rules]      A08 Software or Data Integrity Failures - no rules
   [no rules]      A09 Security Logging & Alerting Failures - no rules
   [no rules]      A10 Mishandling of Exceptional Conditions - no rules
-  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 6 not run, 18 no rules
   Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the
   category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage,
   ruleStats).
@@ -850,7 +850,7 @@ history, web
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El...
         https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        IDS07-J Sanitize untrusted data passed to the... (간접, CWE-78 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [치명적] User input concatenated into SQL (확인됨, 위치 2곳)
@@ -879,7 +879,7 @@ history, web
         https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
         CWE-540 https://cwe.mitre.org/data/definitions/540.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [높음] Customer export reachable without sign-in (고객 목록 내보내기) (의심)
@@ -942,7 +942,7 @@ history, web
         https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-321 https://cwe.mitre.org/data/definitions/321.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [보통] Session cookie without the Secure and HttpOnly flags (의심, 위치 2곳)
@@ -1071,7 +1071,7 @@ history, web
         https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-538 https://cwe.mitre.org/data/definitions/538.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [보통] User input rendered as HTML (의심, 위치 4곳)
@@ -1141,7 +1141,7 @@ history, web
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El...
         https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        IDS07-J Sanitize untrusted data passed to the... (간접, CWE-78 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [정보] Request input used as a file path (참고, 위치 5곳)
@@ -1214,14 +1214,14 @@ OWASP Top 10 2025 분류별
 
 표준 매핑 현황 (OWASP Top 10 2025)
   [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개
-                   중 6개에 규칙이 있음 (PG-SECRET-003) (partial areas:
+                   중 7개에 규칙이 있음 (PG-SECRET-003) (partial areas:
                    history:secrets; code rules not run: areas could not run; no
                    completed mapped rule covers javascript, typescript (files
                    that are not yours to scan can be left out with "exclude" in
                    p…
   [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개
-               중 2개에 규칙이 있음 (no mapped rule ran (PG-COOKIE-001: code
-               areas could not run))
+               중 3개에 규칙이 있음 (no mapped rule ran (PG-CONF-001,
+               PG-COOKIE-001: code areas could not run))
   [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE
                6개 중 1개에 규칙이 있음 (no mapped rule ran (PG-HYGIENE-001:
                history areas could not run))
@@ -1244,7 +1244,7 @@ OWASP Top 10 2025 분류별
   [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
   [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
   [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
-  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 6, 규칙 없음 18
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다.
   프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE
   중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
@@ -1275,7 +1275,7 @@ exports[`terminal result, --all-findings > matches the reviewed layout: ko, 120 
       표준:
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        IDS07-J Sanitize untrusted data passed to the... (간접, CWE-78 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [치명적] User input concatenated into SQL (확인됨, 위치 2곳)
@@ -1301,7 +1301,7 @@ exports[`terminal result, --all-findings > matches the reviewed layout: ko, 120 
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
         CWE-540 https://cwe.mitre.org/data/definitions/540.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [높음] Customer export reachable without sign-in (고객 목록 내보내기) (의심)
@@ -1358,7 +1358,7 @@ exports[`terminal result, --all-findings > matches the reviewed layout: ko, 120 
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-321 https://cwe.mitre.org/data/definitions/321.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [보통] Session cookie without the Secure and HttpOnly flags (의심, 위치 2곳)
@@ -1472,7 +1472,7 @@ exports[`terminal result, --all-findings > matches the reviewed layout: ko, 120 
         A07:2025 Authentication Failures https://top10.owasp.org/2025/A07_2025-Authentication_Failures/
         CWE-538 https://cwe.mitre.org/data/definitions/538.html
         CWE-798 https://cwe.mitre.org/data/definitions/798.html
-        MSC03-J Never hard code sensitive information (CWE-798 경유)
+        MSC03-J Never hard code sensitive information (간접, CWE-798 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/miscellaneous-msc/msc03-j
 
   [보통] User input rendered as HTML (의심, 위치 4곳)
@@ -1534,7 +1534,7 @@ exports[`terminal result, --all-findings > matches the reviewed layout: ko, 120 
       표준:
         A05:2025 Injection https://top10.owasp.org/2025/A05_2025-Injection/
         CWE-78 Improper Neutralization of Special El... https://cwe.mitre.org/data/definitions/78.html
-        IDS07-J Sanitize untrusted data passed to the... (CWE-78 경유)
+        IDS07-J Sanitize untrusted data passed to the... (간접, CWE-78 경유)
         https://cmu-sei.github.io/secure-coding-standards/sei-cert-oracle-coding-standard-for-java/rules/input-validation-and-data-sanitization-ids/ids07-j
 
   [정보] Request input used as a file path (참고, 위치 5곳)
@@ -1596,11 +1596,11 @@ OWASP Top 10 2025 분류별
   [선택 안 함] dependencies:lockfile (선택 안 함)
 
 표준 매핑 현황 (OWASP Top 10 2025)
-  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 6개에 규칙이 있음 (PG-SECRET-003)
+  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 7개에 규칙이 있음 (PG-SECRET-003)
                    (partial areas: history:secrets; code rules not run: areas could not run; no completed mapped rule
                    covers javascript, typescript (files that are not yours to scan can be left out with "exclude" in p…
-  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 2개에 규칙이 있음 (no mapped rule ran
-               (PG-COOKIE-001: code areas could not run))
+  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 3개에 규칙이 있음 (no mapped rule ran
+               (PG-CONF-001, PG-COOKIE-001: code areas could not run))
   [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 1개에 규칙이 있음 (no mapped rule
                ran (PG-HYGIENE-001: history areas could not run))
   [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음 (no mapped rule ran
@@ -1616,7 +1616,7 @@ OWASP Top 10 2025 분류별
   [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
   [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
   [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
-  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 6, 규칙 없음 18
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두
   다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
   (standardsCoverage, ruleStats).
@@ -1712,7 +1712,7 @@ Coverage
 Standards coverage (OWASP Top 10 2025)
   OWASP Top 10 2025: 0 rules ran, 3 rules partial, 4 not run, 3 no rules (table:
   --all-findings)
-  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 6 not run, 18 no rules
   Rules ran means the mapped rules ran to completion in this scan. It does not
   mean the project is safe or that the category is covered: see how many of its
   CWEs have rules. Full detail per entry: --format json (standardsCoverage,
@@ -1805,7 +1805,7 @@ Coverage
 
 Standards coverage (OWASP Top 10 2025)
   OWASP Top 10 2025: 0 rules ran, 3 rules partial, 4 not run, 3 no rules (table: --all-findings)
-  CWE Top 25 2025: 0 rules ran, 1 rules partial, 5 not run, 19 no rules
+  CWE Top 25 2025: 0 rules ran, 1 rules partial, 6 not run, 18 no rules
   Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the
   category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage,
   ruleStats).
@@ -1902,7 +1902,7 @@ OWASP Top 10 2025 분류별
 표준 매핑 현황 (OWASP Top 10 2025)
   OWASP Top 10 2025: 규칙 실행 0, 규칙 일부 3, 미실행 4, 규칙 없음 3 (표:
   --all-findings)
-  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 6, 규칙 없음 18
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다.
   프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE
   중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
@@ -1994,7 +1994,7 @@ OWASP Top 10 2025 분류별
 
 표준 매핑 현황 (OWASP Top 10 2025)
   OWASP Top 10 2025: 규칙 실행 0, 규칙 일부 3, 미실행 4, 규칙 없음 3 (표: --all-findings)
-  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 5, 규칙 없음 19
+  CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 6, 규칙 없음 18
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두
   다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
   (standardsCoverage, ruleStats).

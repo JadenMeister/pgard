@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   createFindingFingerprint,
@@ -14,6 +13,7 @@ import {
   describeCommittedDependencyDirectories,
   findCommittedDependencyDirectories,
 } from "./dependency-directories.js";
+import { readSmallRegularFile } from "./safe-read.js";
 import { HISTORY_RULES, type HistoryRuleId } from "./history-rules.js";
 import { GitCommandError, GREP_FLAGS, runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 import {
@@ -578,6 +578,8 @@ function formatNote(base: string, problems: string[], info: string[]): string {
   return extra.length > 0 ? `${base} ${extra.join("; ")}.` : base;
 }
 
+const MAX_SHALLOW_FILE_BYTES = 8 * 1024 * 1024;
+
 /** Commit ids at the edge of a shallow clone (their parents are missing). */
 async function readShallowBoundary(cwd: string, runner: GitRunner): Promise<Set<string> | null> {
   const isShallow = (
@@ -590,8 +592,14 @@ async function readShallowBoundary(cwd: string, runner: GitRunner): Promise<Set<
     const commonDir = (
       await runner({ subcommand: "rev-parse", flags: ["--git-common-dir"] }, { cwd })
     ).trim();
-    const text = await readFile(path.resolve(cwd, commonDir, "shallow"), "utf8");
-    return new Set(text.split("\n").filter((line) => SHA.test(line)));
+    // An unsafe file (symlink, FIFO, oversized, unreadable) yields no boundary ids; the scan is
+    // still reported as shallow and runs in full.
+    const result = await readSmallRegularFile(
+      path.resolve(cwd, commonDir, "shallow"),
+      MAX_SHALLOW_FILE_BYTES,
+    );
+    if (result.state !== "ok") return new Set();
+    return new Set(result.text.split("\n").filter((line) => SHA.test(line)));
   } catch {
     return new Set();
   }

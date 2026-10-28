@@ -1,0 +1,8 @@
+# corpus: expect=PG-CONF-001
+management:
+  endpoints:
+    web:
+      exposure:
+        include:
+          - health
+          - "*"

@@ -347,7 +347,9 @@ export const ko: Messages = {
   },
   details: {
     standards: "표준",
-    viaCwe: (cwe) => `${cwe} 경유`,
+    viaCwe: (cwe) => `간접, ${cwe} 경유`,
+    certDirect: "직접, Java/Kotlin",
+    certNone: "SEI CERT Java: 직접 대응하는 규칙 없음",
     examples: (count) => `예시 (${count})`,
     vulnerable: "취약한 코드",
     safe: "안전한 코드",

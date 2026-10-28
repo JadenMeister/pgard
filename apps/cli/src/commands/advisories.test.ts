@@ -36,6 +36,50 @@ describe("pgard advisories update", () => {
     );
   });
 
+  it("parses --force only for advisories update and passes it on", async () => {
+    expect(parseCommandLine(["advisories", "update", "--force"])).toEqual({
+      kind: "advisories-update",
+      force: true,
+    });
+    expect(() => parseCommandLine(["scan", "--force"])).toThrow(/only available/);
+    expect(() => parseCommandLine(["advisories", "update", "--force", "--force"])).toThrow(
+      /more than once/,
+    );
+    const calls: { force?: boolean }[] = [];
+    const captured = createTestIo();
+    const code = await main(["advisories", "update", "--force"], captured.io, {
+      deps: createTestDeps({
+        updateAdvisories: (async (options: { force?: boolean }) => {
+          calls.push(options);
+          return [okOutcome("npm"), okOutcome("Go")];
+        }) as never,
+      }),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(0);
+    expect(calls[0]?.force).toBe(true);
+  });
+
+  it("exits 4 and points at --force when older data was refused", async () => {
+    const captured = createTestIo();
+    const code = await main(["advisories", "update"], captured.io, {
+      deps: createTestDeps({
+        updateAdvisories: (async () => [
+          {
+            ecosystem: "npm",
+            ok: false,
+            error: "The downloaded data is older.",
+            refusal: "older-data",
+          },
+          okOutcome("Go"),
+        ]) as never,
+      }),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(4);
+    expect(captured.stdout()).toContain("pgard advisories update --force");
+  });
+
   it("downloads, prints sizes and counts, and exits 0", async () => {
     const captured = createTestIo();
     const calls: unknown[] = [];

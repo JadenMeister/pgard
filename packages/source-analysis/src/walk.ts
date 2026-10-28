@@ -18,6 +18,7 @@ import {
 
 export type { GeneratedDirectoryReason };
 
+import { SPRING_CONFIG_NAME } from "./jvm/spring-config.js";
 import {
   TREE_SITTER_EXTENSIONS,
   TREE_SITTER_LANGUAGES,
@@ -74,6 +75,13 @@ export interface WalkResult {
    * use Thymeleaf. Not counted against `MAX_FILES`.
    */
   templateFiles: TrackedFile[];
+  /**
+   * Spring Boot configuration files (`application.properties`, `application-*.yml`, ...). The
+   * scan reads them only in a Java or Kotlin project. Not counted against `MAX_FILES`.
+   */
+  springConfigFiles: TrackedFile[];
+  /** The Spring configuration file list reached its cap. */
+  springConfigTruncated: boolean;
   /** The template list reached its cap (kept apart from `trackTruncated`, which is about source files). */
   templatesTruncated: boolean;
   /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
@@ -118,6 +126,12 @@ export interface WalkResult {
   /** FIFOs, sockets, devices and entries that were no longer regular files; never opened. */
   skippedSpecialFiles: string[];
   isTruncated: boolean;
+  /**
+   * The walk stopped before it had seen the whole tree: it visited `MAX_WALK_ENTRIES` entries
+   * (`entries`), or the scan's time budget ran out or the scan was cancelled (`time`). Files
+   * beyond that point were not found, so no area may read as complete.
+   */
+  stoppedEarly: { reason: "entries" | "time"; visited: number } | null;
 }
 
 /** At most this many skipped directories are looked into for source files (one `readdir` each). */
@@ -167,6 +181,13 @@ export const MAX_FILES = 20_000;
 /** Cap per tree-sitter language and for manifests. */
 export const MAX_TRACK_FILES = 20_000;
 export const MAX_TRACK_MANIFESTS = 200;
+/** Spring configuration files listed by the walk. */
+export const MAX_SPRING_CONFIG_FILES = 2_000;
+/**
+ * Directory entries (files, folders, links, anything) the walk looks at before it stops. Skipped
+ * directories are not entered, so this bounds trees of empty folders or junk files, not projects.
+ */
+export const MAX_WALK_ENTRIES = 300_000;
 
 /** Server-side template files of the Java stack (the XSS rule reads some, reports the rest). */
 const TEMPLATE_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -228,6 +249,10 @@ export interface WalkOptions {
    * not excluded are reported in `WalkResult.skippedMinified`.
    */
   isExcluded?: (relativePath: string) => boolean;
+  /** Asked every 64 directories: true stops the walk (time budget used up, scan cancelled). */
+  shouldStop?: () => boolean;
+  /** Entry cap (tests); defaults to `MAX_WALK_ENTRIES`. */
+  maxEntries?: number;
 }
 
 /**
@@ -250,6 +275,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     trackManifests: [],
     xmlFiles: [],
     templateFiles: [],
+    springConfigFiles: [],
+    springConfigTruncated: false,
     templatesTruncated: false,
     trackTruncated: false,
     packageJsonPaths: [],
@@ -267,6 +294,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     unreadableEntries: [],
     skippedSpecialFiles: [],
     isTruncated: false,
+    stoppedEarly: null,
   };
   /** `lstat` of a file about to be analyzed; failures and non-regular files are counted, not dropped. */
   const statRegular = async (absolutePath: string, relativePath: string) => {
@@ -286,7 +314,16 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
   let probes = 0;
   const manifestCache = new Map<string, boolean>();
   const stack: string[] = [root];
-  while (stack.length > 0) {
+  const maxEntries = options.maxEntries ?? MAX_WALK_ENTRIES;
+  let visited = 0;
+  let directories = 0;
+  walk: while (stack.length > 0) {
+    // Asked every 64 directories: often enough to stop within moments, with few clock reads.
+    directories += 1;
+    if (directories % 64 === 0 && options.shouldStop?.() === true) {
+      result.stoppedEarly = { reason: "time", visited };
+      break;
+    }
     const directory = stack.pop() as string;
     let entries;
     try {
@@ -312,6 +349,11 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     // it cannot hide a first-party vendor/ from analysis.
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
+      if (visited >= maxEntries) {
+        result.stoppedEarly = { reason: "entries", visited };
+        break walk;
+      }
+      visited += 1;
       const absolutePath = path.join(directory, entry.name);
       if (entry.isSymbolicLink()) {
         result.skippedSymlinks.push(path.relative(root, absolutePath).split(path.sep).join("/"));
@@ -383,6 +425,19 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
           result.trackTruncated = true;
         }
         // `setup.py` is both a manifest and Python source, so there is no `continue` here.
+      }
+      if (SPRING_CONFIG_NAME.test(entry.name)) {
+        const stats = await lstat(absolutePath).catch(() => null);
+        // Build output holds copies of the source tree's configuration.
+        const skipped = relativePath.split("/").some((part) => part === "target");
+        if (stats?.isFile() && !skipped) {
+          if (result.springConfigFiles.length >= MAX_SPRING_CONFIG_FILES) {
+            result.springConfigTruncated = true;
+          } else {
+            result.springConfigFiles.push({ absolutePath, relativePath, size: stats.size });
+          }
+        }
+        continue;
       }
       if (path.extname(entry.name) === ".xml" && entry.name !== "pom.xml") {
         // Android resources and build output hold no MyBatis mappers; they are counted, not read.
@@ -466,6 +521,7 @@ function finishTrack(result: WalkResult): void {
   result.trackManifests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   result.xmlFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   result.templateFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  result.springConfigFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 /** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */

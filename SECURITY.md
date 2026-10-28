@@ -39,4 +39,4 @@ PGARD is a free, open-source project. There is no bug bounty program and no paym
 
 ## Supported versions
 
-PGARD is pre-release. Security fixes go to `main` and into the next release.
+PGARD is in the 0.x series. Until 1.0, only the latest 0.x minor release receives security fixes; fixes also go to `main`. Please update to the latest release before reporting a problem you found in an older one.

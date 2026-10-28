@@ -135,8 +135,11 @@ async function scanSource(sample) {
     // Header line stays: it is a comment in every sample language (`//` in JavaScript, Go, Java
     // and Kotlin, `<!-- -->` in MyBatis mapper XML).
     copyFileSync(sample.file, path.join(root, sample.name));
-    // Thymeleaf templates are read only in a Java project (JSP files always are): give those samples a manifest.
-    if (/\.html$/.test(sample.name)) writeFileSync(path.join(root, "pom.xml"), "<project/>\n");
+    // Thymeleaf templates and Spring configuration files are read only in a Java project (JSP files
+    // always are): give those samples a manifest.
+    if (/\.(html|properties|ya?ml)$/.test(sample.name)) {
+      writeFileSync(path.join(root, "pom.xml"), "<project/>\n");
+    }
     const output = await scanSourceCode(root);
     // rule -> confidences of its findings on this sample
     const found = new Map();

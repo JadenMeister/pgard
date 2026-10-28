@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.3" as const;
+export const SCHEMA_VERSION = "1.4" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -140,6 +140,13 @@ export interface FindingReferences {
   cwe: string[];
   owasp: string[];
   cve: string[];
+  /**
+   * JSON v1.4. SEI CERT Oracle Java rule ids (`IDS00-J`) that the finding's rule is directly about.
+   * Present only on findings in Java or Kotlin files whose rule has such a mapping; absent
+   * everywhere else (other languages link to CERT only indirectly, through a CWE, in the rule
+   * details). A reference is not a compliance claim.
+   */
+  cert?: string[];
 }
 
 export interface Finding {

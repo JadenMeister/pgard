@@ -1,5 +1,5 @@
-import { formatLocation } from "@pgard/report";
-import type { Finding } from "@pgard/findings";
+import { formatLocation, standardMark } from "@pgard/report";
+import { noDirectCertFor, pickText, standardsForPath, type Finding } from "@pgard/findings";
 import { cliText, type CliText } from "../i18n/cli-text.js";
 import {
   displayWidth,
@@ -414,18 +414,27 @@ export function detailLines(state: PanelsState, size: Size, opts: RenderOptions 
     "",
     `${t.fix}: ${safeText(finding.recommendation, 500)}`,
   );
-  const ids = [...finding.references.owasp, ...finding.references.cwe, ...finding.references.cve];
+  const ids = [
+    ...finding.references.owasp,
+    ...finding.references.cwe,
+    ...(finding.references.cert ?? []),
+    ...finding.references.cve,
+  ];
   if (ids.length > 0) {
     add("", `${t.panels.detail.references}: ${ids.map((id) => safeText(id, 30)).join(", ")}`);
   }
-  const links = (state.ruleTexts?.get(finding.ruleId)?.details?.standards ?? []).filter((link) =>
-    link.url.startsWith("https://"),
-  );
+  const details = state.ruleTexts?.get(finding.ruleId)?.details;
+  // A direct CERT Java link is only for a finding in a Java or Kotlin file.
+  const links = standardsForPath(
+    details?.standards ?? [],
+    finding.location.path,
+    finding.references.cert,
+  ).filter((link) => link.url.startsWith("https://"));
   if (links.length > 0) {
     add("", `${t.standards}:`);
     for (const link of links.slice(0, MAX_STANDARD_LINKS)) {
       const title = link.title === null ? "" : ` ${safeText(link.title, 80)}`;
-      const via = link.viaCwe === undefined ? "" : ` (${t.report.viaCwe(link.viaCwe)})`;
+      const via = standardMark(link, t.report);
       add(`  ${safeText(link.id, 20)}${title}${via}`);
       // A link is never shortened (a cut link cannot be copied): it is broken at the width with
       // nothing added, so the lines joined are the whole address.
@@ -433,6 +442,10 @@ export function detailLines(state: PanelsState, size: Size, opts: RenderOptions 
     }
     const rest = links.length - MAX_STANDARD_LINKS;
     if (rest > 0) add(`  +${rest}`);
+  }
+  const none = noDirectCertFor(details, finding.location.path, finding.references.cert);
+  if (none !== undefined) {
+    add("", `${t.report.certNone}: ${safeText(pickText(none, state.locale), 300)}`);
   }
   return lines;
 }

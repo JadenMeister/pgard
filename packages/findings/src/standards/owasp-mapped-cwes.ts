@@ -333,6 +333,7 @@ export const CWE_MAPPING_USAGE: Readonly<Record<string, CweMappingEntry>> = {
   "CWE-614": { abstraction: "Variant", usage: "ALLOWED" },
   "CWE-693": { abstraction: "Pillar", usage: "DISCOURAGED" },
   "CWE-798": { abstraction: "Base", usage: "ALLOWED-WITH-REVIEW" },
+  "CWE-862": { abstraction: "Class", usage: "ALLOWED-WITH-REVIEW" },
   "CWE-916": { abstraction: "Base", usage: "ALLOWED" },
   "CWE-918": { abstraction: "Base", usage: "ALLOWED" },
   "CWE-942": { abstraction: "Variant", usage: "ALLOWED" },

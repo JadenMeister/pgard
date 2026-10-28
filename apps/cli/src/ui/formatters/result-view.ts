@@ -7,6 +7,9 @@ import {
   PROJECT_CONFIG_FILE,
   projectConfigNotices,
   configTestFindingCount,
+  noDirectCertFor,
+  pickText,
+  standardsForFindings,
   splitFindingsByContext,
   type AuthorizationSummary,
   type Coverage,
@@ -18,7 +21,7 @@ import {
   type StandardsCoverage,
   type SuppressionNotice,
 } from "@pgard/findings";
-import { formatLocation, summarizeStatusSplit } from "@pgard/report";
+import { formatLocation, standardMark, summarizeStatusSplit } from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
 import { renderChart } from "./charts.js";
 import { fitLines } from "./fit-lines.js";
@@ -105,14 +108,23 @@ function allSame(values: readonly string[]): boolean {
 }
 
 /** Official standards of a rule, one per line with its link; only https links are shown. */
-function standardLines(ruleId: string, ctx: RenderContext): string[] {
-  const links = (ctx.ruleTexts?.get(ruleId)?.details?.standards ?? []).filter((link) =>
+function standardLines(ruleId: string, members: readonly Finding[], ctx: RenderContext): string[] {
+  const details = ctx.ruleTexts?.get(ruleId)?.details;
+  // A direct CERT Java link is only for Java and Kotlin findings (see standardsForFindings).
+  const links = standardsForFindings(details?.standards ?? [], members).filter((link) =>
     link.url.startsWith("https://"),
   );
-  if (links.length === 0) return [];
+  const marker = members
+    .map((m) => noDirectCertFor(details, m.location.path, m.references.cert))
+    .find((text) => text !== undefined);
+  const none =
+    marker === undefined
+      ? []
+      : [`        ${ctx.t.report.certNone}: ${safeText(pickText(marker, ctx.t.locale), 300)}`];
+  if (links.length === 0 && none.length === 0) return [];
   const shown = links.slice(0, MAX_STANDARD_LINKS).map((link) => {
     const title = link.title === null ? "" : ` ${truncateWidth(safeText(link.title, 200), 40)}`;
-    const via = link.viaCwe === undefined ? "" : ` (${ctx.t.report.viaCwe(link.viaCwe)})`;
+    const via = standardMark(link, ctx.t.report);
     return `        ${safeText(link.id, 20)}${title}${via} ${ctx.style.dim(safeText(link.url, 200))}`;
   });
   const rest = links.length - shown.length;
@@ -120,6 +132,7 @@ function standardLines(ruleId: string, ctx: RenderContext): string[] {
     `      ${ctx.t.standards}:`,
     ...shown,
     ...(rest > 0 ? [ctx.style.dim(`        +${rest}`)] : []),
+    ...none,
   ];
 }
 
@@ -168,7 +181,7 @@ function formatGroup(group: FindingGroup, ctx: RenderContext): string {
       isFixShared ? `      ${t.fix}: ${fix(finding)}` : `      ${t.fix}: ${t.variesByLocation}`,
     );
   }
-  lines.push(...standardLines(finding.ruleId, ctx));
+  lines.push(...standardLines(finding.ruleId, members, ctx));
   return lines.join("\n");
 }
 

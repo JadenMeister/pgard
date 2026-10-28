@@ -14,6 +14,7 @@ import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistoryClear } from "./commands/history.js";
 import { runLogin, runLogout } from "./commands/login.js";
+import { runReport } from "./commands/report.js";
 import { runProjectVerify } from "./commands/project/verify.js";
 import { runRulesList } from "./commands/rules/list.js";
 import { isMachineFormat, runScanCommand } from "./commands/scan/index.js";
@@ -28,6 +29,7 @@ import { parseCommandLine, UsageError, type ParsedCommand } from "./options.js";
 import { getRuleTextCatalog } from "./rule-texts.js";
 import { BACK, promptChoice, UserCancelledError } from "./ui/components/prompts.js";
 import { createStyle, safeText, shouldUseColor } from "./ui/formatters/style.js";
+import { cliText } from "./ui/i18n/cli-text.js";
 
 export { EXIT_CODES, type ExitCode } from "./exit-codes.js";
 export type { CliIo } from "./adapters/terminal.js";
@@ -49,6 +51,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runProjectVerify(context);
     case "scan":
       return runScanCommand(context, command);
+    case "report":
+      return runReport(context, command);
     case "dashboard":
       return runDashboard(context, command.targetPort, command.noBrowser);
     case "rules-list":
@@ -60,7 +64,7 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
     case "doctor":
       return runDoctor(context);
     case "advisories-update":
-      return runAdvisoriesUpdate(context);
+      return runAdvisoriesUpdate(context, command.force === true);
     case "login":
       return runLogin(context);
     case "logout":
@@ -149,6 +153,11 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
+    label: "Build report from last scan",
+    hint: "pgard report",
+    value: { kind: "report", format: null, outputDir: null, noOpen: false },
+  },
+  {
     label: "Open dashboard",
     hint: "local web app",
     value: { kind: "dashboard", targetPort: null, noBrowser: false },
@@ -157,6 +166,16 @@ const MENU_CHOICES: ReadonlyArray<{
   { label: "Doctor", hint: "environment diagnosis", value: { kind: "doctor" } },
   { label: "Quit", hint: "", value: "quit" },
 ];
+
+/** The menu entries; the report entry is the one with text in both languages. */
+function menuChoicesFor(context: CommandContext): typeof MENU_CHOICES {
+  const t = cliText(context.ruleLocale).commands.reportCommand;
+  return MENU_CHOICES.map((choice) =>
+    choice.value !== "quit" && choice.value.kind === "report"
+      ? { ...choice, label: t.menuLabel, hint: t.menuHint }
+      : choice,
+  );
+}
 
 async function runMenu(context: CommandContext): Promise<ExitCode> {
   if (context.keys === null) {
@@ -174,7 +193,7 @@ async function runMenu(context: CommandContext): Promise<ExitCode> {
   let lastExitCode: ExitCode = EXIT_CODES.ok;
   for (;;) {
     out(context, "");
-    const picked = await promptChoice(prompts, `pgard ${PGARD_VERSION}`, MENU_CHOICES);
+    const picked = await promptChoice(prompts, `pgard ${PGARD_VERSION}`, menuChoicesFor(context));
     // Leaving the menu is a normal end, whatever the last command returned.
     if (picked === BACK || picked === "quit") return EXIT_CODES.ok;
     lastExitCode = await runCommand(context, picked);
@@ -199,7 +218,12 @@ export async function main(
   let reportLocale: RuleLocale = "en";
   try {
     command = parseCommandLine(argv);
-    if (command.kind === "scan" || command.kind === "rules-list" || command.kind === "menu") {
+    if (
+      command.kind === "scan" ||
+      command.kind === "rules-list" ||
+      command.kind === "menu" ||
+      command.kind === "report"
+    ) {
       const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
       ruleLocale = resolveLanguage({ flag, env: io.env });
       reportLocale = command.kind === "scan" ? (command.reportLang ?? ruleLocale) : ruleLocale;

@@ -18,6 +18,9 @@ describe("buildGitArgs", () => {
     expect(args).toContain("protocol.allow=never");
     expect(args).toContain("log.showSignature=false");
     expect(args).toContain("gpg.program=");
+    expect(args).toContain("core.alternateRefsCommand=");
+    expect(args).toContain("credential.helper=");
+    expect(args).toContain("core.sshCommand=");
     const index = args.indexOf("diff-tree");
     expect(args.slice(index)).toEqual([
       "diff-tree",
@@ -101,7 +104,7 @@ describe("buildGitArgs", () => {
     );
   });
 
-  it.each(["log", "show", "checkout", "config", "status"])(
+  it.each(["log", "show", "checkout", "status"])(
     "refuses subcommand %s outside the allowlist",
     (subcommand) => {
       expect(() =>
@@ -109,6 +112,41 @@ describe("buildGitArgs", () => {
       ).toThrow(GitCommandError);
     },
   );
+});
+
+describe("buildGitArgs config lookups", () => {
+  it("allows only the read-only regexp lookup flags", () => {
+    expect(
+      buildGitArgs({
+        subcommand: "config",
+        flags: ["--null", "--get-regexp"],
+        operands: ["^remote\\."],
+      }).slice(-5),
+    ).toEqual(["config", "--null", "--get-regexp", "--end-of-options", "^remote\\."]);
+    for (const flag of ["--file=/etc/passwd", "--add", "--unset", "--global", "--edit"]) {
+      expect(() => buildGitArgs({ subcommand: "config", flags: [flag] })).toThrow(GitCommandError);
+    }
+  });
+
+  it.each([
+    ["two operands (a write)", { flags: ["--null", "--get-regexp"], operands: ["k", "v"] }],
+    ["three operands", { flags: ["--null", "--get-regexp"], operands: ["k", "v", "x"] }],
+    ["no flags (a write)", { operands: ["remote.origin.url", "https://evil.example/x.git"] }],
+    ["no flags, one operand", { operands: ["k"] }],
+    ["--null alone", { flags: ["--null"], operands: ["k"] }],
+    ["--get-regexp alone", { flags: ["--get-regexp"], operands: ["k"] }],
+    ["a repeated flag", { flags: ["--null", "--null"], operands: ["k"] }],
+    ["no operand", { flags: ["--null", "--get-regexp"] }],
+    ["paths", { flags: ["--null", "--get-regexp"], operands: ["k"], paths: ["x"] }],
+  ])("refuses config with %s", (_name, parts) => {
+    expect(() => buildGitArgs({ subcommand: "config", ...parts })).toThrow(GitCommandError);
+  });
+
+  it("accepts the flags in either order", () => {
+    expect(() =>
+      buildGitArgs({ subcommand: "config", flags: ["--get-regexp", "--null"], operands: ["k"] }),
+    ).not.toThrow();
+  });
 });
 
 describe("buildGitEnv", () => {
@@ -128,6 +166,7 @@ describe("buildGitEnv", () => {
     expect(env.GIT_CONFIG_NOSYSTEM).toBe("1");
     expect(env.GIT_CONFIG_GLOBAL).toBeTruthy();
     expect(env.GIT_NO_REPLACE_OBJECTS).toBe("1");
+    expect(env.GIT_NO_LAZY_FETCH).toBe("1");
   });
 });
 

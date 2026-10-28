@@ -12,6 +12,8 @@ export interface FetchResponseLike {
   readonly ok: boolean;
   /** Response headers; optional so minimal test doubles need not provide them. */
   readonly headers?: { get(name: string): string | null };
+  /** Optional so minimal test doubles need not provide it; cancelled for unread redirect bodies. */
+  readonly body?: { cancel(): Promise<unknown> } | null;
   json(): Promise<unknown>;
 }
 

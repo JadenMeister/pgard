@@ -3,6 +3,8 @@ export {
   buildGitArgs,
   buildGitEnv,
   runGit,
+  killAllGitChildren,
+  liveGitChildPids,
   type GitInvocation,
   type GitRunOptions,
   type GitRunner,
@@ -17,7 +19,11 @@ export {
   type GitHubRepositoryRef,
 } from "./remote.js";
 export { listCommitCandidates, readHeadRevision, type CommitCandidate } from "./commits.js";
-export { readRepositoryIsolation, type RepositoryIsolation } from "./isolation.js";
+export {
+  preflightIsolation,
+  readRepositoryIsolation,
+  type RepositoryIsolation,
+} from "./isolation.js";
 export {
   isAncestorCommit,
   listChangedPaths,

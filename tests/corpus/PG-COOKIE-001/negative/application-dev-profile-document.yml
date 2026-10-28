@@ -1,0 +1,13 @@
+# corpus: expect=low
+server:
+  port: 8080
+---
+spring:
+  config:
+    activate:
+      on-profile: dev
+server:
+  servlet:
+    session:
+      cookie:
+        http-only: false

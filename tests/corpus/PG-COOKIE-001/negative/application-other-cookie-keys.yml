@@ -1,0 +1,8 @@
+# corpus: expect=none
+server:
+  servlet:
+    session:
+      cookie:
+        name: SESSION
+        max-age: 30m
+        path: /

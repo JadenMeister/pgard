@@ -216,14 +216,17 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     openResultStore: () => null,
     webScanner: unexpected("webScanner") as never,
     probeLocalService: async () => HTTP_IDENTITY,
+    // Nothing listens by default, so an interactive default scan never offers a web target.
     discoverListeningPorts: async () => ({
-      ports: [{ port: 3000, processName: "node" }],
+      ports: [],
       method: "lsof",
       isComplete: false,
       isAvailable: true,
       note: null,
     }),
     writeReports: unexpected("writeReports") as never,
+    openLocalFile: unexpected("openLocalFile") as never,
+    makeReportDir: async () => "/work/reports",
     isPathInsideDirectory: async () => false,
     resolveDashboardEntry: () => null,
     startDashboardProcess: unexpected("startDashboardProcess") as never,

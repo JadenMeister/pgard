@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import os from "node:os";
 import path from "node:path";
@@ -787,5 +787,107 @@ describe("lock edge cases", () => {
     const release = await acquireUpdateLock(osv);
     await release();
     expect(await readdir(osv)).toEqual([]);
+  });
+});
+
+describe("rollback protection", () => {
+  const entries = (modified: string, count: number): TestZipEntry[] =>
+    Array.from({ length: count }, (_, index) => ({
+      name: `GHSA-r${index}.json`,
+      content: osvRecord(`GHSA-r${index}`, `pkg-${index}`, { modified }),
+    }));
+  const serve = (body: Buffer) => fakeFetch(() => ({ body })).impl;
+  const run = (body: Buffer, extra: { force?: boolean; now?: number } = {}) =>
+    updateOsvData({
+      appDataDir: dir,
+      ecosystems: ["npm"],
+      fetch: serve(body),
+      now: () => extra.now ?? Date.parse("2026-10-28T00:00:00Z"),
+      ...(extra.force === undefined ? {} : { force: extra.force }),
+    });
+  const advisoriesFile = () => path.join(osvDataDir(dir), "npm", "advisories.jsonl.gz");
+
+  it("accepts the first install", async () => {
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)));
+    expect(outcome?.ok).toBe(true);
+  });
+
+  it("refuses older data, keeps the installed data and names both dates", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 2)));
+    const before = await readFile(advisoriesFile());
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)));
+    expect(outcome?.ok).toBe(false);
+    if (outcome === undefined || outcome.ok) return;
+    expect(outcome.refusal).toBe("older-data");
+    expect(outcome.error).toContain("2024-01-01");
+    expect(outcome.error).toContain("2026-10-27");
+    expect(await readFile(advisoriesFile())).toEqual(before);
+    const status = await readAdvisoryStatus(dir, Date.parse("2026-10-28T00:00:00Z"));
+    expect(status.ecosystems.find((e) => e.ecosystem === "npm")?.modifiedMax).toBe(
+      "2026-10-27T00:00:00Z",
+    );
+    expect((await readdir(path.join(osvDataDir(dir), "npm"))).sort()).not.toContain("archive.zip");
+  });
+
+  it("refuses a big drop in the record count", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
+    const before = await readFile(advisoriesFile());
+    const [outcome] = await run(makeZip(entries("2026-10-27T00:00:00Z", 4)));
+    expect(outcome?.ok).toBe(false);
+    if (outcome === undefined || outcome.ok) return;
+    expect(outcome.refusal).toBe("smaller-data");
+    expect(outcome.error).toContain("(4)");
+    expect(outcome.error).toContain("(10;");
+    expect(await readFile(advisoriesFile())).toEqual(before);
+  });
+
+  it("accepts a small drop and the same newest date", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
+    const [outcome] = await run(makeZip(entries("2026-10-27T00:00:00Z", 6)));
+    expect(outcome?.ok).toBe(true);
+  });
+
+  it("treats corrupt installed metadata as unknown instead of failing", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
+    const metaFile = path.join(osvDataDir(dir), "npm", "meta.json");
+    const meta = JSON.parse(await readFile(metaFile, "utf8")) as Record<string, any>;
+    meta.counts = { ...meta.counts, advisories: "1000", malware: null };
+    meta.modifiedRange = { min: 5, max: "not a date" };
+    await writeFile(metaFile, JSON.stringify(meta));
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)));
+    expect(outcome?.ok).toBe(true);
+    // Missing parts (no counts object, no range) are unknown as well.
+    const again = JSON.parse(await readFile(metaFile, "utf8")) as Record<string, any>;
+    delete again.counts;
+    delete again.modifiedRange;
+    await writeFile(metaFile, JSON.stringify(again));
+    const [second] = await run(makeZip(entries("2023-01-01T00:00:00Z", 1)));
+    expect(second?.ok).toBe(true);
+  });
+
+  it("names full timestamps in the older-data message", async () => {
+    await run(makeZip(entries("2026-10-27T10:00:00Z", 2)));
+    const [outcome] = await run(makeZip(entries("2026-10-27T01:00:00Z", 2)));
+    expect(outcome?.ok).toBe(false);
+    if (outcome === undefined || outcome.ok) return;
+    expect(outcome.error).toContain("2026-10-27T01:00:00Z");
+    expect(outcome.error).toContain("2026-10-27T10:00:00Z");
+  });
+
+  it("accepts older data with force", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 2)));
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)), { force: true });
+    expect(outcome?.ok).toBe(true);
+  });
+
+  it("reports data as stale by the age of its newest record, not only by fetchedAt", async () => {
+    await run(makeZip(entries("2026-09-01T00:00:00Z", 2)));
+    const now = Date.parse("2026-10-28T00:00:00Z");
+    const status = await readAdvisoryStatus(dir, now);
+    const npm = status.ecosystems.find((e) => e.ecosystem === "npm");
+    expect(npm?.ageDays).toBe(0);
+    expect(npm?.dataAgeDays).toBe(57);
+    expect(npm?.state).toBe("stale");
+    expect(status.overall).toBe("none");
   });
 });

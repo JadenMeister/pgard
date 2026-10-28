@@ -42,7 +42,11 @@ export function authorizationDepsFor(
   context: CommandContext,
   getGitHubSession: GitHubSessionProvider,
 ): AuthorizationDependencies {
-  return { getGitHubSession, appSlug: resolveGitHubAppClientId(context.io.env).slug };
+  return {
+    getGitHubSession,
+    appSlug: resolveGitHubAppClientId(context.io.env).slug,
+    signal: context.signal,
+  };
 }
 
 /** "Ask an owner" line for a user who cannot install the App; the link is safe to share. */

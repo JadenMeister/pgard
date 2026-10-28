@@ -339,6 +339,28 @@ describe("buildSarif", () => {
     );
   });
 
+  it("percent-encodes the real bidi and control characters of a marked path (#368)", () => {
+    for (const path of ["src/a‮b.js", "src/a\\u202eb.js"]) {
+      const log = buildSarif(
+        result({ findings: [finding({ location: { ...finding().location, path } })] }),
+        CATALOG,
+      ) as Obj;
+      expect(log.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+        "src/a%E2%80%AEb.js",
+      );
+    }
+    // A mark of an ordinary character is a real backslash in the name and stays one.
+    const plain = buildSarif(
+      result({
+        findings: [finding({ location: { ...finding().location, path: "src/a\\u0041.js" } })],
+      }),
+      CATALOG,
+    ) as Obj;
+    expect(plain.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri).toBe(
+      "src/a%5Cu0041.js",
+    );
+  });
+
   it("keeps suppressed findings with an external suppression and sets baselineState only with a baseline", () => {
     const suppressed = finding({
       id: "s",
@@ -546,5 +568,131 @@ describe("buildSarif", () => {
     const log = buildSarif(input, CATALOG) as Obj;
     expect(log.runs[0].tool.driver.rules.map((r: Obj) => r.id)).toEqual(["PG-SQL-001"]);
     expect(JSON.stringify(input)).toBe(before);
+  });
+
+  describe("CERT Java links", () => {
+    const certCatalog = buildRuleTextCatalog([
+      {
+        id: "PG-CMD-003",
+        title: "Command execution",
+        metadata: {
+          standards: {
+            owasp: ["A05:2025"],
+            cwe: ["CWE-78"],
+            cert: [
+              { kind: "direct", id: "IDS07-J" },
+              { kind: "via-cwe", id: "IDS07-J", cwe: "CWE-78" },
+            ],
+          },
+          rationale: { en: "Shell.", ko: "셸." },
+          remediation: { en: "Avoid it.", ko: "피하세요." },
+        },
+      },
+      {
+        id: "PG-XSS-004",
+        title: "XSS",
+        metadata: {
+          standards: {
+            owasp: ["A05:2025"],
+            cwe: ["CWE-79"],
+            cert: [],
+            noDirectCert: { en: "No CERT rule is about XSS.", ko: "XSS 규칙 없음." },
+          },
+          rationale: { en: "XSS.", ko: "XSS." },
+          remediation: { en: "Encode.", ko: "인코딩." },
+        },
+      },
+    ]);
+    const rule = (log: ReturnType<typeof buildSarif>, id: string) =>
+      JSON.parse(JSON.stringify(log)).runs[0].tool.driver.rules.find(
+        (r: { id: string }) => r.id === id,
+      );
+    const at = (ruleId: string, path: string, cert?: string[]): Finding =>
+      finding({
+        id: `${ruleId}:${path}`,
+        ruleId,
+        location: { kind: "file", path, line: 1, url: null, commit: null },
+        references: { cwe: ["CWE-78"], owasp: [], cve: [], ...(cert ? { cert } : {}) },
+      });
+
+    it("lists the direct rule on a Java finding and the indirect one for other languages", () => {
+      const java = buildSarif(
+        result({ findings: [at("PG-CMD-003", "A.java", ["IDS07-J"])] }),
+        certCatalog,
+      );
+      expect(rule(java, "PG-CMD-003").help.markdown).toContain(
+        "(direct, Java and Kotlin files only)",
+      );
+      expect(rule(java, "PG-CMD-003").help.markdown).not.toContain("indirect");
+      expect(rule(java, "PG-CMD-003").properties.tags).toContain("CERT-Java-IDS07-J");
+      expect(JSON.parse(JSON.stringify(java)).runs[0].results[0].properties.pgard.certJava).toEqual(
+        ["IDS07-J"],
+      );
+
+      const js = buildSarif(result({ findings: [at("PG-CMD-003", "a.js")] }), certCatalog);
+      expect(rule(js, "PG-CMD-003").help.markdown).toContain("(indirect, via CWE-78)");
+      expect(rule(js, "PG-CMD-003").help.markdown).not.toContain("direct, Java");
+      expect(rule(js, "PG-CMD-003").properties.tags).not.toContain("CERT-Java-IDS07-J");
+      expect(
+        JSON.parse(JSON.stringify(js)).runs[0].results[0].properties.pgard.certJava,
+      ).toBeUndefined();
+    });
+
+    it("keeps the rule-level CERT tag only when every result of the rule has the reference", () => {
+      const java = at("PG-CMD-003", "A.java", ["IDS07-J"]);
+      const js = at("PG-CMD-003", "a.js");
+      const tags = (findings: Finding[]): string[] =>
+        rule(buildSarif(result({ findings }), certCatalog), "PG-CMD-003").properties.tags;
+      expect(tags([java])).toContain("CERT-Java-IDS07-J");
+      expect(tags([java, at("PG-CMD-003", "B.kt", ["IDS07-J"])])).toContain("CERT-Java-IDS07-J");
+      expect(tags([java, js])).not.toContain("CERT-Java-IDS07-J");
+      expect(tags([js])).not.toContain("CERT-Java-IDS07-J");
+      // Per-result references stay exact in the mixed run.
+      const mixed = JSON.parse(
+        JSON.stringify(buildSarif(result({ findings: [java, js] }), certCatalog)),
+      );
+      const certs = mixed.runs[0].results.map(
+        (r: { properties: { pgard: { certJava?: string[] } } }) => r.properties.pgard.certJava,
+      );
+      expect(certs.filter(Boolean)).toEqual([["IDS07-J"]]);
+    });
+
+    it("names the scope of a scoped direct id and the note for the other causes", () => {
+      const scoped = buildRuleTextCatalog([
+        {
+          id: "PG-CRYPTO-003",
+          title: "Weak crypto",
+          metadata: {
+            standards: {
+              owasp: ["A04:2025"],
+              cwe: ["CWE-327"],
+              cert: [{ kind: "direct", id: "MSC02-J", cause: "weak-random" }],
+              noDirectCertOther: { en: "Other causes: MSC61-J.", ko: "다른 원인: MSC61-J." },
+            },
+            rationale: { en: "Weak.", ko: "약함." },
+            remediation: { en: "Strong.", ko: "강함." },
+          },
+        },
+      ]);
+      const random = at("PG-CRYPTO-003", "A.java", ["MSC02-J"]);
+      const des = at("PG-CRYPTO-003", "B.java");
+      const md = rule(buildSarif(result({ findings: [random, des] }), scoped), "PG-CRYPTO-003");
+      expect(md.help.markdown).toContain(
+        "(direct, Java and Kotlin files only; random-number findings only)",
+      );
+      expect(md.help.markdown).toContain("no direct rule. Other causes: MSC61-J.");
+      // Not every result has MSC02-J, so no rule-level tag.
+      expect(md.properties.tags).not.toContain("CERT-Java-MSC02-J");
+      const only = rule(buildSarif(result({ findings: [random] }), scoped), "PG-CRYPTO-003");
+      expect(only.properties.tags).toContain("CERT-Java-MSC02-J");
+      expect(only.help.markdown).not.toContain("Other causes");
+    });
+
+    it("says there is no direct rule only for Java and Kotlin findings", () => {
+      const java = buildSarif(result({ findings: [at("PG-XSS-004", "A.kt")] }), certCatalog);
+      expect(rule(java, "PG-XSS-004").help.markdown).toContain("no direct rule");
+      const other = buildSarif(result({ findings: [at("PG-XSS-004", "a.ts")] }), certCatalog);
+      expect(rule(other, "PG-XSS-004").help.markdown).not.toContain("no direct rule");
+    });
   });
 });

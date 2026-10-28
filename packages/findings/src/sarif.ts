@@ -6,7 +6,9 @@ import {
   type Severity,
 } from "./contract.js";
 import { findingIdentity } from "./compare-scans.js";
-import { redactEvidence, redactFinding, redactSecrets } from "./redact.js";
+import { redactEvidence, redactFinding, redactSecrets, unmarkLocationPath } from "./redact.js";
+import { noDirectCertFor, standardsForFindings, type StandardLink } from "./rule-details.js";
+import type { CertCause } from "./rule-metadata.js";
 import type { RuleTextCatalog } from "./rule-text.js";
 
 /**
@@ -77,7 +79,9 @@ const MAX_MESSAGE = 700;
 const MAX_NOTE = 500;
 
 function pathToUri(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+  // The finding path marks control and bidi characters as `\uXXXX` text; the uri carries the
+  // real characters, percent-encoded, so it still points at the file.
+  return unmarkLocationPath(path).split("/").map(encodeURIComponent).join("/");
 }
 
 function severityRank(severity: Severity): number {
@@ -150,6 +154,10 @@ function buildResult(
     confidence: finding.confidence,
     sources: [...finding.sources],
   };
+  // Direct CERT Java rules: present on Java and Kotlin findings only.
+  if (finding.references.cert !== undefined && finding.references.cert.length > 0) {
+    pgard.certJava = [...finding.references.cert];
+  }
   if (finding.context !== undefined) pgard.context = finding.context;
   if (finding.location.commit !== null) pgard.commit = finding.location.commit;
   if (finding.location.url !== null) pgard.url = finding.location.url;
@@ -181,6 +189,19 @@ function buildResult(
   return result;
 }
 
+const CAUSE_SCOPE: Record<CertCause, string> = {
+  "weak-random": "random-number findings only",
+  "archive-entry": "archive-entry findings only",
+  "other-than-archive-entry": "findings other than archive entries",
+};
+
+function certMark(link: StandardLink): string {
+  if (link.viaCwe !== undefined) return ` (indirect, via ${link.viaCwe})`;
+  if (link.direct !== true) return "";
+  const scope = link.cause === undefined ? "" : `; ${CAUSE_SCOPE[link.cause]}`;
+  return ` (direct, Java and Kotlin files only${scope})`;
+}
+
 function buildRule(
   id: string,
   catalog: RuleTextCatalog,
@@ -197,13 +218,22 @@ function buildRule(
   );
   const rationale = details?.rationale.en ?? sample?.impact ?? title;
   const remediation = details?.remediation.en ?? sample?.recommendation ?? title;
-  const links = details?.standards ?? [];
+  const links = standardsForFindings(details?.standards ?? [], findings);
+  const noDirectCert = findings
+    .map((f) => noDirectCertFor(details, f.location.path, f.references.cert))
+    .find((text) => text !== undefined)?.en;
   const tags = ["security"];
   for (const link of links) {
     if (link.kind === "cwe") {
       tags.push(link.id, `external/cwe/${link.id.toLowerCase()}`);
     } else if (link.kind === "owasp") {
       tags.push(`OWASP-${link.id}`);
+    } else if (
+      link.direct === true &&
+      findings.every((f) => f.references.cert?.includes(link.id))
+    ) {
+      // A rule-level tag applies to every alert of the rule, so it needs every result to have it.
+      tags.push(`CERT-Java-${link.id}`);
     }
   }
   const helpLink = links.find((l) => l.kind === "cwe") ?? links[0];
@@ -218,7 +248,10 @@ function buildRule(
     text: remediation,
     markdown: [
       remediation,
-      ...links.map((l) => `- [${l.id}${l.title === null ? "" : ` ${l.title}`}](${l.url})`),
+      ...links.map(
+        (l) => `- [${l.id}${l.title === null ? "" : ` ${l.title}`}](${l.url})${certMark(l)}`,
+      ),
+      ...(noDirectCert === undefined ? [] : [`- SEI CERT Java: no direct rule. ${noDirectCert}`]),
     ].join("\n\n"),
   };
   if (strongest !== null) {
