@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -122,5 +122,47 @@ describe("readRepositoryIsolation", () => {
       expect(result.isIsolated).toBe(false);
       expect(!result.isIsolated && result.reason).toMatch(/grafts/);
     });
+
+    it("blocks a symlinked shallow file but allows a regular one", async () => {
+      const repo = create();
+      repo.commit({});
+      const shallow = path.join(repo.root, ".git", "shallow");
+      writeFileSync(shallow, `${repo.shas[0]}\n`);
+      expect((await readRepositoryIsolation(repo.root)).isIsolated).toBe(true);
+      rmSync(shallow);
+      symlinkSync(path.join(repo.root, "README.md"), shallow);
+      const result = await readRepositoryIsolation(repo.root);
+      expect(result.isIsolated).toBe(false);
+      expect(!result.isIsolated && result.reason).toMatch(/shallow file could not be read safely/);
+    });
+
+    it.skipIf(process.platform === "win32")("blocks a FIFO shallow file quickly", async () => {
+      const repo = create();
+      repo.commit({});
+      execFileSync("mkfifo", [path.join(repo.root, ".git", "shallow")]);
+      const result = await readRepositoryIsolation(repo.root);
+      expect(result.isIsolated).toBe(false);
+      expect(!result.isIsolated && result.reason).toMatch(/shallow file could not be read safely/);
+    });
+
+    it.skipIf(process.platform === "win32")(
+      "blocks a FIFO alternates file behind a gitfile",
+      async () => {
+        const repo = create();
+        repo.commit({});
+        execFileSync("mkfifo", [alternates(repo)]);
+        const work = mkdtempSync(path.join(tmpdir(), "pgard-gitfile-"));
+        try {
+          writeFileSync(path.join(work, ".git"), `gitdir: ${path.join(repo.root, ".git")}\n`);
+          const started = Date.now();
+          const result = await readRepositoryIsolation(work);
+          expect(Date.now() - started).toBeLessThan(4000);
+          expect(result.isIsolated).toBe(false);
+          expect(!result.isIsolated && result.reason).toMatch(/alternates/);
+        } finally {
+          rmSync(work, { recursive: true, force: true });
+        }
+      },
+    );
   });
 });

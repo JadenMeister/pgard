@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { listCommitCandidates, readHeadRevision } from "./commits.js";
 import { findGitRoot } from "./git-root.js";
 import { parseGitHubRemoteUrl, readGitHubRemote } from "./remote.js";
+import { GitCommandError, runGit, type GitRunner } from "./run-git.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
 const REWRITE_CONFIG = '[url "git@evil.example.com:"]\n\tinsteadOf = https://github.com/\n';
@@ -148,6 +149,36 @@ describe("readGitHubRemote", () => {
     fixture.writeFile(".git/extra.cfg", REMOTE_CONFIG);
     fixture.git("config", "include.path", "extra.cfg");
     expect((await readGitHubRemote(fixture.root)).isResolved).toBe(false);
+  });
+
+  it("follows includes: a remote defined only in an included file is resolved", async () => {
+    fixture = createGitFixture();
+    fixture.writeFile(
+      ".git/extra.cfg",
+      '[remote "origin"]\n\turl = https://github.com/octo/app.git\n',
+    );
+    fixture.git("config", "include.path", "extra.cfg");
+    expect(await readGitHubRemote(fixture.root)).toEqual({
+      isResolved: true,
+      repo: { owner: "octo", name: "app" },
+      remoteName: "origin",
+    });
+  });
+
+  it.each([
+    ["timeout", new GitCommandError("git command timed out", null, "timeout")],
+    ["output limit", new GitCommandError("too big", null, "output_limit")],
+    ["failure", new GitCommandError("git command failed", 128)],
+    ["unknown error", new Error("boom")],
+  ])("blocks with a fix hint when the config read fails (%s)", async (_name, error) => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    const runner: GitRunner = (invocation, options) => {
+      if (invocation.subcommand === "config") return Promise.reject(error);
+      return runGit(invocation, options);
+    };
+    const result = await readGitHubRemote(fixture.root, runner);
+    expect(result.isResolved).toBe(false);
+    expect(!result.isResolved && result.reason).toMatch(/readable regular files, then check again/);
   });
 
   it("is unaffected by an unrelated url.* setting", async () => {

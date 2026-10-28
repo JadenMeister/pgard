@@ -177,7 +177,8 @@ export async function readGitHubRemote(
   } catch {
     return {
       isResolved: false,
-      reason: "Could not read the Git remote URLs from the repository config.",
+      reason:
+        "Could not read the Git remote URLs from the repository config; check that .git/config and any included files are readable regular files, then check again.",
     };
   }
 

@@ -19,7 +19,9 @@ export interface GitRunOptions {
 }
 
 /**
- * Subcommands PGARD may run. Only plumbing, two metadata-only remote lookups and a fixed-string
+ * Subcommands PGARD may run. Only plumbing, two metadata-only remote lookups, a read-only
+ * `config --null --get-regexp <one pattern>` lookup (any other `config` form can write and is
+ * refused in `buildGitArgs`) and a fixed-string
  * `grep` of a tree (patterns on stdin, see the flag allowlist): porcelain commands such as
  * `log`/`show` are deliberately absent because they carry the most config-driven hooks (pager,
  * signature verification, textconv, mailmap). Commit metadata and diffs are parsed from plumbing
@@ -103,6 +105,9 @@ const DIFF_CAPABLE: ReadonlySet<GitSubcommand> = new Set(["diff-tree"]);
 
 type FlagRule = string | RegExp;
 
+/** The only accepted `config` invocation: a read-only regexp lookup with one pattern operand. */
+const CONFIG_LOOKUP_FLAGS: readonly string[] = ["--null", "--get-regexp"];
+
 /**
  * The only accepted `grep` invocation, in this exact order: fixed strings read from stdin
  * (`-f-`, never a file) so searched values never appear in argv, exit status only (`-q`), no
@@ -127,7 +132,7 @@ const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
   remote: [],
   "remote get-url": ["--all", "--push"],
   // Read-only lookup of raw config values (`remote get-url` applies `url.*.insteadOf`).
-  config: ["--null", "--get-regexp"],
+  config: CONFIG_LOOKUP_FLAGS,
   "rev-list": [
     "--all",
     "--first-parent",
@@ -269,6 +274,20 @@ export function buildGitArgs(
     (flags.length !== GREP_FLAGS.length || flags.some((flag, index) => flag !== GREP_FLAGS[index]))
   ) {
     throw new GitCommandError("git grep must use the fixed flag set", null);
+  }
+  if (invocation.subcommand === "config") {
+    // `git config` writes when given a name and a value, or no mode flag. Only the read-only
+    // regexp lookup with exactly one pattern is accepted.
+    const fixed = new Set(CONFIG_LOOKUP_FLAGS);
+    if (
+      flags.length !== CONFIG_LOOKUP_FLAGS.length ||
+      !flags.every((flag) => fixed.has(flag)) ||
+      new Set(flags).size !== flags.length ||
+      (invocation.operands ?? []).length !== 1 ||
+      (invocation.paths ?? []).length !== 0
+    ) {
+      throw new GitCommandError("git config must be a single read-only regexp lookup", null);
+    }
   }
   for (const flag of flags) {
     if (!isFlagAllowed(invocation.subcommand, flag)) {

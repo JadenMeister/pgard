@@ -127,6 +127,26 @@ describe("buildGitArgs config lookups", () => {
       expect(() => buildGitArgs({ subcommand: "config", flags: [flag] })).toThrow(GitCommandError);
     }
   });
+
+  it.each([
+    ["two operands (a write)", { flags: ["--null", "--get-regexp"], operands: ["k", "v"] }],
+    ["three operands", { flags: ["--null", "--get-regexp"], operands: ["k", "v", "x"] }],
+    ["no flags (a write)", { operands: ["remote.origin.url", "https://evil.example/x.git"] }],
+    ["no flags, one operand", { operands: ["k"] }],
+    ["--null alone", { flags: ["--null"], operands: ["k"] }],
+    ["--get-regexp alone", { flags: ["--get-regexp"], operands: ["k"] }],
+    ["a repeated flag", { flags: ["--null", "--null"], operands: ["k"] }],
+    ["no operand", { flags: ["--null", "--get-regexp"] }],
+    ["paths", { flags: ["--null", "--get-regexp"], operands: ["k"], paths: ["x"] }],
+  ])("refuses config with %s", (_name, parts) => {
+    expect(() => buildGitArgs({ subcommand: "config", ...parts })).toThrow(GitCommandError);
+  });
+
+  it("accepts the flags in either order", () => {
+    expect(() =>
+      buildGitArgs({ subcommand: "config", flags: ["--get-regexp", "--null"], operands: ["k"] }),
+    ).not.toThrow();
+  });
 });
 
 describe("buildGitEnv", () => {

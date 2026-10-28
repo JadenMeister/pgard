@@ -8,6 +8,8 @@ export type RepositoryIsolation = { isIsolated: true } | { isIsolated: false; re
 /** Alternates and grafts hold a few short lines; anything bigger is not a normal repository. */
 const MAX_METADATA_BYTES = 64 * 1024;
 
+const MAX_SHALLOW_BYTES = 8 * 1024 * 1024;
+
 type Probe = "empty" | "content" | "unsafe";
 
 async function probeFile(filePath: string): Promise<Probe> {
@@ -39,6 +41,15 @@ async function checkMetadataFiles(gitDir: string): Promise<RepositoryIsolation |
         reason: `The repository uses ${label}, so its objects or history may come from elsewhere; this is not supported.`,
       };
     }
+  }
+  // A regular `shallow` file is allowed (shallow clones are supported); an unsafe one is not.
+  const shallow = await readSmallRegularFile(path.join(gitDir, "shallow"), MAX_SHALLOW_BYTES);
+  if (shallow.state === "unsafe") {
+    return {
+      isIsolated: false,
+      reason:
+        "The repository's shallow file could not be read safely (it is a symbolic link, not a regular file, too large or unreadable), so its history boundary can't be trusted. Remove it or replace it with a regular file, or use a normal clone, and check again.",
+    };
   }
   return null;
 }
