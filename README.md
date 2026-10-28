@@ -148,12 +148,15 @@ Common commands:
   pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard doctor                  diagnose the environment (not an authorization)
 
-Common options (scan, report):
+Common options:
   --lang en|ko                  language of the screen, progress and rule texts
-  --format text|json|sarif      scan output (report: html|pdf)
-  --report html|pdf|both        save a report after a scan (with --output-dir DIR)
-  --output-dir DIR              existing directory for saved reports
+                                (scan, report, rules list)
+  --format text|json|sarif      scan output (scan); html|pdf (report)
+  --report html|pdf|both        save a report after a scan, with --output-dir DIR
+                                (scan only)
+  --output-dir DIR              existing directory for saved reports (scan, report)
   --no-browser                  print GitHub links instead of opening them
+                                (scan, project verify, login, dashboard)
   --help                        help for a command, e.g. pgard scan code --help
 
 Advanced commands:

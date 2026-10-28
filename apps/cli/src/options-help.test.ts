@@ -104,14 +104,29 @@ describe("command help lists every accepted option", () => {
 
   it("every option string in the parser source is in the checked list", () => {
     const source = readFileSync(new URL("./options.ts", import.meta.url), "utf8");
-    const found = new Set(
-      [...source.matchAll(/"(--[a-z][a-z-]*)"/g)]
-        .map((match) => match[1] ?? "")
-        .filter((name) => name !== "--help" && name !== "--version" && name !== "--"),
-    );
+    const found = optionStringsIn(source);
+    expect(found.length).toBeGreaterThan(10);
     for (const name of found) expect(ALL_OPTION_NAMES).toContain(name);
   });
+
+  it("the source scan sees single-quoted, template and short-alias option strings", () => {
+    const mutant = [
+      "if (arg === `--quiet`) {}",
+      "if (arg === '--loud') {}",
+      'if (arg === "-q") {}',
+      'const ok = "--help"; const v = "-V"; const sep = "--";',
+    ].join("\n");
+    expect(optionStringsIn(mutant).sort()).toEqual(["--loud", "--quiet", "-q"]);
+  });
 });
+
+/** Quoted option-like strings (double, single or template quotes, long or short) in `source`. */
+function optionStringsIn(source: string): string[] {
+  const ignored = new Set(["--help", "-h", "--version", "-V"]);
+  return [...source.matchAll(/["'`](--?[a-zA-Z][\w-]*)["'`]/g)]
+    .map((match) => match[1] ?? "")
+    .filter((name) => !ignored.has(name));
+}
 
 describe("pgard help", () => {
   it("is an alias for <command> --help", () => {
@@ -127,6 +142,18 @@ describe("pgard help", () => {
       topic: "baseline",
     });
     expect(parseCommandLine(["help", "report"])).toEqual({ kind: "help", topic: "report" });
+  });
+
+  it("help help prints the main help; help takes no options", () => {
+    expect(parseCommandLine(["help", "help"])).toEqual({ kind: "help", topic: "main" });
+    for (const argv of [
+      ["help", "scan", "--no-store"],
+      ["help", "scan", "--full"],
+      ["help", "--port", "3"],
+      ["help", "history", "--all"],
+    ]) {
+      expect(() => parseCommandLine(argv)).toThrow("pgard help takes no options.");
+    }
   });
 
   it("rejects unknown commands and extra arguments", () => {
