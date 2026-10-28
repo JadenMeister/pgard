@@ -109,6 +109,12 @@ const rewrites = [
     to: "new URL(`../assets/grammars/tree-sitter-${language}.wasm`, import.meta.url)",
   },
   {
+    // The per-file analysis worker is its own entry point (dist/source-worker.js).
+    file: "packages/source-analysis/dist/file-worker.js",
+    from: 'new URL("./analyze-worker.js", import.meta.url)',
+    to: 'new URL("./source-worker.js", import.meta.url)',
+  },
+  {
     file: "apps/local-web/dist/server/index.js",
     from: 'new URL("../client/", import.meta.url)',
     to: 'new URL("../assets/client/", import.meta.url)',
@@ -155,6 +161,7 @@ const result = await build({
     dashboard: join(root, "apps/local-web/dist/server/index.js"),
     "smoke-report": join(root, "packaging/smoke-report-entry.js"),
     "smoke-grammar": join(root, "packaging/smoke-grammar-entry.js"),
+    "source-worker": join(root, "packages/source-analysis/dist/analyze-worker.js"),
   },
   outdir: join(stage, "dist"),
   bundle: true,

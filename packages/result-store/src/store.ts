@@ -16,6 +16,7 @@ import {
   readIncrementalState,
   readScanResult,
   SCHEMA_VERSION,
+  stringifyJsonSafely,
   type IncrementalState,
   type ScanResult,
 } from "@pgard/findings";
@@ -591,12 +592,12 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
             `The result is not valid: ${checked.error.code}.`,
           );
         }
-        let text = `${JSON.stringify(checked.result)}\n`;
+        let text = `${stringifyJsonSafely(checked.result)}\n`;
         const containsForbidden = (body: string): boolean =>
           (saveOptions.forbidSubstrings ?? []).some((forbidden) => {
             // The file holds JSON text, where a backslash is written twice (Windows paths):
             // check the raw form and the escaped form.
-            const escaped = JSON.stringify(forbidden).slice(1, -1);
+            const escaped = stringifyJsonSafely(forbidden).slice(1, -1);
             return forbidden !== "" && (body.includes(forbidden) || body.includes(escaped));
           });
         if (containsForbidden(text)) {
@@ -614,13 +615,13 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
         let omitted: "too_large" | "rejected" | null =
           saveOptions.incrementalState && state === null ? "rejected" : null;
         if (state !== null) {
-          const withState = `${JSON.stringify({ ...checked.result, incrementalState: state })}\n`;
+          const withState = `${stringifyJsonSafely({ ...checked.result, incrementalState: state })}\n`;
           if (Buffer.byteLength(withState, "utf8") > MAX_RESULT_FILE_BYTES) omitted = "too_large";
           else if (containsForbidden(withState)) omitted = "rejected";
           else text = withState;
         }
         if (omitted !== null) {
-          text = `${JSON.stringify({ ...checked.result, incrementalStateOmitted: omitted })}\n`;
+          text = `${stringifyJsonSafely({ ...checked.result, incrementalStateOmitted: omitted })}\n`;
         }
         const dir = await ensureRepoDirectory(saveOptions.repositoryId);
         const file = fileNameFor(checked.result, now());
@@ -654,7 +655,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
             `The result is not valid: ${checked.error.code}.`,
           );
         }
-        const text = `${JSON.stringify({
+        const text = `${stringifyJsonSafely({
           kind: BASELINE_KIND,
           version: BASELINE_VERSION,
           setAt: new Date(now()).toISOString(),
@@ -662,7 +663,7 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
           result: checked.result,
         })}\n`;
         for (const forbidden of saveOptions.forbidSubstrings ?? []) {
-          const escaped = JSON.stringify(forbidden).slice(1, -1);
+          const escaped = stringifyJsonSafely(forbidden).slice(1, -1);
           if (forbidden !== "" && (text.includes(forbidden) || text.includes(escaped))) {
             throw new StoreFailure("contains_local_path", "The result contains a local path.");
           }

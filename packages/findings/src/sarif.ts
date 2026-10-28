@@ -6,7 +6,7 @@ import {
   type Severity,
 } from "./contract.js";
 import { findingIdentity } from "./compare-scans.js";
-import { redactEvidence, redactFinding, redactSecrets } from "./redact.js";
+import { redactEvidence, redactFinding, redactSecrets, unmarkLocationPath } from "./redact.js";
 import type { RuleTextCatalog } from "./rule-text.js";
 
 /**
@@ -77,7 +77,9 @@ const MAX_MESSAGE = 700;
 const MAX_NOTE = 500;
 
 function pathToUri(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
+  // The finding path marks control and bidi characters as `\uXXXX` text; the uri carries the
+  // real characters, percent-encoded, so it still points at the file.
+  return unmarkLocationPath(path).split("/").map(encodeURIComponent).join("/");
 }
 
 function severityRank(severity: Severity): number {
