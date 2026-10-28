@@ -48,6 +48,7 @@ import type { GitHubSessionManager } from "../session/github-session.js";
 import { readStoredSignInDto, resetAuthIfStoredAccountChanged } from "../session/stored-sign-in.js";
 import {
   INSTALL_WAIT_WINDOW_MS,
+  isSameAccount,
   isWithinWindow,
   MAX_PROGRESS_EVENTS,
   OWNER_APPROVAL_RECHECK_MIN_INTERVAL_MS,
@@ -230,17 +231,32 @@ const startVerify: ApiHandler = async (context) => {
     finishedAt: null,
     message: null,
   };
-  setAuth(state, run);
+  // "Check again" for the same account keeps the confirmed target; the result decides below.
+  const previousAccount = state.authAccount;
+  setAuth(state, run, { keepConfirmedTarget: previousAccount !== null });
   state.signInNotice = null;
   void context.deps
     .verifyProject(context.projectRoot, authorizationDeps(context))
     .then((outcome) => {
       if (state.auth !== run) return; // signed out or restarted meanwhile
       state.deviceCode = null;
-      setAuth(state, { status: "done", outcome, finishedAt: context.deps.now(), message: null });
+      setAuth(
+        state,
+        { status: "done", outcome, finishedAt: context.deps.now(), message: null },
+        { keepConfirmedTarget: true },
+      );
       // The account the gate itself ran with (not whichever account the provider adopted last,
       // which may have changed meanwhile); a later switch resets it (see resetAuthIfAccountChanged).
       state.authAccount = outcome.account ?? null;
+      if (
+        state.confirmedTarget !== null &&
+        (previousAccount === null ||
+          state.authAccount === null ||
+          !isAuthorizationAllowed(outcome) ||
+          !isSameAccount(previousAccount, state.authAccount))
+      ) {
+        state.confirmedTarget = null;
+      }
     })
     .catch(() => {
       if (state.auth !== run) return;

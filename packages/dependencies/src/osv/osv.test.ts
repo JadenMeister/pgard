@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
 import os from "node:os";
 import path from "node:path";
@@ -845,6 +845,33 @@ describe("rollback protection", () => {
     await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
     const [outcome] = await run(makeZip(entries("2026-10-27T00:00:00Z", 6)));
     expect(outcome?.ok).toBe(true);
+  });
+
+  it("treats corrupt installed metadata as unknown instead of failing", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 10)));
+    const metaFile = path.join(osvDataDir(dir), "npm", "meta.json");
+    const meta = JSON.parse(await readFile(metaFile, "utf8")) as Record<string, any>;
+    meta.counts = { ...meta.counts, advisories: "1000", malware: null };
+    meta.modifiedRange = { min: 5, max: "not a date" };
+    await writeFile(metaFile, JSON.stringify(meta));
+    const [outcome] = await run(makeZip(entries("2024-01-01T00:00:00Z", 2)));
+    expect(outcome?.ok).toBe(true);
+    // Missing parts (no counts object, no range) are unknown as well.
+    const again = JSON.parse(await readFile(metaFile, "utf8")) as Record<string, any>;
+    delete again.counts;
+    delete again.modifiedRange;
+    await writeFile(metaFile, JSON.stringify(again));
+    const [second] = await run(makeZip(entries("2023-01-01T00:00:00Z", 1)));
+    expect(second?.ok).toBe(true);
+  });
+
+  it("names full timestamps in the older-data message", async () => {
+    await run(makeZip(entries("2026-10-27T10:00:00Z", 2)));
+    const [outcome] = await run(makeZip(entries("2026-10-27T01:00:00Z", 2)));
+    expect(outcome?.ok).toBe(false);
+    if (outcome === undefined || outcome.ok) return;
+    expect(outcome.error).toContain("2026-10-27T01:00:00Z");
+    expect(outcome.error).toContain("2026-10-27T10:00:00Z");
   });
 
   it("accepts older data with force", async () => {

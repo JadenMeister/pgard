@@ -226,6 +226,15 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     }
   }
 
+  /** Frees the connection of a response whose body is not read. */
+  async function discardBody(response: FetchResponseLike): Promise<void> {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Nothing to free.
+    }
+  }
+
   function redirectTarget(response: FetchResponseLike, from: string): string {
     const refusal = new GitHubAuthError(
       "http_error",
@@ -255,8 +264,10 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     const url = `${baseUrl}${path}`;
     const response = await send(url);
     if (!REDIRECT_STATUSES.includes(response.status)) return response;
+    await discardBody(response);
     const second = await send(redirectTarget(response, url));
     if (REDIRECT_STATUSES.includes(second.status)) {
+      await discardBody(second);
       throw new GitHubAuthError(
         "http_error",
         "GitHub redirected the request more than once; PGARD stopped.",

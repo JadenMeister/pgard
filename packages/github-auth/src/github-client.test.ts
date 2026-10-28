@@ -475,6 +475,8 @@ describe("redirects on authenticated calls", () => {
       "http://api.github.com/repositories/7",
       "https://api.github.com/user",
       "https://user:pw@api.github.com/repositories/7",
+      "https://user@api.github.com/repositories/7",
+      "https://api.github.com/x/repositories/7",
       "https://api.github.com/repositories/7/../../user",
       null,
     ]) {
@@ -487,14 +489,19 @@ describe("redirects on authenticated calls", () => {
   });
 
   it("stops after one hop", async () => {
-    const fetch: FetchLike = async () => ({
-      status: 307,
-      ok: false,
-      headers: { get: () => "https://api.github.com/repositories/7" },
-      json: async () => ({}),
-    });
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls += 1;
+      return {
+        status: 307,
+        ok: false,
+        headers: { get: () => "https://api.github.com/repositories/7" },
+        json: async () => ({}),
+      };
+    };
     await expect(
       createGitHubClient({ token: "t", fetch }).getRepository("acme", "old-name"),
     ).rejects.toMatchObject({ code: "http_error", status: 307 });
+    expect(calls).toBe(2);
   });
 });

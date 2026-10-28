@@ -141,7 +141,9 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     github,
   };
 
-  const server = http.createServer((request, response) => {
+  // `connectionsCheckingInterval` makes `headersTimeout` fire close to 10 s (the default checks
+  // only every 30 s).
+  const server = http.createServer({ connectionsCheckingInterval: 1000 }, (request, response) => {
     applySecurityHeaders(response);
     const hostCheck = checkHost(request, port);
     if (!hostCheck.isAllowed) return reject(response, hostCheck);

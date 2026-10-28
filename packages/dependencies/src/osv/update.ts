@@ -78,30 +78,46 @@ export class RollbackRefusedError extends Error {
   }
 }
 
-const day = (iso: string): string => iso.slice(0, 10);
+/** A full timestamp (`2026-10-27T00:00:00Z`) so two dates on the same day are still told apart. */
+const stamp = (iso: string): string => iso.slice(0, 19) + (iso.length > 19 ? "Z" : "");
 
-/** Throws {@link RollbackRefusedError} when `next` would replace newer or much larger data. */
+const isCount = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+function parseTime(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time;
+}
+
+/**
+ * Throws {@link RollbackRefusedError} when `next` would replace newer or much larger data. A part
+ * of the installed metadata that is missing or malformed (hand-edited file) counts as unknown and
+ * that part of the check is skipped.
+ */
 export function assertNotRollback(installed: OsvMeta | null, next: OsvMeta): void {
   if (installed === null) return;
   const oldMax = installed.modifiedRange?.max;
   const newMax = next.modifiedRange?.max;
-  if (oldMax !== undefined && newMax !== undefined) {
-    const oldTime = Date.parse(oldMax);
-    const newTime = Date.parse(newMax);
-    if (!Number.isNaN(oldTime) && !Number.isNaN(newTime) && newTime < oldTime) {
+  const oldTime = parseTime(oldMax);
+  const newTime = parseTime(newMax);
+  if (oldTime !== null && newTime !== null && newTime < oldTime) {
+    throw new RollbackRefusedError(
+      `The downloaded data is older than the installed data (newest record ${stamp(String(newMax))} against ${stamp(String(oldMax))} installed), so it was not installed.`,
+      "older-data",
+    );
+  }
+  const oldAdvisories: unknown = installed.counts?.advisories;
+  const oldMalware: unknown = installed.counts?.malware;
+  if (isCount(oldAdvisories) && isCount(oldMalware)) {
+    const oldCount = oldAdvisories + oldMalware;
+    const newCount = next.counts.advisories + next.counts.malware;
+    if (oldCount > 0 && newCount < oldCount * MIN_RECORD_SHARE) {
       throw new RollbackRefusedError(
-        `The downloaded data is older than the installed data (newest record ${day(newMax)} against ${day(oldMax)} installed), so it was not installed.`,
-        "older-data",
+        `The downloaded data has far fewer records (${newCount}) than the installed data (${oldCount}; newest record ${oldTime === null ? "unknown" : stamp(String(oldMax))}), so it was not installed.`,
+        "smaller-data",
       );
     }
-  }
-  const oldCount = installed.counts.advisories + installed.counts.malware;
-  const newCount = next.counts.advisories + next.counts.malware;
-  if (oldCount > 0 && newCount < oldCount * MIN_RECORD_SHARE) {
-    throw new RollbackRefusedError(
-      `The downloaded data has far fewer records (${newCount}) than the installed data (${oldCount}; newest record ${oldMax === undefined ? "unknown" : day(oldMax)}), so it was not installed.`,
-      "smaller-data",
-    );
   }
 }
 

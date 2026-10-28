@@ -1915,19 +1915,46 @@ describe("local web connection limits", () => {
 });
 
 describe("local web confirmed target", () => {
-  it("is cleared on sign-out and whenever the authorization changes", async () => {
-    const running = await start(fakeDeps({ verifyProject: ALLOWED_VERIFY }));
+  async function confirmed(account: { current: { login: string; userId: number } }) {
+    const running = await start(
+      fakeDeps({ verifyProject: async () => ({ ...outcome(), account: account.current }) }),
+    );
     await authorize(running);
     await apiPost(running, "/api/ports/probe", { port: 3000 });
     await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true });
     expect(running.state.confirmedTarget).not.toBeNull();
-    await apiPost(running, "/api/auth/sign-out");
-    expect(running.state.confirmedTarget).toBeNull();
+    return running;
+  }
 
+  it("is kept when the same account checks again", async () => {
+    const account = { current: { login: "octo", userId: 7 } };
+    const running = await confirmed(account);
     await authorize(running);
-    await apiPost(running, "/api/ports/probe", { port: 3000 });
-    await apiPost(running, "/api/target/confirm", { port: 3000, isConfirmed: true });
     expect(running.state.confirmedTarget).not.toBeNull();
+    // It stays while the new check is still running, too.
+    expect((await apiGet(running, "/api/target")).status).toBe(200);
+  });
+
+  it("is cleared when the account changes", async () => {
+    const account = { current: { login: "octo", userId: 7 } };
+    const running = await confirmed(account);
+    account.current = { login: "hubot", userId: 8 };
+    await authorize(running);
+    expect(running.state.confirmedTarget).toBeNull();
+  });
+
+  it("is cleared on sign-out, with or without removing the stored sign-in", async () => {
+    for (const body of [{}, { removeStored: true }]) {
+      const running = await confirmed({ current: { login: "octo", userId: 7 } });
+      await apiPost(running, "/api/auth/sign-out", body);
+      expect(running.state.confirmedTarget).toBeNull();
+      await running.close();
+      server = null;
+    }
+  });
+
+  it("is cleared when the authorization changes outside a re-check", async () => {
+    const running = await confirmed({ current: { login: "octo", userId: 7 } });
     setAuth(running.state, { status: "idle", outcome: null, finishedAt: null, message: null });
     expect(running.state.confirmedTarget).toBeNull();
   });

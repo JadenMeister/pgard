@@ -133,14 +133,18 @@ export function createSessionState(): SessionState {
  * Stores a new authorization record and aborts probes started under the previous one. The
  * account the previous record was checked with no longer applies.
  */
-export function setAuth(state: SessionState, auth: SessionState["auth"]): void {
+export function setAuth(
+  state: SessionState,
+  auth: SessionState["auth"],
+  options: { keepConfirmedTarget?: boolean } = {},
+): void {
   state.portAccessController.abort();
   state.portAccessController = new AbortController();
   state.auth = auth;
   state.authAccount = null;
-  // A confirmed web target was approved under the previous authorization; sign-out or any new
-  // check must not leave it usable.
-  state.confirmedTarget = null;
+  // A confirmed web target was approved under the previous authorization, so it is cleared with
+  // it. Only a re-check for the same account keeps it (the caller decides, see `startVerify`).
+  if (options.keepConfirmedTarget !== true) state.confirmedTarget = null;
 }
 
 /** Said when the signed-in account changed after the latest check. */

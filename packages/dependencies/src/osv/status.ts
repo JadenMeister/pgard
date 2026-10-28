@@ -50,7 +50,7 @@ export async function readAdvisoryStatus(
     }
     const ageDays = Math.max(0, Math.floor((now - fetched) / DAY_MS));
     const modifiedMax = meta.modifiedRange?.max ?? null;
-    const maxTime = modifiedMax === null ? Number.NaN : Date.parse(modifiedMax);
+    const maxTime = typeof modifiedMax === "string" ? Date.parse(modifiedMax) : Number.NaN;
     const dataAgeDays = Number.isNaN(maxTime)
       ? null
       : Math.max(0, Math.floor((now - maxTime) / DAY_MS));
