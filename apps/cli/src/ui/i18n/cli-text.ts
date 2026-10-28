@@ -516,7 +516,8 @@ const EN: CliText = {
     none: "No, do not scan a web service",
     help: `PGARD found local web servers on 127.0.0.1. Web checks are optional.
 - Choosing one still asks you to confirm it is this project's service.
-- Enter on "No" (or Esc) skips web checks. Nothing is sent to a service until you confirm.`,
+- PGARD sends one GET / to each listening local port to read its title; scan requests are sent only after you confirm.
+- Enter on "No" (or Esc) skips web checks.`,
   },
   progress: {
     scanning: (scopes) => `Scanning (${scopes})... Press Ctrl+C twice to cancel.`,
@@ -851,7 +852,8 @@ const KO: CliText = {
     none: "아니요, 웹 서비스는 검사하지 않음",
     help: `127.0.0.1에서 로컬 웹 서버를 찾았습니다. 웹 검사는 선택 사항입니다.
 - 하나를 고르면 이 프로젝트의 서비스가 맞는지 다시 확인합니다.
-- "아니요"에서 Enter(또는 Esc)를 누르면 웹 검사를 건너뜁니다. 확인하기 전에는 서비스에 아무것도 보내지 않습니다.`,
+- 제목을 읽기 위해 대기 중인 각 로컬 포트에 GET / 요청을 한 번씩 보냅니다. 검사 요청은 확인한 뒤에만 보냅니다.
+- "아니요"에서 Enter(또는 Esc)를 누르면 웹 검사를 건너뜁니다.`,
   },
   progress: {
     scanning: (scopes) => `검사 중 (${scopes})... 취소하려면 Ctrl+C를 두 번 누르세요.`,

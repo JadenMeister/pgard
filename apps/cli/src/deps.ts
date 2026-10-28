@@ -10,6 +10,7 @@ import {
   probeLocalService,
   scanLocalWeb,
   type PortDiscoveryResult,
+  type ProbeOptions,
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isPathInsideDirectory, writeReports } from "@pgard/report";
@@ -75,7 +76,7 @@ export interface CliDeps {
    */
   openResultStore: (env: Readonly<Record<string, string | undefined>>) => ResultStore | null;
   webScanner: WebScanner;
-  probeLocalService: (port: number) => Promise<ServiceIdentity>;
+  probeLocalService: (port: number, options?: ProbeOptions) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
   writeReports: typeof writeReports;
   /**
@@ -241,7 +242,7 @@ export function createDefaultDeps(): CliDeps {
     signInAndStore,
     openResultStore: openResultStoreDefault,
     webScanner: scanLocalWeb,
-    probeLocalService: (port) => probeLocalService(port),
+    probeLocalService: (port, options) => probeLocalService(port, options),
     discoverListeningPorts: () => discoverListeningPorts(),
     writeReports,
     openLocalFile: (filePath) => openLocalFile(filePath),

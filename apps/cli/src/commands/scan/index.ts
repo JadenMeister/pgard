@@ -235,7 +235,8 @@ async function runScanFlow(
     reportDir = check.outputDir;
   }
 
-  const authorization = authorizationDepsFor(context, createSessionProvider(context));
+  const sessionProvider = createSessionProvider(context);
+  const authorization = authorizationDepsFor(context, sessionProvider);
   let webTarget: ConfirmedWebTarget | null = null;
   if (scopes.includes("web")) {
     // Confirm authorization before probing any local port; the scan re-checks it anyway.
@@ -286,9 +287,17 @@ async function runScanFlow(
     // Interactive `pgard scan` with no scope or port: offer detected local servers. Listing the
     // ports is local; a port is only probed once the gate allows the project, as for `--port`.
     let isAllowed = false;
+    // Raw mode off while looking, so Ctrl+C during discovery is a SIGINT and still cancels.
+    suspendKeys(context);
     const offered = await offerWebTarget(context, {
       beforeProbe: async () => {
-        suspendKeys(context);
+        // Only with a sign-in that already exists: the offer never starts a device flow. Without
+        // one it is skipped, and the scan signs in as usual. When the gate then does not allow,
+        // that session is cached, so the scan's own gate cannot start a second device flow.
+        const session = await Promise.resolve()
+          .then(() => sessionProvider.existing())
+          .catch(() => null);
+        if (session === null) return false;
         const outcome = await context.deps.verifyProject(projectRoot, authorization);
         isAllowed = outcome.summary.decision === "allowed";
         return isAllowed;
