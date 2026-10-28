@@ -1,0 +1,5 @@
+/.github/workflows/ @JadenMeister
+/packaging/ @JadenMeister
+/scripts/pack*.mjs @JadenMeister
+/package-lock.json @JadenMeister
+/SECURITY.md @JadenMeister

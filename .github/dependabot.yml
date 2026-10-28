@@ -1,0 +1,22 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      actions:
+        update-types: [minor, patch]
+  # The root package.json and its workspaces (packages/*, apps/*). Direct dependencies are pinned
+  # to exact versions (scripts/pack-pgard.mjs enforces this); `increase` raises the pinned version
+  # and keeps it exact.
+  - package-ecosystem: npm
+    directories: ["/", "/apps/*", "/packages/*", "/packaging/*"]
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    versioning-strategy: increase
+    groups:
+      npm-minor-patch:
+        update-types: [minor, patch]
