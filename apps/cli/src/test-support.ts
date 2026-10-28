@@ -224,6 +224,8 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
       note: null,
     }),
     writeReports: unexpected("writeReports") as never,
+    openLocalFile: unexpected("openLocalFile") as never,
+    reportDefaultDir: () => "/work/reports",
     isPathInsideDirectory: async () => false,
     resolveDashboardEntry: () => null,
     startDashboardProcess: unexpected("startDashboardProcess") as never,

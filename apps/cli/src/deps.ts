@@ -1,5 +1,7 @@
 import { execFile, spawn } from "node:child_process";
+import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { openLocalFile } from "./adapters/open-file.js";
 import { readAdvisoryStatus, updateOsvData } from "@pgard/dependencies";
 import {
   discoverListeningPorts,
@@ -74,6 +76,13 @@ export interface CliDeps {
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
   writeReports: typeof writeReports;
+  /**
+   * Opens a report file (an absolute `.html` or `.pdf` path) with the system's default program
+   * (fixed argv, no shell). Resolves `false` when nothing was opened; never rejects.
+   */
+  openLocalFile: (filePath: string) => Promise<boolean>;
+  /** The directory `pgard report` writes to when `--output-dir` is not given (it must exist). */
+  reportDefaultDir: () => string;
   isPathInsideDirectory: typeof isPathInsideDirectory;
   /** Absolute path of the installed local-web launcher, or `null` if it is not installed. */
   resolveDashboardEntry: () => string | null;
@@ -225,6 +234,8 @@ export function createDefaultDeps(): CliDeps {
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),
     writeReports,
+    openLocalFile: (filePath) => openLocalFile(filePath),
+    reportDefaultDir: () => tmpdir(),
     isPathInsideDirectory,
     resolveDashboardEntry: resolveDashboardEntryDefault,
     startDashboardProcess: startDashboardProcessDefault,

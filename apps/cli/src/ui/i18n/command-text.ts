@@ -109,6 +109,25 @@ export interface CommandText {
     both: string;
     outputDirPrompt: string;
   };
+  /** `pgard report`: a report from the last stored result, without scanning. */
+  reportCommand: {
+    menuLabel: string;
+    menuHint: string;
+    storeOff: string;
+    noStoreDir: string;
+    /** Identity could not be confirmed: nothing was read from the store. */
+    notVerified: string;
+    noResult: (repo: string) => string;
+    formatPrompt: string;
+    formatHelp: string;
+    staleNote: (scanTime: string, scanCommit: string, headCommit: string) => string;
+    /** The report header line when the stored result is current. */
+    usingResult: (scanTime: string, scanCommit: string) => string;
+    opened: string;
+    notOpened: string;
+    openHint: string;
+    fileExistsHint: string;
+  };
   doctor: {
     title: string;
     labels: {
@@ -312,6 +331,27 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     both: "HTML and PDF",
     outputDirPrompt: "Output directory (must exist):",
   },
+  reportCommand: {
+    menuLabel: "Build report from last scan",
+    menuHint: "pgard report",
+    storeOff:
+      "The report is built from the local result store, which is turned off by PGARD_NO_STORE=1. Unset it to use pgard report.",
+    noStoreDir: "No app-data directory could be determined.",
+    notVerified:
+      "Stored results are kept per verified repository, and this repository could not be verified, so no stored result was read. Run pgard project verify.",
+    noResult: (repo) => `No stored scan of ${repo}. Run pgard scan first, then pgard report.`,
+    formatPrompt: "Report format",
+    formatHelp: "The report is built from the last stored scan; nothing is scanned again.",
+    staleNote: (scanTime, scanCommit, headCommit) =>
+      `Note: this report is from the scan of ${scanTime} at commit ${scanCommit}; HEAD is now ${headCommit}. Run pgard scan for current results.`,
+    usingResult: (scanTime, scanCommit) =>
+      `Using the stored scan of ${scanTime} at commit ${scanCommit}.`,
+    opened: "Opened the report.",
+    notOpened: "The report could not be opened automatically.",
+    openHint: "Open the file above yourself, or pass --no-open to only print its path.",
+    fileExistsHint:
+      "Reports are never overwritten. Remove that file, or use --output-dir with another directory.",
+  },
   doctor: {
     title: "pgard doctor (diagnosis only, not an authorization)",
     labels: {
@@ -510,6 +550,28 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     no: "아니요",
     both: "HTML과 PDF",
     outputDirPrompt: "출력 디렉터리 (이미 있어야 함):",
+  },
+  reportCommand: {
+    menuLabel: "마지막 검사로 보고서 만들기",
+    menuHint: "pgard report",
+    storeOff:
+      "보고서는 로컬 결과 저장소에서 만드는데, PGARD_NO_STORE=1 때문에 저장소가 꺼져 있습니다. 해제한 뒤 pgard report를 사용하세요.",
+    noStoreDir: "앱 데이터 디렉터리를 찾을 수 없습니다.",
+    notVerified:
+      "저장된 결과는 확인된 저장소별로 보관되는데 이 저장소를 확인하지 못해 저장된 결과를 읽지 않았습니다. pgard project verify를 실행하세요.",
+    noResult: (repo) =>
+      `${repo}의 저장된 검사가 없습니다. 먼저 pgard scan을 실행한 뒤 pgard report를 실행하세요.`,
+    formatPrompt: "보고서 형식",
+    formatHelp: "마지막으로 저장된 검사로 보고서를 만들며 다시 검사하지 않습니다.",
+    staleNote: (scanTime, scanCommit, headCommit) =>
+      `참고: 이 보고서는 ${scanTime}의 검사(커밋 ${scanCommit})입니다. 지금 HEAD는 ${headCommit}입니다. 최신 결과는 pgard scan을 실행하세요.`,
+    usingResult: (scanTime, scanCommit) =>
+      `${scanTime}에 저장된 검사(커밋 ${scanCommit})를 사용합니다.`,
+    opened: "보고서를 열었습니다.",
+    notOpened: "보고서를 자동으로 열지 못했습니다.",
+    openHint: "위 파일을 직접 열거나, --no-open으로 경로만 출력하세요.",
+    fileExistsHint:
+      "보고서는 절대 덮어쓰지 않습니다. 그 파일을 지우거나 --output-dir로 다른 디렉터리를 지정하세요.",
   },
   doctor: {
     title: "pgard doctor (진단만 수행하며 권한 확인이 아닙니다)",

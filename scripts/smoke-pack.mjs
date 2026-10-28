@@ -108,6 +108,14 @@ try {
   );
   const help = pgard(["--help"], { cwd: root });
   check("pgard --help", help.status === 0 && help.stdout.includes("Usage:"), help.stderr);
+  const reportHelp = pgard(["report", "--help"], { cwd: root });
+  check(
+    "pgard report --help",
+    reportHelp.status === 0 &&
+      reportHelp.stdout.includes("pgard report") &&
+      reportHelp.stdout.includes("--no-open"),
+    reportHelp.stderr,
+  );
   const rules = pgard(["rules", "list"], { cwd: root });
   check("pgard rules list", rules.status === 0 && rules.stdout.includes("PG-"), rules.stderr);
   // PGARD_SMOKE_SKIP_DOCTOR=1 is for a developer machine whose keychain doctor would read.
