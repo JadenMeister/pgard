@@ -51,6 +51,16 @@ export type ParsedCommand =
       /** `--report-lang`: language of rule texts in saved reports. */
       reportLang?: RuleLocale;
     }
+  | {
+      kind: "report";
+      /** `null` only from the menu, which asks; the command line defaults to html. */
+      format: "html" | "pdf" | null;
+      /** `--output-dir`; `null` uses the default directory of the CLI deps. */
+      outputDir: string | null;
+      /** `--no-open`: write the file and print its path, never open it. */
+      noOpen: boolean;
+      lang?: RuleLocale;
+    }
   | { kind: "history-clear"; repo: string | null }
   | { kind: "baseline"; action: BaselineAction; fromCurrent: boolean }
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
@@ -68,6 +78,7 @@ export type HelpTopic =
   | "project"
   | "project verify"
   | "scan"
+  | "report"
   | "dashboard"
   | "rules"
   | "rules list"
@@ -115,6 +126,8 @@ const VALUE_OPTIONS: readonly OptionName[] = [
 const NO_BROWSER_FLAG = "--no-browser";
 /** Flag (no value), `pgard scan` only: do not keep this scan's result locally. */
 const NO_STORE_FLAG = "--no-store";
+/** Flag (no value), `pgard report` only: write the report and print its path without opening it. */
+const NO_OPEN_FLAG = "--no-open";
 /** Flag (no value), `pgard history clear` only: explicit "every repository" (the default). */
 const ALL_FLAG = "--all";
 
@@ -146,6 +159,7 @@ interface SplitArgs {
   full: boolean;
   panels: boolean;
   force: boolean;
+  noOpen: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -162,6 +176,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   let full = false;
   let panels = false;
   let force = false;
+  let noOpen = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -201,6 +216,11 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     if (arg === FORCE_FLAG) {
       if (force) throw new UsageError(`Option ${FORCE_FLAG} was given more than once.`, topic());
       force = true;
+      continue;
+    }
+    if (arg === NO_OPEN_FLAG) {
+      if (noOpen) throw new UsageError(`Option ${NO_OPEN_FLAG} was given more than once.`, topic());
+      noOpen = true;
       continue;
     }
     if (arg === PANELS_FLAG) {
@@ -254,6 +274,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     full,
     panels,
     force,
+    noOpen,
   };
 }
 
@@ -381,6 +402,9 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   if (split.panels && command !== "scan") {
     throw new UsageError(`Option ${PANELS_FLAG} is only available for pgard scan.`, "main");
   }
+  if (split.noOpen && command !== "report") {
+    throw new UsageError(`Option ${NO_OPEN_FLAG} is only available for pgard report.`, "main");
+  }
   if (split.all && !(command === "history" && sub === "clear")) {
     throw new UsageError(`Option ${ALL_FLAG} is only available for pgard history clear.`, "main");
   }
@@ -462,6 +486,24 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         ...(split.panels ? { panels: true } : {}),
         ...(lang === undefined ? {} : { lang }),
         ...(reportLang === undefined ? {} : { reportLang }),
+      };
+    }
+    case "report": {
+      topic = "report";
+      if (split.isHelp) return { kind: "help", topic };
+      rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
+      rejectOptions(split, ["--format", "--output-dir", "--lang"], topic, "pgard report");
+      const format = split.options.get("--format") ?? "html";
+      if (format !== "html" && format !== "pdf") {
+        throw new UsageError(`--format must be html or pdf (got "${format.slice(0, 20)}").`, topic);
+      }
+      const lang = parseLangOption(split, "--lang", topic);
+      return {
+        kind: "report",
+        format,
+        outputDir: split.options.get("--output-dir") ?? null,
+        noOpen: split.noOpen,
+        ...(lang === undefined ? {} : { lang }),
       };
     }
     case "history": {

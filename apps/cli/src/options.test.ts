@@ -199,3 +199,45 @@ describe("scan result options", () => {
     expect(() => parseCommandLine(["rules", "list", "--format", "json"])).toThrow(UsageError);
   });
 });
+
+describe("parseCommandLine: report", () => {
+  it("defaults to html, no output directory, opening allowed", () => {
+    expect(parseCommandLine(["report"])).toEqual({
+      kind: "report",
+      format: "html",
+      outputDir: null,
+      noOpen: false,
+    });
+  });
+
+  it("parses --format, --output-dir, --no-open and --lang", () => {
+    expect(
+      parseCommandLine([
+        "report",
+        "--format",
+        "pdf",
+        "--output-dir",
+        "out",
+        "--no-open",
+        "--lang",
+        "ko",
+      ]),
+    ).toEqual({ kind: "report", format: "pdf", outputDir: "out", noOpen: true, lang: "ko" });
+  });
+
+  it("rejects other formats, extra arguments, repeats and the flag elsewhere", () => {
+    expect(() => parseCommandLine(["report", "--format", "both"])).toThrow("html or pdf");
+    expect(() => parseCommandLine(["report", "--format", "text"])).toThrow(UsageError);
+    expect(() => parseCommandLine(["report", "now"])).toThrow(UsageError);
+    expect(() => parseCommandLine(["report", "--no-open", "--no-open"])).toThrow("more than once");
+    expect(() => parseCommandLine(["scan", "--no-open"])).toThrow(
+      "only available for pgard report",
+    );
+    expect(() => parseCommandLine(["report", "--report", "html"])).toThrow(UsageError);
+    expect(() => parseCommandLine(["report", "--no-store"])).toThrow(UsageError);
+  });
+
+  it("has its own help topic", () => {
+    expect(parseCommandLine(["report", "--help"])).toEqual({ kind: "help", topic: "report" });
+  });
+});
