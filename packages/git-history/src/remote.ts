@@ -1,4 +1,4 @@
-import { runGit as defaultRunGit, type GitRunner } from "./run-git.js";
+import { GitCommandError, runGit as defaultRunGit, type GitRunner } from "./run-git.js";
 
 export interface GitHubRepositoryRef {
   owner: string;
@@ -88,6 +88,62 @@ function lines(output: string): string[] {
     .filter((line) => line.length > 0);
 }
 
+const REWRITE_KEY_PATTERN = /^url\..*\.(?:insteadof|pushinsteadof)$/is;
+const REWRITE_REASON =
+  "The repository config rewrites remote URLs (url.*.insteadOf or url.*.pushInsteadOf), so its GitHub identity can't be confirmed; remove the rewrite and check again.";
+
+interface ConfigEntry {
+  key: string;
+  value: string;
+}
+
+/**
+ * Raw `remote.<name>.url`, `remote.<name>.pushurl` and URL rewrite settings from the effective
+ * repository config (includes followed; system and global config are disabled by the runner).
+ * `git remote get-url` is not used because it applies `url.<base>.insteadOf` and so can report
+ * a different host than the one configured.
+ */
+async function readRawRemoteConfig(projectRoot: string, runner: GitRunner): Promise<ConfigEntry[]> {
+  let output: string;
+  try {
+    output = await runner(
+      {
+        subcommand: "config",
+        flags: ["--null", "--get-regexp"],
+        operands: ["^(remote\\..*\\.(url|pushurl)|url\\..*\\.(insteadof|pushinsteadof))$"],
+      },
+      { cwd: projectRoot },
+    );
+  } catch (error) {
+    // Exit code 1 means no key matched; an unrelated failure must not read as "no rewrites".
+    if (error instanceof GitCommandError && error.exitCode === 1) return [];
+    throw error;
+  }
+  const entries: ConfigEntry[] = [];
+  for (const record of output.split("\0")) {
+    if (record.length === 0) continue;
+    const newline = record.indexOf("\n");
+    entries.push(
+      newline === -1
+        ? { key: record, value: "" }
+        : { key: record.slice(0, newline), value: record.slice(newline + 1) },
+    );
+  }
+  return entries;
+}
+
+function collectRemoteUrls(entries: readonly ConfigEntry[]): Map<string, string[]> {
+  const urls = new Map<string, string[]>();
+  for (const { key, value } of entries) {
+    const match = /^remote\.(.+)\.(?:url|pushurl)$/is.exec(key);
+    if (!match?.[1]) continue;
+    const list = urls.get(match[1]) ?? [];
+    list.push(value.trim());
+    urls.set(match[1], list);
+  }
+  return urls;
+}
+
 /**
  * Resolves the single GitHub repository this checkout belongs to. Every fetch and push URL of
  * every remote must parse as the same github.com repository; any other host, an unparsable
@@ -111,29 +167,27 @@ export async function readGitHubRemote(
     };
   }
 
+  let rawUrls: Map<string, string[]>;
+  try {
+    const entries = await readRawRemoteConfig(projectRoot, runner);
+    if (entries.some(({ key }) => REWRITE_KEY_PATTERN.test(key))) {
+      return { isResolved: false, reason: REWRITE_REASON };
+    }
+    rawUrls = collectRemoteUrls(entries);
+  } catch {
+    return {
+      isResolved: false,
+      reason:
+        "Could not read the Git remote URLs from the repository config; check that .git/config and any included files are readable regular files, then check again.",
+    };
+  }
+
   let resolved: GitHubRepositoryRef | null = null;
   for (const remoteName of remoteNames) {
     if (!REMOTE_NAME_PATTERN.test(remoteName)) {
       return { isResolved: false, reason: "A Git remote has an unsupported name." };
     }
-    let urls: string[];
-    try {
-      const fetchUrls = lines(
-        await runner(
-          { subcommand: "remote get-url", flags: ["--all"], operands: [remoteName] },
-          { cwd: projectRoot },
-        ),
-      );
-      const pushUrls = lines(
-        await runner(
-          { subcommand: "remote get-url", flags: ["--push", "--all"], operands: [remoteName] },
-          { cwd: projectRoot },
-        ),
-      );
-      urls = [...fetchUrls, ...pushUrls];
-    } catch {
-      return { isResolved: false, reason: `Could not read the URL of remote "${remoteName}".` };
-    }
+    const urls = rawUrls.get(remoteName) ?? [];
     if (urls.length === 0) {
       return { isResolved: false, reason: `Remote "${remoteName}" has no URL.` };
     }

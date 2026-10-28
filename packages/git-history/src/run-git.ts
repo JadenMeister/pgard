@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { resolveGitExecutable } from "./git-executable.js";
 
 export interface GitRunOptions {
@@ -16,10 +16,14 @@ export interface GitRunOptions {
    * `output_limit` (e.g. to read only the start of a large blob).
    */
   truncate?: boolean;
+  /** Overrides the 60 s time limit (tests only). */
+  timeoutMs?: number;
 }
 
 /**
- * Subcommands PGARD may run. Only plumbing, two metadata-only remote lookups and a fixed-string
+ * Subcommands PGARD may run. Only plumbing, two metadata-only remote lookups, a read-only
+ * `config --null --get-regexp <one pattern>` lookup (any other `config` form can write and is
+ * refused in `buildGitArgs`) and a fixed-string
  * `grep` of a tree (patterns on stdin, see the flag allowlist): porcelain commands such as
  * `log`/`show` are deliberately absent because they carry the most config-driven hooks (pager,
  * signature verification, textconv, mailmap). Commit metadata and diffs are parsed from plumbing
@@ -29,6 +33,7 @@ export type GitSubcommand =
   | "rev-parse"
   | "remote"
   | "remote get-url"
+  | "config"
   | "rev-list"
   | "cat-file"
   | "ls-tree"
@@ -78,6 +83,7 @@ const SUBCOMMAND_ARGS: Record<GitSubcommand, readonly string[]> = {
   "rev-parse": ["rev-parse"],
   remote: ["remote"],
   "remote get-url": ["remote", "get-url"],
+  config: ["config"],
   "rev-list": ["rev-list"],
   "cat-file": ["cat-file"],
   "ls-tree": ["ls-tree"],
@@ -92,6 +98,7 @@ const METADATA_ONLY: ReadonlySet<GitSubcommand> = new Set([
   "rev-parse",
   "remote",
   "remote get-url",
+  "config",
   "for-each-ref",
 ]);
 
@@ -99,6 +106,9 @@ const METADATA_ONLY: ReadonlySet<GitSubcommand> = new Set([
 const DIFF_CAPABLE: ReadonlySet<GitSubcommand> = new Set(["diff-tree"]);
 
 type FlagRule = string | RegExp;
+
+/** The only accepted `config` invocation: a read-only regexp lookup with one pattern operand. */
+const CONFIG_LOOKUP_FLAGS: readonly string[] = ["--null", "--get-regexp"];
 
 /**
  * The only accepted `grep` invocation, in this exact order: fixed strings read from stdin
@@ -123,6 +133,8 @@ const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
   ],
   remote: [],
   "remote get-url": ["--all", "--push"],
+  // Read-only lookup of raw config values (`remote get-url` applies `url.*.insteadOf`).
+  config: CONFIG_LOOKUP_FLAGS,
   "rev-list": [
     "--all",
     "--first-parent",
@@ -208,6 +220,12 @@ const BASE_HARDENING_ARGS: readonly string[] = [
   "gpg.ssh.allowedSignersFile=",
   "-c",
   "protocol.allow=never",
+  "-c",
+  "core.alternateRefsCommand=",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "core.sshCommand=",
   "--no-pager",
 ];
 
@@ -238,6 +256,7 @@ export function buildGitEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   env.GIT_CONFIG_NOSYSTEM = "1";
   env.GIT_CONFIG_GLOBAL = GIT_NULL_DEVICE;
   env.GIT_NO_REPLACE_OBJECTS = "1";
+  env.GIT_NO_LAZY_FETCH = "1";
   env.LC_ALL = "C";
   return env;
 }
@@ -257,6 +276,20 @@ export function buildGitArgs(
     (flags.length !== GREP_FLAGS.length || flags.some((flag, index) => flag !== GREP_FLAGS[index]))
   ) {
     throw new GitCommandError("git grep must use the fixed flag set", null);
+  }
+  if (invocation.subcommand === "config") {
+    // `git config` writes when given a name and a value, or no mode flag. Only the read-only
+    // regexp lookup with exactly one pattern is accepted.
+    const fixed = new Set(CONFIG_LOOKUP_FLAGS);
+    if (
+      flags.length !== CONFIG_LOOKUP_FLAGS.length ||
+      !flags.every((flag) => fixed.has(flag)) ||
+      new Set(flags).size !== flags.length ||
+      (invocation.operands ?? []).length !== 1 ||
+      (invocation.paths ?? []).length !== 0
+    ) {
+      throw new GitCommandError("git config must be a single read-only regexp lookup", null);
+    }
   }
   for (const flag of flags) {
     if (!isFlagAllowed(invocation.subcommand, flag)) {
@@ -289,6 +322,54 @@ export function buildGitArgs(
   return args;
 }
 
+/** Git children that have started and not yet closed. */
+const liveChildren = new Set<ChildProcess>();
+let exitHooksInstalled = false;
+
+/** Kills every live git child at once (used on process exit and termination signals). */
+export function killAllGitChildren(): void {
+  for (const child of liveChildren) {
+    child.kill("SIGKILL");
+  }
+}
+
+/** Process ids of live git children (test seam: lets tests check none is left alive). */
+export function liveGitChildPids(): number[] {
+  return [...liveChildren].flatMap((child) => (child.pid === undefined ? [] : [child.pid]));
+}
+
+function onTerminationSignal(signal: "SIGINT" | "SIGTERM"): void {
+  // Another handler (the CLI's Ctrl+C handler) owns this signal and cancels through the abort
+  // path, which kills the child right away; do not preempt it. If only this listener is left,
+  // Node's default (terminate) was replaced by it, so kill the children and restore the default.
+  if (process.listenerCount(signal) > 1) return;
+  killAllGitChildren();
+  // Re-raise on the next turn, so a handler that re-attaches during this signal (or another
+  // `once` wrapper that already removed itself) is counted. Known limit: a `once` handler that
+  // already ran has done its work synchronously; PGARD itself uses no `once` for these signals.
+  setImmediate(() => {
+    if (process.listenerCount(signal) > 1) return;
+    process.removeListener(signal, signalListeners[signal]);
+    process.kill(process.pid, signal);
+  });
+}
+
+const signalListeners = {
+  SIGINT: () => onTerminationSignal("SIGINT"),
+  SIGTERM: () => onTerminationSignal("SIGTERM"),
+};
+
+function trackChild(child: ChildProcess): void {
+  liveChildren.add(child);
+  if (exitHooksInstalled) return;
+  exitHooksInstalled = true;
+  // A blocked git child would otherwise outlive PGARD. `exit` also fires on process.exit and on
+  // uncaught exceptions; a hard kill (SIGKILL) of PGARD cannot be intercepted by any process.
+  process.on("exit", killAllGitChildren);
+  process.on("SIGINT", signalListeners.SIGINT);
+  process.on("SIGTERM", signalListeners.SIGTERM);
+}
+
 function execGit(args: readonly string[], options: GitRunOptions): Promise<string> {
   const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
@@ -305,6 +386,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       windowsHide: true,
       stdio: ["pipe", "pipe", "ignore"],
     });
+    trackChild(child);
     const chunks: Buffer[] = [];
     let size = 0;
     let failure: GitCommandError | null = null;
@@ -312,7 +394,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     const timer = setTimeout(() => {
       failure = new GitCommandError("git command timed out", null, "timeout");
       child.kill("SIGKILL");
-    }, DEFAULT_TIMEOUT_MS);
+    }, options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
     const onAbort = () => {
       failure ??= new GitCommandError("git command was cancelled", null, "cancelled");
       child.kill("SIGKILL");
@@ -339,6 +421,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       failure ??= new GitCommandError("git could not be started", null);
     });
     child.on("close", (code) => {
+      liveChildren.delete(child);
       clearTimeout(timer);
       options.signal?.removeEventListener("abort", onAbort);
       if (failure) {
