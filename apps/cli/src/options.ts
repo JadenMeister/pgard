@@ -91,6 +91,41 @@ export type HelpTopic =
   | "history clear"
   | "baseline";
 
+/** Every help topic, as a value so `pgard help <cmd> [<sub>]` can resolve to one. */
+export const HELP_TOPICS: readonly HelpTopic[] = [
+  "main",
+  "project",
+  "project verify",
+  "scan",
+  "report",
+  "dashboard",
+  "rules",
+  "rules list",
+  "doctor",
+  "advisories",
+  "advisories update",
+  "login",
+  "logout",
+  "history",
+  "history clear",
+  "baseline",
+];
+
+/** Maps `pgard help [<cmd> [<sub>]]` to a help topic; `undefined` when there is none. */
+function resolveHelpTopic(cmd: string | undefined, sub: string | undefined): HelpTopic | undefined {
+  if (cmd === undefined || (cmd === "help" && sub === undefined)) return "main";
+  const joined = sub === undefined ? cmd : `${cmd} ${sub}`;
+  const exact = HELP_TOPICS.find((topic) => topic === joined);
+  if (exact !== undefined && exact !== "main") return exact;
+  if (sub === undefined) return undefined;
+  const parent = HELP_TOPICS.find((topic) => topic === cmd && topic !== "main");
+  if (parent === undefined) return undefined;
+  // `scan code` and `baseline set` have no topic of their own: they share the command's help.
+  if (cmd === "scan" && SCAN_VARIANTS[sub] !== undefined) return parent;
+  if (cmd === "baseline" && BASELINE_ACTIONS.some((action) => action === sub)) return parent;
+  return undefined;
+}
+
 export class UsageError extends Error {
   readonly helpTopic: HelpTopic;
   constructor(message: string, helpTopic: HelpTopic = "main") {
@@ -146,20 +181,25 @@ const FORCE_FLAG = "--force";
 /** Flag (no value): list every finding and location in the terminal result. */
 const ALL_FINDINGS_FLAG = "--all-findings";
 
-interface SplitArgs {
+/** The flags (options without a value): the one table the parser and the help test both use. */
+const FLAG_OPTIONS = [
+  [NO_BROWSER_FLAG, "noBrowser"],
+  [NO_STORE_FLAG, "noStore"],
+  [ALL_FLAG, "all"],
+  [ALL_FINDINGS_FLAG, "allFindings"],
+  [FULL_FLAG, "full"],
+  [FORCE_FLAG, "force"],
+  [NO_OPEN_FLAG, "noOpen"],
+  [PANELS_FLAG, "panels"],
+  [FROM_CURRENT_FLAG, "fromCurrent"],
+] as const;
+type FlagKey = (typeof FLAG_OPTIONS)[number][1];
+
+interface SplitArgs extends Record<FlagKey, boolean> {
   positionals: string[];
   options: Map<OptionName, string>;
   isHelp: boolean;
   isVersion: boolean;
-  noBrowser: boolean;
-  noStore: boolean;
-  all: boolean;
-  allFindings: boolean;
-  fromCurrent: boolean;
-  full: boolean;
-  panels: boolean;
-  force: boolean;
-  noOpen: boolean;
 }
 
 /** Splits argv into positionals and known options; anything unknown is a usage error. */
@@ -168,15 +208,17 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
   const options = new Map<OptionName, string>();
   let isHelp = false;
   let isVersion = false;
-  let noBrowser = false;
-  let noStore = false;
-  let all = false;
-  let allFindings = false;
-  let fromCurrent = false;
-  let full = false;
-  let panels = false;
-  let force = false;
-  let noOpen = false;
+  const flags: Record<FlagKey, boolean> = {
+    noBrowser: false,
+    noStore: false,
+    all: false,
+    allFindings: false,
+    full: false,
+    force: false,
+    noOpen: false,
+    panels: false,
+    fromCurrent: false,
+  };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
     if (arg === "--help" || arg === "-h") {
@@ -187,51 +229,11 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
       isVersion = true;
       continue;
     }
-    if (arg === NO_BROWSER_FLAG) {
-      if (noBrowser)
-        throw new UsageError(`Option ${NO_BROWSER_FLAG} was given more than once.`, topic());
-      noBrowser = true;
-      continue;
-    }
-    if (arg === NO_STORE_FLAG || arg === ALL_FLAG) {
-      const isStore = arg === NO_STORE_FLAG;
-      if (isStore ? noStore : all) {
-        throw new UsageError(`Option ${arg} was given more than once.`, topic());
-      }
-      if (isStore) noStore = true;
-      else all = true;
-      continue;
-    }
-    if (arg === ALL_FINDINGS_FLAG) {
-      if (allFindings)
-        throw new UsageError(`Option ${ALL_FINDINGS_FLAG} was given more than once.`, topic());
-      allFindings = true;
-      continue;
-    }
-    if (arg === FULL_FLAG) {
-      if (full) throw new UsageError(`Option ${FULL_FLAG} was given more than once.`, topic());
-      full = true;
-      continue;
-    }
-    if (arg === FORCE_FLAG) {
-      if (force) throw new UsageError(`Option ${FORCE_FLAG} was given more than once.`, topic());
-      force = true;
-      continue;
-    }
-    if (arg === NO_OPEN_FLAG) {
-      if (noOpen) throw new UsageError(`Option ${NO_OPEN_FLAG} was given more than once.`, topic());
-      noOpen = true;
-      continue;
-    }
-    if (arg === PANELS_FLAG) {
-      if (panels) throw new UsageError(`Option ${PANELS_FLAG} was given more than once.`, topic());
-      panels = true;
-      continue;
-    }
-    if (arg === FROM_CURRENT_FLAG) {
-      if (fromCurrent)
-        throw new UsageError(`Option ${FROM_CURRENT_FLAG} was given more than once.`, topic());
-      fromCurrent = true;
+    const flag = FLAG_OPTIONS.find(([name]) => name === arg);
+    if (flag !== undefined) {
+      const [name, key] = flag;
+      if (flags[key]) throw new UsageError(`Option ${name} was given more than once.`, topic());
+      flags[key] = true;
       continue;
     }
     if (arg === "--") {
@@ -261,21 +263,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     }
     positionals.push(arg);
   }
-  return {
-    positionals,
-    options,
-    isHelp,
-    isVersion,
-    noBrowser,
-    noStore,
-    all,
-    allFindings,
-    fromCurrent,
-    full,
-    panels,
-    force,
-    noOpen,
-  };
+  return { positionals, options, isHelp, isVersion, ...flags };
 }
 
 /** Validates a `--lang` / `--report-lang` / `PGARD_LANG` value. */
@@ -365,6 +353,12 @@ function parseFormat(split: SplitArgs): OutputFormat {
   return value as OutputFormat;
 }
 
+/** Every option name the parser accepts for some command (checked by options-help.test.ts). */
+export const ALL_OPTION_NAMES: readonly string[] = [
+  ...VALUE_OPTIONS,
+  ...FLAG_OPTIONS.map(([name]) => name),
+];
+
 const SCAN_VARIANTS: Record<string, ScanVariant> = {
   code: "code",
   history: "history",
@@ -386,6 +380,11 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
     if (split.isVersion) return { kind: "version" };
     rejectOptions(split, [], "main", "pgard");
     return { kind: "menu" };
+  }
+  if (command === "help") {
+    if (split.options.size > 0 || FLAG_OPTIONS.some(([, key]) => split[key])) {
+      throw new UsageError("pgard help takes no options.", "main");
+    }
   }
   if (split.noStore && command !== "scan") {
     throw new UsageError(`Option ${NO_STORE_FLAG} is only available for pgard scan.`, "main");
@@ -419,6 +418,21 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   }
 
   switch (command) {
+    case "help": {
+      rejectExtraPositionals(rest.slice(1), "main");
+      rejectOptions(split, [], "main", "pgard help");
+      const helpTopic = resolveHelpTopic(sub, rest[0]);
+      if (helpTopic === undefined) {
+        throw new UsageError(
+          `No help for: ${[sub, rest[0]]
+            .filter((part) => part !== undefined)
+            .join(" ")
+            .slice(0, 40)}`,
+          "main",
+        );
+      }
+      return { kind: "help", topic: helpTopic };
+    }
     case "project": {
       topic = sub === "verify" ? "project verify" : "project";
       if (split.isHelp) return { kind: "help", topic };

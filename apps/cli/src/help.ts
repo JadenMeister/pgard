@@ -28,21 +28,42 @@ const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output
                            files are never overwritten; a directory inside the
                            Git repository needs explicit confirmation`;
 
-const HELP_TEXT: Record<HelpTopic, string> = {
+type ParentTopic = "project" | "rules" | "history" | "advisories";
+type LeafTopic = Exclude<HelpTopic, ParentTopic>;
+const HELP_TEXT: Record<LeafTopic, string> = {
   main: `pgard - local security checks for GitHub projects you are authorized to scan
 
 Usage:
+  pgard <command> [options]
+  pgard help <command> [<subcommand>]   same as pgard <command> --help
+
+Common commands:
   pgard                         interactive menu (arrow keys, Enter, Esc, ?)
-  pgard project verify          check repository, GitHub identity, owner approval,
-                                current access and merged contribution
-  pgard scan                    code and configuration + Git history
+  pgard scan                    code and configuration + Git history (the default
+                                scan; see "pgard scan --help" for what it does)
   pgard scan code               current code and configuration
   pgard scan history            Git history and tracked files (secrets, risky files)
+  pgard report                  build a report from the last stored scan of this
+                                repository (no new scan) and open it
+  pgard project verify          check repository, GitHub identity, owner approval,
+                                current access and merged contribution
+  pgard login                   sign in to GitHub once and save it in the OS keychain
+  pgard doctor                  diagnose the environment (not an authorization)
+
+Common options:
+  --lang en|ko                  language of the screen, progress and rule texts
+                                (scan, report, rules list)
+  --format text|json|sarif      scan output (scan); html|pdf (report)
+  --report html|pdf|both        save a report after a scan, with --output-dir DIR
+                                (scan only)
+  --output-dir DIR              existing directory for saved reports (scan, report)
+  --no-browser                  print GitHub links instead of opening them
+                                (scan, project verify, login, dashboard)
+  --help                        help for a command, e.g. pgard scan code --help
+
+Advanced commands:
   pgard scan web [--port N]     anonymous read-only checks of a local HTTP service
   pgard scan all [--port N]     code + history + local HTTP service
-  pgard report [--format html|pdf] [--output-dir DIR] [--no-open]
-                                build a report from the last stored scan of this
-                                repository (no new scan) and open it
   pgard dashboard [--target-port N]
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
@@ -52,13 +73,20 @@ Usage:
   pgard baseline set [--from-current] | show | clear
                                 keep a scan as this repository's baseline; later
                                 scans list matching findings under "In baseline"
-  pgard doctor                  diagnose the environment (not an authorization)
   pgard advisories update       download public OSV vulnerability data (npm, Go)
                                 to this computer; the only non-GitHub download
-  pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard logout                  remove the saved GitHub sign-in from the OS keychain
-  pgard --help | <command> --help
   pgard --version
+
+Advanced options (pgard <command> --help has the details):
+  scan:        --all-findings  --panels  --full  --no-store  --report-lang en|ko
+               --port N (web, all)
+  report:      --no-open
+  dashboard:   --target-port N
+  rules list:  --language <name>
+  history clear:     --all  --repo owner/name
+  baseline set:      --from-current
+  advisories update: --force
 
 The target is always the Git root of the current directory. Every scan re-runs the
 authorization gate; only the GitHub sign-in is reused. Code and results are
@@ -67,11 +95,6 @@ GitHub pages open in the browser automatically when stdout is a terminal; pass
 --no-browser to scan, project verify, login or dashboard to only print the links.
 
 ${EXIT_CODE_HELP}`,
-  project: `Usage:
-  pgard project verify
-
-Subcommands:
-  verify   show each authorization check with its reason`,
   "project verify": `Usage:
   pgard project verify [--no-browser]
 
@@ -94,6 +117,14 @@ ${NO_BROWSER_HELP}
 ${EXIT_CODE_HELP}`,
   scan: `Usage:
   pgard scan [code|history|web|all] [options]
+
+With no options, pgard scan checks the current code and configuration and the Git
+history of this repository (the same as "pgard scan" in the menu), not a local web
+service. The result is printed as text in your language (a full-screen panel view
+opens by itself in a terminal), nothing is written to the repository and no report
+file is saved. A finished scan of a verified repository is stored locally (see
+below) and the next scan only looks at what changed since it; --full scans
+everything again, --no-store keeps nothing.
 
 Scopes:
   (none)    code + history
@@ -213,8 +244,6 @@ The dashboard opens the GitHub sign-in page when a device code is needed
 not installed for this repository.
 
 ${EXIT_CODE_HELP}`,
-  rules: `Usage:
-  pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php]`,
   "rules list": `Usage:
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
 
@@ -223,11 +252,6 @@ Lists supported rules and unsupported areas.
 --lang en|ko shows rule titles in that language (default: PGARD_LANG, then the
 system locale, then en).
 Works outside a project.`,
-  history: `Usage:
-  pgard history clear --all | --repo owner/name
-
-Subcommands:
-  clear   delete stored scan results`,
   "history clear": `Usage:
   pgard history clear --all | --repo owner/name
 
@@ -273,11 +297,6 @@ not authorize scans. Works outside a project.
 
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,
-  advisories: `Usage:
-  pgard advisories update
-
-Subcommands:
-  update   download the public OSV vulnerability data for npm and Go`,
   "advisories update": `Usage:
   pgard advisories update [--force]
 
@@ -339,6 +358,14 @@ Exit codes:
   5    internal error`,
 };
 
+/** Command groups with a single subcommand show that subcommand's help. */
+const SAME_AS: Record<ParentTopic, LeafTopic> = {
+  project: "project verify",
+  rules: "rules list",
+  history: "history clear",
+  advisories: "advisories update",
+};
+
 export function getHelpText(topic: HelpTopic): string {
-  return HELP_TEXT[topic];
+  return HELP_TEXT[topic in SAME_AS ? SAME_AS[topic as ParentTopic] : (topic as LeafTopic)];
 }

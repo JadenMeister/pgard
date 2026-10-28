@@ -112,7 +112,7 @@ npm run pack:pgard   # builds and writes .pack/pgard-<version>.tgz (gitignored)
 npm run smoke:pack   # installs that tarball into a temporary directory and runs it
 ```
 
-`smoke:pack` runs `pgard --version`, `--help`, `rules list` and `doctor`, renders a Korean PDF with the embedded font (a fallback font fails the check), loads a grammar and starts the dashboard server. CI runs the same steps on Linux, macOS and Windows.
+`smoke:pack` runs `pgard --version`, `--help`, `scan code --help`, `help scan`, `rules list` and `doctor`, renders a Korean PDF with the embedded font (a fallback font fails the check), loads a grammar and starts the dashboard server. CI runs the same steps on Linux, macOS and Windows.
 
 Then run PGARD from the root of the project you want to scan:
 
@@ -132,33 +132,54 @@ The target is always the **Git root of the current directory**. There is no opti
 
 ```text
 Usage:
+  pgard <command> [options]
+  pgard help <command> [<subcommand>]   same as pgard <command> --help
+
+Common commands:
   pgard                         interactive menu (arrow keys, Enter, Esc, ?)
-  pgard project verify          check repository, GitHub identity, owner approval,
-                                current access and merged contribution
-  pgard scan                    code and configuration + Git history
+  pgard scan                    code and configuration + Git history (the default
+                                scan; see "pgard scan --help" for what it does)
   pgard scan code               current code and configuration
   pgard scan history            Git history and tracked files (secrets, risky files)
+  pgard report                  build a report from the last stored scan of this
+                                repository (no new scan) and open it
+  pgard project verify          check repository, GitHub identity, owner approval,
+                                current access and merged contribution
+  pgard login                   sign in to GitHub once and save it in the OS keychain
+  pgard doctor                  diagnose the environment (not an authorization)
+
+Common options:
+  --lang en|ko                  language of the screen, progress and rule texts
+                                (scan, report, rules list)
+  --format text|json|sarif      scan output (scan); html|pdf (report)
+  --report html|pdf|both        save a report after a scan, with --output-dir DIR
+                                (scan only)
+  --output-dir DIR              existing directory for saved reports (scan, report)
+  --no-browser                  print GitHub links instead of opening them
+                                (scan, project verify, login, dashboard)
+  --help                        help for a command, e.g. pgard scan code --help
+
+Advanced commands:
   pgard scan web [--port N]     anonymous read-only checks of a local HTTP service
   pgard scan all [--port N]     code + history + local HTTP service
-  pgard report [--format html|pdf] [--output-dir DIR] [--no-open]
-                                build a report from the last stored scan of this
-                                repository (no new scan) and open it
   pgard dashboard [--target-port N]
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
-                                supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
-                                delete stored scan results (all, or one repository)
   pgard baseline set [--from-current] | show | clear
-                                keep a scan as this repository's baseline; later
-                                scans list matching findings under "In baseline"
-  pgard doctor                  diagnose the environment (not an authorization)
   pgard advisories update       download public OSV vulnerability data (npm, Go)
-                                to this computer; the only non-GitHub download
-  pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard logout                  remove the saved GitHub sign-in from the OS keychain
-  pgard --help | <command> --help
   pgard --version
+
+Advanced options (pgard <command> --help has the details):
+  scan:        --all-findings  --panels  --full  --no-store  --report-lang en|ko
+               --port N (web, all)
+  report:      --no-open
+  dashboard:   --target-port N
+  rules list:  --language <name>
+  history clear:     --all  --repo owner/name
+  baseline set:      --from-current
+  advisories update: --force
 ```
 
 | Command                   | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
@@ -182,7 +203,9 @@ Usage:
 
 `pgard rules list --language <lang>` shows only the rules for that language; rules that apply to any language (Git history and local HTTP rules) are always included, and `--language react` or `vue` also includes the JavaScript/TypeScript rules.
 
-Every command also has its own help, for example `pgard scan --help` or `pgard login --help`. `pgard scan --help` prints (excerpt):
+**What `pgard scan` does with no options.** It checks the current code and configuration and the Git history of the repository (not a local web service), after the authorization checks. The result is printed as text in your language (in a terminal, the full-screen panel view opens by itself after it), nothing is written into the repository and no report file is saved. A finished scan of a verified repository is stored in the app-data folder on this computer (last 20 scans per repository, 90 days; never uploaded), and the next scan only looks at what changed since it. `--full` scans everything again, `--no-store` keeps nothing, `--report` with `--output-dir` saves a report, and `scan web` or `scan all` add the local HTTP service.
+
+Every command and subcommand has its own help (`pgard scan code --help`, `pgard rules list --help`, `pgard login --help`), and `pgard help scan` or `pgard help rules list` does the same. Help is in English only. A test checks that every option a command accepts appears in that command's help. `pgard scan --help` prints (excerpt):
 
 ```text
 Options:

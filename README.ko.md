@@ -112,7 +112,7 @@ npm run pack:pgard   # 빌드 후 .pack/pgard-<버전>.tgz 생성(git 추적 제
 npm run smoke:pack   # 그 tarball을 임시 디렉터리에 설치해 실행
 ```
 
-`smoke:pack`은 `pgard --version`, `--help`, `rules list`, `doctor`를 실행하고, 내장 글꼴로 한국어 PDF를 만들며(대체 글꼴이면 실패), 문법 하나를 불러오고, 대시보드 서버를 시작합니다. CI도 Linux, macOS, Windows에서 같은 단계를 실행합니다.
+`smoke:pack`은 `pgard --version`, `--help`, `scan code --help`, `help scan`, `rules list`, `doctor`를 실행하고, 내장 글꼴로 한국어 PDF를 만들며(대체 글꼴이면 실패), 문법 하나를 불러오고, 대시보드 서버를 시작합니다. CI도 Linux, macOS, Windows에서 같은 단계를 실행합니다.
 
 그다음 검사할 프로젝트의 루트에서 PGARD를 실행합니다.
 
@@ -132,33 +132,54 @@ pgard scan            # code + history
 
 ```text
 Usage:
+  pgard <command> [options]
+  pgard help <command> [<subcommand>]   same as pgard <command> --help
+
+Common commands:
   pgard                         interactive menu (arrow keys, Enter, Esc, ?)
-  pgard project verify          check repository, GitHub identity, owner approval,
-                                current access and merged contribution
-  pgard scan                    code and configuration + Git history
+  pgard scan                    code and configuration + Git history (the default
+                                scan; see "pgard scan --help" for what it does)
   pgard scan code               current code and configuration
   pgard scan history            Git history and tracked files (secrets, risky files)
+  pgard report                  build a report from the last stored scan of this
+                                repository (no new scan) and open it
+  pgard project verify          check repository, GitHub identity, owner approval,
+                                current access and merged contribution
+  pgard login                   sign in to GitHub once and save it in the OS keychain
+  pgard doctor                  diagnose the environment (not an authorization)
+
+Common options:
+  --lang en|ko                  language of the screen, progress and rule texts
+                                (scan, report, rules list)
+  --format text|json|sarif      scan output (scan); html|pdf (report)
+  --report html|pdf|both        save a report after a scan, with --output-dir DIR
+                                (scan only)
+  --output-dir DIR              existing directory for saved reports (scan, report)
+  --no-browser                  print GitHub links instead of opening them
+                                (scan, project verify, login, dashboard)
+  --help                        help for a command, e.g. pgard scan code --help
+
+Advanced commands:
   pgard scan web [--port N]     anonymous read-only checks of a local HTTP service
   pgard scan all [--port N]     code + history + local HTTP service
-  pgard report [--format html|pdf] [--output-dir DIR] [--no-open]
-                                build a report from the last stored scan of this
-                                repository (no new scan) and open it
   pgard dashboard [--target-port N]
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
-                                supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
-                                delete stored scan results (all, or one repository)
   pgard baseline set [--from-current] | show | clear
-                                keep a scan as this repository's baseline; later
-                                scans list matching findings under "In baseline"
-  pgard doctor                  diagnose the environment (not an authorization)
   pgard advisories update       download public OSV vulnerability data (npm, Go)
-                                to this computer; the only non-GitHub download
-  pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard logout                  remove the saved GitHub sign-in from the OS keychain
-  pgard --help | <command> --help
   pgard --version
+
+Advanced options (pgard <command> --help has the details):
+  scan:        --all-findings  --panels  --full  --no-store  --report-lang en|ko
+               --port N (web, all)
+  report:      --no-open
+  dashboard:   --target-port N
+  rules list:  --language <name>
+  history clear:     --all  --repo owner/name
+  baseline set:      --from-current
+  advisories update: --force
 ```
 
 | 명령                      | 역할                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -182,7 +203,9 @@ Usage:
 
 `pgard rules list --language <lang>`은 해당 언어의 규칙만 보여 주며, 언어와 무관한 규칙(Git 이력, 로컬 HTTP 규칙)은 항상 포함되고, `--language react`나 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 
-각 명령에는 자체 도움말도 있습니다. 예: `pgard scan --help`, `pgard login --help`. `pgard scan --help` 출력(발췌):
+**옵션 없는 `pgard scan`의 동작.** 권한 확인 뒤 저장소의 현재 코드와 설정, Git 이력을 검사합니다(로컬 웹 서비스는 검사하지 않습니다). 결과는 텍스트로 출력하고(터미널에서는 이어서 전체 화면 패널 보기가 저절로 열립니다), 저장소 안에는 아무것도 쓰지 않으며 보고서 파일도 저장하지 않습니다. 확인된 저장소의 완료된 검사는 이 컴퓨터의 앱 데이터 폴더에 저장되고(저장소당 최근 20건, 90일, 업로드되지 않음), 다음 검사는 그 이후 바뀐 부분만 봅니다. `--full`은 전부 다시 검사하고, `--no-store`는 아무것도 저장하지 않으며, `--report`와 `--output-dir`은 보고서를 저장하고, `scan web`이나 `scan all`은 로컬 HTTP 서비스를 더합니다.
+
+모든 명령과 하위 명령에는 자체 도움말이 있으며(`pgard scan code --help`, `pgard rules list --help`, `pgard login --help`), `pgard help scan`이나 `pgard help rules list`도 같습니다. 도움말은 영어로만 제공합니다. 명령이 받는 모든 옵션이 그 명령의 도움말에 있는지 테스트가 확인합니다. `pgard scan --help` 출력(발췌):
 
 ```text
 Options:

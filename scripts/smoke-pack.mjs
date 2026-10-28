@@ -116,6 +116,20 @@ try {
       reportHelp.stdout.includes("--no-open"),
     reportHelp.stderr,
   );
+  const subHelp = pgard(["scan", "code", "--help"], { cwd: root });
+  check(
+    "pgard scan code --help",
+    subHelp.status === 0 &&
+      subHelp.stdout.includes("pgard scan") &&
+      subHelp.stdout.includes("--full"),
+    subHelp.stderr,
+  );
+  const helpAlias = pgard(["help", "scan"], { cwd: root });
+  check(
+    "pgard help scan",
+    helpAlias.status === 0 && helpAlias.stdout === subHelp.stdout,
+    helpAlias.stderr,
+  );
   const rules = pgard(["rules", "list"], { cwd: root });
   check("pgard rules list", rules.status === 0 && rules.stdout.includes("PG-"), rules.stderr);
   // PGARD_SMOKE_SKIP_DOCTOR=1 is for a developer machine whose keychain doctor would read.
