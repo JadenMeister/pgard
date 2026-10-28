@@ -6,6 +6,9 @@ import { findGitRoot } from "./git-root.js";
 import { parseGitHubRemoteUrl, readGitHubRemote } from "./remote.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
+const REWRITE_CONFIG = '[url "git@evil.example.com:"]\n\tinsteadOf = https://github.com/\n';
+const REMOTE_CONFIG = '[remote "mirror"]\n\turl = https://gitlab.com/x/y.git\n';
+
 describe("parseGitHubRemoteUrl", () => {
   it.each([
     ["https://github.com/octo/app.git", { owner: "octo", name: "app" }],
@@ -95,6 +98,62 @@ describe("readGitHubRemote", () => {
     const result = await readGitHubRemote(fixture.root);
     expect(result.isResolved).toBe(false);
     expect(JSON.stringify(result)).not.toContain("hunter2");
+  });
+
+  it("blocks url.*.insteadOf rewrites that would change the remote host", async () => {
+    fixture = createGitFixture({ remotes: { origin: "git@evil.example.com:victim/repo.git" } });
+    fixture.git("config", "url.git@evil.example.com:.insteadOf", "https://github.com/");
+    fixture.git("config", "remote.origin.url", "https://github.com/victim/repo.git");
+    const result = await readGitHubRemote(fixture.root);
+    expect(result.isResolved).toBe(false);
+    expect(!result.isResolved && result.reason).toMatch(/insteadOf/);
+  });
+
+  it("blocks url.*.insteadOf even when the raw URL is not the rewritten target", async () => {
+    fixture = createGitFixture({ remotes: { origin: "gh:victim/repo.git" } });
+    fixture.git("config", "url.https://github.com/.insteadOf", "gh:");
+    const result = await readGitHubRemote(fixture.root);
+    expect(result.isResolved).toBe(false);
+    expect(!result.isResolved && result.reason).toMatch(/insteadOf/);
+  });
+
+  it("blocks url.*.pushInsteadOf rewrites", async () => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    fixture.git("config", "url.git@evil.example.com:.pushInsteadOf", "https://github.com/");
+    const result = await readGitHubRemote(fixture.root);
+    expect(result.isResolved).toBe(false);
+    expect(!result.isResolved && result.reason).toMatch(/insteadOf/i);
+  });
+
+  it("blocks a rewrite defined in an included config file", async () => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    fixture.writeFile(".git/extra.cfg", REWRITE_CONFIG);
+    fixture.git("config", "include.path", "extra.cfg");
+    const result = await readGitHubRemote(fixture.root);
+    expect(result.isResolved).toBe(false);
+    expect(!result.isResolved && result.reason).toMatch(/insteadOf/);
+  });
+
+  it("blocks a rewrite in a conditional include", async () => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    fixture.writeFile(".git/extra.cfg", REWRITE_CONFIG);
+    fixture.git("config", "includeIf.gitdir:**.path", "extra.cfg");
+    const result = await readGitHubRemote(fixture.root);
+    expect(result.isResolved).toBe(false);
+    expect(!result.isResolved && result.reason).toMatch(/insteadOf/);
+  });
+
+  it("reads remote URLs defined in an included config file", async () => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    fixture.writeFile(".git/extra.cfg", REMOTE_CONFIG);
+    fixture.git("config", "include.path", "extra.cfg");
+    expect((await readGitHubRemote(fixture.root)).isResolved).toBe(false);
+  });
+
+  it("is unaffected by an unrelated url.* setting", async () => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    fixture.git("config", "url.https://github.com/.foo", "bar");
+    expect((await readGitHubRemote(fixture.root)).isResolved).toBe(true);
   });
 
   it("rejects repositories without remotes", async () => {

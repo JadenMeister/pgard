@@ -1,15 +1,19 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { runGit as defaultRunGit, type GitRunner } from "./run-git.js";
+import { readSmallRegularFile } from "./safe-read.js";
 
 export type RepositoryIsolation = { isIsolated: true } | { isIsolated: false; reason: string };
 
-async function hasContent(filePath: string): Promise<boolean> {
-  try {
-    return (await readFile(filePath, "utf8")).trim().length > 0;
-  } catch {
-    return false;
-  }
+/** Alternates and grafts hold a few short lines; anything bigger is not a normal repository. */
+const MAX_METADATA_BYTES = 64 * 1024;
+
+type Probe = "empty" | "content" | "unsafe";
+
+async function probeFile(filePath: string): Promise<Probe> {
+  const result = await readSmallRegularFile(filePath, MAX_METADATA_BYTES);
+  if (result.state === "absent") return "empty";
+  if (result.state === "unsafe") return "unsafe";
+  return result.text.trim().length > 0 ? "content" : "empty";
 }
 
 /**
@@ -39,7 +43,14 @@ export async function readRepositoryIsolation(
     [path.join("objects", "info", "http-alternates"), "object alternates"],
     [path.join("info", "grafts"), "grafts"],
   ] as const) {
-    if (await hasContent(path.join(commonDir, relative))) {
+    const probe = await probeFile(path.join(commonDir, relative));
+    if (probe === "unsafe") {
+      return {
+        isIsolated: false,
+        reason: `The repository's ${relative.split(path.sep).join("/")} could not be read safely (it is a symbolic link, not a regular file, too large or unreadable), so its ${label} can't be ruled out. Remove it or replace it with a regular file, or use a normal clone, and check again.`,
+      };
+    }
+    if (probe === "content") {
       return {
         isIsolated: false,
         reason: `The repository uses ${label}, so its objects or history may come from elsewhere; this is not supported.`,

@@ -29,6 +29,7 @@ export type GitSubcommand =
   | "rev-parse"
   | "remote"
   | "remote get-url"
+  | "config"
   | "rev-list"
   | "cat-file"
   | "ls-tree"
@@ -78,6 +79,7 @@ const SUBCOMMAND_ARGS: Record<GitSubcommand, readonly string[]> = {
   "rev-parse": ["rev-parse"],
   remote: ["remote"],
   "remote get-url": ["remote", "get-url"],
+  config: ["config"],
   "rev-list": ["rev-list"],
   "cat-file": ["cat-file"],
   "ls-tree": ["ls-tree"],
@@ -92,6 +94,7 @@ const METADATA_ONLY: ReadonlySet<GitSubcommand> = new Set([
   "rev-parse",
   "remote",
   "remote get-url",
+  "config",
   "for-each-ref",
 ]);
 
@@ -123,6 +126,8 @@ const ALLOWED_FLAGS: Record<GitSubcommand, readonly FlagRule[]> = {
   ],
   remote: [],
   "remote get-url": ["--all", "--push"],
+  // Read-only lookup of raw config values (`remote get-url` applies `url.*.insteadOf`).
+  config: ["--null", "--get-regexp"],
   "rev-list": [
     "--all",
     "--first-parent",
@@ -208,6 +213,12 @@ const BASE_HARDENING_ARGS: readonly string[] = [
   "gpg.ssh.allowedSignersFile=",
   "-c",
   "protocol.allow=never",
+  "-c",
+  "core.alternateRefsCommand=",
+  "-c",
+  "credential.helper=",
+  "-c",
+  "core.sshCommand=",
   "--no-pager",
 ];
 
@@ -238,6 +249,7 @@ export function buildGitEnv(source: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   env.GIT_CONFIG_NOSYSTEM = "1";
   env.GIT_CONFIG_GLOBAL = GIT_NULL_DEVICE;
   env.GIT_NO_REPLACE_OBJECTS = "1";
+  env.GIT_NO_LAZY_FETCH = "1";
   env.LC_ALL = "C";
   return env;
 }
