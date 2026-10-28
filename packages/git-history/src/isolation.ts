@@ -54,6 +54,38 @@ async function checkMetadataFiles(gitDir: string): Promise<RepositoryIsolation |
   return null;
 }
 
+const MAX_GITFILE_BYTES = 4096;
+
+/**
+ * Checks the metadata files before any Git process starts: Git itself may open an alternates
+ * file, which blocks on a FIFO. Handles a plain `.git` directory and a gitfile (`gitdir: <path>`,
+ * plus the `commondir` of a linked worktree). Returns a blocking result, or `null` when nothing
+ * unsafe was found (the full check, after `rev-parse`, still runs). An unreadable gitfile is left
+ * to Git and the later check.
+ */
+export async function preflightIsolation(projectRoot: string): Promise<RepositoryIsolation | null> {
+  const dotGit = path.join(projectRoot, ".git");
+  const stats = await lstat(dotGit).catch(() => null);
+  if (stats === null) return null;
+  if (stats.isDirectory()) return checkMetadataFiles(dotGit);
+  if (!stats.isFile()) return null;
+  const gitfile = await readSmallRegularFile(dotGit, MAX_GITFILE_BYTES);
+  if (gitfile.state !== "ok") return null;
+  const match = /^gitdir:\s*(.+?)\s*$/m.exec(gitfile.text);
+  if (!match?.[1]) return null;
+  const gitDir = path.resolve(projectRoot, match[1]);
+  const dirs = [gitDir];
+  const commonFile = await readSmallRegularFile(path.join(gitDir, "commondir"), MAX_GITFILE_BYTES);
+  if (commonFile.state === "ok" && commonFile.text.trim().length > 0) {
+    dirs.push(path.resolve(gitDir, commonFile.text.trim()));
+  }
+  for (const dir of dirs) {
+    const blocked = await checkMetadataFiles(dir);
+    if (blocked !== null) return blocked;
+  }
+  return null;
+}
+
 /**
  * Verifies the repository only uses its own objects and real history. Alternates
  * (`objects/info/alternates`, `http-alternates`) would let git read objects from other
@@ -66,14 +98,8 @@ export async function readRepositoryIsolation(
   projectRoot: string,
   runner: GitRunner = defaultRunGit,
 ): Promise<RepositoryIsolation> {
-  // Before any Git process starts: Git itself may open an alternates file, which could block on a
-  // FIFO. A plain `.git` directory is the normal case; a gitfile or worktree is checked below.
-  const dotGit = path.join(projectRoot, ".git");
-  const dotGitStats = await lstat(dotGit).catch(() => null);
-  if (dotGitStats?.isDirectory()) {
-    const early = await checkMetadataFiles(dotGit);
-    if (early !== null) return early;
-  }
+  const early = await preflightIsolation(projectRoot);
+  if (early !== null) return early;
   let commonDir: string;
   try {
     const output = (

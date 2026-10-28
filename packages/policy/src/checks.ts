@@ -4,6 +4,7 @@ import {
   findGitRoot,
   listCommitCandidates,
   readGitHubRemote,
+  preflightIsolation,
   readHeadRevision,
   readRepositoryIsolation,
   type CommitCandidate,
@@ -50,6 +51,11 @@ export async function verifyRepository(
   projectRoot: string,
   runner: GitRunner,
 ): Promise<RepositoryCheckResult> {
+  // Before any Git process: Git may open an alternates file, which would block on a FIFO.
+  const preflight = await preflightIsolation(projectRoot);
+  if (preflight !== null && !preflight.isIsolated) {
+    return { check: failed(preflight.reason), repo: null, revision: null };
+  }
   const gitRoot = await findGitRoot(projectRoot, runner);
   if (gitRoot === null) {
     return {

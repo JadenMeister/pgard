@@ -34,13 +34,17 @@ describe("readSmallRegularFile", () => {
     });
   });
 
-  it("treats a file used as a parent directory (ENOTDIR) as unsafe, not absent", async () => {
-    const dir = temp();
-    writeFileSync(path.join(dir, "parent"), "x");
-    expect(await readSmallRegularFile(path.join(dir, "parent", "child"), 100)).toEqual({
-      state: "unsafe",
-    });
-  });
+  // Windows reports a file used as a parent directory as ENOENT.
+  it.skipIf(process.platform === "win32")(
+    "treats a file used as a parent directory (ENOTDIR) as unsafe, not absent",
+    async () => {
+      const dir = temp();
+      writeFileSync(path.join(dir, "parent"), "x");
+      expect(await readSmallRegularFile(path.join(dir, "parent", "child"), 100)).toEqual({
+        state: "unsafe",
+      });
+    },
+  );
 
   it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
     "treats an inaccessible parent directory (EACCES) as unsafe, not absent",

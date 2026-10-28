@@ -15,6 +15,22 @@ describe("verifyRepository isolation order", () => {
     fixture = null;
   });
 
+  it("checks isolation before reading HEAD (replace refs block, HEAD is never read)", async () => {
+    fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+    const first = fixture.commit({});
+    const second = fixture.commit({});
+    fixture.git("replace", first, second);
+    const calls: string[] = [];
+    const runner: GitRunner = (invocation, options) => {
+      calls.push(`${invocation.subcommand} ${(invocation.operands ?? []).join(" ")}`);
+      return runGit(invocation, options);
+    };
+    const result = await verifyRepository(fixture.root, runner);
+    expect(result.check.status).toBe("failed");
+    expect(result.check.reason).toMatch(/replace refs/);
+    expect(calls.some((call) => call.includes("HEAD"))).toBe(false);
+  });
+
   it.skipIf(process.platform === "win32")(
     "blocks a FIFO alternates file with the alternates reason before HEAD is read",
     async () => {
@@ -31,7 +47,7 @@ describe("verifyRepository isolation order", () => {
       expect(Date.now() - started).toBeLessThan(4000);
       expect(result.check.status).toBe("failed");
       expect(result.check.reason).toMatch(/alternates/);
-      expect(calls.some((call) => call.includes("HEAD"))).toBe(false);
+      expect(calls).toEqual([]);
     },
   );
 });
