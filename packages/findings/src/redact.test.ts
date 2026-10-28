@@ -5,6 +5,8 @@ import {
   createSessionSecretLabeler,
   redactEvidence,
   redactFinding,
+  redactLocationPath,
+  stringifyJsonSafely,
   redactSecrets,
 } from "./redact.js";
 
@@ -257,6 +259,16 @@ describe("redactFinding locations (#54)", () => {
     expect(absolute.location.path).toBeNull();
   });
 
+  it("marks C1, bidi and invisible characters in paths as visible escapes (#368)", () => {
+    const result = redactFinding({
+      ...base,
+      location: { ...base.location, path: "src/a\u009b31m\u202egnp.js\u2066\u200b\u061c\n.ts" },
+    });
+    // Secret masking already drops zero-width characters; the others are marked.
+    expect(result.location.path).toBe("src/a\\u009b31m\\u202egnp.js\\u2066\\u061c\\u000a.ts");
+    expect(redactLocationPath("src/plain/file.ts")).toBe("src/plain/file.ts");
+  });
+
   it("scrubs home paths and secrets from URLs", () => {
     const result = redactFinding({
       ...base,
@@ -363,5 +375,20 @@ describe("redaction performance (#55)", () => {
     const output = redactSecrets(input);
     expect(output.length).toBeLessThanOrEqual(64 * 1024 + 2);
     expect(output).not.toContain("ghp_k");
+  });
+});
+
+describe("stringifyJsonSafely (#368)", () => {
+  it("escapes the characters JSON.stringify leaves raw and parses back to the same value", () => {
+    const value = {
+      path: "a\u007f\u0085\u009f\u061c\u200b\u200f\u2028\u2029\u202a\u202e\u2066\u2069z",
+      n: 1,
+    };
+    const text = stringifyJsonSafely(value, 2);
+    expect(text).not.toMatch(/[\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069]/);
+    expect(text).toContain("\\u0085");
+    expect(text).toContain("\\u202e");
+    expect(JSON.parse(text)).toEqual(value);
+    expect(stringifyJsonSafely({ a: "plain" })).toBe(JSON.stringify({ a: "plain" }));
   });
 });

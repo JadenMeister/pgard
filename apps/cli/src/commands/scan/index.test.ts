@@ -748,6 +748,21 @@ describe("runScanCommand reports", () => {
       expect(captured.stderr()).toContain("Scanning (code)");
     });
 
+    it("escapes C1, bidi and invisible characters as \\uXXXX on stdout", async () => {
+      const captured = createTestIo();
+      const hostile = "a\u009b31mb\u202ec\u2066d\u200be\u061cf\u2028g";
+      const result = testResult({ findings: [testFinding({ evidence: hostile })] });
+      await runScanCommand(
+        createTestContext(captured, createTestDeps({ runScan: async () => result })),
+        JSON_SCAN,
+      );
+      const stdout = captured.stdout();
+      expect(stdout).not.toMatch(/[\u0080-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069]/);
+      expect(stdout).toContain("a\\u009b31mb\\u202ec\\u2066d\\u200be\\u061cf\\u2028g");
+      // Still the same value once parsed.
+      expect(JSON.parse(stdout).findings[0].evidence).toBe(hostile);
+    });
+
     it("keeps the exit code of the scan status and prints a blocked result too", async () => {
       const captured = createTestIo();
       const code = await runScanCommand(

@@ -131,6 +131,21 @@ describe("save and list", () => {
     expect(text).not.toContain(base);
   });
 
+  it("writes C1 and bidi characters as \\uXXXX escapes and reads them back (#368)", async () => {
+    const note = "a\u009b31m‮b⁦c";
+    const result = makeResult({
+      coverage: [{ area: "a", scope: "code", status: "completed", ruleIds: [], note }],
+    });
+    const saved = await store.save(result, { repositoryId: REPO_ID });
+    expect(saved.ok).toBe(true);
+    const [file] = await repoFiles();
+    const text = await readFile(path.join(dir, "repos", String(REPO_ID), file ?? ""), "utf8");
+    expect(text).not.toMatch(/[\u0080-\u009f‮⁦]/);
+    expect(text).toContain("a\\u009b31m\\u202eb\\u2066c");
+    const listed = await store.list(REPO_ID);
+    expect(listed.scans[0]?.result.coverage[0]?.note).toBe(note);
+  });
+
   it("refuses a result that contains a forbidden local path", async () => {
     const result = makeResult({
       findings: [],

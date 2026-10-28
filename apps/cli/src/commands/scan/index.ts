@@ -4,6 +4,7 @@ import {
   sarifScanDidNotRun,
   sarifScanIncomplete,
   localizeFindings,
+  stringifyJsonSafely,
   type ConfirmedWebTarget,
   type ScanResult,
   type ScanScope,
@@ -140,7 +141,8 @@ export async function runScanCommand(
       if (command.format === "sarif") warnAboutSarif(context, result);
       const document =
         command.format === "sarif" ? buildSarif(result, getRuleTextCatalog()) : result;
-      context.io.stdout.write(`${JSON.stringify(document, null, 2)}\n`);
+      // Escaped so no repository-controlled text (a file name, a branch) can drive the terminal.
+      context.io.stdout.write(`${stringifyJsonSafely(document, 2)}\n`);
     },
   });
 }
