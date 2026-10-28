@@ -72,8 +72,6 @@ const KNOWN_PUBLIC =
   /^\/(?:swagger-ui|swagger-resources|v[23]\/api-docs|api-docs|error|health|ping|actuator\/health)(?:\b.*)?$/i;
 const VERBS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE"]);
 
-const simpleType = (type: string): string => type.replace(/<.*>/s, "").trim();
-
 /** `AbstractHttpConfigurer::disable`: a method reference to `disable`. */
 function isDisableRef(expr: Expr): boolean {
   if (expr.k === "member") return expr.name === "disable";
@@ -256,18 +254,24 @@ function judgeChain(
   httpParamOf: (method: MethodInfo) => string | null,
 ): void {
   const facts = emptyFacts();
-  const calls: Array<{ call: CallExpr; parent: CallExpr | null; seq: number }> = [];
+  const calls: Array<{
+    call: CallExpr;
+    parent: CallExpr | null;
+    seq: number;
+    /** In an `if`, a loop, a `switch` or `when` arm, or a conditional expression. */
+    conditional: boolean;
+  }> = [];
   const visited = new Set<MethodInfo>();
   /** Local variables of the chain methods, by name (the last initializer wins). */
-  const locals = new Map<string, Expr>();
+  const locals = new Map<string, LocalValues>();
   const collect = (current: MethodInfo, depth: number): void => {
     if (visited.has(current) || depth > 6) return;
     visited.add(current);
     const http = httpParamOf(current);
     walkBody(
       current.body,
-      (call, _context, parent) => {
-        calls.push({ call, parent, seq: calls.length });
+      (call, context, parent) => {
+        calls.push({ call, parent, seq: calls.length, conditional: context.conditional });
         if (http === null) return;
         // The builder is handed to something: follow it when this file defines it.
         if (call.recv === null && passes(call.args, http)) {
@@ -294,16 +298,37 @@ function judgeChain(
           facts.unsupported.add("a custom configurer (apply or with) on the filter chain");
         }
       },
-      (assign) => {
+      (assign, context) => {
         const target = assign.target;
         const name = target.k === "member" || target.k === "id" ? target.name : null;
         if (name === "sessionCreationPolicy") {
           facts.sessionManagement = true;
-          facts.policy = mergePolicy(facts.policy, policyOf(assign.value));
+          facts.policy = mergePolicy(facts.policy, policyOf(assign.value), context.conditional);
+        }
+        // Every assignment to a local counts: a reassigned customizer is not a fixed value.
+        if (target.k === "id") {
+          const known = locals.get(target.name) ?? { values: [], fixed: false };
+          known.values.push(assign.value);
+          known.fixed = false;
+          locals.set(target.name, known);
         }
       },
-      (stmt) => {
-        if (stmt.s === "local" && stmt.init !== null) locals.set(stmt.name, stmt.init);
+      (stmt, context) => {
+        if (stmt.s === "local") {
+          const known = locals.get(stmt.name);
+          if (known === undefined) {
+            // A declaration without a value is filled by later assignments: not fixed.
+            locals.set(
+              stmt.name,
+              stmt.init === null
+                ? { values: [], fixed: false }
+                : { values: [stmt.init], fixed: !context.conditional },
+            );
+          } else {
+            if (stmt.init !== null) known.values.push(stmt.init);
+            known.fixed = false;
+          }
+        }
       },
     );
   };
@@ -322,10 +347,10 @@ function judgeChain(
   }
   const off = (call: CallExpr, parent: CallExpr | null): boolean =>
     parent?.name === "disable" || call.args.some(isDisablingArg);
-  for (const { call, parent } of calls) {
+  for (const { call, parent, conditional } of calls) {
     const name = call.name;
     if (name === "csrf") {
-      csrfFact(unit, call, parent, facts, locals);
+      csrfFact(unit, call, parent, facts, locals, conditional);
     } else if (SESSION_FEATURES.has(name)) {
       if (!off(call, parent)) {
         if (name === "formLogin") facts.formLogin = true;
@@ -336,10 +361,10 @@ function judgeChain(
     } else if (name === "sessionManagement") {
       facts.sessionManagement = true;
     } else if (name === "sessionCreationPolicy") {
-      facts.policy = mergePolicy(facts.policy, policyOf(call.args[0]));
+      facts.policy = mergePolicy(facts.policy, policyOf(call.args[0]), conditional);
     } else if (name === "securityContextRepository") {
       if (namesIn(call.args[0]).some((part) => /NoOp/i.test(part))) {
-        facts.policy = mergePolicy(facts.policy, "stateless");
+        facts.policy = mergePolicy(facts.policy, "stateless", conditional);
       }
     } else if (BEARER_FEATURES.has(name)) {
       if (!off(call, parent)) facts.bearer = true;
@@ -377,7 +402,18 @@ type Customizer = "full" | "conditional" | "none" | "unknown";
  * paths of the code (`flag ? withDefaults() : disable`), leaves it on, or cannot be told.
  * A variable is followed to its initializer in the same chain methods.
  */
-function classifyCustomizer(expr: Expr, locals: ReadonlyMap<string, Expr>, depth = 0): Customizer {
+interface LocalValues {
+  /** The initializer and every later assignment, in source order. */
+  values: Expr[];
+  /** One initializer in straight-line code and no assignment: a fixed value. */
+  fixed: boolean;
+}
+
+function classifyCustomizer(
+  expr: Expr,
+  locals: ReadonlyMap<string, LocalValues>,
+  depth = 0,
+): Customizer {
   if (depth > 4) return "unknown";
   if (isDisableRef(expr)) return "full";
   if (expr.k === "lambda") {
@@ -392,8 +428,13 @@ function classifyCustomizer(expr: Expr, locals: ReadonlyMap<string, Expr>, depth
     return kinds.every((kind) => kind === "none") ? "none" : "unknown";
   }
   if (expr.k === "id") {
-    const init = locals.get(expr.name);
-    return init === undefined ? "unknown" : classifyCustomizer(init, locals, depth + 1);
+    const known = locals.get(expr.name);
+    if (known === undefined) return "unknown";
+    const kinds = known.values.map((value) => classifyCustomizer(value, locals, depth + 1));
+    if (known.fixed && kinds.length === 1) return kinds[0] as Customizer;
+    // Reassigned, or assigned in a branch: which value reaches `csrf(...)` is not fixed.
+    if (kinds.some((kind) => kind === "full" || kind === "conditional")) return "conditional";
+    return kinds.every((kind) => kind === "none") ? "none" : "unknown";
   }
   if (isCall(expr)) {
     // `Customizer.withDefaults()` keeps the defaults; Kotlin `Customizer { it.disable() }`.
@@ -411,12 +452,18 @@ function csrfFact(
   call: CallExpr,
   parent: CallExpr | null,
   facts: ChainFacts,
-  locals: ReadonlyMap<string, Expr>,
+  locals: ReadonlyMap<string, LocalValues>,
+  conditional: boolean,
 ): void {
   const line = call.line;
   if (call.args.length === 0) {
     if (parent?.name === "disable") {
-      facts.csrfDisabled.push({ line, call, kind: "full", paths: [] });
+      facts.csrfDisabled.push({
+        line,
+        call,
+        kind: conditional ? "conditional" : "full",
+        paths: [],
+      });
     } else if (parent !== null && IGNORING.test(parent.name)) {
       const { paths, all } = ignoredPaths(unit, [parent]);
       facts.csrfDisabled.push({ line, call, kind: all ? "full" : "partial", paths });
@@ -425,7 +472,8 @@ function csrfFact(
   }
   const kinds = call.args.map((arg) => classifyCustomizer(arg, locals));
   if (kinds.includes("full")) {
-    facts.csrfDisabled.push({ line, call, kind: "full", paths: [] });
+    // A disable that only runs in a branch is not a fixed disable.
+    facts.csrfDisabled.push({ line, call, kind: conditional ? "conditional" : "full", paths: [] });
     return;
   }
   if (kinds.includes("conditional")) {
@@ -436,13 +484,14 @@ function csrfFact(
   const lambdas = call.args.flatMap((arg) => {
     if (arg.k === "lambda") return [arg];
     // A customizer variable or a conditional of lambdas: look at the lambdas it can be.
-    const resolved = arg.k === "id" ? locals.get(arg.name) : arg;
-    const options =
-      resolved?.k === "cond"
+    const resolvedAll = arg.k === "id" ? (locals.get(arg.name)?.values ?? []) : [arg];
+    const options = resolvedAll.flatMap((resolved) =>
+      resolved.k === "cond"
         ? [resolved.a, resolved.b]
-        : resolved?.k === "alt"
+        : resolved.k === "alt"
           ? resolved.options
-          : [resolved];
+          : [resolved],
+    );
     return options.filter(
       (option): option is Extract<Expr, { k: "lambda" }> => option?.k === "lambda",
     );
@@ -466,10 +515,12 @@ function csrfFact(
 function mergePolicy(
   previous: ChainFacts["policy"],
   next: "stateless" | "session" | "unknown",
+  conditional: boolean,
 ): ChainFacts["policy"] {
-  // Spring uses the last setter, so the last call wins; an unknown value is unknown.
+  // Spring uses the last setter, so the last call wins. A setter that only runs in a branch does
+  // not fix the policy: it is unknown.
   void previous;
-  return next;
+  return conditional ? "unknown" : next;
 }
 
 function csrfFinding(facts: ChainFacts, fact: Fact, findings: ConfigFinding[]): void {

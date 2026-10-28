@@ -455,3 +455,110 @@ describe("review round 3", () => {
     });
   });
 });
+
+describe("review round 4", () => {
+  const CUSTOM = "Customizer<CsrfConfigurer<HttpSecurity>>";
+  it("a reassigned customizer variable is not read at its first value (Java)", async () => {
+    expect(
+      await csrf(
+        `${CUSTOM} custom = Customizer.withDefaults();\n    if (legacy) { custom = AbstractHttpConfigurer::disable; }\n    http.csrf(custom).formLogin();`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `${CUSTOM} custom = Customizer.withDefaults();\n    custom = AbstractHttpConfigurer::disable;\n    http.csrf(custom).formLogin();`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `${CUSTOM} custom = AbstractHttpConfigurer::disable;\n    custom = Customizer.withDefaults();\n    http.csrf(custom).formLogin();`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `${CUSTOM} custom = Customizer.withDefaults();\n    custom = Customizer.withDefaults();\n    http.csrf(custom).formLogin();`,
+      ),
+    ).toBe("none");
+    // One straight-line assignment is still fixed.
+    expect(
+      await csrf(`${CUSTOM} custom = c -> c.disable();\n    http.csrf(custom).formLogin();`),
+    ).toBe("medium/medium");
+    // A declaration inside a branch is not fixed.
+    expect(
+      await csrf(
+        `${CUSTOM} custom;\n    if (legacy) { ${CUSTOM} inner = AbstractHttpConfigurer::disable; custom = inner; } else { custom = Customizer.withDefaults(); }\n    http.csrf(custom).formLogin();`,
+      ),
+    ).toBe("medium/low/inferred");
+  });
+  it("a reassigned customizer variable (Kotlin var)", async () => {
+    const kotlin = (body: string) =>
+      `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity, legacy: Boolean): SecurityFilterChain {\n${body}\n    return http.build()\n  }\n}\n`;
+    const result = async (body: string) =>
+      kind(of((await run(kotlin(body), "C.kt")).findings, "PG-CSRF-001"));
+    expect(
+      await result(
+        "    var custom = Customizer.withDefaults<CsrfConfigurer<HttpSecurity>>()\n    if (legacy) { custom = Customizer { it.disable() } }\n    http.csrf(custom)\n    http.formLogin()",
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await result(
+        "    var custom = Customizer.withDefaults<CsrfConfigurer<HttpSecurity>>()\n    custom = Customizer { it.disable() }\n    http.csrf(custom)\n    http.formLogin()",
+      ),
+    ).toBe("medium/low/inferred");
+  });
+
+  it("a session policy set only in a branch is not fixed (Java)", async () => {
+    const bearer = ".oauth2ResourceServer(o -> o.jwt())";
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(s -> { if (api) s.sessionCreationPolicy(SessionCreationPolicy.STATELESS); })${bearer};`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable())${bearer};\n    if (api) { http.sessionManagement(${STATELESS}); }`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(s -> s.sessionCreationPolicy(api ? SessionCreationPolicy.STATELESS : SessionCreationPolicy.IF_REQUIRED))${bearer};`,
+      ),
+    ).toBe("medium/low/inferred");
+  });
+  it("a session policy set only in a branch is not fixed (Kotlin DSL)", async () => {
+    const source =
+      "import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity, api: Boolean): SecurityFilterChain = http {\n    csrf { disable() }\n    sessionManagement {\n      if (api) { sessionCreationPolicy = SessionCreationPolicy.STATELESS }\n    }\n    oauth2ResourceServer { jwt { } }\n  }\n}\n";
+    expect(kind(of((await run(source, "C.kt")).findings, "PG-CSRF-001"))).toBe(
+      "medium/low/inferred",
+    );
+    const fixed = source.replace(
+      "if (api) { sessionCreationPolicy = SessionCreationPolicy.STATELESS }",
+      "sessionCreationPolicy = SessionCreationPolicy.STATELESS",
+    );
+    expect(kind(of((await run(fixed, "C.kt")).findings, "PG-CSRF-001"))).toBe("none");
+  });
+
+  it("a disable inside an if statement is low (m1)", async () => {
+    expect(await csrf("if (apiOnly) http.csrf(c -> c.disable());\n    http.formLogin();")).toBe(
+      "medium/low/inferred",
+    );
+    expect(await csrf("if (apiOnly) { http.csrf().disable(); }\n    http.formLogin();")).toBe(
+      "medium/low/inferred",
+    );
+    expect(await csrf("http.csrf(c -> c.disable());\n    http.formLogin();")).toBe("medium/medium");
+  });
+
+  it("a later non-fixed or non-STATELESS policy overrides STATELESS (M08b)", async () => {
+    const bearer = ".oauth2ResourceServer(o -> o.jwt())";
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(${STATELESS}).sessionManagement(s -> s.sessionCreationPolicy(policy))${bearer};`,
+      ),
+    ).toBe("medium/low/inferred");
+    expect(
+      await csrf(
+        `http.csrf(c -> c.disable()).sessionManagement(${STATELESS}).sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))${bearer};`,
+      ),
+    ).toBe("medium/medium");
+  });
+});
