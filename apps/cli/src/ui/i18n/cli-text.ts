@@ -194,6 +194,15 @@ export interface CliText {
     notCompared: string;
   };
 
+  // --- Offer of a detected local web service (interactive `pgard scan`) ---------------
+  webOffer: {
+    /** Where the question is followed by `[y/N]`; `label` is "URL (title)" or just the URL. */
+    askOne: (label: string) => string;
+    pickTitle: string;
+    none: string;
+    help: string;
+  };
+
   // --- Progress, status lines and notices ---------------------------------------------
   progress: {
     scanning: (scopes: string) => string;
@@ -500,6 +509,14 @@ const EN: CliText = {
     },
     skippedStored: (count) => `${count} more stored result(s) were skipped and not compared.`,
     notCompared: "The previous scan could not be compared.",
+  },
+  webOffer: {
+    askOne: (label) => `Also scan ${label} (web checks)?`,
+    pickTitle: "Local web services found. Also scan one of them?",
+    none: "No, do not scan a web service",
+    help: `PGARD found local web servers on 127.0.0.1. Web checks are optional.
+- Choosing one still asks you to confirm it is this project's service.
+- Enter on "No" (or Esc) skips web checks. Nothing is sent to a service until you confirm.`,
   },
   progress: {
     scanning: (scopes) => `Scanning (${scopes})... Press Ctrl+C twice to cancel.`,
@@ -827,6 +844,14 @@ const KO: CliText = {
     },
     skippedStored: (count) => `저장된 결과 ${count}개는 건너뛰어 비교하지 않았습니다.`,
     notCompared: "지난 검사와 비교할 수 없었습니다.",
+  },
+  webOffer: {
+    askOne: (label) => `${label}도 함께 검사할까요(웹 검사)?`,
+    pickTitle: "로컬 웹 서비스를 찾았습니다. 하나를 함께 검사할까요?",
+    none: "아니요, 웹 서비스는 검사하지 않음",
+    help: `127.0.0.1에서 로컬 웹 서버를 찾았습니다. 웹 검사는 선택 사항입니다.
+- 하나를 고르면 이 프로젝트의 서비스가 맞는지 다시 확인합니다.
+- "아니요"에서 Enter(또는 Esc)를 누르면 웹 검사를 건너뜁니다. 확인하기 전에는 서비스에 아무것도 보내지 않습니다.`,
   },
   progress: {
     scanning: (scopes) => `검사 중 (${scopes})... 취소하려면 Ctrl+C를 두 번 누르세요.`,

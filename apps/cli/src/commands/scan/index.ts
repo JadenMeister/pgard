@@ -30,6 +30,7 @@ import {
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { getRuleTextCatalog } from "../../rule-texts.js";
+import { offerWebTarget, shouldOfferWebTarget } from "../../flows/offer-web-target.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
 import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
 import { createIncrementalHandle } from "../../flows/incremental.js";
@@ -213,7 +214,7 @@ async function runScanFlow(
   const isJson = isMachineFormat(command.format);
   // Fixed screen text in the terminal language; machine-format output is never translated.
   const text = cliText(context.ruleLocale);
-  const scopes = SCOPES_BY_VARIANT[command.variant];
+  let scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
     err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
@@ -273,6 +274,34 @@ async function runScanFlow(
         throw new UserCancelledError();
       }
       if (selection.kind === "confirmed") webTarget = selection.target;
+    }
+  } else if (
+    command.setBaseline !== true &&
+    shouldOfferWebTarget(context, {
+      isDefaultScope: command.variant === "default",
+      hasPort: command.port !== null,
+      isMachineFormat: isJson,
+    })
+  ) {
+    // Interactive `pgard scan` with no scope or port: offer detected local servers. Listing the
+    // ports is local; a port is only probed once the gate allows the project, as for `--port`.
+    let isAllowed = false;
+    const offered = await offerWebTarget(context, {
+      beforeProbe: async () => {
+        suspendKeys(context);
+        const outcome = await context.deps.verifyProject(projectRoot, authorization);
+        isAllowed = outcome.summary.decision === "allowed";
+        return isAllowed;
+      },
+    });
+    throwIfCancelled(context);
+    if (offered !== null && isAllowed) {
+      // The same identity check and explicit `y` as `--port`; nothing is weaker here.
+      const selection = await selectLocalPort(context, offered);
+      if (selection.kind === "confirmed") {
+        webTarget = selection.target;
+        scopes = [...scopes, "web"];
+      }
     }
   }
 

@@ -410,6 +410,13 @@ describe("runScanCommand", () => {
             request = scanRequest;
             return testResult({ overallStatus: "partial" });
           },
+          discoverListeningPorts: async () => ({
+            ports: [{ port: 3000, processName: "node" }],
+            method: "lsof",
+            isComplete: false,
+            isAvailable: true,
+            note: null,
+          }),
         }),
         // Enter = N on the preset port; then pick "Continue without web checks" (3rd item).
         scriptedKeys(["return", "down", "down", "return"]),
