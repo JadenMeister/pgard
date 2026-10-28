@@ -1,7 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
-import { ReportWriteError, type ReportFormat } from "@pgard/report";
+import { ReportWriteError, type ReportFormat, type WrittenReport } from "@pgard/report";
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
 import { BACK, promptChoice, promptConfirm, promptText } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
@@ -62,6 +62,8 @@ export async function saveReports(
    * skipped this way.
    */
   savedPaths?: Set<string>,
+  /** Filled by the call: the files written (or skipped) and the code of a write failure. */
+  outcome?: { written: WrittenReport[]; errorCode?: string },
 ): Promise<boolean> {
   const text = cliText(context.ruleLocale).commands.report;
   try {
@@ -72,6 +74,7 @@ export async function saveReports(
       ...(context.reportLocale === undefined ? {} : { lang: context.reportLocale }),
       ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),
     });
+    outcome?.written.push(...written);
     for (const entry of written) {
       if (entry.skipped === true) {
         out(context, text.alreadySaved(safeText(entry.filePath, 500)));
@@ -87,6 +90,7 @@ export async function saveReports(
     }
     return true;
   } catch (error) {
+    if (outcome !== undefined && error instanceof ReportWriteError) outcome.errorCode = error.code;
     const message = error instanceof ReportWriteError ? error.message : text.unexpectedWriteError;
     err(context, context.errStyle.red(text.notSaved(safeText(message, 500))));
     return false;

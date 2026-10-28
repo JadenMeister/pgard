@@ -1,5 +1,9 @@
 import { execFile, spawn } from "node:child_process";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { openLocalFile } from "./adapters/open-file.js";
 import { readAdvisoryStatus, updateOsvData } from "@pgard/dependencies";
 import {
   discoverListeningPorts,
@@ -74,6 +78,16 @@ export interface CliDeps {
   probeLocalService: (port: number) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
   writeReports: typeof writeReports;
+  /**
+   * Opens a report file (an absolute `.html` or `.pdf` path) with the system's default program
+   * (fixed argv, no shell). Resolves `false` when nothing was opened; never rejects.
+   */
+  openLocalFile: (filePath: string) => Promise<boolean>;
+  /**
+   * Creates a fresh private directory (`mkdtemp`, mode 0700) for one `pgard report` run that has
+   * no `--output-dir`. Rejects when it cannot be created.
+   */
+  makeReportDir: () => Promise<string>;
   isPathInsideDirectory: typeof isPathInsideDirectory;
   /** Absolute path of the installed local-web launcher, or `null` if it is not installed. */
   resolveDashboardEntry: () => string | null;
@@ -198,6 +212,11 @@ function openResultStoreDefault(
   return dir === null ? null : createResultStore({ dir });
 }
 
+/** A new private directory (mode 0700 on POSIX) under the system temporary directory. */
+export function makeReportDirDefault(): Promise<string> {
+  return mkdtemp(path.join(tmpdir(), "pgard-report-"));
+}
+
 export function createDefaultDeps(): CliDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
@@ -225,6 +244,8 @@ export function createDefaultDeps(): CliDeps {
     probeLocalService: (port) => probeLocalService(port),
     discoverListeningPorts: () => discoverListeningPorts(),
     writeReports,
+    openLocalFile: (filePath) => openLocalFile(filePath),
+    makeReportDir: makeReportDirDefault,
     isPathInsideDirectory,
     resolveDashboardEntry: resolveDashboardEntryDefault,
     startDashboardProcess: startDashboardProcessDefault,

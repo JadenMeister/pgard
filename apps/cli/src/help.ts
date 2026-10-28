@@ -40,6 +40,9 @@ Usage:
   pgard scan history            Git history and tracked files (secrets, risky files)
   pgard scan web [--port N]     anonymous read-only checks of a local HTTP service
   pgard scan all [--port N]     code + history + local HTTP service
+  pgard report [--format html|pdf] [--output-dir DIR] [--no-open]
+                                build a report from the last stored scan of this
+                                repository (no new scan) and open it
   pgard dashboard [--target-port N]
                                 start the local web dashboard
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
@@ -157,6 +160,45 @@ time limits. GET requests can still change state in some applications.
 Authenticated browsing is not available in this MVP.
 
 ${EXIT_CODE_HELP}`,
+  report: `Usage:
+  pgard report [--format html|pdf] [--output-dir DIR] [--no-open] [--lang en|ko]
+
+Builds an HTML (default) or PDF report from the last scan stored for this
+repository and opens it. It does not scan again and uploads nothing; the
+repository checks contact GitHub, as for pgard baseline.
+The repository is identified the way pgard baseline and the panel view do it: the
+repository checks run first, and only a result stored under this repository's
+GitHub id is read. If the repository cannot be verified, nothing is read (exit 3).
+
+Options:
+  --format html|pdf        report format (default html)
+  --output-dir DIR         existing directory for the report. Files have fixed
+                           names (pgard-report-<time>-<scan>), are created with
+                           mode 0600 and never overwritten; a directory inside
+                           the Git repository needs explicit confirmation.
+                           Without it, each run writes into a new private
+                           directory (mode 0700) under the system temporary
+                           directory and prints its path. Browsers installed as
+                           snap packages on Linux may not be able to read /tmp:
+                           use --output-dir ~/Downloads (or similar) then
+  --no-open                write the file and print its path without opening it.
+                           Without a terminal, and when CI, GITHUB_ACTIONS,
+                           BUILDKITE, TF_BUILD or JENKINS_URL is set or TERM=dumb,
+                           the report is never opened
+  --lang en|ko             language of messages and of the report (default:
+                           PGARD_LANG, then the system locale, then en)
+
+If HEAD has moved since the stored scan, a one-line note says so; the report
+header shows the scan time and the commit it covers.
+
+Exit codes:
+  0    report written
+  2    invalid option, no stored scan (run pgard scan first), or PGARD_NO_STORE=1
+  3    not a Git repository, or the repository could not be verified
+  4    the report could not be written
+  5    internal error
+  130  cancelled
+`,
   dashboard: `Usage:
   pgard dashboard [--target-port N] [--no-browser]
 
