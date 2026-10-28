@@ -18,6 +18,7 @@ import {
 
 export type { GeneratedDirectoryReason };
 
+import { SPRING_CONFIG_NAME } from "./jvm/spring-config.js";
 import {
   TREE_SITTER_EXTENSIONS,
   TREE_SITTER_LANGUAGES,
@@ -74,6 +75,13 @@ export interface WalkResult {
    * use Thymeleaf. Not counted against `MAX_FILES`.
    */
   templateFiles: TrackedFile[];
+  /**
+   * Spring Boot configuration files (`application.properties`, `application-*.yml`, ...). The
+   * scan reads them only in a Java or Kotlin project. Not counted against `MAX_FILES`.
+   */
+  springConfigFiles: TrackedFile[];
+  /** The Spring configuration file list reached its cap. */
+  springConfigTruncated: boolean;
   /** The template list reached its cap (kept apart from `trackTruncated`, which is about source files). */
   templatesTruncated: boolean;
   /** True when a track list reached `MAX_TRACK_FILES` and further files were not listed. */
@@ -167,6 +175,8 @@ export const MAX_FILES = 20_000;
 /** Cap per tree-sitter language and for manifests. */
 export const MAX_TRACK_FILES = 20_000;
 export const MAX_TRACK_MANIFESTS = 200;
+/** Spring configuration files listed by the walk. */
+export const MAX_SPRING_CONFIG_FILES = 2_000;
 
 /** Server-side template files of the Java stack (the XSS rule reads some, reports the rest). */
 const TEMPLATE_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -250,6 +260,8 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
     trackManifests: [],
     xmlFiles: [],
     templateFiles: [],
+    springConfigFiles: [],
+    springConfigTruncated: false,
     templatesTruncated: false,
     trackTruncated: false,
     packageJsonPaths: [],
@@ -384,6 +396,19 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
         }
         // `setup.py` is both a manifest and Python source, so there is no `continue` here.
       }
+      if (SPRING_CONFIG_NAME.test(entry.name)) {
+        const stats = await lstat(absolutePath).catch(() => null);
+        // Build output holds copies of the source tree's configuration.
+        const skipped = relativePath.split("/").some((part) => part === "target");
+        if (stats?.isFile() && !skipped) {
+          if (result.springConfigFiles.length >= MAX_SPRING_CONFIG_FILES) {
+            result.springConfigTruncated = true;
+          } else {
+            result.springConfigFiles.push({ absolutePath, relativePath, size: stats.size });
+          }
+        }
+        continue;
+      }
       if (path.extname(entry.name) === ".xml" && entry.name !== "pom.xml") {
         // Android resources and build output hold no MyBatis mappers; they are counted, not read.
         const skipped = relativePath.split("/").some((part) => part === "res" || part === "target");
@@ -466,6 +491,7 @@ function finishTrack(result: WalkResult): void {
   result.trackManifests.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   result.xmlFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   result.templateFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  result.springConfigFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
 /** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */

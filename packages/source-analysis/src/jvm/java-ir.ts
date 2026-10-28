@@ -320,6 +320,8 @@ export function convertJava(ast: AstResult): Unit {
         if (node.type === "true" || node.type === "false") {
           return { k: "lit", line, raw: node.type };
         }
+        // The text of an integer literal is kept (a cookie `setMaxAge(0)` clears the cookie).
+        if (node.type === "decimal_integer_literal") return { k: "lit", line, raw: text(node) };
         if (LITERAL_TYPES.has(node.type)) return { k: "lit", line };
         return other(node, depth);
     }
@@ -618,7 +620,11 @@ export function convertJava(ast: AstResult): Unit {
             s: "exit",
             line,
             value: inner === undefined ? null : expr(inner, depth + 1),
-            ...(node.type === "return_statement" ? { ret: true } : {}),
+            ...(node.type === "return_statement"
+              ? { ret: true }
+              : node.type === "throw_statement"
+                ? { throw: true }
+                : {}),
           },
         ];
       }

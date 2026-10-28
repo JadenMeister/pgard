@@ -98,6 +98,11 @@ export const RULE_LOCALITY: Readonly<Record<string, RuleLocalityEntry>> = {
     reason:
       "Needs the session setup, CORS and CSRF-library imports of every file plus package.json dependencies: a change in any file or manifest can add or remove the finding.",
   },
+  "PG-CONF-001": {
+    locality: "project-wide",
+    reason:
+      "Reads Spring configuration files and reports Actuator exposure only when no Java or Kotlin file or build manifest of the project shows Spring Security.",
+  },
   "PG-BRUTE-001": {
     locality: "project-wide",
     reason:
