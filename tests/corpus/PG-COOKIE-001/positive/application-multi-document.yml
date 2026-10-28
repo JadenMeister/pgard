@@ -1,0 +1,14 @@
+# corpus: expect=PG-COOKIE-001
+spring:
+  application:
+    name: shop
+---
+spring:
+  config:
+    activate:
+      on-profile: production
+server:
+  servlet:
+    session:
+      cookie:
+        secure: false

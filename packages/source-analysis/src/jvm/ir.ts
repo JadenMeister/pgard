@@ -12,7 +12,8 @@ export type Expr = Base &
   (
     | { k: "str"; text: string }
     /** Number, boolean, char or null literal (`raw` is the text of a boolean). */
-    | { k: "lit"; raw?: string }
+    /** A Kotlin `return` or `throw` inside an expression; `label` is the `@label` of a return. */
+    | { k: "lit"; raw?: string; jump?: { kind: "return" | "throw"; label: string | null } }
     | { k: "id"; name: string }
     | { k: "member"; obj: Expr; name: string }
     | { k: "index"; obj: Expr; index: Expr }
@@ -57,7 +58,15 @@ export type Stmt = Base &
     /** Alternatives of which some run (switch/when arms, catch clauses). */
     | { s: "arms"; subject: Expr | null; arms: Array<{ params: string[]; body: Stmt[] }> }
     /** `ret`: a return (the value is what the method gives back), not a throw, break or continue. */
-    | { s: "exit"; value: Expr | null; ret?: boolean }
+    | {
+        s: "exit";
+        value: Expr | null;
+        ret?: boolean;
+        /** A `throw` (as opposed to a `break` or `continue`). */
+        throw?: boolean;
+        /** Kotlin `return@label`. */
+        label?: string;
+      }
     | { s: "assert"; test: Expr; testText: string }
   );
 

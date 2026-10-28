@@ -1,0 +1,4 @@
+# corpus: expect=none
+logging:
+  level:
+    org.springframework.security: WARN
