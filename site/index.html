@@ -10,7 +10,7 @@
     />
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#0b0b0c" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
     <link rel="canonical" href="https://pgard.dev/" />
     <link rel="alternate" hreflang="en" href="https://pgard.dev/" />
     <link rel="alternate" hreflang="ko" href="https://pgard.dev/ko/" />
@@ -144,17 +144,6 @@
               <li class="meta-state">
                 <span class="state-unreleased">Pre-release, v0.1.0 not published yet</span
                 ><span class="state-released">v0.1.0</span>
-              </li>
-              <li class="meta-ci">
-                <a
-                  href="https://github.com/JadenMeister/pgard/actions/workflows/ci.yml"
-                  rel="noopener"
-                  ><img
-                    src="https://github.com/JadenMeister/pgard/actions/workflows/ci.yml/badge.svg"
-                    alt="CI status"
-                    width="88"
-                    height="20"
-                /></a>
               </li>
             </ul>
             <h1 id="h1">Scan your <span class="accent">own</span> code before anyone else does.</h1>
@@ -756,108 +745,106 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
         </dl>
       </section>
 
-      <div class="band">
-        <section id="how" class="sec wrap" aria-labelledby="how-h">
-          <h2 id="how-h" class="sec-h">
-            How authorization works. <span class="h-mute">Five checks before every scan.</span>
-          </h2>
-          <p class="sec-lead">
-            A scanner can also probe other people's code, so every scan, in the CLI and the
-            dashboard, first runs five checks. Only the sign-in is reused and nothing skips them.
-            Missing evidence blocks the scan (exit code 3) and names the failed check.
-          </p>
-          <ol class="flow">
-            <li class="card">
-              <strong>Repository</strong><span>A Git root with one github.com remote.</span>
-            </li>
-            <li class="card">
-              <strong>GitHub identity</strong
-              ><span>A one-time sign-in, kept in the OS keychain.</span>
-            </li>
-            <li class="card">
-              <strong>Owner approval</strong
-              ><span
-                >The owner installed the PGARD GitHub App; for an organization, you are its
-                owner.</span
-              >
-            </li>
-            <li class="card">
-              <strong>Current access</strong><span>You have read access right now.</span>
-            </li>
-            <li class="card">
-              <strong>Contribution</strong
-              ><span
-                >Owners: history shared with the default branch. Others: a merged pull request or a
-                verified signed commit there.</span
-              >
-            </li>
-          </ol>
-          <details class="more">
-            <summary>About the GitHub App</summary>
-            <div class="more-body">
-              <p>
-                Installing the App on the owner account is the owner's approval, and PGARD can never
-                do it for you. The App ships its public client id; there is no client secret. If the
-                install is all that is missing, PGARD prints the link, waits up to 10 minutes and
-                runs all five checks again from scratch. <code>pgard project verify</code> runs the
-                checks without scanning.
-              </p>
-            </div>
-          </details>
-        </section>
-
-        <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
-          <h2 id="privacy-h" class="sec-h">
-            What stays, what leaves.
-            <span class="h-mute">Code and results stay on your machine.</span>
-          </h2>
-          <div class="ledger">
-            <div class="card ledger-local">
-              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
-                <path d="M2 19.5h20" />
-              </svg>
-              <h3>Stays on your machine</h3>
-              <ul>
-                <li>Source code, Git history and scan results</li>
-                <li>
-                  The last 20 results per repository, for 90 days. <code>--no-store</code> opts out
-                </li>
-                <li>Your GitHub sign-in, in the OS keychain, never in a file</li>
-                <li>Reports you export, only where you choose</li>
-              </ul>
-            </div>
-            <div class="card">
-              <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M7 17 17 7M9 7h8v8" />
-              </svg>
-              <h3>Goes over the network</h3>
-              <ul>
-                <li>GitHub: sign-in and authorization metadata, incl. local commit SHAs</li>
-                <li>OSV data, only when you run <code>pgard advisories update</code></li>
-                <li>Loopback: one GET / per local port</li>
-              </ul>
-            </div>
+      <section id="how" class="sec wrap" aria-labelledby="how-h">
+        <h2 id="how-h" class="sec-h">
+          How authorization works. <span class="h-mute">Five checks before every scan.</span>
+        </h2>
+        <p class="sec-lead">
+          A scanner can also probe other people's code, so every scan, in the CLI and the dashboard,
+          first runs five checks. Only the sign-in is reused and nothing skips them. Missing
+          evidence blocks the scan (exit code 3) and names the failed check.
+        </p>
+        <ol class="flow">
+          <li class="card">
+            <strong>Repository</strong><span>A Git root with one github.com remote.</span>
+          </li>
+          <li class="card">
+            <strong>GitHub identity</strong
+            ><span>A one-time sign-in, kept in the OS keychain.</span>
+          </li>
+          <li class="card">
+            <strong>Owner approval</strong
+            ><span
+              >The owner installed the PGARD GitHub App; for an organization, you are its
+              owner.</span
+            >
+          </li>
+          <li class="card">
+            <strong>Current access</strong><span>You have read access right now.</span>
+          </li>
+          <li class="card">
+            <strong>Contribution</strong
+            ><span
+              >Owners: history shared with the default branch. Others: a merged pull request or a
+              verified signed commit there.</span
+            >
+          </li>
+        </ol>
+        <details class="more">
+          <summary>About the GitHub App</summary>
+          <div class="more-body">
+            <p>
+              Installing the App on the owner account is the owner's approval, and PGARD can never
+              do it for you. The App ships its public client id; there is no client secret. If the
+              install is all that is missing, PGARD prints the link, waits up to 10 minutes and runs
+              all five checks again from scratch. <code>pgard project verify</code> runs the checks
+              without scanning.
+            </p>
           </div>
-          <details class="more">
-            <summary>Details</summary>
-            <div class="more-body">
-              <p>
-                Stored results are owner-only on macOS and Linux. Authorization metadata means
-                identity, App installation, organization membership, access and contributions. The
-                loopback GET happens only after authorization passes.
-                <code>pgard history clear --all</code> deletes stored results. The OSV download is
-                public vulnerability data. The loopback GET shows you what each local port is before
-                you confirm one.
-              </p>
-              <p>
-                This website is static pages. It does not scan, collect data or offer sign-in or
-                upload, and it is not the dashboard: the dashboard runs on your computer.
-              </p>
-            </div>
-          </details>
-        </section>
-      </div>
+        </details>
+      </section>
+
+      <section id="privacy" class="sec wrap" aria-labelledby="privacy-h">
+        <h2 id="privacy-h" class="sec-h">
+          What stays, what leaves.
+          <span class="h-mute">Code and results stay on your machine.</span>
+        </h2>
+        <div class="ledger">
+          <div class="card ledger-local">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+              <path d="M2 19.5h20" />
+            </svg>
+            <h3>Stays on your machine</h3>
+            <ul>
+              <li>Source code, Git history and scan results</li>
+              <li>
+                The last 20 results per repository, for 90 days. <code>--no-store</code> opts out
+              </li>
+              <li>Your GitHub sign-in, in the OS keychain, never in a file</li>
+              <li>Reports you export, only where you choose</li>
+            </ul>
+          </div>
+          <div class="card">
+            <svg class="area-ico" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M7 17 17 7M9 7h8v8" />
+            </svg>
+            <h3>Goes over the network</h3>
+            <ul>
+              <li>GitHub: sign-in and authorization metadata, incl. local commit SHAs</li>
+              <li>OSV data, only when you run <code>pgard advisories update</code></li>
+              <li>Loopback: one GET / per local port</li>
+            </ul>
+          </div>
+        </div>
+        <details class="more">
+          <summary>Details</summary>
+          <div class="more-body">
+            <p>
+              Stored results are owner-only on macOS and Linux. Authorization metadata means
+              identity, App installation, organization membership, access and contributions. The
+              loopback GET happens only after authorization passes.
+              <code>pgard history clear --all</code> deletes stored results. The OSV download is
+              public vulnerability data. The loopback GET shows you what each local port is before
+              you confirm one.
+            </p>
+            <p>
+              This website is static pages. It does not scan, collect data or offer sign-in or
+              upload, and it is not the dashboard: the dashboard runs on your computer.
+            </p>
+          </div>
+        </details>
+      </section>
 
       <section id="limits" class="sec wrap" aria-labelledby="limits-h">
         <h2 id="limits-h" class="sec-h">
@@ -1075,9 +1062,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             the notices.
           </p>
           <p>
-            This page fetches the GitHub star count from api.github.com and the CI badge from
-            github.com. Cloudflare Web Analytics counts visits without cookies. There are no other
-            trackers and no cookies.
+            This page fetches the GitHub star count from api.github.com. Cloudflare Web Analytics
+            counts visits without cookies. There are no other trackers and no cookies.
           </p>
           <p>© 2026 JadenMeister</p>
         </div>
