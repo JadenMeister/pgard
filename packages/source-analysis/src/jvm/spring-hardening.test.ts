@@ -781,3 +781,46 @@ describe("review round 7: labelled returns, throws and long expressions", () => 
     expect(kind(of((await run(source)).findings, "PG-CSRF-001"))).toBe("medium/medium");
   });
 });
+
+describe("review round 8: a bare Kotlin return in an inline lambda leaves the function", () => {
+  const LOW = "medium/low/inferred";
+  const method = (guard: string) =>
+    `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity, mode: String): SecurityFilterChain {\n    http { csrf { disable() }; oauth2ResourceServer { jwt { } } }\n    ${guard}\n    http { sessionManagement { sessionCreationPolicy = SessionCreationPolicy.STATELESS } }\n    return http.build()\n  }\n}\n`;
+  const fun = async (guard: string) =>
+    kind(of((await run(method(guard), "C.kt")).findings, "PG-CSRF-001"));
+  it("let, run and forEach with a bare return", async () => {
+    expect(await fun('mode.takeIf { it == "legacy" }?.let { return http.build() }')).toBe(LOW);
+    expect(await fun('run { if (mode == "x") return http.build() }')).toBe(LOW);
+    expect(await fun('listOf(mode).forEach { if (it == "x") return http.build() }')).toBe(LOW);
+    expect(await fun("listOf(mode).forEach { val v = it ?: return http.build() }")).toBe(LOW);
+  });
+  it("return@forEach and return@let stay inside the lambda", async () => {
+    expect(await fun('listOf(mode).forEach { if (it == "x") return@forEach }')).toBe("none");
+    expect(await fun('mode.takeIf { it == "legacy" }?.let { return@let }')).toBe("none");
+  });
+  it("a bare return in a Java lambda leaves only the lambda", async () => {
+    expect(
+      await csrf(
+        "http.csrf(c -> c.disable()).oauth2ResourceServer(o -> o.jwt());\n    paths.forEach(p -> { if (p.isEmpty()) return; });\n    http.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS));",
+      ),
+    ).toBe("none");
+  });
+
+  const dsl = (line: string) =>
+    `import org.springframework.security.config.annotation.web.builders.HttpSecurity\nclass C {\n  fun f(http: HttpSecurity): SecurityFilterChain = http {\n    csrf { disable() }\n    sessionManagement {\n      ${line}\n      sessionCreationPolicy = SessionCreationPolicy.STATELESS\n    }\n    oauth2ResourceServer { jwt { } }\n  }\n}\n`;
+  const block = async (line: string) =>
+    kind(of((await run(dsl(line), "C.kt")).findings, "PG-CSRF-001"));
+  it("T1: ?: throw inside run leaves", async () => {
+    expect(await block('run { val v = System.getenv("X") ?: throw IllegalStateException() }')).toBe(
+      LOW,
+    );
+  });
+  it("L1: ?: return@forEach stays inside, ?: return@sessionManagement leaves", async () => {
+    expect(await block('listOf(1).forEach { val v = System.getenv("X") ?: return@forEach }')).toBe(
+      "none",
+    );
+    expect(
+      await block('listOf(1).forEach { val v = System.getenv("X") ?: return@sessionManagement }'),
+    ).toBe(LOW);
+  });
+});

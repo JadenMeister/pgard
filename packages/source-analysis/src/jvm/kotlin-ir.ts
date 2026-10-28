@@ -34,10 +34,15 @@ const NON_INIT = new Set([
   "label",
 ]);
 
-/** `return`, `return@label` or `throw` at the start of a Kotlin jump expression; `break` and `continue` are not jumps out of a block. */
+/** A bare Kotlin `return` is a non-local return from the enclosing function (label "<fun>"). `return`, `return@label` or `throw` at the start of a Kotlin jump expression; `break` and `continue` are not jumps out of a block. */
 function jumpOf(source: string): { kind: "return" | "throw"; label: string | null } | null {
   const match = /^(return|throw)(?:@([A-Za-z_][A-Za-z0-9_]*))?(?![A-Za-z0-9_@])/.exec(source);
-  return match === null ? null : { kind: match[1] as "return" | "throw", label: match[2] ?? null };
+  return match === null
+    ? null
+    : {
+        kind: match[1] as "return" | "throw",
+        label: match[2] ?? (match[1] === "return" ? "<fun>" : null),
+      };
 }
 
 export function convertKotlin(ast: AstResult): Unit {
