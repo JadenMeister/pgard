@@ -344,8 +344,14 @@ function onTerminationSignal(signal: "SIGINT" | "SIGTERM"): void {
   // Node's default (terminate) was replaced by it, so kill the children and restore the default.
   if (process.listenerCount(signal) > 1) return;
   killAllGitChildren();
-  process.removeListener(signal, signalListeners[signal]);
-  process.kill(process.pid, signal);
+  // Re-raise on the next turn, so a handler that re-attaches during this signal (or another
+  // `once` wrapper that already removed itself) is counted. Known limit: a `once` handler that
+  // already ran has done its work synchronously; PGARD itself uses no `once` for these signals.
+  setImmediate(() => {
+    if (process.listenerCount(signal) > 1) return;
+    process.removeListener(signal, signalListeners[signal]);
+    process.kill(process.pid, signal);
+  });
 }
 
 const signalListeners = {

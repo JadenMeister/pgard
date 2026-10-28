@@ -1,5 +1,5 @@
 import type { AuthorizationCheck, AuthorizationCheckId } from "@pgard/findings";
-import { runGit as defaultRunGit } from "@pgard/git-history";
+import { runGit as defaultRunGit, type GitRunner } from "@pgard/git-history";
 import {
   isGitHubAuthError,
   type GitHubRepository,
@@ -37,6 +37,13 @@ function notEvaluated(prerequisite: string): CheckResult {
   };
 }
 
+/** Gives every Git run the scan's abort signal, unless the call already carries one. */
+function withSignal(runner: GitRunner, signal: AbortSignal | undefined): GitRunner {
+  if (signal === undefined) return runner;
+  return (invocation, options) =>
+    runner(invocation, { ...options, signal: options.signal ?? signal });
+}
+
 /**
  * The single authorization gate. Every scan and `project verify` calls this; results are never
  * cached between commands. The decision is `allowed` only when all five checks pass:
@@ -46,7 +53,7 @@ export async function authorizeProject(
   projectRoot: string,
   deps: AuthorizationDependencies,
 ): Promise<AuthorizationOutcome> {
-  const runner = deps.runGit ?? defaultRunGit;
+  const runner = withSignal(deps.runGit ?? defaultRunGit, deps.signal);
   const maxCandidates = Math.min(
     Math.max(1, Math.floor(deps.maxContributionCandidates ?? DEFAULT_MAX_CONTRIBUTION_CANDIDATES)),
     MAX_CONTRIBUTION_CANDIDATES_LIMIT,
@@ -244,7 +251,7 @@ export async function recheckOwnerApproval(
   projectRoot: string,
   deps: AuthorizationDependencies,
 ): Promise<OwnerApprovalRecheck> {
-  const runner = deps.runGit ?? defaultRunGit;
+  const runner = withSignal(deps.runGit ?? defaultRunGit, deps.signal);
   const notChecked = (check: CheckResult): OwnerApprovalRecheck => ({ ...check, remedy: null });
   const repositoryResult = await verifyRepository(projectRoot, runner);
   const repo = repositoryResult.repo;

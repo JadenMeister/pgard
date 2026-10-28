@@ -3,6 +3,8 @@ export {
   buildGitArgs,
   buildGitEnv,
   runGit,
+  killAllGitChildren,
+  liveGitChildPids,
   type GitInvocation,
   type GitRunOptions,
   type GitRunner,

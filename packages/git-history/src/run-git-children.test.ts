@@ -1,6 +1,9 @@
-import { execFileSync } from "node:child_process";
-import { chmodSync, rmSync } from "node:fs";
+import { execFileSync, spawn } from "node:child_process";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { buildSync } from "esbuild";
 import { afterEach, describe, expect, it } from "vitest";
 import { killAllGitChildren, liveGitChildPids, runGit, type GitInvocation } from "./run-git.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
@@ -90,5 +93,54 @@ describe.skipIf(process.platform === "win32")(
       expect(await outcome).toMatchObject({ kind: "timeout" });
       expect(await waitFor(() => !isAlive(pid))).toBe(true);
     });
+
+    it.each(["SIGINT", "SIGTERM"] as const)(
+      "kills the child when a process with no other %s listener is signalled",
+      async (signal) => {
+        const work = mkdtempSync(path.join(tmpdir(), "pgard-sole-listener-"));
+        try {
+          const bundle = path.join(work, "run-git.mjs");
+          buildSync({
+            entryPoints: [fileURLToPath(new URL("./run-git.ts", import.meta.url))],
+            bundle: true,
+            platform: "node",
+            format: "esm",
+            outfile: bundle,
+            logLevel: "silent",
+          });
+          const script = path.join(work, "child.mjs");
+          writeFileSync(
+            script,
+            `import { execFileSync } from "node:child_process";
+import { mkdirSync, rmSync } from "node:fs";
+import { runGit, liveGitChildPids } from ${JSON.stringify(pathToFileURL(bundle).href)};
+const repo = ${JSON.stringify(path.join(work, "repo"))};
+mkdirSync(repo);
+execFileSync("git", ["init", "-q", repo]);
+rmSync(repo + "/.git/HEAD");
+execFileSync("mkfifo", [repo + "/.git/HEAD"]);
+runGit({ subcommand: "rev-parse", flags: ["--show-toplevel"] }, { cwd: repo }).catch(() => {});
+setTimeout(() => console.log("PID " + liveGitChildPids()[0]), 400);
+setTimeout(() => {}, 30000);
+`,
+          );
+          const child = spawn(process.execPath, [script], { stdio: ["ignore", "pipe", "ignore"] });
+          let output = "";
+          child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+          const exited = new Promise<string | null>((resolve) =>
+            child.on("exit", (_code, killedBy) => resolve(killedBy)),
+          );
+          expect(await waitFor(() => /PID \d+/.test(output), 15000)).toBe(true);
+          const pid = Number(/PID (\d+)/.exec(output)?.[1]);
+          expect(isAlive(pid)).toBe(true);
+          child.kill(signal);
+          expect(await exited).toBe(signal);
+          expect(await waitFor(() => !isAlive(pid))).toBe(true);
+        } finally {
+          rmSync(work, { recursive: true, force: true });
+        }
+      },
+      30_000,
+    );
   },
 );

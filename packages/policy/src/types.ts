@@ -23,6 +23,11 @@ export interface AuthorizationDependencies {
   getGitHubSession: GitHubSessionProvider;
   /** Injectable Git runner for tests; defaults to the hardened `execFile` runner. */
   runGit?: GitRunner;
+  /**
+   * Cancellation: given to every Git run during authorization, so an abort (Ctrl+C) kills a
+   * blocked git process at once instead of waiting for its time limit.
+   */
+  signal?: AbortSignal;
   /** Upper bound on local commits examined against GitHub (default 30). */
   maxContributionCandidates?: number;
   /**

@@ -133,7 +133,9 @@ describe("readRepositoryIsolation", () => {
       symlinkSync(path.join(repo.root, "README.md"), shallow);
       const result = await readRepositoryIsolation(repo.root);
       expect(result.isIsolated).toBe(false);
-      expect(!result.isIsolated && result.reason).toMatch(/shallow file could not be read safely/);
+      expect(!result.isIsolated && result.reason).toMatch(
+        /shallow file .*could not be read safely/,
+      );
     });
 
     it.skipIf(process.platform === "win32")("blocks a FIFO shallow file quickly", async () => {
@@ -142,7 +144,9 @@ describe("readRepositoryIsolation", () => {
       execFileSync("mkfifo", [path.join(repo.root, ".git", "shallow")]);
       const result = await readRepositoryIsolation(repo.root);
       expect(result.isIsolated).toBe(false);
-      expect(!result.isIsolated && result.reason).toMatch(/shallow file could not be read safely/);
+      expect(!result.isIsolated && result.reason).toMatch(
+        /shallow file .*could not be read safely/,
+      );
     });
 
     it.skipIf(process.platform === "win32")(

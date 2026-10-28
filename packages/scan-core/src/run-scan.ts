@@ -312,7 +312,10 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   });
   let outcome: AuthorizationOutcome;
   try {
-    outcome = await authorizeProject(request.projectRoot, deps.authorization);
+    outcome = await authorizeProject(request.projectRoot, {
+      ...deps.authorization,
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    });
   } catch {
     throwIfCancelled(deps.signal);
     emit({ stage: "authorization", status: "failed", message: "Authorization check failed." });

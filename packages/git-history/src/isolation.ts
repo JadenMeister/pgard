@@ -59,8 +59,11 @@ function metadataBlock(relative: string, found: Found, label: string, advice: st
   };
 }
 
-const ALTERNATES_ADVICE =
-  "If the repository borrows objects from another one, run `git repack -a -d` first to copy them in; then remove that file, or scan a normal clone instead.";
+/** For a link, FIFO or other special file: Git would try to read it, so no `git repack` here. */
+const UNSAFE_ADVICE = "Scan a normal clone (`git clone`) instead.";
+const ALTERNATES_ADVICE = UNSAFE_ADVICE;
+const ALTERNATES_CONTENT_HINT =
+  " To fix it, run `git repack -a -d` to copy the borrowed objects in, then remove the alternates file, or scan a normal clone instead.";
 
 type Probe = { kind: "empty" } | { kind: "content" } | { kind: "unsafe"; found: Found };
 
@@ -74,11 +77,7 @@ async function probeFile(filePath: string): Promise<Probe> {
 const METADATA_FILES = [
   [path.join("objects", "info", "alternates"), "object alternates", ALTERNATES_ADVICE],
   [path.join("objects", "info", "http-alternates"), "object alternates", ALTERNATES_ADVICE],
-  [
-    path.join("info", "grafts"),
-    "grafts",
-    "Grafts rewrite history; remove the file if it is not needed, or scan a normal clone instead.",
-  ],
+  [path.join("info", "grafts"), "grafts", UNSAFE_ADVICE],
 ] as const;
 
 /** Returns a blocking result when an alternates or grafts file is present or unsafe to read. */
@@ -91,19 +90,17 @@ async function checkMetadataFiles(gitDir: string): Promise<RepositoryIsolation |
     if (probe.kind === "content") {
       return {
         isIsolated: false,
-        reason: `The repository uses ${label}, so its objects or history may come from elsewhere; this is not supported.`,
+        reason: `The repository uses ${label}, so its objects or history may come from elsewhere; this is not supported.${label === "object alternates" ? ALTERNATES_CONTENT_HINT : ""}`,
       };
     }
   }
   // A regular `shallow` file is allowed (shallow clones are supported); an unsafe one is not.
   const shallow = await readSmallRegularFile(path.join(gitDir, "shallow"), MAX_SHALLOW_BYTES);
   if (shallow.state === "unsafe") {
-    return metadataBlock(
-      "shallow file",
-      shallow.found,
-      "history boundary",
-      "Scan a normal clone instead, or run `git fetch --unshallow` in a normal checkout.",
-    );
+    return {
+      isIsolated: false,
+      reason: `The repository's shallow file (it records where a shallow clone's history ends) could not be read safely (${describeFound(shallow.found)}). ${UNSAFE_ADVICE}`,
+    };
   }
   return null;
 }
@@ -169,6 +166,9 @@ function parseIncludePaths(text: string): IncludeScan {
   let inInclude = false;
   for (const rawLine of text.split(/\r?\n/)) {
     let line = rawLine.trim();
+    // A trailing backslash on ANY line joins it with the next one in Git, which can hide an
+    // include (`x = y\` then `[core]`/`path = ...` reads as one value). Not interpreted here.
+    if (line.endsWith("\\")) scan.unsupported = true;
     const header = /^\[\s*([A-Za-z0-9.-]+)(?:\s+"(?:[^"\\]|\\.)*")?\s*\](.*)$/.exec(line);
     if (header) {
       const section = (header[1] ?? "").toLowerCase();
@@ -228,7 +228,7 @@ async function checkConfigFiles(
   if (scan.unsupported) {
     return {
       isIsolated: false,
-      reason: `The repository's ${name} has an include path PGARD can't interpret the way Git does (a line continuation, partial quoting or a ~user path), so what it includes can't be checked. Write each include as a plain \`path = <file>\` or \`path = ~/<file>\`, or ${SAFE_WAY_FORWARD.charAt(0).toLowerCase()}${SAFE_WAY_FORWARD.slice(1)}`,
+      reason: `The repository's ${name} has an include PGARD can't interpret the way Git does (a line ending in a backslash anywhere, partial quoting or a ~user path), so what it includes can't be checked. Write each include as a plain \`path = <file>\` or \`path = ~/<file>\`, or ${SAFE_WAY_FORWARD.charAt(0).toLowerCase()}${SAFE_WAY_FORWARD.slice(1)}`,
     };
   }
   for (const included of scan.paths) {
@@ -245,6 +245,15 @@ async function checkConfigFiles(
 async function checkLooseRefs(refsDir: string): Promise<RepositoryIsolation | null> {
   let count = 0;
   const visited = new Set<string>();
+  // `refs` itself may be a link (shared `repo` layouts); the walk must not leave what it resolves to.
+  let refsRoot: string;
+  try {
+    refsRoot = await realpath(refsDir);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    return layoutBlock("refs directory", code === "ELOOP" ? "loop" : "unreadable");
+  }
   const pending = [refsDir];
   while (pending.length > 0) {
     const dir = pending.pop() as string;
@@ -265,7 +274,13 @@ async function checkLooseRefs(refsDir: string): Promise<RepositoryIsolation | nu
       if (result.state === "absent") continue;
       if (result.state === "bad") return layoutBlock("refs", result.found);
       if (result.state === "directory") {
-        const real = await realpath(full).catch(() => full);
+        const real = await realpath(full).catch(() => null);
+        if (real === null || (real !== refsRoot && !real.startsWith(refsRoot + path.sep))) {
+          return {
+            isIsolated: false,
+            reason: `The repository's refs directory contains a symbolic link to a directory outside it, so PGARD can't safely read this repository layout. ${SAFE_WAY_FORWARD}`,
+          };
+        }
         if (!visited.has(real)) {
           visited.add(real);
           pending.push(full);

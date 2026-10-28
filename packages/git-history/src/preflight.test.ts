@@ -141,6 +141,30 @@ describe("preflightIsolation", () => {
       expect(reason).not.toMatch(/remove|delete|replace/i);
     });
 
+    it("blocks a refs subdirectory linked outside refs, but allows a linked top-level refs", async () => {
+      const fixture = repo();
+      const git = path.join(fixture.root, ".git");
+      const outside = workWith();
+      mkdirSync(path.join(outside, "dir"));
+      rmSync(path.join(git, "refs", "tags"), { recursive: true, force: true });
+      symlinkSync(path.join(outside, "dir"), path.join(git, "refs", "tags"));
+      const reason = reasonOf(await preflightIsolation(fixture.root));
+      expect(reason).toMatch(/refs directory contains a symbolic link to a directory outside it/);
+      expect(reason).not.toMatch(/remove|delete|replace/i);
+    });
+
+    it("gives no git repack advice for an unsafe alternates file, but does for a real one", async () => {
+      const fixture = repo();
+      const alternates = path.join(fixture.root, ".git", "objects", "info", "alternates");
+      fifo(alternates);
+      const unsafeReason = reasonOf(await preflightIsolation(fixture.root));
+      expect(unsafeReason).toMatch(/alternates/);
+      expect(unsafeReason).not.toMatch(/repack/);
+      rmSync(alternates);
+      writeFileSync(alternates, "/elsewhere/objects\n");
+      expect(reasonOf(await preflightIsolation(fixture.root))).toMatch(/git repack -a -d/);
+    });
+
     it.each([
       ["objects/info/commit-graph", /commit-graph/],
       ["objects/info/commit-graphs/commit-graph-chain", /commit-graphs/],
@@ -163,8 +187,9 @@ describe("preflightIsolation", () => {
       ["partial quoting", '[include]\n\tpath = fi"fo"\n'],
       ["an unbalanced quote", '[include]\n\tpath = "fifo\n'],
       ["a ~user path", "[include]\n\tpath = ~root/x.cfg\n"],
+      ["a continuation in another key", "[include]\n\tx = y\\\n[core]\n\tpath = fifo\n"],
     ])("blocks %s", async (_name, text) => {
-      expect(await withInclude(text)).toMatch(/include path PGARD can't interpret/);
+      expect(await withInclude(text)).toMatch(/include PGARD can't interpret/);
     });
 
     it("accepts plain, quoted and ~/ includes", async () => {
