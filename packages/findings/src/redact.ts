@@ -297,8 +297,42 @@ const ABSOLUTE_PATH_PATTERN = new RegExp(
  * from what it is, e.g. U+202E in a branch name). Shared with `sanitizeDisplayText`.
  */
 export const UNSAFE_DISPLAY_CHARACTERS =
-  "[\\u0000-\\u001f\\u007f-\\u009f\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]";
+  "[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069]";
 const UNSAFE_CHARS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
+
+/** `\u202e` for U+202E: the escape as visible text. */
+const escapeCharacter = (char: string) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`;
+
+const MARKED_CHARACTER = /\\u([0-9a-f]{4})/g;
+
+/**
+ * Turns the `\uXXXX` marks `redactLocationPath` writes back into the characters, for a consumer
+ * that encodes them itself (a SARIF uri is percent-encoded, which keeps them inert) and must
+ * point at the real file. Only marks of characters in the unsafe set are turned back.
+ */
+export function unmarkLocationPath(locationPath: string): string {
+  return locationPath.replace(MARKED_CHARACTER, (mark, hex: string) => {
+    const char = String.fromCharCode(Number.parseInt(hex, 16));
+    return new RegExp(UNSAFE_DISPLAY_CHARACTERS).test(char) ? char : mark;
+  });
+}
+
+/**
+ * Characters JSON.stringify leaves raw although a terminal acts on them or shows them misleadingly:
+ * DEL and C1 controls, the Arabic letter mark, zero-width marks, line and paragraph separators and
+ * bidi overrides and isolates. C0 controls are already escaped by JSON.stringify.
+ */
+const JSON_RAW_UNSAFE = /[\u007f-\u009f\u061c\u200b-\u200f\u2028-\u202e\u2066-\u2069]/g;
+
+/**
+ * JSON.stringify, with the characters above written as `\uXXXX` escapes. The text parses to the
+ * same value, but a repository-controlled string (a file name, a branch) can no longer drive the
+ * terminal that shows the output, or reorder what it displays.
+ */
+export function stringifyJsonSafely(value: unknown, space?: number): string {
+  const text = JSON.stringify(value, null, space) as string | undefined;
+  return (text ?? "null").replace(JSON_RAW_UNSAFE, escapeCharacter);
+}
 
 /**
  * Removes the project root (-> `.`), home directories (-> `~`) and any other absolute
@@ -337,12 +371,20 @@ export function redactEvidence(evidence: string, options: RedactEvidenceOptions 
 }
 
 /**
- * Location paths are repository-relative: secrets in file names are masked and an absolute
- * path is dropped (`null`) rather than reported.
+ * Location paths are repository-relative: secrets in file names are masked, an absolute path is
+ * dropped (`null`) rather than reported, and control, zero-width and bidi characters (the set
+ * `redactEvidence` removes) are marked as visible `\uXXXX` text, so a file name cannot drive a
+ * terminal or display as another name while two names still stay apart.
  */
-function redactLocationPath(locationPath: string | null, projectRoot?: string): string | null {
+export function redactLocationPath(
+  locationPath: string | null,
+  projectRoot?: string,
+): string | null {
   if (locationPath === null) return null;
-  const masked = scrubAbsolutePaths(redactSecrets(locationPath), projectRoot);
+  const masked = scrubAbsolutePaths(redactSecrets(locationPath), projectRoot).replace(
+    UNSAFE_CHARS,
+    escapeCharacter,
+  );
   if (
     masked.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(masked) ||

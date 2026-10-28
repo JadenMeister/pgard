@@ -1,6 +1,7 @@
 import type { Confidence, FindingStatus, Severity } from "@pgard/findings";
 import type { RawSourceFinding } from "../finding-factory.js";
 import type { SourceRuleId } from "../rules.js";
+import { ASSIGNED_NAMES, PARSED_NUMBER_NAMES, readLineAssignments } from "./assignments.js";
 import {
   LITERAL_PATTERN,
   createLineLookup,
@@ -198,9 +199,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         functionSpans.push({ signature, start: index, end: close });
       }
     }
-    for (const match of withoutConsts.matchAll(
-      /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*(?::=|(?:[-+*/|&^%]|<<|>>|&\^)?=(?!=))/g,
-    )) {
+    for (const match of withoutConsts.matchAll(ASSIGNED_NAMES)) {
       const before = withoutConsts[(match.index ?? 0) - 1];
       if (before === "." || before === "]") continue;
       for (const name of (match[1] ?? "").split(",")) bump(bound, name.trim());
@@ -258,9 +257,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       if (!outside) inferredNames.add(name);
     }
     // `n, err := strconv.Atoi(...)`: a number, trusted only when this is the name's only binding.
-    for (const match of withoutConsts.matchAll(
-      /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*:=[ \t]*strconv\.(?:Atoi|ParseInt|ParseUint|ParseFloat|ParseBool)\(/g,
-    )) {
+    for (const match of withoutConsts.matchAll(PARSED_NUMBER_NAMES)) {
       const names = (match[1] ?? "").split(",").map((name) => name.trim());
       const [first] = names;
       if (first && first !== "_" && bound.get(first) === 1 && !constDeclarations.has(first))
@@ -325,19 +322,21 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     if (/\+/.test(trimmed) && !/^("#\d+"\s*\+\s*)*"#\d+"$/.test(trimmed)) return true;
     return IDENTIFIER.test(trimmed) && dynamic.has(trimmed);
   };
+  const assignments = readLineAssignments(code);
   for (let pass = 0; pass < 2; pass += 1) {
-    for (const match of code.matchAll(
-      /(^|\n)[ \t]*(?:var[ \t]+)?([\w, ]{1,200}?)(?:[ \t]+[\w.*[\]]{1,100})?[ \t]*(:=|=|\+=)[ \t]*([^\n]+)/g,
-    )) {
-      const names = (match[2] ?? "")
+    for (const assignment of assignments) {
+      const names = assignment.names
         .split(",")
         .map((name) => name.trim())
         .filter((name) => IDENTIFIER.test(name) && name !== "_" && name !== "err");
-      const value = match[4] ?? "";
+      const value = assignment.value;
       for (const name of names) {
         if (isTaintedExpr(value)) tainted.add(name);
         // A constant `q += " AND x"` keeps the string static.
-        if ((match[3] === "+=" && !LITERAL_PATTERN.test(value.trim())) || isDynamicExpr(value)) {
+        if (
+          (assignment.op === "+=" && !LITERAL_PATTERN.test(value.trim())) ||
+          isDynamicExpr(value)
+        ) {
           dynamic.add(name);
         }
       }
@@ -733,9 +732,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         only[1] ?? [...code.slice(0, at).matchAll(/(?:^|\n)(var|const)[ \t]*\(/g)].pop()?.[1];
       // Every write or re-declaration of the name anywhere makes it untrusted.
       let writes = 0;
-      for (const assignment of code.matchAll(
-        /([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)[ \t]*(?::=|(?:[-+*/|&^%]|<<|>>|&\^)?=(?!=))/g,
-      )) {
+      for (const assignment of code.matchAll(ASSIGNED_NAMES)) {
         const before = code[(assignment.index ?? 0) - 1];
         if (before === "." || before === "]") continue;
         if ((assignment[1] ?? "").split(",").some((part) => part.trim() === name)) writes += 1;

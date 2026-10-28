@@ -66,9 +66,12 @@ const WEB_SECURITY_PREFIXES = [
   "org.springframework.security.oauth2.server.resource",
 ];
 
-const IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
+// Leading blanks never cross a line end (`\s*` did, so every empty line rescanned all the empty
+// lines after it: 256 KiB of newlines took a minute). An import on a later line still matches at
+// its own line start, with the same captures.
+const IMPORT = /^[^\S\n\r\u2028\u2029]*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
 
-const IMPORT_ALIAS = /^\s*import\s+([\w.]+)\s+as\s+(\w+)/gm;
+const IMPORT_ALIAS = /^[^\S\n\r\u2028\u2029]*import\s+([\w.]+)\s+as\s+(\w+)/gm;
 
 /** Kotlin import aliases: the name used in the file -> the class it stands for. */
 export function importAliasesOf(source: string): Map<string, string> {
