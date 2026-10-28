@@ -146,6 +146,8 @@ export interface CommandText {
       date: string,
       days: number | null,
       isDamaged: boolean,
+      dataDate: string | null,
+      dataDays: number | null,
     ) => string;
     advisoryStale: (ages: string) => string;
     advisoryDamaged: (ages: string) => string;
@@ -347,8 +349,8 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     advisoryNoHome: "no home directory found, so there is nowhere to store it",
     advisoryUnreadable: "could not be read",
     advisoryNone: (ecosystem) => `${ecosystem} none`,
-    advisoryAge: (ecosystem, date, days, isDamaged) =>
-      `${ecosystem} ${date} (${days} ${plural(days, "day", "days")} old${isDamaged ? ", files damaged" : ""})`,
+    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays) =>
+      `${ecosystem} ${date} (${days} ${plural(days, "day", "days")} old${dataDate === null || dataDays === null ? "" : `; newest record ${dataDate}, ${dataDays} ${plural(dataDays, "day", "days")} old`}${isDamaged ? ", files damaged" : ""})`,
     advisoryStale: (ages) =>
       `stale: ${ages}; run \`pgard advisories update\` (it downloads public OSV data, uploads nothing)`,
     advisoryDamaged: (ages) => `damaged: ${ages}; run \`pgard advisories update\``,
@@ -547,8 +549,8 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     advisoryNoHome: "홈 디렉터리를 찾을 수 없어 저장할 곳이 없습니다",
     advisoryUnreadable: "읽을 수 없었습니다",
     advisoryNone: (ecosystem) => `${ecosystem} 없음`,
-    advisoryAge: (ecosystem, date, days, isDamaged) =>
-      `${ecosystem} ${date} (${days}일 전${isDamaged ? ", 파일 손상" : ""})`,
+    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays) =>
+      `${ecosystem} ${date} (${days}일 전${dataDate === null || dataDays === null ? "" : `; 가장 최근 레코드 ${dataDate}, ${dataDays}일 전`}${isDamaged ? ", 파일 손상" : ""})`,
     advisoryStale: (ages) =>
       `오래됨: ${ages}. \`pgard advisories update\`를 실행하세요 (공개 OSV 데이터를 내려받으며 아무것도 올리지 않습니다)`,
     advisoryDamaged: (ages) => `손상됨: ${ages}. \`pgard advisories update\`를 실행하세요`,

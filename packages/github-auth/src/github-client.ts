@@ -13,6 +13,7 @@ const API_VERSION = "2022-11-28";
 const PAGE_SIZE = 100;
 /** Upper bound for paginated listings so a huge account cannot cause unbounded traffic. */
 const MAX_PAGES = 10;
+const REDIRECT_STATUSES: readonly number[] = [301, 302, 307, 308];
 
 export interface GitHubUser {
   id: number;
@@ -196,10 +197,17 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
   const fetchImpl = options.fetch ?? defaultFetch;
   const baseUrl = options.baseUrl ?? GITHUB_API_BASE_URL;
 
-  async function request(path: string): Promise<FetchResponseLike> {
-    let response: FetchResponseLike;
+  /**
+   * Redirects are never followed automatically, so the token is only ever sent to the API origin
+   * (like the OAuth calls, which use `redirect: "error"`). One flow needs a redirect: GitHub
+   * answers a renamed or transferred repository with a 301/307 to
+   * `https://api.github.com/repositories/{id}...`. That one hop is repeated by hand, but only
+   * when the target is the same API origin and an id-based `/repositories/{id}` path; anything
+   * else is refused with a clear message.
+   */
+  async function send(url: string): Promise<FetchResponseLike> {
     try {
-      response = await fetchImpl(`${baseUrl}${path}`, {
+      return await fetchImpl(url, {
         method: "GET",
         headers: {
           Accept: "application/vnd.github+json",
@@ -207,7 +215,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
           "X-GitHub-Api-Version": API_VERSION,
           "User-Agent": "pgard",
         },
-        redirect: "follow",
+        redirect: "manual",
         ...(options.signal ? { signal: options.signal } : {}),
       });
     } catch (error) {
@@ -216,7 +224,57 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
       }
       throw new GitHubAuthError("network_error", "Could not reach the GitHub API.");
     }
-    return response;
+  }
+
+  /** Frees the connection of a response whose body is not read. */
+  async function discardBody(response: FetchResponseLike): Promise<void> {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // Nothing to free.
+    }
+  }
+
+  function redirectTarget(response: FetchResponseLike, from: string): string {
+    const refusal = new GitHubAuthError(
+      "http_error",
+      "GitHub redirected the request (for example, the repository was renamed or moved) and PGARD does not follow that automatically. Update the repository's remote URL to its current name and try again.",
+      response.status,
+    );
+    const location = response.headers?.get("location") ?? null;
+    if (location === null) throw refusal;
+    let target: URL;
+    try {
+      target = new URL(location, from);
+    } catch {
+      throw refusal;
+    }
+    if (
+      target.origin !== new URL(baseUrl).origin ||
+      target.username !== "" ||
+      target.password !== "" ||
+      !/^\/repositories\/[0-9]+(\/|$)/.test(target.pathname)
+    ) {
+      throw refusal;
+    }
+    return target.toString();
+  }
+
+  async function request(path: string): Promise<FetchResponseLike> {
+    const url = `${baseUrl}${path}`;
+    const response = await send(url);
+    if (!REDIRECT_STATUSES.includes(response.status)) return response;
+    await discardBody(response);
+    const second = await send(redirectTarget(response, url));
+    if (REDIRECT_STATUSES.includes(second.status)) {
+      await discardBody(second);
+      throw new GitHubAuthError(
+        "http_error",
+        "GitHub redirected the request more than once; PGARD stopped.",
+        second.status,
+      );
+    }
+    return second;
   }
 
   /**

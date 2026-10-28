@@ -423,3 +423,85 @@ describe("resolveGitHubAppClientId", () => {
     expect(INVALID_APP_SLUG_OVERRIDE_MESSAGE).not.toContain("My-App");
   });
 });
+
+describe("redirects on authenticated calls", () => {
+  const repoBody = {
+    id: 7,
+    full_name: "acme/new-name",
+    owner: { id: 1, login: "acme", type: "Organization" },
+    default_branch: "main",
+  };
+  function redirecting(location: string | null, status = 301) {
+    const calls: { url: string; redirect: string | undefined }[] = [];
+    const fetch: FetchLike = async (url, init) => {
+      calls.push({ url, redirect: init.redirect });
+      if (url === "https://api.github.com/repos/acme/old-name") {
+        return {
+          status,
+          ok: false,
+          headers: { get: (name: string) => (name === "location" ? location : null) },
+          json: async () => ({}),
+        };
+      }
+      return jsonResponse(200, repoBody);
+    };
+    return { fetch, calls };
+  }
+
+  it("never lets fetch follow redirects on its own", async () => {
+    const seen: (string | undefined)[] = [];
+    const fetch: FetchLike = async (_url, init) => {
+      seen.push(init.redirect);
+      return jsonResponse(200, { id: 1, login: "a" });
+    };
+    await createGitHubClient({ token: "t", fetch }).getAuthenticatedUser();
+    expect(seen).toEqual(["manual"]);
+  });
+
+  it("repeats a renamed-repository redirect once, to the API origin's /repositories/{id}", async () => {
+    const { fetch, calls } = redirecting("https://api.github.com/repositories/7");
+    const repo = await createGitHubClient({ token: "t", fetch }).getRepository("acme", "old-name");
+    expect(repo.fullName).toBe("acme/new-name");
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://api.github.com/repos/acme/old-name",
+      "https://api.github.com/repositories/7",
+    ]);
+    expect(calls.every((call) => call.redirect === "manual")).toBe(true);
+  });
+
+  it("refuses redirects to another host, another path, plain http or with no location", async () => {
+    for (const location of [
+      "https://evil.example/repositories/7",
+      "http://api.github.com/repositories/7",
+      "https://api.github.com/user",
+      "https://user:pw@api.github.com/repositories/7",
+      "https://user@api.github.com/repositories/7",
+      "https://api.github.com/x/repositories/7",
+      "https://api.github.com/repositories/7/../../user",
+      null,
+    ]) {
+      const { fetch, calls } = redirecting(location);
+      await expect(
+        createGitHubClient({ token: "t", fetch }).getRepository("acme", "old-name"),
+      ).rejects.toMatchObject({ code: "http_error", status: 301 });
+      expect(calls).toHaveLength(1);
+    }
+  });
+
+  it("stops after one hop", async () => {
+    let calls = 0;
+    const fetch: FetchLike = async () => {
+      calls += 1;
+      return {
+        status: 307,
+        ok: false,
+        headers: { get: () => "https://api.github.com/repositories/7" },
+        json: async () => ({}),
+      };
+    };
+    await expect(
+      createGitHubClient({ token: "t", fetch }).getRepository("acme", "old-name"),
+    ).rejects.toMatchObject({ code: "http_error", status: 307 });
+    expect(calls).toBe(2);
+  });
+});
