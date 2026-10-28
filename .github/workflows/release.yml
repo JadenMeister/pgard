@@ -42,8 +42,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
-          check-latest: true
+          node-version: 24.22.1
           # No dependency cache in a release job (cache poisoning).
           package-manager-cache: false
       # The released commit must be on main, and a real publish needs a tag.
@@ -88,7 +87,11 @@ jobs:
             echo "::error::package version $pkg != PGARD_VERSION $code"; exit 1
           fi
           echo "version=$pkg" >> "$GITHUB_OUTPUT"
-      - run: npm ci
+      # No dependency lifecycle scripts run in the release job. esbuild's platform binary comes
+      # from an optional dependency, so it needs no install script; the next step proves it runs.
+      - run: npm ci --ignore-scripts
+      - name: esbuild binary runs
+        run: npx esbuild --version
       - name: Analyzer hash is committed
         run: node scripts/analyzer-hash.mjs --check
       - run: npm run build
@@ -137,15 +140,8 @@ jobs:
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
-          check-latest: true
+          node-version: 24.22.1
           package-manager-cache: false
-      # Trusted publishing needs npm 11.5.1 or newer; Node 22 bundles npm 10. This updates the
-      # runner's own npm only, to an exact version.
-      - name: Use an npm that supports trusted publishing
-        run: |
-          npm install -g npm@11.21.1
-          npm --version
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: pgard-tarball
