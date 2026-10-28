@@ -7,7 +7,7 @@ import {
   PROJECT_CONFIG_FILE,
   projectConfigNotices,
   configTestFindingCount,
-  isJvmSourcePath,
+  noDirectCertFor,
   pickText,
   standardsForFindings,
   splitFindingsByContext,
@@ -114,12 +114,13 @@ function standardLines(ruleId: string, members: readonly Finding[], ctx: RenderC
   const links = standardsForFindings(details?.standards ?? [], members).filter((link) =>
     link.url.startsWith("https://"),
   );
+  const marker = members
+    .map((m) => noDirectCertFor(details, m.location.path, m.references.cert))
+    .find((text) => text !== undefined);
   const none =
-    details?.noDirectCert !== undefined && members.some((m) => isJvmSourcePath(m.location.path))
-      ? [
-          `        ${ctx.t.report.certNone}: ${safeText(pickText(details.noDirectCert, ctx.t.locale), 300)}`,
-        ]
-      : [];
+    marker === undefined
+      ? []
+      : [`        ${ctx.t.report.certNone}: ${safeText(pickText(marker, ctx.t.locale), 300)}`];
   if (links.length === 0 && none.length === 0) return [];
   const shown = links.slice(0, MAX_STANDARD_LINKS).map((link) => {
     const title = link.title === null ? "" : ` ${truncateWidth(safeText(link.title, 200), 40)}`;

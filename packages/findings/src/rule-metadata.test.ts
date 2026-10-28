@@ -229,6 +229,21 @@ describe("validateRuleMetadata", () => {
       ).toEqual(["PG-TEST-001: standards.noDirectCert.ko contains no Korean"]);
     });
 
+    it("allows noDirectCertOther only next to a direct reference scoped to a cause", () => {
+      const other = { en: "Other causes.", ko: "다른 원인." };
+      const scoped = { kind: "direct", id: "IDS07-J", cause: "weak-random" } as const;
+      const withOther = (
+        cert: NonNullable<RuleDefinition["standards"]>["cert"],
+      ): Partial<RuleDefinition> => ({
+        languages: ["java"],
+        standards: { ...standards(cert), noDirectCertOther: other },
+      });
+      expect(jvmProblems(withOther([scoped]))).toEqual([]);
+      expect(jvmProblems(withOther([direct]))).toEqual([
+        "PG-TEST-001: has a noDirectCertOther marker but no direct CERT reference scoped to a cause",
+      ]);
+    });
+
     it("rejects a direct reference or marker on a rule that does not apply to Java or Kotlin", () => {
       expect(
         jvmProblems({ languages: ["javascript", "go"], standards: standards([direct]) }),

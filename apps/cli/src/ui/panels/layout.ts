@@ -1,5 +1,5 @@
 import { formatLocation, standardMark } from "@pgard/report";
-import { isJvmSourcePath, pickText, standardsForPath, type Finding } from "@pgard/findings";
+import { noDirectCertFor, pickText, standardsForPath, type Finding } from "@pgard/findings";
 import { cliText, type CliText } from "../i18n/cli-text.js";
 import {
   displayWidth,
@@ -443,8 +443,9 @@ export function detailLines(state: PanelsState, size: Size, opts: RenderOptions 
     const rest = links.length - MAX_STANDARD_LINKS;
     if (rest > 0) add(`  +${rest}`);
   }
-  if (details?.noDirectCert !== undefined && isJvmSourcePath(finding.location.path)) {
-    add("", `${t.report.certNone}: ${safeText(pickText(details.noDirectCert, state.locale), 300)}`);
+  const none = noDirectCertFor(details, finding.location.path, finding.references.cert);
+  if (none !== undefined) {
+    add("", `${t.report.certNone}: ${safeText(pickText(none, state.locale), 300)}`);
   }
   return lines;
 }

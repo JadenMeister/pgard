@@ -1,4 +1,4 @@
-import { isJvmSourcePath, standardsForPath, type Finding } from "@pgard/findings";
+import { noDirectCertFor, standardsForPath, type Finding } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { useI18n } from "../../i18n/I18nProvider";
 import { ExternalLink } from "../standards/ExternalLink";
@@ -35,10 +35,9 @@ export function RuleDetailsBlock({
     finding.location.path,
     finding.references.cert,
   );
-  const noDirectCert =
-    details.noDirectCert !== undefined && isJvmSourcePath(finding.location.path)
-      ? details.noDirectCert[language]
-      : undefined;
+  const noDirectCert = noDirectCertFor(details, finding.location.path, finding.references.cert)?.[
+    language
+  ];
   return (
     <div className="rule-details">
       {(showRationale || showRemediation) && (

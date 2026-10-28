@@ -7,7 +7,8 @@ import {
 } from "./contract.js";
 import { findingIdentity } from "./compare-scans.js";
 import { redactEvidence, redactFinding, redactSecrets, unmarkLocationPath } from "./redact.js";
-import { isJvmSourcePath, standardsForFindings, type StandardLink } from "./rule-details.js";
+import { noDirectCertFor, standardsForFindings, type StandardLink } from "./rule-details.js";
+import type { CertCause } from "./rule-metadata.js";
 import type { RuleTextCatalog } from "./rule-text.js";
 
 /**
@@ -188,9 +189,17 @@ function buildResult(
   return result;
 }
 
+const CAUSE_SCOPE: Record<CertCause, string> = {
+  "weak-random": "random-number findings only",
+  "archive-entry": "archive-entry findings only",
+  "other-than-archive-entry": "findings other than archive entries",
+};
+
 function certMark(link: StandardLink): string {
   if (link.viaCwe !== undefined) return ` (indirect, via ${link.viaCwe})`;
-  return link.direct === true ? " (direct, Java and Kotlin files only)" : "";
+  if (link.direct !== true) return "";
+  const scope = link.cause === undefined ? "" : `; ${CAUSE_SCOPE[link.cause]}`;
+  return ` (direct, Java and Kotlin files only${scope})`;
 }
 
 function buildRule(
@@ -210,9 +219,9 @@ function buildRule(
   const rationale = details?.rationale.en ?? sample?.impact ?? title;
   const remediation = details?.remediation.en ?? sample?.recommendation ?? title;
   const links = standardsForFindings(details?.standards ?? [], findings);
-  const hasJvmFinding = findings.some((f) => isJvmSourcePath(f.location.path));
-  const noDirectCert =
-    details?.noDirectCert !== undefined && hasJvmFinding ? details.noDirectCert.en : undefined;
+  const noDirectCert = findings
+    .map((f) => noDirectCertFor(details, f.location.path, f.references.cert))
+    .find((text) => text !== undefined)?.en;
   const tags = ["security"];
   for (const link of links) {
     if (link.kind === "cwe") {

@@ -3,6 +3,7 @@ import {
   buildRuleDetails,
   directCertIdsForPath,
   isJvmSourcePath,
+  noDirectCertFor,
   resolveStandardLinks,
   standardsForFindings,
   standardsForPath,
@@ -171,5 +172,22 @@ describe("direct CERT links scoped to a cause", () => {
       standardsForFindings(links, group).filter((l) => l.kind === "cert").length;
     expect(count([without])).toBe(0);
     expect(count([without, withCert])).toBe(1);
+  });
+});
+
+describe("noDirectCertFor", () => {
+  const other = { en: "Other.", ko: "기타." };
+  const own = { en: "Own.", ko: "자체." };
+  it("shows the rule's own marker on Java and Kotlin files only", () => {
+    expect(noDirectCertFor({ noDirectCert: own }, "A.java")).toBe(own);
+    expect(noDirectCertFor({ noDirectCert: own }, "a.ts")).toBeUndefined();
+    expect(noDirectCertFor(undefined, "A.java")).toBeUndefined();
+  });
+  it("shows the other-causes marker only on a JVM finding without a CERT reference", () => {
+    const details = { noDirectCertOther: other };
+    expect(noDirectCertFor(details, "A.java", [])).toBe(other);
+    expect(noDirectCertFor(details, "A.kt")).toBe(other);
+    expect(noDirectCertFor(details, "A.java", ["MSC02-J"])).toBeUndefined();
+    expect(noDirectCertFor(details, "a.ts", [])).toBeUndefined();
   });
 });

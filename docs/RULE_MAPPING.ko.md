@@ -43,7 +43,7 @@ SEI CERT Java에는 웹 규칙 매핑이 따로 없으므로, PGARD는 CWE를 �
 - CERT 규칙이 PGARD 규칙의 일부만 다루면 한 원인으로 한정할 수 있습니다(참조의 `cause`, 근거 문구의 종류에서 `finding-factory.ts`의 `certCausesOf`가 발견 항목마다 정함). PG-CRYPTO-003의 약한 난수 출처 발견 항목은 MSC02-J, PG-PATH-002의 압축 파일 항목(zip slip) 발견 항목은 IDS04-J, 그 밖의 발견 항목은 FIO16-J입니다. 한정된 링크는 `references.cert`에 그 id가 있는 발견 항목에만 표시됩니다.
 - `.java`, `.kt` 파일의 발견 항목에만 표시됩니다(`references.cert`, `standardsForPath`). 다른 언어의 발견 항목에는 direct CERT 링크가 절대 나타나지 않습니다.
 
-Java 또는 Kotlin에 적용되는 모든 규칙은 `direct` 항목이나 명시적 표시 `standards.noDirectCert`(약점을 다루는 CERT Java 규칙이 없는 이유, 영어와 한국어) 중 하나를 가집니다. `validateRuleMetadata`는 둘 다 없거나 둘 다 있는 규칙, Java·Kotlin에 적용되지 않는 규칙에 둘 중 하나가 있는 경우를 거부합니다. CERT 규칙이 그 약점을 다루는지 확신이 없으면 연결하지 말고 표시를 쓰세요. 매핑은 상호 참조일 뿐 준수(compliance) 주장이 아닙니다.
+Java 또는 Kotlin에 적용되는 모든 규칙은 `direct` 항목이나 명시적 표시 `standards.noDirectCert`(약점을 다루는 CERT Java 규칙이 없는 이유, 영어와 한국어) 중 하나를 가집니다. 원인별로 한정한 direct 항목만 있는 규칙은 다른 원인의 발견 항목용 `standards.noDirectCertOther`도 둘 수 있습니다(PG-CRYPTO-003의 DES, ECB, 고정 IV 발견 항목). `validateRuleMetadata`는 둘 다 없거나 둘 다 있는 규칙, Java·Kotlin에 적용되지 않는 규칙에 둘 중 하나가 있는 경우를 거부합니다. CERT 규칙이 그 약점을 다루는지 확신이 없으면 연결하지 말고 표시를 쓰세요. 매핑은 상호 참조일 뿐 준수(compliance) 주장이 아닙니다.
 
 표시 방식(커버리지 화면과 UI): `via-cwe`는 "관련(CWE-xxx 경유)"이라는 보조 그룹으로 보여 주고 "매핑됨"으로 보여 주지 않습니다. 연결에 쓴 CWE를 항상 밝히고 SEI가 CWE 표를 검증하지 않았다는 점을 덧붙이며, CERT 커버리지에는 절대 포함하지 않습니다.
 

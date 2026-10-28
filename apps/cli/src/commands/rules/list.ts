@@ -112,6 +112,9 @@ export function certLines(rule: RuleDescriptor, locale: RuleLocale, t: CliText):
   else if (standards.noDirectCert !== undefined && isJvmRuleLanguages(rule.languages)) {
     lines.push(text.certNone(pickText(standards.noDirectCert, locale)));
   }
+  if (standards.noDirectCertOther !== undefined && direct.length > 0) {
+    lines.push(text.certNoneOther(pickText(standards.noDirectCertOther, locale)));
+  }
   if (indirect.length > 0) lines.push(text.certIndirect(indirect.join(", ")));
   return lines;
 }

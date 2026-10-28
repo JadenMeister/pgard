@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CertCause } from "@pgard/findings";
 import { createSourceFinding, type RawSourceFinding } from "./finding-factory.js";
 import type { SourceRuleId } from "./rules.js";
 
@@ -51,48 +52,38 @@ describe("direct CERT Java references on findings", () => {
 });
 
 describe("direct CERT references scoped to the cause of a finding", () => {
-  const withEvidence = (ruleId: SourceRuleId, path: string, evidence: string) =>
-    createSourceFinding({ ...raw(ruleId, path), evidence }).references.cert;
+  const withCause = (
+    ruleId: SourceRuleId,
+    path: string,
+    cause: string,
+    certCause?: CertCause,
+  ): string[] | undefined =>
+    createSourceFinding({ ...raw(ruleId, path), cause, ...(certCause ? { certCause } : {}) })
+      .references.cert;
 
-  it("gives MSC02-J to a weak random source finding and not to a cipher or fixed IV finding", () => {
-    const random = [
-      "non-cryptographic random value used as an IV",
-      "non-cryptographic random value stored in token (a token, key, IV or salt by name); inferred",
-      "non-cryptographic random bytes written into salt (a key, IV, salt or token by name); inferred",
-    ];
-    for (const evidence of random) {
-      expect(withEvidence("PG-CRYPTO-003", "A.java", evidence), evidence).toEqual(["MSC02-J"]);
-      expect(withEvidence("PG-CRYPTO-003", "A.kt", evidence), evidence).toEqual(["MSC02-J"]);
+  it("gives MSC02-J to the weak-random causes of the analyzer and not to cipher or IV causes", () => {
+    for (const cause of ["weak-random:iv", "weak-random:name", "weak-random:salt"]) {
+      expect(withCause("PG-CRYPTO-003", "A.java", cause), cause).toEqual(["MSC02-J"]);
+      expect(withCause("PG-CRYPTO-003", "A.kt", cause), cause).toEqual(["MSC02-J"]);
     }
-    for (const evidence of [
-      "weak cipher: DES cipher",
-      "weak cipher: AES in ECB mode",
-      "weak cipher: DESede cipher",
-      "fixed IV: all-zero byte array used in IvParameterSpec",
-    ]) {
-      expect(withEvidence("PG-CRYPTO-003", "A.java", evidence), evidence).toBeUndefined();
+    for (const cause of ["weak-cipher", "fixed-iv"]) {
+      expect(withCause("PG-CRYPTO-003", "A.java", cause), cause).toBeUndefined();
     }
-    // The same evidence in a JavaScript file never gets a Java CERT rule.
-    expect(
-      withEvidence("PG-CRYPTO-003", "a.ts", "non-cryptographic random value used as a key"),
-    ).toBeUndefined();
+    // The evidence text decides nothing, and a JavaScript file never gets a Java CERT rule.
+    const worded = createSourceFinding({
+      ...raw("PG-CRYPTO-003", "A.java"),
+      cause: "weak-cipher",
+      evidence: "non-cryptographic random value used as a key",
+    });
+    expect(worded.references.cert).toBeUndefined();
+    expect(withCause("PG-CRYPTO-003", "a.ts", "weak-random:iv")).toBeUndefined();
   });
 
   it("gives IDS04-J to an archive entry path and FIO16-J to every other path finding", () => {
-    expect(
-      withEvidence(
-        "PG-PATH-002",
-        "Z.java",
-        "archive entry name (getName) via variable -> path -> File.mkdirs",
-      ),
-    ).toEqual(["IDS04-J"]);
-    for (const evidence of [
-      "request input (@RequestParam name) -> path -> Files.readAllBytes",
-      "request input (uploaded file name (getOriginalFilename)) -> new File",
-      "path -> File.mkdirs (no input source identified)",
-      "path -> FileOutputStream; checked by a path guard (canonical prefix test or '..' rejection); inferred",
-    ]) {
-      expect(withEvidence("PG-PATH-002", "P.kt", evidence), evidence).toEqual(["FIO16-J"]);
-    }
+    expect(withCause("PG-PATH-002", "Z.java", "Files.copy", "archive-entry")).toEqual(["IDS04-J"]);
+    expect(withCause("PG-PATH-002", "P.kt", "File", "other-than-archive-entry")).toEqual([
+      "FIO16-J",
+    ]);
+    expect(withCause("PG-PATH-002", "P.kt", "File")).toEqual(["FIO16-J"]);
   });
 });

@@ -72,6 +72,12 @@ export interface RuleStandards {
    * reference or this marker, never both and never neither; other rules have neither.
    */
   noDirectCert?: LocalizedText;
+  /**
+   * For a rule whose direct references are scoped to a cause: why the findings of the other
+   * causes have no direct CERT rule. Shown only on Java and Kotlin findings without a
+   * `references.cert`. Allowed only next to a scoped direct reference.
+   */
+  noDirectCertOther?: LocalizedText;
   /** Reasons for departures from the mapping policy. Each field is required in exactly its case. */
   mappingNote?: RuleMappingNote;
 }
@@ -188,10 +194,21 @@ export function validateRuleMetadata(rule: {
     if (direct && marker) fail("has both a direct CERT reference and a noDirectCert marker");
     if (!jvm && direct) fail("has a direct CERT reference but does not apply to Java or Kotlin");
     if (!jvm && marker) fail("has a noDirectCert marker but does not apply to Java or Kotlin");
+    if (
+      standards.noDirectCertOther !== undefined &&
+      !standards.cert.some((ref) => ref.kind === "direct" && ref.cause !== undefined)
+    ) {
+      fail("has a noDirectCertOther marker but no direct CERT reference scoped to a cause");
+    }
   }
 
   const prose: Array<[string, LocalizedText]> = [
     ["rationale", rationale],
+    ...(standards.noDirectCertOther === undefined
+      ? []
+      : ([["standards.noDirectCertOther", standards.noDirectCertOther]] as Array<
+          [string, LocalizedText]
+        >)),
     ...(standards.noDirectCert === undefined
       ? []
       : ([["standards.noDirectCert", standards.noDirectCert]] as Array<[string, LocalizedText]>)),

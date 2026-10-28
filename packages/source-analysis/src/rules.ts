@@ -696,6 +696,10 @@ export const SOURCE_RULES = [
       owasp: ["A04:2025"],
       cwe: ["CWE-327"],
       cert: [{ kind: "direct", id: "MSC02-J", cause: "weak-random" }],
+      noDirectCertOther: {
+        en: "No CERT rule maps directly; related recommendation: MSC61-J Do not use insecure or weak cryptographic algorithms (recommendations are not linked).",
+        ko: "직접 대응하는 CERT 규칙이 없습니다. 관련 권고: MSC61-J Do not use insecure or weak cryptographic algorithms (권고는 연결하지 않습니다).",
+      },
     },
     rationale: {
       en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token lets an attacker guess it. In Java and Kotlin the rule also reads bare `AES` (ECB), a fixed IV and such random values.",

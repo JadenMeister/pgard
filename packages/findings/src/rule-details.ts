@@ -60,6 +60,20 @@ export function standardsForPath(
 }
 
 /**
+ * The "no direct CERT rule" note for one finding: only on a Java or Kotlin file, either the rule's
+ * own marker, or the marker for the other causes when the finding has no `references.cert`.
+ */
+export function noDirectCertFor(
+  details: Pick<RuleDetails, "noDirectCert" | "noDirectCertOther"> | undefined,
+  path: string | null,
+  cert?: readonly string[],
+): LocalizedText | undefined {
+  if (details === undefined || !isJvmSourcePath(path)) return undefined;
+  if (details.noDirectCert !== undefined) return details.noDirectCert;
+  return (cert ?? []).length === 0 ? details.noDirectCertOther : undefined;
+}
+
+/**
  * Links for a group of findings of one rule (a SARIF rule, a grouped terminal entry): the union of
  * what holds for each finding, in the links' order. An empty group gets the file-independent links.
  */
@@ -102,6 +116,8 @@ export interface RuleDetails {
   standards: StandardLink[];
   /** Why no CERT Java rule is about this (Java and Kotlin) rule's weakness; absent otherwise. */
   noDirectCert?: LocalizedText;
+  /** Why findings of the causes without a scoped direct reference have none; see `noDirectCertFor`. */
+  noDirectCertOther?: LocalizedText;
   examples: RuleExample[];
 }
 
@@ -142,6 +158,9 @@ export function buildRuleDetails(metadata: RuleMetadata): RuleDetails {
     rationale: { ...metadata.rationale },
     remediation: { ...metadata.remediation },
     standards: resolveStandardLinks(metadata.standards),
+    ...(metadata.standards.noDirectCertOther === undefined
+      ? {}
+      : { noDirectCertOther: { ...metadata.standards.noDirectCertOther } }),
     ...(metadata.standards.noDirectCert === undefined
       ? {}
       : { noDirectCert: { ...metadata.standards.noDirectCert } }),

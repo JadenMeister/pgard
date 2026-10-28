@@ -169,6 +169,7 @@ export interface CommandText {
     /** CERT Java lines under a rule: direct (Java and Kotlin only), none (with reason), indirect. */
     certDirect: (ids: string) => string;
     certNone: (reason: string) => string;
+    certNoneOther: (reason: string) => string;
     certIndirect: (refs: string) => string;
     certNote: string;
     /** Suffix of a direct CERT id that covers only one cause of the rule's findings. */
@@ -385,6 +386,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     unsupportedAreas: UNSUPPORTED_AREAS_EN,
     certDirect: (ids) => `SEI CERT Java, direct (Java and Kotlin files only): ${ids}`,
     certNone: (reason) => `SEI CERT Java: no direct rule. ${reason}`,
+    certNoneOther: (reason) => `SEI CERT Java, other findings: no direct rule. ${reason}`,
     certIndirect: (refs) => `SEI CERT Java, indirect (cross-reference through a CWE): ${refs}`,
     certCause: {
       "weak-random": "random-number findings only",
@@ -603,6 +605,8 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     ],
     certDirect: (ids) => `SEI CERT Java, 직접 연결 (Java와 Kotlin 파일만 해당): ${ids}`,
     certNone: (reason) => `SEI CERT Java: 직접 대응하는 규칙 없음. ${reason}`,
+    certNoneOther: (reason) =>
+      `SEI CERT Java, 그 밖의 발견 항목: 직접 대응하는 규칙 없음. ${reason}`,
     certIndirect: (refs) => `SEI CERT Java, 간접 연결 (CWE를 거친 상호 참조): ${refs}`,
     certCause: {
       "weak-random": "난수 관련 발견 항목만",

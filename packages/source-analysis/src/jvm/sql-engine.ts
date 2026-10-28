@@ -1,4 +1,4 @@
-import type { Confidence, FindingStatus, Severity } from "@pgard/findings";
+import type { CertCause, Confidence, FindingStatus, Severity } from "@pgard/findings";
 import {
   guardedWhenFalse,
   guardedWhenTrue,
@@ -82,6 +82,11 @@ export interface SqlFinding {
   confidence: Confidence;
   evidence: string;
   cause: string;
+  /**
+   * Which part of the rule this finding is, for the direct CERT references that cover only part
+   * of it. Set by the analyzer from what it saw, never from the evidence text. Absent: no cause.
+   */
+  certCause?: CertCause;
 }
 
 /** A finding of one of the rules that run on the flow analysis. */

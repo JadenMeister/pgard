@@ -22,26 +22,21 @@ export interface RawSourceFinding {
   evidence: string;
   /** Stable, value-free cause used for the fingerprint (e.g. callee name). */
   cause: string;
+  /** Set by the analyzer for rules whose direct CERT reference depends on it (PG-PATH-002). */
+  certCause?: CertCause;
 }
 
 /**
- * The cause of a finding, for the direct CERT references that cover only part of a rule. It is read
- * from the evidence text that the analyzers build, which starts with the kind of source or sink:
- * - PG-CRYPTO-003 "non-cryptographic random ..." is a weak random source (MSC02-J). Fixed IVs and
- *   weak or ECB ciphers have other evidence and get no MSC02-J.
- * - PG-PATH-002 "archive entry name ..." is a zip slip (IDS04-J); every other path finding is
- *   not (FIO16-J). Evidence of a tainted path always starts with the source label.
- * The corpus check (tests/corpus) and `finding-factory.test.ts` pin both.
+ * The causes of a finding, for the direct CERT references that cover only part of a rule:
+ * - PG-CRYPTO-003: the analyzer's own cause of a weak random source is `weak-random:*` (MSC02-J);
+ *   weak cipher and fixed IV findings have other causes and get none.
+ * - PG-PATH-002: the analyzer sets `certCause` from the source of the path (an archive entry name
+ *   is `archive-entry`, IDS04-J); a finding without it is `other-than-archive-entry` (FIO16-J).
+ * Nothing is read from the evidence text.
  */
-export function certCausesOf(ruleId: string, evidence: string): CertCause[] {
-  if (ruleId === "PG-CRYPTO-003") {
-    return evidence.startsWith("non-cryptographic random") ? ["weak-random"] : [];
-  }
-  if (ruleId === "PG-PATH-002") {
-    return evidence.startsWith("archive entry name")
-      ? ["archive-entry"]
-      : ["other-than-archive-entry"];
-  }
+export function certCausesOf(ruleId: string, cause: string, certCause?: CertCause): CertCause[] {
+  if (ruleId === "PG-CRYPTO-003") return cause.startsWith("weak-random:") ? ["weak-random"] : [];
+  if (ruleId === "PG-PATH-002") return [certCause ?? "other-than-archive-entry"];
   return [];
 }
 
@@ -58,7 +53,7 @@ export function createSourceFinding(raw: RawSourceFinding): Finding {
   const cert = directCertIdsForPath(
     rule.metadata.standards,
     raw.path,
-    certCausesOf(raw.ruleId, raw.evidence),
+    certCausesOf(raw.ruleId, raw.cause, raw.certCause),
   );
   return {
     id: createFindingFingerprint({ ruleId: raw.ruleId, location, cause: raw.cause }),

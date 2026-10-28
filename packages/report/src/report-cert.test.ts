@@ -21,6 +21,23 @@ const CATALOG = buildRuleTextCatalog([
     },
   },
   {
+    id: "PG-CRYPTO-003",
+    title: "Weak crypto",
+    metadata: {
+      standards: {
+        owasp: ["A04:2025"],
+        cwe: ["CWE-327"],
+        cert: [{ kind: "direct", id: "MSC02-J", cause: "weak-random" }],
+        noDirectCertOther: {
+          en: "Other causes: related recommendation MSC61-J.",
+          ko: "다른 원인: 관련 권고 MSC61-J.",
+        },
+      },
+      rationale: { en: "Weak.", ko: "약함." },
+      remediation: { en: "Use strong.", ko: "강하게." },
+    },
+  },
+  {
     id: "PG-XSS-004",
     title: "XSS",
     metadata: {
@@ -62,6 +79,25 @@ describe("CERT Java links in the HTML report", () => {
       expect(html, path).not.toContain("direct, Java");
     }
     expect(render([at("PG-CMD-003", "a.js")], "ko")).toContain("(간접, CWE-78 경유)");
+  });
+
+  it("scopes a direct link to its cause and notes the other causes", () => {
+    const random = {
+      ...at("PG-CRYPTO-003", "A.java"),
+      references: { cwe: [], owasp: [], cve: [], cert: ["MSC02-J"] },
+    };
+    const des = at("PG-CRYPTO-003", "B.java");
+    expect(render([random])).toContain("MSC02-J</a>");
+    expect(render([random])).not.toContain("related recommendation MSC61-J");
+    const desHtml = render([des]);
+    expect(desHtml).not.toContain("MSC02-J</a>");
+    expect(desHtml).toContain(
+      "SEI CERT Java: no direct rule: Other causes: related recommendation MSC61-J.",
+    );
+    expect(render([{ ...des, references: { cwe: [], owasp: [], cve: [] } }], "ko")).toContain(
+      "다른 원인: 관련 권고 MSC61-J.",
+    );
+    expect(render([at("PG-CRYPTO-003", "b.ts")])).not.toContain("MSC61-J");
   });
 
   it("states the missing direct rule for Java and Kotlin findings only", () => {

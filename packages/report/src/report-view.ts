@@ -7,7 +7,7 @@ import {
   cweUrl,
   formatSeverityBreakdown,
   localizedRuleTitle,
-  isJvmSourcePath,
+  noDirectCertFor,
   standardsForPath,
   pickText,
   suppressionNotices,
@@ -58,13 +58,12 @@ const isHttpsUrl = (url: string): boolean => url.startsWith("https://");
 export function findingDetails(finding: Finding, ctx: ReportContext): RuleDetails | undefined {
   const details = ctx.ruleTexts?.get(finding.ruleId)?.details;
   if (details === undefined) return undefined;
-  const { noDirectCert, ...rest } = details;
+  const { noDirectCert: _rule, noDirectCertOther: _other, ...rest } = details;
+  const noDirectCert = noDirectCertFor(details, finding.location.path, finding.references.cert);
   return {
     ...rest,
     // The "no direct CERT rule" marker belongs to Java and Kotlin findings only.
-    ...(noDirectCert !== undefined && isJvmSourcePath(finding.location.path)
-      ? { noDirectCert }
-      : {}),
+    ...(noDirectCert === undefined ? {} : { noDirectCert }),
     // Only official https links are ever rendered as links.
     // A direct CERT Java link is only valid for a finding in a Java or Kotlin file.
     standards: standardsForPath(
