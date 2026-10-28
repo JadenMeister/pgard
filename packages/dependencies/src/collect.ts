@@ -13,16 +13,20 @@ import { parseNpmLock } from "./lockfiles/npm.js";
 import { parsePnpmLock } from "./lockfiles/pnpm.js";
 import { parseYarnLock } from "./lockfiles/yarn.js";
 import {
+  COLLECT_TIME_BUDGET_MS,
   MAX_LOCKFILE_BYTES,
   MAX_LOCKFILES,
   MAX_MANIFEST_BYTES,
   MAX_MANIFESTS,
+  MAX_TOTAL_BYTES,
+  MAX_TOTAL_DEPENDENCIES,
   MAX_VISITED_ENTRIES,
 } from "./limits.js";
 import type {
   Dependency,
   DependencyCollection,
   DependencyCoverage,
+  CollectOptions,
   LockfileKind,
   ParsedLockfile,
 } from "./types.js";
@@ -67,11 +71,21 @@ interface Discovered {
   isTruncated: boolean;
 }
 
-async function discover(root: string): Promise<Discovered> {
+async function discover(
+  root: string,
+  budget: Budget,
+  maxVisited: number,
+  maxLockfiles: number,
+): Promise<Discovered> {
   const result: Discovered = { lockfiles: [], unsupported: [], manifests: [], isTruncated: false };
   const stack = [root];
   let visited = 0;
   while (stack.length > 0) {
+    // The walk counts against the time budget too, and honours cancellation.
+    if (budget.expired()) {
+      result.isTruncated = true;
+      break;
+    }
     const directory = stack.pop() as string;
     let entries;
     try {
@@ -85,9 +99,12 @@ async function discover(root: string): Promise<Discovered> {
     const fileNames = new Set(entries.filter((entry) => entry.isFile()).map((entry) => entry.name));
     for (const entry of entries) {
       visited += 1;
-      if (visited > MAX_VISITED_ENTRIES) {
+      if (visited > maxVisited) {
         result.isTruncated = true;
-        return result;
+        budget.note(
+          `The directory walk stopped after ${maxVisited} entries; later files were not found.`,
+        );
+        return finishDiscovery(result);
       }
       if (entry.isSymbolicLink()) continue; // never followed
       const absolutePath = path.join(directory, entry.name);
@@ -111,8 +128,9 @@ async function discover(root: string): Promise<Discovered> {
       const kind = SUPPORTED[entry.name];
       const found = { absolutePath, relativePath };
       if (kind !== undefined) {
-        if (result.lockfiles.length >= MAX_LOCKFILES) {
+        if (result.lockfiles.length >= maxLockfiles) {
           result.isTruncated = true;
+          budget.note(`More than ${maxLockfiles} lockfiles were found; the rest were not read.`);
           continue;
         }
         result.lockfiles.push({ ...found, kind });
@@ -124,27 +142,105 @@ async function discover(root: string): Promise<Discovered> {
       }
     }
   }
+  return finishDiscovery(result);
+}
+
+function finishDiscovery(result: Discovered): Discovered {
   result.lockfiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
   return result;
 }
 
-type ReadOutcome = { text: string } | { error: "too-large" | "unreadable" };
+/** Counters shared by every read of one collection run. */
+class Budget {
+  bytesRead = 0;
+  readonly notes: string[] = [];
+  /** dev:ino of every file already read, so a hard link to it is not read again. */
+  readonly seen = new Map<string, string>();
+  private expiredNoted = false;
+  private readonly startedAt: number;
 
-/** Reads a file read-only without following a symlink swapped in after the walk; size-capped. */
-async function readCapped(absolutePath: string, maxBytes: number): Promise<ReadOutcome> {
+  constructor(
+    readonly options: CollectOptions,
+    readonly maxTotalBytes: number,
+  ) {
+    this.startedAt = this.now();
+  }
+
+  now(): number {
+    return (this.options.now ?? Date.now)();
+  }
+
+  /** Throws when cancelled; true once the time budget is used up (and says so once). */
+  expired(): boolean {
+    if (this.options.signal?.aborted === true) {
+      throw new DOMException("The dependency collection was cancelled.", "AbortError");
+    }
+    const limit = this.options.timeBudgetMs ?? COLLECT_TIME_BUDGET_MS;
+    const over = this.now() - this.startedAt > limit;
+    if (over && !this.expiredNoted) {
+      this.expiredNoted = true;
+      this.notes.push("The time budget for reading lockfiles ran out; later files were not read.");
+    }
+    return over;
+  }
+
+  note(message: string): void {
+    if (!this.notes.includes(message)) this.notes.push(message);
+  }
+}
+
+type ReadOutcome =
+  | { text: string }
+  | { error: "too-large" | "unreadable" | "over-budget" }
+  | { error: "duplicate"; of: string };
+
+/**
+ * Reads a regular file read-only: never follows a symlink (also not one swapped in after the
+ * walk), never blocks on a FIFO swapped in, and never reads more than `maxBytes` or more than the
+ * run's remaining byte budget. A hard link to a file that was already read (same device and
+ * inode) is not read again.
+ */
+async function readCapped(
+  absolutePath: string,
+  relativePath: string,
+  maxBytes: number,
+  budget: Budget,
+): Promise<ReadOutcome> {
   let handle;
   try {
-    handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const stats = await handle.stat();
+    handle = await open(
+      absolutePath,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+    );
+    const stats = await handle.stat({ bigint: true });
     if (!stats.isFile()) return { error: "unreadable" };
-    if (stats.size > maxBytes) return { error: "too-large" };
-    const buffer = Buffer.alloc(stats.size);
-    const { bytesRead } = await handle.read(buffer, 0, stats.size, 0);
-    return { text: buffer.subarray(0, bytesRead).toString("utf8") };
+    if (stats.ino !== 0n) {
+      const key = `${stats.dev}:${stats.ino}`;
+      const first = budget.seen.get(key);
+      if (first !== undefined) return { error: "duplicate", of: first };
+      budget.seen.set(key, relativePath);
+    }
+    if (stats.size > BigInt(maxBytes)) return { error: "too-large" };
+    const size = Number(stats.size);
+    if (budget.bytesRead + size > budget.maxTotalBytes) {
+      budget.note(
+        `The ${Math.round(budget.maxTotalBytes / (1024 * 1024))} MiB limit on all lockfile data was reached; later files were not read.`,
+      );
+      return { error: "over-budget" };
+    }
+    const buffer = Buffer.alloc(size);
+    let offset = 0;
+    while (offset < size) {
+      const { bytesRead } = await handle.read(buffer, offset, size - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    budget.bytesRead += offset;
+    return { text: buffer.subarray(0, offset).toString("utf8") };
   } catch {
     return { error: "unreadable" };
   } finally {
-    await handle?.close();
+    await handle?.close().catch(() => undefined);
   }
 }
 
@@ -186,29 +282,64 @@ const isInside = (directory: string, parent: string): boolean =>
  * Directory rules are the scanner's own: build/cache directories, `node_modules`, dependency
  * `vendor/` directories and symbolic links are never entered.
  */
-export async function collectDependencies(root: string): Promise<DependencyCollection> {
-  const found = await discover(root);
+export async function collectDependencies(
+  root: string,
+  options: CollectOptions = {},
+): Promise<DependencyCollection> {
+  const limits = {
+    totalBytes: options.limits?.totalBytes ?? MAX_TOTAL_BYTES,
+    totalDependencies: options.limits?.totalDependencies ?? MAX_TOTAL_DEPENDENCIES,
+    lockfileBytes: options.limits?.lockfileBytes ?? MAX_LOCKFILE_BYTES,
+    visitedEntries: options.limits?.visitedEntries ?? MAX_VISITED_ENTRIES,
+    lockfiles: options.limits?.lockfiles ?? MAX_LOCKFILES,
+  };
+  const budget = new Budget(options, limits.totalBytes);
+  const found = await discover(root, budget, limits.visitedEntries, limits.lockfiles);
   const coverage: DependencyCoverage[] = [];
   const dependencies: Dependency[] = [];
-  const seen = new Map<string, Dependency>();
+  const seen = new Set<string>();
+  let isTruncated = found.isTruncated;
+  let entriesCapped = false;
 
   const manifestNames = new Map<string, Set<string>>();
+  /** Manifest content already parsed, by dev:ino path of its first reading (hard links). */
+  const manifestByFirstPath = new Map<string, Set<string> | null>();
   for (const manifest of found.manifests) {
-    const read = await readCapped(manifest.absolutePath, MAX_MANIFEST_BYTES);
+    if (budget.expired()) {
+      isTruncated = true;
+      break;
+    }
+    const read = await readCapped(
+      manifest.absolutePath,
+      manifest.relativePath,
+      MAX_MANIFEST_BYTES,
+      budget,
+    );
+    if ("error" in read && read.error === "duplicate") {
+      const names = manifestByFirstPath.get(read.of);
+      if (names !== undefined && names !== null) {
+        manifestNames.set(dirOf(manifest.relativePath), names);
+        continue;
+      }
+    }
     const names = "text" in read ? manifestDependencyNames(read.text) : null;
+    if ("text" in read) manifestByFirstPath.set(manifest.relativePath, names);
     if (names !== null) {
       manifestNames.set(dirOf(manifest.relativePath), names);
       continue;
     }
     // A manifest that cannot be read cannot be shown to have no dependencies.
+    const tooLarge = "error" in read && read.error === "too-large";
+    const overBudget = "error" in read && read.error === "over-budget";
     coverage.push({
       path: manifest.relativePath,
       kind: "package.json",
-      status: "error" in read && read.error === "too-large" ? "too-large" : "failed",
+      status: tooLarge ? "too-large" : overBudget ? "not-read" : "failed",
       dependencyCount: 0,
-      note:
-        "error" in read && read.error === "too-large"
-          ? `Larger than ${MAX_MANIFEST_BYTES / (1024 * 1024)} MiB; not read, so its dependencies were not checked.`
+      note: tooLarge
+        ? `Larger than ${MAX_MANIFEST_BYTES / (1024 * 1024)} MiB; not read, so its dependencies were not checked.`
+        : overBudget
+          ? "Not read because a limit on the amount of lockfile data was reached; its dependencies were not checked."
           : "Could not be read or is not a valid package.json; its dependencies were not checked.",
     });
   }
@@ -230,17 +361,53 @@ export async function collectDependencies(root: string): Promise<DependencyColle
     if (file.kind === "go.sum" && goModDirs.has(directory)) {
       continue; // read together with its go.mod
     }
-    const read = await readCapped(file.absolutePath, MAX_LOCKFILE_BYTES);
-    if ("error" in read) {
+    if (budget.expired() || entriesCapped) {
+      isTruncated = true;
       coverage.push({
         path: file.relativePath,
         kind: file.kind,
-        status: read.error === "too-large" ? "too-large" : "failed",
+        status: "not-read",
+        dependencyCount: 0,
+        note: entriesCapped
+          ? `Not read: the limit of ${limits.totalDependencies} packages was reached.`
+          : "Not read: the time budget for reading lockfiles ran out.",
+      });
+      continue;
+    }
+    const read = await readCapped(
+      file.absolutePath,
+      file.relativePath,
+      limits.lockfileBytes,
+      budget,
+    );
+    if ("error" in read) {
+      if (read.error === "duplicate") {
+        coverage.push({
+          path: file.relativePath,
+          kind: file.kind,
+          status: "duplicate",
+          dependencyCount: 0,
+          note: `Hard link to ${read.of} (the same file); it was read once, there.`,
+        });
+        continue;
+      }
+      if (read.error === "over-budget") isTruncated = true;
+      coverage.push({
+        path: file.relativePath,
+        kind: file.kind,
+        status:
+          read.error === "too-large"
+            ? "too-large"
+            : read.error === "over-budget"
+              ? "not-read"
+              : "failed",
         dependencyCount: 0,
         note:
           read.error === "too-large"
-            ? `Larger than ${MAX_LOCKFILE_BYTES / (1024 * 1024)} MiB; not read.`
-            : "Could not be read.",
+            ? `Larger than ${limits.lockfileBytes / (1024 * 1024)} MiB; not read.`
+            : read.error === "over-budget"
+              ? "Not read: the limit on the amount of lockfile data was reached."
+              : "Could not be read.",
       });
       continue;
     }
@@ -250,7 +417,9 @@ export async function collectDependencies(root: string): Promise<DependencyColle
       if (file.kind === "go.mod") {
         const sum = goSumByDir.get(directory);
         const sumRead =
-          sum === undefined ? null : await readCapped(sum.absolutePath, MAX_LOCKFILE_BYTES);
+          sum === undefined
+            ? null
+            : await readCapped(sum.absolutePath, sum.relativePath, limits.lockfileBytes, budget);
         goSumText = sumRead !== null && "text" in sumRead ? sumRead.text : undefined;
       }
       parsed = parseOne(
@@ -262,23 +431,43 @@ export async function collectDependencies(root: string): Promise<DependencyColle
     } catch {
       parsed = { dependencies: [], notes: ["The file could not be parsed."], isComplete: false };
     }
+    let kept = 0;
+    let isCut = false;
     for (const dependency of parsed.dependencies) {
       const entry: Dependency = { ...dependency, path: file.relativePath };
       const id = `${entry.ecosystem}\0${entry.name}\0${entry.version}\0${entry.path}`;
-      if (!seen.has(id)) {
-        seen.set(id, entry);
-        dependencies.push(entry);
+      if (seen.has(id)) continue;
+      if (dependencies.length >= limits.totalDependencies) {
+        isCut = true;
+        entriesCapped = true;
+        break;
       }
+      seen.add(id);
+      dependencies.push(entry);
+      kept += 1;
+    }
+    const notes = [...parsed.notes];
+    if (isCut) {
+      isTruncated = true;
+      notes.push(
+        `Only the first ${limits.totalDependencies} packages across all lockfiles were kept; the rest were not checked.`,
+      );
+      budget.note(`The limit of ${limits.totalDependencies} packages was reached.`);
     }
     if (file.kind === "npm" || file.kind === "pnpm" || file.kind === "yarn") {
-      if (parsed.isComplete) coveredDirs.push(directory);
+      if (parsed.isComplete && !isCut) coveredDirs.push(directory);
     }
     coverage.push({
       path: file.relativePath,
       kind: file.kind,
-      status: parsed.isComplete ? "parsed" : parsed.dependencies.length > 0 ? "partial" : "failed",
-      dependencyCount: parsed.dependencies.length,
-      note: parsed.notes.length === 0 ? null : parsed.notes.join(" "),
+      status:
+        parsed.isComplete && !isCut
+          ? "parsed"
+          : parsed.dependencies.length > 0
+            ? "partial"
+            : "failed",
+      dependencyCount: kept,
+      note: notes.length === 0 ? null : notes.join(" "),
     });
   }
 
@@ -306,7 +495,13 @@ export async function collectDependencies(root: string): Promise<DependencyColle
     });
   }
   coverage.sort((a, b) => a.path.localeCompare(b.path));
-  return { dependencies, coverage, isTruncated: found.isTruncated };
+  return {
+    dependencies,
+    coverage,
+    isTruncated,
+    limitNotes: budget.notes,
+    bytesRead: budget.bytesRead,
+  };
 }
 
 function parseOne(
