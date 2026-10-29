@@ -228,7 +228,7 @@ export const CODE_ONLY_CHECK_REASON =
   "Not checked: this was a code-only scan of the files on this computer. No authorization was proven.";
 
 /**
- * PROTOTYPE (#414, not used by the CLI): a code-only scan of the files in `projectRoot` without
+ * A code-only scan (#414; `pgard scan code`, the web prototype) of the files in `projectRoot` without
  * the authorization gate. Only the `code` scope runs (source rules and dependencies against the
  * OSV data already on disk); no Git object is read, nothing is sent over the network, no
  * incremental state is offered and nothing is stored. The result never claims authorization:

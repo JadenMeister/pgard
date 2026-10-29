@@ -525,12 +525,12 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
 
   describe.each(stores)("with %s", (_name, makeStore) => {
     const formats: Array<[string, string[]]> = [
-      ["scan (text)", ["scan", "code"]],
+      ["scan (text)", ["scan", "code", "--require-authorization"]],
       ["scan history (text)", ["scan", "history"]],
       ["scan all with a port (text)", ["scan", "all", "--port", "3000"]],
-      ["scan --format json", ["scan", "code", "--format", "json"]],
+      ["scan --format json", ["scan", "code", "--require-authorization", "--format", "json"]],
       ["scan all --format json", ["scan", "all", "--port", "3000", "--format", "json"]],
-      ["scan --format sarif", ["scan", "code", "--format", "sarif"]],
+      ["scan --format sarif", ["scan", "code", "--require-authorization", "--format", "sarif"]],
       ["project verify", ["project", "verify"]],
       ["baseline show", ["baseline", "show"]],
     ];
@@ -587,10 +587,14 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     const captured = createTestIo({ isTTY: true, cwd: fixture?.root ?? "/", env: {} });
     (captured.io.stdout as { isTTY?: boolean }).isTTY = false;
     (captured.io.stderr as { isTTY?: boolean }).isTTY = false;
-    const exitCode = await main(["scan", "code", "--format", "json"], captured.io, {
-      deps: run.deps,
-      interrupts: noInterrupts,
-    });
+    const exitCode = await main(
+      ["scan", "code", "--require-authorization", "--format", "json"],
+      captured.io,
+      {
+        deps: run.deps,
+        interrupts: noInterrupts,
+      },
+    );
     expect(exitCode).toBe(3);
     expect(run.fetchCalls).toEqual([]);
     expect(run.deviceCodeRequests()).toBe(0);
@@ -620,10 +624,14 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     const captured = createTestIo({ isTTY: true, cwd: fixture?.root ?? "/", env: {} });
     // stdout redirected, stdin and stderr are terminals.
     (captured.io.stdout as { isTTY?: boolean }).isTTY = false;
-    const exitCode = await main(["scan", "code", "--format", "json"], captured.io, {
-      deps: run.deps,
-      interrupts: noInterrupts,
-    });
+    const exitCode = await main(
+      ["scan", "code", "--require-authorization", "--format", "json"],
+      captured.io,
+      {
+        deps: run.deps,
+        interrupts: noInterrupts,
+      },
+    );
     expect(exitCode).toBe(3);
     expect(run.deviceCodeRequests()).toBe(1);
     expect(run.fetchCalls[0]).toContain("/login/device/code");

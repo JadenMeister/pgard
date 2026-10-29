@@ -235,7 +235,7 @@ describe("guided install: personal repository owner", () => {
     const h = harness(state, (count) => {
       if (count === 1) installForOwner(state);
     });
-    const result = await run(["scan", "code"], h.deps);
+    const result = await run(["scan", "code", "--require-authorization"], h.deps);
     expect(result.exitCode).toBe(0);
     expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "completed"]);
     expect(h.scanResults[1]?.authorization.decision).toBe("allowed");
@@ -249,7 +249,7 @@ describe("guided install: personal repository owner", () => {
       installForOwner(state);
       state.repository = null;
     });
-    const result = await run(["scan", "code"], h.deps);
+    const result = await run(["scan", "code", "--require-authorization"], h.deps);
     expect(result.exitCode).toBe(3);
     expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "blocked"]);
   });
@@ -280,7 +280,9 @@ describe("guided install: personal repository owner", () => {
   it("prints the link and blocks without waiting when stdout is not a terminal", async () => {
     const { head } = project();
     const h = harness(notInstalled(head));
-    const result = await run(["scan", "code"], h.deps, { stdoutIsTTY: false });
+    const result = await run(["scan", "code", "--require-authorization"], h.deps, {
+      stdoutIsTTY: false,
+    });
     expect(result.exitCode).toBe(3);
     expect(result.stderr).toContain(PERSONAL_INSTALL_URL);
     expect(result.stderr).toContain("does not wait for the installation");
@@ -423,7 +425,7 @@ describe("guided install: organizations and configuration", () => {
     const { head } = project(ORG_REMOTE);
     const state = orgBeforeInstall(head);
     const h = harness(state, () => installOnOrg(state, "member"));
-    const result = await run(["scan", "code"], h.deps);
+    const result = await run(["scan", "code", "--require-authorization"], h.deps);
     expect(result.exitCode).toBe(3);
     expect(h.openBrowser).toHaveBeenCalledExactlyOnceWith(ORG_INSTALL_URL);
     expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "blocked"]);

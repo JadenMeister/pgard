@@ -226,6 +226,17 @@ export interface CliText {
     notComparable: string;
     firstRun: (dir: string, isWindows: boolean) => string;
   };
+  /** `pgard scan code` without approval (#414, D1, D2, D4). */
+  codeOnly: {
+    /** The first line of a code-only result. */
+    line: string;
+    /** How to get an authorized scan, after a code-only result. */
+    upgrade: string;
+    /** After a blocked `scan`, `scan history`, `scan web` or `scan all`. */
+    blockedHint: string;
+    /** `pgard scan code` outside a Git repository, in the home folder or the file-system root. */
+    tooBroad: string;
+  };
   /** Chrome of the full-screen panel view (`pgard scan --panels`). Scan data is not in here. */
   panels: PanelsText;
 }
@@ -552,6 +563,14 @@ const EN: CliText = {
         "  Stop storing: pass --no-store, or set PGARD_NO_STORE=1.",
         "  Delete everything: pgard history clear --all",
       ].join("\n"),
+  },
+  codeOnly: {
+    line: "! Code-only scan: authorization not verified (current files only; no Git history, no web checks, not saved).",
+    upgrade:
+      "For an authorized scan with Git history, run `pgard scan` (GitHub sign-in and owner approval), or `pgard scan code --require-authorization`.",
+    blockedHint: "`pgard scan code` checks the current files without approval.",
+    tooBroad:
+      "This is your home folder or the file-system root, not a project. Run pgard scan code inside the project's own folder.",
   },
   panels: {
     title: "PGARD panels",
@@ -916,6 +935,14 @@ const KO: CliText = {
         "  저장 끄기: --no-store를 붙이거나 PGARD_NO_STORE=1을 설정하세요.",
         "  모두 삭제: pgard history clear --all",
       ].join("\n"),
+  },
+  codeOnly: {
+    line: "! 코드 전용 검사: 권한 미확인(현재 파일만 검사, Git 기록·웹 검사 없음, 저장하지 않음).",
+    upgrade:
+      "Git 기록까지 포함한 권한 있는 검사는 `pgard scan`(GitHub 로그인과 소유자 승인 필요) 또는 `pgard scan code --require-authorization`으로 실행하세요.",
+    blockedHint: "`pgard scan code`는 승인 없이 현재 파일을 검사합니다.",
+    tooBroad:
+      "홈 폴더나 파일 시스템 최상위 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더에서 pgard scan code를 실행하세요.",
   },
   panels: {
     title: "PGARD 패널",

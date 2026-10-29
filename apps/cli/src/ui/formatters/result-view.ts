@@ -23,6 +23,7 @@ import {
   type StandardCheckState,
   type StandardsCoverage,
   type SuppressionNotice,
+  isCodeOnlyResult,
 } from "@pgard/findings";
 import { formatLocation, standardMark, summarizeStatusSplit } from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
@@ -624,6 +625,8 @@ export function formatScanResult(
   const allFindings = ctx.allFindings;
   const sections: string[] = [];
   const target = result.target;
+  // A code-only result says so before anything else (JSON 1.7 `scanBasis`).
+  if (isCodeOnlyResult(result)) sections.push(style.yellow(t.codeOnly.line));
   sections.push(
     `${style.bold(t.scanResult)} - ${t.report.overall[result.overallStatus] ?? t.unknown}`,
     style.dim(
@@ -891,6 +894,8 @@ function formatTerminalResult(
     for (const text of texts) lines.push(...fitLines(text, ctx.width));
   };
   const target = result.target;
+  const isCodeOnly = isCodeOnlyResult(result);
+  if (isCodeOnly) add(style.yellow(t.codeOnly.line));
   add(
     `${style.bold(t.scanResult)} - ${t.report.overall[result.overallStatus] ?? t.unknown}`,
     style.dim(
@@ -1067,5 +1072,7 @@ function formatTerminalResult(
     add(style.dim(`  ${t.standardsNote}`));
   }
   add("", style.dim(t.report.analysisBasisNote), "", style.bold(t.compact.next(hidden > 0)));
+  // The screen ends on the summary: repeat the code-only line there, where it is still visible.
+  if (isCodeOnly) add(style.yellow(t.codeOnly.line));
   return lines.join("\n");
 }

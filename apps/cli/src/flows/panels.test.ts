@@ -761,6 +761,7 @@ describe("e: export from the panel view", () => {
       };
       const code = await runScanCommand(context, {
         variant: "code",
+        requireAuthorization: true,
         port: null,
         report: null,
         panels: true,
@@ -918,7 +919,12 @@ describe("menu scan: panel export failure then No at the menu question", () => {
         ),
         ruleLocale: "en" as const,
       };
-      const code = await runScanCommand(context, { variant: "code", port: null, report: null });
+      const code = await runScanCommand(context, {
+        variant: "code",
+        requireAuthorization: true,
+        port: null,
+        report: null,
+      });
       expect(code).toBe(4);
       expect(writeReports).toHaveBeenCalledTimes(1);
     } finally {

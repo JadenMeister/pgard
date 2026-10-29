@@ -23,6 +23,14 @@ export function showOutcome(
   );
   out(context, formatAuthorization(outcome.summary, context.style, t));
   out(context, context.style.dim("This result is not stored. Every scan checks again."));
+  if (outcome.summary.decision !== "allowed") {
+    out(
+      context,
+      context.style.dim(
+        "Without approval, `pgard scan code` runs a code-only scan of the current files.",
+      ),
+    );
+  }
 }
 
 /**
