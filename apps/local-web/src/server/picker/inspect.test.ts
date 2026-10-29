@@ -22,6 +22,9 @@ import {
   type StatOverride,
 } from "./test-support/fixtures.js";
 
+/** The picker is not available on Windows (modes, owners and inodes are POSIX facts). */
+const posixDescribe = describe.skipIf(process.platform === "win32");
+
 let tree: ScopeTree;
 afterEach(() => tree?.cleanup());
 
@@ -84,7 +87,7 @@ function isCaseSensitive(): boolean {
   return isSensitive;
 }
 
-describe("directory walk (T3, T4, T5)", () => {
+posixDescribe("directory walk (T3, T4, T5)", () => {
   it("finds a repository by its exact name and reports it as selectable", async () => {
     tree = createScopeTree();
     repoAt("work", "shop");
@@ -239,7 +242,7 @@ describe("directory walk (T3, T4, T5)", () => {
   });
 });
 
-describe("candidate checks (T8, T13)", () => {
+posixDescribe("candidate checks (T8, T13)", () => {
   async function inspectNamed(
     name: string,
     deps: Partial<InspectorDeps> = {},
@@ -441,7 +444,7 @@ describe("candidate checks (T8, T13)", () => {
   });
 });
 
-describe("re-inspection (T7)", () => {
+posixDescribe("re-inspection (T7)", () => {
   async function candidateOf(name: string): Promise<RawCandidate> {
     const outcome = await search(name);
     const candidate = outcome.inspected.get(0);
@@ -499,7 +502,8 @@ describe("re-inspection (T7)", () => {
     tree = createScopeTree();
     repoAt("shop");
     const first = await candidateOf("shop");
-    rmSync(path.join(tree.root, "shop"), { recursive: true });
+    // The old directory stays, so the new one cannot reuse its inode number.
+    renameSync(path.join(tree.root, "shop"), path.join(tree.root, "shop-old"));
     createRepo(path.join(tree.root, "shop"), { remotes: GITHUB_REMOTES });
     const messages = await reinspect(first);
     // The new directory has another inode, so the recorded chain no longer matches.
@@ -550,7 +554,7 @@ describe("re-inspection (T7)", () => {
   });
 });
 
-describe("recent entries (T9) and containment by identity (T4)", () => {
+posixDescribe("recent entries (T9) and containment by identity (T4)", () => {
   async function recent(paths: string[]): Promise<ChildMessage[]> {
     const { deps, messages } = createInspectorDeps();
     await runInspectorJob(deps, {
@@ -628,7 +632,7 @@ describe("recent entries (T9) and containment by identity (T4)", () => {
   });
 });
 
-describe("inspectCandidate chain checks", () => {
+posixDescribe("inspectCandidate chain checks", () => {
   it("throws for a root whose identity changed", async () => {
     tree = createScopeTree();
     repoAt("shop");

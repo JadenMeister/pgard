@@ -1,4 +1,4 @@
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { runScan, verifyProject } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -278,10 +278,9 @@ describe.skipIf(process.platform === "win32")("pgard web end to end", () => {
     });
     const candidate = (await search(h, "shop")).candidates[0] as PickerCandidate;
     expect((await confirm(h, candidate)).status).toBe(200);
-    // Swap the directory for another repository (a new inode) after the user confirmed.
-    const { renameSync, rmSync } = await import("node:fs");
+    // Swap the directory for another repository after the user confirmed. The old one stays, so the
+    // new directory cannot reuse its inode number.
     renameSync(path.join(tree.root, "shop"), path.join(tree.root, "old-shop"));
-    rmSync(path.join(tree.root, "old-shop"), { recursive: true, force: true });
     createRepo(path.join(tree.root, "shop"), {
       remotes: { origin: "https://github.com/evil/shop.git" },
     });
@@ -293,6 +292,50 @@ describe.skipIf(process.platform === "win32")("pgard web end to end", () => {
     expect((json(refused).error as { code: string }).code).toBe("candidate_changed");
     expect(world.sessions).toBe(0);
     expect(h.server.state.scan.status).toBe("idle");
+  }, 30_000);
+
+  it("blocks at the gate when the remote is rewritten in place (same inodes): expectedRepo", async () => {
+    const world: GitHubWorld = { state: allowedState(), sessions: 0 };
+    const h = await start(world);
+    const dir = createRepo(path.join(tree.root, "shop"), {
+      remotes: { origin: "https://github.com/me/shop.git" },
+      author: AUTHOR,
+    });
+    const candidate = (await search(h, "shop")).candidates[0] as PickerCandidate;
+    expect((await confirm(h, candidate)).status).toBe(200);
+    // Same directory, same .git, same .git/config inode: only the remote differs. The identity
+    // re-check cannot see it; the gate must, before any GitHub call.
+    writeFileSync(
+      path.join(dir, ".git", "config"),
+      '[core]\n\trepositoryformatversion = 0\n[remote "origin"]\n\turl = https://github.com/evil/shop.git\n',
+    );
+    const started = await apiPost(h.server, "/api/auth/verify", {
+      epoch: h.server.state.projectEpoch,
+    });
+    expect(started.status).toBe(200);
+    const auth = await waitFor(
+      async () => json(await apiGet(h.server, "/api/auth")),
+      (value) => value.status !== "running",
+      600,
+    );
+    const checks = (
+      auth.summary as { checks: Array<{ id: string; status: string; reason: string }> }
+    ).checks;
+    expect(checks[0]).toMatchObject({
+      id: "repository",
+      status: "failed",
+      reason: "The repository changed since you confirmed it.",
+    });
+    expect((auth.summary as { decision: string }).decision).toBe("blocked");
+    expect(world.sessions).toBe(0);
+    await apiPost(h.server, "/api/scan", { scopes: ["code"], epoch: h.server.state.projectEpoch });
+    const scan = await waitFor(
+      async () => json(await apiGet(h.server, "/api/scan")),
+      (value) => value.status !== "running",
+      600,
+    );
+    expect((scan.result as { overallStatus: string }).overallStatus).toBe("blocked");
+    expect(world.sessions).toBe(0);
   }, 30_000);
 
   it("never leaks the name, path, remote URL or token in any response, stdout or stderr (design test 16)", async () => {

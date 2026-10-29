@@ -215,8 +215,10 @@ describe("recent list (T9, design tests 6 and 15)", () => {
     expect(stored.status === "ok" && stored.value).toMatchObject([
       { path: "/home/u/code/shop", repo: "acme/shop" },
     ]);
-    expect(statSync(path.join(storage.dir, RECENT_FILE)).mode & 0o777).toBe(0o600);
-    expect(statSync(storage.dir).mode & 0o777).toBe(0o700);
+    if (process.platform !== "win32") {
+      expect(statSync(path.join(storage.dir, RECENT_FILE)).mode & 0o777).toBe(0o600);
+      expect(statSync(storage.dir).mode & 0o777).toBe(0o700);
+    }
   });
 
   it("does not write the recent list with --no-store", async () => {
@@ -318,7 +320,7 @@ describe("settings and recent files (design test 15)", () => {
       lastUsedAt: new Date(Date.now() - index * 1000).toISOString(),
     }));
 
-  it("creates both files 0600 in a 0700 folder", async () => {
+  it.skipIf(process.platform === "win32")("creates both files 0600 in a 0700 folder", async () => {
     expect((await storage.writeSettings(["/home/u/code"])).ok).toBe(true);
     expect((await storage.writeRecent(entries(1))).ok).toBe(true);
     expect(statSync(storage.dir).mode & 0o777).toBe(0o700);
@@ -327,30 +329,33 @@ describe("settings and recent files (design test 15)", () => {
     }
   });
 
-  it("refuses a symlinked web folder or file, and a group- or world-writable file", async () => {
-    await storage.writeRecent(entries(1));
-    const file = path.join(storage.dir, RECENT_FILE);
-    chmodSync(file, 0o660);
-    expect(await storage.readRecent()).toEqual({ status: "ignored", reason: "unsafe" });
-    chmodSync(file, 0o600);
-    rmSync(file);
-    const target = path.join(dataDir, "elsewhere.json");
-    writeFileSync(target, JSON.stringify({ schemaVersion: "1.0", entries: [] }));
-    symlinkSync(target, file);
-    expect((await storage.readRecent()).status).toBe("ignored");
-    expect((await storage.writeRecent(entries(1))).ok).toBe(false);
-    expect(readFileSync(target, "utf8")).toContain("entries");
-    // A symlinked folder.
-    const other = createWebStorage({ dir: path.join(dataDir, "other") });
-    await other.writeSettings(["/home/u/code"]);
-    const real = path.join(dataDir, "real-web");
-    rmSync(other.dir, { recursive: true });
-    const { mkdirSync } = await import("node:fs");
-    mkdirSync(real, { mode: 0o700 });
-    symlinkSync(real, other.dir);
-    expect((await other.readSettings()).status).toBe("ignored");
-    expect((await other.writeSettings(["/home/u/code"])).ok).toBe(false);
-  });
+  it.skipIf(process.platform === "win32")(
+    "refuses a symlinked web folder or file, and a group- or world-writable file",
+    async () => {
+      await storage.writeRecent(entries(1));
+      const file = path.join(storage.dir, RECENT_FILE);
+      chmodSync(file, 0o660);
+      expect(await storage.readRecent()).toEqual({ status: "ignored", reason: "unsafe" });
+      chmodSync(file, 0o600);
+      rmSync(file);
+      const target = path.join(dataDir, "elsewhere.json");
+      writeFileSync(target, JSON.stringify({ schemaVersion: "1.0", entries: [] }));
+      symlinkSync(target, file);
+      expect((await storage.readRecent()).status).toBe("ignored");
+      expect((await storage.writeRecent(entries(1))).ok).toBe(false);
+      expect(readFileSync(target, "utf8")).toContain("entries");
+      // A symlinked folder.
+      const other = createWebStorage({ dir: path.join(dataDir, "other") });
+      await other.writeSettings(["/home/u/code"]);
+      const real = path.join(dataDir, "real-web");
+      rmSync(other.dir, { recursive: true });
+      const { mkdirSync } = await import("node:fs");
+      mkdirSync(real, { mode: 0o700 });
+      symlinkSync(real, other.dir);
+      expect((await other.readSettings()).status).toBe("ignored");
+      expect((await other.writeSettings(["/home/u/code"])).ok).toBe(false);
+    },
+  );
 
   it("ignores oversized, malformed and unknown-major files and never overwrites them", async () => {
     await storage.writeSettings(["/home/u/code"]);
