@@ -134,7 +134,12 @@ describe("createStagedAnalyzer", () => {
   it("does not count binary files, symbolic links or deletions as unscanned", async () => {
     const fixture = repo({ "gone.txt": "bye\n", "keep.txt": "keep\n" });
     fixture.git("rm", "-q", "gone.txt");
-    fixture.writeFile("bin.dat", "a\0b");
+    fixture.writeFile(
+      "bin.dat",
+      Buffer.from(
+        Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256)),
+      ).toString("latin1"),
+    );
     fixture.git("add", "-A");
     const { output, report } = await run(fixture);
     expect(output.coverage[0]?.status).toBe("completed");

@@ -46,7 +46,9 @@ export {
   STAGED_MAX_FILES,
   STAGED_MAX_FILE_BYTES,
   STAGED_MAX_TOTAL_BYTES,
+  BINARY_SNIFF_BYTES,
   decodeStagedBlob,
+  isTextLike,
   readStagedChanges,
   type StagedChanges,
   type StagedFile,
@@ -54,7 +56,14 @@ export {
   type StagedSkip,
   type StagedSkipReason,
 } from "./staged.js";
-export { addedLineNumbers, scanStagedSecrets, type StagedSecretScan } from "./staged-secrets.js";
+export { readStagedTextFile, type StagedFileOptions, type StagedFileRead } from "./staged-file.js";
+export {
+  addedLineNumbers,
+  scanStagedPaths,
+  scanStagedSecrets,
+  spanHasAddedLine,
+  type StagedSecretScan,
+} from "./staged-secrets.js";
 export { HISTORY_RULES, listHistoryRules, type HistoryRuleId } from "./history-rules.js";
 export {
   detectSecrets,

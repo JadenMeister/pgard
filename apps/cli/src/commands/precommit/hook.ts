@@ -133,7 +133,15 @@ export async function installHook(
     const backupName = await freeBackupName(hooksDir);
     if (backupName === null) return { kind: "failed" };
     if (!(await options.confirmReplace(backupName))) return { kind: "declined", file: target };
-    const backup = path.join(hooksDir, backupName);
+    // The prompt can take a long time: the hook must still be the one that was shown, and the
+    // backup name must still be free, before anything is moved.
+    const after = await lstat(target).catch(() => null);
+    if (after === null || after.ino !== stats.ino || after.mtimeMs !== stats.mtimeMs) {
+      return { kind: "failed" };
+    }
+    const finalName = await freeBackupName(hooksDir);
+    if (finalName === null) return { kind: "failed" };
+    const backup = path.join(hooksDir, finalName);
     await rename(target, backup);
     try {
       await createExclusive(target, HOOK_SCRIPT);

@@ -22,6 +22,15 @@ export interface PrecommitText {
   skippedFile: (path: string, reason: string) => string;
   moreSkipped: (count: number) => string;
   configInvalid: (problems: string) => string;
+  /** pgard.config.json exists in the working tree but is not staged or tracked. */
+  configNotStaged: string;
+  timeoutInvalid: (value: string, seconds: number) => string;
+  /** The files skipped by design, named, so a skip is visible. */
+  byDesign: (items: string) => string;
+  byDesignKind: Record<
+    "binary" | "symlink" | "submodule",
+    (count: number, names: string) => string
+  >;
   summary: (files: number, milliseconds: number) => string;
   findingsHeading: (count: number) => string;
   finding: (severity: string, ruleId: string, location: string, evidence: string) => string;
@@ -59,6 +68,7 @@ export interface PrecommitText {
     globalHooksPathNote: string;
     failed: string;
     nextStep: string;
+    mergeNote: string;
   };
   uninstall: {
     removed: (file: string) => string;
@@ -67,7 +77,13 @@ export interface PrecommitText {
     backupFound: (backup: string) => string;
     failed: string;
   };
-  snippet: { heading: string; preCommitFramework: string; husky: string; plain: string };
+  snippet: {
+    heading: string;
+    preCommitFramework: string;
+    husky: string;
+    plain: string;
+    merge: string;
+  };
 }
 
 const EN: PrecommitText = {
@@ -92,6 +108,16 @@ const EN: PrecommitText = {
   moreSkipped: (count) => `  ... and ${count} more`,
   configInvalid: (problems) =>
     `pgard.config.json is invalid and was ignored, so the strict default (block) applies: ${problems}`,
+  configNotStaged:
+    "pgard.config.json is not tracked in Git, so its precommit settings are not used (the staged version counts); the strict default (block) applies. Run `git add pgard.config.json`.",
+  timeoutInvalid: (value, seconds) =>
+    `PGARD_PRECOMMIT_TIMEOUT_MS=${value} is not a number from 1000 to 120000; using ${seconds} s.`,
+  byDesign: (items) => `Not scanned by design: ${items}.`,
+  byDesignKind: {
+    binary: (count, names) => `${count} binary file(s) (${names})`,
+    symlink: (count, names) => `${count} symbolic link(s) (${names})`,
+    submodule: (count, names) => `${count} submodule(s) (${names})`,
+  },
   summary: (files, milliseconds) =>
     `Scanned ${files} staged file(s) in ${milliseconds} ms (only lines this commit adds or changes are reported).`,
   findingsHeading: (count) => `${count} finding(s) in the staged changes:`,
@@ -117,7 +143,8 @@ const EN: PrecommitText = {
   decisionWarnNotScanned:
     "WARNING: commit allowed, but the staged changes were not (fully) scanned (whenNotScanned: warn). Nothing was checked for the parts listed above.",
   skipReason: {
-    too_large: "over the size limit (1 MiB)",
+    too_large:
+      "a text file over 1 MiB (binary files of any size are skipped by design); set whenNotScanned to warn to let such commits through",
     file_limit: "over the limit of 500 changed files",
     byte_budget: "over the total size limit (16 MiB)",
     time_budget: "the time cap was reached",
@@ -144,7 +171,9 @@ const EN: PrecommitText = {
       "Git ignores .git/hooks when core.hooksPath is set in your global or system Git config; PGARD only reads this repository's own config. Check with `git config --get core.hooksPath`.",
     failed: "The hook could not be written. Nothing was changed.",
     nextStep:
-      'Set "precommit": { "mode": "warn" } in pgard.config.json to print findings without blocking. Remove the hook with `pgard precommit uninstall`.',
+      'Set "precommit": { "mode": "warn" } in pgard.config.json (and commit it: the staged version counts) to print findings without blocking. Remove the hook with `pgard precommit uninstall`.',
+    mergeNote:
+      "Git runs pre-commit for ordinary commits and conflicted merges, but a clean merge commit runs pre-merge-commit instead. To check those too, see `pgard precommit snippet`.",
   },
   uninstall: {
     removed: (file) => `Removed the PGARD pre-commit hook: ${file}`,
@@ -159,6 +188,8 @@ const EN: PrecommitText = {
     preCommitFramework: "pre-commit framework (.pre-commit-config.yaml):",
     husky: "husky (.husky/pre-commit):",
     plain: "A plain hook (.git/hooks/pre-commit, executable):",
+    merge:
+      "A clean merge runs .git/hooks/pre-merge-commit, not pre-commit; put the same `pgard precommit` line there to check merge results. A merge is compared with HEAD (ours), so everything the other branch brings counts as added: it can pass the 500-file limit, which is reported as not scanned.",
   },
 };
 
@@ -183,6 +214,16 @@ const KO: PrecommitText = {
   moreSkipped: (count) => `  ... 외 ${count}개`,
   configInvalid: (problems) =>
     `pgard.config.json이 올바르지 않아 무시했으므로 엄격한 기본값(block)을 적용합니다: ${problems}`,
+  configNotStaged:
+    "pgard.config.json이 Git에서 추적되지 않아 precommit 설정을 사용하지 않습니다(스테이징된 버전이 적용됩니다). 엄격한 기본값(block)을 적용합니다. `git add pgard.config.json`을 실행하세요.",
+  timeoutInvalid: (value, seconds) =>
+    `PGARD_PRECOMMIT_TIMEOUT_MS=${value}는 1000~120000 사이의 숫자가 아니어서 ${seconds}초를 사용합니다.`,
+  byDesign: (items) => `설계상 검사하지 않음: ${items}.`,
+  byDesignKind: {
+    binary: (count, names) => `바이너리 파일 ${count}개(${names})`,
+    symlink: (count, names) => `심볼릭 링크 ${count}개(${names})`,
+    submodule: (count, names) => `서브모듈 ${count}개(${names})`,
+  },
   summary: (files, milliseconds) =>
     `스테이징된 파일 ${files}개를 ${milliseconds}ms에 검사했습니다(이번 커밋이 추가하거나 바꾼 줄만 보고합니다).`,
   findingsHeading: (count) => `스테이징된 변경에서 발견 항목 ${count}개:`,
@@ -208,7 +249,8 @@ const KO: PrecommitText = {
   decisionWarnNotScanned:
     "경고: 커밋은 허용되지만 스테이징된 변경을 (모두) 검사하지 못했습니다(whenNotScanned: warn). 위에 적은 부분은 전혀 확인되지 않았습니다.",
   skipReason: {
-    too_large: "크기 제한(1 MiB) 초과",
+    too_large:
+      "1 MiB를 넘는 텍스트 파일(바이너리 파일은 크기와 관계없이 설계상 건너뜁니다). 이런 커밋을 통과시키려면 whenNotScanned를 warn으로 설정하세요",
     file_limit: "변경 파일 500개 제한 초과",
     byte_budget: "전체 크기 제한(16 MiB) 초과",
     time_budget: "시간 제한에 도달함",
@@ -235,7 +277,9 @@ const KO: PrecommitText = {
       "전역 또는 시스템 Git 설정에 core.hooksPath가 있으면 Git은 .git/hooks를 무시합니다. PGARD는 이 저장소의 설정만 읽습니다. `git config --get core.hooksPath`로 확인하세요.",
     failed: "훅을 쓰지 못했습니다. 아무것도 바꾸지 않았습니다.",
     nextStep:
-      'pgard.config.json에 "precommit": { "mode": "warn" }을 넣으면 차단하지 않고 발견 항목만 출력합니다. 훅은 `pgard precommit uninstall`로 제거합니다.',
+      'pgard.config.json에 "precommit": { "mode": "warn" }을 넣고(스테이징된 버전이 적용되므로 커밋하세요) 차단하지 않고 발견 항목만 출력할 수 있습니다. 훅은 `pgard precommit uninstall`로 제거합니다.',
+    mergeNote:
+      "Git은 일반 커밋과 충돌이 있던 병합에는 pre-commit을 실행하지만, 충돌 없는 병합 커밋에는 pre-merge-commit을 실행합니다. 그것도 검사하려면 `pgard precommit snippet`을 참고하세요.",
   },
   uninstall: {
     removed: (file) => `PGARD pre-commit 훅을 제거했습니다: ${file}`,
@@ -249,6 +293,8 @@ const KO: PrecommitText = {
     preCommitFramework: "pre-commit 프레임워크(.pre-commit-config.yaml):",
     husky: "husky(.husky/pre-commit):",
     plain: "일반 훅(.git/hooks/pre-commit, 실행 권한 필요):",
+    merge:
+      "충돌 없는 병합은 pre-commit이 아니라 .git/hooks/pre-merge-commit을 실행합니다. 병합 결과도 검사하려면 같은 `pgard precommit` 줄을 거기에 넣으세요. 병합은 HEAD(ours)와 비교하므로 다른 브랜치가 가져오는 모든 내용이 추가된 것으로 취급되어 500개 파일 제한을 넘을 수 있고, 그 경우 검사하지 못한 것으로 보고합니다.",
   },
 };
 

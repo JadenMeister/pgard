@@ -87,6 +87,16 @@ describe("resolveHooksLocation", () => {
     });
   });
 
+  it("treats core.hooksPath that names the default hooks directory as no redirect", async () => {
+    const fixture = repo();
+    fixture.git("config", "core.hooksPath", ".git/hooks");
+    expect((await resolveHooksLocation(fixture.root)).kind).toBe("ready");
+    fixture.git("config", "core.hooksPath", path.join(fixture.root, ".git", "hooks"));
+    expect((await resolveHooksLocation(fixture.root)).kind).toBe("ready");
+    fixture.git("config", "core.hooksPath", ".git/hooks/../other");
+    expect((await resolveHooksLocation(fixture.root)).kind).toBe("custom");
+  });
+
   it("is not fooled by an empty value or the null device", async () => {
     const fixture = repo();
     fixture.git("config", "core.hooksPath", "/dev/null");

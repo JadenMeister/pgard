@@ -1,7 +1,7 @@
 import type { Finding } from "@pgard/findings";
 import { SECRET_KIND_LABEL, detectSecrets, isEnvironmentFile } from "./secret-patterns.js";
 import { assessment, createFinding } from "./scan-history.js";
-import type { StagedFile } from "./staged.js";
+import type { StagedFile, StagedSkip } from "./staged.js";
 
 /**
  * 1-based numbers of the lines of `current` that are new compared with `previous`: a line counts
@@ -30,42 +30,64 @@ export function addedLineNumbers(previous: string | null, current: string): Set<
   return added;
 }
 
+/** True when any line from `first` to `last` (inclusive) is in `added`. */
+export function spanHasAddedLine(added: ReadonlySet<number>, first: number, last: number): boolean {
+  for (let line = first; line <= last; line += 1) {
+    if (added.has(line)) return true;
+  }
+  return false;
+}
+
 export interface StagedSecretScan {
   findings: Finding[];
-  /** Secrets that are in a staged file but on lines the commit does not change. */
+  /** Secrets that are in a staged file but not new in this commit. */
   preexisting: number;
 }
 
+/** A staged finding belongs to the code being committed, not to Git history. */
+function withCodeSource(finding: Finding): Finding {
+  return { ...finding, sources: ["code"] };
+}
+
+function envFileFinding(filePath: string): Finding {
+  return withCodeSource(
+    createFinding({
+      ruleId: "PG-SECRET-001",
+      path: filePath,
+      line: null,
+      commit: null,
+      severity: "high",
+      status: "confirmed",
+      confidence: "high",
+      evidence: "environment file is staged for commit (values not shown)",
+      cause: "env-file-head",
+    }),
+  );
+}
+
 /**
- * Secrets in the new lines of the staged files (rules PG-SECRET-001 and PG-SECRET-002, the same
- * detection as for tracked files). A staged `.env` file is reported when it is new in this
- * commit. Values are never put in a finding.
+ * Secrets in the new parts of the staged files (rules PG-SECRET-001 and PG-SECRET-002, the same
+ * detection as for tracked files). A secret is new when HEAD's version of the file has no secret
+ * with the same value, or when any line of the span it covers (a private key covers many) was
+ * added or changed, so a changed key body under an unchanged header is still reported. A staged
+ * `.env` file is reported when it is new in this commit. Values are never put in a finding.
  */
 export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretScan {
   const findings: Finding[] = [];
   let preexisting = 0;
   for (const file of files) {
-    if (isEnvironmentFile(file.path) && (file.kind !== "modified" || file.previous === null)) {
-      findings.push(
-        withCodeSource(
-          createFinding({
-            ruleId: "PG-SECRET-001",
-            path: file.path,
-            line: null,
-            commit: null,
-            severity: "high",
-            status: "confirmed",
-            confidence: "high",
-            evidence: "environment file is staged for commit (values not shown)",
-            cause: "env-file-head",
-          }),
-        ),
-      );
+    if (isEnvironmentFile(file.path) && file.kind !== "modified") {
+      findings.push(envFileFinding(file.path));
     }
     // A renamed file carries its old text, so only edits made with the rename count as new.
     const added = addedLineNumbers(file.previous, file.content);
+    const known =
+      file.previous === null
+        ? new Set<string>()
+        : new Set(detectSecrets(file.previous, { path: file.path }).map((found) => found.value));
     for (const secret of detectSecrets(file.content, { path: file.path })) {
-      if (!added.has(secret.line)) {
+      const lastLine = secret.line + (secret.value.match(/\n/g)?.length ?? 0);
+      if (known.has(secret.value) && !spanHasAddedLine(added, secret.line, lastLine)) {
         preexisting += 1;
         continue;
       }
@@ -91,7 +113,13 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
   return { findings, preexisting };
 }
 
-/** A staged finding belongs to the code being committed, not to Git history. */
-function withCodeSource(finding: Finding): Finding {
-  return { ...finding, sources: ["code"] };
+/**
+ * The file-name check (PG-SECRET-001) for staged files whose content was not read as text
+ * (binary, too large, unreadable, over a limit): a new `.env` file is reported by its name
+ * whatever it holds.
+ */
+export function scanStagedPaths(skipped: readonly StagedSkip[]): Finding[] {
+  return skipped
+    .filter((item) => item.kind !== "modified" && isEnvironmentFile(item.path))
+    .map((item) => envFileFinding(item.path));
 }

@@ -349,28 +349,39 @@ ${EXIT_CODE_HELP}`,
 
 Checks what is staged for the next commit, read from the Git index (never the working
 tree), for secrets (PG-SECRET-001, PG-SECRET-002) and the file-local source rules
-(JavaScript, TypeScript, Vue, Go). Only lines the commit adds or changes are reported;
-deleted files, binary files and symbolic links have nothing to scan. Rules that need the
-whole project (missing CSRF protection, unprotected routes, dependencies) run in pgard
-scan. Suppressions and the baseline apply. Staged content stays on this computer; like a
-scan it contacts GitHub (github.com, api.github.com) for authorization metadata only.
+(JavaScript, TypeScript, Vue, Go). Only what the commit adds or changes is reported (a
+changed private key body counts even under an unchanged header). A new .env file is
+reported by its name whatever it holds. Deleted files have nothing to scan; binary
+files (images, archives, of any size) and symbolic links are skipped by design and listed
+by name on every run; a text file with a stray NUL byte is still scanned. Rules that need
+the whole project (missing CSRF protection, unprotected routes, dependencies) run in
+pgard scan. Suppressions and the baseline apply. Staged content stays on this computer;
+like a scan it contacts GitHub (github.com, api.github.com) for authorization metadata
+only.
 
 Authorization is the same gate as pgard scan: all five checks, every time, nothing
 cached. It needs a saved sign-in (pgard login) because a hook never starts a sign-in.
 If the gate does not allow, or the check cannot finish, the staged changes were NOT
 scanned and PGARD says so.
 
-Mode is set in pgard.config.json:
+Mode is set in pgard.config.json, read from the version in the Git index (the one
+being committed; an untracked file is not used, run git add). Suppressions and exclude
+still come from the working-tree file, as in a scan:
   "precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }
   block (default)   findings stop the commit (exit 1)
   warn              findings are printed, the commit goes on (exit 0)
   whenNotScanned    what happens when nothing, or not everything, was scanned
-                    (not authorized, error, timeout, a file over 1 MiB, more than
-                    500 changed files, 5 s analysis cap). Default: the same as mode,
-                    so a blocking hook blocks. An invalid config means block.
-Limits: authorization up to 15 s (PGARD_PRECOMMIT_TIMEOUT_MS=1000..120000 changes it),
-then reading and checking the staged changes up to 5 s (typically well under 1 s), files up to 1 MiB, up to 500
-changed files, 16 MiB in total. Findings of severity info do not block.
+                    (not authorized, error, timeout, a text file over 1 MiB,
+                    more than 500 changed files, 5 s analysis cap). Default: the
+                    same as mode, so a blocking hook blocks. An invalid config
+                    means block.
+Limits: authorization up to 15 s (PGARD_PRECOMMIT_TIMEOUT_MS=1000..120000 changes
+it), then reading and checking the staged changes up to 5 s (typically well under
+1 s): text files up to 1 MiB, up to 500 changed files, 16 MiB in total. Findings of
+severity info do not block.
+
+A clean merge commit runs pre-merge-commit, not pre-commit (see snippet). A merge is
+compared with HEAD (ours), so what the other branch brings counts as added.
 
 install writes only into this repository's own .git/hooks (with core.hooksPath and
 symbolic links checked), never overwrites a hook PGARD did not write unless you confirm
@@ -380,7 +391,7 @@ terminal. Skip a hook once with git commit --no-verify.
 Exit codes:
   0    nothing blocks the commit (clean, warn mode, or nothing scanned with
        whenNotScanned: warn, which is said on screen)
-  1    findings in block mode
+  1    findings in block mode (a crash of Node itself also exits 1; both block)
   2    invalid command, or install/uninstall refused
   3    not authorized (nothing scanned) and whenNotScanned blocks
   4    other cases where not everything was scanned, and whenNotScanned blocks

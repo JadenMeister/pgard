@@ -51,6 +51,8 @@ export interface StagedFile {
 }
 
 export interface StagedSkip {
+  /** Whether HEAD had this path; absent for a merge conflict entry. */
+  kind?: "added" | "modified";
   path: string;
   reason: StagedSkipReason;
 }
@@ -101,6 +103,10 @@ interface IndexEntry {
 interface HeadEntry {
   mode: string;
   sha: string;
+}
+
+function kindOf(before: HeadEntry | undefined): "added" | "modified" {
+  return before === undefined ? "added" : "modified";
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -182,14 +188,50 @@ async function listHead(
   return entries;
 }
 
-/** Text of a blob body (read as latin1): UTF-8, or UTF-16 with a byte order mark; `null` if binary. */
+/** Bytes at the start of a blob that decide "binary" (the same window Git uses). */
+export const BINARY_SNIFF_BYTES = 8000;
+/** Oversized blobs whose first bytes are read to tell a binary from a large text file. */
+const MAX_SNIFFED_OVERSIZED = 20;
+
+/**
+ * True when a body (read as latin1) is text that merely contains a few NUL or control bytes (a
+ * trailing NUL, a stray control character) rather than binary data. A file is not called binary
+ * just because it has a NUL: PNG, executables and archives have many, a text file with a
+ * trailing NUL has one. At most 2% (and at least 8) of the bytes may be NUL, and the same for
+ * other control bytes.
+ */
+export function isTextLike(latin1: string): boolean {
+  let nul = 0;
+  let control = 0;
+  for (let index = 0; index < latin1.length; index += 1) {
+    const code = latin1.charCodeAt(index);
+    if (code === 0) nul += 1;
+    else if (
+      (code < 0x20 && code !== 9 && code !== 10 && code !== 13 && code !== 12) ||
+      code === 0x7f
+    ) {
+      control += 1;
+    }
+  }
+  const allowance = Math.max(8, Math.floor(latin1.length / 50));
+  return nul <= allowance && control <= allowance;
+}
+
+/**
+ * Text of a blob body (read as latin1): UTF-8, or UTF-16 with a byte order mark; `null` if it is
+ * binary. NUL bytes in otherwise text-like content become spaces (line numbers stay exact), so
+ * a NUL can neither hide a secret nor a line from the checks.
+ */
 export function decodeStagedBlob(latin1: string): string | null {
   const bom = latin1.slice(0, 2);
   if (bom === "\xff\xfe" || bom === "\xfe\xff") {
     const bytes = Buffer.from(latin1.slice(2), "latin1");
     return (bom === "\xfe\xff" ? UTF16_BE : UTF16_LE).decode(bytes);
   }
-  if (latin1.includes("\0")) return null;
+  if (latin1.includes("\0")) {
+    if (!isTextLike(latin1)) return null;
+    return Buffer.from(latin1.replaceAll("\0", " "), "latin1").toString("utf8");
+  }
   return Buffer.from(latin1, "latin1").toString("utf8");
 }
 
@@ -209,6 +251,38 @@ interface BlobRead {
   /** Blobs not read: reason by sha. */
   unread: Map<string, StagedSkipReason>;
   bytes: number;
+}
+
+/** True when the first bytes of a blob show binary data. Any failure means "not known" (false). */
+async function sniffIsBinary(
+  cwd: string,
+  runner: GitRunner,
+  sha: string,
+  deadline: number,
+  now: () => number,
+  options: StagedReadOptions,
+): Promise<boolean> {
+  try {
+    const raw = await runner(
+      { subcommand: "cat-file", flags: ["--batch"] },
+      {
+        cwd,
+        input: `${sha}\n`,
+        encoding: "latin1",
+        maxBuffer: BINARY_SNIFF_BYTES + 100,
+        truncate: true,
+        ...withTimeout(timeoutUntil(deadline, now)),
+        ...(options.signal ? { signal: options.signal } : {}),
+      },
+    );
+    const headerEnd = raw.indexOf("\n");
+    if (headerEnd === -1) return false;
+    const head = raw.slice(headerEnd + 1, headerEnd + 1 + BINARY_SNIFF_BYTES);
+    return head.includes("\0") && !isTextLike(head);
+  } catch (error) {
+    if (options.signal?.aborted === true) throw error;
+    return false;
+  }
 }
 
 /** `cat-file --batch-check` for sizes, then `--batch` in batches, within the byte and time budgets. */
@@ -246,11 +320,21 @@ async function readBlobs(
     if (match?.[1] && match[2]) sizes.set(match[1], Number(match[2]));
   }
   const readable: { sha: string; size: number }[] = [];
+  let sniffed = 0;
   for (const sha of shas) {
     const size = sizes.get(sha);
     if (size === undefined) unread.set(sha, "unreadable");
-    else if (size > limits.maxFileBytes) unread.set(sha, "too_large");
-    else if (size > limits.budget.remaining) unread.set(sha, "byte_budget");
+    else if (size > limits.maxFileBytes) {
+      // A big binary (an image, an archive) is a binary by design; only a big text file is
+      // "not scanned". The first bytes tell which.
+      const isBinary =
+        sniffed < MAX_SNIFFED_OVERSIZED && limits.now() < limits.deadline
+          ? await sniffIsBinary(cwd, runner, sha, limits.deadline, limits.now, options)
+          : false;
+      sniffed += 1;
+      if (isBinary) text.set(sha, null);
+      else unread.set(sha, "too_large");
+    } else if (size > limits.budget.remaining) unread.set(sha, "byte_budget");
     else {
       limits.budget.remaining -= size;
       readable.push({ sha, size });
@@ -328,7 +412,7 @@ export async function readStagedChanges(
   for (const entry of index) {
     indexPaths.add(entry.path);
     if (entry.stage !== 0) {
-      skipped.push({ path: entry.path, reason: "unmerged" });
+      skipped.push({ path: entry.path, reason: "unmerged", kind: kindOf(head.get(entry.path)) });
       continue;
     }
     const before = head.get(entry.path);
@@ -337,11 +421,11 @@ export async function readStagedChanges(
       continue;
     }
     if (entry.mode === "160000") {
-      skipped.push({ path: entry.path, reason: "submodule" });
+      skipped.push({ path: entry.path, reason: "submodule", kind: kindOf(before) });
       continue;
     }
     if (entry.mode === "120000") {
-      skipped.push({ path: entry.path, reason: "symlink" });
+      skipped.push({ path: entry.path, reason: "symlink", kind: kindOf(before) });
       continue;
     }
     candidates.push({ entry, before });
@@ -360,7 +444,7 @@ export async function readStagedChanges(
   );
   const maxFiles = options.maxFiles ?? STAGED_MAX_FILES;
   for (const extra of candidates.splice(maxFiles)) {
-    skipped.push({ path: extra.entry.path, reason: "file_limit" });
+    skipped.push({ path: extra.entry.path, reason: "file_limit", kind: kindOf(extra.before) });
   }
   const renamedFrom = new Map<string, string>();
   for (const { entry, before } of candidates) {
@@ -397,16 +481,16 @@ export async function readStagedChanges(
   for (const { entry, before } of candidates) {
     const reason = stagedRead.unread.get(entry.sha);
     if (reason !== undefined) {
-      skipped.push({ path: entry.path, reason });
+      skipped.push({ path: entry.path, reason, kind: kindOf(before) });
       continue;
     }
     const content = stagedRead.text.get(entry.sha);
     if (content === undefined) {
-      skipped.push({ path: entry.path, reason: "unreadable" });
+      skipped.push({ path: entry.path, reason: "unreadable", kind: kindOf(before) });
       continue;
     }
     if (content === null) {
-      skipped.push({ path: entry.path, reason: "binary" });
+      skipped.push({ path: entry.path, reason: "binary", kind: kindOf(before) });
       continue;
     }
     const isRenamed = renamedFrom.has(entry.path);

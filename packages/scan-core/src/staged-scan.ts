@@ -4,6 +4,7 @@ import {
   INCOMPLETE_SKIP_REASONS,
   addedLineNumbers,
   readStagedChanges,
+  scanStagedPaths,
   scanStagedSecrets,
   type GitRunner,
   type StagedSkip,
@@ -140,6 +141,8 @@ export function createStagedAnalyzer(settings: StagedScanSettings = {}): LocalAn
       const secrets = scanStagedSecrets(changes.files);
       findings.push(...secrets.findings);
       report.preexisting += secrets.preexisting;
+      // A new .env file is reported by its name even when its content could not be read.
+      findings.push(...scanStagedPaths(changes.skipped));
       const exclude =
         context.projectConfig !== null && context.projectConfig.exclude.length > 0
           ? compilePathMatcher(context.projectConfig.exclude)
@@ -160,10 +163,25 @@ export function createStagedAnalyzer(settings: StagedScanSettings = {}): LocalAn
         }
         report.sourceChecked += 1;
         const added = addedLineNumbers(file.previous, file.content);
+        // What HEAD's version of the file already had, so a finding whose anchor line is
+        // unchanged but whose statement was edited (its evidence differs) still counts as new.
+        const earlier = new Map<string, number>();
+        if (file.previous !== null) {
+          for (const old of analyzeStagedSource(file.path, file.previous) ?? []) {
+            const key = `${old.ruleId}\0${old.evidence}`;
+            earlier.set(key, (earlier.get(key) ?? 0) + 1);
+          }
+        }
         for (const finding of found) {
           const line = finding.location.line;
-          if (line === null || added.has(line)) findings.push({ ...finding, sources: ["code"] });
-          else report.preexisting += 1;
+          const key = `${finding.ruleId}\0${finding.evidence}`;
+          const left = earlier.get(key) ?? 0;
+          if (line !== null && !added.has(line) && left > 0) {
+            earlier.set(key, left - 1);
+            report.preexisting += 1;
+          } else {
+            findings.push({ ...finding, sources: ["code"] });
+          }
         }
       }
     } catch (error) {

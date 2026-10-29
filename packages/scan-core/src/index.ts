@@ -22,11 +22,13 @@ export {
   isPathInside,
   preflightIsolation,
   readRepositoryIsolation,
+  readStagedTextFile,
   resolveHookIndexFile,
   resolveHooksLocation,
   type HookIndexFile,
   type HooksLocation,
   type PathModule,
+  type StagedFileRead,
   type StagedSkip,
   type StagedSkipReason,
 } from "@pgard/git-history";

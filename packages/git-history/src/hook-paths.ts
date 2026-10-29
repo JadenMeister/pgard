@@ -110,6 +110,9 @@ export async function resolveHooksLocation(
   if (gitDirText === null || commonDirText === null) {
     return { kind: "unsafe", reason: "The Git directory of this repository could not be read." };
   }
+  const gitDir = path.resolve(projectRoot, gitDirText);
+  const commonDir = path.resolve(projectRoot, commonDirText);
+  const hooksDir = path.join(commonDir, "hooks");
   if (hooksPath !== null) {
     const resolved = path.resolve(projectRoot, hooksPath);
     let real = resolved;
@@ -118,17 +121,19 @@ export async function resolveHooksLocation(
     } catch {
       // A path that does not exist yet is judged by its text.
     }
-    const root = await realpath(projectRoot).catch(() => projectRoot);
-    return {
-      kind: "custom",
-      hooksPath,
-      resolved,
-      isInsideRepository: isPathInside(root, real),
-    };
+    // `core.hooksPath=.git/hooks` names the directory Git uses anyway: nothing is redirected.
+    const defaultHooks = await realpath(hooksDir).catch(() => hooksDir);
+    const isDefault = isPathInside(defaultHooks, real) && isPathInside(real, defaultHooks);
+    if (!isDefault) {
+      const root = await realpath(projectRoot).catch(() => projectRoot);
+      return {
+        kind: "custom",
+        hooksPath,
+        resolved,
+        isInsideRepository: isPathInside(root, real),
+      };
+    }
   }
-  const gitDir = path.resolve(projectRoot, gitDirText);
-  const commonDir = path.resolve(projectRoot, commonDirText);
-  const hooksDir = path.join(commonDir, "hooks");
   const entry = await lstat(hooksDir).catch((error: NodeJS.ErrnoException) =>
     error.code === "ENOENT" ? null : error,
   );

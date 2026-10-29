@@ -1,12 +1,20 @@
-import type { Finding, ProjectConfig, ScanResult } from "@pgard/findings";
+import { lstat } from "node:fs/promises";
+import path from "node:path";
+import {
+  PROJECT_CONFIG_FILE,
+  parseProjectConfig,
+  type Finding,
+  type ProjectConfig,
+  type ScanResult,
+} from "@pgard/findings";
 import {
   INCOMPLETE_SKIP_REASONS,
   ScanCancelledError,
   STAGED_COVERAGE_AREA,
   STAGED_SCAN_BUDGET_MS,
   createStagedAnalyzer,
-  loadProjectConfig,
   preflightIsolation,
+  readStagedTextFile,
   resolveGitHubAppClientId,
   resolveHookIndexFile,
   resolveHooksLocation,
@@ -66,16 +74,60 @@ export function resolvePrecommitPolicy(load: ProjectConfigLoad): PrecommitPolicy
   };
 }
 
+/** The authorization time cap, and the value of `PGARD_PRECOMMIT_TIMEOUT_MS` when it is unusable. */
 function authTimeoutOf(
   env: Readonly<Record<string, string | undefined>>,
   fallback: number | undefined,
-): number {
-  if (fallback !== undefined) return fallback;
+): { timeoutMs: number; invalid: string | null } {
+  if (fallback !== undefined) return { timeoutMs: fallback, invalid: null };
   const raw = env[PRECOMMIT_TIMEOUT_ENV];
-  const value = raw !== undefined && /^[0-9]{1,6}$/.test(raw) ? Number(raw) : Number.NaN;
-  return Number.isInteger(value) && value >= MIN_TIMEOUT_MS && value <= MAX_TIMEOUT_MS
-    ? value
-    : PRECOMMIT_AUTH_TIMEOUT_MS;
+  if (raw === undefined || raw === "")
+    return { timeoutMs: PRECOMMIT_AUTH_TIMEOUT_MS, invalid: null };
+  const value = /^[0-9]{1,6}$/.test(raw) ? Number(raw) : Number.NaN;
+  return value >= MIN_TIMEOUT_MS && value <= MAX_TIMEOUT_MS
+    ? { timeoutMs: value, invalid: null }
+    : { timeoutMs: PRECOMMIT_AUTH_TIMEOUT_MS, invalid: raw };
+}
+
+const STRICT_POLICY: PrecommitPolicy = {
+  mode: "block",
+  whenNotScanned: "block",
+  configProblems: null,
+};
+
+/**
+ * The policy from the config file that is about to be committed (the staged version). An
+ * untracked config is not used; an unreadable or invalid one means the strict default.
+ */
+async function readStagedPolicy(
+  projectRoot: string,
+  indexFile: string | undefined,
+): Promise<{ policy: PrecommitPolicy; isUntracked: boolean }> {
+  const read = await readStagedTextFile(projectRoot, PROJECT_CONFIG_FILE, {
+    ...(indexFile === undefined ? {} : { indexFile }),
+  });
+  if (read.state === "absent") {
+    const onDisk = await lstat(path.join(projectRoot, PROJECT_CONFIG_FILE)).catch(() => null);
+    return { policy: resolvePrecommitPolicy({ state: "absent" }), isUntracked: onDisk !== null };
+  }
+  if (read.state === "unreadable") {
+    return {
+      policy: resolvePrecommitPolicy({
+        state: "invalid",
+        problems: [`${PROJECT_CONFIG_FILE} ${read.reason}`],
+      }),
+      isUntracked: false,
+    };
+  }
+  const parsed = parseProjectConfig(read.text);
+  return {
+    policy: resolvePrecommitPolicy(
+      parsed.ok
+        ? { state: "loaded", config: parsed.config }
+        : { state: "invalid", problems: parsed.problems },
+    ),
+    isUntracked: false,
+  };
 }
 
 /** Findings that count: not suppressed, not in the baseline, and not merely informational. */
@@ -125,6 +177,27 @@ function printFindings(
     const hint = (t.hint as Record<string, string | undefined>)[ruleId];
     if (hint !== undefined) out(context, context.style.dim(`  ${ruleId}: ${hint}`));
   }
+}
+
+/** Files skipped by design (binary, symbolic link, submodule), named, so a skip is never hidden. */
+function printSkippedByDesign(
+  context: CommandContext,
+  t: PrecommitText,
+  report: StagedScanReport,
+): void {
+  const parts: string[] = [];
+  for (const kind of ["binary", "symlink", "submodule"] as const) {
+    const names = report.skipped.filter((item) => item.reason === kind).map((item) => item.path);
+    if (names.length === 0) continue;
+    const shown = names.slice(0, MAX_SKIPPED_SHOWN).map((name) => safeText(name, 80));
+    parts.push(
+      t.byDesignKind[kind](
+        names.length,
+        `${shown.join(", ")}${names.length > shown.length ? ", ..." : ""}`,
+      ),
+    );
+  }
+  if (parts.length > 0) out(context, context.style.dim(t.byDesign(parts.join("; "))));
 }
 
 function printSkipped(context: CommandContext, t: PrecommitText, report: StagedScanReport): void {
@@ -203,22 +276,14 @@ export async function runPrecommit(
     err(context, context.errStyle.red(t.notRepository));
     return EXIT_CODES.blocked;
   }
-  const configLoad = await loadProjectConfig(projectRoot).catch((): ProjectConfigLoad => ({
-    state: "invalid",
-    problems: ["pgard.config.json could not be read"],
-  }));
-  const policy = resolvePrecommitPolicy(configLoad);
-  if (policy.configProblems !== null) {
-    err(context, context.errStyle.yellow(t.configInvalid(safeText(policy.configProblems, 300))));
-  }
-
-  // The repository layout check (#370) comes before any further Git process.
+  // The repository layout check (#370) comes before any further Git process. While the index
+  // cannot be read safely, neither can its config: the strict default applies.
   const unsafeLayout = await preflightIsolation(projectRoot);
   if (unsafeLayout !== null && !unsafeLayout.isIsolated) {
     return failNotScanned(
       context,
       t,
-      policy,
+      STRICT_POLICY,
       t.repositoryUnsafe(safeText(unsafeLayout.reason, 300)),
       "other",
     );
@@ -229,10 +294,36 @@ export async function runPrecommit(
     context.io.env.GIT_INDEX_FILE,
   );
   if (index.state === "unsafe") {
-    return failNotScanned(context, t, policy, t.indexUnsafe(safeText(index.reason, 300)), "other");
+    return failNotScanned(
+      context,
+      t,
+      STRICT_POLICY,
+      t.indexUnsafe(safeText(index.reason, 300)),
+      "other",
+    );
   }
+  // Block or warn comes from the config in the index (what is being committed), not from the
+  // working tree. Suppressions and `exclude` still come from the working-tree file, as in a scan.
+  const staged = await readStagedPolicy(
+    projectRoot,
+    index.state === "custom" ? index.indexFile : undefined,
+  );
+  const policy = staged.policy;
+  if (policy.configProblems !== null) {
+    err(context, context.errStyle.yellow(t.configInvalid(safeText(policy.configProblems, 300))));
+  }
+  if (staged.isUntracked) err(context, context.errStyle.yellow(t.configNotStaged));
 
-  const authTimeoutMs = authTimeoutOf(context.io.env, options.authTimeoutMs);
+  const authTimeout = authTimeoutOf(context.io.env, options.authTimeoutMs);
+  const authTimeoutMs = authTimeout.timeoutMs;
+  if (authTimeout.invalid !== null) {
+    err(
+      context,
+      context.errStyle.yellow(
+        t.timeoutInvalid(safeText(authTimeout.invalid, 30), Math.round(authTimeoutMs / 1000)),
+      ),
+    );
+  }
   const budgetMs = options.scanBudgetMs ?? STAGED_SCAN_BUDGET_MS;
   err(
     context,
@@ -275,20 +366,24 @@ export async function runPrecommit(
         },
         onAuthorization: (received) => {
           outcome = received;
+          // The authorization time cap ends here; the analysis has its own cap and messages.
+          clearTimeout(timer);
         },
       },
     );
   } catch (error) {
     if (error instanceof ScanCancelledError) {
       if (context.signal.aborted) throw new UserCancelledError();
-      return failNotScanned(
-        context,
-        t,
-        policy,
-        t.authorizationTimeout(Math.round(authTimeoutMs / 1000)),
-        "authorization",
-        [context.errStyle.dim(t.authorizationHint)],
-      );
+      if (timeout.signal.aborted) {
+        return failNotScanned(
+          context,
+          t,
+          policy,
+          t.authorizationTimeout(Math.round(authTimeoutMs / 1000)),
+          "authorization",
+          [context.errStyle.dim(t.authorizationHint)],
+        );
+      }
     }
     // Anything else is an error of the scan itself: nothing was scanned, and it is said so.
     return failNotScanned(context, t, policy, t.scanFailed, "other");
@@ -329,6 +424,7 @@ export async function runPrecommit(
     (finding) => finding.suppression === undefined && finding.inBaseline === true,
   ).length;
   out(context, context.style.dim(t.summary(scanReport.scanned, scanReport.elapsedMs)));
+  printSkippedByDesign(context, t, scanReport);
   if (counted.length > 0) printFindings(context, t, counted);
   if (scanReport.preexisting > 0)
     out(context, context.style.dim(t.preexisting(scanReport.preexisting)));
@@ -392,6 +488,7 @@ export async function runPrecommitInstall(context: CommandContext): Promise<Exit
       out(context, t.installed(show(outcome.file)));
       if (outcome.kind === "replaced") out(context, t.backedUp(show(outcome.backup)));
       out(context, context.style.dim(t.globalHooksPathNote));
+      out(context, context.style.dim(t.mergeNote));
       out(context, context.style.dim(t.nextStep));
       return EXIT_CODES.ok;
     case "already":
@@ -481,5 +578,7 @@ export function runPrecommitSnippet(context: CommandContext): ExitCode {
   out(context, "");
   out(context, t.plain);
   out(context, `  #!/bin/sh\n  exec pgard precommit`);
+  out(context, "");
+  out(context, t.merge);
   return EXIT_CODES.ok;
 }

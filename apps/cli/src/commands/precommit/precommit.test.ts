@@ -113,6 +113,12 @@ function write(root: string, files: Record<string, string>): void {
   }
 }
 
+/** Writes pgard.config.json and stages it: block or warn comes from the staged version. */
+function stageConfig(root: string, json: string): void {
+  write(root, { "pgard.config.json": json });
+  git(root, "add", "pgard.config.json");
+}
+
 function setup(
   root: string,
   options: { env?: Record<string, string>; isTTY?: boolean; keys?: string[]; lang?: "ko" } = {},
@@ -168,7 +174,7 @@ describe("pgard precommit", () => {
 
   it("prints the findings and exits 0 in warn mode", async () => {
     const root = makeRepo();
-    write(root, { "pgard.config.json": '{"version":1,"precommit":{"mode":"warn"}}' });
+    stageConfig(root, '{"version":1,"precommit":{"mode":"warn"}}');
     stageSecret(root);
     const { captured, context } = setup(root);
     expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
@@ -303,7 +309,7 @@ describe("pgard precommit", () => {
     it("exits 0 in warn mode, but plainly says nothing was scanned", async () => {
       authorizeProject.mockResolvedValue(BLOCKED);
       const root = makeRepo();
-      write(root, { "pgard.config.json": '{"version":1,"precommit":{"mode":"warn"}}' });
+      stageConfig(root, '{"version":1,"precommit":{"mode":"warn"}}');
       stageSecret(root);
       const { captured, context } = setup(root);
       expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
@@ -316,17 +322,13 @@ describe("pgard precommit", () => {
     it("follows whenNotScanned when it is configured explicitly", async () => {
       authorizeProject.mockResolvedValue(BLOCKED);
       const root = makeRepo();
-      write(root, {
-        "pgard.config.json": '{"version":1,"precommit":{"mode":"block","whenNotScanned":"warn"}}',
-      });
+      stageConfig(root, '{"version":1,"precommit":{"mode":"block","whenNotScanned":"warn"}}');
       stageSecret(root);
       const lenient = setup(root);
       expect(await precommit.runPrecommit(lenient.context)).toBe(EXIT_CODES.ok);
       expect(lenient.captured.stdout()).toContain("WARNING");
 
-      write(root, {
-        "pgard.config.json": '{"version":1,"precommit":{"mode":"warn","whenNotScanned":"block"}}',
-      });
+      stageConfig(root, '{"version":1,"precommit":{"mode":"warn","whenNotScanned":"block"}}');
       const strict = setup(root);
       expect(await precommit.runPrecommit(strict.context)).toBe(EXIT_CODES.blocked);
     });
@@ -369,7 +371,7 @@ describe("pgard precommit", () => {
 
     it("an invalid config means block, and says why", async () => {
       const root = makeRepo();
-      write(root, { "pgard.config.json": '{"version":1,"precommit":{"mode":"off"}}' });
+      stageConfig(root, '{"version":1,"precommit":{"mode":"off"}}');
       stageSecret(root);
       const { captured, context } = setup(root);
       expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
@@ -394,7 +396,7 @@ describe("pgard precommit", () => {
     const text = captured.stdout();
     expect(text).toContain("Not everything was scanned");
     expect(text).toContain("big.txt");
-    expect(text).toContain("size limit");
+    expect(text).toContain("over 1 MiB");
   });
 
   it("handles renames and deletions without scanning old content again", async () => {
@@ -666,7 +668,7 @@ describe.skipIf(process.platform === "win32")("the installed hook inside git", (
 });
 
 describe("hook helpers", () => {
-  it("moves a leftover temporary file out of the way only by exclusive creation", async () => {
+  it("creates a missing hooks directory and the hook file exclusively, leaving nothing else behind", async () => {
     const { installHook } = await import("./hook.js");
     const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-hookdir-")));
     temps.push(dir);

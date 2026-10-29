@@ -77,14 +77,17 @@ describe("readStagedChanges", () => {
 
   it("skips binary files by design, and reads UTF-16 text", async () => {
     const fixture = repo();
-    writeFileSync(path.join(fixture.root, "image.bin"), Buffer.from([0x89, 0x50, 0, 1, 2, 0, 3]));
+    writeFileSync(
+      path.join(fixture.root, "image.bin"),
+      Buffer.from(Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256))),
+    );
     writeFileSync(
       path.join(fixture.root, "wide.txt"),
       Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`k = ${GITHUB_TOKEN}\n`, "utf16le")]),
     );
     stage(fixture, "image.bin", "wide.txt");
     const changes = await readStagedChanges(fixture.root);
-    expect(changes.skipped).toEqual([{ path: "image.bin", reason: "binary" }]);
+    expect(changes.skipped).toMatchObject([{ path: "image.bin", reason: "binary" }]);
     expect(changes.files[0]?.content).toContain(GITHUB_TOKEN);
   });
 
@@ -96,14 +99,14 @@ describe("readStagedChanges", () => {
     fixture.writeFile("c.txt", "c\n");
     stage(fixture, "big.txt", "a.txt", "b.txt", "c.txt");
     const sized = await readStagedChanges(fixture.root, { maxFileBytes: 1000 });
-    expect(sized.skipped).toEqual([{ path: "big.txt", reason: "too_large" }]);
+    expect(sized.skipped).toMatchObject([{ path: "big.txt", reason: "too_large" }]);
     expect(sized.files.map((file) => file.path)).toEqual(["a.txt", "b.txt", "c.txt"]);
     const limited = await readStagedChanges(fixture.root, { maxFiles: 2 });
     expect(limited.files.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
     expect(limited.skipped.map((item) => item.path)).toEqual(["big.txt", "c.txt"]);
     expect(limited.skipped.map((item) => item.reason)).toEqual(["file_limit", "file_limit"]);
     const budget = await readStagedChanges(fixture.root, { maxTotalBytes: 100 });
-    expect(budget.skipped).toEqual([{ path: "big.txt", reason: "byte_budget" }]);
+    expect(budget.skipped).toMatchObject([{ path: "big.txt", reason: "byte_budget" }]);
   });
 
   it("stops reading when the time budget is gone and says which files were left", async () => {
@@ -123,7 +126,7 @@ describe("readStagedChanges", () => {
       runner,
     });
     expect(changes.files).toEqual([]);
-    expect(changes.skipped).toEqual([{ path: "a.txt", reason: "time_budget" }]);
+    expect(changes.skipped).toMatchObject([{ path: "a.txt", reason: "time_budget" }]);
   });
 
   it.skipIf(process.platform === "win32")(
@@ -133,7 +136,7 @@ describe("readStagedChanges", () => {
       symlinkSync("/etc/passwd", path.join(fixture.root, "link"));
       stage(fixture, "link");
       const changes = await readStagedChanges(fixture.root);
-      expect(changes.skipped).toEqual([{ path: "link", reason: "symlink" }]);
+      expect(changes.skipped).toMatchObject([{ path: "link", reason: "symlink" }]);
       expect(changes.files).toEqual([]);
     },
   );
