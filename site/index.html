@@ -16,6 +16,9 @@
     <link rel="alternate" hreflang="ko" href="https://pgard.dev/ko/" />
     <link rel="alternate" hreflang="x-default" href="https://pgard.dev/" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-192.png" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="PGARD" />
     <meta property="og:title" content="PGARD — Security scanner for your own projects" />
@@ -83,11 +86,49 @@
     </script>
   </head>
   <body>
+    <svg class="sprite" aria-hidden="true" focusable="false">
+      <symbol id="pgard-mark" viewBox="87 110 800 800">
+        <g fill="currentColor" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+          <path
+            d="M 225 574 C 207 532 204 481 223 439 C 245 392 292 363 347 360 C 408 355 471 386 506 437 C 532 475 540 519 521 559 C 485 634 393 681 303 634"
+            fill="none"
+            stroke-width="34"
+          />
+          <path d="M 270 590 L 110 735" fill="none" stroke-width="34" />
+          <path
+            d="M 393 295 C 468 299 532 325 582 370 C 616 401 625 425 603 464 C 591 484 578 497 562 506 C 579 472 594 445 596 419 C 595 371 508 314 393 295 Z"
+            stroke-width="14"
+          />
+          <path
+            d="M 616 285 C 622 262 647 239 671 213 C 653 253 632 287 612 328 Z"
+            stroke-width="14"
+          />
+          <path
+            d="M 648 352 C 721 277 798 208 864 155 C 812 222 718 314 647 363 Z"
+            stroke-width="14"
+          />
+          <path
+            d="M 598 492 C 649 428 713 360 793 305 C 740 364 660 446 598 492 Z"
+            stroke-width="14"
+          />
+          <path
+            d="M 599 518 L 766 496 C 748 549 707 621 649 691 C 611 737 585 757 562 771 C 630 679 701 582 731 519 Z"
+            stroke-width="14"
+          />
+          <path
+            d="M 425 690 L 493 659 L 459 695 C 489 735 574 821 637 865 C 558 824 465 751 425 690 Z"
+            stroke-width="14"
+          />
+        </g>
+      </symbol>
+    </svg>
     <a class="skip" href="#main">Skip to content</a>
     <header class="top">
       <div class="wrap top-in">
         <a class="brand" href="/" aria-label="PGARD home"
-          ><img src="/logo.svg" alt="" width="22" height="22" /><span>pgard</span></a
+          ><svg class="mark" width="26" height="26" aria-hidden="true" focusable="false">
+            <use href="#pgard-mark"></use></svg
+          ><span>pgard</span></a
         >
         <div class="nav-wrap" id="site-nav">
           <nav class="nav" aria-label="Main">
@@ -974,7 +1015,11 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
     <footer class="foot">
       <div class="wrap">
         <div class="foot-top">
-          <div class="foot-brand"><img src="/logo.svg" alt="" width="20" height="20" />pgard</div>
+          <div class="foot-brand">
+            <svg class="mark" width="22" height="22" aria-hidden="true" focusable="false">
+              <use href="#pgard-mark"></use></svg
+            >pgard
+          </div>
           <div class="foot-cols">
             <div>
               <h2>Project</h2>
