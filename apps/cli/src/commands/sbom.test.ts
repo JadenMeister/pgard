@@ -1,4 +1,14 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { collectDependencies, type DependencyCollection } from "@pgard/dependencies";
@@ -141,7 +151,7 @@ describe("pgard sbom", () => {
       value: "composer.lock (unsupported)",
     });
     expect(captured.stdout()).toContain("Saved CycloneDX SBOM (2 components)");
-    expect(captured.stdout()).toContain(file);
+    expect(captured.stdout()).toContain(await realpath(file));
     expect(captured.stderr()).toContain("pgard:unparsed-lockfile");
   });
 
