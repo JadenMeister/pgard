@@ -39,7 +39,19 @@ function eventsOf(raw: Record<string, string>[], scheme: VersionScheme): Event[]
   return events;
 }
 
-const ZERO: ParsedVersion = { major: 0n, minor: 0n, patch: 0n, pre: [], text: "0" };
+/**
+ * `introduced: "0"` (event `parsed === null`) is below EVERY version, including pre-releases and
+ * pseudo-versions such as `v0.0.0-2020...-hash`, which sort below the release `0.0.0`.
+ */
+function compareToEvent(
+  scheme: VersionScheme,
+  left: ParsedVersion | null,
+  right: ParsedVersion | null,
+): number {
+  if (left === null) return right === null ? 0 : -1;
+  if (right === null) return 1;
+  return scheme.compare(left, right);
+}
 
 /**
  * OSV range evaluation (https://ossf.github.io/osv-schema/#affectedranges-field): events are
@@ -53,30 +65,33 @@ function evaluateEvents(
 ): { affected: boolean; range: string } {
   const sorted = events
     .map((event, index) => ({ event, index }))
-    .sort((a, b) => {
-      const left = a.event.parsed ?? ZERO;
-      const right = b.event.parsed ?? ZERO;
-      return scheme.compare(left, right) || a.index - b.index;
-    })
+    .sort((a, b) => compareToEvent(scheme, a.event.parsed, b.event.parsed) || a.index - b.index)
     .map((item) => item.event);
   let affected = false;
   let lower = "";
   let range = "";
+  let isBounded = false;
   for (const event of sorted) {
-    const at = event.parsed ?? ZERO;
-    const order = scheme.compare(version, at);
+    const order = compareToEvent(scheme, version, event.parsed);
     if (event.kind === "introduced") {
       if (order >= 0 && !affected) {
         affected = true;
+        isBounded = false;
         lower = event.version === "0" ? "" : `>=${event.version}`;
         range = lower;
       }
     } else if (event.kind === "last_affected") {
       if (order > 0) affected = false;
-      else if (affected) range = `${lower} <=${event.version}`.trim();
+      else if (affected && !isBounded) {
+        range = `${lower} <=${event.version}`.trim();
+        isBounded = true;
+      }
     } else {
       if (order >= 0) affected = false;
-      else if (affected) range = `${lower} <${event.version}`.trim();
+      else if (affected && !isBounded) {
+        range = `${lower} <${event.version}`.trim();
+        isBounded = true;
+      }
     }
     if (order < 0 && affected) break;
   }

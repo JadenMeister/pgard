@@ -83,8 +83,10 @@ function capBytes(limit: number): Transform {
 
 /**
  * Streams the stored advisories of one ecosystem and keeps only records that mention one of
- * `names`. Verifies the compressed file against `meta` (size and SHA-256) and throws
- * `AdvisoryDataError` if it differs, so a damaged or replaced file is never trusted.
+ * `names`. Verifies the compressed file against `meta` (byte count and SHA-256) and throws
+ * `AdvisoryDataError` if it differs, so a damaged or replaced file is never trusted. When the
+ * time budget stops the read early the file is not read to its end, so neither can be verified;
+ * the result is then flagged incomplete and the caller reports the area as partial.
  */
 async function readCandidates(
   appDataDir: string,
@@ -102,7 +104,11 @@ async function readCandidates(
   if (expected === undefined) throw new AdvisoryDataError("The advisory file is not listed.");
   const hash = createHash("sha256");
   const source = createReadStream(file);
-  source.on("data", (chunk) => hash.update(chunk as Buffer));
+  let compressedBytes = 0;
+  source.on("data", (chunk) => {
+    hash.update(chunk as Buffer);
+    compressedBytes += (chunk as Buffer).length;
+  });
   const gunzip = createGunzip();
   const guarded = capBytes(MAX_ADVISORY_BYTES);
   const byName = new Map<string, Candidate[]>();
@@ -157,18 +163,27 @@ async function readCandidates(
       consume,
     ]);
   } catch (error) {
+    source.destroy();
+    gunzip.destroy();
+    guarded.destroy();
     if (error instanceof Error && error.name === "AbortError") throw error;
     throw new AdvisoryDataError(
       error instanceof AdvisoryDataError ? error.message : "The advisory file could not be read.",
     );
   }
-  if (!isIncomplete && hash.digest("hex") !== expected.sha256) {
+  if (
+    !isIncomplete &&
+    (compressedBytes !== expected.bytes || hash.digest("hex") !== expected.sha256)
+  ) {
     throw new AdvisoryDataError("The advisory file does not match its recorded checksum.");
   }
   return { byName, advisoriesRead, withdrawnSkipped, isIncomplete };
 }
 
-const PREFERENCE = ["GHSA-", "GO-", "CVE-"];
+// The primary id is the first of ALL ids of the issue (record ids and aliases) in this order, so it
+// does not change when an update adds the record of an id that was already an alias: a CVE first,
+// then GHSA, then GO, then the rest; within a kind the smallest.
+const PREFERENCE = ["CVE-", "GHSA-", "GO-"];
 function idRank(id: string): number {
   const index = PREFERENCE.findIndex((prefix) => id.startsWith(prefix));
   return index === -1 ? PREFERENCE.length : index;
@@ -254,14 +269,15 @@ export async function matchDependencies(
       if (verdict.verdict === "affected") hits.push({ ...candidate, verdict });
       else if (verdict.verdict === "unknown") unknown = verdict.reason;
     }
-    if (unknown !== null && hits.length === 0) {
+    // Always recorded: an advisory that could not be compared is a gap even next to a match.
+    if (unknown !== null) {
       notTested.push({ name: dependency.name, version: dependency.version, reason: unknown });
     }
     for (const group of cluster(hits)) {
       const ids = [
         ...new Set(group.flatMap((h) => [h.advisory.id, ...(h.advisory.aliases ?? [])])),
       ].sort(compareIds);
-      const primary = ids.find((id) => group.some((h) => h.advisory.id === id)) as string;
+      const primary = ids[0] as string;
       const fixed = [...new Set(group.flatMap((h) => h.verdict.fixed))].sort((a, b) => {
         const left = scheme.parse(a);
         const right = scheme.parse(b);

@@ -64,11 +64,11 @@ medium and high confidence findings, on every sample.
 
 ## Dependency rules (scanDependencies on lockfile projects with a fixture OSV dataset)
 
-18 samples.
+21 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-DEP-001 | 9 | 0 | 0 | 9 | 100.0% | 100.0% | 100.0% |
+| PG-DEP-001 | 11 | 0 | 0 | 10 | 100.0% | 100.0% | 100.0% |
 
 ## Web rules (scanLocalWeb against loopback servers)
 

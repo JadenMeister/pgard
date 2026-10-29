@@ -80,7 +80,7 @@ function cap(items: string[], limit: number): string {
 function gapNotes(lines: readonly DependencyCoverage[]): string[] {
   return lines
     .filter((line) => !NOT_A_GAP.has(line.status))
-    .map((line) => `${line.path}: ${line.note ?? line.status}`);
+    .map((line) => `${safe(line.path, 120)}: ${safe(line.note ?? line.status, 300)}`);
 }
 
 function describeData(
@@ -101,7 +101,27 @@ function confidenceOf(match: DependencyMatch): Confidence {
   return "medium";
 }
 
-function findingOf(match: DependencyMatch): Finding {
+/**
+ * Names, versions and paths come from files in the repository (and ids from the advisory data):
+ * untrusted text. Control, bidi and zero-width characters become visible `\uXXXX` text and the
+ * length is capped, as for every other finding text, so a name cannot spoof a terminal, a report
+ * or the dashboard.
+ */
+const safe = (text: string, maxLength = 200): string => redactEvidence(text, { maxLength });
+
+function findingOf(rawMatch: DependencyMatch): Finding {
+  const match: DependencyMatch = {
+    ...rawMatch,
+    advisoryId: safe(rawMatch.advisoryId, 100),
+    aliases: rawMatch.aliases.map((alias) => safe(alias, 100)),
+    affectedRange: safe(rawMatch.affectedRange, 200),
+    fixedVersions: rawMatch.fixedVersions.map((version) => safe(version, 100)),
+    dependency: {
+      ...rawMatch.dependency,
+      name: safe(rawMatch.dependency.name, 214),
+      version: safe(rawMatch.dependency.version, 100),
+    },
+  };
   const rule = listDependencyRules()[0] as ReturnType<typeof listDependencyRules>[number];
   const { dependency } = match;
   const severity: Severity = match.severity.level ?? "medium";
@@ -113,9 +133,10 @@ function findingOf(match: DependencyMatch): Finding {
     commit: null,
   };
   const cves = [match.advisoryId, ...match.aliases].filter((id) => id.startsWith("CVE-"));
+  const listedAliases = match.aliases.slice(0, 4);
   const ids =
     match.aliases.length > 0
-      ? `${match.advisoryId} (${match.aliases.join(", ")})`
+      ? `${match.advisoryId} (${listedAliases.join(", ")}${match.aliases.length > listedAliases.length ? `, +${match.aliases.length - listedAliases.length} more` : ""})`
       : match.advisoryId;
   const sev =
     match.severity.source === "cvss"
@@ -124,7 +145,9 @@ function findingOf(match: DependencyMatch): Finding {
         ? `${severity} (advisory database label)`
         : "unknown in the advisory (shown as medium)";
   const parts = [
-    `${dependency.name}@${dependency.version} (${dependency.ecosystem}) pinned in ${dependency.path}`,
+    // First, so the 500-character cap can never cut it off.
+    "version-range match only; reachability and exploitability were not checked",
+    `${dependency.name}@${dependency.version} (${dependency.ecosystem}) pinned in ${safe(dependency.path, 150)}`,
     `affected version: ${ids}, range ${match.affectedRange}`,
     match.fixedVersions.length > 0
       ? `fixed in ${match.fixedVersions.join(" or ")}`
@@ -132,7 +155,6 @@ function findingOf(match: DependencyMatch): Finding {
     `severity ${sev}`,
     dependency.dev === true ? "development-only dependency" : null,
     dependency.direct === true ? "direct" : dependency.direct === false ? "transitive" : null,
-    "version-range match only; reachability and exploitability were not checked",
   ].filter((part): part is string => part !== null);
   return {
     id: createFindingFingerprint({
@@ -164,7 +186,7 @@ function findingOf(match: DependencyMatch): Finding {
       fixedVersions: match.fixedVersions,
       severitySource: match.severity.source,
       ...(match.severity.score === undefined ? {} : { score: match.severity.score }),
-      ...(match.severity.vector === undefined ? {} : { vector: match.severity.vector }),
+      ...(match.severity.vector === undefined ? {} : { vector: safe(match.severity.vector, 200) }),
     },
   };
 }
@@ -287,10 +309,10 @@ export async function scanDependencies(
     if (result.notTested.length > 0) {
       const sample = result.notTested
         .slice(0, 3)
-        .map((item) => `${item.name}@${item.version}`)
+        .map((item) => safe(`${item.name}@${item.version}`, 80))
         .join(", ");
       problems.push(
-        `${result.notTested.length} package(s) have an advisory but could not be compared (${result.notTested[0]?.reason}), e.g. ${sample}.`,
+        `${result.notTested.length} package(s) have an advisory but could not be compared (${safe(result.notTested[0]?.reason ?? "", 150)}), e.g. ${sample}.`,
       );
     }
     if (collected.isTruncated) {
@@ -313,6 +335,10 @@ export async function scanDependencies(
         ? `${result.stats.withdrawnSkipped} withdrawn advisories were ignored.`
         : null,
       excludedCount > 0 ? `${excludedCount} file(s) excluded by pgard.config.json.` : null,
+      // Not partial: it would make every Go project partial for good; the note says what is not covered.
+      ecosystem === "Go"
+        ? "Go standard library and toolchain advisories are not checked (module versions only)."
+        : null,
       ...problems,
     ].filter((part): part is string => part !== null);
     const areaStatus = problems.length > 0 ? "partial" : "completed";

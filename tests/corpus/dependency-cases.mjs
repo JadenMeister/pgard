@@ -116,6 +116,49 @@ export const DEPENDENCY_CASES = [
   {
     rule: "PG-DEP-001",
     kind: "positive",
+    name: "pnpm-lockfile",
+    expect: ["PG-DEP-001"],
+    files: {
+      "pnpm-lock.yaml":
+        "lockfileVersion: '9.0'\n\npackages:\n\n  pkg@1.0.0:\n    resolution: {integrity: sha512-x}\n\nsnapshots:\n\n  pkg@1.0.0: {}\n",
+    },
+    data: { npm: { advisories: [adv("GHSA-aaaa-0008", "pkg", upTo("1.0.1"))], options: FRESH } },
+    area: { "deps:npm": "completed" },
+  },
+  {
+    rule: "PG-DEP-001",
+    kind: "positive",
+    name: "go-pseudo-version-below-the-fix-with-introduced-0",
+    expect: ["PG-DEP-001"],
+    files: { "go.mod": goMod("golang.org/x/crypto", "v0.0.0-20200622213623-75b288015ac9") },
+    data: {
+      Go: {
+        advisories: [
+          adv("GO-2022-0229", "golang.org/x/crypto", upTo("0.0.0-20201216223049-8b5274cf687f")),
+        ],
+        options: FRESH,
+      },
+    },
+    area: { "deps:Go": "completed" },
+  },
+  {
+    rule: "PG-DEP-001",
+    kind: "negative",
+    name: "go-pseudo-version-at-the-fix",
+    expect: [],
+    files: { "go.mod": goMod("golang.org/x/crypto", "v0.0.0-20201216223049-8b5274cf687f") },
+    data: {
+      Go: {
+        advisories: [
+          adv("GO-2022-0229", "golang.org/x/crypto", upTo("0.0.0-20201216223049-8b5274cf687f")),
+        ],
+        options: FRESH,
+      },
+    },
+  },
+  {
+    rule: "PG-DEP-001",
+    kind: "positive",
     name: "go-incompatible-suffix-and-two-records-of-one-issue",
     expect: ["PG-DEP-001"],
     files: { "go.mod": goMod("example.com/old", "v2.1.0+incompatible") },

@@ -37,6 +37,7 @@ const npmLock = (packages: Record<string, { version: string; dev?: boolean }>): 
   });
 
 const CVSS_HIGH = [{ type: "CVSS_V3", score: "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N" }];
+const upTo = (fixed: string): Record<string, string>[] => [{ introduced: "0" }, { fixed }];
 const scan = (extra = {}) => scanDependencies(root, { appDataDir: data, now: () => NOW, ...extra });
 
 describe("scanDependencies", () => {
@@ -70,8 +71,8 @@ describe("scanDependencies", () => {
         ecosystem: "npm",
         name: "lodash",
         version: "4.17.11",
-        advisoryId: "GHSA-aaaa-bbbb-cccc",
-        aliases: ["CVE-2021-0001"],
+        advisoryId: "CVE-2021-0001",
+        aliases: ["GHSA-aaaa-bbbb-cccc"],
         affectedRange: "<4.17.21",
         fixedVersions: ["4.17.21"],
         severitySource: "cvss",
@@ -138,8 +139,8 @@ describe("scanDependencies", () => {
     const out = await scan();
     expect(out.findings).toHaveLength(1);
     expect(out.findings[0]?.dependency).toMatchObject({
-      advisoryId: "GHSA-gggg-hhhh-iiii",
-      aliases: ["GO-2026-0001", "CVE-2026-1"],
+      advisoryId: "CVE-2026-1",
+      aliases: ["GHSA-gggg-hhhh-iiii", "GO-2026-0001"],
       severitySource: "database",
     });
     expect(out.findings[0]?.severity).toBe("high");
@@ -268,5 +269,103 @@ describe("scanDependencies", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(scan({ signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("keeps the fingerprint when an update adds the record of an id that was already an alias", async () => {
+    await put("go.mod", "module m\n\ngo 1.22\n\nrequire example.com/x v1.4.0\n");
+    const goOnly = advisory("GO-2026-0009", "example.com/x", upTo("1.4.1"), {
+      aliases: ["GHSA-yyyy-zzzz-0009"],
+    });
+    await writeOsvFixture(data, "Go", [goOnly], { fetchedAt: FRESH });
+    const first = (await scan()).findings[0]!;
+    await writeOsvFixture(
+      data,
+      "Go",
+      [
+        goOnly,
+        advisory("GHSA-yyyy-zzzz-0009", "example.com/x", upTo("1.4.1"), {
+          aliases: ["GO-2026-0009"],
+        }),
+      ],
+      { fetchedAt: "2026-10-28T12:00:00Z" },
+    );
+    const second = (await scan()).findings[0]!;
+    expect(second.id).toBe(first.id);
+    expect(second.dependency?.advisoryId).toBe(first.dependency?.advisoryId);
+  });
+
+  it("flags a Go pseudo-version below the fix when the range starts at introduced 0", async () => {
+    await put(
+      "go.mod",
+      "module m\n\ngo 1.22\n\nrequire golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9\n",
+    );
+    await writeOsvFixture(
+      data,
+      "Go",
+      [advisory("GO-2022-0229", "golang.org/x/crypto", upTo("0.0.0-20201216223049-8b5274cf687f"))],
+      { fetchedAt: FRESH },
+    );
+    const out = await scan();
+    expect(out.findings).toHaveLength(1);
+    expect(out.coverage[0]?.status).toBe("completed");
+  });
+
+  it("still lists an advisory it could not compare when another one on the package matched", async () => {
+    await put("package-lock.json", npmLock({ lodash: { version: "1.0.0" } }));
+    await writeOsvFixture(
+      data,
+      "npm",
+      [
+        advisory("GHSA-hit", "lodash", upTo("2.0.0")),
+        advisory("GHSA-odd", "lodash", [{ introduced: "0" }, { fixed: "not-a-version" }]),
+      ],
+      { fetchedAt: FRESH },
+    );
+    const out = await scan();
+    expect(out.findings).toHaveLength(1);
+    expect(out.coverage[0]?.status).toBe("partial");
+    expect(out.coverage[0]?.note).toContain("could not be compared");
+  });
+
+  it("makes lockfile-controlled text safe in findings and notes", async () => {
+    const evil = "pkg\u202Eevil\u001b[31m";
+    await put(
+      "package-lock.json",
+      npmLock({ [evil]: { version: "1.0.0" }, odd: { version: "1.0\u202E" } }),
+    );
+    await writeOsvFixture(
+      data,
+      "npm",
+      [advisory("GHSA-e", evil, upTo("2.0.0")), advisory("GHSA-o", "odd", upTo("2.0.0"))],
+      { fetchedAt: FRESH },
+    );
+    const out = await scan();
+    const text = JSON.stringify(out);
+    // JSON writes raw control characters as \u001b / \u202E text, so look for that form.
+    expect(text.toLowerCase()).not.toMatch(/\\u202e|\\u001b/);
+    expect(out.findings[0]?.dependency?.name).toBe("pkgevil[31m");
+    expect(out.coverage[0]?.note).toContain("could not be compared");
+  });
+
+  it("never lets the 500-character cap cut the disclaimer", async () => {
+    await put("package-lock.json", npmLock({ lodash: { version: "1.0.0" } }));
+    const aliases = Array.from({ length: 40 }, (_, i) => `CVE-2026-${String(10000 + i)}`);
+    await writeOsvFixture(
+      data,
+      "npm",
+      [advisory("GHSA-long", "lodash", upTo("2.0.0"), { aliases })],
+      { fetchedAt: FRESH },
+    );
+    const evidence = (await scan()).findings[0]!.evidence;
+    expect(evidence.length).toBeLessThanOrEqual(500);
+    expect(evidence.startsWith("version-range match only; reachability and exploitability")).toBe(
+      true,
+    );
+  });
+
+  it("says the Go standard library is not checked", async () => {
+    await put("go.mod", "module m\n\ngo 1.22\n\nrequire example.com/x v1.0.0\n");
+    await writeOsvFixture(data, "Go", [], { fetchedAt: FRESH });
+    expect((await scan()).coverage[0]?.note).toContain("standard library and toolchain");
   });
 });

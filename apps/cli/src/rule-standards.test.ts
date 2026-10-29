@@ -123,7 +123,9 @@ describe("rule references against bundled standards data", () => {
     // CWE-693 (Pillar, DISCOURAGED) has a note; CWE-327 (Class, ALLOWED-WITH-REVIEW) is MITRE's
     // entry for a broken cipher and no more specific entry covers "any broken cipher".
     // CWE-862 (Class, ALLOWED-WITH-REVIEW) names the missing authorization of PG-CONF-001 (catch-all permitAll, web.ignoring()); CWE-284 is a DISCOURAGED Pillar.
-    expect([...broad].sort()).toEqual(["CWE-327", "CWE-693", "CWE-862"]);
+    // CWE-1395 (Class, ALLOWED-WITH-REVIEW) is MITRE's entry for a dependency on a vulnerable
+    // third-party component, which PG-DEP-001 reports; no Base entry names it more narrowly.
+    expect([...broad].sort()).toEqual(["CWE-1395", "CWE-327", "CWE-693", "CWE-862"]);
   });
 
   it("keeps CERT links only where SEI lists the CWE and the topic matches", () => {

@@ -125,6 +125,28 @@ describe("OSV range evaluation", () => {
     expect(verdict(npm, "1.0.0", [{ introduced: "0" }, { fixed: "1.x" }]).verdict).toBe("unknown");
   });
 
+  it("treats introduced 0 as below every version, pseudo-versions and pre-releases included", () => {
+    const upToFix = [{ introduced: "0" }, { fixed: "0.0.0-20201216223049-8b5274cf687f" }];
+    expect(verdict(go, "v0.0.0-20200622213623-75b288015ac9", upToFix).verdict).toBe("affected");
+    expect(verdict(go, "v0.0.0-20201216223049-8b5274cf687f", upToFix).verdict).toBe("not-affected");
+    expect(verdict(go, "v0.0.0-20210101000000-aaaaaaaaaaaa", upToFix).verdict).toBe("not-affected");
+    expect(verdict(npm, "0.0.0-alpha.1", [{ introduced: "0" }, { fixed: "0.0.1" }]).verdict).toBe(
+      "affected",
+    );
+    expect(
+      verdict(npm, "0.0.0-alpha.1", [{ introduced: "0" }, { last_affected: "0.0.0-beta" }]).verdict,
+    ).toBe("affected");
+  });
+
+  it("keeps the range text of the first bound", () => {
+    const result = verdict(npm, "2.0.0", [
+      { introduced: "0" },
+      { last_affected: "2.0.0" },
+      { fixed: "3.0.0" },
+    ]);
+    expect(result).toMatchObject({ verdict: "affected", range: "<=2.0.0" });
+  });
+
   it("works for Go versions as OSV writes them (no v prefix)", () => {
     expect(verdict(go, "v1.4.0", [{ introduced: "0" }, { fixed: "1.4.1" }]).verdict).toBe(
       "affected",
