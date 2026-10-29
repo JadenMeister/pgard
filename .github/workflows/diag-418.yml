@@ -14,23 +14,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2, 3]
+        n: [1, 2]
         g:
-          - { name: deps, paths: "packages/dependencies" }
-          - { name: scancore, paths: "packages/scan-core" }
-          - { name: hist-iso, paths: "git-history/src/isolation git-history/src/preflight" }
+          - { name: analyzer-hash, paths: "packages/scan-core/src/analyzer-hash.test.ts" }
+          - { name: code-analyzer, paths: "packages/scan-core/src/code-analyzer.test.ts" }
+          - { name: default-analyzers, paths: "packages/scan-core/src/default-analyzers.test.ts" }
           - {
-              name: hist-run,
-              paths: "git-history/src/run-git git-history/src/git-executable git-history/src/safe-read git-history/src/hook-paths git-history/src/remote",
+              name: incremental-equivalence,
+              paths: "packages/scan-core/src/incremental-equivalence.test.ts",
             }
+          - { name: paths, paths: "packages/scan-core/src/paths.test.ts" }
+          - { name: project-config, paths: "packages/scan-core/src/project-config.test.ts" }
+          - { name: rule-locality, paths: "packages/scan-core/src/rule-locality.test.ts" }
           - {
-              name: hist-incr,
-              paths: "git-history/src/scan-history-incremental git-history/src/scan-history-limits",
+              name: run-scan-expected-repo,
+              paths: "packages/scan-core/src/run-scan-expected-repo.test.ts",
             }
+          - { name: run-scan, paths: "packages/scan-core/src/run-scan.test.ts" }
+          - { name: staged-scan, paths: "packages/scan-core/src/staged-scan.test.ts" }
           - {
-              name: hist-rest,
-              paths: "git-history/src/scan-history.test git-history/src/string-regions git-history/src/secret-patterns git-history/src/staged git-history/src/rule-stats git-history/src/dependency-directories",
+              name: standards-coverage-real,
+              paths: "packages/scan-core/src/standards-coverage-real.test.ts",
             }
+          - { name: standards-coverage, paths: "packages/scan-core/src/standards-coverage.test.ts" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
