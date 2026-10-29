@@ -35,6 +35,35 @@ async function scanSample(directory: string, name: string, content: string | nul
   return attachFixSuggestions(output.findings, directory);
 }
 
+/**
+ * Samples written for this check. The corpus samples import `java.util.*`, which a fix refuses
+ * (a wildcard import can be shadowed by a `Random` of the same package), so the Java fix is
+ * checked on the same code with a single-type import.
+ */
+const EXTRA_SAMPLES: Record<string, Array<{ name: string; original: string }>> = {
+  "PG-CRYPTO-003": [
+    {
+      name: "ExtraSaltSingleImport.java",
+      original: [
+        "// corpus: expect=PG-CRYPTO-003",
+        "import java.security.*;",
+        "import javax.crypto.*;",
+        "import javax.crypto.spec.*;",
+        "import java.util.Random;",
+        "",
+        "public class Sample {",
+        "  PBEKeySpec spec(char[] pw) {",
+        "    byte[] salt = new byte[16];",
+        "    new Random().nextBytes(salt);",
+        "    return new PBEKeySpec(pw, salt, 10000, 256);",
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+    },
+  ],
+};
+
 const key = (finding: Finding) => `${finding.ruleId}:${finding.location.path}:${finding.id}`;
 
 describe("suggested fixes against the corpus", () => {
@@ -42,13 +71,18 @@ describe("suggested fixes against the corpus", () => {
     const positives = readdirSync(path.join(corpusRoot, ruleId, "positive")).sort();
     it(`${ruleId}: a suggested diff removes its finding and is idempotent`, async () => {
       let diffs = 0;
-      for (const name of positives) {
+      const entries = [
+        ...positives.map((name) => ({
+          name,
+          original: readFileSync(path.join(corpusRoot, ruleId, "positive", name), "utf8"),
+        })),
+        ...(EXTRA_SAMPLES[ruleId] ?? []),
+      ];
+      for (const { name, original } of entries) {
         const directory = mkdtempSync(path.join(tmpdir(), "pgard-fix-corpus-"));
         try {
           if (/\.(properties|ya?ml)$/.test(name))
             writeFileSync(path.join(directory, "pom.xml"), "<project/>\n");
-          const sourcePath = path.join(corpusRoot, ruleId, "positive", name);
-          const original = readFileSync(sourcePath, "utf8");
           // A sample the rules are known to miss has no finding to fix.
           if (original.split("\n", 1)[0]?.includes("known=miss")) continue;
           mkdirSync(path.join(directory, "x"), { recursive: true });

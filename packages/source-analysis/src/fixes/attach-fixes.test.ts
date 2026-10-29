@@ -116,4 +116,17 @@ describe("attachFixSuggestions", () => {
     expect(output.filter((entry) => entry.fix?.kind === "diff")).toHaveLength(200);
     expect(output[204]?.fix).toMatchObject({ kind: "guidance", reason: "too_many" });
   });
+
+  it("reports a file that could not be read as unavailable, also after the cap", async () => {
+    const dir = project();
+    const input: Finding[] = [finding("PG-COOKIE-001", "missing.js", 1)];
+    for (let index = 0; index < 205; index += 1) {
+      writeFileSync(path.join(dir, `f${index}.js`), COOKIE);
+      input.push(finding("PG-COOKIE-001", `f${index}.js`, 1));
+    }
+    input.push(finding("PG-COOKIE-001", "missing.js", 1));
+    const output = await attachFixSuggestions(input, dir);
+    expect(output[0]?.fix).toMatchObject({ reason: "source_unavailable" });
+    expect(output[output.length - 1]?.fix).toMatchObject({ reason: "source_unavailable" });
+  });
 });

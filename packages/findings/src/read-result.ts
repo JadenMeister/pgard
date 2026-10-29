@@ -135,6 +135,10 @@ export const READER_KEYS = {
     dependency: true,
     fix: true,
   } satisfies Record<keyof Finding, true>,
+  fix: { kind: true, diff: true, confidence: true, reason: true } satisfies Record<
+    keyof FindingFix,
+    true
+  >,
   location: {
     kind: true,
     path: true,
@@ -512,7 +516,10 @@ function readFix(value: unknown, path: string): FindingFix {
   } else if (diff !== undefined) {
     fail("invalid_shape", `${path}.diff is only allowed when kind is diff.`);
   }
-  if (reason !== undefined) fix.reason = str(reason, `${path}.reason`);
+  if (reason !== undefined) {
+    if (kind === "diff") fail("invalid_shape", `${path}.reason is only allowed for guidance.`);
+    fix.reason = str(reason, `${path}.reason`);
+  }
   return fix;
 }
 

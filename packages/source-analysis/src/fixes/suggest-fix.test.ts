@@ -199,84 +199,113 @@ describe("PG-COOKIE-001 Spring configuration", () => {
 });
 
 describe("PG-CRYPTO-003 java.util.Random", () => {
-  const javaFile = (body: string, imports = "import java.util.*;") =>
+  const javaFile = (body: string, imports = "import java.util.Random;") =>
     ["// corpus", imports, "class A {", body, "}"].join("\n");
+  const CALL = "    new Random().nextBytes(salt);";
 
-  it("replaces a no-argument constructor on the flagged line by a fully qualified SecureRandom", () => {
-    const text = javaFile("    new Random().nextBytes(salt);");
+  it("replaces a new generator on the flagged line by a fully qualified SecureRandom", () => {
+    const text = javaFile(CALL);
     const fix = random(text, 4);
-    expect(fix).toMatchObject({ kind: "diff", confidence: "high" });
+    expect(fix).toMatchObject({ kind: "diff", confidence: "medium" });
     expect(applyLineReplacementDiff(text, fix?.diff ?? "")).toContain(
       "    new java.security.SecureRandom().nextBytes(salt);",
     );
   });
 
-  it("accepts an explicit java.util.Random import", () => {
-    expect(
-      random(javaFile("    new Random().nextBytes(salt);", "import java.util.Random;"), 4),
-    ).toMatchObject({
-      kind: "diff",
-    });
+  it("rewrites a declaration with an explicit Random type", () => {
+    const text = javaFile("  private static final Random RND = new Random();");
+    const fix = random(text, 4);
+    expect(applyLineReplacementDiff(text, fix?.diff ?? "")).toContain(
+      "  private static final Random RND = new java.security.SecureRandom();",
+    );
   });
 
   it("is idempotent", () => {
-    const fix = random(javaFile("    new Random().nextBytes(salt);"), 4);
-    const after =
-      applyLineReplacementDiff(javaFile("    new Random().nextBytes(salt);"), fix?.diff ?? "") ??
-      "";
+    const text = javaFile(CALL);
+    const after = applyLineReplacementDiff(text, random(text, 4)?.diff ?? "") ?? "";
     expect(random(after, 4)).toMatchObject({ kind: "guidance" });
   });
 
   it("gives guidance when the generator is not created on the flagged line", () => {
-    const text = javaFile("    RND.nextBytes(salt);");
-    expect(random(text, 4)).toEqual({
+    expect(random(javaFile("    RND.nextBytes(salt);"), 4)).toEqual({
       kind: "guidance",
       confidence: "low",
       reason: "context_not_supported",
     });
   });
 
-  it("gives guidance for a seeded generator, another Random class or an unclear import", () => {
-    expect(random(javaFile("    new Random(42).nextBytes(salt);"), 4)).toMatchObject({
-      kind: "guidance",
-    });
-    expect(
-      random(javaFile("    new Random().nextBytes(salt);", "import com.acme.Random;"), 4),
-    ).toMatchObject({ kind: "guidance" });
-    expect(
-      random(
-        javaFile(
-          "    new Random().nextBytes(salt);",
-          "import java.util.*;\nimport com.acme.Random;",
-        ),
-        4,
-      ),
-    ).toMatchObject({ kind: "guidance" });
-    expect(
-      random(javaFile("    new Random().nextBytes(salt);", "import java.io.*;"), 4),
-    ).toMatchObject({ kind: "guidance" });
-    expect(random(javaFile("    new Random().nextBytes(salt); // todo"), 4)).toMatchObject({
-      kind: "guidance",
-    });
-    expect(random(javaFile('    var s = "x" + new Random().nextInt();'), 4)).toMatchObject({
-      kind: "guidance",
-    });
-    expect(
-      random(javaFile("    new Random().nextBytes(a); new Random().nextBytes(b);"), 4),
-    ).toMatchObject({ kind: "guidance" });
+  it("gives guidance for a seed, an anonymous subclass, var or any other shape", () => {
+    const lines = [
+      "    new Random(42).nextBytes(salt);",
+      "    new Random() { protected int next(int bits) { return 4; } }.nextBytes(salt);",
+      "    var r = new Random();",
+      "    nextBytes(new Random());",
+      "    new Random().nextBytes(salt); // todo",
+      '    var s = "x" + new Random().nextInt();',
+      "    new Random().nextBytes(a); new Random().nextBytes(b);",
+      "    new Random().nextInt(100);",
+    ];
+    for (const line of lines)
+      expect(random(javaFile(line), 4), line).toMatchObject({ kind: "guidance" });
   });
 
-  it("handles a Kotlin java.util.Random() on the flagged line only", () => {
-    const text = "import java.util.*\nfun f() {\n    java.util.Random().nextBytes(b)\n}";
-    const fix = random(text, 3, "src/A.kt");
-    expect(applyLineReplacementDiff(text, fix?.diff ?? "")).toContain(
+  it("gives guidance when the next line opens an anonymous class body", () => {
+    expect(
+      random(javaFile(`    Random r = new Random()\n    {\n      public void x() {}\n    };`), 4),
+    ).toMatchObject({ kind: "guidance" });
+    expect(random(javaFile("    Random r = new Random();\n    {"), 4)).toMatchObject({
+      kind: "guidance",
+    });
+  });
+
+  it("gives guidance when Random may not be java.util.Random", () => {
+    for (const imports of [
+      "import java.util.*;",
+      "import com.acme.Random;",
+      "import java.util.Random;\nimport com.acme.Random;",
+      "import java.io.*;",
+      "",
+    ]) {
+      expect(random(javaFile(CALL, imports), 4), imports).toMatchObject({ kind: "guidance" });
+    }
+    expect(random(javaFile(`class Random {}\n${CALL}`), 5)).toMatchObject({ kind: "guidance" });
+  });
+
+  it("never copies key material from the rest of the line", () => {
+    const leaks = [
+      "    byte[] mk = {0x7a, 0x3f, 0x11, 0x42}; new Random().nextBytes(key);",
+      "    long k2 = 0x7a3f1b2c4d5e6f70L; new Random().nextBytes(key);",
+      "    Random r = new Random(); int[] k = {1, 2, 3, 4};",
+      "    new Random().nextBytes(0x7a3f1b2c4d5e6f70L);",
+      '    new Random().nextBytes("AKIAABCDEFGHIJKLMNOP");',
+    ];
+    for (const line of leaks) {
+      const fix = random(javaFile(line), 4);
+      expect(fix, line).toMatchObject({ kind: "guidance" });
+      expect(JSON.stringify(fix)).not.toMatch(/0x7a|AKIA/);
+    }
+  });
+
+  it("handles Kotlin val and java.util.Random() calls, not var", () => {
+    const kotlin = (line: string) => `import java.util.*\nfun f() {\n${line}\n}`;
+    const call = kotlin("    java.util.Random().nextBytes(b)");
+    const fix = random(call, 3, "src/A.kt");
+    expect(applyLineReplacementDiff(call, fix?.diff ?? "")).toContain(
       "java.security.SecureRandom().nextBytes(b)",
     );
-    expect(random("    Random().nextBytes(b)", 1, "src/A.kt")).toMatchObject({ kind: "guidance" });
+    const declaration = kotlin("    val rng = java.util.Random()");
+    expect(random(declaration, 3, "src/A.kt")).toMatchObject({ kind: "diff", confidence: "high" });
+    for (const line of [
+      "    var rng = java.util.Random()",
+      "    Random().nextBytes(b)",
+      "    val k = byteArrayOf(0x7a); java.util.Random().nextBytes(b)",
+    ]) {
+      expect(random(kotlin(line), 3, "src/A.kt"), line).toMatchObject({ kind: "guidance" });
+    }
   });
 
   it("only handles random findings and Java or Kotlin files", () => {
-    const text = javaFile("    new Random().nextBytes(salt);");
+    const text = javaFile(CALL);
     expect(
       suggestFix(
         subject("PG-CRYPTO-003", "A.java", 4, 'Cipher.getInstance("AES/ECB/PKCS5Padding")'),
@@ -284,6 +313,100 @@ describe("PG-CRYPTO-003 java.util.Random", () => {
       ),
     ).toMatchObject({ kind: "guidance" });
     expect(random(text, 4, "src/A.js")).toMatchObject({ kind: "guidance" });
+  });
+});
+
+describe("chained calls, line breaks, secrets and caps (review fixes)", () => {
+  it("keeps the line ending and refuses a call that continues on the next line", () => {
+    const withoutSemicolon = cookie('res.cookie("sid", sid)');
+    expect(diffOf(withoutSemicolon)).toContain(
+      '+res.cookie("sid", sid, { httpOnly: true, secure: true, sameSite: "lax" })\n',
+    );
+    expect(diffOf(withoutSemicolon)).not.toContain("});");
+    for (const next of ["  .status(200)", "\n  .json({})", "  ?.json({})"]) {
+      expect(cookie(`  res.cookie("sid", sid)\n${next}`), next).toMatchObject({ kind: "guidance" });
+      expect(cookie(`  return res.cookie("sid", sid)\n${next}`), next).toMatchObject({
+        kind: "guidance",
+      });
+    }
+    // A statement that ends with `;` followed by a method-looking line of its own is fine.
+    expect(cookie('  res.cookie("sid", sid);\n  res.send();')).toMatchObject({ kind: "diff" });
+  });
+
+  it("only accepts the real cookie options and no secret-looking string value", () => {
+    const refused = [
+      'res.cookie("sid", t, { secret: "hunter2" });',
+      'res.cookie("sid", t, { domain: "internal.example.com" });',
+      'res.cookie("sid", t, { priority: "high" });',
+      'res.cookie("sid", t, { path: "/", key: 0x7a3f });',
+      'res.cookie("sid", t, { path: "ghp_abcdefghijklmnopqrstuvwxyz0123456789" });',
+      'res.cookie("sid", t, { maxAge: 0x7a3f1b2c });',
+    ];
+    for (const line of refused) {
+      const fix = cookie(line);
+      expect(fix, line).toMatchObject({ kind: "guidance" });
+      expect(fix?.diff).toBeUndefined();
+    }
+    expect(
+      cookie('res.cookie("sid", t, { path: "/", maxAge: 3600000, signed: true });'),
+    ).toMatchObject({
+      kind: "diff",
+    });
+  });
+
+  it("gives guidance for a file with line breaks an analyzer counts and a diff does not", () => {
+    for (const separator of ["\u2028", "\u2029", "\r"]) {
+      const text = `// a${separator}b\n  res.cookie("sid", token);`;
+      expect(
+        suggestFix(subject("PG-COOKIE-001", "src/a.js", 2, COOKIE), text),
+        JSON.stringify(separator),
+      ).toMatchObject({ kind: "guidance" });
+    }
+  });
+
+  it("lowers the confidence for an inferred finding and for a non-production Spring file", () => {
+    const low = suggestFix(
+      { ...subject("PG-COOKIE-001", "src/a.js", 1, COOKIE), confidence: "low" },
+      'res.cookie("sid", t);',
+    );
+    expect(low).toMatchObject({ kind: "diff", confidence: "low" });
+    const evidence =
+      "server.servlet.session.cookie.secure=false sends the session cookie without Secure (profile x)";
+    const flagged = (path: string, text: string) =>
+      suggestFix(subject("PG-COOKIE-001", path, 1, evidence), text);
+    expect(
+      flagged("application.properties", "server.servlet.session.cookie.secure=false"),
+    ).toMatchObject({ confidence: "high" });
+    expect(
+      flagged("application-dev.properties", "server.servlet.session.cookie.secure=false"),
+    ).toMatchObject({ confidence: "low" });
+    expect(flagged("src/main/resources/application-local.yml", "  secure: false")).toMatchObject({
+      confidence: "low",
+    });
+    expect(
+      flagged(
+        "application.yml",
+        "  secure: false\n---\nspring:\n  config:\n    activate:\n      on-profile: dev",
+      ),
+    ).toMatchObject({ confidence: "low" });
+  });
+
+  it("rewrites relaxed binding and tab separated properties, and checks the key against the evidence", () => {
+    const evidence = (key: string) =>
+      `server.servlet.session.cookie.${key}=false sends the session cookie without HttpOnly (profile x)`;
+    const at = (key: string, line: string) =>
+      suggestFix(subject("PG-COOKIE-001", "a.properties", 1, evidence(key)), line);
+    expect(at("httponly", "server.servlet.session.cookie.httponly=false")).toMatchObject({
+      kind: "diff",
+    });
+    // A tab is a control character, which a diff never carries: guidance, not a diff.
+    expect(at("http-only", "server.servlet.session.cookie.http-only\t=\tfalse")).toMatchObject({
+      kind: "guidance",
+    });
+    // The line is not the flagged setting (a different key).
+    expect(at("http-only", "server.servlet.session.cookie.secure=false")).toMatchObject({
+      kind: "guidance",
+    });
   });
 });
 

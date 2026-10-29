@@ -22,6 +22,11 @@ function isFixableRule(ruleId: string): boolean {
  * Reads one source file for a suggestion, read-only and bounded: a regular file inside the
  * project (no symbolic link in the path), at most `MAX_FIX_SOURCE_BYTES`, opened without
  * following links and without blocking. `null` for anything else.
+ *
+ * Known limit: the path is checked with `realpath` and the file opened with `O_NOFOLLOW`, which
+ * covers the last component; a directory swapped for a symbolic link between the check and the
+ * open (a race) is not caught. The reader is read-only, the content only picks a line to compare
+ * with a strict pattern, and the diff is shown for review, so the race cannot write anything.
  */
 async function readSourceText(rootReal: string, relativePath: string): Promise<string | null> {
   if (relativePath === "" || path.isAbsolute(relativePath) || relativePath.includes("\0")) {
@@ -64,7 +69,8 @@ export async function attachFixSuggestions(
   options: { signal?: AbortSignal } = {},
 ): Promise<Finding[]> {
   const rootReal = await realpath(projectRoot).catch(() => null);
-  const texts = new Map<string, string | null>();
+  // A file read (`text`), or why it was not (`reason`); the cap is decided once per distinct file.
+  const texts = new Map<string, { text: string } | { reason: string }>();
   const output: Finding[] = [];
   for (const finding of findings) {
     const { kind, path: relativePath } = finding.location;
@@ -77,21 +83,24 @@ export async function attachFixSuggestions(
       output.push(finding);
       continue;
     }
-    if (!texts.has(relativePath)) {
-      texts.set(
-        relativePath,
-        texts.size >= MAX_FIX_SOURCE_FILES || rootReal === null
-          ? null
-          : await readSourceText(rootReal, relativePath),
-      );
+    let entry = texts.get(relativePath);
+    if (entry === undefined) {
+      if (texts.size >= MAX_FIX_SOURCE_FILES) {
+        entry = { reason: "too_many" };
+      } else {
+        const text = rootReal === null ? null : await readSourceText(rootReal, relativePath);
+        entry = text === null ? { reason: "source_unavailable" } : { text };
+      }
+      texts.set(relativePath, entry);
     }
-    const text = texts.get(relativePath) ?? null;
-    if (text === null) {
-      const reason = texts.size > MAX_FIX_SOURCE_FILES ? "too_many" : "source_unavailable";
-      output.push({ ...finding, fix: { kind: "guidance", confidence: "low", reason } });
+    if ("reason" in entry) {
+      output.push({
+        ...finding,
+        fix: { kind: "guidance", confidence: "low", reason: entry.reason },
+      });
       continue;
     }
-    const fix = suggestFix(finding, text);
+    const fix = suggestFix(finding, entry.text);
     output.push(fix === null ? finding : { ...finding, fix });
   }
   return output;
