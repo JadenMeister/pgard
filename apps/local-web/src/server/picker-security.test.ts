@@ -198,7 +198,13 @@ describe("fixed mode: pgard dashboard refuses every picker route (design test 2)
             });
           // The server answers before reading the body (that is the point), so the client may
           // see the connection reset while it is still writing; the answer is the same on retry.
-          const response = await attempt().catch(attempt).catch(attempt);
+          const isReset = (error: unknown): boolean =>
+            ["ECONNRESET", "EPIPE"].includes((error as { code?: string }).code ?? "");
+          const retry = (error: unknown) => {
+            if (!isReset(error)) throw error;
+            return attempt();
+          };
+          const response = await attempt().catch(retry).catch(retry);
           expect(response.status, `${method} ${path} ${label}`).toBe(409);
           expect(json(response).error).toMatchObject({ code: "fixed_project" });
         }

@@ -17,7 +17,6 @@ export function ProjectBar({
   canChange = true,
   isScanRunning,
   isAuthRunning,
-  isWaitingForInstall = false,
   onChanged,
 }: {
   project: ProjectInfo;
@@ -26,8 +25,6 @@ export function ProjectBar({
   isScanRunning: boolean;
   /** A check or an owner-approval re-check is running: Change project waits for it. */
   isAuthRunning: boolean;
-  /** The check offered the App install and the page waits for it: it can be cancelled too. */
-  isWaitingForInstall?: boolean;
   onChanged: () => void;
 }) {
   const { m } = useI18n();
@@ -47,9 +44,9 @@ export function ProjectBar({
     setError(null);
     apiPost("/api/auth/cancel").catch((caught: unknown) => setError(pickerErrorText(m, caught)));
   };
-  const canCancel = isAuthRunning || isWaitingForInstall;
+  const canCancel = isAuthRunning;
   // `pgard dashboard`: only the Cancel check button, and only while there is something to cancel
-  // (a check that waits for the GitHub sign-in or for the App install, or a blocked Git, #377).
+  // (a check that waits for the GitHub sign-in, or a blocked Git, #377).
   if (!canChange && !canCancel) return null;
   return (
     <div className="projectbar">

@@ -53,22 +53,12 @@ describe("Cancel check in pgard dashboard (fixed mode, #377)", () => {
     expect(html).toBe("");
   });
 
-  it("offers Cancel check while the page waits for the App install, in either mode", () => {
-    for (const canChange of [false, true]) {
-      const html = render(
-        <ProjectBar
-          project={project}
-          canChange={canChange}
-          isScanRunning={false}
-          isAuthRunning={false}
-          isWaitingForInstall
-          onChanged={noop}
-        />,
-      );
-      expect(html).toContain("Cancel check");
-      // Waiting for an install does not block Change project.
-      if (canChange) expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Change project/);
-    }
+  it("shows Cancel check only while a check really runs, never while only waiting for an install", () => {
+    const html = render(
+      <ProjectBar project={project} isScanRunning={false} isAuthRunning={false} onChanged={noop} />,
+    );
+    expect(html).not.toContain("Cancel check");
+    expect(html).not.toMatch(/<button[^>]*disabled[^>]*>Change project/);
   });
 
   it("an owner-approval re-check counts as a running check (Change project waits)", () => {

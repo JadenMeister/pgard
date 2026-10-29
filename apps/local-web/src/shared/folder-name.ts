@@ -24,11 +24,12 @@ const UNSAFE_NAME_CHARACTERS = new RegExp(
  * Everything invisible or direction-changing, by Unicode property rather than a list: all default
  * ignorable code points (word joiners, soft hyphen, combining grapheme joiner, Hangul fillers,
  * Mongolian vowel separator, variation selectors, tag characters ...), format, control, line and
- * paragraph separators and private-use characters. A name containing one could display like
+ * paragraph separators, private-use characters, every space-like character except the plain
+ * space, and the symbols that render as a blank (U+2800 Braille blank, the Hangul fillers). A name containing one could display like
  * another folder's name, so it is never shown as if it were safe (`unsafe_display`).
  */
 const UNSAFE_DISPLAY_PROPERTIES = new RegExp(
-  "[\\p{Default_Ignorable_Code_Point}\\p{Cf}\\p{Cc}\\p{Zl}\\p{Zp}\\p{Co}]",
+  "[\\p{Default_Ignorable_Code_Point}\\p{Cf}\\p{Cc}\\p{Zl}\\p{Zp}\\p{Co}\\u2800\\u3164\\uffa0\\u1160\\u17b4\\u17b5]|(?!\\u0020)\\p{Zs}",
   "u",
 );
 

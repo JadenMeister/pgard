@@ -63,6 +63,11 @@ describe("T11: invisible and look-alike characters are never shown as safe", () 
     ["zero width joiner U+200D", "sh‍op"],
     ["byte order mark U+FEFF", "sh﻿op"],
     ["private use U+E000", "shop"],
+    ["Braille pattern blank U+2800", "sh\u2800op"],
+    ["Hangul filler U+FFA0", "sh\uffa0op"],
+    ["no-break space U+00A0", "sh\u00a0op"],
+    ["ideographic space U+3000", "sh\u3000op"],
+    ["en space U+2002", "sh\u2002op"],
   ];
   for (const [label, name] of classes) {
     it(`blocks ${label} as unsafe_display with an escaped form`, async () => {

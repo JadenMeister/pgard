@@ -274,7 +274,6 @@ export function App({
             canChange={session.mode === "picker"}
             isScanRunning={control.isRunning}
             isAuthRunning={auth?.status === "running" || auth?.isRechecking === true}
-            isWaitingForInstall={auth?.remedy != null}
             onChanged={() => onProjectChanged?.()}
           />
           <div className="viewnav">

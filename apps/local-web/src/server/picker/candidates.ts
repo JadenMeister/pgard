@@ -182,7 +182,7 @@ export interface CandidateRecord {
 
 function remoteDto(raw: RawCandidate["remote"]): PickerRemote {
   return raw.status === "github"
-    ? { status: "github", repo: `${raw.owner}/${raw.name}` }
+    ? { status: "github", repo: sanitizeDisplayText(`${raw.owner}/${raw.name}`, 140) }
     : { status: raw.status };
 }
 
