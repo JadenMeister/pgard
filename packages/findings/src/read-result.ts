@@ -3,6 +3,7 @@ import {
   AUTHORIZATION_CHECK_STATUSES,
   CONFIDENCES,
   COVERAGE_STATUSES,
+  DEPENDENCY_SEVERITY_SOURCES,
   FINDING_CATEGORIES,
   FINDING_CONTEXTS,
   FINDING_STATUSES,
@@ -21,6 +22,7 @@ import {
   type BaselineSummary,
   type Coverage,
   type Finding,
+  type FindingDependency,
   type FindingLocation,
   type FindingReferences,
   type FindingSuppression,
@@ -127,6 +129,7 @@ export const READER_KEYS = {
     context: true,
     suppression: true,
     inBaseline: true,
+    dependency: true,
   } satisfies Record<keyof Finding, true>,
   location: {
     kind: true,
@@ -473,12 +476,45 @@ function readFinding(value: unknown, path: string): Finding {
   const suppression = field(o, "suppression");
   if (suppression !== undefined)
     finding.suppression = readSuppression(suppression, `${path}.suppression`);
+  const dependency = field(o, "dependency");
+  if (dependency !== undefined) {
+    finding.dependency = readDependency(dependency, `${path}.dependency`);
+  }
   const inBaseline = field(o, "inBaseline");
   if (inBaseline !== undefined) {
     if (inBaseline !== true) fail("invalid_shape", `${path}.inBaseline must be true when present.`);
     finding.inBaseline = true;
   }
   return finding;
+}
+
+function readDependency(value: unknown, path: string): FindingDependency {
+  const o = object(value, path);
+  const dev = field(o, "dev");
+  const direct = field(o, "direct");
+  const score = field(o, "score");
+  const vector = field(o, "vector");
+  if (score !== undefined && !(typeof score === "number" && score >= 0 && score <= 10)) {
+    fail("invalid_shape", `${path}.score must be a number from 0 to 10.`);
+  }
+  return {
+    ecosystem: str(field(o, "ecosystem"), `${path}.ecosystem`),
+    name: str(field(o, "name"), `${path}.name`),
+    version: str(field(o, "version"), `${path}.version`),
+    ...(dev === undefined ? {} : { dev: bool(dev, `${path}.dev`) }),
+    ...(direct === undefined ? {} : { direct: bool(direct, `${path}.direct`) }),
+    advisoryId: str(field(o, "advisoryId"), `${path}.advisoryId`),
+    aliases: strings(field(o, "aliases"), `${path}.aliases`),
+    affectedRange: str(field(o, "affectedRange"), `${path}.affectedRange`),
+    fixedVersions: strings(field(o, "fixedVersions"), `${path}.fixedVersions`),
+    severitySource: oneOf(
+      field(o, "severitySource"),
+      DEPENDENCY_SEVERITY_SOURCES,
+      `${path}.severitySource`,
+    ),
+    ...(score === undefined ? {} : { score: score as number }),
+    ...(vector === undefined ? {} : { vector: str(vector, `${path}.vector`) }),
+  };
 }
 
 function count(value: unknown, path: string): number {
