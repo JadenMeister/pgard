@@ -4,6 +4,7 @@ export {
   type SourceScanOptions,
   type SourceScanOutput,
 } from "./scan-source.js";
+export { analyzeStagedSource } from "./analyze-staged.js";
 export { GRAMMAR_SHA256 } from "./tree-sitter/languages.js";
 export {
   SOURCE_RULES,

@@ -5,6 +5,33 @@ export {
   type ProjectConfigLoad,
 } from "./project-config.js";
 export { toRepositoryRelativePath } from "./paths.js";
+export {
+  STAGED_COVERAGE_AREA,
+  STAGED_SCAN_BUDGET_MS,
+  createStagedAnalyzer,
+  describeStagedReport,
+  isStagedReportIncomplete,
+  type StagedScanReport,
+  type StagedScanSettings,
+} from "./staged-scan.js";
+export {
+  INCOMPLETE_SKIP_REASONS,
+  STAGED_MAX_FILES,
+  STAGED_MAX_FILE_BYTES,
+  STAGED_MAX_TOTAL_BYTES,
+  isPathInside,
+  preflightIsolation,
+  readRepositoryIsolation,
+  readStagedTextFile,
+  resolveHookIndexFile,
+  resolveHooksLocation,
+  type HookIndexFile,
+  type HooksLocation,
+  type PathModule,
+  type StagedFileRead,
+  type StagedSkip,
+  type StagedSkipReason,
+} from "@pgard/git-history";
 export { PGARD_VERSION } from "./version.js";
 export { verifyProject } from "./verify-project.js";
 export { listSupportedRules, type RuleDescriptor, type RuleLanguage } from "./rules.js";
