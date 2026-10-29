@@ -1,3 +1,4 @@
+import type { PickerDeps } from "./picker/session.js";
 import {
   discoverListeningPorts,
   probeLocalService,
@@ -54,6 +55,8 @@ export interface ServerDeps {
   advisoryDataDir?: string | null;
   /** Reads the status of that data (local files only). Defaults to the real reader. */
   readAdvisoryStatus?: typeof readAdvisoryStatus;
+  /** Picker mode (`pgard web`) only: inspector, recent-list storage and search scope. */
+  picker?: PickerDeps;
 }
 
 /** Client id (or the fixed reason a malformed override blocks) for the session provider. */

@@ -19,6 +19,35 @@ export function hasSessionToken(): boolean {
   return sessionToken !== null;
 }
 
+/**
+ * The project epoch of the view the page shows (from `GET /api/session`). State-changing project
+ * calls carry it, so a second window with an older view fails with `project_changed` instead of
+ * acting on the wrong project.
+ */
+let projectEpoch: number | null = null;
+const EPOCH_PATHS: ReadonlySet<string> = new Set([
+  "/api/auth/verify",
+  "/api/auth/owner-approval",
+  "/api/ports/probe",
+  "/api/target/confirm",
+  "/api/scan",
+]);
+
+export function setProjectEpoch(epoch: number | null): void {
+  projectEpoch = epoch;
+}
+
+export function getProjectEpoch(): number | null {
+  return projectEpoch;
+}
+
+/** Called when the server says this view's project is out of date (`409 project_changed`). */
+let onProjectChanged: (() => void) | null = null;
+
+export function setProjectChangedListener(listener: (() => void) | null): void {
+  onProjectChanged = listener;
+}
+
 export class ApiRequestError extends Error {
   readonly status: number;
   readonly code: string;
@@ -30,6 +59,11 @@ export class ApiRequestError extends Error {
   }
 }
 
+function withEpoch(path: string, body: unknown): unknown {
+  if (projectEpoch === null || !EPOCH_PATHS.has(path)) return body ?? {};
+  return { ...(body as Record<string, unknown> | undefined), epoch: projectEpoch };
+}
+
 async function request<T>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
   if (sessionToken === null) throw new ApiRequestError(401, "missing_token", "No session token.");
   const headers: Record<string, string> = { [SESSION_TOKEN_HEADER]: sessionToken };
@@ -39,11 +73,12 @@ async function request<T>(method: "GET" | "POST", path: string, body?: unknown):
     headers,
     credentials: "omit",
     cache: "no-store",
-    ...(method === "POST" ? { body: JSON.stringify(body ?? {}) } : {}),
+    ...(method === "POST" ? { body: JSON.stringify(withEpoch(path, body)) } : {}),
   });
   const payload = (await response.json().catch(() => null)) as unknown;
   if (!response.ok) {
     const error = (payload as ApiError | null)?.error;
+    if (error?.code === "project_changed") onProjectChanged?.();
     throw new ApiRequestError(
       response.status,
       error?.code ?? "error",

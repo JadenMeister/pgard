@@ -20,7 +20,7 @@ describe("parseLauncherArgs", () => {
       async () => root,
     );
     expect(options.presetTargetPort).toBe(5173);
-    expect(path.basename(options.projectRoot)).toBe(path.basename(root));
+    expect(path.basename(options.projectRoot as string)).toBe(path.basename(root));
   });
 
   it.each([
@@ -62,5 +62,42 @@ describe("parseLauncherArgs", () => {
     await expect(
       parseLauncherArgs(["--project-root", root, "--target-port", "0"], async () => root),
     ).rejects.toBeInstanceOf(LauncherUsageError);
+  });
+
+  it("picker mode (pgard web) takes no path and no port, only the flags", async () => {
+    const never = async (): Promise<string | null> => {
+      throw new Error("no Git root is resolved in picker mode");
+    };
+    expect(await parseLauncherArgs(["--picker"], never)).toEqual({
+      projectRoot: null,
+      presetTargetPort: null,
+      noBrowser: false,
+      picker: true,
+      noStore: false,
+    });
+    expect(
+      await parseLauncherArgs(["--picker", "--no-browser", "--no-store"], never),
+    ).toMatchObject({
+      picker: true,
+      noBrowser: true,
+      noStore: true,
+    });
+  });
+
+  it.each([
+    [["--picker", "--project-root", "/work/x"]],
+    [["--picker", "--target-port", "3000"]],
+    [["--picker", "--picker"]],
+    [["--no-store"]],
+    [["--picker", "--no-store", "--no-store"]],
+  ])("rejects %j", async (argv) => {
+    await expect(parseLauncherArgs(argv, async () => root)).rejects.toBeInstanceOf(
+      LauncherUsageError,
+    );
+  });
+
+  it("fixed mode is never a picker", async () => {
+    const options = await parseLauncherArgs(["--project-root", root], async () => root);
+    expect(options).toMatchObject({ picker: false, noStore: false });
   });
 });

@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -429,6 +430,76 @@ try {
       }
     });
   });
+
+  // Project picker (`pgard web`): the packed dashboard starts in picker mode, and a search runs
+  // through the packed inspector child process (no project, no sign-in, no network).
+  if (process.platform !== "win32") {
+    check("packed inspector child exists", existsSync(join(pkgDir, "dist", "inspector.js")));
+    const home = mkdtempSync(join(tmpdir(), "pgard smoke home "));
+    mkdirSync(join(home, "code"), { mode: 0o755 });
+    await new Promise((done) => {
+      const child = spawn(
+        process.execPath,
+        [join(pkgDir, "dist", "dashboard.js"), "--picker", "--no-browser", "--no-store"],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: { ...process.env, HOME: home, XDG_DATA_HOME: join(home, "data") },
+        },
+      );
+      let out = "";
+      let finished = false;
+      const finish = (name, ok, detail) => {
+        if (finished) return;
+        finished = true;
+        check(name, ok, detail);
+        clearTimeout(timer);
+        child.kill();
+        rmSync(home, { recursive: true, force: true });
+        done();
+      };
+      const timer = setTimeout(
+        () => finish("picker search works", false, `timeout; output: ${out}`),
+        40_000,
+      );
+      child.stderr.on("data", (chunk) => (out += chunk));
+      child.on("exit", (code) =>
+        finish("picker search works", false, `exited ${code}; output: ${out}`),
+      );
+      child.stdout.on("data", async (chunk) => {
+        out += chunk;
+        const match = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([A-Za-z0-9_-]+)/.exec(out);
+        if (match === null || finished) return;
+        const [, origin, token] = match;
+        const headers = { "x-pgard-token": token, origin, "content-type": "application/json" };
+        try {
+          const scope = await (await fetch(`${origin}/api/picker/scope`, { headers })).json();
+          const started = await (
+            await fetch(`${origin}/api/picker/search`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ source: "typed", name: "no-such-folder", epoch: 1 }),
+            })
+          ).json();
+          let search = { status: "running" };
+          for (let attempt = 0; attempt < 100 && search.status === "running"; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+            search = await (
+              await fetch(`${origin}/api/picker/search?id=${started.searchId}`, { headers })
+            ).json();
+          }
+          finish(
+            "picker search works",
+            scope.roots?.length === 1 &&
+              search.status === "done" &&
+              search.candidates?.length === 0,
+            JSON.stringify({ scope, search }),
+          );
+        } catch (error) {
+          finish("picker search works", false, String(error));
+        }
+      });
+    });
+  }
 } catch (error) {
   if (!(error instanceof Error && error.message === "install failed")) {
     console.error(error);

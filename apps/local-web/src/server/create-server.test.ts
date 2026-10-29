@@ -294,7 +294,9 @@ describe("local web server security", () => {
     const running = await start(fakeDeps());
     const body = (await apiGet(running, "/api/session")).body;
     expect(JSON.parse(body)).toMatchObject({
-      projectName: "my-project",
+      mode: "fixed",
+      project: { name: "my-project", repo: null },
+      projectEpoch: 1,
       githubApp: { clientId: DEFAULT_GITHUB_APP_CLIENT_ID, source: "default" },
     });
     expect(body).not.toContain("/work/");

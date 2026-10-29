@@ -16,7 +16,7 @@ export interface GitRunOptions {
    * `output_limit` (e.g. to read only the start of a large blob).
    */
   truncate?: boolean;
-  /** Overrides the 60 s time limit (tests only). */
+  /** Overrides the 60 s time limit (the picker's inspector uses 3 s per call; tests use less). */
   timeoutMs?: number;
 }
 
