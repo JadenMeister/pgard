@@ -14,7 +14,7 @@ import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { createSessionProvider } from "../flows/authenticate.js";
 import { checkOutputDir } from "../flows/export-report.js";
 import { authorizationDepsFor } from "../flows/guided-install.js";
-import { promptConfirm } from "../ui/components/prompts.js";
+import { promptConfirm, UserCancelledError } from "../ui/components/prompts.js";
 import { formatAuthorization } from "../ui/formatters/result-view.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
@@ -137,30 +137,40 @@ export async function runSbom(context: CommandContext, command: SbomCommand): Pr
   }
 
   out(context, context.style.dim(t.localNote));
-  const collection = await context.deps.collectDependencies(projectRoot);
-  throwIfCancelled(context);
-  const timestamp = new Date(context.deps.now()).toISOString();
-  const bom = buildCycloneDxSbom(collection, {
-    serialNumber: context.deps.newSerialNumber(),
-    timestamp,
-    toolVersion: PGARD_VERSION,
-    repository: outcome.repo ?? text.unknown,
-    revision: outcome.revision,
-  });
-
-  const filePath = path.join(await realpath(outputDir), sbomFileName(timestamp, outcome.revision));
+  const cleanUp = async (): Promise<void> => {
+    if (isPrivateDir && outputDir !== null) await rmdir(outputDir).catch(() => undefined);
+  };
+  let collection;
+  let bom;
+  let filePath;
+  try {
+    collection = await context.deps.collectDependencies(projectRoot);
+    throwIfCancelled(context);
+    const timestamp = new Date(context.deps.now()).toISOString();
+    bom = buildCycloneDxSbom(collection, {
+      serialNumber: context.deps.newSerialNumber(),
+      timestamp,
+      toolVersion: PGARD_VERSION,
+      repository: outcome.repo ?? text.unknown,
+      revision: outcome.revision,
+    });
+    filePath = path.join(await realpath(outputDir), sbomFileName(timestamp, outcome.revision));
+  } catch (error) {
+    await cleanUp();
+    if (error instanceof UserCancelledError) throw error;
+    err(context, context.errStyle.red(t.notSaved(t.unexpectedError)));
+    return EXIT_CODES.partial;
+  }
   try {
     await writeExclusive(filePath, `${JSON.stringify(bom, null, 2)}\n`);
   } catch (error) {
-    if (isPrivateDir) await rmdir(outputDir).catch(() => undefined);
+    await cleanUp();
     const code = error instanceof SbomWriteError ? error.code : null;
     err(
       context,
       context.errStyle.red(
         t.notSaved(
-          code === "file_exists"
-            ? safeText(`refusing to overwrite ${filePath}`, 500)
-            : t.unexpectedWriteError,
+          code === "file_exists" ? t.fileExists(safeText(filePath, 500)) : t.unexpectedWriteError,
         ),
       ),
     );

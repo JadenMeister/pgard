@@ -278,6 +278,23 @@ describe("buildCycloneDxSbom", () => {
     expect(bom.compositions).toHaveLength(1);
   });
 
+  it("refuses dot segments in a purl and falls back to the pgard ref", () => {
+    expect(purlFor("Go", "github.com/a/../../etc", "v1.0.0")).toBeNull();
+    expect(purlFor("Go", "./x", "v1.0.0")).toBeNull();
+    expect(purlFor("npm", "@s/..", "1.0.0")).toBeNull();
+    expect(purlFor("npm", "..", "1.0.0")).toBeNull();
+    expect(purlFor("PyPI", "Foo.Bar-_baz", "1")).toBe("pkg:pypi/foo-bar-baz@1");
+    const bom = build([
+      dep({ ecosystem: "Go", name: "github.com/a/../../etc", version: "v1.0.0", path: "go.mod" }),
+      dep({ name: "@s/..", version: "1.0.0" }),
+    ]);
+    expect(bom.components.map((component) => component.purl)).toEqual([undefined, undefined]);
+    expect(bom.components.map((component) => component["bom-ref"])).toEqual([
+      "pgard:Go:github.com/a/../../etc@v1.0.0",
+      "pgard:npm:@s/..@1.0.0",
+    ]);
+  });
+
   it("keeps a package whose name does not fit its ecosystem, without a purl", () => {
     const bom = build([dep({ ecosystem: "Maven", name: "no-colon", version: "1" })]);
     expect(bom.components[0]?.purl).toBeUndefined();
@@ -285,7 +302,7 @@ describe("buildCycloneDxSbom", () => {
     expect(validator()(JSON.parse(JSON.stringify(bom)))).toBe(true);
   });
 
-  it("runs lockfile text through the redaction rules", () => {
+  it("masks secrets and drops absolute paths in names, versions and paths", () => {
     const secret = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
     const bom = build(
       [

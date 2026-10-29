@@ -44,11 +44,17 @@ const encodePath = (segments: readonly string[]): string => segments.map(encodeS
  * - PyPI: lowercase, with `_` and `.` turned into `-` (the spec's normalisation).
  * - Composer (OSV "Packagist"): lowercase `vendor/name`.
  */
+const isDotSegment = (part: string): boolean => part === "." || part === "..";
+
 export function purlFor(ecosystem: SbomEcosystem, name: string, version: string): string | null {
   if (name === "" || version === "") return null;
+  // A dot segment would turn the purl into a path that points somewhere else.
+  if (name.split(/[/:]/).some(isDotSegment)) return null;
   const suffix = `@${encodeSegment(version)}`;
   switch (ecosystem) {
     case "npm": {
+      // npm names are kept in their original case on purpose: new packages must be lowercase,
+      // but older ones are not, and the registry and OSV match the name as published.
       const parts = name.startsWith("@") ? name.split("/") : [name];
       if (name.startsWith("@") && (parts.length !== 2 || parts[0] === "@" || parts[1] === "")) {
         return null;
@@ -66,7 +72,7 @@ export function purlFor(ecosystem: SbomEcosystem, name: string, version: string)
       return `pkg:maven/${encodePath(parts)}${suffix}`;
     }
     case "PyPI": {
-      const normalized = name.toLowerCase().replace(/[_.]+/g, "-");
+      const normalized = name.toLowerCase().replace(/[-_.]+/g, "-");
       return normalized === "" ? null : `pkg:pypi/${encodeSegment(normalized)}${suffix}`;
     }
     case "Packagist": {
@@ -222,7 +228,8 @@ export function buildCycloneDxSbom(
     .sort(compareText);
   const isIncomplete = unparsed.length > 0 || collection.isTruncated;
   const metadataProperties: CycloneDxProperty[] = [
-    // The lockfiles give package versions, not the edges between packages.
+    // PGARD's parsers return package versions only: they do not read the dev scope or the
+    // edges between packages that some lockfiles record.
     { name: "pgard:dependency-graph", value: "direct-only" },
     { name: "pgard:complete", value: String(!isIncomplete) },
     ...(collection.isTruncated ? [{ name: "pgard:truncated", value: "true" }] : []),

@@ -175,6 +175,27 @@ describe("pgard sbom", () => {
     expect(captured.stderr()).toContain("never overwritten");
   });
 
+  it("says the refusal to overwrite in Korean", async () => {
+    await writeFile(path.join(outDir, sbomFileName(new Date(NOW).toISOString(), REVISION)), "mine");
+    const { captured, code } = await sbom({}, { locale: "ko" });
+    expect(code).toBe(4);
+    expect(captured.stderr()).toContain("덮어쓰지 않습니다");
+    expect(captured.stderr()).not.toContain("refusing");
+  });
+
+  it("a failure while collecting exits 4 and removes the empty private directory", async () => {
+    const failing = createTestDeps({
+      ...deps(),
+      collectDependencies: async () => {
+        throw new Error("boom");
+      },
+    });
+    const { captured, code } = await sbom({ outputDir: null }, { deps: failing });
+    expect(code).toBe(4);
+    expect(captured.stderr()).toContain("could not be built");
+    await expect(stat(outDir)).rejects.toThrow();
+  });
+
   it("does not follow a symbolic link planted at the file name", async () => {
     if (process.platform === "win32") return;
     const victim = path.join(base, "victim.txt");

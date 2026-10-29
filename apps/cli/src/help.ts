@@ -242,8 +242,11 @@ Writes a CycloneDX 1.6 JSON software bill of materials (SBOM) of the packages
 listed in this repository's lockfiles (package-lock.json, npm-shrinkwrap.json,
 pnpm-lock.yaml, yarn.lock, go.mod/go.sum): name, version, package URL (purl) and
 the lockfiles each came from. Direct dependencies are linked from the repository
-component; the lockfiles do not give the links between other packages, so the
-graph is marked direct-only. It does not scan, uploads nothing and runs no
+component; PGARD's parsers do not read the dev scope or the links between other
+packages (some lockfiles record them), so no scope is written and the graph is
+marked direct-only. Every package is listed by name and version as a registry
+package: a dependency resolved from git, a tarball URL or a file: path is not
+told apart yet. It does not scan, uploads nothing and runs no
 package manager or build tool. Lockfiles it cannot read, or does not support
 yet, are listed as pgard:unparsed-lockfile properties (and the SBOM is marked
 incomplete), so a missing package is never mistaken for a clean one.
