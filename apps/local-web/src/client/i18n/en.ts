@@ -20,6 +20,9 @@ export const en = {
   app: {
     subtitle: (version: string | null): string =>
       `Local security dashboard${version === null ? "" : ` - v${version}`}`,
+    title: "Security dashboard",
+    lead: "Check authorization, choose what to scan and review the findings. Everything runs on this computer.",
+    skipToContent: "Skip to content",
     footer:
       "Runs on 127.0.0.1 only. Dashboard scans are not stored: their results and the session are discarded when the dashboard stops.",
     errorNoToken:
@@ -227,6 +230,25 @@ export const en = {
     },
     run: "Run scan",
     cancel: "Cancel",
+    progress: {
+      title: "Scanning",
+      stoppedTitle: "Scan stopped",
+      elapsed: (time: string): string => `Elapsed ${time}`,
+      areasLabel: "Scan progress by area",
+      authorization: "Authorization",
+      states: {
+        waiting: "Waiting",
+        running: "Running",
+        done: "Done",
+        failed: "Failed",
+        skipped: "Skipped",
+        stopped: "Stopped",
+      },
+      pages: (count: number): string => `${count} page${count === 1 ? "" : "s"} checked`,
+      announce: (area: string, state: string): string => `${area}: ${state}`,
+      note: "Each area reports when it starts and when it finishes; PGARD does not estimate how much is left.",
+      log: "Activity log",
+    },
   },
   coverage: {
     caption: "Coverage",
@@ -283,6 +305,7 @@ export const en = {
     search: "Search",
     sources: { code: "Code", history: "History", web: "Web" },
     confidence: (value: string): string => `confidence ${value}`,
+    confidenceLabel: "Confidence",
     evidence: "Evidence (redacted)",
     impact: "Impact",
     recommendation: "Recommendation",
@@ -327,6 +350,18 @@ export const en = {
     baselineNote:
       "These findings were already in the baseline (pgard baseline). They are not new, but they are still reported.",
     newBadge: "NEW",
+    suppressedMarker: (expires: string): string =>
+      expires === "" ? "Suppressed" : `Suppressed until ${expires}`,
+    pager: {
+      showing: (start: number, end: number, total: number): string =>
+        `Showing ${start}–${end} of ${total}`,
+      label: (list: string): string => `Pages: ${list}`,
+      previous: "Previous",
+      next: "Next",
+      page: (page: number): string => `Page ${page}`,
+      pageSize: "Per page",
+      regular: "Findings",
+    },
     noDatabase:
       "PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
     location: {
@@ -395,14 +430,105 @@ export const en = {
     targetUnknown: (reason: string): string => `unknown (${reason})`,
     summary: (count: number): string => `Rule statistics (${count})`,
   },
-  charts: {
-    barAria: (summary: string): string => `Findings by severity: ${summary}`,
-    barTitle: (severity: string, count: number): string => `${severity}: ${count} finding(s)`,
-    donutAria: (total: number): string => `${total} findings in total`,
-    donutTitle: (severity: string, count: number, total: number): string =>
-      `${severity}: ${count} of ${total}`,
-    donutSingleTitle: (severity: string, total: number): string => `${severity}: ${total}`,
-    findings: "findings",
+  nav: {
+    label: "Dashboard sections",
+    overview: "Overview",
+    findings: "Findings",
+    coverage: "Coverage",
+    standards: "Standards",
+    rules: "Rules",
+    export: "Export",
+  },
+  strip: {
+    label: "Scan controls",
+    auth: {
+      none: "Not verified",
+      checking: "Checking authorization",
+      signIn: "Waiting for GitHub sign-in",
+      allowed: "Authorized",
+      blocked: "Blocked",
+      failed: "Check failed",
+    },
+    authDetails: "Details",
+    target: (origin: string): string => `Web target ${origin}`,
+    noTarget: "No web target",
+    scanning: (time: string): string => `Scanning ${time}`,
+  },
+  overview: {
+    noScan: "No scan yet. Verify the project, choose the scope and run a scan.",
+    status: {
+      completed: "Completed",
+      partial: "Partial",
+      blocked: "Blocked",
+      failed: "Failed",
+      unknown: "Unknown",
+    },
+    unfinished: (count: number): string => `${count} area${count === 1 ? "" : "s"} did not finish`,
+    blockedDetail: "no analysis ran",
+    failedDetail: "an internal error stopped the scan",
+    stats: {
+      findings: "Findings",
+      confirmed: "Confirmed",
+      suspected: "Suspected",
+      informational: "Informational",
+    },
+    severityLabel: "Findings by severity",
+    coverageTitle: "Coverage",
+    coverageCounts: (completed: number, partial: number, notTested: number): string =>
+      `${completed} completed · ${partial} partial · ${notTested} not tested`,
+    coverageLink: "View coverage",
+    topTitle: "Top findings",
+    allFindings: (count: number): string => `View all ${count} findings`,
+    summaryTitle: "Summary",
+    statusMeaning: {
+      confirmed: "Confirmed: the evidence shows the problem directly.",
+      suspected: "Suspected: a risky pattern without enough evidence to confirm it; review it.",
+      informational: "Informational: worth knowing, not proof of a vulnerability.",
+    },
+    severityBar: (summary: string): string => `Findings by severity: ${summary}`,
+    severityFilterHint: "Select a severity to list only those findings.",
+    partialMeaning:
+      "Partial means only part of an area ran; the note says what is missing. Not tested means it could not run.",
+    categoryTitle: "By category",
+    categoryLink: (count: number, category: string): string =>
+      `${count} ${category} findings, show them`,
+    categoryEmpty: "No findings in any category.",
+    scopeLine: "Scope",
+    authAllowedWhy: "Every check passed, so scans of this repository may run.",
+    authBlockedWhy:
+      "A check failed, so no analysis runs. The failing check and how to fix it are below.",
+    authNotChecked:
+      "Verify the project before a scan: PGARD checks owner approval, your access and a merged contribution.",
+  },
+  categories: {
+    injection: "Injection (SQL and others)",
+    xss: "Cross-site scripting (XSS)",
+    ssrf: "Server-side request forgery (SSRF)",
+    access_control: "Access control",
+    authentication: "Authentication",
+    brute_force: "Brute force",
+    cryptography: "Cryptography",
+    misconfiguration: "Misconfiguration",
+    csrf: "CSRF",
+    file_handling: "File handling and paths",
+    command_execution: "Command execution",
+    secret_exposure: "Secrets",
+  },
+  help: {
+    label: "About this section",
+    authDetails: "Authorization details",
+    signOut: "What the sign-out options do",
+    session: "GitHub session",
+  },
+  table: {
+    severity: "Severity",
+    finding: "Finding",
+    status: "Status",
+    location: "Location",
+    rule: "Rule",
+    details: "Details",
+    severityFilter: "Filter by severity",
+    category: "Category",
   },
   report: {
     downloadHtml: "Download HTML",

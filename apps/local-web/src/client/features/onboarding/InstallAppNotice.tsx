@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { InstallRemedyDto, OwnerApprovalRecheckDto } from "../../../shared/api-types";
 import { apiPost, ApiRequestError } from "../../api/client";
-import { Notice } from "../../components/ui/Card";
+import { ButtonLink } from "../../components/ui/Button";
+import { Notice } from "../../components/ui/Notice";
 import { usePolling } from "../../hooks/use-polling";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
@@ -95,9 +96,9 @@ export function InstallAppNotice({
     <div className="device-code" role="status">
       <p>{view.text}</p>
       <p>
-        <a className="button primary" href={view.url} target="_blank" rel="noreferrer noopener">
+        <ButtonLink variant="primary" href={view.url} target="_blank" rel="noreferrer noopener">
           {texts.button}
-        </a>
+        </ButtonLink>
       </p>
       {isWaiting && <p className="muted">{texts.waiting}</p>}
       {isTimedOut && <p className="muted">{texts.timedOut}</p>}
