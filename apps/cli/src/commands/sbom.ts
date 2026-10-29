@@ -20,6 +20,9 @@ import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "./project/verify.js";
 
+/** Time the SBOM may spend reading lockfiles. */
+const SBOM_READ_BUDGET_MS = 60_000;
+
 export interface SbomCommand {
   format: typeof SBOM_FORMAT;
   outputDir: string | null;
@@ -144,7 +147,11 @@ export async function runSbom(context: CommandContext, command: SbomCommand): Pr
   let bom;
   let filePath;
   try {
-    collection = await context.deps.collectDependencies(projectRoot);
+    // Ctrl+C stops the read, and the read has its own time budget.
+    collection = await context.deps.collectDependencies(projectRoot, {
+      signal: context.signal,
+      timeBudgetMs: SBOM_READ_BUDGET_MS,
+    });
     throwIfCancelled(context);
     const timestamp = new Date(context.deps.now()).toISOString();
     bom = buildCycloneDxSbom(collection, {
@@ -184,5 +191,7 @@ export async function runSbom(context: CommandContext, command: SbomCommand): Pr
   ).length;
   if (unparsed > 0) err(context, context.errStyle.yellow(t.incomplete(unparsed)));
   if (collection.isTruncated) err(context, context.errStyle.yellow(t.truncated));
+  for (const note of collection.limitNotes)
+    err(context, context.errStyle.yellow(`  ${safeText(note, 300)}`));
   return EXIT_CODES.ok;
 }

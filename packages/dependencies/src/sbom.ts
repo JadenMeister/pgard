@@ -148,6 +148,7 @@ const INCOMPLETE_STATUSES: ReadonlySet<DependencyCoverage["status"]> = new Set([
   "partial",
   "failed",
   "too-large",
+  "not-read",
   "unsupported",
   "missing-lockfile",
 ]);

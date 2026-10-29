@@ -64,6 +64,8 @@ const COLLECTION: DependencyCollection = {
     },
   ],
   isTruncated: false,
+  limitNotes: [],
+  bytesRead: 0,
 };
 
 let base: string;
@@ -295,10 +297,38 @@ describe("pgard sbom", () => {
     expect(captured.stderr()).toContain("limit");
   });
 
+  it("shows the limits that were reached", async () => {
+    const { captured } = await sbom(
+      {},
+      {
+        deps: deps({
+          collection: {
+            ...COLLECTION,
+            isTruncated: true,
+            limitNotes: [
+              "The 256 MiB limit on all lockfile data was reached; later files were not read.",
+            ],
+          },
+        }),
+      },
+    );
+    expect(captured.stderr()).toContain("256 MiB limit on all lockfile data");
+  });
+
   it("an empty repository gives a valid, empty SBOM and a warning", async () => {
     const { captured, code } = await sbom(
       {},
-      { deps: deps({ collection: { dependencies: [], coverage: [], isTruncated: false } }) },
+      {
+        deps: deps({
+          collection: {
+            dependencies: [],
+            coverage: [],
+            isTruncated: false,
+            limitNotes: [],
+            bytesRead: 0,
+          },
+        }),
+      },
     );
     expect(code).toBe(0);
     expect(captured.stderr()).toContain("lists none");

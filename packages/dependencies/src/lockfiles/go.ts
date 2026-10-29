@@ -79,7 +79,7 @@ function directives(text: string): Directive[] {
  * module version are applied; replacements by a local path are first-party code and are noted.
  * `go.sum` is consulted only to add transitive modules that a pre-1.17 go.mod does not list.
  */
-export function parseGoMod(text: string, goSum?: string): ParsedLockfile {
+export function parseGoMod(text: string, goSum?: string, goSumProblem?: string): ParsedLockfile {
   const notes: string[] = [];
   const requires = new Map<string, GoModule>();
   const replacements = new Map<
@@ -168,7 +168,7 @@ export function parseGoMod(text: string, goSum?: string): ParsedLockfile {
     }
   } else if (!listsIndirect && goSum === undefined && requires.size > 0) {
     notes.push(
-      `go.mod declares go ${goVersion ?? "(unknown)"} (before 1.17) and lists no transitive modules, and there is no go.sum; transitive modules are not covered.`,
+      `go.mod declares go ${goVersion ?? "(unknown)"} (before 1.17) and lists no transitive modules, and ${goSumProblem ?? "there is no go.sum"}; transitive modules are not covered.`,
     );
     isComplete = false;
   }

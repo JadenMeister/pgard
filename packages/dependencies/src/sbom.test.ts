@@ -249,6 +249,7 @@ describe("buildCycloneDxSbom", () => {
         line({ path: "a/package-lock.json", status: "partial" }),
         line({ path: "composer.lock", kind: "unsupported", status: "unsupported" }),
         line({ path: "big/yarn.lock", kind: "yarn", status: "too-large" }),
+        line({ path: "late/yarn.lock", kind: "yarn", status: "not-read" }),
         line({ path: "web/package.json", kind: "package.json", status: "missing-lockfile" }),
         line({ path: "bad/pnpm-lock.yaml", kind: "pnpm", status: "failed" }),
       ],
@@ -258,6 +259,7 @@ describe("buildCycloneDxSbom", () => {
       "bad/pnpm-lock.yaml (failed)",
       "big/yarn.lock (too-large)",
       "composer.lock (unsupported)",
+      "late/yarn.lock (not-read)",
       "web/package.json (missing-lockfile)",
     ]);
     expect(bom.metadata.properties).toContainEqual({ name: "pgard:complete", value: "false" });
