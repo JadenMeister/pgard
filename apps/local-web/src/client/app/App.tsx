@@ -7,12 +7,7 @@ import { EmptyState } from "../components/ui/EmptyState";
 import { Notice } from "../components/ui/Notice";
 import { Section } from "../components/ui/Section";
 import { LanguageToggle, useI18n } from "../i18n/I18nProvider";
-import {
-  buildFindingsView,
-  EMPTY_FILTERS,
-  type FindingFilters,
-} from "../features/findings/filter-findings";
-import { INITIAL_LIST_STATE } from "../features/findings/pagination";
+import { buildFindingsView, EMPTY_FILTERS } from "../features/findings/filter-findings";
 import { FindingsDashboard } from "../features/findings/FindingsDashboard";
 import { ResultOverview } from "../features/findings/ResultOverview";
 import { LegalNotice } from "../features/legal/LegalNotice";
@@ -31,6 +26,7 @@ import { RuleStatsPanel } from "../features/standards/RuleStatsPanel";
 import { StandardsCoveragePanel } from "../features/standards/StandardsCoveragePanel";
 import { TargetPanel } from "../features/target/TargetPanel";
 import { targetRefreshKey } from "../features/target/target-refresh";
+import { useFilterState } from "./use-filter-state";
 import { useHashView, VIEWS, type View } from "./views";
 
 export function App() {
@@ -70,16 +66,9 @@ export function App() {
     setFocusRequest((current) => ({ id: sectionId, count: current.count + 1 }));
   };
 
-  // Filters the Findings view starts with when the overview links to it (a severity or a
-  // category); a new key remounts the view so the filter applies even if it was open before.
-  const [findingsPreset, setFindingsPreset] = useState<{
-    filters: Partial<FindingFilters>;
-    key: number;
-  }>({ filters: {}, key: 0 });
-  const openFindings = (filters: Partial<FindingFilters>): void => {
-    setFindingsPreset((current) => ({ filters, key: current.key + 1 }));
-    goTo("findings");
-  };
+  // One filter state for the Overview panels and the Findings table, kept in the address
+  // (`#findings?severity=high`) so reload, back and forward restore it.
+  const [filters, setFilters, clearFilters] = useFilterState();
 
   // Rule texts in both languages, fetched once when a result is first shown.
   useEffect(() => {
@@ -147,7 +136,10 @@ export function App() {
             result={result}
             ruleTexts={ruleTexts}
             emptyText={control.isRunning ? null : m.overview.noScan}
-            onFilter={openFindings}
+            filters={filters}
+            onFilter={setFilters}
+            onClearFilters={clearFilters}
+            onOpenFindings={() => goTo("findings")}
             onCoverage={() => goTo("coverage")}
             lead={
               <>
@@ -194,13 +186,9 @@ export function App() {
           noResult(m.nav.findings)
         ) : (
           <FindingsDashboard
-            key={findingsPreset.key}
             result={result}
             ruleTexts={ruleTexts}
-            initialState={{
-              ...INITIAL_LIST_STATE,
-              filters: { ...EMPTY_FILTERS, ...findingsPreset.filters },
-            }}
+            linkedFilters={{ filters, onChange: setFilters, onClear: clearFilters }}
           />
         );
       case "coverage":
@@ -265,8 +253,7 @@ export function App() {
                         aria-current={entry === view ? "page" : undefined}
                         onClick={(event) => {
                           event.preventDefault();
-                          if (entry === "findings") openFindings({});
-                          else goTo(entry);
+                          goTo(entry);
                         }}
                       >
                         {m.nav[entry]}
