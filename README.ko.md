@@ -1,5 +1,8 @@
 <p align="center">
-  <img src="docs/assets/brand/pgard-symbol.png" alt="PGARD" width="120" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/pgard-symbol-light.png" />
+    <img src="docs/assets/brand/pgard-symbol.png" alt="PGARD" width="120" />
+  </picture>
 </p>
 
 # PGARD
