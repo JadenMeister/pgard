@@ -9,7 +9,8 @@ export type View = (typeof VIEWS)[number];
  * arrives in the hash (`#token=...`) but is removed before the app renders.
  */
 export function viewFromHash(hash: string): View {
-  const name = hash.replace(/^#/, "");
+  // `#findings?severity=high`: the part after `?` is the filter state (see filter-url.ts).
+  const name = hash.replace(/^#/, "").split("?")[0] ?? "";
   return (VIEWS as readonly string[]).includes(name) ? (name as View) : "overview";
 }
 
@@ -22,7 +23,12 @@ export function useHashView(): [View, (view: View) => void] {
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
   const setView = useCallback((next: View) => {
-    if (window.location.hash !== `#${next}`) window.location.hash = next;
+    // The filters in the fragment travel with the view.
+    const { hash } = window.location;
+    const query = hash.includes("?") ? hash.slice(hash.indexOf("?")) : "";
+    if (viewFromHash(hash) !== next || !hash.startsWith(`#${next}`)) {
+      window.location.hash = `${next}${query}`;
+    }
     setViewState(next);
   }, []);
   return [view, setView];

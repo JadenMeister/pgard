@@ -520,6 +520,34 @@ export const en = {
     signOut: "What the sign-out options do",
     session: "GitHub session",
   },
+  linked: {
+    barLabel: "Active filters",
+    clearAll: "Clear all",
+    clearAllLabel: "Clear all filters",
+    remove: (filter: string): string => `Remove filter ${filter}`,
+    fields: {
+      severity: "Severity",
+      status: "Status",
+      source: "Source",
+      category: "Category",
+      rule: "Rule",
+      area: "Area",
+      path: "File",
+      text: "Search",
+    },
+    chip: (field: string, value: string): string => `${field}: ${value}`,
+    matching: (shown: number, total: number): string =>
+      `${shown} of ${total} findings match the filters`,
+    noMatch: "No findings match these filters. Remove a filter to see more.",
+    filterCategory: (category: string, count: number): string =>
+      `Filter by category ${category}, ${count} ${count === 1 ? "finding" : "findings"}`,
+    filterArea: (area: string, count: number): string =>
+      `Filter by area ${area}, ${count} ${count === 1 ? "finding" : "findings"}`,
+    areaNone: (area: string): string => `${area}: no findings are linked to this area`,
+    filterRule: (rule: string): string => `Filter by rule ${rule}`,
+    filterFile: (file: string): string => `Filter by file ${file}`,
+    hint: "Select a severity, category, area, rule or file to filter every panel and the table.",
+  },
   table: {
     severity: "Severity",
     finding: "Finding",

@@ -1,19 +1,24 @@
 import { useMemo, type MouseEvent, type ReactNode } from "react";
-import type { ScanResult } from "@pgard/findings";
+import type { FindingStatus, ScanResult } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { SeverityBar } from "../../components/charts/SeverityBar";
 import { Badge } from "../../components/ui/Badge";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { Section } from "../../components/ui/Section";
 import { useI18n } from "../../i18n/I18nProvider";
 import {
+  buildAreaRules,
   buildFindingsView,
-  countByCategory,
   EMPTY_FILTERS,
   formatSeverityBreakdown,
   partitionFindings,
+  toggleFilter,
   type FindingFilters,
 } from "./filter-findings";
+import { FilterBar } from "./FilterBar";
+import { hasActiveFilters } from "./filter-url";
 import { FindingTable } from "./FindingTable";
+import { buildLinkedCounts } from "./linked-panels";
 import { statusLine } from "./result-summary";
 import { localizeFindingText } from "./rule-texts";
 
@@ -28,8 +33,14 @@ interface OverviewProps {
   ruleTexts?: RuleTextsResponse | null;
   /** What to show in the summary when there is no result yet. */
   emptyText: string | null;
-  /** Opens the Findings view filtered by a severity or a category. */
+  /** The active cross-filters (kept in the address by the app). */
+  filters?: FindingFilters;
+  /** Changes filters; every linked panel and the table below re-render for the filtered set. */
   onFilter: (patch: Partial<FindingFilters>) => void;
+  /** Removes every filter. */
+  onClearFilters?: () => void;
+  /** Opens the Findings view (it keeps the filters). */
+  onOpenFindings?: () => void;
   /** Opens the Coverage view. */
   onCoverage: () => void;
 }
@@ -50,6 +61,11 @@ function StatusMeanings() {
  * The Overview view: separated panels in a two-column grid on wide screens. Summary (status line,
  * counts, severity bar) beside the per-area coverage, then the top five findings, then the
  * breakdown by category beside authorization and the local web service. One column on phones.
+ *
+ * The panels are linked filters: a severity chip or bar segment, a coverage area, a category row,
+ * and the rule and file of a finding each toggle a filter. All of them read one filter state, so
+ * the counts, the lists and the table always describe the same filtered set; the filter bar shows
+ * what is active and removes it. Everything is computed here from the result already loaded.
  */
 export function ResultOverview({
   lead,
@@ -57,7 +73,10 @@ export function ResultOverview({
   result,
   ruleTexts = null,
   emptyText,
+  filters = EMPTY_FILTERS,
   onFilter,
+  onClearFilters = () => onFilter(EMPTY_FILTERS),
+  onOpenFindings = () => undefined,
   onCoverage,
 }: OverviewProps) {
   const { m, language } = useI18n();
@@ -68,8 +87,26 @@ export function ResultOverview({
         : result.findings.map((finding) => localizeFindingText(finding, ruleTexts, language)),
     [result, ruleTexts, language],
   );
+  const areaRules = useMemo(
+    () => (result === null ? new Map() : buildAreaRules(result.coverage, result.ruleStats)),
+    [result],
+  );
   const view = useMemo(() => buildFindingsView(findings, EMPTY_FILTERS, m), [findings, m]);
-  const categories = useMemo(() => countByCategory(view.visible), [view.visible]);
+  const linked = useMemo(
+    () => buildLinkedCounts(findings, filters, areaRules),
+    [findings, filters, areaRules],
+  );
+  const matched = linked.matched;
+  const statusCounts = useMemo(() => {
+    const counts: Record<FindingStatus, number> = { confirmed: 0, suspected: 0, informational: 0 };
+    for (const finding of matched) counts[finding.status] += 1;
+    return counts;
+  }, [matched]);
+  // The selected category stays in the list (count 0) when the other filters leave none of it.
+  const categories =
+    filters.category !== null && !linked.categories.some((row) => row.category === filters.category)
+      ? [...linked.categories, { category: filters.category, count: 0 }]
+      : linked.categories;
   const isBlocked = result?.overallStatus === "blocked";
   const link =
     (action: () => void) =>
@@ -77,6 +114,7 @@ export function ResultOverview({
       event.preventDefault();
       action();
     };
+  const toggle = (patch: Partial<FindingFilters>): void => onFilter(toggleFilter(filters, patch));
 
   const context =
     result === null
@@ -94,12 +132,14 @@ export function ResultOverview({
               ]),
         ];
   const stats: Array<[string, number]> = [
-    [m.overview.stats.findings, view.total],
-    [m.overview.stats.confirmed, view.statusCounts.confirmed],
-    [m.overview.stats.suspected, view.statusCounts.suspected],
-    [m.overview.stats.informational, view.statusCounts.informational],
+    [m.overview.stats.findings, matched.length],
+    [m.overview.stats.confirmed, statusCounts.confirmed],
+    [m.overview.stats.suspected, statusCounts.suspected],
+    [m.overview.stats.informational, statusCounts.informational],
   ];
   const statusLabels: Record<string, string> = m.status;
+  const maxCategory = Math.max(1, ...categories.map((row) => row.count));
+  const hasFilters = hasActiveFilters(filters);
 
   return (
     // Without a result (or with a blocked one) authorization and the web service sit side by side
@@ -107,6 +147,18 @@ export function ResultOverview({
     <div
       className={`overview-grid${result === null ? " is-empty" : ""}${result === null || isBlocked ? " is-flat" : ""}`}
     >
+      {result !== null && !isBlocked && linked.total > 0 && (
+        <div className="span-full">
+          <FilterBar
+            filters={filters}
+            shown={matched.length}
+            total={linked.total}
+            onRemove={onFilter}
+            onClear={onClearFilters}
+            showHint={linked.total > 0}
+          />
+        </div>
+      )}
       <Section
         title={m.overview.summaryTitle}
         className={result === null ? "panel span-full" : "panel"}
@@ -131,7 +183,11 @@ export function ResultOverview({
                   ))}
                 </dl>
                 <StatusMeanings />
-                <SeverityBar counts={view.counts} onSelect={(severity) => onFilter({ severity })} />
+                <SeverityBar
+                  counts={linked.severity}
+                  selected={filters.severity}
+                  onSelect={(severity) => onFilter({ severity })}
+                />
                 {context.length > 0 && (
                   <ul className="context-list">
                     {context.map((entry) => (
@@ -155,37 +211,65 @@ export function ResultOverview({
           }
         >
           <ul className="area-list">
-            {result.coverage.map((entry) => (
-              <li key={entry.area}>
-                <code className="area-name">{entry.area}</code>
-                <Badge kind={entry.status}>{statusLabels[entry.status] ?? entry.status}</Badge>
-                {entry.note !== null && entry.note !== "" && (
-                  <span className="area-note" title={entry.note}>
-                    {entry.note}
-                  </span>
-                )}
-              </li>
-            ))}
+            {result.coverage.map((entry) => {
+              const count = linked.areas.get(entry.area) ?? 0;
+              const isSelected = filters.area === entry.area;
+              return (
+                <li key={entry.area}>
+                  {isBlocked ? (
+                    <code className="area-name">{entry.area}</code>
+                  ) : (
+                    <button
+                      type="button"
+                      className="area-pick"
+                      aria-pressed={isSelected}
+                      // A disabled button leaves the tab order and says why in its name.
+                      disabled={count === 0 && !isSelected}
+                      aria-label={
+                        count === 0 && !isSelected
+                          ? m.linked.areaNone(entry.area)
+                          : m.linked.filterArea(entry.area, count)
+                      }
+                      onClick={() => toggle({ area: entry.area })}
+                    >
+                      <code className="area-name">{entry.area}</code>
+                      <span className="num area-count">{count}</span>
+                    </button>
+                  )}
+                  <Badge kind={entry.status}>{statusLabels[entry.status] ?? entry.status}</Badge>
+                  {entry.note !== null && entry.note !== "" && (
+                    <span className="area-note" title={entry.note}>
+                      {entry.note}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           <p className="muted small">{m.overview.partialMeaning}</p>
         </Section>
       )}
-      {result !== null && !isBlocked && view.visible.length > 0 && (
+      {result !== null && !isBlocked && (matched.length > 0 || hasFilters) && (
         <Section
           title={m.overview.topTitle}
           className="panel span-full"
           actions={
-            <a href="#findings" onClick={link(() => onFilter({}))}>
-              {m.overview.allFindings(view.total)}
+            <a href="#findings" onClick={link(onOpenFindings)}>
+              {m.overview.allFindings(matched.length)}
             </a>
           }
         >
-          <FindingTable
-            label={m.overview.topTitle}
-            findings={view.visible.slice(0, TOP_COUNT)}
-            ruleTexts={ruleTexts}
-            isNew={result.baseline !== undefined}
-          />
+          {matched.length === 0 ? (
+            <EmptyState title={m.linked.noMatch} />
+          ) : (
+            <FindingTable
+              label={m.overview.topTitle}
+              findings={matched.slice(0, TOP_COUNT)}
+              ruleTexts={ruleTexts}
+              isNew={result.baseline !== undefined}
+              linked={{ filters, toggle }}
+            />
+          )}
         </Section>
       )}
       {result !== null && !isBlocked && (
@@ -205,13 +289,15 @@ export function ResultOverview({
                 {categories.map(({ category, count }) => (
                   <tr key={category}>
                     <th scope="row">
-                      <a
-                        href="#findings"
-                        title={m.overview.categoryLink(count, m.categories[category])}
-                        onClick={link(() => onFilter({ category }))}
+                      <button
+                        type="button"
+                        className="category-pick"
+                        aria-pressed={filters.category === category}
+                        aria-label={m.linked.filterCategory(m.categories[category], count)}
+                        onClick={() => toggle({ category })}
                       >
                         {m.categories[category]}
-                      </a>
+                      </button>
                     </th>
                     <td className="num">{count}</td>
                     <td className="category-bar-cell" aria-hidden="true">
@@ -222,12 +308,7 @@ export function ResultOverview({
                         width="100%"
                         height="6"
                       >
-                        <rect
-                          x="0"
-                          y="0"
-                          width={(count / (categories[0]?.count ?? 1)) * 100}
-                          height="6"
-                        />
+                        <rect x="0" y="0" width={(count / maxCategory) * 100} height="6" />
                       </svg>
                     </td>
                   </tr>

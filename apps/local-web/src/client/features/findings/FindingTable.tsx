@@ -1,10 +1,10 @@
-import { useEffect, useId, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import type { Finding } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { SeverityLabel } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n/I18nProvider";
-import { formatLocation } from "./filter-findings";
+import { formatLocation, type FindingFilters } from "./filter-findings";
 import { pageRequest, pageWindow, paginate, PAGE_SIZES } from "./pagination";
 import { RuleDetailsBlock } from "./RuleDetailsBlock";
 
@@ -59,6 +59,7 @@ function FindingRow({
   isOpen,
   onToggle,
   idPrefix,
+  linked,
 }: {
   finding: Finding;
   ruleTexts: RuleTextsResponse | null;
@@ -66,6 +67,7 @@ function FindingRow({
   isOpen: boolean;
   onToggle: () => void;
   idPrefix: string;
+  linked: LinkedFilter | undefined;
 }) {
   const { m } = useI18n();
   const statusLabels: Record<string, string> = m.findings.statusOptions;
@@ -73,7 +75,7 @@ function FindingRow({
   const detailId = `${idPrefix}-${finding.id}`;
   const onRowClick = (event: MouseEvent<HTMLTableRowElement>): void => {
     // Links inside the row keep their own behaviour.
-    if ((event.target as Element).closest("a") !== null) return;
+    if ((event.target as Element).closest("a, .cell-pick") !== null) return;
     onToggle();
   };
   return (
@@ -103,10 +105,30 @@ function FindingRow({
         </td>
         <td className="col-status">{statusLabels[finding.status] ?? finding.status}</td>
         <td className="col-loc">
-          <code title={location}>{location}</code>
+          {linked !== undefined && finding.location.path !== null ? (
+            <FilterCell
+              label={m.linked.filterFile(finding.location.path)}
+              isPressed={linked.filters.path === finding.location.path}
+              onClick={() => linked.toggle({ path: finding.location.path })}
+            >
+              <code title={location}>{location}</code>
+            </FilterCell>
+          ) : (
+            <code title={location}>{location}</code>
+          )}
         </td>
         <td className="col-rule">
-          <code>{finding.ruleId}</code>
+          {linked === undefined ? (
+            <code>{finding.ruleId}</code>
+          ) : (
+            <FilterCell
+              label={m.linked.filterRule(finding.ruleId)}
+              isPressed={linked.filters.rule === finding.ruleId}
+              onClick={() => linked.toggle({ rule: finding.ruleId })}
+            >
+              <code>{finding.ruleId}</code>
+            </FilterCell>
+          )}
         </td>
         <td className="col-chevron" aria-hidden="true">
           <span className="chevron" />
@@ -121,12 +143,45 @@ function FindingRow({
   );
 }
 
+/** Cross-filter wiring: the active filters and a toggle (the same value again clears it). */
+export interface LinkedFilter {
+  filters: FindingFilters;
+  toggle: (patch: Partial<FindingFilters>) => void;
+}
+
+/** A rule or file in a table cell as a toggle button; the row keeps its own click. */
+function FilterCell({
+  label,
+  isPressed,
+  onClick,
+  children,
+}: {
+  label: string;
+  isPressed: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className="cell-pick"
+      aria-label={label}
+      aria-pressed={isPressed}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
 interface FindingTableProps {
   /** Accessible name of the table ("Findings", "Suppressed findings"). */
   label: string;
   findings: readonly Finding[];
   ruleTexts: RuleTextsResponse | null;
   isNew?: boolean;
+  /** Makes the rule and file cells filter buttons. */
+  linked?: LinkedFilter;
   /** Paging; without it every finding given is shown (the overview's top five). */
   paging?: {
     page: number;
@@ -151,6 +206,7 @@ export function FindingTable({
   findings,
   ruleTexts,
   isNew = false,
+  linked,
   paging,
 }: FindingTableProps) {
   const { m } = useI18n();
@@ -224,6 +280,7 @@ export function FindingTable({
               isOpen={open.has(finding.id)}
               onToggle={() => toggle(finding.id)}
               idPrefix={idPrefix}
+              linked={linked}
             />
           ))}
         </tbody>
