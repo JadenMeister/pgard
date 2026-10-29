@@ -2,7 +2,7 @@
 
 > [한국어](WEB_PROJECT_PICKER_DESIGN.ko.md) translation available. This English file is the reference; the translation follows it.
 
-Status: design for review ([#355](https://github.com/JadenMeister/pgard/issues/355), M8-3). Nothing in this document is implemented. M8-4 implements it after review. Back to the [README](../README.md) and the [documents index](README.md).
+Status: accepted design ([#355](https://github.com/JadenMeister/pgard/issues/355), M8-3), implemented in M8-4 ([#398](https://github.com/JadenMeister/pgard/issues/398)); where the implementation differs, the pull request of #398 lists the deviation. The sentences below about "today" and "Requirement for M8-4" describe the code before M8-4. Back to the [README](../README.md) and the [documents index](README.md).
 
 Statements about "today" describe the code at the time of writing (`apps/local-web/src/server`, `apps/cli/src/commands/dashboard.ts`, `packages/policy`, `packages/scan-core`, `packages/git-history`, `packages/result-store`). Where this design relies on something the code does not have yet, it is marked **Requirement for M8-4**. The README stays the source of truth for current behavior; this design changes some of its sentences (see [README changes](#9-readme-changes-in-m8-4)).
 
