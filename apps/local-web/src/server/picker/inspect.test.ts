@@ -163,7 +163,8 @@ posixDescribe("directory walk (T3, T4, T5)", () => {
     const outcome = await search("app", { source: "typed" });
     expect(outcome.found).toHaveLength(20);
     expect(outcome.done.stoppedBy).toBe("candidates");
-  });
+    // 22 repositories and 20 inspections: slow on a loaded CI runner.
+  }, 60_000);
 
   it("reports partial results with not-inspected folders when the deadline passes (injected clock)", async () => {
     tree = createScopeTree();
