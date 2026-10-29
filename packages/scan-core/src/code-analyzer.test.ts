@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AuthorizationOutcome } from "@pgard/policy";
@@ -59,6 +59,55 @@ describe("code scope wiring", () => {
     ]);
     expect(result.coverage.some((entry) => entry.area === "source:typescript")).toBe(true);
     expect(JSON.stringify(result)).not.toContain(root);
+  });
+
+  it("adds a suggested fix to a fixable finding and leaves the file unchanged", async () => {
+    root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-fix-")));
+    const source = [
+      'const express = require("express");',
+      "const app = express();",
+      'app.get("/login", (req, res) => {',
+      '  res.cookie("session", issueToken(req.query.code));',
+      "  res.sendStatus(204);",
+      "});",
+      "",
+    ].join("\n");
+    writeFileSync(path.join(root, "login.js"), source);
+    authorizeProject.mockResolvedValue({
+      summary: {
+        decision: "allowed",
+        checks: (
+          [
+            "repository",
+            "github_identity",
+            "owner_approval",
+            "current_access",
+            "contribution",
+          ] as const
+        ).map((id) => ({ id, status: "passed" as const, reason: "ok" })),
+      },
+      repo: "me/app",
+      revision: null,
+    });
+    const result = await runScan(
+      { projectRoot: root, scopes: ["code"], webTarget: null },
+      {
+        authorization: {
+          getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
+        },
+        env: {},
+      },
+    );
+    const cookie = result.findings.find((finding) => finding.ruleId === "PG-COOKIE-001");
+    expect(cookie?.fix).toMatchObject({ kind: "diff", confidence: "medium" });
+    expect(cookie?.fix?.diff).toContain(
+      '+  res.cookie("session", issueToken(req.query.code), { httpOnly: true, secure: true, sameSite: "lax" });',
+    );
+    expect(JSON.stringify(result)).not.toContain(root);
+    // Findings of rules that are not fixable carry no fix.
+    const others = result.findings.filter((finding) => finding.ruleId !== "PG-COOKIE-001");
+    expect(others.every((finding) => finding.fix === undefined)).toBe(true);
+    expect(readFileSync(path.join(root, "login.js"), "utf8")).toBe(source);
   });
 
   it("lists the source rules and the dependency advisory rule", () => {

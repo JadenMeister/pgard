@@ -176,7 +176,7 @@ Advanced commands:
   pgard --version
 
 Advanced options (pgard <command> --help has the details):
-  scan:        --all-findings  --panels  --full  --no-store  --report-lang en|ko
+  scan:        --all-findings  --fixes  --panels  --full  --no-store  --report-lang en|ko
                --port N (web, all)
   report:      --no-open
   dashboard:   --target-port N
@@ -231,6 +231,10 @@ Options:
                            (pipe, file) the text is always the full form. It
                            also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
+  --fixes                  also show a suggested-fix diff under the findings that
+                           have one (implies --all-findings). A suggestion to
+                           review: PGARD never applies it, writes to your files
+                           or checks that it compiles or keeps behaviour
   --panels                 open the read-only full-screen view (summary, charts,
                            coverage, findings; keys: Tab, arrows, ? help, Esc
                            back, Ctrl+D leaves) after the text result. In a
@@ -271,6 +275,7 @@ authorization and continues the scan.
 - `--report html|pdf|both`와 `--output-dir <dir>`(모든 `scan`): 보고서를 저장합니다. 두 옵션은 함께 써야 합니다. 디렉터리는 이미 있어야 하며 기존 파일을 덮어쓰지 않습니다. Git 저장소 안의 디렉터리는 명시적인 `y`가 필요합니다(대화형 터미널이 없으면 거부). 기본값은 터미널에 결과만 표시하는 것입니다.
 - `--panels`(모든 `scan`): 텍스트 결과 뒤에 그 결과를 읽기 전용 전체 화면으로 보여 주는 [패널 화면](#패널-화면)을 엽니다. 터미널에서는 메뉴든 `pgard scan …`이든 모든 스캔이 이 화면을 자동으로 열므로, 이 옵션은 `PGARD_PANELS=off`를 무시하고 열고 싶을 때만 필요합니다. `PGARD_PANELS=off`(`0`, `false`, `no`도 가능)로 자동 열림을 끌 수 있고, 명시적인 `--panels`가 이 설정보다 우선합니다. `--format json`, `sarif`와는 함께 쓸 수 없습니다(로그인·스캔 전에 사용법 오류 2). 터미널이 아니면(CI, 파이프, 리다이렉트) 절대 열리지 않으며 평소처럼 텍스트 결과만 출력되고, `--panels`를 준 경우 stderr에 한 줄 안내가 나갑니다. 로컬 웹 앱인 `pgard dashboard`와는 별개입니다.
 - `--all-findings`(모든 `scan`): 터미널의 간단한 목록 대신 전체 내용을 출력합니다. 모든 발견 항목과 위치를 각자의 근거, 조치, 표준과 함께 나열하며 아무것도 접지 않습니다. 터미널에서 기본값은 간단한 목록이고([터미널 결과 화면](#터미널-결과-화면) 참고), 터미널이 아니면 텍스트는 항상 전체 형식입니다. 기본값에서는 그룹마다 위치를 최대 3개만 보여 주고(근거는 모든 항목이 같을 때만 한 번 보여 주며 다르면 다르다고 표시), 테스트·fixture·vendored 코드의 발견 항목이 5개를 넘으면 심각도가 낮은 항목을 요약으로 대체합니다([그룹화와 접기](#그룹화와-접기) 참고). 억제된 발견 항목과 기준선에 있는 발견 항목도 모두 나열합니다([억제](#억제suppressions), [기준선](#기준선baseline) 참고).
+- `--fixes`(모든 `scan`, 텍스트 출력): `--all-findings`를 포함하며, 수정 제안이 있는 발견 항목 아래에 검토용 제안임을 밝힌 diff를 출력합니다. [수정 제안](#수정-제안)을 참고하세요. JSON과 SARIF에는 항상 수정 제안이 들어 있고, `--fixes`는 터미널 텍스트만 바꿉니다.
 - `--format text|json|sarif`(모든 `scan`, 기본값 `text`): `sarif`는 대신 SARIF 2.1.0을 출력합니다([SARIF 출력](#sarif-출력) 참고). stdout, stderr, `--port`, 종료 코드는 `json`과 같은 규칙을 따릅니다. `json`은 가려진 스캔 결과만 stdout에 출력하며, 형식은 [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md)와 같고 `readScanResult`로 읽을 수 있습니다. 진행 상황, 안내, 프롬프트는 stderr로 나가므로 `pgard scan code --format json > result.json`은 올바른 JSON입니다. 프롬프트는 stdout을 쓰지 않으며 `scan web`, `scan all`은 `--port`가 필요합니다(없으면 스캔 전에 사용법 오류 2로 종료). 종료 코드는 바뀌지 않습니다. JSON에는 항상 모든 발견 항목이 들어 있어 `--all-findings`는 영향이 없습니다. 여전히 가능한 프롬프트(`--port` 확인, GitHub App 설치 안내, 저장소 안에 보고서 저장)는 stdout이 파일로 리다이렉트되어 있어도 stdin과 stderr가 터미널이면 stderr에 표시됩니다. stdout에는 최종 결과 문서가 정확히 하나 출력되며, 권한 확인에 실패하면 blocked 결과가 출력됩니다. stdout이 비어 있는 경우는 사용법 오류(종료 코드 2), 취소, 저장소가 아닌 디렉터리(종료 코드 3), 내부 오류뿐입니다.
 - `--lang en|ko`(모든 `scan`, `rules list`): 터미널에 표시되는 규칙 문구(제목, 영향, 조치)의 언어입니다. [규칙 문구의 언어](#규칙-문구의-언어) 참고.
 - `--report-lang en|ko`(`--report`와 함께 쓰는 모든 `scan`): 저장되는 HTML·PDF 보고서 전체(규칙 문구만이 아님)의 언어이며, 기본값은 `--lang` 언어입니다.
@@ -288,12 +293,13 @@ authorization and continues the scan.
 `pgard precommit`은 **다음 커밋에 스테이징된 변경**에서 비밀정보와 위험한 패턴을 찾습니다. Git 훅으로 돌릴 수 있을 만큼 빠릅니다. `pgard precommit install`은 훅을 쓰고, `pgard precommit uninstall`은 훅을 지우며, `pgard precommit snippet`은 pre-commit 프레임워크나 husky에 넣을 줄을 출력합니다.
 
 - **스테이징된 내용만.** 내용은 작업 트리가 아니라 Git 인덱스에서 읽습니다. 그래서 스테이징하지 않은 수정이 스테이징된 비밀정보를 가리거나 거짓 경보를 만들지 못합니다. `git commit -a`와 `git commit <path>`에서는 Git이 훅에 넘기는 임시 인덱스(`GIT_INDEX_FILE`)를 읽되, 이 저장소의 `.git` 안에 있는 일반 파일인지 먼저 확인합니다. PGARD가 이미 허용한 Git 명령(`ls-files -s`, `ls-tree -r`, `cat-file`)만, 검사와 같은 보호된 실행기로 사용합니다.
-- **무엇을 검사하나.** 비밀정보(새 `.env` 파일은 `PG-SECRET-001`, 자격 증명은 `PG-SECRET-002`)와 JavaScript, TypeScript, Vue, Go의 파일 단위 소스 규칙입니다. 이번 커밋이 **추가하거나 바꾼 줄**만 보고합니다. 건드리지 않은 줄의 발견 항목은 개수만 알려 주고("보고하지 않았습니다") `pgard scan`에 맡깁니다. 프로젝트 전체가 필요한 규칙(CSRF 보호 누락, 보호되지 않은 라우트, 의존성)은 여기가 아니라 `pgard scan`에서 실행됩니다. 이름만 바꾼 파일은 옛 내용을 그대로 갖고 있어 이름을 바꾸며 한 수정만 대상이고, 삭제된 파일은 검사할 것이 없으며, 바이너리 파일과 심볼릭 링크는 설계상 건너뛰고 그렇게 표시합니다. UTF-16 텍스트는 디코딩해 검사합니다.
+- **무엇을 검사하나.** 비밀정보(새 `.env` 파일은 `PG-SECRET-001`, 자격 증명은 `PG-SECRET-002`)와 JavaScript, TypeScript, Vue, Go의 파일 단위 소스 규칙입니다. 이번 커밋이 **추가하거나 바꾼 것**만 보고합니다. 비밀정보는 HEAD의 같은 파일에 같은 값이 없거나, 그 비밀정보가 걸친 줄 중 하나라도 추가되었을 때 새것입니다(개인 키는 여러 줄에 걸치므로 헤더는 그대로이고 키 본문만 바뀌어도 보고합니다). 소스 발견 항목은 그 줄이나 구문이 바뀌었을 때 새것입니다. 건드리지 않은 부분의 발견 항목은 개수만 알려 주고("보고하지 않았습니다") `pgard scan`에 맡깁니다. 프로젝트 전체가 필요한 규칙(CSRF 보호 누락, 보호되지 않은 라우트, 의존성)은 여기가 아니라 `pgard scan`에서 실행됩니다. 이름만 바꾼 파일은 옛 내용을 그대로 갖고 있어 이름을 바꾸며 한 수정만 대상이고(새 `.env` 이름은 여전히 표시), 삭제된 파일은 검사할 것이 없습니다. 새 `.env` 파일은 내용이 바이너리이거나 너무 크거나 읽을 수 없어도 **이름**으로 표시합니다. **바이너리 파일**(처음 8 KB가 대부분 NUL·제어 바이트인 파일: 이미지, 압축 파일, 실행 파일, 크기 무관)과 심볼릭 링크, 서브모듈은 설계상 건너뛰며, 매번 이름을 적어 보여 줍니다("설계상 검사하지 않음: ..."). 검사하지 못한 것으로 세지 않습니다. 끝에 NUL이 하나 붙은 텍스트 파일은 바이너리가 아니며 NUL을 공백으로 읽어 검사합니다. UTF-16 텍스트는 디코딩해 검사합니다. **큰 텍스트 파일**(1 MiB 초과, 예: 큰 lockfile)은 검사하지 않고 그렇게 표시하며 "검사하지 못함"으로 셉니다(아래 참고). 이런 커밋을 경고만 하고 통과시키려면 `"whenNotScanned": "warn"`을 설정하거나 변경을 나누세요.
 - **권한 확인은 그대로.** `pgard scan`과 같은 관문을 실행합니다. 다섯 가지 확인을 매번 모두 하고, 아무것도 캐시하지 않으며, 이를 건너뛰거나 완화하는 설정은 없습니다. 훅은 로그인을 시작하지 않으므로(`pgard login`을 한 번 실행하세요) 저장된 로그인이 없으면 관문이 막고 아무것도 검사하지 않습니다.
-- **차단 또는 경고.** `pgard.config.json`에 `"precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }`를 둡니다. `block`(기본값)은 발견 항목이 있으면 종료 코드 1로 커밋을 막고, `warn`은 발견 항목을 출력하고 종료 코드 0으로 끝납니다. 심각도 `info`, 억제된 발견 항목, [기준선](#기준선baseline)에 있는 발견 항목은 세지 않습니다.
+- **차단 또는 경고.** `pgard.config.json`에 `"precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }`를 둡니다. `block`(기본값)은 발견 항목이 있으면 종료 코드 1로 커밋을 막고, `warn`은 발견 항목을 출력하고 종료 코드 0으로 끝납니다(Node 자체가 비정상 종료해도 1이며 이 경우에도 커밋이 차단됩니다). 이 설정은 **인덱스에 있는** `pgard.config.json`, 곧 커밋될 버전에서 읽으므로 `git add pgard.config.json`을 실행하세요. 추적되지 않는 파일은 안내와 함께 무시합니다. 억제와 `exclude`는 스캔과 같이 **작업 트리**의 파일을 따릅니다. 심각도 `info`, 억제된 발견 항목, [기준선](#기준선baseline)에 있는 발견 항목은 세지 않습니다.
 - **조용히 통과하지 않습니다.** 아무것도, 또는 일부를 검사하지 못했을 때(권한 없음, 오류, 시간 초과, 크기 제한을 넘는 파일, 너무 많은 변경 파일, 해결되지 않은 병합 충돌) 출력에 `NOT scanned`(검사하지 못함)와 이유를 적습니다. 이때의 동작은 `whenNotScanned`가 정하며, 설정하지 않으면 `mode`와 같아서 차단하는 훅은 차단합니다(권한이 없으면 종료 코드 3, 그 밖의 경우 4). 경고만 하고 통과시키려면 `"whenNotScanned": "warn"`을 직접 설정하세요. 올바르지 않은 `pgard.config.json`은 통째로 무시되고 `block`으로 동작합니다.
 - **속도와 제한.** 권한 확인은 최대 15초(`PGARD_PRECOMMIT_TIMEOUT_MS`, 1000~120000)까지 걸릴 수 있고, 그다음 스테이징된 변경을 읽고 검사하는 데 **5초** 제한이 있습니다(보통 1초 미만). 파일은 1 MiB까지, 변경 파일은 최대 500개, 내용은 합쳐서 16 MiB까지입니다. 남은 파일이나 시간 초과는 조용히 넘기지 않고 목록으로 보여 줍니다. 요약 줄에 걸린 시간이 나옵니다.
-- **설치 안전.** `install`은 스캔과 같은 저장소 구조 검사를 거친 뒤, 이 저장소 자신의 훅 디렉터리(`<git dir>/hooks`, 연결된 worktree가 공유)에만 씁니다. `core.hooksPath`가 설정되어 있으면 거부합니다(저장소 밖이면 안전하지 않아서, 안이면 훅 관리 도구가 소유한 디렉터리에는 쓰지 않으므로 `snippet`을 사용하세요). 훅 디렉터리가 `.git` 밖으로 향하는 심볼릭 링크일 때도 거부합니다. 훅은 모드 0755로 배타적으로 만들고, PGARD가 만들지 않은 훅은 터미널에서 확인해 주지 않으면 덮어쓰지 않으며(기존 훅은 `pre-commit.pgard-backup`으로 보관), 터미널이 없으면 거부합니다. `uninstall`은 PGARD가 쓴 스크립트와 정확히 같은 훅만 지우고, 수정된 파일, 다른 도구의 훅, 심볼릭 링크는 그대로 둡니다. 훅은 안전하게 실패합니다. `PATH`에 `pgard`가 없으면 커밋을 막고 이유를 알립니다. 한 번만 건너뛰려면 `git commit --no-verify`를 쓰세요. PGARD는 이 저장소의 Git 설정만 읽으므로 전역 `core.hooksPath`는 보지 못합니다. 훅이 실행되지 않으면 `git config --get core.hooksPath`로 확인하세요.
+- **설치 안전.** `install`은 스캔과 같은 저장소 구조 검사를 거친 뒤, 이 저장소 자신의 훅 디렉터리(`<git dir>/hooks`, 연결된 worktree가 공유)에만 씁니다. `core.hooksPath`가 기본 훅 디렉터리가 아닌 곳으로 설정되어 있으면 거부합니다(저장소 밖이면 안전하지 않아서, 안이면 훅 관리 도구가 소유한 디렉터리에는 쓰지 않으므로 `snippet`을 사용하세요). 훅 디렉터리가 `.git` 밖으로 향하는 심볼릭 링크일 때도 거부합니다. 훅은 모드 0755로 배타적으로 만들고, PGARD가 만들지 않은 훅은 터미널에서 확인해 주지 않으면 덮어쓰지 않으며(기존 훅은 `pre-commit.pgard-backup`으로 보관), 터미널이 없으면 거부합니다. `uninstall`은 PGARD가 쓴 스크립트와 정확히 같은 훅만 지우고, 수정된 파일, 다른 도구의 훅, 심볼릭 링크는 그대로 둡니다. 훅은 안전하게 실패합니다. `PATH`에 `pgard`가 없으면 커밋을 막고 이유를 알립니다. 한 번만 건너뛰려면 `git commit --no-verify`를 쓰세요. PGARD는 이 저장소의 Git 설정만 읽으므로 전역 `core.hooksPath`는 보지 못합니다. 훅이 실행되지 않으면 `git config --get core.hooksPath`로 확인하세요.
+- **병합 커밋.** Git은 일반 커밋과 충돌을 해결해 마무리하는 병합에는 `pre-commit`을 실행하지만, **충돌 없는 병합 커밋은 대신 `pre-merge-commit`을 실행하며** `install`은 이 훅을 쓰지 않습니다. 병합 결과도 검사하려면 같은 `pgard precommit` 줄을 `.git/hooks/pre-merge-commit`에 넣으세요(`pgard precommit snippet`이 출력합니다). 병합은 HEAD("ours")와 비교하므로 다른 브랜치가 가져오는 모든 내용이 추가된 것으로 취급됩니다. 변경 파일 500개 제한을 넘을 수 있고(검사하지 못한 것으로 보고하므로 block 모드에서는 차단됩니다. 한 번만 `git commit --no-verify`를 쓰거나 `"whenNotScanned": "warn"`을 설정하세요) 그 브랜치에서 온 발견 항목이 보고될 수 있습니다.
 
 ### 종료 코드
 
@@ -815,6 +821,19 @@ pgard baseline clear
 - **저장.** 결과 저장소의 `repos/<저장소 id>/baseline.json`이며 저장된 결과와 같은 규칙을 따릅니다. macOS·Linux에서 디렉터리 `0700`, 파일 `0600`, 심볼릭 링크 거부(파일 자리의 링크는 따라가거나 통해 쓰거나 읽지 않음), 원자적 쓰기, 크기 상한, 더 새로운 PGARD가 쓴 파일은 덮어쓰지 않음, 로컬 경로가 든 결과는 저장하지 않음. 민감정보를 가린 검사 사본을 담고, 20회·90일 보관 정책의 대상이 아니며, `readScanResult`로 읽습니다. 파일에는 기준선을 설정한 저장소 ID가 기록되며, 다른 저장소의 기준선이나 다른 사용자가 쓸 수 있는 파일(macOS·Linux에서 그룹 또는 전체 쓰기 비트)은 경고와 함께 거부합니다. 손상된 기준선은 오류입니다(`pgard scan`은 경고하고 아무것도 적용하지 않고 모든 항목을 보여 줍니다). 조용히 "기준선 없음"이 되지 않습니다.
 - **끄기.** `pgard scan --no-store`와 `PGARD_NO_STORE=1`은 기준선을 읽지도 적용하지도 않습니다(모든 발견 항목이 평소처럼 나열됩니다). `PGARD_NO_STORE=1`이면 `baseline` 명령은 실행을 거부합니다(종료 코드 2). 대시보드 검사는 저장소를 읽지 않으므로 대시보드는 기준선을 적용하지 않습니다.
 - **`pgard history clear`는 기준선도 삭제합니다**(`--all`, `--repo owner/name`. 메시지에 몇 개인지 나옵니다). 기준선은 저장된 검사 데이터이며, 남겨 두면 전부 지우라고 한 뒤에도 발견 항목을 계속 묶게 됩니다.
+
+### 수정 제안
+
+두 규칙에 한해 PGARD는 발견 항목을 어떻게 고칠 수 있는지 코드 diff로 보여 줍니다. **diff를 적용하지 않으며 사용자의 파일에 쓰지 않습니다.** 검토용 제안이며, 컴파일되는지, 코드의 동작이 유지되는지, 문제 전체가 해결되는지는 PGARD가 확인하지 **않았습니다**(예를 들어 Secure 쿠키는 평문 HTTP로는 전송되지 않으므로 로컬 개발에 영향이 있습니다). 판단은 사람이 합니다.
+
+- **어디에 나오나.** 텍스트: `pgard scan --fixes`(발견 항목 아래 diff). JSON: `Finding.fix`(스키마 1.6, [docs/RESULT_SCHEMA.ko.md](docs/RESULT_SCHEMA.ko.md) 참고). SARIF: `results[].fixes`(SARIF 2.1.0 스키마에 맞으며, 코드 스캐닝 화면이 무시할 수도 있습니다). 대시보드: 발견 항목 상세에 diff를 읽기 전용으로 보여 주고 복사 버튼이 있습니다. diff는 직접 적용하세요. 예: `git apply --unidiff-zero fix.diff`.
+- **어떤 규칙(`fixable`).** 고치는 방법이 그 맥락에서 의미를 그대로 유지하는 기계적인 한 줄 교체일 때만 수정 가능한 규칙으로 선언합니다. 현재:
+  - `PG-COOKIE-001`: `.properties`나 YAML의 Spring `server.servlet.session.cookie.secure`/`http-only`(`server.reactive...`, `server.session...`, `httponly` 포함)가 명시적인 꺼짐 값이면 `true`로 바꿉니다(dev, local, test 설정은 일부러 그렇게 했을 가능성이 커서 신뢰도를 낮춥니다). 한 줄로 쓴 Express `res.cookie("name", value[, { 평평한 옵션 }])` 호출에는 빠진 `httpOnly: true`, `secure: true`, `sameSite: "lax"`를 추가합니다. 실제 쿠키 옵션 이름만 받고, `sameSite`와 짧은 `path` 외의 문자열 값은 받지 않으며, 줄 끝은 그대로 둡니다. 다음 줄로 이어지는 호출(`.status(200)`)은 안내만 합니다. 이 플래그가 하는 일을 검토하세요. `secure`는 평문 HTTP로 쿠키를 보내지 않게 하므로 로컬 개발에 영향이 있고, `sameSite: "lax"`는 다른 사이트에서 오는 POST와 iframe(OAuth `form_post`, 임베드)에서 쿠키를 빼며, `httpOnly`는 `document.cookie`를 읽는 클라이언트 코드에서 쿠키를 숨깁니다.
+  - `PG-CRYPTO-003`: Java 파일에 `import java.util.Random;`이 있고 줄 전체가 `[Random name = ]new Random();` 또는 `new Random().nextBytes(name);`(그 밖의 `next*` 메서드 포함)이거나, Kotlin에서 `val`과 `java.util.Random()`으로 된 같은 형태이면 `new java.security.SecureRandom()`으로 바꿉니다(하위 클래스라 타입과 호출이 그대로 유효하며 import는 추가하지 않습니다). 와일드카드 import, 시드, 익명 하위 클래스, `var`, 다른 줄에서 만든 생성기, 줄에 다른 내용이 있는 경우는 안내만 합니다. 상속된 멤버 타입 `Random`은 배제할 수 없으므로 Java 수정의 신뢰도는 medium입니다.
+  - 그 밖의 규칙은 안내(권장 조치)만 합니다. 일부러 안내로 남긴 예: 약한 비밀번호 해시(알고리즘, 저장된 해시, 로그인 흐름이 함께 바뀜), Go `exec.Command("sh", "-c", ...)` 등 명령 실행 규칙, SQL·XSS 규칙(무엇이 값이고 무엇이 식별자나 HTML인지에 따라 수정이 달라짐), `Math.random()` 토큰(토큰 형식과 길이가 바뀜), 암호 모드(모드를 바꾸면 IV와 키 계획이 필요함), `yaml.load`(PGARD에 해당 규칙 없음).
+- **diff가 없을 때.** 표시된 줄이 위 교체 중 하나와 정확히 일치하지 않으면 수정 가능한 규칙도 `reason`이 붙은 `kind: "guidance"`를 줍니다. 줄에 주석이나 두 번째 문장이 있음, 리터럴 옵션 객체 대신 변수, 스프레드, 이미 다른 값으로 설정된 옵션, 시드가 있는 생성기, 다른 줄에서 만든 생성기, 스캔 이후 바뀐 파일, 400자를 넘는 줄 등입니다.
+- **비밀 없음, 크기 제한, 결정적.** diff에는 지운 줄 하나와 추가한 줄 하나만 있고 문맥 줄이 없어 수정 주변의 소스 텍스트는 복사되지 않습니다. 각 수정기는 표시된 줄 전체를 엄격한 패턴에 맞춰 보고, 패턴이 잡아낸 조각(식별자, 숫자, 쿠키 옵션 이름, 위에 적은 몇 가지 고정 옵션 문자열)으로 새 줄을 만듭니다. 줄의 나머지(16진수나 바이트 배열 키, 문자열, 주석)는 diff에 들어갈 수 없고, 다른 내용이 있는 줄은 안내만 합니다. 두 줄 모두 PGARD의 비밀·경로 가리기를 거쳐도 그대로여야 하며, 아니면 diff를 만들지 않습니다. diff는 최대 2,000자이고, 같은 소스는 같은 diff를 만들며, PGARD는 파일을 읽기 전용으로만 읽습니다(실행하지 않음). `\n`/`\r\n` 외의 줄바꿈(U+2028 등)이 있는 파일은 줄 번호를 믿을 수 없어 안내만 합니다.
+- **검증되지 않음.** `Finding.fix.confidence`는 표시된 코드의 의미가 유지된다고 PGARD가 얼마나 확신하는지를 뜻하며 안전을 보장하지 않습니다. 모든 diff를 검토하고 빌드·테스트한 뒤 커밋하세요.
 
 ### SARIF 출력
 

@@ -168,7 +168,7 @@ describe("pgard scan builds on the last stored scan", () => {
     const json = await pgardScan(repo, ["scan", "code", "--format", "json"]);
     const read = readScanResult(JSON.parse(json.stdout));
     expect(read.ok && read.result.incremental?.used).toBe(true);
-    expect(read.ok && read.result.schemaVersion).toBe("1.5");
+    expect(read.ok && read.result.schemaVersion).toBe("1.6");
   }, 30_000);
 
   it("falls back to a full scan when the history was rewritten", async () => {

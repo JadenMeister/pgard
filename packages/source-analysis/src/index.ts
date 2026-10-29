@@ -46,3 +46,5 @@ export {
   type LanguageTrackDetection,
   type ParseStats,
 } from "./tree-sitter/language-track.js";
+export { attachFixSuggestions } from "./fixes/attach-fixes.js";
+export { suggestFix, FIXABLE_RULE_IDS } from "./fixes/suggest-fix.js";

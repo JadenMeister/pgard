@@ -85,7 +85,7 @@ Advanced commands:
   pgard --version
 
 Advanced options (pgard <command> --help has the details):
-  scan:        --all-findings  --panels  --full  --no-store  --report-lang en|ko
+  scan:        --all-findings  --fixes  --panels  --full  --no-store  --report-lang en|ko
                --port N (web, all)
   report:      --no-open
   sbom:        --format cyclonedx-json  --output-dir DIR
@@ -158,6 +158,10 @@ ${REPORT_HELP}
                            (pipe, file) the text is always the full form. It
                            also lists every suppressed finding (see
                            pgard.config.json) and every finding in the baseline
+  --fixes                  also show a suggested-fix diff under the findings that
+                           have one (implies --all-findings). A suggestion to
+                           review: PGARD never applies it, writes to your files
+                           or checks that it compiles or keeps behaviour
   --panels                 open the read-only full-screen view (summary, charts,
                            coverage, findings; keys: Tab, arrows, ? help, Esc
                            back, Ctrl+D leaves) after the text result. In a

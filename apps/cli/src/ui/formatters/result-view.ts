@@ -7,7 +7,10 @@ import {
   PROJECT_CONFIG_FILE,
   projectConfigNotices,
   configTestFindingCount,
+  FIX_DISCLAIMER,
+  hasFixDiff,
   noDirectCertFor,
+  parseLineReplacementDiff,
   pickText,
   standardsForFindings,
   splitFindingsByContext,
@@ -136,6 +139,25 @@ function standardLines(ruleId: string, members: readonly Finding[], ctx: RenderC
   ];
 }
 
+/**
+ * The suggested-fix diff of one finding (`--fixes`): the label says it is a suggestion to review,
+ * and the diff is shown only when it reads back as one of ours (nothing stored or edited is
+ * trusted), so its lines hold no control characters and are printed as they are: a diff is only
+ * useful if its whitespace is exact.
+ */
+function fixLines(finding: Finding, ctx: RenderContext, indent: string): string[] {
+  if (ctx.fixes !== true || finding.fix === undefined || !hasFixDiff(finding)) return [];
+  const diff = finding.fix.diff ?? "";
+  if (parseLineReplacementDiff(diff) === null) return [];
+  return [
+    `${indent}${ctx.t.suggestedFix}: ${safeText(FIX_DISCLAIMER[ctx.t.locale], 300)}`,
+    ...diff
+      .trimEnd()
+      .split("\n")
+      .map((line) => `${indent}  ${line}`),
+  ];
+}
+
 function formatGroup(group: FindingGroup, ctx: RenderContext): string {
   const { style, t } = ctx;
   const finding = group.representative;
@@ -161,6 +183,7 @@ function formatGroup(group: FindingGroup, ctx: RenderContext): string {
       `      ${places[0]}  ${rule}`,
       `      ${t.evidence}: ${evidence(finding)}`,
       `      ${t.fix}: ${fix(finding)}`,
+      ...fixLines(finding, ctx, "      "),
     );
   } else if (ctx.allFindings) {
     // Every location with its own evidence: nothing is shown for one member on behalf of others.
@@ -168,6 +191,7 @@ function formatGroup(group: FindingGroup, ctx: RenderContext): string {
     members.forEach((member, index) => {
       lines.push(`      - ${places[index]}`, `          ${t.evidence}: ${evidence(member)}`);
       if (!isFixShared) lines.push(`          ${t.fix}: ${fix(member)}`);
+      lines.push(...fixLines(member, ctx, "          "));
     });
     if (isFixShared) lines.push(`      ${t.fix}: ${fix(finding)}`);
   } else {
@@ -555,6 +579,8 @@ export function formatAuthorization(
 export interface ScanResultOptions {
   /** List every finding and location. */
   allFindings?: boolean;
+  /** Show each finding's suggested-fix diff (`pgard scan --fixes`). */
+  fixes?: boolean;
   /** Language of the fixed screen text. Default English. */
   locale?: "en" | "ko";
   /** Terminal columns; charts shrink to fit, and below 60 become plain count lines. */
@@ -589,6 +615,7 @@ export function formatScanResult(
   const t = CLI_TEXT[options.locale ?? "en"];
   const ctx = contextOf(style, t, {
     allFindings: options.allFindings === true,
+    fixes: options.fixes === true,
     width: options.width ?? DEFAULT_WIDTH,
     ruleTexts: options.ruleTexts,
     unicode: options.unicode,

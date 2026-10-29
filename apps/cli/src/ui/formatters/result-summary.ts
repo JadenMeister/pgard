@@ -22,6 +22,8 @@ export interface RenderContext {
   /** Terminal columns. */
   width: number;
   allFindings: boolean;
+  /** `--fixes`: show each finding's suggested-fix diff under it. */
+  fixes?: boolean | undefined;
   /** Block characters allowed in charts; default: what the terminal can render. */
   unicode?: boolean | undefined;
   ruleTexts?: RuleTextCatalog | undefined;
