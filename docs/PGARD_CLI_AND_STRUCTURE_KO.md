@@ -16,6 +16,7 @@
 | `pgard scan web [--port N]`                              | 승인된 프로젝트에 연결된 로컬 HTTP 서비스의 응답·헤더·허용된 페이지 검사                                            |
 | `pgard scan all [--port N]`                              | code + history + web을 같은 검사 ID로 합친 종합 스캔                                                                |
 | `pgard report [--format html\|pdf] [--output-dir DIR] [--no-open]` | 이 저장소에 마지막으로 저장된 검사로 HTML 또는 PDF 보고서를 만들어 엽니다(새 검사 없음). 저장소 확인을 먼저 실행하며, 이 저장소의 id로 저장된 결과만 읽습니다 |
+| `pgard sbom [--output-dir DIR]` | 저장소 lockfile의 패키지로 CycloneDX 1.6 JSON SBOM을 만듭니다. `pgard report`와 같은 저장소 확인을 거치고 로컬 파일만 읽으며, 읽지 못했거나 지원하지 않는 lockfile은 `pgard:unparsed-lockfile`로 나열합니다 |
 | `pgard dashboard [--target-port N]`                      | 별도 로컬 웹 앱 시작. 웹 화면에서 새 검사를 실행하고 그 세션의 결과 표시                                            |
 | `pgard rules list [--language js\|ts\|react\|vue\|go]`   | 지원 규칙, 판정 기준 버전, 취약점 데이터 버전과 미지원 범위 표시                                                    |
 | `pgard doctor`                                           | Git·실행 환경·GitHub 연결·로컬 포트 탐지 가능성 진단. 검사/권한 승인 아님                                           |
