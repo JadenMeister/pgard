@@ -22,7 +22,9 @@ import {
   AUTHORIZATION_CHECK_ORDER,
   type AccessNote,
   type AuthorizationDependencies,
+  REPOSITORY_CHANGED_REASON,
   type AuthorizationOutcome,
+  type ExpectedRepository,
   type OwnerApprovalRecheck,
   type OwnerApprovalRemedy,
 } from "./types.js";
@@ -35,6 +37,14 @@ function notEvaluated(prerequisite: string): CheckResult {
     status: "unverifiable",
     reason: `Not evaluated because the ${prerequisite} check did not pass.`,
   };
+}
+
+/** True when the caller confirmed a repository and the one found here is a different one. */
+function isOtherRepository(
+  expected: ExpectedRepository | null | undefined,
+  repo: { owner: string; name: string },
+): boolean {
+  return expected != null && (expected.owner !== repo.owner || expected.name !== repo.name);
 }
 
 /** Gives every Git run the scan's abort signal, unless the call already carries one. */
@@ -84,6 +94,15 @@ export async function authorizeProject(
   results.set("repository", repositoryResult.check);
   const { repo, revision } = repositoryResult;
   if (repositoryResult.check.status !== "passed" || repo === null) {
+    for (const id of AUTHORIZATION_CHECK_ORDER.slice(1)) {
+      results.set(id, notEvaluated("repository"));
+    }
+    return build(null, revision);
+  }
+  if (isOtherRepository(deps.expectedRepo, repo)) {
+    // Right after the repository check and before any sign-in: the folder no longer holds the
+    // repository the user confirmed.
+    results.set("repository", { status: "failed", reason: REPOSITORY_CHANGED_REASON });
     for (const id of AUTHORIZATION_CHECK_ORDER.slice(1)) {
       results.set(id, notEvaluated("repository"));
     }
@@ -139,6 +158,13 @@ export async function authorizeProject(
   // cased name that GitHub redirects).
   const canonicalName = repository.fullName;
   repositoryId = repository.id;
+  const expectedId = deps.expectedRepo?.repositoryId;
+  if (expectedId != null && expectedId !== repository.id) {
+    results.set("current_access", { status: "failed", reason: REPOSITORY_CHANGED_REASON });
+    results.set("owner_approval", notEvaluated("current_access"));
+    results.set("contribution", notEvaluated("current_access"));
+    return build(canonicalName, revision);
+  }
   const access = verifyCurrentAccess(repository);
   results.set("current_access", access);
   const ownerApproval = await evaluateOwnerApproval(client, repository, {
@@ -258,6 +284,9 @@ export async function recheckOwnerApproval(
   if (repositoryResult.check.status !== "passed" || repo === null) {
     return notChecked(notEvaluated("repository"));
   }
+  if (isOtherRepository(deps.expectedRepo, repo)) {
+    return notChecked({ status: "failed", reason: REPOSITORY_CHANGED_REASON });
+  }
   let session: GitHubSession | null;
   let user: GitHubUser;
   try {
@@ -272,6 +301,10 @@ export async function recheckOwnerApproval(
   let repository: GitHubRepository;
   try {
     repository = await session.client.getRepository(repo.owner, repo.name);
+    const expectedId = deps.expectedRepo?.repositoryId;
+    if (expectedId != null && expectedId !== repository.id) {
+      return notChecked({ status: "failed", reason: REPOSITORY_CHANGED_REASON });
+    }
   } catch (error) {
     if (isGitHubAuthError(error) && error.code === "not_found") {
       // Still no access: same failed state and remedy as the gate, so callers keep waiting.

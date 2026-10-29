@@ -8,6 +8,7 @@ import {
   readHeadRevision,
   readRepositoryIsolation,
   type CommitCandidate,
+  type GitHubRemoteFailureCode,
   type GitHubRepositoryRef,
   type GitRunner,
 } from "@pgard/git-history";
@@ -43,63 +44,88 @@ async function resolveRealPath(target: string): Promise<string | null> {
   }
 }
 
+/** Fixed codes for the ways the local repository check can stop, for frontends (the picker). */
+export type RepositoryBlockCode =
+  "not_a_git_root" | "no_commit_history" | "isolation_failed" | GitHubRemoteFailureCode;
+
+export type RepositoryInspection =
+  | {
+      status: "ok";
+      repo: GitHubRepositoryRef;
+      revision: string;
+      remoteName: string;
+      reason: string;
+    }
+  | { status: "blocked"; code: RepositoryBlockCode; reason: string; revision: string | null };
+
 /**
- * Local-only: valid Git history at the project root, only the repository's own objects and
- * history (no alternates, grafts or replace refs), and one unambiguous github.com remote.
+ * Local-only (no network, no sign-in): valid Git history at the project root, only the
+ * repository's own objects and history (no alternates, grafts or replace refs), and one
+ * unambiguous github.com remote. This is the single implementation behind the gate's
+ * `repository` check and the `pgard web` picker, so both always agree. `reason` can name the
+ * remote; frontends that must not show it use `code` instead.
  */
-export async function verifyRepository(
+export async function inspectRepository(
   projectRoot: string,
   runner: GitRunner,
-): Promise<RepositoryCheckResult> {
+): Promise<RepositoryInspection> {
+  const blocked = (
+    code: RepositoryBlockCode,
+    reason: string,
+    revision: string | null = null,
+  ): RepositoryInspection => ({ status: "blocked", code, reason, revision });
   // Before any Git process: Git may open an alternates file, which would block on a FIFO.
   const preflight = await preflightIsolation(projectRoot);
   if (preflight !== null && !preflight.isIsolated) {
-    return { check: failed(preflight.reason), repo: null, revision: null };
+    return blocked("isolation_failed", preflight.reason);
   }
   const gitRoot = await findGitRoot(projectRoot, runner);
   if (gitRoot === null) {
-    return {
-      check: failed("The project directory is not a Git repository."),
-      repo: null,
-      revision: null,
-    };
+    return blocked("not_a_git_root", "The project directory is not a Git repository.");
   }
   const [realRoot, realGitRoot] = await Promise.all([
     resolveRealPath(projectRoot),
     resolveRealPath(gitRoot),
   ]);
   if (realRoot === null || realGitRoot === null || realRoot !== realGitRoot) {
-    return {
-      check: failed("The project directory must be the root of its Git repository."),
-      repo: null,
-      revision: null,
-    };
+    return blocked(
+      "not_a_git_root",
+      "The project directory must be the root of its Git repository.",
+    );
   }
   // Isolation first: reading HEAD opens the object store, which alternates could redirect (or a
   // FIFO in their place could block).
   const isolation = await readRepositoryIsolation(projectRoot, runner);
-  if (!isolation.isIsolated) {
-    return { check: failed(isolation.reason), repo: null, revision: null };
-  }
+  if (!isolation.isIsolated) return blocked("isolation_failed", isolation.reason);
   const revision = await readHeadRevision(projectRoot, runner);
   if (revision === null) {
-    return {
-      check: failed("The repository has no valid commit history."),
-      repo: null,
-      revision: null,
-    };
+    return blocked("no_commit_history", "The repository has no valid commit history.");
   }
   const remote = await readGitHubRemote(projectRoot, runner);
-  if (!remote.isResolved) {
-    return { check: failed(remote.reason), repo: null, revision };
-  }
+  if (!remote.isResolved) return blocked(remote.code, remote.reason, revision);
   return {
-    check: passed(
-      `Git repository with remote "${remote.remoteName}" -> github.com/${remote.repo.owner}/${remote.repo.name}.`,
-    ),
+    status: "ok",
     repo: remote.repo,
     revision,
+    remoteName: remote.remoteName,
+    reason: `Git repository with remote "${remote.remoteName}" -> github.com/${remote.repo.owner}/${remote.repo.name}.`,
   };
+}
+
+/** The gate's `repository` check: `inspectRepository` as a pass or a failure with its reason. */
+export async function verifyRepository(
+  projectRoot: string,
+  runner: GitRunner,
+): Promise<RepositoryCheckResult> {
+  const inspection = await inspectRepository(projectRoot, runner);
+  if (inspection.status === "ok") {
+    return {
+      check: passed(inspection.reason),
+      repo: inspection.repo,
+      revision: inspection.revision,
+    };
+  }
+  return { check: failed(inspection.reason), repo: null, revision: inspection.revision };
 }
 
 export function describeIdentityError(error: unknown): CheckResult {

@@ -15,6 +15,17 @@ export const AUTHORIZATION_CHECK_ORDER: readonly AuthorizationCheckId[] = [
   "contribution",
 ];
 
+/** A repository a frontend confirmed with the user before running the gate. */
+export interface ExpectedRepository {
+  owner: string;
+  name: string;
+  /** GitHub's numeric id once a check of this project returned it; `null` or absent before. */
+  repositoryId?: number | null;
+}
+
+/** Fixed reason when the repository differs from the one the user confirmed. */
+export const REPOSITORY_CHANGED_REASON = "The repository changed since you confirmed it.";
+
 export interface AuthorizationDependencies {
   /**
    * Supplies the signed-in GitHub session. Called only after the local repository check passes,
@@ -28,6 +39,13 @@ export interface AuthorizationDependencies {
    * blocked git process at once instead of waiting for its time limit.
    */
   signal?: AbortSignal;
+  /**
+   * The repository the caller showed the user and the user confirmed (the `pgard web` picker).
+   * When set, the run stops with the fixed `REPOSITORY_CHANGED_REASON` unless the repository the
+   * local check resolves is exactly this one, and, when `repositoryId` is set, unless GitHub
+   * returns that same numeric id. It only ever blocks: it never makes a check pass.
+   */
+  expectedRepo?: ExpectedRepository | null;
   /** Upper bound on local commits examined against GitHub (default 30). */
   maxContributionCandidates?: number;
   /**
