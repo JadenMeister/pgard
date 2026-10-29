@@ -1,11 +1,30 @@
 import { isAuthorizationAllowed } from "@pgard/scan-core";
 import type { TrendResponse } from "../../shared/api-types.js";
+import type { SessionState } from "../session/session-state.js";
 import { buildTrend } from "../trend/build-trend.js";
 import type { ApiContext, ApiHandler } from "./api.js";
 import { ApiError } from "./api-error.js";
 
 /** Environment opt-out shared with the CLI: no scan is stored and none is read. */
 export const NO_STORE_ENV = "PGARD_NO_STORE";
+
+/**
+ * One read per project, authorization and short time window: concurrent requests share the
+ * in-flight read, and a repeat within `TREND_CACHE_MS` is answered from memory, so switching
+ * tabs does not re-read up to 100 files of 8 MiB each. The entry is tied to the epoch and to the
+ * authorization outcome object, so a project change or a new check never reuses it. A scan saved
+ * from a terminal shows up after the window.
+ */
+export const TREND_CACHE_MS = 5_000;
+
+interface CachedTrend {
+  epoch: number;
+  outcome: object;
+  at: number;
+  answer: Promise<TrendResponse>;
+}
+
+const cache = new WeakMap<SessionState, CachedTrend>();
 
 /**
  * `GET /api/trend`: read-only. The repository id comes only from this session's allowed
@@ -27,12 +46,24 @@ export const getTrend: ApiHandler = async (context: ApiContext) => {
   }
   const store = context.deps.openResultStore?.(context.env) ?? null;
   if (store === null) return { kind: "unavailable", why: "no-store-dir" } satisfies TrendResponse;
-  let answer: TrendResponse;
-  try {
-    answer = await buildTrend(store, repositoryId, context.deps.now());
-  } catch {
-    answer = { kind: "unavailable", why: "unreadable" };
+  const now = context.deps.now();
+  let cached = cache.get(state);
+  // A clock that moved back (`now < at`) is not a hit: fail closed.
+  const isHit =
+    cached !== undefined &&
+    cached.epoch === epoch &&
+    cached.outcome === outcome &&
+    now >= cached.at &&
+    now - cached.at < TREND_CACHE_MS;
+  if (!isHit) {
+    const answerPromise = buildTrend(store, repositoryId, now).catch((): TrendResponse => ({
+      kind: "unavailable",
+      why: "unreadable",
+    }));
+    cached = { epoch, outcome, at: now, answer: answerPromise };
+    cache.set(state, cached);
   }
+  const answer = await (cached as CachedTrend).answer;
   // A project change or a new authorization while the files were read: the answer belongs to
   // the old repository and is discarded.
   if (state.project !== project || state.projectEpoch !== epoch || state.auth.outcome !== outcome) {

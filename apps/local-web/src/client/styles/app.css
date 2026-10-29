@@ -2222,7 +2222,7 @@ input[aria-invalid="true"] {
 }
 
 .trend-flag {
-  fill: var(--severity-medium);
+  fill: var(--color-ink);
 }
 
 .trend-new {
@@ -2253,16 +2253,25 @@ input[aria-invalid="true"] {
   background: var(--color-muted);
 }
 
-.trend-key-new::before {
+.trend-key li.trend-key-new::before {
   background: var(--severity-high);
 }
 
-.trend-key-gone::before {
+.trend-key li.trend-key-gone::before {
   background: var(--severity-low);
 }
 
-.trend-key-hatch::before {
-  background: var(--severity-medium);
+.trend-key li.trend-key-hatch::before {
+  border: 1px dashed var(--color-ink);
+  background: var(--color-surface);
+}
+
+.trend-key li.trend-key-flag::before {
+  width: 0.875rem;
+  height: 0.25rem;
+  border-radius: 0;
+  vertical-align: middle;
+  background: var(--color-ink);
 }
 
 .trend-selected {

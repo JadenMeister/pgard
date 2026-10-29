@@ -572,7 +572,7 @@ export const ko: Messages = {
     loadFailed: "저장된 검사 결과를 불러오지 못했습니다.",
     reload: "다시 불러오기",
     disabled:
-      "검사 결과 저장이 꺼져 있어(--no-store 또는 PGARD_NO_STORE=1) 보여 줄 기록이 없습니다. 저장을 허용하고 pgard scan을 여러 번 실행하면 추이가 만들어집니다.",
+      "검사 결과 저장이 꺼져 있어 보여 줄 기록이 없습니다. pgard dashboard는 PGARD_NO_STORE=1만 따르고 --no-store는 pgard web에 적용됩니다. 저장을 허용하고 pgard scan을 여러 번 실행하면 추이가 만들어집니다.",
     notVerified:
       "먼저 프로젝트를 확인하세요. 저장된 검사 결과는 권한 확인을 통과한 뒤에야 이 저장소와 연결됩니다.",
     noStoreDir: "이 컴퓨터에 검사 결과를 저장할 폴더가 없어 보여 줄 기록이 없습니다.",
@@ -588,7 +588,7 @@ export const ko: Messages = {
     futureSkipped: (count: number): string =>
       `미래 날짜로 저장된 검사 결과 ${count}개를 제외했습니다. 순서가 뒤바뀌지 않게 하기 위해서입니다.`,
     unread: (count: number): string =>
-      `더 오래된 저장 파일 ${count}개는 읽지 않았습니다(최근 20개만 보여 줍니다).`,
+      `더 오래된 저장 파일 ${count}개는 읽지 않았습니다(사용 가능한 검사를 최대 20개까지 읽습니다).`,
     partialWarning: (count: number, total: number): string =>
       `검사 ${total}회 중 ${count}회는 전체를 다루지 못했습니다(빗금). 그 지점의 수치가 낮은 것은 덜 검사했기 때문일 수 있으며, 고쳐졌다는 뜻이 아닙니다.`,
     allComplete: "아래 검사는 모두 요청한 영역을 끝까지 검사했습니다.",
@@ -616,8 +616,12 @@ export const ko: Messages = {
     legendNew: "새 항목",
     legendGone: "더 이상 보고되지 않음",
     legendUncertain: "빗금: 비교한 검사 중 하나가 전체를 다루지 못함",
+    legendHatch: "빗금 막대: 이 검사는 전체를 다루지 못함",
+    legendFlag: "막대 아래 짧은 선: 이 검사는 전체를 다루지 못함",
     changeNote:
       '"더 이상 보고되지 않음"은 이전 검사에 있던 항목이 있던 자리가 두 번 모두 끝까지 분석되었는데 사라졌다는 뜻입니다. 고쳐졌다는 증거는 아닙니다.',
+    changeCountsNote:
+      "새 항목, 더 이상 보고되지 않음, 변화 없음은 두 검사의 모든 발견 항목(무시된 항목과 기준선 항목 포함)을 비교한 값이라 막대의 활성 항목 수와 다를 수 있습니다.",
     ignoredBaselined:
       "무시된 항목은 pgard.config.json으로 억제된 것이고, 기준선 항목은 저장된 기준선에 있는 것입니다. 둘 다 심각도 막대에는 포함되지 않습니다.",
     tableTitle: "데이터 표",

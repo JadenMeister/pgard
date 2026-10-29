@@ -16,7 +16,7 @@ import {
 import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
 
 /** Strip under the bars where a scan that did not cover everything is flagged. */
-const FLAG_HEIGHT = 4;
+const FLAG_HEIGHT = 6;
 const VIEW_HEIGHT = CHART_HEIGHT + FLAG_HEIGHT;
 
 /** The hatch is defined once per chart and referenced by id (an SVG pattern, no inline style). */
@@ -121,7 +121,7 @@ export function SeverityTrendChart({ points, selected, onSelect, highlight }: Se
             const top = CHART_HEIGHT - (point.total / max) * CHART_HEIGHT;
             return (
               <g
-                key={point.savedAt}
+                key={index}
                 data-column=""
                 className={`trend-column${index === selected ? " is-selected" : ""}`}
                 tabIndex={index === selected ? 0 : -1}
@@ -170,9 +170,9 @@ export function SeverityTrendChart({ points, selected, onSelect, highlight }: Se
                     <rect
                       className="trend-flag"
                       x={x + 1.5}
-                      y={CHART_HEIGHT + 1}
+                      y={CHART_HEIGHT + 3}
                       width={SLOT - 3}
-                      height={FLAG_HEIGHT - 1}
+                      height={FLAG_HEIGHT - 3}
                     />
                   </>
                 )}
@@ -230,7 +230,7 @@ export function ChangeTrendChart({ points }: { points: readonly TrendPointDto[] 
             const gone = (point.change.noLongerReported / max) * CHART_HEIGHT;
             const uncertain = isChangeUncertain(points, index);
             return (
-              <g key={point.savedAt}>
+              <g key={index}>
                 <rect
                   className="trend-new"
                   x={x}
@@ -266,9 +266,9 @@ export function ChangeTrendChart({ points }: { points: readonly TrendPointDto[] 
                     <rect
                       className="trend-flag"
                       x={x}
-                      y={CHART_HEIGHT + 1}
+                      y={CHART_HEIGHT + 3}
                       width={SLOT - 3}
-                      height={FLAG_HEIGHT - 1}
+                      height={FLAG_HEIGHT - 3}
                     />
                   </>
                 )}

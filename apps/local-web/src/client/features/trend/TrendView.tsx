@@ -160,6 +160,10 @@ function ReadyTrendView({
       </p>
 
       <h3 className="trend-subtitle">{m.trend.severityTitle}</h3>
+      <ul className="trend-key">
+        <li className="trend-key-hatch">{m.trend.legendHatch}</li>
+        <li className="trend-key-flag">{m.trend.legendFlag}</li>
+      </ul>
       <SeverityTrendChart
         points={points}
         selected={selected}
@@ -199,8 +203,10 @@ function ReadyTrendView({
           {m.trend.selectedTitle}: {formatDayTime(point.savedAt, language)}
         </h4>
         <p className="trend-selected-line">
-          {m.trend.columns.coverage}: <Badge kind={point.coverage}>{coverageText(point, m)}</Badge>{" "}
-          <span>{m.trend.activeLine(point.total, breakdownText(point, m))}</span>
+          {m.trend.columns.coverage}: <Badge kind={point.coverage}>{coverageText(point, m)}</Badge>
+        </p>
+        <p className="trend-selected-line">
+          {m.trend.activeLine(point.total, breakdownText(point, m))}
         </p>
         <p className="trend-selected-line">
           {point.change === null
@@ -226,6 +232,7 @@ function ReadyTrendView({
       </ul>
       <ChangeTrendChart points={points} />
       <p className="trend-hint">{m.trend.changeNote}</p>
+      <p className="trend-hint">{m.trend.changeCountsNote}</p>
 
       <h3 className="trend-subtitle">{m.trend.tableTitle}</h3>
       <p className="trend-hint">{m.trend.ignoredBaselined}</p>
@@ -294,7 +301,7 @@ export function TrendTable({
           {points.map((point, index) => {
             const dash = "-";
             return (
-              <tr key={point.savedAt} className={isIncomplete(point) ? "is-partial" : undefined}>
+              <tr key={index} className={isIncomplete(point) ? "is-partial" : undefined}>
                 <th scope="row" data-label={c.scan}>
                   {formatDayTime(point.savedAt, language)}
                 </th>

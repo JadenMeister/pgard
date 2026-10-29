@@ -1,5 +1,8 @@
-import { compareScans, SCHEMA_VERSION, type Coverage, type Finding } from "@pgard/findings";
+import { compareScans, type Coverage } from "@pgard/findings";
 import {
+  countFindingStates,
+  isFutureDated,
+  isNewerSchemaMinor,
   RETENTION_MAX_SCANS_PER_REPO,
   type ResultStore,
   type StoredScan,
@@ -10,20 +13,7 @@ import {
   type TrendCoverage,
   type TrendPointDto,
   type TrendResponse,
-  type TrendSeverityCounts,
 } from "../../shared/api-types.js";
-
-/** A stored scan dated further ahead than this (clock drift) counts as future-dated. */
-export const FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
-
-/** A newer minor of the result schema than this build understands (same rule as the CLI panel). */
-function isNewerMinor(sourceVersion: string): boolean {
-  const [major = 0, minor = 0] = sourceVersion.split(".").map(Number);
-  const [currentMajor = 0, currentMinor = 0] = SCHEMA_VERSION.split(".").map(Number);
-  return major > currentMajor || (major === currentMajor && minor > currentMinor);
-}
-
-const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 
 /**
  * How completely the scan covered what it was asked to check. A scan is "completed" only when
@@ -42,21 +32,6 @@ export function coverageOf(
   }
   const isPartial = incompleteAreas > 0 || overallStatus !== "completed";
   return { coverage: isPartial ? "partial" : "completed", incompleteAreas };
-}
-
-function countFindings(findings: readonly Finding[]) {
-  const severity: TrendSeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-  let ignored = 0;
-  let baselined = 0;
-  for (const finding of findings) {
-    if (finding.suppression !== undefined) ignored += 1;
-    else if (finding.inBaseline === true) baselined += 1;
-    else if ((SEVERITIES as readonly string[]).includes(finding.severity)) {
-      severity[finding.severity] += 1;
-    }
-  }
-  const total = SEVERITIES.reduce((sum, name) => sum + severity[name], 0);
-  return { severity, total, ignored, baselined };
 }
 
 function changeOf(previous: StoredScan, current: StoredScan): TrendChangeDto | null {
@@ -86,25 +61,32 @@ export async function buildTrend(
   repositoryId: number,
   now: number,
 ): Promise<TrendResponse> {
+  // Future-dated and newer-schema files are turned down inside `isUsable`, before the limit
+  // applies, so they can never use up the 20 slots and push real scans out.
+  let future = 0;
   const listed = await store.list(repositoryId, {
     limit: Math.min(TREND_MAX_POINTS, RETENTION_MAX_SCANS_PER_REPO),
-    isUsable: (scan) => !isNewerMinor(scan.sourceVersion),
+    isUsable: (scan) => {
+      if (isNewerSchemaMinor(scan.sourceVersion)) return false;
+      if (isFutureDated(scan.savedAt.getTime(), now)) {
+        future += 1;
+        return false;
+      }
+      return true;
+    },
   });
   if (listed.scans.length === 0 && listed.warnings.length > 0) {
     return { kind: "unavailable", why: "unreadable" };
   }
-  const inOrder = listed.scans.filter(
-    (scan) => scan.savedAt.getTime() <= now + FUTURE_TOLERANCE_MS,
-  );
-  const futureSkipped = listed.scans.length - inOrder.length;
+  const futureSkipped = future;
   // `list` is newest first; the chart reads oldest first.
-  const scans = [...inOrder].sort((a, b) => a.savedAt.getTime() - b.savedAt.getTime());
+  const scans = [...listed.scans].sort((a, b) => a.savedAt.getTime() - b.savedAt.getTime());
   const points: TrendPointDto[] = scans.map((scan, index) => {
     const previous = scans[index - 1];
     return {
       savedAt: scan.savedAt.getTime(),
       ...coverageOf(scan.result.coverage, scan.result.overallStatus),
-      ...countFindings(scan.result.findings),
+      ...countFindingStates(scan.result.findings),
       change: previous === undefined ? null : changeOf(previous, scan),
     };
   });
@@ -112,7 +94,7 @@ export async function buildTrend(
     kind: "ready",
     points,
     skipped: listed.warnings.length,
-    newerSkipped: listed.rejected,
+    newerSkipped: listed.rejected - futureSkipped,
     futureSkipped,
     unread: listed.unread,
   };

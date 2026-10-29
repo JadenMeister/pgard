@@ -5,6 +5,7 @@ import type { Coverage, Finding } from "@pgard/findings";
 import { createResultStore, type ListOptions, type ResultStore } from "@pgard/result-store";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { TREND_MAX_POINTS, type TrendResponse } from "../shared/api-types.js";
+import { TREND_CACHE_MS } from "./routes/trend.js";
 import { startLocalWebServer } from "./create-server.js";
 import { setAuth } from "./session/session-state.js";
 import {
@@ -29,6 +30,8 @@ const DAY = 86_400_000;
 
 let base: string;
 let clock: number;
+/** The server clock (`deps.now`); advance it past `TREND_CACHE_MS` to force a new read. */
+let serverNow = NOW;
 let store: ResultStore;
 let harness: Harness | null = null;
 
@@ -102,7 +105,7 @@ async function start(
       ...(options.isStoreDisabled === undefined
         ? {}
         : { isStoreDisabled: options.isStoreDisabled }),
-      now: () => NOW,
+      now: () => serverNow,
     },
   });
   verify(harness, options.repositoryId ?? REPO_ID);
@@ -127,6 +130,7 @@ async function readTrend(target: Harness): Promise<TrendResponse> {
 beforeEach(async () => {
   base = await mkdtemp(path.join(os.tmpdir(), "pgard-web-trend-"));
   clock = NOW - 10 * DAY;
+  serverNow = NOW;
   store = createResultStore({ dir: path.join(base, "pgard"), now: () => clock });
 });
 
@@ -144,6 +148,11 @@ describe("GET /api/trend: access", () => {
       headers: { "x-pgard-token": TOKEN, host: "localhost" },
     });
     expect(wrongHost.status).toBe(421);
+    const foreignOrigin = await send(running.server, "GET", "/api/trend", {
+      headers: { "x-pgard-token": TOKEN, origin: "http://evil.example" },
+    });
+    expect(foreignOrigin.status).toBe(403);
+    expect(json(foreignOrigin)).toMatchObject({ error: { code: "bad_origin" } });
     expect(
       (
         await send(running.server, "GET", "/api/trend", {
@@ -252,6 +261,7 @@ describe("GET /api/trend: honest states", () => {
     const running = await start();
     expect(await readTrend(running)).toMatchObject({ kind: "ready", points: [] });
     await save("a", [finding("a")]);
+    serverNow += TREND_CACHE_MS + 1;
     const one = await readTrend(running);
     if (one.kind !== "ready") throw new Error("expected ready");
     expect(one.points).toHaveLength(1);
@@ -409,6 +419,53 @@ describe("GET /api/trend: data", () => {
     expect(trend.points.map((point) => point.savedAt)).toEqual(
       [...trend.points.map((point) => point.savedAt)].sort((a, b) => a - b),
     );
+  });
+
+  it("does not let future-dated files use up the 20 slots", async () => {
+    store = createResultStore({
+      dir: path.join(base, "pgard"),
+      now: () => clock,
+      maxScansPerRepo: 100,
+    });
+    clock = NOW - 40 * DAY;
+    for (let index = 0; index < 20; index += 1) await save(`real-${index}`, [finding(`r${index}`)]);
+    clock = NOW + 5 * DAY;
+    for (let index = 0; index < 4; index += 1) await save(`future-${index}`, []);
+    const running = await start();
+    const trend = await readTrend(running);
+    if (trend.kind !== "ready") throw new Error("expected ready");
+    expect(trend.points).toHaveLength(20);
+    expect(trend.futureSkipped).toBe(4);
+    expect(trend.newerSkipped).toBe(0);
+    expect(trend.points.every((point) => point.total === 1)).toBe(true);
+  });
+
+  it("shares one read between concurrent requests and repeats, until the window ends or the check changes", async () => {
+    await save("a", [finding("a")]);
+    await save("b", [finding("a")]);
+    let reads = 0;
+    const counting = {
+      list: async (id: number, options?: ListOptions) => {
+        reads += 1;
+        return store.list(id, options);
+      },
+    } as unknown as ResultStore;
+    harness = await startHarness({
+      fixedRoot: "/home/u/code/shop",
+      deps: { openResultStore: () => counting },
+    });
+    verify(harness, REPO_ID);
+    harness.clock.now = NOW;
+    await Promise.all([apiGet(harness.server, "/api/trend"), apiGet(harness.server, "/api/trend")]);
+    await apiGet(harness.server, "/api/trend");
+    expect(reads).toBe(1);
+    harness.clock.now = NOW + TREND_CACHE_MS + 1;
+    await apiGet(harness.server, "/api/trend");
+    expect(reads).toBe(2);
+    // A new authorization outcome never reuses the entry.
+    verify(harness, REPO_ID);
+    await apiGet(harness.server, "/api/trend");
+    expect(reads).toBe(3);
   });
 
   it("discards an answer read for a project that changed meanwhile", async () => {

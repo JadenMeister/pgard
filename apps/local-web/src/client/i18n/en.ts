@@ -603,7 +603,7 @@ export const en = {
     loadFailed: "The saved scans could not be loaded.",
     reload: "Reload",
     disabled:
-      "Saving scans is switched off (--no-store or PGARD_NO_STORE=1), so there is no history to show. Allow storing and run pgard scan a few times to build a trend.",
+      "Saving scans is switched off, so there is no history to show. pgard dashboard honours only PGARD_NO_STORE=1; --no-store applies to pgard web. Allow storing and run pgard scan a few times to build a trend.",
     notVerified:
       "Verify the project first. Saved scans are matched to this repository only after the authorization check passes.",
     noStoreDir:
@@ -621,7 +621,7 @@ export const en = {
     futureSkipped: (count: number): string =>
       `${count} saved ${count === 1 ? "scan is" : "scans are"} dated in the future and left out, so the order stays correct.`,
     unread: (count: number): string =>
-      `${count} older saved ${count === 1 ? "file was" : "files were"} not read (the view shows the newest 20).`,
+      `${count} older saved ${count === 1 ? "file was" : "files were"} not read (the view reads at most 20 usable scans).`,
     partialWarning: (count: number, total: number): string =>
       `${count} of ${total} scans did not cover everything (hatched). A lower count there can mean less was checked, not that findings were fixed.`,
     allComplete: "Every scan below completed all the areas it was asked to check.",
@@ -649,8 +649,12 @@ export const en = {
     legendNew: "New",
     legendGone: "No longer reported",
     legendUncertain: "Hatched: a scan involved did not cover everything",
+    legendHatch: "Hatched bar: this scan did not cover everything",
+    legendFlag: "Dash under a bar: this scan did not cover everything",
     changeNote:
       '"No longer reported" means the finding was in the earlier scan and its place was fully analyzed both times and it is gone. It is not proof that it was fixed.',
+    changeCountsNote:
+      "The new, no longer reported and unchanged counts compare every finding of the two scans, including ignored and baselined ones, so they can differ from the active counts in the bars.",
     ignoredBaselined:
       "Ignored findings are hidden by pgard.config.json; baselined findings are in the saved baseline. Neither is counted in the severity bars.",
     tableTitle: "Data table",
