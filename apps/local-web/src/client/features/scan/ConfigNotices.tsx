@@ -1,5 +1,5 @@
 import { projectConfigNotices, type Coverage } from "@pgard/findings";
-import { Notice } from "../../components/ui/Card";
+import { Notice } from "../../components/ui/Notice";
 import { useI18n } from "../../i18n/I18nProvider";
 
 /**
