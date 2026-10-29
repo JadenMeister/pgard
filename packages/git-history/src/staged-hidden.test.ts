@@ -1,8 +1,13 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isClearlyBinary, looksBinaryContent, utf16WithoutMark } from "./binary-sniff.js";
-import { decodeStagedBlob, readStagedChanges } from "./staged.js";
+import {
+  hasBinarySignature,
+  isClearlyBinary,
+  looksBinaryContent,
+  utf16WithoutMark,
+} from "./binary-sniff.js";
+import { decodeStagedBlob, decodeStagedBlobBoth, readStagedChanges } from "./staged.js";
 import { readStagedTextFile } from "./staged-file.js";
 import { scanStagedPaths, scanStagedSecrets } from "./staged-secrets.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
@@ -93,11 +98,66 @@ describe("a NUL byte hides nothing", () => {
       "RIFF\x24\0\0\0WEBPVP8 ",
       "\0\0\0\x18ftypmp42",
     ]) {
-      expect(isClearlyBinary(head), JSON.stringify(head)).toBe(true);
+      expect(hasBinarySignature(head), JSON.stringify(head)).toBe(true);
+      // With Git's own mark of a binary (a NUL in the first 8000 bytes) it is clearly binary.
+      expect(isClearlyBinary(`${head}\0\0\0\0`), JSON.stringify(head)).toBe(true);
     }
     for (const text of ["ID3_TOKEN=1\n", "GIF is a format\n", "BZhello", "MZ is a prefix\n"]) {
       expect(isClearlyBinary(text), text).toBe(false);
     }
+  });
+
+  it("does not call a text file binary because it starts with a format signature", async () => {
+    const text = `%PDF-1.4\nconst token = "${GITHUB_TOKEN}";\n`;
+    expect(isClearlyBinary(text)).toBe(false);
+    expect(decodeStagedBlob(text)).toBe(text);
+    // Small: scanned. Large (1.3 MB of text after the signature): too large, never "binary".
+    const fixture = repo();
+    writeFileSync(path.join(fixture.root, "small.txt"), text);
+    writeFileSync(
+      path.join(fixture.root, "large.txt"),
+      `%PDF-1.4\n${"ordinary text line\n".repeat(70_000)}const token = "${GITHUB_TOKEN}";\n`,
+    );
+    fixture.git("add", "small.txt", "large.txt");
+    const changes = await readStagedChanges(fixture.root);
+    expect(changes.files.map((file) => file.path)).toEqual(["small.txt"]);
+    expect(scanStagedSecrets(changes.files).findings).toHaveLength(1);
+    expect(changes.skipped.map((item) => [item.path, item.reason])).toEqual([
+      ["large.txt", "too_large"],
+    ]);
+  });
+
+  it("reads a file that is UTF-16 at the start and UTF-8 later both ways", () => {
+    const wide = Buffer.from("hello world\n".repeat(700), "utf16le").toString("latin1");
+    const body = `${wide}const token = "${GITHUB_TOKEN}";\n`;
+    const both = decodeStagedBlobBoth(body);
+    expect(both.text).not.toContain(GITHUB_TOKEN);
+    expect(both.alternate).toContain(GITHUB_TOKEN);
+    const found = scanStagedSecrets([
+      {
+        path: "notes.txt",
+        content: both.text ?? "",
+        previous: null,
+        kind: "added",
+        ...(both.alternate === null ? {} : { alternate: both.alternate }),
+      },
+    ]);
+    expect(found.findings.map((finding) => finding.ruleId)).toEqual(["PG-SECRET-002"]);
+  });
+
+  it("reports a secret that both readings see once", () => {
+    const text = `token = "${GITHUB_TOKEN}"\n`;
+    const both = decodeStagedBlobBoth(Buffer.from(text, "utf16le").toString("latin1"));
+    const found = scanStagedSecrets([
+      {
+        path: "wide.txt",
+        content: both.text ?? "",
+        previous: null,
+        kind: "added",
+        ...(both.alternate === null ? {} : { alternate: both.alternate }),
+      },
+    ]);
+    expect(found.findings).toHaveLength(1);
   });
 
   it("decodes UTF-16 without a byte order mark and scans it", () => {
@@ -240,7 +300,7 @@ describe("large files", () => {
     fixtures.push(fixture);
     fixture.commit({ files: { "README.md": "x\n" } });
     const png = Buffer.concat([
-      Buffer.from("\x89PNG\r\n\x1a\n", "latin1"),
+      Buffer.from("\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\x01\0", "latin1"),
       Buffer.from(`AKIAIOSFODNN7EXAMPLQ ${"text ".repeat(300_000)}`),
     ]);
     const random = Buffer.alloc(2 * 1024 * 1024);

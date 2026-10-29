@@ -3,6 +3,7 @@ import { decodeGitPath } from "./scan-history.js";
 import {
   BINARY_SNIFF_BYTES,
   hasBinarySignature,
+  isBinaryByGitsRule,
   isClearlyBinary,
   looksBinaryContent,
   utf16WithoutMark,
@@ -55,6 +56,13 @@ export interface StagedFile {
   content: string;
   /** The text HEAD has at this path (modified) or at the old path (renamed); `null` for added. */
   previous: string | null;
+  /**
+   * For UTF-16 text, the same bytes read as UTF-8 (NUL as a space). A file can hold UTF-16 and
+   * UTF-8 parts; both readings are scanned for secrets so neither hides the other.
+   */
+  alternate?: string;
+  /** The same reading of `previous`. */
+  previousAlternate?: string;
 }
 
 export interface StagedSkip {
@@ -207,20 +215,42 @@ const MAX_TAIL_SAMPLED_BLOBS = 5;
  * spaces (line numbers stay exact), so a NUL can neither hide a secret nor a line.
  */
 export function decodeStagedBlob(latin1: string): string | null {
+  return decodeStagedBlobBoth(latin1).text;
+}
+
+function asUtf8(latin1: string): string {
+  return Buffer.from(latin1.replaceAll("\0", " "), "latin1").toString("utf8");
+}
+
+/**
+ * Like `decodeStagedBlob`, and for UTF-16 also the UTF-8 reading of the same bytes
+ * (`alternate`). The first 8 KB decide that a file is UTF-16, but the rest can be UTF-8 (or
+ * the other way round); reading it both ways means a secret in either part is seen.
+ */
+export function decodeStagedBlobBoth(latin1: string): {
+  text: string | null;
+  alternate: string | null;
+} {
   const bom = latin1.slice(0, 2);
   if (bom === "\xff\xfe" || bom === "\xfe\xff") {
     const bytes = Buffer.from(latin1.slice(2), "latin1");
-    return (bom === "\xfe\xff" ? UTF16_BE : UTF16_LE).decode(bytes);
+    return {
+      text: (bom === "\xfe\xff" ? UTF16_BE : UTF16_LE).decode(bytes),
+      alternate: asUtf8(latin1.slice(2)),
+    };
   }
   if (latin1.includes("\0")) {
     const wide = utf16WithoutMark(latin1.slice(0, BINARY_SNIFF_BYTES));
     if (wide !== null) {
-      return (wide === "be" ? UTF16_BE : UTF16_LE).decode(Buffer.from(latin1, "latin1"));
+      return {
+        text: (wide === "be" ? UTF16_BE : UTF16_LE).decode(Buffer.from(latin1, "latin1")),
+        alternate: asUtf8(latin1),
+      };
     }
-    if (isClearlyBinary(latin1)) return null;
-    return Buffer.from(latin1.replaceAll("\0", " "), "latin1").toString("utf8");
+    if (isClearlyBinary(latin1)) return { text: null, alternate: null };
+    return { text: asUtf8(latin1), alternate: null };
   }
-  return Buffer.from(latin1, "latin1").toString("utf8");
+  return { text: Buffer.from(latin1, "latin1").toString("utf8"), alternate: null };
 }
 
 /** Milliseconds until `deadline` (at least 1), or `undefined` when there is no deadline. */
@@ -236,6 +266,8 @@ function withTimeout(timeoutMs: number | undefined): { timeoutMs?: number } {
 interface BlobRead {
   /** `null` text: binary. */
   text: Map<string, string | null>;
+  /** The UTF-8 reading of UTF-16 blobs. */
+  alternate: Map<string, string>;
   /** Blobs not read: reason by sha. */
   unread: Map<string, StagedSkipReason>;
   bytes: number;
@@ -276,7 +308,7 @@ async function sniffIsBinary(
     const headerEnd = raw.indexOf("\n");
     if (headerEnd === -1) return false;
     const head = raw.slice(headerEnd + 1, headerEnd + 1 + BINARY_SNIFF_BYTES);
-    if (hasBinarySignature(head)) return true;
+    if (hasBinarySignature(head) && isBinaryByGitsRule(head)) return true;
     if (!looksBinaryContent(head)) return false;
     if (size > MAX_TAIL_SAMPLED_BYTES || tailReads.used >= MAX_TAIL_SAMPLED_BLOBS) return false;
     tailReads.used += 1;
@@ -308,9 +340,10 @@ async function readBlobs(
   options: StagedReadOptions,
 ): Promise<BlobRead> {
   const text = new Map<string, string | null>();
+  const alternate = new Map<string, string>();
   const unread = new Map<string, StagedSkipReason>();
   let bytes = 0;
-  if (shas.length === 0) return { text, unread, bytes };
+  if (shas.length === 0) return { text, alternate, unread, bytes };
   const withSignal = options.signal ? { signal: options.signal } : {};
   const remainingMs = () => timeoutUntil(limits.deadline, limits.now);
   const check = await runner(
@@ -396,14 +429,16 @@ async function readBlobs(
       const body = raw.slice(headerEnd + 1, headerEnd + 1 + size);
       offset = headerEnd + 1 + size + 1;
       bytes += size;
-      text.set(header[1], decodeStagedBlob(body));
+      const decoded = decodeStagedBlobBoth(body);
+      text.set(header[1], decoded.text);
+      if (decoded.alternate !== null) alternate.set(header[1], decoded.alternate);
     }
     for (const item of batch) {
       if (!text.has(item.sha)) unread.set(item.sha, "unreadable");
     }
     start = end;
   }
-  return { text, unread, bytes };
+  return { text, alternate, unread, bytes };
 }
 
 /**
@@ -513,6 +548,13 @@ export async function readStagedChanges(
       continue;
     }
     const isRenamed = renamedFrom.has(entry.path);
+    const alternate = stagedRead.alternate.get(entry.sha);
+    const previousAlternate =
+      before !== undefined && before.mode !== "160000"
+        ? stagedRead.alternate.get(before.sha)
+        : isRenamed
+          ? alternate
+          : undefined;
     // Without the older text every line counts as new, which can only add alerts.
     const previous =
       before !== undefined && before.mode !== "160000"
@@ -525,6 +567,8 @@ export async function readStagedChanges(
       kind: before !== undefined ? "modified" : isRenamed ? "renamed" : "added",
       content,
       previous,
+      ...(alternate === undefined ? {} : { alternate }),
+      ...(previousAlternate === undefined ? {} : { previousAlternate }),
     });
   }
   return {

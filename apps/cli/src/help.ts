@@ -407,7 +407,8 @@ tree), for secrets (PG-SECRET-001, PG-SECRET-002) and the file-local source rule
 (JavaScript, TypeScript, Vue, Go). Only what the commit adds or changes is reported (a
 changed private key body counts even under an unchanged header). A new .env file is
 reported by its name whatever it holds. Deleted files have nothing to scan. Clearly
-binary files (a known file signature such as PNG, ZIP or ELF, or binary content at both
+binary files (a known file signature such as PNG, ZIP or ELF together with a NUL in the
+first 8 KB, or binary content at both
 ends; of any size) and symbolic links are skipped by design and listed by name on every
 run. Text with stray NUL bytes, UTF-16 text (with or without a byte order mark) and a
 large file that only starts like a binary are not skipped: they are scanned, or, when over

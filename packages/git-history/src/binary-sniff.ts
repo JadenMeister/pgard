@@ -72,6 +72,11 @@ export function utf16WithoutMark(sample: string): "le" | "be" | null {
   return null;
 }
 
+/** True when a sample of 512 bytes or more is as even as compressed or random data. */
+export function isHighEntropy(sample: string): boolean {
+  return sample.length >= 512 && entropy(sample) > 7.2;
+}
+
 function entropy(sample: string): number {
   const counts = new Array<number>(256).fill(0);
   for (let index = 0; index < sample.length; index += 1) {
@@ -101,7 +106,15 @@ export function looksBinaryContent(sample: string): boolean {
     }
   }
   if (control * 10 >= sample.length) return true;
-  return sample.length >= 512 && entropy(sample) > 7.2;
+  return isHighEntropy(sample);
+}
+
+/**
+ * Git's own test for "binary" (a NUL in the first 8000 bytes), or compressed-looking content.
+ * A format signature alone proves nothing: a text file can start with `%PDF-1.4`.
+ */
+export function isBinaryByGitsRule(head: string): boolean {
+  return head.includes("\0") || isHighEntropy(head);
 }
 
 /**
@@ -110,7 +123,8 @@ export function looksBinaryContent(sample: string): boolean {
  * not enough).
  */
 export function isClearlyBinary(body: string): boolean {
-  if (hasBinarySignature(body)) return true;
+  if (hasBinarySignature(body) && isBinaryByGitsRule(body.slice(0, BINARY_SNIFF_BYTES)))
+    return true;
   return (
     looksBinaryContent(body.slice(0, BINARY_SNIFF_BYTES)) &&
     looksBinaryContent(body.slice(-BINARY_SNIFF_BYTES))

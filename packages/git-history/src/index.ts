@@ -45,7 +45,9 @@ export {
 export {
   BINARY_SNIFF_BYTES,
   hasBinarySignature,
+  isBinaryByGitsRule,
   isClearlyBinary,
+  isHighEntropy,
   looksBinaryContent,
   utf16WithoutMark,
 } from "./binary-sniff.js";

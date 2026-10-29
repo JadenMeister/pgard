@@ -244,6 +244,40 @@ describe("a big file that only starts like a binary", () => {
     expect(captured.stdout()).not.toContain("Not scanned by design: 1 binary");
   });
 
+  it("sees a secret in a UTF-8 part after a UTF-16 part (notes.txt)", async () => {
+    const root = makeRepo();
+    write(root, {
+      "notes.txt": Buffer.concat([
+        Buffer.from("hello world\n".repeat(700), "utf16le"),
+        Buffer.from(`const token = "${GITHUB_TOKEN}";\n`, "utf8"),
+      ]),
+    });
+    git(root, "add", "notes.txt");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
+    expect(captured.stdout()).toContain("PG-SECRET-002 notes.txt");
+    expect(captured.stdout()).not.toContain("nothing found");
+  });
+
+  it("does not treat a text file that starts with %PDF- as binary, small or large", async () => {
+    const small = makeRepo();
+    write(small, { "doc.txt": `%PDF-1.4\nconst token = "${GITHUB_TOKEN}";\n` });
+    git(small, "add", "doc.txt");
+    const smallRun = setup(small);
+    expect(await precommit.runPrecommit(smallRun.context)).toBe(EXIT_CODES.findings);
+    expect(smallRun.captured.stdout()).toContain("PG-SECRET-002 doc.txt:2");
+
+    const large = makeRepo();
+    write(large, {
+      "big.txt": `%PDF-1.4\n${"ordinary text line\n".repeat(70_000)}const token = "${GITHUB_TOKEN}";\n`,
+    });
+    git(large, "add", "big.txt");
+    const largeRun = setup(large);
+    expect(await precommit.runPrecommit(largeRun.context)).toBe(EXIT_CODES.partial);
+    expect(largeRun.captured.stdout()).toContain("big.txt");
+    expect(largeRun.captured.stdout()).not.toContain("Not scanned by design");
+  });
+
   it("scans UTF-16 text without a byte order mark", async () => {
     const root = makeRepo();
     write(root, { "wide.txt": Buffer.from(`k = "${GITHUB_TOKEN}"\n`, "utf16le") });

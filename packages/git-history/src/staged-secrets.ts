@@ -79,35 +79,50 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
     if (isEnvironmentFile(file.path) && file.kind !== "modified") {
       findings.push(envFileFinding(file.path));
     }
-    // A renamed file carries its old text, so only edits made with the rename count as new.
-    const added = addedLineNumbers(file.previous, file.content);
-    const known =
-      file.previous === null
-        ? new Set<string>()
-        : new Set(detectSecrets(file.previous, { path: file.path }).map((found) => found.value));
-    for (const secret of detectSecrets(file.content, { path: file.path })) {
-      const lastLine = secret.line + (secret.value.match(/\n/g)?.length ?? 0);
-      if (known.has(secret.value) && !spanHasAddedLine(added, secret.line, lastLine)) {
-        preexisting += 1;
-        continue;
+    // UTF-16 files are read twice (as UTF-16 and as UTF-8), so a secret in either kind of part is
+    // seen; one secret found by both readings is reported once.
+    const seen = new Set<string>();
+    const readings: [string, string | null][] = [[file.content, file.previous]];
+    if (file.alternate !== undefined) {
+      readings.push([file.alternate, file.previousAlternate ?? null]);
+    }
+    for (const [content, previous] of readings) {
+      const thisReading = new Set<string>();
+      // A renamed file carries its old text, so only edits made with the rename count as new.
+      const added = addedLineNumbers(previous, content);
+      const known =
+        previous === null
+          ? new Set<string>()
+          : new Set(detectSecrets(previous, { path: file.path }).map((found) => found.value));
+      for (const secret of detectSecrets(content, { path: file.path })) {
+        const key = `${secret.kind}\0${secret.value}`;
+        // Skip a secret an earlier reading of this file already reported (not repeats in one).
+        if (seen.has(key)) continue;
+        thisReading.add(key);
+        const lastLine = secret.line + (secret.value.match(/\n/g)?.length ?? 0);
+        if (known.has(secret.value) && !spanHasAddedLine(added, secret.line, lastLine)) {
+          preexisting += 1;
+          continue;
+        }
+        findings.push(
+          withCodeSource(
+            createFinding({
+              ruleId: "PG-SECRET-002",
+              path: file.path,
+              line: secret.line,
+              commit: null,
+              ...assessment(secret),
+              evidence:
+                `${SECRET_KIND_LABEL[secret.kind]} in a staged file (value redacted)` +
+                (secret.codeText === true
+                  ? "; the value looks like code text inside a string literal (inferred)"
+                  : ""),
+              cause: `${secret.kind}:${secret.line}`,
+            }),
+          ),
+        );
       }
-      findings.push(
-        withCodeSource(
-          createFinding({
-            ruleId: "PG-SECRET-002",
-            path: file.path,
-            line: secret.line,
-            commit: null,
-            ...assessment(secret),
-            evidence:
-              `${SECRET_KIND_LABEL[secret.kind]} in a staged file (value redacted)` +
-              (secret.codeText === true
-                ? "; the value looks like code text inside a string literal (inferred)"
-                : ""),
-            cause: `${secret.kind}:${secret.line}`,
-          }),
-        ),
-      );
+      for (const key of thisReading) seen.add(key);
     }
   }
   return { findings, preexisting };
