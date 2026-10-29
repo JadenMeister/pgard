@@ -59,7 +59,8 @@ Today the secret rules (`PG-SECRET-001` `.env` file, `PG-SECRET-002` credential)
   - Every file is read with `O_NOFOLLOW | O_NONBLOCK` and checked again on the open handle (`readSmallRegularFileBytes` in `packages/git-history/src/safe-read.ts`): a symbolic link, FIFO or device swapped in is never followed or read, and cannot block.
   - It skips `.git`, `node_modules`, `bower_components`, `.hg` and `.svn`.
   - Bounds (a hostile tree cannot make it do unbounded work): directories are read entry by entry (`opendir`); at most 300,000 directory entries, 20,000 files, 1 MiB per file, 64 MiB in total, 24 folders deep and 20 s; cancellation is checked on every entry.
-  - Anything left out (a limit, a file over 1 MiB, an unreadable file or folder) makes the area `partial`, and the note names up to five files per kind. Clearly binary files are skipped by design, as in the pre-commit check, and named in the note.
+  - Anything left out (a limit, a file over 1 MiB, an unreadable file or folder, a file that only looks binary by its content) makes the area `partial`, and the note names up to five files per kind. Only a file in a known binary format (PNG, ZIP, ...) is skipped by design, as in the pre-commit check, and named in the note. The pre-commit check uses the same rule (`binary_suspected` counts as not scanned).
+  - Limits in the note never round down to 0 (`<1 MiB`, `<1 s`).
   - It never puts a value in a finding.
 - **Wording.** These findings use the working-tree title variants (`FINDING_TEXT_VARIANTS` in `packages/findings/src/rule-text.ts`): "Secret in a project file" and "Environment file in the project folder", never "tracked file" or "committed to Git".
 
@@ -180,7 +181,9 @@ A new optional top-level field, `scanBasis`:
 - **Cross-field checks (the reader refuses anything else).**
   - `authorization: "verified"` needs `decision: "allowed"` with all five checks `passed`.
   - `mode: "code_only"` needs `decision: "blocked"`, `requestedScopes: ["code"]` and `authorization: "not_verified"`.
+  - `mode: "authorized"` with `authorization: "not_verified"` needs `overallStatus` `blocked` or `failed` and no findings (the gate stopped the scan before any analysis).
   - `reason` is `null` exactly when `authorization` is `verified`.
+  - From 1.7 on `scanBasis` is required, so deleting it from a file cannot drop the label.
 - **Old readers.** A reader of 1.6 or older does not know the field and drops it: it shows a code-only result as an ordinary blocked-gate result without the code-only label (it still never treats it as authorized, because `decision` is `blocked`). Only 1.7 readers show the label.
 
 ### 4.2 SARIF

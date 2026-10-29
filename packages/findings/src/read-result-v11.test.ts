@@ -7,6 +7,7 @@ import { readScanResult } from "./read-result.js";
 function sample(): ScanResult {
   return {
     schemaVersion: SCHEMA_VERSION,
+    scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "scan-1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:01.000Z",
@@ -16,7 +17,17 @@ function sample(): ScanResult {
     target: { repo: "octo/app", revision: null, webOrigin: null },
     authorization: {
       decision: "allowed",
-      checks: [{ id: "repository", status: "passed", reason: "ok" }],
+      checks: [
+        "repository",
+        "github_identity",
+        "owner_approval",
+        "current_access",
+        "contribution",
+      ].map((id) => ({
+        id,
+        status: "passed",
+        reason: "ok",
+      })) as ScanResult["authorization"]["checks"],
     },
     coverage: [],
     findings: [

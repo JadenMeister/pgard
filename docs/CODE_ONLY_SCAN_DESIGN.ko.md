@@ -59,7 +59,8 @@
   - 모든 파일은 `O_NOFOLLOW | O_NONBLOCK`으로 열고 열린 핸들에서 다시 확인합니다(`packages/git-history/src/safe-read.ts`의 `readSmallRegularFileBytes`). 바꿔치기된 심볼릭 링크, FIFO, 장치는 따라가거나 읽지 않으며 읽기를 멈춰 세울 수도 없습니다.
   - `.git`, `node_modules`, `bower_components`, `.hg`, `.svn`은 건너뜁니다.
   - 한도(악의적인 트리도 끝없는 작업을 시킬 수 없음): 디렉터리는 항목 단위로 읽고(`opendir`), 디렉터리 항목 300,000개, 파일 20,000개, 파일당 1 MiB, 합계 64 MiB, 깊이 24단계, 20초까지입니다. 항목마다 취소 여부를 확인합니다.
-  - 빠진 것(한도, 1 MiB 초과 파일, 읽을 수 없는 파일이나 폴더)이 있으면 영역은 `partial`이 되고, 메모에 종류별로 파일을 다섯 개까지 이름으로 적습니다. 명백한 바이너리 파일은 pre-commit 검사처럼 설계상 건너뛰며 메모에 이름을 적습니다.
+  - 빠진 것(한도, 1 MiB 초과 파일, 읽을 수 없는 파일이나 폴더, 내용만 바이너리처럼 보이는 파일)이 있으면 영역은 `partial`이 되고, 메모에 종류별로 파일을 다섯 개까지 이름으로 적습니다. 알려진 바이너리 형식(PNG, ZIP 등)의 파일만 pre-commit 검사처럼 설계상 건너뛰며 메모에 이름을 적습니다. pre-commit 검사도 같은 규칙을 씁니다(`binary_suspected`는 검사하지 못함으로 셈).
+  - 메모의 한도 값은 0으로 내림하지 않습니다(`<1 MiB`, `<1 s`).
   - 발견 항목에 값을 넣지 않습니다.
 - **문구.** 이 발견 항목은 작업 트리용 제목 변형을 씁니다(`packages/findings/src/rule-text.ts`의 `FINDING_TEXT_VARIANTS`). "프로젝트 파일 안의 비밀정보", "프로젝트 폴더의 환경 파일"이며, "추적 파일"이나 "Git에 커밋됨"이라고 하지 않습니다.
 
@@ -180,7 +181,9 @@
 - **필드 간 확인(이 밖의 조합은 읽는 쪽이 거부).**
   - `authorization: "verified"`에는 `decision: "allowed"`와 다섯 확인 모두 `passed`가 필요합니다.
   - `mode: "code_only"`에는 `decision: "blocked"`, `requestedScopes: ["code"]`, `authorization: "not_verified"`가 필요합니다.
+  - `authorization: "not_verified"`인 `mode: "authorized"`에는 `overallStatus` `blocked` 또는 `failed`와 발견 항목 없음이 필요합니다(권한 확인이 분석 전에 검사를 멈췄습니다).
   - `reason`은 `authorization`이 `verified`일 때만 `null`입니다.
+  - 1.7부터 `scanBasis`는 필수이므로, 파일에서 지워 표시를 없앨 수 없습니다.
 - **이전 버전의 읽는 쪽.** 1.6 이하를 읽는 쪽은 이 필드를 모르므로 버립니다. 코드 전용 결과를 코드 전용 표시 없이, 권한 확인이 막은 평범한 결과로 보여 줍니다(`decision`이 `blocked`이므로 권한 있는 결과로 보지는 않습니다). 표시는 1.7을 읽는 쪽만 보여 줍니다.
 
 ### 4.2 SARIF

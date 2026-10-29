@@ -10,6 +10,7 @@ const OLD = JSON.parse(
 const withNewFields = (): Record<string, any> => ({
   ...structuredClone(OLD),
   schemaVersion: SCHEMA_VERSION,
+  scanBasis: { mode: "authorized", authorization: "verified", reason: null },
   ruleStats: [
     {
       ruleId: "PG-SQL-001",

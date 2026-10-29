@@ -123,10 +123,19 @@ export function isBinaryByGitsRule(head: string): boolean {
  * not enough).
  */
 export function isClearlyBinary(body: string): boolean {
+  return binaryKind(body) !== null;
+}
+
+/**
+ * Why a body is clearly binary: `signature` (a known file format, skipped by design), `content`
+ * (no signature, only the content heuristic: it may be text such as a coloured log, so a caller
+ * reports it as not scanned), or `null` (text).
+ */
+export function binaryKind(body: string): "signature" | "content" | null {
   if (hasBinarySignature(body) && isBinaryByGitsRule(body.slice(0, BINARY_SNIFF_BYTES)))
-    return true;
-  return (
-    looksBinaryContent(body.slice(0, BINARY_SNIFF_BYTES)) &&
+    return "signature";
+  return looksBinaryContent(body.slice(0, BINARY_SNIFF_BYTES)) &&
     looksBinaryContent(body.slice(-BINARY_SNIFF_BYTES))
-  );
+    ? "content"
+    : null;
 }

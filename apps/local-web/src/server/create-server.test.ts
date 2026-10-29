@@ -67,6 +67,7 @@ function outcome(
 function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
     schemaVersion: SCHEMA_VERSION,
+    scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "scan-1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:01.000Z",

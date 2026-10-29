@@ -1,3 +1,5 @@
+import { writeFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Each test starts a few Git processes; a busy machine or a slow runner needs more than 5 s.
@@ -134,16 +136,29 @@ describe("createStagedAnalyzer", () => {
   it("does not count binary files, symbolic links or deletions as unscanned", async () => {
     const fixture = repo({ "gone.txt": "bye\n", "keep.txt": "keep\n" });
     fixture.git("rm", "-q", "gone.txt");
-    fixture.writeFile(
-      "bin.dat",
-      Buffer.from(
-        Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256)),
-      ).toString("latin1"),
+    // A known binary format (PNG signature) is skipped by design.
+    writeFileSync(
+      path.join(fixture.root, "bin.dat"),
+      Buffer.concat([
+        Buffer.from("\x89PNG\r\n\x1a\n", "latin1"),
+        Buffer.from(Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256))),
+      ]),
     );
     fixture.git("add", "-A");
     const { output, report } = await run(fixture);
     expect(output.coverage[0]?.status).toBe("completed");
     expect(report).toMatchObject({ scanned: 0, deleted: 1 });
+  });
+
+  it("counts a file that only looks binary (no known format) as unscanned", async () => {
+    const fixture = repo();
+    writeFileSync(
+      path.join(fixture.root, "noise.dat"),
+      Buffer.from(Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256))),
+    );
+    fixture.git("add", "-A");
+    const { output } = await run(fixture);
+    expect(output.coverage[0]?.status).toBe("partial");
   });
 
   it("reports an unreadable repository as not tested, never as clean", async () => {

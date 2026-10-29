@@ -88,6 +88,45 @@ describe("scanWorkingTreeSecrets never reports completed for files it did not re
     expect(JSON.stringify(output)).not.toContain(GITHUB_TOKEN);
   });
 
+  it("is partial for a file that only looks binary, and skips a PNG by design (review repro)", async () => {
+    const log = Buffer.from(
+      `${"\x1b[31mE\x1b[0m\x1b[1m\x1b[0m ok\n".repeat(600)}\0 token=${GITHUB_TOKEN}\n${"\x1b[32mI\x1b[0m\x1b[1m\x1b[0m ok\n".repeat(600)}`,
+      "latin1",
+    );
+    const png = Buffer.concat([
+      Buffer.from("\x89PNG\r\n\x1a\n\0\0\0\rIHDR", "latin1"),
+      Buffer.alloc(200, 7),
+    ]);
+    const logged = await scanWorkingTreeSecrets({
+      projectRoot: await project({ "build.log": log }),
+      projectConfig: null,
+    });
+    expect(logged.coverage[0]?.status).toBe("partial");
+    expect(logged.coverage[0]?.note).toContain("looked binary without a known file format");
+    expect(logged.coverage[0]?.note).toContain("build.log");
+    const image = await scanWorkingTreeSecrets({
+      projectRoot: await project({ "logo.png": png }),
+      projectConfig: null,
+    });
+    expect(image.coverage[0]?.status).toBe("completed");
+    expect(image.coverage[0]?.note).toContain("binary file(s) were skipped by design: logo.png");
+  });
+
+  it("never rounds a limit down to 0 in the note", async () => {
+    const root = await project({ "a.txt": "x".repeat(600), "b.txt": "y".repeat(600) });
+    const output = await scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null },
+      { limits: { totalBytes: 1000, fileBytes: 700 } },
+    );
+    expect(output.coverage[0]?.note).toContain("<1 KiB read");
+    let clock = 0;
+    const timed = await scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null },
+      { limits: { timeMs: 10 }, now: () => (clock += 100) },
+    );
+    expect(timed.coverage[0]?.note).toContain("(<1 s)");
+  });
+
   it("reports a .env file by its name when it is too large or binary", async () => {
     const root = await project({
       ".env": "A=1\n".repeat(400_000),

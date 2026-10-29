@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // Each test starts a few Git processes; a busy machine or a slow runner needs more than 5 s.
 vi.setConfig({ testTimeout: 30_000 });
 import { GitCommandError, runGit, type GitRunner } from "./run-git.js";
-import { readStagedChanges } from "./staged.js";
+import { INCOMPLETE_SKIP_REASONS, readStagedChanges } from "./staged.js";
 import { addedLineNumbers, scanStagedSecrets } from "./staged-secrets.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 
@@ -77,9 +77,12 @@ describe("readStagedChanges", () => {
 
   it("skips binary files by design, and reads UTF-16 text", async () => {
     const fixture = repo();
+    const noise = Buffer.from(
+      Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256)),
+    );
     writeFileSync(
       path.join(fixture.root, "image.bin"),
-      Buffer.from(Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256))),
+      Buffer.concat([Buffer.from("\x89PNG\r\n\x1a\n", "latin1"), noise]),
     );
     writeFileSync(
       path.join(fixture.root, "wide.txt"),
@@ -89,6 +92,19 @@ describe("readStagedChanges", () => {
     const changes = await readStagedChanges(fixture.root);
     expect(changes.skipped).toMatchObject([{ path: "image.bin", reason: "binary" }]);
     expect(changes.files[0]?.content).toContain(GITHUB_TOKEN);
+  });
+
+  it("reports a file that only looks binary (no known format) as not scanned", async () => {
+    const fixture = repo();
+    writeFileSync(
+      path.join(fixture.root, "noise.bin"),
+      Buffer.from(Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256))),
+    );
+    stage(fixture, "noise.bin");
+    const changes = await readStagedChanges(fixture.root);
+    expect(changes.skipped).toMatchObject([{ path: "noise.bin", reason: "binary_suspected" }]);
+    expect(INCOMPLETE_SKIP_REASONS.has("binary_suspected")).toBe(true);
+    expect(INCOMPLETE_SKIP_REASONS.has("binary")).toBe(false);
   });
 
   it("lists files over the size limit, the file limit and the byte budget as not scanned", async () => {

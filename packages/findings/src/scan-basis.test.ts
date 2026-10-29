@@ -24,6 +24,21 @@ function result(overrides: Record<string, unknown> = {}): ScanResult {
   } as ScanResult;
 }
 
+const FINDING = {
+  id: "f1",
+  ruleId: "PG-SECRET-002",
+  title: "t",
+  category: "secret_exposure",
+  severity: "high",
+  status: "suspected",
+  confidence: "medium",
+  location: { kind: "file", path: "a.js", line: 1, url: null, commit: null },
+  evidence: "e",
+  impact: "i",
+  recommendation: "r",
+  references: { cwe: [], owasp: [], cve: [] },
+  sources: ["code"],
+};
 const CODE_ONLY = { mode: "code_only", authorization: "not_verified", reason: "no_github_remote" };
 const VERIFIED = { mode: "authorized", authorization: "verified", reason: null };
 const ALL_PASSED = {
@@ -85,13 +100,39 @@ describe("scanBasis (JSON 1.7)", () => {
     ]) {
       expect(readScanResult(result(overrides)).ok).toBe(false);
     }
-    expect(
-      readScanResult(
-        result({
-          scanBasis: { mode: "authorized", authorization: "not_verified", reason: "check_failed" },
-        }),
-      ).ok,
-    ).toBe(true);
+    const unverified = {
+      mode: "authorized",
+      authorization: "not_verified",
+      reason: "check_failed",
+    };
+    expect(readScanResult(result({ overallStatus: "failed", scanBasis: unverified })).ok).toBe(
+      true,
+    );
+    expect(readScanResult(result({ overallStatus: "blocked", scanBasis: unverified })).ok).toBe(
+      true,
+    );
+  });
+
+  it("refuses a code-only result whose label was edited to an unverified authorized scan", () => {
+    const edited = { mode: "authorized", authorization: "not_verified", reason: "no_approval" };
+    // Analysis ran (completed / partial) or there are findings: the gate never stopped this scan.
+    for (const overrides of [
+      { overallStatus: "completed" },
+      { overallStatus: "partial" },
+      { overallStatus: "blocked", findings: [FINDING] },
+      { overallStatus: "failed", findings: [FINDING] },
+    ]) {
+      expect(readScanResult(result({ ...overrides, scanBasis: edited })).ok).toBe(false);
+    }
+  });
+
+  it("requires scanBasis from 1.7 on, so deleting it cannot drop the label", () => {
+    const { scanBasis: _dropped, ...withoutBasis } = result({ scanBasis: CODE_ONLY });
+    const missing = readScanResult(withoutBasis);
+    expect(missing.ok).toBe(false);
+    expect(!missing.ok && missing.error.message).toContain("scanBasis is required");
+    expect(readScanResult({ ...withoutBasis, schemaVersion: "1.8" }).ok).toBe(false);
+    expect(readScanResult({ ...withoutBasis, schemaVersion: "1.6" }).ok).toBe(true);
   });
 
   it("labels a code-only SARIF run and keeps it apart from authorized runs", () => {

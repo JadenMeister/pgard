@@ -46,6 +46,7 @@ export interface PrecommitText {
   decisionBlockedNotScanned: string;
   decisionWarnNotScanned: string;
   skipReason: Record<
+    | "binary_suspected"
     | "too_large"
     | "file_limit"
     | "byte_budget"
@@ -147,6 +148,8 @@ const EN: PrecommitText = {
   decisionWarnNotScanned:
     "WARNING: commit allowed, but the staged changes were not (fully) scanned (whenNotScanned: warn). Nothing was checked for the parts listed above.",
   skipReason: {
+    binary_suspected:
+      "looks binary but has no known file format (it may be text, such as a log with colour codes), so it was not read",
     too_large:
       "a text file over 1 MiB (binary files of any size are skipped by design); set whenNotScanned to warn to let such commits through",
     file_limit: "over the limit of 500 changed files",
@@ -255,6 +258,8 @@ const KO: PrecommitText = {
   decisionWarnNotScanned:
     "경고: 커밋은 허용되지만 스테이징된 변경을 (모두) 검사하지 못했습니다(whenNotScanned: warn). 위에 적은 부분은 전혀 확인되지 않았습니다.",
   skipReason: {
+    binary_suspected:
+      "바이너리처럼 보이지만 알려진 파일 형식이 아니어서(색상 코드가 든 로그 같은 텍스트일 수 있음) 읽지 않았습니다",
     too_large:
       "1 MiB를 넘는 텍스트 파일(바이너리 파일은 크기와 관계없이 설계상 건너뜁니다). 이런 커밋을 통과시키려면 whenNotScanned를 warn으로 설정하세요",
     file_limit: "변경 파일 500개 제한 초과",

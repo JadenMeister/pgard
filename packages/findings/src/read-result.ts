@@ -408,6 +408,17 @@ function checkScanBasis(basis: ScanBasis, result: ScanResult): void {
       );
     }
   }
+  // An authorized-mode scan that was not verified never ran the analyzers: the gate blocked it
+  // or failed. Anything else is a code-only result with its label edited away.
+  if (basis.mode === "authorized" && basis.authorization === "not_verified") {
+    const stopped = result.overallStatus === "blocked" || result.overallStatus === "failed";
+    if (!stopped || result.findings.length > 0) {
+      fail(
+        "invalid_shape",
+        "scanBasis authorized and not_verified needs overallStatus blocked or failed and no findings.",
+      );
+    }
+  }
   if (basis.mode === "code_only") {
     const codeOnlyScopes =
       result.requestedScopes.length === 1 && result.requestedScopes[0] === "code";
@@ -774,7 +785,11 @@ function parse(input: unknown): ReadScanResultOutcome {
   const incremental = field(input, "incremental");
   if (incremental !== undefined) result.incremental = readIncrementalInfo(incremental);
   // Added in 1.7: absent in older results (a reader treats absent as an authorized scan).
+  // Required from 1.7 on, so removing it from a file cannot drop the code-only label.
   const scanBasis = field(input, "scanBasis");
+  if (scanBasis === undefined && Number(sourceVersion.split(".")[1]) >= 7) {
+    fail("invalid_shape", `scanBasis is required in schemaVersion ${sourceVersion}.`);
+  }
   if (scanBasis !== undefined) {
     result.scanBasis = readScanBasis(scanBasis);
     checkScanBasis(result.scanBasis, result);

@@ -31,9 +31,11 @@ import type { AnalyzerContext } from "./types.js";
  * `O_NONBLOCK` and checked again on the open handle (`readSmallRegularFileBytes`), so a file
  * swapped for a symbolic link or a FIFO is neither followed nor able to block the read; links
  * and special files are never read. Anything left out (a limit, a large or unreadable file)
- * makes the area `partial`, and the note names the files. Clearly binary files (a known file
- * signature, or binary content) are skipped by design, as in the pre-commit check, and named in
- * the note; they do not make the area partial.
+ * makes the area `partial`, and the note names the files. A file with a known binary format
+ * (PNG, ZIP, ...) is skipped by design, as in the pre-commit check, and named in the note; it
+ * does not make the area partial. A file that only looks binary by its content (no known
+ * signature: it may be text, such as a log with colour codes) is not read and makes the area
+ * `partial`.
  */
 export const WORKING_TREE_SECRETS_AREA = "secrets:working-tree";
 
@@ -56,7 +58,7 @@ export interface WorkingTreeSecretsOutput {
   coverage: Coverage[];
 }
 
-type Skip = "too_large" | "unreadable" | "binary";
+type Skip = "too_large" | "unreadable" | "binary" | "binary_suspected";
 
 class Named {
   readonly paths: string[] = [];
@@ -95,11 +97,13 @@ export async function scanWorkingTreeSecrets(
   const large = new Named();
   const unreadable = new Named();
   const binary = new Named();
+  const suspected = new Named();
   const unreadFolders = new Named();
   const notRead: Array<{ path: string; reason: StagedSkipReason }> = [];
   const findings: Finding[] = [];
   const skip = (entry: string, why: Skip): void => {
-    (why === "too_large" ? large : why === "binary" ? binary : unreadable).add(entry);
+    const named = { too_large: large, binary, binary_suspected: suspected, unreadable }[why];
+    named.add(entry);
     notRead.push({ path: entry, reason: why });
   };
 
@@ -157,7 +161,7 @@ export async function scanWorkingTreeSecrets(
         filesRead += 1;
         const decoded = decodeStagedBlobBoth(read.bytes.toString("latin1"));
         if (decoded.text === null) {
-          skip(child, "binary");
+          skip(child, decoded.binary === "content" ? "binary_suspected" : "binary");
           continue;
         }
         const scan = scanStagedSecrets([
@@ -188,11 +192,13 @@ export async function scanWorkingTreeSecrets(
     stoppedBy !== null ||
     hitDepth ||
     large.count > 0 ||
+    suspected.count > 0 ||
     unreadable.count > 0 ||
     unreadFolders.count > 0;
   const parts = [`${filesRead} file(s) on disk checked for secrets.`];
   for (const line of [
-    large.describe(`file(s) over ${Math.round(limits.fileBytes / 1024)} KiB were not read`),
+    large.describe(`file(s) over ${size(limits.fileBytes)} were not read`),
+    suspected.describe("file(s) looked binary without a known file format and were not read"),
     unreadable.describe("file(s) could not be read"),
     unreadFolders.describe("folder(s) could not be read"),
     binary.describe("binary file(s) were skipped by design"),
@@ -204,8 +210,8 @@ export async function scanWorkingTreeSecrets(
     const why = {
       entries: `${limits.entries} folder entries`,
       files: `${limits.files} files`,
-      bytes: `${Math.round(limits.totalBytes / (1024 * 1024))} MiB read`,
-      time: `${Math.round(limits.timeMs / 1000)} s`,
+      bytes: `${size(limits.totalBytes)} read`,
+      time: seconds(limits.timeMs),
     }[stoppedBy];
     parts.push(`The walk stopped at its limit (${why}); not every file was checked.`);
   }
@@ -221,6 +227,16 @@ export async function scanWorkingTreeSecrets(
       },
     ],
   };
+}
+
+/** `1 MiB`, `512 KiB`, or `<1 KiB`: never a misleading `0`. */
+function size(bytes: number): string {
+  if (bytes >= 1024 * 1024) return `${Math.round(bytes / (1024 * 1024))} MiB`;
+  return bytes >= 1024 ? `${Math.round(bytes / 1024)} KiB` : "<1 KiB";
+}
+
+function seconds(milliseconds: number): string {
+  return milliseconds >= 1000 ? `${Math.round(milliseconds / 1000)} s` : "<1 s";
 }
 
 /** The pre-commit wording says "staged"; these findings come from the files on disk. */
