@@ -220,3 +220,74 @@ export interface AdvisoryStatusDto {
 
 /** Formats the browser can download from `GET /api/reports/<format>`. */
 export type ReportFormatDto = "html" | "pdf";
+
+/** Most points a trend answer carries (the result store keeps at most this many scans per repository). */
+export const TREND_MAX_POINTS = 20;
+
+/** How completely one stored scan covered what it was asked to check. */
+export type TrendCoverage = "completed" | "partial" | "not_tested";
+
+/**
+ * Findings of one stored scan by severity. Only active findings are counted here; suppressed
+ * ("ignored") and baseline findings have their own counts, so the three never overlap.
+ */
+export interface TrendSeverityCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+}
+
+/** What one scan changed against the scan before it (the M2-2 scan comparison). */
+export interface TrendChangeDto {
+  /** In this scan only. */
+  new: number;
+  /** In the earlier scan only, in a place fully analyzed both times ("no longer reported", not proof of a fix). */
+  noLongerReported: number;
+  unchanged: number;
+  /** Earlier findings that could not be checked again (an area was not fully analyzed). */
+  notComparable: number;
+}
+
+export interface TrendPointDto {
+  /** When PGARD stored the scan (epoch ms). */
+  savedAt: number;
+  coverage: TrendCoverage;
+  /** Coverage entries that were selected but not completed. */
+  incompleteAreas: number;
+  severity: TrendSeverityCounts;
+  /** Active findings (the severity counts added up). */
+  total: number;
+  /** Findings ignored by `pgard.config.json` suppressions. */
+  ignored: number;
+  /** Findings that are in the saved baseline (and not ignored). */
+  baselined: number;
+  /** Against the point before this one; `null` for the first point or when the two do not compare. */
+  change: TrendChangeDto | null;
+}
+
+/**
+ * `GET /api/trend`: the saved CLI scans of the verified current repository, oldest first, counts
+ * only. No paths, no finding text, no scan ids. At most `TREND_MAX_POINTS` points.
+ */
+export type TrendResponse =
+  /** The result store is switched off (`--no-store` or `PGARD_NO_STORE=1`). */
+  | { kind: "disabled" }
+  | {
+      kind: "unavailable";
+      /** `not-verified`: no allowed authorization check yet, so scans cannot be matched to this repository. */
+      why: "not-verified" | "no-store-dir" | "unreadable";
+    }
+  | {
+      kind: "ready";
+      points: TrendPointDto[];
+      /** Stored files that could not be read. */
+      skipped: number;
+      /** Stored scans written by a newer PGARD, left out. */
+      newerSkipped: number;
+      /** Stored scans dated in the future, left out so they cannot reverse the order. */
+      futureSkipped: number;
+      /** Older stored files that were not opened because the cap was reached. */
+      unread: number;
+    };

@@ -76,7 +76,11 @@ async function runLauncher(): Promise<number> {
     return 5;
   }
   const deps = options.picker
-    ? { ...createDefaultServerDeps(), picker: await createPickerDeps(options) }
+    ? {
+        ...createDefaultServerDeps(),
+        picker: await createPickerDeps(options),
+        isStoreDisabled: options.noStore,
+      }
     : undefined;
   const server = await startLocalWebServer({
     projectRoot: options.projectRoot,
