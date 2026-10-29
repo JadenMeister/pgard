@@ -30,6 +30,11 @@ export interface RuleDescriptor {
   owasp: string[];
   impact: string;
   recommendation: string;
+  /**
+   * `true` when the rule can offer a suggested-fix diff (`Finding.fix`) for the findings whose code
+   * is one of the few mechanical rewrites its fixer knows. Criteria: docs/RESULT_SCHEMA.md.
+   */
+  fixable?: true;
   metadata: RuleMetadata;
 }
 

@@ -6,6 +6,7 @@ import {
   type Severity,
 } from "./contract.js";
 import { findingIdentity } from "./compare-scans.js";
+import { FIX_DISCLAIMER, parseLineReplacementDiff } from "./fix-diff.js";
 import { redactEvidence, redactFinding, redactSecrets, unmarkLocationPath } from "./redact.js";
 import { noDirectCertFor, standardsForFindings, type StandardLink } from "./rule-details.js";
 import type { CertCause } from "./rule-metadata.js";
@@ -35,6 +36,10 @@ import type { RuleTextCatalog } from "./rule-text.js";
  *   counted under suppressions only, as in the result).
  * - `automationDetails.id` is `pgard/<requested scopes sorted, joined with +>/`: GitHub closes
  *   alerts missing from a later upload of the same category, so each scan variant is its own.
+ * - A suggested fix that is a diff (`Finding.fix`, JSON 1.6) becomes `fixes[0]`: one `artifactChange`
+ *   with one replacement of the flagged line (`deletedRegion` of the whole old line,
+ *   `insertedContent` the new line), described as a suggestion to review. It is not applied by
+ *   anything in PGARD. Guidance (no diff) adds no `fixes`.
  * - Areas that are `partial` or `not_tested` become warning notifications in
  *   `invocations[0].toolExecutionNotifications`; a `blocked` or `failed` scan, or one with any `partial` or
  *   `not_tested` area, also gets an error notification and `executionSuccessful: false`. `not_selected` areas were not requested and
@@ -140,6 +145,36 @@ function buildLocations(finding: Finding): Array<Record<string, unknown>> {
   return [{ physicalLocation: physical }];
 }
 
+/**
+ * The SARIF `fix` of a finding whose suggested fix is a diff. The diff is parsed back into the
+ * single line it replaces, so `fixes` never carries anything the diff does not. Columns count
+ * UTF-16 code units, SARIF's default.
+ */
+function buildFix(finding: Finding): Record<string, unknown> | null {
+  if (finding.fix?.kind !== "diff" || finding.fix.diff === undefined) return null;
+  const replacement = parseLineReplacementDiff(finding.fix.diff);
+  if (replacement === null || replacement.path !== finding.location.path) return null;
+  return {
+    description: { text: FIX_DISCLAIMER.en },
+    artifactChanges: [
+      {
+        artifactLocation: { uri: pathToUri(replacement.path), uriBaseId: SARIF_SRCROOT },
+        replacements: [
+          {
+            deletedRegion: {
+              startLine: replacement.line,
+              startColumn: 1,
+              endLine: replacement.line,
+              endColumn: replacement.oldLine.length + 1,
+            },
+            insertedContent: { text: replacement.newLine },
+          },
+        ],
+      },
+    ],
+  };
+}
+
 function buildResult(
   finding: Finding,
   ruleIndex: number,
@@ -176,6 +211,8 @@ function buildResult(
       pgard,
     },
   };
+  const fix = buildFix(finding);
+  if (fix !== null) result.fixes = [fix];
   if (finding.suppression !== undefined) {
     result.suppressions = [
       {

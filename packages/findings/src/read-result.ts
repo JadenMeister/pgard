@@ -3,6 +3,8 @@ import {
   AUTHORIZATION_CHECK_STATUSES,
   CONFIDENCES,
   COVERAGE_STATUSES,
+  FINDING_FIX_KINDS,
+  MAX_FIX_DIFF_LENGTH,
   DEPENDENCY_SEVERITY_SOURCES,
   FINDING_CATEGORIES,
   FINDING_CONTEXTS,
@@ -23,6 +25,7 @@ import {
   type Coverage,
   type Finding,
   type FindingDependency,
+  type FindingFix,
   type FindingLocation,
   type FindingReferences,
   type FindingSuppression,
@@ -130,6 +133,7 @@ export const READER_KEYS = {
     suppression: true,
     inBaseline: true,
     dependency: true,
+    fix: true,
   } satisfies Record<keyof Finding, true>,
   location: {
     kind: true,
@@ -480,12 +484,36 @@ function readFinding(value: unknown, path: string): Finding {
   if (dependency !== undefined) {
     finding.dependency = readDependency(dependency, `${path}.dependency`);
   }
+  const fix = field(o, "fix");
+  if (fix !== undefined) finding.fix = readFix(fix, `${path}.fix`);
   const inBaseline = field(o, "inBaseline");
   if (inBaseline !== undefined) {
     if (inBaseline !== true) fail("invalid_shape", `${path}.inBaseline must be true when present.`);
     finding.inBaseline = true;
   }
   return finding;
+}
+
+function readFix(value: unknown, path: string): FindingFix {
+  const o = object(value, path);
+  const kind = oneOf(field(o, "kind"), FINDING_FIX_KINDS, `${path}.kind`);
+  const diff = field(o, "diff");
+  const reason = field(o, "reason");
+  const fix: FindingFix = {
+    kind,
+    confidence: oneOf(field(o, "confidence"), CONFIDENCES, `${path}.confidence`),
+  };
+  if (kind === "diff") {
+    if (typeof diff !== "string" || diff.length === 0) {
+      fail("invalid_shape", `${path}.diff must be a non-empty string when kind is diff.`);
+    }
+    if (diff.length > MAX_FIX_DIFF_LENGTH) fail("too_large", `${path}.diff is too long.`);
+    fix.diff = diff;
+  } else if (diff !== undefined) {
+    fail("invalid_shape", `${path}.diff is only allowed when kind is diff.`);
+  }
+  if (reason !== undefined) fix.reason = str(reason, `${path}.reason`);
+  return fix;
 }
 
 function readDependency(value: unknown, path: string): FindingDependency {
