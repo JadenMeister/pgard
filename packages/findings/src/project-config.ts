@@ -15,6 +15,9 @@ import { INVISIBLE_CHARACTERS, globProblem } from "./glob.js";
  * }
  * ```
  *
+ * `precommit` (`{ "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }`) only sets what
+ * the `pgard precommit` hook does with a result.
+ *
  * Deliberately not configurable: authorization, hosts, ports, network targets and rule
  * severities. Any key not listed here is rejected, so a config can never widen what PGARD
  * contacts or relax the authorization gate.
@@ -43,12 +46,30 @@ export interface ProjectSuppression {
   expires?: string;
 }
 
+/**
+ * `pgard precommit` settings. Both values only decide what the commit hook does with a result;
+ * neither can skip or relax the authorization checks.
+ */
+export interface PrecommitConfig {
+  /** `block` exits non-zero on a finding and stops the commit; `warn` prints and exits 0. */
+  mode?: "block" | "warn";
+  /**
+   * What happens when nothing (or not everything) could be scanned: not authorized, an error, a
+   * timeout, a file over the size limit. Unset: the same as `mode`, so a `block` hook blocks.
+   */
+  whenNotScanned?: "block" | "warn";
+}
+
+export const PRECOMMIT_MODES: readonly ("block" | "warn")[] = ["block", "warn"];
+
 export interface ProjectConfig {
   version: 1;
   exclude: string[];
   testDirectories: string[];
   /** Parsed and validated only; applying them is a later step. */
   suppressions: ProjectSuppression[];
+  /** Only for `pgard precommit`; absent means the defaults (`block`). */
+  precommit?: PrecommitConfig;
 }
 
 export type ProjectConfigParse =
@@ -262,7 +283,13 @@ export function parseProjectConfig(text: string): ProjectConfigParse {
     return { ok: false, problems: ["the top level must be a JSON object"] };
   }
   const problems: string[] = [];
-  checkKeys(root, "config", ["version"], ["exclude", "testDirectories", "suppressions"], problems);
+  checkKeys(
+    root,
+    "config",
+    ["version"],
+    ["exclude", "testDirectories", "suppressions", "precommit"],
+    problems,
+  );
   if (root.has("version") && root.get("version") !== PROJECT_CONFIG_VERSION) {
     problems.push(`version: must be the number ${PROJECT_CONFIG_VERSION}`);
   }
@@ -323,10 +350,36 @@ export function parseProjectConfig(text: string): ProjectConfigParse {
       });
     }
   }
+  let precommit: PrecommitConfig | undefined;
+  if (root.has("precommit")) {
+    const section = root.get("precommit");
+    if (!(section instanceof Map)) {
+      problems.push("precommit: must be an object");
+    } else {
+      checkKeys(section, "precommit", [], ["mode", "whenNotScanned"], problems);
+      const parsed: PrecommitConfig = {};
+      for (const key of ["mode", "whenNotScanned"] as const) {
+        if (!section.has(key)) continue;
+        const value = section.get(key);
+        if (value === "block" || value === "warn") parsed[key] = value;
+        else problems.push(`precommit.${key}: must be "block" or "warn"`);
+      }
+      precommit = parsed;
+    }
+  }
   if (problems.length > 0) {
     const shown = problems.slice(0, MAX_REPORTED_PROBLEMS);
     const rest = problems.length - shown.length;
     return { ok: false, problems: rest > 0 ? [...shown, `and ${rest} more problem(s)`] : shown };
   }
-  return { ok: true, config: { version: 1, exclude, testDirectories, suppressions } };
+  return {
+    ok: true,
+    config: {
+      version: 1,
+      exclude,
+      testDirectories,
+      suppressions,
+      ...(precommit === undefined ? {} : { precommit }),
+    },
+  };
 }

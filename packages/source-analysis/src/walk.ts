@@ -209,7 +209,7 @@ const TEMPLATE_EXTENSIONS: ReadonlySet<string> = new Set([
   ".jte",
 ]);
 
-const EXTENSIONS: Record<string, SourceLanguage> = {
+export const EXTENSIONS: Record<string, SourceLanguage> = {
   ".js": "javascript",
   ".jsx": "javascript",
   ".mjs": "javascript",

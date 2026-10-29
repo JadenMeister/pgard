@@ -1,4 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
+import path from "node:path";
 import { resolveGitExecutable } from "./git-executable.js";
 
 export interface GitRunOptions {
@@ -16,8 +17,16 @@ export interface GitRunOptions {
    * `output_limit` (e.g. to read only the start of a large blob).
    */
   truncate?: boolean;
-  /** Overrides the 60 s time limit (tests only). */
+  /** Overrides the 60 s time limit (tests and the pre-commit time cap). */
   timeoutMs?: number;
+  /**
+   * Absolute path of the index file to read instead of the default one (`GIT_INDEX_FILE`).
+   * Git points a pre-commit hook at a temporary index for `git commit -a` and `git commit
+   * <path>`; the staged content is only correct when read from that file. Accepted for
+   * `ls-files` alone (the one subcommand that reads the index); the caller must already have
+   * checked that the file lies inside the repository's Git directory.
+   */
+  indexFile?: string;
 }
 
 /**
@@ -371,6 +380,8 @@ function trackChild(child: ChildProcess): void {
 }
 
 function execGit(args: readonly string[], options: GitRunOptions): Promise<string> {
+  const env = buildGitEnv();
+  if (options.indexFile !== undefined) env.GIT_INDEX_FILE = options.indexFile;
   const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
     // An absolute path on Windows, so a `git.exe` inside the scanned repository never runs.
@@ -381,7 +392,7 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
     }
     const child = spawn(gitProgram, [...args], {
       cwd: options.cwd,
-      env: buildGitEnv(),
+      env,
       shell: false,
       windowsHide: true,
       stdio: ["pipe", "pipe", "ignore"],
@@ -490,6 +501,14 @@ export async function readDriverOverrides(cwd: string): Promise<string[]> {
 
 /** Default runner backed by `child_process.spawn("git", [...], { shell: false })`. */
 export const runGit: GitRunner = async (invocation, options) => {
+  if (
+    options.indexFile !== undefined &&
+    (invocation.subcommand !== "ls-files" ||
+      !path.isAbsolute(options.indexFile) ||
+      options.indexFile.includes("\0"))
+  ) {
+    throw new GitCommandError("git index file is not allowed", null);
+  }
   const overrides = METADATA_ONLY.has(invocation.subcommand)
     ? []
     : await readDriverOverrides(options.cwd);

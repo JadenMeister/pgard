@@ -492,7 +492,7 @@ async function hasUtf16Blob(
   return false;
 }
 
-function createFinding(fields: {
+export function createFinding(fields: {
   ruleId: HistoryRuleId;
   path: string;
   line: number | null;
@@ -529,7 +529,7 @@ function createFinding(fields: {
   };
 }
 
-function assessment({ kind, weak, codeText }: DetectedSecret): {
+export function assessment({ kind, weak, codeText }: DetectedSecret): {
   severity: Severity;
   status: FindingStatus;
   confidence: Confidence;

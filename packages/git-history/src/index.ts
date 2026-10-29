@@ -33,6 +33,28 @@ export {
   type HistoryScanOptions,
   type HistoryScanOutput,
 } from "./scan-history.js";
+export {
+  isPathInside,
+  resolveHookIndexFile,
+  resolveHooksLocation,
+  type HookIndexFile,
+  type HooksLocation,
+  type PathModule,
+} from "./hook-paths.js";
+export {
+  INCOMPLETE_SKIP_REASONS,
+  STAGED_MAX_FILES,
+  STAGED_MAX_FILE_BYTES,
+  STAGED_MAX_TOTAL_BYTES,
+  decodeStagedBlob,
+  readStagedChanges,
+  type StagedChanges,
+  type StagedFile,
+  type StagedReadOptions,
+  type StagedSkip,
+  type StagedSkipReason,
+} from "./staged.js";
+export { addedLineNumbers, scanStagedSecrets, type StagedSecretScan } from "./staged-secrets.js";
 export { HISTORY_RULES, listHistoryRules, type HistoryRuleId } from "./history-rules.js";
 export {
   detectSecrets,
