@@ -72,6 +72,21 @@ describe("runCodeOnlyScan (prototype, #414)", () => {
     expect(JSON.stringify(result)).not.toContain(ROOT);
     expect(stages[0]).toBe("authorization:skipped");
     expect(readScanResult(JSON.parse(JSON.stringify(result))).ok).toBe(true);
+    // JSON 1.7: the result says it is code-only and that authorization was not verified.
+    expect(result.schemaVersion).toBe("1.7");
+    expect(result.scanBasis).toEqual({
+      mode: "code_only",
+      authorization: "not_verified",
+      reason: "not_checked",
+    });
+  });
+
+  it("records why the scan is code-only", async () => {
+    const result = await runCodeOnlyScan(
+      { projectRoot: ROOT, reason: "not_a_git_repository" },
+      { analyzers: { code: async () => codeOutput } },
+    );
+    expect(result.scanBasis?.reason).toBe("not_a_git_repository");
   });
 
   it("reports partial when the code coverage is partial", async () => {

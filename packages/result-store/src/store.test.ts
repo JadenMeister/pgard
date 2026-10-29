@@ -19,6 +19,7 @@ import {
   RETENTION_MAX_AGE_DAYS,
   RETENTION_MAX_SCANS_PER_REPO,
   createResultStore,
+  isAllowedByGate,
   type ResultStore,
 } from "./store.js";
 
@@ -585,7 +586,7 @@ describe("corrupt, oversized and newer files", () => {
     const first = await store.save(makeResult(), { repositoryId: REPO_ID });
     if (!first.ok) throw new Error("setup");
     const file = path.join(dir, "repos", String(REPO_ID), first.file);
-    const newer = { ...makeResult(), schemaVersion: "1.7", futureField: { keep: "me" } };
+    const newer = { ...makeResult(), schemaVersion: "1.8", futureField: { keep: "me" } };
     const original = JSON.stringify(newer);
     await writeFile(file, original);
     const again = await store.save(makeResult(), { repositoryId: REPO_ID });
@@ -593,7 +594,7 @@ describe("corrupt, oversized and newer files", () => {
     expect(await readFile(file, "utf8")).toBe(original);
     // The newer file is still readable and reports its version.
     const listed = await store.list(REPO_ID);
-    expect(listed.scans[0]?.sourceVersion).toBe("1.7");
+    expect(listed.scans[0]?.sourceVersion).toBe("1.8");
   });
 
   it("overwrites an identical-version file of the same scan (idempotent)", async () => {
@@ -672,5 +673,24 @@ describe("clear", () => {
     await store.save(makeResult(), { repositoryId: REPO_ID });
     await store.clear();
     expect(await store.claimFirstRunNotice()).toBe(false);
+  });
+});
+
+describe("code-only results (JSON 1.7)", () => {
+  it("are never allowed into the store, whatever their checks say", () => {
+    const allowed = makeResult();
+    expect(isAllowedByGate(allowed)).toBe(true);
+    expect(
+      isAllowedByGate({
+        ...allowed,
+        scanBasis: { mode: "code_only", authorization: "not_verified", reason: "not_checked" },
+      }),
+    ).toBe(false);
+    expect(
+      isAllowedByGate({
+        ...allowed,
+        scanBasis: { mode: "authorized", authorization: "verified", reason: null },
+      }),
+    ).toBe(true);
   });
 });

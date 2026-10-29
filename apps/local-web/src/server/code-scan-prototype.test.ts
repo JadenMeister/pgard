@@ -95,7 +95,10 @@ describe("POST /api/code-scan (prototype)", () => {
 
   it("runs the code-only scan without the gate and labels the result", async () => {
     const runCodeOnlyScan = vi.fn(async () =>
-      result({ target: { repo: null, revision: null, webOrigin: null } }),
+      result({
+        target: { repo: null, revision: null, webOrigin: null },
+        scanBasis: { mode: "code_only", authorization: "not_verified", reason: "not_checked" },
+      }),
     );
     const runScan = vi.fn(async () => result());
     const verifyProject = vi.fn();
@@ -121,9 +124,9 @@ describe("POST /api/code-scan (prototype)", () => {
     expect(harness.inspector.runs.some((run) => run.job.kind === "inspect")).toBe(true);
     // The real path never reaches the browser.
     expect(JSON.stringify(done)).not.toContain("/home/u/code/shop");
-    // A code-only result is not exported by the prototype.
+    // D5: a code-only result is exported, with the "not authorized" banner.
     const report = await apiGet(harness.server, "/api/reports/html");
-    expect(report.status).toBe(409);
-    expect((json(report).error as { code: string }).code).toBe("code_only_result");
+    expect(report.status).toBe(200);
+    expect(report.body).toContain("Not authorized: code-only scan");
   });
 });

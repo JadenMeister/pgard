@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.6" as const;
+export const SCHEMA_VERSION = "1.7" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -581,6 +581,55 @@ export interface ScanResult {
   standardsCoverage?: StandardsCoverage;
   /** Added in 1.2. Absent in older results and when the launcher did not offer incremental scans. */
   incremental?: IncrementalInfo;
+  /**
+   * Added in 1.7: whether the authorization gate ran and passed. Absent in older results, and a
+   * reader treats absent as `mode: "authorized"` with the gate's own `authorization.decision`
+   * (older PGARD ran the gate before every scan).
+   */
+  scanBasis?: ScanBasis;
+}
+
+/**
+ * - `authorized`: the authorization gate ran (`authorization` holds its five checks).
+ * - `code_only`: no gate ran. Only the current files were analyzed; no Git history, no web
+ *   checks, nothing stored. Authorization was not proven.
+ */
+export type ScanBasisMode = "authorized" | "code_only";
+export const SCAN_BASIS_MODES = exhaustive<ScanBasisMode>({ authorized: true, code_only: true });
+
+/** `verified` only when the gate ran and allowed the scan. */
+export type ScanBasisAuthorization = "verified" | "not_verified";
+export const SCAN_BASIS_AUTHORIZATIONS = exhaustive<ScanBasisAuthorization>({
+  verified: true,
+  not_verified: true,
+});
+
+/**
+ * Why authorization is `not_verified`: an open-ended code (a reader shows an unknown one as is).
+ * Known codes: `no_approval` (the gate ran and did not allow the scan), `not_checked` (a
+ * code-only scan that did not try the gate), `no_github_remote` (a Git repository without a
+ * single github.com remote), `not_a_git_repository`, `offline`.
+ */
+export const SCAN_BASIS_REASONS = [
+  "no_approval",
+  "not_checked",
+  "no_github_remote",
+  "not_a_git_repository",
+  "offline",
+] as const;
+export type KnownScanBasisReason = (typeof SCAN_BASIS_REASONS)[number];
+
+/** Added in 1.7. */
+export interface ScanBasis {
+  mode: ScanBasisMode;
+  authorization: ScanBasisAuthorization;
+  /** `null` exactly when `authorization` is `verified`. Lowercase letters and `_`, at most 64. */
+  reason: string | null;
+}
+
+/** True for a result written by a code-only scan (1.7 and later). */
+export function isCodeOnlyResult(result: Pick<ScanResult, "scanBasis">): boolean {
+  return result.scanBasis?.mode === "code_only";
 }
 
 /** A local HTTP target the user explicitly confirmed with `Y` after seeing its identity. */

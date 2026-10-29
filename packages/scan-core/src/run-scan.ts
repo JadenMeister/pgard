@@ -20,6 +20,7 @@ import {
   type IncrementalFullReason,
   type IncrementalInfo,
   type IncrementalState,
+  type KnownScanBasisReason,
   type PathMatcher,
   type RuleStat,
   type StandardsRule,
@@ -236,7 +237,14 @@ export const CODE_ONLY_CHECK_REASON =
  * web checks are refused here (`ScanRequestError`): they keep the full gate of `runScan`.
  */
 export async function runCodeOnlyScan(
-  request: Pick<ScanRequest, "projectRoot">,
+  request: Pick<ScanRequest, "projectRoot"> & {
+    /**
+     * Why this scan is code-only (`scanBasis.reason`, default `not_checked`): for example
+     * `no_github_remote` or `not_a_git_repository` when the launcher knows the folder has no
+     * GitHub repository to verify, or `no_approval` after the gate blocked.
+     */
+    reason?: KnownScanBasisReason;
+  },
   deps: Omit<
     ScanDependencies,
     "authorization" | "webScanner" | "webRules" | "incremental" | "onAuthorization"
@@ -267,6 +275,7 @@ export async function runCodeOnlyScan(
       authorization: { getGitHubSession: refuseGitHubSession },
     },
     "code_only",
+    request.reason ?? "not_checked",
   );
 }
 
@@ -282,6 +291,7 @@ async function executeScan(
   request: ScanRequest,
   deps: ScanDependencies,
   mode: "authorized" | "code_only",
+  codeOnlyReason: KnownScanBasisReason = "not_checked",
 ): Promise<ScanResult> {
   const requestedScopes = validateRequest(request);
   if (mode === "code_only" && requestedScopes.some((scope) => scope !== "code")) {
@@ -372,6 +382,12 @@ async function executeScan(
       ruleStats: fields.ruleStats ?? [],
     }),
     ...(fields.incremental ? { incremental: fields.incremental } : {}),
+    scanBasis:
+      mode === "code_only"
+        ? { mode: "code_only", authorization: "not_verified", reason: codeOnlyReason }
+        : fields.authorization.decision === "allowed"
+          ? { mode: "authorized", authorization: "verified", reason: null }
+          : { mode: "authorized", authorization: "not_verified", reason: "no_approval" },
   });
 
   throwIfCancelled(deps.signal);

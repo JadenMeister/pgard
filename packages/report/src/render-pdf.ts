@@ -34,6 +34,7 @@ import {
   suppressionReasonLine,
   type ReportContext,
 } from "./report-view.js";
+import { codeOnlyLabel } from "./code-only-text.js";
 import { incrementalLine } from "./incremental-text.js";
 
 const MUTED = "#475569";
@@ -400,6 +401,30 @@ export function renderPdfReport(
       doc.registerFont(FONT_STYLE.bold, loaded.fonts.bold);
     }
     const chunks: Buffer[] = [];
+    // A code-only result (JSON 1.7) carries its "not authorized" banner on every page.
+    const codeOnly = codeOnlyLabel(input, ctx.chrome);
+    const drawBanner = (): void => {
+      if (codeOnly === null) return;
+      const { x, y } = doc;
+      doc
+        .save()
+        .rect(0, 0, doc.page.width, PAGE_MARGIN - 14)
+        .fill("#fef3c7")
+        .restore();
+      doc
+        .font(style.bold)
+        .fontSize(8)
+        .fillColor("#78350f")
+        .text(style.text(codeOnly.banner), PAGE_MARGIN, 14, {
+          width: doc.page.width - PAGE_MARGIN * 2,
+          lineBreak: false,
+          ellipsis: true,
+        });
+      doc.x = x;
+      doc.y = y;
+    };
+    drawBanner();
+    doc.on("pageAdded", drawBanner);
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
@@ -427,6 +452,12 @@ export function renderPdfReport(
     if (!loaded.ok) {
       doc.moveDown(0.3);
       line(doc, style, fontFallbackMessage(loaded.reason), "#b45309");
+    }
+    if (codeOnly !== null) {
+      doc.moveDown(0.5);
+      doc.font(style.bold).fontSize(13).fillColor("#78350f").text(style.text(codeOnly.title));
+      line(doc, style, codeOnly.body, "#78350f");
+      line(doc, style, codeOnly.reason, "#78350f");
     }
     const shown = [result, extraStrings(result, result.findings, ctx)];
     const hasReplacedText = loaded.ok

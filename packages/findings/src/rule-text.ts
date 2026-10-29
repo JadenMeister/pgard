@@ -56,6 +56,53 @@ export const RULE_TITLES_KO: Readonly<Record<string, string>> = {
   "PG-WEB-013": "HTTP로 제공되는 .git 디렉터리",
 };
 
+/** One set of finding texts in each language. */
+export interface FindingTextVariant {
+  title: Record<RuleLocale, string>;
+  impact: Record<RuleLocale, string>;
+  recommendation: Record<RuleLocale, string>;
+}
+
+/**
+ * Finding texts of a rule for another source than the rule's own (its definition describes Git
+ * history). `working_tree`: a secret found in the files on disk by a code-only scan (JSON 1.7),
+ * which may never have been committed, so it never says "tracked" or "committed to Git". The
+ * rule id and the finding fingerprint stay the same.
+ */
+export const FINDING_TEXT_VARIANTS: Readonly<
+  Record<string, Readonly<Record<"working_tree", FindingTextVariant>>>
+> = {
+  "PG-SECRET-001": {
+    working_tree: {
+      title: {
+        en: "Environment file in the project folder",
+        ko: "프로젝트 폴더의 환경 파일",
+      },
+      impact: {
+        en: "A `.env` file usually holds API keys, database passwords and signing secrets. Anyone who gets a copy of the folder, through a commit, a shared drive, a build image or an upload, can use them.",
+        ko: "`.env` 파일에는 보통 API 키, 데이터베이스 비밀번호, 서명 비밀정보가 들어 있습니다. 커밋, 공유 드라이브, 빌드 이미지, 업로드 등으로 폴더 사본을 얻은 사람은 누구나 이를 사용할 수 있습니다.",
+      },
+      recommendation: {
+        en: "Keep the file out of version control and out of shared copies: add .env to .gitignore and commit a .env.example that lists the variable names without values. If the file was ever committed, pushed or shared, rotate the values at the provider.",
+        ko: "이 파일을 버전 관리와 공유 사본에서 빼세요. .env를 .gitignore에 추가하고, 값 없이 변수 이름만 적은 .env.example을 커밋하세요. 파일을 커밋·푸시·공유한 적이 있다면 발급처에서 값을 교체(rotate)하세요.",
+      },
+    },
+  },
+  "PG-SECRET-002": {
+    working_tree: {
+      title: { en: "Secret in a project file", ko: "프로젝트 파일 안의 비밀정보" },
+      impact: {
+        en: "A credential written in a source or configuration file reaches everyone who gets the file, through a commit, a shared folder, a build artifact or a log, and lets them authenticate as its owner. Automated scanners find keys pushed to public hosts within minutes.",
+        ko: "소스나 설정 파일에 적힌 자격 증명은 커밋, 공유 폴더, 빌드 산출물, 로그 등으로 그 파일을 얻은 누구에게나 전달되며, 그 사람은 소유자로 인증할 수 있습니다. 공개 호스트에 올라간 키는 자동 스캐너가 몇 분 안에 찾아냅니다.",
+      },
+      recommendation: {
+        en: "Remove the value from the file and load it from the environment or a secret manager. If the file was ever committed, pushed or shared, treat the value as compromised and revoke or rotate it at the provider first.",
+        ko: "파일에서 값을 지우고 환경 변수나 비밀정보 관리 도구(secret manager)에서 불러오세요. 파일을 커밋·푸시·공유한 적이 있다면 값이 유출된 것으로 보고 먼저 발급처에서 폐기하거나 교체(rotate)하세요.",
+      },
+    },
+  },
+};
+
 /** What a rule contributes to rendering: its title and the two finding texts, in each language. */
 export interface RuleTexts {
   title: Record<RuleLocale, string>;
@@ -63,6 +110,8 @@ export interface RuleTexts {
   recommendation: Record<RuleLocale, string>;
   /** Standards links, examples and the rule-level texts; absent in hand-built catalogs. */
   details?: RuleDetails;
+  /** Other finding texts of the rule (`FINDING_TEXT_VARIANTS`), matched by the English title. */
+  variants?: FindingTextVariant[];
 }
 
 export type RuleTextCatalog = ReadonlyMap<string, RuleTexts>;
@@ -78,6 +127,9 @@ export function buildRuleTextCatalog(
       impact: rule.metadata.rationale,
       recommendation: rule.metadata.remediation,
       details: buildRuleDetails(rule.metadata),
+      ...(FINDING_TEXT_VARIANTS[rule.id] === undefined
+        ? {}
+        : { variants: Object.values(FINDING_TEXT_VARIANTS[rule.id] ?? {}) }),
     });
   }
   return catalog;
@@ -106,8 +158,11 @@ export function localizeFinding<T extends Finding>(
   locale: RuleLocale,
 ): T {
   if (locale === "en") return finding;
-  const texts = catalog.get(finding.ruleId);
-  if (texts === undefined) return finding;
+  const rule = catalog.get(finding.ruleId);
+  if (rule === undefined) return finding;
+  // A finding written with a variant's English texts is translated with that variant.
+  const texts: FindingTextVariant =
+    rule.variants?.find((variant) => variant.title.en === finding.title) ?? rule;
   return {
     ...finding,
     title: finding.title === texts.title.en ? texts.title[locale] : finding.title,

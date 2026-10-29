@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.6`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.7`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.6`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.7`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -51,6 +51,8 @@
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
 
 ## 버전 이력
+
+**1.7**(추가만 있는 변경, minor 올림). 최상위에 선택 필드 `scanBasis`가 추가되었습니다. 권한 확인을 실행했는지, 통과했는지를 나타냅니다. 형태: `{ mode: "authorized" | "code_only", authorization: "verified" | "not_verified", reason: string | null }`. `mode: "authorized"`는 권한 확인을 실행했다는 뜻입니다(`authorization`에 다섯 가지 확인 결과가 있습니다). `mode: "code_only"`는 권한 확인을 실행하지 않았다는 뜻입니다. 현재 파일만 분석했으며(`code` 범위와 `secrets:working-tree` 영역), Git 이력과 웹 검사는 하지 않았고, 결과는 저장되지 않습니다. `authorization`은 권한 확인을 실행해 검사가 허용되었을 때만 `verified`이며, 코드 전용 결과는 언제나 `not_verified`입니다. `reason`은 `authorization`이 `verified`일 때만 `null`이고, 그 밖에는 열린 코드입니다(`no_approval`, `not_checked`, `no_github_remote`, `not_a_git_repository`, `offline`. 모르는 코드는 일반 문구로 보여 줍니다). 닫힌 열거형에 새 값은 없습니다. 코드 전용 결과는 `authorization.decision: "blocked"`(사실 그대로입니다. 권한 확인이 이 검사를 허용하지 않았습니다), 모든 확인 항목 `unverifiable`과 이유 "Not checked: this was a code-only scan of the files on this computer. No authorization was proven.", `requestedScopes: ["code"]`를 유지합니다. `overallStatus`는 코드 검사 범위만으로 정해집니다(`completed`, `partial`, `failed`. `blocked`는 아닙니다). **필드 사이의 규칙:** 1.7에서 `decision: "blocked"`와 `blocked`가 아닌 `overallStatus`가 함께 있으면 코드 전용 검사라는 뜻입니다. 그래서 `decision === "allowed"`를 확인하는 이전 버전의 읽는 쪽은 이를 권한 있는 검사로 취급하지 않습니다. SARIF는 이 객체를 `runs[0].properties.pgard.scanBasis`에 담고, 경고 알림 하나("Code-only scan: authorization was not verified ...")를 더하며, `automationDetails.id`로 `pgard/code-only/`를 씁니다. 코드 전용 결과의 HTML·PDF 보고서는 모든 페이지에 "권한 미확인: 코드 전용 검사" 배너를 넣습니다. 결과 저장소는 `scanBasis.authorization`이 `verified`가 아닌 결과를 거부합니다. `1.6` 이하 결과에는 이 필드가 없고, 읽는 쪽은 이를 `mode: "authorized"`와 권한 확인의 `authorization.decision`으로 취급합니다(이전 PGARD는 검사마다 먼저 권한을 확인했습니다).
 
 **1.6**(추가만 있는 변경, minor 올림). 발견 항목에 선택 필드 `fix`가 추가되었습니다. 검토용 수정 제안이며, `fixable`로 선언된 규칙(`RuleDescriptor.fixable`, 현재 `PG-COOKIE-001`과 `PG-CRYPTO-003`)의 발견 항목에만 있습니다. 형태: `{ kind: "diff" | "guidance", diff?, confidence, reason? }`. `kind: "diff"`는 저장소 파일 하나에 대한 unified diff인 `diff`를 담습니다. hunk 하나, 문맥 줄 없음, 지운 줄 하나와 추가한 줄 하나(`@@ -N,1 +N,1 @@`), 최대 2,000자이며 `git apply --unidiff-zero`로 적용합니다. `kind: "guidance"`에는 `diff`가 없습니다. 규칙은 diff를 줄 수 있지만 이 발견 항목 주변 코드는 그 교체 중 어느 것도 아니라는 뜻이며 `reason`이 이유를 알려 줍니다(열린 코드: `context_not_supported`, `sensitive_text`, `too_large`, `source_unavailable`, `too_many`). `confidence`(`high`, `medium`, `low`)는 표시된 코드의 의미가 유지된다고 PGARD가 얼마나 확신하는지이며 안전 보장이 아닙니다. **수정은 제안일 뿐 검증된 변경이 아닙니다.** PGARD는 이를 적용하지 않고, 검사 대상 파일에 쓰지 않으며, 결과가 컴파일되는지 또는 동작이 유지되는지 확인하지 않았고, 모든 화면이 그렇게 표시합니다. diff의 두 줄은 비밀·경로 가리기를 거쳐도 그대로여야 하며 아니면 diff가 없습니다. PGARD의 한 줄 diff가 아닌 diff를 만난 화면(또는 가리기 단계)은 안내를 대신 보여 줍니다. SARIF는 diff를 `results[].fixes`(표시된 줄을 교체하는 `replacement` 하나가 든 `artifactChange` 하나)로 담습니다. 지문은 `fix`에 의존하지 않습니다. `1.5` 이하 결과에는 이 필드가 없고, 읽는 쪽은 이를 "기록되지 않음"으로 취급합니다.
 

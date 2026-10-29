@@ -2,10 +2,10 @@
 
 > **참고:** 이 문서는 [`CODE_ONLY_SCAN_DESIGN.md`](CODE_ONLY_SCAN_DESIGN.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))와 [문서 목록](README.ko.md)도 참고하세요.
 
-> **상태: 동작하는 프로토타입이 있는 제안이며, 소유자의 승인을 기다립니다([#414](https://github.com/JadenMeister/pgard/issues/414)).**
+> **상태: 2026-10-29 소유자가 승인했습니다([#414](https://github.com/JadenMeister/pgard/issues/414), [#419](https://github.com/JadenMeister/pgard/issues/419)).** 단계별로 배포합니다(9절).
 >
-> - **아직 배포된 것은 없습니다.** CLI는 바뀌지 않았습니다. `PGARD_WEB_PROTOTYPE=code-only`를 설정하지 않으면 `pgard web`도 바뀌지 않습니다. 현재 동작의 기준은 README입니다.
-> - **소유자가 정할 사항**은 **[Owner decision]**으로 표시했습니다. 각 항목에는 권장안이 있으며, 11절에 모두 모아 두었습니다.
+> - **1단계인 결과 표시가 들어갔습니다.** JSON 1.7 `scanBasis`, SARIF, 보고서 배너, 코드 전용 비밀값 문구입니다. CLI는 2단계까지 바뀌지 않으며, `PGARD_WEB_PROTOTYPE=code-only`를 설정하지 않으면 `pgard web`도 바뀌지 않습니다(4단계에서 프로토타입을 대체합니다). 현재 동작의 기준은 README입니다.
+> - **결정 사항**은 **[Owner decision Dn]**으로 표시했으며, 모두 2026-10-29 권장안대로 결정되었습니다(11절).
 
 [README](../README.ko.md)와 [문서 목록](README.ko.md)으로 돌아가기.
 
@@ -156,11 +156,11 @@
 ```
 
 - **`mode`.**
-  - `"authorized"`: 권한 확인을 통과했습니다.
+  - `"authorized"`: 권한 확인을 실행했습니다(`authorization`이 통과 여부를 알려 줍니다. `verified`, 또는 `reason: "no_approval"`과 함께 `not_verified`).
   - `"code_only"`: 권한 확인을 하지 않았습니다.
   - 1.6 이하의 결과에는 이 필드가 없으며, 읽는 쪽은 없으면 `"authorized"`로 봅니다. 이전 PGARD는 권한 확인을 통과한 뒤에만 결과를 썼기 때문입니다.
 - **`authorization`.** `"verified"` 또는 `"not_verified"`. 조정자(coordinator)의 `authorization: "not_verified"`입니다. 기존 `authorization` 객체의 타입을 바꾸면 메이저 변경이 되므로 새 객체에 둡니다.
-- **`reason`.** 열려 있는 코드 값입니다.
+- **`reason`.** `authorization`이 `verified`일 때만 `null`이며, 그 밖에는 열려 있는 코드 값입니다.
   - `no_approval` (권한 확인을 통과하지 못함),
   - `not_checked` (사용자가 코드 전용을 요청함),
   - `no_github_remote`,
@@ -185,7 +185,7 @@
 ### 4.3 텍스트, 보고서, 대시보드
 
 - **터미널.** 결과의 첫 줄은 `! Code-only scan: authorization not verified (current files only; no Git history, no web checks, not saved).`이고, 이어서 권한 있는 검사를 받는 방법을 한 줄로 안내합니다.
-- **HTML과 PDF 보고서.** 모든 페이지에 배너가 있고, 표지에 "Not authorized: code-only scan"이 적힙니다. "확인됨" 문구는 없습니다. 프로토타입은 이것이 생길 때까지 내보내기를 거부합니다(`409 code_only_result`).
+- **HTML과 PDF 보고서.** 모든 페이지에 배너가 있고, 표지에 "Not authorized: code-only scan"이 적힙니다. "확인됨" 문구는 없습니다. 1단계에 구현되었습니다(`packages/report/src/code-only-text.ts`). HTML 배너는 인쇄한 모든 페이지에 반복되고(`@media print`의 고정 요소), PDF 배너는 모든 페이지에 그려지며, 이유(`scanBasis.reason`)가 담긴 표지 블록이 있습니다.
 - **웹.**
   - 결과 카드는 항상 **"Not authorized · code only" / "권한 미확인 · 코드만"** 라벨과 짧은 설명으로 시작합니다.
   - 결과가 화면에 있는 동안 라벨은 닫을 수 없습니다.
@@ -195,18 +195,18 @@
 
 **[Owner decision D1] 승인 없이 `pgard scan`이 하는 일.**
 
-**권장안:** `code` 범위는 기본적으로 코드 전용으로 실행하고 분명한 안내를 붙입니다. 엄격 모드는 직접 선택합니다. "그냥 동작"하면서도 증명했다는 인상을 주지 않습니다.
+**결정(2026-10-29):** `code` 범위는 기본적으로 코드 전용으로 실행하고 분명한 안내를 붙입니다. 엄격 모드는 직접 선택합니다. "그냥 동작"하면서도 증명했다는 인상을 주지 않습니다.
 
-| 명령                                      | 현재                                     | 제안                                                                                                                                                                                                                                                                                                                  |
-| ----------------------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pgard scan code`                         | 권한 확인, 막히면 종료 코드 3, 분석 없음 | 어떤 폴더에서든 **코드 전용으로 실행**(Git도 GitHub도 필요 없음), 로그인하지 않고, 코드 전용 줄을 출력. 종료 코드 0 / 4는 코드 범위 결과에서 나옵니다. 권한 있는 코드 검사는 `--require-authorization`으로 요청합니다(다음 행).                                                                                       |
-| `pgard scan code --require-authorization` | 해당 없음                                | 현재 동작: 먼저 권한 확인을 실행하고, 허용되면 권한 있는 검사(현재처럼 저장), 막히면 종료 코드 3과 분석 없음. 증명이 필요한 사람과 래퍼를 위한 것입니다.                                                                                                                                                              |
-| `pgard scan history`, `scan web`          | 권한 확인                                | **바뀌지 않음**(막히면 종료 코드 3). 막힘 메시지에 한 줄 추가: "`pgard scan code` checks the current files without approval."                                                                                                                                                                                         |
-| `pgard scan all`                          | 권한 확인                                | **[Owner decision D2]** 권장안: **바뀌지 않음**(권한 확인, 막히면 종료 코드 3, 같은 안내 추가). 대안: `code`는 코드 전용으로 실행하고 `history`와 `web`은 `not_tested`("needs owner approval")로 표시, 종료 코드 4. 앞의 안은 "all"의 의미를 정직하게 지키고, 뒤의 안은 더 친절하지만 막힘을 부분 결과 뒤에 숨깁니다. |
-| 대화형 메뉴 (`pgard`)                     | 안내형 로그인과 App 설치                 | 첫 선택지가 "Scan the current files (code only)"가 됩니다. 로그인과 App 설치는 그 뒤에 "Also scan Git history"로 안내합니다.                                                                                                                                                                                          |
-| `pgard project verify`                    | 권한 확인만                              | 바뀌지 않음. 막힐 때 한 줄 추가: "Without approval, `pgard scan code` runs a code-only scan of the current files."                                                                                                                                                                                                    |
-| `pgard doctor`                            | —                                        | `[info]` 행 하나: "Scans without owner approval run code-only (current files, not saved)."                                                                                                                                                                                                                            |
-| `pgard report`, `baseline`, `sbom`, 추이  | 막힘                                     | **바뀌지 않음**(저장된 결과를 읽거나 저장소에 대해 주장하기 때문). `sbom`은 코드 전용 의존성 확인처럼 잠금 파일만 읽으므로 나중에 같은 규칙을 따를 수 있습니다. 이번 범위 밖입니다.                                                                                                                                   |
+| 명령                                      | 현재                                     | 제안                                                                                                                                                                                                                                                                                                                            |
+| ----------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgard scan code`                         | 권한 확인, 막히면 종료 코드 3, 분석 없음 | 어떤 폴더에서든 **코드 전용으로 실행**(Git도 GitHub도 필요 없음), 로그인하지 않고, 코드 전용 줄을 출력. 종료 코드 0 / 4는 코드 범위 결과에서 나옵니다. 권한 있는 코드 검사는 `--require-authorization`으로 요청합니다(다음 행).                                                                                                 |
+| `pgard scan code --require-authorization` | 해당 없음                                | 현재 동작: 먼저 권한 확인을 실행하고, 허용되면 권한 있는 검사(현재처럼 저장), 막히면 종료 코드 3과 분석 없음. 증명이 필요한 사람과 래퍼를 위한 것입니다.                                                                                                                                                                        |
+| `pgard scan history`, `scan web`          | 권한 확인                                | **바뀌지 않음**(막히면 종료 코드 3). 막힘 메시지에 한 줄 추가: "`pgard scan code` checks the current files without approval."                                                                                                                                                                                                   |
+| `pgard scan all`                          | 권한 확인                                | **[Owner decision D2]** 결정(2026-10-29): **바뀌지 않음**(권한 확인, 막히면 종료 코드 3, 같은 안내 추가). 대안: `code`는 코드 전용으로 실행하고 `history`와 `web`은 `not_tested`("needs owner approval")로 표시, 종료 코드 4. 앞의 안은 "all"의 의미를 정직하게 지키고, 뒤의 안은 더 친절하지만 막힘을 부분 결과 뒤에 숨깁니다. |
+| 대화형 메뉴 (`pgard`)                     | 안내형 로그인과 App 설치                 | 첫 선택지가 "Scan the current files (code only)"가 됩니다. 로그인과 App 설치는 그 뒤에 "Also scan Git history"로 안내합니다.                                                                                                                                                                                                    |
+| `pgard project verify`                    | 권한 확인만                              | 바뀌지 않음. 막힐 때 한 줄 추가: "Without approval, `pgard scan code` runs a code-only scan of the current files."                                                                                                                                                                                                              |
+| `pgard doctor`                            | —                                        | `[info]` 행 하나: "Scans without owner approval run code-only (current files, not saved)."                                                                                                                                                                                                                                      |
+| `pgard report`, `baseline`, `sbom`, 추이  | 막힘                                     | **바뀌지 않음**(저장된 결과를 읽거나 저장소에 대해 주장하기 때문). `sbom`은 코드 전용 의존성 확인처럼 잠금 파일만 읽으므로 나중에 같은 규칙을 따를 수 있습니다. 이번 범위 밖입니다.                                                                                                                                             |
 
 - **종료 코드.** 새 코드는 없습니다.
   - 코드 전용 검사는 다른 검사처럼 0(완료, 발견 항목이 있을 수 있음) 또는 4(부분)로 끝납니다.
@@ -220,7 +220,7 @@
 - 이미 인덱스만 읽습니다. 인덱스에는 사용자가 곧 커밋할 본인의 내용이 들어 있습니다.
 - 지금은 전체 권한 확인을 실행하므로, 저장된 로그인이 없으면 "권한 확인이 막고 아무것도 검사하지 않습니다"(README).
 
-**[Owner decision D3] 권장안: `pgard precommit`은 항상 코드 전용으로, 권한 확인과 네트워크 없이 실행합니다.**
+**[Owner decision D3] 결정(2026-10-29): `pgard precommit`은 항상 코드 전용으로, 권한 확인과 네트워크 없이 실행합니다.**
 
 - **이유.**
   - 스테이징된 내용은 커밋하는 사람 본인의 변경입니다. 같은 바이트가 디스크에 있고 어떤 훅이든 `grep`으로 볼 수 있으므로, 권한 확인은 보호를 더하지 않습니다.
@@ -234,7 +234,7 @@
 
 ## 6. GitHub remote가 없는 경우와 Git이 없는 경우
 
-**[Owner decision D4] 권장안: 둘 다 코드 전용 검사를 받습니다.** 소유자의 의도와 3.2절에 맞습니다. 권한 확인의 증거는 없지만, 코드 전용 검사에는 그 증거가 필요 없습니다.
+**[Owner decision D4] 결정(2026-10-29): 둘 다 코드 전용 검사를 받습니다.** 소유자의 의도와 3.2절에 맞습니다. 권한 확인의 증거는 없지만, 코드 전용 검사에는 그 증거가 필요 없습니다.
 
 | 폴더                                                                   | 코드 전용 검사                        | 막힌 부분                                                           |
 | ---------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------- |
@@ -357,7 +357,7 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 | 권한 확인 패널, 검사 범위 토글, 웹 대상 패널, 세션 메뉴 | 메인 경로에서 빠집니다. 권한 있는 흐름에서 **Connect GitHub to also scan Git history**를 누른 뒤에 나타납니다.    |
 | 법적 고지                                               | 처음 사용할 때 유지(같은 문구). 폴더 카드 위에 표시합니다.                                                        |
 
-**[Owner decision D5] 코드 전용 결과 내보내기.** 권장안: 모든 페이지에 "Not authorized: code-only scan" 배너를 넣어 HTML과 PDF 내보내기를 허용합니다. 이 파일은 `--format json`처럼 사용자 본인의 로컬 출력이기 때문입니다. 대안: 승인 없이는 내보내기 없음. 프로토타입은 지금은 내보내기를 거부합니다.
+**[Owner decision D5] 코드 전용 결과 내보내기.** 결정(2026-10-29): 모든 페이지에 "Not authorized: code-only scan" 배너를 넣어 HTML과 PDF 내보내기를 허용합니다. 이 파일은 `--format json`처럼 사용자 본인의 로컬 출력이기 때문입니다. 대안(채택하지 않음): 승인 없이는 내보내기 없음. 1단계에서 배너를 구현했고, 프로토타입은 배너와 함께 내보냅니다.
 
 ### 7.4 승인으로 올리는 것은 막는 장치가 아니라 링크
 
@@ -387,32 +387,25 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 
 ## 9. 단계 나누기 (작은 PR)
 
-1. **이 PR.** 설계와 프로토타입.
-   - scan-core의 `runCodeOnlyScan`.
-   - 작업 트리 비밀값 검사.
-   - `PGARD_WEB_PROTOTYPE=code-only` 뒤에 있는 `POST /api/code-scan`.
-   - 단순 화면.
-   - 개발용 미리보기 서버.
-   - CLI 변경 없음, 스키마 변경 없음.
-2. **결과 계약(1.7).**
-   - findings, 읽는 쪽, SARIF, 보고서 배너의 `scanBasis`.
-   - 저장소의 `code_only` 거부.
-   - 비밀값 검사용 코드 전용 규칙 제목.
-   - `RESULT_SCHEMA.md`.
-3. **CLI.**
-   - `pgard scan code`를 기본 코드 전용으로, `--require-authorization`, 터미널 줄, `project verify`와 `doctor` 행, README.
-   - D3에 따른 `pgard precommit`.
-4. **어떤 폴더든 고르는 선택기.** OS 폴더 선택 창과 경로 붙여 넣기(6.1절), 코드 전용을 위한 Git 없는 폴더와 remote 없는 폴더(6절), 어떤 폴더에서든 쓰는 `pgard dashboard`.
-5. **웹, 제품 버전.**
-   - 한 화면 흐름이 기본 `pgard web`이 됩니다.
-   - 프로토타입 플래그를 제거합니다.
-   - 전체 대시보드는 올리기 링크 뒤의 권한 있는 흐름이 됩니다.
-   - 필터를 More 아래로 옮깁니다.
-   - i18n을 카탈로그로 옮깁니다.
-   - 테스트.
-6. 배포 전에 2~5단계에 대한 **독립 보안 검토**(이슈 계획 3단계).
+단계마다 별도 PR이며, 앞 단계가 리뷰를 통과한 뒤에만 엽니다. 모두 #414를 참조합니다(5단계는 #419도).
 
-## 10. 이 PR의 프로토타입
+1. **설계 기록과 결과 표시 (PR #415).**
+   - 2026-10-29 결정을 담은 이 문서.
+   - 계약과 읽는 쪽의 JSON 1.7 `scanBasis`. `runCodeOnlyScan`은 `mode: "code_only"`를 쓰고, 권한 있는 검사는 모두 `mode: "authorized"`와 `verified` 또는 `not_verified` / `no_approval`을 씁니다.
+   - SARIF: `properties.pgard.scanBasis`, 코드 전용 경고 알림, `pgard/code-only/` 카테고리.
+   - HTML·PDF 보고서: 모든 페이지의 배너와 표지 블록(D5). 프로토타입은 배너와 함께 내보냅니다.
+   - 결과 저장소는 권한이 확인되지 않은 결과를 거부합니다(심층 방어).
+   - 디스크 파일 비밀값 검사는 자체 문구("프로젝트 폴더의 환경 파일", "프로젝트 파일 안의 비밀정보")를 쓰며 "추적되는 파일"이나 "Git에 커밋된"이라고 쓰지 않습니다. 규칙 ID와 지문은 같습니다.
+   - 웹 라벨은 권한을 확인하지 않은 이유를 알려 줍니다(GitHub remote 없음, Git 저장소 아님, 확인하지 않음).
+   - 1.7을 반영한 `RESULT_SCHEMA.md`.
+   - 프로토타입 경로와 화면은 계속 `PGARD_WEB_PROTOTYPE=code-only` 뒤에 둡니다.
+2. **CLI (D1, D2, D4).** 기본적으로 코드 전용인 `pgard scan code`, `--require-authorization`, 터미널 안내 줄, 안내를 덧붙이되 바뀌지 않는 `scan all`과 `history`/`web`, `project verify`와 `doctor` 항목, 모든 폴더(Git 없음, remote 없음), README.
+3. **Precommit (D3).** 권한 확인과 네트워크 없이 코드 전용으로 실행하는 `pgard precommit`. `"precommit": { "requireAuthorization": true }`로 엄격 모드를 선택합니다.
+4. **웹 단순 화면 정식 버전.** OS 폴더 선택 창과 경로 입력란(6.1절)이 있는 한 화면 흐름이 `pgard web`과 `pgard dashboard`의 기본 경로가 됩니다. 프로토타입 플래그와 경로는 없애고, 이전 탭들은 기본 경로에서 빠지며(전체 대시보드는 올리기 링크 뒤의 권한 있는 흐름으로 남습니다), i18n은 카탈로그로 옮깁니다.
+5. **세션 URL (#419, 12절).** 브라우저 자동 열기, 가린 토큰, `--print-url`, 한 번만 쓰는 토큰. `pgard web`, `pgard dashboard`, 새 화면에 모두 적용합니다.
+6. 배포 전 1~5단계의 **독립 보안 리뷰**.
+
+## 10. PR #415의 프로토타입 (4단계까지 `PGARD_WEB_PROTOTYPE=code-only` 뒤에 둠)
 
 - **실제로 동작하는 것.**
   - OS 폴더 선택 창(macOS `osascript`, Windows PowerShell, Linux `zenity`/`kdialog`)과 경로 입력란. 실제 inspector 자식 프로세스에서 풀고 확인(realpath, 소유권, 쓰기 비트, 표시 안전성)한 뒤 확정하며, 검사 전에 다시 확인합니다.
@@ -420,9 +413,9 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
   - 실제 폴더에 대한 코드 전용 검사(소스 규칙, 디스크의 OSV 데이터로 확인하는 의존성, 새 비밀값 검사).
   - 값 가리기.
   - 토큰, Host, Origin 검사와 `127.0.0.1`만 사용.
+  - 1단계의 결과 표시: 결과의 `scanBasis`(고른 폴더에서 정한 이유 포함), SARIF, 모든 페이지에 배너가 있는 HTML/PDF 내보내기(More › 보고서 내보내기).
 - **아직 실제가 아닌 것.**
-  - JSON/SARIF의 `scanBasis` 필드. 서버는 결과가 아니라 `GET /api/scan`의 `codeOnly: true`로 표시합니다.
-  - 보고서 배너. 내보내기는 거부됩니다.
+  - CLI(2단계)와 precommit(3단계)은 아직 코드 전용 검사를 하지 않습니다.
   - 올리기 링크는 현재의 전체 대시보드를 엽니다.
 - **절대 하지 않는 것.**
   - 프로토타입 경로는 GitHub를 호출하지 않습니다. 단순 화면이 켜져 있지 않으면 404이며, 고정 모드에서는 단순 화면이 켜지지 않습니다.
@@ -430,17 +423,53 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 - **테스트.**
   - `packages/scan-core/src/run-code-only.test.ts`: 권한 확인 없음, 기록 없음, 표시된 결과.
   - `packages/scan-core/src/working-tree-secrets.test.ts`: 디스크의 비밀값, `.env`, 링크를 따라가지 않음, Git 없음, 출력에 값 없음.
-  - `apps/local-web/src/server/code-scan-prototype.test.ts`: 꺼져 있으면 404, 고정 모드에서 켜지지 않음, 토큰·Host·Origin 검사, `no_project`, 신원 재확인, 내보내기 거부.
+  - `apps/local-web/src/server/code-scan-prototype.test.ts`: 꺼져 있으면 404, 고정 모드에서 켜지지 않음, 토큰·Host·Origin 검사, `no_project`, 신원 재확인, 배너가 있는 내보내기.
   - `apps/local-web/src/server/choose-folder-prototype.test.ts`: 선택 창과 붙여 넣기 경로(꺼져 있으면 404, 토큰과 Origin, 선택 창은 한 번에 하나, 취소와 종료 때 선택 창 종료, 도구 없음, 해결 방법이 붙은 거부, `~` 펼치기), Git 없는 폴더는 코드 전용만(verify와 `POST /api/scan`은 `409 code_only_project`), 검사 전 폴더 재확인, 플랫폼별 고정 argv.
   - `apps/local-web/src/server/picker/resolve-folder.test.ts`: 실제 폴더에 대한 `resolve` 작업(GitHub 저장소, Git 없음, 심볼릭 링크, 그룹 쓰기 가능, 홈 밖, 거부되는 경로)과 메시지 검증.
+  - `packages/findings/src/scan-basis.test.ts`: `scanBasis` 읽기(없으면 권한 있는 검사, 불가능한 조합 거부, 모르는 이유 코드 유지), SARIF 표시와 카테고리, 작업 트리 비밀값 문구와 한국어 번역.
+  - `packages/report/src/code-only-report.test.ts`: HTML 배너와 표지 블록, 인쇄 규칙, 모든 PDF 페이지의 배너.
+  - `packages/result-store/src/store.test.ts`: 코드 전용 결과는 절대 저장소에 들어가지 않음.
 
-## 11. 소유자가 정할 사항
+## 11. 결정 사항 (2026-10-29 결정)
 
-| #   | 질문                                   | 권장안                                                                                       |
-| --- | -------------------------------------- | -------------------------------------------------------------------------------------------- |
-| D1  | 승인 없는 `pgard scan code`            | 기본은 코드 전용에 분명한 안내 줄을 붙임. `--require-authorization`이 종료 코드 3을 되살림.  |
-| D2  | 승인 없는 `pgard scan all`             | 바뀌지 않음(막힘, 종료 코드 3). `scan code`를 실행하라는 안내를 붙임.                        |
-| D3  | `pgard precommit`                      | 항상 코드 전용, 권한 확인과 네트워크 없음. 설정의 `requireAuthorization`으로 엄격 모드 선택. |
-| D4  | GitHub remote 없음 / Git 저장소가 아님 | 둘 다 코드 전용 검사를 받음.                                                                 |
-| D5  | 코드 전용 결과 내보내기                | 허용. 모든 페이지에 "권한 미확인" 배너를 넣음.                                               |
-| D6  | 한 화면 레이아웃과 문구(7절)           | 프로토타입 스크린샷대로 수락하거나, 바꿀 부분을 표시.                                        |
+소유자가 2026-10-29 설계를 승인했으며, 모든 결정은 권장안대로입니다.
+
+| #   | 질문                                 | 결정 (2026-10-29)                                                                                                          |
+| --- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| D1  | 승인 없는 `pgard scan code`          | 기본적으로 코드 전용이며 분명한 안내 줄을 붙입니다. `--require-authorization`은 종료 코드 3을 되살립니다.                  |
+| D2  | 승인 없는 `pgard scan all`           | 바뀌지 않고 엄격합니다(막힘, 종료 코드 3). `scan code`를 실행하라는 안내를 붙입니다.                                       |
+| D3  | `pgard precommit`                    | 항상 코드 전용이며 권한 확인과 네트워크가 없습니다. 저장소는 `"precommit": { "requireAuthorization": true }`로 선택합니다. |
+| D4  | GitHub remote 없음 / Git 저장소 아님 | 둘 다 코드 전용 검사를 받습니다.                                                                                           |
+| D5  | 코드 전용 결과 내보내기              | 모든 페이지에 "권한 미확인" 배너를 넣어 허용합니다.                                                                        |
+| D6  | 한 화면 레이아웃과 문구(7절)         | 승인. OS 폴더 선택 창과 경로 붙여 넣기 흐름(6.1절)도 함께 승인되었습니다.                                                  |
+
+## 12. 세션 URL 처리 (#419)
+
+`pgard web`, `pgard dashboard`, 한 화면 흐름에 똑같이 적용합니다(5단계).
+
+### 12.1 지금
+
+- 실행기는 `http://127.0.0.1:<port>/#token=<secret>`을 출력하고 사용자가 복사하거나 클릭합니다.
+- 토큰은 URL 조각(fragment)에 든 긴 난수입니다(요청이나 `Referer`로는 보내지지 않습니다). 페이지가 이를 읽어 서버가 멈출 때까지 모든 API 호출에 `x-pgard-token`으로 보냅니다.
+- 그래서 비밀값 전체가 터미널 스크롤백, 셸 녹화와 화면 공유, 브라우저 기록에 남고, 서버가 멈출 때까지 어느 탭에서든 같은 링크가 다시 동작합니다.
+
+### 12.2 결정
+
+- **브라우저 열기.** 서버가 대기를 시작하면 실행기가 플랫폼의 열기 도구로 URL을 엽니다. `open`(macOS), `xdg-open`(Linux), `rundll32 url.dll,FileProtocolHandler`(Windows)를 고정 argv와 셸 없는 `execFile`로 실행합니다. CI, 터미널 없음, `--no-open`일 때는 열지 않습니다.
+- **터미널에서 토큰 가리기.** 터미널에는 `http://127.0.0.1:4317/#token=•••• (opened in your browser)`이 보입니다. 전체 URL은 열기에 실패했거나 건너뛰었을 때(열기 도구 없음, CI, 터미널 없음, `--no-open`) 또는 `--print-url`일 때만 출력합니다. 전체 URL은 로그 파일에 절대 쓰지 않습니다.
+- **한 번만 쓰는 URL 토큰.** URL 토큰은 초대장일 뿐입니다.
+  1. 처음 열릴 때 페이지는 URL 토큰으로 `POST /api/session/exchange`를 호출합니다(같은 Host, Origin 검사). 서버는 토큰을 사용됨으로 표시하고 새 **세션 비밀값**(32바이트 난수, 서버에는 해시만 보관)을 돌려줍니다.
+  2. 페이지는 주소창에서 조각을 지우고(`history.replaceState`), 세션 비밀값을 `sessionStorage`에 두며 이후 `x-pgard-session`으로 보냅니다. URL 토큰은 어떤 API 경로에서도 더는 받지 않습니다.
+  3. 같은 URL 토큰으로 두 번째 교환을 하면(다시 쓴 링크, 다른 탭, 복사한 링크, 브라우저 기록) `409 token_used`로 거부하고 페이지에 "이미 사용한 링크입니다. 명령을 다시 실행해 새 링크를 받으세요." / "This link was already used. Run the command again to get a new one."이 나옵니다.
+  4. 쓰지 않은 URL 토큰은 10분 뒤 만료되며, 실행기는 새 링크를 받는 방법(명령 다시 실행)을 출력합니다.
+- **새로 고침: 그 탭에서만 계속 동작.** 같은 탭을 새로 고치면 `sessionStorage`의 세션 비밀값으로 URL 토큰 없이 이어집니다. 새 탭, 새 창, 탭을 닫은 뒤에는 새 링크가 필요합니다(명령 다시 실행).
+  - `sessionStorage`를 고른 이유: **포트까지 포함한** 정확한 출처와 탭에 묶이고, 탭을 닫으면 사라집니다. 새로 고침은 로컬 페이지에서 가장 흔한 동작이므로(개발자는 바꿀 때마다 새로 고칩니다) 새로 고침에 세션을 잃으면 보안상 얻는 것 없이 사용자를 막아 세웁니다. 이 장치가 막는 공격자는 탭의 저장소가 아니라 터미널이나 기록을 읽는 사람입니다.
+  - 채택하지 않음, 쿠키: 쿠키는 포트로 격리되지 않아 `127.0.0.1:4317`의 세션 쿠키가 `127.0.0.1`의 다른 모든 로컬 서버(PGARD가 검사하는 개발 서버 포함)에도 보내집니다.
+  - 채택하지 않음, `localStorage`: 탭과 브라우저 재시작보다 오래 남고 출처의 모든 탭이 공유하므로, 세션에 필요한 것보다 오래 비밀값을 남깁니다.
+  - 채택하지 않음, 메모리에만 보관: 새로 고칠 때마다 세션이 끝납니다.
+- **한 번에 한 세션.** 교환 뒤에는 세션 비밀값을 가진 쪽만 API를 쓸 수 있고 두 번째 브라우저는 들어올 수 없습니다. 터미널에는 "브라우저에서 열었습니다. 다른 곳에서 열려면 멈추고 명령을 다시 실행하세요."라고 나옵니다.
+- **바뀌지 않는 것.** `127.0.0.1` 전용, 정확한 Host 검사, Origin 검사, CSP, 프로젝트 epoch.
+
+### 12.3 테스트 (5단계)
+
+한 번 교환, 두 번째 교환과 모든 경로의 원래 URL 토큰 거부, 세션 비밀값으로 새로 고침, 쓰지 않은 토큰의 만료, 가린 터미널 출력과 `--print-url`, 플랫폼별 열기 도구 argv와 CI·터미널 없음 대체 동작, 영어와 한국어의 "이미 사용함" 페이지.

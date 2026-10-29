@@ -1,6 +1,11 @@
 import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
-import { compilePathMatcher, type Coverage, type Finding } from "@pgard/findings";
+import {
+  compilePathMatcher,
+  FINDING_TEXT_VARIANTS,
+  type Coverage,
+  type Finding,
+} from "@pgard/findings";
 import { scanStagedSecrets } from "@pgard/git-history";
 import type { AnalyzerContext } from "./types.js";
 
@@ -123,8 +128,17 @@ export async function scanWorkingTreeSecrets(
 
 /** The pre-commit wording says "staged"; these findings come from the files on disk. */
 function relabel(finding: Finding): Finding {
+  // Never "tracked file" or "committed to Git": the file may never have been committed.
+  const text = FINDING_TEXT_VARIANTS[finding.ruleId]?.working_tree;
   return {
     ...finding,
+    ...(text === undefined
+      ? {}
+      : {
+          title: text.title.en,
+          impact: text.impact.en,
+          recommendation: text.recommendation.en,
+        }),
     evidence:
       finding.ruleId === "PG-SECRET-001"
         ? "environment file in the project folder (values not shown)"

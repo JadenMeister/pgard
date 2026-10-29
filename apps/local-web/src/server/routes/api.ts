@@ -146,6 +146,17 @@ function pickerContextOf(context: ApiContext) {
  * Picker mode: repeats the identity chain and ownership checks of the confirmed project before a
  * verify, owner-approval check or scan starts. Fixed mode has nothing to repeat.
  */
+/** `scanBasis.reason` of a code-only scan of `project` (JSON 1.7). */
+function codeOnlyReasonOf(
+  project: ProjectRecord,
+): "not_checked" | "no_github_remote" | "not_a_git_repository" {
+  const identity = project.identity;
+  if (identity?.kind !== "folder") return "not_checked";
+  if (identity.codeOnly === "not_git") return "not_a_git_repository";
+  if (identity.codeOnly === "no_github_remote") return "no_github_remote";
+  return "not_checked";
+}
+
 async function recheckProject(
   context: ApiContext,
   capture: ProjectCapture,
@@ -864,7 +875,7 @@ const startCodeScan: ApiHandler = async (context, body) => {
   };
   void context.deps
     .runCodeOnlyScan(
-      { projectRoot: capture.project.root },
+      { projectRoot: capture.project.root, reason: codeOnlyReasonOf(capture.project) },
       {
         signal: controller.signal,
         env: context.env,
@@ -969,15 +980,8 @@ function downloadReport(format: "html" | "pdf"): ApiHandler {
     if (result === null || result.overallStatus === "blocked") {
       throw new ApiError(409, "no_result", "There is no scan result to export.");
     }
-    // PROTOTYPE (#414): a code-only result is not exported until the report carries the
-    // "not authorized" banner on every page (see docs/CODE_ONLY_SCAN_DESIGN.md).
-    if (context.state.scan.codeOnly === true) {
-      throw new ApiError(
-        409,
-        "code_only_result",
-        "A code-only result cannot be exported in this prototype.",
-      );
-    }
+    // D5 (decided 2026-10-29): a code-only result is exported; the report carries the
+    // "not authorized: code-only scan" banner on every page (`scanBasis`, JSON 1.7).
     try {
       const body = await context.deps.renderReport(result, format, undefined, {
         lang,

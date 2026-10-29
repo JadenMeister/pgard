@@ -33,6 +33,8 @@ export interface ProjectRecord {
      * inspection, and refused by every route that runs the authorization gate.
      */
     kind?: "git" | "folder";
+    /** PROTOTYPE (#414): why a `folder` project is code-only (`PickerCandidate.codeOnly`). */
+    codeOnly?: PickerCandidate["codeOnly"];
     root: ScopeRoot;
     segments: ChainSegment[];
     gitIdentity: GitIdentity | null;

@@ -18,6 +18,7 @@ import { usePicker, type PickerControl } from "../picker/use-picker";
 import { useElapsedSeconds } from "../scan/ScanProgress";
 import { CoverageView } from "../scan/CoverageView";
 import { RuleStatsPanel } from "../standards/RuleStatsPanel";
+import { ReportPanel } from "../reports/ReportPanel";
 import { StandardsCoveragePanel } from "../standards/StandardsCoveragePanel";
 import { simpleText, type SimpleText } from "./simple-text";
 
@@ -38,7 +39,7 @@ export interface SimpleAppProps {
   onOpenFull: () => void;
 }
 
-type MorePanel = "coverage" | "standards" | "rules";
+type MorePanel = "coverage" | "standards" | "rules" | "export";
 
 function Steps({ t }: { t: SimpleText }) {
   return (
@@ -213,7 +214,15 @@ function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
   );
 }
 
-function NotAuthorizedLabel({ t, onConnect }: { t: SimpleText; onConnect: () => void }) {
+function NotAuthorizedLabel({
+  t,
+  reason,
+  onConnect,
+}: {
+  t: SimpleText;
+  reason: string;
+  onConnect: () => void;
+}) {
   return (
     <div className="simple-noauth" role="note">
       <p className="simple-noauth-head">
@@ -221,6 +230,7 @@ function NotAuthorizedLabel({ t, onConnect }: { t: SimpleText; onConnect: () => 
         <strong>{t.badgeTitle}</strong>
       </p>
       <p className="muted">{t.badgeBody}</p>
+      <p className="muted">{t.badgeReason(reason)}</p>
       <p>
         <button type="button" className="link-button" onClick={onConnect}>
           {t.connect}
@@ -328,6 +338,13 @@ export function SimpleApp({
         return <StandardsCoveragePanel result={result} />;
       case "rules":
         return <RuleStatsPanel result={result} ruleTexts={ruleTexts} />;
+      case "export":
+        return (
+          <>
+            <p className="muted small">{t.moreExportNote}</p>
+            <ReportPanel />
+          </>
+        );
     }
   };
 
@@ -423,7 +440,11 @@ export function SimpleApp({
                   </h2>
                   <span className="simple-count num">{t.findingsCount(view.total)}</span>
                 </div>
-                <NotAuthorizedLabel t={t} onConnect={onOpenFull} />
+                <NotAuthorizedLabel
+                  t={t}
+                  reason={result.scanBasis?.reason ?? "not_checked"}
+                  onConnect={onOpenFull}
+                />
                 {isPartial && <Notice tone="warning">{t.partialNote}</Notice>}
                 {view.total === 0 && severity === null ? (
                   <p className="empty-state-title">{t.noFindings}</p>
@@ -470,6 +491,7 @@ export function SimpleApp({
                         ["coverage", t.moreCoverage],
                         ["standards", t.moreStandards],
                         ["rules", t.moreRules],
+                        ["export", t.moreExport],
                       ] as const
                     ).map(([id, label]) => (
                       <li key={id}>
@@ -487,12 +509,6 @@ export function SimpleApp({
                       <span className="simple-more-item simple-more-off" aria-disabled="true">
                         {t.moreTrend}
                         <span className="muted small"> {t.moreTrendNote}</span>
-                      </span>
-                    </li>
-                    <li>
-                      <span className="simple-more-item simple-more-off" aria-disabled="true">
-                        {t.moreExport}
-                        <span className="muted small"> {t.moreExportNote}</span>
                       </span>
                     </li>
                     <li>

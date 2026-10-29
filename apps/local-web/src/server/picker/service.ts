@@ -780,6 +780,7 @@ async function confirmFolderCandidate(
     repositoryId: null,
     identity: {
       kind: "folder",
+      ...(record.dto.codeOnly === undefined ? {} : { codeOnly: record.dto.codeOnly }),
       root: record.root,
       segments: record.segments,
       gitIdentity: null,

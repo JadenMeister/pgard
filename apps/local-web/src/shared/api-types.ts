@@ -198,6 +198,8 @@ export interface RuleTextsDto {
   recommendation: { en: string; ko: string };
   /** Standards links, examples and the rule-level texts (ids, titles and official URLs only). */
   details?: RuleDetails;
+  /** Other finding texts of the rule (for example a secret in the files on disk). */
+  variants?: Array<Pick<RuleTextsDto, "title" | "impact" | "recommendation">>;
 }
 
 /** `GET /api/rule-texts`: rule id -> texts. Only the rule texts; no result data. */

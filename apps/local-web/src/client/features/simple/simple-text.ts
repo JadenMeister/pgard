@@ -48,6 +48,8 @@ export interface SimpleText {
   badge: string;
   badgeTitle: string;
   badgeBody: string;
+  /** Why authorization was not verified (`scanBasis.reason`, JSON 1.7). */
+  badgeReason: (reason: string) => string;
   connect: string;
   connectHint: string;
   moreTitle: string;
@@ -148,7 +150,15 @@ const en: SimpleText = {
   badge: "Not authorized · code only",
   badgeTitle: "Authorization was not checked",
   badgeBody:
-    "This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this repository, so Git history, local web checks and saved results are off.",
+    "This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this code, so Git history, local web checks and saved results are off.",
+  badgeReason: (reason) =>
+    ({
+      no_github_remote:
+        "This folder has no GitHub remote, so owner approval cannot be checked (it is proven through GitHub only).",
+      not_a_git_repository:
+        "This folder is not a Git repository, so there is no repository to authorize.",
+      no_approval: "The authorization gate did not allow a full scan of this repository.",
+    })[reason] ?? "Authorization was not checked for this scan.",
   connect: "Connect GitHub to also scan Git history",
   connectHint:
     "Optional. Opens the full dashboard, which asks for GitHub sign-in and owner approval.",
@@ -160,8 +170,7 @@ const en: SimpleText = {
   moreTrend: "Trend",
   moreTrendNote: "Needs GitHub approval: code-only results are never saved.",
   moreExport: "Export report",
-  moreExportNote:
-    "Not in this prototype: an export must carry the “not authorized” label on every page.",
+  moreExportNote: "Every page of the report carries the “not authorized: code-only scan” banner.",
   moreFull: "Full dashboard",
   moreFullNote: "The current dashboard with GitHub sign-in, Git history and web checks.",
   moreNeedsScan: "Run a scan first.",
@@ -244,7 +253,14 @@ const ko: SimpleText = {
   badge: "권한 미확인 · 코드만",
   badgeTitle: "권한을 확인하지 않았습니다",
   badgeBody:
-    "이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 저장소를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다.",
+    "이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 코드를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다.",
+  badgeReason: (reason) =>
+    ({
+      no_github_remote:
+        "이 폴더에는 GitHub remote가 없어 소유자 승인을 확인할 수 없습니다(승인은 GitHub로만 확인합니다).",
+      not_a_git_repository: "이 폴더는 Git 저장소가 아니어서 권한을 확인할 저장소가 없습니다.",
+      no_approval: "권한 확인에서 이 저장소의 전체 검사가 허용되지 않았습니다.",
+    })[reason] ?? "이 검사에서는 권한을 확인하지 않았습니다.",
   connect: "GitHub 연결하고 Git 기록도 검사",
   connectHint: "선택 사항입니다. GitHub 로그인과 소유자 승인을 요청하는 전체 대시보드를 엽니다.",
   moreTitle: "더 보기",
@@ -255,8 +271,7 @@ const ko: SimpleText = {
   moreTrend: "추이",
   moreTrendNote: "GitHub 승인이 필요합니다. 코드 전용 결과는 저장하지 않습니다.",
   moreExport: "보고서 내보내기",
-  moreExportNote:
-    "이 프로토타입에는 없습니다. 내보낸 파일의 모든 페이지에 “권한 미확인” 표시가 있어야 합니다.",
+  moreExportNote: "보고서의 모든 페이지에 “권한 미확인: 코드 전용 검사” 배너가 들어갑니다.",
   moreFull: "전체 대시보드",
   moreFullNote: "GitHub 로그인, Git 기록, 웹 검사가 있는 현재 대시보드입니다.",
   moreNeedsScan: "먼저 검사를 실행하세요.",

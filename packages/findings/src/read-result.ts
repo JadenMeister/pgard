@@ -10,6 +10,8 @@ import {
   FINDING_CONTEXTS,
   FINDING_STATUSES,
   INCREMENTAL_FULL_REASONS,
+  SCAN_BASIS_AUTHORIZATIONS,
+  SCAN_BASIS_MODES,
   SUPPRESSION_STATES,
   LOCATION_KINDS,
   OVERALL_STATUSES,
@@ -36,6 +38,7 @@ import {
   type StandardBreadth,
   type StandardCoverageEntry,
   type StandardsCoverage,
+  type ScanBasis,
   type ScanResult,
   type ScanScope,
   type ScanTarget,
@@ -114,6 +117,7 @@ export const READER_KEYS = {
     ruleStats: true,
     standardsCoverage: true,
     incremental: true,
+    scanBasis: true,
   } satisfies Record<keyof ScanResult, true>,
   finding: {
     id: true,
@@ -358,6 +362,31 @@ function nullableCount(value: unknown, path: string): number | null {
 
 function nullableReason(value: unknown, path: string): IncrementalAreaInfo["reason"] {
   return value === null ? null : oneOf(value, INCREMENTAL_FULL_REASONS, path);
+}
+
+const SCAN_BASIS_REASON = /^[a-z][a-z_]{0,63}$/;
+
+function readScanBasis(value: unknown): ScanBasis {
+  const o = object(value, "scanBasis");
+  const mode = oneOf(field(o, "mode"), SCAN_BASIS_MODES, "scanBasis.mode");
+  const authorization = oneOf(
+    field(o, "authorization"),
+    SCAN_BASIS_AUTHORIZATIONS,
+    "scanBasis.authorization",
+  );
+  const reasonValue = field(o, "reason");
+  const reason = reasonValue === null ? null : str(reasonValue, "scanBasis.reason");
+  if (reason !== null && !SCAN_BASIS_REASON.test(reason)) {
+    fail("invalid_shape", "scanBasis.reason must be a lowercase code such as no_approval.");
+  }
+  // A code-only scan never proves authorization.
+  if (mode === "code_only" && authorization !== "not_verified") {
+    fail("invalid_shape", "scanBasis.authorization must be not_verified for a code-only scan.");
+  }
+  if ((authorization === "verified") !== (reason === null)) {
+    fail("invalid_shape", "scanBasis.reason must be null exactly when authorization is verified.");
+  }
+  return { mode, authorization, reason };
 }
 
 function readIncrementalArea(value: unknown, path: string): IncrementalAreaInfo | null {
@@ -713,6 +742,9 @@ function parse(input: unknown): ReadScanResultOutcome {
   // Added in 1.2: absent in older results.
   const incremental = field(input, "incremental");
   if (incremental !== undefined) result.incremental = readIncrementalInfo(incremental);
+  // Added in 1.7: absent in older results (a reader treats absent as an authorized scan).
+  const scanBasis = field(input, "scanBasis");
+  if (scanBasis !== undefined) result.scanBasis = readScanBasis(scanBasis);
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {

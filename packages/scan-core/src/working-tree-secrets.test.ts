@@ -36,6 +36,12 @@ describe("scanWorkingTreeSecrets (prototype, #414)", () => {
     expect(rules.some((entry) => entry.startsWith("PG-SECRET-002 src/config.js"))).toBe(true);
     expect(rules.some((entry) => entry.includes("node_modules"))).toBe(false);
     expect(JSON.stringify(output)).not.toContain(FAKE_KEY);
+    // The file may never have been committed: no "tracked file" or "committed to Git".
+    expect(output.findings.map((finding) => finding.title).sort()).toEqual([
+      "Environment file in the project folder",
+      "Secret in a project file",
+    ]);
+    expect(JSON.stringify(output)).not.toMatch(/tracked file|committed to Git|staged/i);
     expect(output.coverage[0]).toMatchObject({
       area: WORKING_TREE_SECRETS_AREA,
       scope: "code",

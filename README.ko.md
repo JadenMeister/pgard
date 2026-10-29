@@ -864,7 +864,7 @@ pgard scan --format sarif > pgard.sarif && \
 
 (`&&` 덕분에 종료 코드 0일 때만 업로드합니다. 커밋이 이미 push되어 있어야 하고, HEAD가 detached 상태이면 안 되며, 토큰에 `security_events` 권한이 필요합니다(`gh auth refresh -s security_events`). 큰 보고서가 인수 길이 제한에 걸리지 않도록 `-F sarif=@file`로 파일을 넘깁니다. 대신 `github/codeql-action/upload-sarif`를 쓰면 결과마다 지문 불일치 경고가 한 번씩 로그에 남지만 정상입니다.)
 
-**카테고리.** 각 실행에는 `automationDetails.id` `pgard/<범위>/`가 들어 있습니다(기본 스캔은 `pgard/code+history/`, `scan code`는 `pgard/code/`). GitHub는 id마다 별도 카테고리로 취급하고 같은 종류의 스캔을 다시 업로드할 때만 알림을 닫으므로, `scan code`를 올려도 기본 `scan`의 알림은 닫히지 않습니다.
+**카테고리.** 각 실행에는 `automationDetails.id` `pgard/<범위>/`가 들어 있습니다(기본 스캔은 `pgard/code+history/`, `scan code`는 `pgard/code/`). GitHub는 id마다 별도 카테고리로 취급하고 같은 종류의 스캔을 다시 업로드할 때만 알림을 닫으므로, `scan code`를 올려도 기본 `scan`의 알림은 닫히지 않습니다. 코드 전용 결과(JSON 1.7 `scanBasis.mode: "code_only"`)는 `pgard/code-only/`를 쓰며, 권한을 확인하지 않았다는 경고 알림이 들어 있습니다.
 
 매핑 방식:
 

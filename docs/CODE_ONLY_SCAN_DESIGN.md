@@ -2,10 +2,10 @@
 
 > [한국어](CODE_ONLY_SCAN_DESIGN.ko.md) translation available. This English file is the reference; the translation follows it.
 
-> **Status: proposal with a working prototype, for the owner's sign-off ([#414](https://github.com/JadenMeister/pgard/issues/414)).**
+> **Status: approved by the owner on 2026-10-29 ([#414](https://github.com/JadenMeister/pgard/issues/414), [#419](https://github.com/JadenMeister/pgard/issues/419)).** Shipped in phases (section 9).
 >
-> - **Nothing ships yet.** The CLI is unchanged. `pgard web` is unchanged unless you set `PGARD_WEB_PROTOTYPE=code-only`. The README remains the source of truth for current behaviour.
-> - **Decisions for the owner** are marked **[Owner decision]**. Each one gives a recommendation; section 11 lists all of them together.
+> - **Phase 1, the result labelling, is in:** JSON 1.7 `scanBasis`, SARIF, the report banner, the code-only secret wording. The CLI is unchanged until phase 2; `pgard web` is unchanged unless you set `PGARD_WEB_PROTOTYPE=code-only` (phase 4 replaces the prototype). The README remains the source of truth for current behaviour.
+> - **Decisions** are marked **[Owner decision Dn]**; all of them were decided on 2026-10-29 as recommended (section 11).
 
 Back to the [README](../README.md) and the [documents index](README.md).
 
@@ -156,11 +156,11 @@ A new optional top-level field, `scanBasis`:
 ```
 
 - **`mode`.**
-  - `"authorized"`: the gate passed.
+  - `"authorized"`: the gate ran (`authorization` says whether it passed: `verified`, or `not_verified` with `reason: "no_approval"`).
   - `"code_only"`: no gate ran.
   - The field is absent in results of 1.6 and older, and a reader treats absent as `"authorized"`, because older PGARD only wrote results after the gate passed.
 - **`authorization`.** `"verified"` or `"not_verified"`. This is the coordinator's `authorization: "not_verified"`. It sits in a new object, because retyping the existing `authorization` object would be a major change.
-- **`reason`.** An open-ended code:
+- **`reason`.** `null` exactly when `authorization` is `verified`; otherwise an open-ended code:
   - `no_approval` (the gate did not pass),
   - `not_checked` (the user asked for code-only),
   - `no_github_remote`,
@@ -185,7 +185,7 @@ A new optional top-level field, `scanBasis`:
 ### 4.3 Text, reports and the dashboard
 
 - **Terminal.** The first line of the result is `! Code-only scan: authorization not verified (current files only; no Git history, no web checks, not saved).`, followed by one line on how to get an authorized scan.
-- **HTML and PDF report.** Every page carries a banner, and the cover says "Not authorized: code-only scan". There is no "verified" wording. The prototype refuses export until this exists (`409 code_only_result`).
+- **HTML and PDF report.** Every page carries a banner, and the cover says "Not authorized: code-only scan". There is no "verified" wording. Implemented in phase 1 (`packages/report/src/code-only-text.ts`): an HTML banner that is repeated on every printed page (a fixed element under `@media print`) and a PDF banner drawn on every page, plus a cover block with the reason (`scanBasis.reason`).
 - **Web.**
   - The results card always starts with the label **"Not authorized · code only" / "권한 미확인 · 코드만"** and a short explanation.
   - The label cannot be dismissed while the result is on screen.
@@ -195,18 +195,18 @@ A new optional top-level field, `scanBasis`:
 
 **[Owner decision D1] What `pgard scan` does without approval.**
 
-**Recommendation:** code-only by default for the `code` scope, with a clear note. Strict mode is opt-in. This gives "just works" and never implies proof.
+**Decided 2026-10-29:** code-only by default for the `code` scope, with a clear note. Strict mode is opt-in. This gives "just works" and never implies proof.
 
-| Command                                   | Today                               | Proposed                                                                                                                                                                                                                                                                                                      |
-| ----------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pgard scan code`                         | Gate; blocked → exit 3, no analysis | **Runs code-only** in any folder (no Git and no GitHub needed), never signs in, and prints the code-only line. Exit 0 / 4 from code coverage. An authorized code scan is asked for with `--require-authorization` (next row).                                                                                 |
-| `pgard scan code --require-authorization` | n/a                                 | Today's behaviour: the gate runs first; allowed → an authorized scan (stored as today); blocked → exit 3, no analysis. For people and wrappers that want proof.                                                                                                                                               |
-| `pgard scan history`, `scan web`          | Gate                                | **Unchanged** (exit 3 when blocked). The blocked message adds: "`pgard scan code` checks the current files without approval."                                                                                                                                                                                 |
-| `pgard scan all`                          | Gate                                | **[Owner decision D2]** Recommendation: **unchanged** (gate; blocked → exit 3, plus the same hint). Alternative: run code-only for `code`, mark `history` and `web` `not_tested` ("needs owner approval"), exit 4. The first keeps "all" honest; the second is friendlier but hides a block behind a partial. |
-| Interactive menu (`pgard`)                | Guided sign-in and App install      | The first choice becomes "Scan the current files (code only)". Sign-in and App install are offered afterwards as "Also scan Git history".                                                                                                                                                                     |
-| `pgard project verify`                    | Gate only                           | Unchanged. One added line when blocked: "Without approval, `pgard scan code` runs a code-only scan of the current files."                                                                                                                                                                                     |
-| `pgard doctor`                            | —                                   | One `[info]` row: "Scans without owner approval run code-only (current files, not saved)."                                                                                                                                                                                                                    |
-| `pgard report`, `baseline`, `sbom`, trend | Gated                               | **Unchanged** (they read stored results or claim a repository). `sbom` reads lockfiles only, like the code-only dependency check, so it could follow the same rule later; that is out of scope here.                                                                                                          |
+| Command                                   | Today                               | Proposed                                                                                                                                                                                                                                                                                                          |
+| ----------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pgard scan code`                         | Gate; blocked → exit 3, no analysis | **Runs code-only** in any folder (no Git and no GitHub needed), never signs in, and prints the code-only line. Exit 0 / 4 from code coverage. An authorized code scan is asked for with `--require-authorization` (next row).                                                                                     |
+| `pgard scan code --require-authorization` | n/a                                 | Today's behaviour: the gate runs first; allowed → an authorized scan (stored as today); blocked → exit 3, no analysis. For people and wrappers that want proof.                                                                                                                                                   |
+| `pgard scan history`, `scan web`          | Gate                                | **Unchanged** (exit 3 when blocked). The blocked message adds: "`pgard scan code` checks the current files without approval."                                                                                                                                                                                     |
+| `pgard scan all`                          | Gate                                | **[Owner decision D2]** Decided 2026-10-29: **unchanged** (gate; blocked → exit 3, plus the same hint). Alternative: run code-only for `code`, mark `history` and `web` `not_tested` ("needs owner approval"), exit 4. The first keeps "all" honest; the second is friendlier but hides a block behind a partial. |
+| Interactive menu (`pgard`)                | Guided sign-in and App install      | The first choice becomes "Scan the current files (code only)". Sign-in and App install are offered afterwards as "Also scan Git history".                                                                                                                                                                         |
+| `pgard project verify`                    | Gate only                           | Unchanged. One added line when blocked: "Without approval, `pgard scan code` runs a code-only scan of the current files."                                                                                                                                                                                         |
+| `pgard doctor`                            | —                                   | One `[info]` row: "Scans without owner approval run code-only (current files, not saved)."                                                                                                                                                                                                                        |
+| `pgard report`, `baseline`, `sbom`, trend | Gated                               | **Unchanged** (they read stored results or claim a repository). `sbom` reads lockfiles only, like the code-only dependency check, so it could follow the same rule later; that is out of scope here.                                                                                                              |
 
 - **Exit codes.** No new code.
   - A code-only scan exits 0 (completed, findings may exist) or 4 (partial), like any scan.
@@ -220,7 +220,7 @@ A new optional top-level field, `scanBasis`:
 - It already reads only the index, which holds the user's own content about to be committed.
 - Today it runs the full gate, so without a saved sign-in "the gate blocks and nothing is scanned" (README).
 
-**[Owner decision D3] Recommendation: run `pgard precommit` code-only, always, with no gate and no network.**
+**[Owner decision D3] Decided 2026-10-29: run `pgard precommit` code-only, always, with no gate and no network.**
 
 - **Why.**
   - The staged content is the committer's own change. Authorization adds no protection for it, because the same bytes are on disk and any hook can grep them.
@@ -234,7 +234,7 @@ A new optional top-level field, `scanBasis`:
 
 ## 6. The no-GitHub-remote and no-Git cases
 
-**[Owner decision D4] Recommendation: both get a code-only scan.** This matches the owner's intent and section 3.2: the gate's evidence is absent, but code-only needs none of it.
+**[Owner decision D4] Decided 2026-10-29: both get a code-only scan.** This matches the owner's intent and section 3.2: the gate's evidence is absent, but code-only needs none of it.
 
 | Folder                                                                  | Code-only scan                       | Gated parts                                                                        |
 | ----------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
@@ -357,7 +357,7 @@ All strings are in `apps/local-web/src/client/features/simple/simple-text.ts`.
 | Authorization panel, scan-scope toggles, web target panel, session menu | Leave the main path. They appear after **Connect GitHub to also scan Git history**, in the authorized flow.              |
 | Legal notice                                                            | Kept on first use (the same text), shown above the folder card.                                                          |
 
-**[Owner decision D5] Export of code-only results.** Recommendation: allow HTML and PDF export with a "Not authorized: code-only scan" banner on every page, because the file is the user's own local output, like `--format json`. Alternative: no export without approval. The prototype refuses export for now.
+**[Owner decision D5] Export of code-only results.** Decided 2026-10-29: allow HTML and PDF export with a "Not authorized: code-only scan" banner on every page, because the file is the user's own local output, like `--format json`. Alternative (rejected): no export without approval. Phase 1 implements the banner, and the prototype exports with it.
 
 ### 7.4 The approval upgrade is a link, not a blocker
 
@@ -387,32 +387,25 @@ All strings are in `apps/local-web/src/client/features/simple/simple-text.ts`.
 
 ## 9. Phasing (small PRs)
 
-1. **This PR.** Design and prototype.
-   - `runCodeOnlyScan` in scan-core.
-   - The working-tree secrets pass.
-   - `POST /api/code-scan` behind `PGARD_WEB_PROTOTYPE=code-only`.
-   - The simple screen.
-   - A dev preview server.
-   - No CLI change and no schema change.
-2. **Result contract (1.7).**
-   - `scanBasis` in findings, the reader, SARIF and report banners.
-   - Store refusal of `code_only`.
-   - Code-only rule titles for the secrets pass.
-   - `RESULT_SCHEMA.md`.
-3. **CLI.**
-   - `pgard scan code` code-only by default, `--require-authorization`, the terminal line, `project verify` and `doctor` rows, README.
-   - `pgard precommit` per D3.
-4. **Picker for any folder.** The OS folder dialog and the paste box (section 6.1), non-Git and no-remote folders for code-only (section 6), and `pgard dashboard` for any folder.
-5. **Web, production.**
-   - The one-screen flow becomes the default `pgard web`.
-   - The prototype flag is removed.
-   - The full dashboard becomes the authorized flow behind the upgrade link.
-   - Filters move under More.
-   - i18n moves into the catalogs.
-   - Tests.
-6. **Independent security review** of phases 2–5 (issue plan step 3), before release.
+Each phase is its own PR, opened only after the previous one passed review, and each references #414 (and #419 for phase 5).
 
-## 10. The prototype in this PR
+1. **Design record and result labelling (PR #415).**
+   - This document, with the decisions of 2026-10-29.
+   - JSON 1.7 `scanBasis` in the contract and the reader; `runCodeOnlyScan` writes `mode: "code_only"`, every authorized scan writes `mode: "authorized"` with `verified` or `not_verified` / `no_approval`.
+   - SARIF: `properties.pgard.scanBasis`, the code-only warning notification and the `pgard/code-only/` category.
+   - HTML and PDF reports: the banner on every page and the cover block (D5); the prototype exports with it.
+   - The result store refuses a result whose authorization is not verified (defence in depth).
+   - The secrets pass on the files on disk uses its own texts ("Environment file in the project folder", "Secret in a project file"), never "tracked file" or "committed to Git"; same rule ids and fingerprints.
+   - The web label says why authorization is not verified (no GitHub remote, not a Git repository, not checked).
+   - `RESULT_SCHEMA.md` for 1.7.
+   - The prototype route and screen stay behind `PGARD_WEB_PROTOTYPE=code-only`.
+2. **CLI (D1, D2, D4).** `pgard scan code` code-only by default, `--require-authorization`, the terminal line, `scan all` and `history`/`web` unchanged with the hint, `project verify` and `doctor` rows, any folder (no Git, no remote), README.
+3. **Precommit (D3).** `pgard precommit` code-only with no gate and no network; `"precommit": { "requireAuthorization": true }` opts in.
+4. **Web simple screen, production.** The one-screen flow with the OS folder dialog and paste box (section 6.1) becomes the default `pgard web` and `pgard dashboard` main path; the prototype flag and route are removed; the old tabs leave the main path (the full dashboard stays the authorized flow behind the upgrade link); i18n moves into the catalogs.
+5. **Session URL (#419, section 12).** Browser auto-open, the masked token, `--print-url`, the single-use token, for `pgard web`, `pgard dashboard` and the new screen.
+6. **Independent security review** of phases 1–5, before release.
+
+## 10. The prototype in PR #415 (behind `PGARD_WEB_PROTOTYPE=code-only` until phase 4)
 
 - **Real.**
   - The OS folder dialog (macOS `osascript`, Windows PowerShell, Linux `zenity`/`kdialog`) and the paste box, resolved and checked in the real inspector child process (realpath, ownership, write bits, display safety), then the confirm and the re-check before the scan.
@@ -420,27 +413,63 @@ All strings are in `apps/local-web/src/client/features/simple/simple-text.ts`.
   - The code-only scan (source rules, dependencies against the on-disk OSV data, and the new secrets pass) on the real folder.
   - The redaction.
   - The token, Host and Origin checks, and `127.0.0.1` only.
+  - The result labelling of phase 1: `scanBasis` in the result (with the reason from the chosen folder), SARIF, and the HTML/PDF export with the banner on every page (More › Export report).
 - **Not real yet.**
-  - The JSON/SARIF `scanBasis` field. The server marks the result with `codeOnly: true` in `GET /api/scan`, not in the result.
-  - The report banner. Export is refused.
   - The upgrade link opens today's full dashboard.
+  - The CLI (phase 2) and precommit (phase 3) do not run code-only scans yet.
 - **Never.**
   - The prototype route makes no GitHub call. It is a 404 unless the simple screen is on, and the simple screen is never on in fixed mode.
   - `POST /api/scan` (the gate) is unchanged.
 - **Tests.**
   - `packages/scan-core/src/run-code-only.test.ts`: no gate, no history, labelled result.
   - `packages/scan-core/src/working-tree-secrets.test.ts`: secrets on disk, `.env`, links not followed, no Git, no value in output.
-  - `apps/local-web/src/server/code-scan-prototype.test.ts`: 404 when off, never on in fixed mode, token, Host and Origin checks, `no_project`, identity re-check, export refused.
+  - `apps/local-web/src/server/code-scan-prototype.test.ts`: 404 when off, never on in fixed mode, token, Host and Origin checks, `no_project`, identity re-check, export with the banner.
   - `apps/local-web/src/server/choose-folder-prototype.test.ts`: dialog and paste routes (404 when off, token and Origin, one dialog at a time, cancel and shutdown kill the dialog, unavailable, refusals with fixes, `~` expansion), a non-Git folder is code-only only (`409 code_only_project` on verify and `POST /api/scan`), the folder re-check before the scan, and the fixed dialog argv per platform.
   - `apps/local-web/src/server/picker/resolve-folder.test.ts`: the `resolve` job on real folders (GitHub repository, no Git, symbolic link, group-writable, outside home, refused paths) and its message validation.
+  - `packages/findings/src/scan-basis.test.ts`: reading `scanBasis` (absent means authorized, impossible combinations refused, unknown reason codes kept), SARIF labelling and category, the working-tree secret texts and their Korean translation.
+  - `packages/report/src/code-only-report.test.ts`: the HTML banner and cover block, the print rule, and the PDF banner on every page.
+  - `packages/result-store/src/store.test.ts`: a code-only result is never allowed into the store.
 
-## 11. Decisions for the owner
+## 11. Decisions (decided 2026-10-29)
 
-| #   | Question                                   | Recommendation                                                                              |
-| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------- |
-| D1  | `pgard scan code` without approval         | Code-only by default with a clear line; `--require-authorization` restores exit 3.          |
-| D2  | `pgard scan all` without approval          | Unchanged (blocked, exit 3), with a hint to run `scan code`.                                |
-| D3  | `pgard precommit`                          | Always code-only, with no gate and no network; opt-in `requireAuthorization` in the config. |
-| D4  | No GitHub remote / not a Git repository    | Both get a code-only scan.                                                                  |
-| D5  | Export of code-only results                | Allowed, with a "not authorized" banner on every page.                                      |
-| D6  | The one-screen layout and copy (section 7) | Accept as shown in the prototype screenshots, or mark what to change.                       |
+The owner approved the design on 2026-10-29; every decision went as recommended.
+
+| #   | Question                                   | Decision (2026-10-29)                                                                                                     |
+| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| D1  | `pgard scan code` without approval         | Code-only by default with a clear line; `--require-authorization` restores exit 3.                                        |
+| D2  | `pgard scan all` without approval          | Unchanged and strict (blocked, exit 3), with a hint to run `scan code`.                                                   |
+| D3  | `pgard precommit`                          | Always code-only, with no gate and no network; a repository opts in with `"precommit": { "requireAuthorization": true }`. |
+| D4  | No GitHub remote / not a Git repository    | Both get a code-only scan.                                                                                                |
+| D5  | Export of code-only results                | Allowed, with a "not authorized" banner on every page.                                                                    |
+| D6  | The one-screen layout and copy (section 7) | Approved, together with the OS folder dialog and paste flow (section 6.1).                                                |
+
+## 12. Session URL handling (#419)
+
+Applies to `pgard web`, `pgard dashboard` and the one-screen flow alike (phase 5).
+
+### 12.1 Today
+
+- The launcher prints `http://127.0.0.1:<port>/#token=<secret>` and the user copies or clicks it.
+- The token is a long random value in the URL fragment (never sent in requests or `Referer`); the page reads it and sends it as `x-pgard-token` on every API call for the life of the server.
+- So the full secret sits in the terminal scrollback, in shell recordings and screen shares, and in the browser history, and the same link works again in any tab until the server stops.
+
+### 12.2 Decisions
+
+- **Open the browser.** After the server listens, the launcher opens the URL with the platform opener: `open` (macOS), `xdg-open` (Linux), `rundll32 url.dll,FileProtocolHandler` (Windows), through `execFile` with a fixed argv and no shell. Not in CI, not without a terminal, and not with `--no-open`.
+- **Mask the token in the terminal.** The terminal shows `http://127.0.0.1:4317/#token=•••• (opened in your browser)`. The full URL is printed only when opening failed or was skipped (no opener, CI, no terminal, `--no-open`), or with `--print-url`. The full URL never goes to a log file.
+- **Single-use URL token.** The URL token is only an invitation:
+  1. On its first load the page calls `POST /api/session/exchange` with the URL token (same Host and Origin checks). The server marks the token used and returns a new **session secret** (32 random bytes, kept only as a hash on the server).
+  2. The page removes the fragment from the address bar (`history.replaceState`), keeps the session secret in `sessionStorage` and sends it as `x-pgard-session` from then on. The URL token is no longer accepted by any API route.
+  3. A second exchange with the same URL token (a reused link, another tab, a copied link, the browser history) is refused with `409 token_used`, and the page says: "This link was already used. Run the command again to get a new one." / "이미 사용한 링크입니다. 명령을 다시 실행해 새 링크를 받으세요."
+  4. An unused URL token expires after 10 minutes; the launcher then prints how to get a new one (rerun the command).
+- **Reload: kept working, in that tab only.** A reload of the same tab finds the session secret in `sessionStorage` and continues without the URL token. Opening the link in a new tab, a new window or after closing the tab needs a new link (rerun the command).
+  - Why `sessionStorage`: it is scoped to the exact origin, **including the port**, and to the tab, and is gone when the tab closes. A reload is the most common thing a user does on a local page (and what a developer does after every change), so losing the session on reload would strand people for no security gain: the attacker this protects against reads the terminal or the history, not the tab's storage.
+  - Rejected, a cookie: cookies are not isolated by port, so a session cookie for `127.0.0.1:4317` would also be sent to every other local server on `127.0.0.1` (including the dev server PGARD scans).
+  - Rejected, `localStorage`: it outlives the tab and the browser restart and is shared by every tab of the origin, which keeps a secret around longer than the session needs.
+  - Rejected, memory only: every reload would end the session.
+- **One session at a time.** After the exchange, only the holder of the session secret can use the API; a second browser cannot join. The terminal says "Opened in your browser. To open it elsewhere, stop and rerun the command."
+- **Unchanged.** `127.0.0.1` only, exact Host check, Origin check, CSP, the project epoch.
+
+### 12.3 Tests (phase 5)
+
+Exchange once, refuse a second exchange and the raw URL token on every route, reload with the session secret, expiry of an unused token, masked terminal output and `--print-url`, opener argv per platform and the CI / no-terminal fallback, the "already used" page in English and Korean.
