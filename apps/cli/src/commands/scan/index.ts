@@ -333,6 +333,7 @@ async function runScanFlow(
           webRules: WEB_RULE_LIST,
           signal: context.signal,
           env: context.io.env,
+          advisoryDataDir: context.deps.appDataDir,
           incremental: incremental.dependencies,
           onAuthorization: (received) => {
             outcome = received;

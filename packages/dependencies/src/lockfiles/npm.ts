@@ -55,13 +55,18 @@ export function parseNpmLock(text: string): ParsedLockfile {
     };
   }
   const notes: string[] = [];
-  const found = new Map<string, { name: string; version: string; direct: boolean | undefined }>();
+  const found = new Map<
+    string,
+    { name: string; version: string; direct: boolean | undefined; dev: boolean }
+  >();
   let isComplete = true;
   let isTruncated = false;
-  const add = (name: string, version: string, direct: boolean | undefined): void => {
+  const add = (name: string, version: string, direct: boolean | undefined, dev: boolean): void => {
     const id = `${name}\0${version}`;
     const existing = found.get(id);
     if (existing !== undefined) {
+      // Dev-only only if every occurrence is: one production use makes it a production package.
+      existing.dev = existing.dev && dev;
       if (direct === true) existing.direct = true;
       else if (existing.direct === undefined) existing.direct = direct;
       return;
@@ -70,7 +75,7 @@ export function parseNpmLock(text: string): ParsedLockfile {
       isTruncated = true;
       return;
     }
-    found.set(id, { name, version, direct });
+    found.set(id, { name, version, direct, dev });
   };
 
   const lockfileVersion = root["lockfileVersion"];
@@ -108,7 +113,7 @@ export function parseNpmLock(text: string): ParsedLockfile {
       // workspace member's declared names.
       const declared = scopeKey === "" ? allDeclared : directByScope.get(scopeKey);
       const direct = isTopLevelOfScope && (declared?.has(installedName) ?? false);
-      add(name, version, direct);
+      add(name, version, direct, value["dev"] === true);
     }
     if (skippedLinks > 0) {
       notes.push(`${skippedLinks} linked workspace package(s) are first-party and were skipped.`);
@@ -135,7 +140,7 @@ export function parseNpmLock(text: string): ParsedLockfile {
         if (!isObject(value)) continue;
         const version = value["version"];
         if (typeof version === "string" && /^\d/.test(version)) {
-          add(name, version, undefined);
+          add(name, version, undefined, value["dev"] === true);
         } else {
           nonRegistry += 1; // file:, link:, git+..., github:, tarball URLs or missing
         }
@@ -164,11 +169,12 @@ export function parseNpmLock(text: string): ParsedLockfile {
     notes.push(`Only the first ${MAX_ENTRIES_PER_LOCKFILE} packages were read.`);
   }
   return {
-    dependencies: [...found.values()].map(({ name, version, direct }) => ({
+    dependencies: [...found.values()].map(({ name, version, direct, dev }) => ({
       ecosystem: "npm" as const,
       name,
       version,
       ...(direct === undefined ? {} : { direct }),
+      ...(dev ? { dev: true } : {}),
     })),
     notes,
     isComplete,

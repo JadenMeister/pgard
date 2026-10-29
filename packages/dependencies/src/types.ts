@@ -8,6 +8,13 @@ export interface Dependency {
   version: string;
   /** True/false when the lockfile (or its manifest) tells; absent when it cannot. */
   direct?: boolean;
+  /**
+   * True when the lockfile says the package is needed only for development (npm `dev: true`);
+   * absent when the lockfile does not say (yarn, pnpm 9, Go).
+   */
+  dev?: boolean;
+  /** The kind of lockfile the entry was read from. */
+  lockfile: LockfileKind;
   /** Repository-relative POSIX path of the lockfile the entry came from. */
   path: string;
 }
@@ -16,7 +23,7 @@ export type LockfileKind = "npm" | "pnpm" | "yarn" | "go.mod" | "go.sum";
 
 /** What a parser returns for one file. `notes` explain every gap in plain words. */
 export interface ParsedLockfile {
-  dependencies: Omit<Dependency, "path">[];
+  dependencies: Omit<Dependency, "path" | "lockfile">[];
   notes: string[];
   /** False when the file was only partly understood (so "no findings" must not be read as clean). */
   isComplete: boolean;

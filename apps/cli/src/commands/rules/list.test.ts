@@ -33,10 +33,10 @@ describe("runRulesList", () => {
     );
     expect(stdout).toContain("PG-WEB-013");
     expect(stdout).not.toContain("Advisory database status");
-    expect(stdout).not.toContain("PG-DEP-001");
+    expect(stdout).toContain("PG-DEP-001");
     expect(stdout).not.toContain(DB_PATH);
     expect(stdout).toContain("Direct database connections");
-    expect(stdout).toContain("PGARD ships no vulnerability database");
+    expect(stdout).toContain("Dependency advisories for ecosystems other than npm and Go");
   });
 
   it("lists every engine rule grouped by scope", async () => {

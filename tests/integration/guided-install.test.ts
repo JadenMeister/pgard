@@ -574,7 +574,12 @@ describe("guided install: organizations and configuration", () => {
 
 /** Default dashboard deps with a fake keychain: tests never read the OS keychain. */
 function serverDepsWithFakeKeychain(): ServerDeps {
-  return { ...createDefaultServerDeps(), credentialStore: createInMemoryCredentialStore() };
+  return {
+    ...createDefaultServerDeps(),
+    credentialStore: createInMemoryCredentialStore(),
+    // Never read the real per-user advisory store from a test.
+    advisoryDataDir: null,
+  };
 }
 
 const WEB_TOKEN = "guided-install-token-0123456789abcdefgh";

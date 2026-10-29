@@ -47,7 +47,7 @@ export const en = {
       "Scan data is processed once, on this computer. PGARD does not upload source code or results to any server.",
       "The only external network traffic is to GitHub: the device-flow sign-in on github.com (and refreshing a saved sign-in there) and GitHub API calls that read what authorization needs (your identity, the app installation, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. The pgard doctor command also checks whether api.github.com is reachable.",
       "After authorization passes, PGARD sends one GET / to each discovered listening port on 127.0.0.1 to show its identity.",
-      "PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
+      "PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go lockfiles, a version match against the OSV data you downloaded with pgard advisories update (not proof that the vulnerable code is reachable or exploitable).",
       "The GitHub sign-in is saved in the OS keychain (macOS Keychain, Windows Credential Manager or the Linux Secret Service), never in a file, so the CLI and the dashboard can reuse it. It stays in the local PGARD process and is never sent to the browser. Without a keychain it is kept in memory only. Use pgard logout, or the dashboard's sign-out that removes it from the keychain, to delete it.",
       "Results of scans you run in the dashboard and the dashboard session token live only in memory and are discarded when you stop the dashboard. Only reports you export remain, and you are responsible for storing and sharing them. Scans run with the pgard command are different: their redacted results are kept in this computer's app-data folder (last 20 scans per repository, 90 days, never uploaded; on macOS and Linux readable only by you) unless you pass --no-store or set PGARD_NO_STORE=1. Delete them with pgard history clear --all.",
       "Web checks send anonymous GET requests to the local service you confirm. A badly implemented application can still change state on GET; PGARD does not guarantee that checks have no side effects.",
@@ -363,7 +363,7 @@ export const en = {
       regular: "Findings",
     },
     noDatabase:
-      "PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
+      "PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go lockfiles, a version match against the OSV data you downloaded with pgard advisories update (not proof that the vulnerable code is reachable or exploitable).",
     location: {
       unknownUrl: "(unknown URL)",
       unknownCommit: "unknown commit",

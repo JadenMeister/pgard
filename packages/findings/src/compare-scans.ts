@@ -155,6 +155,12 @@ function webUrl(raw: string | null): string {
 
 function normalizeEvidence(finding: Finding, family: Family): string {
   if (finding.ruleId === HYGIENE_RULE) return "";
+  // A dependency finding is the same issue as long as package, version and advisory are the same;
+  // its evidence (range, fixed versions, severity) follows the advisory data and may change.
+  if (finding.dependency !== undefined) {
+    const { ecosystem, name, version, advisoryId } = finding.dependency;
+    return `${ecosystem}:${name}@${version}:${advisoryId}`;
+  }
   // Redact again: the stored text should already be clean, but identity must never depend on
   // (or hash) anything a redactor would have removed.
   let text = redactEvidence(finding.evidence);
@@ -224,10 +230,60 @@ function pairGroup(previous: Finding[], current: Finding[]): [number, number][] 
   return pairs;
 }
 
+/**
+ * The key findings are grouped by before pairing. For a dependency finding it leaves the advisory
+ * out: one package version in one lockfile is one group, and `pairDependencies` pairs the
+ * advisories inside it by their ids and aliases, so an update that changes which id is primary
+ * (a GHSA record added to a GO one, a CVE alias backfilled) is not a fix plus a new finding.
+ */
+function groupIdentity(finding: Finding): string {
+  const dependency = finding.dependency;
+  if (dependency === undefined) return findingIdentity(finding);
+  const { location } = finding;
+  return createFindingFingerprint({
+    ruleId: finding.ruleId,
+    location: { kind: location.kind, path: location.path, line: null, url: null, commit: null },
+    cause: `dependency-group:${dependency.ecosystem}:${dependency.name}@${dependency.version}`,
+  });
+}
+
+const idsOf = (finding: Finding): Set<string> =>
+  new Set([finding.dependency?.advisoryId ?? "", ...(finding.dependency?.aliases ?? [])]);
+
+/**
+ * Pairs the dependency findings of one group (same rule, lockfile, ecosystem, name and version):
+ * first the same advisory id, then any two whose `{advisoryId} + aliases` sets intersect. Two
+ * unrelated advisories on one package never pair.
+ */
+function pairDependencies(previous: Finding[], current: Finding[]): [number, number][] {
+  const pairs: [number, number][] = [];
+  const usedPrevious = new Set<number>();
+  const usedCurrent = new Set<number>();
+  const previousIds = previous.map(idsOf);
+  const currentIds = current.map(idsOf);
+  for (const exact of [true, false]) {
+    previous.forEach((was, p) => {
+      if (usedPrevious.has(p)) return;
+      const c = current.findIndex((now, index) => {
+        if (usedCurrent.has(index)) return false;
+        if (exact) return was.dependency?.advisoryId === now.dependency?.advisoryId;
+        return [...(previousIds[p] as Set<string>)].some(
+          (id) => id !== "" && (currentIds[index] as Set<string>).has(id),
+        );
+      });
+      if (c === -1) return;
+      usedPrevious.add(p);
+      usedCurrent.add(c);
+      pairs.push([p, c]);
+    });
+  }
+  return pairs;
+}
+
 function groupByIdentity(findings: readonly Finding[]): Map<string, Finding[]> {
   const groups = new Map<string, Finding[]>();
   for (const finding of findings) {
-    const key = findingIdentity(finding);
+    const key = groupIdentity(finding);
     const group = groups.get(key);
     if (group) group.push(finding);
     else groups.set(key, [finding]);
@@ -246,6 +302,7 @@ const NOTE_ONLY_AREAS: ReadonlySet<string> = new Set([
   "source:xml-skipped",
   "source:unreadable-files",
   "source:special-files",
+  "deps:unsupported",
 ]);
 const BUILD_OUTPUT_AREA = "source:build-output";
 const XML_AREA = "source:xml-skipped";
@@ -421,7 +478,10 @@ export function compareScans(previous: ScanResult, current: ScanResult): ScanCom
   for (const identity of new Set([...before.keys(), ...after.keys()])) {
     const oldGroup = before.get(identity) ?? [];
     const newGroup = after.get(identity) ?? [];
-    const pairs = pairGroup(oldGroup, newGroup);
+    const pairs =
+      oldGroup[0]?.dependency !== undefined || newGroup[0]?.dependency !== undefined
+        ? pairDependencies(oldGroup, newGroup)
+        : pairGroup(oldGroup, newGroup);
     const pairedOld = new Set(pairs.map(([p]) => p));
     const pairedNew = new Set(pairs.map(([, c]) => c));
     for (const [p, c] of pairs) {

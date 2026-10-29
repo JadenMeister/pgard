@@ -184,12 +184,12 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
     expect(a05?.reason).toContain("code scope not selected");
   });
 
-  it("counts committed dependency directories (PG-HYGIENE-001) for A03, and nothing else", async () => {
-    // Decision: OSV advisories are not part of a scan (PGARD ships no vulnerability database), so
-    // they never count. A03 maps only to PG-HYGIENE-001 today.
+  it("maps A03 to PG-HYGIENE-001 and PG-DEP-001, and counts the dependency rule only when its area ran", async () => {
+    // A03 maps to the committed dependency directories and to the version match against OSV data.
+    // A project with no lockfile has no deps area, so PG-DEP-001 simply did not run there.
     const result = await run(tsCompleted);
     const a03 = result.standardsCoverage?.owasp.find((entry) => entry.id === "A03:2025");
-    expect(a03?.mappedRuleIds).toEqual(["PG-HYGIENE-001"]);
+    expect(a03?.mappedRuleIds).toEqual(["PG-DEP-001", "PG-HYGIENE-001"]);
     expect(a03?.state).toBe("not_run");
     const withHistory = await run(tsCompleted, {
       findings: [],
@@ -198,7 +198,7 @@ describe("runScan: standardsCoverage with the real rule catalog", () => {
     });
     expect(
       withHistory.standardsCoverage?.owasp.find((entry) => entry.id === "A03:2025")?.state,
-    ).toBe("rules_ran");
+    ).toBe("rules_partial");
   });
 
   it("includes web rules only when the launcher passes them", async () => {

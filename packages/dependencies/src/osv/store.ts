@@ -258,7 +258,13 @@ export async function readMeta(osvDir: string, ecosystem: Ecosystem): Promise<Os
       value.ecosystem !== ecosystem ||
       typeof value.fetchedAt !== "string" ||
       typeof value.files !== "object" ||
-      value.files === null
+      value.files === null ||
+      !Object.values(value.files).every(
+        (record) =>
+          typeof record?.sha256 === "string" &&
+          /^[0-9a-f]{64}$/.test(record.sha256) &&
+          Number.isSafeInteger(record.bytes),
+      )
     ) {
       return null;
     }

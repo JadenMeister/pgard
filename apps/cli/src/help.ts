@@ -187,9 +187,12 @@ be installed, PGARD opens the install page, waits for it, re-runs the full
 authorization and continues the scan.
 
 Findings come from the code itself (query statements, server code,
-configuration, Git history). Scans never download advisory data and never query
-a vulnerability database; "pgard advisories update" is a separate download that
-only you start.
+configuration, Git history) and, for npm and Go lockfiles, from a version match
+against the OSV data you downloaded. Scans never download advisory data and
+never query a vulnerability database; "pgard advisories update" is a separate
+download that only you start. Without that data the dependency areas are
+reported as not tested. A match means the version is in an advisory's affected
+range, not that the vulnerable code is reachable or exploitable.
 
 Web checks send anonymous GET requests to 127.0.0.1 only, within page, depth and
 time limits. GET requests can still change state in some applications.

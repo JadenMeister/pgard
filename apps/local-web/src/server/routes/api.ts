@@ -542,6 +542,7 @@ const startScan: ApiHandler = async (context, body) => {
         webRules: WEB_RULE_LIST,
         signal: controller.signal,
         env: context.env,
+        advisoryDataDir: context.deps.advisoryDataDir ?? null,
         onProgress: (event) => {
           if (state.scan.controller !== controller) return;
           if (state.scan.progress.length >= MAX_PROGRESS_EVENTS) state.scan.progress.shift();

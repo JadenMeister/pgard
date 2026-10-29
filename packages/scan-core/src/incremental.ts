@@ -187,6 +187,8 @@ export function fingerprintConfig(load: ProjectConfigLoad): string | null {
 export function blockingCoverage(result: ScanResult): Coverage | null {
   for (const entry of result.coverage) {
     if (entry.scope !== "code" && entry.scope !== "history") continue;
+    // Dependency areas keep no reusable data and are recomputed on every scan (see PG-DEP-001).
+    if (entry.area.startsWith("deps:")) continue;
     if (entry.status !== "partial" && entry.status !== "not_tested") continue;
     const isWholeScope = entry.area === "code" || entry.area === "history";
     if (entry.scope === "history" || isWholeScope || entry.ruleIds.length > 0) return entry;

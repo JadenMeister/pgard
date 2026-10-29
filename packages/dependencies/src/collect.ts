@@ -513,7 +513,7 @@ export async function collectDependencies(
     let kept = 0;
     let isCut = false;
     for (const dependency of parsed.dependencies) {
-      const entry: Dependency = { ...dependency, path: file.relativePath };
+      const entry: Dependency = { ...dependency, path: file.relativePath, lockfile: file.kind };
       const id = `${entry.ecosystem}\0${entry.name}\0${entry.version}\0${entry.path}`;
       if (seen.has(id)) continue;
       if (dependencies.length >= limits.totalDependencies) {

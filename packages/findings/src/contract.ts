@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.4" as const;
+export const SCHEMA_VERSION = "1.5" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -178,6 +178,48 @@ export interface Finding {
    * finding (same identity as the scan comparison). Absent: not in the baseline, or no baseline.
    */
   inBaseline?: true;
+  /**
+   * JSON v1.5. Only on `PG-DEP-001` findings: which package version matched which advisory. It
+   * records a version-range match, not exploitability or reachability.
+   */
+  dependency?: FindingDependency;
+}
+
+/** How a dependency finding's severity was decided: a computed CVSS score, a label, or neither. */
+export type DependencySeveritySource = "cvss" | "database" | "unknown";
+export const DEPENDENCY_SEVERITY_SOURCES = exhaustive<DependencySeveritySource>({
+  cvss: true,
+  database: true,
+  unknown: true,
+});
+
+export interface FindingDependency {
+  /** OSV ecosystem name (`npm`, `Go`). */
+  ecosystem: string;
+  name: string;
+  /** The version the lockfile pins. */
+  version: string;
+  /** True when the lockfile says the package is needed only for development. Absent: not stated. */
+  dev?: boolean;
+  /** Absent: the lockfile does not say whether the package is a direct dependency. */
+  direct?: boolean;
+  /** Primary advisory id (GHSA, GO, ...). Part of the fingerprint. */
+  advisoryId: string;
+  /** Other ids of the same issue (CVE, GHSA, GO, ...). */
+  aliases: string[];
+  /** The affected range the version is in, e.g. `>=1.0.0 <1.2.3`, or `all versions`. */
+  affectedRange: string;
+  /** Fixed versions newer than the installed one; empty when none is published. */
+  fixedVersions: string[];
+  /**
+   * `cvss`: the level comes from the CVSS v3 base score computed from `vector`. `database`: from
+   * the advisory database's own label. `unknown`: neither exists and the finding is `medium`.
+   */
+  severitySource: DependencySeveritySource;
+  /** CVSS base score (0-10), when `severitySource` is `cvss`. */
+  score?: number;
+  /** The CVSS vector as published, when the advisory has one. */
+  vector?: string;
 }
 
 /**

@@ -426,9 +426,9 @@ Standards coverage (OWASP Top 10 2025)
   [not run]       A02 Security Misconfiguration - 3 of 16 mapped CWEs
             have rules; no mapped rule ran (PG-CONF-001, PG-COOKIE-001: code
             areas could not run)
-  [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped
-            CWEs have rules; no mapped rule ran (PG-HYGIENE-001: history areas
-            could not run)
+  [not run]       A03 Software Supply Chain Failures - 2 of 6 mapped
+            CWEs have rules; no mapped rule ran (PG-DEP-001, PG-HYGIENE-001:
+            history areas could not run, code areas could not run)
   [not run]       A04 Cryptographic Failures - 4 of 32 mapped CWEs
             have rules; no mapped rule ran (PG-CRYPTO-001, PG-CRYPTO-002,
             PG-CRYPTO-003: code areas could not run)
@@ -804,8 +804,8 @@ Standards coverage (OWASP Top 10 2025)
                   javascript, typescript (files that are not yours to scan can be left out with "exclude…
   [not run]       A02 Security Misconfiguration - 3 of 16 mapped CWEs have rules; no mapped rule ran
             (PG-CONF-001, PG-COOKIE-001: code areas could not run)
-  [not run]       A03 Software Supply Chain Failures - 1 of 6 mapped CWEs have rules; no mapped rule ran
-            (PG-HYGIENE-001: history areas could not run)
+  [not run]       A03 Software Supply Chain Failures - 2 of 6 mapped CWEs have rules; no mapped rule ran
+            (PG-DEP-001, PG-HYGIENE-001: history areas could not run, code areas could not run)
   [not run]       A04 Cryptographic Failures - 4 of 32 mapped CWEs have rules; no mapped rule ran
             (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run)
   [rules partial] A05 Injection - 3 of 37 mapped CWEs have rules (PG-CMD-001); no completed mapped rule
@@ -1223,8 +1223,9 @@ OWASP Top 10 2025 분류별
                중 3개에 규칙이 있음 (no mapped rule ran (PG-CONF-001,
                PG-COOKIE-001: code areas could not run))
   [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE
-               6개 중 1개에 규칙이 있음 (no mapped rule ran (PG-HYGIENE-001:
-               history areas could not run))
+               6개 중 2개에 규칙이 있음 (no mapped rule ran (PG-DEP-001,
+               PG-HYGIENE-001: history areas could not run, code areas could not
+               run))
   [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중
                4개에 규칙이 있음 (no mapped rule ran (PG-CRYPTO-001,
                PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
@@ -1601,8 +1602,8 @@ OWASP Top 10 2025 분류별
                    covers javascript, typescript (files that are not yours to scan can be left out with "exclude" in p…
   [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 3개에 규칙이 있음 (no mapped rule ran
                (PG-CONF-001, PG-COOKIE-001: code areas could not run))
-  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 1개에 규칙이 있음 (no mapped rule
-               ran (PG-HYGIENE-001: history areas could not run))
+  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 2개에 규칙이 있음 (no mapped rule
+               ran (PG-DEP-001, PG-HYGIENE-001: history areas could not run, code areas could not run))
   [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음 (no mapped rule ran
                (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
   [규칙 일부 실행] A05 Injection - 매핑된 CWE 37개 중 3개에 규칙이 있음 (PG-CMD-001) (no completed

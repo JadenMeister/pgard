@@ -6,6 +6,7 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { renderReport } from "@pgard/report";
+import { resolveStoreDirectory } from "@pgard/result-store";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
@@ -45,6 +46,11 @@ export interface ServerDeps {
   /** Renders the same HTML or PDF the CLI file export writes; the dashboard never writes files. */
   renderReport: typeof renderReport;
   now: () => number;
+  /**
+   * The per-user data folder whose `advisories/osv` holds the downloaded OSV data, read (never
+   * written) by the dependency check of a scan. `null`/absent: no advisory data can be read.
+   */
+  advisoryDataDir?: string | null;
 }
 
 /** Client id (or the fixed reason a malformed override blocks) for the session provider. */
@@ -79,5 +85,9 @@ export function createDefaultServerDeps(): ServerDeps {
     discoverListeningPorts: () => discoverListeningPorts(),
     renderReport,
     now: Date.now,
+    advisoryDataDir: resolveStoreDirectory({
+      env: process.env,
+      homeDir: process.env.HOME ?? process.env.USERPROFILE ?? "",
+    }),
   };
 }

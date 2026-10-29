@@ -15,6 +15,7 @@
     "dist"
   ],
   "dependencies": {
+    "@pgard/dependencies": "0.1.0",
     "@pgard/findings": "0.1.0",
     "@pgard/git-history": "0.1.0",
     "@pgard/github-auth": "0.1.0",

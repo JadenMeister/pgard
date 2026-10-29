@@ -341,6 +341,7 @@ export const CWE_MAPPING_USAGE: Readonly<Record<string, CweMappingEntry>> = {
   "CWE-1021": { abstraction: "Base", usage: "ALLOWED" },
   "CWE-1104": { abstraction: "Base", usage: "ALLOWED" },
   "CWE-1275": { abstraction: "Variant", usage: "ALLOWED" },
+  "CWE-1395": { abstraction: "Class", usage: "ALLOWED-WITH-REVIEW" },
 };
 
 export function cweMappingEntry(cwe: string): CweMappingEntry | undefined {

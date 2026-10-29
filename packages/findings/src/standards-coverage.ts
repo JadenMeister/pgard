@@ -120,7 +120,10 @@ function judge(
   const isCodeEntry = mappedScopes.includes("code");
   if (isCodeEntry) {
     for (const entry of input.coverage) {
-      if (entry.scope === "code" && entry.status === "partial") partialAreas.add(entry.area);
+      // Dependency areas limit only the entries their own rule maps to (rows above).
+      if (entry.scope === "code" && entry.status === "partial" && !entry.area.startsWith("deps:")) {
+        partialAreas.add(entry.area);
+      }
     }
   }
   if (partialAreas.size > 0) problems.push(`partial areas: ${list([...partialAreas].sort())}`);

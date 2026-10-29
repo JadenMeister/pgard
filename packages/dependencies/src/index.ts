@@ -34,6 +34,23 @@ export {
   type UpdateOptions,
   type UpdateOutcome,
 } from "./osv/update.js";
+export { DEPENDENCY_RULE_ID, listDependencyRules } from "./rules.js";
+export {
+  UPDATE_HINT,
+  scanDependencies,
+  type DependencyScanOutput,
+  type ScanDependenciesOptions,
+} from "./scan.js";
+export {
+  AdvisoryDataError,
+  matchDependencies,
+  type DependencyMatch,
+  type MatchResult,
+} from "./match/match.js";
+export { versionScheme, type VersionScheme } from "./match/version.js";
+export { evaluateAffected } from "./match/range.js";
+export { cvss3BaseScore, advisorySeverity, severityFromScore } from "./match/severity.js";
+export type { CollectOptions } from "./types.js";
 export {
   buildCycloneDxSbom,
   CYCLONEDX_SPEC_VERSION,

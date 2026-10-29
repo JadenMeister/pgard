@@ -4,7 +4,10 @@
  * source and history analyzers) against a throwaway Git repository. GitHub is replaced by the
  * policy package's in-memory mock; nothing here touches the network.
  */
+import { mkdtemp, rm } from "node:fs/promises";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 import { splitFindingsByContext, type ScanResult } from "@pgard/findings";
 import {
   DEFAULT_GITHUB_APP_CLIENT_ID,
@@ -13,7 +16,8 @@ import {
   resolveGitHubAppClientId,
   type GitHubSessionProvider,
 } from "@pgard/github-auth";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeOsvFixture } from "../../packages/dependencies/src/test-support/osv-fixture.js";
 import { createDefaultDeps, main, type CliDeps } from "../../apps/cli/src/app.js";
 import { exitCodeForStatus } from "../../apps/cli/src/exit-codes.js";
 import { createTestIo, noInterrupts } from "../../apps/cli/src/test-support.js";
@@ -67,6 +71,21 @@ const LOCKFILE = JSON.stringify(
 type ScanFn = ServerDeps["runScan"];
 
 let fixture: GitFixture | null = null;
+/**
+ * A throwaway advisory data folder with fresh, empty OSV data (dated just before FIXED_NOW), given
+ * to both frontends: the scan never reads the real per-user store, and the lockfile in the
+ * repository is checked (and found clean) the same way by both.
+ */
+let advisoryDir = "";
+beforeAll(async () => {
+  advisoryDir = await mkdtemp(path.join(os.tmpdir(), "pgard-parity-osv-"));
+  const fetchedAt = "2026-10-23T12:00:00.000Z";
+  await writeOsvFixture(advisoryDir, "npm", [], { fetchedAt, modifiedMax: fetchedAt });
+});
+afterAll(async () => {
+  await rm(advisoryDir, { recursive: true, force: true });
+});
+
 let server: LocalWebServer | null = null;
 let fetchSpy: ReturnType<typeof vi.fn>;
 
@@ -188,6 +207,7 @@ async function scanWithCli(
   const deps: CliDeps = {
     ...defaults,
     runScan: recorder.runScan,
+    appDataDir: advisoryDir,
     ...(createSessionProvider === null ? {} : { createSessionProvider }),
   };
   const captured = createTestIo({ cwd: root, env });
@@ -248,6 +268,7 @@ async function scanWithWeb(
   const deps: ServerDeps = {
     ...defaults,
     runScan: recorder.runScan,
+    advisoryDataDir: advisoryDir,
     ...(createSessionProvider === null ? {} : { createSessionProvider }),
   };
   server = await startLocalWebServer({

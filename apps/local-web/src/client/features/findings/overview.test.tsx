@@ -31,7 +31,7 @@ const finding = (id: string, overrides: Partial<Finding> = {}): Finding => ({
 
 const result = (findings: Finding[], extra: Partial<ScanResult> = {}): ScanResult =>
   ({
-    schemaVersion: "1.4",
+    schemaVersion: "1.5",
     scanId: "s1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",

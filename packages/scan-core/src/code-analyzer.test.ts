@@ -4,6 +4,7 @@ import path from "node:path";
 import type { AuthorizationOutcome } from "@pgard/policy";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sessionProvider } from "../../policy/src/test-support/mock-github.js";
+import { advisory, writeOsvFixture } from "../../dependencies/src/test-support/osv-fixture.js";
 
 const authorizeProject = vi.fn<(root: string) => Promise<AuthorizationOutcome>>();
 vi.mock("@pgard/policy", async (importOriginal) => {
@@ -60,13 +61,13 @@ describe("code scope wiring", () => {
     expect(JSON.stringify(result)).not.toContain(root);
   });
 
-  it("lists the source rules and no dependency advisory rule", () => {
+  it("lists the source rules and the dependency advisory rule", () => {
     const ids = listSupportedRules().map((rule) => rule.id);
     expect(ids).toEqual(expect.arrayContaining(["PG-SQL-001", "PG-XSS-003", "PG-CMD-002"]));
-    expect(ids.filter((id) => id.startsWith("PG-DEP-"))).toEqual([]);
+    expect(ids.filter((id) => id.startsWith("PG-DEP-"))).toEqual(["PG-DEP-001"]);
   });
 
-  it("ignores lockfiles and PGARD_ADVISORY_DB: no dependency coverage, no advisory data", async () => {
+  async function scanWithLockfile(dataDir: string | null) {
     root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-dep-")));
     writeFileSync(
       path.join(root, "package-lock.json"),
@@ -92,24 +93,58 @@ describe("code scope wiring", () => {
       repo: "me/app",
       revision: null,
     });
-    const result = await runScan(
+    return runScan(
       { projectRoot: root, scopes: ["code"], webTarget: null },
       {
         authorization: {
           getGitHubSession: sessionProvider(async () => Promise.reject(new Error("unused"))),
         },
-        env: { PGARD_ADVISORY_DB: path.join(root, "missing-osv.json") },
+        env: {},
+        advisoryDataDir: dataDir,
       },
     );
-    expect(result.findings).toEqual([]);
-    expect(result.coverage.filter((entry) => entry.area.startsWith("dependencies"))).toEqual([]);
-    expect(result.advisoryDb).toEqual({ version: null, updatedAt: null });
-    expect(
-      result.coverage.filter((entry) => entry.scope === "code").map((entry) => entry.status),
-    ).toEqual(expect.arrayContaining(["completed"]));
-    expect(
-      result.coverage.filter((entry) => entry.scope === "code" && entry.status !== "completed"),
-    ).toEqual([]);
-    expect(result.overallStatus).toBe("completed");
+  }
+
+  it("without downloaded advisory data, the dependency area is not_tested with the hint", async () => {
+    const empty = mkdtempSync(path.join(tmpdir(), "pgard-nodata-"));
+    try {
+      const result = await scanWithLockfile(empty);
+      expect(result.findings).toEqual([]);
+      const area = result.coverage.find((entry) => entry.area === "deps:npm");
+      expect(area).toMatchObject({ status: "not_tested", scope: "code" });
+      expect(area?.note).toContain("pgard advisories update");
+      expect(result.advisoryDb).toEqual({ version: null, updatedAt: null });
+      expect(result.overallStatus).toBe("partial");
+    } finally {
+      rmSync(empty, { recursive: true, force: true });
+    }
+  });
+
+  it("matches a lockfile against local OSV data and reports the finding in the code scope", async () => {
+    const data = mkdtempSync(path.join(tmpdir(), "pgard-osvdata-"));
+    try {
+      const now = new Date().toISOString();
+      await writeOsvFixture(
+        data,
+        "npm",
+        [advisory("GHSA-test-test-test", "lodash", [{ introduced: "0" }, { fixed: "4.17.21" }])],
+        { fetchedAt: now, modifiedMax: now },
+      );
+      const result = await scanWithLockfile(data);
+      expect(result.findings).toEqual([
+        expect.objectContaining({
+          ruleId: "PG-DEP-001",
+          sources: ["code"],
+          location: expect.objectContaining({ path: "package-lock.json", line: null }),
+          dependency: expect.objectContaining({ name: "lodash", fixedVersions: ["4.17.21"] }),
+        }),
+      ]);
+      expect(result.coverage.find((entry) => entry.area === "deps:npm")?.status).toBe("completed");
+      expect((result.ruleStats ?? []).some((stat) => stat.area === "deps:npm")).toBe(true);
+      expect(result.overallStatus).toBe("completed");
+      expect(JSON.stringify(result)).not.toContain(root as string);
+    } finally {
+      rmSync(data, { recursive: true, force: true });
+    }
   });
 });

@@ -108,6 +108,11 @@ export const RULE_LOCALITY: Readonly<Record<string, RuleLocalityEntry>> = {
     reason:
       "Reports authentication routes only when no rate-limiting library is imported or declared anywhere in the project.",
   },
+  "PG-DEP-001": {
+    locality: "project-wide",
+    reason:
+      "Computed on every scan from the lockfiles and the local OSV data; it is never copied from a stored scan, so a new advisory or a changed lockfile is always seen.",
+  },
   "PG-SECRET-001": {
     locality: "history-carried",
     reason:
