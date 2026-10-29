@@ -14,7 +14,18 @@ import { Section } from "../../components/ui/Section";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { localizeFindingText } from "./rule-texts";
 import { useI18n } from "../../i18n/I18nProvider";
-import { buildFindingsView, type ContextSection, type FindingFilters } from "./filter-findings";
+import type { SetFilters } from "../../app/use-filter-state";
+import {
+  buildAreaRules,
+  buildFindingsView,
+  EMPTY_FILTERS,
+  toggleFilter,
+  type ContextSection,
+  type FindingFilters,
+} from "./filter-findings";
+import { FilterBar } from "./FilterBar";
+import { MAX_VALUE_LENGTH } from "./filter-url";
+import { buildLinkedCounts } from "./linked-panels";
 import { FindingTable } from "./FindingTable";
 import {
   findingsListReducer,
@@ -31,7 +42,17 @@ export function FindingsDashboard({
   result,
   ruleTexts = null,
   initialState = INITIAL_LIST_STATE,
+  linkedFilters,
 }: {
+  /**
+   * Filters kept outside the view (in the address, shared with the overview). Without them the
+   * view keeps its own, starting from `initialState`.
+   */
+  linkedFilters?: {
+    filters: FindingFilters;
+    onChange: SetFilters;
+    onClear: () => void;
+  };
   result: ScanResult;
   /** Rule texts from `GET /api/rule-texts`; without them findings show their stored English text. */
   ruleTexts?: RuleTextsResponse | null;
@@ -40,8 +61,20 @@ export function FindingsDashboard({
 }) {
   const { m, language } = useI18n();
   const [state, dispatch] = useReducer(findingsListReducer, initialState);
-  const { filters, pageSize } = state;
-  const setFilter = (patch: Partial<FindingFilters>): void => dispatch({ type: "filter", patch });
+  const { pageSize } = state;
+  const filters = linkedFilters?.filters ?? state.filters;
+  const setFilter = (patch: Partial<FindingFilters>): void => {
+    // A filter change always sends every list back to page 1 (an empty patch just does that).
+    if (linkedFilters === undefined) return dispatch({ type: "filter", patch });
+    dispatch({ type: "filter", patch: {} });
+    // Typing replaces the history entry; a click on a value adds one.
+    linkedFilters.onChange(patch, { replace: "text" in patch });
+  };
+  const clearFilters = (): void => {
+    if (linkedFilters === undefined) return dispatch({ type: "filter", patch: EMPTY_FILTERS });
+    dispatch({ type: "filter", patch: {} });
+    linkedFilters.onClear();
+  };
   const paging = (list: FindingListId) => ({
     page: state.pages[list] ?? 1,
     pageSize,
@@ -52,7 +85,20 @@ export function FindingsDashboard({
     () => result.findings.map((finding) => localizeFindingText(finding, ruleTexts, language)),
     [result.findings, ruleTexts, language],
   );
-  const view = useMemo(() => buildFindingsView(findings, filters, m), [findings, filters, m]);
+  const areaRules = useMemo(
+    () => buildAreaRules(result.coverage, result.ruleStats),
+    [result.coverage, result.ruleStats],
+  );
+  const view = useMemo(
+    () => buildFindingsView(findings, filters, m, areaRules),
+    [findings, filters, m, areaRules],
+  );
+  const counts = useMemo(
+    () => buildLinkedCounts(findings, filters, areaRules).severity,
+    [findings, filters, areaRules],
+  );
+  const toggle = (patch: Partial<FindingFilters>): void => setFilter(toggleFilter(filters, patch));
+  const linked = { filters, toggle };
   const configTestCount = configTestFindingCount(result.coverage);
   // Categories present in this result, plus the selected one so the select always shows it.
   const categoryOptions = useMemo(() => {
@@ -79,6 +125,7 @@ export function FindingsDashboard({
         label={label}
         findings={section.visible}
         ruleTexts={ruleTexts}
+        linked={linked}
         paging={paging(section.kind)}
       />
     );
@@ -90,9 +137,16 @@ export function FindingsDashboard({
       help={<p>{m.findings.noDatabase}</p>}
     >
       <SeverityBar
-        counts={view.counts}
+        counts={counts}
         selected={filters.severity}
         onSelect={(severity) => setFilter({ severity })}
+      />
+      <FilterBar
+        filters={filters}
+        shown={view.visible.length}
+        total={view.total}
+        onRemove={setFilter}
+        onClear={clearFilters}
       />
       <div className="toolbar">
         <div className="filters" role="group" aria-label={m.findings.filters}>
@@ -152,6 +206,7 @@ export function FindingsDashboard({
               type="search"
               placeholder={m.findings.search}
               value={filters.text}
+              maxLength={MAX_VALUE_LENGTH}
               onChange={(event) => setFilter({ text: event.target.value })}
             />
           </label>
@@ -165,6 +220,7 @@ export function FindingsDashboard({
           findings={view.visible}
           ruleTexts={ruleTexts}
           isNew={result.baseline !== undefined}
+          linked={linked}
           paging={paging("primary")}
         />
       )}

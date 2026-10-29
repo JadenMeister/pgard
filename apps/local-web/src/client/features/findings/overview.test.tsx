@@ -139,7 +139,7 @@ describe("overview panels", () => {
     expect(html).toContain('<code class="area-name">source:java</code>');
     expect(html).toContain("2 files were larger than the size limit");
     expect(html).toContain("Partial means only part of an area ran");
-    expect(html).toContain(">Cross-site scripting (XSS)</a>");
+    expect(html).toContain(">Cross-site scripting (XSS)</button>");
     expect(html).toContain('<div class="overview-stack"><p>aside</p></div>');
   });
 
