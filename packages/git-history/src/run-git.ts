@@ -17,7 +17,7 @@ export interface GitRunOptions {
    * `output_limit` (e.g. to read only the start of a large blob).
    */
   truncate?: boolean;
-  /** Overrides the 60 s time limit (tests and the pre-commit time cap). */
+  /** Overrides the 60 s time limit (the picker uses 3 s per call, the pre-commit check its time cap; tests use less). */
   timeoutMs?: number;
   /**
    * Absolute path of the index file to read instead of the default one (`GIT_INDEX_FILE`).

@@ -314,6 +314,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   try {
     outcome = await authorizeProject(request.projectRoot, {
       ...deps.authorization,
+      ...(request.expectedRepo ? { expectedRepo: request.expectedRepo } : {}),
       ...(deps.signal ? { signal: deps.signal } : {}),
     });
   } catch {

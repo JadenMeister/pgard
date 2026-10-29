@@ -12,8 +12,15 @@ export interface ApiError {
 
 export interface SessionInfo {
   version: string;
-  /** Last path segment of the project root only; the full path stays in the terminal. */
-  projectName: string;
+  /** `fixed`: `pgard dashboard` (one project, no picker). `picker`: `pgard web`. */
+  mode: "fixed" | "picker";
+  /**
+   * The selected project: its last path segment and `owner/name` only; the full path stays in the
+   * terminal (fixed mode) or in the picker's confirm screen. `null` until one is confirmed.
+   */
+  project: ProjectInfo | null;
+  /** Starts at 1 and grows on every confirm and clear; state-changing project calls carry it. */
+  projectEpoch: number;
   /** Port pre-selected with `pgard dashboard --target-port`; still needs confirmation. */
   presetTargetPort: number | null;
   /**
@@ -37,6 +44,12 @@ export interface SessionInfo {
    * (the install link would point to another App); otherwise `null`.
    */
   githubAppWarning: string | null;
+}
+
+export interface ProjectInfo {
+  name: string;
+  /** `owner/name` of the remote; `null` in fixed mode (the check reports it). */
+  repo: string | null;
 }
 
 export interface DeviceCodeInfo {
@@ -90,6 +103,8 @@ export type StoredSignInDto =
   | { status: "unknown" };
 
 export interface AuthStatus {
+  /** An owner-approval re-check (waiting for an App install) is running. */
+  isRechecking?: boolean;
   status: JobStatus;
   deviceCode: DeviceCodeInfo | null;
   summary: AuthorizationSummary | null;

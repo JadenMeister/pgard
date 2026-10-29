@@ -15,6 +15,7 @@ export { resolveGitExecutable, trustedPathEntries } from "./git-executable.js";
 export {
   parseGitHubRemoteUrl,
   readGitHubRemote,
+  type GitHubRemoteFailureCode,
   type GitHubRemoteResolution,
   type GitHubRepositoryRef,
 } from "./remote.js";

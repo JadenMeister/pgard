@@ -5,9 +5,13 @@ export interface GitHubRepositoryRef {
   name: string;
 }
 
+/** Why no single github.com repository could be resolved, for callers that need a fixed code. */
+export type GitHubRemoteFailureCode =
+  "no_remote" | "remote_not_github" | "remote_ambiguous" | "remote_unreadable";
+
 export type GitHubRemoteResolution =
   | { isResolved: true; repo: GitHubRepositoryRef; remoteName: string }
-  | { isResolved: false; reason: string };
+  | { isResolved: false; reason: string; code: GitHubRemoteFailureCode };
 
 const OWNER_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/;
 const REPO_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
@@ -158,12 +162,13 @@ export async function readGitHubRemote(
   try {
     remoteNames = lines(await runner({ subcommand: "remote" }, { cwd: projectRoot }));
   } catch {
-    return { isResolved: false, reason: "Could not list Git remotes." };
+    return { isResolved: false, reason: "Could not list Git remotes.", code: "remote_unreadable" };
   }
   if (remoteNames.length === 0) {
     return {
       isResolved: false,
       reason: "The repository has no Git remote; a github.com remote is required.",
+      code: "no_remote",
     };
   }
 
@@ -171,7 +176,7 @@ export async function readGitHubRemote(
   try {
     const entries = await readRawRemoteConfig(projectRoot, runner);
     if (entries.some(({ key }) => REWRITE_KEY_PATTERN.test(key))) {
-      return { isResolved: false, reason: REWRITE_REASON };
+      return { isResolved: false, reason: REWRITE_REASON, code: "remote_ambiguous" };
     }
     rawUrls = collectRemoteUrls(entries);
   } catch {
@@ -179,17 +184,22 @@ export async function readGitHubRemote(
       isResolved: false,
       reason:
         "Could not read the Git remote URLs from the repository config; check that .git/config and any included files are readable regular files, then check again.",
+      code: "remote_unreadable",
     };
   }
 
   let resolved: GitHubRepositoryRef | null = null;
   for (const remoteName of remoteNames) {
     if (!REMOTE_NAME_PATTERN.test(remoteName)) {
-      return { isResolved: false, reason: "A Git remote has an unsupported name." };
+      return {
+        isResolved: false,
+        reason: "A Git remote has an unsupported name.",
+        code: "remote_unreadable",
+      };
     }
     const urls = rawUrls.get(remoteName) ?? [];
     if (urls.length === 0) {
-      return { isResolved: false, reason: `Remote "${remoteName}" has no URL.` };
+      return { isResolved: false, reason: `Remote "${remoteName}" has no URL.`, code: "no_remote" };
     }
     for (const url of urls) {
       const repo = parseGitHubRemoteUrl(url);
@@ -197,6 +207,7 @@ export async function readGitHubRemote(
         return {
           isResolved: false,
           reason: `Remote "${remoteName}" is not a recognizable github.com repository URL; only github.com remotes are supported.`,
+          code: "remote_not_github",
         };
       }
       if (resolved !== null && !sameRepo(resolved, repo)) {
@@ -204,13 +215,14 @@ export async function readGitHubRemote(
           isResolved: false,
           reason:
             "Git remotes point to different GitHub repositories; the target repository is ambiguous.",
+          code: "remote_ambiguous",
         };
       }
       resolved ??= repo;
     }
   }
   if (resolved === null) {
-    return { isResolved: false, reason: "No github.com remote was found." };
+    return { isResolved: false, reason: "No github.com remote was found.", code: "no_remote" };
   }
   const remoteName = remoteNames.includes("origin") ? "origin" : (remoteNames[0] ?? "origin");
   return { isResolved: true, repo: resolved, remoteName };

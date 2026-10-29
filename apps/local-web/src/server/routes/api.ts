@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   buildRuleTextCatalog,
   RULE_LOCALES,
@@ -49,6 +48,10 @@ import type {
   TargetInfo,
 } from "../../shared/api-types.js";
 import type { ServerDeps } from "../deps.js";
+import { recheckProjectIdentity, requireCurrentEpoch } from "../picker/service.js";
+import type { ProjectRecord } from "../picker/session.js";
+import { ApiError } from "./api-error.js";
+import { PICKER_ROUTES } from "./picker.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import { readStoredSignInDto, resetAuthIfStoredAccountChanged } from "../session/stored-sign-in.js";
 import {
@@ -63,19 +66,11 @@ import {
   type SessionState,
 } from "../session/session-state.js";
 
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
+export { ApiError };
 
 export interface ApiContext {
-  projectRoot: string;
+  /** `fixed`: `pgard dashboard` (one project, no picker). `picker`: `pgard web`. */
+  mode: "fixed" | "picker";
   presetTargetPort: number | null;
   env: Readonly<Record<string, string | undefined>>;
   state: SessionState;
@@ -83,12 +78,95 @@ export interface ApiContext {
   github: GitHubSessionManager;
 }
 
+/** Per-request facts a handler may need besides the body. */
+export interface ApiRequestScope {
+  /** Aborts when the client disconnects before the response was sent. */
+  signal: AbortSignal;
+}
+
 export type ApiHandler = (
   context: ApiContext,
   body: unknown,
   /** Query string of the request (GET routes). */
   query: URLSearchParams,
+  request: ApiRequestScope,
 ) => Promise<unknown>;
+
+/**
+ * The project and epoch a handler started with. After every `await`, `assertProjectUnchanged`
+ * stops the handler with `project_changed` if either differs, so an in-flight request can never
+ * act on, or leave results under, a different project (T12).
+ */
+interface ProjectCapture {
+  project: ProjectRecord;
+  epoch: number;
+}
+
+/**
+ * The selected project, or `409 no_project`. In picker mode a state-changing call passes its
+ * body so the epoch it carries is checked; in fixed mode the epoch is always 1 and not required.
+ */
+function captureProject(context: ApiContext, body?: unknown): ProjectCapture {
+  const { state } = context;
+  if (state.project === null) {
+    throw new ApiError(409, "no_project", "Choose a project first.");
+  }
+  if (context.mode === "picker" && body !== undefined) {
+    requireCurrentEpoch(state, asRecord(body).epoch);
+  }
+  return { project: state.project, epoch: state.projectEpoch };
+}
+
+function isProjectUnchanged(context: ApiContext, capture: ProjectCapture): boolean {
+  return context.state.project === capture.project && context.state.projectEpoch === capture.epoch;
+}
+
+function assertProjectUnchanged(context: ApiContext, capture: ProjectCapture): void {
+  if (context.state.project !== capture.project || context.state.projectEpoch !== capture.epoch) {
+    throw new ApiError(
+      409,
+      "project_changed",
+      "The project changed while this was running; the result was discarded.",
+    );
+  }
+}
+
+// Read through functions: TypeScript would otherwise keep the narrowing from before an `await`.
+const isAuthRunning = (state: SessionState): boolean => state.auth.status === "running";
+const isScanRunning = (state: SessionState): boolean => state.scan.status === "running";
+
+function pickerContextOf(context: ApiContext) {
+  return { state: context.state, picker: context.deps.picker, now: context.deps.now };
+}
+
+/**
+ * Picker mode: repeats the identity chain and ownership checks of the confirmed project before a
+ * verify, owner-approval check or scan starts. Fixed mode has nothing to repeat.
+ */
+async function recheckProject(context: ApiContext, capture: ProjectCapture): Promise<void> {
+  if (context.mode !== "picker") return;
+  await recheckProjectIdentity(pickerContextOf(context), capture.project, capture.epoch);
+  assertProjectUnchanged(context, capture);
+}
+
+/**
+ * The repository the user confirmed (picker mode); the gate blocks if the folder now holds
+ * another one. Nothing in fixed mode, where the launcher confirmed the folder itself.
+ */
+function expectedRepoOf(
+  project: ProjectRecord,
+):
+  { expectedRepo: NonNullable<AuthorizationDependencies["expectedRepo"]> } | Record<string, never> {
+  return project.repo === null
+    ? {}
+    : {
+        expectedRepo: {
+          owner: project.repo.owner,
+          name: project.repo.name,
+          repositoryId: project.repositoryId,
+        },
+      };
+}
 
 let ruleTextCatalog: RuleTextCatalog | undefined;
 
@@ -212,6 +290,7 @@ function authStatus(state: SessionState): AuthStatus {
   const remedy = pendingInstallRemedy(state);
   return {
     status,
+    isRechecking: state.ownerApprovalRecheck,
     deviceCode: state.deviceCode,
     summary: outcome?.summary ?? null,
     repo: outcome?.repo ?? null,
@@ -247,9 +326,18 @@ function authorizationDeps(context: ApiContext): AuthorizationDependencies {
 const getSession: ApiHandler = async (context) => {
   // Show whether a keychain sign-in will be reused before the first check (login only).
   context.state.storedSignIn = await readStoredSignInDto(context.deps.credentialStore, context.env);
+  const { project } = context.state;
   const info: SessionInfo = {
     version: PGARD_VERSION,
-    projectName: sanitizeDisplayText(path.basename(context.projectRoot), 120),
+    mode: context.mode,
+    project:
+      project === null
+        ? null
+        : {
+            name: project.name,
+            repo: project.repo === null ? null : `${project.repo.owner}/${project.repo.name}`,
+          },
+    projectEpoch: context.state.projectEpoch,
     presetTargetPort: context.presetTargetPort,
     githubApp: githubAppInfo(context.env),
     githubAppWarning: mixedAppOverrideWarning(context.env),
@@ -258,9 +346,13 @@ const getSession: ApiHandler = async (context) => {
 };
 
 /** Starts the authorization check (device flow if needed); the browser polls `GET /api/auth`. */
-const startVerify: ApiHandler = async (context) => {
+const startVerify: ApiHandler = async (context, body) => {
   const { state } = context;
+  const capture = captureProject(context, body);
   if (state.auth.status === "running") return authStatus(state);
+  await recheckProject(context, capture);
+  // Another request may have started a check while the identity was re-checked.
+  if (isAuthRunning(state)) return authStatus(state);
   const run: SessionState["auth"] = {
     status: "running",
     outcome: null,
@@ -271,10 +363,26 @@ const startVerify: ApiHandler = async (context) => {
   const previousAccount = state.authAccount;
   setAuth(state, run, { keepConfirmedTarget: previousAccount !== null });
   state.signInNotice = null;
+  // Aborted by `POST /api/auth/cancel`, a project change and server shutdown: a git process that
+  // blocks (a hostile repository) is killed at once instead of waiting for its time limit.
+  const controller = new AbortController();
+  state.verifyController = controller;
+  const { project } = capture;
   void context.deps
-    .verifyProject(context.projectRoot, authorizationDeps(context))
+    .verifyProject(project.root, {
+      ...authorizationDeps(context),
+      signal: controller.signal,
+      ...expectedRepoOf(project),
+    })
     .then((outcome) => {
-      if (state.auth !== run) return; // signed out or restarted meanwhile
+      if (state.auth !== run) return; // signed out, cancelled or restarted meanwhile
+      if (state.verifyController === controller) state.verifyController = null;
+      if (!isProjectUnchanged(context, capture)) {
+        // The project changed under the check: its result must not appear under the new one.
+        state.deviceCode = null;
+        setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
+        return;
+      }
       state.deviceCode = null;
       setAuth(
         state,
@@ -284,6 +392,11 @@ const startVerify: ApiHandler = async (context) => {
       // The account the gate itself ran with (not whichever account the provider adopted last,
       // which may have changed meanwhile); a later switch resets it (see resetAuthIfAccountChanged).
       state.authAccount = outcome.account ?? null;
+      // Pin GitHub's numeric id once a check returned it: a later run of this project that
+      // resolves to another repository is then blocked.
+      if (project.repositoryId === null && typeof outcome.repositoryId === "number") {
+        project.repositoryId = outcome.repositoryId;
+      }
       if (
         state.confirmedTarget !== null &&
         (previousAccount === null ||
@@ -296,7 +409,12 @@ const startVerify: ApiHandler = async (context) => {
     })
     .catch(() => {
       if (state.auth !== run) return;
+      if (state.verifyController === controller) state.verifyController = null;
       state.deviceCode = null;
+      if (!isProjectUnchanged(context, capture)) {
+        setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
+        return;
+      }
       setAuth(state, {
         status: "failed",
         outcome: null,
@@ -304,6 +422,26 @@ const startVerify: ApiHandler = async (context) => {
         message: "The authorization check could not complete.",
       });
     });
+  return authStatus(state);
+};
+
+/**
+ * Cancels a running authorization check or owner-approval re-check: kills its blocked git
+ * processes, stops a pending GitHub sign-in and resets the authorization to idle (the same pair
+ * `cancelScan` uses for a scan). A 200 no-op when nothing runs. It needs no project and no epoch,
+ * so a check waiting for the sign-in is never a dead end.
+ */
+const cancelAuth: ApiHandler = async (context) => {
+  const { state } = context;
+  if (state.auth.status !== "running" && !state.ownerApprovalRecheck) return authStatus(state);
+  state.verifyController?.abort();
+  state.verifyController = null;
+  state.recheckController?.abort();
+  state.recheckController = null;
+  context.github.abortPendingSignIn();
+  state.deviceCode = null;
+  state.ownerApprovalRecheck = false;
+  setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
   return authStatus(state);
 };
 
@@ -326,8 +464,9 @@ const getAuth: ApiHandler = async (context) => {
  * existing sign-in and never starts a device flow. The result is never an authorization and
  * opens nothing: port access still requires a new, allowed full check.
  */
-const recheckOwnerApproval: ApiHandler = async (context) => {
+const recheckOwnerApproval: ApiHandler = async (context, body, _query, request) => {
   const { state } = context;
+  const capture = captureProject(context, body);
   const remedy = pendingInstallRemedy(state);
   if (remedy === null || remedy.canApprove === "no") {
     throw new ApiError(
@@ -356,11 +495,18 @@ const recheckOwnerApproval: ApiHandler = async (context) => {
   }
   state.ownerApprovalRecheckAt = now;
   state.ownerApprovalRecheck = true;
+  // Aborted by `POST /api/auth/cancel`, a client that disconnects and server shutdown.
+  const controller = new AbortController();
+  state.recheckController = controller;
+  const signal = AbortSignal.any([controller.signal, request.signal]);
   try {
-    const recheck = await context.deps.recheckOwnerApproval(
-      context.projectRoot,
-      authorizationDeps(context),
-    );
+    await recheckProject(context, capture);
+    const recheck = await context.deps.recheckOwnerApproval(capture.project.root, {
+      ...authorizationDeps(context),
+      signal,
+      ...expectedRepoOf(capture.project),
+    });
+    assertProjectUnchanged(context, capture);
     const response: OwnerApprovalRecheckDto = {
       status: recheck.status,
       reason: sanitizeDisplayText(recheck.reason, 500),
@@ -368,7 +514,10 @@ const recheckOwnerApproval: ApiHandler = async (context) => {
     };
     return response;
   } finally {
-    state.ownerApprovalRecheck = false;
+    if (state.recheckController === controller) {
+      state.recheckController = null;
+      state.ownerApprovalRecheck = false;
+    }
   }
 };
 
@@ -469,11 +618,14 @@ function requireSameAuthorization(context: ApiContext, authAtStart: SessionState
 }
 
 const listPorts: ApiHandler = async (context) => {
+  const capture = captureProject(context);
   await syncAccount(context);
+  assertProjectUnchanged(context, capture);
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   // Taken together with `authAtStart`: it aborts as soon as that authorization is replaced.
   const { signal } = context.state.portAccessController;
   const discovery = await context.deps.discoverListeningPorts();
+  assertProjectUnchanged(context, capture);
   requireSameAuthorization(context, authAtStart);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
@@ -481,6 +633,7 @@ const listPorts: ApiHandler = async (context) => {
       processName: entry.processName,
     })),
   );
+  assertProjectUnchanged(context, capture);
   requireSameAuthorization(context, authAtStart);
   const response: PortListResponse = {
     services: services.filter((service) => service.isHttp),
@@ -495,10 +648,13 @@ const listPorts: ApiHandler = async (context) => {
  * it ran under so a later sign-out or re-check makes it unconfirmable.
  */
 const probePort: ApiHandler = async (context, body) => {
+  const capture = captureProject(context, body);
   await syncAccount(context);
+  assertProjectUnchanged(context, capture);
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const { signal } = context.state.portAccessController;
   const identity = await context.deps.probeLocalService(readPort(body), { signal });
+  assertProjectUnchanged(context, capture);
   requireSameAuthorization(context, authAtStart);
   context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
   return toIdentityDto(identity);
@@ -509,7 +665,9 @@ const probePort: ApiHandler = async (context, body) => {
  * and only if it answered HTTP. The browser never supplies the target object itself.
  */
 const confirmTarget: ApiHandler = async (context, body) => {
+  const capture = captureProject(context, body);
   await syncAccount(context);
+  assertProjectUnchanged(context, capture);
   const auth = requirePortAccessAuthorized(context.state, context.deps.now());
   const port = readPort(body);
   if (asRecord(body).isConfirmed !== true) {
@@ -563,15 +721,24 @@ function readScopes(body: unknown): ScanScope[] {
 /** Starts a scan through scan-core; the authorization gate runs inside `runScan` every time. */
 const startScan: ApiHandler = async (context, body) => {
   const { state } = context;
+  const capture = captureProject(context, body);
   const scopes = readScopes(body);
   if (state.scan.status === "running")
     throw new ApiError(409, "scan_running", "A scan is already running.");
+  await recheckProject(context, capture);
+  // Another request may have started a scan while the identity was re-checked.
+  if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
   const controller = new AbortController();
   state.scan = { status: "running", scopes, progress: [], result: null, message: null, controller };
   const webTarget = scopes.includes("web") ? state.confirmedTarget : null;
   void context.deps
     .runScan(
-      { projectRoot: context.projectRoot, scopes, webTarget },
+      {
+        projectRoot: capture.project.root,
+        scopes,
+        webTarget,
+        ...expectedRepoOf(capture.project),
+      },
       {
         authorization: authorizationDeps(context),
         webScanner: context.deps.webScanner,
@@ -596,11 +763,34 @@ const startScan: ApiHandler = async (context, body) => {
     .then((result) => {
       if (state.scan.controller !== controller) return;
       state.deviceCode = null;
+      if (!isProjectUnchanged(context, capture)) {
+        // The project changed under the scan: its result must not appear under the new one.
+        state.scan = {
+          status: "idle",
+          scopes: [],
+          progress: [],
+          result: null,
+          message: null,
+          controller: null,
+        };
+        return;
+      }
       state.scan = { ...state.scan, status: "done", result, controller: null };
     })
     .catch((error: unknown) => {
       if (state.scan.controller !== controller) return;
       state.deviceCode = null;
+      if (!isProjectUnchanged(context, capture)) {
+        state.scan = {
+          status: "idle",
+          scopes: [],
+          progress: [],
+          result: null,
+          message: null,
+          controller: null,
+        };
+        return;
+      }
       const isCancelled = error instanceof ScanCancelledError;
       state.scan = {
         ...state.scan,
@@ -674,6 +864,7 @@ export function reportDownloadName(result: ScanResult, format: "html" | "pdf"): 
  */
 function downloadReport(format: "html" | "pdf"): ApiHandler {
   return async (context, _body, query) => {
+    const capture = captureProject(context);
     const lang = readReportLang(query);
     const result = context.state.scan.result;
     if (result === null || result.overallStatus === "blocked") {
@@ -684,6 +875,7 @@ function downloadReport(format: "html" | "pdf"): ApiHandler {
         lang,
         ruleTexts: getRuleTextCatalog(),
       });
+      assertProjectUnchanged(context, capture);
       return new ApiDownload(
         REPORT_CONTENT_TYPES[format],
         reportDownloadName(result, format),
@@ -703,6 +895,7 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "POST /api/auth/verify": startVerify,
   "POST /api/auth/owner-approval": recheckOwnerApproval,
   "POST /api/auth/sign-out": signOut,
+  "POST /api/auth/cancel": cancelAuth,
   "GET /api/ports": listPorts,
   "POST /api/ports/probe": probePort,
   "GET /api/target": getTarget,
@@ -715,4 +908,5 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "GET /api/advisory-status": getAdvisoryStatus,
   "GET /api/reports/html": downloadReport("html"),
   "GET /api/reports/pdf": downloadReport("pdf"),
+  ...PICKER_ROUTES,
 };

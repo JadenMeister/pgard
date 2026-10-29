@@ -1,15 +1,6 @@
-import { createHash, randomBytes } from "node:crypto";
-import { constants as fsConstants, type Stats } from "node:fs";
-import {
-  lstat,
-  mkdir,
-  open,
-  readdir,
-  rename,
-  rmdir,
-  unlink,
-  type FileHandle,
-} from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { lstat, mkdir, open, readdir, rmdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import {
   AUTHORIZATION_CHECK_IDS,
@@ -20,6 +11,15 @@ import {
   type IncrementalState,
   type ScanResult,
 } from "@pgard/findings";
+import {
+  ensureOwnerOnlyDirectory,
+  errnoOf,
+  readFileCapped,
+  SAFE_FILE_MODE,
+  SafeFileError,
+  writeFileAtomically,
+  type SafeFileEnvironment,
+} from "./safe-file.js";
 
 /**
  * Local store of already-redacted scan results. Layout (all below one app-data directory):
@@ -49,8 +49,7 @@ const BASELINE_FILE = "baseline.json";
 const BASELINE_KIND = "pgard-baseline";
 const BASELINE_VERSION = 1;
 const RESULT_FILE_PATTERN = /^(\d{13})-([0-9a-f]{16})\.json$/;
-const DIRECTORY_MODE = 0o700;
-const FILE_MODE = 0o600;
+const FILE_MODE = SAFE_FILE_MODE;
 
 export type StoreErrorCode =
   | "unavailable"
@@ -215,13 +214,6 @@ export interface ResultStore {
 }
 
 const NO_FOLLOW = fsConstants.O_NOFOLLOW ?? 0;
-const DIRECTORY_FLAG = fsConstants.O_DIRECTORY ?? 0;
-
-function errnoOf(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null && "code" in error
-    ? String((error as { code: unknown }).code)
-    : undefined;
-}
 
 const SYMLINK_HINT = "Remove the link by hand, then try again.";
 
@@ -240,6 +232,11 @@ function toStoreError(error: unknown): StoreError {
     };
   }
   return { code: "io", message: `The result store could not be accessed (${code ?? "error"}).` };
+}
+
+/** Maps the shared helpers' errors to this store's own failure type; others pass through. */
+function asStoreFailure(error: unknown): unknown {
+  return error instanceof SafeFileError ? new StoreFailure(error.code, error.message) : error;
 }
 
 function isRepositoryId(value: unknown): value is number {
@@ -273,50 +270,14 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
   const getuid = options.getuid ?? (() => process.getuid?.());
   const reposDir = path.join(root, REPOS_DIRECTORY);
 
+  const environment: SafeFileEnvironment = { isPosix, getuid };
+
   /** Creates (owner-only) or validates a directory: no symlink, ours, 0700. */
   async function ensureDirectory(dir: string, create = true): Promise<void> {
-    if (create) {
-      try {
-        await mkdir(dir, { mode: DIRECTORY_MODE });
-      } catch (error) {
-        if (errnoOf(error) !== "EEXIST") throw error;
-      }
-    }
-    const before = await lstat(dir);
-    if (before.isSymbolicLink()) {
-      throw new StoreFailure("symlink", "Refusing to use a symbolic link as a result directory.");
-    }
-    if (!before.isDirectory()) {
-      throw new StoreFailure("not_directory", "A result directory path is not a directory.");
-    }
-    // Open without following a link planted since the lstat, then check the same inode.
-    let handle: FileHandle;
     try {
-      handle = await open(dir, fsConstants.O_RDONLY | DIRECTORY_FLAG | NO_FOLLOW);
+      await ensureOwnerOnlyDirectory(dir, environment, create);
     } catch (error) {
-      if (errnoOf(error) === "ELOOP" || errnoOf(error) === "ENOTDIR") {
-        throw new StoreFailure("symlink", "Refusing to use a symbolic link as a result directory.");
-      }
-      throw error;
-    }
-    try {
-      const stat = await handle.stat();
-      if (!stat.isDirectory() || stat.ino !== before.ino || stat.dev !== before.dev) {
-        throw new StoreFailure("symlink", "A result directory changed while it was opened.");
-      }
-      if (isPosix) {
-        const uid = getuid();
-        if (uid !== undefined && stat.uid !== uid) {
-          throw new StoreFailure("wrong_owner", "A result directory is owned by another user.");
-        }
-        if ((stat.mode & 0o777) !== DIRECTORY_MODE) await handle.chmod(DIRECTORY_MODE);
-        const verified = await handle.stat();
-        if ((verified.mode & 0o777) !== DIRECTORY_MODE) {
-          throw new StoreFailure("permissions", "Could not restrict a result directory to 0700.");
-        }
-      }
-    } finally {
-      await handle.close();
+      throw asStoreFailure(error);
     }
   }
 
@@ -335,38 +296,10 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
 
   /** Reads a regular file without following a symlink, capped before parsing. */
   async function readCapped(file: string, refuseWritableByOthers = false): Promise<string> {
-    const before = await lstat(file);
-    if (before.isSymbolicLink() || !before.isFile()) {
-      throw new StoreFailure("symlink", "Not a regular file (symbolic links are never followed).");
-    }
-    const handle = await open(file, fsConstants.O_RDONLY | NO_FOLLOW);
     try {
-      const stat = await handle.stat();
-      if (!stat.isFile() || stat.ino !== before.ino || stat.dev !== before.dev) {
-        throw new StoreFailure("symlink", "The file changed while it was opened.");
-      }
-      if (refuseWritableByOthers && isPosix && (stat.mode & 0o022) !== 0) {
-        throw new StoreFailure(
-          "permissions",
-          "The file can be written by other users, so it is not trusted. Delete it and set it again.",
-        );
-      }
-      if (stat.size > MAX_RESULT_FILE_BYTES) {
-        throw new StoreFailure(
-          "too_large",
-          `The file is larger than ${MAX_RESULT_FILE_BYTES} bytes.`,
-        );
-      }
-      const buffer = Buffer.alloc(Math.min(stat.size, MAX_RESULT_FILE_BYTES));
-      let offset = 0;
-      while (offset < buffer.length) {
-        const { bytesRead } = await handle.read(buffer, offset, buffer.length - offset, offset);
-        if (bytesRead === 0) break;
-        offset += bytesRead;
-      }
-      return buffer.subarray(0, offset).toString("utf8");
-    } finally {
-      await handle.close();
+      return await readFileCapped(file, MAX_RESULT_FILE_BYTES, environment, refuseWritableByOthers);
+    } catch (error) {
+      throw asStoreFailure(error);
     }
   }
 
@@ -424,56 +357,25 @@ export function createResultStore(options: ResultStoreOptions): ResultStore {
     /** A baseline that cannot be read may be replaced: the user asked for a new one. */
     replaceUnreadable = false,
   ): Promise<void> {
-    const finalPath = path.join(dir, finalName);
-    const tempPath = path.join(
-      dir,
-      `${TEMP_PREFIX}${process.pid}-${randomBytes(8).toString("hex")}`,
-    );
-    // O_EXCL fails on any existing entry, including a planted symlink; O_NOFOLLOW adds a second guard.
-    const handle = await open(
-      tempPath,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | NO_FOLLOW,
-      FILE_MODE,
-    );
     try {
-      try {
-        await handle.writeFile(text, "utf8");
-        if (isPosix) {
-          await handle.chmod(FILE_MODE);
-          if (((await handle.stat()).mode & 0o777) !== FILE_MODE) {
-            throw new StoreFailure("permissions", "Could not restrict a result file to 0600.");
+      await writeFileAtomically(dir, finalName, text, environment, {
+        tempPrefix: TEMP_PREFIX,
+        // Never replace a file written by a newer PGARD, or one we cannot read.
+        checkExisting: async (finalPath) => {
+          let blocked: string | null = null;
+          try {
+            const version = existingVersion(finalName, await readCapped(finalPath));
+            if (isNewerVersion(version)) {
+              blocked = "A stored file with a newer schema version already has this name.";
+            }
+          } catch {
+            if (!replaceUnreadable) blocked = "An unreadable stored file already has this name.";
           }
-        }
-        await handle.sync();
-      } finally {
-        await handle.close();
-      }
-      // Never replace a file written by a newer PGARD, or one we cannot read.
-      let existing: Stats | null = null;
-      try {
-        existing = await lstat(finalPath);
-      } catch (error) {
-        if (errnoOf(error) !== "ENOENT") throw error;
-      }
-      if (existing !== null) {
-        if (existing.isSymbolicLink() || !existing.isFile()) {
-          throw new StoreFailure("symlink", "The target is not a regular file; not replacing it.");
-        }
-        let blocked: string | null = null;
-        try {
-          const version = existingVersion(finalName, await readCapped(finalPath));
-          if (isNewerVersion(version)) {
-            blocked = "A stored file with a newer schema version already has this name.";
-          }
-        } catch {
-          if (!replaceUnreadable) blocked = "An unreadable stored file already has this name.";
-        }
-        if (blocked !== null) throw new StoreFailure("would_overwrite", blocked);
-      }
-      await rename(tempPath, finalPath);
+          if (blocked !== null) throw new StoreFailure("would_overwrite", blocked);
+        },
+      });
     } catch (error) {
-      await unlink(tempPath).catch(() => undefined);
-      throw error;
+      throw asStoreFailure(error);
     }
   }
 

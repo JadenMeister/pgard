@@ -1,6 +1,12 @@
 import type { ConfirmedWebTarget, ScanResult, ScanScope } from "@pgard/findings";
 import type { ServiceIdentity } from "@pgard/http-local";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
+import {
+  cancelPickerWork,
+  createPickerSession,
+  type PickerSession,
+  type ProjectRecord,
+} from "../picker/session.js";
 import type {
   DeviceCodeInfo,
   JobStatus,
@@ -38,6 +44,19 @@ export function isWithinWindow(now: number, since: number | null, windowMs: numb
  * written to disk; `clear()` runs on shutdown.
  */
 export interface SessionState {
+  /**
+   * The project this dashboard works on, or `null` (picker mode) until one is confirmed. Handlers
+   * capture the record and `projectEpoch` when they start and stop with `project_changed` if
+   * either differs after an await (see `captureProject`).
+   */
+  project: ProjectRecord | null;
+  /** Starts at 1; grows on every confirm and clear. Always 1 in fixed mode. */
+  projectEpoch: number;
+  /** Aborts the authorization check that is running (cancel, project change, shutdown). */
+  verifyController: AbortController | null;
+  /** Aborts the owner-approval re-check that is running. */
+  recheckController: AbortController | null;
+  picker: PickerSession;
   /**
    * The latest authorization check. A new object is stored whenever the check starts, finishes or
    * is reset, so comparing references tells whether it changed across an await.
@@ -105,8 +124,13 @@ export function isSameAccount(a: GitHubAccountRef, b: GitHubAccountRef): boolean
   return Number.isSafeInteger(a.userId) && Number.isSafeInteger(b.userId) && a.userId === b.userId;
 }
 
-export function createSessionState(): SessionState {
+export function createSessionState(project: ProjectRecord | null = null): SessionState {
   return {
+    project,
+    projectEpoch: 1,
+    verifyController: null,
+    recheckController: null,
+    picker: createPickerSession(),
     auth: { status: "idle", outcome: null, finishedAt: null, message: null },
     portAccessController: new AbortController(),
     sessionAccount: null,
@@ -163,8 +187,38 @@ export function resetAuthIfAccountChanged(state: SessionState, account: GitHubAc
   return true;
 }
 
+/**
+ * Resets everything tied to the previous project: the authorization record (which also aborts
+ * port probes), the confirmed target, the last probe, the scan and its result (so a report
+ * download cannot return the old project's report). Called on every confirm and clear.
+ */
+export function resetProjectBoundState(state: SessionState): void {
+  state.verifyController?.abort();
+  state.verifyController = null;
+  state.recheckController?.abort();
+  state.recheckController = null;
+  state.scan.controller?.abort();
+  setAuth(state, { status: "idle", outcome: null, finishedAt: null, message: null });
+  state.deviceCode = null;
+  state.lastProbe = null;
+  state.confirmedTarget = null;
+  state.ownerApprovalRecheck = false;
+  state.ownerApprovalRecheckAt = null;
+  state.scan = {
+    status: "idle",
+    scopes: [],
+    progress: [],
+    result: null,
+    message: null,
+    controller: null,
+  };
+}
+
 export function clearSessionState(state: SessionState): void {
+  state.verifyController?.abort();
+  state.recheckController?.abort();
   state.scan.controller?.abort();
   state.portAccessController.abort();
+  cancelPickerWork(state.picker);
   Object.assign(state, createSessionState());
 }

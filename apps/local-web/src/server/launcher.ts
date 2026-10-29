@@ -4,10 +4,15 @@ import { isValidPort } from "@pgard/http-local";
 import { findGitRoot } from "@pgard/scan-core";
 
 export interface LauncherOptions {
-  projectRoot: string;
+  /** The fixed project (`pgard dashboard`), or `null` in picker mode (`pgard web`). */
+  projectRoot: string | null;
   presetTargetPort: number | null;
   /** `--no-browser`: never open GitHub pages automatically (links are still shown). */
   noBrowser: boolean;
+  /** `--picker` (`pgard web`): the project is chosen in the browser, from the search scope. */
+  picker: boolean;
+  /** `--no-store` (picker only): neither the recent list nor the first-run roots are written. */
+  noStore: boolean;
 }
 
 export class LauncherUsageError extends Error {
@@ -18,8 +23,10 @@ export class LauncherUsageError extends Error {
 }
 
 /**
- * Parses `--project-root <abs> [--target-port N]` as passed by `pgard dashboard`. The project
- * root must be absolute and must be exactly a Git root; the browser can never change it.
+ * Parses `--project-root <abs> [--target-port N]` as passed by `pgard dashboard`, or `--picker
+ * [--no-store]` as passed by `pgard web`. A fixed project root must be absolute and exactly a Git
+ * root; the browser can never change it. Picker mode takes no path at all: the search folders
+ * live in the settings file, so no path ever shows up in the process list.
  */
 export async function parseLauncherArgs(
   argv: readonly string[],
@@ -28,10 +35,22 @@ export async function parseLauncherArgs(
   let projectRoot: string | null = null;
   let presetTargetPort: number | null = null;
   let noBrowser = false;
+  let picker = false;
+  let noStore = false;
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
     if (name === "--no-browser" && !noBrowser) {
       noBrowser = true;
+      index -= 1;
+      continue;
+    }
+    if (name === "--picker" && !picker) {
+      picker = true;
+      index -= 1;
+      continue;
+    }
+    if (name === "--no-store" && !noStore) {
+      noStore = true;
       index -= 1;
       continue;
     }
@@ -47,6 +66,13 @@ export async function parseLauncherArgs(
       throw new LauncherUsageError("Usage: pgard dashboard (started by the pgard CLI).");
     }
   }
+  if (picker) {
+    if (projectRoot !== null || presetTargetPort !== null) {
+      throw new LauncherUsageError("--picker takes no project root and no target port.");
+    }
+    return { projectRoot: null, presetTargetPort: null, noBrowser, picker: true, noStore };
+  }
+  if (noStore) throw new LauncherUsageError("--no-store is only available with --picker.");
   if (projectRoot === null || !path.isAbsolute(projectRoot)) {
     throw new LauncherUsageError("--project-root must be an absolute path.");
   }
@@ -58,5 +84,5 @@ export async function parseLauncherArgs(
   if (resolvedRoot === null || resolvedGitRoot === null || resolvedRoot !== resolvedGitRoot) {
     throw new LauncherUsageError("--project-root must be the root of a Git repository.");
   }
-  return { projectRoot: resolvedRoot, presetTargetPort, noBrowser };
+  return { projectRoot: resolvedRoot, presetTargetPort, noBrowser, picker: false, noStore: false };
 }

@@ -5,13 +5,19 @@
     "outDir": "dist"
   },
   "include": ["src/server", "src/shared"],
-  "exclude": ["src/**/*.test.ts"],
+  "exclude": ["src/**/*.test.ts", "src/**/test-support/**"],
   "references": [
     {
       "path": "../../packages/findings"
     },
     {
+      "path": "../../packages/git-history"
+    },
+    {
       "path": "../../packages/http-local"
+    },
+    {
+      "path": "../../packages/policy"
     },
     {
       "path": "../../packages/report"

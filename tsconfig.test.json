@@ -15,6 +15,7 @@
     "packages/*/src/test-support/**/*.ts",
     "apps/*/src/**/test-support.ts",
     "apps/cli/src/**/*.test.ts",
-    "apps/local-web/src/server/**/*.test.ts"
+    "apps/local-web/src/server/**/*.test.ts",
+    "apps/local-web/src/server/**/test-support/**/*.ts"
   ]
 }

@@ -214,6 +214,9 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     signInAndStore: unexpected("signInAndStore") as never,
     // No store by default: tests never write to the real app-data directory.
     openResultStore: () => null,
+    // No web storage and a POSIX platform by default: tests never touch the real data folder.
+    openWebStorage: () => null,
+    platform: "linux",
     webScanner: unexpected("webScanner") as never,
     probeLocalService: async () => HTTP_IDENTITY,
     // Nothing listens by default, so an interactive default scan never offers a web target.

@@ -44,6 +44,7 @@ function fail(message) {
 for (const file of [
   "apps/cli/dist/bin/pgard.js",
   "apps/local-web/dist/server/index.js",
+  "apps/local-web/dist/server/picker/inspector-child.js",
   "apps/local-web/dist/client/index.html",
 ]) {
   if (!existsSync(join(root, file))) fail(`${file} is missing; run "npm run build" first`);
@@ -120,6 +121,12 @@ const rewrites = [
     to: 'new URL("../assets/client/", import.meta.url)',
   },
   {
+    // The picker's inspector child process is its own entry point (dist/inspector.js).
+    file: "apps/local-web/dist/server/picker/inspector-host.js",
+    from: 'new URL("./inspector-child.js", import.meta.url)',
+    to: 'new URL("./inspector.js", import.meta.url)',
+  },
+  {
     file: "apps/cli/dist/deps.js",
     from: "import.meta.resolve(DASHBOARD_LAUNCHER_SPECIFIER)",
     to: 'new URL("./dashboard.js", import.meta.url).href',
@@ -159,6 +166,7 @@ const result = await build({
   entryPoints: {
     pgard: join(root, "apps/cli/dist/bin/pgard.js"),
     dashboard: join(root, "apps/local-web/dist/server/index.js"),
+    inspector: join(root, "apps/local-web/dist/server/picker/inspector-child.js"),
     "smoke-report": join(root, "packaging/smoke-report-entry.js"),
     "smoke-grammar": join(root, "packaging/smoke-grammar-entry.js"),
     "source-worker": join(root, "packages/source-analysis/dist/analyze-worker.js"),

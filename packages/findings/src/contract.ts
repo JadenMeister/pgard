@@ -598,4 +598,10 @@ export interface ScanRequest {
   scopes: ScanScope[];
   /** Required when `scopes` includes `web`; `null` records web as `not_tested`. */
   webTarget: ConfirmedWebTarget | null;
+  /**
+   * The repository the user confirmed before the scan (the `pgard web` picker). When set, the
+   * authorization gate blocks the scan unless the project resolves to exactly this repository.
+   * It can only block; it never relaxes a check.
+   */
+  expectedRepo?: { owner: string; name: string; repositoryId?: number | null } | null;
 }
