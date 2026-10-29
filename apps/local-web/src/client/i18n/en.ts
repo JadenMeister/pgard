@@ -544,6 +544,9 @@ export const en = {
     filterArea: (area: string, count: number): string =>
       `Filter by area ${area}, ${count} ${count === 1 ? "finding" : "findings"}`,
     areaNone: (area: string): string => `${area}: no findings are linked to this area`,
+    areaUndistinguishable: (area: string): string =>
+      `${area}: findings cannot be reliably attributed to this area, so it cannot filter`,
+    ofTotal: (total: number): string => `of ${total} (filtered)`,
     filterRule: (rule: string): string => `Filter by rule ${rule}`,
     filterFile: (file: string): string => `Filter by file ${file}`,
     hint: "Select a severity, category, area, rule or file to filter every panel and the table.",

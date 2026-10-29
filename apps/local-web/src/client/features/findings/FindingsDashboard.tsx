@@ -24,6 +24,7 @@ import {
   type FindingFilters,
 } from "./filter-findings";
 import { FilterBar } from "./FilterBar";
+import { MAX_VALUE_LENGTH } from "./filter-url";
 import { buildLinkedCounts } from "./linked-panels";
 import { FindingTable } from "./FindingTable";
 import {
@@ -205,6 +206,7 @@ export function FindingsDashboard({
               type="search"
               placeholder={m.findings.search}
               value={filters.text}
+              maxLength={MAX_VALUE_LENGTH}
               onChange={(event) => setFilter({ text: event.target.value })}
             />
           </label>

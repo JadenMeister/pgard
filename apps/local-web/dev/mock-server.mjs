@@ -157,7 +157,7 @@ function makeFindings(count) {
     });
   }
   // A few in test code and in vendored code, so the separate groups show.
-  for (let index = 0; index < 6; index += 1) {
+  for (let index = 0; index < Math.min(6, findings.length); index += 1) {
     findings.push({
       ...findings[index],
       id: `t${index}`,
@@ -166,7 +166,7 @@ function makeFindings(count) {
       location: { ...findings[index].location, path: `test/fixtures/sample-${index}.ts` },
     });
   }
-  for (let index = 0; index < 3; index += 1) {
+  for (let index = 0; index < (findings.length > 13 ? 3 : 0); index += 1) {
     findings.push({
       ...findings[index + 10],
       id: `v${index}`,
@@ -189,19 +189,33 @@ function makeResult(findingCount) {
       ruleIds: [],
       note: "2 files were larger than the size limit and were not read.",
     },
-    { area: "history:secrets", scope: "history", status: "completed", ruleIds: [], note: null },
+    {
+      area: "history:tracked-files",
+      scope: "history",
+      status: "completed",
+      ruleIds: [],
+      note: null,
+    },
+    { area: "history:commits", scope: "history", status: "completed", ruleIds: [], note: null },
     { area: "web", scope: "web", status: "not_selected", ruleIds: [], note: null },
   ];
   const ruleStats = listSupportedRules()
     .slice(0, 18)
-    .map((rule, index) => ({
-      ruleId: rule.id,
-      area: rule.scope === "history" ? "history:secrets" : "source:typescript",
-      scope: rule.scope,
-      status: "completed",
-      targets: [{ unit: "files", examined: 120 + index * 3, reason: null }],
-      findings: index % 4,
-    }));
+    .flatMap((rule, index) =>
+      // Rules run in several areas (JavaScript and TypeScript share rules; history rules run on
+      // tracked files and on commits), as in a real scan.
+      (rule.scope === "history"
+        ? ["history:tracked-files", "history:commits"]
+        : ["source:typescript", "source:javascript"]
+      ).map((area) => ({
+        ruleId: rule.id,
+        area,
+        scope: rule.scope,
+        status: "completed",
+        targets: [{ unit: "files", examined: 120 + index * 3, reason: null }],
+        findings: index % 4,
+      })),
+    );
   return {
     schemaVersion: "1.5",
     scanId: "mock-scan",

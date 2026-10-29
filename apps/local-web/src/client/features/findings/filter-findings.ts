@@ -37,6 +37,66 @@ export const EMPTY_FILTERS: FindingFilters = {
   text: "",
 };
 
+/**
+ * File extensions (with dot) of the `source:<language>` areas, as the source analyzer assigns
+ * them (`EXTENSIONS` in source-analysis `walk.ts` and `TREE_SITTER_EXTENSIONS`).
+ */
+const SOURCE_AREA_EXTENSIONS: Record<string, readonly string[]> = {
+  "source:javascript": [".js", ".jsx", ".mjs", ".cjs"],
+  "source:typescript": [".ts", ".tsx", ".mts", ".cts"],
+  "source:vue": [".vue"],
+  "source:go": [".go"],
+  "source:java": [".java"],
+  "source:kotlin": [".kt"],
+  "source:python": [".py"],
+  "source:php": [".php", ".phtml"],
+};
+
+function extensionOf(path: string | null): string {
+  if (path === null) return "";
+  const dot = path.lastIndexOf(".");
+  return dot <= path.lastIndexOf("/") ? "" : path.slice(dot).toLowerCase();
+}
+
+/**
+ * The test that says whether a finding belongs to a coverage area, or `null` when the finding
+ * carries too little to tell (the area is then not offered as a filter). A rule id alone is not
+ * enough: several areas run the same rules, so the finding's scope and where it was found must
+ * agree with the area as the scanner produced it.
+ *
+ * - `source:<language>`: a code finding of one of the area's rules in a file of that language.
+ * - `history:tracked-files` / `history:commits`: a history finding of the area's rules, without
+ *   or with a commit (the history scanner files a finding with a commit under the commits area).
+ * - Every other area (heuristics, ORM, web, configuration, ...) cannot be derived from a finding.
+ */
+export function areaMatcher(
+  area: string,
+  areaRules: AreaRules,
+): ((finding: Finding) => boolean) | null {
+  const rules = areaRules.get(area);
+  if (rules === undefined) return null;
+  const extensions = SOURCE_AREA_EXTENSIONS[area];
+  if (extensions !== undefined) {
+    return (finding) =>
+      rules.has(finding.ruleId) &&
+      finding.sources.includes("code") &&
+      extensions.includes(extensionOf(finding.location.path));
+  }
+  if (area === "history:tracked-files" || area === "history:commits") {
+    const wantsCommit = area === "history:commits";
+    return (finding) =>
+      rules.has(finding.ruleId) &&
+      finding.sources.includes("history") &&
+      (finding.location.kind === "commit" || finding.location.commit !== null) === wantsCommit;
+  }
+  return null;
+}
+
+/** Whether findings can be reliably attributed to the area (so it can be offered as a filter). */
+export function isAreaFilterable(area: string, areaRules: AreaRules): boolean {
+  return areaMatcher(area, areaRules) !== null;
+}
+
 /** Rule ids per coverage area: the area's own `ruleIds` plus the rules that ran there (`ruleStats`). */
 export type AreaRules = ReadonlyMap<string, ReadonlySet<string>>;
 
@@ -324,7 +384,9 @@ export function filterFindings(
   filters: FindingFilters,
   areaRules: AreaRules = new Map(),
 ): Finding[] {
-  const areaRuleIds = filters.area === null ? null : (areaRules.get(filters.area) ?? new Set());
+  // An area that cannot be told apart reliably (or an unknown one) matches nothing: never over-include.
+  const inArea =
+    filters.area === null ? null : (areaMatcher(filters.area, areaRules) ?? (() => false));
   const text = filters.text.trim().toLowerCase();
   const statusOrder: Record<string, number> = { confirmed: 0, suspected: 1, informational: 2 };
   return findings
@@ -334,7 +396,7 @@ export function filterFindings(
     .filter((finding) => filters.category === null || finding.category === filters.category)
     .filter((finding) => filters.rule === null || finding.ruleId === filters.rule)
     .filter((finding) => filters.path === null || finding.location.path === filters.path)
-    .filter((finding) => areaRuleIds === null || areaRuleIds.has(finding.ruleId))
+    .filter((finding) => inArea === null || inArea(finding))
     .filter(
       (finding) =>
         text === "" ||

@@ -4,7 +4,40 @@ import type { FindingFilters } from "./filter-findings";
 const SEVERITIES = ["critical", "high", "medium", "low", "info"] as const;
 const STATUSES = ["confirmed", "suspected", "informational"] as const;
 const SOURCES = ["code", "history", "web"] as const;
-const MAX_VALUE_LENGTH = 200;
+/** Longest filter value (in characters) read from or written to the address; the search box stops here too. */
+export const MAX_VALUE_LENGTH = 200;
+
+/** Shows invisible or direction-changing characters as `\u{202e}` so a label cannot disguise itself. */
+export function escapeInvisible(text: string): string {
+  return mapInvisible(text, (code) => `\\u{${code.toString(16)}}`);
+}
+
+/** Zero-width, soft hyphen, direction marks and overrides, line and paragraph separators, BOM. */
+const INVISIBLE_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0xad, 0xad],
+  [0x61c, 0x61c],
+  [0x180e, 0x180e],
+  [0x200b, 0x200f],
+  [0x2028, 0x202e],
+  [0x2060, 0x206f],
+  [0xfeff, 0xfeff],
+];
+
+/** Replaces each invisible character with `replace(code point)`. */
+function mapInvisible(text: string, replace: (code: number) => string): string {
+  let output = "";
+  for (const character of text) {
+    const code = character.codePointAt(0) ?? 0;
+    const isInvisible = INVISIBLE_RANGES.some(([from, to]) => code >= from && code <= to);
+    output += isInvisible ? replace(code) : character;
+  }
+  return output;
+}
+
+/** The first `MAX_VALUE_LENGTH` code points, so a surrogate pair is never cut in half. */
+export function limitLength(text: string): string {
+  return [...text].slice(0, MAX_VALUE_LENGTH).join("");
+}
 
 /** The query keys the dashboard reads and writes; any other key in the address is ignored. */
 const KEYS = ["severity", "status", "source", "category", "rule", "area", "path", "q"] as const;
@@ -20,7 +53,7 @@ function cleanText(value: string | null): string | null {
     const code = character.codePointAt(0) ?? 0;
     if (code >= 0x20 && code !== 0x7f) text += character;
   }
-  text = text.slice(0, MAX_VALUE_LENGTH);
+  text = limitLength(mapInvisible(text, () => ""));
   return text === "" ? null : text;
 }
 
@@ -73,7 +106,7 @@ export function serializeFilters(filters: FindingFilters): string {
   const params = new URLSearchParams();
   for (const key of KEYS) {
     const value = values[key];
-    if (value !== null) params.set(key, value.slice(0, MAX_VALUE_LENGTH));
+    if (value !== null) params.set(key, limitLength(value));
   }
   return params.toString();
 }

@@ -14,6 +14,16 @@ export function viewFromHash(hash: string): View {
   return (VIEWS as readonly string[]).includes(name) ? (name as View) : "overview";
 }
 
+/**
+ * The fragment (without `#`) to assign to open `next`, or `null` when the address already shows
+ * it. The filters after `?` travel with the view.
+ */
+export function hashForView(hash: string, next: View): string | null {
+  const query = hash.includes("?") ? hash.slice(hash.indexOf("?")) : "";
+  if (viewFromHash(hash) === next && hash.startsWith(`#${next}`)) return null;
+  return `${next}${query}`;
+}
+
 /** The current view from `location.hash`, following back and forward navigation. */
 export function useHashView(): [View, (view: View) => void] {
   const [view, setViewState] = useState<View>(() => viewFromHash(window.location.hash));
@@ -23,12 +33,8 @@ export function useHashView(): [View, (view: View) => void] {
     return () => window.removeEventListener("hashchange", onChange);
   }, []);
   const setView = useCallback((next: View) => {
-    // The filters in the fragment travel with the view.
-    const { hash } = window.location;
-    const query = hash.includes("?") ? hash.slice(hash.indexOf("?")) : "";
-    if (viewFromHash(hash) !== next || !hash.startsWith(`#${next}`)) {
-      window.location.hash = `${next}${query}`;
-    }
+    const target = hashForView(window.location.hash, next);
+    if (target !== null) window.location.hash = target;
     setViewState(next);
   }, []);
   return [view, setView];

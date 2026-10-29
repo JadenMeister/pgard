@@ -2,6 +2,7 @@ import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { Messages } from "../../i18n/types";
 import type { FindingFilters } from "./filter-findings";
+import { escapeInvisible } from "./filter-url";
 
 export interface FilterChip {
   key: keyof FindingFilters;
@@ -18,7 +19,7 @@ export function activeFilterChips(filters: FindingFilters, m: Messages): FilterC
   const severities: Record<string, string> = m.severityInline;
   const chip = (key: keyof FindingFilters, value: string): FilterChip => ({
     key,
-    label: m.linked.chip(fields[key] ?? key, value),
+    label: m.linked.chip(fields[key] ?? key, escapeInvisible(value)),
   });
   const chips: FilterChip[] = [];
   if (filters.severity !== null)

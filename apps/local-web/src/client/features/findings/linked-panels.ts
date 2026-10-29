@@ -1,6 +1,7 @@
 import type { Finding, FindingCategory, Severity } from "@pgard/findings";
 import {
   countBySeverity,
+  areaMatcher,
   countByCategory,
   filterFindings,
   partitionFindings,
@@ -39,8 +40,9 @@ export function buildLinkedCounts(
     filterFindings(regular, { ...filters, ...patch }, areaRules);
   const areas = new Map<string, number>();
   const outsideArea = without({ area: null });
-  for (const [area, rules] of areaRules) {
-    areas.set(area, outsideArea.filter((finding) => rules.has(finding.ruleId)).length);
+  for (const area of areaRules.keys()) {
+    const inArea = areaMatcher(area, areaRules);
+    areas.set(area, inArea === null ? 0 : outsideArea.filter(inArea).length);
   }
   return {
     total: regular.length,

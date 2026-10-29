@@ -9,6 +9,7 @@ import { useI18n } from "../../i18n/I18nProvider";
 import {
   buildAreaRules,
   buildFindingsView,
+  isAreaFilterable,
   EMPTY_FILTERS,
   formatSeverityBreakdown,
   partitionFindings,
@@ -104,7 +105,9 @@ export function ResultOverview({
   }, [matched]);
   // The selected category stays in the list (count 0) when the other filters leave none of it.
   const categories =
-    filters.category !== null && !linked.categories.some((row) => row.category === filters.category)
+    filters.category !== null &&
+    linked.total > 0 &&
+    !linked.categories.some((row) => row.category === filters.category)
       ? [...linked.categories, { category: filters.category, count: 0 }]
       : linked.categories;
   const isBlocked = result?.overallStatus === "blocked";
@@ -131,11 +134,13 @@ export function ResultOverview({
                 ),
               ]),
         ];
-  const stats: Array<[string, number]> = [
-    [m.overview.stats.findings, matched.length],
-    [m.overview.stats.confirmed, statusCounts.confirmed],
-    [m.overview.stats.suspected, statusCounts.suspected],
-    [m.overview.stats.informational, statusCounts.informational],
+  // [label, matching the filters, all]: with a filter the tiles read "10 / 240", never a bare
+  // filtered number beside unfiltered text.
+  const stats: Array<[string, number, number]> = [
+    [m.overview.stats.findings, matched.length, view.total],
+    [m.overview.stats.confirmed, statusCounts.confirmed, view.statusCounts.confirmed],
+    [m.overview.stats.suspected, statusCounts.suspected, view.statusCounts.suspected],
+    [m.overview.stats.informational, statusCounts.informational, view.statusCounts.informational],
   ];
   const statusLabels: Record<string, string> = m.status;
   const maxCategory = Math.max(1, ...categories.map((row) => row.count));
@@ -147,7 +152,7 @@ export function ResultOverview({
     <div
       className={`overview-grid${result === null ? " is-empty" : ""}${result === null || isBlocked ? " is-flat" : ""}`}
     >
-      {result !== null && !isBlocked && linked.total > 0 && (
+      {result !== null && !isBlocked && (linked.total > 0 || hasFilters) && (
         <div className="span-full">
           <FilterBar
             filters={filters}
@@ -175,10 +180,21 @@ export function ResultOverview({
             {!isBlocked && (
               <>
                 <dl className="stats">
-                  {stats.map(([label, value]) => (
+                  {stats.map(([label, value, all]) => (
                     <div key={label} className="stat">
                       <dt>{label}</dt>
-                      <dd className="num">{value}</dd>
+                      <dd className="num">
+                        {value}
+                        {hasFilters && (
+                          <>
+                            <span className="stat-of" aria-hidden="true">
+                              {" "}
+                              / {all}
+                            </span>
+                            <span className="sr-only"> {m.linked.ofTotal(all)}</span>
+                          </>
+                        )}
+                      </dd>
                     </div>
                   ))}
                 </dl>
@@ -214,6 +230,13 @@ export function ResultOverview({
             {result.coverage.map((entry) => {
               const count = linked.areas.get(entry.area) ?? 0;
               const isSelected = filters.area === entry.area;
+              const isFilterable = isAreaFilterable(entry.area, areaRules);
+              const isDisabled = !isSelected && (!isFilterable || count === 0);
+              const areaLabel = !isFilterable
+                ? m.linked.areaUndistinguishable(entry.area)
+                : count === 0 && !isSelected
+                  ? m.linked.areaNone(entry.area)
+                  : m.linked.filterArea(entry.area, count);
               return (
                 <li key={entry.area}>
                   {isBlocked ? (
@@ -224,16 +247,13 @@ export function ResultOverview({
                       className="area-pick"
                       aria-pressed={isSelected}
                       // A disabled button leaves the tab order and says why in its name.
-                      disabled={count === 0 && !isSelected}
-                      aria-label={
-                        count === 0 && !isSelected
-                          ? m.linked.areaNone(entry.area)
-                          : m.linked.filterArea(entry.area, count)
-                      }
+                      disabled={isDisabled}
+                      aria-label={areaLabel}
+                      title={isDisabled ? areaLabel : undefined}
                       onClick={() => toggle({ area: entry.area })}
                     >
                       <code className="area-name">{entry.area}</code>
-                      <span className="num area-count">{count}</span>
+                      {isFilterable && <span className="num area-count">{count}</span>}
                     </button>
                   )}
                   <Badge kind={entry.status}>{statusLabels[entry.status] ?? entry.status}</Badge>
@@ -249,29 +269,31 @@ export function ResultOverview({
           <p className="muted small">{m.overview.partialMeaning}</p>
         </Section>
       )}
-      {result !== null && !isBlocked && (matched.length > 0 || hasFilters) && (
-        <Section
-          title={m.overview.topTitle}
-          className="panel span-full"
-          actions={
-            <a href="#findings" onClick={link(onOpenFindings)}>
-              {m.overview.allFindings(matched.length)}
-            </a>
-          }
-        >
-          {matched.length === 0 ? (
-            <EmptyState title={m.linked.noMatch} />
-          ) : (
-            <FindingTable
-              label={m.overview.topTitle}
-              findings={matched.slice(0, TOP_COUNT)}
-              ruleTexts={ruleTexts}
-              isNew={result.baseline !== undefined}
-              linked={{ filters, toggle }}
-            />
-          )}
-        </Section>
-      )}
+      {result !== null &&
+        !isBlocked &&
+        (matched.length > 0 || (hasFilters && linked.total > 0)) && (
+          <Section
+            title={m.overview.topTitle}
+            className="panel span-full"
+            actions={
+              <a href="#findings" onClick={link(onOpenFindings)}>
+                {m.overview.allFindings(matched.length)}
+              </a>
+            }
+          >
+            {matched.length === 0 ? (
+              <EmptyState title={m.linked.noMatch} />
+            ) : (
+              <FindingTable
+                label={m.overview.topTitle}
+                findings={matched.slice(0, TOP_COUNT)}
+                ruleTexts={ruleTexts}
+                isNew={result.baseline !== undefined}
+                linked={{ filters, toggle }}
+              />
+            )}
+          </Section>
+        )}
       {result !== null && !isBlocked && (
         <Section title={m.overview.categoryTitle} className="panel">
           {categories.length === 0 ? (

@@ -514,6 +514,9 @@ export const ko: Messages = {
     filterCategory: (category, count) => `${category} 분류로 필터, 발견 항목 ${count}건`,
     filterArea: (area, count) => `${area} 영역으로 필터, 발견 항목 ${count}건`,
     areaNone: (area) => `${area}: 이 영역에 연결된 발견 항목이 없습니다`,
+    areaUndistinguishable: (area) =>
+      `${area}: 발견 항목을 이 영역에 정확히 나눌 수 없어 필터로 쓸 수 없습니다`,
+    ofTotal: (total) => `전체 ${total}건 중 (필터 적용)`,
     filterRule: (rule) => `${rule} 규칙으로 필터`,
     filterFile: (file) => `${file} 파일로 필터`,
     hint: "심각도, 분류, 영역, 규칙, 파일을 선택하면 모든 패널과 표가 그 조건으로 걸러집니다.",
