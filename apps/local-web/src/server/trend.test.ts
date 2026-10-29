@@ -468,6 +468,29 @@ describe("GET /api/trend: data", () => {
     expect(reads).toBe(3);
   });
 
+  it("misses the cache when the project epoch changes (picker mode)", async () => {
+    await save("a", [finding("a")]);
+    let reads = 0;
+    const counting = {
+      list: async (id: number, options?: ListOptions) => {
+        reads += 1;
+        return store.list(id, options);
+      },
+    } as unknown as ResultStore;
+    harness = await startHarness({
+      fixedRoot: "/home/u/code/shop",
+      deps: { openResultStore: () => counting, now: () => serverNow },
+    });
+    verify(harness, REPO_ID);
+    await apiGet(harness.server, "/api/trend");
+    await apiGet(harness.server, "/api/trend");
+    expect(reads).toBe(1);
+    // Same authorization outcome object, new epoch: the entry must not be reused.
+    harness.server.state.projectEpoch += 1;
+    await apiGet(harness.server, "/api/trend");
+    expect(reads).toBe(2);
+  });
+
   it("discards an answer read for a project that changed meanwhile", async () => {
     await save("a", [finding("a")]);
     let running: Harness | null = null;

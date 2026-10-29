@@ -2262,8 +2262,9 @@ input[aria-invalid="true"] {
 }
 
 .trend-key li.trend-key-hatch::before {
-  border: 1px dashed var(--color-ink);
-  background: var(--color-surface);
+  border: 1px solid var(--color-muted);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Cpath d='M0 4L4 0' stroke='%23888' stroke-width='1.2'/%3E%3C/svg%3E")
+    var(--color-surface);
 }
 
 .trend-key li.trend-key-flag::before {

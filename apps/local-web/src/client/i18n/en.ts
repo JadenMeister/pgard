@@ -598,7 +598,7 @@ export const en = {
   trend: {
     title: "Trend",
     source:
-      "Built from the scans you saved with the pgard command for this repository, matched by its GitHub repository id (the last 20 at most). Scans run in this dashboard are not stored, so they never appear here.",
+      "Built from the scans you saved with the pgard command for this repository, matched by its GitHub repository id (the last 20 at most). Scans run in this dashboard are not stored, so they never appear here. A scan you just saved from a terminal can take a few seconds to appear.",
     loading: "Reading the saved scans...",
     loadFailed: "The saved scans could not be loaded.",
     reload: "Reload",
