@@ -90,6 +90,8 @@ async function pgardScan(
   const results: ScanResult[] = [];
   const deps: CliDeps = {
     ...defaults,
+    // Never read the real per-user advisory store from a test.
+    appDataDir: null,
     createSessionProvider: () => provider,
     runScan: async (request, scanDeps) => {
       const result = await defaults.runScan(request, scanDeps);
