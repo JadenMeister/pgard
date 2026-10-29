@@ -10,18 +10,27 @@ jobs:
   group:
     name: ${{ matrix.g.name }} (${{ matrix.n }})
     runs-on: macos-latest
-    timeout-minutes: 8
+    timeout-minutes: 6
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2]
+        n: [1, 2, 3]
         g:
-          - { name: cli, paths: "apps/cli" }
-          - { name: web, paths: "apps/local-web" }
-          - { name: hist, paths: "packages/git-history packages/scan-core packages/dependencies" }
-          - { name: src, paths: "packages/source-analysis" }
-          - { name: misc1, paths: "packages/findings packages/report packages/http-local" }
-          - { name: misc2, paths: "packages/github-auth packages/policy packages/result-store tests" }
+          - { name: deps, paths: "packages/dependencies" }
+          - { name: scancore, paths: "packages/scan-core" }
+          - { name: hist-iso, paths: "git-history/src/isolation git-history/src/preflight" }
+          - {
+              name: hist-run,
+              paths: "git-history/src/run-git git-history/src/git-executable git-history/src/safe-read git-history/src/hook-paths git-history/src/remote",
+            }
+          - {
+              name: hist-incr,
+              paths: "git-history/src/scan-history-incremental git-history/src/scan-history-limits",
+            }
+          - {
+              name: hist-rest,
+              paths: "git-history/src/scan-history.test git-history/src/string-regions git-history/src/secret-patterns git-history/src/staged git-history/src/rule-stats git-history/src/dependency-directories",
+            }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
