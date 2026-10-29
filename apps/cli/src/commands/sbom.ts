@@ -164,6 +164,8 @@ export async function runSbom(context: CommandContext, command: SbomCommand): Pr
     filePath = path.join(await realpath(outputDir), sbomFileName(timestamp, outcome.revision));
   } catch (error) {
     await cleanUp();
+    // Ctrl+C makes the collector reject with an AbortError: that is a cancel, not a crash.
+    throwIfCancelled(context);
     if (error instanceof UserCancelledError) throw error;
     err(context, context.errStyle.red(t.notSaved(t.unexpectedError)));
     return EXIT_CODES.partial;

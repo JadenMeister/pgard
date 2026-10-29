@@ -26,6 +26,7 @@ import {
   noInterrupts,
 } from "../test-support.js";
 import { parseCommandLine, UsageError } from "../options.js";
+import { UserCancelledError } from "../ui/components/prompts.js";
 import { runSbom, sbomFileName, type SbomCommand } from "./sbom.js";
 
 const REVISION = "0123456789abcdef0123456789abcdef01234567";
@@ -315,6 +316,29 @@ describe("pgard sbom", () => {
       },
     );
     expect(captured.stderr()).toContain("256 MiB limit on all lockfile data");
+  });
+
+  it("treats Ctrl+C while lockfiles are read as a cancel, not an unexpected error", async () => {
+    const controller = new AbortController();
+    const captured = createTestIo({ isTTY: false });
+    const cancelling = createTestDeps({
+      findGitRoot: async () => path.join(base, "repo"),
+      now: () => NOW,
+      verifyProject: async () => OUTCOME,
+      collectDependencies: async (_root, options) => {
+        expect(options?.signal).toBe(controller.signal);
+        controller.abort();
+        throw new DOMException("The dependency collection was cancelled.", "AbortError");
+      },
+      isPathInsideDirectory: async () => false,
+      makeSbomDir: async () => outDir,
+    });
+    const context = { ...createTestContext(captured, cancelling), signal: controller.signal };
+    await expect(
+      runSbom(context, { format: "cyclonedx-json", outputDir: outDir }),
+    ).rejects.toBeInstanceOf(UserCancelledError);
+    expect(captured.stderr()).not.toContain("unexpected");
+    expect(await readdir(outDir)).toEqual([]);
   });
 
   it("an empty repository gives a valid, empty SBOM and a warning", async () => {

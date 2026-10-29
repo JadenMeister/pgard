@@ -401,4 +401,26 @@ describe("scanDependencies", () => {
     const out = await scan();
     expect(new Set(out.findings.map((f) => f.id)).size).toBe(out.findings.length);
   });
+
+  it("reports a hit collection limit as a partial area with the limit in the note", async () => {
+    await put("a/package-lock.json", npmLock({ lodash: { version: "1.0.0" } }));
+    await put("b/package-lock.json", npmLock({ lodash: { version: "1.0.0" } }) + " ".repeat(2000));
+    await writeOsvFixture(data, "npm", [advisory("GHSA-l", "lodash", upTo("2.0.0"))], {
+      fetchedAt: FRESH,
+    });
+    const out = await scan({ collect: { limits: { totalBytes: 1500 } } });
+    expect(out.findings).toHaveLength(1);
+    const area = out.coverage[0]!;
+    expect(area.status).toBe("partial");
+    expect(area.note).toContain("A limit was reached");
+    expect(area.note).toContain("limit on all lockfile data");
+    expect(area.note).toContain("b/package-lock.json");
+  });
+
+  it("passes the scan's signal to the collector", async () => {
+    await put("package-lock.json", npmLock({ lodash: { version: "1.0.0" } }));
+    const controller = new AbortController();
+    controller.abort();
+    await expect(scan({ signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+  });
 });
