@@ -180,13 +180,16 @@ async function readCandidates(
   return { byName, advisoriesRead, withdrawnSkipped, isIncomplete };
 }
 
-// The primary id is the first of ALL ids of the issue (record ids and aliases) in this order, so it
-// does not change when an update adds the record of an id that was already an alias: a CVE first,
-// then GHSA, then GO, then the rest; within a kind the smallest.
-const PREFERENCE = ["CVE-", "GHSA-", "GO-"];
+// The primary id is the first of ALL ids of the issue (record ids and aliases) in this order: GHSA,
+// then GO, then any other record id, and a CVE only when there is nothing else. npm's data comes
+// from GHSA records whose CVE aliases are often added (or lowered) by later updates, so a CVE must
+// never be the primary id. Within a kind the smallest id. Compare and baseline additionally pair
+// dependency findings by overlapping id sets, which covers an id that appears in a later update.
+const PREFERENCE = ["GHSA-", "GO-"];
 function idRank(id: string): number {
   const index = PREFERENCE.findIndex((prefix) => id.startsWith(prefix));
-  return index === -1 ? PREFERENCE.length : index;
+  if (index !== -1) return index;
+  return id.startsWith("CVE-") ? PREFERENCE.length + 1 : PREFERENCE.length;
 }
 const compareIds = (a: string, b: string): number =>
   idRank(a) - idRank(b) || (a < b ? -1 : a > b ? 1 : 0);

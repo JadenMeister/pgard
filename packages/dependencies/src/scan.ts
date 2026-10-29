@@ -1,6 +1,8 @@
 import {
   createFindingFingerprint,
   redactEvidence,
+  redactLocationPath,
+  UNSAFE_DISPLAY_CHARACTERS,
   type Confidence,
   type Coverage,
   type Finding,
@@ -107,7 +109,17 @@ function confidenceOf(match: DependencyMatch): Confidence {
  * length is capped, as for every other finding text, so a name cannot spoof a terminal, a report
  * or the dashboard.
  */
-const safe = (text: string, maxLength = 200): string => redactEvidence(text, { maxLength });
+const UNSAFE = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
+const safe = (text: string, maxLength = 200): string => {
+  // Invisible characters become visible `\uXXXX` text (not stripped), so two names that differ
+  // only by such a character stay two names with two finding ids. This is done first because
+  // `redactSecrets` would drop zero-width characters before they could be marked.
+  const marked = text
+    .slice(0, maxLength * 4)
+    .replace(UNSAFE, (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`);
+  const redacted = redactLocationPath(marked) ?? redactEvidence(marked, { maxLength });
+  return redacted.length > maxLength ? `${redacted.slice(0, maxLength - 1)}…` : redacted;
+};
 
 function findingOf(rawMatch: DependencyMatch): Finding {
   const match: DependencyMatch = {

@@ -71,8 +71,8 @@ describe("scanDependencies", () => {
         ecosystem: "npm",
         name: "lodash",
         version: "4.17.11",
-        advisoryId: "CVE-2021-0001",
-        aliases: ["GHSA-aaaa-bbbb-cccc"],
+        advisoryId: "GHSA-aaaa-bbbb-cccc",
+        aliases: ["CVE-2021-0001"],
         affectedRange: "<4.17.21",
         fixedVersions: ["4.17.21"],
         severitySource: "cvss",
@@ -139,8 +139,8 @@ describe("scanDependencies", () => {
     const out = await scan();
     expect(out.findings).toHaveLength(1);
     expect(out.findings[0]?.dependency).toMatchObject({
-      advisoryId: "CVE-2026-1",
-      aliases: ["GHSA-gggg-hhhh-iiii", "GO-2026-0001"],
+      advisoryId: "GHSA-gggg-hhhh-iiii",
+      aliases: ["GO-2026-0001", "CVE-2026-1"],
       severitySource: "database",
     });
     expect(out.findings[0]?.severity).toBe("high");
@@ -342,8 +342,9 @@ describe("scanDependencies", () => {
     const out = await scan();
     const text = JSON.stringify(out);
     // JSON writes raw control characters as \u001b / \u202E text, so look for that form.
-    expect(text.toLowerCase()).not.toMatch(/\\u202e|\\u001b/);
-    expect(out.findings[0]?.dependency?.name).toBe("pkgevil[31m");
+    expect(text).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e]/);
+    // Visible escapes, not stripped: names differing only by an invisible character stay apart.
+    expect(out.findings[0]?.dependency?.name).toBe("pkg\\u202eevil\\u001b[31m");
     expect(out.coverage[0]?.note).toContain("could not be compared");
   });
 
@@ -367,5 +368,37 @@ describe("scanDependencies", () => {
     await put("go.mod", "module m\n\ngo 1.22\n\nrequire example.com/x v1.0.0\n");
     await writeOsvFixture(data, "Go", [], { fetchedAt: FRESH });
     expect((await scan()).coverage[0]?.note).toContain("standard library and toolchain");
+  });
+
+  it("never makes a CVE the primary id, however CVE aliases are added later", async () => {
+    await put("package-lock.json", npmLock({ lodash: { version: "1.0.0" } }));
+    const ids: string[] = [];
+    for (const aliases of [[], ["CVE-2021-23337"], ["CVE-2020-0001", "CVE-2021-23337"]]) {
+      await writeOsvFixture(
+        data,
+        "npm",
+        [advisory("GHSA-35jh-r3h4-6jhm", "lodash", upTo("2.0.0"), { aliases })],
+        { fetchedAt: FRESH },
+      );
+      const finding = (await scan()).findings[0]!;
+      expect(finding.dependency?.advisoryId).toBe("GHSA-35jh-r3h4-6jhm");
+      ids.push(finding.id);
+    }
+    expect(new Set(ids).size).toBe(1);
+  });
+
+  it("keeps two names that differ only by an invisible character apart", async () => {
+    await put(
+      "package-lock.json",
+      npmLock({ "a\u200bb": { version: "1.0.0" }, ab: { version: "1.0.0" } }),
+    );
+    await writeOsvFixture(
+      data,
+      "npm",
+      [advisory("GHSA-1", "a\u200bb", upTo("2.0.0")), advisory("GHSA-1", "ab", upTo("2.0.0"))],
+      { fetchedAt: FRESH },
+    );
+    const out = await scan();
+    expect(new Set(out.findings.map((f) => f.id)).size).toBe(out.findings.length);
   });
 });

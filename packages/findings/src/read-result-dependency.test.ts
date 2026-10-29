@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { findingIdentity } from "./compare-scans.js";
-import type { Finding } from "./contract.js";
+import { applyBaseline } from "./baseline.js";
+import { compareScans, findingIdentity } from "./compare-scans.js";
+import type { Finding, ScanResult } from "./contract.js";
 import { createFindingFingerprint } from "./fingerprint.js";
 import { readScanResult } from "./read-result.js";
 import { buildRuleTextCatalog } from "./rule-text.js";
@@ -134,5 +135,83 @@ describe("dependency finding identity (baseline and compare)", () => {
     } as Finding;
     expect(findingIdentity(otherVersion)).not.toBe(findingIdentity(base));
     expect(findingIdentity(otherAdvisory)).not.toBe(findingIdentity(base));
+  });
+});
+
+describe("dependency findings in compare and baseline", () => {
+  const make = (
+    advisoryId: string,
+    aliases: string[],
+    extra: Partial<Finding["dependency"] & object> = {},
+  ) =>
+    ({
+      ...(finding({}) as unknown as Finding),
+      id: `id-${advisoryId}`,
+      evidence: `evidence of ${advisoryId}`,
+      dependency: { ...dependency, advisoryId, aliases, ...extra },
+    }) as Finding;
+  const scan = (findings: Finding[]): ScanResult =>
+    ({
+      ...(result("1.5", {}) as ScanResult),
+      coverage: [
+        {
+          area: "deps:npm",
+          scope: "code",
+          status: "completed",
+          ruleIds: ["PG-DEP-001"],
+          note: null,
+        },
+      ],
+      findings,
+    }) as ScanResult;
+
+  it("pairs a finding whose primary id changed because a GHSA alias was added to a GO record", () => {
+    const comparison = compareScans(
+      scan([make("GO-2026-0001", [])]),
+      scan([make("GHSA-aaaa-bbbb-cccc", ["GO-2026-0001"])]),
+    );
+    expect(comparison.new).toEqual([]);
+    expect(comparison.noLongerReported).toEqual([]);
+    expect(comparison.unchanged).toHaveLength(1);
+  });
+
+  it("pairs a finding when a CVE alias is added to its GHSA record", () => {
+    const comparison = compareScans(
+      scan([make("GHSA-aaaa-bbbb-cccc", [])]),
+      scan([make("GHSA-aaaa-bbbb-cccc", ["CVE-2021-0001"])]),
+    );
+    expect(comparison.new).toEqual([]);
+    expect(comparison.unchanged).toHaveLength(1);
+  });
+
+  it("does not merge two unrelated advisories on the same package version", () => {
+    const comparison = compareScans(
+      scan([make("GHSA-1111-1111-1111", ["CVE-1"]), make("GHSA-2222-2222-2222", ["CVE-2"])]),
+      scan([make("GHSA-1111-1111-1111", ["CVE-1"]), make("GHSA-3333-3333-3333", ["CVE-3"])]),
+    );
+    expect(comparison.unchanged).toHaveLength(1);
+    expect(comparison.new.map((f) => f.dependency?.advisoryId)).toEqual(["GHSA-3333-3333-3333"]);
+    expect(comparison.noLongerReported.map((f) => f.dependency?.advisoryId)).toEqual([
+      "GHSA-2222-2222-2222",
+    ]);
+  });
+
+  it("keeps a baselined finding in the baseline after such a change", () => {
+    const baseline = scan([make("GO-2026-0001", [])]);
+    const applied = applyBaseline(
+      scan([make("GHSA-aaaa-bbbb-cccc", ["GO-2026-0001"])]),
+      baseline,
+      new Date("2026-10-24T00:00:00.000Z"),
+    );
+    expect(applied.result.findings[0]?.inBaseline).toBe(true);
+  });
+
+  it("does not pair the same advisory on another version or another lockfile", () => {
+    const comparison = compareScans(
+      scan([make("GHSA-aaaa-bbbb-cccc", [])]),
+      scan([make("GHSA-aaaa-bbbb-cccc", [], { version: "4.17.12" })]),
+    );
+    expect(comparison.unchanged).toEqual([]);
+    expect(comparison.new).toHaveLength(1);
   });
 });
