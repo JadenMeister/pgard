@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`WEB_PROJECT_PICKER_DESIGN.md`](WEB_PROJECT_PICKER_DESIGN.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))와 [문서 목록](README.ko.md)도 참고하세요.
 
-상태: 승인된 설계([#355](https://github.com/JadenMeister/pgard/issues/355), M8-3)이며 M8-4([#398](https://github.com/JadenMeister/pgard/issues/398))에서 구현했습니다. 구현이 설계와 다른 곳은 #398의 풀 리퀘스트에 적었습니다. 아래의 "현재"와 "M8-4 요구사항"에 대한 문장은 M8-4 이전의 코드를 설명합니다.
+상태: 승인된 설계([#355](https://github.com/JadenMeister/pgard/issues/355), M8-3)이며 M8-4([#398](https://github.com/JadenMeister/pgard/issues/398))에서 구현했습니다. 구현이 설계와 다른 곳은 #398의 풀 리퀘스트에 적었습니다. 아래의 "현재"와 "M8-4 요구사항"에 대한 문장은 M8-4 이전의 코드를 설명합니다. T13이 다루지 않는 잔여 위험: 소유권과 쓰기 비트 검사는 `uid`와 모드 비트만 봅니다. 다른 사용자에게 쓰기를 주는 macOS ACL(`ls -le`)이나 Linux POSIX ACL은 감지하지 못합니다. 같은 사용자의 공격자는 범위 밖이며, ACL로 공유하는 폴더는 검색 폴더로 쓰지 마세요.
 
 "현재"에 대한 설명은 작성 시점의 코드(`apps/local-web/src/server`, `apps/cli/src/commands/dashboard.ts`, `packages/policy`, `packages/scan-core`, `packages/git-history`, `packages/result-store`)를 기준으로 합니다. 이 설계가 아직 코드에 없는 것에 기대는 곳에는 **M8-4 요구사항**이라고 표시했습니다. 현재 동작의 기준은 README이며, 이 설계는 README의 일부 문장을 바꿉니다([M8-4의 README 변경](#9-m8-4의-readme-변경) 참고).
 

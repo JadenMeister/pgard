@@ -235,7 +235,13 @@ export function createWebStorage(options: WebStorageOptions): WebStorage {
     }
     let text: string;
     try {
-      text = await readFileCapped(path.join(webDir, name), MAX_WEB_FILE_BYTES, environment, true);
+      text = await readFileCapped(
+        path.join(webDir, name),
+        MAX_WEB_FILE_BYTES,
+        environment,
+        true,
+        true,
+      );
     } catch (error) {
       if (errnoOf(error) === "ENOENT") return { status: "missing" };
       if (error instanceof SafeFileError) {
@@ -254,7 +260,11 @@ export function createWebStorage(options: WebStorageOptions): WebStorage {
     text: string,
     parse: (text: string) => ParseResult<unknown>,
   ): Promise<WebWriteOutcome> {
-    if (Buffer.byteLength(text, "utf8") > MAX_WEB_FILE_BYTES) return { ok: false, reason: "io" };
+    // What is written must be readable back: never write a file this build would then ignore
+    // (more roots than the cap, an oversized or malformed text).
+    if (Buffer.byteLength(text, "utf8") > MAX_WEB_FILE_BYTES || !parse(text).ok) {
+      return { ok: false, reason: "io" };
+    }
     try {
       await ensureWebDirectory(true);
       await writeFileAtomically(webDir, name, text, environment, {
@@ -263,7 +273,7 @@ export function createWebStorage(options: WebStorageOptions): WebStorage {
         checkExisting: async (finalPath) => {
           let existing: string;
           try {
-            existing = await readFileCapped(finalPath, MAX_WEB_FILE_BYTES, environment, true);
+            existing = await readFileCapped(finalPath, MAX_WEB_FILE_BYTES, environment, true, true);
           } catch {
             throw new SafeFileError("would_overwrite", "An unreadable file already has this name.");
           }

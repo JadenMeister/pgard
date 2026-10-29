@@ -269,14 +269,14 @@ export function App({
             target={target}
             onShowAuthorization={() => goTo("overview", AUTHORIZATION_SECTION_ID)}
           />
-          {session.mode === "picker" && (
-            <ProjectBar
-              project={project}
-              isScanRunning={control.isRunning}
-              isAuthRunning={auth?.status === "running"}
-              onChanged={() => onProjectChanged?.()}
-            />
-          )}
+          <ProjectBar
+            project={project}
+            canChange={session.mode === "picker"}
+            isScanRunning={control.isRunning}
+            isAuthRunning={auth?.status === "running" || auth?.isRechecking === true}
+            isWaitingForInstall={auth?.remedy != null}
+            onChanged={() => onProjectChanged?.()}
+          />
           <div className="viewnav">
             <div className="wrap viewnav-in">
               <nav aria-label={m.nav.label}>

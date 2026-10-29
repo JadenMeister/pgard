@@ -278,7 +278,7 @@ authorization and continues the scan.
 - `--report-lang en|ko`(`--report`와 함께 쓰는 모든 `scan`): 저장되는 HTML·PDF 보고서 전체(규칙 문구만이 아님)의 언어이며, 기본값은 `--lang` 언어입니다.
 - `--language js|ts|react|vue|go|java|kotlin|python|php`(`rules list` 전용): 언어별로 규칙 목록을 거릅니다. 언어와 무관한 규칙은 항상 포함되며, `react`와 `vue`는 JavaScript/TypeScript 규칙도 포함합니다.
 - `--no-browser`(`scan`, `project verify`, `login`, `dashboard`, `web`): GitHub 페이지(device 로그인 페이지, App 설치 페이지)를 브라우저로 열지 않고 링크만 출력합니다. 이 옵션이 없으면 터미널(stdin과 stdout 모두)에서 링크를 출력한 뒤 `Press Enter to open github.com in your browser...`라고 묻고, Enter를 눌러야 페이지를 엽니다(다른 키는 무시). 로그인·설치 대기는 이 질문과 무관하게 진행되며, 대기가 끝나면 질문은 사라집니다. 터미널이 아니면 열지도 묻지도 않습니다. 링크는 항상 함께 출력하며, 브라우저를 열지 못해도 오류가 아닙니다.
-- `--no-store`(`scan`과 `web`) 또는 환경 변수 `PGARD_NO_STORE=1`: 이번 검사 결과를 이 컴퓨터에 보관하지 않습니다. `pgard web`에서는 최근 프로젝트 목록과 처음 실행 때의 검색 폴더를 이 컴퓨터에 남기지 않습니다. 값이 정확히 `1`일 때만 적용됩니다. 이 경우 폴더도 안내문도 만들지 않으며 [기준선](#기준선baseline)도 읽거나 적용하지 않습니다. [저장된 결과](#저장된-결과) 참고.
+- `--no-store`(`scan`과 `web`) 또는 환경 변수 `PGARD_NO_STORE=1`: 이번 검사 결과를 이 컴퓨터에 보관하지 않습니다. `pgard web`에서는 선택기의 파일을 읽지도 쓰지도 않습니다. 최근 목록도, 처음 실행 때 저장하는 폴더도 없고, 저장된 검색 폴더도 쓰지 않습니다(기본 개발 폴더가 적용됨). `PGARD_NO_STORE=1`이면 `pgard web scope add`와 `remove`는 거부됩니다. 값이 정확히 `1`일 때만 적용됩니다. 이 경우 폴더도 안내문도 만들지 않으며 [기준선](#기준선baseline)도 읽거나 적용하지 않습니다. [저장된 결과](#저장된-결과) 참고.
 - `--full`(`scan`만): 모든 것을 다시 검사합니다. 기본적으로 검사는 이 저장소에 마지막으로 저장된 검사를 바탕으로 바뀐 부분만 보며, 결과가 그렇게 했다고 알려 줍니다. 웹 검사는 항상 실시간입니다. [증분 검사](#증분-검사) 참고.
 - `--all` 또는 `--repo owner/name`(`history clear`만, 둘 중 정확히 하나): 모든 저장소 또는 한 저장소의 저장된 결과를 삭제합니다. `--repo`는 결과 안에 저장된 `owner/name`과 대소문자 무시로 비교하며 오프라인에서 동작합니다. 저장소 이름을 바꾸거나 이전한 경우 이전에 저장된 결과에는 옛 이름이 들어 있으므로 그 이름을 쓰거나 `--all`을 쓰세요.
 - `--help` / `-h`, `pgard --version` / `-V`.
@@ -919,7 +919,7 @@ device 코드가 필요하면 대시보드는 **Open the GitHub sign-in page** �
 3. **경로와 원격 저장소를 확인합니다.** 확인하기 전에는 아무것도 선택되지 않습니다. 확인하면 서버가 폴더를 다시 살펴보고 바뀌지 않았을 때만 선택합니다. Git 루트가 아니거나, 커밋이 없거나, alternates·replace ref를 쓰거나, github.com 원격 저장소가 없거나(다른 호스트나 여러 저장소 포함), linked worktree·서브모듈이거나, 다른 사용자의 것이거나, 그룹·다른 사용자가 바꿀 수 있는 폴더는 이유와 해결 방법과 함께 차단됩니다(검색 폴더부터 아래 모든 디렉터리, `.git`, `.git/config`. 메시지가 모든 경로와 `chmod go-w ...` 명령 하나를 보여 주며, 이 엄격한 규칙은 비공개 그룹을 쓰는 시스템에서도 완화하지 않습니다).
 4. **그다음 같은 다섯 가지 확인.** 기존 권한 확인 패널이 CLI와 똑같이 실행됩니다(저장소, GitHub 신원, 소유자 승인, 현재 접근 권한, 기여). 잘못된 폴더가 곧바로 검사로 이어지는 일은 없습니다. 확인과 검사 전에 서버가 신원과 소유권 확인을 반복하고, 폴더가 확인한 저장소가 아니면 게이트가 막습니다. App 설치 밖의 비공개 저장소는 설치 안내와 함께 평소의 `current_access` 차단 상태로 끝납니다. **프로젝트 변경**은 검사나 확인이 실행 중이면 비활성이고, **확인 취소**는 실행 중인 확인(GitHub 로그인 대기 포함)을 멈춥니다.
 
-`pgard web`은 `--no-store`(최근 목록과 처음 실행 때의 폴더를 남기지 않음. `PGARD_NO_STORE=1`도 같음)와 `--no-browser`를 받습니다. 선택기의 모든 경로에 대시보드와 같은 토큰, `Host`, `Origin`, 교차 사이트 확인이 적용되며, `pgard dashboard`는 모든 `/api/picker/*` 요청에 `409 fixed_project`로 답합니다. 설계와 위협 모델은 [`docs/WEB_PROJECT_PICKER_DESIGN.ko.md`](docs/WEB_PROJECT_PICKER_DESIGN.ko.md)에 있습니다.
+`pgard web`은 `--no-store`(`PGARD_NO_STORE=1`도 같음. 선택기의 파일을 읽지도 쓰지도 않으므로 최근 목록이 없고 기본 검색 폴더만 쓰며, 설정되어 있는 동안 `pgard web scope add`와 `remove`는 거부됨)와 `--no-browser`를 받습니다. 선택기의 모든 경로에 대시보드와 같은 토큰, `Host`, `Origin`, 교차 사이트 확인이 적용되며, `pgard dashboard`는 모든 `/api/picker/*` 요청에 `409 fixed_project`로 답합니다. 설계와 위협 모델은 [`docs/WEB_PROJECT_PICKER_DESIGN.ko.md`](docs/WEB_PROJECT_PICKER_DESIGN.ko.md)에 있습니다.
 
 ### 대시보드 보호 방식
 

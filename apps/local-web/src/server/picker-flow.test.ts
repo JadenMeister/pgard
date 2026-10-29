@@ -175,7 +175,7 @@ describe("search", () => {
     expect(locked.blocked).toMatchObject({
       code: "group_or_world_writable",
       paths: ["~/code", "~/code/my dir/.git"],
-      fix: "chmod go-w ~/code '~/code/my dir/.git'",
+      fix: "chmod go-w ~/code ~/'code/my dir/.git'",
     });
     expect(orphan.blocked).toMatchObject({ code: "no_remote", paths: [] });
     expect(orphan.remote).toEqual({ status: "none" });

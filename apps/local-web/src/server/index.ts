@@ -6,6 +6,7 @@ import {
   resolveStoreDirectory,
   type WebStorage,
 } from "@pgard/result-store";
+import { sanitizeDisplayText } from "@pgard/http-local";
 import { openGitHubUrl } from "@pgard/scan-core";
 import { createDefaultServerDeps, startLocalWebServer, type ServerDeps } from "./create-server.js";
 import { LauncherUsageError, parseLauncherArgs, type LauncherOptions } from "./launcher.js";
@@ -29,12 +30,14 @@ async function createPickerDeps(
     options.noStore || dataDir === null ? null : createWebStorage({ dir: dataDir });
   const scope = await loadSearchScope({ storage, uid: process.getuid?.(), homeDir });
   for (const dropped of scope.dropped) {
-    process.stdout.write(`Search folder skipped (${dropped.reason}): ${dropped.path}\n`);
+    process.stdout.write(
+      `Search folder skipped (${dropped.reason}): ${sanitizeDisplayText(dropped.path, 500)}\n`,
+    );
   }
   process.stdout.write(
     scope.roots.length === 0
       ? "No search folders are usable. Add one with: pgard web scope add <folder>\n"
-      : `Search folders: ${scope.roots.map((root) => root.path).join(", ")}\n`,
+      : `Search folders: ${scope.roots.map((root) => sanitizeDisplayText(root.path, 500)).join(", ")}\n`,
   );
   return {
     inspector: createInspectorHost(),

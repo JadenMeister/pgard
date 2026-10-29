@@ -290,6 +290,7 @@ function authStatus(state: SessionState): AuthStatus {
   const remedy = pendingInstallRemedy(state);
   return {
     status,
+    isRechecking: state.ownerApprovalRecheck,
     deviceCode: state.deviceCode,
     summary: outcome?.summary ?? null,
     repo: outcome?.repo ?? null,

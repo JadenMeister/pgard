@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { sanitizeDisplayText } from "@pgard/http-local";
 import type { ScopeRoot } from "@pgard/result-store";
+import { foldName, hasUnsafeNameCharacter } from "../../shared/folder-name.js";
 import type { PickerCandidate, PickerRemote } from "../../shared/picker-types.js";
 import {
   PICKER_LIMITS,
@@ -99,16 +100,7 @@ export function escapeForDisplay(text: string): string {
   const escaped = [...text]
     .map((char) => {
       const code = char.codePointAt(0) ?? 0;
-      const isUnsafe =
-        code <= 0x1f ||
-        (code >= 0x7f && code <= 0x9f) ||
-        code === 0x61c ||
-        (code >= 0x200b && code <= 0x200f) ||
-        (code >= 0x2028 && code <= 0x202e) ||
-        (code >= 0x2060 && code <= 0x2069) ||
-        code === 0xfeff ||
-        code === 0xad ||
-        (code >= 0xd800 && code <= 0xdfff);
+      const isUnsafe = hasUnsafeNameCharacter(char) || (code >= 0xd800 && code <= 0xdfff);
       return isUnsafe ? `\\u{${code.toString(16)}}` : char;
     })
     .join("");
@@ -121,13 +113,25 @@ export function escapeForDisplay(text: string): string {
 /** Sanitized text, or `null` when sanitizing would change it (then it is not safe to show). */
 export function sanitizedOrNull(text: string, maxLength: number): string | null {
   if (text.length > maxLength) return null;
+  // Stricter than the sanitizer: invisible and look-alike characters are never shown as safe.
+  if (hasUnsafeNameCharacter(text)) return null;
   const cleaned = sanitizeDisplayText(text, maxLength + 1);
   return cleaned === text ? cleaned : null;
 }
 
-/** Quotes one path for the `chmod` command shown to the user (single quotes when needed). */
+/** Quotes one value for the shell (single quotes when needed). */
 export function shellQuote(value: string): string {
-  return /^[A-Za-z0-9_@%+=:,./~-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+  return /^[A-Za-z0-9_@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Quotes a `~`-shortened path for the `chmod` command: the leading `~` must stay unquoted or the
+ * shell would not expand it (`~/'my dir'`, not `'~/my dir'`).
+ */
+export function shellQuoteHomePath(value: string): string {
+  if (value === "~") return "~";
+  if (value.startsWith("~/")) return `~/${shellQuote(value.slice(2))}`;
+  return shellQuote(value);
 }
 
 function hash(parts: ReadonlyArray<string | number>): string {
@@ -221,7 +225,7 @@ export function buildCandidate(input: BuildInput): CandidateRecord {
       reason: text.reason,
       fix:
         raw.block.code === "group_or_world_writable" && paths.length > 0
-          ? `chmod go-w ${paths.map(shellQuote).join(" ")}`
+          ? `chmod go-w ${paths.map(shellQuoteHomePath).join(" ")}`
           : text.fix,
     };
   }
@@ -326,14 +330,20 @@ export function buildOutsideScope(input: {
   };
 }
 
+/** Display paths compare NFC-normalized and case-folded, so look-alike forms collide too. */
+function collisionKey(record: CandidateRecord): string {
+  return foldName(record.dto.displayPath);
+}
+
 /** Marks every candidate whose display path another one shares, with a short tag. */
 export function markCollisions(records: readonly CandidateRecord[]): void {
   const counts = new Map<string, number>();
   for (const record of records) {
-    counts.set(record.dto.displayPath, (counts.get(record.dto.displayPath) ?? 0) + 1);
+    const key = collisionKey(record);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
   }
   for (const record of records) {
-    if ((counts.get(record.dto.displayPath) ?? 0) > 1) {
+    if ((counts.get(collisionKey(record)) ?? 0) > 1) {
       const basis = record.shown === "" ? hash([record.path]) : record.shown;
       record.dto.collision = { tag: basis.slice(0, 6) };
     }

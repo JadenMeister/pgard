@@ -318,8 +318,9 @@ Before the server starts, pgard prints the search folders and asks
 "Search these folders for projects? [y/N]" (a terminal is required). The browser
 can switch a folder off for the session but can never add one.
 
---no-store keeps the recent project list and the first-run folders off this
-computer (same as PGARD_NO_STORE=1 for scans). Without it, projects you confirm
+--no-store reads and writes none of the picker's files (same as PGARD_NO_STORE=1):
+no recent list, and only the default search folders; "pgard web scope add" and
+"remove" refuse while PGARD_NO_STORE=1 is set. Without it, projects you confirm
 are remembered in the app-data folder as absolute paths (owner-only, never
 uploaded); pgard history clear --all deletes that list and the settings too.
 
@@ -327,8 +328,8 @@ pgard dashboard stays fixed to the project of the current directory and refuses
 every picker request. The picker is not available on Windows yet.
 
 Options:
-  --no-store               do not read or write the recent list or the first-run
-                           search folders
+  --no-store               do not read or write the picker's files (recent list,
+                           saved search folders)
 ${NO_BROWSER_HELP}
 
 ${EXIT_CODE_HELP}`,

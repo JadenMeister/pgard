@@ -20,6 +20,22 @@ const UNSAFE_NAME_CHARACTERS = new RegExp(
   "[\\u0000-\\u001f\\u007f-\\u009f\\u061c\\u200b-\\u200f\\u2028-\\u202e\\u2066-\\u2069\\u2060-\\u2064\\ufeff\\u00ad]",
 );
 
+/**
+ * Everything invisible or direction-changing, by Unicode property rather than a list: all default
+ * ignorable code points (word joiners, soft hyphen, combining grapheme joiner, Hangul fillers,
+ * Mongolian vowel separator, variation selectors, tag characters ...), format, control, line and
+ * paragraph separators and private-use characters. A name containing one could display like
+ * another folder's name, so it is never shown as if it were safe (`unsafe_display`).
+ */
+const UNSAFE_DISPLAY_PROPERTIES = new RegExp(
+  "[\\p{Default_Ignorable_Code_Point}\\p{Cf}\\p{Cc}\\p{Zl}\\p{Zp}\\p{Co}]",
+  "u",
+);
+
+export function hasUnsafeNameCharacter(text: string): boolean {
+  return UNSAFE_NAME_CHARACTERS.test(text) || UNSAFE_DISPLAY_PROPERTIES.test(text);
+}
+
 const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
 
 export type FolderNameSource = "drop" | "typed";
@@ -43,7 +59,7 @@ export function checkFolderName(raw: unknown, source: FolderNameSource): FolderN
   const name = raw.normalize("NFC");
   if (name.length > MAX_NAME_LENGTH) return { ok: false, reason: "too_long" };
   if (name.includes("/") || name.includes("\\")) return { ok: false, reason: "slash" };
-  if (UNSAFE_NAME_CHARACTERS.test(name)) return { ok: false, reason: "control" };
+  if (hasUnsafeNameCharacter(name)) return { ok: false, reason: "control" };
   if (name === "." || name === "..") return { ok: false, reason: "dot" };
   if (source === "typed" && name.length < MIN_TYPED_NAME_LENGTH) {
     return { ok: false, reason: "too_short" };

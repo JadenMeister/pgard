@@ -230,9 +230,30 @@ export function startSearch(
       onMessage: (message) => {
         if (message.t === "visited") search.visited = message.n;
         else if (message.t === "found") {
-          found.set(message.key, { rootIndex: message.rootIndex, segments: message.segments });
-        } else if (message.t === "inspected") inspected.set(message.key, message.candidate);
-        else if (message.t === "done") done = message;
+          // At most one entry per key and never more than the candidate limit.
+          if (!found.has(message.key) && found.size < PICKER_LIMITS.maxCandidates) {
+            found.set(message.key, { rootIndex: message.rootIndex, segments: message.segments });
+          }
+        } else if (message.t === "inspected") {
+          // An inspection answers a folder the walk reported: same key, same root, same chain.
+          const entry = found.get(message.key);
+          if (
+            entry !== undefined &&
+            !inspected.has(message.key) &&
+            entry.rootIndex === message.candidate.rootIndex &&
+            entry.segments.length === message.candidate.segments.length &&
+            entry.segments.every((segment, index) => {
+              const other = message.candidate.segments[index];
+              return (
+                other?.name === segment.name &&
+                other.dev === segment.dev &&
+                other.ino === segment.ino
+              );
+            })
+          ) {
+            inspected.set(message.key, message.candidate);
+          }
+        } else if (message.t === "done") done = message;
       },
     });
     if (running === null) throw new ApiError(503, "inspector_busy", BUSY_MESSAGE);

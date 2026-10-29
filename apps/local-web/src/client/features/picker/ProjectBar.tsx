@@ -14,13 +14,20 @@ import { pickerErrorText } from "./error-text";
  */
 export function ProjectBar({
   project,
+  canChange = true,
   isScanRunning,
   isAuthRunning,
+  isWaitingForInstall = false,
   onChanged,
 }: {
   project: ProjectInfo;
+  /** Picker mode only: `pgard dashboard` has one project and no Change project. */
+  canChange?: boolean;
   isScanRunning: boolean;
+  /** A check or an owner-approval re-check is running: Change project waits for it. */
   isAuthRunning: boolean;
+  /** The check offered the App install and the page waits for it: it can be cancelled too. */
+  isWaitingForInstall?: boolean;
   onChanged: () => void;
 }) {
   const { m } = useI18n();
@@ -40,6 +47,10 @@ export function ProjectBar({
     setError(null);
     apiPost("/api/auth/cancel").catch((caught: unknown) => setError(pickerErrorText(m, caught)));
   };
+  const canCancel = isAuthRunning || isWaitingForInstall;
+  // `pgard dashboard`: only the Cancel check button, and only while there is something to cancel
+  // (a check that waits for the GitHub sign-in or for the App install, or a blocked Git, #377).
+  if (!canChange && !canCancel) return null;
   return (
     <div className="projectbar">
       <div className="wrap projectbar-in">
@@ -49,15 +60,19 @@ export function ProjectBar({
           {project.repo !== null && <span className="pick-repo"> {project.repo}</span>}
         </p>
         <div className="projectbar-actions">
-          {isAuthRunning && (
+          {canCancel && (
             <Button size="sm" title={m.picker.project.cancelCheckHint} onClick={cancelCheck}>
               {m.picker.project.cancelCheck}
             </Button>
           )}
-          <Button size="sm" disabled={blockedReason !== null} onClick={change}>
-            {m.picker.project.change}
-          </Button>
-          {blockedReason !== null && <span className="muted small">{blockedReason}</span>}
+          {canChange && (
+            <Button size="sm" disabled={blockedReason !== null} onClick={change}>
+              {m.picker.project.change}
+            </Button>
+          )}
+          {canChange && blockedReason !== null && (
+            <span className="muted small">{blockedReason}</span>
+          )}
         </div>
         {error !== null && <Notice tone="error">{error}</Notice>}
       </div>

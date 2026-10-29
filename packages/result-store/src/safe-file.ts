@@ -102,6 +102,8 @@ export async function readFileCapped(
   maxBytes: number,
   environment: SafeFileEnvironment,
   refuseWritableByOthers = false,
+  /** Also require our uid and no group or other access at all (the picker's files, T9). */
+  requireOwnerOnly = false,
 ): Promise<string> {
   const before = await lstat(file);
   if (before.isSymbolicLink() || !before.isFile()) {
@@ -118,6 +120,15 @@ export async function readFileCapped(
         "permissions",
         "The file can be written by other users, so it is not trusted. Delete it and set it again.",
       );
+    }
+    if (requireOwnerOnly && environment.isPosix) {
+      const uid = environment.getuid();
+      if ((uid !== undefined && stat.uid !== uid) || (stat.mode & 0o077) !== 0) {
+        throw new SafeFileError(
+          "permissions",
+          "The file is not owner-only, so it is not trusted. Delete it and set it again.",
+        );
+      }
     }
     if (stat.size > maxBytes) {
       throw new SafeFileError("too_large", `The file is larger than ${maxBytes} bytes.`);

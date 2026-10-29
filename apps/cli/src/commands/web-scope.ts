@@ -1,7 +1,8 @@
 import path from "node:path";
-import { nodeScopeFs, validateSearchRoot } from "@pgard/result-store";
+import { MAX_SEARCH_ROOTS, nodeScopeFs, validateSearchRoot } from "@pgard/result-store";
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
+import { isStoreDisabled } from "../flows/baseline.js";
 import { promptConfirm } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
 import type { WebScopeAction } from "../options.js";
@@ -42,7 +43,19 @@ export async function runWebScope(
     err(context, context.errStyle.red("No app-data directory could be determined."));
     return EXIT_CODES.internal;
   }
-  const scope = await loadScopeFor(context, false);
+  // Under --no-store / PGARD_NO_STORE=1 nothing is read from or written to the picker's files:
+  // the folders are the defaults, and add and remove (which write) are refused.
+  const isStoreOff = isStoreDisabled(context, false);
+  if (isStoreOff && action !== "list") {
+    err(
+      context,
+      context.errStyle.red(
+        "PGARD_NO_STORE=1 is set, so nothing is saved: the search folders cannot be changed. Unset it and run the command again.",
+      ),
+    );
+    return EXIT_CODES.usage;
+  }
+  const scope = await loadScopeFor(context, isStoreOff);
   if (action === "list") {
     printScope(context, scope);
     if (scope.roots.length === 0) {
@@ -102,6 +115,15 @@ export async function runWebScope(
     return EXIT_CODES.usage;
   }
   out(context, `Real path: ${safeText(checked.path, 500)}`);
+  if (!current.includes(checked.path) && current.length >= MAX_SEARCH_ROOTS) {
+    err(
+      context,
+      context.errStyle.red(
+        `At most ${MAX_SEARCH_ROOTS} search folders can be saved. Remove one first: pgard web scope remove <folder>`,
+      ),
+    );
+    return EXIT_CODES.usage;
+  }
   if (current.includes(checked.path)) {
     out(context, "It is already a search folder.");
     return EXIT_CODES.ok;

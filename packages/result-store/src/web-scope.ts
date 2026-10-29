@@ -1,4 +1,4 @@
-import { lstat, realpath, readdir } from "node:fs/promises";
+import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { WebStorage } from "./web-files.js";
 
@@ -34,7 +34,8 @@ export interface ScopeStat {
 export interface ScopeFs {
   lstat(target: string): Promise<ScopeStat>;
   realpath(target: string): Promise<string>;
-  readdir(target: string): Promise<ScopeDirent[]>;
+  /** At most `limit` entries when given (never the whole of a huge directory). */
+  readdir(target: string, limit?: number): Promise<ScopeDirent[]>;
 }
 
 export interface ScopeDirent {
@@ -58,13 +59,22 @@ export const nodeScopeFs: ScopeFs = {
     };
   },
   realpath: (target) => realpath(target),
-  async readdir(target) {
-    const entries = await readdir(target, { withFileTypes: true });
-    return entries.map((entry) => ({
-      name: entry.name,
-      isDirectory: entry.isDirectory(),
-      isSymbolicLink: entry.isSymbolicLink(),
-    }));
+  async readdir(target, limit) {
+    const directory = await opendir(target);
+    const entries: ScopeDirent[] = [];
+    try {
+      for await (const entry of directory) {
+        entries.push({
+          name: entry.name,
+          isDirectory: entry.isDirectory(),
+          isSymbolicLink: entry.isSymbolicLink(),
+        });
+        if (limit !== undefined && entries.length >= limit) break;
+      }
+    } finally {
+      await directory.close().catch(() => undefined);
+    }
+    return entries;
   },
 };
 
@@ -109,6 +119,8 @@ export async function validateSearchRoot(
   fs: ScopeFs,
   uid: number | undefined,
   platform: NodeJS.Platform = process.platform,
+  /** A stored root must already be its own realpath: one that became a symlink is dropped. */
+  requireCanonical = false,
 ): Promise<RootValidation> {
   if (platform === "win32") return { ok: false, reason: "unsupported_platform" };
   if (!path.posix.isAbsolute(rawPath) || rawPath.includes("\0")) {
@@ -124,6 +136,7 @@ export async function validateSearchRoot(
       reason: code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unreadable",
     };
   }
+  if (requireCanonical && resolved !== rawPath) return { ok: false, reason: "symlink" };
   if (pathDepth(resolved) < 2) return { ok: false, reason: "too_shallow" };
   let stat: ScopeStat;
   try {
@@ -177,7 +190,7 @@ export async function loadSearchScope(options: {
   const roots: ScopeRoot[] = [];
   const dropped: LoadedScope["dropped"] = [];
   for (const candidate of candidates) {
-    const checked = await validateSearchRoot(candidate, fs, options.uid, options.platform);
+    const checked = await validateSearchRoot(candidate, fs, options.uid, options.platform, stored);
     if (checked.ok) {
       if (!roots.some((root) => root.path === checked.path)) {
         roots.push({ path: checked.path, dev: checked.dev, ino: checked.ino });

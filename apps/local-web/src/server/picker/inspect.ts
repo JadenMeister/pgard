@@ -372,7 +372,8 @@ async function runSearch(
       const item = queue.shift() as QueueItem;
       let entries: ScopeDirent[];
       try {
-        entries = await deps.fs.readdir(item.path);
+        // One more than the cap: enough to know the folder is too large, never all of a huge one.
+        entries = await deps.fs.readdir(item.path, limits.maxEntriesPerDirectory + 1);
       } catch {
         skip("unreadable_folder");
         continue;
@@ -481,6 +482,15 @@ async function runSearch(
   });
 }
 
+async function hasGitEntry(deps: InspectorDeps, directory: string): Promise<boolean> {
+  try {
+    await deps.fs.lstat(path.posix.join(directory, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Resolves a stored recent path by walking down from the scope root that contains it. */
 async function resolveRecent(
   deps: InspectorDeps,
@@ -495,7 +505,18 @@ async function resolveRecent(
   const root = roots[rootIndex];
   if (root === undefined) return { status: "outside_scope" };
   const names = target.slice(root.path.length + 1).split("/");
-  if (names.length > PICKER_LIMITS.maxDepth) return { status: "outside_scope" };
+  // The same rules as the walk: depth, no skipped or dot folder on the way, no repository above.
+  if (names.length - 1 > limitsOf(deps).depth) return { status: "outside_scope" };
+  if (names.some((name) => isSkippedName(name, deps.platform))) return { status: "outside_scope" };
+  let ancestor = root.path;
+  for (const name of names.slice(0, -1).map((n) => n)) {
+    if (await hasGitEntry(deps, ancestor)) return { status: "outside_scope" };
+    ancestor = path.posix.join(ancestor, name);
+  }
+  if (await hasGitEntry(deps, ancestor)) {
+    // `ancestor` is the parent of the candidate: a repository there makes this one nested.
+    return { status: "outside_scope" };
+  }
   const result = await inspectOrBlock(
     deps,
     root,

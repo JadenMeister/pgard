@@ -103,6 +103,8 @@ export type StoredSignInDto =
   | { status: "unknown" };
 
 export interface AuthStatus {
+  /** An owner-approval re-check (waiting for an App install) is running. */
+  isRechecking?: boolean;
   status: JobStatus;
   deviceCode: DeviceCodeInfo | null;
   summary: AuthorizationSummary | null;
