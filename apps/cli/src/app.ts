@@ -14,6 +14,12 @@ import { runDashboard } from "./commands/dashboard.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runHistoryClear } from "./commands/history.js";
 import { runLogin, runLogout } from "./commands/login.js";
+import {
+  runPrecommit,
+  runPrecommitInstall,
+  runPrecommitSnippet,
+  runPrecommitUninstall,
+} from "./commands/precommit/index.js";
 import { runReport } from "./commands/report.js";
 import { runSbom } from "./commands/sbom.js";
 import { runProjectVerify } from "./commands/project/verify.js";
@@ -72,6 +78,17 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runLogin(context);
     case "logout":
       return runLogout(context);
+    case "precommit":
+      switch (command.action) {
+        case "run":
+          return runPrecommit(context);
+        case "install":
+          return runPrecommitInstall(context);
+        case "uninstall":
+          return runPrecommitUninstall(context);
+        case "snippet":
+          return runPrecommitSnippet(context);
+      }
   }
 }
 
@@ -226,7 +243,8 @@ export async function main(
       command.kind === "rules-list" ||
       command.kind === "menu" ||
       command.kind === "report" ||
-      command.kind === "sbom"
+      command.kind === "sbom" ||
+      command.kind === "precommit"
     ) {
       const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
       ruleLocale = resolveLanguage({ flag, env: io.env });

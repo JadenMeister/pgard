@@ -125,6 +125,15 @@ try {
       sbomHelp.stdout.includes("pgard:unparsed-lockfile"),
     sbomHelp.stderr,
   );
+  const precommitHelp = pgard(["precommit", "--help"], { cwd: root });
+  check(
+    "pgard precommit --help",
+    precommitHelp.status === 0 &&
+      precommitHelp.stdout.includes("pgard precommit") &&
+      precommitHelp.stdout.includes("whenNotScanned") &&
+      precommitHelp.stdout.includes("--no-verify"),
+    precommitHelp.stderr,
+  );
   const subHelp = pgard(["scan", "code", "--help"], { cwd: root });
   check(
     "pgard scan code --help",

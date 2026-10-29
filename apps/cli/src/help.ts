@@ -49,6 +49,8 @@ Common commands:
                                 repository's lockfiles (local files only)
   pgard project verify          check repository, GitHub identity, owner approval,
                                 current access and merged contribution
+  pgard precommit               check the staged changes for secrets and risky
+                                patterns (for a Git pre-commit hook)
   pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard doctor                  diagnose the environment (not an authorization)
 
@@ -92,6 +94,7 @@ Advanced options (pgard <command> --help has the details):
   history clear:     --all  --repo owner/name
   baseline set:      --from-current
   advisories update: --force
+  precommit:         install | uninstall | snippet  --lang en|ko
 
 The target is always the Git root of the current directory. Every scan re-runs the
 authorization gate; only the GitHub sign-in is reused. Code and results are
@@ -338,6 +341,51 @@ nor apply a baseline, and the baseline commands refuse to run with PGARD_NO_STOR
 pgard history clear also deletes the baseline.
 
 ${EXIT_CODE_HELP}`,
+  precommit: `Usage:
+  pgard precommit [--lang en|ko]        check the staged changes
+  pgard precommit install               write .git/hooks/pre-commit
+  pgard precommit uninstall             remove that hook (only if PGARD wrote it)
+  pgard precommit snippet               print lines for the pre-commit framework or husky
+
+Checks what is staged for the next commit, read from the Git index (never the working
+tree), for secrets (PG-SECRET-001, PG-SECRET-002) and the file-local source rules
+(JavaScript, TypeScript, Vue, Go). Only lines the commit adds or changes are reported;
+deleted files, binary files and symbolic links have nothing to scan. Rules that need the
+whole project (missing CSRF protection, unprotected routes, dependencies) run in pgard
+scan. Suppressions and the baseline apply. Staged content stays on this computer; like a
+scan it contacts GitHub (github.com, api.github.com) for authorization metadata only.
+
+Authorization is the same gate as pgard scan: all five checks, every time, nothing
+cached. It needs a saved sign-in (pgard login) because a hook never starts a sign-in.
+If the gate does not allow, or the check cannot finish, the staged changes were NOT
+scanned and PGARD says so.
+
+Mode is set in pgard.config.json:
+  "precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }
+  block (default)   findings stop the commit (exit 1)
+  warn              findings are printed, the commit goes on (exit 0)
+  whenNotScanned    what happens when nothing, or not everything, was scanned
+                    (not authorized, error, timeout, a file over 1 MiB, more than
+                    500 changed files, 2 s analysis cap). Default: the same as mode,
+                    so a blocking hook blocks. An invalid config means block.
+Limits: authorization up to 15 s (PGARD_PRECOMMIT_TIMEOUT_MS=1000..120000 changes it),
+then reading and checking the staged changes up to 2 s, files up to 1 MiB, up to 500
+changed files, 16 MiB in total. Findings of severity info do not block.
+
+install writes only into this repository's own .git/hooks (with core.hooksPath and
+symbolic links checked), never overwrites a hook PGARD did not write unless you confirm
+in a terminal (the old hook is kept as pre-commit.pgard-backup), and refuses without a
+terminal. Skip a hook once with git commit --no-verify.
+
+Exit codes:
+  0    nothing blocks the commit (clean, warn mode, or nothing scanned with
+       whenNotScanned: warn, which is said on screen)
+  1    findings in block mode
+  2    invalid command, or install/uninstall refused
+  3    not authorized (nothing scanned) and whenNotScanned blocks
+  4    other cases where not everything was scanned, and whenNotScanned blocks
+  5    internal error
+  130  cancelled`,
   doctor: `Usage:
   pgard doctor
 

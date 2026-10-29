@@ -74,7 +74,11 @@ export type ParsedCommand =
   | { kind: "doctor" }
   | { kind: "advisories-update"; force?: boolean }
   | { kind: "login"; noBrowser: boolean }
-  | { kind: "logout" };
+  | { kind: "logout" }
+  | { kind: "precommit"; action: PrecommitAction; lang?: RuleLocale };
+
+export type PrecommitAction = "run" | "install" | "uninstall" | "snippet";
+const PRECOMMIT_ACTIONS: readonly PrecommitAction[] = ["install", "uninstall", "snippet"];
 
 export type BaselineAction = "set" | "show" | "clear";
 const BASELINE_ACTIONS: readonly BaselineAction[] = ["set", "show", "clear"];
@@ -96,7 +100,8 @@ export type HelpTopic =
   | "logout"
   | "history"
   | "history clear"
-  | "baseline";
+  | "baseline"
+  | "precommit";
 
 /** Every help topic, as a value so `pgard help <cmd> [<sub>]` can resolve to one. */
 export const HELP_TOPICS: readonly HelpTopic[] = [
@@ -117,6 +122,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
   "history",
   "history clear",
   "baseline",
+  "precommit",
 ];
 
 /** Maps `pgard help [<cmd> [<sub>]]` to a help topic; `undefined` when there is none. */
@@ -131,6 +137,7 @@ function resolveHelpTopic(cmd: string | undefined, sub: string | undefined): Hel
   // `scan code` and `baseline set` have no topic of their own: they share the command's help.
   if (cmd === "scan" && SCAN_VARIANTS[sub] !== undefined) return parent;
   if (cmd === "baseline" && BASELINE_ACTIONS.some((action) => action === sub)) return parent;
+  if (cmd === "precommit" && PRECOMMIT_ACTIONS.some((action) => action === sub)) return parent;
   return undefined;
 }
 
@@ -591,6 +598,26 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       rejectExtraPositionals(rest, topic);
       rejectOptions(split, [], topic, `pgard baseline ${action}`);
       return { kind: "baseline", action, fromCurrent: split.fromCurrent };
+    }
+    case "precommit": {
+      topic = "precommit";
+      if (split.isHelp) return { kind: "help", topic };
+      const action = sub === undefined ? "run" : PRECOMMIT_ACTIONS.find((known) => known === sub);
+      if (action === undefined) {
+        throw new UsageError(
+          `Unknown subcommand: precommit ${sub?.slice(0, 40) ?? ""}. Valid: install, uninstall, snippet (or none to check the staged changes).`,
+          topic,
+        );
+      }
+      rejectExtraPositionals(rest, topic);
+      rejectOptions(
+        split,
+        ["--lang"],
+        topic,
+        `pgard precommit${sub === undefined ? "" : ` ${sub}`}`,
+      );
+      const lang = parseLangOption(split, "--lang", topic);
+      return { kind: "precommit", action, ...(lang === undefined ? {} : { lang }) };
     }
     case "dashboard": {
       topic = "dashboard";

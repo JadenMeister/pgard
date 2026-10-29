@@ -4,6 +4,8 @@ import type { OverallStatus } from "@pgard/findings";
 export const EXIT_CODES = {
   /** Requested scope completed (findings may exist). */
   ok: 0,
+  /** `pgard precommit` in block mode: the staged changes have findings, so the commit is stopped. */
+  findings: 1,
   /** Invalid command, option, value or combination. */
   usage: 2,
   /** Repository / authorization / contribution gate failed. */
@@ -20,7 +22,11 @@ export const EXIT_CODES = {
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];
 
-const KNOWN_EXIT_CODES = new Set<number>(Object.values(EXIT_CODES));
+// 1 is `findings`, which only `pgard precommit` returns. A child process (the dashboard) ending
+// with 1 is a crash, so it stays an internal error as before.
+const KNOWN_EXIT_CODES = new Set<number>(
+  Object.values(EXIT_CODES).filter((code) => code !== EXIT_CODES.findings),
+);
 
 /** Maps an exit code from another process to ours; anything unknown is an internal error. */
 export function toKnownExitCode(code: number): ExitCode {

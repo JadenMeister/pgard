@@ -32,6 +32,10 @@ const COMMANDS: readonly string[][] = [
   ["baseline", "set"],
   ["baseline", "show"],
   ["baseline", "clear"],
+  ["precommit"],
+  ["precommit", "install"],
+  ["precommit", "uninstall"],
+  ["precommit", "snippet"],
   ["advisories", "update"],
   ["doctor"],
   ["login"],
@@ -79,12 +83,13 @@ describe("command help lists every accepted option", () => {
     expect(acceptedOptions(["project", "verify"])).toEqual(["--no-browser"]);
     expect(acceptedOptions(["rules", "list"])).toEqual(["--language", "--lang"]);
     expect(acceptedOptions(["advisories", "update"])).toEqual(["--force"]);
+    expect(acceptedOptions(["precommit"])).toEqual(["--lang"]);
     expect(acceptedOptions(["scan", "web"])).toContain("--port");
     expect(acceptedOptions(["scan", "code"])).not.toContain("--port");
   });
 
   it("a command group's help covers the options of its subcommands", () => {
-    for (const group of ["project", "rules", "history", "baseline", "advisories"]) {
+    for (const group of ["project", "rules", "history", "baseline", "advisories", "precommit"]) {
       const text = helpOf([group]);
       for (const path of COMMANDS.filter((entry) => entry[0] === group)) {
         for (const option of acceptedOptions(path)) {
@@ -143,6 +148,10 @@ describe("pgard help", () => {
       topic: "baseline",
     });
     expect(parseCommandLine(["help", "report"])).toEqual({ kind: "help", topic: "report" });
+    expect(parseCommandLine(["help", "precommit", "install"])).toEqual({
+      kind: "help",
+      topic: "precommit",
+    });
   });
 
   it("help help prints the main help; help takes no options", () => {
