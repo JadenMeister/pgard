@@ -1,3 +1,4 @@
+import { pickerKo } from "./picker-ko";
 import type { Messages } from "./types";
 
 /** Korean catalog. Terminology follows README.ko.md (권한 확인, 발견 항목, 미검사, 차단 ...). */
@@ -7,6 +8,7 @@ export const ko: Messages = {
     ko: "한국어",
     en: "English",
   },
+  picker: pickerKo,
   common: {
     requestFailed: "요청에 실패했습니다.",
     none: "(없음)",

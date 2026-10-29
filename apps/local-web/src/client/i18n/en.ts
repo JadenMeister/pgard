@@ -1,3 +1,5 @@
+import { pickerEn } from "./picker-en";
+
 /**
  * English message catalog and the source of truth for the key set: `ko.ts` is typed as
  * `Messages` (derived from this object), so a missing or extra key there is a typecheck error.
@@ -11,6 +13,7 @@ export const en = {
     ko: "한국어",
     en: "English",
   },
+  picker: pickerEn,
   common: {
     requestFailed: "Request failed.",
     none: "(none)",

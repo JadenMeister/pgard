@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuleTextsResponse, SessionInfo, TargetInfo } from "../../shared/api-types";
-import { apiGet, hasSessionToken } from "../api/client";
+import { apiGet, hasSessionToken, setProjectChangedListener, setProjectEpoch } from "../api/client";
 import { loadWithRetry } from "../api/retry";
 import { DeviceCodeNotice } from "../components/github/DeviceCodeNotice";
 import { EmptyState } from "../components/ui/EmptyState";
@@ -16,6 +16,8 @@ import { INITIAL_LIST_STATE } from "../features/findings/pagination";
 import { FindingsDashboard } from "../features/findings/FindingsDashboard";
 import { ResultOverview } from "../features/findings/ResultOverview";
 import { LegalNotice } from "../features/legal/LegalNotice";
+import { ProjectBar } from "../features/picker/ProjectBar";
+import { ProjectPicker } from "../features/picker/ProjectPicker";
 import {
   AUTHORIZATION_SECTION_ID,
   AuthorizationSection,
@@ -33,15 +35,31 @@ import { TargetPanel } from "../features/target/TargetPanel";
 import { targetRefreshKey } from "../features/target/target-refresh";
 import { useHashView, VIEWS, type View } from "./views";
 
-export function App() {
+export interface AppProps {
+  /** `Root` keeps the legal notice accepted across project changes (it remounts the app). */
+  initialNoticeAccepted?: boolean;
+  onNoticeAccepted?: () => void;
+  /** Picker mode: the project was confirmed, cleared or found changed; remount with fresh state. */
+  onProjectChanged?: () => void;
+}
+
+export function App({
+  initialNoticeAccepted = false,
+  onNoticeAccepted,
+  onProjectChanged,
+}: AppProps = {}) {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const { m, language } = useI18n();
   const [error, setError] = useState<"token" | "session" | null>(null);
-  const [hasAcceptedNotice, setHasAcceptedNotice] = useState(false);
+  const [hasAcceptedNotice, setHasAcceptedNotice] = useState(initialNoticeAccepted);
+  const [isStale, setIsStale] = useState(false);
   const [target, setTarget] = useState<TargetInfo | null>(null);
   const [ruleTexts, setRuleTexts] = useState<RuleTextsResponse | null>(null);
   const [ruleTextsFailed, setRuleTextsFailed] = useState(false);
   const isReady = session !== null && hasAcceptedNotice;
+  // Picker mode shows the picker until a project is confirmed; fixed mode always has one.
+  const project = session?.project ?? null;
+  const hasProject = isReady && project !== null;
   const authorization = useAuthorization(isReady);
   const auth = authorization.status;
   const control = useScan();
@@ -117,8 +135,17 @@ export function App() {
       return;
     }
     apiGet<SessionInfo>("/api/session")
-      .then(setSession)
+      .then((next) => {
+        setProjectEpoch(next.projectEpoch);
+        setSession(next);
+      })
       .catch(() => setError("session"));
+  }, []);
+
+  // Another window changed the project: this view is out of date until it is reloaded.
+  useEffect(() => {
+    setProjectChangedListener(() => setIsStale(true));
+    return () => setProjectChangedListener(null);
   }, []);
 
   const startScan = async (): Promise<void> => {
@@ -245,15 +272,23 @@ export function App() {
           <LanguageToggle />
         </div>
       </header>
-      {isReady && (
+      {hasProject && (
         <>
           <ScanStrip
-            projectName={session.projectName}
+            projectName={project.name}
             authorization={authorization}
             control={{ ...control, start: startScan }}
             target={target}
             onShowAuthorization={() => goTo("overview", AUTHORIZATION_SECTION_ID)}
           />
+          {session.mode === "picker" && (
+            <ProjectBar
+              project={project}
+              isScanRunning={control.isRunning}
+              isAuthRunning={auth?.status === "running"}
+              onChanged={() => onProjectChanged?.()}
+            />
+          )}
           <div className="viewnav">
             <div className="wrap viewnav-in">
               <nav aria-label={m.nav.label}>
@@ -293,10 +328,24 @@ export function App() {
         {ruleTextsFailed && ruleTexts === null && language === "ko" && (
           <Notice tone="error">{m.app.errorRuleTexts}</Notice>
         )}
-        {session !== null && !hasAcceptedNotice && (
-          <LegalNotice onAccept={() => setHasAcceptedNotice(true)} />
+        {isStale && (
+          <Notice tone="warning">
+            {m.picker.project.stale}{" "}
+            <button type="button" className="link-button" onClick={() => onProjectChanged?.()}>
+              {m.picker.project.reload}
+            </button>
+          </Notice>
         )}
-        {isReady && renderView()}
+        {session !== null && !hasAcceptedNotice && (
+          <LegalNotice
+            onAccept={() => {
+              setHasAcceptedNotice(true);
+              onNoticeAccepted?.();
+            }}
+          />
+        )}
+        {isReady && !hasProject && <ProjectPicker onConfirmed={() => onProjectChanged?.()} />}
+        {hasProject && renderView()}
       </main>
       <footer className="page-footer">
         <div className="wrap">{m.app.footer}</div>

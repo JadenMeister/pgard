@@ -1,19 +1,23 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { takeTokenFromLocation } from "./api/client";
-import { App } from "./app/App";
+import { Root } from "./app/Root";
+import { installDropGuard } from "./features/picker/drop";
 import { I18nProvider } from "./i18n/I18nProvider";
 import "./styles/tokens.css";
 import "./styles/app.css";
+import "./styles/picker.css";
 
 takeTokenFromLocation(window.location, window.history);
+// A file dropped outside the drop zone would navigate the page away (and show its path).
+installDropGuard(window);
 
 const container = document.getElementById("root");
 if (container !== null) {
   createRoot(container).render(
     <StrictMode>
       <I18nProvider>
-        <App />
+        <Root />
       </I18nProvider>
     </StrictMode>,
   );
