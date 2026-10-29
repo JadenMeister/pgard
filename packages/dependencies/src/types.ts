@@ -8,11 +8,6 @@ export interface Dependency {
   version: string;
   /** True/false when the lockfile (or its manifest) tells; absent when it cannot. */
   direct?: boolean;
-  /**
-   * True when the lockfile says the package is needed only for development (npm `dev: true`);
-   * absent when the lockfile does not say (yarn, pnpm 9, Go).
-   */
-  dev?: boolean;
   /** Repository-relative POSIX path of the lockfile the entry came from. */
   path: string;
 }
@@ -69,6 +64,9 @@ export interface CollectOptions {
   /** Lower limits for tests; the defaults are in `limits.ts`. */
   limits?: Partial<{
     totalBytes: number;
+    manifestBytes: number;
+    lines: number;
+    jsonTokens: number;
     totalDependencies: number;
     lockfileBytes: number;
     visitedEntries: number;

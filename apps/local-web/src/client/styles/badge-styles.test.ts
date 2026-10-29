@@ -19,12 +19,12 @@ describe("badge styles", () => {
     "badge-confirmed",
     "badge-suspected",
     "badge-informational",
-    // severities
-    ".badge.sev-critical",
-    ".badge.sev-high",
-    ".badge.sev-medium",
-    ".badge.sev-low",
-    ".badge.sev-info",
+    // severity labels (square + text)
+    ".sev-label.sev-critical",
+    ".sev-label.sev-high",
+    ".sev-label.sev-medium",
+    ".sev-label.sev-low",
+    ".sev-label.sev-info",
   ];
 
   it.each(classes)("defines a rule for %s", (name) => {

@@ -1,4 +1,11 @@
-import type { Finding, FindingLocation, FindingStatus, ScanScope, Severity } from "@pgard/findings";
+import type {
+  Finding,
+  FindingCategory,
+  FindingLocation,
+  FindingStatus,
+  ScanScope,
+  Severity,
+} from "@pgard/findings";
 import { SEVERITY_ORDER } from "../../components/charts/severity-scale";
 import { en } from "../../i18n/en";
 import type { Messages } from "../../i18n/types";
@@ -7,6 +14,7 @@ export interface FindingFilters {
   severity: Severity | null;
   status: FindingStatus | null;
   source: ScanScope | null;
+  category: FindingCategory | null;
   text: string;
 }
 
@@ -14,8 +22,21 @@ export const EMPTY_FILTERS: FindingFilters = {
   severity: null,
   status: null,
   source: null,
+  category: null,
   text: "",
 };
+
+/** Findings per category, largest first; categories without findings are left out. */
+export function countByCategory(
+  findings: readonly Finding[],
+): Array<{ category: FindingCategory; count: number }> {
+  const counts = new Map<FindingCategory, number>();
+  for (const finding of findings)
+    counts.set(finding.category, (counts.get(finding.category) ?? 0) + 1);
+  return [...counts]
+    .map(([category, count]) => ({ category, count }))
+    .sort((a, b) => b.count - a.count || a.category.localeCompare(b.category));
+}
 
 export function countBySeverity(findings: readonly Finding[]): Record<Severity, number> {
   const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
@@ -255,6 +276,7 @@ export function filterFindings(findings: readonly Finding[], filters: FindingFil
     .filter((finding) => filters.severity === null || finding.severity === filters.severity)
     .filter((finding) => filters.status === null || finding.status === filters.status)
     .filter((finding) => filters.source === null || finding.sources.includes(filters.source))
+    .filter((finding) => filters.category === null || finding.category === filters.category)
     .filter(
       (finding) =>
         text === "" ||

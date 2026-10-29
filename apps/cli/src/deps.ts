@@ -1,10 +1,11 @@
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { openLocalFile } from "./adapters/open-file.js";
-import { readAdvisoryStatus, updateOsvData } from "@pgard/dependencies";
+import { collectDependencies, readAdvisoryStatus, updateOsvData } from "@pgard/dependencies";
 import {
   discoverListeningPorts,
   probeLocalService,
@@ -90,6 +91,12 @@ export interface CliDeps {
    */
   makeReportDir: () => Promise<string>;
   isPathInsideDirectory: typeof isPathInsideDirectory;
+  /** `pgard sbom`: reads the lockfiles under a directory; local only. */
+  collectDependencies: typeof collectDependencies;
+  /** `pgard sbom` without `--output-dir`: a fresh private directory (mode 0700). */
+  makeSbomDir: () => Promise<string>;
+  /** A new `urn:uuid:` serial number for one SBOM. */
+  newSerialNumber: () => string;
   /** Absolute path of the installed local-web launcher, or `null` if it is not installed. */
   resolveDashboardEntry: () => string | null;
   /** Starts the dashboard process (no shell) and resolves with its exit code. */
@@ -218,6 +225,11 @@ export function makeReportDirDefault(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "pgard-report-"));
 }
 
+/** A new private directory (mode 0700 on POSIX) for one `pgard sbom` run. */
+export function makeSbomDirDefault(): Promise<string> {
+  return mkdtemp(path.join(tmpdir(), "pgard-sbom-"));
+}
+
 export function createDefaultDeps(): CliDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
@@ -248,6 +260,9 @@ export function createDefaultDeps(): CliDeps {
     openLocalFile: (filePath) => openLocalFile(filePath),
     makeReportDir: makeReportDirDefault,
     isPathInsideDirectory,
+    collectDependencies,
+    makeSbomDir: makeSbomDirDefault,
+    newSerialNumber: () => `urn:uuid:${randomUUID()}`,
     resolveDashboardEntry: resolveDashboardEntryDefault,
     startDashboardProcess: startDashboardProcessDefault,
     readGitVersion: readGitVersionDefault,

@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Button } from "../components/ui/Button";
 import { en } from "./en";
 import {
   CATALOGS,
@@ -54,16 +55,16 @@ export function LanguageToggle() {
   return (
     <div className="lang-toggle" role="group" aria-label={m.language.label}>
       {LANGUAGES.map((entry) => (
-        <button
+        <Button
           key={entry}
-          type="button"
-          className={`button${entry === language ? " primary" : ""}`}
+          variant="ghost"
+          size="sm"
           aria-pressed={entry === language}
           lang={entry}
           onClick={() => setLanguage(entry)}
         >
           {m.language[entry]}
-        </button>
+        </Button>
       ))}
     </div>
   );
