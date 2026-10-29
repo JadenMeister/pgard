@@ -691,6 +691,7 @@ export const SOURCE_RULES = [
     category: "cryptography",
     defaultSeverity: "medium",
     scope: "code",
+    fixable: true,
     languages: [...JS_TS, "java", "kotlin"],
     standards: {
       owasp: ["A04:2025"],
@@ -765,6 +766,7 @@ export const SOURCE_RULES = [
     category: "misconfiguration",
     defaultSeverity: "medium",
     scope: "code",
+    fixable: true,
     languages: ["javascript", "typescript", "go", "java", "kotlin"],
     standards: {
       owasp: ["A01:2025", "A02:2025"],

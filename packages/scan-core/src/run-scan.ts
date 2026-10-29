@@ -43,7 +43,7 @@ import {
   planIncremental,
   type IncrementalPlan,
 } from "./incremental.js";
-import { CONFIG_BUDGET_NOTE } from "@pgard/source-analysis";
+import { attachFixSuggestions, CONFIG_BUDGET_NOTE } from "@pgard/source-analysis";
 import { normalizeFindingPaths } from "./paths.js";
 import {
   describeProjectConfig,
@@ -499,6 +499,14 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   // Suppressions only change where a finding is listed (`finding.suppression`); nothing is
   // dropped, and neither the coverage nor the overall status depends on them.
   const suppressed = applySuppressions(findings, projectConfig?.suppressions ?? [], now());
+  // Suggested fixes (JSON v1.6) are read-only and optional: a failure here never affects the scan.
+  try {
+    suppressed.findings = await attachFixSuggestions(suppressed.findings, request.projectRoot, {
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    });
+  } catch {
+    // The findings stay without a suggested fix.
+  }
   if (configIndex !== -1) {
     const configCoverage = describeProjectConfig(
       configLoad,

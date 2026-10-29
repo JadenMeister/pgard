@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.5" as const;
+export const SCHEMA_VERSION = "1.6" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -183,7 +183,46 @@ export interface Finding {
    * records a version-range match, not exploitability or reachability.
    */
   dependency?: FindingDependency;
+  /**
+   * JSON v1.6. Only on findings of a rule that declares `fixable` (see `RuleDescriptor.fixable`):
+   * a suggested fix to review. PGARD never applies it and never writes to the scanned files.
+   */
+  fix?: FindingFix;
 }
+
+/**
+ * - `diff`: a unified diff of the scanned file (see `FindingFix.diff`).
+ * - `guidance`: the rule can offer a diff, but not for this finding; the rule's recommendation is
+ *   the advice. `reason` says why there is no diff.
+ */
+export type FindingFixKind = "diff" | "guidance";
+export const FINDING_FIX_KINDS = exhaustive<FindingFixKind>({ diff: true, guidance: true });
+
+/**
+ * A suggestion, not a verified change: it is not checked to compile, to keep behaviour or to be
+ * complete, and a person must review it. It is built from the analyzed source text alone; the
+ * scanned code is never run.
+ */
+export interface FindingFix {
+  kind: FindingFixKind;
+  /**
+   * `kind: "diff"` only. A unified diff of one repository file with a single hunk, no context lines
+   * (apply it with `git apply --unidiff-zero`), at most `MAX_FIX_DIFF_LENGTH` characters. Every line
+   * went through secret redaction; a line that redaction would change is never put in a diff.
+   */
+  diff?: string;
+  /** How sure PGARD is that the rewrite keeps the meaning of the flagged code. Not a safety claim. */
+  confidence: Confidence;
+  /**
+   * `kind: "guidance"` only, an open-ended code: `context_not_supported` (the code around the
+   * finding is not one of the rewrites the rule offers), `sensitive_text` (the line holds text
+   * that redaction would change), `too_large`, `source_unavailable`, `too_many`.
+   */
+  reason?: string;
+}
+
+/** Upper bound for `FindingFix.diff`. */
+export const MAX_FIX_DIFF_LENGTH = 2_000;
 
 /** How a dependency finding's severity was decided: a computed CVSS score, a label, or neither. */
 export type DependencySeveritySource = "cvss" | "database" | "unknown";
