@@ -1,3 +1,4 @@
+import type { WebStorage } from "@pgard/result-store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PickerBrowseResponse, PickerPathResponse } from "../shared/picker-types.js";
 import { createFolderDialog, dialogCommandFor, type FolderDialog } from "./picker/folder-dialog.js";
@@ -85,7 +86,11 @@ describe("pasted path (prototype)", () => {
   });
 
   it("expands ~, resolves in the inspector and confirms a GitHub repository normally", async () => {
-    harness = await startHarness({ ui: "simple" });
+    // A folder chosen in the dialog or pasted is never written to the recent list.
+    const writeRecent = vi.fn(async () => ({ status: "ok" }) as const);
+    const readRecent = vi.fn(async () => ({ status: "ok", value: [] }) as const);
+    const storage = { readRecent, writeRecent } as unknown as WebStorage;
+    harness = await startHarness({ ui: "simple", picker: { storage } });
     harness.inspector.resolved.set(SHOP, { candidate: repoCandidate("shop"), folderBlock: null });
     const { candidate, refusal } = await pathCandidate(harness, "  ~/code/shop  ");
     expect(refusal).toBeNull();
@@ -101,6 +106,8 @@ describe("pasted path (prototype)", () => {
     });
     expect(confirmed.status).toBe(200);
     expect(harness.server.state.project?.identity?.kind).not.toBe("folder");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(writeRecent).not.toHaveBeenCalled();
   });
 
   it("makes a folder without Git selectable for a code-only scan only", async () => {
@@ -160,15 +167,31 @@ describe("pasted path (prototype)", () => {
     expect((json(started).error as { code: string }).code).toBe("candidate_changed");
   });
 
-  it("blocks a folder whose chain another user could change", async () => {
+  it("refuses a folder whose chain another user could change, without .git wording", async () => {
     harness = await startHarness({ ui: "simple" });
     harness.inspector.resolved.set(NOTES, {
       candidate: notGit("notes"),
       folderBlock: { code: "group_or_world_writable", paths: [NOTES] },
     });
-    const { candidate } = await pathCandidate(harness, NOTES);
-    expect(candidate?.selectable).toBe(false);
-    expect(candidate?.blocked?.code).toBe("group_or_world_writable");
+    const { candidate, refusal } = await pathCandidate(harness, NOTES);
+    expect(candidate).toBeNull();
+    expect(refusal?.code).toBe("group_or_world_writable");
+    expect(refusal?.paths).toEqual(["~/code/notes"]);
+    expect(JSON.stringify(refusal)).not.toContain(".git");
+  });
+
+  it("shows refused paths through the display-safety check", async () => {
+    harness = await startHarness({ ui: "simple" });
+    const spoofed = "/home/u/evil\u202ecod.js";
+    harness.inspector.resolved.set(NOTES, {
+      candidate: notGit("notes"),
+      folderBlock: { code: "not_owned_by_you", paths: [spoofed] },
+    });
+    const chain = await pathCandidate(harness, NOTES);
+    expect(chain.refusal?.paths).toEqual(["~/evil\\u{202e}cod.js"]);
+    harness.inspector.resolved.set("/home/u/deep", { refused: "too_deep", paths: [spoofed] });
+    const deep = await pathCandidate(harness, "/home/u/deep");
+    expect(deep.refusal?.paths).toEqual(["~/evil\\u{202e}cod.js"]);
   });
 
   it("returns refusals with a reason and a fix", async () => {
@@ -247,9 +270,8 @@ describe("folder dialog commands", () => {
     const mac = await dialogCommandFor("darwin", 'Pick "x"');
     expect(mac?.file).toBe("/usr/bin/osascript");
     expect(mac?.args.at(-1)).toBe('POSIX path of (choose folder with prompt "Pick \\"x\\"")');
-    const win = await dialogCommandFor("win32", "It's");
-    expect(win?.args.slice(0, 3)).toEqual(["-NoProfile", "-NonInteractive", "-STA"]);
-    expect(win?.args.at(-1)).toContain("$d.Description = 'It''s'");
+    // Windows is not supported by the picker (POSIX-only folder checks): no dialog.
+    expect(await dialogCommandFor("win32", "Pick", async () => true)).toBeNull();
     const linux = await dialogCommandFor("linux", "Pick", async (file) => file.endsWith("kdialog"));
     expect(linux).toEqual({
       file: "/usr/bin/kdialog",

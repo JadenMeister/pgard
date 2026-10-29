@@ -389,6 +389,37 @@ function readScanBasis(value: unknown): ScanBasis {
   return { mode, authorization, reason };
 }
 
+/**
+ * `scanBasis` must agree with the rest of the result: "verified" only for a scan the gate
+ * allowed with every check passed, and "code_only" only for a blocked, code-only, unverified
+ * scan. Anything else would let a crafted file claim an authorization it never had.
+ */
+function checkScanBasis(basis: ScanBasis, result: ScanResult): void {
+  const { decision, checks } = result.authorization;
+  if (basis.authorization === "verified") {
+    const passed = new Set(
+      checks.filter((check) => check.status === "passed").map((check) => check.id),
+    );
+    const allPassed = AUTHORIZATION_CHECK_IDS.every((id) => passed.has(id));
+    if (decision !== "allowed" || !allPassed) {
+      fail(
+        "invalid_shape",
+        "scanBasis.authorization is verified only when the gate allowed the scan with every check passed.",
+      );
+    }
+  }
+  if (basis.mode === "code_only") {
+    const codeOnlyScopes =
+      result.requestedScopes.length === 1 && result.requestedScopes[0] === "code";
+    if (decision !== "blocked" || !codeOnlyScopes) {
+      fail(
+        "invalid_shape",
+        'scanBasis.mode code_only needs authorization.decision blocked and requestedScopes ["code"].',
+      );
+    }
+  }
+}
+
 function readIncrementalArea(value: unknown, path: string): IncrementalAreaInfo | null {
   if (value === null) return null;
   const o = object(value, path);
@@ -744,7 +775,10 @@ function parse(input: unknown): ReadScanResultOutcome {
   if (incremental !== undefined) result.incremental = readIncrementalInfo(incremental);
   // Added in 1.7: absent in older results (a reader treats absent as an authorized scan).
   const scanBasis = field(input, "scanBasis");
-  if (scanBasis !== undefined) result.scanBasis = readScanBasis(scanBasis);
+  if (scanBasis !== undefined) {
+    result.scanBasis = readScanBasis(scanBasis);
+    checkScanBasis(result.scanBasis, result);
+  }
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {

@@ -534,6 +534,12 @@ describe("runScan", () => {
     const result = await runScan(request(), deps());
     expect(result.overallStatus).toBe("failed");
     expect(result.authorization.decision).toBe("blocked");
+    // A gate that failed internally is not a missing approval, and never a code-only scan.
+    expect(result.scanBasis).toEqual({
+      mode: "authorized",
+      authorization: "not_verified",
+      reason: "check_failed",
+    });
   });
 
   it("rejects with ScanCancelledError when aborted", async () => {

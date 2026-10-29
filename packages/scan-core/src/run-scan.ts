@@ -333,6 +333,8 @@ async function executeScan(
     ruleStats?: RuleStat[];
     incremental?: IncrementalInfo | null;
     overallStatus?: ScanResult["overallStatus"];
+    /** Why an authorized-mode scan is not verified; `no_approval` unless the gate failed. */
+    basisReason?: KnownScanBasisReason;
   }): ScanResult => ({
     schemaVersion: SCHEMA_VERSION,
     scanId,
@@ -387,7 +389,11 @@ async function executeScan(
         ? { mode: "code_only", authorization: "not_verified", reason: codeOnlyReason }
         : fields.authorization.decision === "allowed"
           ? { mode: "authorized", authorization: "verified", reason: null }
-          : { mode: "authorized", authorization: "not_verified", reason: "no_approval" },
+          : {
+              mode: "authorized",
+              authorization: "not_verified",
+              reason: fields.basisReason ?? "no_approval",
+            },
   });
 
   throwIfCancelled(deps.signal);
@@ -426,6 +432,7 @@ async function executeScan(
         ),
         findings: [],
         overallStatus: "failed",
+        basisReason: "check_failed",
       });
     }
     throwIfCancelled(deps.signal);

@@ -8,7 +8,10 @@ import type {
 import { ApiError } from "../routes/api-error.js";
 import {
   buildCandidate,
+  escapeForDisplay,
   identityFingerprint,
+  sanitizedOrNull,
+  shortenHome,
   shownFingerprint,
   type CandidateRecord,
 } from "./candidates.js";
@@ -90,6 +93,21 @@ const CODE_ONLY_REASON: Partial<Record<PickerBlockCode, NonNullable<PickerCandid
 function refusal(code: FolderRefusalCode, paths: string[] = []): PickerPathResponse {
   return { candidate: null, refusal: { code, paths, ...FOLDER_REFUSAL_TEXT[code] } };
 }
+
+/**
+ * A refused path as the page may show it: `~`-shortened, and through the same display-safety
+ * check as a candidate's path. A name with control, invisible or look-alike characters (or a very
+ * long one) is shown escaped (`\u{202e}`), never as is.
+ */
+function displayPath(entry: string, homeDir: string): string {
+  const short = shortenHome(entry, homeDir);
+  return sanitizedOrNull(short, PICKER_LIMITS.maxDisplayPathLength) ?? escapeForDisplay(short);
+}
+
+const FOLDER_CHAIN_REFUSALS: ReadonlySet<string> = new Set<FolderRefusalCode>([
+  "not_owned_by_you",
+  "group_or_world_writable",
+]);
 
 /** `~` and `~/...` expand to the home folder; `~user` and relative paths are refused. */
 export function expandPastedPath(raw: unknown, homeDir: string): string | null {
@@ -202,19 +220,27 @@ export async function resolveFolderPath(
   const no = got.refused;
   if (outcome.status !== "finished") return refusal("unreadable");
   if (no !== null) {
-    const shortened = no.paths.map((entry) => shorten(entry, picker.homeDir));
-    return refusal(no.reason, shortened);
+    return refusal(
+      no.reason,
+      no.paths.map((entry) => displayPath(entry, picker.homeDir)),
+    );
   }
   if (done === null) return refusal("unreadable");
-  const record = toRecord(context, done.root, done.candidate, done.folderBlock);
+  // A folder chain another user owns or could change is refused outright, with the folder's own
+  // wording (the candidate wording also mentions `.git`, which this check never looked at).
+  const chain = done.folderBlock;
+  if (chain !== null && FOLDER_CHAIN_REFUSALS.has(chain.code)) {
+    return refusal(
+      chain.code as FolderRefusalCode,
+      chain.paths.map((entry) => displayPath(entry, picker.homeDir)),
+    );
+  }
+  const record = {
+    ...toRecord(context, done.root, done.candidate, done.folderBlock),
+    isChosenFolder: true,
+  };
   storeRecord(context, record);
   return { candidate: record.dto, refusal: null };
-}
-
-function shorten(entry: string, homeDir: string): string {
-  return homeDir !== "" && (entry === homeDir || entry.startsWith(`${homeDir}/`))
-    ? `~${entry.slice(homeDir.length)}`
-    : entry;
 }
 
 /** `POST /api/picker/path`: a pasted path. */

@@ -496,7 +496,7 @@ export async function removeRecent(
 
 async function recordRecent(context: PickerContext, record: CandidateRecord): Promise<void> {
   const deps = requirePicker(context);
-  if (deps.storage === null || record.repo === null) return;
+  if (deps.storage === null || record.repo === null || record.isChosenFolder === true) return;
   const read = await deps.storage.readRecent();
   if (read.status === "ignored") return; // never overwritten
   const existing = read.status === "ok" ? read.value : [];
@@ -538,7 +538,7 @@ async function runInspect(
   return { kind: "ok", candidate };
 }
 
-const CHANGED_MESSAGE = "The folder changed since you looked at it. Search again.";
+const CHANGED_MESSAGE = "The folder changed since you looked at it. Choose it again.";
 
 function assertProjectUnchanged(
   context: PickerContext,

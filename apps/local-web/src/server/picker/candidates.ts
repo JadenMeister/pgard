@@ -179,6 +179,11 @@ export interface CandidateRecord {
   isSelectable: boolean;
   /** PROTOTYPE (#414): selectable for a code-only scan only (see `PickerCandidate.codeOnly`). */
   isFolderOnly?: boolean;
+  /**
+   * PROTOTYPE (#414): chosen in the OS folder dialog or pasted. Never written to the recent list:
+   * the recent list holds only folders found by the search the user set up.
+   */
+  isChosenFolder?: boolean;
   dto: PickerCandidate;
 }
 

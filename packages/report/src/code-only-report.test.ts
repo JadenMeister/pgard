@@ -27,8 +27,14 @@ describe("code-only report label", () => {
     const html = renderHtmlReport(codeOnly);
     expect(html).toContain('<div class="code-only-banner" role="note">Not authorized: code-only');
     expect(html).toContain("This folder is not a Git repository");
-    // A fixed element repeats on every printed page.
-    expect(html).toMatch(/@media print \{\s*\/\*[^*]*\*\/\s*\.code-only-banner \{ position: fixed/);
+    // In print a table header row repeats the banner on every page, above the content (never
+    // a fixed element over it).
+    expect(html).toMatch(
+      /<table class="code-only-frame"[^>]*><thead[^>]*><tr><td><div class="code-only-banner"/,
+    );
+    expect(html).toMatch(/<\/main>\n<\/td><\/tr><\/tbody><\/table>/);
+    expect(html).toContain(".code-only-frame > thead { display: table-header-group; }");
+    expect(html).not.toMatch(/code-only-banner \{[^}]*position: fixed/);
     expect(html).not.toMatch(/PGARD-verified|verified audit/i);
     const ko = renderHtmlReport(codeOnly, { lang: "ko" });
     expect(ko).toContain("권한 미확인: 코드 전용 검사");
@@ -48,5 +54,34 @@ describe("code-only report label", () => {
     const banners = lines.filter((line) => line.includes("Not authorized: code-only scan.")).length;
     expect(banners).toBe(pageCount);
     expect(lines.join(" ")).toContain("not an authorized audit");
+  });
+
+  it("leaves the font of the text after a page break as it was", async () => {
+    const findings = Array.from({ length: 40 }, (_, index) =>
+      finding({ id: `f${index}`, location: { ...finding({}).location, line: index + 1 } }),
+    );
+    const fontOps = (pdf: Buffer): string[] =>
+      (pdf.toString("latin1").match(/\/F\d+ [\d.]+ Tf|[\d.]+ [\d.]+ [\d.]+ rg/g) ?? []).sort();
+    const plain = await renderPdfReport(scanResult({ findings }), { compress: false });
+    const labelled = await renderPdfReport(
+      scanResult({ scanBasis: codeOnly.scanBasis!, findings }),
+      { compress: false },
+    );
+    const pageCount = (labelled.toString("latin1").match(/\/Type \/Page\b/g) ?? []).length;
+    expect(pageCount).toBeGreaterThan(1);
+    // Every font, size and colour change of the body is the same; the banners only add their own.
+    const extra = [...fontOps(labelled)];
+    for (const op of fontOps(plain)) {
+      const at = extra.indexOf(op);
+      expect(at).toBeGreaterThanOrEqual(0);
+      extra.splice(at, 1);
+    }
+    // The only 8 pt text added is one banner per page...
+    expect(extra.filter((op) => / 8 Tf$/.test(op))).toHaveLength(pageCount);
+    // ...drawn last on its page, so no body text after it can inherit its font.
+    const streams = labelled.toString("latin1").match(/stream\n[\s\S]*?endstream/g) ?? [];
+    const pages = streams.filter((stream) => / Tf\b/.test(stream));
+    expect(pages).toHaveLength(pageCount);
+    for (const page of pages) expect(page.match(/[\d.]+ Tf/g)?.at(-1)).toBe("8 Tf");
   });
 });

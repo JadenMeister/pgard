@@ -25,6 +25,13 @@ function result(overrides: Record<string, unknown> = {}): ScanResult {
 }
 
 const CODE_ONLY = { mode: "code_only", authorization: "not_verified", reason: "no_github_remote" };
+const VERIFIED = { mode: "authorized", authorization: "verified", reason: null };
+const ALL_PASSED = {
+  decision: "allowed",
+  checks: ["repository", "github_identity", "owner_approval", "current_access", "contribution"].map(
+    (id) => ({ id, status: "passed", reason: "ok" }),
+  ),
+};
 
 describe("scanBasis (JSON 1.7)", () => {
   it("is version 1.7", () => {
@@ -35,9 +42,7 @@ describe("scanBasis (JSON 1.7)", () => {
     const codeOnly = readScanResult(result({ scanBasis: CODE_ONLY }));
     expect(codeOnly.ok && codeOnly.result.scanBasis).toEqual(CODE_ONLY);
     expect(codeOnly.ok && isCodeOnlyResult(codeOnly.result)).toBe(true);
-    const verified = readScanResult(
-      result({ scanBasis: { mode: "authorized", authorization: "verified", reason: null } }),
-    );
+    const verified = readScanResult(result({ authorization: ALL_PASSED, scanBasis: VERIFIED }));
     expect(verified.ok).toBe(true);
     const old = readScanResult({ ...result(), schemaVersion: "1.6" });
     expect(old.ok && old.result.scanBasis).toBeUndefined();
@@ -58,6 +63,35 @@ describe("scanBasis (JSON 1.7)", () => {
     ]) {
       expect(readScanResult(result({ scanBasis })).ok).toBe(false);
     }
+  });
+
+  it("refuses a scanBasis that disagrees with the rest of the result", () => {
+    const blockedCheck = {
+      ...ALL_PASSED,
+      checks: ALL_PASSED.checks.map((check) =>
+        check.id === "owner_approval" ? { ...check, status: "failed" } : check,
+      ),
+    };
+    for (const overrides of [
+      // "verified" needs an allowed decision with all five checks passed.
+      { scanBasis: VERIFIED },
+      { scanBasis: VERIFIED, authorization: { ...ALL_PASSED, decision: "blocked" } },
+      { scanBasis: VERIFIED, authorization: blockedCheck },
+      { scanBasis: VERIFIED, authorization: { ...ALL_PASSED, checks: ALL_PASSED.checks.slice(1) } },
+      // "code_only" needs a blocked decision and only the code scope.
+      { scanBasis: CODE_ONLY, authorization: ALL_PASSED },
+      { scanBasis: CODE_ONLY, requestedScopes: ["code", "history"] },
+      { scanBasis: CODE_ONLY, requestedScopes: [] },
+    ]) {
+      expect(readScanResult(result(overrides)).ok).toBe(false);
+    }
+    expect(
+      readScanResult(
+        result({
+          scanBasis: { mode: "authorized", authorization: "not_verified", reason: "check_failed" },
+        }),
+      ).ok,
+    ).toBe(true);
   });
 
   it("labels a code-only SARIF run and keeps it apart from authorized runs", () => {

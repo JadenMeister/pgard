@@ -370,10 +370,18 @@ a { color: #1d4ed8; }
 .code-only { border: 2px solid #b7791f; border-radius: 6px; padding: 12px 14px; margin: 16px 0; background: #fffbeb; }
 .code-only h2 { margin: 0 0 6px; border: 0; padding: 0; color: #78350f; }
 .code-only p { margin: 4px 0; }
+/* On screen the print frame is invisible; in print its header row repeats on every page and
+   the content flows below it, so the banner never covers anything. */
+.code-only-frame, .code-only-frame > tbody, .code-only-frame > tbody > tr, .code-only-frame > tbody > tr > td { display: contents; }
+.code-only-frame > thead { display: none; }
 @media print {
-  /* A fixed element repeats on every printed page. */
-  .code-only-banner { position: fixed; top: 0; left: 0; right: 0; margin: 0; }
-  body { padding-top: 48px; }
+  .code-only-banner { position: static; margin: 0 0 12px; }
+  body > .code-only-banner { display: none; }
+  .code-only-frame { display: table; width: 100%; border-collapse: collapse; }
+  .code-only-frame > thead { display: table-header-group; }
+  .code-only-frame > tbody { display: table-row-group; }
+  .code-only-frame > tbody > tr { display: table-row; }
+  .code-only-frame > tbody > tr > td, .code-only-frame > thead td { display: table-cell; padding: 0; border: 0; }
 }
 `;
 
@@ -383,12 +391,18 @@ function renderCodeOnly(
   lang: ReportContext["lang"],
 ): {
   banner: string;
+  frameStart: string;
+  frameEnd: string;
   cover: string;
 } {
   const label = codeOnlyLabel(result, lang);
-  if (label === null) return { banner: "", cover: "" };
+  if (label === null) return { banner: "", frameStart: "", frameEnd: "", cover: "" };
+  const banner = `<div class="code-only-banner" role="note">${escapeHtml(label.banner)}</div>`;
   return {
-    banner: `<div class="code-only-banner" role="note">${escapeHtml(label.banner)}</div>\n`,
+    banner: `${banner}\n`,
+    // A table header row repeats on every printed page (thead), above the content, never over it.
+    frameStart: `<table class="code-only-frame" role="presentation"><thead aria-hidden="true"><tr><td>${banner}</td></tr></thead><tbody><tr><td>\n`,
+    frameEnd: `</td></tr></tbody></table>\n`,
     cover: `<section class="code-only" aria-label="${escapeHtml(label.title)}">\n<h2>${escapeHtml(label.title)}</h2>\n<p>${escapeHtml(label.body)}</p>\n<p>${escapeHtml(label.reason)}</p>\n</section>\n`,
   };
 }
@@ -451,7 +465,7 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
 <style>${STYLES}</style>
 </head>
 <body>
-${codeOnly.banner}<main>
+${codeOnly.banner}${codeOnly.frameStart}<main>
 <h1>${escapeHtml(t.title)}</h1>
 <p class="meta">${escapeHtml(t.repository)}: ${escapeHtml(target.repo ?? t.unknown)} &middot; ${escapeHtml(t.revision)}: ${escapeHtml(target.revision ?? t.unknown)}${target.webOrigin === null ? "" : ` &middot; ${escapeHtml(t.webTarget)}: ${escapeHtml(target.webOrigin)}`}</p>
 <p class="meta">${escapeHtml(t.scan)} ${escapeHtml(result.scanId)} &middot; ${escapeHtml(result.startedAt)} ${escapeHtml(t.to)} ${escapeHtml(result.finishedAt)} &middot; ${escapeHtml(result.tool.name)} ${escapeHtml(result.tool.version)} &middot; ${escapeHtml(t.schema)} ${escapeHtml(result.schemaVersion)}</p>
@@ -489,7 +503,7 @@ ${renderAuthorization(result, ctx)}
 ${renderLicense(result, ctx)}
 <p class="disclaimer">${escapeHtml(t.disclaimer)}</p>
 </main>
-</body>
+${codeOnly.frameEnd}</body>
 </html>
 `;
 }

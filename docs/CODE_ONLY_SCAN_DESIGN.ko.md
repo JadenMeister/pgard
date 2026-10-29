@@ -53,14 +53,15 @@
 
 지금 비밀값 규칙(`PG-SECRET-001` `.env` 파일, `PG-SECRET-002` 자격 증명)은 **기록 범위에서만** 실행됩니다. 이 범위는 Git 객체에서 추적 파일과 커밋을 읽습니다. 그래서 코드 전용 검사에는 별도의 검사 단계가 필요합니다.
 
-- 프로토타입은 `scanWorkingTreeSecrets`를 추가합니다(`packages/scan-core/src/working-tree-secrets.ts`).
-  - `pgard precommit`과 같은 탐지를 씁니다(`scanStagedSecrets`, 모든 줄을 새 줄로 간주).
-  - 심볼릭 링크를 따라가지 않습니다.
-  - `.git`과 `node_modules`는 건너뜁니다.
-  - 1 MiB까지의 파일을 읽고, 바이너리 파일은 건너뜁니다.
-  - 파일 수와 깊이에 한도가 있으며, 한도에 닿으면 해당 영역은 `partial`이 됩니다.
+- 1단계는 `scanWorkingTreeSecrets`를 추가합니다(`packages/scan-core/src/working-tree-secrets.ts`, 영역 `secrets:working-tree`).
+  - `pgard precommit`과 같은 탐지와 디코딩을 씁니다. `scanStagedSecrets`로 모든 줄을 새 줄로 보고, UTF-8과 UTF-16(바이트 순서 표시가 있든 없든, UTF-16 바이트를 UTF-8로 읽은 결과도 함께)을 읽으며, 텍스트 속 NUL 바이트는 공백으로 읽습니다.
+  - `.env` 파일은 너무 크거나, 바이너리이거나, 읽을 수 없어도 이름으로 보고합니다(스테이징된 파일에 대한 `scanStagedPaths`와 같음).
+  - 모든 파일은 `O_NOFOLLOW | O_NONBLOCK`으로 열고 열린 핸들에서 다시 확인합니다(`packages/git-history/src/safe-read.ts`의 `readSmallRegularFileBytes`). 바꿔치기된 심볼릭 링크, FIFO, 장치는 따라가거나 읽지 않으며 읽기를 멈춰 세울 수도 없습니다.
+  - `.git`, `node_modules`, `bower_components`, `.hg`, `.svn`은 건너뜁니다.
+  - 한도(악의적인 트리도 끝없는 작업을 시킬 수 없음): 디렉터리는 항목 단위로 읽고(`opendir`), 디렉터리 항목 300,000개, 파일 20,000개, 파일당 1 MiB, 합계 64 MiB, 깊이 24단계, 20초까지입니다. 항목마다 취소 여부를 확인합니다.
+  - 빠진 것(한도, 1 MiB 초과 파일, 읽을 수 없는 파일이나 폴더)이 있으면 영역은 `partial`이 되고, 메모에 종류별로 파일을 다섯 개까지 이름으로 적습니다. 명백한 바이너리 파일은 pre-commit 검사처럼 설계상 건너뛰며 메모에 이름을 적습니다.
   - 발견 항목에 값을 넣지 않습니다.
-- **제품화 후속 작업:** 규칙 제목이 "추적 파일 속 비밀값"과 "Git에 커밋된 환경 파일"입니다. 코드 전용 발견 항목에는 맞지 않습니다. 제품 버전에는 코드 전용 문구가 필요하며, 새 규칙 ID 두 개나 제목 변형으로 해결합니다. 프로토타입 스크린샷에는 예전 제목이 보입니다.
+- **문구.** 이 발견 항목은 작업 트리용 제목 변형을 씁니다(`packages/findings/src/rule-text.ts`의 `FINDING_TEXT_VARIANTS`). "프로젝트 파일 안의 비밀정보", "프로젝트 폴더의 환경 파일"이며, "추적 파일"이나 "Git에 커밋됨"이라고 하지 않습니다.
 
 ## 3. 위협 모델
 
@@ -151,17 +152,18 @@
 "scanBasis": {
   "mode": "code_only",
   "authorization": "not_verified",
-  "reason": "no_approval"
+  "reason": "no_github_remote"
 }
 ```
 
 - **`mode`.**
-  - `"authorized"`: 권한 확인을 실행했습니다(`authorization`이 통과 여부를 알려 줍니다. `verified`, 또는 `reason: "no_approval"`과 함께 `not_verified`).
+  - `"authorized"`: 권한 확인을 실행했습니다(`authorization`이 통과 여부를 알려 줍니다. `verified`, 또는 `reason: "no_approval"`과 함께 `not_verified`, 권한 확인이 내부 오류로 끝나지 못했으면 `"check_failed"`).
   - `"code_only"`: 권한 확인을 하지 않았습니다.
   - 1.6 이하의 결과에는 이 필드가 없으며, 읽는 쪽은 없으면 `"authorized"`로 봅니다. 이전 PGARD는 권한 확인을 통과한 뒤에만 결과를 썼기 때문입니다.
 - **`authorization`.** `"verified"` 또는 `"not_verified"`. 조정자(coordinator)의 `authorization: "not_verified"`입니다. 기존 `authorization` 객체의 타입을 바꾸면 메이저 변경이 되므로 새 객체에 둡니다.
 - **`reason`.** `authorization`이 `verified`일 때만 `null`이며, 그 밖에는 열려 있는 코드 값입니다.
-  - `no_approval` (권한 확인을 통과하지 못함),
+  - `no_approval` (권한 확인을 실행했고 통과하지 못함),
+  - `check_failed` (권한 확인이 내부 오류로 끝나지 못함. `overallStatus`는 `failed`),
   - `not_checked` (사용자가 코드 전용을 요청함),
   - `no_github_remote`,
   - `not_a_git_repository`,
@@ -174,18 +176,26 @@
   - 코드 범위의 결과만으로 정해지며(`completed`, `partial`, `failed`), 분석이 실제로 실행되었으므로 `blocked`가 되지 않습니다.
   - 이전 버전의 읽는 쪽은 `decision: "blocked"`를 보고 안전한 쪽으로 처리합니다. `decision === "allowed"`를 확인하는 코드는 이 결과를 권한 있는 것으로 보지 않습니다.
   - `overallStatus`를 "분석이 실행되었는가"의 뜻으로 쓰는 이전 버전의 읽는 쪽도 계속 올바르게 동작합니다.
-- **버전 기록 노트**(`RESULT_SCHEMA.md`)에 필드 간 규칙을 적습니다. 1.7에서 `decision: "blocked"`이면서 상태가 `blocked`가 아니면 `code_only`라는 뜻입니다.
+- **코드 전용 여부는 `scanBasis`로만 압니다.** `decision: "blocked"`이면서 상태가 `blocked`가 아니라고 해서 코드 전용인 것은 **아닙니다**. 권한 확인이 내부 오류로 실패해도 `blocked` / `failed`가 됩니다(`reason: "check_failed"`).
+- **필드 간 확인(이 밖의 조합은 읽는 쪽이 거부).**
+  - `authorization: "verified"`에는 `decision: "allowed"`와 다섯 확인 모두 `passed`가 필요합니다.
+  - `mode: "code_only"`에는 `decision: "blocked"`, `requestedScopes: ["code"]`, `authorization: "not_verified"`가 필요합니다.
+  - `reason`은 `authorization`이 `verified`일 때만 `null`입니다.
+- **이전 버전의 읽는 쪽.** 1.6 이하를 읽는 쪽은 이 필드를 모르므로 버립니다. 코드 전용 결과를 코드 전용 표시 없이, 권한 확인이 막은 평범한 결과로 보여 줍니다(`decision`이 `blocked`이므로 권한 있는 결과로 보지는 않습니다). 표시는 1.7을 읽는 쪽만 보여 줍니다.
 
 ### 4.2 SARIF
 
 - `runs[0].properties.pgard.scanBasis`에 같은 객체를 담습니다.
-- `runs[0].invocations[0].toolExecutionNotifications[]`에 `warning` 하나를 담습니다. "Code-only scan: authorization was not verified. Git history and web checks did not run."
+- `runs[0].invocations[0].toolExecutionNotifications[]`에 `warning` 하나를 담습니다. "Code-only scan: authorization was not verified. Only the current files were checked; Git history and web checks did not run."(`CODE_ONLY_SARIF_NOTICE`)
 - 알림을 보여 주는 업로더(GitHub code scanning 등)는 결과 옆에 이를 표시합니다.
+- `runs[0].automationDetails.id`는 `pgard/code-only/`이므로 GitHub code scanning은 코드 전용 결과를 권한 있는 실행과 다른 카테고리에 둡니다.
+  - **업로드의 `category`가 이를 덮어쓰지 않습니다.** `github/codeql-action/upload-sarif`는 `automationDetails`가 없는 실행에만 `category` 입력으로 값을 채웁니다(`src/upload-lib.ts`의 `populateRunAutomationDetails`, 2026-10-29 확인). PGARD는 항상 id를 쓰므로, 워크플로가 어떤 `category`를 넘겨도 코드 전용 실행은 `pgard/code-only/`에 남습니다.
+  - `properties`와 알림을 무시하는 이전 SARIF 읽는 쪽도 별도 카테고리는 봅니다.
 
 ### 4.3 텍스트, 보고서, 대시보드
 
 - **터미널.** 결과의 첫 줄은 `! Code-only scan: authorization not verified (current files only; no Git history, no web checks, not saved).`이고, 이어서 권한 있는 검사를 받는 방법을 한 줄로 안내합니다.
-- **HTML과 PDF 보고서.** 모든 페이지에 배너가 있고, 표지에 "Not authorized: code-only scan"이 적힙니다. "확인됨" 문구는 없습니다. 1단계에 구현되었습니다(`packages/report/src/code-only-text.ts`). HTML 배너는 인쇄한 모든 페이지에 반복되고(`@media print`의 고정 요소), PDF 배너는 모든 페이지에 그려지며, 이유(`scanBasis.reason`)가 담긴 표지 블록이 있습니다.
+- **HTML과 PDF 보고서.** 모든 페이지에 배너가 있고, 표지에 "Not authorized: code-only scan"이 적힙니다. "확인됨" 문구는 없습니다. 1단계에 구현되었습니다(`packages/report/src/code-only-text.ts`). HTML 배너는 인쇄한 모든 페이지에 반복되고(브라우저가 페이지마다 반복하는 표 머리 행이므로 내용 위에 놓이며 내용을 가리지 않습니다), PDF 배너는 모든 페이지가 만들어진 뒤 각 페이지에 그려지므로(`bufferPages`) 새 페이지로 넘어가는 본문의 글꼴을 바꾸지 않으며, 이유(`scanBasis.reason`)가 담긴 표지 블록이 있습니다.
 - **웹.**
   - 결과 카드는 항상 **"Not authorized · code only" / "권한 미확인 · 코드만"** 라벨과 짧은 설명으로 시작합니다.
   - 결과가 화면에 있는 동안 라벨은 닫을 수 없습니다.
@@ -260,7 +270,7 @@
 
 - **폴더 선택.** 버튼은 토큰으로 보호된 `POST /api/picker/browse`를 보냅니다. **서버**가 운영체제의 폴더 선택 창을 열고, 페이지는 창이 닫힐 때까지 `GET /api/picker/browse`를 폴링합니다(HTTP 요청 제한 시간은 30초이고, 사람은 더 오래 걸릴 수 있습니다).
   - macOS: `/usr/bin/osascript -e activate -e 'POSIX path of (choose folder with prompt "…")'`.
-  - Windows: `System.Windows.Forms.FolderBrowserDialog`를 쓰는 `powershell.exe -NoProfile -NonInteractive -STA -Command`.
+  - Windows: **지원하지 않습니다.** 폴더 검사와 붙여 넣은 경로 규칙이 POSIX 전용(`/` 구분자, `lstat` 소유권과 권한 비트)이라 Windows 선택 창은 없습니다. 페이지는 "폴더 선택 창 없음" 상태를 보여 주고, 붙여 넣은 `C:\` 경로는 `bad_path`로 거부합니다. Windows를 지원하려면 먼저 그에 맞는 경로·소유권 검사가 필요합니다.
   - Linux: `/usr/bin/zenity --file-selection --directory`, 없으면 `kdialog --getexistingdirectory`.
   - 쓸 수 있는 도구가 없으면: "이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요."
 - **경로 붙여 넣기.** 버튼 아래의 입력란입니다(`POST /api/picker/path`). `~`와 `~/…`는 홈 폴더로 펼칩니다. `~user`, 상대 경로, NUL, 4096자 초과는 거부합니다(`bad_path`).
@@ -272,6 +282,9 @@
   - 기준점부터 아래로 모든 폴더를 이름으로 `lstat`하며 검색 후보와 같은 `not_owned_by_you` / `group_or_world_writable` 규칙을 적용합니다. 표시 안전성 검사(`unsafe_display`)도 같습니다.
   - 그다음 평소의 `full` 검사로 일반 GitHub 후보인지 코드 전용 후보인지 정합니다(6절).
   - 모든 거부에는 이유와 해결 방법이 영어와 한국어로 붙습니다(예: "홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app").
+  - 다른 사용자가 소유하거나 바꿀 수 있는 폴더 경로는 거부(`not_owned_by_you`, `group_or_world_writable`)이며, `.git`을 언급하지 않는 폴더용 문구를 씁니다.
+  - 거부에 담긴 경로는 후보 경로와 같은 표시 안전성 검사를 거칩니다. 제어 문자, 보이지 않는 문자, 비슷하게 생긴 문자가 있는 이름은 그대로가 아니라 이스케이프해서(`\u{202e}`) 보여 줍니다.
+  - 선택 창에서 고르거나 붙여 넣은 폴더는 최근 목록에 쓰지 않습니다.
 - **선택 창 경로의 보안.**
   - 모든 API 경로와 같은 토큰, Host, Origin 미들웨어. 단순 화면이 켜져 있지 않으면 404입니다.
   - 선택 창은 한 번에 하나(`409 dialog_open`), 제한 시간 5분. 취소, 서버 종료, 시간 초과 때 선택 창 프로세스를 종료합니다.
@@ -325,21 +338,21 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 
 ### 7.2 문구 (EN / KO)
 
-| 키               | English                                                                                                                                                                    | 한국어                                                                                                                                                                           |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Title            | Scan a project folder                                                                                                                                                      | 프로젝트 폴더 검사                                                                                                                                                               |
-| Lead             | PGARD checks the files in a folder on this computer for leaked secrets, risky code and known-vulnerable dependencies.                                                      | PGARD는 이 컴퓨터에 있는 폴더의 파일에서 유출된 비밀값, 위험한 코드, 알려진 취약 의존성을 찾습니다.                                                                              |
-| Steps            | Choose a folder · Press Scan · Fix what it finds                                                                                                                           | 폴더 선택 · 검사 누르기 · 찾은 문제 고치기                                                                                                                                       |
-| Folder hint      | Choose the project's folder, or paste its path.                                                                                                                            | 프로젝트 폴더를 선택하거나 경로를 붙여 넣으세요.                                                                                                                                 |
-| Button           | Choose folder                                                                                                                                                              | 폴더 선택                                                                                                                                                                        |
-| Paste box        | Or paste the folder's path · Check                                                                                                                                         | 또는 폴더 경로 붙여 넣기 · 확인                                                                                                                                                  |
-| No dialog        | This computer has no folder window PGARD can open. Paste the folder's path below instead.                                                                                  | 이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요.                                                                                      |
-| No Git (D4)      | Not a Git repository: the files are scanned as they are.                                                                                                                   | Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.                                                                                                                            |
-| Refusal example  | This is your home folder or a system folder, not a project. Choose the project's own folder, for example ~/code/my-app.                                                    | 홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app                                                                         |
-| Scan explanation | Reads the current files only: secrets, risky code patterns and dependencies. No Git history, nothing leaves this computer and nothing is saved.                            | 현재 파일만 읽습니다: 비밀값, 위험한 코드 패턴, 의존성. Git 기록은 읽지 않고, 이 컴퓨터 밖으로 아무것도 보내지 않으며, 아무것도 저장하지 않습니다.                               |
-| Badge            | Not authorized · code only                                                                                                                                                 | 권한 미확인 · 코드만                                                                                                                                                             |
-| Badge text       | This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this repository, so Git history, local web checks and saved results are off. | 이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 저장소를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다. |
-| Upgrade link     | Connect GitHub to also scan Git history. Optional: opens the full dashboard, which asks for GitHub sign-in and owner approval.                                             | GitHub 연결하고 Git 기록도 검사. 선택 사항: GitHub 로그인과 소유자 승인을 요청하는 전체 대시보드를 엽니다.                                                                       |
+| 키               | English                                                                                                                                                              | 한국어                                                                                                                                                                         |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Title            | Scan a project folder                                                                                                                                                | 프로젝트 폴더 검사                                                                                                                                                             |
+| Lead             | PGARD checks the files in a folder on this computer for leaked secrets, risky code and known-vulnerable dependencies.                                                | PGARD는 이 컴퓨터에 있는 폴더의 파일에서 유출된 비밀값, 위험한 코드, 알려진 취약 의존성을 찾습니다.                                                                            |
+| Steps            | Choose a folder · Press Scan · Fix what it finds                                                                                                                     | 폴더 선택 · 검사 누르기 · 찾은 문제 고치기                                                                                                                                     |
+| Folder hint      | Choose the project's folder, or paste its path.                                                                                                                      | 프로젝트 폴더를 선택하거나 경로를 붙여 넣으세요.                                                                                                                               |
+| Button           | Choose folder                                                                                                                                                        | 폴더 선택                                                                                                                                                                      |
+| Paste box        | Or paste the folder's path · Check                                                                                                                                   | 또는 폴더 경로 붙여 넣기 · 확인                                                                                                                                                |
+| No dialog        | This computer has no folder window PGARD can open. Paste the folder's path below instead.                                                                            | 이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요.                                                                                    |
+| No Git (D4)      | Not a Git repository: the files are scanned as they are.                                                                                                             | Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.                                                                                                                          |
+| Refusal example  | This is your home folder or a system folder, not a project. Choose the project's own folder, for example ~/code/my-app.                                              | 홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app                                                                       |
+| Scan explanation | Reads the current files only: secrets, risky code patterns and dependencies. No Git history, nothing leaves this computer and nothing is saved.                      | 현재 파일만 읽습니다: 비밀값, 위험한 코드 패턴, 의존성. Git 기록은 읽지 않고, 이 컴퓨터 밖으로 아무것도 보내지 않으며, 아무것도 저장하지 않습니다.                             |
+| Badge            | Not authorized · code only                                                                                                                                           | 권한 미확인 · 코드만                                                                                                                                                           |
+| Badge text       | This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this code, so Git history, local web checks and saved results are off. | 이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 코드를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다. |
+| Upgrade link     | Connect GitHub to also scan Git history. Optional: opens the full dashboard, which asks for GitHub sign-in and owner approval.                                       | GitHub 연결하고 Git 기록도 검사. 선택 사항: GitHub 로그인과 소유자 승인을 요청하는 전체 대시보드를 엽니다.                                                                     |
 
 모든 문구는 `apps/local-web/src/client/features/simple/simple-text.ts`에 있습니다.
 
@@ -408,7 +421,7 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 ## 10. PR #415의 프로토타입 (4단계까지 `PGARD_WEB_PROTOTYPE=code-only` 뒤에 둠)
 
 - **실제로 동작하는 것.**
-  - OS 폴더 선택 창(macOS `osascript`, Windows PowerShell, Linux `zenity`/`kdialog`)과 경로 입력란. 실제 inspector 자식 프로세스에서 풀고 확인(realpath, 소유권, 쓰기 비트, 표시 안전성)한 뒤 확정하며, 검사 전에 다시 확인합니다.
+  - OS 폴더 선택 창(macOS `osascript`, Linux `zenity`/`kdialog`, Windows는 없음)과 경로 입력란. 실제 inspector 자식 프로세스에서 풀고 확인(realpath, 소유권, 쓰기 비트, 표시 안전성)한 뒤 확정하며, 검사 전에 다시 확인합니다.
   - GitHub remote가 없는 폴더와 Git이 없는 폴더도 코드 전용 검사를 받습니다(D4).
   - 실제 폴더에 대한 코드 전용 검사(소스 규칙, 디스크의 OSV 데이터로 확인하는 의존성, 새 비밀값 검사).
   - 값 가리기.
@@ -417,17 +430,18 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 - **아직 실제가 아닌 것.**
   - CLI(2단계)와 precommit(3단계)은 아직 코드 전용 검사를 하지 않습니다.
   - 올리기 링크는 현재의 전체 대시보드를 엽니다.
+- **배포 패키지 안.** 프로토타입 경로와 단순 화면은 `pgard` tarball에 들어 있지만, `PGARD_WEB_PROTOTYPE=code-only`를 설정하지 않으면 꺼져 있습니다(404). 4단계에서 프로토타입 플래그를 아예 없앱니다.
 - **절대 하지 않는 것.**
   - 프로토타입 경로는 GitHub를 호출하지 않습니다. 단순 화면이 켜져 있지 않으면 404이며, 고정 모드에서는 단순 화면이 켜지지 않습니다.
   - `POST /api/scan`(권한 확인)은 바뀌지 않습니다.
 - **테스트.**
   - `packages/scan-core/src/run-code-only.test.ts`: 권한 확인 없음, 기록 없음, 표시된 결과.
-  - `packages/scan-core/src/working-tree-secrets.test.ts`: 디스크의 비밀값, `.env`, 링크를 따라가지 않음, Git 없음, 출력에 값 없음.
+  - `packages/scan-core/src/working-tree-secrets.test.ts`: 디스크의 비밀값, `.env`, 링크를 따라가지 않음, Git 없음, 출력에 값 없음. UTF-16과 NUL이 섞인 텍스트, 큰 파일의 이름과 `partial`, 크거나 바이너리인 `.env`의 이름 보고, 항목 한도(아주 큰 폴더 하나와 많은 폴더), 바이트 한도, 시간 한도와 취소.
   - `apps/local-web/src/server/code-scan-prototype.test.ts`: 꺼져 있으면 404, 고정 모드에서 켜지지 않음, 토큰·Host·Origin 검사, `no_project`, 신원 재확인, 배너가 있는 내보내기.
-  - `apps/local-web/src/server/choose-folder-prototype.test.ts`: 선택 창과 붙여 넣기 경로(꺼져 있으면 404, 토큰과 Origin, 선택 창은 한 번에 하나, 취소와 종료 때 선택 창 종료, 도구 없음, 해결 방법이 붙은 거부, `~` 펼치기), Git 없는 폴더는 코드 전용만(verify와 `POST /api/scan`은 `409 code_only_project`), 검사 전 폴더 재확인, 플랫폼별 고정 argv.
+  - `apps/local-web/src/server/choose-folder-prototype.test.ts`: 선택 창과 붙여 넣기 경로(꺼져 있으면 404, 토큰과 Origin, 선택 창은 한 번에 하나, 취소와 종료 때 선택 창 종료, 도구 없음, 해결 방법이 붙은 거부, `~` 펼치기), Git 없는 폴더는 코드 전용만(verify와 `POST /api/scan`은 `409 code_only_project`), 검사 전 폴더 재확인, `.git` 문구 없이 거부되는 쓰기 가능한 폴더 경로, 이스케이프된 거부 경로, 고른 폴더는 최근 목록에 없음, 플랫폼별 고정 argv(Windows는 없음).
   - `apps/local-web/src/server/picker/resolve-folder.test.ts`: 실제 폴더에 대한 `resolve` 작업(GitHub 저장소, Git 없음, 심볼릭 링크, 그룹 쓰기 가능, 홈 밖, 거부되는 경로)과 메시지 검증.
-  - `packages/findings/src/scan-basis.test.ts`: `scanBasis` 읽기(없으면 권한 있는 검사, 불가능한 조합 거부, 모르는 이유 코드 유지), SARIF 표시와 카테고리, 작업 트리 비밀값 문구와 한국어 번역.
-  - `packages/report/src/code-only-report.test.ts`: HTML 배너와 표지 블록, 인쇄 규칙, 모든 PDF 페이지의 배너.
+  - `packages/findings/src/scan-basis.test.ts`: `scanBasis` 읽기(없으면 권한 있는 검사, 불가능한 조합 거부, `verified`와 `code_only`를 결정·확인·범위와 대조, 모르는 이유 코드 유지), SARIF 표시와 카테고리, 작업 트리 비밀값 문구와 한국어 번역.
+  - `packages/report/src/code-only-report.test.ts`: HTML 배너와 표지 블록, 반복되는 인쇄 머리글, 모든 PDF 페이지의 배너, 페이지가 넘어간 뒤에도 그대로인 본문 글꼴.
   - `packages/result-store/src/store.test.ts`: 코드 전용 결과는 절대 저장소에 들어가지 않음.
 
 ## 11. 결정 사항 (2026-10-29 결정)
@@ -456,14 +470,21 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 ### 12.2 결정
 
 - **브라우저 열기.** 서버가 대기를 시작하면 실행기가 플랫폼의 열기 도구로 URL을 엽니다. `open`(macOS), `xdg-open`(Linux), `rundll32 url.dll,FileProtocolHandler`(Windows)를 고정 argv와 셸 없는 `execFile`로 실행합니다. CI, 터미널 없음, `--no-open`일 때는 열지 않습니다.
+  - **Linux:** `DISPLAY`나 `WAYLAND_DISPLAY`가 있을 때만 열고, `SSH_CONNECTION`이 있으면 열지 않습니다(브라우저가 다른 컴퓨터 화면에 열리거나 아예 열리지 않습니다).
+  - **Windows:** `rundll32` 전에 URL이 `^http://127\.0\.0\.1:\d+/#token=[A-Za-z0-9_-]+$`와 정확히 맞아야 하며, 아니면 열지 않습니다(PGARD 자신의 URL이므로 맞지 않으면 버그이지 사용자 입력이 아닙니다).
+  - 브라우저를 열지 않았을 때는 물론 "열었습니다" 줄에도 터미널이 `--print-url`을 안내합니다("자동으로 열지 않았습니다. 전체 링크를 보려면 --print-url로 다시 실행하세요.").
 - **터미널에서 토큰 가리기.** 터미널에는 `http://127.0.0.1:4317/#token=•••• (opened in your browser)`이 보입니다. 전체 URL은 열기에 실패했거나 건너뛰었을 때(열기 도구 없음, CI, 터미널 없음, `--no-open`) 또는 `--print-url`일 때만 출력합니다. 전체 URL은 로그 파일에 절대 쓰지 않습니다.
 - **한 번만 쓰는 URL 토큰.** URL 토큰은 초대장일 뿐입니다.
   1. 처음 열릴 때 페이지는 URL 토큰으로 `POST /api/session/exchange`를 호출합니다(같은 Host, Origin 검사). 서버는 토큰을 사용됨으로 표시하고 새 **세션 비밀값**(32바이트 난수, 서버에는 해시만 보관)을 돌려줍니다.
   2. 페이지는 주소창에서 조각을 지우고(`history.replaceState`), 세션 비밀값을 `sessionStorage`에 두며 이후 `x-pgard-session`으로 보냅니다. URL 토큰은 어떤 API 경로에서도 더는 받지 않습니다.
   3. 같은 URL 토큰으로 두 번째 교환을 하면(다시 쓴 링크, 다른 탭, 복사한 링크, 브라우저 기록) `409 token_used`로 거부하고 페이지에 "이미 사용한 링크입니다. 명령을 다시 실행해 새 링크를 받으세요." / "This link was already used. Run the command again to get a new one."이 나옵니다.
+     - `409 token_used`는 실제로 사용된 토큰에만, 상수 시간 비교(같은 길이의 해시에 `timingSafeEqual`)로 답합니다. 다른 토큰에는 `401`이므로, 추측하는 쪽에 토큰이 있었는지 알려 주지 않습니다.
   4. 쓰지 않은 URL 토큰은 10분 뒤 만료되며, 실행기는 새 링크를 받는 방법(명령 다시 실행)을 출력합니다.
+  5. **교환 경쟁에서 지면 링크를 누가 가져간 것입니다.** 다른 페이지가 먼저 토큰을 교환하면 사용자 자신의 페이지가 `409 token_used`를 받습니다. 서버는 교환할 때마다 터미널에 한 줄을 출력하고("브라우저가 23:41:07에 연결되었습니다."), "이미 사용함" 페이지에는 "직접 연 것이 아니라면 서버를 멈추고(Ctrl+C) 명령을 다시 실행하세요." / "If you did not open it, stop the server (Ctrl+C) and run the command again."이 덧붙습니다.
+- **세션 비밀값의 유휴 시간 제한.** API 호출 없이 30분이 지나면 세션 비밀값이 만료됩니다(페이지가 열려 있는 동안의 자체 폴링도 사용으로 칩니다). 그 뒤 페이지는 명령을 다시 실행하라고 안내합니다.
 - **새로 고침: 그 탭에서만 계속 동작.** 같은 탭을 새로 고치면 `sessionStorage`의 세션 비밀값으로 URL 토큰 없이 이어집니다. 새 탭, 새 창, 탭을 닫은 뒤에는 새 링크가 필요합니다(명령 다시 실행).
   - `sessionStorage`를 고른 이유: **포트까지 포함한** 정확한 출처와 탭에 묶이고, 탭을 닫으면 사라집니다. 새로 고침은 로컬 페이지에서 가장 흔한 동작이므로(개발자는 바꿀 때마다 새로 고칩니다) 새로 고침에 세션을 잃으면 보안상 얻는 것 없이 사용자를 막아 세웁니다. 이 장치가 막는 공격자는 탭의 저장소가 아니라 터미널이나 기록을 읽는 사람입니다.
+  - 알려진 한계(받아들임): 브라우저의 **탭 복제**는 `sessionStorage`를 복사하고, **세션 복원**(닫은 탭 다시 열기, 탭을 유지한 채 브라우저 재시작)은 이를 유지합니다. 둘 다 같은 사람의 브라우저 프로필 안에 머물고, 서버가 멈추면(실행마다 새로 만듭니다) 그리고 유휴 시간이 지나면 비밀값은 쓸모가 없어집니다.
   - 채택하지 않음, 쿠키: 쿠키는 포트로 격리되지 않아 `127.0.0.1:4317`의 세션 쿠키가 `127.0.0.1`의 다른 모든 로컬 서버(PGARD가 검사하는 개발 서버 포함)에도 보내집니다.
   - 채택하지 않음, `localStorage`: 탭과 브라우저 재시작보다 오래 남고 출처의 모든 탭이 공유하므로, 세션에 필요한 것보다 오래 비밀값을 남깁니다.
   - 채택하지 않음, 메모리에만 보관: 새로 고칠 때마다 세션이 끝납니다.
@@ -472,4 +493,4 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 
 ### 12.3 테스트 (5단계)
 
-한 번 교환, 두 번째 교환과 모든 경로의 원래 URL 토큰 거부, 세션 비밀값으로 새로 고침, 쓰지 않은 토큰의 만료, 가린 터미널 출력과 `--print-url`, 플랫폼별 열기 도구 argv와 CI·터미널 없음 대체 동작, 영어와 한국어의 "이미 사용함" 페이지.
+한 번 교환, 두 번째 교환(`409`는 사용된 토큰에만, 그 밖의 토큰은 `401`)과 모든 경로의 원래 URL 토큰 거부, 교환 때의 터미널 줄, 세션 비밀값으로 새로 고침, 유휴 시간 제한, 쓰지 않은 토큰의 만료, 가린 터미널 출력과 `--print-url`, 플랫폼별 열기 도구 argv(Linux 화면·SSH 규칙, Windows URL 확인)와 CI·터미널 없음 대체 동작, 영어와 한국어의 "이미 사용함" 페이지.

@@ -871,7 +871,7 @@ pgard scan --format sarif > pgard.sarif && \
 
 (`&&` uploads only after exit code 0. The commit must already be pushed, HEAD must not be detached, and the token needs the `security_events` scope: `gh auth refresh -s security_events`. The file is passed with `-F sarif=@file` so a large report does not hit the argument-length limit. If you use `github/codeql-action/upload-sarif` instead, it logs one fingerprint-mismatch warning per result; that is expected.)
 
-**Categories.** Each result carries `automationDetails.id` `pgard/<scopes>/` (for example `pgard/code+history/` for a default scan, `pgard/code/` for `scan code`). GitHub treats each id as its own category and closes alerts only when the same variant is uploaded again, so uploading `scan code` never closes the alerts of a default `scan`. A code-only result (JSON 1.7 `scanBasis.mode: "code_only"`) uses `pgard/code-only/` and carries a warning notification that authorization was not verified.
+**Categories.** Each result carries `automationDetails.id` `pgard/<scopes>/` (for example `pgard/code+history/` for a default scan, `pgard/code/` for `scan code`). GitHub treats each id as its own category and closes alerts only when the same variant is uploaded again, so uploading `scan code` never closes the alerts of a default `scan`. A code-only result (JSON 1.7 `scanBasis.mode: "code_only"`) uses `pgard/code-only/` and carries a warning notification that authorization was not verified. A `category` passed to `github/codeql-action/upload-sarif` does not change it: the action fills the id only for runs that have none.
 
 How the result maps:
 

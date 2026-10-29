@@ -12,7 +12,10 @@ export type UnsafeKind = "symlink" | "special" | "too-large" | "unreadable";
 export type SafeReadResult =
   { state: "absent" } | { state: "ok"; text: string } | { state: "unsafe"; found: UnsafeKind };
 
-const unsafe = (found: UnsafeKind): SafeReadResult => ({ state: "unsafe", found });
+const unsafe = (found: UnsafeKind): { state: "unsafe"; found: UnsafeKind } => ({
+  state: "unsafe",
+  found,
+});
 
 /**
  * Reads at most `maxBytes` of a regular file without following symlinks and without ever
@@ -24,6 +27,18 @@ export async function readSmallRegularFile(
   filePath: string,
   maxBytes: number,
 ): Promise<SafeReadResult> {
+  const read = await readSmallRegularFileBytes(filePath, maxBytes);
+  return read.state === "ok" ? { state: "ok", text: read.bytes.toString("utf8") } : read;
+}
+
+export type SafeBytesResult =
+  { state: "absent" } | { state: "ok"; bytes: Buffer } | { state: "unsafe"; found: UnsafeKind };
+
+/** `readSmallRegularFile`, returning the bytes (for callers that decode them themselves). */
+export async function readSmallRegularFileBytes(
+  filePath: string,
+  maxBytes: number,
+): Promise<SafeBytesResult> {
   const stats = await lstat(filePath, { bigint: true }).catch(
     (error: NodeJS.ErrnoException) => error,
   );
@@ -54,7 +69,7 @@ export async function readSmallRegularFile(
     const buffer = Buffer.alloc(maxBytes + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead > maxBytes) return unsafe("too-large");
-    return { state: "ok", text: buffer.toString("utf8", 0, bytesRead) };
+    return { state: "ok", bytes: buffer.subarray(0, bytesRead) };
   } catch {
     return unsafe("unreadable");
   } finally {

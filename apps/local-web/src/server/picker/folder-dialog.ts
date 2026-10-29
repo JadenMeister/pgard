@@ -34,12 +34,12 @@ function appleScriptString(text: string): string {
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 }
 
-/** PowerShell single-quoted literal (the prompt is our own text). */
-function powerShellString(text: string): string {
-  return `'${text.replace(/'/g, "''")}'`;
-}
-
-/** The fixed dialog command per platform, or `null` when there is none. */
+/**
+ * The fixed dialog command per platform, or `null` when there is none. Windows has none: the
+ * folder checks (realpath, `lstat` chain, ownership and write bits) and the pasted-path rules are
+ * POSIX-only, so the picker is not supported there: the page shows the "no folder window" state
+ * and a pasted `C:\` path is refused as `bad_path` (design doc, section 6.1).
+ */
 export async function dialogCommandFor(
   platform: string,
   prompt: string,
@@ -58,21 +58,7 @@ export async function dialogCommandFor(
       cancelCodes: [1],
     };
   }
-  if (platform === "win32") {
-    const script = [
-      "[Console]::OutputEncoding = [Text.Encoding]::UTF8",
-      "Add-Type -AssemblyName System.Windows.Forms",
-      "$d = New-Object System.Windows.Forms.FolderBrowserDialog",
-      `$d.Description = ${powerShellString(prompt)}`,
-      "if ($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) } else { exit 3 }",
-    ].join("; ");
-    const root = process.env.SystemRoot ?? "C:\\Windows";
-    return {
-      file: `${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`,
-      args: ["-NoProfile", "-NonInteractive", "-STA", "-Command", script],
-      cancelCodes: [3],
-    };
-  }
+  if (platform === "win32") return null;
   for (const directory of ["/usr/bin", "/usr/local/bin", "/bin"]) {
     const zenity = `${directory}/zenity`;
     if (await isExecutable(zenity)) {
