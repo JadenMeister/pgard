@@ -1,24 +1,23 @@
-import { compareScans, type Severity } from "@pgard/findings";
+import { compareScans } from "@pgard/findings";
 import type { AuthorizationOutcome } from "@pgard/scan-core";
-import { RETENTION_MAX_SCANS_PER_REPO, type StoredScan } from "@pgard/result-store";
+import {
+  countFindingStates,
+  RETENTION_MAX_SCANS_PER_REPO,
+  type StoredScan,
+} from "@pgard/result-store";
 import type { CommandContext } from "../context.js";
 import { safeText } from "../ui/formatters/style.js";
 import { type TrendData, type TrendDiff, type TrendScan } from "../ui/panels/types.js";
 import { isNewerMinor } from "./scan-diff-summary.js";
 import { NO_STORE_ENV } from "./store-result.js";
 
-const SEVERITIES: readonly Severity[] = ["critical", "high", "medium", "low", "info"];
-
+/**
+ * Counts follow the shared history rule (active findings by severity; ignored and baselined are
+ * not in the bars), the same as the dashboard Trend view.
+ */
 function toTrendScan(scan: StoredScan): TrendScan {
-  const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
-  for (const finding of scan.result.findings) {
-    if (SEVERITIES.includes(finding.severity)) counts[finding.severity] += 1;
-  }
-  return {
-    savedAt: scan.savedAt.getTime(),
-    counts,
-    total: SEVERITIES.reduce((sum, severity) => sum + counts[severity], 0),
-  };
+  const { severity, total } = countFindingStates(scan.result.findings);
+  return { savedAt: scan.savedAt.getTime(), counts: severity, total };
 }
 
 function diffOf(previous: StoredScan, latest: StoredScan): TrendDiff | null {
@@ -69,6 +68,10 @@ export async function loadTrend(
         reason: safeText(listed.warnings[0] ?? "", 100),
       };
     }
+    // Deliberate difference from the dashboard Trend view: here a future-dated file (see
+    // `isFutureDated`) stays in the list and is only kept from being the comparison's "latest"
+    // by anchoring on the current scan. The dashboard has no stored current scan to anchor on, so
+    // it leaves such files out and says so.
     // `list` is newest first (by file name); the panel shows those scans oldest first.
     const newest = listed.scans;
     // "Latest" is the current scan when it is stored, and "previous" the next older usable scan

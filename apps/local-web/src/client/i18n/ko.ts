@@ -443,6 +443,7 @@ export const ko: Messages = {
     coverage: "검사 범위",
     standards: "표준",
     rules: "규칙",
+    trend: "추이",
     export: "내보내기",
   },
   strip: {
@@ -562,6 +563,93 @@ export const ko: Messages = {
     details: "자세히",
     severityFilter: "심각도로 필터",
     category: "분류",
+  },
+  trend: {
+    title: "추이",
+    source:
+      "pgard 명령으로 저장한 이 저장소의 검사 결과를 GitHub 저장소 ID로 맞춰 보여 줍니다(최대 최근 20회). 이 대시보드에서 실행한 검사는 저장되지 않으므로 여기에 나타나지 않습니다. 터미널에서 방금 저장한 검사는 나타나기까지 몇 초 걸릴 수 있습니다.",
+    loading: "저장된 검사 결과를 읽는 중...",
+    loadFailed: "저장된 검사 결과를 불러오지 못했습니다.",
+    reload: "다시 불러오기",
+    disabled:
+      "검사 결과 저장이 꺼져 있어 보여 줄 기록이 없습니다. pgard dashboard는 PGARD_NO_STORE=1만 따르고 --no-store는 pgard web에 적용됩니다. 저장을 허용하고 pgard scan을 여러 번 실행하면 추이가 만들어집니다.",
+    notVerified:
+      "먼저 프로젝트를 확인하세요. 저장된 검사 결과는 권한 확인을 통과한 뒤에야 이 저장소와 연결됩니다.",
+    noStoreDir: "이 컴퓨터에 검사 결과를 저장할 폴더가 없어 보여 줄 기록이 없습니다.",
+    unreadable:
+      "저장된 검사 결과를 읽지 못해 추이를 보여 줄 수 없습니다. 아무것도 바꾸지 않았으며, pgard history로 저장된 내용을 볼 수 있습니다.",
+    tooFew: (count: number): string =>
+      count === 0
+        ? "이 저장소의 저장된 검사 결과가 아직 없습니다. 추이를 보려면 pgard scan(--no-store 없이)을 두 번 이상 실행하세요."
+        : "이 저장소의 저장된 검사 결과가 1개뿐입니다. 추이에는 2개 이상이 필요하니 pgard scan을 한 번 더 실행하세요.",
+    skipped: (count: number): string => `읽을 수 없는 저장 파일 ${count}개를 제외했습니다.`,
+    newerSkipped: (count: number): string =>
+      `더 새로운 PGARD가 저장한 검사 결과 ${count}개를 제외했습니다.`,
+    futureSkipped: (count: number): string =>
+      `미래 날짜로 저장된 검사 결과 ${count}개를 제외했습니다. 순서가 뒤바뀌지 않게 하기 위해서입니다.`,
+    unread: (count: number): string =>
+      `더 오래된 저장 파일 ${count}개는 읽지 않았습니다(사용 가능한 검사를 최대 20개까지 읽습니다).`,
+    partialWarning: (count: number, total: number): string =>
+      `검사 ${total}회 중 ${count}회는 전체를 다루지 못했습니다(빗금). 그 지점의 수치가 낮은 것은 덜 검사했기 때문일 수 있으며, 고쳐졌다는 뜻이 아닙니다.`,
+    allComplete: "아래 검사는 모두 요청한 영역을 끝까지 검사했습니다.",
+    severityTitle: "검사별 심각도 발견 항목",
+    chartLabel: (first: string, last: string, count: number): string =>
+      `저장된 검사 ${count}회(${first}부터 ${last}까지)의 활성 발견 항목을 심각도별로 쌓은 막대 그래프입니다. 모든 값은 아래 표에 있습니다.`,
+    columnLabel: (date: string, total: number, breakdown: string, coverage: string): string =>
+      `${date}: 활성 발견 항목 ${total}건(${breakdown}). 검사 범위: ${coverage}.`,
+    activeLine: (total: number, breakdown: string): string =>
+      `활성 발견 항목 ${total}건(${breakdown})`,
+    axisMax: (value: number): string => `${value}`,
+    axisZero: "0",
+    legendLabel: "심각도로 추이 필터",
+    legendHint:
+      "심각도를 선택하면 여기서 강조되고 발견 항목 화면도 그 심각도로 필터됩니다. 추이는 심각도만 집계하므로 분류와 다른 필터는 적용되지 않습니다.",
+    otherFilters:
+      "다른 필터(분류, 영역, 규칙, 파일, 상태, 출처, 텍스트)는 유지되지만 추이에는 영향을 주지 않습니다.",
+    showFindings: "현재 검사의 해당 발견 항목 보기",
+    noCurrentScan: "이 대시보드에서 검사를 실행하면 해당 발견 항목을 나열할 수 있습니다.",
+    selectedTitle: "선택한 검사",
+    selectedHint: "좌우 화살표 키로 검사 사이를 이동하거나 막대를 선택하세요.",
+    changeTitle: "연속한 검사 사이의 변화",
+    changeChartLabel: (count: number): string =>
+      `검사 ${count}회를 직전 검사와 비교한 새 발견 항목과 더 이상 보고되지 않는 항목의 막대 그래프입니다. 모든 값은 아래 표에 있습니다.`,
+    legendNew: "새 항목",
+    legendGone: "더 이상 보고되지 않음",
+    legendUncertain: "빗금: 비교한 검사 중 하나가 전체를 다루지 못함",
+    legendHatch: "빗금 막대: 이 검사는 전체를 다루지 못함",
+    legendFlag: "막대 아래 짧은 선: 이 검사는 전체를 다루지 못함",
+    changeNote:
+      '"더 이상 보고되지 않음"은 이전 검사에 있던 항목이 있던 자리가 두 번 모두 끝까지 분석되었는데 사라졌다는 뜻입니다. 고쳐졌다는 증거는 아닙니다.',
+    changeCountsNote:
+      "새 항목, 더 이상 보고되지 않음, 변화 없음은 두 검사의 모든 발견 항목(무시된 항목과 기준선 항목 포함)을 비교한 값이라 막대의 활성 항목 수와 다를 수 있습니다.",
+    ignoredBaselined:
+      "무시된 항목은 pgard.config.json으로 억제된 것이고, 기준선 항목은 저장된 기준선에 있는 것입니다. 둘 다 심각도 막대에는 포함되지 않습니다.",
+    tableTitle: "데이터 표",
+    tableCaption:
+      "이 저장소의 저장된 검사 결과(오래된 순): 심각도별 활성 발견 항목, 무시된 항목과 기준선 항목, 직전 검사 대비 변화.",
+    columns: {
+      scan: "저장 시각",
+      coverage: "검사 범위",
+      total: "활성",
+      ignored: "무시됨",
+      baselined: "기준선",
+      new: "새 항목",
+      gone: "더 이상 보고되지 않음",
+      unchanged: "변화 없음",
+      notComparable: "비교 불가",
+    },
+    coverageValue: {
+      completed: "완료",
+      partial: "부분 완료",
+      not_tested: "미검사",
+    },
+    coverageDetail: (status: string, areas: number): string =>
+      areas === 0 ? status : `${status}(미완료 영역 ${areas}개)`,
+    noChange: "첫 검사이거나 비교할 수 없음",
+    changeSummary: (added: number, gone: number, same: number, unknown: number): string =>
+      `새 항목 ${added}건, 더 이상 보고되지 않음 ${gone}건, 변화 없음 ${same}건, 비교 불가 ${unknown}건`,
+    changeUncertainNote:
+      "비교한 두 검사 중 하나가 전체를 다루지 못했으므로 이 수치는 신중히 해석하세요.",
   },
   report: {
     downloadHtml: "HTML 다운로드",

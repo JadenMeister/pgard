@@ -96,14 +96,15 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
           : new Set(detectSecrets(previous, { path: file.path }).map((found) => found.value));
       for (const secret of detectSecrets(content, { path: file.path })) {
         const key = `${secret.kind}\0${secret.value}`;
-        // Skip a secret an earlier reading of this file already reported (not repeats in one).
+        // Skip a secret an earlier reading of this file already reported (a preexisting one does not
+        // count, so a new copy of it in the other reading is still reported).
         if (seen.has(key)) continue;
-        thisReading.add(key);
         const lastLine = secret.line + (secret.value.match(/\n/g)?.length ?? 0);
         if (known.has(secret.value) && !spanHasAddedLine(added, secret.line, lastLine)) {
           preexisting += 1;
           continue;
         }
+        thisReading.add(key);
         findings.push(
           withCodeSource(
             createFinding({

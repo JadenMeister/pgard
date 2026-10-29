@@ -160,6 +160,26 @@ describe("a NUL byte hides nothing", () => {
     expect(found.findings).toHaveLength(1);
   });
 
+  it("reports a new UTF-8 copy of a secret that already sat in the UTF-16 part", () => {
+    const wide = `${"hello world\n".repeat(700)}token = "${GITHUB_TOKEN}"\n`;
+    const before = Buffer.from(wide, "utf16le").toString("latin1");
+    const after = `${before}copy = "${GITHUB_TOKEN}";\n`;
+    const earlier = decodeStagedBlobBoth(before);
+    const later = decodeStagedBlobBoth(after);
+    const found = scanStagedSecrets([
+      {
+        path: "notes.txt",
+        content: later.text ?? "",
+        previous: earlier.text,
+        kind: "modified",
+        ...(later.alternate === null ? {} : { alternate: later.alternate }),
+        ...(earlier.alternate === null ? {} : { previousAlternate: earlier.alternate }),
+      },
+    ]);
+    expect(found.findings).toHaveLength(1);
+    expect(found.preexisting).toBe(1);
+  });
+
   it("decodes UTF-16 without a byte order mark and scans it", () => {
     const text = `token = "${GITHUB_TOKEN}"\n`;
     const le = Buffer.from(text, "utf16le").toString("latin1");
