@@ -1,6 +1,7 @@
 import type { RuleStat, ScanResult } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
-import { Card } from "../../components/ui/Card";
+import { Badge } from "../../components/ui/Badge";
+import { Section } from "../../components/ui/Section";
 import { useI18n } from "../../i18n/I18nProvider";
 
 /** Rules sorted by id and area, so the table reads the same on every scan. */
@@ -26,58 +27,56 @@ export function RuleStatsPanel({
   const statusLabels: Record<string, string> = m.status;
   if (result.ruleStats === undefined) return null;
   return (
-    <Card title={m.cards.ruleStats}>
-      <details className="rule-stats" open>
-        <summary>{text.summary(result.ruleStats.length)}</summary>
-        <p className="muted small">{text.note}</p>
-        <table className="table rule-stats-table">
-          <thead>
-            <tr>
-              <th>{text.columns.rule}</th>
-              <th>{text.columns.area}</th>
-              <th>{text.columns.targets}</th>
-              <th>{text.columns.findings}</th>
-              <th>{text.columns.status}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortRuleStats(result.ruleStats).map((stat) => {
-              const entry =
-                ruleTexts !== null && Object.hasOwn(ruleTexts, stat.ruleId)
-                  ? ruleTexts[stat.ruleId]
-                  : undefined;
-              return (
-                <tr key={`${stat.ruleId}:${stat.area}`}>
-                  <td data-label={text.columns.rule}>
-                    <code>{stat.ruleId}</code>
-                    {entry === undefined ? null : (
-                      <span className="muted small"> {entry.title[language]}</span>
-                    )}
-                  </td>
-                  <td data-label={text.columns.area}>
-                    <code>{stat.area}</code>
-                  </td>
-                  <td data-label={text.columns.targets}>
-                    {stat.targets
-                      .map((target) =>
-                        target.examined === null
-                          ? text.targetUnknown(target.reason ?? m.common.unknown)
-                          : text.targetCount(target.examined, target.unit),
-                      )
-                      .join(", ")}
-                  </td>
-                  <td data-label={text.columns.findings}>{stat.findings}</td>
-                  <td data-label={text.columns.status}>
-                    <span className={`badge badge-${stat.status}`}>
-                      {statusLabels[stat.status] ?? m.status.unknownStatus}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </details>
-    </Card>
+    <Section title={text.summary(result.ruleStats.length)} help={<p>{text.note}</p>}>
+      <table className="table rule-stats-table">
+        <thead>
+          <tr>
+            <th>{text.columns.rule}</th>
+            <th>{text.columns.area}</th>
+            <th>{text.columns.targets}</th>
+            <th>{text.columns.findings}</th>
+            <th>{text.columns.status}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortRuleStats(result.ruleStats).map((stat) => {
+            const entry =
+              ruleTexts !== null && Object.hasOwn(ruleTexts, stat.ruleId)
+                ? ruleTexts[stat.ruleId]
+                : undefined;
+            return (
+              <tr key={`${stat.ruleId}:${stat.area}`}>
+                <td data-label={text.columns.rule}>
+                  <code>{stat.ruleId}</code>
+                  {entry === undefined ? null : (
+                    <span className="muted small"> {entry.title[language]}</span>
+                  )}
+                </td>
+                <td data-label={text.columns.area}>
+                  <code>{stat.area}</code>
+                </td>
+                <td data-label={text.columns.targets}>
+                  {stat.targets
+                    .map((target) =>
+                      target.examined === null
+                        ? text.targetUnknown(target.reason ?? m.common.unknown)
+                        : text.targetCount(target.examined, target.unit),
+                    )
+                    .join(", ")}
+                </td>
+                <td data-label={text.columns.findings} className="num">
+                  {stat.findings}
+                </td>
+                <td data-label={text.columns.status}>
+                  <Badge kind={stat.status}>
+                    {statusLabels[stat.status] ?? m.status.unknownStatus}
+                  </Badge>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Section>
   );
 }

@@ -18,7 +18,8 @@
     "dist"
   ],
   "scripts": {
-    "build:client": "node ../../node_modules/typescript/bin/tsc -p tsconfig.client.json && vite build --config vite.config.ts"
+    "build:client": "node ../../node_modules/typescript/bin/tsc -p tsconfig.client.json && vite build --config vite.config.ts",
+    "preview:mock": "node dev/mock-server.mjs"
   },
   "dependencies": {
     "@pgard/findings": "0.1.0",

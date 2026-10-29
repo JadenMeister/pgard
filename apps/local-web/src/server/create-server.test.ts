@@ -20,7 +20,7 @@ import {
 } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderHtmlReport, renderReport } from "@pgard/report";
-import type { RuleTextsDto } from "../shared/api-types.js";
+import type { RuleTextsDto, ScanStatus } from "../shared/api-types.js";
 import type { ServerDeps } from "./deps.js";
 import { reportDownloadName } from "./routes/api.js";
 import { setAuth } from "./session/session-state.js";
@@ -893,6 +893,40 @@ describe("local web report download", () => {
     expect(response.body).toContain('rel="noopener noreferrer"');
     // Redaction is preserved: the evidence is the already redacted text.
     expect(response.body).toContain("credential assignment in a tracked file (value redacted)");
+  });
+
+  it("exports every finding, whatever page the dashboard shows", async () => {
+    // The dashboard lists findings 25 at a time; the scan status and the report carry them all.
+    const findings = Array.from({ length: 240 }, (_, index) => ({
+      id: `f${index}`,
+      ruleId: "PG-SECRET-002",
+      title: `Paged finding ${index}`,
+      severity: "high" as const,
+      status: "suspected" as const,
+      category: "injection" as const,
+      references: { cwe: [], owasp: [], cve: [] },
+      confidence: "low" as const,
+      location: {
+        kind: "file" as const,
+        path: `src/f${index}.ts`,
+        line: 1,
+        commit: null,
+        url: null,
+      },
+      evidence: "value redacted",
+      impact: "impact",
+      recommendation: "rotate",
+      sources: ["code" as const],
+    }));
+    const running = await start(fakeDeps({ runScan: async () => result({ findings }) }));
+    await runScan(running);
+    const status = JSON.parse((await apiGet(running, "/api/scan")).body) as ScanStatus;
+    expect(status.result?.findings).toHaveLength(240);
+    const report = await apiGet(running, "/api/reports/html");
+    expect(report.status).toBe(200);
+    for (const entry of findings) {
+      expect(report.body).toContain(`src/${entry.id}.ts`);
+    }
   });
 
   it("serves only rule texts on /api/rule-texts and needs the token", async () => {
