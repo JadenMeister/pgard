@@ -183,7 +183,10 @@ export type RuleTextsResponse = Record<string, RuleTextsDto>;
  * it is stored. Read from local files only; the dashboard never downloads advisory data.
  */
 export interface AdvisoryStatusDto {
-  /** `none` when any ecosystem has no data; otherwise `damaged`, `stale` or `fresh`. */
+  /**
+   * `none` when any ecosystem has no data (or there is no data folder); `unreadable` when the
+   * status could not be read; otherwise `damaged`, `stale` or `fresh`.
+   */
   overall: "none" | "fresh" | "stale" | "damaged" | "unreadable";
   /** Days after which data counts as stale (the same rule as `pgard doctor`). */
   staleAfterDays: number;

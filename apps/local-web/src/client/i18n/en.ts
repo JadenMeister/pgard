@@ -214,6 +214,8 @@ export const en = {
           ? `${name}: none`
           : `${name}: downloaded ${date}${days === null ? "" : ` (${days} ${days === 1 ? "day" : "days"} old)`}${newest === null ? "" : `, newest record ${newest}`}${version === null ? "" : `, data version ${version}`}`,
       store: (path: string): string => `Stored in ${path}.`,
+      storeElsewhere:
+        "The folder is outside your home directory, so its path is hidden; the README lists where each system keeps it.",
     },
     scope: "Scope",
     scopes: {

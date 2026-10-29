@@ -32,7 +32,10 @@ export function AdvisoryStatusView({ status }: { status: AdvisoryStatusDto }) {
     if (state === "stale") parts.push(text.staleHint(status.staleAfterDays));
     if (state === "damaged") parts.push(text.damagedHint);
   }
-  if (status.storePath !== null) parts.push(text.store(status.storePath));
+  if (status.storePath !== null) {
+    parts.push(text.store(status.storePath));
+    if (status.storePath.includes("<absolute-path>")) parts.push(text.storeElsewhere);
+  }
   return (
     <Notice tone={status.overall === "fresh" ? "info" : "warning"}>
       <strong>{text.label}:</strong> {parts.join(" ")}

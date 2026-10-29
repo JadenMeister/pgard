@@ -119,4 +119,14 @@ describe("AdvisoryStatusView", () => {
     });
     expect(html).toContain("the download or its newest record is 7 or more days old");
   });
+
+  it("points to the README when the store path was hidden", () => {
+    const html = render("en", {
+      overall: "fresh",
+      staleAfterDays: 7,
+      storePath: "<absolute-path>",
+      ecosystems: [ecosystem],
+    });
+    expect(html).toContain("the README lists where each system keeps it");
+  });
 });

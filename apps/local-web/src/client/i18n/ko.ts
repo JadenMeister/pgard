@@ -201,6 +201,8 @@ export const ko: Messages = {
           ? `${name}: 없음`
           : `${name}: ${date} 내려받음${days === null ? "" : ` (${days}일 전)`}${newest === null ? "" : `, 가장 최근 레코드 ${newest}`}${version === null ? "" : `, 데이터 버전 ${version}`}`,
       store: (path: string): string => `저장 위치: ${path}.`,
+      storeElsewhere:
+        "이 폴더는 홈 디렉터리 밖에 있어 경로를 가렸습니다. 시스템별 위치는 README에 있습니다.",
     },
     scope: "범위",
     scopes: {

@@ -105,8 +105,8 @@ const getRuleTexts: ApiHandler = async () => {
 };
 
 /**
- * The state of the downloaded advisory data, from local metadata only. No home directory or an
- * unreadable store reads as "unreadable" and a missing one as "none".
+ * The state of the downloaded advisory data, from local metadata only. No home directory (no
+ * store path) or a missing store reads as "none"; a store that cannot be read reads as "unreadable".
  */
 const getAdvisoryStatus: ApiHandler = async (context) => {
   const dir = context.deps.advisoryDataDir ?? null;
