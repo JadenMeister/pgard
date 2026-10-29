@@ -1,7 +1,45 @@
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { createInMemoryCredentialStore } from "@pgard/scan-core";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { createTestContext, createTestDeps, createTestIo } from "../test-support.js";
 import { isSupportedNodeVersion, runDoctor } from "./doctor.js";
+
+const scratch: string[] = [];
+afterEach(async () => {
+  for (const dir of scratch.splice(0)) await rm(dir, { recursive: true, force: true });
+});
+
+/** A one-ecosystem OSV store in a scratch folder (never the real per-user folder). */
+async function fixtureStore(fetchedAt: string, modifiedMax: string): Promise<string> {
+  const appData = await mkdtemp(path.join(tmpdir(), "pgard-doctor-"));
+  scratch.push(appData);
+  const bytes = Buffer.from("fixture");
+  for (const ecosystem of ["npm", "Go"]) {
+    const dir = path.join(appData, "advisories", "osv", ecosystem);
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, "advisories.jsonl.gz"), bytes);
+    const meta = {
+      schema: 1,
+      ecosystem,
+      sourceUrl: "https://example.invalid/fixture.zip",
+      fetchedAt,
+      archive: {
+        bytes: 1,
+        sha256: createHash("sha256").update(ecosystem).digest("hex"),
+        lastModified: null,
+        etag: null,
+      },
+      counts: { entries: 0, advisories: 0, malware: 0, withdrawn: 0, skipped: 0 },
+      modifiedRange: { min: "2026-01-01T00:00:00Z", max: modifiedMax },
+      files: { "advisories.jsonl.gz": { bytes: bytes.length, sha256: "b".repeat(64) } },
+    };
+    await writeFile(path.join(dir, "meta.json"), JSON.stringify(meta));
+  }
+  return appData;
+}
 
 describe("runDoctor", () => {
   it("shows the built-in PGARD App when no override is set, and exits 0", async () => {
@@ -73,6 +111,7 @@ describe("runDoctor", () => {
         ageDays,
         modifiedMax: null,
         dataAgeDays: null,
+        dataVersion: null,
       })),
     });
     const fresh = createTestIo();
@@ -103,6 +142,7 @@ describe("runDoctor", () => {
           ageDays: 1,
           modifiedMax: "2024-01-01T00:00:00Z",
           dataAgeDays: 300,
+          dataVersion: null,
         },
       ],
     });
@@ -117,6 +157,58 @@ describe("runDoctor", () => {
       ruleLocale: "ko",
     });
     expect(ko.stdout()).toContain("가장 최근 레코드 2024-01-01, 300일 전");
+  });
+
+  it("shows present data with age, version and the store path from a fixture store (EN)", async () => {
+    const appData = await fixtureStore("2026-10-27T08:00:00.000Z", "2026-10-26T00:00:00Z");
+    const now = Date.parse("2026-10-29T08:00:00.000Z");
+    const captured = createTestIo();
+    await runDoctor(
+      createTestContext(captured, createTestDeps({ appDataDir: appData, now: () => now })),
+    );
+    const stdout = captured.stdout();
+    const version = `1:${createHash("sha256").update("npm").digest("hex").slice(0, 12)}`;
+    expect(stdout).toContain(
+      `[ok]   Advisory data (OSV): npm 2026-10-27 (2 days old; newest record 2026-10-26, 3 days old; data version ${version})`,
+    );
+    expect(stdout).toMatch(
+      /\[ok\] {3}Advisory data store: .* \(present; delete this folder to remove the data\)/,
+    );
+    expect(stdout).not.toContain(appData);
+  });
+
+  it("marks a fixture store stale after 7 days and says so in Korean", async () => {
+    const appData = await fixtureStore("2026-10-01T08:00:00.000Z", "2026-10-01T00:00:00Z");
+    const now = Date.parse("2026-10-29T08:00:00.000Z");
+    const captured = createTestIo();
+    await runDoctor({
+      ...createTestContext(captured, createTestDeps({ appDataDir: appData, now: () => now })),
+      ruleLocale: "ko",
+    });
+    const stdout = captured.stdout();
+    expect(stdout).toContain("[warn] 취약점 데이터 (OSV): 오래됨: npm 2026-10-01 (28일 전");
+    expect(stdout).toContain("데이터 버전 1:");
+    expect(stdout).toMatch(/\[ok\] {3}취약점 데이터 저장 위치: .* \(있음\./);
+    expect(stdout).not.toContain(appData);
+  });
+
+  it("reports a missing store with its path (home shown as ~) in English and Korean", async () => {
+    const home = process.platform === "win32" ? "C:\\Users\\tester" : "/Users/tester";
+    const appData = path.join(home, "pgard-data");
+    const en = createTestIo();
+    await runDoctor(createTestContext(en, createTestDeps({ appDataDir: appData })));
+    expect(en.stdout()).toMatch(
+      /\[warn\] Advisory data store: ~.*osv \(missing; nothing downloaded yet, `pgard advisories update` creates it\)/,
+    );
+    expect(en.stdout()).not.toContain("tester");
+    const ko = createTestIo();
+    await runDoctor({
+      ...createTestContext(ko, createTestDeps({ appDataDir: appData })),
+      ruleLocale: "ko",
+    });
+    expect(ko.stdout()).toMatch(/\[warn\] 취약점 데이터 저장 위치: ~.*osv \(없음\./);
+    expect(ko.stdout()).not.toContain("tester");
+    expect(ko.stdout()).toContain("없음: npm 없음, Go 없음");
   });
 
   it("says where advisory data cannot be stored when there is no home directory", async () => {

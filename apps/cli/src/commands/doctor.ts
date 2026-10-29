@@ -5,6 +5,8 @@ import {
   type ResolvedGitHubAppClientId,
   type StoredSignInStatus,
 } from "@pgard/scan-core";
+import { osvDataDir } from "@pgard/dependencies";
+import { scrubAbsolutePaths } from "@pgard/findings";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
@@ -114,19 +116,22 @@ async function describeStoredSignIn(
   return { isOk: false, detail: text.signInExpired(login) };
 }
 
-/** Age of the downloaded OSV data, from local metadata only (no network). */
-async function describeAdvisoryData(context: CommandContext, t: CliText): Promise<DoctorCheck> {
+/**
+ * The downloaded OSV data: its age, whether it is stale, its version and where it is stored. Local
+ * files only (no network). The path goes through `safeText` like every other path doctor prints.
+ */
+async function describeAdvisoryData(context: CommandContext, t: CliText): Promise<DoctorCheck[]> {
   const text = t.commands.doctor;
   const label = text.labels.advisories;
   const appDataDir = context.deps.appDataDir;
   if (appDataDir === null) {
-    return { label, isOk: false, detail: text.advisoryNoHome, isRequired: false };
+    return [{ label, isOk: false, detail: text.advisoryNoHome, isRequired: false }];
   }
   let status;
   try {
     status = await context.deps.readAdvisoryStatus(appDataDir, context.deps.now());
   } catch {
-    return { label, isOk: false, detail: text.advisoryUnreadable, isRequired: false };
+    return [{ label, isOk: false, detail: text.advisoryUnreadable, isRequired: false }];
   }
   const ages = status.ecosystems
     .map((entry) =>
@@ -139,19 +144,31 @@ async function describeAdvisoryData(context: CommandContext, t: CliText): Promis
             entry.state === "damaged",
             entry.modifiedMax === null ? null : entry.modifiedMax.slice(0, 10),
             entry.dataAgeDays,
+            entry.dataVersion,
           ),
     )
     .join(", ");
-  switch (status.overall) {
-    case "fresh":
-      return { label, isOk: true, detail: ages, isRequired: false };
-    case "stale":
-      return { label, isOk: false, detail: text.advisoryStale(ages), isRequired: false };
-    case "damaged":
-      return { label, isOk: false, detail: text.advisoryDamaged(ages), isRequired: false };
-    case "none":
-      return { label, isOk: false, detail: text.advisoryMissing(ages), isRequired: false };
-  }
+  const detail =
+    status.overall === "fresh"
+      ? ages
+      : status.overall === "stale"
+        ? text.advisoryStale(ages)
+        : status.overall === "damaged"
+          ? text.advisoryDamaged(ages)
+          : text.advisoryMissing(ages);
+  const isPresent = status.ecosystems.some((entry) => entry.fetchedAt !== null);
+  return [
+    { label, isOk: status.overall === "fresh", detail, isRequired: false },
+    {
+      label: text.labels.advisoryStore,
+      isOk: isPresent,
+      detail: text.advisoryStore(
+        safeText(scrubAbsolutePaths(osvDataDir(appDataDir)), 300),
+        isPresent,
+      ),
+      isRequired: false,
+    },
+  ];
 }
 
 /**
@@ -197,7 +214,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
     },
     describeGitHubApp(app, t),
     { label: text.labels.signIn, ...signIn, isRequired: false },
-    await describeAdvisoryData(context, t),
+    ...(await describeAdvisoryData(context, t)),
     {
       label: text.labels.ports,
       isOk: discovery.isAvailable,

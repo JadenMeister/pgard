@@ -23,7 +23,8 @@ In scope, for the latest code on `main` and the latest release once one exists:
 - The local dashboard: its `127.0.0.1` binding, session token, `Host` and `Origin` checks, Content-Security-Policy, and anything that lets a web page or another local user read or drive it.
 - The local web checks sending anything other than anonymous `GET` or `HEAD` requests to `127.0.0.1`.
 - Reading or writing files outside what PGARD documents, unsafe handling of stored results, reports, symbolic links or paths.
-- Anything that makes PGARD send your code or results off your computer.
+- Anything that makes PGARD send your code, lockfile contents or results off your computer. This includes `pgard scan` and `pgard sbom`, which must contact GitHub only (sign-in and authorization metadata).
+- `pgard advisories update` contacting any host other than `osv-vulnerabilities.storage.googleapis.com`, sending anything, running during a scan, or accepting a download that fails its integrity checks (zip structure, per-record checksums, size and time limits, the replayed-archive guard). The download has no published checksum, so its integrity rests on https to that pinned host; see the README section "Privacy and network traffic".
 
 Out of scope:
 

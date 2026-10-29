@@ -295,7 +295,7 @@
   CWE Top 25 2025: 규칙 실행됨 2, 규칙 일부 실행 0, 실행 안 됨 4, 규칙 없음 19
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json (standardsCoverage, ruleStats).
 
-<b>PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력, 그리고 선택한 경우 로컬 HTTP 검사에서 나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.</b></code></pre>
+<b>PGARD는 취약점 데이터베이스를 포함하지 않으며 검사는 이를 내려받거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력, 선택한 경우 로컬 HTTP 검사, 그리고 npm과 Go lockfile에 대해 pgard advisories update로 내려받은 OSV 데이터와의 버전 비교에서 나옵니다(취약한 코드에 도달하거나 악용할 수 있다는 증거는 아닙니다). 그 데이터가 없으면 의존성 영역은 검사하지 않음으로 보고됩니다.</b></code></pre>
               </figure>
             </div>
             <div class="tabpanel" role="tabpanel" id="panel-1" hidden aria-labelledby="tab-1">
@@ -441,7 +441,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
   - Remote (non-loopback) web services
   - Authenticated (logged-in) web browsing
   - Form submission and other state-changing requests
-  - Known-vulnerability (CVE/advisory) lookups for dependencies: PGARD ships no vulnerability database</code></pre>
+  - Dependency advisories for ecosystems other than npm and Go (Python, Java, PHP, Rust, ...)</code></pre>
               </figure>
             </div>
             <div class="tabpanel" role="tabpanel" id="panel-3" hidden aria-labelledby="tab-3">
@@ -482,7 +482,11 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
 
 <b>The target is always the Git root of the current directory. Every scan re-runs the</b>
 <b>authorization gate; only the GitHub sign-in is reused. Code and results are</b>
-<b>processed locally; PGARD contacts GitHub for sign-in and repository metadata only.</b>
+<b>processed locally and never uploaded; scans and pgard sbom contact GitHub for</b>
+<b>sign-in and authorization metadata only (github.com, api.github.com), including</b>
+<b>the owner/name of the repository's GitHub remote and local commit SHAs. The one</b>
+<b>other destination is osv-vulnerabilities.storage.googleapis.com, and only when</b>
+<b>you run pgard advisories update.</b>
 <b>GitHub pages open in the browser automatically when stdout is a terminal; pass</b>
 <b>--no-browser to scan, project verify, login or dashboard to only print the links.</b>
 
@@ -814,8 +818,13 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
             </svg>
             <h3>네트워크로 나가는 것</h3>
             <ul>
-              <li>GitHub: 로그인과 권한 확인 메타데이터, 로컬 커밋 SHA 포함</li>
-              <li>OSV 데이터: 사용자가 <code>pgard advisories update</code>를 실행할 때만</li>
+              <li>
+                GitHub: 로그인과 권한 확인 메타데이터, 저장소 소유자/이름과 로컬 커밋 SHA 포함
+              </li>
+              <li>
+                OSV 공개 데이터(내려받기만 하고 아무것도 보내지 않음): 사용자가
+                <code>pgard advisories update</code>를 실행할 때만
+              </li>
               <li>루프백: 로컬 포트마다 GET / 한 번</li>
             </ul>
           </div>
@@ -848,7 +857,10 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
               <b>검사 범위</b><span>부분 검사는 그대로 표시하고 종료 코드 4로 끝납니다.</span>
             </li>
             <li><b>언어</b><span>Java와 Kotlin은 일곱 분류, Python과 PHP는 두 분류만.</span></li>
-            <li><b>의존성</b><span>알려진 취약점(CVE, OSV) 대조는 아직 없습니다.</span></li>
+            <li>
+              <b>의존성</b
+              ><span>npm과 Go만, 직접 내려받은 OSV 데이터와 버전 범위로 대조합니다.</span>
+            </li>
             <li>
               <b>원격</b
               ><span
@@ -861,7 +873,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
           </ul>
         </div>
         <p class="sec-note">
-          다음 주제(일정 없음): 더 많은 언어와 분류, 의존성과 취약점 권고 대조, pre-commit 검사.
+          다음 주제(일정 없음): 더 많은 언어와 분류, 더 많은 의존성 생태계, pre-commit 검사.
           <a href="https://github.com/JadenMeister/pgard/issues" rel="noopener">열린 이슈</a>
         </p>
       </section>

@@ -17,6 +17,7 @@ import {
   type CredentialStore,
   type DeviceUserCode,
   type GitHubSessionProvider,
+  readAdvisoryStatus,
   type SignInNotice,
   type WebScanner,
 } from "@pgard/scan-core";
@@ -51,6 +52,8 @@ export interface ServerDeps {
    * written) by the dependency check of a scan. `null`/absent: no advisory data can be read.
    */
   advisoryDataDir?: string | null;
+  /** Reads the status of that data (local files only). Defaults to the real reader. */
+  readAdvisoryStatus?: typeof readAdvisoryStatus;
 }
 
 /** Client id (or the fixed reason a malformed override blocks) for the session provider. */

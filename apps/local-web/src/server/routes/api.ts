@@ -3,6 +3,7 @@ import {
   buildRuleTextCatalog,
   RULE_LOCALES,
   SCAN_SCOPES,
+  scrubAbsolutePaths,
   type RuleLocale,
   type RuleTextCatalog,
   type ScanResult,
@@ -17,13 +18,16 @@ import {
 } from "@pgard/http-local";
 import { ReportWriteError } from "@pgard/report";
 import {
+  ADVISORY_STALE_AFTER_DAYS,
   accessNoteFor,
   GITHUB_APP_AUTHORIZATIONS_URL,
   guidedInstallRemedy,
   isAuthorizationAllowed,
   isOpenableGitHubUrl,
   mixedAppOverrideWarning,
+  osvDataDir,
   PGARD_VERSION,
+  readAdvisoryStatus,
   resolveGitHubAppClientId,
   resolveKeychainClientId,
   removeStoredSignIn,
@@ -33,6 +37,7 @@ import {
   type OwnerApprovalRemedy,
 } from "@pgard/scan-core";
 import type {
+  AdvisoryStatusDto,
   AuthStatus,
   InstallRemedyDto,
   OwnerApprovalRecheckDto,
@@ -97,6 +102,37 @@ const getRuleTexts: ApiHandler = async () => {
   const texts: RuleTextsResponse = {};
   for (const [id, entry] of getRuleTextCatalog()) texts[id] = entry;
   return texts;
+};
+
+/**
+ * The state of the downloaded advisory data, from local metadata only. No home directory (no
+ * store path) or a missing store reads as "none"; a store that cannot be read reads as "unreadable".
+ */
+const getAdvisoryStatus: ApiHandler = async (context) => {
+  const dir = context.deps.advisoryDataDir ?? null;
+  const empty: AdvisoryStatusDto = {
+    overall: "none",
+    staleAfterDays: ADVISORY_STALE_AFTER_DAYS,
+    storePath: null,
+    ecosystems: [],
+  };
+  if (dir === null) return empty;
+  // The browser never gets an absolute path: the home directory shows as `~`.
+  const storePath = scrubAbsolutePaths(osvDataDir(dir)).slice(0, 300);
+  try {
+    const status = await (context.deps.readAdvisoryStatus ?? readAdvisoryStatus)(
+      dir,
+      context.deps.now(),
+    );
+    return {
+      overall: status.overall,
+      staleAfterDays: ADVISORY_STALE_AFTER_DAYS,
+      storePath,
+      ecosystems: status.ecosystems.map((entry) => ({ ...entry })),
+    };
+  } catch {
+    return { ...empty, overall: "unreadable", storePath };
+  }
 };
 
 function readReportLang(query: URLSearchParams): RuleLocale {
@@ -676,6 +712,7 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "POST /api/scan": startScan,
   "POST /api/scan/cancel": cancelScan,
   "GET /api/rule-texts": getRuleTexts,
+  "GET /api/advisory-status": getAdvisoryStatus,
   "GET /api/reports/html": downloadReport("html"),
   "GET /api/reports/pdf": downloadReport("pdf"),
 };

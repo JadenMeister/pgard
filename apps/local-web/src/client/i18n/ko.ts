@@ -39,7 +39,8 @@ export const ko: Messages = {
   legal: {
     points: [
       "검사 데이터는 이 컴퓨터에서 한 번만 처리됩니다. PGARD는 소스 코드나 결과를 어떤 서버로도 업로드하지 않습니다.",
-      "외부 네트워크 통신은 GitHub로만 나갑니다. github.com의 device flow 로그인(저장된 로그인 갱신 포함)과, 권한 확인에 필요한 정보(사용자 신원, App 설치, 접근 권한, 기여)를 읽는 GitHub API 호출입니다. 기여를 확인하기 위해 PGARD는 로컬 커밋의 SHA를 GitHub로 보냅니다. pgard doctor 명령도 api.github.com에 접근할 수 있는지 확인합니다.",
+      "PGARD는 GitHub와 통신합니다. github.com의 device flow 로그인(저장된 로그인 갱신 포함)과, 권한 확인에 필요한 정보(저장소의 GitHub remote 소유자/이름, 사용자 신원, App 설치, 조직 멤버십, 접근 권한, 기여)를 읽는 api.github.com의 GitHub API 호출입니다. 기여를 확인하기 위해 PGARD는 로컬 커밋의 SHA를 GitHub로 보냅니다. pgard doctor 명령도 api.github.com에 접근할 수 있는지 확인합니다.",
+      "그 밖의 유일한 외부 대상은 osv-vulnerabilities.storage.googleapis.com이며, 터미널에서 pgard advisories update를 직접 실행할 때만 접속합니다. 공개 OSV 취약점 데이터를 https로 내려받기만 하고 아무것도 올리지 않습니다(패키지 이름, lockfile 내용, GitHub 로그인 모두 보내지 않음). 내려받은 데이터는 검증(zip 구조, 레코드별 체크섬, 크기·시간 제한)한 뒤 사용자 데이터 폴더의 advisories/osv에 저장하며, 무결성은 고정된 호스트에 대한 https에 의존합니다. 검사, SBOM 생성, 이 대시보드는 이 다운로드를 시작하지 않으며 코드, lockfile, 결과를 어디로도 보내지 않습니다.",
       "권한 확인을 통과하면 PGARD는 탐지된 각 수신 포트(127.0.0.1)에 GET / 요청을 한 번씩 보내 서비스 정체를 보여 줍니다.",
       "PGARD는 취약점 데이터베이스를 포함하지 않으며 스캔은 이를 내려받거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력, 선택한 경우 로컬 HTTP 검사, 그리고 npm과 Go lockfile에 대해 pgard advisories update로 내려받은 OSV 데이터와의 버전 비교에서 나옵니다(취약한 코드에 도달하거나 악용할 수 있다는 증거는 아닙니다).",
       "GitHub 로그인은 OS 키체인(macOS 키체인, Windows 자격 증명 관리자, Linux Secret Service)에 저장되며 파일에는 저장하지 않으므로 CLI와 대시보드가 다시 사용할 수 있습니다. 로그인은 로컬 PGARD 프로세스 안에만 있고 브라우저로 보내지 않습니다. 키체인이 없으면 메모리에만 보관합니다. 삭제하려면 pgard logout을 쓰거나, 대시보드에서 키체인의 로그인까지 지우는 로그아웃을 사용하세요.",
@@ -174,6 +175,35 @@ export const ko: Messages = {
     },
   },
   scan: {
+    advisory: {
+      label: "취약점 데이터 (OSV)",
+      missing:
+        "없음. 터미널에서 `pgard advisories update`를 실행하기 전까지 의존성 검사는 검사하지 않음으로 보고됩니다(공개 OSV 데이터를 내려받으며 아무것도 올리지 않습니다).",
+      state: {
+        fresh: "있음, 최신",
+        stale: "있음, 오래됨",
+        damaged: "있음, 손상됨",
+        partial: "일부만 있음: 데이터가 없는 생태계가 있습니다",
+      },
+      unreadable:
+        "읽을 수 없었습니다. `pgard advisories update`로 교체하세요(공개 OSV 데이터를 내려받으며 아무것도 올리지 않습니다).",
+      staleHint: (days: number): string =>
+        `내려받은 시점이나 가장 최근 레코드가 ${days}일 이상 지나면 오래된 데이터로 봅니다. \`pgard advisories update\`로 갱신하세요(대시보드는 내려받지 않습니다).`,
+      damagedHint: "`pgard advisories update`로 교체하세요.",
+      ecosystem: (
+        name: string,
+        date: string | null,
+        days: number | null,
+        newest: string | null,
+        version: string | null,
+      ): string =>
+        date === null
+          ? `${name}: 없음`
+          : `${name}: ${date} 내려받음${days === null ? "" : ` (${days}일 전)`}${newest === null ? "" : `, 가장 최근 레코드 ${newest}`}${version === null ? "" : `, 데이터 버전 ${version}`}`,
+      store: (path: string): string => `저장 위치: ${path}.`,
+      storeElsewhere:
+        "이 폴더는 홈 디렉터리 밖에 있어 경로를 가렸습니다. 시스템별 위치는 README에 있습니다.",
+    },
     scope: "범위",
     scopes: {
       code: { label: "코드", hint: "현재 코드와 설정" },

@@ -68,7 +68,7 @@ export class ScanRequestError extends Error {
 }
 
 /**
- * PGARD does not ship or query a vulnerability database. The JSON v1 `advisoryDb` field is kept
+ * PGARD ships no vulnerability database (OSV data is user-downloaded and matched locally). The JSON v1 `advisoryDb` field is kept
  * for compatibility and is always empty.
  */
 const NO_ADVISORY_DB: AdvisoryDbInfo = { version: null, updatedAt: null };
