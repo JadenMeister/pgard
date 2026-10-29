@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.4`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.5`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.4`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.5`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -51,6 +51,8 @@
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
 
 ## 버전 이력
+
+**1.5**(추가만 있는 변경, minor 올림). 발견 항목에 선택 필드 `dependency`가 추가되었습니다. `PG-DEP-001` 발견 항목(고정된 의존성 버전이 로컬 OSV 데이터의 공개 권고 영향 범위 안에 있음)에만 있으며 `{ ecosystem, name, version, dev?, direct?, advisoryId, aliases, affectedRange, fixedVersions, severitySource, score?, vector? }` 형식입니다. `advisoryId`는 대표 ID(GHSA, GO, 나머지 순)이고 `aliases`는 같은 문제의 다른 ID(CVE, GHSA, GO)입니다. `affectedRange`는 해당 버전이 속한 범위(`>=1.0.0 <1.2.3`, `all versions`), `fixedVersions`는 `version`보다 높은 수정 버전(공개된 것이 없으면 빈 배열)입니다. `severitySource`는 `cvss`(발견 항목의 심각도가 `vector`로 계산한 CVSS v3 기본 점수 `score`에서 나옴), `database`(권고 데이터베이스 자체의 등급), `unknown`(둘 다 없음, 발견 항목은 `medium`)이며 닫힌 열거형입니다. `dev: true`는 lockfile이 개발 전용이라고 알려 줄 때만 붙고, lockfile이 알려 주지 않으면 `direct`는 없습니다. 이 필드는 버전 범위 일치를 기록할 뿐 악용 가능성이나 도달 가능성을 뜻하지 않습니다. 기존 필드는 바뀌지 않습니다. 발견 항목의 `category`는 기존의 `misconfiguration`, `status`는 `suspected`, `location`은 `line: null`인 lockfile이며, 지문은 규칙, lockfile 경로, 원인 `<ecosystem>:<name>@<version>:<advisoryId>`로 만들어 데이터 버전에 의존하지 않습니다. 검사는 `code` 범위에 `deps:<ecosystem>`(그리고 규칙 없는 `deps:unsupported`) 커버리지 영역도 보고합니다. `1.4` 이하 결과에는 이 필드가 없으며, 읽는 쪽은 이를 "기록되지 않음"으로 취급합니다.
 
 **1.4**(추가만 있는 변경, minor 올림). 발견 항목의 `references`에 선택 필드 `cert`가 추가되었습니다. 발견 항목의 규칙이 직접 다루는 SEI CERT Oracle Java 규칙 id(`IDS00-J`)입니다. 이런 매핑이 있는 규칙의 `.java`, `.kt` 파일 발견 항목에만 들어가며 그 밖에는 없습니다(다른 언어는 규칙 상세에서 CWE를 거쳐 CERT에 간접으로만 연결됩니다). 상호 참조일 뿐 준수(compliance) 주장이 아닙니다. `1.3` 이하 결과에는 이 필드가 없으며, 읽는 쪽은 이를 "기록되지 않음"으로 다룹니다.
 

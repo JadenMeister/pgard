@@ -155,6 +155,12 @@ function webUrl(raw: string | null): string {
 
 function normalizeEvidence(finding: Finding, family: Family): string {
   if (finding.ruleId === HYGIENE_RULE) return "";
+  // A dependency finding is the same issue as long as package, version and advisory are the same;
+  // its evidence (range, fixed versions, severity) follows the advisory data and may change.
+  if (finding.dependency !== undefined) {
+    const { ecosystem, name, version, advisoryId } = finding.dependency;
+    return `${ecosystem}:${name}@${version}:${advisoryId}`;
+  }
   // Redact again: the stored text should already be clean, but identity must never depend on
   // (or hash) anything a redactor would have removed.
   let text = redactEvidence(finding.evidence);

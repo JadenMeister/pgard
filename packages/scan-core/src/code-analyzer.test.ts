@@ -140,7 +140,7 @@ describe("code scope wiring", () => {
         }),
       ]);
       expect(result.coverage.find((entry) => entry.area === "deps:npm")?.status).toBe("completed");
-      expect(result.ruleStats.some((stat) => stat.area === "deps:npm")).toBe(true);
+      expect((result.ruleStats ?? []).some((stat) => stat.area === "deps:npm")).toBe(true);
       expect(result.overallStatus).toBe("completed");
       expect(JSON.stringify(result)).not.toContain(root as string);
     } finally {

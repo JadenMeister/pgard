@@ -2,7 +2,7 @@
 
 > [한국어](RESULT_SCHEMA.ko.md) translation available. This English file is the reference; the translation follows it.
 
-The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.4`. This document says when that version changes and what a reader must do with a version it did not write.
+The scan result (`ScanResult` in `packages/findings/src/contract.ts`) carries a `schemaVersion` in `major.minor` form. The current version is `1.5`. This document says when that version changes and what a reader must do with a version it did not write.
 
 ## Version rules
 
@@ -26,7 +26,7 @@ Readers ignore fields they do not know. Anything that reads a result back (store
 
 | Input version                 | Behaviour                                                                                                                           |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Same (`1.4`)                  | Accepted.                                                                                                                           |
+| Same (`1.5`)                  | Accepted.                                                                                                                           |
 | Older minor of the same major | Accepted. Fields added later are absent; the shape is still valid.                                                                  |
 | Newer minor of the same major | Accepted. Unknown fields are ignored (the reader drops them). `sourceVersion` reports the version the file carried.                 |
 | Other major                   | Refused with `version_unsupported_major` and a message naming the version. The reader never tries to convert or guess.              |
@@ -51,6 +51,8 @@ Strings are length-capped but not sanitized. Evidence, titles and notes can cont
 `Finding.id` is a stable fingerprint of rule, location and cause. Stored results are compared with later scans by this id, so it is part of the contract even though its type is only `string`. Changing how it is derived makes ids from older results stop matching, so such a change is a **major** version change. Its type or the rule that it never contains secret values cannot change within a major version either.
 
 ## Version history
+
+**1.5** (additive; a minor bump). One optional field on a finding, `dependency`, present only on `PG-DEP-001` findings (a pinned dependency version inside a published advisory's affected range, from the local OSV data): `{ ecosystem, name, version, dev?, direct?, advisoryId, aliases, affectedRange, fixedVersions, severitySource, score?, vector? }`. `advisoryId` is the primary id (GHSA before GO before the rest) and `aliases` the other ids of the same issue (CVE, GHSA, GO). `affectedRange` is the range the version is in (`>=1.0.0 <1.2.3`, `all versions`), `fixedVersions` the fixed versions newer than `version` (empty when none is published). `severitySource` is `cvss` (the finding's severity comes from the CVSS v3 base score `score`, computed from `vector`), `database` (the advisory database's own label) or `unknown` (neither exists; the finding is `medium`); it is a closed enum. `dev: true` only when the lockfile says the package is development-only; `direct` is absent when the lockfile does not say. It records a version-range match, never exploitability or reachability. No existing field changed: the finding's `category` is the existing `misconfiguration`, its `status` is `suspected`, its `location` is the lockfile with `line: null`, and the fingerprint is built from rule, lockfile path and the cause `<ecosystem>:<name>@<version>:<advisoryId>`, so it does not depend on the data version. The scan also reports `deps:<ecosystem>` (and rule-less `deps:unsupported`) coverage areas in the `code` scope. Results of `1.4` and older have no such field, and a reader treats that as "not recorded".
 
 **1.4** (additive; a minor bump). One optional field on a finding's `references`, `cert`: the SEI CERT Oracle Java rule ids (`IDS00-J`) that the finding's rule is directly about. It is present only on findings in `.java` and `.kt` files whose rule has such a mapping, and absent everywhere else (other languages link to CERT only indirectly, through a CWE, in the rule details). It is a cross-reference, not a compliance claim. Results of `1.3` and older have no such field, and a reader treats that as "not recorded".
 

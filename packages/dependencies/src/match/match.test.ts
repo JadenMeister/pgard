@@ -10,12 +10,16 @@ const go = versionScheme("Go")!;
 function verdict(
   scheme: NonNullable<ReturnType<typeof versionScheme>>,
   version: string,
-  events: Record<string, string>[],
+  events: object[],
   type = "SEMVER",
 ) {
   const installed = scheme.parse(version);
   if (installed === null) throw new Error(`unparseable ${version}`);
-  return evaluateAffected({ name: "x", ranges: [{ type, events }] }, installed, scheme);
+  return evaluateAffected(
+    { name: "x", ranges: [{ type, events: events as Record<string, string>[] }] },
+    installed,
+    scheme,
+  );
 }
 
 describe("version schemes", () => {

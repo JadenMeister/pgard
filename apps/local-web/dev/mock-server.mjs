@@ -203,7 +203,7 @@ function makeResult(findingCount) {
       findings: index % 4,
     }));
   return {
-    schemaVersion: "1.4",
+    schemaVersion: "1.5",
     scanId: "mock-scan",
     startedAt: "2026-10-28T09:00:00.000Z",
     finishedAt: "2026-10-28T09:01:12.000Z",
