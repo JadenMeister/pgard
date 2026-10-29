@@ -160,6 +160,7 @@ export interface CommandText {
       app: string;
       signIn: string;
       advisories: string;
+      advisoryStore: string;
       ports: string;
     };
     node: (version: string, minimums: string) => string;
@@ -189,7 +190,9 @@ export interface CommandText {
       isDamaged: boolean,
       dataDate: string | null,
       dataDays: number | null,
+      dataVersion: string | null,
     ) => string;
+    advisoryStore: (path: string, isPresent: boolean) => string;
     advisoryStale: (ages: string) => string;
     advisoryDamaged: (ages: string) => string;
     advisoryMissing: (ages: string) => string;
@@ -254,6 +257,7 @@ export const COMMAND_TEXT_EN: CommandText = {
         "GitHub sign-in is required to verify your identity and repository access.",
         `  1. Open ${verificationUri}`,
         `  2. Enter the code ${userCode} (expires in about ${minutes} min)`,
+        "Sign-in talks to github.com and api.github.com only; your code and results are never sent.",
         "Waiting for approval... (Ctrl+C to cancel)",
       ].join("\n"),
     removedReason: {
@@ -278,7 +282,8 @@ export const COMMAND_TEXT_EN: CommandText = {
       "`pgard login` needs a terminal: it shows a code to type on github.com and waits for you. Run it in an interactive terminal (stdin and stderr must be a terminal).",
   },
   firstRun: {
-    notSignedIn: "You are not signed in to GitHub yet.",
+    notSignedIn:
+      "You are not signed in to GitHub yet. Signing in talks to github.com and api.github.com only; your code and results never leave this computer.",
     signInQuestion: "Sign in now?",
     signInDeclined:
       "Skipped. Run `pgard login` whenever you are ready; scans also offer to sign in when they need it.",
@@ -418,6 +423,7 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       app: "GitHub App",
       signIn: "Saved GitHub sign-in",
       advisories: "Advisory data (OSV)",
+      advisoryStore: "Advisory data store",
       ports: "Local port discovery",
     },
     node: (version, minimums) => `${version} (requires ${minimums} or a newer patch on that line)`,
@@ -445,8 +451,12 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     advisoryNoHome: "no home directory found, so there is nowhere to store it",
     advisoryUnreadable: "could not be read",
     advisoryNone: (ecosystem) => `${ecosystem} none`,
-    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays) =>
-      `${ecosystem} ${date} (${days} ${plural(days, "day", "days")} old${dataDate === null || dataDays === null ? "" : `; newest record ${dataDate}, ${dataDays} ${plural(dataDays, "day", "days")} old`}${isDamaged ? ", files damaged" : ""})`,
+    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays, dataVersion) =>
+      `${ecosystem} ${date} (${days} ${plural(days, "day", "days")} old${dataDate === null || dataDays === null ? "" : `; newest record ${dataDate}, ${dataDays} ${plural(dataDays, "day", "days")} old`}${dataVersion === null ? "" : `; data version ${dataVersion}`}${isDamaged ? ", files damaged" : ""})`,
+    advisoryStore: (path, isPresent) =>
+      isPresent
+        ? `${path} (present; delete this folder to remove the data)`
+        : `${path} (missing; nothing downloaded yet, \`pgard advisories update\` creates it)`,
     advisoryStale: (ages) =>
       `stale: ${ages}; run \`pgard advisories update\` (it downloads public OSV data, uploads nothing)`,
     advisoryDamaged: (ages) => `damaged: ${ages}; run \`pgard advisories update\``,
@@ -509,6 +519,7 @@ export const COMMAND_TEXT_KO: CommandText = {
         "신원과 저장소 접근 권한을 확인하려면 GitHub 로그인이 필요합니다.",
         `  1. 다음 주소를 여세요: ${verificationUri}`,
         `  2. 다음 코드를 입력하세요: ${userCode} (약 ${minutes}분 후 만료)`,
+        "로그인은 github.com과 api.github.com하고만 통신하며 코드와 결과는 전송하지 않습니다.",
         "승인을 기다리는 중... (취소: Ctrl+C)",
       ].join("\n"),
     removedReason: {
@@ -534,7 +545,8 @@ export const COMMAND_TEXT_KO: CommandText = {
       "`pgard login`은 터미널이 필요합니다. github.com에 입력할 코드를 보여 주고 사용자를 기다립니다. 대화형 터미널(stdin과 stderr가 터미널)에서 실행하세요.",
   },
   firstRun: {
-    notSignedIn: "아직 GitHub에 로그인하지 않았습니다.",
+    notSignedIn:
+      "아직 GitHub에 로그인하지 않았습니다. 로그인은 github.com과 api.github.com하고만 통신하며 코드와 결과는 이 컴퓨터를 벗어나지 않습니다.",
     signInQuestion: "지금 로그인할까요?",
     signInDeclined:
       "건너뛰었습니다. 준비되면 `pgard login`을 실행하세요. 검사가 필요할 때도 로그인을 안내합니다.",
@@ -676,6 +688,7 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       app: "GitHub App",
       signIn: "저장된 GitHub 로그인",
       advisories: "취약점 데이터 (OSV)",
+      advisoryStore: "취약점 데이터 저장 위치",
       ports: "로컬 포트 탐색",
     },
     node: (version, minimums) =>
@@ -704,8 +717,12 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     advisoryNoHome: "홈 디렉터리를 찾을 수 없어 저장할 곳이 없습니다",
     advisoryUnreadable: "읽을 수 없었습니다",
     advisoryNone: (ecosystem) => `${ecosystem} 없음`,
-    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays) =>
-      `${ecosystem} ${date} (${days}일 전${dataDate === null || dataDays === null ? "" : `; 가장 최근 레코드 ${dataDate}, ${dataDays}일 전`}${isDamaged ? ", 파일 손상" : ""})`,
+    advisoryAge: (ecosystem, date, days, isDamaged, dataDate, dataDays, dataVersion) =>
+      `${ecosystem} ${date} (${days}일 전${dataDate === null || dataDays === null ? "" : `; 가장 최근 레코드 ${dataDate}, ${dataDays}일 전`}${dataVersion === null ? "" : `; 데이터 버전 ${dataVersion}`}${isDamaged ? ", 파일 손상" : ""})`,
+    advisoryStore: (path, isPresent) =>
+      isPresent
+        ? `${path} (있음. 데이터를 지우려면 이 폴더를 삭제하세요)`
+        : `${path} (없음. 아직 내려받은 데이터가 없으며 \`pgard advisories update\`가 만듭니다)`,
     advisoryStale: (ages) =>
       `오래됨: ${ages}. \`pgard advisories update\`를 실행하세요 (공개 OSV 데이터를 내려받으며 아무것도 올리지 않습니다)`,
     advisoryDamaged: (ages) => `손상됨: ${ages}. \`pgard advisories update\`를 실행하세요`,

@@ -929,6 +929,49 @@ describe("local web report download", () => {
     }
   });
 
+  it("serves the advisory data status from local metadata only and needs the token", async () => {
+    const status = {
+      overall: "stale" as const,
+      ecosystems: [
+        {
+          ecosystem: "npm" as const,
+          state: "stale" as const,
+          fetchedAt: "2026-10-01T00:00:00.000Z",
+          ageDays: 28,
+          modifiedMax: "2026-09-30T00:00:00Z",
+          dataAgeDays: 29,
+          dataVersion: "1:abcdef012345",
+        },
+      ],
+    };
+    const running = await start(
+      fakeDeps({
+        advisoryDataDir: "/scratch/pgard-appdata",
+        readAdvisoryStatus: async () => status,
+      }),
+    );
+    const response = await apiGet(running, "/api/advisory-status");
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body)).toEqual({
+      overall: "stale",
+      staleAfterDays: 7,
+      storePath: "/scratch/pgard-appdata/advisories/osv",
+      ecosystems: status.ecosystems,
+    });
+    expect((await send(running, "GET", "/api/advisory-status")).status).toBe(401);
+  });
+
+  it("reports advisory data as missing without a data folder", async () => {
+    const running = await start(fakeDeps({ advisoryDataDir: null }));
+    const response = await apiGet(running, "/api/advisory-status");
+    expect(JSON.parse(response.body)).toEqual({
+      overall: "none",
+      staleAfterDays: 7,
+      storePath: null,
+      ecosystems: [],
+    });
+  });
+
   it("serves only rule texts on /api/rule-texts and needs the token", async () => {
     const running = await start(fakeDeps());
     const response = await apiGet(running, "/api/rule-texts");

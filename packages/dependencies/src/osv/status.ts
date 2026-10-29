@@ -18,6 +18,8 @@ export interface EcosystemAdvisoryStatus {
   modifiedMax: string | null;
   /** Whole days since the newest record (`modifiedRange.max`), or null when unknown. */
   dataAgeDays: number | null;
+  /** Identifies the stored data: `<store schema>:<first 12 hex of the archive SHA-256>`, or null. */
+  dataVersion: string | null;
 }
 
 export interface AdvisoryStatus {
@@ -45,6 +47,7 @@ export async function readAdvisoryStatus(
         ageDays: null,
         modifiedMax: null,
         dataAgeDays: null,
+        dataVersion: null,
       });
       continue;
     }
@@ -66,6 +69,7 @@ export async function readAdvisoryStatus(
       ageDays,
       modifiedMax,
       dataAgeDays,
+      dataVersion: `${meta.schema}:${meta.archive.sha256.slice(0, 12)}`,
     });
   }
   const states = ecosystems.map((entry) => entry.state);

@@ -311,7 +311,7 @@ describe("the stable form (no terminal)", () => {
     expect(text.indexOf("Summary")).toBeLessThan(text.indexOf("Findings ("));
     expect(text).toContain("Evidence:");
     expect(text).not.toContain("Next:");
-    expect(lastParagraph(text)).toContain("PGARD does not ship or query a vulnerability database");
+    expect(lastParagraph(text)).toContain("PGARD does not ship a vulnerability database");
   });
 
   it("is the same with and without the terminal option left unset", () => {
