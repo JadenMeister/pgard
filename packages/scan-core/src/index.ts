@@ -91,3 +91,9 @@ export {
   type RuleLocality,
   type RuleLocalityEntry,
 } from "./rule-locality.js";
+export {
+  STALE_AFTER_DAYS as ADVISORY_STALE_AFTER_DAYS,
+  osvDataDir,
+  readAdvisoryStatus,
+  type AdvisoryStatus,
+} from "@pgard/dependencies";

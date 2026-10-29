@@ -191,5 +191,30 @@ export interface RuleTextsDto {
 /** `GET /api/rule-texts`: rule id -> texts. Only the rule texts; no result data. */
 export type RuleTextsResponse = Record<string, RuleTextsDto>;
 
+/**
+ * `GET /api/advisory-status`: whether the downloaded OSV data is present, how old it is and where
+ * it is stored. Read from local files only; the dashboard never downloads advisory data.
+ */
+export interface AdvisoryStatusDto {
+  /**
+   * `none` when any ecosystem has no data (or there is no data folder); `unreadable` when the
+   * status could not be read; otherwise `damaged`, `stale` or `fresh`.
+   */
+  overall: "none" | "fresh" | "stale" | "damaged" | "unreadable";
+  /** Days after which data counts as stale (the same rule as `pgard doctor`). */
+  staleAfterDays: number;
+  /** Folder the data lives in (`<app data>/advisories/osv`); null without a home directory. */
+  storePath: string | null;
+  ecosystems: {
+    ecosystem: string;
+    state: "none" | "fresh" | "stale" | "damaged";
+    fetchedAt: string | null;
+    ageDays: number | null;
+    modifiedMax: string | null;
+    dataAgeDays: number | null;
+    dataVersion: string | null;
+  }[];
+}
+
 /** Formats the browser can download from `GET /api/reports/<format>`. */
 export type ReportFormatDto = "html" | "pdf";

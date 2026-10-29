@@ -313,8 +313,8 @@ export interface ScanTarget {
 }
 
 /**
- * Kept in JSON v1 for compatibility only. PGARD does not ship or query a vulnerability database,
- * so both fields are always `null`.
+ * Kept in JSON v1 for compatibility only. PGARD ships no vulnerability database (OSV data is
+ * user-downloaded and matched locally), so both fields are always `null`.
  */
 export interface AdvisoryDbInfo {
   version: string | null;

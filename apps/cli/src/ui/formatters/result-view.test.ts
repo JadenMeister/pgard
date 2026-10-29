@@ -184,7 +184,7 @@ describe("plain output", () => {
         [ok] source:typescript (Completed)
         [ok] history:secrets (Completed)
 
-      PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities."
+      PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go lockfiles, a version match against the OSV data downloaded with pgard advisories update (not proof that the vulnerable code is reachable or exploitable). Without that data the dependency areas are reported as not tested."
     `);
   });
 });

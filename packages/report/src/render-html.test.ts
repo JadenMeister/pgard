@@ -59,10 +59,11 @@ describe("renderHtmlReport", () => {
     expect(html).toContain("authenticated browsing is not available in this MVP");
     expect(html).toContain("src/api/users.ts:42");
     expect(html).toContain("http://127.0.0.1:3000/");
-    expect(html).toContain("PGARD does not ship or query a vulnerability database.");
+    expect(html).toContain("PGARD does not ship a vulnerability database");
     expect(html).toContain(
-      "Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.",
+      "for npm and Go lockfiles, a version match against the OSV data downloaded with pgard advisories update",
     );
+    expect(html).not.toContain("Dependency versions are not checked");
     expect(html).not.toMatch(/advisory/i);
     expect(html).toContain("No findings does not mean the project is secure");
     expect(html).toContain("1 confirmed, 1 suspected, 1 informational");

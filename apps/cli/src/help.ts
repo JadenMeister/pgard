@@ -100,7 +100,11 @@ Advanced options (pgard <command> --help has the details):
 
 The target is always the Git root of the current directory. Every scan re-runs the
 authorization gate; only the GitHub sign-in is reused. Code and results are
-processed locally; PGARD contacts GitHub for sign-in and repository metadata only.
+processed locally and never uploaded; scans and pgard sbom contact GitHub for
+sign-in and authorization metadata only (github.com, api.github.com), including
+the owner/name of the repository's GitHub remote and local commit SHAs. The one
+other destination is osv-vulnerabilities.storage.googleapis.com, and only when
+you run pgard advisories update.
 GitHub pages open in the browser automatically when stdout is a terminal; pass
 --no-browser to scan, project verify, login, dashboard or web to only print the links.
 
@@ -390,8 +394,11 @@ ${EXIT_CODE_HELP}`,
 Checks Node.js, Git, GitHub reachability, local port discovery, which GitHub
 App PGARD signs in with (the built-in PGARD App, or PGARD_GITHUB_APP_CLIENT_ID
 as an override), whether a GitHub sign-in is saved in the OS keychain (and for
-which account; the token is never shown). This is a diagnosis only; it does
-not authorize scans. Works outside a project.
+which account; the token is never shown), and the downloaded advisory data
+(present or missing, age, stale after 7 days, data version, store path; read from
+local files). Its only network request is an unauthenticated HEAD to
+api.github.com. This is a diagnosis only; it does not authorize scans. Works
+outside a project.
 
 Exit codes: 0 when the diagnosis completed (problems are listed as [fail] or
 [warn]), 5 on an internal error.`,
@@ -405,7 +412,9 @@ only when you run this command, never during a scan. Nothing is uploaded: the
 request is a plain GET of a fixed file, with no package names, no project data
 and no sign-in. The npm export is about 220 MB; the download is verified (zip
 structure, per-record checksums, size limit, timeout) and replaces the old data
-only when everything checks out. If anything fails, the old data stays.
+only when everything checks out. If anything fails, the old data stays. OSV
+publishes no checksum to compare against, so integrity rests on https to that
+host (trust on first use): the checks detect damage and truncation, not tampering.
 
 A download whose newest record is older than the installed data, or that holds
 fewer than half as many records, is refused and the installed data stays (this
@@ -421,7 +430,8 @@ Exit codes:
 
 Signs in to GitHub with the device flow (you enter a code on github.com) and
 saves the sign-in in the OS keychain: macOS Keychain, Windows Credential Manager
-or the Linux Secret Service. It is never written to a file. pgard scan,
+or the Linux Secret Service. It is never written to a file. Login contacts only
+github.com and api.github.com; your code and results are never sent. pgard scan,
 pgard project verify and pgard dashboard then reuse it without a device code;
 an expired token is refreshed automatically when the GitHub App issues refresh
 tokens. Every scan still runs all five authorization checks against GitHub.

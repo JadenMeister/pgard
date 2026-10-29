@@ -890,4 +890,19 @@ describe("rollback protection", () => {
     expect(npm?.state).toBe("stale");
     expect(status.overall).toBe("none");
   });
+
+  it("gives a data version, and null (not a crash) when meta lacks the archive checksum", async () => {
+    await run(makeZip(entries("2026-10-27T00:00:00Z", 2)));
+    const now = Date.parse("2026-10-28T00:00:00Z");
+    const before = await readAdvisoryStatus(dir, now);
+    expect(before.ecosystems.find((e) => e.ecosystem === "npm")?.dataVersion).toMatch(
+      /^1:[0-9a-f]{12}$/,
+    );
+    const metaFile = path.join(osvDataDir(dir), "npm", "meta.json");
+    const meta = JSON.parse(await readFile(metaFile, "utf8")) as Record<string, unknown>;
+    delete meta.archive;
+    await writeFile(metaFile, JSON.stringify(meta));
+    const after = await readAdvisoryStatus(dir, now);
+    expect(after.ecosystems.find((e) => e.ecosystem === "npm")?.dataVersion).toBeNull();
+  });
 });

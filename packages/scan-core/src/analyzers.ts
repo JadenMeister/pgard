@@ -7,7 +7,7 @@ import type { AnalyzerContext, LocalAnalyzer } from "./types.js";
 
 /**
  * `code` scope: source rules decided from the code itself (query statements, server code,
- * configuration). PGARD does not ship or query a vulnerability database.
+ * configuration). PGARD ships no vulnerability database; dependencies are matched separately against local OSV data.
  */
 const analyzeCode: LocalAnalyzer = async (context) => {
   const [output, dependencies] = await Promise.all([

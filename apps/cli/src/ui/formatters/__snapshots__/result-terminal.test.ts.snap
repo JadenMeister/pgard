@@ -452,10 +452,12 @@ Standards coverage (OWASP Top 10 2025)
   CWEs have rules. Full detail per entry: --format json (standardsCoverage,
   ruleStats).
 
-PGARD does not ship or query a vulnerability database. Findings come from the
-code itself (query statements, server code, configuration), Git history and, if
-selected, local HTTP checks. Dependency versions are not checked against known
-vulnerabilities.
+PGARD does not ship a vulnerability database and a scan never downloads or
+queries one. Findings come from the code itself (query statements, server code,
+configuration), Git history, if selected local HTTP checks and, for npm and Go
+lockfiles, a version match against the OSV data downloaded with pgard advisories
+update (not proof that the vulnerable code is reachable or exploitable). Without
+that data the dependency areas are reported as not tested.
 
 Next: save a report with --report html --output-dir <dir>, or open pgard
       dashboard."
@@ -824,9 +826,10 @@ Standards coverage (OWASP Top 10 2025)
   category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage,
   ruleStats).
 
-PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server
-code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known
-vulnerabilities.
+PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code
+itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go
+lockfiles, a version match against the OSV data downloaded with pgard advisories update (not proof that the vulnerable
+code is reachable or exploitable). Without that data the dependency areas are reported as not tested.
 
 Next: save a report with --report html --output-dir <dir>, or open pgard dashboard."
 `;
@@ -1251,9 +1254,12 @@ OWASP Top 10 2025 분류별
   중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
   (standardsCoverage, ruleStats).
 
-PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드
-자체(쿼리문, 서버 코드, 설정), Git 이력, 그리고 선택한 경우 로컬 HTTP 검사에서
-나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+PGARD는 취약점 데이터베이스를 포함하지 않으며 검사는 이를 내려받거나 조회하지
+않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력, 선택한 경우
+로컬 HTTP 검사, 그리고 npm과 Go lockfile에 대해 pgard advisories update로
+내려받은 OSV 데이터와의 버전 비교에서 나옵니다(취약한 코드에 도달하거나 악용할
+수 있다는 증거는 아닙니다). 그 데이터가 없으면 의존성 영역은 검사하지 않음으로
+보고됩니다.
 
 다음: --report html --output-dir <dir>로 보고서를 저장하거나 pgard
       dashboard를 여세요."
@@ -1622,8 +1628,10 @@ OWASP Top 10 2025 분류별
   다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
   (standardsCoverage, ruleStats).
 
-PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력,
-그리고 선택한 경우 로컬 HTTP 검사에서 나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+PGARD는 취약점 데이터베이스를 포함하지 않으며 검사는 이를 내려받거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문,
+서버 코드, 설정), Git 이력, 선택한 경우 로컬 HTTP 검사, 그리고 npm과 Go lockfile에 대해 pgard advisories update로
+내려받은 OSV 데이터와의 버전 비교에서 나옵니다(취약한 코드에 도달하거나 악용할 수 있다는 증거는 아닙니다). 그 데이터가
+없으면 의존성 영역은 검사하지 않음으로 보고됩니다.
 
 다음: --report html --output-dir <dir>로 보고서를 저장하거나 pgard dashboard를 여세요."
 `;
@@ -1719,10 +1727,12 @@ Standards coverage (OWASP Top 10 2025)
   CWEs have rules. Full detail per entry: --format json (standardsCoverage,
   ruleStats).
 
-PGARD does not ship or query a vulnerability database. Findings come from the
-code itself (query statements, server code, configuration), Git history and, if
-selected, local HTTP checks. Dependency versions are not checked against known
-vulnerabilities.
+PGARD does not ship a vulnerability database and a scan never downloads or
+queries one. Findings come from the code itself (query statements, server code,
+configuration), Git history, if selected local HTTP checks and, for npm and Go
+lockfiles, a version match against the OSV data downloaded with pgard advisories
+update (not proof that the vulnerable code is reachable or exploitable). Without
+that data the dependency areas are reported as not tested.
 
 Next: pgard scan --all-findings lists everything; save a report with
       --report html --output-dir <dir>, or open pgard dashboard."
@@ -1811,9 +1821,10 @@ Standards coverage (OWASP Top 10 2025)
   category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage,
   ruleStats).
 
-PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server
-code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known
-vulnerabilities.
+PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code
+itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go
+lockfiles, a version match against the OSV data downloaded with pgard advisories update (not proof that the vulnerable
+code is reachable or exploitable). Without that data the dependency areas are reported as not tested.
 
 Next: pgard scan --all-findings lists everything; save a report with --report html --output-dir <dir>, or open
       pgard dashboard."
@@ -1909,9 +1920,12 @@ OWASP Top 10 2025 분류별
   중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
   (standardsCoverage, ruleStats).
 
-PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드
-자체(쿼리문, 서버 코드, 설정), Git 이력, 그리고 선택한 경우 로컬 HTTP 검사에서
-나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+PGARD는 취약점 데이터베이스를 포함하지 않으며 검사는 이를 내려받거나 조회하지
+않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력, 선택한 경우
+로컬 HTTP 검사, 그리고 npm과 Go lockfile에 대해 pgard advisories update로
+내려받은 OSV 데이터와의 버전 비교에서 나옵니다(취약한 코드에 도달하거나 악용할
+수 있다는 증거는 아닙니다). 그 데이터가 없으면 의존성 영역은 검사하지 않음으로
+보고됩니다.
 
 다음: pgard scan --all-findings로 전체를 나열하거나 --report html
       --output-dir <dir>로 보고서를 저장하거나 pgard dashboard를 여세요."
@@ -2000,8 +2014,10 @@ OWASP Top 10 2025 분류별
   다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
   (standardsCoverage, ruleStats).
 
-PGARD는 취약점 데이터베이스를 포함하거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문, 서버 코드, 설정), Git 이력,
-그리고 선택한 경우 로컬 HTTP 검사에서 나옵니다. 의존성 버전은 알려진 취약점과 대조하지 않습니다.
+PGARD는 취약점 데이터베이스를 포함하지 않으며 검사는 이를 내려받거나 조회하지 않습니다. 발견 항목은 코드 자체(쿼리문,
+서버 코드, 설정), Git 이력, 선택한 경우 로컬 HTTP 검사, 그리고 npm과 Go lockfile에 대해 pgard advisories update로
+내려받은 OSV 데이터와의 버전 비교에서 나옵니다(취약한 코드에 도달하거나 악용할 수 있다는 증거는 아닙니다). 그 데이터가
+없으면 의존성 영역은 검사하지 않음으로 보고됩니다.
 
 다음: pgard scan --all-findings로 전체를 나열하거나 --report html --output-dir <dir>로 보고서를 저장하거나 pgard
       dashboard를 여세요."

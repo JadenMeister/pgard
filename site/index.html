@@ -294,7 +294,7 @@
   CWE Top 25 2025: 2 rules ran, 0 rules partial, 4 not run, 19 no rules
   Rules ran means the mapped rules ran to completion in this scan. It does not mean the project is safe or that the category is covered: see how many of its CWEs have rules. Full detail per entry: --format json (standardsCoverage, ruleStats).
 
-<b>PGARD does not ship or query a vulnerability database. Findings come from the code itself (query statements, server code, configuration), Git history and, if selected, local HTTP checks. Dependency versions are not checked against known vulnerabilities.</b></code></pre>
+<b>PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go lockfiles, a version match against the OSV data downloaded with pgard advisories update (not proof that the vulnerable code is reachable or exploitable). Without that data the dependency areas are reported as not tested.</b></code></pre>
               </figure>
             </div>
             <div class="tabpanel" role="tabpanel" id="panel-1" hidden aria-labelledby="tab-1">
@@ -440,7 +440,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
   - Remote (non-loopback) web services
   - Authenticated (logged-in) web browsing
   - Form submission and other state-changing requests
-  - Known-vulnerability (CVE/advisory) lookups for dependencies: PGARD ships no vulnerability database</code></pre>
+  - Dependency advisories for ecosystems other than npm and Go (Python, Java, PHP, Rust, ...)</code></pre>
               </figure>
             </div>
             <div class="tabpanel" role="tabpanel" id="panel-3" hidden aria-labelledby="tab-3">
@@ -481,7 +481,11 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
 
 <b>The target is always the Git root of the current directory. Every scan re-runs the</b>
 <b>authorization gate; only the GitHub sign-in is reused. Code and results are</b>
-<b>processed locally; PGARD contacts GitHub for sign-in and repository metadata only.</b>
+<b>processed locally and never uploaded; scans and pgard sbom contact GitHub for</b>
+<b>sign-in and authorization metadata only (github.com, api.github.com), including</b>
+<b>the owner/name of the repository's GitHub remote and local commit SHAs. The one</b>
+<b>other destination is osv-vulnerabilities.storage.googleapis.com, and only when</b>
+<b>you run pgard advisories update.</b>
 <b>GitHub pages open in the browser automatically when stdout is a terminal; pass</b>
 <b>--no-browser to scan, project verify, login or dashboard to only print the links.</b>
 
@@ -821,8 +825,14 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             </svg>
             <h3>Goes over the network</h3>
             <ul>
-              <li>GitHub: sign-in and authorization metadata, incl. local commit SHAs</li>
-              <li>OSV data, only when you run <code>pgard advisories update</code></li>
+              <li>
+                GitHub: sign-in and authorization metadata, incl. the repository's owner/name and
+                local commit SHAs
+              </li>
+              <li>
+                OSV public data (download only, nothing sent), only when you run
+                <code>pgard advisories update</code>
+              </li>
               <li>Loopback: one GET / per local port</li>
             </ul>
           </div>
@@ -859,7 +869,10 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             <li>
               <b>languages</b><span>Java and Kotlin: seven categories. Python and PHP: two.</span>
             </li>
-            <li><b>dependencies</b><span>No known-vulnerability (CVE, OSV) matching yet.</span></li>
+            <li>
+              <b>dependencies</b
+              ><span>npm and Go only, by version range from OSV data you download yourself.</span>
+            </li>
             <li>
               <b>remote</b
               ><span
@@ -875,8 +888,8 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
           </ul>
         </div>
         <p class="sec-note">
-          Next, with no dates: more languages and categories, matching dependencies against
-          advisories, a pre-commit check.
+          Next, with no dates: more languages and categories, more dependency ecosystems, a
+          pre-commit check.
           <a href="https://github.com/JadenMeister/pgard/issues" rel="noopener">Open issues</a>
         </p>
       </section>
