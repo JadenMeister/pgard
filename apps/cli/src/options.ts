@@ -61,6 +61,12 @@ export type ParsedCommand =
       noOpen: boolean;
       lang?: RuleLocale;
     }
+  | {
+      kind: "sbom";
+      format: "cyclonedx-json";
+      outputDir: string | null;
+      lang?: RuleLocale;
+    }
   | { kind: "history-clear"; repo: string | null }
   | { kind: "baseline"; action: BaselineAction; fromCurrent: boolean }
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
@@ -79,6 +85,7 @@ export type HelpTopic =
   | "project verify"
   | "scan"
   | "report"
+  | "sbom"
   | "dashboard"
   | "rules"
   | "rules list"
@@ -98,6 +105,7 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
   "project verify",
   "scan",
   "report",
+  "sbom",
   "dashboard",
   "rules",
   "rules list",
@@ -517,6 +525,26 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         format,
         outputDir: split.options.get("--output-dir") ?? null,
         noOpen: split.noOpen,
+        ...(lang === undefined ? {} : { lang }),
+      };
+    }
+    case "sbom": {
+      topic = "sbom";
+      if (split.isHelp) return { kind: "help", topic };
+      rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
+      rejectOptions(split, ["--format", "--output-dir", "--lang"], topic, "pgard sbom");
+      const format = split.options.get("--format") ?? "cyclonedx-json";
+      if (format !== "cyclonedx-json") {
+        throw new UsageError(
+          `--format must be cyclonedx-json (got "${format.slice(0, 20)}").`,
+          topic,
+        );
+      }
+      const lang = parseLangOption(split, "--lang", topic);
+      return {
+        kind: "sbom",
+        format,
+        outputDir: split.options.get("--output-dir") ?? null,
         ...(lang === undefined ? {} : { lang }),
       };
     }

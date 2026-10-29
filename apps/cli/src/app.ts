@@ -15,6 +15,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runHistoryClear } from "./commands/history.js";
 import { runLogin, runLogout } from "./commands/login.js";
 import { runReport } from "./commands/report.js";
+import { runSbom } from "./commands/sbom.js";
 import { runProjectVerify } from "./commands/project/verify.js";
 import { runRulesList } from "./commands/rules/list.js";
 import { isMachineFormat, runScanCommand } from "./commands/scan/index.js";
@@ -53,6 +54,8 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runScanCommand(context, command);
     case "report":
       return runReport(context, command);
+    case "sbom":
+      return runSbom(context, command);
     case "dashboard":
       return runDashboard(context, command.targetPort, command.noBrowser);
     case "rules-list":
@@ -222,7 +225,8 @@ export async function main(
       command.kind === "scan" ||
       command.kind === "rules-list" ||
       command.kind === "menu" ||
-      command.kind === "report"
+      command.kind === "report" ||
+      command.kind === "sbom"
     ) {
       const flag = "lang" in command && command.lang !== undefined ? command.lang : null;
       ruleLocale = resolveLanguage({ flag, env: io.env });

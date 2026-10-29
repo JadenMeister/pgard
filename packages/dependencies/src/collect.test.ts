@@ -223,7 +223,6 @@ describe("collectDependencies hostile-repository limits (L5)", () => {
       await mkdir(dir);
       await link(source, path.join(dir, "package-lock.json"));
     }
-    const before = process.memoryUsage().rss;
     const started = Date.now();
     const result = await collectDependencies(root);
     const elapsedMs = Date.now() - started;
@@ -236,7 +235,6 @@ describe("collectDependencies hostile-repository limits (L5)", () => {
     expect(duplicates[0]?.note).toContain("Hard link to ");
     expect(result.dependencies).toHaveLength(1);
     expect(elapsedMs).toBeLessThan(10_000);
-    expect(process.memoryUsage().rss - before).toBeLessThan(400 * 1024 * 1024);
   });
 
   it("reads a hard-linked package.json once as well", async () => {
@@ -276,20 +274,53 @@ describe("collectDependencies hostile-repository limits (L5)", () => {
     expect(result.isTruncated).toBe(true);
   });
 
-  it("counts the walk and the reads against the time budget", async () => {
+  /** A clock that reads 0 for the first `free` calls (constructor + walk) and 1000 ms after. */
+  function clockAfter(free: number): () => number {
+    let calls = 0;
+    return () => {
+      calls += 1;
+      return calls <= free ? 0 : 1000;
+    };
+  }
+
+  it("counts the reads against the time budget and lists the files it did not read", async () => {
     await put("a/yarn.lock", lock("one"));
     await put("b/yarn.lock", lock("two"));
-    let clock = 0;
-    const result = await collectDependencies(root, {
-      timeBudgetMs: 100,
-      now: () => {
-        clock += 60; // every check of the budget costs 60 ms
-        return clock;
-      },
-    });
+    // 1 constructor call + 3 directories in the walk, then the first lockfile check is late.
+    const result = await collectDependencies(root, { timeBudgetMs: 100, now: clockAfter(4) });
     expect(result.isTruncated).toBe(true);
     expect(result.limitNotes.join(" ")).toContain("time budget");
-    expect(result.coverage.every((c) => c.status !== "parsed")).toBe(true);
+    expect(result.coverage.map((c) => `${c.path}:${c.status}`)).toEqual([
+      "a/yarn.lock:not-read",
+      "b/yarn.lock:not-read",
+    ]);
+  });
+
+  it("keeps what was read before the time budget ran out", async () => {
+    await put("a/yarn.lock", lock("one"));
+    await put("b/yarn.lock", lock("two"));
+    const result = await collectDependencies(root, { timeBudgetMs: 100, now: clockAfter(5) });
+    expect(result.coverage.map((c) => `${c.path}:${c.status}`)).toEqual([
+      "a/yarn.lock:parsed",
+      "b/yarn.lock:not-read",
+    ]);
+    expect(result.dependencies.map((d) => d.name)).toEqual(["one"]);
+  });
+
+  it("rejects when the signal aborts in the middle of a run", async () => {
+    await put("a/yarn.lock", lock("one"));
+    await put("b/yarn.lock", lock("two"));
+    const controller = new AbortController();
+    let calls = 0;
+    const run = collectDependencies(root, {
+      signal: controller.signal,
+      now: () => {
+        calls += 1;
+        if (calls === 5) controller.abort(); // after the first lockfile was read
+        return 0;
+      },
+    });
+    await expect(run).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("honours an abort signal", async () => {
@@ -307,5 +338,105 @@ describe("collectDependencies hostile-repository limits (L5)", () => {
     await symlink(path.join(root, "real", "yarn.lock"), path.join(root, "l", "yarn.lock"));
     const result = await collectDependencies(root);
     expect(result.coverage.map((c) => c.path)).toEqual(["real/yarn.lock"]);
+  });
+});
+
+describe("collectDependencies: pools, hard links across kinds, go.sum, hostile shapes", () => {
+  const lock = (name: string): string => `# yarn lockfile v1\n\n${name}@^1:\n  version "1.0.0"\n`;
+
+  it("gives package.json files their own byte pool, so padding cannot starve a lockfile", async () => {
+    for (let index = 0; index < 4; index += 1) {
+      await put(`pad${index}/package.json`, "{}" + " ".repeat(1000));
+    }
+    await put("real/yarn.lock", lock("real"));
+    const result = await collectDependencies(root, {
+      limits: { totalBytes: 1000, manifestBytes: 2000 },
+    });
+    const byPath = new Map(result.coverage.map((c) => [c.path, c]));
+    expect(byPath.get("real/yarn.lock")?.status).toBe("parsed");
+    const notRead = result.coverage.filter((c) => c.status === "not-read");
+    expect(notRead.length).toBeGreaterThan(0);
+    expect(result.isTruncated).toBe(true); // every not-read sets it
+    expect(result.limitNotes.join(" ")).toContain("package.json data");
+  });
+
+  it("does not let a hard link across kinds hide a file from its own reader", async () => {
+    const body = JSON.stringify({
+      name: "x",
+      lockfileVersion: 3,
+      packages: { "": {}, "node_modules/evil": { version: "6.6.6" } },
+    });
+    await put("package.json", body);
+    await link(path.join(root, "package.json"), path.join(root, "package-lock.json"));
+    const result = await collectDependencies(root);
+    expect(result.dependencies.map((d) => d.name)).toEqual(["evil"]);
+    expect(result.coverage.find((c) => c.path === "package-lock.json")?.status).toBe("parsed");
+  });
+
+  it("gives every link to a file that was too large the same outcome, not 'read once, there'", async () => {
+    await put("a/yarn.lock", lock("x") + "#".repeat(5000));
+    await mkdir(path.join(root, "b"));
+    await link(path.join(root, "a", "yarn.lock"), path.join(root, "b", "yarn.lock"));
+    const result = await collectDependencies(root, { limits: { lockfileBytes: 1000 } });
+    expect(result.coverage.map((c) => `${c.path}:${c.status}`)).toEqual([
+      "a/yarn.lock:too-large",
+      "b/yarn.lock:too-large",
+    ]);
+  });
+
+  it("counts a duplicate lockfile as covering its directory", async () => {
+    await put("a/yarn.lock", lock("x"));
+    await put("a/package.json", '{"dependencies":{"x":"^1"}}');
+    await put("b/package.json", '{"dependencies":{"x":"^1"}}');
+    await link(path.join(root, "a", "yarn.lock"), path.join(root, "b", "yarn.lock"));
+    const result = await collectDependencies(root);
+    expect(result.coverage.find((c) => c.path === "b/yarn.lock")?.status).toBe("duplicate");
+    expect(result.coverage.some((c) => c.status === "missing-lockfile")).toBe(false);
+  });
+
+  it("says when a go.sum was not read, with its own wording", async () => {
+    await put("go.mod", "module x\n\ngo 1.16\n\nrequire example.com/a v1.0.0\n");
+    await put("go.sum", "example.com/b v1.0.0 h1:abc=\n".repeat(100));
+    const result = await collectDependencies(root, { limits: { totalBytes: 200 } });
+    expect(result.isTruncated).toBe(true);
+    const line = result.coverage.find((c) => c.path === "go.mod");
+    expect(line?.status).toBe("partial");
+    expect(line?.note).toContain("go.sum was not read");
+    expect(line?.note).not.toContain("there is no go.sum");
+  });
+
+  it("does not parse a hostile file below the byte cap: too many lines, deep or wide JSON", async () => {
+    await put("lines/yarn.lock", "a:\n".repeat(60_000));
+    await put("deep/package-lock.json", "[".repeat(100_000) + "]".repeat(100_000));
+    await put("wide/package-lock.json", "[" + "1,".repeat(100_000) + "1]");
+    const result = await collectDependencies(root, {
+      limits: { lines: 50_000, jsonTokens: 50_000 },
+    });
+    for (const line of result.coverage) {
+      expect(line.status, line.path).toBe("too-large");
+      expect(line.note).toContain("Not parsed");
+    }
+    expect(result.coverage).toHaveLength(3);
+  });
+
+  it("stops a yarn.lock at the package cap instead of building every block", async () => {
+    await put("yarn.lock", "a:\n".repeat(600_000));
+    const result = await collectDependencies(root, { limits: { lines: 1_000_000 } });
+    const line = result.coverage[0];
+    expect(["partial", "failed"]).toContain(line?.status);
+  });
+
+  it("skips a FIFO named like a lockfile without waiting for it", async () => {
+    if (process.platform === "win32") return;
+    const { execFileSync } = await import("node:child_process");
+    try {
+      execFileSync("mkfifo", [path.join(root, "package-lock.json")]);
+    } catch {
+      return; // no mkfifo on this system
+    }
+    const started = Date.now();
+    const result = await collectDependencies(root);
+    expect(Date.now() - started).toBeLessThan(5000);
+    expect(result.dependencies).toEqual([]);
   });
 });

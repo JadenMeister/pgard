@@ -71,6 +71,9 @@ export interface CollectOptions {
   /** Lower limits for tests; the defaults are in `limits.ts`. */
   limits?: Partial<{
     totalBytes: number;
+    manifestBytes: number;
+    lines: number;
+    jsonTokens: number;
     totalDependencies: number;
     lockfileBytes: number;
     visitedEntries: number;

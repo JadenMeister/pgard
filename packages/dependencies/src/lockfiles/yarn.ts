@@ -27,15 +27,20 @@ interface Block {
 }
 
 /** Splits a yarn.lock into top-level blocks and their direct `key value` / `key: value` lines. */
-function readBlocks(text: string): Block[] {
+function readBlocks(text: string): { blocks: Block[]; isCut: boolean } {
   const blocks: Block[] = [];
   let current: Block | null = null;
+  let isCut = false;
   for (const rawLine of text.split(/\r?\n/)) {
     if (rawLine.trim() === "" || rawLine.trimStart().startsWith("#")) continue;
     if (!rawLine.startsWith(" ")) {
       if (!rawLine.endsWith(":")) {
         current = null;
         continue;
+      }
+      if (blocks.length > MAX_ENTRIES_PER_LOCKFILE) {
+        isCut = true; // stop building objects; the file is reported as partly read
+        break;
       }
       current = { header: rawLine.slice(0, -1), fields: new Map() };
       blocks.push(current);
@@ -48,7 +53,7 @@ function readBlocks(text: string): Block[] {
     const key = match[1] as string;
     if (!current.fields.has(key)) current.fields.set(key, (match[2] as string).trim());
   }
-  return blocks;
+  return { blocks, isCut };
 }
 
 /**
@@ -57,12 +62,12 @@ function readBlocks(text: string): Block[] {
  * counted in the notes. `directNames` (from the sibling package.json files) marks direct ones.
  */
 export function parseYarnLock(text: string, directNames?: ReadonlySet<string>): ParsedLockfile {
-  const blocks = readBlocks(text);
+  const { blocks, isCut: isBlocksCut } = readBlocks(text);
   const isBerry = blocks.some((block) => block.header === "__metadata");
   const notes: string[] = [];
   const seen = new Map<string, { name: string; version: string }>();
   let skipped = 0;
-  let isTruncated = false;
+  let isTruncated = isBlocksCut;
   let sawPackage = false;
 
   for (const block of blocks) {

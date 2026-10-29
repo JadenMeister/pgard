@@ -24,6 +24,7 @@ const COMMANDS: readonly string[][] = [
   ["scan", "web"],
   ["scan", "all"],
   ["report"],
+  ["sbom"],
   ["dashboard"],
   ["project", "verify"],
   ["rules", "list"],
