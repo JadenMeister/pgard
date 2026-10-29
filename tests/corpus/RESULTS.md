@@ -62,6 +62,14 @@ medium and high confidence findings, on every sample.
 | PG-SECRET-003 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | 100.0% |
 | PG-HYGIENE-001 | 4 | 0 | 0 | 52 | 100.0% | 100.0% | n/a |
 
+## Dependency rules (scanDependencies on lockfile projects with a fixture OSV dataset)
+
+18 samples.
+
+| Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
+| --- | --: | --: | --: | --: | --: | --: | --: |
+| PG-DEP-001 | 9 | 0 | 0 | 9 | 100.0% | 100.0% | 100.0% |
+
 ## Web rules (scanLocalWeb against loopback servers)
 
 56 samples.

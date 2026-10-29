@@ -398,6 +398,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       ? { historyIncremental: plan.historyBase }
       : {}),
     projectConfig,
+    advisoryDataDir: deps.advisoryDataDir ?? null,
     projectRoot: request.projectRoot,
     revision: outcome.revision,
     env,

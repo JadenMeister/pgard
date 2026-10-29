@@ -53,6 +53,7 @@ describe("rule references against bundled standards data", () => {
       "CWE-916": ["PG-CRYPTO-001"],
       "CWE-328": ["PG-CRYPTO-001"],
       "CWE-321": ["PG-CRYPTO-002"],
+      "CWE-1395": ["PG-DEP-001"],
       "CWE-798": ["PG-CRYPTO-002", "PG-SECRET-001", "PG-SECRET-002", "PG-SECRET-003"],
       "CWE-327": ["PG-CRYPTO-003"],
       "CWE-256": ["PG-AUTH-001"],

@@ -5,6 +5,8 @@
 // under its own name, so the path-based test/fixture/vendored labelling (which would otherwise
 // see `tests/corpus/...`) never applies and nothing is demoted or hidden.
 // History rules: history-cases.mjs describes throwaway git repositories built here.
+// Dependency rules: dependency-cases.mjs describes lockfile projects plus a fixture OSV dataset
+// written to a temporary folder (never the real per-user store); time is fixed.
 // Web rules: web-cases.mjs describes loopback servers started here.
 //
 // Confidence: a rule fires on a sample at some confidence. A positive sample is found at any
@@ -20,6 +22,7 @@
 // positive) must be declared with a reason (`known=` header / `known:` field), and the declared
 // set must match the observed set exactly, so a regression and an unannounced fix both fail.
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   copyFileSync,
   mkdirSync,
@@ -32,11 +35,14 @@ import {
 } from "node:fs";
 import http from "node:http";
 import { tmpdir } from "node:os";
+import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { listDependencyRules, scanDependencies } from "@pgard/dependencies";
 import { HISTORY_RULES, scanGitHistory } from "@pgard/git-history";
 import { scanLocalWeb, WEB_RULE_IDS } from "@pgard/http-local";
 import { scanSourceCode, SOURCE_RULES } from "@pgard/source-analysis";
+import { DEPENDENCY_CASES, NOW as DEPENDENCY_NOW } from "./dependency-cases.mjs";
 import { HISTORY_CASES } from "./history-cases.mjs";
 import { HARDENED, WEB_CASES } from "./web-cases.mjs";
 
@@ -212,6 +218,72 @@ async function scanHistoryCase(testCase) {
   }
 }
 
+/** Writes a small OSV store (same layout `pgard advisories update` writes) into `appData`. */
+function writeOsvFixture(appData, ecosystem, advisories, options) {
+  const dir = path.join(appData, "advisories", "osv", ecosystem);
+  mkdirSync(dir, { recursive: true });
+  const gz = gzipSync(Buffer.from(`${advisories.map((a) => JSON.stringify(a)).join("\n")}\n`));
+  const empty = gzipSync(Buffer.from(""));
+  const sha = (buffer) => createHash("sha256").update(buffer).digest("hex");
+  writeFileSync(path.join(dir, "advisories.jsonl.gz"), gz);
+  writeFileSync(path.join(dir, "malware.jsonl.gz"), empty);
+  const meta = {
+    schema: 1,
+    ecosystem,
+    sourceUrl: "https://example.invalid/corpus.zip",
+    fetchedAt: options.fetchedAt,
+    archive: { bytes: 1, sha256: "a".repeat(64), lastModified: null, etag: null },
+    counts: {
+      entries: advisories.length,
+      advisories: advisories.length,
+      malware: 0,
+      withdrawn: 0,
+      skipped: 0,
+    },
+    modifiedRange: { min: "2026-01-01T00:00:00Z", max: options.modifiedMax },
+    files: {
+      "advisories.jsonl.gz": { bytes: gz.length, sha256: sha(gz) },
+      "malware.jsonl.gz": { bytes: empty.length, sha256: sha(empty) },
+    },
+  };
+  writeFileSync(path.join(dir, "meta.json"), JSON.stringify(meta));
+}
+
+async function scanDependencyCase(testCase) {
+  const root = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-corpus-dep-")));
+  const appData = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-corpus-osv-")));
+  try {
+    for (const [file, content] of Object.entries(testCase.files)) {
+      const target = path.join(root, file);
+      mkdirSync(path.dirname(target), { recursive: true });
+      writeFileSync(target, content);
+    }
+    for (const [ecosystem, data] of Object.entries(testCase.data)) {
+      writeOsvFixture(appData, ecosystem, data.advisories, data.options);
+    }
+    const output = await scanDependencies(root, { appDataDir: appData, now: () => DEPENDENCY_NOW });
+    for (const [areaId, status] of Object.entries(testCase.area ?? {})) {
+      const actual = output.coverage.find((entry) => entry.area === areaId)?.status;
+      if (actual !== status) {
+        fail(`dependencies/${testCase.name}: area ${areaId} is ${actual}, expected ${status}`);
+      }
+    }
+    const found = new Map();
+    for (const finding of output.findings) {
+      found.set(finding.ruleId, [...(found.get(finding.ruleId) ?? []), finding.confidence]);
+      if (testCase.confidence !== undefined && finding.confidence !== testCase.confidence) {
+        fail(
+          `dependencies/${testCase.name}: confidence ${finding.confidence}, expected ${testCase.confidence}`,
+        );
+      }
+    }
+    return found;
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(appData, { recursive: true, force: true });
+  }
+}
+
 async function scanWebCase(testCase) {
   const rootHeaders = { ...HARDENED };
   for (const [name, value] of Object.entries(testCase.headers ?? {})) {
@@ -278,6 +350,17 @@ for (const testCase of HISTORY_CASES) {
     run: () => scanHistoryCase(testCase),
   });
 }
+for (const testCase of DEPENDENCY_CASES) {
+  samples.push({
+    domain: "dependencies",
+    rule: testCase.rule,
+    kind: testCase.kind,
+    id: `dependencies/${testCase.name}`,
+    expect: testCase.expect,
+    known: testCase.known ?? [],
+    run: () => scanDependencyCase(testCase),
+  });
+}
 for (const testCase of WEB_CASES) {
   samples.push({
     domain: "web",
@@ -296,6 +379,7 @@ for (const sample of samples) {
 const RULES = {
   source: SOURCE_RULES.map((rule) => rule.id),
   history: HISTORY_RULES.map((rule) => rule.id),
+  dependencies: listDependencyRules().map((rule) => rule.id),
   web: [...WEB_RULE_IDS],
 };
 
@@ -431,6 +515,8 @@ for (const row of rows) {
 const SECTION_TITLES = {
   source: "Source rules (scanSourceCode)",
   history: "History rules (scanGitHistory on generated git repositories)",
+  dependencies:
+    "Dependency rules (scanDependencies on lockfile projects with a fixture OSV dataset)",
   web: "Web rules (scanLocalWeb against loopback servers)",
 };
 const lines = [
@@ -453,7 +539,7 @@ const lines = [
   "medium and high confidence findings, on every sample.",
   "",
 ];
-for (const domain of ["source", "history", "web"]) {
+for (const domain of ["source", "history", "dependencies", "web"]) {
   const domainSamples = samples.filter((sample) => sample.domain === domain);
   lines.push(`## ${SECTION_TITLES[domain]}`, "");
   lines.push(`${domainSamples.length} samples.`, "");
@@ -491,7 +577,7 @@ const report = `${lines.join("\n")}\n`.replace(/\n{3,}$/, "\n");
 
 // Console summary.
 const width = Math.max(...rows.map((row) => row.rule.length));
-for (const domain of ["source", "history", "web"]) {
+for (const domain of ["source", "history", "dependencies", "web"]) {
   console.log(`\n${SECTION_TITLES[domain]}`);
   console.log(`${"rule".padEnd(width)}  TP  FP  FN  TN  precision  recall`);
   for (const row of rows.filter((candidate) => candidate.domain === domain)) {

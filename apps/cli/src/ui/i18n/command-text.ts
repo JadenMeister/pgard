@@ -209,7 +209,7 @@ export const UNSUPPORTED_AREAS_EN = [
   "Remote (non-loopback) web services",
   "Authenticated (logged-in) web browsing",
   "Form submission and other state-changing requests",
-  "Known-vulnerability (CVE/advisory) lookups for dependencies: PGARD ships no vulnerability database",
+  "Dependency advisories for ecosystems other than npm and Go (Python, Java, PHP, Rust, ...); for npm and Go a match is a version-range match only, from OSV data you downloaded with `pgard advisories update`",
 ] as const;
 
 export const COMMAND_TEXT_EN: CommandText = {
@@ -670,7 +670,7 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       "원격(루프백이 아닌) 웹 서비스",
       "로그인이 필요한 웹 탐색",
       "양식 제출 및 상태를 바꾸는 요청",
-      "의존성의 알려진 취약점(CVE/권고) 조회: PGARD는 취약점 데이터베이스를 포함하지 않습니다",
+      "npm과 Go 이외 생태계(Python, Java, PHP, Rust 등)의 의존성 권고. npm과 Go는 `pgard advisories update`로 내려받은 OSV 데이터와 버전 범위만 비교합니다",
     ],
     certDirect: (ids) => `SEI CERT Java, 직접 연결 (Java와 Kotlin 파일만 해당): ${ids}`,
     certNone: (reason) => `SEI CERT Java: 직접 대응하는 규칙 없음. ${reason}`,

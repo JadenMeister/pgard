@@ -64,6 +64,12 @@ export interface AnalyzerContext {
   sourceReuse?: { files: ReadonlyMap<string, CachedSourceFile>; label: string } | null;
   /** What the history analyzer may carry over from an earlier scan (absent: scan all history). */
   historyIncremental?: HistoryIncrementalBase | null;
+  /**
+   * The per-user data folder whose `advisories/osv` holds the downloaded OSV data. Dependency
+   * matching reads it, offline. `null` or absent: no data can be read (the dependency areas are
+   * `not_tested`).
+   */
+  advisoryDataDir?: string | null;
 }
 
 /**
@@ -99,6 +105,11 @@ export interface ScanDependencies {
    * and an error thrown here is ignored.
    */
   onAuthorization?: (outcome: AuthorizationOutcome) => void;
+  /**
+   * Per-user data folder holding the downloaded OSV advisory data (`pgard advisories update`).
+   * A scan only reads it; it never downloads anything.
+   */
+  advisoryDataDir?: string | null;
   /** Aborting rejects `runScan` with `ScanCancelledError`. */
   signal?: AbortSignal;
   /** Environment for analyzers. Defaults to `process.env`. */

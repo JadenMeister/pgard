@@ -246,6 +246,7 @@ const NOTE_ONLY_AREAS: ReadonlySet<string> = new Set([
   "source:xml-skipped",
   "source:unreadable-files",
   "source:special-files",
+  "deps:unsupported",
 ]);
 const BUILD_OUTPUT_AREA = "source:build-output";
 const XML_AREA = "source:xml-skipped";

@@ -66,7 +66,7 @@ describe("formatStandardsCoverage", () => {
 
   it("shows how many of the category's CWEs have rules, next to the state", () => {
     const a03 = lines.find((line) => line.includes("A03 "));
-    expect(a03).toMatch(/- 1 of \d+ mapped CWEs have rules/);
+    expect(a03).toMatch(/- 2 of \d+ mapped CWEs have rules/);
     expect(a03).toContain("PG-HYGIENE-001");
   });
 
