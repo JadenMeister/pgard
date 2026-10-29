@@ -7,33 +7,21 @@ permissions:
   contents: read
 
 jobs:
-  only-precommit:
-    name: precommit only (${{ matrix.n }})
+  group:
+    name: ${{ matrix.g.name }} (${{ matrix.n }})
     runs-on: macos-latest
-    timeout-minutes: 10
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2, 3, 4, 5, 6]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          check-latest: true
-          cache: npm
-      - run: npm ci
-      - run: npx vitest run apps/cli/src/commands/precommit --reporter=verbose
-  all-but-precommit:
-    name: all but precommit (${{ matrix.n }})
-    runs-on: macos-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        n: [1, 2, 3, 4, 5, 6]
+        n: [1, 2]
+        g:
+          - { name: cli, paths: "apps/cli" }
+          - { name: web, paths: "apps/local-web" }
+          - { name: hist, paths: "packages/git-history packages/scan-core packages/dependencies" }
+          - { name: src, paths: "packages/source-analysis" }
+          - { name: misc1, paths: "packages/findings packages/report packages/http-local" }
+          - { name: misc2, paths: "packages/github-auth packages/policy packages/result-store tests" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -46,4 +34,4 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      - run: npx vitest run --exclude 'apps/cli/src/commands/precommit/**' --exclude 'node_modules/**'
+      - run: npx vitest run ${{ matrix.g.paths }}
