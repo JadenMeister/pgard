@@ -62,14 +62,18 @@ Common options:
   --output-dir DIR              existing directory for saved reports and SBOMs
                                 (scan, report, sbom)
   --no-browser                  print GitHub links instead of opening them
-                                (scan, project verify, login, dashboard)
+                                (scan, project verify, login, dashboard, web)
   --help                        help for a command, e.g. pgard scan code --help
 
 Advanced commands:
   pgard scan web [--port N]     anonymous read-only checks of a local HTTP service
   pgard scan all [--port N]     code + history + local HTTP service
   pgard dashboard [--target-port N]
-                                start the local web dashboard
+                                start the local web dashboard for this project
+  pgard web [--no-store]        start the dashboard with a project picker: search or
+                                drop a folder name in the browser (macOS and Linux)
+  pgard web scope list | add <folder> | remove <folder>
+                                the folders pgard web searches for projects
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
                                 supported rules and unsupported areas
   pgard history clear --all | --repo owner/name
@@ -88,6 +92,7 @@ Advanced options (pgard <command> --help has the details):
   report:      --no-open
   sbom:        --format cyclonedx-json  --output-dir DIR
   dashboard:   --target-port N
+  web:         --no-store
   rules list:  --language <name>
   history clear:     --all  --repo owner/name
   baseline set:      --from-current
@@ -97,7 +102,7 @@ The target is always the Git root of the current directory. Every scan re-runs t
 authorization gate; only the GitHub sign-in is reused. Code and results are
 processed locally; PGARD contacts GitHub for sign-in and repository metadata only.
 GitHub pages open in the browser automatically when stdout is a terminal; pass
---no-browser to scan, project verify, login or dashboard to only print the links.
+--no-browser to scan, project verify, login, dashboard or web to only print the links.
 
 ${EXIT_CODE_HELP}`,
   "project verify": `Usage:
@@ -290,6 +295,51 @@ you stop the dashboard.
 The dashboard opens the GitHub sign-in page when a device code is needed
 (unless --no-browser) and shows an install button when the PGARD GitHub App is
 not installed for this repository.
+
+${EXIT_CODE_HELP}`,
+  web: `Usage:
+  pgard web [--no-store] [--no-browser]
+
+Starts the local web dashboard on a free 127.0.0.1 port without a project, and
+prints its private URL. In the browser you search for a project by typing its
+folder name or by dropping the folder on the page. The browser sends only the
+name: pgard searches the folders listed by "pgard web scope list" (only common
+development folders such as ~/code, ~/projects and ~/Developer by default),
+shows the real path and the GitHub remote, and asks you to confirm. Only then
+the same five authorization checks as "pgard project verify" run, and a wrong
+folder can never lead straight to a scan. File contents are not read for this,
+and nothing is uploaded.
+
+Before the server starts, pgard prints the search folders and asks
+"Search these folders for projects? [y/N]" (a terminal is required). The browser
+can switch a folder off for the session but can never add one.
+
+--no-store keeps the recent project list and the first-run folders off this
+computer (same as PGARD_NO_STORE=1 for scans). Without it, projects you confirm
+are remembered in the app-data folder as absolute paths (owner-only, never
+uploaded); pgard history clear --all deletes that list and the settings too.
+
+pgard dashboard stays fixed to the project of the current directory and refuses
+every picker request. The picker is not available on Windows yet.
+
+Options:
+  --no-store               do not read or write the recent list or the first-run
+                           search folders
+${NO_BROWSER_HELP}
+
+${EXIT_CODE_HELP}`,
+  "web scope": `Usage:
+  pgard web scope list
+  pgard web scope add <folder>
+  pgard web scope remove <folder>
+
+The folders pgard web searches for projects. They are changed here, in the
+terminal, never in the browser. "add" shows the real path of the folder and asks
+you to confirm; a folder must be yours, not writable by group or others, and at
+least two levels deep (not / or /Users). Adding your whole home folder is
+allowed but asks for an extra confirmation: on macOS, walking it triggers
+permission prompts and downloads iCloud files. Without a saved list the default
+development folders that exist are used.
 
 ${EXIT_CODE_HELP}`,
   "rules list": `Usage:

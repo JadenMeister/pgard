@@ -70,11 +70,16 @@ export type ParsedCommand =
   | { kind: "history-clear"; repo: string | null }
   | { kind: "baseline"; action: BaselineAction; fromCurrent: boolean }
   | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
+  | { kind: "web"; noBrowser: boolean; noStore: boolean }
+  | { kind: "web-scope"; action: WebScopeAction; folder: string | null }
   | { kind: "rules-list"; language: RuleLanguage | null; lang?: RuleLocale }
   | { kind: "doctor" }
   | { kind: "advisories-update"; force?: boolean }
   | { kind: "login"; noBrowser: boolean }
   | { kind: "logout" };
+
+export type WebScopeAction = "list" | "add" | "remove";
+const WEB_SCOPE_ACTIONS: readonly WebScopeAction[] = ["list", "add", "remove"];
 
 export type BaselineAction = "set" | "show" | "clear";
 const BASELINE_ACTIONS: readonly BaselineAction[] = ["set", "show", "clear"];
@@ -87,6 +92,8 @@ export type HelpTopic =
   | "report"
   | "sbom"
   | "dashboard"
+  | "web"
+  | "web scope"
   | "rules"
   | "rules list"
   | "doctor"
@@ -107,6 +114,8 @@ export const HELP_TOPICS: readonly HelpTopic[] = [
   "report",
   "sbom",
   "dashboard",
+  "web",
+  "web scope",
   "rules",
   "rules list",
   "doctor",
@@ -394,8 +403,11 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       throw new UsageError("pgard help takes no options.", "main");
     }
   }
-  if (split.noStore && command !== "scan") {
-    throw new UsageError(`Option ${NO_STORE_FLAG} is only available for pgard scan.`, "main");
+  if (split.noStore && command !== "scan" && !(command === "web" && sub === undefined)) {
+    throw new UsageError(
+      `Option ${NO_STORE_FLAG} is only available for pgard scan and pgard web.`,
+      "main",
+    );
   }
   if (split.full && command !== "scan") {
     throw new UsageError(`Option ${FULL_FLAG} is only available for pgard scan.`, "main");
@@ -603,6 +615,33 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         noBrowser: split.noBrowser,
         targetPort: value === undefined ? null : parsePortOption("--target-port", value, topic),
       };
+    }
+    case "web": {
+      if (sub === "scope") {
+        topic = "web scope";
+        if (split.isHelp) return { kind: "help", topic };
+        const action = WEB_SCOPE_ACTIONS.find((known) => known === rest[0]);
+        if (action === undefined) {
+          throw new UsageError(
+            rest[0] === undefined
+              ? "Missing subcommand: list, add or remove"
+              : `Unknown subcommand: web scope ${rest[0].slice(0, 40)}`,
+            topic,
+          );
+        }
+        const folder = rest[1] ?? null;
+        if (action === "list") rejectExtraPositionals(rest.slice(1), topic);
+        else if (folder === null) {
+          throw new UsageError(`pgard web scope ${action} needs a folder.`, topic);
+        } else rejectExtraPositionals(rest.slice(2), topic);
+        rejectOptions(split, [], topic, `pgard web scope ${action}`);
+        return { kind: "web-scope", action, folder };
+      }
+      topic = "web";
+      if (split.isHelp) return { kind: "help", topic };
+      rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
+      rejectOptions(split, [], topic, "pgard web", true);
+      return { kind: "web", noBrowser: split.noBrowser, noStore: split.noStore };
     }
     case "rules": {
       topic = sub === "list" ? "rules list" : "rules";

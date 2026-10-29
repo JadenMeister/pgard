@@ -19,6 +19,8 @@ import { runSbom } from "./commands/sbom.js";
 import { runProjectVerify } from "./commands/project/verify.js";
 import { runRulesList } from "./commands/rules/list.js";
 import { isMachineFormat, runScanCommand } from "./commands/scan/index.js";
+import { runWeb } from "./commands/web.js";
+import { runWebScope } from "./commands/web-scope.js";
 import { err, out, type CommandContext } from "./context.js";
 import { createDefaultDeps, type CliDeps } from "./deps.js";
 import { EXIT_CODES, type ExitCode } from "./exit-codes.js";
@@ -58,6 +60,10 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
       return runSbom(context, command);
     case "dashboard":
       return runDashboard(context, command.targetPort, command.noBrowser);
+    case "web":
+      return runWeb(context, command.noBrowser, command.noStore);
+    case "web-scope":
+      return runWebScope(context, command.action, command.folder);
     case "rules-list":
       return runRulesList(context, command.language);
     case "history-clear":

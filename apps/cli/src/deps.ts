@@ -15,7 +15,13 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { isPathInsideDirectory, writeReports } from "@pgard/report";
-import { createResultStore, resolveStoreDirectory, type ResultStore } from "@pgard/result-store";
+import {
+  createResultStore,
+  createWebStorage,
+  resolveStoreDirectory,
+  type ResultStore,
+  type WebStorage,
+} from "@pgard/result-store";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
@@ -76,6 +82,13 @@ export interface CliDeps {
    * process, so a test with a bare environment can never reach the real store.
    */
   openResultStore: (env: Readonly<Record<string, string | undefined>>) => ResultStore | null;
+  /**
+   * Opens the picker's settings and recent-list files (`web/` next to the result store), or `null`
+   * when no app-data directory can be determined. Derived from `env`, never from the process.
+   */
+  openWebStorage: (env: Readonly<Record<string, string | undefined>>) => WebStorage | null;
+  /** The platform, so the Windows refusal of `pgard web` can be tested everywhere. */
+  platform: NodeJS.Platform;
   webScanner: WebScanner;
   probeLocalService: (port: number, options?: ProbeOptions) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
@@ -220,6 +233,13 @@ function openResultStoreDefault(
   return dir === null ? null : createResultStore({ dir });
 }
 
+function openWebStorageDefault(
+  env: Readonly<Record<string, string | undefined>>,
+): WebStorage | null {
+  const dir = resolveDataDirectory(env);
+  return dir === null ? null : createWebStorage({ dir });
+}
+
 /** A new private directory (mode 0700 on POSIX) under the system temporary directory. */
 export function makeReportDirDefault(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "pgard-report-"));
@@ -253,6 +273,8 @@ export function createDefaultDeps(): CliDeps {
     credentialStore,
     signInAndStore,
     openResultStore: openResultStoreDefault,
+    openWebStorage: openWebStorageDefault,
+    platform: process.platform,
     webScanner: scanLocalWeb,
     probeLocalService: (port, options) => probeLocalService(port, options),
     discoverListeningPorts: () => discoverListeningPorts(),
