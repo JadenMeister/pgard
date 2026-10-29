@@ -131,6 +131,23 @@ export interface CommandText {
     /** The stored scan carries another repository name than the verified one (a rename). */
     renamedNote: (storedName: string) => string;
   };
+  /** `pgard sbom`: a CycloneDX SBOM of the lockfiles; nothing is scanned or uploaded. */
+  sbomCommand: {
+    localNote: string;
+    /** Identity could not be confirmed: no lockfile was read. */
+    notVerified: string;
+    insideRepositoryWarning: string;
+    cannotConfirm: string;
+    confirmInside: string;
+    saved: (path: string, components: number) => string;
+    noComponents: string;
+    incomplete: (count: number) => string;
+    truncated: string;
+    fileExistsHint: string;
+    cannotCreateDir: string;
+    notSaved: (message: string) => string;
+    unexpectedWriteError: string;
+  };
   doctor: {
     title: string;
     labels: {
@@ -365,6 +382,28 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     cannotCreateDir: "A private directory for the report could not be created. Use --output-dir.",
     renamedNote: (name) => `This scan was stored when the repository was named ${name}.`,
   },
+  sbomCommand: {
+    localNote:
+      "Reading lockfiles on this computer only; nothing is uploaded and no build tool is run.",
+    notVerified:
+      "This repository could not be verified, so its lockfiles were not read. Run pgard project verify.",
+    insideRepositoryWarning:
+      "The output directory is inside the Git repository. The SBOM there could be committed and shared by mistake.",
+    cannotConfirm:
+      "Cannot confirm without an interactive terminal; choose a directory outside the repository.",
+    confirmInside: "Save the SBOM inside the repository anyway?",
+    saved: (path, components) => `Saved CycloneDX SBOM (${components} components): ${path}`,
+    noComponents: "No lockfile components were found, so the SBOM lists none.",
+    incomplete: (count) =>
+      `${count} lockfile(s) or project file(s) could not be fully read. They are listed in the SBOM as pgard:unparsed-lockfile, so it is not a complete inventory.`,
+    truncated:
+      "The search for lockfiles reached its limit, so more lockfiles may exist. The SBOM is marked incomplete.",
+    fileExistsHint:
+      "SBOMs are never overwritten. Remove that file, or use --output-dir with another directory.",
+    cannotCreateDir: "A private directory for the SBOM could not be created. Use --output-dir.",
+    notSaved: (message) => `SBOM not saved: ${message}`,
+    unexpectedWriteError: "Unexpected error while writing the SBOM.",
+  },
   doctor: {
     title: "pgard doctor (diagnosis only, not an authorization)",
     labels: {
@@ -598,6 +637,28 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       "보고서는 절대 덮어쓰지 않습니다. 그 파일을 지우거나 --output-dir로 다른 디렉터리를 지정하세요.",
     cannotCreateDir: "보고서를 둘 비공개 디렉터리를 만들지 못했습니다. --output-dir을 사용하세요.",
     renamedNote: (name) => `이 검사는 저장소 이름이 ${name}이던 때 저장되었습니다.`,
+  },
+  sbomCommand: {
+    localNote:
+      "이 컴퓨터의 lockfile만 읽습니다. 아무것도 업로드하지 않고 빌드 도구도 실행하지 않습니다.",
+    notVerified:
+      "이 저장소를 확인하지 못해 lockfile을 읽지 않았습니다. pgard project verify를 실행하세요.",
+    insideRepositoryWarning:
+      "출력 디렉터리가 Git 저장소 안에 있습니다. 거기에 둔 SBOM은 실수로 커밋되어 공유될 수 있습니다.",
+    cannotConfirm: "대화형 터미널이 아니면 확인할 수 없습니다. 저장소 밖의 디렉터리를 선택하세요.",
+    confirmInside: "그래도 저장소 안에 SBOM을 저장할까요?",
+    saved: (path, components) =>
+      `CycloneDX SBOM을 저장했습니다 (구성 요소 ${components}개): ${path}`,
+    noComponents: "lockfile에서 구성 요소를 찾지 못해 SBOM이 비어 있습니다.",
+    incomplete: (count) =>
+      `lockfile 또는 프로젝트 파일 ${count}개를 끝까지 읽지 못했습니다. SBOM에 pgard:unparsed-lockfile로 적혀 있으므로 완전한 목록이 아닙니다.`,
+    truncated:
+      "lockfile 탐색이 한도에 도달해 더 많은 lockfile이 있을 수 있습니다. SBOM은 불완전으로 표시됩니다.",
+    fileExistsHint:
+      "SBOM은 절대 덮어쓰지 않습니다. 그 파일을 지우거나 --output-dir로 다른 디렉터리를 지정하세요.",
+    cannotCreateDir: "SBOM을 둘 비공개 디렉터리를 만들지 못했습니다. --output-dir을 사용하세요.",
+    notSaved: (message) => `SBOM을 저장하지 못했습니다: ${message}`,
+    unexpectedWriteError: "SBOM을 쓰는 중 예기치 않은 오류가 발생했습니다.",
   },
   doctor: {
     title: "pgard doctor (진단만 수행하며 권한 확인이 아닙니다)",

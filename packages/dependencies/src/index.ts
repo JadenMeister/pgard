@@ -34,3 +34,16 @@ export {
   type UpdateOptions,
   type UpdateOutcome,
 } from "./osv/update.js";
+export {
+  buildCycloneDxSbom,
+  CYCLONEDX_SPEC_VERSION,
+  purlFor,
+  ROOT_REF as SBOM_ROOT_REF,
+  SBOM_FORMAT,
+  type BuildSbomOptions,
+  type CycloneDxBom,
+  type CycloneDxComponent,
+  type CycloneDxProperty,
+  type SbomDependency,
+  type SbomEcosystem,
+} from "./sbom.js";

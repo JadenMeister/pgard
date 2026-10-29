@@ -45,6 +45,8 @@ Common commands:
   pgard scan history            Git history and tracked files (secrets, risky files)
   pgard report                  build a report from the last stored scan of this
                                 repository (no new scan) and open it
+  pgard sbom                    write a CycloneDX SBOM of the dependencies in this
+                                repository's lockfiles (local files only)
   pgard project verify          check repository, GitHub identity, owner approval,
                                 current access and merged contribution
   pgard login                   sign in to GitHub once and save it in the OS keychain
@@ -52,11 +54,13 @@ Common commands:
 
 Common options:
   --lang en|ko                  language of the screen, progress and rule texts
-                                (scan, report, rules list)
-  --format text|json|sarif      scan output (scan); html|pdf (report)
+                                (scan, report, sbom, rules list)
+  --format text|json|sarif      scan output (scan); html|pdf (report);
+                                cyclonedx-json (sbom)
   --report html|pdf|both        save a report after a scan, with --output-dir DIR
                                 (scan only)
-  --output-dir DIR              existing directory for saved reports (scan, report)
+  --output-dir DIR              existing directory for saved reports and SBOMs
+                                (scan, report, sbom)
   --no-browser                  print GitHub links instead of opening them
                                 (scan, project verify, login, dashboard)
   --help                        help for a command, e.g. pgard scan code --help
@@ -82,6 +86,7 @@ Advanced options (pgard <command> --help has the details):
   scan:        --all-findings  --panels  --full  --no-store  --report-lang en|ko
                --port N (web, all)
   report:      --no-open
+  sbom:        --format cyclonedx-json  --output-dir DIR
   dashboard:   --target-port N
   rules list:  --language <name>
   history clear:     --all  --repo owner/name
@@ -227,6 +232,43 @@ Exit codes:
   2    invalid option, no stored scan (run pgard scan first), or PGARD_NO_STORE=1
   3    not a Git repository, or the repository could not be verified
   4    the report could not be written
+  5    internal error
+  130  cancelled
+`,
+  sbom: `Usage:
+  pgard sbom [--format cyclonedx-json] [--output-dir DIR] [--lang en|ko]
+
+Writes a CycloneDX 1.6 JSON software bill of materials (SBOM) of the packages
+listed in this repository's lockfiles (package-lock.json, npm-shrinkwrap.json,
+pnpm-lock.yaml, yarn.lock, go.mod/go.sum): name, version, package URL (purl) and
+the lockfiles each came from. Direct dependencies are linked from the repository
+component; the lockfiles do not give the links between other packages, so the
+graph is marked direct-only. It does not scan, uploads nothing and runs no
+package manager or build tool. Lockfiles it cannot read, or does not support
+yet, are listed as pgard:unparsed-lockfile properties (and the SBOM is marked
+incomplete), so a missing package is never mistaken for a clean one.
+
+Reading a repository's files needs the same authorization as the other
+repository commands: the repository checks (which contact GitHub) run first, as
+for pgard report, and nothing is read if they fail (exit 3).
+
+Options:
+  --format cyclonedx-json  the only format (default)
+  --output-dir DIR         existing directory for the SBOM. The file is named
+                           pgard-sbom-<time>-<commit>.cdx.json, is created with
+                           mode 0600 and never overwritten; a directory inside
+                           the Git repository needs explicit confirmation.
+                           Without it, each run writes into a new private
+                           directory (mode 0700) under the system temporary
+                           directory and prints its path
+  --lang en|ko             language of messages (default: PGARD_LANG, then the
+                           system locale, then en)
+
+Exit codes:
+  0    SBOM written (it may be marked incomplete; a warning says so)
+  2    invalid option, or the directory is missing or not confirmed
+  3    not a Git repository, or the repository could not be verified
+  4    the SBOM could not be written
   5    internal error
   130  cancelled
 `,

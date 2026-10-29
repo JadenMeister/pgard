@@ -116,6 +116,15 @@ try {
       reportHelp.stdout.includes("--no-open"),
     reportHelp.stderr,
   );
+  const sbomHelp = pgard(["sbom", "--help"], { cwd: root });
+  check(
+    "pgard sbom --help",
+    sbomHelp.status === 0 &&
+      sbomHelp.stdout.includes("pgard sbom") &&
+      sbomHelp.stdout.includes("--output-dir") &&
+      sbomHelp.stdout.includes("pgard:unparsed-lockfile"),
+    sbomHelp.stderr,
+  );
   const subHelp = pgard(["scan", "code", "--help"], { cwd: root });
   check(
     "pgard scan code --help",
