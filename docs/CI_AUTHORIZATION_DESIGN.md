@@ -2,7 +2,13 @@
 
 > [한국어](CI_AUTHORIZATION_DESIGN.ko.md) translation available. This English file is the reference; the translation follows it.
 
-Status: design for review ([#405](https://github.com/JadenMeister/pgard/issues/405), M10-2). Nothing in this document is implemented. M10-3 implements it only after the owner has approved it. Back to the [README](../README.md) and the [documents index](README.md).
+> **Status: accepted as a record; not scheduled for implementation.**
+>
+> - **Why.** Proving owner approval in CI would require a repository owner to hold a GitHub App private key in a CI environment secret (Q1, T11). The owner judged that cost and risk too high, so M10-3 (CI scanning) is not planned.
+> - **What this changes: nothing.** `pgard` has no CI mode. A scan in CI goes through the normal authorization gate, so without a device-flow sign-in it is blocked, as the README describes for runs without a terminal. If CI support is reconsidered, it must follow this design and needs a fresh decision by the owner.
+> - **Supported automation path.** A pre-commit hook that runs the same five checks unchanged is planned as M10-1 ([#404](https://github.com/JadenMeister/pgard/issues/404)). It is not available yet.
+
+Design written for [#405](https://github.com/JadenMeister/pgard/issues/405) (M10-2) and reviewed. Nothing in this document is implemented. Back to the [README](../README.md) and the [documents index](README.md).
 
 Statements about "today" describe the code at the time of writing (`packages/policy/src/authorize-project.ts`, `packages/policy/src/checks.ts`, `packages/policy/src/types.ts`, `packages/github-auth`, `packages/git-history`). Where this design relies on something the code does not have yet, it is marked **Requirement for M10-3**. Statements about GitHub are taken from GitHub's documentation, linked inline and listed in [References](#12-references); where the documentation is silent, the design says so and does not rely on the behaviour.
 

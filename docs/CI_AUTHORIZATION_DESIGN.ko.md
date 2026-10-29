@@ -2,7 +2,13 @@
 
 > **참고:** 이 문서는 [`CI_AUTHORIZATION_DESIGN.md`](CI_AUTHORIZATION_DESIGN.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))와 [문서 목록](README.ko.md)도 참고하세요.
 
-상태: 검토용 설계([#405](https://github.com/JadenMeister/pgard/issues/405), M10-2). 이 문서의 내용은 아직 아무것도 구현되지 않았습니다. 소유자가 승인한 뒤에만 M10-3에서 구현합니다.
+> **상태: 기록으로 채택, 구현 일정 없음.**
+>
+> - **이유.** CI에서 소유자 승인을 증명하려면 저장소 소유자가 GitHub App 개인 키를 CI 환경 시크릿에 보관해야 합니다(Q1, T11). 소유자는 그 비용과 위험이 너무 크다고 판단했으므로 M10-3(CI 검사)은 계획하지 않습니다.
+> - **바뀌는 것: 없음.** `pgard`에는 CI 모드가 없습니다. CI에서의 검사는 일반 권한 게이트를 거치므로, README가 터미널 없는 실행에 대해 설명하는 대로 디바이스 플로 로그인이 없으면 막힙니다. CI 지원을 다시 검토한다면 이 설계를 따라야 하며 소유자의 새로운 결정이 필요합니다.
+> - **지원하는 자동화 경로.** 같은 다섯 확인을 그대로 실행하는 pre-commit 훅이 M10-1([#404](https://github.com/JadenMeister/pgard/issues/404))로 계획되어 있습니다. 아직 쓸 수 없습니다.
+
+[#405](https://github.com/JadenMeister/pgard/issues/405)(M10-2)를 위해 작성하고 검토한 설계입니다. 이 문서의 내용은 아무것도 구현되지 않았습니다.
 
 "현재"에 대한 설명은 작성 시점의 코드(`packages/policy/src/authorize-project.ts`, `packages/policy/src/checks.ts`, `packages/policy/src/types.ts`, `packages/github-auth`, `packages/git-history`)를 기준으로 합니다. 이 설계가 아직 코드에 없는 것에 기대는 곳에는 **M10-3 요구사항**이라고 표시했습니다. GitHub에 대한 설명은 GitHub 문서에서 가져왔고, 본문에 링크를 달고 [참고 자료](#12-참고-자료)에 모았습니다. 문서가 말하지 않는 부분은 그렇다고 적고, 그 동작에 기대지 않습니다.
 
