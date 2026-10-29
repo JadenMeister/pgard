@@ -1,4 +1,5 @@
 import http from "node:http";
+import path from "node:path";
 import {
   SCHEMA_VERSION,
   buildRuleTextCatalog,
@@ -955,7 +956,7 @@ describe("local web report download", () => {
     expect(JSON.parse(response.body)).toEqual({
       overall: "stale",
       staleAfterDays: 7,
-      storePath: "/scratch/pgard-appdata/advisories/osv",
+      storePath: path.join("/scratch/pgard-appdata", "advisories", "osv"),
       ecosystems: status.ecosystems,
     });
     expect((await send(running, "GET", "/api/advisory-status")).status).toBe(401);
