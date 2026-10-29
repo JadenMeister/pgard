@@ -14,29 +14,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2]
+        n: [1, 2, 3, 4]
         g:
-          - { name: analyzer-hash, paths: "packages/scan-core/src/analyzer-hash.test.ts" }
-          - { name: code-analyzer, paths: "packages/scan-core/src/code-analyzer.test.ts" }
-          - { name: default-analyzers, paths: "packages/scan-core/src/default-analyzers.test.ts" }
-          - {
-              name: incremental-equivalence,
-              paths: "packages/scan-core/src/incremental-equivalence.test.ts",
-            }
-          - { name: paths, paths: "packages/scan-core/src/paths.test.ts" }
-          - { name: project-config, paths: "packages/scan-core/src/project-config.test.ts" }
-          - { name: rule-locality, paths: "packages/scan-core/src/rule-locality.test.ts" }
-          - {
-              name: run-scan-expected-repo,
-              paths: "packages/scan-core/src/run-scan-expected-repo.test.ts",
-            }
-          - { name: run-scan, paths: "packages/scan-core/src/run-scan.test.ts" }
-          - { name: staged-scan, paths: "packages/scan-core/src/staged-scan.test.ts" }
-          - {
-              name: standards-coverage-real,
-              paths: "packages/scan-core/src/standards-coverage-real.test.ts",
-            }
-          - { name: standards-coverage, paths: "packages/scan-core/src/standards-coverage.test.ts" }
+          - { name: default, paths: "packages/scan-core" }
+          - { name: w2, paths: "packages/scan-core --maxWorkers=2" }
+          - { name: w1, paths: "packages/scan-core --maxWorkers=1" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
