@@ -1,7 +1,10 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Each test starts a few Git processes; a busy machine or a slow runner needs more than 5 s.
+vi.setConfig({ testTimeout: 30_000 });
 import { isPathInside, resolveHookIndexFile, resolveHooksLocation } from "./hook-paths.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
 

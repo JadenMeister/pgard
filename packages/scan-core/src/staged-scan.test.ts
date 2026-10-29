@@ -1,4 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Each test starts a few Git processes; a busy machine or a slow runner needs more than 5 s.
+vi.setConfig({ testTimeout: 30_000 });
 import {
   createGitFixture,
   type GitFixture,

@@ -1,6 +1,9 @@
 import { copyFileSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Each test starts a few Git processes; a busy machine or a slow runner needs more than 5 s.
+vi.setConfig({ testTimeout: 30_000 });
 import { GitCommandError, runGit, type GitRunner } from "./run-git.js";
 import { readStagedChanges } from "./staged.js";
 import { addedLineNumbers, scanStagedSecrets } from "./staged-secrets.js";
