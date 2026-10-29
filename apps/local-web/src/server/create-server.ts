@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import http from "node:http";
+import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { sanitizeDisplayText } from "@pgard/http-local";
 import { isOpenableGitHubUrl } from "@pgard/scan-core";
@@ -37,8 +38,12 @@ export const KEEP_ALIVE_TIMEOUT_MS = 5_000;
 export const MAX_CONNECTIONS = 64;
 
 export interface LocalWebServerOptions {
-  /** Git root confirmed by the launcher in the terminal. Fixed for the server's lifetime. */
-  projectRoot: string;
+  /**
+   * Git root confirmed by the launcher in the terminal (`pgard dashboard`): fixed for the
+   * server's lifetime, and every picker route is refused. `null` is picker mode (`pgard web`):
+   * the project is chosen after start through `deps.picker`.
+   */
+  projectRoot: string | null;
   presetTargetPort: number | null;
   env: Readonly<Record<string, string | undefined>>;
   assets: Map<string, StaticAsset>;
@@ -50,6 +55,8 @@ export interface LocalWebServerOptions {
   openGitHubPage?: (url: string) => void;
   /** Test hook; production uses 32 random bytes. */
   token?: string;
+  /** Dev preview hook; production always takes a free port. */
+  port?: number;
 }
 
 export interface LocalWebServer {
@@ -111,7 +118,18 @@ async function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
 export async function startLocalWebServer(options: LocalWebServerOptions): Promise<LocalWebServer> {
   const deps = options.deps ?? createDefaultServerDeps();
   const token = options.token ?? randomBytes(32).toString("base64url");
-  const state = createSessionState();
+  const state = createSessionState(
+    options.projectRoot === null
+      ? null
+      : {
+          root: options.projectRoot,
+          name: sanitizeDisplayText(path.basename(options.projectRoot), 120),
+          repo: null,
+          repositoryId: null,
+          identity: null,
+          candidateId: null,
+        },
+  );
   const github = createGitHubSessionManager(
     deps,
     options.env,
@@ -133,7 +151,7 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
   );
   let port = 0;
   const context: ApiContext = {
-    projectRoot: options.projectRoot,
+    mode: options.projectRoot === null ? "picker" : "fixed",
     presetTargetPort: options.presetTargetPort,
     env: options.env,
     state,
@@ -157,12 +175,28 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
       if (!originCheck.isAllowed) return reject(response, originCheck);
       const tokenCheck = checkSessionToken(request, token);
       if (!tokenCheck.isAllowed) return reject(response, tokenCheck);
+      // Fixed mode (`pgard dashboard`): the picker is hard-disabled. Every picker request, any
+      // method, any body, is refused before the body is read and before the route is looked up.
+      if (context.mode === "fixed" && pathname.startsWith("/api/picker")) {
+        return sendError(
+          response,
+          409,
+          "fixed_project",
+          "This dashboard was started for one project. To pick another, start `pgard web`.",
+        );
+      }
       const handler = API_ROUTES[`${method} ${pathname}`];
       if (handler === undefined) return sendError(response, 404, "not_found", "Unknown API route.");
+      // Aborts when the client goes away before the answer was sent, so work only that request
+      // waits for (an owner-approval re-check and its git processes) stops with it.
+      const requestAbort = new AbortController();
+      response.on("close", () => {
+        if (!response.writableFinished) requestAbort.abort();
+      });
       void (async () => {
         try {
           const body = isStateChanging ? await readJsonBody(request) : undefined;
-          const payload = await handler(context, body, query);
+          const payload = await handler(context, body, query, { signal: requestAbort.signal });
           if (payload instanceof ApiDownload) {
             const content = Buffer.from(payload.body);
             response.statusCode = 200;
@@ -201,7 +235,7 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
 
   await new Promise<void>((resolve, rejectListen) => {
     server.once("error", rejectListen);
-    server.listen(0, LOOPBACK_HOST, () => resolve());
+    server.listen(options.port ?? 0, LOOPBACK_HOST, () => resolve());
   });
   port = (server.address() as AddressInfo).port;
 
@@ -214,7 +248,9 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     close: async () => {
       // Stops a pending device flow too, so the process can exit right away.
       github.dispose();
+      // Aborts a running check (killing its git children) and ends the inspector processes.
       clearSessionState(state);
+      deps.picker?.inspector.stopAll();
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
     },

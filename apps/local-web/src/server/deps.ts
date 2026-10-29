@@ -1,3 +1,4 @@
+import type { PickerDeps } from "./picker/session.js";
 import {
   discoverListeningPorts,
   probeLocalService,
@@ -51,6 +52,8 @@ export interface ServerDeps {
    * written) by the dependency check of a scan. `null`/absent: no advisory data can be read.
    */
   advisoryDataDir?: string | null;
+  /** Picker mode (`pgard web`) only: inspector, recent-list storage and search scope. */
+  picker?: PickerDeps;
 }
 
 /** Client id (or the fixed reason a malformed override blocks) for the session provider. */
