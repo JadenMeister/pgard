@@ -91,6 +91,8 @@ export interface CliText {
   confidence: string;
   evidence: string;
   fix: string;
+  /** Heading of a suggested-fix diff (`--fixes`). */
+  suggestedFix: string;
   standards: string;
   variesByLocation: string;
   andMore: (count: number) => string;
@@ -397,6 +399,7 @@ const EN: CliText = {
   confidence: "confidence",
   evidence: "Evidence",
   fix: "Fix",
+  suggestedFix: "Suggested fix",
   standards: "Standards",
   variesByLocation: "varies by location (run with --all-findings to see each)",
   andMore: (count) => ` and ${count} more`,
@@ -740,6 +743,7 @@ const KO: CliText = {
   confidence: "신뢰도",
   evidence: "근거",
   fix: "조치",
+  suggestedFix: "제안된 수정",
   standards: "표준",
   variesByLocation: "위치마다 다름 (--all-findings로 각각 확인)",
   andMore: (count) => ` 외 ${count}곳`,
