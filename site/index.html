@@ -721,18 +721,32 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               cryptography, cookies
             </dd>
           </div>
-          <div class="card emph">
-            <dt>Java, Kotlin</dt>
+          <div class="card partial">
+            <dt>
+              Java, Kotlin
+              <span class="lang-tag">Partial coverage</span>
+            </dt>
             <dd>
-              Seven categories: SQL injection, XSS, SSRF, command execution, path traversal,
-              cryptography, configuration
+              SQL injection, XSS, SSRF, command execution, path traversal, cryptography (including
+              password storage), Spring Security and session settings. Also MyBatis XML, JSP and
+              Thymeleaf.
             </dd>
           </div>
-          <div class="card emph">
-            <dt>Python, PHP</dt>
-            <dd>Two categories only: SQL injection, command execution</dd>
+          <div class="card partial">
+            <dt>
+              Python, PHP
+              <span class="lang-tag">Partial coverage</span>
+            </dt>
+            <dd>
+              SQL injection and command execution. Django, Flask, FastAPI, Laravel and Symfony are
+              detected.
+            </dd>
           </div>
         </dl>
+        <p class="langs-note">
+          Languages marked partial coverage are supported for the rule categories listed; other
+          categories are not checked in those files.
+        </p>
 
         <h3 class="sub-h" id="features">Output</h3>
         <dl class="outputs">

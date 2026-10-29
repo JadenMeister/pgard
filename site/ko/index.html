@@ -721,15 +721,28 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
             <dt>Go</dt>
             <dd>SQL 인젝션(database/sql, GORM), 명령 실행, 경로 조작, SSRF, 암호화, 쿠키</dd>
           </div>
-          <div class="card emph">
-            <dt>Java, Kotlin</dt>
-            <dd>일곱 분류: SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작, 암호화, 설정</dd>
+          <div class="card partial">
+            <dt>
+              Java, Kotlin
+              <span class="lang-tag">일부 범주만</span>
+            </dt>
+            <dd>
+              SQL 인젝션, XSS, SSRF, 명령 실행, 경로 조작, 암호화(비밀번호 저장 포함), Spring
+              Security와 세션 설정. MyBatis XML, JSP, Thymeleaf도 분석합니다.
+            </dd>
           </div>
-          <div class="card emph">
-            <dt>Python, PHP</dt>
-            <dd>두 분류만: SQL 인젝션, 명령 실행</dd>
+          <div class="card partial">
+            <dt>
+              Python, PHP
+              <span class="lang-tag">일부 범주만</span>
+            </dt>
+            <dd>SQL 인젝션, 명령 실행. Django, Flask, FastAPI, Laravel, Symfony는 감지합니다.</dd>
           </div>
         </dl>
+        <p class="langs-note">
+          일부 범주만 표시된 언어도 지원 대상입니다. 나열된 규칙 범주만 검사하며, 그 밖의 범주는
+          해당 파일에서 검사하지 않습니다.
+        </p>
 
         <h3 class="sub-h" id="features">출력</h3>
         <dl class="outputs">

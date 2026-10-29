@@ -1252,23 +1252,24 @@ html:not(.js) .tabpanel + .tabpanel {
   color: var(--muted);
 }
 
-.langs .emph dd {
-  color: var(--fg);
+.langs .lang-tag {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font: 500 0.75rem/1.4 var(--sans);
+  letter-spacing: 0;
+  vertical-align: 0.15em;
+  white-space: nowrap;
 }
 
-.langs .emph dt::after {
-  content: "!";
-  content: "!" / "";
-  display: inline-grid;
-  place-items: center;
-  width: 1.25rem;
-  height: 1.25rem;
-  margin-left: 0.5rem;
-  border-radius: 999px;
-  background: var(--warn);
-  color: var(--bg);
-  font: 700 0.75rem/1 var(--sans);
-  vertical-align: 0.15em;
+.langs-note {
+  margin: 1rem 0 0;
+  font-size: 0.875rem;
+  line-height: 1.55;
+  color: var(--muted);
 }
 
 /* Output: a grid of small cards */
