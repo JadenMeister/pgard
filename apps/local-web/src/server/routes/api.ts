@@ -3,6 +3,7 @@ import {
   buildRuleTextCatalog,
   RULE_LOCALES,
   SCAN_SCOPES,
+  scrubAbsolutePaths,
   type RuleLocale,
   type RuleTextCatalog,
   type ScanResult,
@@ -105,7 +106,7 @@ const getRuleTexts: ApiHandler = async () => {
 
 /**
  * The state of the downloaded advisory data, from local metadata only. No home directory or an
- * unreadable store reads as "none": the notice then tells the person how to download the data.
+ * unreadable store reads as "unreadable" and a missing one as "none".
  */
 const getAdvisoryStatus: ApiHandler = async (context) => {
   const dir = context.deps.advisoryDataDir ?? null;
@@ -116,7 +117,8 @@ const getAdvisoryStatus: ApiHandler = async (context) => {
     ecosystems: [],
   };
   if (dir === null) return empty;
-  const storePath = osvDataDir(dir).slice(0, 300);
+  // The browser never gets an absolute path: the home directory shows as `~`.
+  const storePath = scrubAbsolutePaths(osvDataDir(dir)).slice(0, 300);
   try {
     const status = await (context.deps.readAdvisoryStatus ?? readAdvisoryStatus)(
       dir,
@@ -129,7 +131,7 @@ const getAdvisoryStatus: ApiHandler = async (context) => {
       ecosystems: status.ecosystems.map((entry) => ({ ...entry })),
     };
   } catch {
-    return { ...empty, storePath };
+    return { ...empty, overall: "unreadable", storePath };
   }
 };
 

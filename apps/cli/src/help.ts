@@ -96,7 +96,8 @@ Advanced options (pgard <command> --help has the details):
 The target is always the Git root of the current directory. Every scan re-runs the
 authorization gate; only the GitHub sign-in is reused. Code and results are
 processed locally and never uploaded; scans and pgard sbom contact GitHub for
-sign-in and authorization metadata only (github.com, api.github.com). The one
+sign-in and authorization metadata only (github.com, api.github.com), including
+the owner/name of the repository's GitHub remote and local commit SHAs. The one
 other destination is osv-vulnerabilities.storage.googleapis.com, and only when
 you run pgard advisories update.
 GitHub pages open in the browser automatically when stdout is a terminal; pass
@@ -361,7 +362,9 @@ only when you run this command, never during a scan. Nothing is uploaded: the
 request is a plain GET of a fixed file, with no package names, no project data
 and no sign-in. The npm export is about 220 MB; the download is verified (zip
 structure, per-record checksums, size limit, timeout) and replaces the old data
-only when everything checks out. If anything fails, the old data stays.
+only when everything checks out. If anything fails, the old data stays. OSV
+publishes no checksum to compare against, so integrity rests on https to that
+host (trust on first use): the checks detect damage and truncation, not tampering.
 
 A download whose newest record is older than the installed data, or that holds
 fewer than half as many records, is refused and the installed data stays (this

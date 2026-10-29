@@ -8,14 +8,15 @@ import { useI18n } from "../../i18n/I18nProvider";
 export function AdvisoryStatusView({ status }: { status: AdvisoryStatusDto }) {
   const { m } = useI18n();
   const text = m.scan.advisory;
-  const isMissing =
-    status.overall === "none" && status.ecosystems.every((entry) => entry.fetchedAt === null);
+  const hasData = status.ecosystems.some((entry) => entry.fetchedAt !== null);
   const parts: string[] = [];
-  if (isMissing) {
+  if (status.overall === "unreadable") {
+    parts.push(text.unreadable);
+  } else if (status.overall === "none" && !hasData) {
     parts.push(text.missing);
   } else {
-    // `none` with some data: another ecosystem is missing, so the data is incomplete (stale).
-    const state = status.overall === "none" ? "stale" : status.overall;
+    // `none` with some data: another ecosystem has no data, so the data is only partial.
+    const state = status.overall === "none" ? "partial" : status.overall;
     parts.push(`${text.state[state]}.`);
     for (const entry of status.ecosystems) {
       parts.push(

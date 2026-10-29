@@ -6,6 +6,7 @@ import {
   type StoredSignInStatus,
 } from "@pgard/scan-core";
 import { osvDataDir } from "@pgard/dependencies";
+import { scrubAbsolutePaths } from "@pgard/findings";
 import { out, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { safeText } from "../ui/formatters/style.js";
@@ -161,7 +162,10 @@ async function describeAdvisoryData(context: CommandContext, t: CliText): Promis
     {
       label: text.labels.advisoryStore,
       isOk: isPresent,
-      detail: text.advisoryStore(safeText(osvDataDir(appDataDir), 300), isPresent),
+      detail: text.advisoryStore(
+        safeText(scrubAbsolutePaths(osvDataDir(appDataDir)), 300),
+        isPresent,
+      ),
       isRequired: false,
     },
   ];

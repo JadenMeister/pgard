@@ -45,7 +45,7 @@ export const en = {
     // Keep in sync with the README section "Privacy and network traffic".
     points: [
       "Scan data is processed once, on this computer. PGARD does not upload source code or results to any server.",
-      "PGARD talks to GitHub: the device-flow sign-in on github.com (and refreshing a saved sign-in there) and GitHub API calls on api.github.com that read what authorization needs (your identity, the app installation, your organization membership, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. The pgard doctor command also checks whether api.github.com is reachable.",
+      "PGARD talks to GitHub: the device-flow sign-in on github.com (and refreshing a saved sign-in there) and GitHub API calls on api.github.com that read what authorization needs (the owner/name of the repository's GitHub remote, your identity, the app installation, your organization membership, your access and your contributions). To check contribution, PGARD sends the SHAs of local commits to GitHub. The pgard doctor command also checks whether api.github.com is reachable.",
       "The only other external destination is osv-vulnerabilities.storage.googleapis.com, and only when you run pgard advisories update in a terminal: it downloads public OSV vulnerability data over https and uploads nothing (no package names, no lockfile contents, no GitHub sign-in). The download is verified (zip structure, per-record checksums, size and time limits) and stored in your user data folder under advisories/osv; its integrity rests on https to that pinned host. Scans, SBOM generation and this dashboard never start that download and never send your code, lockfiles or results anywhere.",
       "After authorization passes, PGARD sends one GET / to each discovered listening port on 127.0.0.1 to show its identity.",
       "PGARD does not ship a vulnerability database and a scan never downloads or queries one. Findings come from the code itself (query statements, server code, configuration), Git history, if selected local HTTP checks and, for npm and Go lockfiles, a version match against the OSV data you downloaded with pgard advisories update (not proof that the vulnerable code is reachable or exploitable).",
@@ -196,9 +196,12 @@ export const en = {
         fresh: "present, up to date",
         stale: "present, stale",
         damaged: "present, damaged",
+        partial: "partial: at least one ecosystem has no data",
       },
+      unreadable:
+        "could not be read. Run `pgard advisories update` to replace it (it downloads public OSV data and uploads nothing).",
       staleHint: (days: number): string =>
-        `Data counts as stale after ${days} days; refresh it with \`pgard advisories update\` (the dashboard never downloads it).`,
+        `Data counts as stale when the download or its newest record is ${days} or more days old; refresh it with \`pgard advisories update\` (the dashboard never downloads it).`,
       damagedHint: "Replace it with `pgard advisories update`.",
       ecosystem: (
         name: string,

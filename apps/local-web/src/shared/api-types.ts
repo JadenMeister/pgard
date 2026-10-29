@@ -184,7 +184,7 @@ export type RuleTextsResponse = Record<string, RuleTextsDto>;
  */
 export interface AdvisoryStatusDto {
   /** `none` when any ecosystem has no data; otherwise `damaged`, `stale` or `fresh`. */
-  overall: "none" | "fresh" | "stale" | "damaged";
+  overall: "none" | "fresh" | "stale" | "damaged" | "unreadable";
   /** Days after which data counts as stale (the same rule as `pgard doctor`). */
   staleAfterDays: number;
   /** Folder the data lives in (`<app data>/advisories/osv`); null without a home directory. */

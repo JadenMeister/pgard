@@ -481,7 +481,11 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
 
 <b>The target is always the Git root of the current directory. Every scan re-runs the</b>
 <b>authorization gate; only the GitHub sign-in is reused. Code and results are</b>
-<b>processed locally; PGARD contacts GitHub for sign-in and repository metadata only.</b>
+<b>processed locally and never uploaded; scans and pgard sbom contact GitHub for</b>
+<b>sign-in and authorization metadata only (github.com, api.github.com), including</b>
+<b>the owner/name of the repository's GitHub remote and local commit SHAs. The one</b>
+<b>other destination is osv-vulnerabilities.storage.googleapis.com, and only when</b>
+<b>you run pgard advisories update.</b>
 <b>GitHub pages open in the browser automatically when stdout is a terminal; pass</b>
 <b>--no-browser to scan, project verify, login or dashboard to only print the links.</b>
 
@@ -821,7 +825,10 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             </svg>
             <h3>Goes over the network</h3>
             <ul>
-              <li>GitHub: sign-in and authorization metadata, incl. local commit SHAs</li>
+              <li>
+                GitHub: sign-in and authorization metadata, incl. the repository's owner/name and
+                local commit SHAs
+              </li>
               <li>
                 OSV public data (download only, nothing sent), only when you run
                 <code>pgard advisories update</code>

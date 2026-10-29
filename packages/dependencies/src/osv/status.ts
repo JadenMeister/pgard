@@ -69,7 +69,9 @@ export async function readAdvisoryStatus(
       ageDays,
       modifiedMax,
       dataAgeDays,
-      dataVersion: `${meta.schema}:${meta.archive.sha256.slice(0, 12)}`,
+      dataVersion: /^[0-9a-f]{64}$/.test(meta.archive?.sha256 ?? "")
+        ? `${meta.schema}:${meta.archive.sha256.slice(0, 12)}`
+        : null,
     });
   }
   const states = ecosystems.map((entry) => entry.state);

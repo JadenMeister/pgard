@@ -947,19 +947,38 @@ describe("local web report download", () => {
     };
     const running = await start(
       fakeDeps({
-        advisoryDataDir: "/scratch/pgard-appdata",
+        advisoryDataDir: path.join(
+          process.platform === "win32" ? "C:\\Users\\tester" : "/Users/tester",
+          "pgard-appdata",
+        ),
         readAdvisoryStatus: async () => status,
       }),
     );
     const response = await apiGet(running, "/api/advisory-status");
     expect(response.status).toBe(200);
-    expect(JSON.parse(response.body)).toEqual({
+    const body = JSON.parse(response.body) as { storePath: string };
+    expect(body).toEqual({
       overall: "stale",
       staleAfterDays: 7,
-      storePath: path.join("/scratch/pgard-appdata", "advisories", "osv"),
+      storePath: expect.stringMatching(/^~.*advisories.osv$/),
       ecosystems: status.ecosystems,
     });
+    // The browser never sees the home directory.
+    expect(response.body).not.toContain("tester");
     expect((await send(running, "GET", "/api/advisory-status")).status).toBe(401);
+  });
+
+  it("reports unreadable advisory data as unreadable, not missing", async () => {
+    const running = await start(
+      fakeDeps({
+        advisoryDataDir: "/scratch/pgard-appdata",
+        readAdvisoryStatus: async () => {
+          throw new Error("boom");
+        },
+      }),
+    );
+    const response = await apiGet(running, "/api/advisory-status");
+    expect((JSON.parse(response.body) as { overall: string }).overall).toBe("unreadable");
   });
 
   it("reports advisory data as missing without a data folder", async () => {

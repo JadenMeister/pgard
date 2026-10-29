@@ -53,7 +53,7 @@ describe("AdvisoryStatusView", () => {
     });
     expect(html).toContain("취약점 데이터 (OSV):");
     expect(html).toContain("있음, 오래됨.");
-    expect(html).toContain("7일이 지나면 오래된 데이터로 봅니다");
+    expect(html).toContain("7일 이상 지나면 오래된 데이터로 봅니다");
     expect(html).toContain("저장 위치: /scratch/advisories/osv.");
     expect(html).toContain("notice-warning");
   });
@@ -77,5 +77,46 @@ describe("AdvisoryStatusView", () => {
     });
     expect(html).toContain("missing. Dependency checks are reported as not tested");
     expect(html).toContain("uploads nothing");
+  });
+
+  it("says unreadable data could not be read, and partial data is partial", () => {
+    const unreadable = render("en", {
+      overall: "unreadable",
+      staleAfterDays: 7,
+      storePath: null,
+      ecosystems: [],
+    });
+    expect(unreadable).toContain("could not be read.");
+    expect(unreadable).not.toContain("missing");
+    const partial = render("en", {
+      overall: "none",
+      staleAfterDays: 7,
+      storePath: null,
+      ecosystems: [
+        ecosystem,
+        {
+          ...ecosystem,
+          ecosystem: "Go",
+          state: "none",
+          fetchedAt: null,
+          ageDays: null,
+          modifiedMax: null,
+          dataAgeDays: null,
+          dataVersion: null,
+        },
+      ],
+    });
+    expect(partial).toContain("partial: at least one ecosystem has no data.");
+    expect(partial).toContain("Go: none;");
+  });
+
+  it("states the stale rule as download or newest record", () => {
+    const html = render("en", {
+      overall: "stale",
+      staleAfterDays: 7,
+      storePath: null,
+      ecosystems: [{ ...ecosystem, state: "stale" }],
+    });
+    expect(html).toContain("the download or its newest record is 7 or more days old");
   });
 });

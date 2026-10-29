@@ -171,9 +171,10 @@ describe("runDoctor", () => {
     expect(stdout).toContain(
       `[ok]   Advisory data (OSV): npm 2026-10-27 (2 days old; newest record 2026-10-26, 3 days old; data version ${version})`,
     );
-    expect(stdout).toContain(
-      `[ok]   Advisory data store: ${path.join(appData, "advisories", "osv")} (present; delete this folder to remove the data)`,
+    expect(stdout).toMatch(
+      /\[ok\] {3}Advisory data store: .* \(present; delete this folder to remove the data\)/,
     );
+    expect(stdout).not.toContain(appData);
   });
 
   it("marks a fixture store stale after 7 days and says so in Korean", async () => {
@@ -187,26 +188,26 @@ describe("runDoctor", () => {
     const stdout = captured.stdout();
     expect(stdout).toContain("[warn] 취약점 데이터 (OSV): 오래됨: npm 2026-10-01 (28일 전");
     expect(stdout).toContain("데이터 버전 1:");
-    expect(stdout).toContain(
-      `[ok]   취약점 데이터 저장 위치: ${path.join(appData, "advisories", "osv")} (있음.`,
-    );
+    expect(stdout).toMatch(/\[ok\] {3}취약점 데이터 저장 위치: .* \(있음\./);
+    expect(stdout).not.toContain(appData);
   });
 
-  it("reports a missing store with its path in English and Korean", async () => {
-    const appData = await mkdtemp(path.join(tmpdir(), "pgard-doctor-"));
-    scratch.push(appData);
-    const store = path.join(appData, "advisories", "osv");
+  it("reports a missing store with its path (home shown as ~) in English and Korean", async () => {
+    const home = process.platform === "win32" ? "C:\\Users\\tester" : "/Users/tester";
+    const appData = path.join(home, "pgard-data");
     const en = createTestIo();
     await runDoctor(createTestContext(en, createTestDeps({ appDataDir: appData })));
-    expect(en.stdout()).toContain(
-      `[warn] Advisory data store: ${store} (missing; nothing downloaded yet, \`pgard advisories update\` creates it)`,
+    expect(en.stdout()).toMatch(
+      /\[warn\] Advisory data store: ~.*osv \(missing; nothing downloaded yet, `pgard advisories update` creates it\)/,
     );
+    expect(en.stdout()).not.toContain("tester");
     const ko = createTestIo();
     await runDoctor({
       ...createTestContext(ko, createTestDeps({ appDataDir: appData })),
       ruleLocale: "ko",
     });
-    expect(ko.stdout()).toContain(`[warn] 취약점 데이터 저장 위치: ${store} (없음.`);
+    expect(ko.stdout()).toMatch(/\[warn\] 취약점 데이터 저장 위치: ~.*osv \(없음\./);
+    expect(ko.stdout()).not.toContain("tester");
     expect(ko.stdout()).toContain("없음: npm 없음, Go 없음");
   });
 
