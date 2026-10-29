@@ -12,7 +12,7 @@ import { analyzeStagedSource } from "@pgard/source-analysis";
 import type { LocalAnalyzer } from "./types.js";
 
 /** Time cap for reading and analysing the staged changes (the authorization check is extra). */
-export const STAGED_SCAN_BUDGET_MS = 2_000;
+export const STAGED_SCAN_BUDGET_MS = 5_000;
 
 export const STAGED_COVERAGE_AREA = "staged:changes";
 const RULE_IDS = ["PG-SECRET-001", "PG-SECRET-002"];

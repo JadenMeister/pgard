@@ -366,10 +366,10 @@ Mode is set in pgard.config.json:
   warn              findings are printed, the commit goes on (exit 0)
   whenNotScanned    what happens when nothing, or not everything, was scanned
                     (not authorized, error, timeout, a file over 1 MiB, more than
-                    500 changed files, 2 s analysis cap). Default: the same as mode,
+                    500 changed files, 5 s analysis cap). Default: the same as mode,
                     so a blocking hook blocks. An invalid config means block.
 Limits: authorization up to 15 s (PGARD_PRECOMMIT_TIMEOUT_MS=1000..120000 changes it),
-then reading and checking the staged changes up to 2 s, files up to 1 MiB, up to 500
+then reading and checking the staged changes up to 5 s (typically well under 1 s), files up to 1 MiB, up to 500
 changed files, 16 MiB in total. Findings of severity info do not block.
 
 install writes only into this repository's own .git/hooks (with core.hooksPath and

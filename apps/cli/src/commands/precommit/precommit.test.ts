@@ -89,7 +89,6 @@ function git(root: string, ...args: string[]): string {
       PATH: process.env.PATH ?? "",
       HOME: root,
       GIT_CONFIG_NOSYSTEM: "1",
-      GIT_CONFIG_GLOBAL: "/dev/null",
       GIT_TERMINAL_PROMPT: "0",
     },
   });

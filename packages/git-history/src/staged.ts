@@ -376,18 +376,23 @@ export async function readStagedChanges(
     deadline,
     now,
   };
-  const stagedRead = await readBlobs(projectRoot, runner, stagedShas, limits, options);
+  const stagedSet = new Set(stagedShas);
   const previousShas = [
     ...new Set(
-      candidates.flatMap(({ entry, before }) => {
-        if (before !== undefined && before.mode !== "160000") return [before.sha];
-        return renamedFrom.has(entry.path) ? [entry.sha] : [];
-      }),
+      candidates.flatMap(({ before }) =>
+        before !== undefined && before.mode !== "160000" ? [before.sha] : [],
+      ),
     ),
-  ].filter((sha) => !stagedRead.text.has(sha) && !stagedRead.unread.has(sha));
-  const previousRead = await readBlobs(projectRoot, runner, previousShas, limits, options);
-  const previousText = (sha: string): string | null | undefined =>
-    stagedRead.text.get(sha) ?? previousRead.text.get(sha);
+  ].filter((sha) => !stagedSet.has(sha));
+  // One batch for both, so Git starts as few times as possible.
+  const stagedRead = await readBlobs(
+    projectRoot,
+    runner,
+    [...stagedShas, ...previousShas],
+    limits,
+    options,
+  );
+  const previousText = (sha: string): string | null | undefined => stagedRead.text.get(sha);
   const files: StagedFile[] = [];
   for (const { entry, before } of candidates) {
     const reason = stagedRead.unread.get(entry.sha);
@@ -424,6 +429,6 @@ export async function readStagedChanges(
     skipped,
     deleted,
     unchanged,
-    bytesRead: stagedRead.bytes + previousRead.bytes,
+    bytesRead: stagedRead.bytes,
   };
 }

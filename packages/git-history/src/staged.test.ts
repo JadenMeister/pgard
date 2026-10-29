@@ -123,14 +123,17 @@ describe("readStagedChanges", () => {
     expect(changes.skipped).toEqual([{ path: "a.txt", reason: "time_budget" }]);
   });
 
-  it("lists symbolic links and does not read their target", async () => {
-    const fixture = repo();
-    symlinkSync("/etc/passwd", path.join(fixture.root, "link"));
-    stage(fixture, "link");
-    const changes = await readStagedChanges(fixture.root);
-    expect(changes.skipped).toEqual([{ path: "link", reason: "symlink" }]);
-    expect(changes.files).toEqual([]);
-  });
+  it.skipIf(process.platform === "win32")(
+    "lists symbolic links and does not read their target",
+    async () => {
+      const fixture = repo();
+      symlinkSync("/etc/passwd", path.join(fixture.root, "link"));
+      stage(fixture, "link");
+      const changes = await readStagedChanges(fixture.root);
+      expect(changes.skipped).toEqual([{ path: "link", reason: "symlink" }]);
+      expect(changes.files).toEqual([]);
+    },
+  );
 
   it("reports unresolved merge entries as not scanned", async () => {
     const fixture = repo({ "f.txt": "base\n" });

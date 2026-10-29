@@ -27,7 +27,14 @@ app.get("/items", async (request) => {
 describe("createStagedAnalyzer", () => {
   const fixtures: GitFixture[] = [];
   afterEach(() => {
-    for (const fixture of fixtures.splice(0)) fixture.cleanup();
+    for (const fixture of fixtures.splice(0)) {
+      try {
+        fixture.cleanup();
+      } catch {
+        // On Windows a git process killed by a test (timeout, cancellation) can hold the
+        // directory for a moment; the temporary directory is left for the system to clean.
+      }
+    }
   });
   const repo = (files: Record<string, string> = { "README.md": "x\n" }) => {
     const fixture = createGitFixture();
