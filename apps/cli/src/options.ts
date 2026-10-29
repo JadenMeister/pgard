@@ -40,6 +40,8 @@ export type ParsedCommand =
       format: OutputFormat;
       /** List every finding and location instead of collapsing test, fixture and vendored ones. */
       allFindings: boolean;
+      /** `--fixes`: also show each finding's suggested-fix diff (implies `allFindings`). */
+      fixes?: boolean;
       /** `--no-store`: do not keep this scan's result on this computer. */
       noStore?: boolean;
       /** `--full`: do not build on an earlier stored scan; scan everything again. */
@@ -189,12 +191,16 @@ const FORCE_FLAG = "--force";
 /** Flag (no value): list every finding and location in the terminal result. */
 const ALL_FINDINGS_FLAG = "--all-findings";
 
+/** Flag (no value), `pgard scan` only: show the suggested-fix diffs in the text result. */
+const FIXES_FLAG = "--fixes";
+
 /** The flags (options without a value): the one table the parser and the help test both use. */
 const FLAG_OPTIONS = [
   [NO_BROWSER_FLAG, "noBrowser"],
   [NO_STORE_FLAG, "noStore"],
   [ALL_FLAG, "all"],
   [ALL_FINDINGS_FLAG, "allFindings"],
+  [FIXES_FLAG, "fixes"],
   [FULL_FLAG, "full"],
   [FORCE_FLAG, "force"],
   [NO_OPEN_FLAG, "noOpen"],
@@ -221,6 +227,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     noStore: false,
     all: false,
     allFindings: false,
+    fixes: false,
     full: false,
     force: false,
     noOpen: false,
@@ -316,6 +323,9 @@ function rejectOptions(
 ): void {
   if (split.allFindings && !allowAllFindings) {
     throw new UsageError(`Option ${ALL_FINDINGS_FLAG} is not available for ${where}.`, topic);
+  }
+  if (split.fixes && !allowAllFindings) {
+    throw new UsageError(`Option ${FIXES_FLAG} is not available for ${where}.`, topic);
   }
   if (split.noBrowser && !allowNoBrowser) {
     throw new UsageError(`Option ${NO_BROWSER_FLAG} is not available for ${where}.`, topic);
@@ -502,7 +512,8 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         report: parseReport(split),
         noBrowser: split.noBrowser,
         format: parseFormat(split),
-        allFindings: split.allFindings,
+        allFindings: split.allFindings || split.fixes,
+        ...(split.fixes ? { fixes: true } : {}),
         ...(split.noStore ? { noStore: true } : {}),
         ...(split.full ? { full: true } : {}),
         ...(split.panels ? { panels: true } : {}),

@@ -62,6 +62,8 @@ export interface ScanCommand {
   format?: OutputFormat;
   /** List every finding and location in the text result. */
   allFindings?: boolean;
+  /** `--fixes`: show the suggested-fix diffs in the text result. */
+  fixes?: boolean;
   /** `--panels`: open the full-screen panel view after the text result. */
   panels?: boolean;
   /** `--no-store`. */
@@ -188,6 +190,7 @@ function showText(
     context,
     formatScanResult(localizeResult(context, result), context.style, {
       allFindings: command.allFindings === true,
+      fixes: command.fixes === true,
       locale: context.ruleLocale ?? "en",
       width: terminalWidth(context.io.stdout, context.io.env),
       ...(context.ruleTexts === undefined ? {} : { ruleTexts: context.ruleTexts }),

@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.5`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.6`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.5`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.6`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -51,6 +51,8 @@
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
 
 ## 버전 이력
+
+**1.6**(추가만 있는 변경, minor 올림). 발견 항목에 선택 필드 `fix`가 추가되었습니다. 검토용 수정 제안이며, `fixable`로 선언된 규칙(`RuleDescriptor.fixable`, 현재 `PG-COOKIE-001`과 `PG-CRYPTO-003`)의 발견 항목에만 있습니다. 형태: `{ kind: "diff" | "guidance", diff?, confidence, reason? }`. `kind: "diff"`는 저장소 파일 하나에 대한 unified diff인 `diff`를 담습니다. hunk 하나, 문맥 줄 없음, 지운 줄 하나와 추가한 줄 하나(`@@ -N,1 +N,1 @@`), 최대 2,000자이며 `git apply --unidiff-zero`로 적용합니다. `kind: "guidance"`에는 `diff`가 없습니다. 규칙은 diff를 줄 수 있지만 이 발견 항목 주변 코드는 그 교체 중 어느 것도 아니라는 뜻이며 `reason`이 이유를 알려 줍니다(열린 코드: `context_not_supported`, `sensitive_text`, `too_large`, `source_unavailable`, `too_many`). `confidence`(`high`, `medium`, `low`)는 표시된 코드의 의미가 유지된다고 PGARD가 얼마나 확신하는지이며 안전 보장이 아닙니다. **수정은 제안일 뿐 검증된 변경이 아닙니다.** PGARD는 이를 적용하지 않고, 검사 대상 파일에 쓰지 않으며, 결과가 컴파일되는지 또는 동작이 유지되는지 확인하지 않았고, 모든 화면이 그렇게 표시합니다. diff의 두 줄은 비밀·경로 가리기를 거쳐도 그대로여야 하며 아니면 diff가 없습니다. PGARD의 한 줄 diff가 아닌 diff를 만난 화면(또는 가리기 단계)은 안내를 대신 보여 줍니다. SARIF는 diff를 `results[].fixes`(표시된 줄을 교체하는 `replacement` 하나가 든 `artifactChange` 하나)로 담습니다. 지문은 `fix`에 의존하지 않습니다. `1.5` 이하 결과에는 이 필드가 없고, 읽는 쪽은 이를 "기록되지 않음"으로 취급합니다.
 
 **1.5**(추가만 있는 변경, minor 올림). 발견 항목에 선택 필드 `dependency`가 추가되었습니다. `PG-DEP-001` 발견 항목(고정된 의존성 버전이 로컬 OSV 데이터의 공개 권고 영향 범위 안에 있음)에만 있으며 `{ ecosystem, name, version, dev?, direct?, advisoryId, aliases, affectedRange, fixedVersions, severitySource, score?, vector? }` 형식입니다. `advisoryId`는 대표 ID(레코드 ID와 별칭 전체에서 가장 작은 GHSA, 없으면 GO, 없으면 다른 레코드 ID이며 다른 ID가 없을 때만 CVE. CVE 별칭은 나중에 추가되는 일이 많기 때문입니다. 비교와 기준선은 같은 lockfile의 같은 패키지 버전에서 `{advisoryId} + aliases`가 겹치는 의존성 발견 항목도 짝지어, 대표 ID가 바뀌어도 해결 + 새 항목으로 읽히지 않음)이고 `aliases`는 같은 문제의 다른 ID(CVE, GHSA, GO)입니다. `affectedRange`는 해당 버전이 속한 범위(`>=1.0.0 <1.2.3`, `all versions`), `fixedVersions`는 `version`보다 높은 수정 버전(공개된 것이 없으면 빈 배열)입니다. `severitySource`는 `cvss`(발견 항목의 심각도가 `vector`로 계산한 CVSS v3 기본 점수 `score`에서 나옴), `database`(권고 데이터베이스 자체의 등급), `unknown`(둘 다 없음, 발견 항목은 `medium`)이며 닫힌 열거형입니다. `dev: true`는 lockfile이 개발 전용이라고 알려 줄 때만 붙고, lockfile이 알려 주지 않으면 `direct`는 없습니다. 이 필드는 버전 범위 일치를 기록할 뿐 악용 가능성이나 도달 가능성을 뜻하지 않습니다. 기존 필드는 바뀌지 않습니다. 발견 항목의 `category`는 기존의 `misconfiguration`, `status`는 `suspected`, `location`은 `line: null`인 lockfile이며, 지문은 규칙, lockfile 경로, 원인 `<ecosystem>:<name>@<version>:<advisoryId>`로 만들어 데이터 버전에 의존하지 않습니다. 검사는 `code` 범위에 `deps:<ecosystem>`(그리고 규칙 없는 `deps:unsupported`) 커버리지 영역도 보고합니다. `1.4` 이하 결과에는 이 필드가 없으며, 읽는 쪽은 이를 "기록되지 않음"으로 취급합니다.
 

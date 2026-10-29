@@ -6,6 +6,7 @@
  * Pure functions with no Node APIs so the browser bundle may import them.
  */
 import type { Finding } from "./contract.js";
+import { redactFix } from "./fix-diff.js";
 
 export type SecretKind =
   | "private_key"
@@ -418,6 +419,7 @@ export function redactFinding(finding: Finding, options: RedactEvidenceOptions =
           ? null
           : scrubAbsolutePaths(redactSecrets(finding.location.url), options.projectRoot),
     },
+    ...(finding.fix === undefined ? {} : { fix: redactFix(finding.fix) }),
   };
 }
 

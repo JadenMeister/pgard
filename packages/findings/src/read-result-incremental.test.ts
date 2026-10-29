@@ -39,7 +39,7 @@ function result(version: string, incremental?: unknown): unknown {
 
 describe("schema 1.2 incremental field", () => {
   it("is the current schema version", () => {
-    expect(SCHEMA_VERSION).toBe("1.5");
+    expect(SCHEMA_VERSION).toBe("1.6");
   });
 
   it("reads results of 1.0 and 1.1 without it", () => {

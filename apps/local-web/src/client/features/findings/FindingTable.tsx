@@ -6,6 +6,7 @@ import { Button } from "../../components/ui/Button";
 import { useI18n } from "../../i18n/I18nProvider";
 import { formatLocation, type FindingFilters } from "./filter-findings";
 import { pageRequest, pageWindow, paginate, PAGE_SIZES } from "./pagination";
+import { FixSuggestion } from "./FixSuggestion";
 import { RuleDetailsBlock } from "./RuleDetailsBlock";
 
 const COLUMNS = 6;
@@ -42,6 +43,7 @@ function FindingDetail({
         <dt>{m.findings.confidenceLabel}</dt>
         <dd>{confidenceLabels[finding.confidence] ?? finding.confidence}</dd>
       </dl>
+      <FixSuggestion finding={finding} />
       <RuleDetailsBlock finding={finding} ruleTexts={ruleTexts} />
     </div>
   );

@@ -8,3 +8,4 @@ docs/PGARD_*_EN.md
 tests/corpus/PG-*/
 tests/corpus/RESULTS.md
 packages/dependencies/test-fixtures/cyclonedx/
+packages/findings/test-fixtures/sarif/
