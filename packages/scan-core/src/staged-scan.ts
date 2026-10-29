@@ -1,4 +1,9 @@
-import { compilePathMatcher, type Coverage, type Finding } from "@pgard/findings";
+import {
+  compilePathMatcher,
+  type Coverage,
+  type Finding,
+  type ProjectConfig,
+} from "@pgard/findings";
 import {
   GitCommandError,
   INCOMPLETE_SKIP_REASONS,
@@ -45,6 +50,11 @@ export interface StagedScanReport {
 export interface StagedScanSettings {
   /** The index the hook is committing (`GIT_INDEX_FILE`), already checked to be inside `.git`. */
   indexFile?: string;
+  /**
+   * The `pgard.config.json` of the index, or `null` for none: its `exclude` replaces the
+   * working-tree file's. Absent: the working-tree config (as in a scan) is used.
+   */
+  config?: ProjectConfig | null;
   budgetMs?: number;
   runner?: GitRunner;
   now?: () => number;
@@ -143,9 +153,11 @@ export function createStagedAnalyzer(settings: StagedScanSettings = {}): LocalAn
       report.preexisting += secrets.preexisting;
       // A new .env file is reported by its name even when its content could not be read.
       findings.push(...scanStagedPaths(changes.skipped));
+      // The staged config's `exclude` when the caller read one, otherwise the working tree's.
+      const exclusions = settings.config !== undefined ? settings.config : context.projectConfig;
       const exclude =
-        context.projectConfig !== null && context.projectConfig.exclude.length > 0
-          ? compilePathMatcher(context.projectConfig.exclude)
+        exclusions !== null && exclusions.exclude.length > 0
+          ? compilePathMatcher(exclusions.exclude)
           : null;
       for (const file of changes.files) {
         if (exclude?.matches(file.path) === true) {
@@ -166,7 +178,7 @@ export function createStagedAnalyzer(settings: StagedScanSettings = {}): LocalAn
         // What HEAD's version of the file already had, so a finding whose anchor line is
         // unchanged but whose statement was edited (its evidence differs) still counts as new.
         const earlier = new Map<string, number>();
-        if (file.previous !== null) {
+        if (file.previous !== null && found.length > 0) {
           for (const old of analyzeStagedSource(file.path, file.previous) ?? []) {
             const key = `${old.ruleId}\0${old.evidence}`;
             earlier.set(key, (earlier.get(key) ?? 0) + 1);

@@ -42,13 +42,18 @@ export {
   type PathModule,
 } from "./hook-paths.js";
 export {
+  BINARY_SNIFF_BYTES,
+  hasBinarySignature,
+  isClearlyBinary,
+  looksBinaryContent,
+  utf16WithoutMark,
+} from "./binary-sniff.js";
+export {
   INCOMPLETE_SKIP_REASONS,
   STAGED_MAX_FILES,
   STAGED_MAX_FILE_BYTES,
   STAGED_MAX_TOTAL_BYTES,
-  BINARY_SNIFF_BYTES,
   decodeStagedBlob,
-  isTextLike,
   readStagedChanges,
   type StagedChanges,
   type StagedFile,

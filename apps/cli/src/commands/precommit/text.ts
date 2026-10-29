@@ -24,6 +24,8 @@ export interface PrecommitText {
   configInvalid: (problems: string) => string;
   /** pgard.config.json exists in the working tree but is not staged or tracked. */
   configNotStaged: string;
+  /** The working-tree pgard.config.json differs from the staged copy. */
+  configDiffers: string;
   timeoutInvalid: (value: string, seconds: number) => string;
   /** The files skipped by design, named, so a skip is visible. */
   byDesign: (items: string) => string;
@@ -109,7 +111,9 @@ const EN: PrecommitText = {
   configInvalid: (problems) =>
     `pgard.config.json is invalid and was ignored, so the strict default (block) applies: ${problems}`,
   configNotStaged:
-    "pgard.config.json is not tracked in Git, so its precommit settings are not used (the staged version counts); the strict default (block) applies. Run `git add pgard.config.json`.",
+    "pgard.config.json is not tracked in Git, so none of its settings are used here: the precommit settings (the strict default, block, applies), suppressions and exclude all come from the staged copy, and there is none. Only testDirectories is still read from the working-tree file. Run `git add pgard.config.json`.",
+  configDiffers:
+    "pgard.config.json in the working tree differs from the staged copy. The staged copy is used for the precommit settings, suppressions and exclude; only testDirectories is read from the working-tree file.",
   timeoutInvalid: (value, seconds) =>
     `PGARD_PRECOMMIT_TIMEOUT_MS=${value} is not a number from 1000 to 120000; using ${seconds} s.`,
   byDesign: (items) => `Not scanned by design: ${items}.`,
@@ -215,7 +219,9 @@ const KO: PrecommitText = {
   configInvalid: (problems) =>
     `pgard.config.json이 올바르지 않아 무시했으므로 엄격한 기본값(block)을 적용합니다: ${problems}`,
   configNotStaged:
-    "pgard.config.json이 Git에서 추적되지 않아 precommit 설정을 사용하지 않습니다(스테이징된 버전이 적용됩니다). 엄격한 기본값(block)을 적용합니다. `git add pgard.config.json`을 실행하세요.",
+    "pgard.config.json이 Git에서 추적되지 않아 이 파일의 설정을 하나도 사용하지 않습니다. precommit 설정(엄격한 기본값 block 적용), 억제, exclude는 모두 스테이징된 사본에서 읽는데 사본이 없습니다. testDirectories만 작업 트리의 파일에서 읽습니다. `git add pgard.config.json`을 실행하세요.",
+  configDiffers:
+    "작업 트리의 pgard.config.json이 스테이징된 사본과 다릅니다. precommit 설정, 억제, exclude는 스테이징된 사본을 사용하고 testDirectories만 작업 트리의 파일에서 읽습니다.",
   timeoutInvalid: (value, seconds) =>
     `PGARD_PRECOMMIT_TIMEOUT_MS=${value}는 1000~120000 사이의 숫자가 아니어서 ${seconds}초를 사용합니다.`,
   byDesign: (items) => `설계상 검사하지 않음: ${items}.`,

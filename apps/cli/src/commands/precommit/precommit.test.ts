@@ -235,12 +235,13 @@ describe("pgard precommit", () => {
 
   it("applies suppressions and ignores findings it must not count", async () => {
     const root = makeRepo();
-    write(root, {
-      "pgard.config.json": JSON.stringify({
+    stageConfig(
+      root,
+      JSON.stringify({
         version: 1,
         suppressions: [{ ruleId: "PG-SECRET-002", path: "src/**", reason: "test fixture" }],
       }),
-    });
+    );
     stageSecret(root);
     const { captured, context } = setup(root);
     expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);

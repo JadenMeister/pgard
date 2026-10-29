@@ -1,5 +1,12 @@
 import { runGit as defaultRunGit, GitCommandError, type GitRunner } from "./run-git.js";
 import { decodeGitPath } from "./scan-history.js";
+import {
+  BINARY_SNIFF_BYTES,
+  hasBinarySignature,
+  isClearlyBinary,
+  looksBinaryContent,
+  utf16WithoutMark,
+} from "./binary-sniff.js";
 
 /**
  * Reads what is staged for the next commit: the index compared with HEAD, using only plumbing
@@ -188,39 +195,16 @@ async function listHead(
   return entries;
 }
 
-/** Bytes at the start of a blob that decide "binary" (the same window Git uses). */
-export const BINARY_SNIFF_BYTES = 8000;
-/** Oversized blobs whose first bytes are read to tell a binary from a large text file. */
+/** Oversized blobs whose content is looked at to tell a binary from a large text file. */
 const MAX_SNIFFED_OVERSIZED = 20;
+/** Oversized blobs up to this size are read whole, to look at their end as well. */
+const MAX_TAIL_SAMPLED_BYTES = 8 * 1024 * 1024;
+const MAX_TAIL_SAMPLED_BLOBS = 5;
 
 /**
- * True when a body (read as latin1) is text that merely contains a few NUL or control bytes (a
- * trailing NUL, a stray control character) rather than binary data. A file is not called binary
- * just because it has a NUL: PNG, executables and archives have many, a text file with a
- * trailing NUL has one. At most 2% (and at least 8) of the bytes may be NUL, and the same for
- * other control bytes.
- */
-export function isTextLike(latin1: string): boolean {
-  let nul = 0;
-  let control = 0;
-  for (let index = 0; index < latin1.length; index += 1) {
-    const code = latin1.charCodeAt(index);
-    if (code === 0) nul += 1;
-    else if (
-      (code < 0x20 && code !== 9 && code !== 10 && code !== 13 && code !== 12) ||
-      code === 0x7f
-    ) {
-      control += 1;
-    }
-  }
-  const allowance = Math.max(8, Math.floor(latin1.length / 50));
-  return nul <= allowance && control <= allowance;
-}
-
-/**
- * Text of a blob body (read as latin1): UTF-8, or UTF-16 with a byte order mark; `null` if it is
- * binary. NUL bytes in otherwise text-like content become spaces (line numbers stay exact), so
- * a NUL can neither hide a secret nor a line from the checks.
+ * Text of a blob body (read as latin1): UTF-8, or UTF-16 (with or without a byte order mark);
+ * `null` only when it is clearly binary (`isClearlyBinary`). NUL bytes in anything else become
+ * spaces (line numbers stay exact), so a NUL can neither hide a secret nor a line.
  */
 export function decodeStagedBlob(latin1: string): string | null {
   const bom = latin1.slice(0, 2);
@@ -229,7 +213,11 @@ export function decodeStagedBlob(latin1: string): string | null {
     return (bom === "\xfe\xff" ? UTF16_BE : UTF16_LE).decode(bytes);
   }
   if (latin1.includes("\0")) {
-    if (!isTextLike(latin1)) return null;
+    const wide = utf16WithoutMark(latin1.slice(0, BINARY_SNIFF_BYTES));
+    if (wide !== null) {
+      return (wide === "be" ? UTF16_BE : UTF16_LE).decode(Buffer.from(latin1, "latin1"));
+    }
+    if (isClearlyBinary(latin1)) return null;
     return Buffer.from(latin1.replaceAll("\0", " "), "latin1").toString("utf8");
   }
   return Buffer.from(latin1, "latin1").toString("utf8");
@@ -253,32 +241,53 @@ interface BlobRead {
   bytes: number;
 }
 
-/** True when the first bytes of a blob show binary data. Any failure means "not known" (false). */
+/**
+ * True when a blob over the size limit is clearly binary: its first bytes carry a known file
+ * signature, or look binary and so does the end of the file (read whole, for blobs up to 8 MiB
+ * and only a few per run). A big file that merely starts with many NULs but ends in text stays
+ * "too large": not scanned, and said so. Any failure means "not known" (false).
+ */
 async function sniffIsBinary(
   cwd: string,
   runner: GitRunner,
   sha: string,
+  size: number,
+  tailReads: { used: number },
   deadline: number,
   now: () => number,
   options: StagedReadOptions,
 ): Promise<boolean> {
+  const common = {
+    cwd,
+    input: `${sha}\n`,
+    encoding: "latin1" as const,
+    ...(options.signal ? { signal: options.signal } : {}),
+  };
   try {
     const raw = await runner(
       { subcommand: "cat-file", flags: ["--batch"] },
       {
-        cwd,
-        input: `${sha}\n`,
-        encoding: "latin1",
+        ...common,
         maxBuffer: BINARY_SNIFF_BYTES + 100,
         truncate: true,
         ...withTimeout(timeoutUntil(deadline, now)),
-        ...(options.signal ? { signal: options.signal } : {}),
       },
     );
     const headerEnd = raw.indexOf("\n");
     if (headerEnd === -1) return false;
     const head = raw.slice(headerEnd + 1, headerEnd + 1 + BINARY_SNIFF_BYTES);
-    return head.includes("\0") && !isTextLike(head);
+    if (hasBinarySignature(head)) return true;
+    if (!looksBinaryContent(head)) return false;
+    if (size > MAX_TAIL_SAMPLED_BYTES || tailReads.used >= MAX_TAIL_SAMPLED_BLOBS) return false;
+    tailReads.used += 1;
+    const whole = await runner(
+      { subcommand: "cat-file", flags: ["--batch"] },
+      { ...common, maxBuffer: size + 200, ...withTimeout(timeoutUntil(deadline, now)) },
+    );
+    const wholeStart = whole.indexOf("\n") + 1;
+    return looksBinaryContent(
+      whole.slice(wholeStart + size - BINARY_SNIFF_BYTES, wholeStart + size),
+    );
   } catch (error) {
     if (options.signal?.aborted === true) throw error;
     return false;
@@ -321,6 +330,7 @@ async function readBlobs(
   }
   const readable: { sha: string; size: number }[] = [];
   let sniffed = 0;
+  const tailReads = { used: 0 };
   for (const sha of shas) {
     const size = sizes.get(sha);
     if (size === undefined) unread.set(sha, "unreadable");
@@ -329,7 +339,16 @@ async function readBlobs(
       // "not scanned". The first bytes tell which.
       const isBinary =
         sniffed < MAX_SNIFFED_OVERSIZED && limits.now() < limits.deadline
-          ? await sniffIsBinary(cwd, runner, sha, limits.deadline, limits.now, options)
+          ? await sniffIsBinary(
+              cwd,
+              runner,
+              sha,
+              size,
+              tailReads,
+              limits.deadline,
+              limits.now,
+              options,
+            )
           : false;
       sniffed += 1;
       if (isBinary) text.set(sha, null);

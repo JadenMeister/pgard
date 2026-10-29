@@ -355,9 +355,12 @@ Checks what is staged for the next commit, read from the Git index (never the wo
 tree), for secrets (PG-SECRET-001, PG-SECRET-002) and the file-local source rules
 (JavaScript, TypeScript, Vue, Go). Only what the commit adds or changes is reported (a
 changed private key body counts even under an unchanged header). A new .env file is
-reported by its name whatever it holds. Deleted files have nothing to scan; binary
-files (images, archives, of any size) and symbolic links are skipped by design and listed
-by name on every run; a text file with a stray NUL byte is still scanned. Rules that need
+reported by its name whatever it holds. Deleted files have nothing to scan. Clearly
+binary files (a known file signature such as PNG, ZIP or ELF, or binary content at both
+ends; of any size) and symbolic links are skipped by design and listed by name on every
+run. Text with stray NUL bytes, UTF-16 text (with or without a byte order mark) and a
+large file that only starts like a binary are not skipped: they are scanned, or, when over
+1 MiB, reported as not scanned. Rules that need
 the whole project (missing CSRF protection, unprotected routes, dependencies) run in
 pgard scan. Suppressions and the baseline apply. Staged content stays on this computer;
 like a scan it contacts GitHub (github.com, api.github.com) for authorization metadata
@@ -370,7 +373,8 @@ scanned and PGARD says so.
 
 Mode is set in pgard.config.json, read from the version in the Git index (the one
 being committed; an untracked file is not used, run git add). Suppressions and exclude
-still come from the working-tree file, as in a scan:
+come from the staged copy too, and a note says when the working-tree file differs (only
+testDirectories is read from the working tree):
   "precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }
   block (default)   findings stop the commit (exit 1)
   warn              findings are printed, the commit goes on (exit 0)

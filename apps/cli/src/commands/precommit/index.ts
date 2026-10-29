@@ -1,7 +1,8 @@
-import { lstat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   PROJECT_CONFIG_FILE,
+  applySuppressions,
   parseProjectConfig,
   type Finding,
   type ProjectConfig,
@@ -102,21 +103,35 @@ const STRICT_POLICY: PrecommitPolicy = {
 async function readStagedPolicy(
   projectRoot: string,
   indexFile: string | undefined,
-): Promise<{ policy: PrecommitPolicy; isUntracked: boolean }> {
+): Promise<{
+  policy: PrecommitPolicy;
+  /** The parsed staged config; `null` when there is none or it is not usable. */
+  config: ProjectConfig | null;
+  /** The working-tree file is not tracked, or differs from the staged copy. */
+  workingTree: "untracked" | "differs" | null;
+}> {
   const read = await readStagedTextFile(projectRoot, PROJECT_CONFIG_FILE, {
     ...(indexFile === undefined ? {} : { indexFile }),
   });
+  const onDisk = await readFile(path.join(projectRoot, PROJECT_CONFIG_FILE), "utf8").catch(
+    () => null,
+  );
   if (read.state === "absent") {
-    const onDisk = await lstat(path.join(projectRoot, PROJECT_CONFIG_FILE)).catch(() => null);
-    return { policy: resolvePrecommitPolicy({ state: "absent" }), isUntracked: onDisk !== null };
+    return {
+      policy: resolvePrecommitPolicy({ state: "absent" }),
+      config: null,
+      workingTree: onDisk !== null ? "untracked" : null,
+    };
   }
+  const workingTree = read.state === "ok" && read.text === onDisk ? null : "differs";
   if (read.state === "unreadable") {
     return {
       policy: resolvePrecommitPolicy({
         state: "invalid",
         problems: [`${PROJECT_CONFIG_FILE} ${read.reason}`],
       }),
-      isUntracked: false,
+      config: null,
+      workingTree,
     };
   }
   const parsed = parseProjectConfig(read.text);
@@ -126,7 +141,24 @@ async function readStagedPolicy(
         ? { state: "loaded", config: parsed.config }
         : { state: "invalid", problems: parsed.problems },
     ),
-    isUntracked: false,
+    config: parsed.ok ? parsed.config : null,
+    workingTree,
+  };
+}
+
+/**
+ * Suppressions from the staged config. `runScan` applied the ones in the working-tree file; those
+ * marks are dropped and the staged file's suppressions are applied instead, so what is about to be
+ * committed decides what is suppressed.
+ */
+function withStagedSuppressions(result: ScanResult, config: ProjectConfig | null): ScanResult {
+  const { suppressions: _workingTree, ...rest } = result;
+  const unmarked = result.findings.map(({ suppression: _mark, ...finding }) => finding);
+  const applied = applySuppressions(unmarked, config?.suppressions ?? [], new Date());
+  return {
+    ...rest,
+    findings: applied.findings,
+    ...(applied.summary === null ? {} : { suppressions: applied.summary }),
   };
 }
 
@@ -312,7 +344,8 @@ export async function runPrecommit(
   if (policy.configProblems !== null) {
     err(context, context.errStyle.yellow(t.configInvalid(safeText(policy.configProblems, 300))));
   }
-  if (staged.isUntracked) err(context, context.errStyle.yellow(t.configNotStaged));
+  if (staged.workingTree === "untracked") err(context, context.errStyle.yellow(t.configNotStaged));
+  if (staged.workingTree === "differs") err(context, context.errStyle.yellow(t.configDiffers));
 
   const authTimeout = authTimeoutOf(context.io.env, options.authTimeoutMs);
   const authTimeoutMs = authTimeout.timeoutMs;
@@ -358,6 +391,7 @@ export async function runPrecommit(
         analyzers: {
           code: createStagedAnalyzer({
             ...(index.state === "custom" ? { indexFile: index.indexFile } : {}),
+            config: staged.config,
             budgetMs,
             onReport: (value) => {
               report = value;
@@ -404,7 +438,12 @@ export async function runPrecommit(
     return failNotScanned(context, t, policy, t.scanFailed, "other");
   }
   // Baseline and suppressions only decide which findings count; they never change the gate.
-  const finished = await applyStoredBaseline(context, result, outcome, false);
+  const finished = await applyStoredBaseline(
+    context,
+    withStagedSuppressions(result, staged.config),
+    outcome,
+    false,
+  );
   const coverage = finished.coverage.find((entry) => entry.area === STAGED_COVERAGE_AREA);
   const scanReport = report as StagedScanReport | null;
   if (coverage === undefined || coverage.status === "not_tested" || scanReport === null) {

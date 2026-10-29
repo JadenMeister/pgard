@@ -228,6 +228,97 @@ app.get("/items", async (request) => {
   });
 });
 
+describe("a big file that only starts like a binary", () => {
+  it("is not scanned and blocks, like any large text file (it was never a pass)", async () => {
+    const head = Buffer.alloc(8000, "abcdefghij");
+    for (let index = 0; index < head.length; index += 20) head[index] = 0;
+    const tail = `\nAWS_SECRET = "${"AKIA"}IOSFODNN7EXAMPLQ"\n${"ordinary text line\n".repeat(70_000)}`;
+    const root = makeRepo();
+    write(root, { "data.dat": Buffer.concat([head, Buffer.from(tail)]) });
+    git(root, "add", "data.dat");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.partial);
+    expect(captured.stdout()).toContain("Not everything was scanned");
+    expect(captured.stdout()).toContain("data.dat");
+    expect(captured.stdout()).not.toContain("Commit allowed: nothing found");
+    expect(captured.stdout()).not.toContain("Not scanned by design: 1 binary");
+  });
+
+  it("scans UTF-16 text without a byte order mark", async () => {
+    const root = makeRepo();
+    write(root, { "wide.txt": Buffer.from(`k = "${GITHUB_TOKEN}"\n`, "utf16le") });
+    git(root, "add", "wide.txt");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
+    expect(captured.stdout()).toContain("PG-SECRET-002 wide.txt:1");
+  });
+});
+
+describe("suppressions come from the staged config", () => {
+  const suppress = JSON.stringify({
+    version: 1,
+    suppressions: [{ ruleId: "PG-SECRET-002", path: "src/**", reason: "test fixture" }],
+  });
+  const plain = JSON.stringify({ version: 1 });
+
+  it("applies the staged suppressions and says the working-tree file differs", async () => {
+    const root = makeRepo({ "pgard.config.json": suppress });
+    write(root, { "pgard.config.json": plain, "src/secret.ts": SECRET_LINE });
+    git(root, "add", "src/secret.ts");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+    expect(captured.stdout()).toContain("1 suppressed");
+    expect(captured.stderr()).toContain("differs from the staged copy");
+  });
+
+  it("does not apply suppressions that exist only in the working-tree file", async () => {
+    const root = makeRepo({ "pgard.config.json": plain });
+    write(root, { "pgard.config.json": suppress, "src/secret.ts": SECRET_LINE });
+    git(root, "add", "src/secret.ts");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
+    expect(captured.stderr()).toContain("differs from the staged copy");
+  });
+
+  it("an untracked config contributes nothing, and the note says so", async () => {
+    const root = makeRepo();
+    write(root, { "pgard.config.json": suppress, "src/secret.ts": SECRET_LINE });
+    git(root, "add", "src/secret.ts");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
+    expect(captured.stderr()).toContain("none of its settings are used here");
+  });
+
+  it("says nothing when the staged and working-tree files are the same", async () => {
+    const root = makeRepo({ "pgard.config.json": suppress });
+    write(root, { "src/secret.ts": SECRET_LINE });
+    git(root, "add", "src/secret.ts");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+    expect(captured.stderr()).not.toContain("differs from the staged copy");
+  });
+
+  it("uses the staged exclude, not the working tree's", async () => {
+    const sql = `import Fastify from "fastify";
+import { Pool } from "pg";
+const pool = new Pool();
+const app = Fastify();
+app.get("/items", async (request) => {
+  const { col } = request.query as any;
+  const { rows } = await pool.query(\`SELECT * FROM items ORDER BY \${col}\`);
+  return rows;
+});
+`;
+    const root = makeRepo({
+      "pgard.config.json": JSON.stringify({ version: 1, exclude: ["legacy/**"] }),
+    });
+    write(root, { "pgard.config.json": plain, "legacy/app.ts": sql });
+    git(root, "add", "legacy/app.ts");
+    const { context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+  });
+});
+
 describe("the policy comes from the staged config", () => {
   it("ignores an untracked pgard.config.json and says so", async () => {
     const root = makeRepo();

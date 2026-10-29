@@ -1,7 +1,8 @@
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { isTextLike, readStagedChanges } from "./staged.js";
+import { isClearlyBinary, looksBinaryContent, utf16WithoutMark } from "./binary-sniff.js";
+import { decodeStagedBlob, readStagedChanges } from "./staged.js";
 import { readStagedTextFile } from "./staged-file.js";
 import { scanStagedPaths, scanStagedSecrets } from "./staged-secrets.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
@@ -67,12 +68,76 @@ describe("a NUL byte hides nothing", () => {
   };
 
   it("tells text with a stray NUL from binary data", () => {
-    expect(isTextLike("KEY=value\n\0")).toBe(true);
-    expect(isTextLike(`x = "${GITHUB_TOKEN}"\0`)).toBe(true);
-    expect(isTextLike("\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\x01\0\0\0\x01\0\x08\x02\0\0\0")).toBe(
-      false,
+    expect(isClearlyBinary("KEY=value\n\0")).toBe(false);
+    expect(isClearlyBinary(`x = "${GITHUB_TOKEN}"\0`)).toBe(false);
+    expect(isClearlyBinary("\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\x01\0\0\0\x01\0\x08\x02\0\0\0")).toBe(
+      true,
     );
-    expect(isTextLike(`${"\0".repeat(100)}text`)).toBe(false);
+    // Many NULs at the start but plain text at the end: not clearly binary.
+    expect(isClearlyBinary(`${"\0".repeat(2000)}${"plain text ".repeat(3000)}`)).toBe(false);
+    expect(isClearlyBinary(`${"\0".repeat(300)}${"\x01".repeat(300)}`)).toBe(true);
+    expect(looksBinaryContent("")).toBe(false);
+  });
+
+  it("recognises well-known binary signatures", () => {
+    for (const head of [
+      "\xff\xd8\xff\xe0",
+      "GIF89a\x01\0",
+      "%PDF-1.7",
+      "PK\x03\x04",
+      "\x1f\x8b\x08",
+      "\x7fELF\x02",
+      "\xcf\xfa\xed\xfe",
+      "\xca\xfe\xba\xbe",
+      "wOF2OTTO",
+      "RIFF\x24\0\0\0WEBPVP8 ",
+      "\0\0\0\x18ftypmp42",
+    ]) {
+      expect(isClearlyBinary(head), JSON.stringify(head)).toBe(true);
+    }
+    for (const text of ["ID3_TOKEN=1\n", "GIF is a format\n", "BZhello", "MZ is a prefix\n"]) {
+      expect(isClearlyBinary(text), text).toBe(false);
+    }
+  });
+
+  it("decodes UTF-16 without a byte order mark and scans it", () => {
+    const text = `token = "${GITHUB_TOKEN}"\n`;
+    const le = Buffer.from(text, "utf16le").toString("latin1");
+    const be = Buffer.from(Buffer.from(text, "utf16le").swap16()).toString("latin1");
+    expect(utf16WithoutMark(le)).toBe("le");
+    expect(utf16WithoutMark(be)).toBe("be");
+    expect(utf16WithoutMark("plain ascii text without nul")).toBeNull();
+    expect(decodeStagedBlob(le)).toBe(text);
+    expect(decodeStagedBlob(be)).toBe(text);
+    const found = scanStagedSecrets([
+      { path: "config.txt", content: decodeStagedBlob(le) ?? "", previous: null, kind: "added" },
+    ]);
+    expect(found.findings.map((finding) => finding.ruleId)).toEqual(["PG-SECRET-002"]);
+  });
+
+  it("scans a staged UTF-16LE file without a mark end to end", async () => {
+    const fixture = repo();
+    writeFileSync(
+      path.join(fixture.root, "wide.txt"),
+      Buffer.from(`k = "${GITHUB_TOKEN}"\n`, "utf16le"),
+    );
+    fixture.git("add", "wide.txt");
+    const changes = await readStagedChanges(fixture.root);
+    expect(changes.skipped).toEqual([]);
+    expect(scanStagedSecrets(changes.files).findings).toHaveLength(1);
+  });
+
+  it("scans a file with many NULs at the start and text with a secret after it", async () => {
+    const fixture = repo();
+    const head = `${"\0".repeat(2000)}${"a".repeat(6000)}`;
+    writeFileSync(
+      path.join(fixture.root, "mixed.dat"),
+      `${head}\nkey = "${GITHUB_TOKEN}"\n${"padding\n".repeat(200)}`,
+    );
+    fixture.git("add", "mixed.dat");
+    const changes = await readStagedChanges(fixture.root);
+    expect(changes.skipped).toEqual([]);
+    expect(scanStagedSecrets(changes.files).findings).toHaveLength(1);
   });
 
   it("scans a .env file and a config.js with a trailing NUL", async () => {
@@ -141,6 +206,53 @@ describe("large files", () => {
     expect(changes.skipped.map((item) => [item.path, item.reason])).toEqual([
       ["package-lock.json", "too_large"],
       ["photo.png", "binary"],
+    ]);
+  });
+
+  /** A file over 1 MiB that starts like a binary and goes on as text with a secret. */
+  function mixedLargeFile(nulShare: number): Buffer {
+    const head = Buffer.alloc(8000, "abcdefghij");
+    for (let index = 0; index < head.length; index += 1) {
+      if (index % Math.round(1 / nulShare) === 0) head[index] = 0;
+    }
+    const tail = `\nAWS_SECRET = "${"AKIA"}IOSFODNN7EXAMPLQ"\n${"ordinary text line\n".repeat(70_000)}`;
+    return Buffer.concat([head, Buffer.from(tail)]);
+  }
+
+  it("keeps a big file that only starts with NULs as too large (not scanned), never as binary", async () => {
+    const fixture = createGitFixture();
+    fixtures.push(fixture);
+    fixture.commit({ files: { "README.md": "x\n" } });
+    // 5% NULs: over the old 2% threshold; 30% NULs: a binary-looking start.
+    writeFileSync(path.join(fixture.root, "five.dat"), mixedLargeFile(0.05));
+    writeFileSync(path.join(fixture.root, "thirty.dat"), mixedLargeFile(0.3));
+    expect(mixedLargeFile(0.05).length).toBeGreaterThan(1024 * 1024);
+    fixture.git("add", "five.dat", "thirty.dat");
+    const changes = await readStagedChanges(fixture.root);
+    expect(changes.skipped.map((item) => [item.path, item.reason])).toEqual([
+      ["five.dat", "too_large"],
+      ["thirty.dat", "too_large"],
+    ]);
+  });
+
+  it("calls a big file binary by a signature, or by binary content at both ends", async () => {
+    const fixture = createGitFixture();
+    fixtures.push(fixture);
+    fixture.commit({ files: { "README.md": "x\n" } });
+    const png = Buffer.concat([
+      Buffer.from("\x89PNG\r\n\x1a\n", "latin1"),
+      Buffer.from(`AKIAIOSFODNN7EXAMPLQ ${"text ".repeat(300_000)}`),
+    ]);
+    const random = Buffer.alloc(2 * 1024 * 1024);
+    for (let index = 0; index < random.length; index += 1)
+      random[index] = (index * 2654435761) >>> 24;
+    writeFileSync(path.join(fixture.root, "a.png"), png);
+    writeFileSync(path.join(fixture.root, "blob.bin"), random);
+    fixture.git("add", "a.png", "blob.bin");
+    const changes = await readStagedChanges(fixture.root);
+    expect(changes.skipped.map((item) => [item.path, item.reason])).toEqual([
+      ["a.png", "binary"],
+      ["blob.bin", "binary"],
     ]);
   });
 });
