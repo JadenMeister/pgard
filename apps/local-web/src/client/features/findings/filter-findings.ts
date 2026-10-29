@@ -1,8 +1,10 @@
 import type {
+  Coverage,
   Finding,
   FindingCategory,
   FindingLocation,
   FindingStatus,
+  RuleStat,
   ScanScope,
   Severity,
 } from "@pgard/findings";
@@ -15,6 +17,12 @@ export interface FindingFilters {
   status: FindingStatus | null;
   source: ScanScope | null;
   category: FindingCategory | null;
+  /** Exact rule id, e.g. `PG-SQL-001`. */
+  rule: string | null;
+  /** Coverage area id, e.g. `source:typescript`: findings of the rules that ran in that area. */
+  area: string | null;
+  /** Exact repository-relative file path of the finding's location. */
+  path: string | null;
   text: string;
 }
 
@@ -23,8 +31,109 @@ export const EMPTY_FILTERS: FindingFilters = {
   status: null,
   source: null,
   category: null,
+  rule: null,
+  area: null,
+  path: null,
   text: "",
 };
+
+/**
+ * File extensions (with dot) of the `source:<language>` areas, as the source analyzer assigns
+ * them (`EXTENSIONS` in source-analysis `walk.ts` and `TREE_SITTER_EXTENSIONS`).
+ */
+const SOURCE_AREA_EXTENSIONS: Record<string, readonly string[]> = {
+  "source:javascript": [".js", ".jsx", ".mjs", ".cjs"],
+  "source:typescript": [".ts", ".tsx", ".mts", ".cts"],
+  "source:vue": [".vue"],
+  "source:go": [".go"],
+  "source:java": [".java"],
+  "source:kotlin": [".kt"],
+  "source:python": [".py"],
+  "source:php": [".php", ".phtml"],
+};
+
+function extensionOf(path: string | null): string {
+  if (path === null) return "";
+  const dot = path.lastIndexOf(".");
+  return dot <= path.lastIndexOf("/") ? "" : path.slice(dot).toLowerCase();
+}
+
+/**
+ * The test that says whether a finding belongs to a coverage area, or `null` when the finding
+ * carries too little to tell (the area is then not offered as a filter). A rule id alone is not
+ * enough: several areas run the same rules, so the finding's scope and where it was found must
+ * agree with the area as the scanner produced it.
+ *
+ * - `source:<language>`: a code finding of one of the area's rules in a file of that language.
+ * - `history:tracked-files` / `history:commits`: a history finding of the area's rules, without
+ *   or with a commit (the history scanner files a finding with a commit under the commits area).
+ * - Every other area (heuristics, ORM, web, configuration, ...) cannot be derived from a finding.
+ */
+export function areaMatcher(
+  area: string,
+  areaRules: AreaRules,
+): ((finding: Finding) => boolean) | null {
+  const rules = areaRules.get(area);
+  if (rules === undefined) return null;
+  const extensions = SOURCE_AREA_EXTENSIONS[area];
+  if (extensions !== undefined) {
+    return (finding) =>
+      rules.has(finding.ruleId) &&
+      finding.sources.includes("code") &&
+      extensions.includes(extensionOf(finding.location.path));
+  }
+  if (area === "history:tracked-files" || area === "history:commits") {
+    const wantsCommit = area === "history:commits";
+    return (finding) =>
+      rules.has(finding.ruleId) &&
+      finding.sources.includes("history") &&
+      (finding.location.kind === "commit" || finding.location.commit !== null) === wantsCommit;
+  }
+  return null;
+}
+
+/** Whether findings can be reliably attributed to the area (so it can be offered as a filter). */
+export function isAreaFilterable(area: string, areaRules: AreaRules): boolean {
+  return areaMatcher(area, areaRules) !== null;
+}
+
+/** Rule ids per coverage area: the area's own `ruleIds` plus the rules that ran there (`ruleStats`). */
+export type AreaRules = ReadonlyMap<string, ReadonlySet<string>>;
+
+export function buildAreaRules(
+  coverage: readonly Pick<Coverage, "area" | "ruleIds">[],
+  ruleStats: readonly Pick<RuleStat, "area" | "ruleId">[] | undefined,
+): AreaRules {
+  const areas = new Map<string, Set<string>>();
+  const add = (area: string, ruleId: string): void => {
+    const rules = areas.get(area) ?? new Set<string>();
+    rules.add(ruleId);
+    areas.set(area, rules);
+  };
+  for (const entry of coverage) {
+    areas.set(entry.area, areas.get(entry.area) ?? new Set());
+    for (const ruleId of entry.ruleIds) add(entry.area, ruleId);
+  }
+  for (const stat of ruleStats ?? []) add(stat.area, stat.ruleId);
+  return areas;
+}
+
+/**
+ * The change a click on a filter value makes: the value is set, or cleared when it is already the
+ * active one (a second click undoes the first).
+ */
+export function toggleFilter(
+  filters: FindingFilters,
+  patch: Partial<FindingFilters>,
+): Partial<FindingFilters> {
+  const result: Partial<FindingFilters> = {};
+  for (const key of Object.keys(patch) as Array<keyof FindingFilters>) {
+    // Every key but `text` is a nullable id; `text` is never toggled.
+    (result as Record<string, unknown>)[key] =
+      filters[key] === patch[key] ? (key === "text" ? "" : null) : patch[key];
+  }
+  return result;
+}
 
 /** Findings per category, largest first; categories without findings are left out. */
 export function countByCategory(
@@ -159,6 +268,7 @@ export function buildFindingsView(
   findings: readonly Finding[],
   filters: FindingFilters,
   m: Messages = en,
+  areaRules: AreaRules = new Map(),
 ): FindingsView {
   const parts = partitionFindings(findings);
   const groups = splitByContext(parts.rest);
@@ -170,32 +280,32 @@ export function buildFindingsView(
   for (const finding of groups.primary) {
     if (finding.status in statusCounts) statusCounts[finding.status] += 1;
   }
-  const visible = filterFindings(groups.primary, filters);
+  const visible = filterFindings(groups.primary, filters, areaRules);
   const contextCounts = { test: groups.test.length, vendored: groups.vendored.length };
   const sections: ContextSection[] = [
     {
       kind: "test" as const,
       title: m.findings.testTitle(groups.test.length),
       total: groups.test.length,
-      visible: filterFindings(groups.test, filters),
+      visible: filterFindings(groups.test, filters, areaRules),
     },
     {
       kind: "vendored" as const,
       title: m.findings.vendoredTitle(groups.vendored.length),
       total: groups.vendored.length,
-      visible: filterFindings(groups.vendored, filters),
+      visible: filterFindings(groups.vendored, filters, areaRules),
     },
     {
       kind: "suppressed" as const,
       title: m.findings.suppressedTitle(parts.suppressed.length),
       total: parts.suppressed.length,
-      visible: filterFindings(parts.suppressed, filters),
+      visible: filterFindings(parts.suppressed, filters, areaRules),
     },
     {
       kind: "baseline" as const,
       title: m.findings.baselineTitle(parts.baseline.length),
       total: parts.baseline.length,
-      visible: filterFindings(parts.baseline, filters),
+      visible: filterFindings(parts.baseline, filters, areaRules),
     },
   ].filter((section) => section.total > 0);
   const suppressedBreakdown = formatSeverityBreakdown(parts.suppressed, m);
@@ -269,7 +379,14 @@ export function formatLocation(location: FindingLocation, m: Messages = en): str
 }
 
 /** Applies the dashboard filters and sorts by severity, then confirmed before suspected. */
-export function filterFindings(findings: readonly Finding[], filters: FindingFilters): Finding[] {
+export function filterFindings(
+  findings: readonly Finding[],
+  filters: FindingFilters,
+  areaRules: AreaRules = new Map(),
+): Finding[] {
+  // An area that cannot be told apart reliably (or an unknown one) matches nothing: never over-include.
+  const inArea =
+    filters.area === null ? null : (areaMatcher(filters.area, areaRules) ?? (() => false));
   const text = filters.text.trim().toLowerCase();
   const statusOrder: Record<string, number> = { confirmed: 0, suspected: 1, informational: 2 };
   return findings
@@ -277,6 +394,9 @@ export function filterFindings(findings: readonly Finding[], filters: FindingFil
     .filter((finding) => filters.status === null || finding.status === filters.status)
     .filter((finding) => filters.source === null || finding.sources.includes(filters.source))
     .filter((finding) => filters.category === null || finding.category === filters.category)
+    .filter((finding) => filters.rule === null || finding.ruleId === filters.rule)
+    .filter((finding) => filters.path === null || finding.location.path === filters.path)
+    .filter((finding) => inArea === null || inArea(finding))
     .filter(
       (finding) =>
         text === "" ||
