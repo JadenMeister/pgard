@@ -191,10 +191,14 @@ describe("fixed mode: pgard dashboard refuses every picker route (design test 2)
     for (const path of paths) {
       for (const method of methods) {
         for (const [label, body] of bodies) {
-          const response = await send(harness.server, method, path, {
-            headers: headersFor(harness.server.port, {}, method === "GET" ? "GET" : "POST"),
-            ...(method === "GET" ? {} : { body }),
-          });
+          const attempt = () =>
+            send(harness!.server, method, path, {
+              headers: headersFor(harness!.server.port, {}, method === "GET" ? "GET" : "POST"),
+              ...(method === "GET" ? {} : { body }),
+            });
+          // The server answers before reading the body (that is the point), so the client may
+          // see the connection reset while it is still writing; the answer is the same on retry.
+          const response = await attempt().catch(attempt).catch(attempt);
           expect(response.status, `${method} ${path} ${label}`).toBe(409);
           expect(json(response).error).toMatchObject({ code: "fixed_project" });
         }
