@@ -15,6 +15,11 @@ export interface SessionInfo {
   /** `fixed`: `pgard dashboard` (one project, no picker). `picker`: `pgard web`. */
   mode: "fixed" | "picker";
   /**
+   * PROTOTYPE (#414): `simple` is the one-screen code-only flow (`PGARD_WEB_PROTOTYPE=code-only`,
+   * picker mode only); `full` is the current dashboard.
+   */
+  ui: "full" | "simple";
+  /**
    * The selected project: its last path segment and `owner/name` only; the full path stays in the
    * terminal (fixed mode) or in the picker's confirm screen. `null` until one is confirmed.
    */
@@ -179,6 +184,11 @@ export interface ScanStatus {
   message: string | null;
   /** Set while the GitHub sign-in started by this scan waits for the user. */
   deviceCode: DeviceCodeInfo | null;
+  /**
+   * PROTOTYPE (#414): true when this is a code-only scan (current files only, authorization not
+   * checked). The page must label its result "not authorized".
+   */
+  codeOnly: boolean;
 }
 
 /** One rule's texts in each dashboard language. Same shape as `RuleTexts` in `@pgard/findings`. */

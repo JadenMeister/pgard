@@ -7,6 +7,7 @@ import { I18nProvider } from "./i18n/I18nProvider";
 import "./styles/tokens.css";
 import "./styles/app.css";
 import "./styles/picker.css";
+import "./styles/simple.css";
 
 prepareAddress(window);
 // A file dropped outside the drop zone would navigate the page away (and show its path).

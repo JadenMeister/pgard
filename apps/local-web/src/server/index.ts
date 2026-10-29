@@ -82,8 +82,11 @@ async function runLauncher(): Promise<number> {
         isStoreDisabled: options.noStore,
       }
     : undefined;
+  // PROTOTYPE (#414): the one-screen code-only flow, opt-in for the owner's review only.
+  const isSimpleUi = options.picker && process.env.PGARD_WEB_PROTOTYPE === "code-only";
   const server = await startLocalWebServer({
     projectRoot: options.projectRoot,
+    ...(isSimpleUi ? { ui: "simple" as const } : {}),
     presetTargetPort: options.presetTargetPort,
     env: process.env,
     assets,
@@ -97,7 +100,9 @@ async function runLauncher(): Promise<number> {
   process.stdout.write(
     [
       options.picker
-        ? "PGARD web (project picker) is running on 127.0.0.1 only."
+        ? isSimpleUi
+          ? "PGARD web (PROTOTYPE: code-only one-screen flow, #414) is running on 127.0.0.1 only."
+          : "PGARD web (project picker) is running on 127.0.0.1 only."
         : "PGARD dashboard is running on 127.0.0.1 only.",
       `Open this private session URL in your browser (valid until you stop the dashboard): ${server.url}`,
       "Do not share this URL. Press Ctrl+C to stop; dashboard results and the session are discarded on exit.",

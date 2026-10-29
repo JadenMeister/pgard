@@ -90,6 +90,9 @@ function fakeDeps(
   return {
     verifyProject: async () => outcome("owner_approval"),
     runScan: async () => result(),
+    runCodeOnlyScan: async () => {
+      throw new Error("unexpected code-only scan");
+    },
     recheckOwnerApproval: async () => {
       throw new Error("unexpected owner approval re-check");
     },

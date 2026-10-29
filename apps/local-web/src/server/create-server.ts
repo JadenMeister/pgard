@@ -57,6 +57,11 @@ export interface LocalWebServerOptions {
   token?: string;
   /** Dev preview hook; production always takes a free port. */
   port?: number;
+  /**
+   * PROTOTYPE (#414): `simple` serves the one-screen code-only flow. Picker mode only; fixed mode
+   * (`pgard dashboard`) is always `full`.
+   */
+  ui?: "full" | "simple";
 }
 
 export interface LocalWebServer {
@@ -152,6 +157,7 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
   let port = 0;
   const context: ApiContext = {
     mode: options.projectRoot === null ? "picker" : "fixed",
+    ui: options.projectRoot === null && options.ui === "simple" ? "simple" : "full",
     presetTargetPort: options.presetTargetPort,
     env: options.env,
     state,
