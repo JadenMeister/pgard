@@ -111,10 +111,3 @@ Used by the rule mapping policy ([docs/RULE_MAPPING.md](docs/RULE_MAPPING.md)).
   covered by PGARD's MIT license.
 - Attribution: OWASP Top 10:2025, Copyright (c) 2003-2025 The OWASP Foundation, Inc.; Copyright (c)
   2006-2026, The MITRE Corporation. CWE is sponsored by DHS CISA.
-
-## CycloneDX JSON schema (test fixture)
-
-The tests validate the SBOM written by `pgard sbom` against the official CycloneDX 1.6 JSON schema. The schema files are vendored unchanged in `packages/dependencies/test-fixtures/cyclonedx/` (`bom-1.6.schema.json`, `spdx.schema.json`, `jsf-0.82.schema.json`) and are used by tests only; they are not shipped in the npm package.
-
-- Source: https://github.com/CycloneDX/specification, tag `1.6`, directory `schema/`
-- License: Apache License 2.0 (full text in `packages/dependencies/test-fixtures/cyclonedx/LICENSE.Apache-2.0`)
