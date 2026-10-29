@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 
 /** The dashboard's views, in nav order. Each has its own URL hash (`#findings`) for linking. */
-export const VIEWS = ["overview", "findings", "coverage", "standards", "rules", "export"] as const;
+export const VIEWS = [
+  "overview",
+  "findings",
+  "coverage",
+  "standards",
+  "rules",
+  "trend",
+  "export",
+] as const;
 export type View = (typeof VIEWS)[number];
 
 /**

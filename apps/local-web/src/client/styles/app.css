@@ -2096,6 +2096,249 @@ input[aria-invalid="true"] {
   }
 }
 
+/* ---------- Trend view ---------- */
+
+.trend-source,
+.trend-hint,
+.trend-coverage-note {
+  max-width: 60rem;
+  margin: 0 0 var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.trend-coverage-note {
+  color: var(--color-ink);
+}
+
+.trend-coverage-note.is-partial {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--severity-medium);
+}
+
+.trend-notes {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.trend-subtitle {
+  margin: var(--space-6) 0 var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.trend-plot {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr);
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.trend-axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding-bottom: 1.25rem;
+  color: var(--color-muted);
+  font-size: var(--text-meta);
+  text-align: right;
+}
+
+.trend-canvas {
+  min-width: 0;
+}
+
+.trend-svg {
+  display: block;
+  width: 100%;
+  height: 180px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+}
+
+.trend-svg-change {
+  height: 120px;
+}
+
+.trend-dates {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--text-meta);
+}
+
+.trend-grid {
+  stroke: var(--color-line);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-hit {
+  fill: transparent;
+}
+
+.trend-column {
+  cursor: pointer;
+  outline: none;
+}
+
+.trend-column:hover .trend-hit,
+.trend-column.is-selected .trend-hit {
+  fill: var(--color-hover);
+}
+
+.trend-column:focus-visible .trend-hit {
+  stroke: var(--color-focus);
+  stroke-width: 2px;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-seg {
+  fill: var(--sev-color);
+  stroke: var(--color-surface);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+
+.trend-seg.is-dimmed {
+  opacity: 0.25;
+}
+
+.trend-zero {
+  fill: var(--color-line-strong);
+}
+
+.trend-hatch {
+  pointer-events: none;
+}
+
+.trend-hatch-line {
+  stroke: var(--color-surface);
+  stroke-width: 1.2px;
+}
+
+.trend-flag {
+  fill: var(--color-ink);
+}
+
+.trend-new {
+  fill: var(--severity-high);
+}
+
+.trend-gone {
+  fill: var(--severity-low);
+}
+
+.trend-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  margin: 0 0 var(--space-2);
+  list-style: none;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.trend-key li::before {
+  content: "";
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: var(--space-2);
+  border-radius: 2px;
+  background: var(--color-muted);
+}
+
+.trend-key li.trend-key-new::before {
+  background: var(--severity-high);
+}
+
+.trend-key li.trend-key-gone::before {
+  background: var(--severity-low);
+}
+
+.trend-key li.trend-key-hatch::before {
+  border: 1px solid var(--color-muted);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Cpath d='M0 4L4 0' stroke='%23888' stroke-width='1.2'/%3E%3C/svg%3E")
+    var(--color-surface);
+}
+
+.trend-key li.trend-key-flag::before {
+  width: 0.875rem;
+  height: 0.25rem;
+  border-radius: 0;
+  vertical-align: middle;
+  background: var(--color-ink);
+}
+
+.trend-selected {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  font-size: var(--text-sm);
+}
+
+.trend-selected-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.trend-selected-line {
+  margin: 0 0 var(--space-1);
+}
+
+.trend-selected-line.is-partial {
+  color: var(--color-warning);
+}
+
+.trend-selected-hint {
+  margin: var(--space-2) 0 0;
+  color: var(--color-muted);
+  font-size: var(--text-meta);
+}
+
+.trend-table-wrap {
+  margin-bottom: var(--space-2);
+}
+
+.trend-table th[scope="row"] {
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-align: left;
+}
+
+.trend-table tr.is-partial td,
+.trend-table tr.is-partial th[scope="row"] {
+  background: var(--color-fill);
+}
+
+.trend-table .is-highlight {
+  font-weight: 700;
+  background: var(--color-hover);
+}
+
+@media (max-width: 47.99rem) {
+  .trend-table th[scope="row"] {
+    display: block;
+    width: 100%;
+    padding: var(--space-1) 0;
+    border: 0;
+    font-weight: 600;
+  }
+
+  .trend-svg {
+    height: 150px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

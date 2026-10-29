@@ -52,6 +52,7 @@ import { recheckProjectIdentity, requireCurrentEpoch } from "../picker/service.j
 import type { ProjectRecord } from "../picker/session.js";
 import { ApiError } from "./api-error.js";
 import { PICKER_ROUTES } from "./picker.js";
+import { getTrend } from "./trend.js";
 import type { GitHubSessionManager } from "../session/github-session.js";
 import { readStoredSignInDto, resetAuthIfStoredAccountChanged } from "../session/stored-sign-in.js";
 import {
@@ -906,6 +907,7 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "POST /api/scan/cancel": cancelScan,
   "GET /api/rule-texts": getRuleTexts,
   "GET /api/advisory-status": getAdvisoryStatus,
+  "GET /api/trend": getTrend,
   "GET /api/reports/html": downloadReport("html"),
   "GET /api/reports/pdf": downloadReport("pdf"),
   ...PICKER_ROUTES,

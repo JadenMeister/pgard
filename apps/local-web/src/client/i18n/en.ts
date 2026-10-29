@@ -470,6 +470,7 @@ export const en = {
     coverage: "Coverage",
     standards: "Standards",
     rules: "Rules",
+    trend: "Trend",
     export: "Export",
   },
   strip: {
@@ -593,6 +594,95 @@ export const en = {
     details: "Details",
     severityFilter: "Filter by severity",
     category: "Category",
+  },
+  trend: {
+    title: "Trend",
+    source:
+      "Built from the scans you saved with the pgard command for this repository, matched by its GitHub repository id (the last 20 at most). Scans run in this dashboard are not stored, so they never appear here. A scan you just saved from a terminal can take a few seconds to appear.",
+    loading: "Reading the saved scans...",
+    loadFailed: "The saved scans could not be loaded.",
+    reload: "Reload",
+    disabled:
+      "Saving scans is switched off, so there is no history to show. pgard dashboard honours only PGARD_NO_STORE=1; --no-store applies to pgard web. Allow storing and run pgard scan a few times to build a trend.",
+    notVerified:
+      "Verify the project first. Saved scans are matched to this repository only after the authorization check passes.",
+    noStoreDir:
+      "No folder for saved scans is available on this computer, so there is no history to show.",
+    unreadable:
+      "The saved scans could not be read, so no trend is shown. Nothing was changed; pgard history lists what is stored.",
+    tooFew: (count: number): string =>
+      count === 0
+        ? "No saved scans for this repository yet. Run pgard scan (without --no-store) at least twice to see a trend."
+        : "Only one saved scan for this repository. A trend needs at least two; run pgard scan again.",
+    skipped: (count: number): string =>
+      `${count} saved ${count === 1 ? "file" : "files"} could not be read and ${count === 1 ? "was" : "were"} left out.`,
+    newerSkipped: (count: number): string =>
+      `${count} saved ${count === 1 ? "scan was" : "scans were"} written by a newer PGARD and left out.`,
+    futureSkipped: (count: number): string =>
+      `${count} saved ${count === 1 ? "scan is" : "scans are"} dated in the future and left out, so the order stays correct.`,
+    unread: (count: number): string =>
+      `${count} older saved ${count === 1 ? "file was" : "files were"} not read (the view reads at most 20 usable scans).`,
+    partialWarning: (count: number, total: number): string =>
+      `${count} of ${total} scans did not cover everything (hatched). A lower count there can mean less was checked, not that findings were fixed.`,
+    allComplete: "Every scan below completed all the areas it was asked to check.",
+    severityTitle: "Findings by severity, scan by scan",
+    chartLabel: (first: string, last: string, count: number): string =>
+      `Stacked bars of active findings by severity for ${count} saved scans, from ${first} to ${last}. The table below lists every value.`,
+    columnLabel: (date: string, total: number, breakdown: string, coverage: string): string =>
+      `${date}: ${total} active findings (${breakdown}). Coverage: ${coverage}.`,
+    activeLine: (total: number, breakdown: string): string =>
+      `${total} active ${total === 1 ? "finding" : "findings"} (${breakdown})`,
+    axisMax: (value: number): string => `${value}`,
+    axisZero: "0",
+    legendLabel: "Filter the trend by severity",
+    legendHint:
+      "Select a severity to highlight it here and to filter the Findings view. The trend counts by severity only; category and the other filters do not apply to it.",
+    otherFilters:
+      "Other active filters (category, area, rule, file, status, source, text) are kept but do not change the trend.",
+    showFindings: "Show these findings in the current scan",
+    noCurrentScan: "Run a scan in this dashboard to list the matching findings.",
+    selectedTitle: "Selected scan",
+    selectedHint: "Move between scans with the left and right arrow keys, or select a bar.",
+    changeTitle: "Change between consecutive scans",
+    changeChartLabel: (count: number): string =>
+      `Bars of findings that are new and findings no longer reported, for ${count} scans compared with the scan before. The table below lists every value.`,
+    legendNew: "New",
+    legendGone: "No longer reported",
+    legendUncertain: "Hatched: a scan involved did not cover everything",
+    legendHatch: "Hatched bar: this scan did not cover everything",
+    legendFlag: "Dash under a bar: this scan did not cover everything",
+    changeNote:
+      '"No longer reported" means the finding was in the earlier scan and its place was fully analyzed both times and it is gone. It is not proof that it was fixed.',
+    changeCountsNote:
+      "The new, no longer reported and unchanged counts compare every finding of the two scans, including ignored and baselined ones, so they can differ from the active counts in the bars.",
+    ignoredBaselined:
+      "Ignored findings are hidden by pgard.config.json; baselined findings are in the saved baseline. Neither is counted in the severity bars.",
+    tableTitle: "Data table",
+    tableCaption:
+      "Saved scans of this repository, oldest first: active findings by severity, ignored and baselined findings, and the change since the scan before.",
+    columns: {
+      scan: "Saved",
+      coverage: "Coverage",
+      total: "Active",
+      ignored: "Ignored",
+      baselined: "Baselined",
+      new: "New",
+      gone: "No longer reported",
+      unchanged: "Unchanged",
+      notComparable: "Not comparable",
+    },
+    coverageValue: {
+      completed: "Completed",
+      partial: "Partial",
+      not_tested: "Not tested",
+    },
+    coverageDetail: (status: string, areas: number): string =>
+      areas === 0 ? status : `${status} (${areas} ${areas === 1 ? "area" : "areas"} incomplete)`,
+    noChange: "First scan, or not comparable",
+    changeSummary: (added: number, gone: number, same: number, unknown: number): string =>
+      `${added} new, ${gone} no longer reported, ${same} unchanged, ${unknown} not comparable`,
+    changeUncertainNote:
+      "One of these two scans did not cover everything, so read these counts with care.",
   },
   report: {
     downloadHtml: "Download HTML",

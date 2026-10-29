@@ -2,11 +2,10 @@ import {
   compareScans,
   type AreaComparability,
   notComparableAreas,
-  SCHEMA_VERSION,
   type ScanComparison,
   type ScanResult,
 } from "@pgard/findings";
-import type { ResultStore, StoredScan } from "@pgard/result-store";
+import { isNewerSchemaMinor, type ResultStore, type StoredScan } from "@pgard/result-store";
 import { CLI_TEXT, type CliText } from "../ui/i18n/cli-text.js";
 import { safeText } from "../ui/formatters/style.js";
 
@@ -22,11 +21,7 @@ export function formatScanTime(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-export function isNewerMinor(sourceVersion: string): boolean {
-  const [major = 0, minor = 0] = sourceVersion.split(".").map(Number);
-  const [currentMajor = 0, currentMinor = 0] = SCHEMA_VERSION.split(".").map(Number);
-  return major > currentMajor || (major === currentMajor && minor > currentMinor);
-}
+export const isNewerMinor = isNewerSchemaMinor;
 
 export interface PreviousScan {
   scan: StoredScan | null;

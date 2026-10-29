@@ -586,10 +586,10 @@ const EN: CliText = {
       notStored: "This scan was not stored.",
       newerSkipped: (count) =>
         `${count} ${count === 1 ? "scan" : "scans"} from a newer PGARD version ${count === 1 ? "was" : "were"} skipped.`,
-      chartTitle: "Findings per scan (newest first)",
+      chartTitle: "Active findings per scan (newest first)",
       legend: (pairs) => `Legend: ${pairs}`,
-      tableTitle: "Findings per scan by severity (newest first)",
-      columns: { date: "Date", age: "Age", total: "Total" },
+      tableTitle: "Active findings per scan by severity (newest first)",
+      columns: { date: "Date", age: "Age", total: "Active" },
       letters: { critical: "C", high: "H", medium: "M", low: "L", info: "I" },
       age: (ms, short) => {
         const minutes = Math.floor(ms / 60000);
@@ -947,10 +947,10 @@ const KO: CliText = {
       newestStored: "저장된 최근 두 검사 비교",
       notStored: "이 검사는 저장되지 않았습니다.",
       newerSkipped: (count) => `더 새로운 PGARD 버전에서 만든 검사 ${count}건을 건너뛰었습니다.`,
-      chartTitle: "검사별 발견 항목 (최신순)",
+      chartTitle: "검사별 활성 발견 항목 (최신순)",
       legend: (pairs) => `범례: ${pairs}`,
-      tableTitle: "검사별 심각도 (최신순)",
-      columns: { date: "날짜", age: "경과", total: "합계" },
+      tableTitle: "검사별 활성 발견 항목의 심각도 (최신순)",
+      columns: { date: "날짜", age: "경과", total: "활성" },
       letters: { critical: "치", high: "높", medium: "중", low: "낮", info: "정" },
       age: (ms, short) => {
         const minutes = Math.floor(ms / 60000);

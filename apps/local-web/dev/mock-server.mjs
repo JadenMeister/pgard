@@ -8,6 +8,9 @@
 //   open http://127.0.0.1:<port>/#token=mockmockmockmockmockmockmockmock
 //
 // Pick a scenario with POST /__mock/scenario?name=<onboarding|blocked|running|results|empty>.
+// The Trend view has its own scenarios, which keep the "results" scan and change only what
+// GET /api/trend answers: trend (20 saved scans, some partial), trend-few (one saved scan),
+// trend-off (the store is switched off), trend-unverified (not verified yet).
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
@@ -20,7 +23,9 @@ import { applySecurityHeaders } from "../dist/server/middleware/security.js";
 const port = Number(process.argv[2] ?? 4317);
 const clientRoot = fileURLToPath(new URL("../dist/client/", import.meta.url));
 const SCENARIOS = new Set(["onboarding", "blocked", "running", "results", "empty"]);
+const TREND_SCENARIOS = new Set(["trend", "trend-few", "trend-off", "trend-unverified"]);
 let scenario = process.env.PGARD_MOCK_SCENARIO ?? "results";
+let trendScenario = "trend";
 
 const rules = [
   ...listSupportedRules(),
@@ -273,9 +278,57 @@ function scanStatus(scopes) {
   };
 }
 
+const DAY_MS = 86_400_000;
+
+/** 20 saved scans, oldest first; fixed counts so screenshots are repeatable. */
+function makeTrend() {
+  if (trendScenario === "trend-off") return { kind: "disabled" };
+  if (trendScenario === "trend-unverified") return { kind: "unavailable", why: "not-verified" };
+  const base = Date.UTC(2026, 9, 9, 9, 30);
+  const total = trendScenario === "trend-few" ? 1 : 20;
+  const points = [];
+  for (let index = 0; index < total; index += 1) {
+    const severity = {
+      critical: index < 6 ? 2 : index < 12 ? 1 : 0,
+      high: Math.max(2, 9 - Math.floor(index / 2) + (index % 3)),
+      medium: 6 + (index % 4),
+      low: 4 + (index % 3),
+      info: 2,
+    };
+    // Scans 7 and 13 did not cover everything: their counts are lower because less was checked.
+    const isPartial = index === 7 || index === 13;
+    if (isPartial) {
+      severity.high = 2;
+      severity.medium = 2;
+    }
+    const sum = Object.values(severity).reduce((a, b) => a + b, 0);
+    points.push({
+      savedAt: base + index * DAY_MS,
+      coverage: isPartial ? "partial" : "completed",
+      incompleteAreas: isPartial ? 2 : 0,
+      severity,
+      total: sum,
+      ignored: index > 4 ? 2 : 0,
+      baselined: index > 9 ? 5 : 0,
+      change:
+        index === 0
+          ? null
+          : {
+              new: (index * 3) % 5,
+              noLongerReported: isPartial || index === 8 || index === 14 ? 0 : (index * 7) % 6,
+              unchanged: 18 + (index % 5),
+              notComparable: isPartial || index === 8 || index === 14 ? 9 : 0,
+            },
+    });
+  }
+  return { kind: "ready", points, skipped: 0, newerSkipped: 0, futureSkipped: 0, unread: 0 };
+}
+
 const session = {
   version: "0.1.0",
-  projectName: "acme-shop",
+  mode: "fixed",
+  project: { name: "acme-shop", repo: null },
+  projectEpoch: 1,
   presetTargetPort: null,
   githubApp: { clientId: "Iv1.mock", slug: "pgard", source: "default" },
   githubAppWarning: null,
@@ -320,6 +373,7 @@ const ROUTES = {
     note: null,
   }),
   "GET /api/rule-texts": () => ruleTexts,
+  "GET /api/trend": () => makeTrend(),
   "GET /api/scan": () => scanStatus(lastScopes),
   "POST /api/scan": (body) => {
     lastScopes = Array.isArray(body.scopes) ? body.scopes : lastScopes;
@@ -335,6 +389,12 @@ const server = http.createServer(async (request, response) => {
   const url = new URL(request.url ?? "/", `http://127.0.0.1:${port}`);
   if (url.pathname === "/__mock/scenario" && request.method === "POST") {
     const name = url.searchParams.get("name") ?? "";
+    if (TREND_SCENARIOS.has(name)) {
+      trendScenario = name;
+      scenario = "results";
+      response.writeHead(204).end();
+      return;
+    }
     if (!SCENARIOS.has(name)) {
       response.writeHead(400).end("unknown scenario");
       return;

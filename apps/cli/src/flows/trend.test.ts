@@ -105,6 +105,31 @@ describe("loadTrend", () => {
     expect(JSON.stringify(trend)).not.toMatch(/owner|one|users\.ts/);
   });
 
+  it("counts active findings only: ignored and baselined ones are left out of the counts and Total", async () => {
+    clock += DAY;
+    const saved = await store.save(
+      testResult({
+        scanId: "mixed",
+        target: { repo: "owner/name", revision: "abc", webOrigin: null },
+        findings: [
+          testFinding({ id: "active", severity: "high" }),
+          testFinding({
+            id: "ignored",
+            severity: "critical",
+            suppression: { reason: "accepted", source: "pgard.config.json" },
+          }),
+          testFinding({ id: "baselined", severity: "medium", inBaseline: true }),
+        ],
+      }),
+      { repositoryId: REPO_ID },
+    );
+    expect(saved.ok).toBe(true);
+    const trend = await loadTrend(context(), outcome, false, null, () => NOW);
+    if (trend.kind !== "ready") throw new Error("expected ready");
+    expect(trend.scans[0]?.counts).toEqual({ critical: 0, high: 1, medium: 0, low: 0, info: 0 });
+    expect(trend.scans[0]?.total).toBe(1);
+  });
+
   it("says when the current scan is not among the stored ones", async () => {
     await save("a", ["x"]);
     await save("b", ["x"]);

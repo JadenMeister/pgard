@@ -26,6 +26,7 @@ import { ScanStrip } from "../features/scan/ScanStrip";
 import { useScan } from "../features/scan/use-scan";
 import { RuleStatsPanel } from "../features/standards/RuleStatsPanel";
 import { StandardsCoveragePanel } from "../features/standards/StandardsCoveragePanel";
+import { TrendPage } from "../features/trend/TrendView";
 import { TargetPanel } from "../features/target/TargetPanel";
 import { targetRefreshKey } from "../features/target/target-refresh";
 import { useFilterState } from "./use-filter-state";
@@ -232,6 +233,15 @@ export function App({
         if (result === null || result.ruleStats === undefined) return noResult(m.cards.ruleStats);
         if (result.overallStatus === "blocked") return blockedResult(m.cards.ruleStats);
         return <RuleStatsPanel result={result} ruleTexts={ruleTexts} />;
+      case "trend":
+        return (
+          <TrendPage
+            filters={filters}
+            onFilter={setFilters}
+            hasCurrentScan={result !== null && result.overallStatus !== "blocked"}
+            onOpenFindings={() => goTo("findings")}
+          />
+        );
       case "export":
         if (result === null) return noResult(m.cards.report);
         if (result.overallStatus === "blocked") return blockedResult(m.cards.report);

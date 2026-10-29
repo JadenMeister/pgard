@@ -7,7 +7,7 @@ import {
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { renderReport } from "@pgard/report";
-import { resolveStoreDirectory } from "@pgard/result-store";
+import { createResultStore, resolveStoreDirectory, type ResultStore } from "@pgard/result-store";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
@@ -55,6 +55,13 @@ export interface ServerDeps {
   advisoryDataDir?: string | null;
   /** Reads the status of that data (local files only). Defaults to the real reader. */
   readAdvisoryStatus?: typeof readAdvisoryStatus;
+  /**
+   * Opens the local result store the Trend view reads (read only; the dashboard never saves).
+   * Absent or `null`: there is no store folder. Tests inject a store on a temporary directory.
+   */
+  openResultStore?: (env: Readonly<Record<string, string | undefined>>) => ResultStore | null;
+  /** `pgard web --no-store`: the Trend view says the store is off and reads nothing. */
+  isStoreDisabled?: boolean;
   /** Picker mode (`pgard web`) only: inspector, recent-list storage and search scope. */
   picker?: PickerDeps;
 }
@@ -91,6 +98,10 @@ export function createDefaultServerDeps(): ServerDeps {
     discoverListeningPorts: () => discoverListeningPorts(),
     renderReport,
     now: Date.now,
+    openResultStore: (env) => {
+      const dir = resolveStoreDirectory({ env, homeDir: env.HOME ?? env.USERPROFILE ?? "" });
+      return dir === null ? null : createResultStore({ dir });
+    },
     advisoryDataDir: resolveStoreDirectory({
       env: process.env,
       homeDir: process.env.HOME ?? process.env.USERPROFILE ?? "",
