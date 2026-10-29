@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Severity } from "@pgard/findings";
 import type { RuleTextsResponse, ScanStatus, SessionInfo } from "../../../shared/api-types";
-import type { PickerCandidate } from "../../../shared/picker-types";
+import type { PickerBrowseResponse, PickerPathResponse } from "../../../shared/picker-types";
 import { apiGet, apiPost, getProjectEpoch, setProjectEpoch } from "../../api/client";
 import { loadWithRetry } from "../../api/retry";
 import { SeverityBar } from "../../components/charts/SeverityBar";
@@ -12,15 +12,16 @@ import { LanguageToggle, useI18n } from "../../i18n/I18nProvider";
 import { buildFindingsView, EMPTY_FILTERS } from "../findings/filter-findings";
 import { FindingTable } from "../findings/FindingTable";
 import { LegalNotice } from "../legal/LegalNotice";
-import { BlockedNote, CandidateDetails } from "../picker/CandidateCard";
+import { BlockedNote } from "../picker/CandidateCard";
 import { pickerErrorText } from "../picker/error-text";
-import { DropZone, NameProblem, SearchForm, SearchStatus } from "../picker/ProjectPicker";
 import { usePicker, type PickerControl } from "../picker/use-picker";
 import { useElapsedSeconds } from "../scan/ScanProgress";
 import { CoverageView } from "../scan/CoverageView";
 import { RuleStatsPanel } from "../standards/RuleStatsPanel";
 import { StandardsCoveragePanel } from "../standards/StandardsCoveragePanel";
 import { simpleText, type SimpleText } from "./simple-text";
+
+type FolderRefusal = NonNullable<PickerBrowseResponse["refusal"]>;
 
 /**
  * PROTOTYPE (#414): the one-screen flow of `pgard web` (`PGARD_WEB_PROTOTYPE=code-only`).
@@ -54,48 +55,103 @@ function Steps({ t }: { t: SimpleText }) {
   );
 }
 
-function CandidateRow({
-  candidate,
-  t,
-  addCommand,
-  onChoose,
-}: {
-  candidate: PickerCandidate;
-  t: SimpleText;
-  addCommand: string | null;
-  onChoose: (candidate: PickerCandidate) => void;
-}) {
+/** The refusal of a chosen or pasted folder, in the page language, with its fix. */
+function Refusal({ refusal, t }: { refusal: FolderRefusal; t: SimpleText }) {
+  const text = t.refusals[refusal.code];
   return (
-    <li className="simple-candidate">
-      <div className="simple-candidate-main">
-        <p className="simple-candidate-name">{candidate.name}</p>
-        <CandidateDetails candidate={candidate} />
-        {!candidate.selectable && (
-          <BlockedNote candidate={candidate} addCommand={addCommand} onRemoveRecent={null} />
-        )}
-      </div>
-      {candidate.selectable && (
-        <Button variant="primary" size="sm" onClick={() => onChoose(candidate)}>
-          {t.candidateUse}
-        </Button>
+    <div className="pick-blocked simple-refusal" role="alert">
+      <p className="pick-blocked-title">{text.reason}</p>
+      <p>{text.fix}</p>
+      {refusal.paths.length > 0 && (
+        <ul className="pick-paths">
+          {refusal.paths.map((entry) => (
+            <li key={entry}>
+              <code>{entry}</code>
+            </li>
+          ))}
+        </ul>
       )}
-    </li>
+    </div>
   );
 }
 
-/** Step 1 without a project: drop or type a folder name, pick the match, confirm its path. */
+/**
+ * Step 1 without a project: the OS folder dialog ("Choose folder") or a pasted path. The server
+ * opens the dialog and checks the folder; the page only shows the result and asks to confirm.
+ */
 function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
-  const { phase, candidate } = control;
-  const addCommand = control.scope?.addCommand ?? null;
+  const { language } = useI18n();
+  const { candidate } = control;
+  const [dialog, setDialog] = useState<PickerBrowseResponse["status"]>("idle");
+  const [refusal, setRefusal] = useState<FolderRefusal | null>(null);
+  const [pasted, setPasted] = useState("");
+  const [isChecking, setIsChecking] = useState(false);
+  const [requestError, setRequestError] = useState<string | null>(null);
+
+  const apply = (response: PickerBrowseResponse | PickerPathResponse): void => {
+    setRefusal(response.refusal);
+    if (response.candidate !== null) control.choose(response.candidate);
+  };
+  usePolling(
+    async () => {
+      const response = await apiGet<PickerBrowseResponse>("/api/picker/browse");
+      setDialog(response.status);
+      if (response.status !== "open") apply(response);
+    },
+    700,
+    dialog === "open",
+  );
+
+  const openDialog = (): void => {
+    setRequestError(null);
+    setRefusal(null);
+    apiPost<PickerBrowseResponse>("/api/picker/browse", { lang: language })
+      .then((response) => {
+        setDialog(response.status);
+        if (response.status !== "open") apply(response);
+      })
+      .catch((caught: unknown) =>
+        setRequestError(caught instanceof Error ? caught.message : t.requestFailed),
+      );
+  };
+  const cancelDialog = (): void => {
+    apiPost<PickerBrowseResponse>("/api/picker/browse/cancel", {})
+      .then((response) => setDialog(response.status))
+      .catch(() => undefined);
+  };
+  const submitPasted = (): void => {
+    if (pasted.trim() === "" || isChecking) return;
+    setRequestError(null);
+    setRefusal(null);
+    setIsChecking(true);
+    apiPost<PickerPathResponse>("/api/picker/path", { path: pasted })
+      .then(apply)
+      .catch((caught: unknown) =>
+        setRequestError(caught instanceof Error ? caught.message : t.requestFailed),
+      )
+      .finally(() => setIsChecking(false));
+  };
+
   if (candidate !== null) {
     return (
       <div className="simple-confirm">
-        <p>{t.candidateConfirm(candidate.displayPath)}</p>
+        <p>{t.candidateConfirm}</p>
         <pre className="pick-confirm-path">{candidate.displayPath}</pre>
+        {candidate.remote.status === "github" && candidate.codeOnly === undefined && (
+          <p className="muted small">{t.githubRepo(candidate.remote.repo)}</p>
+        )}
+        {candidate.codeOnly !== undefined && (
+          <p className="muted small">{t.codeOnlyReason[candidate.codeOnly]}</p>
+        )}
+        {!candidate.selectable && (
+          <BlockedNote candidate={candidate} addCommand={null} onRemoveRecent={null} />
+        )}
         <p className="button-row">
-          <Button variant="primary" disabled={control.isConfirming} onClick={control.confirm}>
-            {control.isConfirming ? t.using : t.useFolder}
-          </Button>
+          {candidate.selectable && (
+            <Button variant="primary" disabled={control.isConfirming} onClick={control.confirm}>
+              {control.isConfirming ? t.using : t.useFolder}
+            </Button>
+          )}
           <Button disabled={control.isConfirming} onClick={control.back}>
             {t.back}
           </Button>
@@ -106,32 +162,53 @@ function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
   return (
     <>
       <p className="muted">{t.folderHint}</p>
-      <DropZone control={control} />
-      <SearchForm control={control} />
-      <NameProblem control={control} />
-      <SearchStatus control={control} />
-      {phase.kind === "result" &&
-        (phase.response.candidates.length === 0 ? (
-          <div className="empty-state">
-            <p className="empty-state-title">{t.noMatch(phase.name)}</p>
-            <p className="muted">{t.noMatchFix}</p>
-          </div>
-        ) : (
-          <>
-            <h3 className="simple-subtitle">{t.candidatesTitle}</h3>
-            <ul className="simple-candidates">
-              {phase.response.candidates.map((entry) => (
-                <CandidateRow
-                  key={entry.candidateId}
-                  candidate={entry}
-                  t={t}
-                  addCommand={addCommand}
-                  onChoose={control.choose}
-                />
-              ))}
-            </ul>
-          </>
-        ))}
+      <p className="button-row">
+        <button
+          type="button"
+          className="btn btn-primary simple-choose-button"
+          disabled={dialog === "open"}
+          onClick={openDialog}
+        >
+          {dialog === "open" ? t.dialogOpen : t.chooseFolder}
+        </button>
+        {dialog === "open" && (
+          <Button size="sm" onClick={cancelDialog}>
+            {t.cancel}
+          </Button>
+        )}
+      </p>
+      {dialog === "unavailable" && <Notice tone="warning">{t.dialogUnavailable}</Notice>}
+      {dialog === "timeout" && <p className="muted small">{t.dialogTimeout}</p>}
+      {dialog === "cancelled" && <p className="muted small">{t.dialogCancelled}</p>}
+      <form
+        className="simple-paste"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitPasted();
+        }}
+      >
+        <label htmlFor="simple-path" className="simple-paste-label">
+          {t.pasteLabel}
+        </label>
+        <div className="simple-paste-row">
+          <input
+            id="simple-path"
+            className="pick-input simple-path-input"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
+            maxLength={4096}
+            placeholder={t.pastePlaceholder}
+            value={pasted}
+            onChange={(event) => setPasted(event.target.value)}
+          />
+          <Button type="submit" disabled={isChecking || pasted.trim() === ""}>
+            {isChecking ? t.checking : t.pasteSubmit}
+          </Button>
+        </div>
+      </form>
+      {refusal !== null && <Refusal refusal={refusal} t={t} />}
+      {requestError !== null && <Notice tone="error">{requestError}</Notice>}
     </>
   );
 }

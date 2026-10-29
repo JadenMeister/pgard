@@ -29,8 +29,9 @@ export const en = {
     footer:
       "Runs on 127.0.0.1 only. Dashboard scans are not stored: their results and the session are discarded when the dashboard stops.",
     errorNoToken:
-      "This page needs the private session URL printed by `pgard dashboard`. Open that URL again.",
-    errorSession: "The dashboard session is not available. Restart `pgard dashboard`.",
+      "This page needs the private session URL that PGARD printed in your terminal (it ends with #token=…). Open that URL again.",
+    errorSession:
+      "This session has ended. Start PGARD again in your terminal and open the new URL it prints.",
     errorRuleTexts:
       "Could not load the Korean rule texts. Rule titles and fix texts stay in English; reload the page to try again.",
   },

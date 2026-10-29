@@ -177,6 +177,8 @@ export interface CandidateRecord {
   fingerprint: string;
   shown: string;
   isSelectable: boolean;
+  /** PROTOTYPE (#414): selectable for a code-only scan only (see `PickerCandidate.codeOnly`). */
+  isFolderOnly?: boolean;
   dto: PickerCandidate;
 }
 

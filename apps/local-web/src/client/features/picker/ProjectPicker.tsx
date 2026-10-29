@@ -7,7 +7,7 @@ import { useI18n } from "../../i18n/I18nProvider";
 import { CandidateCard, CopyCommand } from "./CandidateCard";
 import { usePicker, type PickerControl } from "./use-picker";
 
-export function DropZone({ control }: { control: PickerControl }) {
+function DropZone({ control }: { control: PickerControl }) {
   const { m } = useI18n();
   const [isOver, setIsOver] = useState(false);
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
@@ -38,7 +38,7 @@ export function DropZone({ control }: { control: PickerControl }) {
   );
 }
 
-export function SearchForm({ control }: { control: PickerControl }) {
+function SearchForm({ control }: { control: PickerControl }) {
   const { m } = useI18n();
   const [value, setValue] = useState("");
   const isRunning = control.phase.kind === "running";
@@ -73,7 +73,7 @@ export function SearchForm({ control }: { control: PickerControl }) {
   );
 }
 
-export function SearchStatus({ control }: { control: PickerControl }) {
+function SearchStatus({ control }: { control: PickerControl }) {
   const { m } = useI18n();
   const { phase } = control;
   if (phase.kind !== "running") return null;
@@ -88,7 +88,7 @@ export function SearchStatus({ control }: { control: PickerControl }) {
   );
 }
 
-export function NameProblem({ control }: { control: PickerControl }) {
+function NameProblem({ control }: { control: PickerControl }) {
   const { m } = useI18n();
   if (control.droppedFile) {
     return (

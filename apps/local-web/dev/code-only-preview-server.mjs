@@ -1,21 +1,23 @@
 // Dev-only preview of the PROTOTYPE one-screen code-only flow (#414). Not part of the package
 // (`files` is `dist` only) and never started by pgard. It runs the REAL dashboard server in picker
-// mode with the simple screen, the REAL inspector child process (real search, real identity and
-// ownership checks) and the REAL code-only scan of the folder you pick. It never talks to GitHub:
-// the keychain is replaced by an in-memory store and the GitHub sign-in always fails, local port
-// discovery and probing are disabled, and nothing is stored (no recent list, no settings).
+// mode with the simple screen, the REAL OS folder dialog, the REAL inspector child process
+// (realpath, ownership and write-bit checks) and the REAL code-only scan of the folder you choose.
+//
+// Read-only and offline:
+// - no GitHub: the keychain is replaced by an in-memory store (the native keychain binding is
+//   never loaded), the GitHub sign-in always fails, and verify, authorized scans, owner approval
+//   and local web checks throw if anything ever reached them;
+// - no network: local port discovery and probing are disabled, the code-only scan reads files;
+// - nothing stored and nothing read from PGARD's data folder (~/Library/Application Support/pgard
+//   on macOS): no result store, no recent list, no settings, no advisory (OSV) data, so
+//   dependency checks report "not tested".
 //
 //   npm run build
 //   node apps/local-web/dev/code-only-preview-server.mjs <home-folder> [port]   (never 4317/4318)
 //   open the printed http://127.0.0.1:<port>/#token=... URL
-//
-// The search folders are the default development folders under <home-folder> (`projects`,
-// `code`, ...), exactly as `pgard web` derives them from $HOME. Advisory (OSV) data is read from
-// <home-folder>'s PGARD data folder only if it exists there, so dependency checks report
-// "not tested" unless you downloaded data into that folder.
-import { loadSearchScope, resolveStoreDirectory } from "@pgard/result-store";
 import { createInMemoryCredentialStore } from "@pgard/scan-core";
 import { createDefaultServerDeps, startLocalWebServer } from "../dist/server/create-server.js";
+import { createFolderDialog } from "../dist/server/picker/folder-dialog.js";
 import { createInspectorHost } from "../dist/server/picker/inspector-host.js";
 import { loadStaticAssets } from "../dist/server/static-files.js";
 
@@ -24,22 +26,20 @@ const port = Number(process.argv[3] ?? 4321);
 if (homeDir === undefined || !homeDir.startsWith("/")) {
   throw new Error("Usage: code-only-preview-server.mjs <absolute home folder> [port]");
 }
-if (port === 4317 || port === 4318) throw new Error("4317 and 4318 are reserved");
+if (!Number.isInteger(port) || port === 4317 || port === 4318) {
+  throw new Error("Pass a free port other than 4317 and 4318");
+}
 
-const scope = await loadSearchScope({ storage: null, uid: process.getuid?.(), homeDir });
-for (const dropped of scope.dropped)
-  console.log(`search folder skipped (${dropped.reason}): ${dropped.path}`);
-if (scope.roots.length === 0) throw new Error(`No usable search folder under ${homeDir}`);
-console.log(`search folders: ${scope.roots.map((root) => root.path).join(", ")}`);
-
-const assets = await loadStaticAssets(new URL("../dist/client/", import.meta.url).pathname);
-const refuse = Object.assign(
-  async () => {
-    throw new Error("The code-only preview never signs in to GitHub.");
-  },
-  { invalidate() {}, signOut() {}, existing: async () => null },
-);
+const never = (what) => async () => {
+  throw new Error(`The code-only preview never ${what}.`);
+};
+const refuse = Object.assign(never("signs in to GitHub"), {
+  invalidate() {},
+  signOut() {},
+  existing: async () => null,
+});
 const defaults = createDefaultServerDeps();
+const assets = await loadStaticAssets(new URL("../dist/client/", import.meta.url).pathname);
 const server = await startLocalWebServer({
   projectRoot: null,
   presetTargetPort: null,
@@ -49,11 +49,13 @@ const server = await startLocalWebServer({
   ui: "simple",
   deps: {
     ...defaults,
+    verifyProject: never("verifies a project with GitHub"),
+    runScan: never("runs an authorized scan"),
+    recheckOwnerApproval: never("asks GitHub for owner approval"),
+    webScanner: never("runs local web checks"),
     createSessionProvider: () => refuse,
     credentialStore: createInMemoryCredentialStore(),
-    probeLocalService: async () => {
-      throw new Error("the preview never probes");
-    },
+    probeLocalService: never("probes a port"),
     discoverListeningPorts: async () => ({
       ports: [],
       method: "lsof",
@@ -63,17 +65,18 @@ const server = await startLocalWebServer({
     }),
     openResultStore: () => null,
     isStoreDisabled: true,
-    advisoryDataDir: resolveStoreDirectory({ env: {}, homeDir }),
+    advisoryDataDir: null,
     picker: {
       inspector: createInspectorHost(),
       storage: null,
-      roots: scope.roots,
+      roots: [],
       homeDir,
       platform: process.platform,
+      folderDialog: createFolderDialog(),
     },
   },
 });
-console.log(`code-only preview (PROTOTYPE #414) on ${server.url}`);
+console.log(`code-only preview (PROTOTYPE #414, read-only, offline) on ${server.url}`);
 const stop = () => void server.close().then(() => process.exit(0));
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);

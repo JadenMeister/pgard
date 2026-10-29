@@ -75,9 +75,31 @@ export type InspectorJob =
       kind: "inspect";
       root: ScopeRoot;
       segments: ChainSegment[];
-      mode: "full" | "recheck";
+      /**
+       * `full` runs the Git calls, `recheck` only the identity chain and `.git`, `folder`
+       * (PROTOTYPE #414, code-only) only the identity chain and its ownership and write bits.
+       */
+      mode: "full" | "recheck" | "folder";
     }
-  | { kind: "recent"; roots: ScopeRoot[]; entries: Array<{ entryId: string; path: string }> };
+  | { kind: "recent"; roots: ScopeRoot[]; entries: Array<{ entryId: string; path: string }> }
+  /**
+   * PROTOTYPE (#414): one folder the user chose in the OS folder dialog or pasted. The child
+   * resolves it (realpath), picks the anchor it is checked from (see `resolveFolder`), and
+   * inspects it like a search candidate.
+   */
+  | { kind: "resolve"; path: string; homeDir: string };
+
+/** Why a chosen or pasted folder is refused before it becomes a candidate. */
+export const RESOLVE_REFUSALS = [
+  "missing",
+  "not_a_directory",
+  "too_broad",
+  "too_deep",
+  "unreadable",
+  "not_owned_by_you",
+  "group_or_world_writable",
+] as const;
+export type ResolveRefusal = (typeof RESOLVE_REFUSALS)[number];
 
 export type StoppedBy = "time" | "entries" | "candidates" | null;
 
@@ -91,6 +113,18 @@ export type ChildMessage =
   | { t: "inspected"; key: number; candidate: RawCandidate }
   | { t: "changed" }
   | { t: "recent"; entryId: string; outcome: RecentOutcome }
+  /**
+   * A `resolve` job's folder: the anchor it is checked from, the candidate as a search would
+   * report it, and `folderBlock`, the ownership and write-bit result of the folder chain alone
+   * (what a code-only scan needs; `.git` is not part of it).
+   */
+  | {
+      t: "resolved";
+      root: ScopeRoot;
+      candidate: RawCandidate;
+      folderBlock: RawCandidate["block"];
+    }
+  | { t: "refused"; reason: ResolveRefusal; paths: string[] }
   | {
       t: "done";
       stoppedBy: StoppedBy;

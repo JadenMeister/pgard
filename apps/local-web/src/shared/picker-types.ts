@@ -51,6 +51,41 @@ export interface PickerCandidate {
     fix: string;
   };
   source: "scope" | "recent";
+  /**
+   * PROTOTYPE (#414): set when this folder can only get a code-only scan (it is selectable, but
+   * not a GitHub repository PGARD can verify): `not_git` (no Git repository at its top),
+   * `no_github_remote` (no single github.com remote), `git_unsupported` (a Git layout the
+   * authorization checks do not support). Absent for a normal candidate.
+   */
+  codeOnly?: "not_git" | "no_github_remote" | "git_unsupported";
+}
+
+/** PROTOTYPE (#414): why a chosen or pasted folder was refused. */
+export const FOLDER_REFUSAL_CODES = [
+  "bad_path",
+  "missing",
+  "not_a_directory",
+  "too_broad",
+  "too_deep",
+  "unreadable",
+  "not_owned_by_you",
+  "group_or_world_writable",
+] as const;
+export type FolderRefusalCode = (typeof FOLDER_REFUSAL_CODES)[number];
+
+/** PROTOTYPE (#414): `GET /api/picker/browse`, the state of the OS folder dialog. */
+export interface PickerBrowseResponse {
+  status: "idle" | "open" | "cancelled" | "timeout" | "unavailable" | "chosen" | "refused";
+  /** `chosen`: the folder as a candidate (real path `~`-shortened, never the raw string). */
+  candidate: PickerCandidate | null;
+  /** `refused`: why, with fixed English text; the page maps `code` to English or Korean. */
+  refusal: { code: FolderRefusalCode; reason: string; fix: string; paths: string[] } | null;
+}
+
+/** PROTOTYPE (#414): `POST /api/picker/path`. */
+export interface PickerPathResponse {
+  candidate: PickerCandidate | null;
+  refusal: PickerBrowseResponse["refusal"];
 }
 
 export interface PickerRecentEntry extends PickerCandidate {

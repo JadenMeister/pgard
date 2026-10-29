@@ -146,9 +146,19 @@ function pickerContextOf(context: ApiContext) {
  * Picker mode: repeats the identity chain and ownership checks of the confirmed project before a
  * verify, owner-approval check or scan starts. Fixed mode has nothing to repeat.
  */
-async function recheckProject(context: ApiContext, capture: ProjectCapture): Promise<void> {
+async function recheckProject(
+  context: ApiContext,
+  capture: ProjectCapture,
+  /** PROTOTYPE (#414): only the code-only scan accepts a code-only folder. */
+  allowFolder = false,
+): Promise<void> {
   if (context.mode !== "picker") return;
-  await recheckProjectIdentity(pickerContextOf(context), capture.project, capture.epoch);
+  await recheckProjectIdentity(
+    pickerContextOf(context),
+    capture.project,
+    capture.epoch,
+    allowFolder,
+  );
   assertProjectUnchanged(context, capture);
 }
 
@@ -832,7 +842,7 @@ const startCodeScan: ApiHandler = async (context, body) => {
   const capture = captureProject(context, body);
   if (state.scan.status === "running")
     throw new ApiError(409, "scan_running", "A scan is already running.");
-  await recheckProject(context, capture);
+  await recheckProject(context, capture, true);
   if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
   const controller = new AbortController();
   const idle = (): SessionState["scan"] => ({

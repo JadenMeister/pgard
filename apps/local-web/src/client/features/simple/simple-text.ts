@@ -1,3 +1,4 @@
+import type { FolderRefusalCode, PickerCandidate } from "../../../shared/picker-types";
 import type { Language } from "../../i18n/types";
 
 /**
@@ -12,14 +13,23 @@ export interface SimpleText {
   steps: [string, string, string];
   folderTitle: string;
   folderHint: string;
-  candidatesTitle: string;
-  candidateUse: string;
-  candidateConfirm: (path: string) => string;
+  chooseFolder: string;
+  dialogOpen: string;
+  dialogUnavailable: string;
+  dialogTimeout: string;
+  dialogCancelled: string;
+  pasteLabel: string;
+  pastePlaceholder: string;
+  pasteSubmit: string;
+  checking: string;
+  requestFailed: string;
+  refusals: Record<FolderRefusalCode, { reason: string; fix: string }>;
+  candidateConfirm: string;
+  githubRepo: (repo: string) => string;
+  codeOnlyReason: Record<NonNullable<PickerCandidate["codeOnly"]>, string>;
   useFolder: string;
   using: string;
   back: string;
-  noMatch: (name: string) => string;
-  noMatchFix: string;
   chosenLabel: string;
   change: string;
   scanTitle: string;
@@ -61,17 +71,62 @@ const en: SimpleText = {
   lead: "PGARD checks the files in a folder on this computer for leaked secrets, risky code and known-vulnerable dependencies.",
   steps: ["Choose a folder", "Press Scan", "Fix what it finds"],
   folderTitle: "1. Folder",
-  folderHint:
-    "Drop the folder here, or type its name. Only the name is sent; PGARD finds the folder and shows its real path.",
-  candidatesTitle: "Found",
-  candidateUse: "Choose",
-  candidateConfirm: (path) => `Scan the folder ${path}?`,
+  folderHint: "Choose the project's folder, or paste its path.",
+  chooseFolder: "Choose folder",
+  dialogOpen: "Waiting for the folder window…",
+  dialogUnavailable:
+    "This computer has no folder window PGARD can open. Paste the folder's path below instead.",
+  dialogTimeout: "The folder window closed after 5 minutes. Choose the folder again.",
+  dialogCancelled: "No folder was chosen.",
+  pasteLabel: "Or paste the folder's path",
+  pastePlaceholder: "~/code/my-app",
+  pasteSubmit: "Check",
+  checking: "Checking…",
+  requestFailed: "The request failed. Try again.",
+  refusals: {
+    bad_path: {
+      reason: "This is not a folder path.",
+      fix: "Paste the full path, for example ~/code/my-app or /Users/you/code/my-app.",
+    },
+    missing: {
+      reason: "This folder does not exist.",
+      fix: "Check the path, or use Choose folder.",
+    },
+    not_a_directory: {
+      reason: "This is a file, not a folder.",
+      fix: "Choose the project's folder.",
+    },
+    too_broad: {
+      reason: "This is your home folder or a system folder, not a project.",
+      fix: "Choose the project's own folder, for example ~/code/my-app.",
+    },
+    too_deep: {
+      reason: "This folder is nested too deeply to check.",
+      fix: "Choose a folder closer to your home folder.",
+    },
+    unreadable: {
+      reason: "This folder could not be read in time.",
+      fix: "Try again; a slow or disconnected network folder can cause this.",
+    },
+    not_owned_by_you: {
+      reason: "This folder, or a folder above it, belongs to another user.",
+      fix: "Copy the project into your own folder.",
+    },
+    group_or_world_writable: {
+      reason: "Another user could change this folder or a folder above it.",
+      fix: "Remove group and other write access (chmod go-w), or copy the project into your own folder.",
+    },
+  },
+  candidateConfirm: "Scan this folder?",
+  githubRepo: (repo) => `GitHub repository ${repo}`,
+  codeOnlyReason: {
+    not_git: "Not a Git repository: the files are scanned as they are.",
+    no_github_remote: "No GitHub remote: the files are scanned as they are.",
+    git_unsupported: "Git data is not used for this folder: the files are scanned as they are.",
+  },
   useFolder: "Use this folder",
   using: "Opening…",
   back: "Back",
-  noMatch: (name) => `No folder named "${name}" in the search folders.`,
-  noMatchFix:
-    "Add the folder that contains it with pgard web scope add <folder>, then search again.",
   chosenLabel: "Folder",
   change: "Change",
   scanTitle: "2. Scan",
@@ -119,16 +174,56 @@ const ko: SimpleText = {
   lead: "PGARD는 이 컴퓨터에 있는 폴더의 파일에서 유출된 비밀값, 위험한 코드, 알려진 취약 의존성을 찾습니다.",
   steps: ["폴더 선택", "검사 누르기", "찾은 문제 고치기"],
   folderTitle: "1. 폴더",
-  folderHint:
-    "폴더를 여기로 끌어다 놓거나 이름을 입력하세요. 이름만 전송되며, PGARD가 폴더를 찾아 실제 경로를 보여 줍니다.",
-  candidatesTitle: "찾은 폴더",
-  candidateUse: "선택",
-  candidateConfirm: (path) => `${path} 폴더를 검사할까요?`,
+  folderHint: "프로젝트 폴더를 선택하거나 경로를 붙여 넣으세요.",
+  chooseFolder: "폴더 선택",
+  dialogOpen: "폴더 선택 창을 기다리는 중…",
+  dialogUnavailable:
+    "이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요.",
+  dialogTimeout: "5분이 지나 폴더 선택 창이 닫혔습니다. 다시 선택하세요.",
+  dialogCancelled: "폴더를 선택하지 않았습니다.",
+  pasteLabel: "또는 폴더 경로 붙여 넣기",
+  pastePlaceholder: "~/code/my-app",
+  pasteSubmit: "확인",
+  checking: "확인 중…",
+  requestFailed: "요청이 실패했습니다. 다시 시도하세요.",
+  refusals: {
+    bad_path: {
+      reason: "폴더 경로가 아닙니다.",
+      fix: "전체 경로를 붙여 넣으세요. 예: ~/code/my-app 또는 /Users/you/code/my-app",
+    },
+    missing: { reason: "이 폴더가 없습니다.", fix: "경로를 확인하거나 폴더 선택을 사용하세요." },
+    not_a_directory: { reason: "폴더가 아니라 파일입니다.", fix: "프로젝트 폴더를 선택하세요." },
+    too_broad: {
+      reason: "홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다.",
+      fix: "프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app",
+    },
+    too_deep: {
+      reason: "폴더가 너무 깊이 있어 확인할 수 없습니다.",
+      fix: "홈 폴더에 더 가까운 폴더를 선택하세요.",
+    },
+    unreadable: {
+      reason: "제시간에 이 폴더를 읽지 못했습니다.",
+      fix: "다시 시도하세요. 느리거나 연결이 끊긴 네트워크 폴더가 원인일 수 있습니다.",
+    },
+    not_owned_by_you: {
+      reason: "이 폴더나 상위 폴더의 소유자가 다른 사용자입니다.",
+      fix: "프로젝트를 내 폴더로 복사하세요.",
+    },
+    group_or_world_writable: {
+      reason: "다른 사용자가 이 폴더나 상위 폴더를 바꿀 수 있습니다.",
+      fix: "그룹·기타 사용자의 쓰기 권한을 없애거나(chmod go-w) 프로젝트를 내 폴더로 복사하세요.",
+    },
+  },
+  candidateConfirm: "이 폴더를 검사할까요?",
+  githubRepo: (repo) => `GitHub 저장소 ${repo}`,
+  codeOnlyReason: {
+    not_git: "Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.",
+    no_github_remote: "GitHub 원격 저장소가 없습니다. 파일을 있는 그대로 검사합니다.",
+    git_unsupported: "이 폴더에서는 Git 데이터를 쓰지 않습니다. 파일을 있는 그대로 검사합니다.",
+  },
   useFolder: "이 폴더 사용",
   using: "여는 중…",
   back: "뒤로",
-  noMatch: (name) => `검색 폴더에 "${name}" 폴더가 없습니다.`,
-  noMatchFix: "그 폴더를 담은 상위 폴더를 pgard web scope add <폴더>로 추가한 뒤 다시 검색하세요.",
   chosenLabel: "폴더",
   change: "변경",
   scanTitle: "2. 검사",

@@ -23,8 +23,9 @@ export const ko: Messages = {
     footer:
       "127.0.0.1에서만 실행됩니다. 대시보드 검사는 저장되지 않으며, 대시보드를 종료하면 그 결과와 세션이 버려집니다.",
     errorNoToken:
-      "이 페이지는 `pgard dashboard`가 출력한 개인 세션 URL이 필요합니다. 그 URL을 다시 여세요.",
-    errorSession: "대시보드 세션을 사용할 수 없습니다. `pgard dashboard`를 다시 시작하세요.",
+      "이 페이지는 PGARD가 터미널에 출력한 개인 세션 URL(#token=…으로 끝남)이 필요합니다. 그 URL을 다시 여세요.",
+    errorSession:
+      "이 세션은 끝났습니다. 터미널에서 PGARD를 다시 시작하고 새로 출력된 URL을 여세요.",
     errorRuleTexts:
       "한국어 규칙 문구를 불러오지 못했습니다. 규칙 제목과 조치 문구는 영어로 표시됩니다. 페이지를 새로고침하여 다시 시도하세요.",
   },

@@ -131,15 +131,15 @@ The gate exists for actions that **reach beyond the files in front of the user**
 
 ### 3.6 Residual risks and proportionate mitigations
 
-| Residual risk                                                                         | Mitigation (none of them burdens an honest user)                                                                                                                                                                                                                                                          |
-| ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A code-only result is presented as an authorized audit ("PGARD-verified").            | **Clear labelling everywhere**: the UI badge, the terminal line, a JSON/SARIF field (section 4), and a banner on every report page. **No "verified" wording or badge** ever appears for a code-only result. `authorization.decision` is never `allowed`.                                                  |
-| Unauthorized results pile up next to authorized ones.                                 | **No storage** of code-only results (section 3.4); the store refuses them.                                                                                                                                                                                                                                |
-| A wrapper or CI step treats exit code 0 of a code-only run as "authorized and clean". | `scanBasis.authorization: "not_verified"` in JSON and SARIF, plus `--require-authorization`, which restores exit 3 (section 5).                                                                                                                                                                           |
-| Someone scans code they have no rights to.                                            | Accepted. It is equivalent to running any free linter on files the user already holds (section 3.3), and PGARD adds no access. The legal notice on first use already says to scan only what you are allowed to.                                                                                           |
-| A secret found on disk is shown on screen.                                            | Unchanged rule: values are never shown, only the kind and the location.                                                                                                                                                                                                                                   |
-| A hostile folder (huge tree, symbolic-link loops, giant files) slows the scan.        | The same limits as the code scope, plus the secrets-pass limits (section 2.3). The pass never follows links. A limit marks the area `partial`, never "clean".                                                                                                                                             |
-| The web server becomes a way to read arbitrary folders.                               | Unchanged picker boundary: the browser sends only a folder name; the server walks only user-confirmed search folders; the identity, ownership and write-bit checks run again before every scan; findings are redacted and paths are repository-relative. Token, Host and Origin checks; `127.0.0.1` only. |
+| Residual risk                                                                         | Mitigation (none of them burdens an honest user)                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A code-only result is presented as an authorized audit ("PGARD-verified").            | **Clear labelling everywhere**: the UI badge, the terminal line, a JSON/SARIF field (section 4), and a banner on every report page. **No "verified" wording or badge** ever appears for a code-only result. `authorization.decision` is never `allowed`.                                                                                                                                                                                     |
+| Unauthorized results pile up next to authorized ones.                                 | **No storage** of code-only results (section 3.4); the store refuses them.                                                                                                                                                                                                                                                                                                                                                                   |
+| A wrapper or CI step treats exit code 0 of a code-only run as "authorized and clean". | `scanBasis.authorization: "not_verified"` in JSON and SARIF, plus `--require-authorization`, which restores exit 3 (section 5).                                                                                                                                                                                                                                                                                                              |
+| Someone scans code they have no rights to.                                            | Accepted. It is equivalent to running any free linter on files the user already holds (section 3.3), and PGARD adds no access. The legal notice on first use already says to scan only what you are allowed to.                                                                                                                                                                                                                              |
+| A secret found on disk is shown on screen.                                            | Unchanged rule: values are never shown, only the kind and the location.                                                                                                                                                                                                                                                                                                                                                                      |
+| A hostile folder (huge tree, symbolic-link loops, giant files) slows the scan.        | The same limits as the code scope, plus the secrets-pass limits (section 2.3). The pass never follows links. A limit marks the area `partial`, never "clean".                                                                                                                                                                                                                                                                                |
+| The web server becomes a way to read arbitrary folders.                               | The folder is chosen by the user in the OS folder dialog (or pasted) on a token-gated page; the server resolves it with realpath and checks the whole folder chain for ownership and write bits in the inspector child; home, its parents and top-level folders are refused; the checks run again before every scan; findings are redacted and paths are repository-relative. Token, Host and Origin checks; `127.0.0.1` only (section 6.1). |
 
 ## 4. How results are labelled
 
@@ -243,20 +243,42 @@ A new optional top-level field, `scanBasis`:
 | Git repository, no remote, or a non-GitHub remote (GitLab, self-hosted) | Yes (`reason: no_github_remote`)     | Not available. The message says why: owner approval is proven through GitHub only. |
 | Not a Git repository (zip download, new folder)                         | Yes (`reason: not_a_git_repository`) | Not available.                                                                     |
 
-Web picker changes (phase 4):
+Web picker changes (implemented in the prototype):
 
 - **Candidates.**
   - Today the picker lists only Git repository roots with one GitHub remote, and blocks `no_remote`, `remote_not_github`, `remote_ambiguous` and `not_a_git_root`.
-  - Under this design those blocks apply to **authorized** scans only; the candidate is selectable for code-only, with a note.
-  - A plain folder (no `.git`) becomes a candidate when its name matches.
+  - Under this design those blocks apply to **authorized** scans only. On the simple screen the folder is selectable for code-only, with a one-line note ("Not a Git repository: the files are scanned as they are").
+  - Blocks about the folder chain itself (`not_owned_by_you`, `group_or_world_writable`, `unsafe_display`) still refuse it.
 - **Identity.**
-  - Its identity is the device/inode chain from the search folder.
-  - The same ownership and write-bit checks apply, and they run again before every scan.
-  - It has no Git identity.
-- **Unchanged.**
-  - The rules that protect the server stay: search only inside confirmed search folders, the name-only signal from the browser, `unsafe_display`, `not_owned_by_you` and `group_or_world_writable`.
-  - They guard against a folder switched under the server, not against code ownership.
-- **Prototype limit.** The prototype still uses today's picker, so the sample is a Git repository with a fake GitHub remote. Non-Git and no-remote candidates are phase 4.
+  - A code-only folder's identity is the device/inode chain from its anchor (section 6.1). It has no Git identity (`identity.kind: "folder"`).
+  - The same ownership and write-bit checks run again before every scan (a new `folder` inspection: the chain only, no Git calls).
+  - Every route that runs the authorization gate (`/api/auth/verify`, owner approval, `POST /api/scan`, the web target) refuses a folder project with `409 code_only_project`; only `POST /api/code-scan` accepts it. The recent list stores no folder project.
+
+### 6.1 Choosing the folder: the OS folder dialog or a pasted path
+
+The owner found the name search confusing ("type `latent`" → "no folder named `latent` in the search folders … `pgard web scope add`"). The folder is now chosen the way every desktop app does it.
+
+- **Choose folder.** The button sends a token-gated `POST /api/picker/browse`. The **server** opens the operating system's folder dialog and the page polls `GET /api/picker/browse` until it closes (the HTTP request time limit is 30 s, a person may take longer):
+  - macOS: `/usr/bin/osascript -e activate -e 'POSIX path of (choose folder with prompt "…")'`.
+  - Windows: `powershell.exe -NoProfile -NonInteractive -STA -Command` with `System.Windows.Forms.FolderBrowserDialog`.
+  - Linux: `/usr/bin/zenity --file-selection --directory`, else `kdialog --getexistingdirectory`.
+  - None available: "This computer has no folder window PGARD can open. Paste the folder's path below instead."
+- **Paste a path.** A text box below the button (`POST /api/picker/path`). `~` and `~/…` expand to the home folder; `~user`, relative paths, NUL and more than 4096 characters are refused (`bad_path`).
+- **No scope step.** There is no search-folder list and no `pgard web scope add` on this path. The name search stays only in the full dashboard.
+- **Validation (unchanged rules, new entry).** A new inspector job `resolve` runs in the child process, never in the server:
+  - `realpath`, then `lstat`: it must be a directory. A symbolic link is resolved to its real folder, never trusted as a name.
+  - Refused: `/`, top-level folders (`/usr`), the home folder and its parents (`too_broad`); more than 24 folders below the anchor (`too_deep`); missing, a file, unreadable.
+  - **Anchor.** Inside home: the home folder. Outside home: the highest folder above it still owned by this user; the folder above the anchor must not be writable by others unless sticky (like `/tmp`).
+  - From the anchor down, every folder is walked by name with `lstat` and the same `not_owned_by_you` / `group_or_world_writable` rules as a search candidate; the display-safety check (`unsafe_display`) is the same.
+  - Then the usual `full` inspection decides between a normal GitHub candidate and a code-only one (section 6).
+  - Every refusal has a reason and a fix, in English and Korean (for example "This is your home folder or a system folder, not a project. Choose the project's own folder, for example ~/code/my-app.").
+- **Dialog route security.**
+  - The same token, Host and Origin middleware as every API route; the routes are a 404 unless the simple screen is on.
+  - One dialog at a time (`409 dialog_open`); a 5-minute time limit; the dialog process is killed on cancel, on server shutdown and on timeout.
+  - Fixed argv through `execFile` with `shell: false`; the only text in the arguments is PGARD's own localized prompt, never request data.
+  - The result is kept in the server session and returned only through the token-gated status route, as a candidate with a `~`-shortened path, never the raw string.
+  - Cancel is a normal state ("No folder was chosen."), not an error.
+- **Rejected: the name search with search folders** (today's picker, used by the first prototype). The browser could send only a name, so the server had to search a list of "search folders" and the user had to understand and extend that list (`pgard web scope add`) before a folder outside it could be found. The dialog gives the server the same thing — a path the user picked on their own screen — without that concept; the path checks that made the search safe are applied to the chosen folder unchanged.
 
 ## 7. Web UX: one screen
 
@@ -271,8 +293,9 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 (1) Choose a folder   (2) Press Scan   (3) Fix what it finds
 
 ┌ 1. Folder ───────────────────────────────────────────────┐
-│ [ drop the folder here ]   or type its name [______] [Search] │
-│ Found: sample-shop  ~/projects/sample-shop  owner/repo  [Choose] │
+│ [ Choose folder ]                                         │
+│ Or paste the folder's path [ ~/code/my-app ________ ] [Check] │
+│ Scan this folder?  ~/projects/sample-shop   [Use this folder] │
 └──────────────────────────────────────────────────────────┘
 ┌ 2. Scan ─────────────────────────────────────────────────┐
 │ Reads the current files only … nothing is saved.  [ Scan ] │
@@ -287,13 +310,16 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 
 | State                | What the user sees                                                                                                                                                                  | Screenshot                     |
 | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| Empty                | Title, one-sentence lead, the three steps, the folder card (drop zone and name search), a disabled Scan card.                                                                       | `*-1-empty.png`                |
-| Folder found         | The matches with their real path and remote; Choose, then "Scan the folder `<path>`?" with **Use this folder**. Blocked candidates show today's reason and fix.                     | `*-2-folder-found.png`         |
-| Folder chosen        | "Folder **sample-shop** owner/repo" with **Change**; Scan is enabled.                                                                                                               | `*-3-folder-chosen.png`        |
-| Scanning             | A spinner, "Scanning the files… N s" and **Cancel**. Change is disabled.                                                                                                            | `*-4-scanning.png`             |
-| Results              | Count, the **not authorized** label, a partial notice when an area could not run (for example no OSV data), the severity bar (click to filter) and the findings table with details. | `*-5-results.png`              |
-| Not-authorized label | Badge, one sentence, and the optional link to connect GitHub.                                                                                                                       | `*-6-not-authorized-label.png` |
-| More open            | "What was checked", standards, rule statistics, plus Trend and Export (disabled with the reason) and Full dashboard.                                                                | `*-7-more.png`                 |
+| Empty                | Title, one-sentence lead, the three steps, the folder card (**Choose folder** and the paste box), a disabled Scan card.                                                             | `*-1-empty.png`                |
+| Refused path         | The reason and the fix under the paste box (here: the home folder).                                                                                                                 | `*-2-refused-home.png`         |
+| Folder without Git   | "Scan this folder?" with the real path and "Not a Git repository: the files are scanned as they are." (D4)                                                                          | `*-3-confirm-no-git.png`       |
+| GitHub repository    | "Scan this folder?" with the real path and the GitHub repository; **Use this folder** and **Back**.                                                                                 | `*-4-confirm-repo.png`         |
+| Folder chosen        | "Folder **sample-shop** owner/repo" with **Change**; Scan is enabled.                                                                                                               | `*-5-folder-chosen.png`        |
+| Scanning             | A spinner, "Scanning the files… N s" and **Cancel**. Change is disabled.                                                                                                            | `*-6-scanning.png`             |
+| Results              | Count, the **not authorized** label, a partial notice when an area could not run (for example no OSV data), the severity bar (click to filter) and the findings table with details. | `*-7-results.png`              |
+| Not-authorized label | Badge, one sentence, and the optional link to connect GitHub.                                                                                                                       | `*-8-not-authorized-label.png` |
+| More open            | "What was checked", standards, rule statistics, plus Trend and Export (disabled with the reason) and Full dashboard.                                                                | `*-9-more.png`                 |
+| Dialog open          | "Waiting for the folder window…" and **Cancel**; closing the window without a choice shows "No folder was chosen."                                                                  | —                              |
 | No findings          | "No findings in the checked files." The label is still shown. Never "safe".                                                                                                         | —                              |
 | Cancelled / failed   | One notice; Scan again.                                                                                                                                                             | —                              |
 
@@ -304,6 +330,12 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 | Title            | Scan a project folder                                                                                                                                                      | 프로젝트 폴더 검사                                                                                                                                                               |
 | Lead             | PGARD checks the files in a folder on this computer for leaked secrets, risky code and known-vulnerable dependencies.                                                      | PGARD는 이 컴퓨터에 있는 폴더의 파일에서 유출된 비밀값, 위험한 코드, 알려진 취약 의존성을 찾습니다.                                                                              |
 | Steps            | Choose a folder · Press Scan · Fix what it finds                                                                                                                           | 폴더 선택 · 검사 누르기 · 찾은 문제 고치기                                                                                                                                       |
+| Folder hint      | Choose the project's folder, or paste its path.                                                                                                                            | 프로젝트 폴더를 선택하거나 경로를 붙여 넣으세요.                                                                                                                                 |
+| Button           | Choose folder                                                                                                                                                              | 폴더 선택                                                                                                                                                                        |
+| Paste box        | Or paste the folder's path · Check                                                                                                                                         | 또는 폴더 경로 붙여 넣기 · 확인                                                                                                                                                  |
+| No dialog        | This computer has no folder window PGARD can open. Paste the folder's path below instead.                                                                                  | 이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요.                                                                                      |
+| No Git (D4)      | Not a Git repository: the files are scanned as they are.                                                                                                                   | Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.                                                                                                                            |
+| Refusal example  | This is your home folder or a system folder, not a project. Choose the project's own folder, for example ~/code/my-app.                                                    | 홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app                                                                         |
 | Scan explanation | Reads the current files only: secrets, risky code patterns and dependencies. No Git history, nothing leaves this computer and nothing is saved.                            | 현재 파일만 읽습니다: 비밀값, 위험한 코드 패턴, 의존성. Git 기록은 읽지 않고, 이 컴퓨터 밖으로 아무것도 보내지 않으며, 아무것도 저장하지 않습니다.                               |
 | Badge            | Not authorized · code only                                                                                                                                                 | 권한 미확인 · 코드만                                                                                                                                                             |
 | Badge text       | This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this repository, so Git history, local web checks and saved results are off. | 이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 저장소를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다. |
@@ -370,7 +402,7 @@ All strings are in `apps/local-web/src/client/features/simple/simple-text.ts`.
 3. **CLI.**
    - `pgard scan code` code-only by default, `--require-authorization`, the terminal line, `project verify` and `doctor` rows, README.
    - `pgard precommit` per D3.
-4. **Picker for any folder.** Non-Git and no-remote candidates for code-only (section 6), and `pgard dashboard` for any folder.
+4. **Picker for any folder.** The OS folder dialog and the paste box (section 6.1), non-Git and no-remote folders for code-only (section 6), and `pgard dashboard` for any folder.
 5. **Web, production.**
    - The one-screen flow becomes the default `pgard web`.
    - The prototype flag is removed.
@@ -383,12 +415,12 @@ All strings are in `apps/local-web/src/client/features/simple/simple-text.ts`.
 ## 10. The prototype in this PR
 
 - **Real.**
-  - The picker search and confirm, with the real inspector child process and the ownership, write-bit and identity checks.
+  - The OS folder dialog (macOS `osascript`, Windows PowerShell, Linux `zenity`/`kdialog`) and the paste box, resolved and checked in the real inspector child process (realpath, ownership, write bits, display safety), then the confirm and the re-check before the scan.
+  - Folders with no GitHub remote and non-Git folders get a code-only scan (D4).
   - The code-only scan (source rules, dependencies against the on-disk OSV data, and the new secrets pass) on the real folder.
   - The redaction.
   - The token, Host and Origin checks, and `127.0.0.1` only.
 - **Not real yet.**
-  - The non-Git and no-remote candidates (phase 4).
   - The JSON/SARIF `scanBasis` field. The server marks the result with `codeOnly: true` in `GET /api/scan`, not in the result.
   - The report banner. Export is refused.
   - The upgrade link opens today's full dashboard.
@@ -399,6 +431,8 @@ All strings are in `apps/local-web/src/client/features/simple/simple-text.ts`.
   - `packages/scan-core/src/run-code-only.test.ts`: no gate, no history, labelled result.
   - `packages/scan-core/src/working-tree-secrets.test.ts`: secrets on disk, `.env`, links not followed, no Git, no value in output.
   - `apps/local-web/src/server/code-scan-prototype.test.ts`: 404 when off, never on in fixed mode, token, Host and Origin checks, `no_project`, identity re-check, export refused.
+  - `apps/local-web/src/server/choose-folder-prototype.test.ts`: dialog and paste routes (404 when off, token and Origin, one dialog at a time, cancel and shutdown kill the dialog, unavailable, refusals with fixes, `~` expansion), a non-Git folder is code-only only (`409 code_only_project` on verify and `POST /api/scan`), the folder re-check before the scan, and the fixed dialog argv per platform.
+  - `apps/local-web/src/server/picker/resolve-folder.test.ts`: the `resolve` job on real folders (GitHub repository, no Git, symbolic link, group-writable, outside home, refused paths) and its message validation.
 
 ## 11. Decisions for the owner
 

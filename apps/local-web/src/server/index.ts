@@ -10,6 +10,7 @@ import { sanitizeDisplayText } from "@pgard/http-local";
 import { openGitHubUrl } from "@pgard/scan-core";
 import { createDefaultServerDeps, startLocalWebServer, type ServerDeps } from "./create-server.js";
 import { LauncherUsageError, parseLauncherArgs, type LauncherOptions } from "./launcher.js";
+import { createFolderDialog } from "./picker/folder-dialog.js";
 import { createInspectorHost } from "./picker/inspector-host.js";
 import { loadStaticAssets } from "./static-files.js";
 
@@ -34,13 +35,17 @@ async function createPickerDeps(
       `Search folder skipped (${dropped.reason}): ${sanitizeDisplayText(dropped.path, 500)}\n`,
     );
   }
-  process.stdout.write(
-    scope.roots.length === 0
-      ? "No search folders are usable. Add one with: pgard web scope add <folder>\n"
-      : `Search folders: ${scope.roots.map((root) => sanitizeDisplayText(root.path, 500)).join(", ")}\n`,
-  );
+  // PROTOTYPE (#414): the simple screen chooses the folder in the OS dialog; no search folders.
+  if (process.env.PGARD_WEB_PROTOTYPE !== "code-only")
+    process.stdout.write(
+      scope.roots.length === 0
+        ? "No search folders are usable. Add one with: pgard web scope add <folder>\n"
+        : `Search folders: ${scope.roots.map((root) => sanitizeDisplayText(root.path, 500)).join(", ")}\n`,
+    );
   return {
     inspector: createInspectorHost(),
+    // PROTOTYPE (#414): only the simple screen's routes open it.
+    folderDialog: createFolderDialog(),
     storage,
     roots: scope.roots,
     homeDir,

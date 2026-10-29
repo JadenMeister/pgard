@@ -131,15 +131,15 @@
 
 ### 3.6 남는 위험과 알맞은 완화책
 
-| 남는 위험                                                                      | 완화책 (정직한 사용자에게 부담을 주는 것은 없음)                                                                                                                                                                                                                                     |
-| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 코드 전용 결과를 권한 있는 감사("PGARD 확인됨")처럼 내보임.                    | **어디서나 분명하게 표시**: UI 배지, 터미널 줄, JSON/SARIF 필드(4절), 모든 보고서 페이지의 배너. 코드 전용 결과에는 **"확인됨" 문구나 배지가 절대 나오지 않습니다.** `authorization.decision`은 `allowed`가 되지 않습니다.                                                           |
-| 권한 없는 결과가 권한 있는 결과 옆에 쌓임.                                     | 코드 전용 결과는 **저장하지 않으며**(3.4절) 저장소가 거부합니다.                                                                                                                                                                                                                     |
-| 래퍼나 CI 단계가 코드 전용 실행의 종료 코드 0을 "권한 있고 깨끗함"으로 취급함. | JSON과 SARIF의 `scanBasis.authorization: "not_verified"`, 그리고 종료 코드 3을 되살리는 `--require-authorization`(5절).                                                                                                                                                              |
-| 권리 없는 코드를 검사함.                                                       | 받아들입니다. 사용자가 이미 가진 파일에 무료 린터를 돌리는 것과 같고(3.3절), PGARD가 접근을 더하지 않습니다. 처음 사용할 때의 법적 고지가 이미 허용된 것만 검사하라고 안내합니다.                                                                                                    |
-| 디스크에서 찾은 비밀값이 화면에 보임.                                          | 기존 규칙 그대로입니다. 값은 절대 보여 주지 않고 종류와 위치만 보여 줍니다.                                                                                                                                                                                                          |
-| 악의적인 폴더(거대한 트리, 심볼릭 링크 순환, 거대한 파일)가 검사를 느리게 함.  | `code` 범위와 같은 한도에 비밀값 검사 한도(2.3절)를 더합니다. 이 단계는 링크를 따라가지 않습니다. 한도에 닿으면 해당 영역은 `partial`이 되며 "깨끗함"이 되지 않습니다.                                                                                                               |
-| 웹 서버가 임의의 폴더를 읽는 통로가 됨.                                        | 폴더 선택기의 경계는 그대로입니다. 브라우저는 폴더 이름만 보내고, 서버는 사용자가 확인한 검색 폴더만 탐색하며, 신원·소유권·쓰기 비트 검사는 검사 전마다 다시 실행하고, 발견 항목은 가려지며 경로는 저장소 기준 상대 경로입니다. 토큰, Host, Origin 검사가 있고 `127.0.0.1`만 씁니다. |
+| 남는 위험                                                                      | 완화책 (정직한 사용자에게 부담을 주는 것은 없음)                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 코드 전용 결과를 권한 있는 감사("PGARD 확인됨")처럼 내보임.                    | **어디서나 분명하게 표시**: UI 배지, 터미널 줄, JSON/SARIF 필드(4절), 모든 보고서 페이지의 배너. 코드 전용 결과에는 **"확인됨" 문구나 배지가 절대 나오지 않습니다.** `authorization.decision`은 `allowed`가 되지 않습니다.                                                                                                                                                                          |
+| 권한 없는 결과가 권한 있는 결과 옆에 쌓임.                                     | 코드 전용 결과는 **저장하지 않으며**(3.4절) 저장소가 거부합니다.                                                                                                                                                                                                                                                                                                                                    |
+| 래퍼나 CI 단계가 코드 전용 실행의 종료 코드 0을 "권한 있고 깨끗함"으로 취급함. | JSON과 SARIF의 `scanBasis.authorization: "not_verified"`, 그리고 종료 코드 3을 되살리는 `--require-authorization`(5절).                                                                                                                                                                                                                                                                             |
+| 권리 없는 코드를 검사함.                                                       | 받아들입니다. 사용자가 이미 가진 파일에 무료 린터를 돌리는 것과 같고(3.3절), PGARD가 접근을 더하지 않습니다. 처음 사용할 때의 법적 고지가 이미 허용된 것만 검사하라고 안내합니다.                                                                                                                                                                                                                   |
+| 디스크에서 찾은 비밀값이 화면에 보임.                                          | 기존 규칙 그대로입니다. 값은 절대 보여 주지 않고 종류와 위치만 보여 줍니다.                                                                                                                                                                                                                                                                                                                         |
+| 악의적인 폴더(거대한 트리, 심볼릭 링크 순환, 거대한 파일)가 검사를 느리게 함.  | `code` 범위와 같은 한도에 비밀값 검사 한도(2.3절)를 더합니다. 이 단계는 링크를 따라가지 않습니다. 한도에 닿으면 해당 영역은 `partial`이 되며 "깨끗함"이 되지 않습니다.                                                                                                                                                                                                                              |
+| 웹 서버가 임의의 폴더를 읽는 통로가 됨.                                        | 폴더는 토큰으로 보호된 페이지에서 사용자가 OS 폴더 선택 창으로 고르거나 붙여 넣습니다. 서버는 inspector 자식 프로세스에서 realpath로 풀고 폴더 체인 전체의 소유권과 쓰기 비트를 확인합니다. 홈 폴더, 그 상위 폴더, 최상위 폴더는 거부합니다. 검사는 검사 전마다 다시 실행하고, 발견 항목은 가려지며 경로는 저장소 기준 상대 경로입니다. 토큰, Host, Origin 검사가 있고 `127.0.0.1`만 씁니다(6.1절). |
 
 ## 4. 결과 표시 방식
 
@@ -243,20 +243,42 @@
 | Git 저장소, remote 없음 또는 GitHub가 아닌 remote(GitLab, 자체 호스팅) | 가능 (`reason: no_github_remote`)     | 사용 불가. 이유를 알려 줍니다. 소유자 승인은 GitHub로만 증명됩니다. |
 | Git 저장소가 아님 (zip 내려받기, 새 폴더)                              | 가능 (`reason: not_a_git_repository`) | 사용 불가.                                                          |
 
-웹 폴더 선택기 변경(4단계):
+웹 폴더 선택기 변경(프로토타입에 구현됨):
 
 - **후보.**
   - 지금 선택기는 GitHub remote가 하나인 Git 저장소 루트만 나열하고, `no_remote`, `remote_not_github`, `remote_ambiguous`, `not_a_git_root`는 막습니다.
-  - 이 설계에서는 이 막힘이 **권한 있는** 검사에만 적용됩니다. 코드 전용에서는 후보를 고를 수 있고, 안내 문구가 붙습니다.
-  - 이름이 맞으면 일반 폴더(`.git` 없음)도 후보가 됩니다.
+  - 이 설계에서는 이 막힘이 **권한 있는** 검사에만 적용됩니다. 단순 화면에서는 코드 전용으로 폴더를 고를 수 있고, 한 줄 안내("Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.")가 붙습니다.
+  - 폴더 체인 자체에 대한 막힘(`not_owned_by_you`, `group_or_world_writable`, `unsafe_display`)은 여전히 거부합니다.
 - **신원.**
-  - 신원은 검색 폴더에서 이어지는 device/inode 체인입니다.
-  - 같은 소유권과 쓰기 비트 검사를 적용하며, 검사 전마다 다시 실행합니다.
-  - Git 신원은 없습니다.
-- **바뀌지 않는 것.**
-  - 서버를 지키는 규칙은 그대로입니다. 확인된 검색 폴더 안에서만 검색, 브라우저가 이름만 보내는 신호, `unsafe_display`, `not_owned_by_you`, `group_or_world_writable`.
-  - 이 규칙은 서버 아래에서 폴더가 바뀌는 것을 막기 위한 것이며, 코드 소유권을 위한 것이 아닙니다.
-- **프로토타입의 한계.** 프로토타입은 아직 현재 선택기를 쓰므로, 샘플은 가짜 GitHub remote가 있는 Git 저장소입니다. Git이 없는 후보와 remote가 없는 후보는 4단계입니다.
+  - 코드 전용 폴더의 신원은 기준점(6.1절)에서 이어지는 device/inode 체인입니다. Git 신원은 없습니다(`identity.kind: "folder"`).
+  - 같은 소유권과 쓰기 비트 검사를 검사 전마다 다시 실행합니다(새 `folder` 검사: 체인만, Git 호출 없음).
+  - 권한 확인을 실행하는 모든 경로(`/api/auth/verify`, 소유자 승인, `POST /api/scan`, 웹 대상)는 폴더 프로젝트를 `409 code_only_project`로 거부합니다. `POST /api/code-scan`만 받습니다. 최근 목록에는 폴더 프로젝트를 저장하지 않습니다.
+
+### 6.1 폴더 고르기: OS 폴더 선택 창 또는 경로 붙여 넣기
+
+소유자는 이름 검색이 헷갈린다고 했습니다("`latent` 입력" → "검색 폴더에 `latent` 폴더가 없습니다 … `pgard web scope add`"). 이제 폴더는 모든 데스크톱 앱이 하는 방식으로 고릅니다.
+
+- **폴더 선택.** 버튼은 토큰으로 보호된 `POST /api/picker/browse`를 보냅니다. **서버**가 운영체제의 폴더 선택 창을 열고, 페이지는 창이 닫힐 때까지 `GET /api/picker/browse`를 폴링합니다(HTTP 요청 제한 시간은 30초이고, 사람은 더 오래 걸릴 수 있습니다).
+  - macOS: `/usr/bin/osascript -e activate -e 'POSIX path of (choose folder with prompt "…")'`.
+  - Windows: `System.Windows.Forms.FolderBrowserDialog`를 쓰는 `powershell.exe -NoProfile -NonInteractive -STA -Command`.
+  - Linux: `/usr/bin/zenity --file-selection --directory`, 없으면 `kdialog --getexistingdirectory`.
+  - 쓸 수 있는 도구가 없으면: "이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요."
+- **경로 붙여 넣기.** 버튼 아래의 입력란입니다(`POST /api/picker/path`). `~`와 `~/…`는 홈 폴더로 펼칩니다. `~user`, 상대 경로, NUL, 4096자 초과는 거부합니다(`bad_path`).
+- **검색 범위 단계 없음.** 이 경로에는 검색 폴더 목록도, `pgard web scope add`도 없습니다. 이름 검색은 전체 대시보드에만 남습니다.
+- **검증(규칙은 그대로, 입구만 새로).** 새 inspector 작업 `resolve`는 서버가 아니라 자식 프로세스에서 실행됩니다.
+  - `realpath` 다음 `lstat`: 디렉터리여야 합니다. 심볼릭 링크는 실제 폴더로 풀며, 링크 이름을 믿지 않습니다.
+  - 거부: `/`, 최상위 폴더(`/usr`), 홈 폴더와 그 상위 폴더(`too_broad`), 기준점 아래 24단계 초과(`too_deep`), 없음, 파일, 읽을 수 없음.
+  - **기준점.** 홈 안이면 홈 폴더입니다. 홈 밖이면 그 위로 올라가며 아직 이 사용자 소유인 가장 높은 폴더입니다. 기준점 바로 위 폴더는 sticky가 아닌 한(`/tmp`처럼) 다른 사용자가 쓸 수 없어야 합니다.
+  - 기준점부터 아래로 모든 폴더를 이름으로 `lstat`하며 검색 후보와 같은 `not_owned_by_you` / `group_or_world_writable` 규칙을 적용합니다. 표시 안전성 검사(`unsafe_display`)도 같습니다.
+  - 그다음 평소의 `full` 검사로 일반 GitHub 후보인지 코드 전용 후보인지 정합니다(6절).
+  - 모든 거부에는 이유와 해결 방법이 영어와 한국어로 붙습니다(예: "홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app").
+- **선택 창 경로의 보안.**
+  - 모든 API 경로와 같은 토큰, Host, Origin 미들웨어. 단순 화면이 켜져 있지 않으면 404입니다.
+  - 선택 창은 한 번에 하나(`409 dialog_open`), 제한 시간 5분. 취소, 서버 종료, 시간 초과 때 선택 창 프로세스를 종료합니다.
+  - `shell: false`인 `execFile`과 고정된 argv. 인자 안의 텍스트는 PGARD 자체의 현지화된 안내 문구뿐이며 요청 데이터는 절대 들어가지 않습니다.
+  - 결과는 서버 세션에 두고 토큰으로 보호된 상태 경로로만, `~`로 줄인 경로를 가진 후보로 돌려줍니다. 원래 문자열은 돌려주지 않습니다.
+  - 취소는 오류가 아니라 정상 상태입니다("폴더를 선택하지 않았습니다.").
+- **채택하지 않음: 검색 폴더를 쓰는 이름 검색** (현재 선택기, 첫 프로토타입이 쓴 방식). 브라우저가 이름만 보낼 수 있었기 때문에 서버는 "검색 폴더" 목록을 뒤져야 했고, 사용자는 그 목록 밖의 폴더를 찾으려면 먼저 그 목록을 이해하고 늘려야 했습니다(`pgard web scope add`). 선택 창은 그 개념 없이 서버에 같은 것, 곧 사용자가 자기 화면에서 고른 경로를 줍니다. 검색을 안전하게 만들던 경로 검사는 고른 폴더에 그대로 적용됩니다.
 
 ## 7. 웹 UX: 한 화면
 
@@ -271,8 +293,9 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 (1) Choose a folder   (2) Press Scan   (3) Fix what it finds
 
 ┌ 1. Folder ───────────────────────────────────────────────┐
-│ [ drop the folder here ]   or type its name [______] [Search] │
-│ Found: sample-shop  ~/projects/sample-shop  owner/repo  [Choose] │
+│ [ Choose folder ]                                         │
+│ Or paste the folder's path [ ~/code/my-app ________ ] [Check] │
+│ Scan this folder?  ~/projects/sample-shop   [Use this folder] │
 └──────────────────────────────────────────────────────────┘
 ┌ 2. Scan ─────────────────────────────────────────────────┐
 │ Reads the current files only … nothing is saved.  [ Scan ] │
@@ -285,17 +308,20 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 ▸ More
 ```
 
-| 상태             | 사용자가 보는 것                                                                                                                                                     | 스크린샷                       |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
-| 비어 있음        | 제목, 한 문장 안내, 세 단계, 폴더 카드(끌어다 놓는 영역과 이름 검색), 비활성화된 Scan 카드.                                                                          | `*-1-empty.png`                |
-| 폴더 찾음        | 실제 경로와 remote가 있는 일치 항목. Choose를 누르면 "Scan the folder `<path>`?"와 **Use this folder**가 나옵니다. 막힌 후보에는 현재의 이유와 해결 방법이 나옵니다. | `*-2-folder-found.png`         |
-| 폴더 선택됨      | "Folder **sample-shop** owner/repo"와 **Change**. Scan이 활성화됩니다.                                                                                               | `*-3-folder-chosen.png`        |
-| 검사 중          | 스피너, "Scanning the files… N s", **Cancel**. Change는 비활성화됩니다.                                                                                              | `*-4-scanning.png`             |
-| 결과             | 개수, **권한 미확인** 라벨, 어떤 영역을 실행하지 못했을 때(예: OSV 데이터 없음)의 부분 결과 안내, 심각도 막대(눌러서 필터), 상세가 있는 발견 항목 표.                | `*-5-results.png`              |
-| 권한 미확인 라벨 | 배지, 한 문장, 선택 사항인 GitHub 연결 링크.                                                                                                                         | `*-6-not-authorized-label.png` |
-| More 열림        | "What was checked", 표준, 규칙 통계, 그리고 추이와 내보내기(이유와 함께 비활성화), 전체 대시보드.                                                                    | `*-7-more.png`                 |
-| 발견 항목 없음   | "No findings in the checked files." 라벨은 그대로 보입니다. "안전하다"고는 절대 쓰지 않습니다.                                                                       | —                              |
-| 취소됨 / 실패    | 안내 하나와 다시 검사.                                                                                                                                               | —                              |
+| 상태             | 사용자가 보는 것                                                                                                                                      | 스크린샷                       |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| 비어 있음        | 제목, 한 문장 안내, 세 단계, 폴더 카드(**폴더 선택**과 경로 입력란), 비활성화된 Scan 카드.                                                            | `*-1-empty.png`                |
+| 거부된 경로      | 입력란 아래의 이유와 해결 방법(여기서는 홈 폴더).                                                                                                     | `*-2-refused-home.png`         |
+| Git 없는 폴더    | "이 폴더를 검사할까요?", 실제 경로, "Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다." (D4)                                                      | `*-3-confirm-no-git.png`       |
+| GitHub 저장소    | "이 폴더를 검사할까요?", 실제 경로와 GitHub 저장소, **이 폴더 사용**과 **뒤로**.                                                                      | `*-4-confirm-repo.png`         |
+| 폴더 선택됨      | "Folder **sample-shop** owner/repo"와 **Change**. Scan이 활성화됩니다.                                                                                | `*-5-folder-chosen.png`        |
+| 검사 중          | 스피너, "Scanning the files… N s", **Cancel**. Change는 비활성화됩니다.                                                                               | `*-6-scanning.png`             |
+| 결과             | 개수, **권한 미확인** 라벨, 어떤 영역을 실행하지 못했을 때(예: OSV 데이터 없음)의 부분 결과 안내, 심각도 막대(눌러서 필터), 상세가 있는 발견 항목 표. | `*-7-results.png`              |
+| 권한 미확인 라벨 | 배지, 한 문장, 선택 사항인 GitHub 연결 링크.                                                                                                          | `*-8-not-authorized-label.png` |
+| More 열림        | "What was checked", 표준, 규칙 통계, 그리고 추이와 내보내기(이유와 함께 비활성화), 전체 대시보드.                                                     | `*-9-more.png`                 |
+| 선택 창 열림     | "폴더 선택 창을 기다리는 중…"과 **취소**. 고르지 않고 창을 닫으면 "폴더를 선택하지 않았습니다."                                                       | —                              |
+| 발견 항목 없음   | "No findings in the checked files." 라벨은 그대로 보입니다. "안전하다"고는 절대 쓰지 않습니다.                                                        | —                              |
+| 취소됨 / 실패    | 안내 하나와 다시 검사.                                                                                                                                | —                              |
 
 ### 7.2 문구 (EN / KO)
 
@@ -304,6 +330,12 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 | Title            | Scan a project folder                                                                                                                                                      | 프로젝트 폴더 검사                                                                                                                                                               |
 | Lead             | PGARD checks the files in a folder on this computer for leaked secrets, risky code and known-vulnerable dependencies.                                                      | PGARD는 이 컴퓨터에 있는 폴더의 파일에서 유출된 비밀값, 위험한 코드, 알려진 취약 의존성을 찾습니다.                                                                              |
 | Steps            | Choose a folder · Press Scan · Fix what it finds                                                                                                                           | 폴더 선택 · 검사 누르기 · 찾은 문제 고치기                                                                                                                                       |
+| Folder hint      | Choose the project's folder, or paste its path.                                                                                                                            | 프로젝트 폴더를 선택하거나 경로를 붙여 넣으세요.                                                                                                                                 |
+| Button           | Choose folder                                                                                                                                                              | 폴더 선택                                                                                                                                                                        |
+| Paste box        | Or paste the folder's path · Check                                                                                                                                         | 또는 폴더 경로 붙여 넣기 · 확인                                                                                                                                                  |
+| No dialog        | This computer has no folder window PGARD can open. Paste the folder's path below instead.                                                                                  | 이 컴퓨터에는 PGARD가 열 수 있는 폴더 선택 창이 없습니다. 아래에 폴더 경로를 붙여 넣으세요.                                                                                      |
+| No Git (D4)      | Not a Git repository: the files are scanned as they are.                                                                                                                   | Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.                                                                                                                            |
+| Refusal example  | This is your home folder or a system folder, not a project. Choose the project's own folder, for example ~/code/my-app.                                                    | 홈 폴더나 시스템 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더를 선택하세요. 예: ~/code/my-app                                                                         |
 | Scan explanation | Reads the current files only: secrets, risky code patterns and dependencies. No Git history, nothing leaves this computer and nothing is saved.                            | 현재 파일만 읽습니다: 비밀값, 위험한 코드 패턴, 의존성. Git 기록은 읽지 않고, 이 컴퓨터 밖으로 아무것도 보내지 않으며, 아무것도 저장하지 않습니다.                               |
 | Badge            | Not authorized · code only                                                                                                                                                 | 권한 미확인 · 코드만                                                                                                                                                             |
 | Badge text       | This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this repository, so Git history, local web checks and saved results are off. | 이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 저장소를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다. |
@@ -370,7 +402,7 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 3. **CLI.**
    - `pgard scan code`를 기본 코드 전용으로, `--require-authorization`, 터미널 줄, `project verify`와 `doctor` 행, README.
    - D3에 따른 `pgard precommit`.
-4. **어떤 폴더든 고르는 선택기.** 코드 전용을 위한 Git 없는 후보와 remote 없는 후보(6절), 어떤 폴더에서든 쓰는 `pgard dashboard`.
+4. **어떤 폴더든 고르는 선택기.** OS 폴더 선택 창과 경로 붙여 넣기(6.1절), 코드 전용을 위한 Git 없는 폴더와 remote 없는 폴더(6절), 어떤 폴더에서든 쓰는 `pgard dashboard`.
 5. **웹, 제품 버전.**
    - 한 화면 흐름이 기본 `pgard web`이 됩니다.
    - 프로토타입 플래그를 제거합니다.
@@ -383,12 +415,12 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 ## 10. 이 PR의 프로토타입
 
 - **실제로 동작하는 것.**
-  - 폴더 선택기의 검색과 확인. 실제 inspector 자식 프로세스와 소유권, 쓰기 비트, 신원 검사를 씁니다.
+  - OS 폴더 선택 창(macOS `osascript`, Windows PowerShell, Linux `zenity`/`kdialog`)과 경로 입력란. 실제 inspector 자식 프로세스에서 풀고 확인(realpath, 소유권, 쓰기 비트, 표시 안전성)한 뒤 확정하며, 검사 전에 다시 확인합니다.
+  - GitHub remote가 없는 폴더와 Git이 없는 폴더도 코드 전용 검사를 받습니다(D4).
   - 실제 폴더에 대한 코드 전용 검사(소스 규칙, 디스크의 OSV 데이터로 확인하는 의존성, 새 비밀값 검사).
   - 값 가리기.
   - 토큰, Host, Origin 검사와 `127.0.0.1`만 사용.
 - **아직 실제가 아닌 것.**
-  - Git 없는 후보와 remote 없는 후보(4단계).
   - JSON/SARIF의 `scanBasis` 필드. 서버는 결과가 아니라 `GET /api/scan`의 `codeOnly: true`로 표시합니다.
   - 보고서 배너. 내보내기는 거부됩니다.
   - 올리기 링크는 현재의 전체 대시보드를 엽니다.
@@ -399,6 +431,8 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
   - `packages/scan-core/src/run-code-only.test.ts`: 권한 확인 없음, 기록 없음, 표시된 결과.
   - `packages/scan-core/src/working-tree-secrets.test.ts`: 디스크의 비밀값, `.env`, 링크를 따라가지 않음, Git 없음, 출력에 값 없음.
   - `apps/local-web/src/server/code-scan-prototype.test.ts`: 꺼져 있으면 404, 고정 모드에서 켜지지 않음, 토큰·Host·Origin 검사, `no_project`, 신원 재확인, 내보내기 거부.
+  - `apps/local-web/src/server/choose-folder-prototype.test.ts`: 선택 창과 붙여 넣기 경로(꺼져 있으면 404, 토큰과 Origin, 선택 창은 한 번에 하나, 취소와 종료 때 선택 창 종료, 도구 없음, 해결 방법이 붙은 거부, `~` 펼치기), Git 없는 폴더는 코드 전용만(verify와 `POST /api/scan`은 `409 code_only_project`), 검사 전 폴더 재확인, 플랫폼별 고정 argv.
+  - `apps/local-web/src/server/picker/resolve-folder.test.ts`: 실제 폴더에 대한 `resolve` 작업(GitHub 저장소, Git 없음, 심볼릭 링크, 그룹 쓰기 가능, 홈 밖, 거부되는 경로)과 메시지 검증.
 
 ## 11. 소유자가 정할 사항
 
