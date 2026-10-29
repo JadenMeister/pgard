@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/assets/brand/pgard-symbol.png" alt="PGARD" width="120" />
+</p>
+
 # PGARD
 
 [![CI](https://img.shields.io/github/actions/workflow/status/JadenMeister/pgard/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/JadenMeister/pgard/actions/workflows/ci.yml)
