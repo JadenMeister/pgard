@@ -1,8 +1,10 @@
 # Changelog
 
-All notable changes to PGARD are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org) with the pre-1.0 policy in [docs/RELEASING.md](docs/RELEASING.md). There is no release yet; everything merged so far is listed under Unreleased.
+All notable changes to PGARD are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project follows [Semantic Versioning](https://semver.org) with the pre-1.0 policy in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-10-31
 
 ### Security
 
@@ -106,4 +108,5 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 - Dashboard and web checks are loopback-only; reports and results are redacted, and the dashboard gates port discovery on the full authorization outcome.
 - Packaged grammars are checksum-pinned and verified; the package has no install scripts and only exact-pinned direct dependencies.
 
-[Unreleased]: https://github.com/JadenMeister/pgard/commits/main
+[Unreleased]: https://github.com/JadenMeister/pgard/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/JadenMeister/pgard/releases/tag/v0.1.0
