@@ -14,20 +14,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        n: [1, 2, 3, 4, 5, 6]
+        n: [1, 2, 3, 4, 5, 6, 7, 8]
         g:
-          - {
-              name: A,
-              paths: "packages/scan-core/src/analyzer-hash packages/scan-core/src/code-analyzer packages/scan-core/src/default-analyzers",
-            }
-          - {
-              name: B,
-              paths: "packages/scan-core/src/paths packages/scan-core/src/rule-locality packages/scan-core/src/run-scan-expected-repo",
-            }
-          - {
-              name: C,
-              paths: "packages/scan-core/src/staged-scan packages/scan-core/src/standards-coverage",
-            }
+          - { name: staged-scan, paths: "packages/scan-core/src/staged-scan.test.ts" }
+          - { name: cov, paths: "packages/scan-core/src/standards-coverage.test.ts" }
+          - { name: cov-real, paths: "packages/scan-core/src/standards-coverage-real.test.ts" }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
