@@ -160,7 +160,7 @@ describe("relatedness with known tools", () => {
     expect(
       relatedness(
         { title: "Grafana", technologies: [] },
-        project({ dependencies: ["grafana-api"] }),
+        project({ dependencies: ["@grafana/ui"] }),
       ).verdict,
     ).toBe("unclear");
     expect(

@@ -81,21 +81,24 @@ async function listCandidates(
   );
   const listed = identities
     .filter(({ identity }) => identity.isHttp)
-    .map(({ entry, identity }) => ({
-      isLikely: judgeService(identity, project)?.verdict === "likely",
-      choice: {
-        label: `http://127.0.0.1:${entry.port}`,
-        hint: [
-          String(identity.status ?? ""),
-          identity.title === null ? "" : safeText(identity.title, 60),
-          entry.processName === null ? "" : `(${safeText(entry.processName, 30)})`,
-          judgeService(identity, project)?.verdict === "likely" ? mark : "",
-        ]
-          .filter((part) => part !== "")
-          .join("  "),
-        value: { kind: "port", port: entry.port } as PortChoice,
-      },
-    }));
+    .map(({ entry, identity }) => {
+      const isLikely = judgeService(identity, project)?.verdict === "likely";
+      return {
+        isLikely,
+        choice: {
+          label: `http://127.0.0.1:${entry.port}`,
+          hint: [
+            String(identity.status ?? ""),
+            identity.title === null ? "" : safeText(identity.title, 60),
+            entry.processName === null ? "" : `(${safeText(entry.processName, 30)})`,
+            isLikely ? mark : "",
+          ]
+            .filter((part) => part !== "")
+            .join("  "),
+          value: { kind: "port", port: entry.port } as PortChoice,
+        },
+      };
+    });
   // The ones that look like this project first; otherwise the discovery order is kept.
   const choices: Choice<PortChoice>[] = [
     ...listed.filter((entry) => entry.isLikely),
@@ -173,7 +176,10 @@ export async function selectLocalPort(
         ),
       );
     }
-    const isConfirmed = await promptConfirm(prompts, "Is this the current project's service?");
+    const isConfirmed = await promptConfirm(
+      prompts,
+      cliText(context.ruleLocale).webRelated.confirm,
+    );
     if (isConfirmed) {
       return { kind: "confirmed", target: createConfirmedWebTarget(identity, true) };
     }

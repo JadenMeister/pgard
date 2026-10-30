@@ -79,8 +79,8 @@ describe("ServiceList", () => {
     const en = render("en", node);
     const ko = render("ko", node);
     expect(en.indexOf("127.0.0.1:5173")).toBeLessThan(en.indexOf("127.0.0.1:3000"));
-    expect(en.match(/\(looks like this project\)/g)).toHaveLength(1);
+    expect(en.match(/\(name matches this project\)/g)).toHaveLength(1);
     expect(ko.indexOf("127.0.0.1:5173")).toBeLessThan(ko.indexOf("127.0.0.1:3000"));
-    expect(ko.match(/\(이 프로젝트로 보임\)/g)).toHaveLength(1);
+    expect(ko.match(/\(이름이 프로젝트와 비슷함\)/g)).toHaveLength(1);
   });
 });

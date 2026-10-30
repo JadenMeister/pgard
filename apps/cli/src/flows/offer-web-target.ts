@@ -97,7 +97,12 @@ export async function findWebTargets(
   if (context.signal.aborted) return [];
   const mark = cliText(context.ruleLocale).webRelated.likelyMark;
   // Local files only; a failure just means no judgement.
-  const project = await getProject().catch(() => null);
+  const project = await withinBudget(
+    getProject().catch(() => null),
+    budgetMs,
+    null,
+  );
+  if (context.signal.aborted) return [];
   const controller = new AbortController();
   const abort = (): void => controller.abort();
   context.signal.addEventListener("abort", abort, { once: true });
@@ -119,10 +124,21 @@ export async function findWebTargets(
     );
     const found = described.filter((entry): entry is OfferedTarget => entry !== null);
     // The ones that look like this project first; ties keep the discovery order.
-    return [
+    const ordered = [
       ...found.filter((entry) => entry.isLikely),
       ...found.filter((entry) => !entry.isLikely),
-    ].slice(0, WEB_OFFER_MAX_TARGETS);
+    ];
+    const shown = ordered.slice(0, WEB_OFFER_MAX_TARGETS);
+    // Within the cap, the list always keeps one server the heuristic did not pick.
+    const other = ordered.find((entry) => !entry.isLikely);
+    if (
+      other !== undefined &&
+      shown.length === WEB_OFFER_MAX_TARGETS &&
+      shown.every((entry) => entry.isLikely)
+    ) {
+      shown[WEB_OFFER_MAX_TARGETS - 1] = other;
+    }
+    return shown;
   } finally {
     controller.abort();
     context.signal.removeEventListener("abort", abort);

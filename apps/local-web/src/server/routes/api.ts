@@ -810,10 +810,12 @@ const probePort: ApiHandler = async (context, body) => {
   const authAtStart = requirePortAccessAuthorized(context.state, context.deps.now());
   const { signal } = context.state.portAccessController;
   const identity = await context.deps.probeLocalService(readPort(body), { signal });
+  // Local files only; read before the checks below so they cover this wait too.
+  const signals = await readSignals(context, capture.project);
   assertProjectUnchanged(context, capture);
   requireSameAuthorization(context, authAtStart);
   context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
-  return toIdentityDto(identity, await readSignals(context, capture.project));
+  return toIdentityDto(identity, signals);
 };
 
 /**

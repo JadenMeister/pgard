@@ -10,5 +10,10 @@ const UNSAFE_CHARACTERS = new RegExp(UNSAFE_DISPLAY_CHARACTERS, "g");
  */
 export function sanitizeDisplayText(value: string, maxLength = MAX_DISPLAY_TEXT_LENGTH): string {
   const cleaned = value.replace(UNSAFE_CHARACTERS, " ").replace(/\s+/g, " ").trim();
-  return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 1)}\u2026` : cleaned;
+  if (cleaned.length <= maxLength) return cleaned;
+  let end = maxLength - 1;
+  // Do not cut a surrogate pair in half.
+  const last = cleaned.charCodeAt(end - 1);
+  if (end > 0 && last >= 0xd800 && last <= 0xdbff) end -= 1;
+  return `${cleaned.slice(0, end)}\u2026`;
 }

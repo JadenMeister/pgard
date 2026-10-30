@@ -44,6 +44,7 @@ export interface Relatedness {
 export const RELATEDNESS_LABEL_MAX = 40;
 const INPUT_MAX = 300;
 const MAX_ENTRIES = 200;
+const MAX_TECHNOLOGIES = 20;
 const MAX_DEPENDENCIES = 5000;
 const MIN_TOKEN_LENGTH = 3;
 
@@ -103,6 +104,25 @@ const GENERIC_TOKENS = new Set([
   "http",
   "https",
   "running",
+  // Framework names say what it is built with, not whose project it is.
+  "next",
+  "react",
+  "vue",
+  "vite",
+  "svelte",
+  "nuxt",
+  "express",
+  "nest",
+  "fastify",
+  "django",
+  "flask",
+  "fastapi",
+  "laravel",
+  "symfony",
+  "spring",
+  "gin",
+  "echo",
+  "rails",
 ]);
 
 /** Case-folded name tokens (split on `-`, `_`, space, `.`, camelCase), 3+ characters, no filler. */
@@ -229,6 +249,16 @@ const SERVICE_FAMILIES: Array<[RegExp, string, string[]]> = [
   [/gunicorn|wsgiserver|cpython|\bpython\b/, "Python", ["django", "flask", "fastapi"]],
 ];
 
+/** Exact, or scoped (`@grafana/ui`, `grafana/x`, `vendor/grafana`); never a substring. */
+function isDependencyOn(dependency: string, hint: string): boolean {
+  return (
+    dependency === hint ||
+    dependency.startsWith(`@${hint}/`) ||
+    dependency.startsWith(`${hint}/`) ||
+    dependency.endsWith(`/${hint}`)
+  );
+}
+
 // --- Known unrelated tools -------------------------------------------------------------------
 
 interface KnownTool {
@@ -243,10 +273,19 @@ const KNOWN_TOOLS: KnownTool[] = [
   {
     name: "Jupyter",
     pattern: /jupyter|ipython notebook/,
-    dependencies: ["jupyter", "notebook", "ipykernel", "ipywidgets", "nbformat"],
+    dependencies: [
+      "jupyter",
+      "jupyterlab",
+      "notebook",
+      "ipykernel",
+      "ipywidgets",
+      "nbformat",
+      "jupyter-client",
+      "jupyter-server",
+    ],
   },
   { name: "pgAdmin", pattern: /pgadmin/, dependencies: ["pgadmin"] },
-  { name: "Docker Desktop", pattern: /docker desktop/, dependencies: ["docker"] },
+  { name: "Docker Desktop", pattern: /docker desktop/, dependencies: ["docker", "dockerode"] },
   { name: "Ollama", pattern: /ollama/, dependencies: ["ollama"] },
   { name: "LM Studio", pattern: /lm[ -]?studio/, dependencies: ["lmstudio", "lm-studio"] },
   { name: "Adminer", pattern: /adminer/, dependencies: ["adminer"] },
@@ -256,12 +295,16 @@ const KNOWN_TOOLS: KnownTool[] = [
   { name: "Redis Commander", pattern: /redis commander/, dependencies: ["redis-commander"] },
   { name: "Kubernetes Dashboard", pattern: /kubernetes dashboard/, dependencies: ["kubernetes"] },
   { name: "Portainer", pattern: /portainer/, dependencies: ["portainer"] },
-  { name: "Prometheus", pattern: /prometheus/, dependencies: ["prometheus", "prom-client"] },
+  {
+    name: "Prometheus",
+    pattern: /prometheus/,
+    dependencies: ["prometheus", "prom-client", "prometheus-client"],
+  },
   { name: "Kibana", pattern: /kibana/, dependencies: ["kibana"] },
   {
     name: "RabbitMQ Management",
     pattern: /rabbitmq management/,
-    dependencies: ["rabbitmq", "amqp"],
+    dependencies: ["rabbitmq", "amqp", "amqplib", "pika"],
   },
   { name: "MinIO Console", pattern: /minio (console|browser)/, dependencies: ["minio"] },
 ];
@@ -296,7 +339,7 @@ export function relatedness(service: ServiceSignals, project: ProjectSignals): R
   );
   const title = service.title === null ? null : sanitizeDisplayText(service.title, INPUT_MAX);
   const technologies = service.technologies
-    .slice(0, MAX_ENTRIES)
+    .slice(0, MAX_TECHNOLOGIES)
     .map((entry) => sanitizeDisplayText(entry, INPUT_MAX))
     .filter((entry) => entry !== "");
   const result = (
@@ -311,7 +354,6 @@ export function relatedness(service: ServiceSignals, project: ProjectSignals): R
   const serviceText = [title ?? "", ...technologies].join("\n");
   const haystack = serviceText.normalize("NFKC").toLowerCase();
 
-  // 1. A project name word in the title or headers.
   const projectTokens = new Set<string>();
   for (const source of [
     project.folderName,
@@ -320,23 +362,33 @@ export function relatedness(service: ServiceSignals, project: ProjectSignals): R
   ]) {
     if (source !== null) for (const token of nameTokens(source)) projectTokens.add(token);
   }
-  const serviceTokens = new Set(nameTokens(serviceText));
+  const dependencies = project.dependencies
+    .slice(0, MAX_DEPENDENCIES)
+    .map((entry) => entry.toLowerCase());
+
+  // 1. A known tool comes first, so "Shop metrics - Grafana" is not taken for the shop. It is
+  // let go only when the project is named after the tool or declares a dependency on it.
+  const tool = KNOWN_TOOLS.find((candidate) => candidate.pattern.test(haystack));
+  if (tool !== undefined) {
+    const toolTokens = nameTokens(tool.name);
+    const isNamedAfter = toolTokens.length > 0 && toolTokens.every((t) => projectTokens.has(t));
+    const isUsed = dependencies.some((dependency) =>
+      tool.dependencies.some((hint) => isDependencyOn(dependency, hint)),
+    );
+    if (!isNamedAfter && !isUsed) {
+      return result("unlikely", [{ kind: "known-tool", tool: tool.name }], tool.name);
+    }
+  }
+
+  // 2. A project name word in the title or headers (each text is read on its own).
+  const serviceTokens = new Set<string>();
+  for (const text of [title ?? "", ...technologies]) {
+    for (const token of nameTokens(text)) serviceTokens.add(token);
+  }
   for (const token of projectTokens) {
     if (serviceTokens.has(token)) {
       return result("likely", [{ kind: "name", token }], fallbackLabel);
     }
-  }
-
-  // 2. A known tool the project does not work with.
-  const dependencies = project.dependencies
-    .slice(0, MAX_DEPENDENCIES)
-    .map((entry) => entry.toLowerCase());
-  const tool = KNOWN_TOOLS.find((candidate) => candidate.pattern.test(haystack));
-  if (tool !== undefined) {
-    const isUsed = dependencies.some((dependency) =>
-      tool.dependencies.some((hint) => dependency.includes(hint)),
-    );
-    if (!isUsed) return result("unlikely", [{ kind: "known-tool", tool: tool.name }], tool.name);
   }
 
   // 3. Frameworks: the service's technology against what the project declares.

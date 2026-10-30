@@ -208,8 +208,10 @@ export interface CliText {
   webRelated: {
     /** One warning line before the y/N; both names are already sanitized and capped. */
     unlikely: (service: string, project: string) => string;
-    /** Added to a listed server that looks like this project. */
+    /** Added to a listed server whose name or framework matches this project. */
     likelyMark: string;
+    /** The y/N question; `[y/N]` is added by the prompt. */
+    confirm: string;
   };
 
   // --- Progress, status lines and notices ---------------------------------------------
@@ -565,7 +567,8 @@ const EN: CliText = {
   webRelated: {
     unlikely: (service, project) =>
       `This service doesn't look related to this project (service: '${service}', project: '${project}').`,
-    likelyMark: "(looks like this project)",
+    likelyMark: "(name matches this project)",
+    confirm: "Is this the current project's service?",
   },
   progress: {
     scanning: (scopes) => `Scanning (${scopes})... Press Ctrl+C twice to cancel.`,
@@ -935,7 +938,8 @@ const KO: CliText = {
   webRelated: {
     unlikely: (service, project) =>
       `이 서비스는 현재 프로젝트와 관련 없어 보입니다 (서비스: '${service}', 프로젝트: '${project}').`,
-    likelyMark: "(이 프로젝트로 보임)",
+    likelyMark: "(이름이 프로젝트와 비슷함)",
+    confirm: "이 프로젝트의 서비스가 맞습니까?",
   },
   progress: {
     scanning: (scopes) => `검사 중 (${scopes})... 취소하려면 Ctrl+C를 두 번 누르세요.`,

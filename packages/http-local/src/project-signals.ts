@@ -3,8 +3,14 @@ import { readSmallRegularFile } from "@pgard/git-history";
 import { sanitizeDisplayText } from "./display-text.js";
 import type { ProjectSignals } from "./relatedness.js";
 
-/** Per file; a manifest larger than this is skipped, never partly read. */
-const MAX_MANIFEST_BYTES = 512 * 1024;
+/**
+ * Per file; a larger manifest is skipped, never partly read. The files belong to a repository
+ * PGARD does not trust, and everything here runs synchronously: no pattern below may backtrack
+ * over more than one short line, and a line over `MAX_LINE_LENGTH` is not looked at.
+ */
+const MAX_MANIFEST_BYTES = 64 * 1024;
+const MAX_LINE_LENGTH = 1024;
+const MAX_LINES = 5000;
 const MAX_DEPENDENCIES = 5000;
 const MAX_NAME_LENGTH = 200;
 
@@ -18,7 +24,7 @@ const readText: Reader = async (filePath, maxBytes) => {
 
 function cleanName(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const cleaned = sanitizeDisplayText(value, MAX_NAME_LENGTH);
+  const cleaned = sanitizeDisplayText(value.slice(0, MAX_NAME_LENGTH * 2), MAX_NAME_LENGTH);
   return cleaned === "" ? null : cleaned;
 }
 
@@ -35,7 +41,7 @@ function lastSegment(value: string): string {
 function parseJson(text: string | null): Record<string, unknown> | null {
   if (text === null) return null;
   try {
-    const value: unknown = JSON.parse(text);
+    const value: unknown = JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
     return typeof value === "object" && value !== null && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : null;
@@ -46,60 +52,129 @@ function parseJson(text: string | null): Record<string, unknown> | null {
 
 function keysOf(value: unknown): string[] {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? Object.keys(value as Record<string, unknown>)
+    ? Object.keys(value as Record<string, unknown>).slice(0, MAX_DEPENDENCIES)
     : [];
 }
 
-/** The first `name = "..."` inside a TOML table such as `[project]` or `[tool.poetry]`. */
-function tomlTableName(text: string, tables: readonly string[]): string | null {
-  for (const table of tables) {
-    const start = text.indexOf(`[${table}]`);
-    if (start < 0) continue;
-    const rest = text.slice(start + table.length + 2);
-    const end = rest.search(/^\[/m);
-    const body = end < 0 ? rest : rest.slice(0, end);
-    const match = /^\s*name\s*=\s*["']([^"'\n]+)["']/m.exec(body);
-    if (match?.[1] !== undefined) return match[1];
+/** The lines worth looking at: a BOM is dropped, long lines and anything past the cap are not. */
+function shortLines(text: string): string[] {
+  const lines: string[] = [];
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  for (const line of body.split("\n", MAX_LINES)) {
+    if (line.length <= MAX_LINE_LENGTH) lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
   }
-  return null;
+  return lines;
 }
 
-/** Names from `"flask>=2"` style strings and `django = "^4"` keys; non-names are harmless. */
-function pythonDependencyNames(text: string): string[] {
-  const names: string[] = [];
-  for (const match of text.matchAll(
-    /["']\s*([A-Za-z][A-Za-z0-9._-]*)\s*(?:\[[^\]\n]*\])?\s*(?:[<>=!~;@ ][^"'\n]*)?["']/g,
-  )) {
-    if (match[1] !== undefined) names.push(match[1]);
+const normalizePython = (name: string): string => name.toLowerCase().replaceAll("_", "-");
+
+/** Quoted strings of one line, found by scanning (no pattern over the whole line). */
+function quotedStrings(line: string): string[] {
+  const found: string[] = [];
+  let index = 0;
+  while (index < line.length) {
+    const quote = line[index];
+    if (quote !== '"' && quote !== "'") {
+      index += 1;
+      continue;
+    }
+    const end = line.indexOf(quote, index + 1);
+    if (end < 0) break;
+    found.push(line.slice(index + 1, end));
+    index = end + 1;
   }
-  for (const match of text.matchAll(/^\s*([A-Za-z][A-Za-z0-9._-]*)\s*=/gm)) {
-    if (match[1] !== undefined) names.push(match[1]);
+  return found;
+}
+
+/** True when `]` appears at or after `from` outside a quoted string. */
+function closesArray(line: string, from: number): boolean {
+  let quote: string | null = null;
+  for (let index = from; index < line.length; index += 1) {
+    const char = line[index];
+    if (quote !== null) {
+      if (char === quote) quote = null;
+    } else if (char === '"' || char === "'") {
+      quote = char;
+    } else if (char === "]") {
+      return true;
+    }
   }
-  return names.map((name) => name.toLowerCase().replaceAll("_", "-"));
+  return false;
+}
+
+const REQUIREMENT_NAME = /^[A-Za-z][A-Za-z0-9._-]*/;
+const TOML_TABLE = /^[ \t]*\[+([^\][\n]*)\]+/;
+const TOML_KEY = /^[ \t]*([A-Za-z][A-Za-z0-9._-]*)[ \t]*=/;
+const TOML_NAME = /^[ \t]*name[ \t]*=[ \t]*["']([^"'\n]*)["']/;
+const TOML_DEPENDENCIES_START = /^[ \t]*dependencies[ \t]*=[ \t]*\[/;
+
+/**
+ * `pyproject.toml`, line by line: the `name` of `[project]` or `[tool.poetry]`, the strings of
+ * `dependencies = [...]` and of `[project.optional-dependencies]`, and the keys of the
+ * `[tool.poetry...dependencies]` tables. Descriptions, URLs and other keys are not dependencies.
+ */
+function readPyproject(text: string): { name: string | null; dependencies: string[] } {
+  let table = "";
+  let name: string | null = null;
+  let isInDependencyArray = false;
+  const dependencies: string[] = [];
+  const addRequirement = (value: string): void => {
+    const match = REQUIREMENT_NAME.exec(value.trim());
+    if (match !== null) dependencies.push(normalizePython(match[0]));
+  };
+  for (const line of shortLines(text)) {
+    const header = TOML_TABLE.exec(line);
+    if (header !== null && !isInDependencyArray) {
+      table = (header[1] ?? "").trim();
+      continue;
+    }
+    if (table === "project" || table === "tool.poetry") {
+      if (name === null) name = TOML_NAME.exec(line)?.[1] ?? null;
+    }
+    if (table === "project" && (isInDependencyArray || TOML_DEPENDENCIES_START.test(line))) {
+      for (const value of quotedStrings(line)) addRequirement(value);
+      // The array ends at the first line holding `]` after the opening one.
+      const opening: number = isInDependencyArray ? 0 : line.indexOf("[") + 1;
+      isInDependencyArray = !closesArray(line, opening);
+    } else if (table === "project.optional-dependencies") {
+      for (const value of quotedStrings(line)) addRequirement(value);
+    } else if (/^tool\.poetry(\.group\.[^.]+)?\.(dev-)?dependencies$/.test(table)) {
+      const key = TOML_KEY.exec(line)?.[1];
+      if (key !== undefined) dependencies.push(normalizePython(key));
+    }
+  }
+  return { name, dependencies };
 }
 
 function requirementNames(text: string): string[] {
   const names: string[] = [];
-  for (const line of text.split("\n")) {
-    const match = /^\s*([A-Za-z][A-Za-z0-9._-]*)/.exec(line);
-    if (match?.[1] !== undefined) names.push(match[1].toLowerCase().replaceAll("_", "-"));
+  for (const line of shortLines(text)) {
+    const match = REQUIREMENT_NAME.exec(line.trimStart());
+    if (match !== null) names.push(normalizePython(match[0]));
   }
   return names;
 }
 
-function goModules(text: string): { module: string | null; requires: string[] } {
-  const module = /^\s*module\s+(\S+)/m.exec(text)?.[1] ?? null;
+const GO_MODULE = /^[ \t]*module[ \t]+(\S+)/;
+const GO_REQUIRE = /^[ \t]*(?:require[ \t]+)?([a-z0-9][a-z0-9.-]*\/\S+)[ \t]+v/;
+
+function readGoMod(text: string): { module: string | null; requires: string[] } {
+  let module: string | null = null;
   const requires: string[] = [];
-  for (const match of text.matchAll(/^\s*(?:require\s+)?([a-z0-9.-]+\.[a-z]+\/\S+)\s+v\S+/gm)) {
-    if (match[1] !== undefined) requires.push(match[1].toLowerCase());
+  for (const line of shortLines(text)) {
+    if (module === null) module = GO_MODULE.exec(line)?.[1] ?? null;
+    const required = GO_REQUIRE.exec(line)?.[1];
+    if (required !== undefined) requires.push(required.toLowerCase());
   }
   return { module, requires };
 }
 
+const GEM_RAILS = /^[ \t]*gem[ \t]+["']rails["']/;
+
 /**
  * Reads, locally and read-only, what names the project at `root` and which frameworks it
  * declares. Only a few well-known manifests at the top of the folder are read, each through the
- * safe small-file reader (no symlinks, no special files, size capped). Nothing is executed and
+ * safe small-file reader (no symlinks, no special files, 64 KB cap). Nothing is executed and
  * nothing outside `root` is touched. Never throws: whatever cannot be read is simply missing.
  */
 export async function readProjectSignals(
@@ -108,7 +183,7 @@ export async function readProjectSignals(
   read: Reader = readText,
 ): Promise<ProjectSignals> {
   const file = (name: string): Promise<string | null> =>
-    read(path.join(root, name), MAX_MANIFEST_BYTES);
+    read(path.join(root, name), MAX_MANIFEST_BYTES).catch(() => null);
   const [packageJson, pyproject, requirements, composer, goMod, pom, gradle, gradleKts, gemfile] =
     await Promise.all([
       file("package.json"),
@@ -120,7 +195,7 @@ export async function readProjectSignals(
       file("build.gradle"),
       file("build.gradle.kts"),
       file("Gemfile"),
-    ]).catch(() => [null, null, null, null, null, null, null, null, null] as const);
+    ]);
 
   const names: string[] = [];
   const dependencies: string[] = [];
@@ -134,9 +209,10 @@ export async function readProjectSignals(
     }
   }
   if (pyproject !== null) {
-    const name = cleanName(tomlTableName(pyproject, ["project", "tool.poetry"]));
+    const parsed = readPyproject(pyproject);
+    const name = cleanName(parsed.name);
     if (name !== null) names.push(name);
-    dependencies.push(...pythonDependencyNames(pyproject));
+    dependencies.push(...parsed.dependencies);
   }
   if (requirements !== null) dependencies.push(...requirementNames(requirements));
   const composerJson = parseJson(composer);
@@ -148,17 +224,22 @@ export async function readProjectSignals(
     }
   }
   if (goMod !== null) {
-    const { module, requires } = goModules(goMod);
-    const name = cleanName(module);
+    const parsed = readGoMod(goMod);
+    const name = cleanName(parsed.module);
     if (name !== null) names.push(lastSegment(name));
-    dependencies.push(...requires);
+    dependencies.push(...parsed.requires);
   }
   for (const build of [pom, gradle, gradleKts]) {
-    if (build !== null && /spring-boot|org\.springframework\.boot/.test(build)) {
+    if (
+      build !== null &&
+      (build.includes("spring-boot") || build.includes("org.springframework.boot"))
+    ) {
       dependencies.push("org.springframework.boot");
     }
   }
-  if (gemfile !== null && /^\s*gem\s+["']rails["']/m.test(gemfile)) dependencies.push("rails");
+  if (gemfile !== null && shortLines(gemfile).some((line) => GEM_RAILS.test(line))) {
+    dependencies.push("rails");
+  }
 
   const folder = cleanName(path.basename(root));
   return {

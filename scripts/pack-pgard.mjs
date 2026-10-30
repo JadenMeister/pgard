@@ -292,6 +292,7 @@ const result = await build({
     inspector: join(root, "apps/local-web/dist/server/picker/inspector-child.js"),
     "smoke-report": join(root, "packaging/smoke-report-entry.js"),
     "smoke-grammar": join(root, "packaging/smoke-grammar-entry.js"),
+    "smoke-signals": join(root, "packaging/smoke-signals-entry.js"),
     "source-worker": join(root, "packages/source-analysis/dist/analyze-worker.js"),
   },
   absWorkingDir: root,

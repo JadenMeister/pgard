@@ -182,7 +182,7 @@ export const ko: Messages = {
     question: "이 서비스가 현재 프로젝트의 서비스입니까?",
     unrelated: (service, project) =>
       `이 서비스는 현재 프로젝트와 관련 없어 보입니다 (서비스: '${service}', 프로젝트: '${project}').`,
-    looksRelated: "(이 프로젝트로 보임)",
+    looksRelated: "(이름이 프로젝트와 비슷함)",
     yes: "예, 이 프로젝트의 서비스입니다",
     no: "아니요",
     notHttp: "이 포트는 HTTP로 응답하지 않았습니다. 다른 포트를 고르세요.",

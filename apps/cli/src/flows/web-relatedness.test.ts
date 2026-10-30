@@ -119,7 +119,7 @@ describe("the y/N confirmation warns when the service looks unrelated", () => {
 
   it("does not let the project's tool dependencies trigger the warning", async () => {
     const t = setup({ services: { 3000: identity(3000, "Grafana") }, keys: ["y"] });
-    await selectLocalPort(t.context, 3000, { ...PROJECT, dependencies: ["grafana-client"] });
+    await selectLocalPort(t.context, 3000, { ...PROJECT, dependencies: ["@grafana/data"] });
     expect(t.captured.stdout()).not.toContain("doesn't look related");
   });
 
@@ -156,7 +156,7 @@ describe("several servers", () => {
       async () => PROJECT,
     );
     expect(targets.map((target) => target.port)).toEqual([5173, 3000, 4000]);
-    expect(targets[0]?.label).toContain("(looks like this project)");
+    expect(targets[0]?.label).toContain("(name matches this project)");
     expect(targets[1]?.label).not.toContain("looks like this project");
   });
 
@@ -168,7 +168,7 @@ describe("several servers", () => {
       async () => true,
       async () => PROJECT,
     );
-    expect(targets[0]?.label).toContain("(이 프로젝트로 보임)");
+    expect(targets[0]?.label).toContain("(이름이 프로젝트와 비슷함)");
   });
 
   it("keeps the discovery order without project signals", async () => {
@@ -192,12 +192,47 @@ describe("several servers", () => {
     expect(targets[0]?.port).toBe(3007);
   });
 
+  it("keeps one server the heuristic did not pick when every shown one matches", async () => {
+    const many: Record<number, ServiceIdentity> = {};
+    for (let port = 3000; port < 3008; port += 1) many[port] = identity(port, "Shop dev");
+    many[3007] = identity(3007, "Landing page");
+    const t = setup({ services: many, keys: [] });
+    const targets = await findWebTargets(
+      t.context,
+      WEB_OFFER_BUDGET_MS,
+      async () => true,
+      async () => PROJECT,
+    );
+    expect(targets).toHaveLength(5);
+    expect(targets[4]?.port).toBe(3007);
+    expect(targets.slice(0, 4).every((target) => target.isLikely)).toBe(true);
+  });
+
+  it("does not wait for a project read that never finishes", async () => {
+    const t = setup({ services, keys: [] });
+    const started = Date.now();
+    const targets = await findWebTargets(
+      t.context,
+      150,
+      async () => true,
+      () => new Promise<never>(() => undefined),
+    );
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(targets.map((target) => target.port)).toEqual([3000, 4000, 5173]);
+  });
+
+  it("asks the confirmation in Korean", async () => {
+    const t = setup({ services: { 3000: identity(3000, "Landing") }, keys: ["y"], locale: "ko" });
+    await selectLocalPort(t.context, 3000, PROJECT);
+    expect(t.captured.stdout()).toContain("이 프로젝트의 서비스가 맞습니까?");
+  });
+
   it("orders the port list of the confirmation step the same way", async () => {
     const t = setup({ services, keys: ["escape"] });
     await selectLocalPort(t.context, null, PROJECT);
     const text = t.captured.stdout();
     expect(text.indexOf("127.0.0.1:5173")).toBeLessThan(text.indexOf("127.0.0.1:3000"));
-    expect(text).toContain("(looks like this project)");
+    expect(text).toContain("(name matches this project)");
   });
 
   it("goes on without a judgement when reading the project fails", async () => {
