@@ -843,7 +843,14 @@ async function runHistoryScan(
     );
   };
   for (const entry of headBlobs) {
-    if (isEnvironmentFile(entry.path)) {
+    const isEnvFile = isEnvironmentFile(entry.path);
+    const content = headRead.contents.get(entry.sha);
+    const secrets = content === undefined ? [] : detectSecrets(content, { path: entry.path });
+    if (isEnvFile) {
+      // The generic credential lines of an environment file are folded into this one finding.
+      // The count is part of the evidence (so of the finding's identity): a suppression or
+      // baseline entry made for the file as it was does not hide a credential added later.
+      const folded = secrets.filter((secret) => secret.kind === "generic_credential").length;
       findings.push(
         createFinding({
           ruleId: "PG-SECRET-001",
@@ -853,15 +860,15 @@ async function runHistoryScan(
           severity: "high",
           status: "confirmed",
           confidence: "high",
-          evidence: "environment file is tracked in the current commit (values not shown)",
+          evidence: `environment file is tracked in the current commit (${folded > 0 ? `${folded} credential value${folded === 1 ? "" : "s"} inside, not shown` : "values not shown"})`,
           cause: "env-file-head",
         }),
       );
     }
-    const content = headRead.contents.get(entry.sha);
-    if (content === undefined) continue;
-    for (const secret of detectSecrets(content, { path: entry.path })) {
+    for (const secret of secrets) {
+      // Still a current value, so the same value in history is not called "removed".
       currentValues.add(secret.value);
+      if (isEnvFile && secret.kind === "generic_credential") continue;
       report(entry, secret, null, false);
     }
   }

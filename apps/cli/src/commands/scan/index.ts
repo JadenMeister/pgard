@@ -38,6 +38,7 @@ import {
 } from "../../flows/export-report.js";
 import { authorizationDepsFor, offerGuidedInstall } from "../../flows/guided-install.js";
 import { getRuleTextCatalog } from "../../rule-texts.js";
+import type { ProjectSignals } from "@pgard/http-local";
 import { offerWebTarget, shouldOfferWebTarget } from "../../flows/offer-web-target.js";
 import { selectLocalPort } from "../../flows/select-local-port.js";
 import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
@@ -364,7 +365,10 @@ async function runScanFlow(
     } else if (context.keys === null) {
       err(context, context.errStyle.yellow(text.notices.webNotConfirmed));
     } else {
-      const selection = await selectLocalPort(context, command.port);
+      const project = await context.deps
+        .readProjectSignals(projectRoot, outcome.repo)
+        .catch(() => null);
+      const selection = await selectLocalPort(context, command.port, project);
       if (selection.kind === "back") {
         // Esc: in the menu go back to it; a direct subcommand has no previous step.
         if (context.isMenu) return EXIT_CODES.cancelled;
@@ -383,6 +387,13 @@ async function runScanFlow(
     // Interactive `pgard scan` with no scope or port: offer detected local servers. Listing the
     // ports is local; a port is only probed once the gate allows the project, as for `--port`.
     let isAllowed = false;
+    let verifiedRepo: string | null = null;
+    // Read once: the offer and the confirmation after it share it.
+    let projectRead: Promise<ProjectSignals | null> | null = null;
+    const readProject = (): Promise<ProjectSignals | null> => {
+      projectRead ??= context.deps.readProjectSignals(projectRoot, verifiedRepo).catch(() => null);
+      return projectRead;
+    };
     // Raw mode off while looking, so Ctrl+C during discovery is a SIGINT and still cancels.
     suspendKeys(context);
     const offered = await offerWebTarget(context, {
@@ -396,13 +407,17 @@ async function runScanFlow(
         if (session === null) return false;
         const outcome = await context.deps.verifyProject(projectRoot, authorization);
         isAllowed = outcome.summary.decision === "allowed";
+        verifiedRepo = outcome.repo;
         return isAllowed;
       },
+      // Local files only, read after the gate allowed the project (no extra request).
+      getProject: readProject,
     });
     throwIfCancelled(context);
     if (offered !== null && isAllowed) {
       // The same identity check and explicit `y` as `--port`; nothing is weaker here.
-      const selection = await selectLocalPort(context, offered);
+      const project = await readProject();
+      const selection = await selectLocalPort(context, offered, project);
       if (selection.kind === "confirmed") {
         webTarget = selection.target;
         scopes = [...scopes, "web"];

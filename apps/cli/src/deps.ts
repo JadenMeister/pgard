@@ -9,6 +9,7 @@ import { collectDependencies, readAdvisoryStatus, updateOsvData } from "@pgard/d
 import {
   discoverListeningPorts,
   probeLocalService,
+  readProjectSignals,
   scanLocalWeb,
   type PortDiscoveryResult,
   type ProbeOptions,
@@ -107,6 +108,8 @@ export interface CliDeps {
   webScanner: WebScanner;
   probeLocalService: (port: number, options?: ProbeOptions) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
+  /** Local, read-only facts about the project, used to tell whether a web service looks like it. */
+  readProjectSignals: typeof readProjectSignals;
   writeReports: typeof writeReports;
   /**
    * Opens a report file (an absolute `.html` or `.pdf` path) with the system's default program
@@ -310,6 +313,7 @@ export function createDefaultDeps(): CliDeps {
     webScanner: scanLocalWeb,
     probeLocalService: (port, options) => probeLocalService(port, options),
     discoverListeningPorts: () => discoverListeningPorts(),
+    readProjectSignals,
     writeReports,
     openLocalFile: (filePath) => openLocalFile(filePath),
     makeReportDir: makeReportDirDefault,

@@ -89,6 +89,16 @@ function renderSuppressionNotices(result: ScanResult, ctx: ReportContext): strin
     .join("\n");
 }
 
+/** A table in a horizontally scrolling box: a narrow screen scrolls instead of breaking letters. */
+function scrollTable(table: string): string {
+  return `<div class="table-scroll">${table}</div>`;
+}
+
+/** An area name (`source:javascript`) escaped, with a break opportunity after each colon only. */
+function areaCell(area: string): string {
+  return escapeHtml(area).replace(/:/g, ":<wbr>");
+}
+
 function renderCoverageRows(coverage: readonly Coverage[], ctx: ReportContext): string {
   if (coverage.length === 0) {
     return `<tr><td colspan="4">${escapeHtml(ctx.t.noCoverage)}</td></tr>`;
@@ -96,9 +106,9 @@ function renderCoverageRows(coverage: readonly Coverage[], ctx: ReportContext): 
   return coverage
     .map(
       (entry) => `<tr class="coverage-${escapeHtml(entry.status)}">
-  <td>${escapeHtml(entry.area)}</td>
-  <td>${escapeHtml(entry.scope)}</td>
-  <td><span class="pill pill-${escapeHtml(entry.status)}">${escapeHtml(word(ctx.t.coverageStatus, entry.status, ctx.t.unknownLabel))}</span></td>
+  <td class="token">${areaCell(entry.area)}</td>
+  <td class="nw">${escapeHtml(entry.scope)}</td>
+  <td class="nw"><span class="pill pill-${escapeHtml(entry.status)}">${escapeHtml(word(ctx.t.coverageStatus, entry.status, ctx.t.unknownLabel))}</span></td>
   <td>${escapeHtml(entry.note ?? "")}</td>
 </tr>`,
     )
@@ -246,10 +256,12 @@ function renderAuthorization(result: ScanResult, ctx: ReportContext): string {
   const rows = result.authorization.checks
     .map(
       (check) =>
-        `<tr><td>${escapeHtml(check.id)}</td><td>${escapeHtml(check.status)}</td><td>${escapeHtml(check.reason)}</td></tr>`,
+        `<tr><td class="nw">${escapeHtml(check.id)}</td><td class="nw">${escapeHtml(check.status)}</td><td>${escapeHtml(check.reason)}</td></tr>`,
     )
     .join("\n");
-  return `<table><thead><tr><th>${escapeHtml(ctx.t.check)}</th><th>${escapeHtml(ctx.t.status)}</th><th>${escapeHtml(ctx.t.reason)}</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return scrollTable(
+    `<table class="auth-table"><thead><tr><th class="nw">${escapeHtml(ctx.t.check)}</th><th class="nw">${escapeHtml(ctx.t.status)}</th><th>${escapeHtml(ctx.t.reason)}</th></tr></thead><tbody>${rows}</tbody></table>`,
+  );
 }
 
 function renderStandardsCoverage(result: ScanResult, ctx: ReportContext): string {
@@ -261,31 +273,31 @@ function renderStandardsCoverage(result: ScanResult, ctx: ReportContext): string
   const owasp = owaspRows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td class="nw">${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td class="nw"><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td class="token">${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   const cwe = cweTop25Rows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${escapeHtml(String(row.rank ?? ""))}</td><td>${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td class="nw">${escapeHtml(String(row.rank ?? ""))}</td><td class="nw">${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td class="nw"><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td class="token">${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   return `<h2>${escapeHtml(t.standardsTitle)}</h2>
 <p class="meta standards-note">${escapeHtml(t.standardsNote)}</p>
-<table class="standards-map">
-<thead><tr><th>${escapeHtml(columns.id)}</th><th>${escapeHtml(columns.category)}</th><th>${escapeHtml(columns.state)}</th><th>${escapeHtml(columns.breadth)}</th><th>${escapeHtml(columns.rules)}</th><th>${escapeHtml(columns.reason)}</th></tr></thead>
+<div class="table-scroll"><table class="standards-map owasp-map">
+<thead><tr><th class="nw">${escapeHtml(columns.id)}</th><th>${escapeHtml(columns.category)}</th><th class="nw">${escapeHtml(columns.state)}</th><th>${escapeHtml(columns.breadth)}</th><th>${escapeHtml(columns.rules)}</th><th>${escapeHtml(columns.reason)}</th></tr></thead>
 <tbody>
 ${owasp}
 </tbody>
-</table>
+</table></div>
 <details class="group">
 <summary>${escapeHtml(t.cweTop25Title)}: ${escapeHtml(cweTop25CountsText(result, ctx))}</summary>
-<table class="standards-map">
-<thead><tr><th>${escapeHtml(t.cweColumns.rank)}</th><th>${escapeHtml(t.cweColumns.id)}</th><th>${escapeHtml(t.cweColumns.name)}</th><th>${escapeHtml(columns.state)}</th><th>${escapeHtml(columns.rules)}</th><th>${escapeHtml(columns.reason)}</th></tr></thead>
+<div class="table-scroll"><table class="standards-map cwe-map">
+<thead><tr><th class="nw">${escapeHtml(t.cweColumns.rank)}</th><th class="nw">${escapeHtml(t.cweColumns.id)}</th><th>${escapeHtml(t.cweColumns.name)}</th><th class="nw">${escapeHtml(columns.state)}</th><th>${escapeHtml(columns.rules)}</th><th>${escapeHtml(columns.reason)}</th></tr></thead>
 <tbody>
 ${cwe}
 </tbody>
-</table>
+</table></div>
 </details>`;
 }
 
@@ -296,18 +308,18 @@ function renderRuleStats(result: ScanResult, ctx: ReportContext): string {
   const rows = ruleStatRows(result, ctx)
     .map(
       (row) =>
-        `<tr><td>${escapeHtml(row.ruleId)}${row.title === "" ? "" : `<br><span class="meta">${escapeHtml(row.title)}</span>`}</td><td>${escapeHtml(row.area)}</td><td>${escapeHtml(row.targets)}</td><td>${row.findings}</td><td>${escapeHtml(row.status)}</td></tr>`,
+        `<tr><td class="token">${escapeHtml(row.ruleId)}${row.title === "" ? "" : `<br><span class="meta">${escapeHtml(row.title)}</span>`}</td><td class="token">${areaCell(row.area)}</td><td>${escapeHtml(row.targets)}</td><td class="nw">${row.findings}</td><td class="nw">${escapeHtml(row.status)}</td></tr>`,
     )
     .join("\n");
   return `<details class="group rule-stats">
 <summary>${escapeHtml(t.ruleStatsTitle(result.ruleStats.length))}</summary>
 <p class="meta">${escapeHtml(t.ruleStatsNote)}</p>
-<table>
-<thead><tr><th>${escapeHtml(columns.rule)}</th><th>${escapeHtml(columns.area)}</th><th>${escapeHtml(columns.targets)}</th><th>${escapeHtml(columns.findings)}</th><th>${escapeHtml(columns.status)}</th></tr></thead>
+<div class="table-scroll"><table class="rulestat-table">
+<thead><tr><th>${escapeHtml(columns.rule)}</th><th>${escapeHtml(columns.area)}</th><th>${escapeHtml(columns.targets)}</th><th class="nw">${escapeHtml(columns.findings)}</th><th class="nw">${escapeHtml(columns.status)}</th></tr></thead>
 <tbody>
 ${rows}
 </tbody>
-</table>
+</table></div>
 </details>`;
 }
 
@@ -330,7 +342,8 @@ const STYLES = `
 :root { color-scheme: light; --fg:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#ffffff; --panel:#f8fafc; }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 32px 16px; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; color: var(--fg); background: var(--bg); }
-main { max-width: 960px; margin: 0 auto; }
+main { max-width: 1200px; margin: 0 auto; }
+body { word-break: keep-all; overflow-wrap: break-word; }
 h1 { font-size: 24px; margin: 0 0 4px; }
 h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 h3 { font-size: 15px; margin: 6px 0 0; }
@@ -338,8 +351,27 @@ h3 { font-size: 15px; margin: 6px 0 0; }
 .status-banner { padding: 10px 14px; border-radius: 6px; background: var(--panel); border: 1px solid var(--line); margin: 16px 0; }
 .status-blocked, .status-failed { border-color: #b91c1c; }
 .status-partial { border-color: #b7791f; }
+.table-scroll { overflow-x: auto; max-width: 100%; }
 table { width: 100%; border-collapse: collapse; }
-th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; overflow-wrap: anywhere; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: keep-all; overflow-wrap: break-word; }
+/* Short cells (IDs, ranks, scopes, states, headers) never break; long tokens may break at a safe point. */
+.nw, th.nw, td.nw, .pill, .sev, .new-badge, .status, .confidence { white-space: nowrap; }
+td.token { overflow-wrap: anywhere; }
+.coverage-table, .standards-map, .rulestat-table, .auth-table { min-width: 640px; }
+.coverage-table th:nth-child(1) { width: 24%; }
+.coverage-table th:nth-child(2) { width: 10%; }
+.coverage-table th:nth-child(3) { width: 14%; }
+.owasp-map th:nth-child(1) { width: 56px; }
+.owasp-map th:nth-child(2) { width: 18%; }
+.owasp-map th:nth-child(3) { width: 112px; }
+.owasp-map th:nth-child(4) { width: 18%; }
+.owasp-map th:nth-child(5) { width: 14%; }
+.cwe-map th:nth-child(1) { width: 52px; }
+.cwe-map th:nth-child(2) { width: 84px; }
+.cwe-map th:nth-child(3) { width: 24%; }
+.cwe-map th:nth-child(4) { width: 112px; }
+.cwe-map th:nth-child(5) { width: 16%; }
+.auth-table th:nth-child(1), .auth-table th:nth-child(2) { width: 120px; }
 .pill { display: inline-block; padding: 0 8px; border-radius: 999px; font-size: 12px; background: var(--panel); border: 1px solid var(--line); }
 .pill-not_tested, .pill-partial, .pill.state-rules_partial { border-color: #b7791f; }
 .pill.state-not_run, .pill.state-no_rules { color: var(--muted); }
@@ -375,6 +407,13 @@ a { color: #1d4ed8; }
 .code-only-frame, .code-only-frame > tbody, .code-only-frame > tbody > tr, .code-only-frame > tbody > tr > td { display: contents; }
 .code-only-frame > thead { display: none; }
 @media print {
+  body { padding: 0; font-size: 11px; }
+  main { max-width: none; }
+  .table-scroll { overflow: visible; }
+  .coverage-table, .standards-map, .rulestat-table, .auth-table { min-width: 0; }
+  .standards-map, .coverage-table, .rulestat-table { font-size: 10px; }
+  th, td { padding: 4px 5px; }
+  tr { break-inside: avoid; }
   .code-only-banner { position: static; margin: 0 0 12px; }
   body > .code-only-banner { display: none; }
   .code-only-frame { display: table; width: 100%; border-collapse: collapse; }
@@ -480,12 +519,12 @@ ${renderIncremental(result, lang)}
 <div class="chart">${renderSeverityBarChartSvg(counts, t)}</div>
 
 <h2>${escapeHtml(t.coverage)}</h2>
-<table>
-<thead><tr><th>${escapeHtml(t.area)}</th><th>${escapeHtml(t.scope)}</th><th>${escapeHtml(t.status)}</th><th>${escapeHtml(t.noteColumn)}</th></tr></thead>
+<div class="table-scroll"><table class="coverage-table">
+<thead><tr><th>${escapeHtml(t.area)}</th><th class="nw">${escapeHtml(t.scope)}</th><th class="nw">${escapeHtml(t.status)}</th><th>${escapeHtml(t.noteColumn)}</th></tr></thead>
 <tbody>
 ${renderCoverageRows(result.coverage, ctx)}
 </tbody>
-</table>
+</table></div>
 
 ${renderStandardsCoverage(result, ctx)}
 ${renderRuleStats(result, ctx)}

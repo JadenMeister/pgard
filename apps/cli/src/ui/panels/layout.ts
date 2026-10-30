@@ -148,11 +148,42 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   const text = t.panels.trend;
   const wrap = (line: string): string[] => wrapWidth(line, Math.max(10, size.columns - 1));
   const trend = state.trend;
-  if (trend.kind === "disabled") return wrap(text.noHistory.disabled);
+  const mark = text.helpMark;
+  type CaseId = "codeOnly" | "single" | "off";
+  const ALL_CASES: CaseId[] = ["codeOnly", "single", "off"];
+  // An empty state: the reason first, then (when the reasons are the common ones) the list of
+  // common reasons. Other states (unreadable, no store directory) show only their own reason.
+  const empty = (
+    reason: string,
+    cases: CaseId[],
+    before: string[] = [],
+    after: string[] = [],
+  ): string[] => [
+    ...before,
+    style.bold(truncateWidth(`${text.heading} ${mark}`, size.columns)),
+    ...wrap(reason),
+    ...(cases.length === 0
+      ? []
+      : [
+          "",
+          ...wrap(text.cases.intro),
+          ...cases.flatMap((id, index) => {
+            const [first = "", ...rest] = wrapWidth(text.cases[id], Math.max(10, size.columns - 6));
+            return [`  ${index + 1}. ${first}`, ...rest.map((part) => `     ${part}`)];
+          }),
+        ]),
+    ...after,
+  ];
+  // A code-only result stores nothing: this reason wins over every other state.
+  if (isCodeOnlyResult(state.result)) return empty(text.noHistory.codeOnly, ALL_CASES);
+  if (trend.kind === "disabled") return empty(text.noHistory.disabled, ["codeOnly"]);
   if (trend.kind === "unavailable") {
-    if (trend.why === "no-store-dir") return wrap(text.noHistory.noStoreDir);
-    if (trend.why === "no-repository") return wrap(text.noHistory.noRepository);
-    return wrap(text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")));
+    if (trend.why === "no-store-dir") return empty(text.noHistory.noStoreDir, []);
+    if (trend.why === "no-repository") return empty(text.noHistory.noRepository, []);
+    return empty(
+      text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")),
+      [],
+    );
   }
   const notes = [
     ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
@@ -162,19 +193,22 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   // First on the screen, so it is seen before the history it qualifies.
   const notStored = trend.isCurrentStored ? [] : [...wrap(text.notStored), ""];
   const scans = trend.scans;
-  if (scans.length === 0) return [...notStored, ...wrap(text.noHistory.empty), ...skipped];
+  if (scans.length === 0) return empty(text.noHistory.empty, ALL_CASES, notStored, skipped);
   const newest = scans[scans.length - 1] as TrendScan;
   if (scans.length === 1) {
-    return [
-      ...notStored,
-      ...wrap(text.noHistory.single(trendDate(newest.savedAt, true))),
-      ...skipped,
-    ];
+    return empty(
+      text.noHistory.single(trendDate(newest.savedAt, true)),
+      ALL_CASES,
+      notStored,
+      skipped,
+    );
   }
   const isNarrow = size.columns <= NARROW_COLUMNS;
   const lines: string[] = [
     ...notStored.map((line) => style.yellow(line)),
-    style.bold(truncateWidth(text.title(scans.length), size.columns)),
+    style.bold(
+      `${truncateWidth(text.title(scans.length), size.columns - displayWidth(mark) - 1)} ${mark}`,
+    ),
   ];
   if (trend.diff !== null) {
     lines.push(
@@ -270,17 +304,39 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   return [...lines, ...skipped];
 }
 
-function helpLines(state: PanelsState, size: Size, opts: RenderOptions): string[] {
+function wrapHelp(lines: readonly string[], size: Size): string[] {
+  return lines.flatMap((line) => {
+    const [first = "", ...rest] = wrapWidth(line, Math.max(10, size.columns - 1));
+    return [first, ...rest.map((part) => `  ${part}`)];
+  });
+}
+
+/** The general help, then the trend section (it is last, so `?` on the trend tab can start there). */
+function helpParts(
+  state: PanelsState,
+  size: Size,
+  opts: RenderOptions,
+): { general: string[]; trend: string[] } {
   const style = opts.style ?? PLAIN;
   const t = cliText(state.locale);
-  return [
-    style.bold(t.panels.helpTitle),
-    "",
-    ...t.panels.helpLines.flatMap((line) => {
-      const [first = "", ...rest] = wrapWidth(line, Math.max(10, size.columns - 1));
-      return [first, ...rest.map((part) => `  ${part}`)];
-    }),
-  ];
+  return {
+    general: [style.bold(t.panels.helpTitle), "", ...wrapHelp(t.panels.helpLines, size)],
+    trend: [
+      "",
+      style.bold(t.panels.trend.help.title),
+      ...wrapHelp(t.panels.trend.help.lines, size),
+    ],
+  };
+}
+
+function helpLines(state: PanelsState, size: Size, opts: RenderOptions): string[] {
+  const parts = helpParts(state, size, opts);
+  return [...parts.general, ...parts.trend];
+}
+
+/** The help line the trend section starts at (the blank separator is skipped). */
+export function trendHelpTop(state: PanelsState, size: Size): number {
+  return helpParts(state, size, {}).general.length + 1;
 }
 
 /** Body lines of every panel except the findings list (which is windowed, see `findingRow`). */
@@ -602,15 +658,16 @@ function footer(
 function titleLine(state: PanelsState, size: Size, style: Style): string {
   const t = cliText(state.locale);
   const target = state.result.target;
-  const repo = safeText(target.repo ?? t.unknown, 120);
-  const revision = safeText((target.revision ?? t.unknown).slice(0, 12), 20);
+  // A code-only scan of a folder has no verified repository or commit: say nothing rather
+  // than "unknown @ unknown".
+  const where =
+    target.repo === null && target.revision === null
+      ? ""
+      : `  ${safeText(target.repo ?? t.unknown, 120)} @ ${safeText((target.revision ?? t.unknown).slice(0, 12), 20)}`;
   const status = t.report.overall[state.result.overallStatus] ?? t.unknown;
   // A code-only result says so first, so truncation on a narrow screen never hides it.
   const label = isCodeOnlyResult(state.result) ? `${t.codeOnly.short}  ` : "";
-  const line = truncateWidth(
-    `${label}${t.panels.title}  ${repo} @ ${revision}  ${status}`,
-    size.columns,
-  );
+  const line = truncateWidth(`${label}${t.panels.title}${where}  ${status}`, size.columns);
   if (label === "") return style.bold(line);
   const shown = line.startsWith(label) ? label : line;
   return style.bold(style.yellow(shown) + line.slice(shown.length));

@@ -194,6 +194,9 @@ export const en = {
     technology: "Technology (inferred, not verified)",
     redirect: "/ redirects to a location PGARD will not follow.",
     question: "Is this the current project's service?",
+    unrelated: (service: string, project: string) =>
+      `This service doesn't look related to this project (service: '${service}', project: '${project}').`,
+    looksRelated: "(may be this project)",
     yes: "Yes, this is the project's service",
     no: "No",
     notHttp: "This port did not answer HTTP. Choose another port.",
@@ -616,6 +619,22 @@ export const en = {
   },
   trend: {
     title: "Trend",
+    help: {
+      label: "About trend",
+      lines: [
+        "Shows this repository's stored scans, newest first, up to 20: the latest compared with the previous one, with severity bars.",
+        "It reads only the local, redacted stored results. It never rescans.",
+        "History builds up as you scan: each approved pgard scan that finishes is stored on this computer, unless storing is off.",
+      ],
+    },
+    cases: {
+      intro: "Common reasons for an empty trend:",
+      items: [
+        "A scan run in this dashboard, or a code-only scan: not stored. Run pgard scan in a terminal.",
+        "Only one stored scan: scan again later to compare.",
+        "Storing was off when you scanned: pgard scan --no-store or PGARD_NO_STORE=1.",
+      ],
+    },
     source:
       "Built from the scans you saved with the pgard command for this repository, matched by its GitHub repository id (the last 20 at most). Scans run in this dashboard are not stored, so they never appear here. A scan you just saved from a terminal can take a few seconds to appear.",
     loading: "Reading the saved scans...",

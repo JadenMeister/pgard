@@ -2,7 +2,7 @@ import type { RuleLocale, RuleTextCatalog, ScanResult } from "@pgard/findings";
 import type { Key } from "../../adapters/terminal.js";
 import { sortBySeverity } from "../formatters/result-groups.js";
 import { applyFilters, areasOf, cycle, rulesOf, SEVERITY_KEYS } from "./filter.js";
-import { bodyHeight, isTooSmall, listHeight, panelLength } from "./layout.js";
+import { bodyHeight, isTooSmall, listHeight, panelLength, trendHelpTop } from "./layout.js";
 import {
   MAX_SEARCH_LENGTH,
   NO_FILTERS,
@@ -231,7 +231,11 @@ export function reduce(state: PanelsState, key: Key): PanelsState {
       return { ...state, overlay: "none", detailScroll: 0 };
     }
   } else {
-    if (isHelp) return { ...state, overlay: "help", helpScroll: 0 };
+    if (isHelp) {
+      // On the trend tab the help opens at the trend section; elsewhere at the top.
+      const top = state.panel === "trend" ? trendHelpTop(state, state.size) : 0;
+      return normalize({ ...state, overlay: "help", helpScroll: top });
+    }
     if (key.name === "escape") {
       // On the findings list an active search is cleared first; the next Esc leaves.
       if (state.panel === "findings" && state.filters.text !== "") {
