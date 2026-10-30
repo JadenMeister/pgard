@@ -425,6 +425,20 @@ export const HISTORY_CASES = [
   },
   {
     rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "minified-markers-inside-strings",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "dist/a.js": 'var s=" #fff";x({password:e.target.value})\n',
+          "dist/b.js": 'var u="see //cdn";if(t.password==e.pass)||y\n',
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
     kind: "positive",
     name: "passphrase-with-placeholder-words-in-config",
     expect: ["PG-SECRET-002"],

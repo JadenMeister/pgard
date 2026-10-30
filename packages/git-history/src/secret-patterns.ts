@@ -213,11 +213,40 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
  * has no dotted access before the bracket and is kept.
  */
 const UNQUOTED_CODE_VALUE = /^=|^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:[)}\]]|\|\||&&)/;
-/** Whether the line has a comment marker (`//`, `/*`, `#`, a leading `*`) before `index`. */
-function isInComment(text: string, index: number): boolean {
-  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
-  const before = text.slice(Math.max(lineStart, index - CODE_WINDOW), index);
-  return /(?:^|\s)(?:\/\/|\/\*|#)|^\s*\*/.test(before);
+/**
+ * Text of the line before `index`, read within `window` characters only (a very long line, such
+ * as a minified bundle, is never scanned back to its start). `known` is false when the window
+ * cut the line, so its start is not the line's start.
+ */
+function lineBefore(text: string, index: number, window: number) {
+  const from = Math.max(0, index - window);
+  const relative = text.slice(from, index).lastIndexOf("\n");
+  const start = relative < 0 ? from : from + relative + 1;
+  return { start, known: relative >= 0 || from === 0, before: text.slice(start, index) };
+}
+
+/**
+ * Whether the match sits in a comment: a `//` or `/*` marker (not inside a string, and for `/*`
+ * not already closed), a leading `*` of a block comment, or a `#` that starts the line (in
+ * JavaScript-like files) or follows whitespace (in other source files; `#private` fields are no
+ * comments). Only the 200 characters before the match are read.
+ */
+function isInComment(context: DetectContext, index: number): boolean {
+  const { start, known, before } = lineBefore(context.text, index, CODE_WINDOW);
+  if (known && /^\s*\*/.test(before)) return true;
+  for (const marker of before.matchAll(/\/\/|\/\*|#/g)) {
+    const at = marker.index;
+    if (at > 0 && !/\s/.test(before.charAt(at - 1))) continue;
+    if (at === 0 && !known) continue;
+    if (context.stringStartAt(start + at) !== -1) continue;
+    if (marker[0] === "/*") {
+      if (before.indexOf("*/", at + 2) === -1) return true;
+    } else if (marker[0] === "#") {
+      const startsLine = known && before.slice(0, at).trim() === "";
+      if (startsLine || !context.isJs) return true;
+    } else return true;
+  }
+  return false;
 }
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
@@ -261,6 +290,8 @@ interface DetectContext {
   isSource: boolean;
   /** Whether the file is a template (`.env.example`): only a real-looking value is reported. */
   isTemplate: boolean;
+  /** Whether the file is JavaScript or TypeScript (where `#` starts a private field). */
+  isJs: boolean;
   /** Whether the file is a Markdown-like documentation file. */
   isDoc: boolean;
   /** Number of Markdown code fence lines that start before an index (built lazily, once). */
@@ -279,6 +310,7 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
     text,
     isSource,
     isTemplate: ENV_TEMPLATE.test(name),
+    isJs: /\.(?:[cm]?[jt]sx?|vue|svelte)$/i.test(name),
     isDoc: DOC_FILE.test(name),
     fencesBefore: (index) => {
       if (fenceStarts === null) {
@@ -397,7 +429,7 @@ function isLiteralAssignment(
     context.isSource &&
     !inString &&
     UNQUOTED_CODE_VALUE.test(value) &&
-    !isInComment(text, start)
+    !isInComment(context, start)
   ) {
     return false;
   }
@@ -459,11 +491,10 @@ function isExampleValue(context: DetectContext, match: RegExpMatchArray, value: 
 /** Whether `index` is inside a backtick code span on its line or a fenced code block. */
 function isInCodeRegion(context: DetectContext, index: number): boolean {
   const { text } = context;
-  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
-  // A line longer than this is not read for backticks (keeps a long line linear).
-  const before = text.slice(Math.max(lineStart, index - 2000), index);
+  // A line longer than 2000 characters is read only for its last 2000 (keeps a long line linear).
+  const { start, before } = lineBefore(text, index, 2000);
   if (((before.match(/`/g) ?? []).length & 1) === 1) return true;
-  return context.fencesBefore(lineStart) % 2 === 1;
+  return context.fencesBefore(start) % 2 === 1;
 }
 
 /**

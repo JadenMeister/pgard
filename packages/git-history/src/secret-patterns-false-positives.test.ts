@@ -163,6 +163,31 @@ describe("code-shaped unquoted values (minified code)", () => {
     expect(performance.now() - startedFenced).toBeLessThan(1000);
   });
 
+  it("does not take a marker in a string, a closed comment or #private for a comment", () => {
+    expect(scan('var s=" #fff";x({password:e.target.value})', "a.js")).toEqual([]);
+    expect(scan('var u="see //cdn";if(t.password==e.pass)||y', "a.js")).toEqual([]);
+    expect(scan("/* note */ x({password:e.target.value})", "a.js")).toEqual([]);
+    expect(scan("class A { #p = 1; f() { return x({password:this.p.value}) } }", "a.js")).toEqual(
+      [],
+    );
+  });
+
+  it("stays fast on 1 MiB single lines", () => {
+    const readme = 'Set `api_key = "my-secret-key-value"` and api_key = "my-secret-key-value" ';
+    const one = readme.repeat(Math.ceil(1_048_576 / readme.length));
+    let started = performance.now();
+    scan(one, "README.md");
+    expect(performance.now() - started).toBeLessThan(1000);
+    const code = '" #  password: e.target.value})'.repeat(Math.ceil(1_048_576 / 29));
+    started = performance.now();
+    scan(code, "bundle.js");
+    expect(performance.now() - started).toBeLessThan(1000);
+    const bare = "x({password:e.target.value}) ".repeat(Math.ceil(1_048_576 / 29));
+    started = performance.now();
+    scan(bare, "bundle.js");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("keeps brackets in config text and in strings, and a leading = outside source code", () => {
     expect(scan(`password=${j("Xk9v", "]Lp8", "Wz4q")}\n`, "config/app.conf")).toHaveLength(1);
     const text = `const conf = "user=admin\\npassword=${j("Zx8c", ")Vb5n", "Mq2w")}\\n";\n`;
