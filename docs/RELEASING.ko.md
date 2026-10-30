@@ -4,6 +4,23 @@
 
 PGARD는 npm 패키지 `pgard` 하나로 배포됩니다(`npm run pack:pgard`가 `packaging/pgard/package.json`으로 빌드). 릴리스는 버전 태그입니다. [`release` 워크플로](../.github/workflows/release.yml)가 검증하고, 사람의 승인을 기다린 뒤, 검증된 tarball을 provenance와 함께 npm에 배포합니다. Homebrew는 배포된 tarball을 바탕으로 갱신합니다.
 
+## 패키지에 들어가는 것(의존성과 라이선스)
+
+`npm run pack:pgard`는 CLI, 대시보드 서버, 소스 분석 워커와 순수 JavaScript 서드파티 의존성(TypeScript 컴파일러, `pdfkit`과 `fontkit`, `@vue/compiler-sfc`와 `postcss`·`@babel/parser`, 그리고 그 전이 의존성)을 esbuild로 `dist/` 아래 몇 개 파일에 번들합니다. 들어가는 버전은 릴리스 머신에서 `npm ci`가 `package-lock.json`대로 설치한 것이라 tarball을 만드는 시점에 고정됩니다. 그 뒤에 전이 의존성의 악성 패치 릴리스가 올라와도 `pgard`를 설치하는 사람에게는 닿지 않습니다([#358](https://github.com/JadenMeister/pgard/issues/358)).
+
+외부로 남는 것은 두 패키지이며, 발행되는 `package.json`의 `dependencies`는 이 둘뿐이고 둘 다 정확한 버전으로 고정합니다. `@napi-rs/keyring`(네이티브, 플랫폼별 미리 빌드된 바이너리를 npm이 선택 패키지로 설치)과 `web-tree-sitter`(WebAssembly 런타임을 파일 경로로 읽음)입니다. tree-sitter 문법(`.wasm`), PDF 글꼴, 대시보드 클라이언트는 `assets/`로 복사하고 실행 시 고정된 SHA-256과 대조합니다. 워커 진입점(`dist/source-worker.js`)과 선택기의 inspector 자식 프로세스(`dist/inspector.js`)는 별도 진입점입니다. 소스맵은 넣지 않습니다(빌드 머신의 파일 경로와 원본 소스가 담기기 때문). 번들은 minify하지 않아 `dist/`를 검토할 수 있습니다.
+
+다음 중 하나라도 해당하면 pack 단계가 실패하고 아무것도 만들지 않습니다.
+
+- `packaging/pgard/package.json`의 `dependencies`가 워크스페이스의 버전과 같은 두 외부 패키지와 정확히 일치하지 않음
+- 번들된 패키지에 라이선스 본문(npm tarball의 `LICENSE`, `COPYING`, `NOTICE`)이 없거나, 라이선스를 선언하지 않았거나, `scripts/pack-licenses.mjs`의 허용 목록(MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, 그리고 허용된 라이선스가 선택을 충족하는 SPDX 식)에 없는 라이선스를 선언함. 카피레프트나 알 수 없는 라이선스는 조용히 번들되지 않으며, 소유자가 판단한 뒤 검토된 변경으로 허용 목록을 늘립니다. tarball에 라이선스 필드나 파일이 없는 패키지는 같은 파일의 `LICENSE_OVERRIDES`에 정확한 버전으로 적어 두며, 그 패키지의 새 버전은 다시 검토할 때까지 실패합니다.
+- 번들이 `node:` 내장 모듈도 선언된 의존성도 아닌 것을 import하거나, 검토된 허용 목록(`scripts/pack-lib.mjs`의 `ALLOWED_DYNAMIC_USES`, 항목마다 PGARD에서 실행되지 않는 이유 기재)에 없는 코드에서 계산된 경로로 모듈을 불러옴
+- `scripts/pack-pgard.mjs`의 `import.meta.url` 자산 경로 재작성이나 pdfkit, `@vue/compiler-sfc` 패치가 더 이상 정확히 한 번 일치하지 않음(해당 패키지를 올릴 때는 패치를 다시 확인)
+
+발행되는 `NOTICE.md`는 저장소의 `NOTICE.md`에 생성된 "Bundled npm packages" 절을 붙인 것으로, 번들된 모든 패키지의 버전, 라이선스, 라이선스 본문이 들어 있습니다. 실제로 번들에 들어간 파일에서 생성하므로 따로 관리할 필요가 없습니다. 의존성을 올렸다면 `npm run pack:pgard`와 `npm run smoke:pack`을 실행하세요. smoke 테스트는 tarball을 설치해 JavaScript, Vue, Python 프로젝트를 스캔하고 JSON, SARIF, HTML, PDF 출력, `precommit`, 대시보드를 설치된 패키지에서 실행합니다.
+
+분석기 해시(`packages/scan-core/src/analyzer-hash.ts`)는 빌드 때 `scripts/analyzer-hash.mjs`가 소스에서 계산해 상수로 번들에 들어가므로 번들링이 동작을 바꾸지 않습니다. 분석기가 쓰는 파서와 컴파일러의 선언 버전과 해석된 버전도 포함하므로 `package-lock.json`의 의존성 변경은 다음 스캔을 전체 스캔으로 만듭니다.
+
 ## 버전 규칙
 
 PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다. 버전은 사용자나 스크립트가 의존할 수 있는 모든 것에 적용됩니다. 아래 항목을 기존 사용자나 스크립트가 알아챌 수 있게 바꾸면 **호환성을 깨는 변경**(1.0 이후에는 major 증가)입니다.
@@ -55,6 +72,8 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
 11. **Homebrew.** tap을 갱신합니다([packaging/homebrew/README.md](../packaging/homebrew/README.md)).
 
 ## 배포 후 확인
+
+레지스트리가 보고하는 값만이 아니라 릴리스 실행이 만든 tarball이 맞는지도 확인하려면 `packaging/homebrew/update-formula.sh X.Y.Z`를 쓰세요. formula를 고치기 전에 내려받은 tarball을 출처 증명(provenance)의 subject digest와 대조하고 `gh attestation verify`를 실행합니다. `verify` 작업이 실행 요약에 출력하는 sha256은 `EXPECTED_SHA256=<hex>`로 넘기면 함께 비교합니다.
 
 ```sh
 npm view pgard@X.Y.Z version dist.tarball dist.integrity

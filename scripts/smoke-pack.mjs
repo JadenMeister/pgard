@@ -151,6 +151,91 @@ try {
   );
   const rules = pgard(["rules", "list"], { cwd: root });
   check("pgard rules list", rules.status === 0 && rules.stdout.includes("PG-"), rules.stderr);
+  // The bundled build scans a project end to end through the CLI, offline: JavaScript (TypeScript
+  // compiler inside the bundle), a Vue single-file component (@vue/compiler-sfc, postcss, babel in
+  // the bundle), JSON and SARIF output and saved HTML and PDF reports (pdfkit in the bundle).
+  const cliProject = mkdtempSync(join(prefix, "cli project "));
+  writeFileSync(
+    join(cliProject, "db.js"),
+    'const { Pool } = require("pg");\nconst pool = new Pool();\nexports.q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n',
+  );
+  writeFileSync(
+    join(cliProject, "App.vue"),
+    '<template><div v-html="html"></div></template>\n<script setup lang="ts">\nconst html: string = location.hash;\n</script>\n',
+  );
+  const scanEnv = { ...process.env, PGARD_NO_STORE: "1", PGARD_PANELS: "off", PGARD_LANG: "en" };
+  const jsonScan = pgard(["scan", "--code-only", "--format", "json"], {
+    cwd: cliProject,
+    env: scanEnv,
+  });
+  let scanResult = null;
+  try {
+    scanResult = JSON.parse(jsonScan.stdout);
+  } catch {
+    // reported below
+  }
+  const scanRules = (scanResult?.findings ?? []).map(
+    (item) => `${item.ruleId}@${item.location.path}`,
+  );
+  check(
+    "pgard scan --code-only --format json finds the SQL injection in the bundled build",
+    jsonScan.status === 0 && scanRules.includes("PG-SQL-001@db.js"),
+    `exit ${jsonScan.status} ${scanRules.join(",")} ${jsonScan.stderr}`,
+  );
+  const vueCoverage = scanResult?.coverage?.find((entry) => entry.area === "source:vue");
+  check(
+    "the Vue component is parsed by the bundled compiler-sfc",
+    scanRules.includes("PG-XSS-003@App.vue") && vueCoverage?.status === "completed",
+    JSON.stringify({ rules: scanRules, vueCoverage }),
+  );
+  const sarifScan = pgard(["scan", "--code-only", "--format", "sarif"], {
+    cwd: cliProject,
+    env: scanEnv,
+  });
+  let sarif = null;
+  try {
+    sarif = JSON.parse(sarifScan.stdout);
+  } catch {
+    // reported below
+  }
+  check(
+    "pgard scan --code-only --format sarif prints SARIF 2.1.0 with results",
+    sarif?.version === "2.1.0" && (sarif?.runs?.[0]?.results?.length ?? 0) > 0,
+    `exit ${sarifScan.status} ${sarifScan.stderr}`,
+  );
+  const reportDir = mkdtempSync(join(prefix, "scan reports "));
+  const reportScan = pgard(["scan", "--code-only", "--report", "both", "--output-dir", reportDir], {
+    cwd: cliProject,
+    env: scanEnv,
+  });
+  const reportFiles = readdirSync(reportDir);
+  const htmlFile = reportFiles.find((name) => name.endsWith(".html"));
+  const pdfFile = reportFiles.find((name) => name.endsWith(".pdf"));
+  check(
+    "pgard scan --code-only --report both writes an HTML and a PDF report",
+    reportScan.status === 0 && htmlFile !== undefined && pdfFile !== undefined,
+    `exit ${reportScan.status} ${reportFiles.join(",")} ${reportScan.stderr}`,
+  );
+  if (htmlFile !== undefined && pdfFile !== undefined) {
+    check(
+      "the HTML report names the finding and the PDF report is a PDF",
+      readFileSync(join(reportDir, htmlFile), "utf8").includes("PG-SQL-001") &&
+        readFileSync(join(reportDir, pdfFile)).subarray(0, 5).toString("latin1") === "%PDF-",
+    );
+  }
+  // precommit on a staged file, through the bundled build (needs git, as the hook itself does).
+  const gitProject = mkdtempSync(join(prefix, "git project "));
+  writeFileSync(join(gitProject, "db.js"), readFileSync(join(cliProject, "db.js")));
+  const git = (args) => run("git", args, { cwd: gitProject });
+  const gitReady =
+    git(["init", "-q"]).status === 0 && git(["-c", "core.hooksPath=", "add", "db.js"]).status === 0;
+  const precommit = pgard(["precommit"], { cwd: gitProject, env: scanEnv });
+  check(
+    "pgard precommit analyzes the staged file in the bundled build",
+    gitReady && precommit.stdout.includes("PG-SQL-001"),
+    `exit ${precommit.status}\n${precommit.stdout}${precommit.stderr}`,
+  );
+
   // PGARD_SMOKE_SKIP_DOCTOR=1 is for a developer machine whose keychain doctor would read.
   if (process.env.PGARD_SMOKE_SKIP_DOCTOR === "1") {
     console.log("skip pgard doctor (PGARD_SMOKE_SKIP_DOCTOR=1)");
@@ -388,6 +473,48 @@ try {
   ]) {
     check(`ships ${file}`, existsSync(join(pkgDir, file)));
   }
+
+  // Bundling (#358): only the native keyring and the WASM runtime are installed from the registry,
+  // the rest is inside dist/, with its licenses in NOTICE.md, and no source maps.
+  check(
+    "the package depends only on the two external packages",
+    JSON.stringify(Object.keys(manifest.dependencies ?? {}).sort()) ===
+      JSON.stringify(["@napi-rs/keyring", "web-tree-sitter"]),
+    JSON.stringify(manifest.dependencies),
+  );
+  const installed = readdirSync(join(prefix, "node_modules"));
+  check(
+    "no bundled package is installed next to pgard",
+    ["pdfkit", "typescript-api", "typescript", "postcss", "fontkit"].every(
+      (name) => !installed.includes(name),
+    ),
+    installed.join(","),
+  );
+  const shippedFiles = (directory) =>
+    readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
+      entry.isDirectory()
+        ? shippedFiles(join(directory, entry.name))
+        : [join(directory, entry.name)],
+    );
+  const distFiles = shippedFiles(join(pkgDir, "dist"));
+  check(
+    "dist/ has no source maps and no absolute local path",
+    distFiles.every((file) => !file.endsWith(".map")) &&
+      distFiles.every((file) => {
+        const text = readFileSync(file, "utf8");
+        return !text.includes(root) && !text.includes(root.split("\\").join("/"));
+      }) &&
+      !distFiles.some((file) => /^\/\/[#@] sourceMappingURL=/m.test(readFileSync(file, "utf8"))),
+  );
+  const fullNotice = readFileSync(join(pkgDir, "NOTICE.md"), "utf8");
+  check(
+    "NOTICE.md lists the bundled npm packages with license texts",
+    fullNotice.includes("## Bundled npm packages") &&
+      /- typescript 5\.\d+\.\d+ \(Apache-2\.0\)/.test(fullNotice) &&
+      /- pdfkit \d+\.\d+\.\d+ \(MIT\)/.test(fullNotice) &&
+      /- @vue\/compiler-sfc \d+\.\d+\.\d+ \(MIT\)/.test(fullNotice) &&
+      fullNotice.includes("Apache License"),
+  );
 
   const notice = readFileSync(join(pkgDir, "NOTICE.md"), "utf8");
   check(

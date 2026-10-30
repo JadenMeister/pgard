@@ -113,7 +113,7 @@ Without `npm link`, run `node apps/cli/dist/bin/pgard.js <command>` from the rep
 
 ### Build the package locally
 
-The release artifact is one npm package, `pgard`, which bundles the CLI, the dashboard, the PDF font and the tree-sitter grammars. It is not published yet. To build it and check that it works when installed:
+The release artifact is one npm package, `pgard`, which bundles the CLI, the dashboard, the PDF font and the tree-sitter grammars, and the pure-JavaScript third-party libraries it uses (their versions are fixed when the package is built; see [SECURITY.md](SECURITY.md#supply-chain) and [NOTICE.md](NOTICE.md)). Only `@napi-rs/keyring` and `web-tree-sitter` are installed from npm as dependencies. It is not published yet. To build it and check that it works when installed:
 
 ```sh
 npm run pack:pgard   # builds and writes .pack/pgard-<version>.tgz (gitignored)

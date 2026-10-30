@@ -24,6 +24,17 @@ export function npmCommand() {
   return { file: process.execPath, prefixArgs: [cli] };
 }
 
+/** Third-party packages that stay real dependencies: native code and WASM that cannot be inlined. */
+export const EXTERNAL_PACKAGES = ["@napi-rs/keyring", "web-tree-sitter"];
+
+/**
+ * Prelude of every bundled file. Bundled CommonJS (typescript, @vue/compiler-sfc, postcss) calls
+ * `require()` on node: built-ins and reads `__filename`/`__dirname`, none of which exist in an ES
+ * module. It is the only `createRequire` allowed in the output (see `findDynamicCodeUses`).
+ */
+export const REQUIRE_BANNER =
+  'import { createRequire as __pgardCreateRequire } from "node:module"; import { fileURLToPath as __pgardFileURLToPath } from "node:url"; import { dirname as __pgardDirname } from "node:path"; const require = __pgardCreateRequire(import.meta.url); const __filename = __pgardFileURLToPath(import.meta.url); const __dirname = __pgardDirname(__filename);';
+
 /** Package name of a bare import specifier: `a/b` is `a`, `@s/a/b` is `@s/a`. */
 export function packageNameOf(specifier) {
   const parts = specifier.split("/");
@@ -34,10 +45,11 @@ export function packageNameOf(specifier) {
  * Checks an esbuild metafile: every external import of every output file (static, dynamic and
  * `require`) must be a `node:` built-in or a package listed in `dependencies`. Returns one
  * message per violation; empty means the bundle only needs what the package declares.
+ * `allowBareBuiltins` accepts `fs` for `node:fs` (bundled CommonJS uses the bare names).
  * Imports whose specifier is not a string literal are invisible to the metafile; those are
  * caught by `findDynamicCodeUses` on the bundle text.
  */
-export function findExternalViolations(metafile, dependencies) {
+export function findExternalViolations(metafile, dependencies, { allowBareBuiltins = false } = {}) {
   const allowed = new Set(Object.keys(dependencies));
   const violations = [];
   for (const [output, info] of Object.entries(metafile.outputs)) {
@@ -46,6 +58,7 @@ export function findExternalViolations(metafile, dependencies) {
       const specifier = entry.path;
       if (specifier.startsWith("node:")) continue;
       if (builtinModules.includes(specifier)) {
+        if (allowBareBuiltins) continue;
         violations.push(
           `${output} imports the built-in "${specifier}" without the node: prefix (${entry.kind})`,
         );
@@ -62,23 +75,100 @@ export function findExternalViolations(metafile, dependencies) {
 }
 
 /**
- * Scans bundle text for module loading the metafile cannot see: `import(` with a non-literal
- * argument and `createRequire`. Either could load a package that is not a declared dependency.
- * The current bundle has no such use; if one becomes legitimate, allowlist it by exact location.
+ * Bundled third-party code that loads modules or files by a computed path. Each entry names the
+ * module (a substring of the `// node_modules/...` path esbuild writes above each module), a
+ * pattern for the exact line, and why it cannot run in PGARD. Anything not listed fails the pack.
  */
-export function findDynamicCodeUses(file, code) {
+export const ALLOWED_DYNAMIC_USES = [
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /__require\(modulePath\)/,
+    why: "ts.sys.require loads tsserver plugins; PGARD only parses in memory (createSourceFile, createProgram with an in-memory host)",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /host\.require\(|= require\(\$\{|_require_/,
+    why: "language-service plugin loading and generated-code text; not reachable from createSourceFile or the in-memory createProgram",
+  },
+  {
+    module: "@vue/compiler-core/dist/",
+    line: /require\(\$\{JSON\.stringify\(runtimeModuleName\)\}\)/,
+    why: "text of generated SSR render code (a string), not a require call of the scanner",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /__require\("source-map-support"\)/,
+    why: "optional, in a try block, only behind tsc --enableSourceMaps",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /__filename|__dirname|typeof __require/,
+    why: "locates tsc's own lib files and test hooks; PGARD sets noLib and reads nothing from disk through TypeScript",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /import_meta|import\.meta|import\(|createRequire/,
+    why: "diagnostic message text and code printing about import()/import.meta in the scanned source, not module loading",
+  },
+  {
+    module: "@babel/parser/lib/index.js",
+    line: /import\(|import\.meta/,
+    why: "parser error text about import() and import.meta",
+  },
+  {
+    module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+    line: /:import\(|import\.meta|__require\.cache|__require\.resolve|load = __require|__dirname|__filename/,
+    why: "CSS ':import()' selector text; CSS preprocessor loading (scss, less, stylus) and postcss source-map handling that parse() never reaches",
+  },
+  {
+    module: "postcss/",
+    line: /__require|__dirname|__filename|import\.meta/,
+    why: "postcss reads previous source maps and plugin config from disk; compiler-sfc's parse() never calls it",
+  },
+  {
+    module: "pdfkit/js/pdfkit.node.mjs",
+    line: /ICC_PROFILE_PATH/,
+    why: "sRGB profile for PDF/A output only; PGARD does not request a PDF/A subset",
+  },
+];
+
+/**
+ * Scans bundle text for module or file loading that bundling would break or the metafile cannot
+ * see: `import(` with a non-literal argument, `require(` with a non-literal argument, `createRequire`
+ * (except the banner), `require.cache`/`require.resolve`, and `__dirname`, `__filename` and
+ * `import.meta` in third-party modules. A hit is accepted only if `allowed` has an entry for the
+ * module and line. Returns one message per unaccepted use.
+ */
+export function findDynamicCodeUses(file, code, allowed = ALLOWED_DYNAMIC_USES) {
   const found = [];
-  for (const match of code.matchAll(/\bimport\s*\(/g)) {
-    const rest = code.slice(match.index + match[0].length);
-    if (!/^\s*(?:"[^"\\\n]*"|'[^'\\\n]*'|`[^`$\\]*`)\s*[,)]/.test(rest)) {
-      const line = code.slice(0, match.index).split("\n").length;
-      found.push(`${file}:${line} has import() with a non-literal specifier`);
+  const lines = code.split(REQUIRE_BANNER).join("").split("\n");
+  let owner = "";
+  const literalArgument = /^\s*(?:"[^"\\\n]*"|'[^'\\\n]*'|`[^`$\\]*`)\s*[,)]/;
+  lines.forEach((text, index) => {
+    const header = /^\/\/ ((?:node_modules|packages|apps)\/\S+)$/.exec(text);
+    if (header !== null) owner = header[1];
+    const report = (what) => {
+      if (allowed.some((entry) => owner.includes(entry.module) && entry.line.test(text))) return;
+      found.push(`${file}:${index + 1} ${what}${owner === "" ? "" : ` (in ${owner})`}`);
+    };
+    for (const match of text.matchAll(/\b(?:import|(?:__)?require)\s*\(/g)) {
+      if (!literalArgument.test(text.slice(match.index + match[0].length))) {
+        report(
+          `has ${match[0].startsWith("import") ? "import()" : "require()"} with a non-literal specifier`,
+        );
+      }
     }
-  }
-  for (const match of code.matchAll(/\bcreateRequire\b/g)) {
-    const line = code.slice(0, match.index).split("\n").length;
-    found.push(`${file}:${line} uses createRequire`);
-  }
+    if (/\bcreateRequire\b/.test(text)) report("uses createRequire");
+    if (/\b__?require\.(?:cache|resolve|main|extensions)\b/.test(text)) {
+      report("uses require.cache/resolve");
+    }
+    if (/\b__(?:dirname|filename)\b|\bimport\.meta\b/.test(text)) {
+      // PGARD's own modules (packages/..., apps/...) are covered by the asset rewrites and smoke test.
+      if (owner.startsWith("node_modules/")) {
+        report("reads __dirname, __filename or import.meta in a third-party module");
+      }
+    }
+  });
   return found;
 }
 

@@ -34,9 +34,6 @@
   },
   "dependencies": {
     "@napi-rs/keyring": "2.1.1",
-    "@vue/compiler-sfc": "3.5.43",
-    "pdfkit": "0.20.2",
-    "typescript-api": "npm:typescript@5.9.3",
     "web-tree-sitter": "0.27.1"
   }
 }

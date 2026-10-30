@@ -118,6 +118,8 @@ jobs:
           cp "$file" release-tarball/
           echo "tarball=pgard-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
           echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          # Recorded so the owner can compare it later (packaging/homebrew/update-formula.sh).
+          echo "Tarball \`pgard-${VERSION}.tgz\` sha256: \`$(sha256sum "$file" | cut -d' ' -f1)\`" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pgard-tarball

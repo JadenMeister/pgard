@@ -113,7 +113,7 @@ npm link -w @pgard/cli # 선택: PATH에 `pgard` 등록
 
 ### 패키지를 로컬에서 빌드하기
 
-배포물은 CLI, 대시보드, PDF 글꼴, tree-sitter 문법을 하나로 묶은 npm 패키지 `pgard`입니다. 아직 배포하지 않았습니다. 빌드하고, 설치했을 때 동작하는지 확인하려면 다음을 실행합니다.
+배포물은 CLI, 대시보드, PDF 글꼴, tree-sitter 문법과 사용하는 순수 JavaScript 서드파티 라이브러리를 하나로 묶은 npm 패키지 `pgard`입니다(라이브러리 버전은 패키지를 만들 때 고정됩니다. [SECURITY.md](SECURITY.md#supply-chain)와 [NOTICE.md](NOTICE.md) 참고). npm에서 의존성으로 설치되는 것은 `@napi-rs/keyring`과 `web-tree-sitter`뿐입니다. 아직 배포하지 않았습니다. 빌드하고, 설치했을 때 동작하는지 확인하려면 다음을 실행합니다.
 
 ```sh
 npm run pack:pgard   # 빌드 후 .pack/pgard-<버전>.tgz 생성(git 추적 제외)

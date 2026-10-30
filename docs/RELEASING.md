@@ -4,6 +4,23 @@
 
 PGARD ships as one npm package, `pgard` (built from `packaging/pgard/package.json` by `npm run pack:pgard`). A release is a version tag; the [`release` workflow](../.github/workflows/release.yml) verifies it, waits for a human approval and publishes the verified tarball to npm with provenance. Homebrew follows from the published tarball.
 
+## What is in the package (dependencies and licenses)
+
+`npm run pack:pgard` bundles the CLI, the dashboard server, the source-analysis worker and the pure-JavaScript third-party dependencies (the TypeScript compiler, `pdfkit` with `fontkit`, `@vue/compiler-sfc` with `postcss` and `@babel/parser`, and their transitive dependencies) into a few files under `dist/` with esbuild. The versions that go in are the ones `package-lock.json` resolves on the release machine (`npm ci`), so they are locked when the tarball is built: a malicious patch release of a transitive dependency published afterwards cannot reach anyone who installs `pgard` ([#358](https://github.com/JadenMeister/pgard/issues/358)).
+
+Two packages stay external and are the only `dependencies` of the published `package.json`, both exact pins: `@napi-rs/keyring` (native, one prebuilt binary per platform, installed by npm as optional packages) and `web-tree-sitter` (its WebAssembly runtime is loaded by file path). The tree-sitter grammars (`.wasm`), the PDF fonts and the dashboard client are copied to `assets/` and checked against pinned SHA-256 values at run time. The worker entry (`dist/source-worker.js`) and the picker's inspector child (`dist/inspector.js`) are separate entry points. No source maps are shipped (a source map would carry the build machine's file paths and the unminified sources); the bundle is not minified, so `dist/` stays readable for review.
+
+The pack step fails, and nothing is packed, when:
+
+- the `dependencies` of `packaging/pgard/package.json` are not exactly the two external packages with the workspaces' versions;
+- a bundled package has no license text (`LICENSE`, `COPYING` or `NOTICE` in its npm tarball), declares no license, or declares one that is not on the allowlist in `scripts/pack-licenses.mjs` (MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, and SPDX expressions where an allowed license satisfies the choice). A copyleft or unknown license is never bundled silently: the owner decides, then extends the allowlist in a reviewed change. Packages whose tarball lacks a license field or file are listed with their exact version in `LICENSE_OVERRIDES` in the same file; a new version of such a package fails until someone looks at it again;
+- the bundle imports anything that is neither a `node:` built-in nor a declared dependency, or loads a module by a computed path in code that is not on the reviewed allowlist (`ALLOWED_DYNAMIC_USES` in `scripts/pack-lib.mjs`, each entry with the reason it cannot run in PGARD, for example the TypeScript language-service plugin loader);
+- one of the path rewrites for `import.meta.url` asset lookups or the pdfkit and `@vue/compiler-sfc` patches in `scripts/pack-pgard.mjs` no longer matches exactly (an upgrade of those packages needs a look at the patch).
+
+The shipped `NOTICE.md` is the repository's `NOTICE.md` plus a generated section, "Bundled npm packages", with every bundled package, its version, its license and its license text. It is generated from the files that actually went into the bundle, so it needs no manual upkeep. When you upgrade a dependency, run `npm run pack:pgard` and `npm run smoke:pack`: the smoke test installs the tarball and scans a JavaScript, a Vue and a Python project, writes JSON, SARIF, HTML and PDF output, runs `precommit` and the dashboard from the installed package.
+
+The analyzer hash (`packages/scan-core/src/analyzer-hash.ts`) is computed from sources at build time by `scripts/analyzer-hash.mjs` and compiled into the bundle as a constant, so bundling does not change how it works. It also covers the declared and resolved versions of the parsers and compilers the analyzers run on, so a dependency bump in `package-lock.json` still makes the next scan a full one.
+
 ## Versioning
 
 PGARD uses [Semantic Versioning](https://semver.org). The version number covers everything a user or a script can depend on. **A change is breaking** (major bump after 1.0) when it changes any of these in a way an existing user or script can notice:
@@ -46,7 +63,7 @@ The workflow is safe to merge before any of this exists (see "What happens when 
    - `packaging/pgard/package.json` (`version`)
    - `packages/scan-core/src/version.ts` (`PGARD_VERSION`)
 4. **Update `CHANGELOG.md`.** Rename `## [Unreleased]` content to `## [X.Y.Z] - YYYY-MM-DD`, start a fresh empty `## [Unreleased]`, and update the compare links at the bottom. Group entries under Added, Changed, Fixed, Security (and Removed, Deprecated if needed). Mark breaking changes **BREAKING**.
-5. **Open a PR** `chore(release): vX.Y.Z` with only these changes, review it, and merge it. Run locally before: `npm run check`, `npm run corpus:check`, `npm run pack:pgard`, `npm run smoke:pack`.
+5. **Open a PR** `chore(release): vX.Y.Z` with only these changes, review it, and merge it. Run locally before: `npm run check`, `npm run corpus:check`, `npm run pack:pgard`, `npm run smoke:pack`. If dependencies changed since the last release, read the license count `pack:pgard` prints and the new entries of the "Bundled npm packages" section in the packed `NOTICE.md`.
 6. **Dry run (recommended).** Actions, `release`, Run workflow on `main` with the version and `dry_run` ticked. It verifies everything and runs `npm publish --dry-run`; nothing is published. The dry run still uses the `publish` job, so it **also waits for the `npm-publish` approval and requests an OIDC token**. A dispatch on a branch can only be a dry run; a real publish needs a tag.
 7. **Tag.** On the merged commit of `main`: `git tag -a vX.Y.Z -m "pgard X.Y.Z"` and `git push origin vX.Y.Z`. Tags are `v` plus the exact version (`v0.1.0`, `v0.2.0-rc.1`); the workflow refuses a tag that does not equal `v` + the package version.
 8. **Approve.** The `verify` job builds, runs the gates and uploads the tarball. The `publish` job then waits at the `npm-publish` environment. A required reviewer opens the run, checks that the tag, the commit and the verify results are the intended ones, and approves. The publish job checks the tarball's checksum against the verify job, then runs `npm publish <tarball> --provenance --access public`.
@@ -73,6 +90,7 @@ npm view pgard dist-tags              # latest must be X.Y.Z (next for a pre-rel
   ```
 
 - Check that `npx pgard@X.Y.Z --version` works from a clean directory.
+- Check that the tarball is the one the release run built, not only the one the registry reports: `packaging/homebrew/update-formula.sh X.Y.Z` does this before it touches the formula (see [packaging/homebrew/README.md](../packaging/homebrew/README.md)). It compares the downloaded tarball with the subject digest of the provenance statement and runs `gh attestation verify`. The `verify` job also prints the tarball's sha256 in the run summary; pass it as `EXPECTED_SHA256=<hex>` to compare that too.
 
 ## Rollback
 

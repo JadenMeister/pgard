@@ -2,8 +2,11 @@
 // Builds the single installable package `pgard` into .pack/ (gitignored) and packs it into
 // .pack/pgard-<version>.tgz. Run `npm run build` first (`npm run pack:pgard` does both).
 //
-// Approach: esbuild bundles the workspace packages (@pgard/*) into a few ESM files under dist/;
-// every third-party package stays an external, pinned dependency of the package. The runtime
+// Approach: esbuild bundles the workspace packages (@pgard/*) and the pure-JS third-party packages
+// into a few ESM files under dist/ (#358), so their versions are locked when the tarball is built.
+// Only @napi-rs/keyring (native) and web-tree-sitter (WASM) stay external, pinned dependencies.
+// Every bundled package needs a permissive license and a license text, and NOTICE.md lists them
+// all (pack-licenses.mjs). No source maps are written. The runtime
 // assets (fonts, grammars, dashboard client) are copied to assets/, and the few import.meta.url
 // lookups that assume the workspace layout are rewritten to the packed layout. Every rewrite must
 // match exactly once, so a refactor of those lookups fails the build instead of shipping a broken
@@ -20,15 +23,20 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { builtinModules } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  REQUIRE_BANNER,
   findDynamicCodeUses,
   findExternalViolations,
+  EXTERNAL_PACKAGES,
   npmCommand,
+  packageNameOf,
   shippedGrammarsReadme,
   shippedNotice,
 } from "./pack-lib.mjs";
+import { bundledPackages, licenseProblems, renderBundledNotice } from "./pack-licenses.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packDir = join(root, ".pack");
@@ -65,16 +73,24 @@ for (const group of ["apps", "packages"]) {
     }
   }
 }
+// Only the external packages (native keyring, WASM tree-sitter runtime) are dependencies of the
+// published package; every other third-party dependency of the workspaces is bundled (#358).
+for (const dep of EXTERNAL_PACKAGES) {
+  if (!workspaceDeps.has(dep)) fail(`${dep} is external but no workspace depends on it`);
+}
+const externalDeps = Object.fromEntries(
+  [...workspaceDeps].filter(([dep]) => EXTERNAL_PACKAGES.includes(dep)),
+);
 if (
-  JSON.stringify([...workspaceDeps].sort()) !==
+  JSON.stringify(Object.entries(externalDeps).sort()) !==
   JSON.stringify(Object.entries(template.dependencies).sort())
 ) {
   fail(
-    "dependencies in packaging/pgard/package.json differ from the workspaces' third-party " +
-      `dependencies: ${JSON.stringify(Object.fromEntries(workspaceDeps))}`,
+    "dependencies in packaging/pgard/package.json must be exactly the external packages " +
+      `${EXTERNAL_PACKAGES.join(", ")} with the workspaces' versions: ${JSON.stringify(externalDeps)}`,
   );
 }
-for (const [dep, range] of Object.entries(template.dependencies)) {
+for (const [dep, range] of [...workspaceDeps]) {
   if (!/^(npm:[^@]+@)?\d+\.\d+\.\d+$/.test(range)) fail(`${dep} is not an exact version: ${range}`);
 }
 if (template.scripts) fail("the package must not define install scripts");
@@ -95,7 +111,8 @@ if (template.publishConfig?.access !== "public" || template.publishConfig?.prove
 // No npm-shrinkwrap.json on purpose (evaluated for #228, rejected for now): npm ignores it for
 // installs from a tarball, and for registry installs it nests every dependency under the package
 // and installs all 12 platform binaries of @napi-rs/keyring (about 25 MB instead of 588 KB). The
-// direct dependencies are exact pins (checked above); transitive ones float within their ranges.
+// two dependencies are exact pins (checked above) and everything else is bundled (#358); the only
+// transitive packages left are the exact-pinned optional platform binaries of @napi-rs/keyring.
 
 // --- Rewrites of workspace-layout asset lookups (each must match exactly once). ---
 const rewrites = [
@@ -148,14 +165,75 @@ const rewritePlugin = {
     });
   },
 };
-// Third-party packages stay external (real dependencies); only @pgard/* and relative files bundle.
+// Only the native keyring and the WASM tree-sitter runtime stay external (real dependencies); every
+// other third-party package is bundled so its transitive versions are locked at release time.
 const externalPlugin = {
   name: "third-party-external",
   setup(b) {
     b.onResolve({ filter: /^[^./]/ }, (args) => {
-      if (args.path.startsWith("@pgard/") || /^[A-Za-z]:[\\/]/.test(args.path)) return undefined;
-      return { path: args.path, external: true };
+      if (/^[A-Za-z]:[\\/]/.test(args.path)) return undefined;
+      return EXTERNAL_PACKAGES.includes(packageNameOf(args.path))
+        ? { path: args.path, external: true }
+        : undefined;
     });
+  },
+};
+
+// pdfkit loads its 14 standard-font metrics with `createRequire(import.meta.url)("#standard-fonts/X")`,
+// a package-imports lookup that cannot work once pdfkit is inlined into dist/. Turn the 14 calls
+// into plain `require("#standard-fonts/X")`, which esbuild resolves through pdfkit's own "imports"
+// map and bundles. Each pattern must match exactly as often as expected, or the build fails.
+const pdfkitPlugin = {
+  name: "pdfkit-standard-fonts",
+  setup(b) {
+    b.onLoad({ filter: /[\\/]pdfkit[\\/]js[\\/]pdfkit\.node\.mjs$/ }, (args) => {
+      let source = readFileSync(args.path, "utf8");
+      const edit = (pattern, to, expected) => {
+        const count = [...source.matchAll(pattern)].length;
+        if (count !== expected) fail(`pdfkit: expected ${expected} x ${pattern}, found ${count}`);
+        source = source.replace(pattern, to);
+      };
+      edit(/^import \{ createRequire \} from 'module';\n/gm, "", 1);
+      edit(/^const require\$1 = createRequire\(import\.meta\.url\);\n/gm, "", 1);
+      edit(/require\$1\('(#standard-fonts\/\w+)'\)/g, "require('$1')", 14);
+      if (/createRequire|require\$1/.test(source)) fail("pdfkit: createRequire is still used");
+      return { contents: source, loader: "js", resolveDir: dirname(args.path) };
+    });
+  },
+};
+
+// @vue/compiler-sfc's CommonJS build requires optional template engines (pug, ejs, handlebars,
+// react-dom/server, ...) by name for `<template lang="...">` preprocessing, which PGARD never uses
+// (it only calls `parse`). Inside that package's dist/, a require of anything that is neither a
+// built-in nor one of its declared dependencies becomes a module that throws the "Cannot find
+// module" error compiler-sfc already expects, so nothing unrelated (a dev dependency of this
+// repository that happens to be installed) is pulled into the bundle. Elsewhere nothing is stubbed.
+const sfcDependencies = new Set(
+  Object.keys(
+    JSON.parse(readFileSync(join(root, "node_modules/@vue/compiler-sfc/package.json"), "utf8"))
+      .dependencies,
+  ),
+);
+const absentOptionalPlugin = {
+  name: "compiler-sfc-optional-engines",
+  setup(b) {
+    b.onResolve({ filter: /^[^./]/ }, (args) => {
+      if (args.kind !== "require-call") return undefined;
+      // TypeScript's optional `--enableSourceMaps` hook, in a try block; the package is not installed.
+      if (
+        args.path === "source-map-support" &&
+        /[\\/]typescript-api[\\/]lib[\\/]/.test(args.importer)
+      )
+        return { path: args.path, namespace: "absent-optional" };
+      if (!/[\\/]@vue[\\/]compiler-sfc[\\/]dist[\\/]/.test(args.importer)) return undefined;
+      const name = packageNameOf(args.path.replace(/^node:/, ""));
+      if (sfcDependencies.has(name) || builtinModules.includes(name)) return undefined;
+      return { path: args.path, namespace: "absent-optional" };
+    });
+    b.onLoad({ filter: /.*/, namespace: "absent-optional" }, (args) => ({
+      contents: `throw Object.assign(new Error(${JSON.stringify(`Cannot find module '${args.path}'`)}), { code: "MODULE_NOT_FOUND" });`,
+      loader: "js",
+    }));
   },
 };
 
@@ -171,17 +249,22 @@ const result = await build({
     "smoke-grammar": join(root, "packaging/smoke-grammar-entry.js"),
     "source-worker": join(root, "packages/source-analysis/dist/analyze-worker.js"),
   },
+  absWorkingDir: root,
   outdir: join(stage, "dist"),
   bundle: true,
   splitting: true,
   format: "esm",
   platform: "node",
   target: "node22",
+  // Bundled CommonJS (typescript, @vue/compiler-sfc, postcss) calls require() on node: built-ins.
+  banner: { js: REQUIRE_BANNER },
+  // Vue's CommonJS entry picks its production or development build at run time; pick one.
+  define: { "process.env.NODE_ENV": '"production"' },
   sourcemap: false,
   legalComments: "none",
   logLevel: "warning",
   metafile: true,
-  plugins: [rewritePlugin, externalPlugin],
+  plugins: [rewritePlugin, externalPlugin, pdfkitPlugin, absentOptionalPlugin],
 });
 for (const rule of rewrites) if (!rule.done) fail(`rewrite for ${rule.file} was never applied`);
 
@@ -195,9 +278,17 @@ const dynamicUses = readdirSync(join(stage, "dist"))
   );
 if (dynamicUses.length > 0)
   fail(`unverifiable module loading in the bundle:\n  ${dynamicUses.join("\n  ")}`);
-const violations = findExternalViolations(result.metafile, template.dependencies);
+const violations = findExternalViolations(result.metafile, template.dependencies, {
+  allowBareBuiltins: true,
+});
 if (violations.length > 0)
   fail(`undeclared externals in the bundle:\n  ${violations.join("\n  ")}`);
+
+// Every bundled third-party package needs a permissive license and a license text (#358).
+const bundled = bundledPackages(result.metafile, root);
+const licenseIssues = licenseProblems(bundled);
+if (licenseIssues.length > 0) fail(`bundled package licenses:\n  ${licenseIssues.join("\n  ")}`);
+console.log(`pack:pgard: ${bundled.length} third-party packages bundled, all permissive`);
 
 // --- Assets and legal files. ---
 const copy = (from, to) => cpSync(join(root, from), join(stage, to), { recursive: true });
@@ -222,7 +313,7 @@ for (const name of ["LICENSE", "README.md"]) copy(name, name);
 // NOTICE.md names repository paths; the package layout differs (assets/fonts, assets/grammars).
 writeFileSync(
   join(stage, "NOTICE.md"),
-  shippedNotice(readFileSync(join(root, "NOTICE.md"), "utf8")),
+  `${shippedNotice(readFileSync(join(root, "NOTICE.md"), "utf8")).trimEnd()}\n\n${renderBundledNotice(bundled)}`,
 );
 writeFileSync(join(stage, "package.json"), `${JSON.stringify(template, null, 2)}\n`);
 
