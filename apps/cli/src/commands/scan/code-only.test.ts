@@ -223,7 +223,8 @@ describe("any folder (D4)", () => {
     const home = path.join(base, "RealHome");
     await mkdir(home);
     const link = path.join(base, "home-link");
-    await symlink(home, link);
+    // A junction on Windows (no admin rights needed); the type is ignored elsewhere.
+    await symlink(home, link, "junction");
     expect(await codeOnlyFolderRefusal(home, link, "linux")).toBe("home");
     expect(await codeOnlyFolderRefusal(link, home, "linux")).toBe("home");
     expect(await codeOnlyFolderRefusal(base, link, "linux")).toBe("above_home");
