@@ -233,6 +233,7 @@ export async function runDoctor(context: CommandContext): Promise<ExitCode> {
         : style.yellow("[warn]");
     out(context, `  ${mark} ${check.label}: ${check.detail}`);
   }
+  out(context, `  ${style.dim("[info]")} ${text.codeOnlyInfo}`);
   const failedCount = checks.filter((check) => check.isRequired && !check.isOk).length;
   out(
     context,

@@ -27,6 +27,19 @@ describe("runProjectVerify", () => {
     expect(stdout).toContain("[passed] repository");
     expect(stdout).toContain("[unverifiable] owner approval: Not evaluated.");
     expect(stdout).toContain("not stored");
+    expect(stdout).toContain("`pgard scan code` checks the current files without approval.");
+  });
+
+  it("points to the code-only scan in Korean when blocked", async () => {
+    const captured = createTestIo();
+    const context = createTestContext(
+      captured,
+      createTestDeps({
+        verifyProject: async () => ({ summary: BLOCKED, repo: "owner/name", revision: null }),
+      }),
+    );
+    expect(await runProjectVerify({ ...context, ruleLocale: "ko" })).toBe(3);
+    expect(captured.stdout()).toContain("`pgard scan code`는 승인 없이 현재 파일을 검사합니다.");
   });
 
   it("exits 0 when allowed and names an override App once on stderr", async () => {

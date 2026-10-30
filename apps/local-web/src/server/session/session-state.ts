@@ -106,6 +106,11 @@ export interface SessionState {
     result: ScanResult | null;
     message: string | null;
     controller: AbortController | null;
+    /**
+     * PROTOTYPE (#414): true for a code-only scan started with `POST /api/code-scan` (no
+     * authorization gate, code scope only). Absent or false: an authorized scan.
+     */
+    codeOnly?: boolean;
   };
 }
 

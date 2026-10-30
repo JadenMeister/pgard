@@ -117,12 +117,12 @@ const words = (text: string): string => text.replace(/\s+/g, " ");
 describe("pgard scan builds on the last stored scan", () => {
   it("shows a full scan first, then an incremental one that re-scans only what changed", async () => {
     const repo = createProject();
-    const first = await pgardScan(repo, ["scan", "code"]);
+    const first = await pgardScan(repo, ["scan", "code", "--require-authorization"]);
     expect(first.result.incremental).toMatchObject({ used: false, reason: "no_previous_scan" });
     expect(words(first.stdout)).toContain("Full scan no earlier stored scan of this repository");
 
     writeFileSync(path.join(repo.root, "src/b.ts"), "export const b = 2;\n");
-    const second = await pgardScan(repo, ["scan", "code"]);
+    const second = await pgardScan(repo, ["scan", "code", "--require-authorization"]);
     expect(second.result.incremental).toMatchObject({
       used: true,
       filesRescanned: 1,
@@ -137,15 +137,21 @@ describe("pgard scan builds on the last stored scan", () => {
 
   it("says it in Korean with --lang ko", async () => {
     const repo = createProject();
-    await pgardScan(repo, ["scan", "code"]);
-    const second = await pgardScan(repo, ["scan", "code", "--lang", "ko"]);
+    await pgardScan(repo, ["scan", "code", "--require-authorization"]);
+    const second = await pgardScan(repo, [
+      "scan",
+      "code",
+      "--require-authorization",
+      "--lang",
+      "ko",
+    ]);
     expect(words(second.stdout)).toContain("증분 검사 파일 0개 다시 검사, 3개 재사용");
   }, 30_000);
 
   it("scans everything again with --full, and says why", async () => {
     const repo = createProject();
-    await pgardScan(repo, ["scan", "code"]);
-    const full = await pgardScan(repo, ["scan", "code", "--full"]);
+    await pgardScan(repo, ["scan", "code", "--require-authorization"]);
+    const full = await pgardScan(repo, ["scan", "code", "--require-authorization", "--full"]);
     expect(full.result.incremental).toMatchObject({
       used: false,
       reason: "requested_full",
@@ -157,18 +163,29 @@ describe("pgard scan builds on the last stored scan", () => {
 
   it("does not read or keep anything with --no-store", async () => {
     const repo = createProject();
-    await pgardScan(repo, ["scan", "code"]);
-    const noStore = await pgardScan(repo, ["scan", "code", "--no-store"]);
+    await pgardScan(repo, ["scan", "code", "--require-authorization"]);
+    const noStore = await pgardScan(repo, [
+      "scan",
+      "code",
+      "--require-authorization",
+      "--no-store",
+    ]);
     expect(noStore.result.incremental).toMatchObject({ used: false, reason: "store_unavailable" });
   }, 30_000);
 
   it("prints the incremental field in JSON and keeps stdout a single document", async () => {
     const repo = createProject();
-    await pgardScan(repo, ["scan", "code"]);
-    const json = await pgardScan(repo, ["scan", "code", "--format", "json"]);
+    await pgardScan(repo, ["scan", "code", "--require-authorization"]);
+    const json = await pgardScan(repo, [
+      "scan",
+      "code",
+      "--require-authorization",
+      "--format",
+      "json",
+    ]);
     const read = readScanResult(JSON.parse(json.stdout));
     expect(read.ok && read.result.incremental?.used).toBe(true);
-    expect(read.ok && read.result.schemaVersion).toBe("1.6");
+    expect(read.ok && read.result.schemaVersion).toBe("1.7");
   }, 30_000);
 
   it("falls back to a full scan when the history was rewritten", async () => {
@@ -194,7 +211,7 @@ describe("pgard scan builds on the last stored scan", () => {
 
   it("never writes a path or a source line into the stored state", async () => {
     const repo = createProject();
-    await pgardScan(repo, ["scan", "code"]);
+    await pgardScan(repo, ["scan", "code", "--require-authorization"]);
     const stored = listJsonFiles(home);
     expect(stored.length).toBeGreaterThan(0);
     for (const file of stored) {

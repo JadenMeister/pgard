@@ -3,6 +3,7 @@ import type { GitRunner } from "@pgard/git-history";
 import type { RepositoryInspection } from "@pgard/policy";
 import {
   safetyProblemOf,
+  tooBroadToScan,
   type ScopeDirent,
   type ScopeFs,
   type ScopeRoot,
@@ -19,6 +20,7 @@ import {
   type PickerBlockCode,
   type RawCandidate,
   type RecentOutcome,
+  type ResolveRefusal,
   type StoppedBy,
 } from "./protocol.js";
 
@@ -197,11 +199,20 @@ export async function inspectCandidate(
   root: ScopeRoot,
   rootIndex: number,
   segments: ReadonlyArray<{ name: string; dev?: number; ino?: number }>,
-  mode: "full" | "recheck",
+  mode: "full" | "recheck" | "folder",
 ): Promise<RawCandidate> {
   const limits = limitsOf(deps);
   const chain = await walkChain(deps, root, segments);
   const base = { rootIndex, segments: chain.segments };
+  if (mode === "folder") {
+    // PROTOTYPE (#414), code-only: the chain itself, its ownership and write bits; no Git.
+    return {
+      ...base,
+      gitIdentity: null,
+      remote: { status: "unreadable" },
+      block: blockFromSafety(collectSafety(deps, chain.directories)),
+    };
+  }
   const blocked = (
     block: NonNullable<RawCandidate["block"]>,
     gitIdentity: GitIdentity | null = null,
@@ -292,7 +303,7 @@ async function inspectOrBlock(
   root: ScopeRoot,
   rootIndex: number,
   segments: ReadonlyArray<{ name: string; dev?: number; ino?: number }>,
-  mode: "full" | "recheck",
+  mode: "full" | "recheck" | "folder",
 ): Promise<RawCandidate | "changed"> {
   try {
     return await inspectCandidate(deps, root, rootIndex, segments, mode);
@@ -528,6 +539,99 @@ async function resolveRecent(
   return { status: "candidate", candidate: result };
 }
 
+/** Most folder names from the anchor down to a chosen folder. */
+export const MAX_RESOLVE_SEGMENTS = 24;
+
+/**
+ * PROTOTYPE (#414): a folder the user chose in the OS dialog or pasted. The path is resolved
+ * with realpath (a symbolic link anywhere in it is resolved, never trusted as a name), must be a
+ * directory, and must not be `/`, a top-level folder, the home folder or one of its parents.
+ *
+ * The anchor the chain is checked from: the home folder when the folder is inside it; otherwise
+ * the highest folder above it, still owned by this user. Every folder from the anchor down is
+ * then walked by name with `lstat` exactly like a search candidate, so the ownership and
+ * write-bit rules are the same; the folder just above the anchor must not let another user
+ * replace the anchor (writable by others without the sticky bit refuses).
+ */
+async function resolveFolder(
+  deps: InspectorDeps,
+  job: Extract<InspectorJob, { kind: "resolve" }>,
+): Promise<void> {
+  const refuse = (reason: ResolveRefusal, paths: string[] = []): void =>
+    deps.emit({ t: "refused", reason, paths });
+  if (!path.posix.isAbsolute(job.path) || job.path.includes("\0")) return refuse("missing");
+  let target: string;
+  try {
+    target = await deps.fs.realpath(job.path);
+  } catch (error) {
+    return refuse(isGoneError(error) ? "missing" : "unreadable");
+  }
+  let stat: ScopeStat;
+  try {
+    stat = await deps.fs.lstat(target);
+  } catch {
+    return refuse("unreadable");
+  }
+  if (stat.isSymbolicLink || !stat.isDirectory) return refuse("not_a_directory");
+  let home: string | null = null;
+  try {
+    home = path.posix.isAbsolute(job.homeDir) ? await deps.fs.realpath(job.homeDir) : null;
+  } catch {
+    home = null;
+  }
+  // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
+  if (tooBroadToScan(target, home, { pathApi: path.posix }) !== null) return refuse("too_broad");
+  let anchor: string;
+  if (home !== null && target.startsWith(`${home}/`)) {
+    anchor = home;
+  } else {
+    if (safetyProblemOf(stat, deps.uid) === "not_owned_by_you") {
+      return refuse("not_owned_by_you", [target]);
+    }
+    anchor = target;
+    for (;;) {
+      const parent = path.posix.dirname(anchor);
+      if (parent === "/" || parent === anchor) break;
+      let parentStat: ScopeStat;
+      try {
+        parentStat = await deps.fs.lstat(parent);
+      } catch {
+        return refuse("unreadable");
+      }
+      if (deps.uid === undefined || parentStat.uid !== deps.uid) break;
+      anchor = parent;
+    }
+  }
+  const above = path.posix.dirname(anchor);
+  if (above !== anchor) {
+    let aboveStat: ScopeStat;
+    try {
+      aboveStat = await deps.fs.lstat(above);
+    } catch {
+      return refuse("unreadable");
+    }
+    const isWritableByOthers = (aboveStat.mode & 0o022) !== 0;
+    const isSticky = (aboveStat.mode & 0o1000) !== 0;
+    if (isWritableByOthers && !isSticky) return refuse("group_or_world_writable", [above]);
+  }
+  const names = target === anchor ? [] : target.slice(anchor.length + 1).split("/");
+  if (names.length > MAX_RESOLVE_SEGMENTS) return refuse("too_deep");
+  let anchorStat: ScopeStat;
+  try {
+    anchorStat = await deps.fs.lstat(anchor);
+  } catch {
+    return refuse("unreadable");
+  }
+  if (anchorStat.isSymbolicLink || !anchorStat.isDirectory) return refuse("unreadable");
+  const root: ScopeRoot = { path: anchor, dev: anchorStat.dev, ino: anchorStat.ino };
+  const chain = names.map((name) => ({ name }));
+  const candidate = await inspectOrBlock(deps, root, 0, chain, "full");
+  if (candidate === "changed") return refuse("unreadable");
+  const folder = await inspectOrBlock(deps, root, 0, candidate.segments, "folder");
+  if (folder === "changed") return refuse("unreadable");
+  deps.emit({ t: "resolved", root, candidate, folderBlock: folder.block });
+}
+
 /** Entry point of one inspector job. Always ends with a `done` message. */
 export async function runInspectorJob(deps: InspectorDeps, job: InspectorJob): Promise<void> {
   const started = deps.now();
@@ -540,6 +644,14 @@ export async function runInspectorJob(deps: InspectorDeps, job: InspectorJob): P
       skipped: [],
     });
   if (job.kind === "search") return runSearch(deps, job);
+  if (job.kind === "resolve") {
+    try {
+      await resolveFolder(deps, job);
+    } catch {
+      deps.emit({ t: "refused", reason: "unreadable", paths: [] });
+    }
+    return done();
+  }
   if (job.kind === "inspect") {
     const result = await inspectOrBlock(deps, job.root, 0, job.segments, job.mode);
     deps.emit(

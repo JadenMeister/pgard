@@ -230,6 +230,26 @@ function printSkippedByDesign(
     );
   }
   if (parts.length > 0) out(context, context.style.dim(t.byDesign(parts.join("; "))));
+  printBinarySuspected(context, t, report);
+}
+
+/**
+ * Staged files that look binary by content only (no known signature): named as a warning and
+ * never a block, whatever `whenNotScanned` says. Many real binary formats have no signature
+ * PGARD knows (icons, fonts, audio, ...), so blocking on them would block ordinary commits.
+ */
+function printBinarySuspected(
+  context: CommandContext,
+  t: PrecommitText,
+  report: StagedScanReport,
+): void {
+  const names = report.skipped
+    .filter((item) => item.reason === "binary_suspected")
+    .map((item) => item.path);
+  if (names.length === 0) return;
+  const shown = names.slice(0, MAX_SKIPPED_SHOWN).map((name) => safeText(name, 80));
+  const list = `${shown.join(", ")}${names.length > shown.length ? ", ..." : ""}`;
+  out(context, context.style.yellow(t.binarySuspected(names.length, list)));
 }
 
 function printSkipped(context: CommandContext, t: PrecommitText, report: StagedScanReport): void {

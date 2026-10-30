@@ -138,6 +138,7 @@ export function testFinding(overrides: Partial<Finding> = {}): Finding {
 export function testResult(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
     schemaVersion: SCHEMA_VERSION,
+    scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "scan-1234abcd",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",
@@ -154,6 +155,35 @@ export function testResult(overrides: Partial<ScanResult> = {}): ScanResult {
     advisoryDb: { version: null, updatedAt: null },
     ...overrides,
   };
+}
+
+/** A code-only result, as `runCodeOnlyScan` writes it (JSON 1.7, #414). */
+export function codeOnlyTestResult(overrides: Partial<ScanResult> = {}): ScanResult {
+  return testResult({
+    scanBasis: { mode: "code_only", authorization: "not_verified", reason: "not_checked" },
+    requestedScopes: ["code"],
+    target: { repo: null, revision: null, webOrigin: null },
+    authorization: {
+      decision: "blocked",
+      checks: (
+        [
+          "repository",
+          "github_identity",
+          "owner_approval",
+          "current_access",
+          "contribution",
+        ] as const
+      ).map((id) => ({
+        id,
+        status: "unverifiable" as const,
+        reason: "Not checked: code-only scan.",
+      })),
+    },
+    coverage: [
+      { area: "source:typescript", scope: "code", status: "completed", ruleIds: [], note: null },
+    ],
+    ...overrides,
+  });
 }
 
 export const HTTP_IDENTITY: ServiceIdentity = {
@@ -200,6 +230,7 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     findGitRoot: async () => "/work/repo",
     verifyProject: async () => ({ summary: ALLOWED, repo: "owner/name", revision: "abc" }),
     runScan: async () => testResult(),
+    runCodeOnlyScan: async () => codeOnlyTestResult(),
     recheckOwnerApproval: unexpected("recheckOwnerApproval") as never,
     // Never opens a real browser; a test that expects a call overrides it.
     openBrowser: unexpected("openBrowser") as never,

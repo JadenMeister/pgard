@@ -79,6 +79,25 @@ describe.skipIf(process.platform === "win32")(
       expect(await waitFor(() => !isAlive(pid))).toBe(true);
     });
 
+    // A child is tracked from the moment it is spawned, which happens in the same tick as the
+    // call. So the check runs before the promise is awaited: on the old code a child is already
+    // live here (the driver-override lookup, or the command itself), and is killed a moment later.
+    it.each([
+      ["a metadata command", HEAD_LOOKUP],
+      ["a command that reads the driver overrides first", { subcommand: "ls-files" } as const],
+    ] satisfies [string, GitInvocation][])(
+      "does not start a child when the signal is already aborted (%s)",
+      async (_name, invocation) => {
+        const repo = blockedRepository();
+        const controller = new AbortController();
+        controller.abort();
+        const outcome = runGit(invocation, { cwd: repo.root, signal: controller.signal });
+        expect(liveGitChildPids()).toEqual([]);
+        await expect(outcome).rejects.toMatchObject({ kind: "cancelled" });
+        expect(liveGitChildPids()).toEqual([]);
+      },
+    );
+
     it("kills the child when the exit hook runs", async () => {
       expect(process.listeners("exit")).toContain(killAllGitChildren);
       const { pid, outcome } = await startBlocked();

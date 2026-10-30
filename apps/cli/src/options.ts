@@ -46,6 +46,11 @@ export type ParsedCommand =
       noStore?: boolean;
       /** `--full`: do not build on an earlier stored scan; scan everything again. */
       full?: boolean;
+      /**
+       * `--require-authorization` (`pgard scan code` only): run the authorization gate first, as
+       * the other scopes always do, instead of a code-only scan.
+       */
+      requireAuthorization?: boolean;
       /** `--panels`: after the text result, open the full-screen panel view (terminals only). */
       panels?: boolean;
       /** `--lang`: language of rule texts in the terminal result. */
@@ -198,6 +203,9 @@ const FROM_CURRENT_FLAG = "--from-current";
 /** Flag (no value), `pgard scan` only: scan everything again instead of building on the last stored scan. */
 const FULL_FLAG = "--full";
 
+/** Flag (no value), `pgard scan code` only: run the authorization gate instead of a code-only scan. */
+const REQUIRE_AUTHORIZATION_FLAG = "--require-authorization";
+
 /** Flag (no value), `pgard scan` only: open the full-screen panel view over the result. */
 const PANELS_FLAG = "--panels";
 
@@ -218,6 +226,7 @@ const FLAG_OPTIONS = [
   [ALL_FINDINGS_FLAG, "allFindings"],
   [FIXES_FLAG, "fixes"],
   [FULL_FLAG, "full"],
+  [REQUIRE_AUTHORIZATION_FLAG, "requireAuthorization"],
   [FORCE_FLAG, "force"],
   [NO_OPEN_FLAG, "noOpen"],
   [PANELS_FLAG, "panels"],
@@ -249,6 +258,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     noOpen: false,
     panels: false,
     fromCurrent: false,
+    requireAuthorization: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
@@ -426,6 +436,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       "main",
     );
   }
+  if (split.requireAuthorization && !(command === "scan" && sub === "code")) {
+    throw new UsageError(
+      `Option ${REQUIRE_AUTHORIZATION_FLAG} is only available for pgard scan code (every other scan always requires authorization).`,
+      "main",
+    );
+  }
   if (split.full && command !== "scan") {
     throw new UsageError(`Option ${FULL_FLAG} is only available for pgard scan.`, "main");
   }
@@ -535,6 +551,7 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         ...(split.fixes ? { fixes: true } : {}),
         ...(split.noStore ? { noStore: true } : {}),
         ...(split.full ? { full: true } : {}),
+        ...(split.requireAuthorization ? { requireAuthorization: true } : {}),
         ...(split.panels ? { panels: true } : {}),
         ...(lang === undefined ? {} : { lang }),
         ...(reportLang === undefined ? {} : { reportLang }),

@@ -55,7 +55,13 @@ export interface RepoOptions {
 export function createRepo(dir: string, options: RepoOptions = {}): string {
   mkdirSync(dir, { recursive: true, mode: 0o755 });
   const git = (...args: string[]): string =>
-    execFileSync("git", args, { cwd: dir, encoding: "utf8", env: { ...GIT_ENV, HOME: dir } });
+    execFileSync("git", args, {
+      cwd: dir,
+      encoding: "utf8",
+      env: { ...GIT_ENV, HOME: dir },
+      timeout: 60_000,
+      killSignal: "SIGKILL",
+    });
   git("init", "-q", "-b", "main");
   git("config", "commit.gpgsign", "false");
   for (const [name, url] of Object.entries(options.remotes ?? {})) git("remote", "add", name, url);

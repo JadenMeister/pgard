@@ -192,7 +192,12 @@ describe("Korean CLI output", () => {
       ruleLocale: locale,
       ruleTexts: getRuleTextCatalog(),
     };
-    await runScanCommand(context, { variant: "code", port: null, report: null });
+    await runScanCommand(context, {
+      variant: "code",
+      requireAuthorization: true,
+      port: null,
+      report: null,
+    });
     return captured.stdout();
   }
 
@@ -227,7 +232,13 @@ describe("Korean CLI output", () => {
       ruleLocale: "ko" as const,
       ruleTexts: getRuleTextCatalog(),
     };
-    await runScanCommand(context, { variant: "code", port: null, report: null, format: "json" });
+    await runScanCommand(context, {
+      variant: "code",
+      requireAuthorization: true,
+      port: null,
+      report: null,
+      format: "json",
+    });
     const parsed = JSON.parse(captured.stdout()) as { findings: Array<{ title: string }> };
     expect(parsed.findings[0]?.title).toBe(sql.title);
     expect(captured.stdout()).not.toMatch(HANGUL);

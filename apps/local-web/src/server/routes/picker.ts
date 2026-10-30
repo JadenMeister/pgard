@@ -10,6 +10,12 @@ import {
   toggleRoot,
   type PickerContext,
 } from "../picker/service.js";
+import {
+  cancelFolderDialog,
+  choosePastedPath,
+  getFolderDialog,
+  openFolderDialog,
+} from "../picker/choose-folder.js";
 import type { ApiContext, ApiHandler } from "./api.js";
 import { ApiError } from "./api-error.js";
 
@@ -70,7 +76,36 @@ const confirm: ApiHandler = async (context, body) => {
 const clear: ApiHandler = async (context, body) =>
   clearProject(pickerContext(context), bodyRecord(body).epoch);
 
+// PROTOTYPE (#414): the folder dialog and the pasted path, simple screen only.
+function requireSimple(context: ApiContext): void {
+  if (context.ui !== "simple") throw new ApiError(404, "not_found", "Unknown API route.");
+}
+
+const browse: ApiHandler = async (context, body) => {
+  requireSimple(context);
+  return openFolderDialog(pickerContext(context), bodyRecord(body).lang);
+};
+
+const browseStatus: ApiHandler = async (context) => {
+  requireSimple(context);
+  return getFolderDialog(pickerContext(context));
+};
+
+const browseCancel: ApiHandler = async (context) => {
+  requireSimple(context);
+  return cancelFolderDialog(pickerContext(context));
+};
+
+const pastedPath: ApiHandler = async (context, body) => {
+  requireSimple(context);
+  return choosePastedPath(pickerContext(context), bodyRecord(body).path);
+};
+
 export const PICKER_ROUTES: Readonly<Record<string, ApiHandler>> = {
+  "POST /api/picker/browse": browse,
+  "GET /api/picker/browse": browseStatus,
+  "POST /api/picker/browse/cancel": browseCancel,
+  "POST /api/picker/path": pastedPath,
   "GET /api/picker/scope": scope,
   "POST /api/picker/scope/toggle": toggle,
   "POST /api/picker/search": search,

@@ -20,6 +20,7 @@ import {
   type IncrementalFullReason,
   type IncrementalInfo,
   type IncrementalState,
+  type KnownScanBasisReason,
   type PathMatcher,
   type RuleStat,
   type StandardsRule,
@@ -53,12 +54,14 @@ import {
 import {
   ScanCancelledError,
   type AnalyzerContext,
+  type LocalAnalyzer,
   type LocalAnalyzerOutput,
   type ScanDependencies,
   type ScanProgressEvent,
 } from "./types.js";
 import { listSupportedRules } from "./rules.js";
 import { PGARD_VERSION } from "./version.js";
+import { scanWorkingTreeSecrets } from "./working-tree-secrets.js";
 
 export class ScanRequestError extends Error {
   constructor(message: string) {
@@ -217,7 +220,83 @@ function normalizeRuleStats(
  * `ScanCancelledError` (aborted); internal errors produce `overallStatus: "failed"`.
  */
 export async function runScan(request: ScanRequest, deps: ScanDependencies): Promise<ScanResult> {
+  return executeScan(request, deps, "authorized");
+}
+
+/** Fixed reason on every check of a code-only result: the gate did not run. */
+export const CODE_ONLY_CHECK_REASON =
+  "Not checked: this was a code-only scan of the files on this computer. No authorization was proven.";
+
+/**
+ * A code-only scan (#414; `pgard scan code`, the web prototype) of the files in `projectRoot` without
+ * the authorization gate. Only the `code` scope runs (source rules and dependencies against the
+ * OSV data already on disk); no Git object is read, nothing is sent over the network, no
+ * incremental state is offered and nothing is stored. The result never claims authorization:
+ * `authorization.decision` is `blocked` and every check is `unverifiable` with
+ * `CODE_ONLY_CHECK_REASON`; `overallStatus` comes from the code coverage alone. Git history and
+ * web checks are refused here (`ScanRequestError`): they keep the full gate of `runScan`.
+ */
+export async function runCodeOnlyScan(
+  request: Pick<ScanRequest, "projectRoot"> & {
+    /**
+     * Why this scan is code-only (`scanBasis.reason`, default `not_checked`): for example
+     * `no_github_remote` or `not_a_git_repository` when the launcher knows the folder has no
+     * GitHub repository to verify, or `no_approval` after the gate blocked.
+     */
+    reason?: KnownScanBasisReason;
+  },
+  deps: Omit<
+    ScanDependencies,
+    "authorization" | "webScanner" | "webRules" | "incremental" | "onAuthorization"
+  >,
+): Promise<ScanResult> {
+  // The built-in code analyzer plus a secrets pass over the files on disk (secrets are otherwise
+  // found by the history scope, which a code-only scan never runs). An injected analyzer (tests)
+  // replaces both.
+  const defaultCode = createDefaultAnalyzers().code;
+  const code: LocalAnalyzer =
+    deps.analyzers?.code ??
+    (async (context) => {
+      const [base, secrets] = await Promise.all([
+        defaultCode(context),
+        scanWorkingTreeSecrets(context),
+      ]);
+      return {
+        ...base,
+        findings: [...base.findings, ...secrets.findings],
+        coverage: [...base.coverage, ...secrets.coverage],
+      };
+    });
+  return executeScan(
+    { projectRoot: request.projectRoot, scopes: ["code"], webTarget: null },
+    {
+      ...deps,
+      analyzers: { ...deps.analyzers, code },
+      authorization: { getGitHubSession: refuseGitHubSession },
+    },
+    "code_only",
+    request.reason ?? "not_checked",
+  );
+}
+
+/** Never called (the code-only path skips the gate); refuses if it ever were. */
+const refuseGitHubSession = Object.assign(
+  async (): Promise<never> => {
+    throw new Error("A code-only scan never signs in to GitHub.");
+  },
+  { invalidate: () => undefined, signOut: () => undefined, existing: async () => null },
+);
+
+async function executeScan(
+  request: ScanRequest,
+  deps: ScanDependencies,
+  mode: "authorized" | "code_only",
+  codeOnlyReason: KnownScanBasisReason = "not_checked",
+): Promise<ScanResult> {
   const requestedScopes = validateRequest(request);
+  if (mode === "code_only" && requestedScopes.some((scope) => scope !== "code")) {
+    throw new ScanRequestError("A code-only scan runs the code scope only.");
+  }
   // Without the web rules the standards map would not know what the web scanner can check and
   // would claim more than it can support, so a launcher that injects a scanner must name them.
   if (deps.webScanner !== undefined && deps.webRules === undefined) {
@@ -254,6 +333,8 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     ruleStats?: RuleStat[];
     incremental?: IncrementalInfo | null;
     overallStatus?: ScanResult["overallStatus"];
+    /** Why an authorized-mode scan is not verified; `no_approval` unless the gate failed. */
+    basisReason?: KnownScanBasisReason;
   }): ScanResult => ({
     schemaVersion: SCHEMA_VERSION,
     scanId,
@@ -264,7 +345,8 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
     overallStatus:
       fields.overallStatus ??
       deriveOverallStatus({
-        decision: fields.authorization.decision,
+        // A code-only result reports how much of the code scope ran; it is never `allowed`.
+        decision: mode === "code_only" ? "allowed" : fields.authorization.decision,
         requestedScopes,
         coverage: fields.coverage,
       }),
@@ -302,63 +384,83 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
       ruleStats: fields.ruleStats ?? [],
     }),
     ...(fields.incremental ? { incremental: fields.incremental } : {}),
+    scanBasis:
+      mode === "code_only"
+        ? { mode: "code_only", authorization: "not_verified", reason: codeOnlyReason }
+        : fields.authorization.decision === "allowed"
+          ? { mode: "authorized", authorization: "verified", reason: null }
+          : {
+              mode: "authorized",
+              authorization: "not_verified",
+              reason: fields.basisReason ?? "no_approval",
+            },
   });
 
   throwIfCancelled(deps.signal);
-  emit({
-    stage: "authorization",
-    status: "started",
-    message: "Verifying repository authorization.",
-  });
   let outcome: AuthorizationOutcome;
-  try {
-    outcome = await authorizeProject(request.projectRoot, {
-      ...deps.authorization,
-      ...(request.expectedRepo ? { expectedRepo: request.expectedRepo } : {}),
-      ...(deps.signal ? { signal: deps.signal } : {}),
-    });
-  } catch {
-    throwIfCancelled(deps.signal);
-    emit({ stage: "authorization", status: "failed", message: "Authorization check failed." });
-    return finish({
-      authorization: unverifiedSummary(
-        "Authorization could not be completed due to an internal error.",
-      ),
-      outcome: null,
-      coverage: SCAN_SCOPES.map((scope) =>
-        requestedScopes.includes(scope)
-          ? scopeCoverage(scope, "not_tested", "Authorization could not be completed.")
-          : scopeCoverage(scope, "not_selected", null),
-      ),
-      findings: [],
-      overallStatus: "failed",
-    });
-  }
-  throwIfCancelled(deps.signal);
-  try {
-    deps.onAuthorization?.(outcome);
-  } catch {
-    // Display hooks must never affect scan results.
-  }
-
-  if (!isAuthorizationAllowed(outcome)) {
+  if (mode === "code_only") {
+    outcome = { summary: unverifiedSummary(CODE_ONLY_CHECK_REASON), repo: null, revision: null };
     emit({
       stage: "authorization",
-      status: "failed",
-      message: "Scan blocked by authorization gate.",
+      status: "skipped",
+      message: "Code-only scan: authorization was not checked.",
     });
-    return finish({
-      authorization: { ...outcome.summary, decision: "blocked" },
-      outcome,
-      coverage: SCAN_SCOPES.map((scope) =>
-        requestedScopes.includes(scope)
-          ? scopeCoverage(scope, "not_tested", "Blocked by the authorization gate.")
-          : scopeCoverage(scope, "not_selected", null),
-      ),
-      findings: [],
+  } else {
+    emit({
+      stage: "authorization",
+      status: "started",
+      message: "Verifying repository authorization.",
     });
+    try {
+      outcome = await authorizeProject(request.projectRoot, {
+        ...deps.authorization,
+        ...(request.expectedRepo ? { expectedRepo: request.expectedRepo } : {}),
+        ...(deps.signal ? { signal: deps.signal } : {}),
+      });
+    } catch {
+      throwIfCancelled(deps.signal);
+      emit({ stage: "authorization", status: "failed", message: "Authorization check failed." });
+      return finish({
+        authorization: unverifiedSummary(
+          "Authorization could not be completed due to an internal error.",
+        ),
+        outcome: null,
+        coverage: SCAN_SCOPES.map((scope) =>
+          requestedScopes.includes(scope)
+            ? scopeCoverage(scope, "not_tested", "Authorization could not be completed.")
+            : scopeCoverage(scope, "not_selected", null),
+        ),
+        findings: [],
+        overallStatus: "failed",
+        basisReason: "check_failed",
+      });
+    }
+    throwIfCancelled(deps.signal);
+    try {
+      deps.onAuthorization?.(outcome);
+    } catch {
+      // Display hooks must never affect scan results.
+    }
+
+    if (!isAuthorizationAllowed(outcome)) {
+      emit({
+        stage: "authorization",
+        status: "failed",
+        message: "Scan blocked by authorization gate.",
+      });
+      return finish({
+        authorization: { ...outcome.summary, decision: "blocked" },
+        outcome,
+        coverage: SCAN_SCOPES.map((scope) =>
+          requestedScopes.includes(scope)
+            ? scopeCoverage(scope, "not_tested", "Blocked by the authorization gate.")
+            : scopeCoverage(scope, "not_selected", null),
+        ),
+        findings: [],
+      });
+    }
+    emit({ stage: "authorization", status: "completed", message: "Authorization verified." });
   }
-  emit({ stage: "authorization", status: "completed", message: "Authorization verified." });
 
   // The repository's own config is untrusted data: validated strictly, never able to change
   // authorization (which already ran), and an invalid one is ignored as a whole.
@@ -378,6 +480,7 @@ export async function runScan(request: ScanRequest, deps: ScanDependencies): Pro
   const configHash = fingerprintConfig(configLoad);
   // Web is never incremental: it is always scanned live. Only the local scopes can reuse.
   const plan: IncrementalPlan | null =
+    mode === "authorized" &&
     deps.incremental !== undefined &&
     (requestedScopes.includes("code") || requestedScopes.includes("history"))
       ? await planIncremental({

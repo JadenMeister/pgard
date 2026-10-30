@@ -51,8 +51,8 @@ function result(version: string, findings: unknown[]): unknown {
 }
 
 describe("schema 1.6 finding.fix", () => {
-  it("is version 1.6", () => {
-    expect(SCHEMA_VERSION).toBe("1.6");
+  it("is part of version 1.6 and later", () => {
+    expect(SCHEMA_VERSION).toBe("1.7");
   });
 
   it("is kept when valid, as a diff or as guidance", () => {

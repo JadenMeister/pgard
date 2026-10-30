@@ -129,7 +129,12 @@ describe.skipIf(process.platform === "win32")("pgard web end to end", () => {
     world.state.commits = {};
     // The contribution check needs a pull request or verified commit; a merged PR is simplest.
     const head = (await import("node:child_process"))
-      .execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" })
+      .execFileSync("git", ["rev-parse", "HEAD"], {
+        cwd: dir,
+        encoding: "utf8",
+        timeout: 60_000,
+        killSignal: "SIGKILL",
+      })
       .trim();
     world.state.pulls = {
       [head]: [

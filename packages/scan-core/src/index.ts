@@ -1,4 +1,10 @@
-export { runScan, ScanRequestError, isValidConfirmedWebTarget } from "./run-scan.js";
+export {
+  CODE_ONLY_CHECK_REASON,
+  runCodeOnlyScan,
+  runScan,
+  ScanRequestError,
+  isValidConfirmedWebTarget,
+} from "./run-scan.js";
 export {
   describeProjectConfig,
   loadProjectConfig,

@@ -43,7 +43,8 @@ const FULL: Coverage[] = [
 
 function scan(findings: Finding[], overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.6",
+    schemaVersion: "1.7",
+    scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "s1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",
@@ -51,7 +52,20 @@ function scan(findings: Finding[], overrides: Partial<ScanResult> = {}): ScanRes
     requestedScopes: ["code"],
     overallStatus: "completed",
     target: { repo: "o/n", revision: "abc", webOrigin: null },
-    authorization: { decision: "allowed", checks: [] },
+    authorization: {
+      decision: "allowed",
+      checks: [
+        "repository",
+        "github_identity",
+        "owner_approval",
+        "current_access",
+        "contribution",
+      ].map((id) => ({
+        id,
+        status: "passed",
+        reason: "ok",
+      })) as ScanResult["authorization"]["checks"],
+    },
     coverage: FULL,
     findings,
     advisoryDb: { version: null, updatedAt: null },
@@ -155,7 +169,7 @@ describe("applyBaseline", () => {
       SET_AT,
     );
     const read = readScanResult(JSON.parse(JSON.stringify(result)));
-    expect(read).toEqual({ ok: true, result, sourceVersion: "1.6" });
+    expect(read).toEqual({ ok: true, result, sourceVersion: "1.7" });
   });
 });
 

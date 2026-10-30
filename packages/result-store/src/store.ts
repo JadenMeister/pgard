@@ -252,6 +252,8 @@ function isNewerVersion(sourceVersion: string): boolean {
 /** The gate allowed this scan: exactly the five known checks, all passed. */
 export function isAllowedByGate(result: ScanResult): boolean {
   const { decision, checks } = result.authorization;
+  // 1.7: a code-only result is never stored, whatever its checks say (defence in depth).
+  if (result.scanBasis !== undefined && result.scanBasis.authorization !== "verified") return false;
   return (
     decision === "allowed" &&
     checks.length === AUTHORIZATION_CHECK_IDS.length &&

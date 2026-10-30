@@ -1,6 +1,7 @@
 import {
   ID_PATTERN,
   PICKER_BLOCK_CODES,
+  RESOLVE_REFUSALS,
   type ChainSegment,
   type ChildMessage,
   type GitIdentity,
@@ -9,6 +10,7 @@ import {
   type RawCandidate,
   type RecentOutcome,
   type RemoteInfo,
+  type ResolveRefusal,
   type StoppedBy,
 } from "./protocol.js";
 
@@ -18,7 +20,10 @@ import {
  * message that does not fit ends the job as failed.
  */
 
-const MAX_SEGMENTS = 8;
+/** A search walks at most this deep. */
+const MAX_SEARCH_SEGMENTS = 8;
+// A chosen folder (`resolve`, prototype #414) can be deeper below its anchor than a search walks.
+const MAX_SEGMENTS = 32;
 const MAX_NAME = 255;
 const MAX_PATH = 4096;
 const MAX_BLOCK_PATHS = 64;
@@ -39,8 +44,8 @@ function isText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.length <= max && !value.includes("\0");
 }
 
-function parseSegments(value: unknown): ChainSegment[] | null {
-  if (!Array.isArray(value) || value.length > MAX_SEGMENTS) return null;
+function parseSegments(value: unknown, max = MAX_SEGMENTS): ChainSegment[] | null {
+  if (!Array.isArray(value) || value.length > max) return null;
   const segments: ChainSegment[] = [];
   for (const entry of value) {
     const segment = obj(entry, ["name", "dev", "ino"]);
@@ -112,6 +117,7 @@ function parseCandidate(
   value: unknown,
   rootCount: number,
   needsRemote = true,
+  allowNoGit = false,
 ): RawCandidate | null {
   const record = obj(value, ["rootIndex", "segments", "gitIdentity", "remote", "block"]);
   if (record === null || !isInt(record.rootIndex) || record.rootIndex >= rootCount) return null;
@@ -135,7 +141,11 @@ function parseCandidate(
     block = { code: raw.code as PickerBlockCode, paths: raw.paths as string[] };
   }
   // A selectable candidate needs a github remote, a clean block and a known `.git` identity.
-  if (block === null && ((needsRemote && remote.status !== "github") || gitIdentity === null)) {
+  // A `folder` re-check (code-only, prototype #414) has no Git identity and no remote.
+  if (
+    block === null &&
+    ((needsRemote && remote.status !== "github") || (gitIdentity === null && !allowNoGit))
+  ) {
     return null;
   }
   return { rootIndex: record.rootIndex, segments, gitIdentity, remote, block };
@@ -161,10 +171,13 @@ function parseRecentOutcome(value: unknown, rootCount: number): RecentOutcome | 
 
 const STOPPED: ReadonlyArray<StoppedBy> = ["time", "entries", "candidates", null];
 
+/** The only blocks a `folder` check can report. */
+const FOLDER_BLOCKS: readonly PickerBlockCode[] = ["not_owned_by_you", "group_or_world_writable"];
+
 /** Returns the validated message, or `null` when it does not fit the schema for this job. */
 export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMessage | null {
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return null;
-  const rootCount = job.kind === "inspect" ? 1 : job.roots.length;
+  const rootCount = job.kind === "inspect" || job.kind === "resolve" ? 1 : job.roots.length;
   switch ((raw as Obj).t) {
     case "visited": {
       const message = obj(raw, ["t", "n"]);
@@ -172,7 +185,8 @@ export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMess
     }
     case "found": {
       const message = obj(raw, ["t", "key", "rootIndex", "segments"]);
-      const segments = message === null ? null : parseSegments(message.segments);
+      const segments =
+        message === null ? null : parseSegments(message.segments, MAX_SEARCH_SEGMENTS);
       return message !== null &&
         job.kind === "search" &&
         isInt(message.key) &&
@@ -184,12 +198,75 @@ export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMess
     }
     case "inspected": {
       const message = obj(raw, ["t", "key", "candidate"]);
-      const needsRemote = !(job.kind === "inspect" && job.mode === "recheck");
+      const needsRemote = !(job.kind === "inspect" && job.mode !== "full");
+      const allowNoGit = job.kind === "inspect" && job.mode === "folder";
       const candidate =
-        message === null ? null : parseCandidate(message.candidate, rootCount, needsRemote);
-      return message !== null && job.kind !== "recent" && isInt(message.key) && candidate !== null
+        message === null
+          ? null
+          : parseCandidate(message.candidate, rootCount, needsRemote, allowNoGit);
+      return message !== null &&
+        (job.kind === "search" || job.kind === "inspect") &&
+        isInt(message.key) &&
+        candidate !== null &&
+        (job.kind !== "search" || candidate.segments.length <= MAX_SEARCH_SEGMENTS)
         ? { t: "inspected", key: message.key, candidate }
         : null;
+    }
+    case "resolved": {
+      if (job.kind !== "resolve") return null;
+      const message = obj(raw, ["t", "root", "candidate", "folderBlock"]);
+      if (message === null) return null;
+      const root = obj(message.root, ["path", "dev", "ino"]);
+      if (
+        root === null ||
+        !isText(root.path, MAX_PATH) ||
+        !root.path.startsWith("/") ||
+        !isInt(root.dev) ||
+        !isInt(root.ino)
+      ) {
+        return null;
+      }
+      const candidate = parseCandidate(message.candidate, 1);
+      // The folder result carries only the ownership and write-bit block of the chain.
+      const folder = parseCandidate(
+        {
+          rootIndex: 0,
+          segments: candidate?.segments ?? [],
+          gitIdentity: null,
+          remote: { status: "unreadable" },
+          block: message.folderBlock,
+        },
+        1,
+        false,
+        true,
+      );
+      if (candidate === null || folder === null) return null;
+      if (folder.block !== null && !FOLDER_BLOCKS.includes(folder.block.code)) return null;
+      return {
+        t: "resolved",
+        root: { path: root.path, dev: root.dev, ino: root.ino },
+        candidate,
+        folderBlock: folder.block,
+      };
+    }
+    case "refused": {
+      if (job.kind !== "resolve") return null;
+      const message = obj(raw, ["t", "reason", "paths"]);
+      if (
+        message === null ||
+        typeof message.reason !== "string" ||
+        !(RESOLVE_REFUSALS as readonly string[]).includes(message.reason) ||
+        !Array.isArray(message.paths) ||
+        message.paths.length > MAX_BLOCK_PATHS ||
+        !message.paths.every((entry) => isText(entry, MAX_PATH))
+      ) {
+        return null;
+      }
+      return {
+        t: "refused",
+        reason: message.reason as ResolveRefusal,
+        paths: message.paths as string[],
+      };
     }
     case "changed":
       return obj(raw, ["t"]) !== null && job.kind === "inspect" ? { t: "changed" } : null;
