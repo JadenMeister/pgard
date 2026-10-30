@@ -77,8 +77,8 @@ Advanced commands:
   pgard scan all [--port N]     code + history + local HTTP service
   pgard dashboard [--target-port N]
                                 start the local web dashboard for this project
-  pgard web [--no-store]        start the dashboard with a project picker: search or
-                                drop a folder name in the browser (macOS and Linux)
+  pgard web [--no-store]        choose a folder in the browser and scan it
+                                (macOS and Linux)
   pgard web scope list | add <folder> | remove <folder>
                                 the folders pgard web searches for projects
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]
@@ -335,28 +335,34 @@ ${EXIT_CODE_HELP}`,
   web: `Usage:
   pgard web [--no-store] [--no-browser]
 
-Starts the local web dashboard on a free 127.0.0.1 port without a project, and
-prints its private URL. In the browser you search for a project by typing its
-folder name or by dropping the folder on the page. The browser sends only the
-name: pgard searches the folders listed by "pgard web scope list" (only common
-development folders such as ~/code, ~/projects and ~/Developer by default),
-shows the real path and the GitHub remote, and asks you to confirm. Only then
-the same five authorization checks as "pgard project verify" run, and a wrong
-folder can never lead straight to a scan. File contents are not read for this,
-and nothing is uploaded.
+Starts the local web page on a free 127.0.0.1 port and prints its private URL.
+Nothing is asked in the terminal. In the browser:
 
-Before the server starts, pgard prints the search folders and asks
-"Search these folders for projects? [y/N]" (a terminal is required). The browser
-can switch a folder off for the session but can never add one.
+  1. Choose folder opens your system's folder dialog, or paste the folder's path.
+     A home, system or .git folder is refused.
+  2. Scan checks GitHub approval first (the same five checks as pgard scan),
+     using a sign-in you already have; it never starts one by itself.
+  3. The findings appear: severity, file:line and a short title.
+
+When approval does not pass, the page says why in one line and offers
+"Scan code only (not authorized)" and "How to approve". A code-only scan runs
+only when you press that button, reads the current files only, is labelled
+"not authorized" (also in an export) and is never saved. Coverage, standards,
+rules, export and the full dashboard (Git history, local web checks, trend)
+are under More. File contents never leave this computer.
+
+The full dashboard's search picker searches only the folders you added with
+"pgard web scope add"; the browser can switch one off but never add one.
 
 --no-store reads and writes none of the picker's files (same as PGARD_NO_STORE=1):
-no recent list, and only the default search folders; "pgard web scope add" and
-"remove" refuse while PGARD_NO_STORE=1 is set. Without it, projects you confirm
-are remembered in the app-data folder as absolute paths (owner-only, never
-uploaded); pgard history clear --all deletes that list and the settings too.
+no recent list and no saved search folders; "pgard web scope add" and "remove"
+refuse while PGARD_NO_STORE=1 is set. Without it, projects you confirm in the
+search picker are remembered in the app-data folder as absolute paths
+(owner-only, never uploaded); pgard history clear --all deletes that list and
+the settings too.
 
 pgard dashboard stays fixed to the project of the current directory and refuses
-every picker request. The picker is not available on Windows yet.
+every picker request. pgard web is not available on Windows yet.
 
 Options:
   --no-store               do not read or write the picker's files (recent list,

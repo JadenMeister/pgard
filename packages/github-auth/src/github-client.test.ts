@@ -524,6 +524,20 @@ describe("a stalled network", () => {
     expect(seen?.aborted).toBe(true);
   });
 
+  it("covers reading the body with the same limit", async () => {
+    let seen: AbortSignal | undefined;
+    const fetch: FetchLike = async (_url, init) => {
+      seen = init.signal;
+      return { status: 200, ok: true, json: () => new Promise(() => undefined) };
+    };
+    const client = createGitHubClient({ token: "t", fetch, requestTimeoutMs: 20 });
+    await expect(client.getAuthenticatedUser()).rejects.toMatchObject({
+      code: "network_error",
+      message: "The GitHub API did not answer within 1 s.",
+    });
+    expect(seen?.aborted).toBe(true);
+  });
+
   it("allows 10 s per request by default", () => {
     expect(GITHUB_REQUEST_TIMEOUT_MS).toBe(10_000);
   });

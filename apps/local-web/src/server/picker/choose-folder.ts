@@ -25,7 +25,7 @@ import {
 import type { ScopeRoot } from "@pgard/result-store";
 
 /**
- * PROTOTYPE (#414): choosing the folder with the OS folder dialog or by pasting its path, for the
+ * #414: choosing the folder with the OS folder dialog or by pasting its path, for the
  * one-screen code-only flow. The browser never sends a path to the dialog route; for the paste
  * route it sends the text the user pasted, which is resolved and checked in the inspector child
  * exactly like a search candidate (realpath, `lstat` chain, ownership and write bits, display

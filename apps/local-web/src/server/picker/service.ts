@@ -577,7 +577,7 @@ export async function recheckProjectIdentity(
   context: PickerContext,
   project: ProjectRecord,
   epoch: number,
-  /** PROTOTYPE (#414): only the code-only scan accepts a `folder` project. */
+  /** Only a code-only scan, and the simple screen's gate-first scan, accept a `folder` project. */
   allowFolder = false,
 ): Promise<void> {
   const identity = project.identity;
@@ -736,7 +736,7 @@ export async function confirmCandidate(
 }
 
 /**
- * PROTOTYPE (#414): confirms a code-only folder (chosen in the OS dialog or pasted). The folder
+ * #414: confirms a code-only folder (chosen in the OS dialog or pasted). The folder
  * chain is walked again and must match what the user saw, with safe ownership and write bits.
  */
 async function confirmFolderCandidate(

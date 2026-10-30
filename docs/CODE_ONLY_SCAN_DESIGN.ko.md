@@ -4,7 +4,7 @@
 
 > **상태: 2026-10-29 소유자가 승인했습니다([#414](https://github.com/JadenMeister/pgard/issues/414), [#419](https://github.com/JadenMeister/pgard/issues/419)).** 단계별로 배포합니다(9절).
 >
-> - **1단계인 결과 표시가 들어갔습니다.** JSON 1.7 `scanBasis`, SARIF, 보고서 배너, 코드 전용 비밀값 문구입니다. CLI는 2단계까지 바뀌지 않으며, `PGARD_WEB_PROTOTYPE=code-only`를 설정하지 않으면 `pgard web`도 바뀌지 않습니다(4단계에서 프로토타입을 대체합니다). 현재 동작의 기준은 README입니다.
+> - **1단계인 결과 표시가 들어갔습니다.** JSON 1.7 `scanBasis`, SARIF, 보고서 배너, 코드 전용 비밀값 문구입니다. 2단계(CLI)와 3단계(precommit)가 들어갔습니다. **4단계가 들어갔습니다.** `pgard web`은 간단한 화면을 엽니다(폴더 선택, 검사는 권한 확인부터, 코드만 검사는 따로 눌렀을 때만). `PGARD_WEB_PROTOTYPE` 플래그는 없어졌습니다. 현재 동작의 기준은 README입니다.
 > - **결정 사항**은 **[Owner decision Dn]**으로 표시했으며, 모두 2026-10-29 권장안대로 결정되었습니다(11절).
 
 [README](../README.ko.md)와 [문서 목록](README.ko.md)으로 돌아가기.
@@ -416,14 +416,14 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
    - 디스크 파일 비밀값 검사는 자체 문구("프로젝트 폴더의 환경 파일", "프로젝트 파일 안의 비밀정보")를 쓰며 "추적되는 파일"이나 "Git에 커밋된"이라고 쓰지 않습니다. 규칙 ID와 지문은 같습니다.
    - 웹 라벨은 권한을 확인하지 않은 이유를 알려 줍니다(GitHub remote 없음, Git 저장소 아님, 확인하지 않음).
    - 1.7을 반영한 `RESULT_SCHEMA.md`.
-   - 프로토타입 경로와 화면은 계속 `PGARD_WEB_PROTOTYPE=code-only` 뒤에 둡니다.
+   - 프로토타입 경로와 화면은 `PGARD_WEB_PROTOTYPE=code-only` 뒤에 두었습니다(4단계에서 제거).
 2. **CLI (D1, D2, D4).** 기본적으로 코드 전용인 `pgard scan code`, `--require-authorization`(2b단계, 2026-10-30: 권한 확인 먼저, 터미널에서 y/N 질문, `--code-only`. `--require-authorization`은 없앰), 터미널 안내 줄, 안내를 덧붙이되 바뀌지 않는 `scan all`과 `history`/`web`, `project verify`와 `doctor` 항목, 모든 폴더(Git 없음, remote 없음), README.
 3. **Precommit (D3).** 권한 확인과 네트워크 없이 코드 전용으로 실행하는 `pgard precommit`. `"precommit": { "requireAuthorization": true }`로 엄격 모드를 선택합니다.
-4. **웹 단순 화면 정식 버전.** OS 폴더 선택 창과 경로 입력란(6.1절)이 있는 한 화면 흐름이 `pgard web`과 `pgard dashboard`의 기본 경로가 됩니다. 프로토타입 플래그와 경로는 없애고, 이전 탭들은 기본 경로에서 빠지며(전체 대시보드는 올리기 링크 뒤의 권한 있는 흐름으로 남습니다), i18n은 카탈로그로 옮깁니다.
+4. **웹 단순 화면 정식 버전(2026-10-30 완료).** 검사는 이미 있는 로그인만으로 권한 확인부터 실행합니다(스스로 device flow를 시작하지 않음). 통과하지 않으면 이유를 한 줄로 보여 주고 "코드만 검사 (권한 미확인)"과 "승인 방법 보기"를 보여 주며, 로그인하지 않았으면 "승인 방법 보기" 대신 눈에 띄지 않는 "로그인하고 승인 확인" 링크를 보여 줍니다. `pgard web`은 터미널에서 아무것도 묻지 않고, 검색 선택기는 저장된 검색 폴더만 씁니다. 아직 아님: `pgard dashboard`는 전체 대시보드를 유지하고, 단순 화면 문구는 별도 모듈에 있으며, Windows는 여전히 `pgard web`을 거부합니다. 원래 계획: OS 폴더 선택 창과 경로 입력란(6.1절)이 있는 한 화면 흐름이 `pgard web`과 `pgard dashboard`의 기본 경로가 됩니다. 프로토타입 플래그와 경로는 없애고, 이전 탭들은 기본 경로에서 빠지며(전체 대시보드는 올리기 링크 뒤의 권한 있는 흐름으로 남습니다), i18n은 카탈로그로 옮깁니다.
 5. **세션 URL (#419, 12절).** 브라우저 자동 열기, 가린 토큰, `--print-url`, 한 번만 쓰는 토큰. `pgard web`, `pgard dashboard`, 새 화면에 모두 적용합니다.
 6. 배포 전 1~5단계의 **독립 보안 리뷰**.
 
-## 10. PR #415의 프로토타입 (4단계까지 `PGARD_WEB_PROTOTYPE=code-only` 뒤에 둠)
+## 10. PR #415의 프로토타입 (기록용, 4단계로 대체됨)
 
 - **실제로 동작하는 것.**
   - OS 폴더 선택 창(macOS `osascript`, Linux `zenity`/`kdialog`, Windows는 없음)과 경로 입력란. 실제 inspector 자식 프로세스에서 풀고 확인(realpath, 소유권, 쓰기 비트, 표시 안전성)한 뒤 확정하며, 검사 전에 다시 확인합니다.
@@ -435,7 +435,7 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 - **아직 실제가 아닌 것.**
   - CLI(2단계)와 precommit(3단계)은 아직 코드 전용 검사를 하지 않습니다.
   - 올리기 링크는 현재의 전체 대시보드를 엽니다.
-- **배포 패키지 안.** 프로토타입 경로와 단순 화면은 `pgard` tarball에 들어 있지만, `PGARD_WEB_PROTOTYPE=code-only`를 설정하지 않으면 꺼져 있습니다(404). 4단계에서 프로토타입 플래그를 아예 없앱니다.
+- **배포 패키지 안.** 프로토타입 경로와 단순 화면은 `pgard` tarball에 들어 있었지만 `PGARD_WEB_PROTOTYPE=code-only`를 설정하지 않으면 꺼져 있었습니다(404). 4단계에서 플래그를 없앴습니다. 이제 경로는 선택기 모드에서 켜져 있고, `POST /api/code-scan`은 마지막 권한 확인의 이유를 씁니다.
 - **절대 하지 않는 것.**
   - 프로토타입 경로는 GitHub를 호출하지 않습니다. 단순 화면이 켜져 있지 않으면 404이며, 고정 모드에서는 단순 화면이 켜지지 않습니다.
   - `POST /api/scan`(권한 확인)은 바뀌지 않습니다.

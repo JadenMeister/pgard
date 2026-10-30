@@ -4,7 +4,7 @@
 
 > **Status: approved by the owner on 2026-10-29 ([#414](https://github.com/JadenMeister/pgard/issues/414), [#419](https://github.com/JadenMeister/pgard/issues/419)).** Shipped in phases (section 9).
 >
-> - **Phase 1, the result labelling, is in:** JSON 1.7 `scanBasis`, SARIF, the report banner, the code-only secret wording. The CLI is unchanged until phase 2; `pgard web` is unchanged unless you set `PGARD_WEB_PROTOTYPE=code-only` (phase 4 replaces the prototype). The README remains the source of truth for current behaviour.
+> - **Phase 1, the result labelling, is in:** JSON 1.7 `scanBasis`, SARIF, the report banner, the code-only secret wording. Phases 2 (CLI) and 3 (precommit) are in. **Phase 4 is in:** `pgard web` opens the simple screen (choose a folder, Scan runs the gate first, a code-only scan only on its own click); the `PGARD_WEB_PROTOTYPE` flag is gone. The README remains the source of truth for current behaviour.
 > - **Decisions** are marked **[Owner decision Dn]**; all of them were decided on 2026-10-29 as recommended (section 11).
 
 Back to the [README](../README.md) and the [documents index](README.md).
@@ -416,14 +416,14 @@ Each phase is its own PR, opened only after the previous one passed review, and 
    - The secrets pass on the files on disk uses its own texts ("Environment file in the project folder", "Secret in a project file"), never "tracked file" or "committed to Git"; same rule ids and fingerprints.
    - The web label says why authorization is not verified (no GitHub remote, not a Git repository, not checked).
    - `RESULT_SCHEMA.md` for 1.7.
-   - The prototype route and screen stay behind `PGARD_WEB_PROTOTYPE=code-only`.
+   - The prototype route and screen stayed behind `PGARD_WEB_PROTOTYPE=code-only` (removed in phase 4).
 2. **CLI (D1, D2, D4).** `pgard scan code` code-only by default, `--require-authorization` (phase 2b, 2026-10-30: authorization first, a y/N question in a terminal, `--code-only`; `--require-authorization` removed), the terminal line, `scan all` and `history`/`web` unchanged with the hint, `project verify` and `doctor` rows, any folder (no Git, no remote), README.
 3. **Precommit (D3).** `pgard precommit` code-only with no gate and no network; `"precommit": { "requireAuthorization": true }` opts in.
-4. **Web simple screen, production.** The one-screen flow with the OS folder dialog and paste box (section 6.1) becomes the default `pgard web` and `pgard dashboard` main path; the prototype flag and route are removed; the old tabs leave the main path (the full dashboard stays the authorized flow behind the upgrade link); i18n moves into the catalogs.
+4. **Web simple screen, production (done 2026-10-30).** Scan runs the authorization gate first with the existing sign-in only (never a device flow by itself); when it does not pass, one plain line says why and the page offers "Scan code only (not authorized)" and "How to approve"; not signed in shows a quiet "Sign in and check approval" link instead of "How to approve". `pgard web` asks nothing in the terminal, and its search picker uses only saved search folders. Not yet: `pgard dashboard` keeps the full dashboard, the simple screen's texts stay in their own module, Windows still refuses `pgard web`. The original plan: the one-screen flow with the OS folder dialog and paste box (section 6.1) becomes the default `pgard web` and `pgard dashboard` main path; the prototype flag and route are removed; the old tabs leave the main path (the full dashboard stays the authorized flow behind the upgrade link); i18n moves into the catalogs.
 5. **Session URL (#419, section 12).** Browser auto-open, the masked token, `--print-url`, the single-use token, for `pgard web`, `pgard dashboard` and the new screen.
 6. **Independent security review** of phases 1–5, before release.
 
-## 10. The prototype in PR #415 (behind `PGARD_WEB_PROTOTYPE=code-only` until phase 4)
+## 10. The prototype in PR #415 (historical; replaced by phase 4)
 
 - **Real.**
   - The OS folder dialog (macOS `osascript`, Linux `zenity`/`kdialog`; none on Windows) and the paste box, resolved and checked in the real inspector child process (realpath, ownership, write bits, display safety), then the confirm and the re-check before the scan.
@@ -435,14 +435,14 @@ Each phase is its own PR, opened only after the previous one passed review, and 
 - **Not real yet.**
   - The upgrade link opens today's full dashboard.
   - The CLI (phase 2) and precommit (phase 3) do not run code-only scans yet.
-- **In the published package.** The prototype routes and the simple screen ship in the `pgard` tarball, but stay off (404) unless `PGARD_WEB_PROTOTYPE=code-only` is set. Phase 4 removes the prototype flag entirely.
+- **In the published package.** The prototype routes and the simple screen shipped in the `pgard` tarball, off (404) unless `PGARD_WEB_PROTOTYPE=code-only` was set. Phase 4 removed the flag: the routes are on in picker mode, and `POST /api/code-scan` uses the last gate's reason.
 - **Never.**
   - The prototype route makes no GitHub call. It is a 404 unless the simple screen is on, and the simple screen is never on in fixed mode.
   - `POST /api/scan` (the gate) is unchanged.
 - **Tests.**
   - `packages/scan-core/src/run-code-only.test.ts`: no gate, no history, labelled result.
   - `packages/scan-core/src/working-tree-secrets.test.ts`: secrets on disk, `.env`, links not followed, no Git, no value in output; UTF-16 and NUL-padded text, a large file named and `partial`, a large or binary `.env` reported by name, the entry cap (one huge folder and many folders), the byte cap, the time budget and cancellation.
-  - `apps/local-web/src/server/code-scan-prototype.test.ts`: 404 when off, never on in fixed mode, token, Host and Origin checks, `no_project`, identity re-check, export with the banner.
+  - `apps/local-web/src/server/code-scan.test.ts` (was `code-scan-prototype.test.ts`) and `simple-scan.test.ts` (phase 4: gate first, no scan without the click, nothing stored): never on in fixed mode, token, Host and Origin checks, `no_project`, identity re-check, export with the banner.
   - `apps/local-web/src/server/choose-folder-prototype.test.ts`: dialog and paste routes (404 when off, token and Origin, one dialog at a time, cancel and shutdown kill the dialog, unavailable, refusals with fixes, `~` expansion), a non-Git folder is code-only only (`409 code_only_project` on verify and `POST /api/scan`), the folder re-check before the scan, a writable folder chain refused without `.git` wording, refused paths escaped, no recent entry for a chosen folder, and the fixed dialog argv per platform (none on Windows).
   - `apps/local-web/src/server/picker/resolve-folder.test.ts`: the `resolve` job on real folders (GitHub repository, no Git, symbolic link, group-writable, outside home, refused paths) and its message validation.
   - `packages/findings/src/scan-basis.test.ts`: reading `scanBasis` (absent means authorized, impossible combinations refused, `verified` and `code_only` checked against the decision, the checks and the scopes, unknown reason codes kept), SARIF labelling and category, the working-tree secret texts and their Korean translation.

@@ -146,6 +146,71 @@ describe("authenticateWithDeviceFlow", () => {
   });
 });
 
+describe("a slow sign-in poll", () => {
+  const never = (): Promise<never> => new Promise(() => undefined);
+
+  it("polls again after a poll that times out, until the code's deadline", async () => {
+    const { fetch: base } = createFetch([
+      { error: "authorization_pending" },
+      { access_token: FAKE_TOKEN, token_type: "bearer" },
+    ]);
+    let polls = 0;
+    // The second and third polls never answer: one stalls on the headers, one on the body.
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/login/oauth/access_token")) {
+        polls += 1;
+        if (polls === 2) return never();
+        if (polls === 3) return { status: 200, ok: true, json: never };
+      }
+      return base(url, init);
+    };
+    const session = await authenticateWithDeviceFlow({
+      clientId: "Iv1.test",
+      onUserCode: () => {},
+      fetch,
+      sleep: noSleep,
+      requestTimeoutMs: 20,
+    });
+    expect(polls).toBe(4);
+    expect((await session.client.getAuthenticatedUser()).id).toBe(7);
+  });
+
+  it("still ends when the code expires while every poll times out", async () => {
+    let clock = 0;
+    const { fetch: base } = createFetch([]);
+    const fetch: FetchLike = async (url, init) =>
+      url.endsWith("/login/oauth/access_token") ? never() : base(url, init);
+    await expect(
+      authenticateWithDeviceFlow({
+        clientId: "Iv1.test",
+        onUserCode: () => {},
+        fetch,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms * 30;
+        },
+        requestTimeoutMs: 5,
+      }),
+    ).rejects.toMatchObject({ code: "expired_token" });
+  });
+
+  it("ends a device code request whose body stalls with network_error", async () => {
+    const fetch: FetchLike = async () => ({ status: 200, ok: true, json: never });
+    await expect(
+      authenticateWithDeviceFlow({
+        clientId: "Iv1.test",
+        onUserCode: () => {},
+        fetch,
+        sleep: noSleep,
+        requestTimeoutMs: 20,
+      }),
+    ).rejects.toMatchObject({
+      code: "network_error",
+      message: "GitHub did not answer the sign-in within 1 s.",
+    });
+  });
+});
+
 describe("createDeviceFlowSessionProvider", () => {
   it("signs in with the built-in PGARD App when no override is set", async () => {
     const { fetch, calls } = createFetch([{ access_token: FAKE_TOKEN }]);

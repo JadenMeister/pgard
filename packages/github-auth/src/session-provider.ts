@@ -85,7 +85,7 @@ export interface DeviceFlowSessionProviderOptions {
   canSignInInteractively?: boolean;
   fetch?: FetchLike;
   signal?: AbortSignal;
-  /** Time limit per GitHub API request; default `GITHUB_REQUEST_TIMEOUT_MS` (tests shorten it). */
+  /** Time limit per GitHub request (headers and body); default `GITHUB_REQUEST_TIMEOUT_MS`. */
   requestTimeoutMs?: number;
   /** Test hooks forwarded to the device flow. */
   sleep?: DeviceFlowOptions["sleep"];
@@ -193,6 +193,9 @@ function deviceFlowOptions(
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.sleep ? { sleep: options.sleep } : {}),
     ...(options.now ? { now: options.now } : {}),
+    ...(options.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: options.requestTimeoutMs }),
   };
 }
 
@@ -336,6 +339,9 @@ export function createDeviceFlowSessionProvider(
           refreshToken: record.refreshToken,
           ...(options.fetch ? { fetch: options.fetch } : {}),
           ...(options.signal ? { signal: options.signal } : {}),
+          ...(options.requestTimeoutMs === undefined
+            ? {}
+            : { requestTimeoutMs: options.requestTimeoutMs }),
           now,
         });
         isRefreshed = true;

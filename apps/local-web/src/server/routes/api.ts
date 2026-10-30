@@ -30,14 +30,18 @@ import {
   resolveGitHubAppClientId,
   resolveKeychainClientId,
   removeStoredSignIn,
+  GitHubAuthError,
   ScanCancelledError,
   type AuthorizationDependencies,
+  type AuthorizationOutcome,
+  type GitHubSessionProvider,
   listSupportedRules,
   type OwnerApprovalRemedy,
 } from "@pgard/scan-core";
 import type {
   AdvisoryStatusDto,
   AuthStatus,
+  GateReason,
   InstallRemedyDto,
   OwnerApprovalRecheckDto,
   PortListResponse,
@@ -72,7 +76,7 @@ export { ApiError };
 export interface ApiContext {
   /** `fixed`: `pgard dashboard` (one project, no picker). `picker`: `pgard web`. */
   mode: "fixed" | "picker";
-  /** PROTOTYPE (#414): `simple` enables `POST /api/code-scan`; always `full` in fixed mode. */
+  /** The first screen: `simple` in picker mode (`pgard web`), always `full` in fixed mode. */
   ui: "full" | "simple";
   presetTargetPort: number | null;
   env: Readonly<Record<string, string | undefined>>;
@@ -160,7 +164,7 @@ function codeOnlyReasonOf(
 async function recheckProject(
   context: ApiContext,
   capture: ProjectCapture,
-  /** PROTOTYPE (#414): only the code-only scan accepts a code-only folder. */
+  /** Only the code-only scan, and the gate-first scan of the simple screen, accept a folder. */
   allowFolder = false,
 ): Promise<void> {
   if (context.mode !== "picker") return;
@@ -289,7 +293,55 @@ function scanStatus(state: SessionState): ScanStatus {
     message,
     deviceCode: state.deviceCode,
     codeOnly: state.scan.codeOnly === true,
+    gateReason: state.scan.gateReason ?? null,
   };
+}
+
+type RepositoryBlockCode = NonNullable<AuthorizationOutcome["repositoryCode"]>;
+const REMOTE_FAILURES: ReadonlySet<RepositoryBlockCode> = new Set<RepositoryBlockCode>([
+  "no_remote",
+  "remote_not_github",
+  "remote_ambiguous",
+  "remote_unreadable",
+]);
+
+/**
+ * Why the gate did not pass, from fixed codes and check statuses only (the same rules as the
+ * CLI's question): `null` when it passed. `no_commit_history` counts as not a Git repository,
+ * like the folder chooser, because there is no commit to verify.
+ */
+export function gateReasonOf(
+  result: ScanResult,
+  outcome: AuthorizationOutcome | null,
+  isNotSignedIn: boolean,
+): GateReason | null {
+  const isUnauthorized =
+    result.overallStatus === "blocked" ||
+    (result.overallStatus === "failed" && result.scanBasis?.authorization === "not_verified");
+  if (!isUnauthorized) return null;
+  if (result.overallStatus === "failed") return "check_failed";
+  if (isNotSignedIn) return "not_signed_in";
+  const code = outcome?.repositoryCode ?? null;
+  if (code !== null && REMOTE_FAILURES.has(code)) return "no_github_remote";
+  if (code === "not_a_git_root" || code === "no_commit_history") return "not_a_git_repository";
+  const first = result.authorization.checks.find((check) => check.status !== "passed");
+  return first?.status === "unverifiable" ? "check_failed" : "no_approval";
+}
+
+/** The gate reason of a folder that only a code-only scan accepts (see the folder chooser). */
+function folderGateReason(project: ProjectRecord): GateReason | null {
+  const identity = project.identity;
+  if (identity?.kind !== "folder") return null;
+  if (identity.codeOnly === "not_git") return "not_a_git_repository";
+  if (identity.codeOnly === "no_github_remote") return "no_github_remote";
+  return "check_failed";
+}
+
+/** `scanBasis.reason` of a code-only scan chosen after the gate said `reason`. */
+function codeOnlyReasonAfterGate(
+  reason: GateReason,
+): "no_approval" | "check_failed" | "no_github_remote" | "not_a_git_repository" {
+  return reason === "not_signed_in" ? "check_failed" : reason;
 }
 
 /** The remedy as the browser may see it; a link is passed only if it is an github.com URL. */
@@ -352,6 +404,38 @@ function authorizationDeps(context: ApiContext): AuthorizationDependencies {
   return {
     getGitHubSession: context.github.getGitHubSession,
     appSlug: resolveGitHubAppClientId(context.env).slug,
+  };
+}
+
+/**
+ * Like `authorizationDeps`, but the gate only uses a sign-in that already exists on this computer
+ * and never starts a device flow (the simple screen does not push a sign-in). `isNotSignedIn()`
+ * tells afterwards whether the gate stopped because there was none.
+ */
+function existingSignInDeps(context: ApiContext): {
+  deps: AuthorizationDependencies;
+  isNotSignedIn: () => boolean;
+} {
+  const provider = context.github.getGitHubSession;
+  let hasNoSession = false;
+  const existingOnly = Object.assign(
+    async () => {
+      const session = await provider.existing();
+      if (session === null) {
+        hasNoSession = true;
+        throw new GitHubAuthError("not_signed_in", "Not signed in to GitHub on this computer.");
+      }
+      return session;
+    },
+    {
+      invalidate: () => provider.invalidate(),
+      signOut: () => provider.signOut(),
+      existing: () => provider.existing(),
+    },
+  ) as GitHubSessionProvider;
+  return {
+    deps: { ...authorizationDeps(context), getGitHubSession: existingOnly },
+    isNotSignedIn: () => hasNoSession,
   };
 }
 
@@ -751,19 +835,48 @@ function readScopes(body: unknown): ScanScope[] {
   return SCAN_SCOPES.filter((scope) => unique.includes(scope));
 }
 
-/** Starts a scan through scan-core; the authorization gate runs inside `runScan` every time. */
+/**
+ * Starts a scan through scan-core; the authorization gate runs inside `runScan` every time.
+ * `signIn: false` (the simple screen) uses only a sign-in that already exists and never starts a
+ * device flow; a folder that only a code-only scan accepts then gets its gate reason at once,
+ * without a scan. When the gate does not pass, `gateReason` says why and nothing else runs: a
+ * code-only scan needs its own explicit request (`POST /api/code-scan`).
+ */
 const startScan: ApiHandler = async (context, body) => {
   const { state } = context;
   const capture = captureProject(context, body);
   const scopes = readScopes(body);
+  const signIn = asRecord(body).signIn;
+  if (signIn !== undefined && typeof signIn !== "boolean") {
+    throw new ApiError(400, "bad_request", "signIn must be true or false.");
+  }
+  const isExistingSignInOnly = signIn === false;
   if (state.scan.status === "running")
     throw new ApiError(409, "scan_running", "A scan is already running.");
-  await recheckProject(context, capture);
+  await recheckProject(context, capture, isExistingSignInOnly);
   // Another request may have started a scan while the identity was re-checked.
   if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
+  const folderReason = folderGateReason(capture.project);
+  if (folderReason !== null) {
+    // Only reachable with `signIn: false` (otherwise the identity check refuses the folder).
+    state.scan = {
+      status: "done",
+      scopes,
+      progress: [],
+      result: null,
+      message: null,
+      controller: null,
+      gateReason: folderReason,
+    };
+    return scanStatus(state);
+  }
   const controller = new AbortController();
   state.scan = { status: "running", scopes, progress: [], result: null, message: null, controller };
   const webTarget = scopes.includes("web") ? state.confirmedTarget : null;
+  const gate = isExistingSignInOnly
+    ? existingSignInDeps(context)
+    : { deps: authorizationDeps(context), isNotSignedIn: () => false };
+  let outcome: AuthorizationOutcome | null = null;
   void context.deps
     .runScan(
       {
@@ -773,12 +886,15 @@ const startScan: ApiHandler = async (context, body) => {
         ...expectedRepoOf(capture.project),
       },
       {
-        authorization: authorizationDeps(context),
+        authorization: gate.deps,
         webScanner: context.deps.webScanner,
         webRules: WEB_RULE_LIST,
         signal: controller.signal,
         env: context.env,
         advisoryDataDir: context.deps.advisoryDataDir ?? null,
+        onAuthorization: (received) => {
+          outcome = received;
+        },
         onProgress: (event) => {
           if (state.scan.controller !== controller) return;
           if (state.scan.progress.length >= MAX_PROGRESS_EVENTS) state.scan.progress.shift();
@@ -808,7 +924,13 @@ const startScan: ApiHandler = async (context, body) => {
         };
         return;
       }
-      state.scan = { ...state.scan, status: "done", result, controller: null };
+      state.scan = {
+        ...state.scan,
+        status: "done",
+        result,
+        controller: null,
+        gateReason: gateReasonOf(result, outcome, gate.isNotSignedIn()),
+      };
     })
     .catch((error: unknown) => {
       if (state.scan.controller !== controller) return;
@@ -840,19 +962,22 @@ const startScan: ApiHandler = async (context, body) => {
 const getScan: ApiHandler = async (context) => scanStatus(context.state);
 
 /**
- * PROTOTYPE (#414), simple screen only: a code-only scan of the confirmed project's current
- * files. It runs no authorization gate and makes no GitHub or network call; only the `code`
- * scope runs, nothing is stored and the result is marked `codeOnly` for the page to label.
- * Git history, web checks, the trend and export keep the full gate (`POST /api/scan`). The
- * project identity is re-checked first, exactly like an authorized scan. Polled and cancelled
- * through `GET /api/scan` and `POST /api/scan/cancel`.
+ * Picker mode only (#414): a code-only scan of the confirmed project's current files, started
+ * only by this explicit request (the simple screen's "Scan code only" button; nothing falls into
+ * it by itself). It runs no authorization gate and makes no GitHub or network call; only the
+ * `code` scope runs, nothing is stored and the result is marked `codeOnly` for the page to label.
+ * Git history, web checks and the trend keep the full gate (`POST /api/scan`). The project
+ * identity is re-checked first, exactly like an authorized scan. When the last gate of this
+ * project said why it did not pass, that is the result's `scanBasis.reason`. Polled and
+ * cancelled through `GET /api/scan` and `POST /api/scan/cancel`.
  */
 const startCodeScan: ApiHandler = async (context, body) => {
   const { state } = context;
-  if (context.ui !== "simple") throw new ApiError(404, "not_found", "Unknown API route.");
+  if (context.mode !== "picker") throw new ApiError(404, "not_found", "Unknown API route.");
   const capture = captureProject(context, body);
   if (state.scan.status === "running")
     throw new ApiError(409, "scan_running", "A scan is already running.");
+  const lastGate = state.scan.gateReason ?? null;
   await recheckProject(context, capture, true);
   if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
   const controller = new AbortController();
@@ -875,7 +1000,11 @@ const startCodeScan: ApiHandler = async (context, body) => {
   };
   void context.deps
     .runCodeOnlyScan(
-      { projectRoot: capture.project.root, reason: codeOnlyReasonOf(capture.project) },
+      {
+        projectRoot: capture.project.root,
+        reason:
+          lastGate === null ? codeOnlyReasonOf(capture.project) : codeOnlyReasonAfterGate(lastGate),
+      },
       {
         signal: controller.signal,
         env: context.env,

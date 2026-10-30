@@ -91,46 +91,40 @@ describe.skipIf(process.platform === "win32")("pgard web", () => {
     }
   });
 
-  it("needs an interactive terminal (exit 2)", async () => {
-    const captured = createTestIo({ env: { HOME: home } });
-    const context = createTestContext(captured, createTestDeps({ platform: "linux" }));
-    expect(await runWeb(context, false, false)).toBe(2);
-  });
-
-  it("prints the default folders that exist, asks, saves them after y and starts the launcher in picker mode with no path argument", async () => {
-    const code = dir("code");
-    dir("Developer");
-    const { captured, context, startDashboardProcess, released } = setup(["y"]);
+  it("starts the launcher in picker mode at once: no question, no folder list, nothing saved", async () => {
+    dir("code");
+    const { captured, context, startDashboardProcess, released } = setup([]);
     expect(await runWeb(context, false, false)).toBe(0);
-    const out = captured.stdout();
-    expect(out).toContain("default development folders");
-    expect(out).toContain(code);
-    expect(out).toContain("Search these folders for projects?");
+    expect(captured.stdout()).not.toContain("Search these folders");
+    expect(captured.stdout()).not.toContain(path.join(home, "code"));
     expect(startDashboardProcess).toHaveBeenCalledWith("/install/local-web/dist/server/index.js", [
       "--picker",
     ]);
     expect(released).toHaveBeenCalledOnce();
-    const saved = await createWebStorage({ dir: dataDir }).readSettings();
-    expect(saved.status === "ok" && saved.value.roots.sort()).toEqual(
-      [code, path.join(home, "Developer")].sort(),
-    );
-  });
-
-  it("starts nothing and saves nothing without a y", async () => {
-    dir("code");
-    const { context, startDashboardProcess } = setup(["n"]);
-    expect(await runWeb(context, false, false)).toBe(130);
-    expect(startDashboardProcess).not.toHaveBeenCalled();
     expect((await createWebStorage({ dir: dataDir }).readSettings()).status).toBe("missing");
   });
 
-  it("with --no-store writes nothing and tells the launcher; PGARD_NO_STORE=1 does the same", async () => {
-    dir("code");
+  it("needs no terminal", async () => {
+    const captured = createTestIo({ env: { HOME: home } });
+    const startDashboardProcess = vi.fn(async () => 0);
+    const context = createTestContext(
+      captured,
+      createTestDeps({
+        platform: "linux",
+        resolveDashboardEntry: () => "/install/local-web/dist/server/index.js",
+        startDashboardProcess,
+      }),
+    );
+    expect(await runWeb(context, false, false)).toBe(0);
+    expect(startDashboardProcess).toHaveBeenCalledOnce();
+  });
+
+  it("with --no-store tells the launcher; PGARD_NO_STORE=1 does the same", async () => {
     for (const [noStore, env] of [
       [true, {}],
       [false, { PGARD_NO_STORE: "1" }],
     ] as const) {
-      const { context, startDashboardProcess } = setup(["y"], { env });
+      const { context, startDashboardProcess } = setup([], { env });
       expect(await runWeb(context, true, noStore)).toBe(0);
       expect(startDashboardProcess).toHaveBeenCalledWith(
         "/install/local-web/dist/server/index.js",
@@ -138,30 +132,6 @@ describe.skipIf(process.platform === "win32")("pgard web", () => {
       );
       expect((await createWebStorage({ dir: dataDir }).readSettings()).status).toBe("missing");
     }
-  });
-
-  it("stops with guidance when no search folder is usable", async () => {
-    const { captured, context, startDashboardProcess } = setup(["y"]);
-    expect(await runWeb(context, false, false)).toBe(2);
-    expect(captured.stderr()).toContain("pgard web scope add <folder>");
-    expect(startDashboardProcess).not.toHaveBeenCalled();
-  });
-
-  it("reports a skipped saved folder with its reason and ignores a damaged settings file", async () => {
-    const code = dir("code");
-    const shared = dir("shared");
-    chmodSync(shared, 0o777);
-    const storage = createWebStorage({ dir: dataDir });
-    await storage.writeSettings([code, shared]);
-    const { captured, context } = setup(["y"]);
-    expect(await runWeb(context, false, false)).toBe(0);
-    expect(captured.stderr()).toContain(`Skipped ${shared}`);
-    expect(captured.stderr()).toContain("can be changed by other users");
-    writeFileSync(path.join(storage.dir, SETTINGS_FILE), "{broken");
-    const again = setup(["y"]);
-    again.context.deps.openWebStorage = () => createWebStorage({ dir: dataDir });
-    await runWeb(again.context, false, false);
-    expect(again.captured.stderr()).toContain("could not be read");
   });
 
   it("is dispatched by main and parsed with its options", () => {
@@ -185,7 +155,8 @@ describe.skipIf(process.platform === "win32")("pgard web", () => {
       if (argv[0] === "scan") continue;
       expect(() => parseCommandLine(argv), argv.join(" ")).toThrow(UsageError);
     }
-    expect(getHelpText("web")).toContain("can never add one");
+    expect(getHelpText("web")).toContain("never add one");
+    expect(getHelpText("web")).toContain("Nothing is asked in the terminal");
     expect(getHelpText("web scope")).toContain("never in the browser");
     expect(getHelpText("web scope")).toContain("pgard web scope add");
   });

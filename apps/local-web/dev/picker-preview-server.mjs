@@ -207,6 +207,8 @@ const clientDir = fileURLToPath(new URL("../dist/client/", import.meta.url));
 const assets = await loadStaticAssets(clientDir);
 const server = await startLocalWebServer({
   projectRoot: null,
+  // The search picker of the full dashboard (the simple screen is the default of picker mode).
+  ui: "full",
   presetTargetPort: null,
   env: {},
   assets,

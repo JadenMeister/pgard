@@ -8,6 +8,7 @@ import {
   type ProjectRecord,
 } from "../picker/session.js";
 import type {
+  GateReason,
   DeviceCodeInfo,
   JobStatus,
   ScanProgressDto,
@@ -107,10 +108,12 @@ export interface SessionState {
     message: string | null;
     controller: AbortController | null;
     /**
-     * PROTOTYPE (#414): true for a code-only scan started with `POST /api/code-scan` (no
-     * authorization gate, code scope only). Absent or false: an authorized scan.
+     * True for a code-only scan started with `POST /api/code-scan` (no authorization gate, code
+     * scope only; #414). Absent or false: an authorized scan.
      */
     codeOnly?: boolean;
+    /** Why the gate did not pass (`ScanStatus.gateReason`); absent when it passed or did not run. */
+    gateReason?: GateReason | null;
   };
 }
 

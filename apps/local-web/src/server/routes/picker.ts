@@ -76,28 +76,16 @@ const confirm: ApiHandler = async (context, body) => {
 const clear: ApiHandler = async (context, body) =>
   clearProject(pickerContext(context), bodyRecord(body).epoch);
 
-// PROTOTYPE (#414): the folder dialog and the pasted path, simple screen only.
-function requireSimple(context: ApiContext): void {
-  if (context.ui !== "simple") throw new ApiError(404, "not_found", "Unknown API route.");
-}
-
+// The OS folder dialog and the pasted path (#414). Picker mode only, like every picker route.
 const browse: ApiHandler = async (context, body) => {
-  requireSimple(context);
   return openFolderDialog(pickerContext(context), bodyRecord(body).lang);
 };
 
-const browseStatus: ApiHandler = async (context) => {
-  requireSimple(context);
-  return getFolderDialog(pickerContext(context));
-};
+const browseStatus: ApiHandler = async (context) => getFolderDialog(pickerContext(context));
 
-const browseCancel: ApiHandler = async (context) => {
-  requireSimple(context);
-  return cancelFolderDialog(pickerContext(context));
-};
+const browseCancel: ApiHandler = async (context) => cancelFolderDialog(pickerContext(context));
 
 const pastedPath: ApiHandler = async (context, body) => {
-  requireSimple(context);
   return choosePastedPath(pickerContext(context), bodyRecord(body).path);
 };
 

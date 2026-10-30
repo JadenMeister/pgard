@@ -205,7 +205,7 @@ export async function inspectCandidate(
   const chain = await walkChain(deps, root, segments);
   const base = { rootIndex, segments: chain.segments };
   if (mode === "folder") {
-    // PROTOTYPE (#414), code-only: the chain itself, its ownership and write bits; no Git.
+    // #414, code-only: the chain itself, its ownership and write bits; no Git.
     return {
       ...base,
       gitIdentity: null,
@@ -543,7 +543,7 @@ async function resolveRecent(
 export const MAX_RESOLVE_SEGMENTS = 24;
 
 /**
- * PROTOTYPE (#414): a folder the user chose in the OS dialog or pasted. The path is resolved
+ * #414: a folder the user chose in the OS dialog or pasted. The path is resolved
  * with realpath (a symbolic link anywhere in it is resolved, never trusted as a name), must be a
  * directory, and must not be `/`, a top-level folder, the home folder or one of its parents.
  *

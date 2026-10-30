@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Severity } from "@pgard/findings";
-import type { RuleTextsResponse, ScanStatus, SessionInfo } from "../../../shared/api-types";
+import type {
+  GateReason,
+  RuleTextsResponse,
+  ScanStatus,
+  SessionInfo,
+} from "../../../shared/api-types";
 import type { PickerBrowseResponse, PickerPathResponse } from "../../../shared/picker-types";
 import { apiGet, apiPost, getProjectEpoch, setProjectEpoch } from "../../api/client";
 import { loadWithRetry } from "../../api/retry";
@@ -25,11 +30,12 @@ import { simpleText, type SimpleText } from "./simple-text";
 type FolderRefusal = NonNullable<PickerBrowseResponse["refusal"]>;
 
 /**
- * PROTOTYPE (#414): the one-screen flow of `pgard web` (`PGARD_WEB_PROTOTYPE=code-only`).
- * Choose a folder, press Scan, read the findings. The scan is code-only: the server runs no
- * authorization gate, reads the current files only and stores nothing, so every result carries
- * the "not authorized" label. Standards, rules, coverage, trend and export sit under More; the
- * full dashboard (GitHub sign-in, Git history, web checks) is one optional link away.
+ * The one-screen flow of `pgard web` (#414): choose a folder, press Scan, read the findings.
+ * Scan runs the authorization gate first with the sign-in that already exists (it never starts
+ * one), then the code scan. When the gate does not pass the page says why in one line and offers
+ * "Scan code only (not authorized)", which only a click starts; that result carries the "not
+ * authorized" label and is never stored. Coverage, standards, rules, export and the full
+ * dashboard (Git history, web checks, trend) sit under More.
  */
 export interface SimpleAppProps {
   initialNoticeAccepted: boolean;
@@ -40,21 +46,6 @@ export interface SimpleAppProps {
 }
 
 type MorePanel = "coverage" | "standards" | "rules" | "export";
-
-function Steps({ t }: { t: SimpleText }) {
-  return (
-    <ol className="simple-steps">
-      {t.steps.map((step, index) => (
-        <li key={step}>
-          <span className="simple-step-num num" aria-hidden="true">
-            {index + 1}
-          </span>
-          {step}
-        </li>
-      ))}
-    </ol>
-  );
-}
 
 /** The refusal of a chosen or pasted folder, in the page language, with its fix. */
 function Refusal({ refusal, t }: { refusal: FolderRefusal; t: SimpleText }) {
@@ -214,7 +205,88 @@ function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
   );
 }
 
-function NotAuthorizedLabel({
+/**
+ * What a finished scan shows: the gate's reason (and no findings) when the gate did not pass,
+ * otherwise the result, labelled "not authorized" when it came from a code-only scan.
+ */
+export function scanOutcome(scan: ScanStatus | null): {
+  gateReason: GateReason | null;
+  result: ScanStatus["result"];
+  isCodeOnly: boolean;
+} {
+  if (scan === null || scan.status !== "done") {
+    return { gateReason: null, result: null, isCodeOnly: false };
+  }
+  if (scan.gateReason !== null) {
+    return { gateReason: scan.gateReason, result: null, isCodeOnly: false };
+  }
+  return { gateReason: null, result: scan.result, isCodeOnly: scan.codeOnly };
+}
+
+/** The gate did not pass: why, in one line, and what the user can do. Nothing runs by itself. */
+export function GatePanel({
+  reason,
+  t,
+  appSlug,
+  isBusy,
+  onCodeOnly,
+  onSignIn,
+  onOpenFull,
+}: {
+  reason: GateReason;
+  t: SimpleText;
+  appSlug: string | null;
+  isBusy: boolean;
+  onCodeOnly: () => void;
+  onSignIn: () => void;
+  onOpenFull: () => void;
+}) {
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const needsRepository = reason === "no_github_remote" || reason === "not_a_git_repository";
+  return (
+    <div className="simple-gate" role="status">
+      <p className="simple-gate-reason">{t.gateReasons[reason]}</p>
+      <p className="button-row">
+        <Button variant="primary" disabled={isBusy} onClick={onCodeOnly}>
+          {t.codeOnlyButton}
+        </Button>
+        {reason !== "not_signed_in" && (
+          <Button aria-expanded={isHelpOpen} onClick={() => setIsHelpOpen((open) => !open)}>
+            {t.howToApprove}
+          </Button>
+        )}
+      </p>
+      {reason === "not_signed_in" && (
+        <p>
+          <button type="button" className="link-button" disabled={isBusy} onClick={onSignIn}>
+            {t.signInLink}
+          </button>
+        </p>
+      )}
+      {isHelpOpen && (
+        <div className="simple-gate-help">
+          <p>{needsRepository ? t.approveNeedsRepo : t.approveSteps}</p>
+          <p className="button-row">
+            {!needsRepository && appSlug !== null && (
+              <a
+                href={`https://github.com/apps/${encodeURIComponent(appSlug)}/installations/new`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {t.approveInstall}
+              </a>
+            )}
+            <button type="button" className="link-button" onClick={onOpenFull}>
+              {t.approveFull}
+            </button>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function NotAuthorizedLabel({
   t,
   reason,
   onConnect,
@@ -273,7 +345,7 @@ export function SimpleApp({
       .catch(() => setSessionError(true));
     // The scan of this page, if one ran before a reload.
     apiGet<ScanStatus>("/api/scan")
-      .then((status) => (status.codeOnly ? setScan(status) : undefined))
+      .then((status) => (status.status === "idle" ? undefined : setScan(status)))
       .catch(() => undefined);
   }, []);
 
@@ -281,7 +353,7 @@ export function SimpleApp({
   const elapsed = useElapsedSeconds(isRunning);
   usePolling(async () => setScan(await apiGet<ScanStatus>("/api/scan")), 1000, isRunning);
 
-  const result = scan?.status === "done" ? scan.result : null;
+  const { gateReason, result, isCodeOnly } = scanOutcome(scan);
   useEffect(() => {
     if (result === null || ruleTexts !== null) return;
     return loadWithRetry(
@@ -306,16 +378,20 @@ export function SimpleApp({
   const project = session?.project ?? null;
   const isReady = session !== null && hasAcceptedNotice;
 
-  const startScan = async (): Promise<void> => {
+  const run = async (path: string, body: Record<string, unknown>): Promise<void> => {
     setScanError(null);
     setSeverity(null);
     setPage(1);
     try {
-      setScan(await apiPost<ScanStatus>("/api/code-scan", { epoch: getProjectEpoch() }));
+      setScan(await apiPost<ScanStatus>(path, { ...body, epoch: getProjectEpoch() }));
     } catch (caught) {
       setScanError(caught instanceof Error ? caught.message : m.common.requestFailed);
     }
   };
+  // The gate first, with an existing sign-in only; a code-only scan needs its own click.
+  const startScan = (): Promise<void> => run("/api/scan", { scopes: ["code"], signIn: false });
+  const startCodeOnly = (): Promise<void> => run("/api/code-scan", {});
+  const signInAndScan = (): Promise<void> => run("/api/scan", { scopes: ["code"], signIn: true });
   const cancelScan = async (): Promise<void> => {
     setScan(await apiPost<ScanStatus>("/api/scan/cancel"));
   };
@@ -357,7 +433,6 @@ export function SimpleApp({
         <div className="wrap topbar-in">
           <p className="brand">
             <span className="brand-name">pgard</span>
-            <span className="badge badge-informational simple-proto">{t.prototypeTag}</span>
           </p>
           <LanguageToggle />
         </div>
@@ -365,7 +440,6 @@ export function SimpleApp({
       <main id="main" className="wrap main simple" tabIndex={-1} lang={language}>
         <h1 className="page-title">{t.title}</h1>
         <p className="simple-lead">{t.lead}</p>
-        <Steps t={t} />
         {sessionError && <Notice tone="error">{m.app.errorSession}</Notice>}
         {session !== null && !hasAcceptedNotice && (
           <LegalNotice
@@ -412,7 +486,7 @@ export function SimpleApp({
                   <>
                     <p className="pick-status" role="status">
                       <span className="pick-spinner" aria-hidden="true" />
-                      {t.scanning(elapsed)}
+                      {scan?.codeOnly === true ? t.scanning(elapsed) : t.checkingApproval(elapsed)}
                     </p>
                     <Button onClick={() => void cancelScan()}>{t.cancel}</Button>
                   </>
@@ -427,6 +501,30 @@ export function SimpleApp({
                   </button>
                 )}
               </div>
+              {isRunning && scan?.deviceCode != null && (
+                <p className="simple-device">
+                  {t.deviceCode(scan.deviceCode.userCode)}{" "}
+                  <a
+                    href={scan.deviceCode.verificationUri}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {t.openSignIn}
+                  </a>
+                </p>
+              )}
+              {gateReason !== null && (
+                <GatePanel
+                  key={gateReason}
+                  reason={gateReason}
+                  t={t}
+                  appSlug={session?.githubApp?.slug ?? null}
+                  isBusy={isRunning}
+                  onCodeOnly={() => void startCodeOnly()}
+                  onSignIn={() => void signInAndScan()}
+                  onOpenFull={onOpenFull}
+                />
+              )}
               {scanError !== null && <Notice tone="error">{scanError}</Notice>}
               {scan?.status === "cancelled" && <Notice tone="warning">{t.cancelled}</Notice>}
               {scan?.status === "failed" && <Notice tone="error">{t.failed}</Notice>}
@@ -440,11 +538,17 @@ export function SimpleApp({
                   </h2>
                   <span className="simple-count num">{t.findingsCount(view.total)}</span>
                 </div>
-                <NotAuthorizedLabel
-                  t={t}
-                  reason={result.scanBasis?.reason ?? "not_checked"}
-                  onConnect={onOpenFull}
-                />
+                {isCodeOnly ? (
+                  <NotAuthorizedLabel
+                    t={t}
+                    reason={result.scanBasis?.reason ?? "not_checked"}
+                    onConnect={onOpenFull}
+                  />
+                ) : (
+                  <p className="simple-authorized">
+                    <span className="badge badge-completed">{t.authorizedLabel}</span>
+                  </p>
+                )}
                 {isPartial && <Notice tone="warning">{t.partialNote}</Notice>}
                 {view.total === 0 && severity === null ? (
                   <p className="empty-state-title">{t.noFindings}</p>
@@ -505,12 +609,6 @@ export function SimpleApp({
                         </button>
                       </li>
                     ))}
-                    <li>
-                      <span className="simple-more-item simple-more-off" aria-disabled="true">
-                        {t.moreTrend}
-                        <span className="muted small"> {t.moreTrendNote}</span>
-                      </span>
-                    </li>
                     <li>
                       <button type="button" className="simple-more-item" onClick={onOpenFull}>
                         {t.moreFull}

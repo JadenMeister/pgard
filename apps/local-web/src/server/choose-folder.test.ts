@@ -16,7 +16,7 @@ import {
   type Harness,
 } from "./test-support/web-harness.js";
 
-/** PROTOTYPE (#414): the OS folder dialog and the pasted path of the simple screen. */
+/** The OS folder dialog and the pasted path of the simple screen (#414). */
 
 let harness: Harness | null = null;
 afterEach(async () => {
@@ -58,16 +58,19 @@ async function pathCandidate(h: Harness, pasted: string): Promise<PickerPathResp
   return json(response) as unknown as PickerPathResponse;
 }
 
-describe("pasted path (prototype)", () => {
-  it("is a 404 unless the simple screen is on", async () => {
+describe("pasted path", () => {
+  it("is on in picker mode without any flag, and refused in fixed mode", async () => {
     harness = await startHarness();
-    expect((await apiPost(harness.server, "/api/picker/path", { path: SHOP })).status).toBe(404);
-    expect((await apiPost(harness.server, "/api/picker/browse", {})).status).toBe(404);
-    expect((await apiGet(harness.server, "/api/picker/browse")).status).toBe(404);
+    expect(json(await apiGet(harness.server, "/api/session")).ui).toBe("simple");
+    expect((await apiGet(harness.server, "/api/picker/browse")).status).toBe(200);
+    await harness.close();
+    harness = await startHarness({ fixedRoot: "/home/u/code/shop" });
+    expect((await apiPost(harness.server, "/api/picker/path", { path: SHOP })).status).toBe(409);
+    expect((await apiPost(harness.server, "/api/picker/browse", {})).status).toBe(409);
   });
 
   it("keeps the token and Origin checks", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     const port = harness.server.port;
     const noToken = await send(harness.server, "POST", "/api/picker/path", {
       headers: { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" },
@@ -90,7 +93,7 @@ describe("pasted path (prototype)", () => {
     const writeRecent = vi.fn(async () => ({ status: "ok" }) as const);
     const readRecent = vi.fn(async () => ({ status: "ok", value: [] }) as const);
     const storage = { readRecent, writeRecent } as unknown as WebStorage;
-    harness = await startHarness({ ui: "simple", picker: { storage } });
+    harness = await startHarness({ picker: { storage } });
     harness.inspector.resolved.set(SHOP, { candidate: repoCandidate("shop"), folderBlock: null });
     const { candidate, refusal } = await pathCandidate(harness, "  ~/code/shop  ");
     expect(refusal).toBeNull();
@@ -115,7 +118,7 @@ describe("pasted path (prototype)", () => {
       result({ target: { repo: null, revision: null, webOrigin: null } }),
     );
     const verifyProject = vi.fn();
-    harness = await startHarness({ ui: "simple", deps: { runCodeOnlyScan, verifyProject } });
+    harness = await startHarness({ deps: { runCodeOnlyScan, verifyProject } });
     harness.inspector.resolved.set(NOTES, { candidate: notGit("notes"), folderBlock: null });
     const { candidate } = await pathCandidate(harness, NOTES);
     expect(candidate?.selectable).toBe(true);
@@ -151,7 +154,7 @@ describe("pasted path (prototype)", () => {
   });
 
   it("refuses a code-only scan when the folder became writable by others", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     harness.inspector.resolved.set(NOTES, { candidate: notGit("notes"), folderBlock: null });
     const { candidate } = await pathCandidate(harness, NOTES);
     await apiPost(harness.server, "/api/picker/confirm", {
@@ -168,7 +171,7 @@ describe("pasted path (prototype)", () => {
   });
 
   it("refuses a folder whose chain another user could change, without .git wording", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     harness.inspector.resolved.set(NOTES, {
       candidate: notGit("notes"),
       folderBlock: { code: "group_or_world_writable", paths: [NOTES] },
@@ -181,7 +184,7 @@ describe("pasted path (prototype)", () => {
   });
 
   it("shows refused paths through the display-safety check", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     const spoofed = "/home/u/evil\u202ecod.js";
     harness.inspector.resolved.set(NOTES, {
       candidate: notGit("notes"),
@@ -195,7 +198,7 @@ describe("pasted path (prototype)", () => {
   });
 
   it("returns refusals with a reason and a fix", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     harness.inspector.resolved.set("/home/u", { refused: "too_broad" });
     const home = await pathCandidate(harness, "~");
     expect(home.refusal?.code).toBe("too_broad");
@@ -213,7 +216,7 @@ describe("pasted path (prototype)", () => {
 describe("OS folder dialog (prototype)", () => {
   it("opens one dialog at a time, polls, and returns the chosen folder", async () => {
     const manual = manualDialog();
-    harness = await startHarness({ ui: "simple", picker: { folderDialog: manual.dialog } });
+    harness = await startHarness({ picker: { folderDialog: manual.dialog } });
     harness.inspector.resolved.set(SHOP, { candidate: repoCandidate("shop"), folderBlock: null });
     const opened = await apiPost(harness.server, "/api/picker/browse", { lang: "ko" });
     expect((json(opened) as unknown as PickerBrowseResponse).status).toBe("open");
@@ -233,7 +236,7 @@ describe("OS folder dialog (prototype)", () => {
 
   it("treats cancel as a normal state and kills the dialog on cancel", async () => {
     const manual = manualDialog();
-    harness = await startHarness({ ui: "simple", picker: { folderDialog: manual.dialog } });
+    harness = await startHarness({ picker: { folderDialog: manual.dialog } });
     await apiPost(harness.server, "/api/picker/browse", {});
     const cancelled = await apiPost(harness.server, "/api/picker/browse/cancel", {});
     expect(cancelled.status).toBe(200);
@@ -251,7 +254,7 @@ describe("OS folder dialog (prototype)", () => {
 
   it("closes the dialog when the server stops", async () => {
     const manual = manualDialog();
-    harness = await startHarness({ ui: "simple", picker: { folderDialog: manual.dialog } });
+    harness = await startHarness({ picker: { folderDialog: manual.dialog } });
     await apiPost(harness.server, "/api/picker/browse", {});
     await harness.close();
     harness = null;
@@ -259,7 +262,7 @@ describe("OS folder dialog (prototype)", () => {
   });
 
   it("says when no dialog is available", async () => {
-    harness = await startHarness({ ui: "simple", picker: { folderDialog: undefined } });
+    harness = await startHarness({ picker: { folderDialog: undefined } });
     const opened = await apiPost(harness.server, "/api/picker/browse", {});
     expect((json(opened) as unknown as PickerBrowseResponse).status).toBe("unavailable");
   });

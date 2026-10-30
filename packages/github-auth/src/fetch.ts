@@ -22,8 +22,8 @@ export type FetchLike = (url: string, init: FetchRequestInit) => Promise<FetchRe
 export const defaultFetch: FetchLike = (url, init) => fetch(url, init);
 
 /**
- * Each GitHub request gets at most this long to answer (headers), so a stalled network ends the
- * authorization with a clear failure instead of hanging for minutes.
+ * Each GitHub request gets at most this long to answer, headers and body together, so a stalled
+ * network ends the authorization with a clear failure instead of hanging for minutes.
  */
 export const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
 
@@ -35,9 +35,36 @@ export class RequestTimeoutError extends Error {
   }
 }
 
+/** Settles with `work`, or rejects with `RequestTimeoutError` (and aborts) at `deadline`. */
+async function beforeDeadline<T>(
+  work: Promise<T>,
+  deadline: number,
+  timeoutMs: number,
+  controller: AbortController,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => {
+        const error = new RequestTimeoutError(timeoutMs);
+        controller.abort(error);
+        reject(error);
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+  });
+  try {
+    return await Promise.race([work, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Calls `fetchImpl` with a signal that aborts after `timeoutMs` (or when `init.signal` aborts),
  * and rejects with `RequestTimeoutError` at the limit even if `fetchImpl` ignores the signal.
+ * The same limit covers reading the body: `json()` of the returned response rejects with
+ * `RequestTimeoutError` once the time left runs out.
  */
 export async function fetchWithTimeout(
   fetchImpl: FetchLike,
@@ -45,25 +72,37 @@ export async function fetchWithTimeout(
   init: FetchRequestInit,
   timeoutMs: number,
 ): Promise<FetchResponseLike> {
+  const deadline = Date.now() + timeoutMs;
   const controller = new AbortController();
   const outer = init.signal;
   const onOuterAbort = (): void => controller.abort(outer?.reason);
   if (outer?.aborted === true) controller.abort(outer.reason);
   else outer?.addEventListener("abort", onOuterAbort, { once: true });
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timedOut = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      const error = new RequestTimeoutError(timeoutMs);
-      controller.abort(error);
-      reject(error);
-    }, timeoutMs);
-  });
+  let response: FetchResponseLike;
   try {
-    return await Promise.race([fetchImpl(url, { ...init, signal: controller.signal }), timedOut]);
-  } finally {
-    clearTimeout(timer);
+    response = await beforeDeadline(
+      fetchImpl(url, { ...init, signal: controller.signal }),
+      deadline,
+      timeoutMs,
+      controller,
+    );
+  } catch (error) {
     outer?.removeEventListener("abort", onOuterAbort);
+    throw error;
   }
+  return {
+    status: response.status,
+    ok: response.ok,
+    ...(response.headers === undefined ? {} : { headers: response.headers }),
+    ...(response.body === undefined ? {} : { body: response.body }),
+    json: async () => {
+      try {
+        return await beforeDeadline(response.json(), deadline, timeoutMs, controller);
+      } finally {
+        outer?.removeEventListener("abort", onOuterAbort);
+      }
+    },
+  };
 }
 
 export function asRecord(value: unknown): Record<string, unknown> | null {

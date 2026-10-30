@@ -28,7 +28,7 @@ import {
 export interface ServerDeps {
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
-  /** PROTOTYPE (#414): the code-only scan of the simple screen (no gate, code scope only). */
+  /** #414: the code-only scan of the simple screen (no gate, code scope only). */
   runCodeOnlyScan: typeof runCodeOnlyScan;
   /** Owner approval alone, while waiting for an App install; never an authorization. */
   recheckOwnerApproval: typeof recheckOwnerApproval;

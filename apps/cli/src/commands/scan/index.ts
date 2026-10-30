@@ -249,6 +249,8 @@ export function codeOnlyReasonAfter(
   if (result.overallStatus === "failed") return "check_failed";
   const code = outcome?.repositoryCode ?? null;
   if (code !== null && REMOTE_FAILURES.has(code)) return "no_github_remote";
+  // A repository with no commit yet has no revision to authorize, so it is reported like a
+  // folder without Git (`scanBasis` has no separate code for it).
   if (code === "not_a_git_root" || code === "no_commit_history") return "not_a_git_repository";
   const first = result.authorization.checks.find((check) => check.status !== "passed");
   return first?.status === "unverifiable" ? "check_failed" : "no_approval";
