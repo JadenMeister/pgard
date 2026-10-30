@@ -8,10 +8,12 @@ import { createDefaultServerDeps, type ServerDeps } from "./deps.js";
 import {
   applySecurityHeaders,
   checkHost,
+  checkDocumentNavigation,
   checkOrigin,
-  checkSessionToken,
+  checkSession,
   type RequestCheck,
 } from "./middleware/security.js";
+import { createUrlSession } from "./session/url-session.js";
 import { API_ROUTES, ApiDownload, ApiError, type ApiContext } from "./routes/api.js";
 import { createGitHubSessionManager } from "./session/github-session.js";
 import { applySignInNotice } from "./session/stored-sign-in.js";
@@ -55,6 +57,20 @@ export interface LocalWebServerOptions {
   openGitHubPage?: (url: string) => void;
   /** Test hook; production uses 32 random bytes. */
   token?: string;
+  /**
+   * Test hook: a session secret that is already connected, as if the URL token had been
+   * exchanged. Production never passes it: the page must exchange the URL token.
+   */
+  sessionSecretForTests?: string;
+  /**
+   * The clock of the URL token expiry and the session idle timeout (test hook; `Date.now`). Kept
+   * apart from `deps.now`, which tests move by days to age authorization checks.
+   */
+  sessionClock?: () => number;
+  /** Called on every successful exchange (the launcher prints "Browser connected at ..."). */
+  onBrowserConnected?: (at: Date) => void;
+  /** Called when the spent URL token is presented again (`409 token_used`). */
+  onLinkReused?: (at: Date) => void;
   /** Dev preview hook; production always takes a free port. */
   port?: number;
   /**
@@ -118,12 +134,21 @@ async function readJsonBody(request: http.IncomingMessage): Promise<unknown> {
 
 /**
  * Starts the dashboard server on 127.0.0.1 with a free port. Every API call needs the session
- * token header, our exact Host and (for writes) our Origin; there is no CORS and no route that
+ * secret header (traded once for the URL token, #419), our exact Host and (for writes) our
+ * Origin; there is no CORS and no route that
  * reads arbitrary files. The browser only ever receives redacted results.
  */
 export async function startLocalWebServer(options: LocalWebServerOptions): Promise<LocalWebServer> {
   const deps = options.deps ?? createDefaultServerDeps();
   const token = options.token ?? randomBytes(32).toString("base64url");
+  const sessionClock = options.sessionClock ?? Date.now;
+  const urlSession = createUrlSession(
+    token,
+    sessionClock(),
+    options.sessionSecretForTests === undefined
+      ? {}
+      : { presetSecret: options.sessionSecretForTests },
+  );
   const state = createSessionState(
     options.projectRoot === null
       ? null
@@ -180,8 +205,52 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
       const isStateChanging = method !== "GET";
       const originCheck = checkOrigin(request, port, isStateChanging);
       if (!originCheck.isAllowed) return reject(response, originCheck);
-      const tokenCheck = checkSessionToken(request, token);
-      if (!tokenCheck.isAllowed) return reject(response, tokenCheck);
+      if (pathname === "/api/session/exchange") {
+        if (method !== "POST") return sendError(response, 404, "not_found", "Unknown API route.");
+        void (async () => {
+          try {
+            const body = (await readJsonBody(request)) as { token?: unknown } | null;
+            const outcome = urlSession.exchange(body?.token, sessionClock());
+            if (outcome.kind === "ok") {
+              try {
+                options.onBrowserConnected?.(new Date());
+              } catch {
+                // The terminal line is informational only.
+              }
+              return sendJson(response, 200, { session: outcome.secret });
+            }
+            if (outcome.kind === "token_used") {
+              try {
+                options.onLinkReused?.(new Date());
+              } catch {
+                // The terminal line is informational only.
+              }
+              return sendError(
+                response,
+                409,
+                "token_used",
+                "This link was already used. Run the command again to get a new one.",
+              );
+            }
+            if (outcome.kind === "token_expired") {
+              return sendError(
+                response,
+                410,
+                "token_expired",
+                "This link expired. Run the command again to get a new one.",
+              );
+            }
+            return sendError(response, 401, "bad_token", "This link is not valid for this server.");
+          } catch (error) {
+            if (error instanceof ApiError)
+              return sendError(response, error.status, error.code, error.message);
+            sendError(response, 500, "internal", "Internal error.");
+          }
+        })();
+        return;
+      }
+      const sessionCheck = checkSession(request, urlSession, sessionClock());
+      if (!sessionCheck.isAllowed) return reject(response, sessionCheck);
       // Fixed mode (`pgard dashboard`): the picker is hard-disabled. Every picker request, any
       // method, any body, is refused before the body is read and before the route is looked up.
       if (context.mode === "fixed" && pathname.startsWith("/api/picker")) {
@@ -226,9 +295,14 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     if (method !== "GET" && method !== "HEAD") {
       return sendError(response, 405, "method_not_allowed", "Method not allowed.");
     }
-    const originCheck = checkOrigin(request, port, false);
-    if (!originCheck.isAllowed) return reject(response, originCheck);
     const asset = options.assets.get(pathname);
+    const isDocument = asset !== undefined && /^text\/html\b/i.test(asset.contentType);
+    // The page itself may be reached by a top-level navigation from the redirect file
+    // (`file://`, sent as `Sec-Fetch-Site: cross-site`); every other request stays strict.
+    const originCheck = isDocument
+      ? checkDocumentNavigation(request, port)
+      : checkOrigin(request, port, false);
+    if (!originCheck.isAllowed) return reject(response, originCheck);
     if (asset === undefined) return sendError(response, 404, "not_found", "Not found.");
     response.statusCode = 200;
     response.setHeader("Content-Type", asset.contentType);

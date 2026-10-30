@@ -7,6 +7,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { localPageArgs } from "./dashboard.js";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createWebStorage, RECENT_FILE, SETTINGS_FILE } from "@pgard/result-store";
@@ -135,11 +136,19 @@ describe.skipIf(process.platform === "win32")("pgard web", () => {
   });
 
   it("is dispatched by main and parsed with its options", () => {
-    expect(parseCommandLine(["web"])).toEqual({ kind: "web", noBrowser: false, noStore: false });
+    expect(parseCommandLine(["web"])).toEqual({
+      kind: "web",
+      noBrowser: false,
+      noStore: false,
+      noOpen: false,
+      printUrl: false,
+    });
     expect(parseCommandLine(["web", "--no-store", "--no-browser"])).toEqual({
       kind: "web",
       noBrowser: true,
       noStore: true,
+      noOpen: false,
+      printUrl: false,
     });
     expect(parseCommandLine(["web", "--help"])).toEqual({ kind: "help", topic: "web" });
     expect(parseCommandLine(["web", "scope", "--help"])).toEqual({
@@ -156,9 +165,38 @@ describe.skipIf(process.platform === "win32")("pgard web", () => {
       expect(() => parseCommandLine(argv), argv.join(" ")).toThrow(UsageError);
     }
     expect(getHelpText("web")).toContain("never add one");
+    expect(getHelpText("web")).toContain("--print-url");
+    expect(getHelpText("web")).toContain("#token=••••");
     expect(getHelpText("web")).toContain("Nothing is asked in the terminal");
     expect(getHelpText("web scope")).toContain("never in the browser");
     expect(getHelpText("web scope")).toContain("pgard web scope add");
+  });
+});
+
+describe("pgard web and pgard dashboard: --no-open and --print-url (#419)", () => {
+  it("are parsed for web and dashboard only, and passed to the launcher", async () => {
+    expect(parseCommandLine(["web", "--no-open", "--print-url"])).toMatchObject({
+      kind: "web",
+      noOpen: true,
+      printUrl: true,
+    });
+    expect(parseCommandLine(["dashboard", "--print-url"])).toMatchObject({
+      kind: "dashboard",
+      noOpen: false,
+      printUrl: true,
+    });
+    expect(parseCommandLine(["report", "--no-open"])).toMatchObject({ noOpen: true });
+    for (const argv of [
+      ["scan", "--print-url"],
+      ["report", "--print-url"],
+      ["login", "--no-open"],
+      ["web", "scope", "list", "--no-open"],
+      ["web", "scope", "list", "--print-url"],
+    ]) {
+      expect(() => parseCommandLine(argv), argv.join(" ")).toThrow(UsageError);
+    }
+    expect(localPageArgs({ noOpen: true, printUrl: true })).toEqual(["--no-open", "--print-url"]);
+    expect(localPageArgs({ noOpen: false, printUrl: false })).toEqual([]);
   });
 });
 

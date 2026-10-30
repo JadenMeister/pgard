@@ -28,6 +28,7 @@ import { setAuth } from "./session/session-state.js";
 import { startLocalWebServer, type LocalWebServer } from "./create-server.js";
 
 const TOKEN = "test-token-0123456789abcdefghijklmnop";
+const SESSION = "test-session-0123456789abcdefghijklmn";
 
 const IDENTITY: ServiceIdentity = {
   port: 3000,
@@ -152,7 +153,7 @@ function send(
 }
 
 function apiGet(server: LocalWebServer, urlPath: string): Promise<RawResponse> {
-  return send(server, "GET", urlPath, { headers: { "x-pgard-token": TOKEN } });
+  return send(server, "GET", urlPath, { headers: { "x-pgard-session": SESSION } });
 }
 
 function apiPost(
@@ -162,7 +163,7 @@ function apiPost(
 ): Promise<RawResponse> {
   return send(server, "POST", urlPath, {
     headers: {
-      "x-pgard-token": TOKEN,
+      "x-pgard-session": SESSION,
       origin: `http://127.0.0.1:${server.port}`,
       "content-type": "application/json",
     },
@@ -185,6 +186,7 @@ async function start(
     ]),
     deps,
     token: TOKEN,
+    sessionSecretForTests: SESSION,
   });
   return server;
 }
@@ -213,7 +215,7 @@ describe("local web server security", () => {
     const running = await start(fakeDeps());
     expect((await send(running, "GET", "/api/session")).status).toBe(401);
     expect(
-      (await send(running, "GET", "/api/session", { headers: { "x-pgard-token": "wrong" } }))
+      (await send(running, "GET", "/api/session", { headers: { "x-pgard-session": "wrong" } }))
         .status,
     ).toBe(401);
     expect((await apiGet(running, "/api/session")).status).toBe(200);
@@ -222,7 +224,7 @@ describe("local web server security", () => {
   it("rejects other Host headers (DNS rebinding) even with the token", async () => {
     const running = await start(fakeDeps());
     const response = await send(running, "GET", "/api/session", {
-      headers: { host: `localhost:${running.port}`, "x-pgard-token": TOKEN },
+      headers: { host: `localhost:${running.port}`, "x-pgard-session": SESSION },
     });
     expect(response.status).toBe(421);
     expect((await send(running, "GET", "/", { headers: { host: "evil.example" } })).status).toBe(
@@ -233,15 +235,15 @@ describe("local web server security", () => {
   it("rejects cross-origin and cross-site requests and state changes without Origin", async () => {
     const running = await start(fakeDeps());
     const foreign = await send(running, "GET", "/api/session", {
-      headers: { "x-pgard-token": TOKEN, origin: "http://evil.example" },
+      headers: { "x-pgard-session": SESSION, origin: "http://evil.example" },
     });
     expect(foreign.status).toBe(403);
     const crossSite = await send(running, "GET", "/api/session", {
-      headers: { "x-pgard-token": TOKEN, "sec-fetch-site": "cross-site" },
+      headers: { "x-pgard-session": SESSION, "sec-fetch-site": "cross-site" },
     });
     expect(crossSite.status).toBe(403);
     const noOrigin = await send(running, "POST", "/api/auth/verify", {
-      headers: { "x-pgard-token": TOKEN, "content-type": "application/json" },
+      headers: { "x-pgard-session": SESSION, "content-type": "application/json" },
       body: "{}",
     });
     expect(noOrigin.status).toBe(403);
@@ -280,7 +282,7 @@ describe("local web server security", () => {
     const running = await start(fakeDeps());
     const wrongType = await send(running, "POST", "/api/scan", {
       headers: {
-        "x-pgard-token": TOKEN,
+        "x-pgard-session": SESSION,
         origin: `http://127.0.0.1:${running.port}`,
         "content-type": "text/plain",
       },
@@ -841,6 +843,7 @@ describe("local web scans", () => {
       assets: new Map(),
       deps,
       token: TOKEN,
+      sessionSecretForTests: SESSION,
       openGitHubPage,
     });
     const show = (verificationUri: string) =>
@@ -1076,11 +1079,11 @@ describe("local web report download", () => {
     expect(noToken.status).toBe(401);
     expect(noToken.body).not.toContain("<html");
     const badToken = await send(running, "GET", "/api/reports/pdf", {
-      headers: { "x-pgard-token": "wrong" },
+      headers: { "x-pgard-session": "wrong" },
     });
     expect(badToken.status).toBe(401);
     const badHost = await send(running, "GET", "/api/reports/html", {
-      headers: { host: "evil.test", "x-pgard-token": TOKEN },
+      headers: { host: "evil.test", "x-pgard-session": SESSION },
     });
     expect(badHost.status).toBe(421);
   });
@@ -1092,7 +1095,7 @@ describe("local web report download", () => {
       const query = await send(running, "GET", `/api/reports/${format}?token=${TOKEN}`);
       expect(query.status).toBe(401);
       const cookie = await send(running, "GET", `/api/reports/${format}`, {
-        headers: { cookie: `x-pgard-token=${TOKEN}; token=${TOKEN}` },
+        headers: { cookie: `x-pgard-session=${SESSION}; token=${TOKEN}` },
       });
       expect(cookie.status).toBe(401);
       expect(cookie.headers["content-disposition"]).toBeUndefined();
@@ -1103,17 +1106,17 @@ describe("local web report download", () => {
     const running = await start(fakeDeps());
     await runScan(running);
     const foreign = await send(running, "GET", "/api/reports/html", {
-      headers: { "x-pgard-token": TOKEN, origin: "http://evil.test" },
+      headers: { "x-pgard-session": SESSION, origin: "http://evil.test" },
     });
     expect(foreign.status).toBe(403);
     expect(foreign.headers["content-disposition"]).toBeUndefined();
     const crossSite = await send(running, "GET", "/api/reports/pdf", {
-      headers: { "x-pgard-token": TOKEN, "sec-fetch-site": "cross-site" },
+      headers: { "x-pgard-session": SESSION, "sec-fetch-site": "cross-site" },
     });
     expect(crossSite.status).toBe(403);
     const sameOrigin = await send(running, "GET", "/api/reports/html", {
       headers: {
-        "x-pgard-token": TOKEN,
+        "x-pgard-session": SESSION,
         origin: `http://127.0.0.1:${running.port}`,
         "sec-fetch-site": "same-origin",
       },
@@ -1831,7 +1834,7 @@ describe("local web guided App install", () => {
     );
     await authorize(running);
     const noOrigin = await send(running, "POST", "/api/auth/owner-approval", {
-      headers: { "x-pgard-token": TOKEN, "content-type": "application/json" },
+      headers: { "x-pgard-session": SESSION, "content-type": "application/json" },
       body: "{}",
     });
     expect(noOrigin.status).toBe(403);

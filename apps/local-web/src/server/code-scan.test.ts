@@ -8,6 +8,7 @@ import {
   result,
   send,
   startHarness,
+  SESSION,
   TOKEN,
   waitFor,
   type Harness,
@@ -73,7 +74,7 @@ describe("POST /api/code-scan", () => {
       headers: {
         origin: "http://evil.example",
         "content-type": "application/json",
-        "x-pgard-token": TOKEN,
+        "x-pgard-session": SESSION,
       },
       body: "{}",
     });
@@ -81,7 +82,7 @@ describe("POST /api/code-scan", () => {
     const badHost = await send(harness.server, "POST", "/api/code-scan", {
       headers: {
         host: `localhost:${port}`,
-        "x-pgard-token": TOKEN,
+        "x-pgard-session": SESSION,
         origin: `http://127.0.0.1:${port}`,
         "content-type": "application/json",
       },

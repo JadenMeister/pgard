@@ -486,6 +486,7 @@ describe("guided install: organizations and configuration", () => {
         now: () => clock,
       },
       token: WEB_TOKEN,
+      sessionSecretForTests: WEB_TOKEN,
     });
     try {
       const blocked = await webVerify(server.port);
@@ -523,6 +524,7 @@ describe("guided install: organizations and configuration", () => {
       assets: new Map(),
       deps: { ...serverDepsWithFakeKeychain(), createSessionProvider: () => provider },
       token: WEB_TOKEN,
+      sessionSecretForTests: WEB_TOKEN,
     });
     try {
       const blocked = await webVerify(server.port);
@@ -627,7 +629,7 @@ function webRequest(
         path: urlPath,
         headers: {
           host: `127.0.0.1:${port}`,
-          "x-pgard-token": WEB_TOKEN,
+          "x-pgard-session": WEB_TOKEN,
           ...(method === "GET"
             ? {}
             : { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" }),
@@ -709,6 +711,7 @@ describe("guided install: CLI and dashboard parity", () => {
         now: () => clock,
       },
       token: WEB_TOKEN,
+      sessionSecretForTests: WEB_TOKEN,
     });
     const blocked = await webVerify(web.port);
     expect(blocked.summary).toEqual(cliOutcomes[0]!.summary);

@@ -3,6 +3,7 @@ import { err, out, type CommandContext } from "../context.js";
 import { EXIT_CODES, toKnownExitCode, type ExitCode } from "../exit-codes.js";
 import { isStoreDisabled } from "../flows/baseline.js";
 import { safeText } from "../ui/formatters/style.js";
+import { localPageArgs, NO_LOCAL_PAGE_FLAGS, type LocalPageFlags } from "./dashboard.js";
 
 export const WINDOWS_PICKER_MESSAGE =
   "The project picker is not available on Windows yet. Run `pgard dashboard` in the project folder instead.";
@@ -75,6 +76,7 @@ export async function runWeb(
   context: CommandContext,
   noBrowser: boolean,
   noStore: boolean,
+  launch: LocalPageFlags = NO_LOCAL_PAGE_FLAGS,
 ): Promise<ExitCode> {
   if (context.deps.platform === "win32") {
     err(context, context.errStyle.red(WINDOWS_PICKER_MESSAGE));
@@ -91,6 +93,7 @@ export async function runWeb(
   const args = ["--picker"];
   if (noBrowser) args.push("--no-browser");
   if (isStoreDisabled(context, noStore)) args.push("--no-store");
+  args.push(...localPageArgs(launch));
   context.keys?.close();
   // The dashboard process handles Ctrl+C itself; stop our scan-cancel prompt from printing.
   context.releaseInterrupts();

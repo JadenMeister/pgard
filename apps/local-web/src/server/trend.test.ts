@@ -16,6 +16,7 @@ import {
   result,
   send,
   startHarness,
+  SESSION,
   TOKEN,
   type Harness,
 } from "./test-support/web-harness.js";
@@ -145,18 +146,18 @@ describe("GET /api/trend: access", () => {
     const running = await start();
     expect((await send(running.server, "GET", "/api/trend")).status).toBe(401);
     const wrongHost = await send(running.server, "GET", "/api/trend", {
-      headers: { "x-pgard-token": TOKEN, host: "localhost" },
+      headers: { "x-pgard-session": SESSION, host: "localhost" },
     });
     expect(wrongHost.status).toBe(421);
     const foreignOrigin = await send(running.server, "GET", "/api/trend", {
-      headers: { "x-pgard-token": TOKEN, origin: "http://evil.example" },
+      headers: { "x-pgard-session": SESSION, origin: "http://evil.example" },
     });
     expect(foreignOrigin.status).toBe(403);
     expect(json(foreignOrigin)).toMatchObject({ error: { code: "bad_origin" } });
     expect(
       (
         await send(running.server, "GET", "/api/trend", {
-          headers: { "x-pgard-token": TOKEN, "sec-fetch-site": "cross-site" },
+          headers: { "x-pgard-session": SESSION, "sec-fetch-site": "cross-site" },
         })
       ).status,
     ).toBe(403);
@@ -166,7 +167,7 @@ describe("GET /api/trend: access", () => {
     const running = await start();
     const post = await send(running.server, "POST", "/api/trend", {
       headers: {
-        "x-pgard-token": TOKEN,
+        "x-pgard-session": SESSION,
         origin: `http://127.0.0.1:${running.server.port}`,
         "content-type": "application/json",
       },
@@ -211,6 +212,7 @@ describe("GET /api/trend: honest states", () => {
         },
       }),
       token: TOKEN,
+      sessionSecretForTests: SESSION,
     });
     try {
       setAuth(server.state, {

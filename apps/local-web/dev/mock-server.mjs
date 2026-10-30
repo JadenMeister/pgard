@@ -346,6 +346,8 @@ async function readBody(request) {
 }
 
 const ROUTES = {
+  // #419: the mock accepts any link; the page keeps the secret in this tab (reloads work).
+  "POST /api/session/exchange": () => ({ session: "mocksessionmocksessionmocksession" }),
   "GET /api/session": () => session,
   "GET /api/target": () => null,
   "GET /api/auth": () => authStatus(),

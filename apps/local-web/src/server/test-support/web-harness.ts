@@ -14,6 +14,8 @@ import type { PickerDeps } from "../picker/session.js";
 import { createFakeInspector, type FakeInspector } from "./fake-inspector.js";
 
 export const TOKEN = "test-token-0123456789abcdefghijklmnop";
+/** The session secret the harness server starts with (as if the page had exchanged TOKEN). */
+export const SESSION = "test-session-0123456789abcdefghijklmn";
 
 export const IDENTITY: ServiceIdentity = {
   port: 3000,
@@ -132,7 +134,7 @@ export function send(
 }
 
 export function apiGet(server: LocalWebServer, urlPath: string): Promise<RawResponse> {
-  return send(server, "GET", urlPath, { headers: { "x-pgard-token": TOKEN } });
+  return send(server, "GET", urlPath, { headers: { "x-pgard-session": SESSION } });
 }
 
 export function apiPost(
@@ -142,7 +144,7 @@ export function apiPost(
 ): Promise<RawResponse> {
   return send(server, "POST", urlPath, {
     headers: {
-      "x-pgard-token": TOKEN,
+      "x-pgard-session": SESSION,
       origin: `http://127.0.0.1:${server.port}`,
       "content-type": "application/json",
     },
@@ -210,6 +212,7 @@ export async function startHarness(
       ...options.deps,
     }),
     token: TOKEN,
+    sessionSecretForTests: SESSION,
     ...(options.ui === undefined ? {} : { ui: options.ui }),
   });
   return { server, inspector, clock, close: () => server.close() };

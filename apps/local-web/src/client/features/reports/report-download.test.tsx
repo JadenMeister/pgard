@@ -4,7 +4,7 @@ import {
   apiDownload,
   ApiRequestError,
   filenameFromDisposition,
-  takeTokenFromLocation,
+  setSessionSecret,
 } from "../../api/client";
 import { en } from "../../i18n/en";
 import { ko } from "../../i18n/ko";
@@ -96,13 +96,10 @@ describe("revoking the object URL", () => {
 describe("apiDownload", () => {
   const TOKEN = "abcdefghijklmnopqrstuvwxyz012345";
   function signIn(): void {
-    takeTokenFromLocation(
-      { hash: `#token=${TOKEN}`, pathname: "/", search: "" } as Location,
-      { replaceState: () => undefined } as unknown as History,
-    );
+    setSessionSecret(TOKEN);
   }
 
-  it("sends the session token and returns the blob with the server's file name", async () => {
+  it("sends the session secret and returns the blob with the server's file name", async () => {
     signIn();
     const fetchMock = vi.fn(
       async () =>
@@ -121,7 +118,7 @@ describe("apiDownload", () => {
     expect(file.blob.type).toBe("application/octet-stream");
     const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(path).toBe("/api/reports/html");
-    expect((init.headers as Record<string, string>)["x-pgard-token"]).toBe(TOKEN);
+    expect((init.headers as Record<string, string>)["x-pgard-session"]).toBe(TOKEN);
     expect(init.credentials).toBe("omit");
   });
 

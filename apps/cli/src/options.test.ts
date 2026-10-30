@@ -33,6 +33,8 @@ describe("parseCommandLine", () => {
       kind: "dashboard",
       targetPort: 5173,
       noBrowser: false,
+      noOpen: false,
+      printUrl: false,
     });
     expect(parseCommandLine(["rules", "list", "--language", "go"])).toEqual({
       kind: "rules-list",
@@ -57,6 +59,8 @@ describe("parseCommandLine", () => {
       kind: "dashboard",
       targetPort: null,
       noBrowser: true,
+      noOpen: false,
+      printUrl: false,
     });
     for (const argv of [
       ["--no-browser"],

@@ -11,6 +11,7 @@ import {
   result,
   send,
   startHarness,
+  SESSION,
   TOKEN,
   waitFor,
   type Harness,
@@ -81,7 +82,7 @@ describe("pasted path", () => {
       headers: {
         origin: "http://evil.example",
         "content-type": "application/json",
-        "x-pgard-token": TOKEN,
+        "x-pgard-session": SESSION,
       },
       body: "{}",
     });

@@ -263,8 +263,10 @@ export function scanButtonLabel(
   t: SimpleText,
   outcome: Pick<ReturnType<typeof scanOutcome>, "gateReason" | "result" | "isCodeOnly">,
 ): string {
-  if (outcome.gateReason !== null) return t.checkAgainButton;
-  if (outcome.result !== null && outcome.isCodeOnly) return t.recheckApprovalButton;
+  // One label for every re-check, after a gate and after a code-only result alike.
+  if (outcome.gateReason !== null || (outcome.result !== null && outcome.isCodeOnly)) {
+    return t.recheckApprovalButton;
+  }
   return outcome.result === null ? t.scanButton : t.rescanButton;
 }
 

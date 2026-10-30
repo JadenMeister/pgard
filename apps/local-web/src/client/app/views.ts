@@ -13,7 +13,7 @@ export const VIEWS = [
 export type View = (typeof VIEWS)[number];
 
 /**
- * The view named by a location hash; `overview` for anything else. The session token also
+ * The view named by a location hash; `overview` for anything else. The link's one-time token also
  * arrives in the hash (`#token=...`) but is removed before the app renders.
  */
 export function viewFromHash(hash: string): View {
