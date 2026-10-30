@@ -156,6 +156,16 @@ export interface SignOutRequestDto {
   removeStored?: boolean;
 }
 
+/**
+ * Whether a service looks like the project (a hint only; a match is never proof). The labels are
+ * already sanitized and capped by the server.
+ */
+export interface RelatednessDto {
+  verdict: "likely" | "unclear" | "unlikely";
+  serviceLabel: string | null;
+  projectLabel: string | null;
+}
+
 export interface ServiceIdentityDto {
   port: number;
   url: string;
@@ -165,6 +175,7 @@ export interface ServiceIdentityDto {
   isHttp: boolean;
   hasUnfollowedRedirect: boolean;
   error: string | null;
+  relatedness: RelatednessDto;
 }
 
 export interface PortListResponse {

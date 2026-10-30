@@ -13,6 +13,9 @@ import {
   isValidPort,
   WEB_RULE_LIST,
   sanitizeDisplayText,
+  EMPTY_PROJECT_SIGNALS,
+  relatedness,
+  type ProjectSignals,
   type ServiceIdentity,
 } from "@pgard/http-local";
 import { ReportWriteError } from "@pgard/report";
@@ -267,7 +270,11 @@ function readPort(body: unknown): number {
   return port;
 }
 
-function toIdentityDto(identity: ServiceIdentity): ServiceIdentityDto {
+function toIdentityDto(identity: ServiceIdentity, project: ProjectSignals): ServiceIdentityDto {
+  const judged = relatedness(
+    { title: identity.title, technologies: identity.inferredTechnologies },
+    project,
+  );
   return {
     port: identity.port,
     url: identity.url,
@@ -277,7 +284,18 @@ function toIdentityDto(identity: ServiceIdentity): ServiceIdentityDto {
     isHttp: identity.isHttp,
     hasUnfollowedRedirect: identity.redirectStop !== null,
     error: identity.error,
+    relatedness: {
+      verdict: judged.verdict,
+      serviceLabel: judged.serviceLabel,
+      projectLabel: judged.projectLabel,
+    },
   };
+}
+
+/** Local files only (no request); a failure just means no judgement. */
+async function readSignals(context: ApiContext, project: ProjectRecord): Promise<ProjectSignals> {
+  const repo = project.repo === null ? null : `${project.repo.owner}/${project.repo.name}`;
+  return context.deps.readProjectSignals(project.root, repo).catch(() => EMPTY_PROJECT_SIGNALS);
 }
 
 function toTargetInfo(state: SessionState): TargetInfo | null {
@@ -764,9 +782,10 @@ const listPorts: ApiHandler = async (context) => {
   const discovery = await context.deps.discoverListeningPorts();
   assertProjectUnchanged(context, capture);
   requireSameAuthorization(context, authAtStart);
+  const signals = await readSignals(context, capture.project);
   const services = await Promise.all(
     discovery.ports.map(async (entry) => ({
-      ...toIdentityDto(await context.deps.probeLocalService(entry.port, { signal })),
+      ...toIdentityDto(await context.deps.probeLocalService(entry.port, { signal }), signals),
       processName: entry.processName,
     })),
   );
@@ -794,7 +813,7 @@ const probePort: ApiHandler = async (context, body) => {
   assertProjectUnchanged(context, capture);
   requireSameAuthorization(context, authAtStart);
   context.state.lastProbe = { identity, probedAt: context.deps.now(), auth: authAtStart };
-  return toIdentityDto(identity);
+  return toIdentityDto(identity, await readSignals(context, capture.project));
 };
 
 /**

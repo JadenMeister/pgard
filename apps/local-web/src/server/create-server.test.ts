@@ -7,7 +7,12 @@ import {
   type ScanRequest,
   type ScanResult,
 } from "@pgard/findings";
-import { WEB_RULE_LIST, type PortDiscoveryResult, type ServiceIdentity } from "@pgard/http-local";
+import {
+  EMPTY_PROJECT_SIGNALS,
+  WEB_RULE_LIST,
+  type PortDiscoveryResult,
+  type ServiceIdentity,
+} from "@pgard/http-local";
 import {
   AUTHORIZATION_CHECK_ORDER,
   createDeviceFlowSessionProvider,
@@ -103,6 +108,7 @@ function fakeDeps(
     credentialStore: createInMemoryCredentialStore(),
     webScanner: async () => ({ findings: [], coverage: [] }),
     probeLocalService: async () => IDENTITY,
+    readProjectSignals: async () => EMPTY_PROJECT_SIGNALS,
     discoverListeningPorts: async () => ({
       ports: [{ port: 3000, processName: "node" }],
       method: "lsof",
@@ -2063,5 +2069,51 @@ describe("local web confirmed target", () => {
     const running = await confirmed({ current: { login: "octo", userId: 7 } });
     setAuth(running.state, { status: "idle", outcome: null, finishedAt: null, message: null });
     expect(running.state.confirmedTarget).toBeNull();
+  });
+});
+
+describe("local web service relatedness hint", () => {
+  it("adds a verdict to the probe and the port list, from local project signals only", async () => {
+    const probed: number[] = [];
+    const running = await start(
+      fakeDeps({
+        verifyProject: ALLOWED_VERIFY,
+        probeLocalService: async (port) => {
+          probed.push(port);
+          return { ...IDENTITY, title: "Grafana", inferredTechnologies: [] };
+        },
+        readProjectSignals: async () => ({
+          folderName: "shop",
+          repo: null,
+          manifestNames: [],
+          dependencies: [],
+        }),
+      }),
+    );
+    await authorize(running);
+    const probe = JSON.parse((await apiPost(running, "/api/ports/probe", { port: 3000 })).body);
+    expect(probe.relatedness).toEqual({
+      verdict: "unlikely",
+      serviceLabel: "Grafana",
+      projectLabel: "shop",
+    });
+    const list = JSON.parse((await apiGet(running, "/api/ports")).body);
+    expect(list.services[0].relatedness.verdict).toBe("unlikely");
+    // One probe per request; the hint made none of its own.
+    expect(probed).toEqual([3000, 3000]);
+  });
+
+  it("falls back to unclear when the project cannot be read", async () => {
+    const running = await start(
+      fakeDeps({
+        verifyProject: ALLOWED_VERIFY,
+        readProjectSignals: async () => {
+          throw new Error("unreadable");
+        },
+      }),
+    );
+    await authorize(running);
+    const probe = JSON.parse((await apiPost(running, "/api/ports/probe", { port: 3000 })).body);
+    expect(probe.relatedness.verdict).toBe("unclear");
   });
 });

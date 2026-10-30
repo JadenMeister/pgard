@@ -1,9 +1,10 @@
-import type { ServiceIdentity } from "@pgard/http-local";
+import type { ProjectSignals, ServiceIdentity } from "@pgard/http-local";
 import { promptContextOf, throwIfCancelled, type CommandContext } from "../context.js";
 import { cliText } from "../ui/i18n/cli-text.js";
 import { BACK, promptChoice, promptConfirm, type Choice } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
 import { looksAutomated } from "./panels.js";
+import { judgeService } from "./select-local-port.js";
 
 /** Total time for finding and describing local servers; the scan never waits longer for the offer. */
 export const WEB_OFFER_BUDGET_MS = 1200;
@@ -39,9 +40,16 @@ export function shouldOfferWebTarget(
 export interface OfferedTarget {
   port: number;
   label: string;
+  /** Looks like this project (title, headers or framework match); listed first. */
+  isLikely: boolean;
 }
 
-function describe(identity: ServiceIdentity, processName: string | null): OfferedTarget {
+function describe(
+  identity: ServiceIdentity,
+  processName: string | null,
+  project: ProjectSignals | null,
+  mark: string,
+): OfferedTarget {
   const url = identity.url.replace(/\/$/, "");
   const detail =
     identity.title !== null
@@ -49,7 +57,9 @@ function describe(identity: ServiceIdentity, processName: string | null): Offere
       : processName !== null
         ? safeText(processName, 30)
         : null;
-  return { port: identity.port, label: detail === null ? url : `${url} (${detail})` };
+  const isLikely = judgeService(identity, project)?.verdict === "likely";
+  const base = detail === null ? url : `${url} (${detail})`;
+  return { port: identity.port, label: isLikely ? `${base} ${mark}` : base, isLikely };
 }
 
 /** Resolves with `fallback` when `work` is not done in `ms` or fails; never rejects. */
@@ -78,12 +88,16 @@ export async function findWebTargets(
   context: CommandContext,
   budgetMs: number = WEB_OFFER_BUDGET_MS,
   beforeProbe: () => Promise<boolean> = async () => true,
+  getProject: () => Promise<ProjectSignals | null> = async () => null,
 ): Promise<OfferedTarget[]> {
   const discovery = await withinBudget(context.deps.discoverListeningPorts(), budgetMs, null);
   const ports = discovery?.ports.slice(0, WEB_OFFER_MAX_PROBES) ?? [];
   if (ports.length === 0) return [];
   if (!(await beforeProbe())) return [];
   if (context.signal.aborted) return [];
+  const mark = cliText(context.ruleLocale).webRelated.likelyMark;
+  // Local files only; a failure just means no judgement.
+  const project = await getProject().catch(() => null);
   const controller = new AbortController();
   const abort = (): void => controller.abort();
   context.signal.addEventListener("abort", abort, { once: true });
@@ -96,16 +110,19 @@ export async function findWebTargets(
               timeoutMs: budgetMs,
               signal: controller.signal,
             });
-            return identity.isHttp ? describe(identity, entry.processName) : null;
+            return identity.isHttp ? describe(identity, entry.processName, project, mark) : null;
           })(),
           budgetMs,
           null,
         ),
       ),
     );
-    return described
-      .filter((entry): entry is OfferedTarget => entry !== null)
-      .slice(0, WEB_OFFER_MAX_TARGETS);
+    const found = described.filter((entry): entry is OfferedTarget => entry !== null);
+    // The ones that look like this project first; ties keep the discovery order.
+    return [
+      ...found.filter((entry) => entry.isLikely),
+      ...found.filter((entry) => !entry.isLikely),
+    ].slice(0, WEB_OFFER_MAX_TARGETS);
   } finally {
     controller.abort();
     context.signal.removeEventListener("abort", abort);
@@ -119,12 +136,21 @@ export async function findWebTargets(
  */
 export async function offerWebTarget(
   context: CommandContext,
-  options: { budgetMs?: number; beforeProbe?: () => Promise<boolean> } = {},
+  options: {
+    budgetMs?: number;
+    beforeProbe?: () => Promise<boolean>;
+    getProject?: () => Promise<ProjectSignals | null>;
+  } = {},
 ): Promise<number | null> {
   const text = cliText(context.ruleLocale).webOffer;
   const prompts = promptContextOf(context, text.help);
   if (prompts === null) return null;
-  const targets = await findWebTargets(context, options.budgetMs, options.beforeProbe);
+  const targets = await findWebTargets(
+    context,
+    options.budgetMs,
+    options.beforeProbe,
+    options.getProject,
+  );
   // A cancel confirmed while looking (Ctrl+C in the menu) takes effect before any question.
   throwIfCancelled(context);
   const only = targets[0];

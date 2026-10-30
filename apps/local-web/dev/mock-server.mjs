@@ -365,6 +365,7 @@ const ROUTES = {
         status: 200,
         title: "Acme Shop",
         inferredTechnologies: ["Express"],
+        relatedness: { verdict: "unclear", serviceLabel: "Acme Shop", projectLabel: "shop" },
         isHttp: true,
         hasUnfollowedRedirect: false,
         error: null,
