@@ -154,7 +154,13 @@ describe.skipIf(process.platform !== "win32")(
       const repo = plant();
       const env = { ...process.env };
       delete env.NoDefaultCurrentDirectoryInExePath;
-      const result = spawnSync("git", ["--version"], { cwd: repo.root, env, encoding: "utf8" });
+      const result = spawnSync("git", ["--version"], {
+        cwd: repo.root,
+        env,
+        encoding: "utf8",
+        timeout: 60_000,
+        killSignal: "SIGKILL",
+      });
       expect(result.stdout.startsWith("git version")).toBe(false);
     });
 
@@ -175,6 +181,8 @@ describe.skipIf(process.platform !== "win32")(
       const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
         cwd: repo.root,
         encoding: "utf8",
+        timeout: 60_000,
+        killSignal: "SIGKILL",
       });
       expect(result.stdout).toMatch(/^git version /);
     });

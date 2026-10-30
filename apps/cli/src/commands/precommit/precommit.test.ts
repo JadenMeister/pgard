@@ -91,6 +91,8 @@ function git(root: string, ...args: string[]): string {
       GIT_CONFIG_NOSYSTEM: "1",
       GIT_TERMINAL_PROMPT: "0",
     },
+    timeout: 60_000,
+    killSignal: "SIGKILL",
   });
 }
 
@@ -642,6 +644,9 @@ describe.skipIf(process.platform === "win32")("the installed hook inside git", (
             GIT_CONFIG_GLOBAL: "/dev/null",
           },
           stdio: "pipe",
+          // A hung commit must fail this test, not stall the job.
+          timeout: 60_000,
+          killSignal: "SIGKILL",
         },
       );
       return { ok: true };

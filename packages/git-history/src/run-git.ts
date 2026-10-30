@@ -384,6 +384,12 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
   if (options.indexFile !== undefined) env.GIT_INDEX_FILE = options.indexFile;
   const maxBuffer = options.maxBuffer ?? DEFAULT_MAX_BUFFER;
   return new Promise((resolve, reject) => {
+    // Already cancelled: never start the child. Killing a process right after it was started is
+    // not safe on macOS (#418), and there is nothing to wait for.
+    if (options.signal?.aborted) {
+      reject(new GitCommandError("git command was cancelled", null, "cancelled"));
+      return;
+    }
     // An absolute path on Windows, so a `git.exe` inside the scanned repository never runs.
     const gitProgram = resolveGitExecutable({ cwd: options.cwd });
     if (gitProgram === null) {
@@ -410,7 +416,6 @@ function execGit(args: readonly string[], options: GitRunOptions): Promise<strin
       failure ??= new GitCommandError("git command was cancelled", null, "cancelled");
       child.kill("SIGKILL");
     };
-    if (options.signal?.aborted) onAbort();
     options.signal?.addEventListener("abort", onAbort, { once: true });
     child.stdout.on("data", (chunk: Buffer) => {
       if (truncated) return;
@@ -508,6 +513,10 @@ export const runGit: GitRunner = async (invocation, options) => {
       options.indexFile.includes("\0"))
   ) {
     throw new GitCommandError("git index file is not allowed", null);
+  }
+  // Already cancelled: do not even read the driver overrides (that starts a git child too).
+  if (options.signal?.aborted) {
+    throw new GitCommandError("git command was cancelled", null, "cancelled");
   }
   const overrides = METADATA_ONLY.has(invocation.subcommand)
     ? []

@@ -489,6 +489,8 @@ const OPERATIONS: Record<string, Operation> = {
     execFileSync("git", ["reset", "-q", "--mixed", `HEAD~${back}`], {
       cwd: repo.root,
       env: { PATH: process.env.PATH ?? "", HOME: repo.root, GIT_CONFIG_NOSYSTEM: "1" },
+      timeout: 60_000,
+      killSignal: "SIGKILL",
     });
   },
 };

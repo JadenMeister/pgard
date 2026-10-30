@@ -12,6 +12,9 @@ jobs:
   check-os:
     name: check (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    # A normal run is about 9 minutes on Windows, the slowest. A hang must fail in minutes, not
+    # at the 6 hour default (#418).
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -38,7 +41,9 @@ jobs:
           node apps/cli/dist/bin/pgard.js rules list
       - run: npm run typecheck:tests
       - run: npm run format:check
-      - run: npm test
+      - name: Tests
+        run: npm test
+        timeout-minutes: 20
       # Real Windows Credential Manager round trip with a random throwaway service name.
       - name: Keychain round trip (Windows)
         if: runner.os == 'Windows'
@@ -53,6 +58,7 @@ jobs:
   # sign-in and always exits 0, reporting state instead.
   pack-smoke:
     name: pack smoke (${{ matrix.os }})
+    timeout-minutes: 30
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -76,6 +82,7 @@ jobs:
   # tests/corpus/RESULTS.md is out of date. Local only (generated git repos, loopback servers).
   corpus:
     name: accuracy corpus
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

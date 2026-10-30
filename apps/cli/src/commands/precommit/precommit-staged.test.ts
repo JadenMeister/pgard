@@ -74,7 +74,14 @@ const GIT_ENV = (root: string) => ({
 });
 
 function git(root: string, ...args: string[]): string {
-  return execFileSync("git", args, { cwd: root, encoding: "utf8", env: GIT_ENV(root) });
+  // A Git that never returns would block the whole worker (and the CI job) without a log.
+  return execFileSync("git", args, {
+    cwd: root,
+    encoding: "utf8",
+    env: GIT_ENV(root),
+    timeout: 60_000,
+    killSignal: "SIGKILL",
+  });
 }
 
 function write(root: string, files: Record<string, string | Buffer>): void {
@@ -516,28 +523,51 @@ describe.skipIf(process.platform === "win32")("inside a real git commit", () => 
     inside: (indexFile: string) => Promise<T>,
   ): Promise<{ result: T; exitCode: number | null }> {
     const hook = path.join(root, ".git", "hooks", "pre-commit");
+    const goFile = path.join(root, ".git", "hook-go");
     mkdirSync(path.dirname(hook), { recursive: true });
+    // The wait is bounded (about 60 s): if the test dies or its directory is removed, the hook
+    // still ends by itself instead of holding `git commit` open for ever.
     writeFileSync(
       hook,
-      `#!/bin/sh\nprintf '%s' "$GIT_INDEX_FILE" > "${root}/.git/hook-index"\nwhile [ ! -f "${root}/.git/hook-go" ]; do sleep 0.05; done\nexit 0\n`,
+      `#!/bin/sh\nprintf '%s' "$GIT_INDEX_FILE" > "${root}/.git/hook-index"\nn=0\nwhile [ ! -f "${goFile}" ] && [ $n -lt 1200 ]; do sleep 0.05; n=$((n+1)); done\nexit 0\n`,
     );
     chmodSync(hook, 0o755);
+    // Its own process group, so git, the hook shell and `sleep` can be killed together.
     const child = spawn(
       "git",
       ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", ...commitArgs],
-      { cwd: root, env: GIT_ENV(root), stdio: "ignore" },
+      { cwd: root, env: GIT_ENV(root), stdio: "ignore", detached: true },
     );
-    const exited = new Promise<number | null>((resolve) => child.on("exit", resolve));
+    const exited = new Promise<number | null>((resolve) => {
+      child.once("exit", (code) => resolve(code));
+      child.once("error", () => resolve(null));
+    });
     const marker = path.join(root, ".git", "hook-index");
-    for (let waited = 0; !existsSync(marker) && waited < 20_000; waited += 50) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
     try {
-      return { result: await inside(readFileSync(marker, "utf8")), exitCode: null };
+      for (let waited = 0; !existsSync(marker) && waited < 10_000; waited += 50) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      const result = await inside(readFileSync(marker, "utf8"));
+      writeFileSync(goFile, "go");
+      const exitCode = await Promise.race([
+        exited,
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 5_000)),
+      ]);
+      return { result, exitCode };
     } finally {
-      writeFileSync(path.join(root, ".git", "hook-go"), "go");
-      // eslint-disable-next-line no-unsafe-finally
-      void exited;
+      // Whatever happened above, nothing of this commit may outlive the test.
+      try {
+        writeFileSync(goFile, "go");
+      } catch {
+        // the directory is already gone
+      }
+      try {
+        if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // already exited
+      }
+      // Bounded: a process that SIGKILL cannot reap must not hold the test past its timeout.
+      await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
     }
   }
 

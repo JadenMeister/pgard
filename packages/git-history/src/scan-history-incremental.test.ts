@@ -175,10 +175,14 @@ describe("incremental history scan guards", () => {
     try {
       execFileSync("git", ["clone", "-q", "--depth", "1", `file://${fixture.root}`, clone], {
         env: { PATH: process.env.PATH ?? "", HOME: clone, GIT_CONFIG_NOSYSTEM: "1" },
+        timeout: 60_000,
+        killSignal: "SIGKILL",
       });
       const stored = execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: clone,
         encoding: "utf8",
+        timeout: 60_000,
+        killSignal: "SIGKILL",
       }).trim();
       const incremental = await scanGitHistory(clone, {
         incremental: { baseRevision: stored, carried: [], trackedFindingPaths: [] },
