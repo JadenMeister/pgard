@@ -629,7 +629,7 @@ export const en = {
       items: [
         "A scan run in this dashboard, or a code-only scan: not stored. Run pgard scan in a terminal.",
         "Only one stored scan: scan again later to compare.",
-        "Storing is off: PGARD_NO_STORE=1, or pgard web --no-store.",
+        "Storing was off when you scanned: pgard scan --no-store or PGARD_NO_STORE=1.",
       ],
     },
     source:

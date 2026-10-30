@@ -280,7 +280,7 @@ export interface TrendPanelText {
   heading: string;
   /** The marker after the heading: `?` opens the trend help. */
   helpMark: string;
-  /** The three cases in which the trend is empty, listed under the first-line reason. */
+  /** Common reasons for an empty trend, listed under the first-line reason. */
   cases: { intro: string; codeOnly: string; single: string; off: string };
   /** The help section for the trend tab: a title and a few plain lines. */
   help: { title: string; lines: string[] };

@@ -341,7 +341,7 @@ describe("trend panel empty states and help marker", () => {
   const tall = (columns: number): Size => ({ columns, rows: 40 });
 
   for (const locale of ["en", "ko"] as const) {
-    it(`${locale}: a code-only result names its own reason, then the three cases`, () => {
+    it(`${locale}: a code-only result names its own reason, then the common reasons`, () => {
       const size = tall(80);
       const all = joined(frame(codeOnlyState(locale, size, unavailable("no-repository")), size));
       expect(all).toContain(EXPECT[locale].codeOnly);
@@ -378,6 +378,8 @@ describe("trend panel empty states and help marker", () => {
         expect(all).not.toContain(EXPECT[locale].intro);
       }
       expect(disabled).toContain(EXPECT[locale].intro);
+      expect(disabled).toContain(EXPECT[locale].cases[0]);
+      expect(disabled).not.toContain(EXPECT[locale].cases[1]);
       expect(disabled).not.toContain(EXPECT[locale].cases[2]);
       const one = joined(frame(stateFor(locale, size, ready(1)), size));
       expect(one).toContain(EXPECT[locale].intro);

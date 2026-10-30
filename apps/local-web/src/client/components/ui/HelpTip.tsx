@@ -26,13 +26,26 @@ export function HelpTip({ children, label }: { children: ReactNode; label?: stri
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       setOpen((value) => nextHelpTipOpen(value, "escape"));
-      details.current?.querySelector("summary")?.focus();
+      // Give focus back to the "?" only when it was inside the tip (or nowhere).
+      const active = document.activeElement;
+      if (active === document.body || (active && details.current?.contains(active))) {
+        details.current?.querySelector("summary")?.focus();
+      }
     };
+    const onFocusOut = (event: FocusEvent): void => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && !details.current?.contains(next)) {
+        setOpen((value) => nextHelpTipOpen(value, "outside"));
+      }
+    };
+    const element = details.current;
+    element?.addEventListener("focusout", onFocusOut);
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
       document.removeEventListener("keydown", onKeyDown);
+      element?.removeEventListener("focusout", onFocusOut);
     };
   }, [open]);
   return (
@@ -42,11 +55,7 @@ export function HelpTip({ children, label }: { children: ReactNode; label?: stri
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
-      <summary
-        aria-label={label ?? m.help.label}
-        title={label ?? m.help.label}
-        aria-expanded={open}
-      >
+      <summary aria-label={label ?? m.help.label} title={label ?? m.help.label}>
         ?
       </summary>
       <div className="help-tip-body">{children}</div>

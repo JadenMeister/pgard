@@ -62,7 +62,6 @@ export function TrendView({
         <p key={line}>{line}</p>
       ))}
     >
-      {" "}
       <p className="trend-source">{m.trend.source}</p>
       <TrendBody
         state={state}
@@ -76,7 +75,7 @@ export function TrendView({
   );
 }
 
-/** The three cases in which the trend has no history, under the reason for this one. */
+/** Common reasons for an empty trend, under the reason for this one. */
 function EmptyCases({ off = true }: { off?: boolean }) {
   const { m } = useI18n();
   return (

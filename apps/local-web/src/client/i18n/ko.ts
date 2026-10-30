@@ -598,7 +598,7 @@ export const ko: Messages = {
       items: [
         "이 대시보드에서 실행한 검사나 코드 전용 검사: 저장되지 않습니다. 터미널에서 pgard scan을 실행하세요.",
         "저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.",
-        "저장이 꺼져 있음: PGARD_NO_STORE=1 또는 pgard web --no-store.",
+        "검사할 때 저장이 꺼져 있었음: pgard scan --no-store 또는 PGARD_NO_STORE=1.",
       ],
     },
     source:

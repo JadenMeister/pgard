@@ -176,7 +176,7 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   ];
   // A code-only result stores nothing: this reason wins over every other state.
   if (isCodeOnlyResult(state.result)) return empty(text.noHistory.codeOnly, ALL_CASES);
-  if (trend.kind === "disabled") return empty(text.noHistory.disabled, ["codeOnly", "single"]);
+  if (trend.kind === "disabled") return empty(text.noHistory.disabled, ["codeOnly"]);
   if (trend.kind === "unavailable") {
     if (trend.why === "no-store-dir") return empty(text.noHistory.noStoreDir, []);
     if (trend.why === "no-repository") return empty(text.noHistory.noRepository, []);

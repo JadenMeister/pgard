@@ -62,7 +62,7 @@ const TEXT = {
     languages: ["en-US"],
     intro: "Common reasons for an empty trend:",
     one: "A scan run in this dashboard, or a code-only scan: not stored. Run pgard scan in a terminal.",
-    off: "Storing is off: PGARD_NO_STORE=1, or pgard web --no-store.",
+    off: "Storing was off when you scanned: pgard scan --no-store or PGARD_NO_STORE=1.",
     label: "About trend",
     history: "each approved pgard scan that finishes is stored on this computer",
   },
@@ -70,7 +70,7 @@ const TEXT = {
     languages: ["ko-KR"],
     intro: "추이가 비는 흔한 이유:",
     one: "이 대시보드에서 실행한 검사나 코드 전용 검사: 저장되지 않습니다. 터미널에서 pgard scan을 실행하세요.",
-    off: "저장이 꺼져 있음: PGARD_NO_STORE=1 또는 pgard web --no-store.",
+    off: "검사할 때 저장이 꺼져 있었음: pgard scan --no-store 또는 PGARD_NO_STORE=1.",
     label: "추이 설명",
     history: "승인되어 끝까지 실행된 pgard scan은 저장을 끄지 않는 한 이 컴퓨터에 저장됩니다",
   },
@@ -94,7 +94,6 @@ describe("help tip behaviour", () => {
       </I18nProvider>,
     );
     expect(html).toContain('<summary aria-label="About trend"');
-    expect(html).toContain('aria-expanded="false"');
     expect(html).not.toMatch(/<details[^>]*\sopen/);
     expect(html).not.toContain("style=");
     expect(html).not.toMatch(/\son[a-z]+=/);

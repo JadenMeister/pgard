@@ -107,8 +107,8 @@ Common reasons for an empty trend:
   1. A code-only scan: results are not
      stored. Run pgard scan with GitHub
      approval.
-  2. Only one stored scan: scan again
-     later to compare.
+
+
 Esc: back  ?: help  Tab: panel"
 `;
 
@@ -231,7 +231,7 @@ PGARD_NO_STORE=1), so there is nothing to compare.
 Common reasons for an empty trend:
   1. A code-only scan: results are not stored. Run pgard
      scan with GitHub approval.
-  2. Only one stored scan: scan again later to compare.
+
 
 
 
@@ -385,7 +385,7 @@ nothing to compare.
 Common reasons for an empty trend:
   1. A code-only scan: results are not stored. Run pgard scan with GitHub
      approval.
-  2. Only one stored scan: scan again later to compare.
+
 
 
 
@@ -509,8 +509,8 @@ exports[`trend panel snapshots > ko 40x14 store disabled 1`] = `
   1. 코드 전용 검사: 결과가 저장되지
      않습니다. GitHub 승인으로 pgard
      scan을 실행하세요.
-  2. 저장된 검사가 1건뿐: 나중에 다시
-     검사해 비교하세요.
+
+
 Esc: 뒤로  ?: 도움말  Tab: 패널"
 `;
 
@@ -633,7 +633,7 @@ PGARD_NO_STORE=1) 비교할 대상이 없습니다.
 추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
      승인으로 pgard scan을 실행하세요.
-  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
+
 
 
 
@@ -787,7 +787,7 @@ exports[`trend panel snapshots > ko 80x24 store disabled 1`] = `
 추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
      실행하세요.
-  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
+
 
 
 
