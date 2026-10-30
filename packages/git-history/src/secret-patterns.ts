@@ -213,6 +213,12 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
  * has no dotted access before the bracket and is kept.
  */
 const UNQUOTED_CODE_VALUE = /^=|^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:[)}\]]|\|\||&&)/;
+/** Whether the line has a comment marker (`//`, `/*`, `#`, a leading `*`) before `index`. */
+function isInComment(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf("\n", index - 1) + 1;
+  const before = text.slice(Math.max(lineStart, index - CODE_WINDOW), index);
+  return /(?:^|\s)(?:\/\/|\/\*|#)|^\s*\*/.test(before);
+}
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
@@ -257,6 +263,8 @@ interface DetectContext {
   isTemplate: boolean;
   /** Whether the file is a Markdown-like documentation file. */
   isDoc: boolean;
+  /** Number of Markdown code fence lines that start before an index (built lazily, once). */
+  fencesBefore: (index: number) => number;
   /** Start of the string literal around an index, or -1 (built lazily, once per text). */
   stringStartAt: (index: number) => number;
 }
@@ -266,11 +274,36 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
   const isSource = path !== undefined && SOURCE_CODE_FILE.test(path);
   const name = path?.split("/").pop() ?? "";
   let lookup: ((index: number) => number) | null = null;
+  let fenceStarts: number[] | null = null;
   return {
     text,
     isSource,
     isTemplate: ENV_TEMPLATE.test(name),
     isDoc: DOC_FILE.test(name),
+    fencesBefore: (index) => {
+      if (fenceStarts === null) {
+        fenceStarts = [];
+        let lineStart = 0;
+        while (lineStart <= text.length) {
+          const end = text.indexOf("\n", lineStart);
+          const stop = end === -1 ? text.length : end;
+          if (/^[ \t]*(?:```|~~~)/.test(text.slice(lineStart, Math.min(stop, lineStart + 80)))) {
+            fenceStarts.push(lineStart);
+          }
+          if (end === -1) break;
+          lineStart = end + 1;
+        }
+      }
+      // Binary search: fences starting before `index`.
+      let low = 0;
+      let high = fenceStarts.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if ((fenceStarts[middle] as number) < index) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    },
     stringStartAt: (index) => {
       if (path === undefined) return -1;
       lookup ??= createStringLookup(text, path);
@@ -360,7 +393,14 @@ function isLiteralAssignment(
   // In source code outside a string, a comparison (`password==e.pass`) or a member access that
   // runs into a bracket or operator (`e.target.value})`) is an expression, not a literal. Inside a
   // string, in a comment or in a config file the same characters can be part of a password.
-  if (context.isSource && !inString && UNQUOTED_CODE_VALUE.test(value)) return false;
+  if (
+    context.isSource &&
+    !inString &&
+    UNQUOTED_CODE_VALUE.test(value) &&
+    !isInComment(text, start)
+  ) {
+    return false;
+  }
   if (CALL_SHAPED_VALUE.test(value) && (value.endsWith(")") || (context.isSource && !inString))) {
     return false;
   }
@@ -407,24 +447,23 @@ function isLikelySecretValue(value: string, example = false, template = false): 
  * prose is kept).
  */
 function isExampleValue(context: DetectContext, match: RegExpMatchArray, value: string): boolean {
+  // Only in `.env` templates and docs: in a config file `random-tiger-lamp-orbit` is a passphrase.
+  if (!context.isTemplate && !context.isDoc) return false;
   if (isPlaceholderWordValue(value)) return true;
   if (!isExampleWordsValue(value)) return false;
   if (context.isTemplate) return true;
-  if (!context.isDoc) return false;
   if ((match.groups?.valueQuote ?? "") === "") return true;
-  return isInCodeRegion(context.text, match.index ?? 0);
+  return isInCodeRegion(context, match.index ?? 0);
 }
 
 /** Whether `index` is inside a backtick code span on its line or a fenced code block. */
-function isInCodeRegion(text: string, index: number): boolean {
+function isInCodeRegion(context: DetectContext, index: number): boolean {
+  const { text } = context;
   const lineStart = text.lastIndexOf("\n", index - 1) + 1;
-  const before = text.slice(lineStart, index);
+  // A line longer than this is not read for backticks (keeps a long line linear).
+  const before = text.slice(Math.max(lineStart, index - 2000), index);
   if (((before.match(/`/g) ?? []).length & 1) === 1) return true;
-  let fences = 0;
-  for (const line of text.slice(0, lineStart).split("\n")) {
-    if (/^\s*(?:```|~~~)/.test(line)) fences += 1;
-  }
-  return fences % 2 === 1;
+  return context.fencesBefore(lineStart) % 2 === 1;
 }
 
 /**

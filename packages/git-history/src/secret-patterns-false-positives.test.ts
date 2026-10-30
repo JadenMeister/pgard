@@ -22,8 +22,14 @@ describe("placeholder words (#445)", () => {
     "insert-your-key-here",
     "put_your_secret_here",
   ])("does not report %s", (value) => {
-    expect(scan(`SECRET_KEY=${value}\n`, "config/app.conf")).toEqual([]);
-    expect(scan(`secret = "${value}"\n`, "src/app.py")).toEqual([]);
+    expect(scan(`SECRET_KEY=${value}\n`, ".env.example")).toEqual([]);
+    expect(scan(`secret = ${value}\n`, "docs/setup.md")).toEqual([]);
+  });
+
+  it("keeps a passphrase made of those words in a config file", () => {
+    for (const phrase of ["random-tiger-lamp-orbit", "Insert-Coin-Gizmo"]) {
+      expect(scan(`secret: ${phrase}\n`, "config.yml")).toHaveLength(1);
+    }
   });
 
   it("still reports a real value", () => {
@@ -135,6 +141,26 @@ describe("code-shaped unquoted values (minified code)", () => {
     j("// password=Xk9", "&&m2Lq8vB"),
   ])("keeps a password with a bracket or operator in a comment: %#", (text) => {
     expect(scan(`${text}\n`, "src/app.js")).toHaveLength(1);
+  });
+
+  it.each([
+    j("// db password: Prod.Xk9q", ")m2Lq8"),
+    j("# password=Abc.Zq8", "]Lm2x9Kp"),
+    j("// password: =Xk9q2", "Lm8vBpZ"),
+    j("// password==Xk9q2", "Lm8vBpZ"),
+  ])("keeps a dotted or = prefixed password in a comment: %#", (text) => {
+    expect(scan(`${text}\n`, "src/app.js")).toHaveLength(1);
+  });
+
+  it("stays fast on a large doc of example lines", () => {
+    const text = 'Set `api_key = "my-secret-key-value"` here.\n'.repeat(25_000);
+    const started = performance.now();
+    expect(scan(text, "README.md")).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1000);
+    const fenced = ("```\n" + 'api_key = "my-secret-key-value"\n```\n').repeat(25_000);
+    const startedFenced = performance.now();
+    scan(fenced, "README.md");
+    expect(performance.now() - startedFenced).toBeLessThan(1000);
   });
 
   it("keeps brackets in config text and in strings, and a leading = outside source code", () => {

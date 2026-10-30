@@ -407,6 +407,37 @@ export const HISTORY_CASES = [
   },
   {
     rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "comment-password-dotted-or-equals-prefixed",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "src/notes.js": [
+            `// db password: ${join("Prod.Xk9q", ")m2Lq8")}`,
+            `# password=${join("Abc.Zq8", "]Lm2x9Kp")}`,
+            `// password: =${join("Xk9q2", "Lm8vBpZ")}`,
+            `// password==${join("Xk9q2", "Lm8vBpZ")}`,
+          ].join("\n"),
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "passphrase-with-placeholder-words-in-config",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "config.yml": `secret: ${join("random-tiger", "-lamp-orbit")}\napi_key: ${join("Insert-Coin", "-Gizmo")}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
     kind: "negative",
     name: "aws-documentation-example-key",
     expect: [],

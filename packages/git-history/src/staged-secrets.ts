@@ -77,9 +77,17 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
   let preexisting = 0;
   for (const file of files) {
     if (isEnvironmentFile(file.path) && file.kind !== "modified") {
-      const folded = detectSecrets(file.content, { path: file.path }).filter(
-        (secret) => secret.kind === "generic_credential",
-      ).length;
+      // A UTF-16 file is read twice; the larger count is the one that read it right.
+      const folded = Math.max(
+        ...[file.content, file.alternate]
+          .filter((text): text is string => text !== undefined)
+          .map(
+            (text) =>
+              detectSecrets(text, { path: file.path }).filter(
+                (secret) => secret.kind === "generic_credential",
+              ).length,
+          ),
+      );
       findings.push(envFileFinding(file.path, folded));
     }
     // UTF-16 files are read twice (as UTF-16 and as UTF-8), so a secret in either kind of part is
