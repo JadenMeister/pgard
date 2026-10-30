@@ -602,15 +602,16 @@ function footer(
 function titleLine(state: PanelsState, size: Size, style: Style): string {
   const t = cliText(state.locale);
   const target = state.result.target;
-  const repo = safeText(target.repo ?? t.unknown, 120);
-  const revision = safeText((target.revision ?? t.unknown).slice(0, 12), 20);
+  // A code-only scan of a folder has no verified repository or commit: say nothing rather
+  // than "unknown @ unknown".
+  const where =
+    target.repo === null && target.revision === null
+      ? ""
+      : `  ${safeText(target.repo ?? t.unknown, 120)} @ ${safeText((target.revision ?? t.unknown).slice(0, 12), 20)}`;
   const status = t.report.overall[state.result.overallStatus] ?? t.unknown;
   // A code-only result says so first, so truncation on a narrow screen never hides it.
   const label = isCodeOnlyResult(state.result) ? `${t.codeOnly.short}  ` : "";
-  const line = truncateWidth(
-    `${label}${t.panels.title}  ${repo} @ ${revision}  ${status}`,
-    size.columns,
-  );
+  const line = truncateWidth(`${label}${t.panels.title}${where}  ${status}`, size.columns);
   if (label === "") return style.bold(line);
   const shown = line.startsWith(label) ? label : line;
   return style.bold(style.yellow(shown) + line.slice(shown.length));
