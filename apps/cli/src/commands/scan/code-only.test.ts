@@ -203,9 +203,12 @@ describe("any folder (D4)", () => {
 
   it("refuses the home folder and the file-system root outside a Git repository", async () => {
     expect(await codeOnlyFolderRefusal("/", "/home/u", "linux")).toBe("root");
-    expect(await codeOnlyFolderRefusal(os.homedir(), os.homedir())).toBe("home");
+    // The home folder is given explicitly (HOME), so a redirected HOME in the test process or an
+    // account home that differs from os.homedir() cannot change the outcome.
+    const home = await temp();
+    expect(await codeOnlyFolderRefusal(home, home)).toBe("home");
     const runCode = unexpected("runCodeOnlyScan");
-    const captured = createTestIo({ cwd: os.homedir() });
+    const captured = createTestIo({ cwd: home, env: { HOME: home } });
     const code = await runScanCommand(
       createTestContext(
         captured,

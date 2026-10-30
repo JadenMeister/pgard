@@ -30,7 +30,7 @@ vi.mock("@pgard/policy", async (importOriginal) => {
   };
 });
 
-const { findGitRoot, runScan } = await import("@pgard/scan-core");
+const { findGitRoot, runCodeOnlyScan, runScan } = await import("@pgard/scan-core");
 const { EXIT_CODES } = await import("../../exit-codes.js");
 const { installHook } = await import("./hook.js");
 const precommit = await import("./index.js");
@@ -108,6 +108,7 @@ function setup(root: string, env: Record<string, string> = {}) {
   const deps = createTestDeps({
     findGitRoot,
     runScan,
+    runCodeOnlyScan,
     createSessionProvider: (() =>
       Object.assign(async () => Promise.reject(new Error("no sign-in in tests")), {
         existing: async () => null,
@@ -432,7 +433,9 @@ describe("the policy comes from the staged config", () => {
 
 describe("timers", () => {
   it("the authorization cap does not cut the analysis", async () => {
-    const root = makeRepo();
+    const root = makeRepo({
+      "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+    });
     write(root, { "src/ok.ts": "export const a = 1;\n" });
     git(root, "add", "src/ok.ts");
     const { captured, context } = setup(root);
@@ -443,7 +446,9 @@ describe("timers", () => {
   });
 
   it("warns about an unusable PGARD_PRECOMMIT_TIMEOUT_MS and uses the default", async () => {
-    const root = makeRepo();
+    const root = makeRepo({
+      "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+    });
     const { captured, context } = setup(root, { PGARD_PRECOMMIT_TIMEOUT_MS: "soon" });
     expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
     expect(captured.stderr()).toContain("PGARD_PRECOMMIT_TIMEOUT_MS=soon is not a number");
@@ -454,6 +459,15 @@ describe("timers", () => {
     const { captured, context } = setup(root, { PGARD_PRECOMMIT_TIMEOUT_MS: "20000" });
     await precommit.runPrecommit(context);
     expect(captured.stderr()).not.toContain("is not a number");
+  });
+
+  it("has no authorization cap by default: code-only ignores PGARD_PRECOMMIT_TIMEOUT_MS", async () => {
+    const root = makeRepo();
+    const { captured, context } = setup(root, { PGARD_PRECOMMIT_TIMEOUT_MS: "soon" });
+    expect(await precommit.runPrecommit(context, { authTimeoutMs: 1 })).toBe(EXIT_CODES.ok);
+    expect(captured.stderr()).not.toContain("is not a number");
+    expect(captured.stderr()).not.toContain("checking authorization");
+    expect(authorizeProject).not.toHaveBeenCalled();
   });
 });
 
@@ -467,6 +481,20 @@ describe("merge commits", () => {
     precommit.runPrecommitSnippet(snippet.context);
     expect(snippet.captured.stdout()).toContain(".git/hooks/pre-merge-commit");
     expect(snippet.captured.stdout()).toContain("500-file limit");
+  });
+
+  it("says in install and in the snippet that the hook is code-only and how to require the gate", async () => {
+    const root = makeRepo();
+    const installed = setup(root);
+    await precommit.runPrecommitInstall(installed.context);
+    expect(installed.captured.stdout()).toContain(
+      "Code-only hook (no sign-in). To require the gate:",
+    );
+    expect(installed.captured.stdout()).toContain('"requireAuthorization": true');
+    const snippet = setup(root);
+    precommit.runPrecommitSnippet(snippet.context);
+    expect(snippet.captured.stdout()).toContain("code-only by default: no sign-in");
+    expect(snippet.captured.stdout()).toContain('"requireAuthorization": true');
   });
 });
 

@@ -15,8 +15,11 @@ import { INVISIBLE_CHARACTERS, globProblem } from "./glob.js";
  * }
  * ```
  *
- * `precommit` (`{ "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }`) only sets what
- * the `pgard precommit` hook does with a result.
+ * `precommit` (`{ "mode": "block" | "warn", "whenNotScanned": "block" | "warn",
+ * "requireAuthorization": boolean }`) only sets what the `pgard precommit` hook does: how a
+ * result ends, and whether it runs the full authorization gate (`true`) instead of a code-only
+ * check. `true` adds the authorization gate; when the gate can't pass, `whenNotScanned` decides
+ * (with `"warn"` the commit goes on with a warning and nothing scanned).
  *
  * Deliberately not configurable: authorization, hosts, ports, network targets and rule
  * severities. Any key not listed here is rejected, so a config can never widen what PGARD
@@ -47,8 +50,9 @@ export interface ProjectSuppression {
 }
 
 /**
- * `pgard precommit` settings. Both values only decide what the commit hook does with a result;
- * neither can skip or relax the authorization checks.
+ * `pgard precommit` settings. `mode` and `whenNotScanned` only decide what the commit hook does
+ * with a result; `requireAuthorization` adds the authorization gate, and when that gate can't
+ * pass, `whenNotScanned` decides.
  */
 export interface PrecommitConfig {
   /** `block` exits non-zero on a finding and stops the commit; `warn` prints and exits 0. */
@@ -58,6 +62,11 @@ export interface PrecommitConfig {
    * timeout, a file over the size limit. Unset: the same as `mode`, so a `block` hook blocks.
    */
   whenNotScanned?: "block" | "warn";
+  /**
+   * `true`: run the full authorization gate first (GitHub sign-in and owner approval), as before
+   * #414. Unset or `false`: a code-only check of the staged changes (no gate, no network).
+   */
+  requireAuthorization?: boolean;
 }
 
 export const PRECOMMIT_MODES: readonly ("block" | "warn")[] = ["block", "warn"];
@@ -356,13 +365,24 @@ export function parseProjectConfig(text: string): ProjectConfigParse {
     if (!(section instanceof Map)) {
       problems.push("precommit: must be an object");
     } else {
-      checkKeys(section, "precommit", [], ["mode", "whenNotScanned"], problems);
+      checkKeys(
+        section,
+        "precommit",
+        [],
+        ["mode", "whenNotScanned", "requireAuthorization"],
+        problems,
+      );
       const parsed: PrecommitConfig = {};
       for (const key of ["mode", "whenNotScanned"] as const) {
         if (!section.has(key)) continue;
         const value = section.get(key);
         if (value === "block" || value === "warn") parsed[key] = value;
         else problems.push(`precommit.${key}: must be "block" or "warn"`);
+      }
+      if (section.has("requireAuthorization")) {
+        const value = section.get("requireAuthorization");
+        if (typeof value === "boolean") parsed.requireAuthorization = value;
+        else problems.push("precommit.requireAuthorization: must be true or false");
       }
       precommit = parsed;
     }
