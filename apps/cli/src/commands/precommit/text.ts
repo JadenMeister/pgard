@@ -191,7 +191,7 @@ const EN: PrecommitText = {
     mergeNote:
       "Git runs pre-commit for ordinary commits and conflicted merges, but a clean merge commit runs pre-merge-commit instead. To check those too, see `pgard precommit snippet`.",
     codeOnlyNote:
-      'The hook is code-only: it needs no sign-in, network or keychain, and says "code-only, authorization not verified". To run the full authorization gate first (as pgard scan does), set "precommit": { "requireAuthorization": true } in pgard.config.json and commit it.',
+      'Code-only hook (no sign-in). To require the gate: "precommit": { "requireAuthorization": true } in pgard.config.json.',
   },
   uninstall: {
     removed: (file) => `Removed the PGARD pre-commit hook: ${file}`,
@@ -307,7 +307,7 @@ const KO: PrecommitText = {
     mergeNote:
       "Git은 일반 커밋과 충돌이 있던 병합에는 pre-commit을 실행하지만, 충돌 없는 병합 커밋에는 pre-merge-commit을 실행합니다. 그것도 검사하려면 `pgard precommit snippet`을 참고하세요.",
     codeOnlyNote:
-      '이 훅은 코드 전용입니다. 로그인, 네트워크, 키체인이 필요 없으며 "코드 전용, 권한 미확인"이라고 표시합니다. pgard scan처럼 전체 권한 확인을 먼저 실행하려면 pgard.config.json에 "precommit": { "requireAuthorization": true }를 넣고 커밋하세요.',
+      '코드 전용 훅입니다(로그인 없음). 관문을 요구하려면 pgard.config.json에 "precommit": { "requireAuthorization": true }를 넣으세요.',
   },
   uninstall: {
     removed: (file) => `PGARD pre-commit 훅을 제거했습니다: ${file}`,

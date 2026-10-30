@@ -487,7 +487,9 @@ describe("merge commits", () => {
     const root = makeRepo();
     const installed = setup(root);
     await precommit.runPrecommitInstall(installed.context);
-    expect(installed.captured.stdout()).toContain("The hook is code-only: it needs no sign-in");
+    expect(installed.captured.stdout()).toContain(
+      "Code-only hook (no sign-in). To require the gate:",
+    );
     expect(installed.captured.stdout()).toContain('"requireAuthorization": true');
     const snippet = setup(root);
     precommit.runPrecommitSnippet(snippet.context);

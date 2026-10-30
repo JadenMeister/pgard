@@ -18,7 +18,8 @@ import { INVISIBLE_CHARACTERS, globProblem } from "./glob.js";
  * `precommit` (`{ "mode": "block" | "warn", "whenNotScanned": "block" | "warn",
  * "requireAuthorization": boolean }`) only sets what the `pgard precommit` hook does: how a
  * result ends, and whether it runs the full authorization gate (`true`) instead of a code-only
- * check. It can only make the hook stricter.
+ * check. `true` adds the authorization gate; when the gate can't pass, `whenNotScanned` decides
+ * (with `"warn"` the commit goes on with a warning and nothing scanned).
  *
  * Deliberately not configurable: authorization, hosts, ports, network targets and rule
  * severities. Any key not listed here is rejected, so a config can never widen what PGARD
@@ -50,7 +51,8 @@ export interface ProjectSuppression {
 
 /**
  * `pgard precommit` settings. `mode` and `whenNotScanned` only decide what the commit hook does
- * with a result; `requireAuthorization` can only add the authorization gate, never relax it.
+ * with a result; `requireAuthorization` adds the authorization gate, and when that gate can't
+ * pass, `whenNotScanned` decides.
  */
 export interface PrecommitConfig {
   /** `block` exits non-zero on a finding and stops the commit; `warn` prints and exits 0. */

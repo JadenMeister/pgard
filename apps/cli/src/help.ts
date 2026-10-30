@@ -459,8 +459,12 @@ testDirectories is read from the working tree):
                     more than 500 changed files, 5 s analysis cap). Default: the
                     same as mode, so a blocking hook blocks. An invalid config
                     means block.
-  requireAuthorization  true: run the authorization gate first (default false:
-                    code-only). It can only add the gate, never skip it.
+  requireAuthorization  true: add the authorization gate first (default false:
+                    code-only). When the gate can't pass, whenNotScanned
+                    decides: with "warn" the commit goes on, nothing scanned.
+                    A cloned repository can commit this setting; the hook then
+                    uses your stored sign-in to call GitHub on commit, but
+                    never starts a sign-in.
 Limits: reading and checking the staged changes up to 5 s (typically well under 1 s):
 text files up to 1 MiB, up to 500 changed files, 16 MiB in total. With
 requireAuthorization, the authorization check comes first, up to 15 s
