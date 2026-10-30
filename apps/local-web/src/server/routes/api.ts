@@ -301,6 +301,24 @@ function scanStatus(state: SessionState): ScanStatus {
 }
 
 /**
+ * The last gate reason of the current project (#427): kept across code-only runs, so a second
+ * click on "scan code only" still says `no_approval` instead of drifting to `not_checked` (a
+ * code-only run replaces `state.scan`, which is what the page reads the reason from). It belongs
+ * to one project: a project change (a new `projectEpoch`) drops it. Kept here, keyed by the
+ * session, so the session state itself stays as it is.
+ */
+const lastGateReasons = new WeakMap<SessionState, { epoch: number; reason: GateReason | null }>();
+
+function rememberGateReason(state: SessionState, reason: GateReason | null): void {
+  lastGateReasons.set(state, { epoch: state.projectEpoch, reason });
+}
+
+function lastGateReasonOf(state: SessionState): GateReason | null {
+  const kept = lastGateReasons.get(state);
+  return kept !== undefined && kept.epoch === state.projectEpoch ? kept.reason : null;
+}
+
+/**
  * Why the gate did not pass (the shared rule of `@pgard/scan-core`, as the CLI's question uses
  * it), or `null` when it passed.
  */
@@ -860,6 +878,7 @@ const startScan: ApiHandler = async (context, body) => {
   if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
   const folderReason = folderGateReason(capture.project);
   if (folderReason !== null) {
+    rememberGateReason(state, folderReason);
     // Only reachable with `signIn: false` (otherwise the identity check refuses the folder).
     state.scan = {
       status: "done",
@@ -926,12 +945,14 @@ const startScan: ApiHandler = async (context, body) => {
         };
         return;
       }
+      const gateReason = gateReasonOf(result, outcome, gate.isNotSignedIn());
+      rememberGateReason(state, gateReason);
       state.scan = {
         ...state.scan,
         status: "done",
         result,
         controller: null,
-        gateReason: gateReasonOf(result, outcome, gate.isNotSignedIn()),
+        gateReason,
       };
     })
     .catch((error: unknown) => {
@@ -984,7 +1005,7 @@ const startCodeScan: ApiHandler = async (context, body) => {
   const capture = captureProject(context, body);
   if (state.scan.status === "running")
     throw new ApiError(409, "scan_running", "A scan is already running.");
-  const lastGate = state.scan.gateReason ?? null;
+  const lastGate = state.scan.gateReason ?? lastGateReasonOf(state);
   await recheckProject(context, capture, true);
   if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
   const controller = new AbortController();

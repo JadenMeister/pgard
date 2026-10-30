@@ -135,6 +135,27 @@ describe("scanBasis (JSON 1.7)", () => {
     expect(readScanResult({ ...withoutBasis, schemaVersion: "1.6" }).ok).toBe(true);
   });
 
+  it("refuses a pre-1.7 result that is blocked yet has findings: it is a code-only result with its label removed (#427)", () => {
+    const { scanBasis: _dropped, ...downgraded } = result({
+      scanBasis: CODE_ONLY,
+      findings: [FINDING],
+    });
+    const old = readScanResult({ ...downgraded, schemaVersion: "1.6" });
+    expect(old.ok).toBe(false);
+    expect(!old.ok && old.error.message).toContain("must carry scanBasis");
+    // A blocked result without findings, and an authorized one with findings, still read.
+    expect(readScanResult({ ...downgraded, findings: [], schemaVersion: "1.6" }).ok).toBe(true);
+    expect(
+      readScanResult({
+        ...downgraded,
+        authorization: ALL_PASSED,
+        schemaVersion: "1.6",
+      }).ok,
+    ).toBe(true);
+    // From 1.7 on the basis is required anyway.
+    expect(readScanResult({ ...downgraded, schemaVersion: "1.7" }).ok).toBe(false);
+  });
+
   it("labels a code-only SARIF run and keeps it apart from authorized runs", () => {
     const sarif = buildSarif(result({ scanBasis: CODE_ONLY }), new Map());
     const run = sarif.runs[0] as {

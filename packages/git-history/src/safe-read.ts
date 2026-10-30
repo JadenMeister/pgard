@@ -1,5 +1,5 @@
-import { constants } from "node:fs";
-import { lstat, open } from "node:fs/promises";
+import { constants, type BigIntStats, type Dir } from "node:fs";
+import { lstat, open, opendir, stat as statFollowing } from "node:fs/promises";
 
 /** What made a file unsafe to read, so a block reason can say what was actually found. */
 export type UnsafeKind = "symlink" | "special" | "too-large" | "unreadable";
@@ -75,4 +75,102 @@ export async function readSmallRegularFileBytes(
   } finally {
     await handle?.close().catch(() => undefined);
   }
+}
+
+/** Why a directory was not opened. */
+export type UnsafeDirectoryKind = "symlink" | "special" | "mount" | "changed" | "unreadable";
+
+export type SafeDirectoryResult =
+  | { state: "ok"; dir: Dir; dev: bigint }
+  | { state: "absent" }
+  | { state: "unsafe"; found: UnsafeDirectoryKind };
+
+export interface OpenDirectoryOptions {
+  /**
+   * The walk's root may itself be reached through a link (the user chose it); every folder
+   * below it never may.
+   */
+  allowSymlink?: boolean;
+  /** The device of the walk's root: a folder on another device is a mount point, not entered. */
+  expectedDev?: bigint;
+  bufferSize?: number;
+}
+
+const sameObject = (a: { dev: bigint; ino: bigint }, b: { dev: bigint; ino: bigint }): boolean =>
+  a.dev === b.dev && (a.ino === 0n || a.ino === b.ino); // Windows may report no inode
+
+/**
+ * Opens a folder of a tree PGARD does not trust for reading, without following a symbolic link
+ * that was swapped in after the parent was listed (#427). `lstat` first: a link or a non-folder is
+ * refused; then, where the system has `O_DIRECTORY` and `O_NOFOLLOW`, a handle opened with both
+ * must be the very object `lstat` saw (`dev` and `ino`); then `opendir`, and `lstat` once more:
+ * a folder replaced between the checks and the open is refused, never read. A folder on another
+ * device than `expectedDev` is a mount point (a network share, a FUSE mount, another disk) and
+ * is not entered.
+ */
+export async function openDirectoryNoFollow(
+  directory: string,
+  options: OpenDirectoryOptions = {},
+): Promise<SafeDirectoryResult> {
+  const inspect = (): Promise<BigIntStats> =>
+    options.allowSymlink === true
+      ? statFollowing(directory, { bigint: true })
+      : lstat(directory, { bigint: true });
+  const before = await inspect().catch((error: NodeJS.ErrnoException) => error);
+  if (before instanceof Error) {
+    return (before as NodeJS.ErrnoException).code === "ENOENT"
+      ? { state: "absent" }
+      : { state: "unsafe", found: "unreadable" };
+  }
+  if (before.isSymbolicLink()) return { state: "unsafe", found: "symlink" };
+  if (!before.isDirectory()) return { state: "unsafe", found: "special" };
+  if (options.expectedDev !== undefined && before.dev !== options.expectedDev) {
+    return { state: "unsafe", found: "mount" };
+  }
+  if (
+    options.allowSymlink !== true &&
+    constants.O_DIRECTORY !== undefined &&
+    constants.O_NOFOLLOW !== undefined
+  ) {
+    let handle;
+    try {
+      handle = await open(
+        directory,
+        constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW,
+      );
+      if (!sameObject(before, await handle.stat({ bigint: true }))) {
+        return { state: "unsafe", found: "changed" };
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      return { state: "unsafe", found: code === "ELOOP" ? "symlink" : "unreadable" };
+    } finally {
+      await handle?.close().catch(() => undefined);
+    }
+  }
+  let dir: Dir;
+  try {
+    dir = await opendir(directory, { bufferSize: options.bufferSize ?? 64 });
+  } catch {
+    return { state: "unsafe", found: "unreadable" };
+  }
+  const after = await inspect().catch(() => null);
+  if (after === null || after.isSymbolicLink() || !sameObject(before, after)) {
+    await dir.close().catch(() => undefined);
+    return { state: "unsafe", found: "changed" };
+  }
+  return { state: "ok", dir, dev: before.dev };
+}
+
+/**
+ * `.git`, also in another case on macOS and Windows, whose file systems ignore case: `.GIT` is
+ * the same folder there and must not be walked as project files (#427).
+ */
+export function isGitDirectoryName(
+  name: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform === "darwin" || platform === "win32"
+    ? name.toLowerCase() === ".git"
+    : name === ".git";
 }

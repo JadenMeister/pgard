@@ -1056,7 +1056,9 @@ export function describeConfigExcluded(
       : everythingExcluded
         ? " WARNING: every source file is excluded."
         : "") + (budgetExhausted ? ` WARNING: ${BUDGET_WARNING}` : "");
-  const heading = `${count} file${count === 1 ? "" : "s"} excluded by pgard.config.json (of ${totalFound} source files; ${patterns.length} pattern${patterns.length === 1 ? "" : "s"}, set ${setHash}).${warning}`;
+  // "0 files excluded (of 0 source files)" says nothing: with no source file found, say that.
+  const found = totalFound === 0 ? "no source files found" : `of ${totalFound} source files`;
+  const heading = `${count} file${count === 1 ? "" : "s"} excluded by pgard.config.json (${found}; ${patterns.length} pattern${patterns.length === 1 ? "" : "s"}, set ${setHash}).${warning}`;
   const compose = (shown: string[]) => {
     const rest = patterns.length - shown.length;
     return `${heading} Patterns: ${shown.map((pattern) => JSON.stringify(pattern)).join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;
@@ -1117,7 +1119,9 @@ export function describeConfigTestDirectories(
   const listed = patterns.slice(0, MAX_LISTED_PATHS).map((pattern) => JSON.stringify(pattern));
   const rest = patterns.length - listed.length;
   const note =
-    `${demoted} of ${production.length} source files are classified as test code by pgard.config.json testDirectories (set ${setHash}).` +
+    (production.length === 0
+      ? `No production source files to classify as test code by pgard.config.json testDirectories (set ${setHash}).`
+      : `${demoted} of ${production.length} source files are classified as test code by pgard.config.json testDirectories (set ${setHash}).`) +
     (isSuspect ? " WARNING: most or all of your code is marked as test code." : "") +
     (budgetExhausted ? ` WARNING: ${BUDGET_WARNING}` : "") +
     ` Patterns: ${listed.join(", ")}${rest > 0 ? ` and ${rest} more` : ""}.`;

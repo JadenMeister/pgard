@@ -7,6 +7,8 @@ import type { RuleLocale } from "@pgard/findings";
  */
 export interface PrecommitText {
   notRepository: string;
+  /** Outside a Git repository `pgard precommit` has nothing staged to check: a note, exit 0. */
+  nothingStaged: string;
   /** Printed first, to stderr. */
   /** With `"requireAuthorization": true`: the gate, then the staged changes. */
   checking: (budgetSeconds: number, timeoutSeconds: number) => string;
@@ -97,6 +99,8 @@ export interface PrecommitText {
 }
 
 const EN: PrecommitText = {
+  nothingStaged:
+    "pgard precommit: the current directory is not inside a Git repository, so nothing is staged and there was nothing to scan.",
   notRepository:
     "The current directory is not inside a Git repository, so no staged changes could be scanned.",
   checking: (budgetSeconds, timeoutSeconds) =>
@@ -214,6 +218,8 @@ const EN: PrecommitText = {
 };
 
 const KO: PrecommitText = {
+  nothingStaged:
+    "pgard precommit: 현재 디렉터리가 Git 저장소 안이 아니어서 스테이징된 변경이 없고 검사할 것이 없습니다.",
   notRepository: "현재 디렉터리가 Git 저장소 안이 아니어서 스테이징된 변경을 검사하지 못했습니다.",
   checking: (budgetSeconds, timeoutSeconds) =>
     `pgard precommit: 권한을 확인한 뒤(최대 ${timeoutSeconds}초) 스테이징된 변경을 검사합니다(최대 ${budgetSeconds}초)...`,

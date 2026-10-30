@@ -117,6 +117,35 @@ function throwIfCancelled(signal: AbortSignal | undefined): void {
   }
 }
 
+/**
+ * `work`, or a `ScanCancelledError` the moment `signal` aborts. A local analyzer can sit in a
+ * file-system call that never returns (a hung network or FUSE mount); Cancel must not wait for
+ * it. The abandoned call keeps running until it returns, but nothing waits for it and its result
+ * is dropped (#427).
+ */
+function abortable<T>(work: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return work;
+  return new Promise<T>((resolve, reject) => {
+    if (signal.aborted) {
+      work.catch(() => undefined);
+      reject(new ScanCancelledError());
+      return;
+    }
+    const onAbort = (): void => reject(new ScanCancelledError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 function sortFindings(findings: Finding[]): Finding[] {
   const severityRank = { critical: 0, high: 1, medium: 2, low: 3, info: 4 } as const;
   return [...findings].sort(
@@ -259,6 +288,8 @@ export async function runCodeOnlyScan(
     (async (context) => {
       const [base, secrets] = await Promise.all([
         defaultCode(context),
+        // The folder's own `exclude` is untrusted here (it could hide a file from this check):
+        // this pass ignores it and says so in its note.
         scanWorkingTreeSecrets(context),
       ]);
       return {
@@ -551,7 +582,7 @@ async function executeScan(
         });
       } else {
         const analyzer = analyzers[scope as "code" | "history"];
-        output = await analyzer(context);
+        output = await abortable(analyzer(context), deps.signal);
       }
       throwIfCancelled(deps.signal);
       if (scope === "code" || scope === "history") outputs[scope] = output;

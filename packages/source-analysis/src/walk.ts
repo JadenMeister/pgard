@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { lstat, open, readdir } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
+import {
+  isGitDirectoryName,
+  openDirectoryNoFollow,
+  readSmallRegularFileBytes,
+} from "@pgard/git-history";
 import {
   classifyDependencyVendorDirectory,
   isSkipDirectorySourceFile,
@@ -325,14 +330,30 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       break;
     }
     const directory = stack.pop() as string;
-    let entries;
-    try {
-      entries = await readdir(directory, { withFileTypes: true });
-    } catch {
-      result.unreadableDirectories.push(
-        path.relative(root, directory).split(path.sep).join("/") || ".",
-      );
+    // Opened without following a link that was swapped in since the parent was listed (#427);
+    // the root itself may be the folder the user chose through a link.
+    const opened = await openDirectoryNoFollow(directory, {
+      allowSymlink: directory === root,
+      bufferSize: 256,
+    });
+    const shownDirectory = path.relative(root, directory).split(path.sep).join("/") || ".";
+    if (opened.state !== "ok") {
+      if (opened.state === "unsafe" && opened.found === "symlink") {
+        result.skippedSymlinks.push(shownDirectory);
+      } else {
+        result.unreadableDirectories.push(shownDirectory);
+      }
       continue;
+    }
+    let entries: Dirent[];
+    try {
+      entries = [];
+      for await (const entry of opened.dir) entries.push(entry);
+    } catch {
+      result.unreadableDirectories.push(shownDirectory);
+      continue;
+    } finally {
+      await opened.dir.close().catch(() => undefined);
     }
     entries.sort((a, b) => a.name.localeCompare(b.name));
     // A directory is a Python virtual environment only if it holds `pyvenv.cfg` (written by
@@ -361,7 +382,7 @@ export async function walkSourceTree(root: string, options: WalkOptions = {}): P
       }
       const relativePath = path.relative(root, absolutePath).split(path.sep).join("/");
       if (entry.isDirectory()) {
-        if (entry.name === ".git") continue;
+        if (isGitDirectoryName(entry.name)) continue;
         if (SKIPPED_DIRECTORIES.has(entry.name)) {
           // A package named `build`, `out` or `dist` under a JVM source root is first-party code.
           if (
@@ -524,24 +545,17 @@ function finishTrack(result: WalkResult): void {
   result.springConfigFiles.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
 
-/** Reads a text file read-only; returns `null` for binary content (NUL bytes) or errors. */
+/**
+ * Reads a text file read-only; returns `null` for binary content (NUL bytes), a file that is not
+ * a small regular file, or errors. `readSmallRegularFileBytes`: `O_NOFOLLOW` and `O_NONBLOCK`
+ * plus an `fstat` regular-file check on the open handle, so a file swapped for a link or a FIFO
+ * after the directory walk is neither followed nor able to block the read (#427).
+ */
 export async function readTextFile(
   absolutePath: string,
   maxBytes = MAX_FILE_BYTES,
 ): Promise<string | null> {
-  let handle;
-  try {
-    // O_NOFOLLOW: a file swapped for a symlink after the directory walk is not followed.
-    handle = await open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const buffer = Buffer.alloc(maxBytes + 1);
-    const { bytesRead } = await handle.read(buffer, 0, maxBytes + 1, 0);
-    if (bytesRead > maxBytes) return null;
-    const content = buffer.subarray(0, bytesRead);
-    if (content.includes(0)) return null;
-    return content.toString("utf8");
-  } catch {
-    return null;
-  } finally {
-    await handle?.close();
-  }
+  const read = await readSmallRegularFileBytes(absolutePath, maxBytes);
+  if (read.state !== "ok" || read.bytes.includes(0)) return null;
+  return read.bytes.toString("utf8");
 }

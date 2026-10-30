@@ -794,6 +794,20 @@ function parse(input: unknown): ReadScanResultOutcome {
     result.scanBasis = readScanBasis(scanBasis);
     checkScanBasis(result.scanBasis, result);
   }
+  // Before 1.7 a blocked scan never carried findings (nothing ran after the gate). Blocked with
+  // findings is the shape of a code-only result: with the version lowered and `scanBasis`
+  // removed it would read as an authorized scan, so it is refused (#427).
+  if (
+    scanBasis === undefined &&
+    Number(sourceVersion.split(".")[1]) < 7 &&
+    result.authorization.decision === "blocked" &&
+    result.findings.length > 0
+  ) {
+    fail(
+      "invalid_shape",
+      `A result with a blocked authorization decision and findings must carry scanBasis (schemaVersion ${sourceVersion} has none).`,
+    );
+  }
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {
