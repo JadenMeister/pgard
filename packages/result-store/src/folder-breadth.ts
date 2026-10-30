@@ -36,6 +36,9 @@ export function tooBroadToScan(
     .filter((part) => part.length > 0).length;
   if (depth === 0) return "root";
   if (depth === 1) return "top_level";
+  // macOS keeps `/etc`, `/tmp` and `/var` under `/private` (their real paths), so a folder
+  // directly in `/private` is top-level too.
+  if (depth === 2 && root === "/" && target.startsWith(`${fold("/private")}/`)) return "top_level";
   if (home === null || home === "") return null;
   const resolvedHome = fold(api.resolve(home));
   if (target === resolvedHome) return "home";

@@ -244,6 +244,8 @@ export interface CliText {
     tooBroadRepository: string;
     /** `pgard scan code` in a `.git` folder or a bare repository. */
     gitDirectory: string;
+    /** `pgard scan code` when no home folder is known (HOME empty, no account home). */
+    noHome: string;
   };
   /** Chrome of the full-screen panel view (`pgard scan --panels`). Scan data is not in here. */
   panels: PanelsText;
@@ -585,6 +587,8 @@ const EN: CliText = {
       "This folder is inside a Git repository at your home folder (or a folder above it), so a code-only scan would read all of it, including folders such as .ssh. Run pgard scan code inside a project folder that has its own Git repository (run `git init` there if it has none).",
     gitDirectory:
       "This is a Git directory (.git or a bare repository), not a project's files; its config can hold credentials. Run pgard scan code in the project's working folder.",
+    noHome:
+      "PGARD could not find your home folder (HOME is empty and the account has none), so it cannot check that this folder is not your home folder. Set HOME and run pgard scan code again.",
   },
   panels: {
     title: "PGARD panels",
@@ -963,6 +967,8 @@ const KO: CliText = {
       "이 폴더는 홈 폴더(또는 그 위의 폴더)에 있는 Git 저장소 안에 있어서, 코드 전용 검사가 .ssh 같은 폴더까지 전부 읽게 됩니다. 자체 Git 저장소가 있는 프로젝트 폴더에서 pgard scan code를 실행하세요(없다면 그 폴더에서 `git init`을 실행하세요).",
     gitDirectory:
       "Git 디렉터리(.git 또는 bare 저장소)이며 프로젝트 파일이 아닙니다. 그 config에는 자격 증명이 들어 있을 수 있습니다. 프로젝트의 작업 폴더에서 pgard scan code를 실행하세요.",
+    noHome:
+      "홈 폴더를 찾지 못해(HOME이 비어 있고 계정에도 홈 폴더가 없음) 이 폴더가 홈 폴더가 아닌지 확인할 수 없습니다. HOME을 설정한 뒤 pgard scan code를 다시 실행하세요.",
   },
   panels: {
     title: "PGARD 패널",

@@ -12,6 +12,17 @@ describe("tooBroadToScan (shared by pgard scan code and the web folder chooser)"
     }
   });
 
+  it("treats folders directly in /private as top-level (macOS real paths of /etc, /tmp, /var)", () => {
+    for (const folder of ["/private/etc", "/private/tmp", "/private/var"]) {
+      expect(tooBroadToScan(folder, "/Users/u", posix)).toBe("top_level");
+    }
+    expect(tooBroadToScan("/Private/Tmp", "/Users/u", { ...posix, ignoreCase: true })).toBe(
+      "top_level",
+    );
+    expect(tooBroadToScan("/private/var/folders", "/Users/u", posix)).toBeNull();
+    expect(tooBroadToScan("/srv/etc", "/Users/u", posix)).toBeNull();
+  });
+
   it("refuses the home folder and folders above it, but not folders inside it", () => {
     expect(tooBroadToScan("/Users/u", "/Users/u", posix)).toBe("home");
     expect(tooBroadToScan("/Users/u/", "/Users/u", posix)).toBe("home");

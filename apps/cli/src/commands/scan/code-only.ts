@@ -1,6 +1,6 @@
 import { realpath } from "node:fs";
 import { lstat } from "node:fs/promises";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
 import { tooBroadToScan, type TooBroadReason } from "@pgard/result-store";
@@ -66,10 +66,33 @@ export async function codeOnlyFolderRefusal(
       return path.resolve(value);
     }
   };
-  const realHome = home === "" ? null : await real(home);
-  return tooBroadToScan(await real(folder), realHome, {
-    ignoreCase: platform === "darwin" || platform === "win32",
-  });
+  const options = { ignoreCase: platform === "darwin" || platform === "win32" };
+  // Both spellings: on macOS `/etc`, `/tmp` and `/var` are links into `/private`, so the given
+  // path or its real path alone could look narrower than it is.
+  return (
+    tooBroadToScan(path.resolve(folder), home === "" ? null : path.resolve(home), options) ??
+    tooBroadToScan(await real(folder), home === "" ? null : await real(home), options)
+  );
+}
+
+/**
+ * The home folder to refuse: `HOME` (or `USERPROFILE` on Windows) when set and not empty,
+ * otherwise the account's own home folder. `null` when neither is known: the scan is refused
+ * then, because a folder could not be checked against home.
+ */
+export function codeOnlyHome(
+  env: Readonly<Record<string, string | undefined>>,
+  accountHome: () => string = () => userInfo().homedir,
+): string | null {
+  for (const value of [env.HOME, env.USERPROFILE]) {
+    if (value !== undefined && value.trim() !== "") return value;
+  }
+  try {
+    const fromAccount = accountHome();
+    return fromAccount.trim() === "" ? null : fromAccount;
+  } catch {
+    return null;
+  }
 }
 
 /** True for a folder that holds a Git directory's own files (`HEAD`, `objects`, `refs`, `config`). */
@@ -117,13 +140,13 @@ export async function runCodeOnlyScanFlow(
     err(context, context.errStyle.red(text.codeOnly.gitDirectory));
     return EXIT_CODES.usage;
   }
+  const home = codeOnlyHome(context.io.env);
+  if (home === null) {
+    err(context, context.errStyle.red(text.codeOnly.noHome));
+    return EXIT_CODES.usage;
+  }
   // Also for a repository: a dotfiles repository at the home folder would scan all of it.
-  if (
-    (await codeOnlyFolderRefusal(
-      projectRoot,
-      context.io.env.HOME ?? context.io.env.USERPROFILE ?? homedir(),
-    )) !== null
-  ) {
+  if ((await codeOnlyFolderRefusal(projectRoot, home)) !== null) {
     const message = gitRoot === null ? text.codeOnly.tooBroad : text.codeOnly.tooBroadRepository;
     err(context, context.errStyle.red(message));
     return EXIT_CODES.usage;

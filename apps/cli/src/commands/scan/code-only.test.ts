@@ -16,7 +16,7 @@ import {
   noInterrupts,
   testResult,
 } from "../../test-support.js";
-import { codeOnlyFolderRefusal } from "./code-only.js";
+import { codeOnlyFolderRefusal, codeOnlyHome } from "./code-only.js";
 import { runScanCommand } from "./index.js";
 
 /** `pgard scan code` without approval (#414 phase 2: D1, D2, D4). */
@@ -231,6 +231,43 @@ describe("any folder (D4)", () => {
     expect(await codeOnlyFolderRefusal(path.join(base, "realhome"), home, "darwin")).toBe("home");
     await mkdir(path.join(home, "code", "app"), { recursive: true });
     expect(await codeOnlyFolderRefusal(path.join(home, "code", "app"), link, "linux")).toBeNull();
+  });
+
+  it("refuses when either the given path or its real path is too broad (macOS /tmp -> /private/tmp)", async () => {
+    expect(await codeOnlyFolderRefusal("/tmp", "/home/u", "linux")).toBe("top_level");
+    expect(await codeOnlyFolderRefusal("/etc", "/home/u", "darwin")).toBe("top_level");
+    // A deep-looking path whose real path is the file-system root.
+    const base = await temp();
+    const toRoot = path.join(base, "deep", "looking");
+    await mkdir(path.dirname(toRoot), { recursive: true });
+    await symlink(path.parse(base).root, toRoot, "junction");
+    expect(await codeOnlyFolderRefusal(toRoot, "/home/u", "linux")).toBe("root");
+  });
+
+  it("falls back to the account's home folder when HOME is empty, and refuses with none", async () => {
+    expect(codeOnlyHome({ HOME: "/home/u" }, () => "/home/acct")).toBe("/home/u");
+    expect(codeOnlyHome({ HOME: "" }, () => "/home/acct")).toBe("/home/acct");
+    expect(codeOnlyHome({ HOME: "  ", USERPROFILE: "" }, () => "/home/acct")).toBe("/home/acct");
+    expect(codeOnlyHome({ HOME: "" }, () => "")).toBeNull();
+    expect(
+      codeOnlyHome({}, () => {
+        throw new Error("no account");
+      }),
+    ).toBeNull();
+    // HOME="" no longer skips the check: the account's home folder is still refused.
+    const accountHome = os.userInfo().homedir;
+    const runCode = unexpected("runCodeOnlyScan");
+    const captured = createTestIo({ cwd: accountHome, env: { HOME: "" } });
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({ findGitRoot: async () => null, runCodeOnlyScan: runCode as never }),
+      ),
+      CODE,
+    );
+    expect(code).toBe(EXIT_CODES.usage);
+    expect(runCode).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain("not a project");
   });
 
   it("refuses a Git repository whose top folder is the home folder (a dotfiles repository)", async () => {
