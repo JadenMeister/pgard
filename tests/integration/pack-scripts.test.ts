@@ -1,15 +1,27 @@
 import { build } from "esbuild";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  EXTERNAL_PACKAGES,
+  REQUIRE_BANNER,
   findDynamicCodeUses,
   findExternalViolations,
   packageNameOf,
   shippedGrammarsReadme,
   shippedNotice,
 } from "../../scripts/pack-lib.mjs";
+import {
+  ALLOWED_LICENSES,
+  bundledPackages,
+  declaredLicense,
+  isAllowedExpression,
+  licenseProblems,
+  packageOfInput,
+  noticeProblems,
+  renderBundledNotice,
+} from "../../scripts/pack-licenses.mjs";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -121,6 +133,237 @@ describe("unverifiable module loading", () => {
     expect(found).toHaveLength(1);
     expect(found[0]).toContain("a.js:2");
     expect(found[0]).toContain(what);
+  });
+});
+
+describe("unverifiable module loading in bundled third-party code", () => {
+  const module = (name: string, body: string) => `// ${name}\n${body}`;
+
+  it("accepts the banner and literal built-in requires", () => {
+    const code = `${REQUIRE_BANNER}\n${module("node_modules/x/index.js", 'var fs = __require("fs");')}`;
+    expect(findDynamicCodeUses("a.js", code)).toEqual([]);
+  });
+
+  it("mutation: a computed require in a package without an allowlist entry is reported", () => {
+    const found = findDynamicCodeUses(
+      "a.js",
+      module("node_modules/evil/index.js", "var m = __require(process.env.X);"),
+    );
+    expect(found).toEqual([expect.stringContaining("require() with a non-literal specifier")]);
+    expect(found[0]).toContain("node_modules/evil/index.js");
+  });
+
+  it("mutation: __dirname in a third-party module is reported, not in first-party code", () => {
+    expect(
+      findDynamicCodeUses("a.js", module("node_modules/x/i.js", "read(__dirname + '/f');")),
+    ).toHaveLength(1);
+    expect(
+      findDynamicCodeUses("a.js", module("packages/report/dist/a.js", "read(import.meta.url);")),
+    ).toEqual([]);
+  });
+
+  it("an allowlist entry matches its module and line only", () => {
+    const allowed = [{ module: "x/i.js", line: /ICC/, why: "test" }];
+    const code = (line: string, name = "node_modules/x/i.js") => module(name, line);
+    expect(findDynamicCodeUses("a.js", code("new URL(ICC, import.meta.url)"), allowed)).toEqual([]);
+    expect(
+      findDynamicCodeUses("a.js", code("new URL(other, import.meta.url)"), allowed),
+    ).toHaveLength(1);
+    expect(
+      findDynamicCodeUses(
+        "a.js",
+        code("new URL(ICC, import.meta.url)", "node_modules/y/i.js"),
+        allowed,
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("mutation: a new computed require in an allowlisted package still fails the pack", () => {
+    for (const owner of [
+      "node_modules/typescript-api/lib/typescript.js",
+      "node_modules/@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+      "node_modules/postcss/lib/previous-map.js",
+      "node_modules/@babel/parser/lib/index.js",
+    ]) {
+      const found = findDynamicCodeUses("a.js", module(owner, "var cfg = __require(configPath);"));
+      expect(found, owner).toEqual([expect.stringContaining("non-literal specifier")]);
+    }
+    expect(
+      findDynamicCodeUses(
+        "a.js",
+        module("node_modules/typescript-api/lib/typescript.js", "require(userPath);"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("the allowlist accepts only the exact reviewed expression", () => {
+    const owner = "node_modules/typescript-api/lib/typescript.js";
+    const exact = "          return { module: __require(modulePath), modulePath, error: void 0 };";
+    expect(findDynamicCodeUses("a.js", module(owner, exact))).toEqual([]);
+    expect(
+      findDynamicCodeUses(
+        "a.js",
+        module(owner, "return { module: __require(modulePath), x: __require(other) };"),
+      ),
+    ).not.toEqual([]);
+  });
+
+  it("keeps the native and WASM packages external", () => {
+    expect(EXTERNAL_PACKAGES).toEqual(["@napi-rs/keyring", "web-tree-sitter"]);
+  });
+});
+
+describe("bundled package licenses", () => {
+  it("accepts permissive SPDX expressions and rejects the rest", () => {
+    for (const ok of [
+      "MIT",
+      "ISC",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "Apache-2.0",
+      "0BSD",
+      "BlueOak-1.0.0",
+      "CC0-1.0",
+      "Python-2.0",
+      "(MIT OR GPL-3.0)",
+      "(MIT AND Apache-2.0)",
+      "(GPL-3.0 OR (MIT AND ISC))",
+    ]) {
+      expect(isAllowedExpression(ok), ok).toBe(true);
+    }
+    for (const bad of [
+      "GPL-3.0",
+      "LGPL-2.1-or-later",
+      "AGPL-3.0",
+      "MPL-2.0",
+      "SSPL-1.0",
+      "UNLICENSED",
+      "SEE LICENSE IN LICENSE.md",
+      "(MIT AND GPL-3.0)",
+      "MIT WITH Classpath-exception-2.0",
+      "(MIT",
+      "",
+    ]) {
+      expect(isAllowedExpression(bad), bad).toBe(false);
+    }
+    expect(ALLOWED_LICENSES).toContain("MIT");
+  });
+
+  it("reads the declared license in its three forms", () => {
+    expect(declaredLicense({ license: "MIT" })).toBe("MIT");
+    expect(declaredLicense({ license: { type: "ISC" } })).toBe("ISC");
+    expect(declaredLicense({ licenses: [{ type: "MIT" }, { type: "Apache-2.0" }] })).toBe(
+      "(MIT OR Apache-2.0)",
+    );
+    expect(declaredLicense({})).toBeNull();
+  });
+
+  it("finds the package of a bundled input, including nested and scoped ones", () => {
+    expect(packageOfInput("node_modules/pdfkit/js/a.mjs")).toEqual({
+      name: "pdfkit",
+      dir: "node_modules/pdfkit",
+    });
+    expect(packageOfInput("node_modules/a/node_modules/@s/b/lib/x.js")).toEqual({
+      name: "@s/b",
+      dir: "node_modules/a/node_modules/@s/b",
+    });
+    expect(packageOfInput("packages/report/dist/a.js")).toBeNull();
+  });
+
+  /** A fake repository root with node_modules packages and a metafile that bundles them. */
+  function fixture(packages: Record<string, { manifest: object; files?: Record<string, string> }>) {
+    const root = mkdtempSync(path.join(tmpdir(), "pgard license test "));
+    dirs.push(root);
+    const inputs: Record<string, { bytesInOutput: number }> = {};
+    for (const [name, { manifest, files = {} }] of Object.entries(packages)) {
+      const dir = path.join(root, "node_modules", name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, ...manifest }));
+      for (const [file, text] of Object.entries(files)) writeFileSync(path.join(dir, file), text);
+      inputs[`node_modules/${name}/index.js`] = { bytesInOutput: 10 };
+    }
+    inputs["node_modules/@pgard/x/index.js"] = { bytesInOutput: 10 };
+    inputs["node_modules/unused/index.js"] = { bytesInOutput: 0 };
+    return { root, metafile: { outputs: { "out.js": { inputs } } } };
+  }
+
+  it("lists bundled packages, skips workspace and tree-shaken ones, and renders their texts", () => {
+    const { root, metafile } = fixture({
+      good: {
+        manifest: { version: "1.0.0", license: "MIT" },
+        files: { LICENSE: "MIT text A\r\n" },
+      },
+      twin: { manifest: { version: "2.0.0", license: "MIT" }, files: { LICENSE: "MIT text A" } },
+      "@s/scoped": {
+        manifest: { version: "3.1.0", license: "ISC" },
+        files: { "LICENSE.md": "ISC text", NOTICE: "Notice text" },
+      },
+    });
+    const packages = bundledPackages(metafile, root, {});
+    expect(packages.map((pkg) => `${pkg.name}@${pkg.version}`)).toEqual([
+      "@s/scoped@3.1.0",
+      "good@1.0.0",
+      "twin@2.0.0",
+    ]);
+    expect(licenseProblems(packages)).toEqual([]);
+    const notice = renderBundledNotice(packages);
+    expect(notice).toContain("- good 1.0.0 (MIT)\n- twin 2.0.0 (MIT)");
+    expect(notice.match(/MIT text A/g)).toHaveLength(1);
+    expect(notice).toContain("ISC text");
+    expect(notice).toContain("Notice text");
+  });
+
+  it("mutation: a missing license text, a missing license and a copyleft license fail the pack", () => {
+    const { root, metafile } = fixture({
+      nofile: { manifest: { version: "1.0.0", license: "MIT" } },
+      nolicense: { manifest: { version: "1.0.0" }, files: { LICENSE: "text" } },
+      copyleft: { manifest: { version: "1.0.0", license: "GPL-3.0" }, files: { COPYING: "GPL" } },
+    });
+    expect(licenseProblems(bundledPackages(metafile, root, {}))).toEqual([
+      expect.stringContaining('copyleft@1.0.0 has license "GPL-3.0"'),
+      expect.stringContaining("nofile@1.0.0 has no license file"),
+      expect.stringContaining("nolicense@1.0.0 declares no license"),
+    ]);
+  });
+
+  it("picks up notice files by name anywhere, and Apache packages need the full text", () => {
+    const { root, metafile } = fixture({
+      ts: {
+        manifest: { version: "1.0.0", license: "Apache-2.0" },
+        files: {
+          "LICENSE.txt": "Apache License\nVersion 2.0, January 2004\nTERMS",
+          "ThirdPartyNoticeText.txt": "third party notices",
+          "index.d.ts": "not a license",
+        },
+      },
+      tl: {
+        manifest: { version: "1.0.0", license: "0BSD" },
+        files: { "CopyrightNotice.txt": "c" },
+      },
+    });
+    const packages = bundledPackages(metafile, root, {});
+    expect(packages.find((pkg) => pkg.name === "ts")?.files.map((file) => file.name)).toEqual([
+      "LICENSE.txt",
+      "ThirdPartyNoticeText.txt",
+    ]);
+    expect(packages.find((pkg) => pkg.name === "tl")?.files).toHaveLength(1);
+    expect(noticeProblems(packages, renderBundledNotice(packages))).toEqual([]);
+    const brotliLike = [{ ...packages[0]!, name: "brotli", license: "(MIT AND Apache-2.0)" }];
+    expect(noticeProblems(brotliLike, "no full text here")).toEqual([
+      expect.stringContaining("no full Apache-2.0 text"),
+    ]);
+  });
+
+  it("a reviewed override covers exactly its version and nothing else", () => {
+    const overrides = { "odd@1.0.0": { license: "MIT", text: "reviewed text" } };
+    const covered = fixture({ odd: { manifest: { version: "1.0.0" } } });
+    const packages = bundledPackages(covered.metafile, covered.root, overrides);
+    expect(licenseProblems(packages)).toEqual([]);
+    expect(renderBundledNotice(packages)).toContain("reviewed text");
+    const bumped = fixture({ odd: { manifest: { version: "1.0.1" } } });
+    expect(licenseProblems(bundledPackages(bumped.metafile, bumped.root, overrides))).toHaveLength(
+      2,
+    );
   });
 });
 

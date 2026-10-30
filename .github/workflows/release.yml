@@ -117,7 +117,10 @@ jobs:
           mkdir release-tarball
           cp "$file" release-tarball/
           echo "tarball=pgard-${VERSION}.tgz" >> "$GITHUB_OUTPUT"
-          echo "sha256=$(sha256sum "$file" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          sha256=$(sha256sum "$file" | cut -d' ' -f1)
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+          # Recorded so the owner can compare it later (packaging/homebrew/update-formula.sh).
+          echo "Tarball \`pgard-${VERSION}.tgz\` built by the verify job, sha256: \`${sha256}\`" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: pgard-tarball
@@ -157,6 +160,10 @@ jobs:
           file="tarball/${TARBALL}"
           actual=$(sha256sum "$file" | cut -d' ' -f1)
           [ "$actual" = "$EXPECTED_SHA256" ] || { echo "::error::tarball changed after verify"; exit 1; }
+          # The bytes about to be published (compare with the verify job's value and with
+          # EXPECTED_SHA256 in packaging/homebrew/update-formula.sh).
+          echo "Tarball \`${TARBALL}\` published by the publish job, sha256: \`${actual}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256 of the tarball to publish: ${actual}"
           # A pre-release version never becomes `latest`.
           tag=latest
           case "$VERSION" in *-*) tag=next ;; esac

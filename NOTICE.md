@@ -2,6 +2,8 @@
 
 PGARD is MIT (see [LICENSE](LICENSE)); the following third-party material is bundled.
 
+The npm package `pgard` also bundles pure-JavaScript third-party npm packages (the TypeScript compiler, `pdfkit` and others; see the supply-chain section of `SECURITY.md`). They are not vendored in this repository, so their list and license texts are generated at pack time from the files that went into the bundle and appended to the `NOTICE.md` inside the published package, in the section "Bundled npm packages".
+
 ## Fonts
 
 ### Noto Sans KR
