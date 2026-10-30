@@ -204,6 +204,15 @@ export interface CliText {
     none: string;
     help: string;
   };
+  /** Does a detected local web service look like this project? A hint only, never a block. */
+  webRelated: {
+    /** One warning line before the y/N; both names are already sanitized and capped. */
+    unlikely: (service: string, project: string) => string;
+    /** Added to a listed server whose name or framework matches this project. */
+    likelyMark: string;
+    /** The y/N question; `[y/N]` is added by the prompt. */
+    confirm: string;
+  };
 
   // --- Progress, status lines and notices ---------------------------------------------
   progress: {
@@ -554,6 +563,12 @@ const EN: CliText = {
 - Choosing one still asks you to confirm it is this project's service.
 - PGARD sends one GET / to each listening local port to read its title; scan requests are sent only after you confirm.
 - Enter on "No" (or Esc) skips web checks.`,
+  },
+  webRelated: {
+    unlikely: (service, project) =>
+      `This service doesn't look related to this project (service: '${service}', project: '${project}').`,
+    likelyMark: "(may be this project)",
+    confirm: "Is this the current project's service?",
   },
   progress: {
     scanning: (scopes) => `Scanning (${scopes})... Press Ctrl+C twice to cancel.`,
@@ -919,6 +934,12 @@ const KO: CliText = {
 - 하나를 고르면 이 프로젝트의 서비스가 맞는지 다시 확인합니다.
 - 제목을 읽기 위해 대기 중인 각 로컬 포트에 GET / 요청을 한 번씩 보냅니다. 검사 요청은 확인한 뒤에만 보냅니다.
 - "아니요"에서 Enter(또는 Esc)를 누르면 웹 검사를 건너뜁니다.`,
+  },
+  webRelated: {
+    unlikely: (service, project) =>
+      `이 서비스는 현재 프로젝트와 관련 없어 보입니다 (서비스: '${service}', 프로젝트: '${project}').`,
+    likelyMark: "(이 프로젝트일 수 있음)",
+    confirm: "이 프로젝트의 서비스가 맞습니까?",
   },
   progress: {
     scanning: (scopes) => `검사 중 (${scopes})... 취소하려면 Ctrl+C를 두 번 누르세요.`,
