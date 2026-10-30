@@ -272,8 +272,18 @@ export interface TrendPanelText {
     disabled: string;
     noStoreDir: string;
     noRepository: string;
+    /** A code-only result: nothing is stored, so no trend builds up. */
+    codeOnly: string;
     unreadable: (reason: string) => string;
   };
+  /** Short heading shown on the empty states, followed by the help marker. */
+  heading: string;
+  /** The marker after the heading: `?` opens the trend help. */
+  helpMark: string;
+  /** The three cases in which the trend is empty, listed under the first-line reason. */
+  cases: { intro: string; codeOnly: string; single: string; off: string };
+  /** The help section for the trend tab: a title and a few plain lines. */
+  help: { title: string; lines: string[] };
   skipped: (count: number) => string;
   latestVsPrevious: string;
   /** The heading when the current scan is not stored: the two newest stored scans. */
@@ -637,8 +647,28 @@ const EN: CliText = {
           "No history yet: no app-data directory could be determined, so nothing is stored.",
         noRepository:
           "No history yet: this scan is not tied to a GitHub repository, so no history is kept for it.",
+        codeOnly:
+          "No history yet: a code-only scan does not store its result, so no trend builds up.",
         unreadable: (reason) =>
           `History could not be read${reason === "" ? "" : ` (reason: ${reason})`}. The scan itself is unaffected.`,
+      },
+      heading: "Trend",
+      helpMark: "(?)",
+      cases: {
+        intro: "Trend is empty in one of three cases:",
+        codeOnly:
+          "A code-only scan: results are not stored. Run `pgard scan` with GitHub approval.",
+        single: "Only one stored scan: scan again later to compare.",
+        off: "Storing is off: `--no-store` or `PGARD_NO_STORE=1`.",
+      },
+      help: {
+        title: "Trend panel",
+        lines: [
+          "Shows the stored scans of this repository, newest first, up to 20: the latest compared with the previous one, and a severity bar per scan.",
+          "It reads only the local, redacted stored results. It never rescans.",
+          "History builds up as you scan: every approved `pgard scan` is stored.",
+          "Empty trend, three cases: a code-only scan (not stored), only one stored scan (scan again later), or storing is off (`--no-store`, `PGARD_NO_STORE=1`).",
+        ],
       },
       skipped: (count) =>
         `${count} stored ${count === 1 ? "file was" : "files were"} unreadable and left out.`,
@@ -1028,8 +1058,28 @@ const KO: CliText = {
           "아직 이력이 없습니다: 앱 데이터 폴더를 찾을 수 없어 아무것도 저장되지 않습니다.",
         noRepository:
           "아직 이력이 없습니다: 이 검사는 GitHub 저장소와 연결되지 않아 이력을 보관하지 않습니다.",
+        codeOnly:
+          "아직 이력이 없습니다: 코드 전용 검사는 결과를 저장하지 않아 추이가 쌓이지 않습니다.",
         unreadable: (reason) =>
           `이력을 읽을 수 없습니다${reason === "" ? "" : ` (원인: ${reason})`}. 검사 결과 자체에는 영향이 없습니다.`,
+      },
+      heading: "추이",
+      helpMark: "(?)",
+      cases: {
+        intro: "기록이 없는 경우는 셋 중 하나입니다:",
+        codeOnly:
+          "코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 `pgard scan`을 실행하세요.",
+        single: "저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.",
+        off: "저장이 꺼져 있음: `--no-store` 또는 `PGARD_NO_STORE=1`.",
+      },
+      help: {
+        title: "추이 패널",
+        lines: [
+          "이 저장소의 저장된 검사를 최신순으로 최대 20건 보여 줍니다: 최근 검사와 직전 검사의 비교, 검사별 심각도 막대.",
+          "로컬에 저장된 가려진(redacted) 결과만 읽으며, 다시 검사하지 않습니다.",
+          "검사할수록 쌓입니다: 승인된 `pgard scan`은 모두 저장됩니다.",
+          "추이가 비는 경우는 셋입니다: 코드 전용 검사(저장 안 됨), 저장된 검사가 1건뿐(나중에 다시 검사), 저장이 꺼져 있음(`--no-store`, `PGARD_NO_STORE=1`).",
+        ],
       },
       skipped: (count) => `저장된 파일 ${count}개를 읽을 수 없어 제외했습니다.`,
       latestVsPrevious: "최근 검사와 직전 검사 비교",

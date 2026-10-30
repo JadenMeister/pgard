@@ -616,6 +616,22 @@ export const en = {
   },
   trend: {
     title: "Trend",
+    help: {
+      label: "About trend",
+      lines: [
+        "Shows this repository's stored scans, newest first, up to 20: the latest compared with the previous one, with severity bars.",
+        "It reads only the local, redacted stored results. It never rescans.",
+        "History builds up as you scan: every approved `pgard scan` is stored.",
+      ],
+    },
+    cases: {
+      intro: "Trend is empty in one of three cases:",
+      items: [
+        "A code-only scan: results are not stored. Run `pgard scan` with GitHub approval.",
+        "Only one stored scan: scan again later to compare.",
+        "Storing is off: `--no-store` or `PGARD_NO_STORE=1`.",
+      ],
+    },
     source:
       "Built from the scans you saved with the pgard command for this repository, matched by its GitHub repository id (the last 20 at most). Scans run in this dashboard are not stored, so they never appear here. A scan you just saved from a terminal can take a few seconds to appear.",
     loading: "Reading the saved scans...",

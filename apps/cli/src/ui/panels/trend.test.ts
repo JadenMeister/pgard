@@ -1,7 +1,7 @@
 import type { RuleLocale, Severity } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
 import type { Key } from "../../adapters/terminal.js";
-import { panelsFixtureResult } from "../../test-support.js";
+import { codeOnlyTestResult, panelsFixtureResult } from "../../test-support.js";
 import { createStyle } from "../formatters/style.js";
 import { displayWidth, stripAnsi } from "../i18n/display-width.js";
 import { renderFrame } from "./layout.js";
@@ -304,5 +304,127 @@ describe("trend panel navigation", () => {
       const help = frame({ ...state, overlay: "help" }, { columns: 80, rows: 40 }).join("\n");
       expect(help).toContain(label);
     }
+  });
+});
+
+describe("trend panel empty states and help marker", () => {
+  const unavailable = (why: "no-repository" | "no-store-dir" | "unreadable"): TrendData => ({
+    kind: "unavailable",
+    why,
+    reason: "Permission denied",
+  });
+  const codeOnlyState = (locale: RuleLocale, size: Size, trend: TrendData): PanelsState => ({
+    ...createPanelsState(codeOnlyTestResult(), locale, size, undefined, trend),
+    panel: "trend",
+  });
+  const joined = (lines: readonly string[]): string => lines.join(" ").replace(/\s+/gu, " ");
+  const EXPECT = {
+    en: {
+      codeOnly: "a code-only scan does not store its result, so no trend builds up",
+      intro: "Trend is empty in one of three cases:",
+      cases: [
+        "1. A code-only scan: results are not stored. Run `pgard scan` with GitHub approval.",
+        "2. Only one stored scan: scan again later to compare.",
+        "3. Storing is off: `--no-store` or `PGARD_NO_STORE=1`.",
+      ],
+    },
+    ko: {
+      codeOnly: "코드 전용 검사는 결과를 저장하지 않아 추이가 쌓이지 않습니다.",
+      intro: "기록이 없는 경우는 셋 중 하나입니다:",
+      cases: [
+        "1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 `pgard scan`을 실행하세요.",
+        "2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.",
+        "3. 저장이 꺼져 있음: `--no-store` 또는 `PGARD_NO_STORE=1`.",
+      ],
+    },
+  } as const;
+  const tall = (columns: number): Size => ({ columns, rows: 40 });
+
+  for (const locale of ["en", "ko"] as const) {
+    it(`${locale}: a code-only result names its own reason, then the three cases`, () => {
+      const size = tall(80);
+      const all = joined(frame(codeOnlyState(locale, size, unavailable("no-repository")), size));
+      expect(all).toContain(EXPECT[locale].codeOnly);
+      expect(all).not.toContain(
+        locale === "en" ? "not tied to a GitHub" : "GitHub 저장소와 연결되지",
+      );
+      expect(all).toContain(EXPECT[locale].intro);
+      for (const line of EXPECT[locale].cases) expect(all).toContain(line);
+    });
+
+    it(`${locale}: other reasons stay first and the cases follow`, () => {
+      const size = tall(80);
+      const noRepo = joined(frame(stateFor(locale, size, unavailable("no-repository")), size));
+      expect(noRepo).toContain(
+        locale === "en" ? "not tied to a GitHub repository" : "GitHub 저장소와 연결되지 않아",
+      );
+      const store = joined(frame(stateFor(locale, size, unavailable("no-store-dir")), size));
+      expect(store).toContain(locale === "en" ? "no app-data directory" : "앱 데이터 폴더");
+      const unreadable = joined(frame(stateFor(locale, size, unavailable("unreadable")), size));
+      expect(unreadable).toContain("Permission denied");
+      const disabled = joined(frame(stateFor(locale, size, { kind: "disabled" }), size));
+      expect(disabled).toContain("PGARD_NO_STORE=1");
+      for (const all of [
+        noRepo,
+        store,
+        unreadable,
+        disabled,
+        joined(frame(stateFor(locale, size, ready(1)), size)),
+      ]) {
+        expect(all).toContain(EXPECT[locale].intro);
+        for (const line of EXPECT[locale].cases) expect(all).toContain(line);
+      }
+    });
+
+    for (const columns of [40, 80]) {
+      it(`${locale}: shows (?) and never exceeds ${columns} columns`, () => {
+        const size = tall(columns);
+        const trends: TrendData[] = [
+          unavailable("no-repository"),
+          unavailable("unreadable"),
+          { kind: "disabled" },
+          ready(0),
+          ready(1),
+          ready(2),
+          ready(20),
+        ];
+        for (const trend of trends) {
+          for (const state of [stateFor(locale, size, trend), codeOnlyState(locale, size, trend)]) {
+            const lines = frame(state, size);
+            expectClean(lines, size, false);
+            expect(joined(lines)).toContain("(?)");
+          }
+        }
+      });
+    }
+
+    it(`${locale}: ? on the trend tab opens the help at the trend section`, () => {
+      const size: Size = { columns: 80, rows: 14 };
+      const state = reduce(stateFor(locale, size, ready(2)), key("?"));
+      expect(state.overlay).toBe("help");
+      expect(state.helpScroll).toBeGreaterThan(0);
+      const lines = frame(state, size);
+      expectClean(lines, size, false);
+      const title = locale === "en" ? "Trend panel" : "추이 패널";
+      expect(joined(lines)).toContain(title);
+      expect(joined(lines)).toContain("pgard scan");
+      expect(reduce(state, key("?")).overlay).toBe("none");
+    });
+
+    it(`${locale}: ? on another tab still opens the help at the top`, () => {
+      const size: Size = { columns: 80, rows: 14 };
+      const state = reduce(
+        { ...stateFor(locale, size, ready(2)), panel: "overview" as const },
+        key("?"),
+      );
+      expect(state.overlay).toBe("help");
+      expect(state.helpScroll).toBe(0);
+    });
+  }
+
+  it("the help fits at 40 columns", () => {
+    const size: Size = { columns: 40, rows: 14 };
+    const state = reduce(stateFor("ko", size, ready(2)), key("?"));
+    expectClean(frame(state, size), size, false);
   });
 });

@@ -148,11 +148,29 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   const text = t.panels.trend;
   const wrap = (line: string): string[] => wrapWidth(line, Math.max(10, size.columns - 1));
   const trend = state.trend;
-  if (trend.kind === "disabled") return wrap(text.noHistory.disabled);
+  const mark = text.helpMark;
+  // An empty state: the reason first, then the three cases in which the trend has no history.
+  const empty = (reason: string, before: string[] = [], after: string[] = []): string[] => [
+    ...before,
+    style.bold(truncateWidth(`${text.heading} ${mark}`, size.columns)),
+    ...wrap(reason),
+    "",
+    ...wrap(text.cases.intro),
+    ...[text.cases.codeOnly, text.cases.single, text.cases.off].flatMap((line, index) => {
+      const [first = "", ...rest] = wrapWidth(line, Math.max(10, size.columns - 6));
+      return [`  ${index + 1}. ${first}`, ...rest.map((part) => `     ${part}`)];
+    }),
+    ...after,
+  ];
+  if (trend.kind === "disabled") return empty(text.noHistory.disabled);
   if (trend.kind === "unavailable") {
-    if (trend.why === "no-store-dir") return wrap(text.noHistory.noStoreDir);
-    if (trend.why === "no-repository") return wrap(text.noHistory.noRepository);
-    return wrap(text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")));
+    if (trend.why === "no-store-dir") return empty(text.noHistory.noStoreDir);
+    if (trend.why === "no-repository") {
+      return empty(
+        isCodeOnlyResult(state.result) ? text.noHistory.codeOnly : text.noHistory.noRepository,
+      );
+    }
+    return empty(text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")));
   }
   const notes = [
     ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
@@ -162,19 +180,18 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   // First on the screen, so it is seen before the history it qualifies.
   const notStored = trend.isCurrentStored ? [] : [...wrap(text.notStored), ""];
   const scans = trend.scans;
-  if (scans.length === 0) return [...notStored, ...wrap(text.noHistory.empty), ...skipped];
+  if (scans.length === 0)
+    return empty(text.noHistory.empty, notStored, skipped.length > 0 ? skipped : []);
   const newest = scans[scans.length - 1] as TrendScan;
   if (scans.length === 1) {
-    return [
-      ...notStored,
-      ...wrap(text.noHistory.single(trendDate(newest.savedAt, true))),
-      ...skipped,
-    ];
+    return empty(text.noHistory.single(trendDate(newest.savedAt, true)), notStored, skipped);
   }
   const isNarrow = size.columns <= NARROW_COLUMNS;
   const lines: string[] = [
     ...notStored.map((line) => style.yellow(line)),
-    style.bold(truncateWidth(text.title(scans.length), size.columns)),
+    style.bold(
+      `${truncateWidth(text.title(scans.length), size.columns - displayWidth(mark) - 1)} ${mark}`,
+    ),
   ];
   if (trend.diff !== null) {
     lines.push(
@@ -270,17 +287,39 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   return [...lines, ...skipped];
 }
 
-function helpLines(state: PanelsState, size: Size, opts: RenderOptions): string[] {
+function wrapHelp(lines: readonly string[], size: Size): string[] {
+  return lines.flatMap((line) => {
+    const [first = "", ...rest] = wrapWidth(line, Math.max(10, size.columns - 1));
+    return [first, ...rest.map((part) => `  ${part}`)];
+  });
+}
+
+/** The general help, then the trend section (it is last, so `?` on the trend tab can start there). */
+function helpParts(
+  state: PanelsState,
+  size: Size,
+  opts: RenderOptions,
+): { general: string[]; trend: string[] } {
   const style = opts.style ?? PLAIN;
   const t = cliText(state.locale);
-  return [
-    style.bold(t.panels.helpTitle),
-    "",
-    ...t.panels.helpLines.flatMap((line) => {
-      const [first = "", ...rest] = wrapWidth(line, Math.max(10, size.columns - 1));
-      return [first, ...rest.map((part) => `  ${part}`)];
-    }),
-  ];
+  return {
+    general: [style.bold(t.panels.helpTitle), "", ...wrapHelp(t.panels.helpLines, size)],
+    trend: [
+      "",
+      style.bold(t.panels.trend.help.title),
+      ...wrapHelp(t.panels.trend.help.lines, size),
+    ],
+  };
+}
+
+function helpLines(state: PanelsState, size: Size, opts: RenderOptions): string[] {
+  const parts = helpParts(state, size, opts);
+  return [...parts.general, ...parts.trend];
+}
+
+/** The help line the trend section starts at (the blank separator is skipped). */
+export function trendHelpTop(state: PanelsState, size: Size): number {
+  return helpParts(state, size, {}).general.length + 1;
 }
 
 /** Body lines of every panel except the findings list (which is windowed, see `findingRow`). */

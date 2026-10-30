@@ -10,6 +10,7 @@ import { Section } from "../../components/ui/Section";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { FindingFilters } from "../findings/filter-findings";
 import { hasActiveFilters } from "../findings/filter-url";
+import { HelpPopover } from "./HelpPopover";
 import { ChangeTrendChart, SeverityTrendChart, breakdownText, coverageText } from "./TrendCharts";
 import {
   countIncomplete,
@@ -55,7 +56,18 @@ export function TrendView({
 }: TrendViewProps) {
   const { m } = useI18n();
   return (
-    <Section title={m.trend.title}>
+    <Section
+      title={m.trend.title}
+      meta={
+        <HelpPopover label={m.trend.help.label}>
+          {m.trend.help.lines.map((line) => (
+            <span key={line} className="help-popover-line">
+              {line}
+            </span>
+          ))}
+        </HelpPopover>
+      }
+    >
       <p className="trend-source">{m.trend.source}</p>
       <TrendBody
         state={state}
@@ -66,6 +78,21 @@ export function TrendView({
         onOpenFindings={onOpenFindings}
       />
     </Section>
+  );
+}
+
+/** The three cases in which the trend has no history, under the reason for this one. */
+function EmptyCases() {
+  const { m } = useI18n();
+  return (
+    <div className="trend-cases">
+      <p>{m.trend.cases.intro}</p>
+      <ol>
+        {m.trend.cases.items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -90,7 +117,12 @@ function TrendBody(props: TrendViewProps) {
   const data: TrendResponse = state.data;
   switch (data.kind) {
     case "disabled":
-      return <Notice tone="info">{m.trend.disabled}</Notice>;
+      return (
+        <>
+          <Notice tone="info">{m.trend.disabled}</Notice>
+          <EmptyCases />
+        </>
+      );
     case "unavailable":
       return (
         <>
@@ -101,6 +133,7 @@ function TrendBody(props: TrendViewProps) {
                 ? m.trend.noStoreDir
                 : m.trend.unreadable}
           </Notice>
+          <EmptyCases />
           <Button onClick={onReload}>{m.trend.reload}</Button>
         </>
       );
@@ -142,6 +175,7 @@ function ReadyTrendView({
     return (
       <>
         <Notice tone="info">{m.trend.tooFew(points.length)}</Notice>
+        <EmptyCases />
         <SkipNotes data={data} />
         {points.length === 1 && <TrendTable points={points} />}
       </>
