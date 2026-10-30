@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { openDirectoryNoFollow, readSmallRegularFileBytes } from "@pgard/git-history";
 import { afterEach, describe, expect, it } from "vitest";
 import { runCodeOnlyScan } from "./index.js";
 import { scanWorkingTreeSecrets, WORKING_TREE_SECRETS_AREA } from "./working-tree-secrets.js";
@@ -207,5 +208,127 @@ describe("runCodeOnlyScan on a real folder without Git (prototype, #414)", () =>
     expect(result.coverage.some((entry) => entry.area === WORKING_TREE_SECRETS_AREA)).toBe(true);
     expect(JSON.stringify(result)).not.toContain(root);
     expect(JSON.stringify(result)).not.toContain(FAKE_KEY);
+  });
+});
+
+describe("scanWorkingTreeSecrets hardening (#427)", () => {
+  const never = <T>(): Promise<T> => new Promise<T>(() => undefined);
+
+  it("ignores the folder's own exclude: an excluded file is still checked, and the note says so", async () => {
+    const root = await project({
+      "secrets/config.js": `export const aws = "${FAKE_KEY}";\n`,
+      "src/a.js": "export {};\n",
+    });
+    const output = await scanWorkingTreeSecrets({
+      projectRoot: root,
+      projectConfig: { exclude: ["secrets/**", "**/*.js"] } as never,
+    });
+    expect(output.findings.map((finding) => finding.location.path)).toContain("secrets/config.js");
+    expect(output.coverage[0]?.note).toContain("exclude (2 patterns) is not applied");
+  });
+
+  it("is on time when a folder open never returns: partial, with the time limit named", async () => {
+    const root = await project({ "a.js": "export {};\n" });
+    const started = Date.now();
+    const output = await scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null },
+      {
+        limits: { timeMs: 100 },
+        fs: { openDirectory: () => never(), readFile: readSmallRegularFileBytes },
+      },
+    );
+    expect(Date.now() - started).toBeLessThan(3000);
+    expect(output.coverage[0]).toMatchObject({ status: "partial" });
+    expect(output.coverage[0]?.note).toContain("stopped at its limit");
+  });
+
+  it("is on time when reading entries or a file never returns", async () => {
+    const root = await project({ "a.js": "export {};\n" });
+    const hungDirectory = {
+      state: "ok" as const,
+      dev: 1n,
+      dir: { read: () => never(), close: async () => undefined } as never,
+    };
+    const stuckRead = await scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null },
+      {
+        limits: { timeMs: 100 },
+        fs: { openDirectory: async () => hungDirectory, readFile: readSmallRegularFileBytes },
+      },
+    );
+    expect(stuckRead.coverage[0]).toMatchObject({ status: "partial" });
+    const stuckFile = await scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null },
+      {
+        limits: { timeMs: 100 },
+        fs: { openDirectory: openDirectoryNoFollow, readFile: () => never() },
+      },
+    );
+    expect(stuckFile.coverage[0]).toMatchObject({ status: "partial" });
+    expect(stuckFile.coverage[0]?.note).toContain("stopped at its limit");
+  });
+
+  it("returns at once on Cancel even when the file system never answers", async () => {
+    const root = await project({ "a.js": "export {};\n" });
+    const controller = new AbortController();
+    const started = Date.now();
+    const running = scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null, signal: controller.signal },
+      {
+        limits: { timeMs: 60_000 },
+        fs: { openDirectory: () => never(), readFile: readSmallRegularFileBytes },
+      },
+    );
+    setTimeout(() => controller.abort(), 30);
+    await expect(running).rejects.toThrow("aborted");
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  it("does not enter a folder on another device, and says so", async () => {
+    const root = await project({ "sub/s.js": `const k = "${FAKE_KEY}";\n`, "a.js": "x\n" });
+    const output = await scanWorkingTreeSecrets(
+      { projectRoot: root, projectConfig: null },
+      {
+        fs: {
+          openDirectory: async (directory, options) =>
+            directory === path.join(root, "sub")
+              ? { state: "unsafe", found: "mount" }
+              : openDirectoryNoFollow(directory, options),
+          readFile: readSmallRegularFileBytes,
+        },
+      },
+    );
+    expect(output.findings).toEqual([]);
+    expect(output.coverage[0]).toMatchObject({ status: "partial" });
+    expect(output.coverage[0]?.note).toContain("another device (a mount point)");
+    expect(output.coverage[0]?.note).toContain("sub");
+  });
+
+  it("never follows a folder swapped for a symbolic link after the parent was listed", async () => {
+    const root = await project({ "app/a.js": "x\n" });
+    const outside = await mkdtemp(path.join(os.tmpdir(), "pgard-outside-"));
+    try {
+      await writeFile(path.join(outside, "s.js"), `const k = "${FAKE_KEY}";\n`);
+      const output = await scanWorkingTreeSecrets(
+        { projectRoot: root, projectConfig: null },
+        {
+          fs: {
+            // The folder is replaced by a link just before it is opened.
+            openDirectory: async (directory, options) => {
+              if (directory === path.join(root, "app")) {
+                await rm(directory, { recursive: true });
+                await symlink(outside, directory, "junction");
+              }
+              return openDirectoryNoFollow(directory, options);
+            },
+            readFile: readSmallRegularFileBytes,
+          },
+        },
+      );
+      expect(JSON.stringify(output)).not.toContain("s.js");
+      expect(output.findings).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 });

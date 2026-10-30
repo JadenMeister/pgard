@@ -178,6 +178,15 @@ describe("describeConfigExcluded", () => {
     expect(describeConfigExcluded(["a"], { count: 1, digest: "abcd1234" }, 3)).toEqual(first);
   });
 
+  it("never says '0 of 0 source files' (#427)", () => {
+    const excluded = describeConfigExcluded(["a"], { count: 0, digest: "" }, 0).note;
+    expect(excluded).toContain("no source files found");
+    expect(excluded).not.toContain("of 0 source files");
+    const tests = describeConfigTestDirectories(["tests/**"], [], () => false).note;
+    expect(tests).toContain("No production source files");
+    expect(tests).not.toContain("0 of 0");
+  });
+
   it("a different pattern set gives a different hash", () => {
     const a = describeConfigExcluded(["a"], { count: 0, digest: "" }, 3).note;
     const b = describeConfigExcluded(["b"], { count: 0, digest: "" }, 3).note;

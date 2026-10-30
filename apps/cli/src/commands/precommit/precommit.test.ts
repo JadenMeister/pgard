@@ -443,12 +443,25 @@ describe("pgard precommit", () => {
       expect(captured.stderr()).toContain("pgard.config.json is invalid");
     });
 
-    it("is not a pass outside a Git repository", async () => {
+    it("outside a Git repository nothing is staged: a note and exit 0 (design 5.1, #427)", async () => {
       const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-norepo-")));
       temps.push(dir);
       const { captured, context } = setup(dir);
-      expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.blocked);
+      expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
       expect(captured.stderr()).toContain("not inside a Git repository");
+      expect(captured.stderr()).toContain("nothing is staged");
+    });
+
+    it("does not pass when Git redirects the work tree (core.worktree): that is blocked, not 'no repository'", async () => {
+      const dir = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-redirect-")));
+      temps.push(dir);
+      const { captured, context } = setup(dir);
+      const redirected = {
+        ...context,
+        deps: { ...context.deps, isGitRootRedirected: async () => true },
+      };
+      expect(await precommit.runPrecommit(redirected)).toBe(EXIT_CODES.blocked);
+      expect(captured.stderr()).toContain("core.worktree");
     });
   });
 

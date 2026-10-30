@@ -139,6 +139,14 @@ describe("the simple screen's scan", () => {
       expect.anything(),
     );
     expect(openResultStore).not.toHaveBeenCalled();
+    // A second click keeps the gate's reason; it does not drift to `not_checked` (#427).
+    await apiPost(harness.server, "/api/code-scan", { epoch: harness.server.state.projectEpoch });
+    await finished(harness);
+    expect(runCodeOnlyScan).toHaveBeenCalledTimes(2);
+    expect(runCodeOnlyScan).toHaveBeenLastCalledWith(
+      { projectRoot: SHOP, reason: "no_approval" },
+      expect.anything(),
+    );
   });
 
   it("never starts a sign-in: no existing sign-in means not_signed_in", async () => {

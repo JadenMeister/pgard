@@ -467,8 +467,17 @@ export async function runPrecommit(
   const t = precommitText(context.ruleLocale);
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
-    err(context, context.errStyle.red(t.notRepository));
-    return EXIT_CODES.blocked;
+    // A repository whose work tree Git redirects (`core.worktree`) is not "no repository": a
+    // hook that passed there would pass staged content it never looked at (#427).
+    if (await context.deps.isGitRootRedirected(context.io.cwd)) {
+      err(context, context.errStyle.red(cliText(context.ruleLocale).codeOnly.worktreeRedirected));
+      return EXIT_CODES.blocked;
+    }
+    // Outside a repository nothing can be staged (and no staged `pgard.config.json` can ask for
+    // the gate): a note and exit 0, as the design says (section 5.1). Inside a repository,
+    // `requireAuthorization` is what makes the gate, and exit 3, possible.
+    err(context, context.errStyle.dim(t.nothingStaged));
+    return EXIT_CODES.ok;
   }
   // The repository layout check (#370) comes before any further Git process. While the index
   // cannot be read safely, neither can its config: the strict default applies.

@@ -81,9 +81,14 @@ export {
   type DetectedSecretKind,
 } from "./secret-patterns.js";
 export {
+  isGitDirectoryName,
+  openDirectoryNoFollow,
   readSmallRegularFile,
   readSmallRegularFileBytes,
+  type OpenDirectoryOptions,
   type SafeBytesResult,
+  type SafeDirectoryResult,
   type SafeReadResult,
+  type UnsafeDirectoryKind,
   type UnsafeKind,
 } from "./safe-read.js";

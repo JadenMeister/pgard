@@ -22,6 +22,7 @@
   ],
   "dependencies": {
     "@pgard/findings": "0.1.0",
+    "@pgard/git-history": "0.1.0",
     "@vue/compiler-sfc": "3.5.43",
     "typescript-api": "npm:typescript@5.9.3",
     "web-tree-sitter": "0.27.1"
