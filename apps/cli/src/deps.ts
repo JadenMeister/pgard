@@ -30,6 +30,7 @@ import {
   recheckOwnerApproval,
   resolveGitExecutable,
   resolveGitHubAppClientId,
+  runCodeOnlyScan,
   runScan,
   signInAndStore,
   verifyProject,
@@ -48,6 +49,8 @@ export interface CliDeps {
   findGitRoot: (cwd: string) => Promise<string | null>;
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
+  /** `pgard scan code` without approval: no gate, no network, nothing stored (#414). */
+  runCodeOnlyScan: typeof runCodeOnlyScan;
   /** Owner approval alone, for noticing an App install; never an authorization by itself. */
   recheckOwnerApproval: typeof recheckOwnerApproval;
   /**
@@ -257,6 +260,7 @@ export function createDefaultDeps(): CliDeps {
     findGitRoot,
     verifyProject,
     runScan,
+    runCodeOnlyScan,
     recheckOwnerApproval,
     openBrowser: (url) => openGitHubUrl(url),
     sleep: sleepDefault,

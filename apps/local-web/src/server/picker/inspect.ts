@@ -3,6 +3,7 @@ import type { GitRunner } from "@pgard/git-history";
 import type { RepositoryInspection } from "@pgard/policy";
 import {
   safetyProblemOf,
+  tooBroadToScan,
   type ScopeDirent,
   type ScopeFs,
   type ScopeRoot,
@@ -578,10 +579,8 @@ async function resolveFolder(
   } catch {
     home = null;
   }
-  if (target.split("/").filter((part) => part.length > 0).length < 2) return refuse("too_broad");
-  if (home !== null && (target === home || home.startsWith(`${target}/`))) {
-    return refuse("too_broad");
-  }
+  // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
+  if (tooBroadToScan(target, home, { pathApi: path.posix }) !== null) return refuse("too_broad");
   let anchor: string;
   if (home !== null && target.startsWith(`${home}/`)) {
     anchor = home;
