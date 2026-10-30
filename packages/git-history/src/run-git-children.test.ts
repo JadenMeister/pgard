@@ -79,6 +79,16 @@ describe.skipIf(process.platform === "win32")(
       expect(await waitFor(() => !isAlive(pid))).toBe(true);
     });
 
+    it("does not start a child when the signal is already aborted", async () => {
+      const repo = blockedRepository();
+      const controller = new AbortController();
+      controller.abort();
+      await expect(
+        runGit(HEAD_LOOKUP, { cwd: repo.root, signal: controller.signal }),
+      ).rejects.toMatchObject({ kind: "cancelled" });
+      expect(liveGitChildPids()).toEqual([]);
+    });
+
     it("kills the child when the exit hook runs", async () => {
       expect(process.listeners("exit")).toContain(killAllGitChildren);
       const { pid, outcome } = await startBlocked();
