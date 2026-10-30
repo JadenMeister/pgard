@@ -314,7 +314,7 @@ authorization and continues the scan.
 
 - **실행하는 것.** 소스 규칙(JavaScript, TypeScript, Vue, Go, Java, Kotlin, Python, PHP), 디스크에 이미 있는 OSV 데이터로 하는 의존성 확인(`pgard advisories update`), 디스크의 파일에 대한 비밀정보 검사(`secrets:working-tree`: `.env` 파일과 자격 증명, UTF-8과 UTF-16, 한도 있음. 빠뜨린 것이 있으면 영역이 partial이 되고 이름을 적습니다).
 - **실행하지 않는 것.** GitHub 로그인, API 호출, 키체인 읽기, 네트워크 연결이 없습니다. Git 기록과 웹 검사도 없습니다. 결과, 증분 상태, 추세, 기준선 등 아무것도 저장하지 않습니다.
-- **어떤 폴더든.** Git 저장소에서는 이전처럼 저장소 최상위 폴더부터 검사합니다. Git이 없는 폴더(zip 다운로드, 새 프로젝트)에서는 현재 폴더를 검사합니다. 홈 폴더와 파일 시스템 최상위 폴더는 거부합니다(종료 코드 2). GitHub remote가 없는 저장소도 같은 방식으로 검사합니다.
+- **어떤 폴더든.** Git 저장소에서는 이전처럼 저장소 최상위 폴더부터 검사합니다. Git이 없는 폴더(zip 다운로드, 새 프로젝트)에서는 현재 폴더를 검사합니다. 한 프로젝트로 보기에 너무 넓은 폴더는 거부합니다(종료 코드 2): 파일 시스템 최상위 폴더, 최상위 바로 아래 폴더(`/Users`, `/home`, `/Volumes`, `/etc`, `C:\Users` 등), 홈 폴더 또는 그 위의 폴더입니다. 실제 경로로 비교합니다(심볼릭 링크를 따라가고, macOS와 Windows에서는 대소문자를 구분하지 않음). 저장소의 최상위 폴더에도 같은 규칙을 적용하므로 홈 폴더에 있는 dotfiles 저장소는 통째로 검사하지 않습니다. 자체 저장소가 있는 프로젝트 안에서 실행하세요. `.git` 폴더나 bare 저장소도 그 `config`에 자격 증명이 있을 수 있으므로 거부합니다. 웹 폴더 선택도 같은 폴더를 거부합니다. GitHub remote가 없는 저장소도 같은 방식으로 검사합니다. 대화형 메뉴의 항목 이름은 "현재 파일 검사(코드 전용)"이고, 패널 화면의 제목은 "! 코드 전용, 권한 미확인"으로 시작합니다.
 - **표시.** 텍스트 결과의 첫 줄은 `! 코드 전용 검사: 권한 미확인(현재 파일만 검사, Git 기록·웹 검사 없음, 저장하지 않음).`이며(터미널 요약 끝에도 다시 나옵니다), 이어서 권한 있는 검사를 받는 방법을 안내합니다. `--format json`과 `--format sarif`에는 `scanBasis`가 들어갑니다(`mode: "code_only"`, `authorization: "not_verified"`, `reason: "not_checked"` 또는 `"not_a_git_repository"`. 스키마 1.7, [docs/RESULT_SCHEMA.ko.md](docs/RESULT_SCHEMA.ko.md) 참고). SARIF는 `pgard/code-only/` 카테고리를 씁니다. 보고서(`--report`)는 모든 페이지에 "권한 미확인: 코드 전용 검사" 배너를 넣습니다.
 - **종료 코드.** 코드 검사 범위가 완료되면 0(발견 항목이 있을 수 있음), partial이면 4, 사용법 오류는 2입니다. 3은 나오지 않습니다. 아무 확인도 하지 않으므로 막을 것이 없습니다.
 - **엄격한 범위.** `pgard scan`(코드 + 기록), `scan history`, `scan web`, `scan all`은 그대로입니다. 게이트가 먼저 실행되고 막히면 종료 코드 3이며, 이제 "`pgard scan code` checks the current files without approval." 안내가 붙습니다. `pgard project verify`도 막히면 같은 안내를 덧붙이고, `pgard doctor`는 이를 `[info]` 줄로 보여 줍니다.
@@ -882,7 +882,7 @@ pgard scan --format sarif > pgard.sarif && \
 
 (`&&` 덕분에 종료 코드 0일 때만 업로드합니다. 커밋이 이미 push되어 있어야 하고, HEAD가 detached 상태이면 안 되며, 토큰에 `security_events` 권한이 필요합니다(`gh auth refresh -s security_events`). 큰 보고서가 인수 길이 제한에 걸리지 않도록 `-F sarif=@file`로 파일을 넘깁니다. 대신 `github/codeql-action/upload-sarif`를 쓰면 결과마다 지문 불일치 경고가 한 번씩 로그에 남지만 정상입니다.)
 
-**카테고리.** 각 실행에는 `automationDetails.id` `pgard/<범위>/`가 들어 있습니다(기본 스캔은 `pgard/code+history/`, `scan code`는 `pgard/code/`). GitHub는 id마다 별도 카테고리로 취급하고 같은 종류의 스캔을 다시 업로드할 때만 알림을 닫으므로, `scan code`를 올려도 기본 `scan`의 알림은 닫히지 않습니다. 코드 전용 결과(JSON 1.7 `scanBasis.mode: "code_only"`)는 `pgard/code-only/`를 쓰며, 권한을 확인하지 않았다는 경고 알림이 들어 있습니다. `github/codeql-action/upload-sarif`에 넘긴 `category`는 이를 바꾸지 않습니다. 이 액션은 id가 없는 실행에만 값을 채웁니다.
+**카테고리.** 각 실행에는 `automationDetails.id` `pgard/<범위>/`가 들어 있습니다(기본 스캔은 `pgard/code+history/`, `scan code --require-authorization`은 `pgard/code/`). GitHub는 id마다 별도 카테고리로 취급하고 같은 종류의 스캔을 다시 업로드할 때만 알림을 닫으므로, `scan code --require-authorization`을 올려도 기본 `scan`의 알림은 닫히지 않습니다. 코드 전용 결과(JSON 1.7 `scanBasis.mode: "code_only"`)는 `pgard/code-only/`를 쓰며, 권한을 확인하지 않았다는 경고 알림이 들어 있습니다. `github/codeql-action/upload-sarif`에 넘긴 `category`는 이를 바꾸지 않습니다. 이 액션은 id가 없는 실행에만 값을 채웁니다.
 
 매핑 방식:
 

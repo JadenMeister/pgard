@@ -127,7 +127,7 @@ const MENU_CHOICES: ReadonlyArray<{
     },
   },
   {
-    label: "Scan code",
+    label: "Scan the current files (code only)",
     hint: "pgard scan code",
     value: {
       kind: "scan",
@@ -193,14 +193,18 @@ const MENU_CHOICES: ReadonlyArray<{
   { label: "Quit", hint: "", value: "quit" },
 ];
 
-/** The menu entries; the report entry is the one with text in both languages. */
+/** The menu entries; the report and code-only entries have text in both languages. */
 function menuChoicesFor(context: CommandContext): typeof MENU_CHOICES {
-  const t = cliText(context.ruleLocale).commands.reportCommand;
-  return MENU_CHOICES.map((choice) =>
-    choice.value !== "quit" && choice.value.kind === "report"
-      ? { ...choice, label: t.menuLabel, hint: t.menuHint }
-      : choice,
-  );
+  const text = cliText(context.ruleLocale);
+  const t = text.commands.reportCommand;
+  return MENU_CHOICES.map((choice) => {
+    if (choice.value === "quit") return choice;
+    if (choice.value.kind === "report") return { ...choice, label: t.menuLabel, hint: t.menuHint };
+    if (choice.value.kind === "scan" && choice.value.variant === "code") {
+      return { ...choice, label: text.codeOnly.menuLabel };
+    }
+    return choice;
+  });
 }
 
 async function runMenu(context: CommandContext): Promise<ExitCode> {

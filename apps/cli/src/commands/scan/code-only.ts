@@ -1,6 +1,9 @@
+import { realpath } from "node:fs";
+import { lstat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
+import { tooBroadToScan, type TooBroadReason } from "@pgard/result-store";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
 import { err, out, suspendKeys, type CommandContext } from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
@@ -43,11 +46,61 @@ export interface CodeOnlyOutput {
   progressLine: (event: ScanProgressEvent) => string | null;
 }
 
-/** The home folder or the file-system root is never a project to scan as a whole. */
-export function isTooBroadForCodeOnly(folder: string, home: string = homedir()): boolean {
-  const resolved = path.resolve(folder);
-  if (resolved === path.parse(resolved).root) return true;
-  return home !== "" && resolved === path.resolve(home);
+/**
+ * Why a folder cannot be code-only scanned as a whole, or `null`. Both sides are real paths
+ * (symbolic links resolved, the file system's own spelling), compared without case on macOS and
+ * Windows; the rule is shared with the web folder chooser (`tooBroadToScan`).
+ */
+export async function codeOnlyFolderRefusal(
+  folder: string,
+  home: string = homedir(),
+  platform: NodeJS.Platform = process.platform,
+): Promise<TooBroadReason | null> {
+  const real = async (value: string): Promise<string> => {
+    try {
+      // The native call returns the file system's own spelling (case) on macOS and Windows.
+      return await new Promise<string>((resolve, reject) =>
+        realpath.native(value, (error, resolved) => (error ? reject(error) : resolve(resolved))),
+      );
+    } catch {
+      return path.resolve(value);
+    }
+  };
+  const realHome = home === "" ? null : await real(home);
+  return tooBroadToScan(await real(folder), realHome, {
+    ignoreCase: platform === "darwin" || platform === "win32",
+  });
+}
+
+/** True for a folder that holds a Git directory's own files (`HEAD`, `objects`, `refs`, `config`). */
+async function looksLikeGitDirectory(folder: string): Promise<boolean> {
+  try {
+    const [head, objects, refs, config] = await Promise.all(
+      ["HEAD", "objects", "refs", "config"].map((name) => lstat(path.join(folder, name))),
+    );
+    return (
+      head?.isFile() === true &&
+      objects?.isDirectory() === true &&
+      refs?.isDirectory() === true &&
+      config?.isFile() === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when `cwd` is a Git directory (`.git`, a bare repository) or inside one. Its `config` can
+ * hold credentials and its objects are not the current files, so it is never code-only scanned.
+ */
+export async function isInsideGitDirectory(cwd: string): Promise<boolean> {
+  let folder = path.resolve(cwd);
+  for (;;) {
+    if (path.basename(folder) === ".git" || (await looksLikeGitDirectory(folder))) return true;
+    const parent = path.dirname(folder);
+    if (parent === folder) return false;
+    folder = parent;
+  }
 }
 
 export async function runCodeOnlyScanFlow(
@@ -60,8 +113,19 @@ export async function runCodeOnlyScanFlow(
   const gitRoot = await context.deps.findGitRoot(context.io.cwd);
   // D4: a folder without Git is scanned as it is; a Git repository from its top folder.
   const projectRoot = gitRoot ?? path.resolve(context.io.cwd);
-  if (gitRoot === null && isTooBroadForCodeOnly(projectRoot)) {
-    err(context, context.errStyle.red(text.codeOnly.tooBroad));
+  if (gitRoot === null && (await isInsideGitDirectory(context.io.cwd))) {
+    err(context, context.errStyle.red(text.codeOnly.gitDirectory));
+    return EXIT_CODES.usage;
+  }
+  // Also for a repository: a dotfiles repository at the home folder would scan all of it.
+  if (
+    (await codeOnlyFolderRefusal(
+      projectRoot,
+      context.io.env.HOME ?? context.io.env.USERPROFILE ?? homedir(),
+    )) !== null
+  ) {
+    const message = gitRoot === null ? text.codeOnly.tooBroad : text.codeOnly.tooBroadRepository;
+    err(context, context.errStyle.red(message));
     return EXIT_CODES.usage;
   }
 

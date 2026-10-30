@@ -157,7 +157,9 @@ Code-only scan (pgard scan code):
   Checks the current files without the authorization gate: no GitHub sign-in,
   no owner approval, no network, no Git history. It works in any folder: in a Git
   repository it scans from the top folder, in a folder without Git it scans that
-  folder (not your home folder or /). The result says "Code-only scan:
+  folder. It refuses /, top-level folders (/Users), your home folder and the
+  folders above it (also as a repository's top folder), and .git folders.
+  The result says "Code-only scan:
   authorization not verified" (JSON and SARIF: scanBasis, schema 1.7) and is never
   stored. Exit 0 or 4 from the code coverage; never 3. Every other scope (none,
   history, web, all) still runs the gate first and exits 3 when it is blocked.

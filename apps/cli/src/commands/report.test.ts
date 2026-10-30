@@ -466,5 +466,12 @@ describe("menu entry", () => {
     const { captured, code } = await runMenu({ PGARD_LANG: "ko" }, ["\u001b"]);
     expect(code).toBe(0);
     expect(captured.stdout()).toContain("마지막 검사로 보고서 만들기");
+    expect(captured.stdout()).toContain("현재 파일 검사(코드 전용)");
+  }, 10_000);
+
+  it("names the code-only entry after what it does (design section 5)", async () => {
+    const { captured, code } = await runMenu({}, ["\u001b"]);
+    expect(code).toBe(0);
+    expect(captured.stdout()).toContain("Scan the current files (code only)");
   }, 10_000);
 });

@@ -230,12 +230,20 @@ export interface CliText {
   codeOnly: {
     /** The first line of a code-only result. */
     line: string;
+    /** The label at the start of the panel view's title line. */
+    short: string;
+    /** The interactive menu entry for `pgard scan code`. */
+    menuLabel: string;
     /** How to get an authorized scan, after a code-only result. */
     upgrade: string;
     /** After a blocked `scan`, `scan history`, `scan web` or `scan all`. */
     blockedHint: string;
-    /** `pgard scan code` outside a Git repository, in the home folder or the file-system root. */
+    /** `pgard scan code` outside a Git repository, in the home folder, above it, or a top-level folder. */
     tooBroad: string;
+    /** `pgard scan code` in a Git repository whose top folder is the home folder or above it. */
+    tooBroadRepository: string;
+    /** `pgard scan code` in a `.git` folder or a bare repository. */
+    gitDirectory: string;
   };
   /** Chrome of the full-screen panel view (`pgard scan --panels`). Scan data is not in here. */
   panels: PanelsText;
@@ -566,11 +574,17 @@ const EN: CliText = {
   },
   codeOnly: {
     line: "! Code-only scan: authorization not verified (current files only; no Git history, no web checks, not saved).",
+    short: "! Code-only, not verified",
+    menuLabel: "Scan the current files (code only)",
     upgrade:
       "For an authorized scan with Git history, run `pgard scan` (GitHub sign-in and owner approval), or `pgard scan code --require-authorization`.",
     blockedHint: "`pgard scan code` checks the current files without approval.",
     tooBroad:
-      "This is your home folder or the file-system root, not a project. Run pgard scan code inside the project's own folder.",
+      "This is your home folder, a folder above it, or a top-level folder (such as / or /Users), not a project. Run pgard scan code inside the project's own folder.",
+    tooBroadRepository:
+      "This folder is inside a Git repository at your home folder (or a folder above it), so a code-only scan would read all of it, including folders such as .ssh. Run pgard scan code inside a project folder that has its own Git repository (run `git init` there if it has none).",
+    gitDirectory:
+      "This is a Git directory (.git or a bare repository), not a project's files; its config can hold credentials. Run pgard scan code in the project's working folder.",
   },
   panels: {
     title: "PGARD panels",
@@ -938,11 +952,17 @@ const KO: CliText = {
   },
   codeOnly: {
     line: "! 코드 전용 검사: 권한 미확인(현재 파일만 검사, Git 기록·웹 검사 없음, 저장하지 않음).",
+    short: "! 코드 전용, 권한 미확인",
+    menuLabel: "현재 파일 검사(코드 전용)",
     upgrade:
       "Git 기록까지 포함한 권한 있는 검사는 `pgard scan`(GitHub 로그인과 소유자 승인 필요) 또는 `pgard scan code --require-authorization`으로 실행하세요.",
     blockedHint: "`pgard scan code`는 승인 없이 현재 파일을 검사합니다.",
     tooBroad:
-      "홈 폴더나 파일 시스템 최상위 폴더이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더에서 pgard scan code를 실행하세요.",
+      "홈 폴더, 그 위의 폴더, 또는 최상위 폴더(/나 /Users 등)이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더에서 pgard scan code를 실행하세요.",
+    tooBroadRepository:
+      "이 폴더는 홈 폴더(또는 그 위의 폴더)에 있는 Git 저장소 안에 있어서, 코드 전용 검사가 .ssh 같은 폴더까지 전부 읽게 됩니다. 자체 Git 저장소가 있는 프로젝트 폴더에서 pgard scan code를 실행하세요(없다면 그 폴더에서 `git init`을 실행하세요).",
+    gitDirectory:
+      "Git 디렉터리(.git 또는 bare 저장소)이며 프로젝트 파일이 아닙니다. 그 config에는 자격 증명이 들어 있을 수 있습니다. 프로젝트의 작업 폴더에서 pgard scan code를 실행하세요.",
   },
   panels: {
     title: "PGARD 패널",

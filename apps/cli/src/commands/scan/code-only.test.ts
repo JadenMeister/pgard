@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { readScanResult, type ScanResult } from "@pgard/findings";
@@ -16,7 +16,7 @@ import {
   noInterrupts,
   testResult,
 } from "../../test-support.js";
-import { isTooBroadForCodeOnly } from "./code-only.js";
+import { codeOnlyFolderRefusal } from "./code-only.js";
 import { runScanCommand } from "./index.js";
 
 /** `pgard scan code` without approval (#414 phase 2: D1, D2, D4). */
@@ -31,6 +31,12 @@ const unexpected = (name: string) =>
   });
 
 let dir: string | null = null;
+/** One temporary folder per test, removed afterwards. */
+async function temp(): Promise<string> {
+  dir = await mkdtemp(path.join(os.tmpdir(), "pgard-cli-codeonly-folder-"));
+  return dir;
+}
+
 afterEach(async () => {
   if (dir !== null) await rm(dir, { recursive: true, force: true });
   dir = null;
@@ -196,9 +202,8 @@ describe("any folder (D4)", () => {
   });
 
   it("refuses the home folder and the file-system root outside a Git repository", async () => {
-    expect(isTooBroadForCodeOnly("/", "/home/u")).toBe(true);
-    expect(isTooBroadForCodeOnly("/home/u", "/home/u")).toBe(true);
-    expect(isTooBroadForCodeOnly("/home/u/code/app", "/home/u")).toBe(false);
+    expect(await codeOnlyFolderRefusal("/", "/home/u", "linux")).toBe("root");
+    expect(await codeOnlyFolderRefusal(os.homedir(), os.homedir())).toBe("home");
     const runCode = unexpected("runCodeOnlyScan");
     const captured = createTestIo({ cwd: os.homedir() });
     const code = await runScanCommand(
@@ -211,6 +216,83 @@ describe("any folder (D4)", () => {
     expect(code).toBe(EXIT_CODES.usage);
     expect(runCode).not.toHaveBeenCalled();
     expect(captured.stderr()).toContain("not a project");
+  });
+
+  it("compares real paths: a symlinked home folder and another spelling are still home", async () => {
+    const base = await temp();
+    const home = path.join(base, "RealHome");
+    await mkdir(home);
+    const link = path.join(base, "home-link");
+    await symlink(home, link);
+    expect(await codeOnlyFolderRefusal(home, link, "linux")).toBe("home");
+    expect(await codeOnlyFolderRefusal(link, home, "linux")).toBe("home");
+    expect(await codeOnlyFolderRefusal(base, link, "linux")).toBe("above_home");
+    expect(await codeOnlyFolderRefusal(path.join(base, "realhome"), home, "darwin")).toBe("home");
+    await mkdir(path.join(home, "code", "app"), { recursive: true });
+    expect(await codeOnlyFolderRefusal(path.join(home, "code", "app"), link, "linux")).toBeNull();
+  });
+
+  it("refuses a Git repository whose top folder is the home folder (a dotfiles repository)", async () => {
+    const home = await temp();
+    const notes = path.join(home, "notes");
+    await mkdir(notes);
+    const runCode = unexpected("runCodeOnlyScan");
+    const captured = createTestIo({ cwd: notes, env: { HOME: home } });
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({ findGitRoot: async () => home, runCodeOnlyScan: runCode as never }),
+      ),
+      CODE,
+    );
+    expect(code).toBe(EXIT_CODES.usage);
+    expect(runCode).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain("inside a Git repository at your home folder");
+    expect(captured.stderr()).toContain("has its own Git repository");
+  });
+
+  it("refuses a Git repository at a folder above home or at a top-level folder", async () => {
+    const base = await temp();
+    const home = path.join(base, "u");
+    await mkdir(home);
+    for (const root of [base, "/"]) {
+      const runCode = unexpected("runCodeOnlyScan");
+      const captured = createTestIo({ cwd: home, env: { HOME: home } });
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({ findGitRoot: async () => root, runCodeOnlyScan: runCode as never }),
+        ),
+        CODE,
+      );
+      expect(code).toBe(EXIT_CODES.usage);
+      expect(runCode).not.toHaveBeenCalled();
+    }
+  });
+
+  it("refuses a .git folder and a bare repository instead of scanning Git's own files", async () => {
+    const base = await temp();
+    const dotGit = path.join(base, "repo", ".git", "objects");
+    await mkdir(dotGit, { recursive: true });
+    const bare = path.join(base, "bare.git-like");
+    await mkdir(path.join(bare, "objects"), { recursive: true });
+    await mkdir(path.join(bare, "refs"));
+    await writeFile(path.join(bare, "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(path.join(bare, "config"), "[core]\n\tbare = true\n");
+    for (const cwd of [path.join(base, "repo", ".git"), dotGit, bare, path.join(bare, "refs")]) {
+      const runCode = unexpected("runCodeOnlyScan");
+      const captured = createTestIo({ cwd });
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({ findGitRoot: async () => null, runCodeOnlyScan: runCode as never }),
+        ),
+        CODE,
+      );
+      expect(code).toBe(EXIT_CODES.usage);
+      expect(runCode).not.toHaveBeenCalled();
+      expect(captured.stderr()).toContain("This is a Git directory");
+    }
   });
 });
 

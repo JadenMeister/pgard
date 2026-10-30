@@ -13,6 +13,7 @@ import {
   createInMemoryCredentialStore,
   createUnavailableCredentialStore,
   DEFAULT_GITHUB_APP_CLIENT_ID,
+  runCodeOnlyScan as realRunCodeOnlyScan,
   runScan as realRunScan,
   verifyProject as realVerify,
   type AuthorizationOutcome,
@@ -602,6 +603,59 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
       "blocked",
     );
   });
+
+  it.each([
+    ["text", [] as string[]],
+    ["json", ["--format", "json"]],
+    ["sarif", ["--format", "sarif"]],
+  ])(
+    "the default pgard scan code (%s) runs code-only: no fetch, no device code, no credential read",
+    async (format, extra) => {
+      project();
+      const store = createInMemoryCredentialStore();
+      const credentialReads: string[] = [];
+      const spyStore: CredentialStore = {
+        get: async (key) => {
+          credentialReads.push(`get ${key.service}`);
+          return store.get(key);
+        },
+        set: async (key, secret) => {
+          credentialReads.push(`set ${key.service}`);
+          return store.set(key, secret);
+        },
+        delete: async (key) => {
+          credentialReads.push(`delete ${key.service}`);
+          return store.delete(key);
+        },
+      };
+      const run = noTerminal(spyStore);
+      const verifyProject = vi.fn(realVerify);
+      const deps = { ...run.deps, verifyProject, runCodeOnlyScan: realRunCodeOnlyScan };
+      const captured = redirected(fixture?.root ?? "/");
+      const exitCode = await main(["scan", "code", ...extra], captured.io, {
+        deps,
+        interrupts: noInterrupts,
+      });
+      expect(exitCode).toBe(0);
+      expect(run.fetchCalls).toEqual([]);
+      expect(run.deviceCodeRequests()).toBe(0);
+      expect(networkCalls).toEqual([]);
+      expect(credentialReads).toEqual([]);
+      expect(verifyProject).not.toHaveBeenCalled();
+      expect(captured.stderr()).not.toContain("Enter the code");
+      if (format === "json") {
+        const result = JSON.parse(captured.stdout()) as { scanBasis?: { mode: string } };
+        expect(result.scanBasis?.mode).toBe("code_only");
+      } else if (format === "sarif") {
+        const sarif = JSON.parse(captured.stdout()) as {
+          runs: Array<{ automationDetails?: { id?: string } }>;
+        };
+        expect(sarif.runs[0]?.automationDetails?.id).toBe("pgard/code-only/");
+      } else {
+        expect(captured.stdout()).toContain("Code-only scan: authorization not verified");
+      }
+    },
+  );
 
   it("pgard login refuses without a terminal (usage error, exit 2) and requests nothing", async () => {
     project();
