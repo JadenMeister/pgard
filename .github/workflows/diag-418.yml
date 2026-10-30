@@ -17,12 +17,16 @@ jobs:
         n: [1, 2, 3, 4, 5, 6]
         g:
           - {
-              name: no-incr,
-              paths: "packages/scan-core --exclude packages/scan-core/src/incremental-equivalence.test.ts --exclude node_modules/**",
+              name: A,
+              paths: "packages/scan-core/src/analyzer-hash packages/scan-core/src/code-analyzer packages/scan-core/src/default-analyzers",
             }
           - {
-              name: incr-plus,
-              paths: "packages/scan-core/src/incremental-equivalence packages/scan-core/src/project-config packages/scan-core/src/run-scan",
+              name: B,
+              paths: "packages/scan-core/src/paths packages/scan-core/src/rule-locality packages/scan-core/src/run-scan-expected-repo",
+            }
+          - {
+              name: C,
+              paths: "packages/scan-core/src/staged-scan packages/scan-core/src/standards-coverage",
             }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
