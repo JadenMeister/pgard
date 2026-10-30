@@ -860,8 +860,13 @@ async function runHistoryScan(
     }
     const content = headRead.contents.get(entry.sha);
     if (content === undefined) continue;
+    const isEnvFile = isEnvironmentFile(entry.path);
     for (const secret of detectSecrets(content, { path: entry.path })) {
+      // Still a current value, so the same value in history is not called "removed".
       currentValues.add(secret.value);
+      // An environment file is already one PG-SECRET-001 finding: its generic per-line credential
+      // matches are not reported again; provider-specific secrets are.
+      if (isEnvFile && secret.kind === "generic_credential") continue;
       report(entry, secret, null, false);
     }
   }

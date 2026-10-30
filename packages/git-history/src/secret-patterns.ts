@@ -48,6 +48,12 @@ export interface DetectSecretsOptions {
    * credential value. Without a path, the text is treated like a config file.
    */
   path?: string;
+  /**
+   * Leave out generic credential assignments, keeping the provider-specific patterns. For a file
+   * that is already reported whole as an environment file (PG-SECRET-001), so its lines do not
+   * add one generic finding each.
+   */
+  omitGeneric?: boolean;
 }
 
 interface Pattern {
@@ -138,7 +144,19 @@ const SOURCE_CODE_FILE =
 
 /** Values that are clearly not real secrets. */
 const PLACEHOLDER =
-  /example|sample|changeme|change_me|placeholder|dummy|your[_-]|<[^>]*>|\$\{|\{\{|%\(|process\.env|os\.environ|getenv|xxxx|\*\*\*\*|redacted|todo|fixme|^(true|false|null|none|undefined)$/i;
+  /example|sample|changeme|change_me|placeholder|dummy|your[_-]|<[^>]*>|\$\{|\{\{|%\(|process\.env|os\.environ|getenv|xxxx|\*\*\*\*|redacted|todo|fixme|(?:^|[^a-z])(?:replace|random|generate|set[_-]?me|insert|put[_-]?your)|^(true|false|null|none|undefined)$/i;
+
+/**
+ * A value of only dictionary-like words: all lowercase letters, three or more words of 2 to 12
+ * letters joined by `-`, `_` or `.` (`my-secret-key-value`). Used as a placeholder test in
+ * template files and documentation, where such a value is an example, not a credential.
+ */
+export function isDictionaryWordsValue(value: string): boolean {
+  return /^[a-z]{2,12}(?:[-_.][a-z]{2,12}){2,}$/.test(value);
+}
+
+/** Documentation files, where a generic value is usually an example. */
+const DOC_FILE = /\.(?:md|mdx|rst|txt|adoc)$/i;
 
 export function shannonEntropy(value: string): number {
   const counts = new Map<string, number>();
@@ -157,6 +175,8 @@ export function shannonEntropy(value: string): number {
  * literal (`/pass(word)?|pwd/i`).
  */
 const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]|]/];
+/** `)`, `}`, `]`, `||` or `&&` in an unquoted value: code, not a credential. */
+const UNQUOTED_CODE_VALUE = /[)}\]]|\|\||&&/;
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
@@ -197,6 +217,10 @@ interface DetectContext {
   text: string;
   /** Whether the text is a source code file (string values there must be quoted). */
   isSource: boolean;
+  /** Whether the file is a template (`.env.example`): only a real-looking value is reported. */
+  isTemplate: boolean;
+  /** Whether the file is documentation. */
+  isDoc: boolean;
   /** Start of the string literal around an index, or -1 (built lazily, once per text). */
   stringStartAt: (index: number) => number;
 }
@@ -204,10 +228,13 @@ interface DetectContext {
 function createContext(text: string, options: DetectSecretsOptions): DetectContext {
   const path = options.path;
   const isSource = path !== undefined && SOURCE_CODE_FILE.test(path);
+  const name = path?.split("/").pop() ?? "";
   let lookup: ((index: number) => number) | null = null;
   return {
     text,
     isSource,
+    isTemplate: ENV_EXAMPLE.test(name),
+    isDoc: DOC_FILE.test(name),
     stringStartAt: (index) => {
       if (path === undefined) return -1;
       lookup ??= createStringLookup(text, path);
@@ -285,6 +312,8 @@ function isLiteralAssignment(
     return false; // `cond ? "PG-SECRET-003" : "PG-SECRET-002"` is a ternary, not a key
   }
   if (valueQuote !== "") return true;
+  // An unquoted value that starts with `=` is the right side of a comparison (`password==e.pass`).
+  if (value.startsWith("=")) return false;
   // A quoted index key (`headers["x-api-key"] = …`) is a string token of its own: judge the code
   // around its opening quote.
   let keyStart = start;
@@ -294,6 +323,10 @@ function isLiteralAssignment(
     stringStart = context.stringStartAt(start - 2);
   }
   const inString = stringStart !== -1;
+  // In source code outside a string, a value holding a closing bracket or a logical operator is
+  // the rest of an expression (`e.target.value})`, `e.pass)||`), not a literal. Inside a string
+  // literal (`"password=Zx8c)Vb5n"`) the same characters can be part of a password.
+  if (context.isSource && !inString && UNQUOTED_CODE_VALUE.test(value)) return false;
   if (CALL_SHAPED_VALUE.test(value) && (value.endsWith(")") || (context.isSource && !inString))) {
     return false;
   }
@@ -323,11 +356,20 @@ function hasPrivateKeyBody(block: string): boolean {
 }
 
 /** Generic values must look random enough and not be a code reference or placeholder. */
-function isLikelySecretValue(value: string): boolean {
+function isLikelySecretValue(value: string, context?: DetectContext): boolean {
   if (PLACEHOLDER.test(value)) return false;
+  if ((context?.isTemplate || context?.isDoc) && isDictionaryWordsValue(value)) return false;
+  // A template file reports only what looks like a real secret: entropy above the threshold and
+  // two character classes, one of them a digit or an uppercase letter.
+  if (context?.isTemplate && !hasSecretShape(value)) return false;
   if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) return false; // config.db.password
   if (/^[a-z]+$/.test(value) && value.length < 16) return false; // plain words
   return shannonEntropy(value) >= 3.0;
+}
+
+function hasSecretShape(value: string): boolean {
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((test) => test.test(value));
+  return classes.length >= 2 && /[A-Z\d]/.test(value) && shannonEntropy(value) > 3.0;
 }
 
 /**
@@ -464,7 +506,7 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
           cut = escapedNewlineTail(value);
           if (cut > 0) value = value.slice(0, value.length - cut);
         }
-        if (!isLikelySecretValue(value)) continue;
+        if (options.omitGeneric === true || !isLikelySecretValue(value, context)) continue;
         const assignment = isLiteralAssignment(context, match, cut);
         if (assignment === false) continue;
         codeText = assignment === "code_text";

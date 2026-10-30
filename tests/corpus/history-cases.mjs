@@ -188,6 +188,101 @@ export const HISTORY_CASES = [
       },
     ],
   },
+  // #445: false positives in templates, docs and minified bundles, and real secrets in the same
+  // shapes that must still be reported.
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "env-example-placeholder-words",
+    expect: [],
+    commits: [
+      {
+        files: {
+          ".env.example": [
+            "JWT_SECRET=replace-with-a-long-random-secret",
+            "SESSION_SECRET=generate-a-strong-session-key",
+            "API_KEY=insert-your-api-key-here",
+            "DB_PASSWORD=set_me_to_a_password",
+            "COOKIE_SECRET=put-your-cookie-secret-here",
+            "",
+          ].join("\n"),
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "docs-dictionary-words-example",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "README.md": 'Configure `api_key = "my-secret-key-value"` in your settings.\n',
+          "docs/setup.rst": "client_secret: my-example-secret-word\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "minified-bundle-member-access",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "build/static/js/main.js":
+            "function f(e,t){return a({password:e.target.value}),(e.password==t.password)||g(e.password==e.pass)||h()}\n",
+          "dist/assets/app.js": "x=e.secret===t.secret&&n,y={apiKey:r.config.apikey});\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-001",
+    kind: "negative",
+    name: "dotenv-generic-lines-folded",
+    // One PG-SECRET-001 for the file; its generic lines are not reported one by one.
+    expect: ["PG-SECRET-001"],
+    commits: [
+      { files: { ".env": `DB_PASSWORD=${FAKE.dbPassword}\nSESSION_SECRET=${FAKE.assembled}\n` } },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "env-example-real-looking-aws-key",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { ".env.example": `AWS_ACCESS_KEY_ID=${FAKE.aws}\nPORT=3000\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "env-example-high-entropy-password",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { ".env.example": `DB_PASSWORD=${FAKE.assembled}\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "minified-bundle-real-password",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "build/static/js/main.js": `function f(e){return a({password:e.target.value}),b({user:"admin",password:"${FAKE.assembled}"})}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "docs-quoted-mixed-case-value",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "README.md": `Set \`api_key = "${FAKE.assembled}"\` first.\n` } }],
+  },
   {
     rule: "PG-SECRET-002",
     kind: "negative",

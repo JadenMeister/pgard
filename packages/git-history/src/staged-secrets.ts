@@ -94,7 +94,10 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
         previous === null
           ? new Set<string>()
           : new Set(detectSecrets(previous, { path: file.path }).map((found) => found.value));
-      for (const secret of detectSecrets(content, { path: file.path })) {
+      // A new environment file is reported whole (PG-SECRET-001), so its generic per-line
+      // credential matches are left out; provider-specific secrets are still reported.
+      const omitGeneric = isEnvironmentFile(file.path) && file.kind !== "modified";
+      for (const secret of detectSecrets(content, { path: file.path, omitGeneric })) {
         const key = `${secret.kind}\0${secret.value}`;
         // Skip a secret an earlier reading of this file already reported (a preexisting one does not
         // count, so a new copy of it in the other reading is still reported).
