@@ -17,6 +17,7 @@ import {
   portAccessMessage,
 } from "./port-access";
 import { usePortAccess } from "./use-port-access";
+import { RelatednessNotice, ServiceList } from "./ServiceList";
 
 interface TargetPanelProps {
   /** Latest authorization status; nothing is discovered or probed until it reports allowed. */
@@ -147,21 +148,11 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
       ) : (
         <>
           <div className="service-list">
-            {services?.services.map((service) => (
-              <button
-                type="button"
-                key={service.port}
-                className="service"
-                disabled={isBusy}
-                onClick={() => void probe(service.port)}
-              >
-                <code>http://127.0.0.1:{service.port}</code>
-                <span className="muted">
-                  {service.status ?? ""} {service.title ?? ""}{" "}
-                  {service.processName ? `(${service.processName})` : ""}
-                </span>
-              </button>
-            ))}
+            <ServiceList
+              services={services?.services ?? []}
+              isBusy={isBusy}
+              onPick={(port) => void probe(port)}
+            />
             {services !== null && services.services.length === 0 && (
               <p className="muted">{m.target.noServices(services.note || null)}</p>
             )}
@@ -212,13 +203,16 @@ export function TargetPanel({ auth, presetPort, target, onTarget }: TargetPanelP
                 <Notice tone="warning">{m.target.redirect}</Notice>
               )}
               {identity.isHttp ? (
-                <div className="confirm-row">
-                  <p>{m.target.question}</p>
-                  <Button variant="primary" onClick={() => void confirm()}>
-                    {m.target.yes}
-                  </Button>
-                  <Button onClick={() => setIdentity(null)}>{m.target.no}</Button>
-                </div>
+                <>
+                  <RelatednessNotice relatedness={identity.relatedness} />
+                  <div className="confirm-row">
+                    <p>{m.target.question}</p>
+                    <Button variant="primary" onClick={() => void confirm()}>
+                      {m.target.yes}
+                    </Button>
+                    <Button onClick={() => setIdentity(null)}>{m.target.no}</Button>
+                  </div>
+                </>
               ) : (
                 <Notice tone="warning">{m.target.notHttp}</Notice>
               )}

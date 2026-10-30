@@ -6,7 +6,7 @@ import {
   type Finding,
   type ScanResult,
 } from "@pgard/findings";
-import type { ServiceIdentity } from "@pgard/http-local";
+import { EMPTY_PROJECT_SIGNALS, type ServiceIdentity } from "@pgard/http-local";
 import {
   createInMemoryCredentialStore,
   DEFAULT_GITHUB_APP_CLIENT_ID,
@@ -255,6 +255,8 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     platform: "linux",
     webScanner: unexpected("webScanner") as never,
     probeLocalService: async () => HTTP_IDENTITY,
+    // No project signals by default, so no service is ever judged unrelated.
+    readProjectSignals: async () => EMPTY_PROJECT_SIGNALS,
     // Nothing listens by default, so an interactive default scan never offers a web target.
     discoverListeningPorts: async () => ({
       ports: [],

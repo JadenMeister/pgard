@@ -194,6 +194,9 @@ export const en = {
     technology: "Technology (inferred, not verified)",
     redirect: "/ redirects to a location PGARD will not follow.",
     question: "Is this the current project's service?",
+    unrelated: (service: string, project: string) =>
+      `This service doesn't look related to this project (service: '${service}', project: '${project}').`,
+    looksRelated: "(may be this project)",
     yes: "Yes, this is the project's service",
     no: "No",
     notHttp: "This port did not answer HTTP. Choose another port.",
