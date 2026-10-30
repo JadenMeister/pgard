@@ -40,7 +40,8 @@ const FULL_HELP = `  --full                   scan everything again; by default 
                            checks are always live)`;
 
 const REPORT_HELP = `  --report html|pdf|both   save a report (requires --output-dir)
-  --output-dir <dir>       existing directory for the report (requires --report);
+  --output-dir <dir>       existing directory for the report (requires --report;
+                           a leading ~ is expanded to your home folder);
                            files are never overwritten; a directory inside the
                            Git repository needs explicit confirmation`;
 
@@ -81,6 +82,7 @@ Common options:
   --report html|pdf|both        save a report after a scan, with --output-dir DIR
                                 (scan only)
   --output-dir DIR              existing directory for saved reports and SBOMs
+                                (a leading ~ is expanded to your home folder)
                                 (scan, report, sbom)
   --no-browser                  print GitHub links instead of opening them
                                 (scan, project verify, login, dashboard, web)
@@ -273,7 +275,8 @@ Options:
                            directory (mode 0700) under the system temporary
                            directory and prints its path. Browsers installed as
                            snap packages on Linux may not be able to read /tmp:
-                           use --output-dir ~/Downloads (or similar) then
+                           use --output-dir ~/Downloads (or similar) then.
+                           A leading ~ is expanded to your home folder.
   --no-open                write the file and print its path without opening it.
                            Without a terminal, and when CI, GITHUB_ACTIONS,
                            BUILDKITE, TF_BUILD or JENKINS_URL is set or TERM=dumb,
@@ -314,7 +317,8 @@ for pgard report, and nothing is read if they fail (exit 3).
 
 Options:
   --format cyclonedx-json  the only format (default)
-  --output-dir DIR         existing directory for the SBOM. The file is named
+  --output-dir DIR         existing directory for the SBOM (a leading ~ is
+                           expanded to your home folder). The file is named
                            pgard-sbom-<time>-<commit>.cdx.json, is created with
                            mode 0600 and never overwritten; a directory inside
                            the Git repository needs explicit confirmation.
