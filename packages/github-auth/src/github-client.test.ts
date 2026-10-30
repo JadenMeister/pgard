@@ -538,6 +538,39 @@ describe("a stalled network", () => {
     expect(seen?.aborted).toBe(true);
   });
 
+  it("leaves no listener on the caller's signal, read or unread", async () => {
+    const controller = new AbortController();
+    let added = 0;
+    let removed = 0;
+    const signal = controller.signal;
+    const add = signal.addEventListener.bind(signal);
+    const remove = signal.removeEventListener.bind(signal);
+    signal.addEventListener = ((...args: Parameters<AbortSignal["addEventListener"]>) => {
+      added += 1;
+      add(...args);
+    }) as AbortSignal["addEventListener"];
+    signal.removeEventListener = ((...args: Parameters<AbortSignal["removeEventListener"]>) => {
+      removed += 1;
+      remove(...args);
+    }) as AbortSignal["removeEventListener"];
+    let status = 404;
+    const fetch: FetchLike = async () => ({
+      status,
+      ok: status === 200,
+      json: async () => ({ id: 7, login: "octo", name: null, email: null }),
+    });
+    const client = createGitHubClient({ token: "t", fetch, signal });
+    // 404, 401 and 403: the body is never read.
+    for (const code of [404, 401, 403]) {
+      status = code;
+      await expect(client.getAuthenticatedUser()).rejects.toBeDefined();
+    }
+    status = 200;
+    await client.getAuthenticatedUser();
+    expect(added).toBeGreaterThan(0);
+    expect(removed).toBe(added);
+  });
+
   it("allows 10 s per request by default", () => {
     expect(GITHUB_REQUEST_TIMEOUT_MS).toBe(10_000);
   });

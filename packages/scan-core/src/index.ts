@@ -39,6 +39,12 @@ export {
   type StagedSkipReason,
 } from "@pgard/git-history";
 export { PGARD_VERSION } from "./version.js";
+export {
+  codeOnlyReasonForGate,
+  gateFailureReason,
+  REMOTE_FAILURES,
+  type GateFailureReason,
+} from "./gate-reason.js";
 export { verifyProject } from "./verify-project.js";
 export { listSupportedRules, type RuleDescriptor, type RuleLanguage } from "./rules.js";
 export {

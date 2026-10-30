@@ -2,7 +2,7 @@ import type { WebStorage } from "@pgard/result-store";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PickerBrowseResponse, PickerPathResponse } from "../shared/picker-types.js";
 import { createFolderDialog, dialogCommandFor, type FolderDialog } from "./picker/folder-dialog.js";
-import { expandPastedPath } from "./picker/choose-folder.js";
+import { DIALOG_REOPEN_PAUSE_MS, expandPastedPath } from "./picker/choose-folder.js";
 import { repoCandidate } from "./test-support/fake-inspector.js";
 import {
   apiGet,
@@ -197,6 +197,15 @@ describe("pasted path", () => {
     expect(deep.refusal?.paths).toEqual(["~/evil\\u{202e}cod.js"]);
   });
 
+  it("refuses Git's own data folder with a plain reason", async () => {
+    harness = await startHarness();
+    harness.inspector.resolved.set(`${SHOP}/.git`, { refused: "git_directory", paths: [] });
+    const { candidate, refusal } = await pathCandidate(harness, `${SHOP}/.git`);
+    expect(candidate).toBeNull();
+    expect(refusal?.code).toBe("git_directory");
+    expect(refusal?.reason).toBe("This is Git's own data folder (.git), not the project's files.");
+  });
+
   it("returns refusals with a reason and a fix", async () => {
     harness = await startHarness();
     harness.inspector.resolved.set("/home/u", { refused: "too_broad" });
@@ -213,7 +222,7 @@ describe("pasted path", () => {
   });
 });
 
-describe("OS folder dialog (prototype)", () => {
+describe("OS folder dialog", () => {
   it("opens one dialog at a time, polls, and returns the chosen folder", async () => {
     const manual = manualDialog();
     harness = await startHarness({ picker: { folderDialog: manual.dialog } });
@@ -242,14 +251,38 @@ describe("OS folder dialog (prototype)", () => {
     expect(cancelled.status).toBe(200);
     expect((json(cancelled) as unknown as PickerBrowseResponse).status).toBe("cancelled");
     expect(manual.calls[0]?.signal.aborted).toBe(true);
-    // A new one can be opened afterwards; the user closing it is "cancelled", not an error.
-    await apiPost(harness.server, "/api/picker/browse", {});
+    // A new one can be opened after a short pause; the user closing it is "cancelled".
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    harness.clock.now += DIALOG_REOPEN_PAUSE_MS;
+    expect((await apiPost(harness.server, "/api/picker/browse", {})).status).toBe(200);
     manual.answer({ status: "cancelled" });
     const status = await waitFor(
       async () => json(await apiGet(harness!.server, "/api/picker/browse")),
       (value) => value.status !== "open",
     );
     expect(status.status).toBe("cancelled");
+  });
+
+  it("never overlaps two dialogs: waits for the process to exit, then a short pause", async () => {
+    // A dialog whose process exits only when the test says so (even after a cancel).
+    let exit: () => void = () => undefined;
+    const slowExit: FolderDialog = () =>
+      new Promise((resolve) => {
+        exit = () => resolve({ status: "cancelled" });
+      });
+    harness = await startHarness({ picker: { folderDialog: slowExit } });
+    await apiPost(harness.server, "/api/picker/browse", {});
+    await apiPost(harness.server, "/api/picker/browse/cancel", {});
+    harness.clock.now += DIALOG_REOPEN_PAUSE_MS * 10;
+    const whileRunning = await apiPost(harness.server, "/api/picker/browse", {});
+    expect(whileRunning.status).toBe(409);
+    expect((json(whileRunning).error as { code: string }).code).toBe("dialog_closing");
+    exit();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    // The process exited just now: the pause starts from there.
+    expect((await apiPost(harness.server, "/api/picker/browse", {})).status).toBe(409);
+    harness.clock.now += DIALOG_REOPEN_PAUSE_MS;
+    expect((await apiPost(harness.server, "/api/picker/browse", {})).status).toBe(200);
   });
 
   it("closes the dialog when the server stops", async () => {

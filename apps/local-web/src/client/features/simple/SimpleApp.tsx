@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Severity } from "@pgard/findings";
+import type { Finding, Severity } from "@pgard/findings";
 import type {
   GateReason,
   RuleTextsResponse,
@@ -14,7 +14,9 @@ import { Button } from "../../components/ui/Button";
 import { Notice } from "../../components/ui/Notice";
 import { usePolling } from "../../hooks/use-polling";
 import { LanguageToggle, useI18n } from "../../i18n/I18nProvider";
+import type { Language } from "../../i18n/types";
 import { buildFindingsView, EMPTY_FILTERS } from "../findings/filter-findings";
+import { localizeFindingText } from "../findings/rule-texts";
 import { FindingTable } from "../findings/FindingTable";
 import { LegalNotice } from "../legal/LegalNotice";
 import { BlockedNote } from "../picker/CandidateCard";
@@ -79,6 +81,14 @@ function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
   const [pasted, setPasted] = useState("");
   const [isChecking, setIsChecking] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
+  // The server opens a new folder window only after the last one closed and a short pause.
+  const [isPaused, setIsPaused] = useState(false);
+  useEffect(() => {
+    if (dialog === "idle" || dialog === "open" || dialog === "unavailable") return;
+    setIsPaused(true);
+    const timer = setTimeout(() => setIsPaused(false), 1_600);
+    return () => clearTimeout(timer);
+  }, [dialog]);
 
   const apply = (response: PickerBrowseResponse | PickerPathResponse): void => {
     setRefusal(response.refusal);
@@ -132,6 +142,7 @@ function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
         {candidate.remote.status === "github" && candidate.codeOnly === undefined && (
           <p className="muted small">{t.githubRepo(candidate.remote.repo)}</p>
         )}
+        {candidate.insideRepository === true && <p className="muted small">{t.insideRepository}</p>}
         {candidate.codeOnly !== undefined && (
           <p className="muted small">{t.codeOnlyReason[candidate.codeOnly]}</p>
         )}
@@ -158,7 +169,7 @@ function FolderStep({ control, t }: { control: PickerControl; t: SimpleText }) {
         <button
           type="button"
           className="btn btn-primary simple-choose-button"
-          disabled={dialog === "open"}
+          disabled={dialog === "open" || isPaused}
           onClick={openDialog}
         >
           {dialog === "open" ? t.dialogOpen : t.chooseFolder}
@@ -213,14 +224,48 @@ export function scanOutcome(scan: ScanStatus | null): {
   gateReason: GateReason | null;
   result: ScanStatus["result"];
   isCodeOnly: boolean;
+  /** The result proves authorization (never inferred from a missing gate reason). */
+  isAuthorized: boolean;
 } {
-  if (scan === null || scan.status !== "done") {
-    return { gateReason: null, result: null, isCodeOnly: false };
+  const none = { gateReason: null, result: null, isCodeOnly: false, isAuthorized: false };
+  if (scan === null || scan.status !== "done") return none;
+  if (scan.gateReason !== null) return { ...none, gateReason: scan.gateReason };
+  const result = scan.result;
+  const isAuthorized =
+    !scan.codeOnly &&
+    result !== null &&
+    result.authorization.decision === "allowed" &&
+    result.scanBasis?.authorization !== "not_verified";
+  return { gateReason: null, result, isCodeOnly: scan.codeOnly, isAuthorized };
+}
+
+/**
+ * A finding's texts in the page language. The simple screen always shows the rule's own title in
+ * Korean: a title the finding wrote itself (with its specifics) stays in English otherwise, so it
+ * falls back to the rule's (or its variant's) Korean title.
+ */
+export function simpleFindingText(
+  finding: Finding,
+  texts: RuleTextsResponse | null,
+  language: Language,
+): Finding {
+  const localized = localizeFindingText(finding, texts, language);
+  if (language === "en" || texts === null || !Object.hasOwn(texts, finding.ruleId)) {
+    return localized;
   }
-  if (scan.gateReason !== null) {
-    return { gateReason: scan.gateReason, result: null, isCodeOnly: false };
-  }
-  return { gateReason: null, result: scan.result, isCodeOnly: scan.codeOnly };
+  if (localized.title !== finding.title) return localized;
+  const rule = texts[finding.ruleId]!;
+  return { ...localized, title: rule.title[language] };
+}
+
+/** The label of the one primary scan button for what the page shows now. */
+export function scanButtonLabel(
+  t: SimpleText,
+  outcome: Pick<ReturnType<typeof scanOutcome>, "gateReason" | "result" | "isCodeOnly">,
+): string {
+  if (outcome.gateReason !== null) return t.checkAgainButton;
+  if (outcome.result !== null && outcome.isCodeOnly) return t.recheckApprovalButton;
+  return outcome.result === null ? t.scanButton : t.rescanButton;
 }
 
 /** The gate did not pass: why, in one line, and what the user can do. Nothing runs by itself. */
@@ -229,6 +274,7 @@ export function GatePanel({
   t,
   appSlug,
   isBusy,
+  hidesPrevious = false,
   onCodeOnly,
   onSignIn,
   onOpenFull,
@@ -237,6 +283,8 @@ export function GatePanel({
   t: SimpleText;
   appSlug: string | null;
   isBusy: boolean;
+  /** An earlier code-only result is no longer shown: say so. */
+  hidesPrevious?: boolean;
   onCodeOnly: () => void;
   onSignIn: () => void;
   onOpenFull: () => void;
@@ -246,8 +294,9 @@ export function GatePanel({
   return (
     <div className="simple-gate" role="status">
       <p className="simple-gate-reason">{t.gateReasons[reason]}</p>
+      {hidesPrevious && <p className="muted small">{t.previousHidden}</p>}
       <p className="button-row">
-        <Button variant="primary" disabled={isBusy} onClick={onCodeOnly}>
+        <Button disabled={isBusy} onClick={onCodeOnly}>
           {t.codeOnlyButton}
         </Button>
         {reason !== "not_signed_in" && (
@@ -301,13 +350,11 @@ export function NotAuthorizedLabel({
         <span className="badge badge-partial simple-noauth-badge">{t.badge}</span>
         <strong>{t.badgeTitle}</strong>
       </p>
-      <p className="muted">{t.badgeBody}</p>
-      <p className="muted">{t.badgeReason(reason)}</p>
-      <p>
+      <p className="muted">
+        {t.badgeReason(reason)}{" "}
         <button type="button" className="link-button" onClick={onConnect}>
           {t.connect}
         </button>
-        <span className="muted small"> {t.connectHint}</span>
       </p>
     </div>
   );
@@ -353,7 +400,14 @@ export function SimpleApp({
   const elapsed = useElapsedSeconds(isRunning);
   usePolling(async () => setScan(await apiGet<ScanStatus>("/api/scan")), 1000, isRunning);
 
-  const { gateReason, result, isCodeOnly } = scanOutcome(scan);
+  const outcome = scanOutcome(scan);
+  const { gateReason, result, isCodeOnly, isAuthorized } = outcome;
+  // Whether a code-only result was shown on this page, so a later gate panel can say it is hidden.
+  const [hadCodeOnly, setHadCodeOnly] = useState(false);
+  useEffect(() => {
+    if (result !== null && isCodeOnly) setHadCodeOnly(true);
+    else if (result !== null) setHadCodeOnly(false);
+  }, [result, isCodeOnly]);
   useEffect(() => {
     if (result === null || ruleTexts !== null) return;
     return loadWithRetry(
@@ -417,7 +471,7 @@ export function SimpleApp({
       case "export":
         return (
           <>
-            <p className="muted small">{t.moreExportNote}</p>
+            {isCodeOnly && <p className="muted small">{t.moreExportNote}</p>}
             <ReportPanel />
           </>
         );
@@ -461,7 +515,6 @@ export function SimpleApp({
               ) : (
                 <div className="simple-chosen">
                   <p>
-                    <span className="muted small">{t.chosenLabel}</span>{" "}
                     <strong>{project.name}</strong>
                     {project.repo !== null && <span className="pick-repo"> {project.repo}</span>}
                   </p>
@@ -497,7 +550,7 @@ export function SimpleApp({
                     disabled={project === null}
                     onClick={() => void startScan()}
                   >
-                    {result === null ? t.scanButton : t.rescanButton}
+                    {scanButtonLabel(t, outcome)}
                   </button>
                 )}
               </div>
@@ -520,6 +573,7 @@ export function SimpleApp({
                   t={t}
                   appSlug={session?.githubApp?.slug ?? null}
                   isBusy={isRunning}
+                  hidesPrevious={hadCodeOnly}
                   onCodeOnly={() => void startCodeOnly()}
                   onSignIn={() => void signInAndScan()}
                   onOpenFull={onOpenFull}
@@ -544,11 +598,11 @@ export function SimpleApp({
                     reason={result.scanBasis?.reason ?? "not_checked"}
                     onConnect={onOpenFull}
                   />
-                ) : (
+                ) : isAuthorized ? (
                   <p className="simple-authorized">
                     <span className="badge badge-completed">{t.authorizedLabel}</span>
                   </p>
-                )}
+                ) : null}
                 {isPartial && <Notice tone="warning">{t.partialNote}</Notice>}
                 {view.total === 0 && severity === null ? (
                   <p className="empty-state-title">{t.noFindings}</p>
@@ -564,7 +618,9 @@ export function SimpleApp({
                     />
                     <FindingTable
                       label={t.resultsTitle}
-                      findings={view.visible}
+                      findings={view.visible.map((finding) =>
+                        simpleFindingText(finding, ruleTexts, language),
+                      )}
                       ruleTexts={ruleTexts}
                       paging={{ page, pageSize, onPage: setPage, onPageSize: setPageSize }}
                     />
@@ -624,7 +680,7 @@ export function SimpleApp({
         )}
       </main>
       <footer className="page-footer">
-        <div className="wrap">{m.app.footer}</div>
+        <div className="wrap">{t.footer}</div>
       </footer>
     </>
   );

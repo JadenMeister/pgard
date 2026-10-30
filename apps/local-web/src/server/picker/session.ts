@@ -82,6 +82,10 @@ export interface PickerSession {
   browse: {
     response: PickerBrowseResponse;
     controller: AbortController | null;
+    /** True until the dialog's process has exited (also after a cancel). */
+    isProcessRunning: boolean;
+    /** No new dialog before this time (ms): a short pause after one was closed. */
+    reopenAfter: number;
   };
 }
 
@@ -110,6 +114,8 @@ export function createPickerSession(): PickerSession {
     browse: {
       response: { status: "idle", candidate: null, refusal: null },
       controller: null,
+      isProcessRunning: false,
+      reopenAfter: 0,
     },
   };
 }

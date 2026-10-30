@@ -214,7 +214,10 @@ export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMess
     }
     case "resolved": {
       if (job.kind !== "resolve") return null;
-      const message = obj(raw, ["t", "root", "candidate", "folderBlock"]);
+      const message = obj(raw, ["t", "root", "candidate", "folderBlock", "insideRepository"]);
+      if (message !== null && message.insideRepository !== undefined) {
+        if (message.insideRepository !== true) return null;
+      }
       if (message === null) return null;
       const root = obj(message.root, ["path", "dev", "ino"]);
       if (
@@ -247,6 +250,7 @@ export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMess
         root: { path: root.path, dev: root.dev, ino: root.ino },
         candidate,
         folderBlock: folder.block,
+        ...(message.insideRepository === true ? { insideRepository: true } : {}),
       };
     }
     case "refused": {

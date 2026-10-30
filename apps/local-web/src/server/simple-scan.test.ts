@@ -1,5 +1,9 @@
 import type { ScanResult } from "@pgard/findings";
-import type { AuthorizationOutcome, ScanDependencies } from "@pgard/scan-core";
+import {
+  GitHubAuthError,
+  type AuthorizationOutcome,
+  type ScanDependencies,
+} from "@pgard/scan-core";
 import type { ServerDeps } from "./deps.js";
 
 type ScanRequest = Parameters<ServerDeps["runScan"]>[0];
@@ -173,6 +177,49 @@ describe("the simple screen's scan", () => {
     expect(deviceFlow).not.toHaveBeenCalled();
     expect(provider.existing).toHaveBeenCalled();
     expect(done.deviceCode).toBeNull();
+  });
+
+  it("treats a stored sign-in that GitHub no longer accepts (401) as not signed in", async () => {
+    const revoked = {
+      client: {
+        getAuthenticatedUser: async () => {
+          throw new GitHubAuthError("unauthorized", "The GitHub sign-in is no longer valid.", 401);
+        },
+      },
+      expiresAt: null,
+    };
+    const provider = Object.assign(
+      vi.fn(async () => {
+        throw new Error("a device flow must not start");
+      }),
+      { invalidate: vi.fn(), signOut: vi.fn(), existing: vi.fn(async () => revoked) },
+    );
+    const runScan = vi.fn(async (_request: ScanRequest, deps: ScanDependencies) => {
+      const gate = blocked(null);
+      try {
+        const session = await deps.authorization.getGitHubSession();
+        await session.client.getAuthenticatedUser();
+      } catch {
+        gate.summary = {
+          decision: "blocked",
+          checks: gate.summary.checks.map((check) =>
+            check.id === "repository"
+              ? check
+              : { ...check, status: "unverifiable", reason: "Identity not verified." },
+          ),
+        };
+      }
+      deps.onAuthorization?.(gate);
+      return blockedResult(gate);
+    });
+    harness = await startHarness({
+      deps: { runScan, createSessionProvider: () => provider as never },
+    });
+    await choose(harness, SHOP);
+    await scan(harness);
+    expect((await finished(harness)).gateReason).toBe("not_signed_in");
+    expect(provider.invalidate).toHaveBeenCalled();
+    expect(provider).not.toHaveBeenCalled();
   });
 
   it("names a missing remote from the repository check's code", async () => {

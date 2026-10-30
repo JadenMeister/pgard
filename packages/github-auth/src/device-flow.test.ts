@@ -194,6 +194,30 @@ describe("a slow sign-in poll", () => {
     ).rejects.toMatchObject({ code: "expired_token" });
   });
 
+  it("asks to sign in again when GitHub no longer accepts the code after a slow poll", async () => {
+    const { fetch: base } = createFetch([{ error: "incorrect_device_code" }]);
+    let polls = 0;
+    const fetch: FetchLike = async (url, init) => {
+      if (url.endsWith("/login/oauth/access_token")) {
+        polls += 1;
+        if (polls === 1) return never();
+      }
+      return base(url, init);
+    };
+    await expect(
+      authenticateWithDeviceFlow({
+        clientId: "Iv1.test",
+        onUserCode: () => {},
+        fetch,
+        sleep: noSleep,
+        requestTimeoutMs: 20,
+      }),
+    ).rejects.toMatchObject({
+      code: "expired_token",
+      message: "The GitHub sign-in was interrupted by a slow network. Sign in again.",
+    });
+  });
+
   it("ends a device code request whose body stalls with network_error", async () => {
     const fetch: FetchLike = async () => ({ status: 200, ok: true, json: never });
     await expect(

@@ -86,9 +86,10 @@ export async function fetchWithTimeout(
       timeoutMs,
       controller,
     );
-  } catch (error) {
+  } finally {
+    // Never left on the caller's signal: a body that is never read (an error status, a
+    // redirect) must not keep a listener alive for as long as that signal lives.
     outer?.removeEventListener("abort", onOuterAbort);
-    throw error;
   }
   return {
     status: response.status,
@@ -96,6 +97,9 @@ export async function fetchWithTimeout(
     ...(response.headers === undefined ? {} : { headers: response.headers }),
     ...(response.body === undefined ? {} : { body: response.body }),
     json: async () => {
+      // The caller's signal stops the body read too, but only while it runs.
+      if (outer?.aborted === true) controller.abort(outer.reason);
+      else outer?.addEventListener("abort", onOuterAbort, { once: true });
       try {
         return await beforeDeadline(response.json(), deadline, timeoutMs, controller);
       } finally {

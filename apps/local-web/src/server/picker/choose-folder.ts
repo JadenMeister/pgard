@@ -69,6 +69,10 @@ export const FOLDER_REFUSAL_TEXT: Record<FolderRefusalCode, { reason: string; fi
     reason: "Another user could change this folder or a folder above it.",
     fix: "Remove group and other write access (chmod go-w), or copy the project into your own folder.",
   },
+  git_directory: {
+    reason: "This is Git's own data folder (.git), not the project's files.",
+    fix: "Choose the project's folder, the one that contains .git.",
+  },
 };
 
 /** Blocks that only concern Git or the remote: the folder still gets a code-only scan. */
@@ -188,6 +192,7 @@ export async function resolveFolderPath(
       root: ScopeRoot;
       candidate: RawCandidate;
       folderBlock: RawCandidate["block"];
+      insideRepository: boolean;
     } | null;
     refused: { reason: ResolveRefusal; paths: string[] } | null;
   } = { resolved: null, refused: null };
@@ -201,6 +206,7 @@ export async function resolveFolderPath(
             root: message.root,
             candidate: message.candidate,
             folderBlock: message.folderBlock,
+            insideRepository: message.insideRepository === true,
           };
         } else if (message.t === "refused") {
           got.refused = { reason: message.reason, paths: message.paths };
@@ -235,8 +241,10 @@ export async function resolveFolderPath(
       chain.paths.map((entry) => displayPath(entry, picker.homeDir)),
     );
   }
+  const built = toRecord(context, done.root, done.candidate, done.folderBlock);
   const record = {
-    ...toRecord(context, done.root, done.candidate, done.folderBlock),
+    ...built,
+    dto: done.insideRepository ? { ...built.dto, insideRepository: true as const } : built.dto,
     isChosenFolder: true,
   };
   storeRecord(context, record);
@@ -261,7 +269,13 @@ const DIALOG_PROMPT = {
   ko: "검사할 프로젝트 폴더를 선택하세요",
 } as const;
 
-/** `POST /api/picker/browse`: opens the OS folder dialog (one at a time) and returns at once. */
+/** After a dialog closes, the next one may open only this much later (no overlapping windows). */
+export const DIALOG_REOPEN_PAUSE_MS = 1_500;
+
+/**
+ * `POST /api/picker/browse`: opens the OS folder dialog (one at a time) and returns at once. A
+ * new dialog waits until the last one's process has exited and a short pause has passed.
+ */
 export function openFolderDialog(context: PickerContext, lang: unknown): PickerBrowseResponse {
   const picker = context.picker;
   if (picker === undefined) throw new ApiError(500, "internal", "Internal error.");
@@ -273,17 +287,35 @@ export function openFolderDialog(context: PickerContext, lang: unknown): PickerB
       "A folder dialog is already open. Finish or cancel it first.",
     );
   }
+  if (browse.isProcessRunning || context.now() < browse.reopenAfter) {
+    throw new ApiError(
+      409,
+      "dialog_closing",
+      "The last folder window is still closing. Try again in a moment.",
+    );
+  }
   if (picker.folderDialog === undefined) {
     browse.response = { status: "unavailable", candidate: null, refusal: null };
     return browse.response;
   }
   const controller = new AbortController();
   browse.controller = controller;
+  browse.isProcessRunning = true;
   browse.response = { status: "open", candidate: null, refusal: null };
   const prompt = lang === "ko" ? DIALOG_PROMPT.ko : DIALOG_PROMPT.en;
   const isCurrent = (): boolean => context.state.picker.browse.controller === controller;
-  void picker
-    .folderDialog({ prompt, signal: controller.signal })
+  const dialogDone = picker.folderDialog({ prompt, signal: controller.signal });
+  // The process has exited once the dialog settles (also after a cancel): then the pause starts.
+  void dialogDone
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .finally(() => {
+      browse.isProcessRunning = false;
+      browse.reopenAfter = context.now() + DIALOG_REOPEN_PAUSE_MS;
+    });
+  void dialogDone
     .then(async (result) => {
       if (!isCurrent()) return;
       if (result.status !== "chosen") {
@@ -319,6 +351,7 @@ export function cancelFolderDialog(context: PickerContext): PickerBrowseResponse
   const browse = context.state.picker.browse;
   browse.controller?.abort();
   browse.controller = null;
+  browse.reopenAfter = Math.max(browse.reopenAfter, context.now() + DIALOG_REOPEN_PAUSE_MS);
   if (browse.response.status === "open") {
     browse.response = { status: "cancelled", candidate: null, refusal: null };
   }

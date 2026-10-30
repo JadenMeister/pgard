@@ -98,6 +98,7 @@ export const RESOLVE_REFUSALS = [
   "unreadable",
   "not_owned_by_you",
   "group_or_world_writable",
+  "git_directory",
 ] as const;
 export type ResolveRefusal = (typeof RESOLVE_REFUSALS)[number];
 
@@ -123,6 +124,11 @@ export type ChildMessage =
       root: ScopeRoot;
       candidate: RawCandidate;
       folderBlock: RawCandidate["block"];
+      /**
+       * The chosen folder was inside a repository: the candidate is that repository's top
+       * folder, which is what gets checked and scanned (#414).
+       */
+      insideRepository?: boolean;
     }
   | { t: "refused"; reason: ResolveRefusal; paths: string[] }
   | {

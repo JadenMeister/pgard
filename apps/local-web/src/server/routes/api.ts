@@ -31,6 +31,9 @@ import {
   resolveKeychainClientId,
   removeStoredSignIn,
   GitHubAuthError,
+  isGitHubAuthError,
+  gateFailureReason,
+  codeOnlyReasonForGate,
   ScanCancelledError,
   type AuthorizationDependencies,
   type AuthorizationOutcome,
@@ -297,18 +300,9 @@ function scanStatus(state: SessionState): ScanStatus {
   };
 }
 
-type RepositoryBlockCode = NonNullable<AuthorizationOutcome["repositoryCode"]>;
-const REMOTE_FAILURES: ReadonlySet<RepositoryBlockCode> = new Set<RepositoryBlockCode>([
-  "no_remote",
-  "remote_not_github",
-  "remote_ambiguous",
-  "remote_unreadable",
-]);
-
 /**
- * Why the gate did not pass, from fixed codes and check statuses only (the same rules as the
- * CLI's question): `null` when it passed. `no_commit_history` counts as not a Git repository,
- * like the folder chooser, because there is no commit to verify.
+ * Why the gate did not pass (the shared rule of `@pgard/scan-core`, as the CLI's question uses
+ * it), or `null` when it passed.
  */
 export function gateReasonOf(
   result: ScanResult,
@@ -318,14 +312,7 @@ export function gateReasonOf(
   const isUnauthorized =
     result.overallStatus === "blocked" ||
     (result.overallStatus === "failed" && result.scanBasis?.authorization === "not_verified");
-  if (!isUnauthorized) return null;
-  if (result.overallStatus === "failed") return "check_failed";
-  if (isNotSignedIn) return "not_signed_in";
-  const code = outcome?.repositoryCode ?? null;
-  if (code !== null && REMOTE_FAILURES.has(code)) return "no_github_remote";
-  if (code === "not_a_git_root" || code === "no_commit_history") return "not_a_git_repository";
-  const first = result.authorization.checks.find((check) => check.status !== "passed");
-  return first?.status === "unverifiable" ? "check_failed" : "no_approval";
+  return isUnauthorized ? gateFailureReason(result, outcome, isNotSignedIn) : null;
 }
 
 /** The gate reason of a folder that only a code-only scan accepts (see the folder chooser). */
@@ -335,13 +322,6 @@ function folderGateReason(project: ProjectRecord): GateReason | null {
   if (identity.codeOnly === "not_git") return "not_a_git_repository";
   if (identity.codeOnly === "no_github_remote") return "no_github_remote";
   return "check_failed";
-}
-
-/** `scanBasis.reason` of a code-only scan chosen after the gate said `reason`. */
-function codeOnlyReasonAfterGate(
-  reason: GateReason,
-): "no_approval" | "check_failed" | "no_github_remote" | "not_a_git_repository" {
-  return reason === "not_signed_in" ? "check_failed" : reason;
 }
 
 /** The remedy as the browser may see it; a link is passed only if it is an github.com URL. */
@@ -425,7 +405,29 @@ function existingSignInDeps(context: ApiContext): {
         hasNoSession = true;
         throw new GitHubAuthError("not_signed_in", "Not signed in to GitHub on this computer.");
       }
-      return session;
+      // A stored sign-in that GitHub no longer accepts (expired or revoked: 401 on the identity
+      // check) counts as not signed in, so the page offers the sign-in link.
+      const { client } = session;
+      const watched = {
+        client: {
+          ...client,
+          getAuthenticatedUser: async () => {
+            try {
+              return await client.getAuthenticatedUser();
+            } catch (error) {
+              if (isGitHubAuthError(error) && error.code === "unauthorized") {
+                hasNoSession = true;
+                provider.invalidate();
+              }
+              throw error;
+            }
+          },
+        },
+        expiresAt: session.expiresAt,
+      };
+      Object.defineProperty(watched, "toJSON", { value: () => ({ type: "github-session" }) });
+      Object.defineProperty(watched, "toString", { value: () => "[GitHubSession]" });
+      return Object.freeze(watched);
     },
     {
       invalidate: () => provider.invalidate(),
@@ -970,6 +972,11 @@ const getScan: ApiHandler = async (context) => scanStatus(context.state);
  * identity is re-checked first, exactly like an authorized scan. When the last gate of this
  * project said why it did not pass, that is the result's `scanBasis.reason`. Polled and
  * cancelled through `GET /api/scan` and `POST /api/scan/cancel`.
+ *
+ * "Only after the user's click" is enforced by the page, not here: the server does not require a
+ * gate to have run first (a folder without Git never has one). What the server enforces is the
+ * session token, Host and Origin checks, the project epoch and identity re-check, and that the
+ * result is labelled code-only with its reason (`not_checked` when no gate ran) and never stored.
  */
 const startCodeScan: ApiHandler = async (context, body) => {
   const { state } = context;
@@ -1003,7 +1010,7 @@ const startCodeScan: ApiHandler = async (context, body) => {
       {
         projectRoot: capture.project.root,
         reason:
-          lastGate === null ? codeOnlyReasonOf(capture.project) : codeOnlyReasonAfterGate(lastGate),
+          lastGate === null ? codeOnlyReasonOf(capture.project) : codeOnlyReasonForGate(lastGate),
       },
       {
         signal: controller.signal,

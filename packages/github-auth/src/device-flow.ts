@@ -158,6 +158,14 @@ async function postForm(
   }
 }
 
+/** GitHub's answers for a device code that was already used or is no longer valid. */
+const USED_OR_EXPIRED_CODE: ReadonlySet<string> = new Set([
+  "expired_token",
+  "incorrect_device_code",
+  "bad_verification_code",
+  "token_expired",
+]);
+
 function mapDeviceFlowError(error: string): GitHubAuthError {
   switch (error) {
     case "access_denied":
@@ -310,6 +318,8 @@ export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promi
 
   const deadline = now() + grant.expiresIn * 1000;
   let intervalSeconds = grant.interval;
+  // A poll that timed out may still have been answered by GitHub (the code redeemed there).
+  let hadTimedOut = false;
   while (now() < deadline) {
     await sleep(intervalSeconds * 1000, options.signal);
     let body: Record<string, unknown>;
@@ -327,7 +337,10 @@ export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promi
       );
     } catch (caught) {
       // One slow answer does not end the sign-in: poll again until the code expires.
-      if (caught instanceof RequestTimeoutError) continue;
+      if (caught instanceof RequestTimeoutError) {
+        hadTimedOut = true;
+        continue;
+      }
       throw caught;
     }
     const error = asString(body.error);
@@ -342,6 +355,13 @@ export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promi
           ? suggested
           : intervalSeconds + SLOW_DOWN_INCREMENT_SECONDS;
       continue;
+    }
+    if (error !== null && hadTimedOut && USED_OR_EXPIRED_CODE.has(error)) {
+      // The answer to the slow poll was lost, and GitHub no longer accepts this code.
+      throw new GitHubAuthError(
+        "expired_token",
+        "The GitHub sign-in was interrupted by a slow network. Sign in again.",
+      );
     }
     if (error !== null) {
       throw mapDeviceFlowError(error);
