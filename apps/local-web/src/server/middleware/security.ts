@@ -54,6 +54,23 @@ export function checkOrigin(
 }
 
 /**
+ * The HTML document only: like `checkOrigin` for a read, but a top-level navigation from
+ * another site is allowed (`Sec-Fetch-Site: cross-site` with `Sec-Fetch-Mode: navigate`,
+ * `Sec-Fetch-Dest: document` and no `Origin`). That is how the browser arrives from the
+ * redirect file (`file://`, #419). It grants nothing: the page holds no data, every API call
+ * still needs our exact Origin rules and the session, and framing stays forbidden (XFO and
+ * `frame-ancestors 'none'`). A cross-site subresource or fetch of the page is still refused.
+ */
+export function checkDocumentNavigation(request: http.IncomingMessage, port: number): RequestCheck {
+  const isTopLevelNavigation =
+    single(request.headers["sec-fetch-site"]) === "cross-site" &&
+    single(request.headers["sec-fetch-mode"]) === "navigate" &&
+    single(request.headers["sec-fetch-dest"]) === "document" &&
+    request.headers.origin === undefined;
+  return isTopLevelNavigation ? ALLOWED : checkOrigin(request, port, false);
+}
+
+/**
  * Every API call except the exchange needs the session secret in a custom header (#419). A
  * custom header cannot be sent cross-origin without a CORS preflight, which this server never
  * approves, so the secret also works as CSRF protection. The URL token is not accepted here.

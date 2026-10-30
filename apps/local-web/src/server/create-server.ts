@@ -8,6 +8,7 @@ import { createDefaultServerDeps, type ServerDeps } from "./deps.js";
 import {
   applySecurityHeaders,
   checkHost,
+  checkDocumentNavigation,
   checkOrigin,
   checkSession,
   type RequestCheck,
@@ -294,9 +295,14 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
     if (method !== "GET" && method !== "HEAD") {
       return sendError(response, 405, "method_not_allowed", "Method not allowed.");
     }
-    const originCheck = checkOrigin(request, port, false);
-    if (!originCheck.isAllowed) return reject(response, originCheck);
     const asset = options.assets.get(pathname);
+    const isDocument = asset !== undefined && /^text\/html\b/i.test(asset.contentType);
+    // The page itself may be reached by a top-level navigation from the redirect file
+    // (`file://`, sent as `Sec-Fetch-Site: cross-site`); every other request stays strict.
+    const originCheck = isDocument
+      ? checkDocumentNavigation(request, port)
+      : checkOrigin(request, port, false);
+    if (!originCheck.isAllowed) return reject(response, originCheck);
     if (asset === undefined) return sendError(response, 404, "not_found", "Not found.");
     response.statusCode = 200;
     response.setHeader("Content-Type", asset.contentType);

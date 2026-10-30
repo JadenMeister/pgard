@@ -1,5 +1,5 @@
 import { constants, rmSync } from "node:fs";
-import { chmod, mkdtemp, open, rm } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -23,6 +23,8 @@ export const REDIRECT_DIR_PREFIX = "pgard-open-";
 export const REDIRECT_TARGET = /^http:\/\/127\.0\.0\.1:\d+\/#token=[A-Za-z0-9_-]+$/;
 
 export interface RedirectFile {
+  /** The redirect root the folder was made in (`redirectRoot`). */
+  root: string;
   dir: string;
   file: string;
   /** Deletes the file and its directory; idempotent, never throws. */
@@ -82,7 +84,8 @@ export async function createRedirectFile(
   options: { tmpRoot?: string; fileName?: string } = {},
 ): Promise<RedirectFile> {
   const content = redirectPage(url);
-  const dir = await mkdtemp(path.join(options.tmpRoot ?? os.tmpdir(), REDIRECT_DIR_PREFIX));
+  const root = options.tmpRoot ?? (await redirectRoot());
+  const dir = await mkdtemp(path.join(root, REDIRECT_DIR_PREFIX));
   let isRemoved = false;
   const removeSync = (): void => {
     if (isRemoved) return;
@@ -115,25 +118,83 @@ export async function createRedirectFile(
       ? error
       : new RedirectFileError("The redirect file could not be written.");
   }
-  return { dir, file, remove, removeSync };
+  return { root, dir, file, remove, removeSync };
+}
+
+export interface RedirectRootContext {
+  platform: NodeJS.Platform;
+  env: Readonly<Record<string, string | undefined>>;
+  homeDir: string;
+  uid: number | undefined;
+}
+
+/** A directory we own, that only we can enter, and that is not a symbolic link. */
+async function isPrivateDirectory(dir: string, uid: number | undefined): Promise<boolean> {
+  try {
+    const stats = await lstat(dir);
+    return (
+      stats.isDirectory() &&
+      !stats.isSymbolicLink() &&
+      (uid === undefined || stats.uid === uid) &&
+      (stats.mode & 0o077) === 0
+    );
+  } catch {
+    return false;
+  }
 }
 
 /**
- * The opener's argument must be exactly our redirect file: an absolute path, named
- * `REDIRECT_FILE_NAME`, directly inside our own `pgard-open-` directory, with no character a
- * shell, cmd or rundll32 would treat specially.
+ * Where the redirect folders go. macOS and Windows: the OS temp folder (per user on both).
+ * Linux and the like: `$XDG_RUNTIME_DIR` when it is a private directory of ours (Snap browsers
+ * on Ubuntu cannot read `/tmp`), else `~/.cache/pgard/open` (created 0700, checked to be ours
+ * and private).
+ */
+export async function redirectRoot(
+  context: RedirectRootContext = {
+    platform: process.platform,
+    env: process.env,
+    homeDir: os.homedir(),
+    uid: process.getuid?.(),
+  },
+): Promise<string> {
+  const { platform, env, homeDir, uid } = context;
+  if (platform === "darwin" || platform === "win32") return os.tmpdir();
+  const runtime = env.XDG_RUNTIME_DIR ?? "";
+  if (path.isAbsolute(runtime) && (await isPrivateDirectory(runtime, uid))) return runtime;
+  if (!path.isAbsolute(homeDir))
+    throw new RedirectFileError("No home folder for the redirect file.");
+  const cache = path.join(homeDir, ".cache", "pgard", "open");
+  await mkdir(cache, { recursive: true, mode: 0o700 }).catch(() => undefined);
+  if (!(await isPrivateDirectory(cache, uid))) {
+    throw new RedirectFileError("The redirect folder is not private.");
+  }
+  return cache;
+}
+
+/** `pgard-open-` plus the six characters `mkdtemp` adds. */
+const REDIRECT_DIR_NAME = /^pgard-open-[A-Za-z0-9]{6}$/;
+
+/**
+ * The opener's argument must be exactly our redirect file: absolute and normalized, named
+ * `REDIRECT_FILE_NAME`, directly inside a `pgard-open-XXXXXX` folder that sits directly in
+ * `root` (our redirect root). The parent path may hold letters and digits of any script and
+ * spaces (a Korean user name on Windows), never a character a shell, cmd or rundll32 would
+ * treat specially. The path is always one argv element (no shell).
  */
 export function isOurRedirectFile(
   filePath: string,
   redirectDir: string,
   platform: NodeJS.Platform,
+  root: string,
 ): boolean {
   const paths = platform === "win32" ? path.win32 : path.posix;
   if (!paths.isAbsolute(filePath) || paths.normalize(filePath) !== filePath) return false;
-  if (!/^[A-Za-z0-9 _.~:/\\()-]+$/.test(filePath)) return false;
+  if (!/^[\p{L}\p{N}\p{M} _.~:/\\()-]+$/u.test(filePath)) return false;
   return (
     paths.dirname(filePath) === redirectDir &&
     paths.basename(filePath) === REDIRECT_FILE_NAME &&
-    paths.basename(redirectDir).startsWith(REDIRECT_DIR_PREFIX)
+    REDIRECT_DIR_NAME.test(paths.basename(redirectDir)) &&
+    paths.isAbsolute(root) &&
+    paths.dirname(redirectDir) === paths.resolve(root)
   );
 }

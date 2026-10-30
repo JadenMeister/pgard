@@ -32,6 +32,19 @@ export interface LaunchAnnouncement {
   /** `--print-url`: also print the full link after opening it. */
   printUrl: boolean;
   open: OpenOutcome;
+  /** `PGARD_LANG=ko`: the "no browser" hint in Korean too (the rest of the launcher is English). */
+  language?: "en" | "ko";
+}
+
+/** The hint after "Opened": the opener starting is no proof that a browser showed the page. */
+export const NO_BROWSER_HINT = {
+  en: "If no browser opened (or the file opened in an editor), run again with --print-url.",
+  ko: "브라우저가 안 열렸다면(또는 편집기에서 열렸다면) --print-url로 다시 실행하세요.",
+} as const;
+
+/** The launcher's language: `PGARD_LANG=ko` (the CLI's values are exactly `en` and `ko`). */
+export function launcherLanguage(env: Readonly<Record<string, string | undefined>>): "en" | "ko" {
+  return env.PGARD_LANG === "ko" ? "ko" : "en";
 }
 
 /**
@@ -40,7 +53,7 @@ export interface LaunchAnnouncement {
  * stay in the scrollback, a recording or a screen share.
  */
 export function launchLines(announcement: LaunchAnnouncement): string[] {
-  const { url, mode, printUrl, open } = announcement;
+  const { url, mode, printUrl, open, language = "en" } = announcement;
   const command = mode === "picker" ? "pgard web" : "pgard dashboard";
   const lines = [
     mode === "picker"
@@ -50,8 +63,7 @@ export function launchLines(announcement: LaunchAnnouncement): string[] {
   if (open.isOpened) {
     lines.push(`Opened in your browser: ${maskSessionUrl(url)}`);
     if (printUrl) lines.push(`Full one-time link: ${url}`);
-    // The opener starting is not proof that a browser showed the page.
-    else lines.push("If no browser opened, run again with --print-url.");
+    else lines.push(NO_BROWSER_HINT[language]);
     lines.push("To open it elsewhere, stop and rerun the command.");
   } else {
     lines.push(`Not opened automatically (${SKIP_TEXT[open.reason]}).`);
@@ -87,6 +99,7 @@ export async function announceLaunch(options: {
   printUrl: boolean;
   environment: OpenerEnvironment;
   write: (text: string) => void;
+  language?: "en" | "ko";
   deps?: OpenLocalDeps;
 }): Promise<{ open: OpenOutcome; redirect: RedirectFile | null }> {
   const { outcome, redirect } = await openLocalUrl(options.url, options.environment, options.deps);
@@ -96,6 +109,7 @@ export async function announceLaunch(options: {
       mode: options.mode,
       printUrl: options.printUrl,
       open: outcome,
+      language: options.language ?? "en",
     }).join("\n"),
   );
   return { open: outcome, redirect };

@@ -68,18 +68,18 @@ export function openSkipReason(environment: OpenerEnvironment): OpenSkipReason |
 }
 
 /**
- * What would be started to open the redirect file `filePath` (which must be our own file in
- * `redirectDir`), or why nothing is.
+ * What would be started to open the redirect file (which must be our own file, in our own
+ * folder, in our redirect root), or why nothing is.
  */
 export function planLocalOpen(
-  filePath: string,
-  redirectDir: string,
+  redirect: Pick<RedirectFile, "file" | "dir" | "root">,
   environment: OpenerEnvironment,
 ): OpenerPlan {
+  const filePath = redirect.file;
   const reason = openSkipReason(environment);
   if (reason !== null) return { kind: "skip", reason };
   const { platform, env } = environment;
-  if (!isOurRedirectFile(filePath, redirectDir, platform)) {
+  if (!isOurRedirectFile(filePath, redirect.dir, platform, redirect.root)) {
     return { kind: "skip", reason: "bad_url" };
   }
   switch (platform) {
@@ -163,7 +163,7 @@ export async function openLocalUrl(
   } catch {
     return skip("failed");
   }
-  const plan = planLocalOpen(redirect.file, redirect.dir, environment);
+  const plan = planLocalOpen(redirect, environment);
   if (plan.kind === "skip") {
     await redirect.remove();
     return skip(plan.reason);

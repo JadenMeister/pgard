@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   announceLaunch,
   connectedLine,
+  launcherLanguage,
   launchLines,
   maskSessionUrl,
   reusedLine,
@@ -61,7 +62,9 @@ describe.skipIf(process.platform === "win32")("announceLaunch", () => {
     expect(spawn).toHaveBeenCalledWith("/usr/bin/open", [redirect?.file]);
     expect(JSON.stringify(spawn.mock.calls)).not.toContain(TOKEN);
     expect(text).toContain("Opened in your browser: http://127.0.0.1:43123/#token=••••");
-    expect(text).toContain("If no browser opened, run again with --print-url.");
+    expect(text).toContain(
+      "If no browser opened (or the file opened in an editor), run again with --print-url.",
+    );
     expect(text).not.toContain(TOKEN);
   });
 
@@ -115,6 +118,26 @@ describe("launchLines", () => {
     );
     expect(fixed).toContain("PGARD dashboard is running");
     expect(fixed).toContain("when pgard dashboard stops");
+  });
+});
+
+describe("the no-browser hint", () => {
+  it("is Korean with PGARD_LANG=ko, English otherwise", () => {
+    expect(launcherLanguage({ PGARD_LANG: "ko" })).toBe("ko");
+    expect(launcherLanguage({ PGARD_LANG: "en" })).toBe("en");
+    expect(launcherLanguage({ PGARD_LANG: "kor" })).toBe("en");
+    expect(launcherLanguage({})).toBe("en");
+    const opened = { isOpened: true } as const;
+    const korean = launchLines({
+      url: URL,
+      mode: "picker",
+      printUrl: false,
+      open: opened,
+      language: "ko",
+    });
+    expect(korean.join("\n")).toContain(
+      "브라우저가 안 열렸다면(또는 편집기에서 열렸다면) --print-url로 다시 실행하세요.",
+    );
   });
 });
 

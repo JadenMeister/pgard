@@ -14,10 +14,14 @@ import { createRedirectFile, REDIRECT_FILE_NAME, type RedirectFile } from "./red
 /** #419. Nothing here starts a process: the spawn function is always a fake. */
 const TOKEN = "abcDEF012_-xyzSecretTokenValue";
 const URL_WITH_TOKEN = `http://127.0.0.1:43123/#token=${TOKEN}`;
+const ROOT = "/tmp";
 const DIR = "/tmp/pgard-open-AbC123";
 const FILE = `${DIR}/${REDIRECT_FILE_NAME}`;
-const WIN_DIR = "C:\\Users\\dev\\AppData\\Local\\Temp\\pgard-open-AbC123";
+const MAC = { root: ROOT, dir: DIR, file: FILE };
+const WIN_ROOT = "C:\\Users\\dev\\AppData\\Local\\Temp";
+const WIN_DIR = `${WIN_ROOT}\\pgard-open-AbC123`;
 const WIN_FILE = `${WIN_DIR}\\${REDIRECT_FILE_NAME}`;
+const WIN = { root: WIN_ROOT, dir: WIN_DIR, file: WIN_FILE };
 
 function environment(overrides: Partial<OpenerEnvironment> = {}): OpenerEnvironment {
   return { platform: "darwin", env: {}, isTerminal: true, isDisabled: false, ...overrides };
@@ -36,7 +40,7 @@ function tmpRoot(): string {
 
 describe("planLocalOpen: the argv is our redirect file, never the link", () => {
   it("macOS: /usr/bin/open <file>", () => {
-    expect(planLocalOpen(FILE, DIR, environment())).toEqual({
+    expect(planLocalOpen(MAC, environment())).toEqual({
       kind: "open",
       command: "/usr/bin/open",
       args: [FILE],
@@ -45,20 +49,17 @@ describe("planLocalOpen: the argv is our redirect file, never the link", () => {
 
   it("Linux: xdg-open <file>, only with a display", () => {
     const linux = (env: Record<string, string>) =>
-      planLocalOpen(FILE, DIR, environment({ platform: "linux", env }));
+      planLocalOpen(MAC, environment({ platform: "linux", env }));
     expect(linux({ DISPLAY: ":0" })).toEqual({ kind: "open", command: "xdg-open", args: [FILE] });
     expect(linux({ WAYLAND_DISPLAY: "wayland-0" }).kind).toBe("open");
     expect(linux({})).toEqual({ kind: "skip", reason: "no_display" });
     expect(linux({ DISPLAY: "" })).toEqual({ kind: "skip", reason: "no_display" });
-    expect(planLocalOpen(FILE, DIR, environment({ platform: "freebsd", env: {} })).kind).toBe(
-      "skip",
-    );
+    expect(planLocalOpen(MAC, environment({ platform: "freebsd", env: {} })).kind).toBe("skip");
   });
 
   it("Windows: rundll32 url.dll,FileProtocolHandler <file> by absolute path", () => {
     const plan = planLocalOpen(
-      WIN_FILE,
-      WIN_DIR,
+      WIN,
       environment({ platform: "win32", env: { SystemRoot: "D:\\Windows" } }),
     );
     expect(plan).toEqual({
@@ -67,8 +68,7 @@ describe("planLocalOpen: the argv is our redirect file, never the link", () => {
       args: ["url.dll,FileProtocolHandler", WIN_FILE],
     });
     const untrusted = planLocalOpen(
-      WIN_FILE,
-      WIN_DIR,
+      WIN,
       environment({ platform: "win32", env: { SystemRoot: "\\\\evil\\share" } }),
     );
     expect(untrusted.kind === "open" && untrusted.command).toBe(
@@ -76,31 +76,74 @@ describe("planLocalOpen: the argv is our redirect file, never the link", () => {
     );
   });
 
-  it("refuses any argv that is not exactly our file in our own directory", () => {
-    const bad: Array<[string, string]> = [
-      [URL_WITH_TOKEN, DIR],
-      ["/tmp/pgard-open-AbC123/other.html", DIR],
-      ["/tmp/elsewhere/open-pgard.html", DIR],
-      ["/tmp/pgard-open-AbC123/../x/open-pgard.html", DIR],
-      ["tmp/pgard-open-AbC123/open-pgard.html", "tmp/pgard-open-AbC123"],
-      ["/tmp/evil/open-pgard.html", "/tmp/evil"],
-      ['/tmp/pgard-open-A"&calc/open-pgard.html', '/tmp/pgard-open-A"&calc'],
-      ["/tmp/pgard-open-A\n/open-pgard.html", "/tmp/pgard-open-A\n"],
+  it("Windows: a Korean user name or spaces are fine, and the path stays one argv element", () => {
+    for (const root of [
+      "C:\\Users\\홍길동\\AppData\\Local\\Temp",
+      "C:\\Users\\Jane Doe\\AppData\\Local\\Temp",
+      "C:\\Users\\José Müller\\AppData\\Local\\Temp",
+    ]) {
+      const dir = `${root}\\pgard-open-Xy9Z01`;
+      const file = `${dir}\\${REDIRECT_FILE_NAME}`;
+      const plan = planLocalOpen({ root, dir, file }, environment({ platform: "win32" }));
+      expect(plan).toEqual({
+        kind: "open",
+        command: "C:\\Windows\\System32\\rundll32.exe",
+        args: ["url.dll,FileProtocolHandler", file],
+      });
+      expect(plan.kind === "open" && plan.args).toHaveLength(2);
+    }
+  });
+
+  it("refuses any argv that is not exactly our file in our own folder in our root", () => {
+    const bad: Array<{ root: string; dir: string; file: string }> = [
+      { root: ROOT, dir: DIR, file: URL_WITH_TOKEN },
+      { root: ROOT, dir: DIR, file: "/tmp/pgard-open-AbC123/other.html" },
+      { root: ROOT, dir: DIR, file: "/tmp/elsewhere/open-pgard.html" },
+      { root: ROOT, dir: DIR, file: "/tmp/pgard-open-AbC123/../x/open-pgard.html" },
+      { root: "tmp", dir: "tmp/pgard-open-AbC123", file: "tmp/pgard-open-AbC123/open-pgard.html" },
+      { root: ROOT, dir: "/tmp/evil", file: "/tmp/evil/open-pgard.html" },
+      // Not directly in our root.
+      { root: "/var/other", dir: DIR, file: FILE },
+      {
+        root: ROOT,
+        dir: "/tmp/x/pgard-open-AbC123",
+        file: "/tmp/x/pgard-open-AbC123/open-pgard.html",
+      },
+      // Not the leaf mkdtemp makes.
+      { root: ROOT, dir: "/tmp/pgard-open-", file: "/tmp/pgard-open-/open-pgard.html" },
+      {
+        root: ROOT,
+        dir: "/tmp/pgard-open-AbC12345",
+        file: "/tmp/pgard-open-AbC12345/open-pgard.html",
+      },
+      {
+        root: '/tmp/a"&calc',
+        dir: '/tmp/a"&calc/pgard-open-AbC123',
+        file: '/tmp/a"&calc/pgard-open-AbC123/open-pgard.html',
+      },
+      {
+        root: "/tmp/a\n",
+        dir: "/tmp/a\n/pgard-open-AbC123",
+        file: "/tmp/a\n/pgard-open-AbC123/open-pgard.html",
+      },
     ];
-    for (const [file, dir] of bad) {
+    for (const redirect of bad) {
       for (const platform of ["darwin", "linux"] as const) {
-        expect(planLocalOpen(file, dir, environment({ platform, env: { DISPLAY: ":0" } }))).toEqual(
-          { kind: "skip", reason: "bad_url" },
-        );
+        expect(planLocalOpen(redirect, environment({ platform, env: { DISPLAY: ":0" } }))).toEqual({
+          kind: "skip",
+          reason: "bad_url",
+        });
       }
     }
-    expect(
-      planLocalOpen(
-        `${WIN_DIR}\\x^&whoami\\${REDIRECT_FILE_NAME}`,
-        `${WIN_DIR}\\x^&whoami`,
-        environment({ platform: "win32" }),
-      ),
-    ).toEqual({ kind: "skip", reason: "bad_url" });
+    for (const root of [`${WIN_ROOT}\\x^&whoami`, `${WIN_ROOT}\\a%PATH%`, `${WIN_ROOT}\\a"b`]) {
+      const dir = `${root}\\pgard-open-AbC123`;
+      expect(
+        planLocalOpen(
+          { root, dir, file: `${dir}\\${REDIRECT_FILE_NAME}` },
+          environment({ platform: "win32" }),
+        ),
+      ).toEqual({ kind: "skip", reason: "bad_url" });
+    }
   });
 });
 

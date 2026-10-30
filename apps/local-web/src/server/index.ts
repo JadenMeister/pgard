@@ -9,7 +9,13 @@ import {
 import { sanitizeDisplayText } from "@pgard/http-local";
 import { openGitHubUrl } from "@pgard/scan-core";
 import { createDefaultServerDeps, startLocalWebServer, type ServerDeps } from "./create-server.js";
-import { announceLaunch, bindRedirectCleanup, connectedLine, reusedLine } from "./launch-output.js";
+import {
+  announceLaunch,
+  bindRedirectCleanup,
+  connectedLine,
+  launcherLanguage,
+  reusedLine,
+} from "./launch-output.js";
 import { LauncherUsageError, parseLauncherArgs, type LauncherOptions } from "./launcher.js";
 import { createFolderDialog } from "./picker/folder-dialog.js";
 import { createInspectorHost } from "./picker/inspector-host.js";
@@ -118,6 +124,7 @@ async function runLauncher(): Promise<number> {
       isDisabled: options.noOpen || options.noBrowser,
     },
     write: (text) => process.stdout.write(text),
+    language: launcherLanguage(process.env),
   });
   cleanup = bindRedirectCleanup(redirect);
   process.once("exit", () => cleanup.onExit());
