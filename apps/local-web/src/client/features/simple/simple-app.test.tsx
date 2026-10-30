@@ -97,10 +97,10 @@ describe("scanOutcome", () => {
 
 describe("the one primary button", () => {
   const t = simpleText("ko");
-  it("says Check again after a gate, Check approval again after a code-only result", () => {
+  it("says Check approval again after a gate and after a code-only result alike", () => {
     expect(scanButtonLabel(t, scanOutcome(null))).toBe("검사");
     expect(scanButtonLabel(t, scanOutcome(status({ gateReason: "no_approval" })))).toBe(
-      "다시 확인",
+      "승인 다시 확인",
     );
     expect(scanButtonLabel(t, scanOutcome(status({ result: UNVERIFIED, codeOnly: true })))).toBe(
       "승인 다시 확인",
@@ -147,7 +147,7 @@ describe("GatePanel", () => {
     expect(simpleText("ko").signInLink).toBe("로그인하고 승인 확인");
   });
 
-  it("has no primary button: Check again is the page's only one", () => {
+  it("has no primary button: Check approval again is the page's only one", () => {
     const { html } = gate("no_approval");
     expect(html).not.toContain("btn-primary");
   });

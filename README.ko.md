@@ -968,12 +968,18 @@ HTML·PDF 보고서는 같은 가려진 결과로 만듭니다. HTML 보고서�
 
 ## 대시보드
 
-`pgard dashboard`는 현재 디렉터리의 Git 루트를 찾아 보여 주고 `Start the dashboard for this project? [y/N]`을 묻습니다. 대화형 터미널이 필요하며, 없으면 종료 코드 2로 끝납니다. 확인하면 로컬 웹 앱을 시작하고 개인 세션 URL을 출력합니다.
+`pgard dashboard`는 현재 디렉터리의 Git 루트를 찾아 보여 주고 `Start the dashboard for this project? [y/N]`을 묻습니다. 대화형 터미널이 필요하며, 없으면 종료 코드 2로 끝납니다. 확인하면 로컬 웹 앱을 시작하고 기본 브라우저로 엽니다. 터미널에는 한 번만 쓰는 토큰을 가린 링크가 나옵니다.
 
 ```text
 PGARD dashboard is running on 127.0.0.1 only.
-Open this private session URL in your browser (valid until you stop the dashboard): http://127.0.0.1:<port>/#token=<random>
+Opened in your browser: http://127.0.0.1:<port>/#token=••••
+Run again with --print-url to see the full link.
+To open it elsewhere, stop and rerun the command.
+The link works once, in one tab, within 10 minutes. Do not share it.
+Press Ctrl+C to stop; results and the session are discarded when pgard dashboard stops.
 ```
+
+CI, 출력이 터미널이 아닐 때, SSH 접속(모든 시스템), 디스플레이(`DISPLAY` 또는 `WAYLAND_DISPLAY`)가 없는 Linux, `--no-open`(또는 `--no-browser`)에서는 브라우저를 열지 않고 전체 링크를 대신 출력합니다. 브라우저를 시작하지 못했을 때도 전체 링크를 출력합니다. `--print-url`을 주면 연 뒤에도 전체 링크를 출력합니다. 페이지가 연결되면 터미널에 `Browser connected at HH:MM:SS.`가 출력됩니다.
 
 대시보드는 CLI가 저장한 결과를 읽거나 쓰지 않고 직접 검사하며, 그 검사는 저장되지 않습니다. `pgard.config.json`의 `suppressions`는 CLI처럼 보여 줍니다(제목의 개수, 치명적·와일드카드·넓은·만료된 항목에 대한 경고, 접힌 `Suppressed (N)` 구역). 기준선은 CLI의 결과 저장소에 있으므로 대시보드는 기준선을 적용하지 않습니다. 권한 확인 결과와 GitHub device 코드를 보여 주고, 로컬 서비스 선택·확인, 범위 선택, 진행 상황 확인, 발견 항목 필터(테스트·fixture 항목과 vendored 코드의 제안은 각각 별도 그룹), HTML/PDF 보고서를 브라우저 다운로드로 받는 기능(CLI가 저장하는 것과 같은, 가려진 보고서이며 대시보드는 사용자가 입력한 경로에 파일을 쓰지 않음)을 제공합니다. OS 키체인에 저장된 GitHub 로그인은 서버 쪽에서 다시 사용하며, 토큰은 브라우저로 보내지 않습니다. 로그아웃 버튼은 두 가지입니다. **End dashboard session (keep keychain sign-in)** 버튼은 이 대시보드의 세션만 끝내고 다음 확인 때 키체인 로그인을 다시 사용합니다. **Sign out and remove from OS keychain**은 저장된 로그인도 지웁니다(CLI에서도 지워짐). 대시보드가 실행되는 동안 `pgard login`으로 다른 GitHub 계정으로 바꾸면 대시보드는 마지막 확인 결과를 버리므로, 로컬 서비스 탐색과 probe에는 새 확인이 필요합니다. Ctrl+C로 종료하면 대시보드의 GitHub 세션이 끝나고(키체인 로그인은 유지) 모든 결과를 버립니다.
 
@@ -1001,15 +1007,17 @@ coverage, 표준, 규칙, 내보내기, **전체 대시보드**(Git 기록, 로�
 3. **경로와 원격 저장소를 확인합니다.** 확인하기 전에는 아무것도 선택되지 않습니다. 확인하면 서버가 폴더를 다시 살펴보고 바뀌지 않았을 때만 선택합니다. Git 루트가 아니거나, 커밋이 없거나, alternates·replace ref를 쓰거나, github.com 원격 저장소가 없거나(다른 호스트나 여러 저장소 포함), linked worktree·서브모듈이거나, 다른 사용자의 것이거나, 그룹·다른 사용자가 바꿀 수 있는 폴더는 이유와 해결 방법과 함께 차단됩니다(검색 폴더부터 아래 모든 디렉터리, `.git`, `.git/config`. 메시지가 모든 경로와 `chmod go-w ...` 명령 하나를 보여 주며, 이 엄격한 규칙은 비공개 그룹을 쓰는 시스템에서도 완화하지 않습니다).
 4. **그다음 같은 다섯 가지 확인.** 기존 권한 확인 패널이 CLI와 똑같이 실행됩니다(저장소, GitHub 신원, 소유자 승인, 현재 접근 권한, 기여). 잘못된 폴더가 곧바로 검사로 이어지는 일은 없습니다. 확인과 검사 전에 서버가 신원과 소유권 확인을 반복하고, 폴더가 확인한 저장소가 아니면 게이트가 막습니다. App 설치 밖의 비공개 저장소는 설치 안내와 함께 평소의 `current_access` 차단 상태로 끝납니다. **프로젝트 변경**은 검사나 확인이 실행 중이면 비활성이고, **확인 취소**는 실행 중인 확인(GitHub 로그인 대기 포함)을 멈춥니다.
 
-`pgard web`은 `--no-store`(`PGARD_NO_STORE=1`도 같음. 선택기의 파일을 읽지도 쓰지도 않으므로 최근 목록과 저장된 검색 폴더가 없으며, 설정되어 있는 동안 `pgard web scope add`와 `remove`는 거부됨)와 `--no-browser`를 받습니다. 페이지는 127.0.0.1에서만 열리고, 폴더 선택 창, 붙여 넣은 경로, 코드만 검사를 포함한 모든 경로에 같은 세션 토큰, `Host`, `Origin`, 교차 사이트 확인과 엄격한 콘텐츠 보안 정책이 적용됩니다. 브라우저는 찾은 문제만 받으며 짧게 가린 코드 조각 외의 파일 내용은 받지 않습니다. `pgard dashboard`는 모든 `/api/picker/*` 요청에 `409 fixed_project`로 답합니다. 설계와 위협 모델은 [`docs/WEB_PROJECT_PICKER_DESIGN.ko.md`](docs/WEB_PROJECT_PICKER_DESIGN.ko.md)에 있습니다.
+`pgard web`은 `--no-store`(`PGARD_NO_STORE=1`도 같음. 선택기의 파일을 읽지도 쓰지도 않으므로 최근 목록과 저장된 검색 폴더가 없으며, 설정되어 있는 동안 `pgard web scope add`와 `remove`는 거부됨), `--no-browser`, `--no-open`, `--print-url`을 받습니다([대시보드](#대시보드)처럼 페이지를 브라우저로 열고 터미널에는 한 번만 쓰는 링크를 가려서 보여 줍니다). 페이지는 127.0.0.1에서만 열리고, 폴더 선택 창, 붙여 넣은 경로, 코드만 검사를 포함한 모든 경로에 같은 세션 비밀값, `Host`, `Origin`, 교차 사이트 확인과 엄격한 콘텐츠 보안 정책이 적용됩니다. 브라우저는 찾은 문제만 받으며 짧게 가린 코드 조각 외의 파일 내용은 받지 않습니다. `pgard dashboard`는 모든 `/api/picker/*` 요청에 `409 fixed_project`로 답합니다. 설계와 위협 모델은 [`docs/WEB_PROJECT_PICKER_DESIGN.ko.md`](docs/WEB_PROJECT_PICKER_DESIGN.ko.md)에 있습니다.
 
 ### 대시보드 보호 방식
 
 - `127.0.0.1`의 빈 포트에만 바인딩합니다.
-- 32바이트 임의 세션 토큰을 URL **fragment**로 전달하므로 브라우저가 요청이나 `Referer` 헤더에 싣지 않습니다. 페이지는 주소창에서 토큰을 지우고 메모리에만 보관합니다. URL을 공유하지 마세요.
-- 모든 API 호출은 `x-pgard-token` 헤더에 토큰이 있어야 합니다. `Host` 헤더는 정확히 `127.0.0.1:<port>`여야 합니다(DNS rebinding 방어). 다른 `Origin`에서 온 요청과 cross-site 요청은 거부하며, CORS 헤더는 보내지 않습니다.
+- 브라우저는 개인 리디렉트 파일로 엽니다(소유자만 쓸 수 있는 새 임시 폴더, 페이지가 연결된 뒤나 링크가 만료될 때, PGARD를 멈출 때 지움). 그래서 링크가 컴퓨터의 다른 사용자가 볼 수 있는 명령줄에 나타나지 않습니다.
+- 32바이트 임의 토큰을 URL **fragment**로 전달하므로 브라우저가 요청이나 `Referer` 헤더에 싣지 않습니다. 페이지는 주소창에서 토큰을 바로 지웁니다. 링크를 공유하지 마세요.
+- **링크는 한 번만 쓸 수 있습니다.** 페이지는 토큰을 탭별 세션 비밀값으로 바꿉니다(`POST /api/session/exchange`, 32바이트 임의 값, 서버는 메모리에 해시로만 보관하고 상수 시간으로 비교). 탭은 비밀값을 `sessionStorage`에 보관하므로 그 탭을 새로고침해도 계속 쓸 수 있습니다. 같은 링크를 다시 열면(다른 탭, 복사한 링크, 방문 기록) "이미 사용한 링크입니다"와 함께 할 일을 보여 줍니다. 이미 열려 있는 탭을 쓰거나 명령을 다시 실행하세요. 직접 연 것이 아니라면 서버를 멈추고(Ctrl+C) 명령을 다시 실행하세요. 쓰지 않은 링크는 10분 뒤 만료되고, 세션은 30분 동안 쓰지 않으면 끝납니다(열려 있는 페이지의 자동 갱신도 사용으로 칩니다).
+- 모든 API 호출은 `x-pgard-session` 헤더에 세션 비밀값이 있어야 합니다. URL 토큰은 한 번의 교환 외에는 어떤 경로에서도 받지 않습니다. `Host` 헤더는 정확히 `127.0.0.1:<port>`여야 합니다(DNS rebinding 방어). 다른 `Origin`에서 온 요청과 cross-site 요청은 거부하며, CORS 헤더는 보내지 않습니다.
 - 모든 응답에 `Cache-Control: no-store`, 엄격한 Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`를 적용합니다.
-- 브라우저는 프로젝트 파일을 읽을 수 없습니다. `pgard dashboard`에서는 프로젝트 루트가 대시보드를 시작할 때 고정되고 브라우저는 경로를 전혀 지정하지 않습니다. `pgard web`에서는 브라우저가 폴더 이름이나, 시스템 선택 창에서 고르거나 붙여 넣은 경로를 보내고, 서버가 직접 경로를 확인합니다. 이를 위해 파일 내용은 읽지 않습니다([프로젝트 고르기](#프로젝트-고르기-pgard-web) 참고). 보고서도 경로가 필요 없습니다. 보고서는 서버가 가려진 결과로 만들어 일반 브라우저 다운로드(세션 토큰이 필요한 `GET /api/reports/html` 또는 `/pdf`)로 보내므로 대시보드는 디스크에 아무것도 쓰지 않습니다. 브라우저는 가려진 발견 항목(짧게 가려진 코드 조각 포함)만 받고, 전체 소스 파일이나 GitHub 토큰은 받지 않습니다.
+- 브라우저는 프로젝트 파일을 읽을 수 없습니다. `pgard dashboard`에서는 프로젝트 루트가 대시보드를 시작할 때 고정되고 브라우저는 경로를 전혀 지정하지 않습니다. `pgard web`에서는 브라우저가 폴더 이름이나, 시스템 선택 창에서 고르거나 붙여 넣은 경로를 보내고, 서버가 직접 경로를 확인합니다. 이를 위해 파일 내용은 읽지 않습니다([프로젝트 고르기](#프로젝트-고르기-pgard-web) 참고). 보고서도 경로가 필요 없습니다. 보고서는 서버가 가려진 결과로 만들어 일반 브라우저 다운로드(세션 비밀값이 필요한 `GET /api/reports/html` 또는 `/pdf`)로 보내므로 대시보드는 디스크에 아무것도 쓰지 않습니다. 브라우저는 가려진 발견 항목(짧게 가려진 코드 조각 포함)만 받고, 전체 소스 파일이나 GitHub 토큰은 받지 않습니다.
 
 ## 개인정보와 네트워크 통신
 

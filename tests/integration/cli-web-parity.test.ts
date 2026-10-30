@@ -232,7 +232,7 @@ function request(
         path: urlPath,
         headers: {
           host: `127.0.0.1:${port}`,
-          "x-pgard-token": TOKEN,
+          "x-pgard-session": TOKEN,
           ...(method === "GET"
             ? {}
             : { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" }),
@@ -278,6 +278,7 @@ async function scanWithWeb(
     assets: new Map(),
     deps,
     token: TOKEN,
+    sessionSecretForTests: TOKEN,
   });
   const started = await request(server.port, "POST", "/api/scan", { scopes: ["code", "history"] });
   expect(started.status).toBe(200);

@@ -15,6 +15,7 @@ import {
   json,
   outcome,
   startHarness,
+  SESSION,
   TOKEN,
   waitFor,
   type Harness,
@@ -178,7 +179,7 @@ describe.skipIf(process.platform === "win32")(
         path: "/api/auth/owner-approval",
         headers: {
           host: `127.0.0.1:${harness.server.port}`,
-          "x-pgard-token": TOKEN,
+          "x-pgard-session": SESSION,
           origin: `http://127.0.0.1:${harness.server.port}`,
           "content-type": "application/json",
         },

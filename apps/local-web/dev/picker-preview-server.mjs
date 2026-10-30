@@ -1,7 +1,8 @@
 // Dev-only preview of the `pgard web` project picker. Not part of the package (`files` is `dist`
 // only) and never started by pgard. It runs the REAL dashboard server in picker mode with a
 // scripted stand-in for the inspector child process and an in-memory recent list, so the routes,
-// the token/Host/Origin checks and the page are the real ones. No file system search, no GitHub,
+// the one-time link, Host/Origin checks and the page are the real ones (each run prints a link that
+// works in one tab only; reload that tab, or restart the preview for a new link). No file system search, no GitHub,
 // no scan, no keychain, no device code.
 //
 //   npm run build

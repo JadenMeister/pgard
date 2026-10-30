@@ -35,8 +35,6 @@ export interface SimpleText {
   scanWhat: string;
   scanButton: string;
   rescanButton: string;
-  /** The primary button after the gate did not pass. */
-  checkAgainButton: string;
   /** The primary button after a code-only result: it runs the gate again. */
   recheckApprovalButton: string;
   /** Shown with the gate's reason when it replaced an earlier code-only result. */
@@ -157,7 +155,6 @@ const en: SimpleText = {
     "PGARD checks your GitHub approval first, then the current files. Your files never leave this computer.",
   scanButton: "Scan",
   rescanButton: "Scan again",
-  checkAgainButton: "Check again",
   recheckApprovalButton: "Check approval again",
   previousHidden: "The earlier code-only findings are hidden. Scan code only to see them again.",
   scanning: (seconds) => `Scanning the files… ${seconds} s`,
@@ -175,7 +172,7 @@ const en: SimpleText = {
   howToApprove: "How to approve",
   signInLink: "Sign in and check approval",
   approveSteps:
-    "The repository owner installs the PGARD GitHub App and includes this repository. Then press Check again.",
+    "The repository owner installs the PGARD GitHub App and includes this repository. Then press Check approval again.",
   approveNeedsRepo:
     "Approval works only for a GitHub repository. Push this folder to GitHub, then install the PGARD GitHub App for it.",
   approveInstall: "Open the install page on GitHub",
@@ -201,7 +198,7 @@ const en: SimpleText = {
       check_failed: "Approval could not be checked.",
     })[reason] ?? "Authorization was not checked for this scan.",
   connect: "Connect GitHub to also scan Git history",
-  footer: "Runs on 127.0.0.1 only · results are not saved and are gone when you close this window.",
+  footer: "Runs on 127.0.0.1 only · results are not saved and are gone when you stop pgard web",
   moreTitle: "More",
   moreLead: "Details for the scan above. None of this is needed to fix the findings.",
   moreCoverage: "What was checked",
@@ -279,7 +276,6 @@ const ko: SimpleText = {
     "GitHub 승인을 먼저 확인한 뒤 현재 파일을 검사합니다. 파일은 이 컴퓨터 밖으로 나가지 않습니다.",
   scanButton: "검사",
   rescanButton: "다시 검사",
-  checkAgainButton: "다시 확인",
   recheckApprovalButton: "승인 다시 확인",
   previousHidden: "이전 코드만 검사 결과는 숨겨졌습니다. 코드만 검사를 누르면 다시 볼 수 있습니다.",
   scanning: (seconds) => `파일 검사 중… ${seconds}초`,
@@ -297,7 +293,7 @@ const ko: SimpleText = {
   howToApprove: "승인 방법 보기",
   signInLink: "로그인하고 승인 확인",
   approveSteps:
-    "저장소 소유자가 PGARD GitHub App을 설치하고 이 저장소를 포함하면 됩니다. 그다음 다시 확인을 누르세요.",
+    "저장소 소유자가 PGARD GitHub App을 설치하고 이 저장소를 포함하면 됩니다. 그다음 승인 다시 확인을 누르세요.",
   approveNeedsRepo:
     "승인은 GitHub 저장소에만 할 수 있습니다. 이 폴더를 GitHub에 올린 뒤 PGARD GitHub App을 설치하세요.",
   approveInstall: "GitHub 설치 페이지 열기",
@@ -322,7 +318,7 @@ const ko: SimpleText = {
       check_failed: "승인을 확인하지 못했습니다.",
     })[reason] ?? "이 검사에서는 권한을 확인하지 않았습니다.",
   connect: "GitHub 연결하고 Git 기록도 검사",
-  footer: "127.0.0.1에서만 실행 · 결과는 저장되지 않고, 창을 닫으면 사라집니다.",
+  footer: "127.0.0.1에서만 실행 · 결과는 저장되지 않고, pgard web을 종료하면 사라집니다",
   moreTitle: "더 보기",
   moreLead: "위 검사의 자세한 정보입니다. 문제를 고치는 데 꼭 필요하지는 않습니다.",
   moreCoverage: "검사 범위",
