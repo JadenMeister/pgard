@@ -3,7 +3,7 @@
 exports[`trend panel snapshots > colour (unicode) 80x24, 20 scans 1`] = `
 "<ESC>[1mPGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...<ESC>[22m
 <ESC>[2mOverview<ESC>[22m  <ESC>[2mCharts<ESC>[22m  <ESC>[2mCoverage<ESC>[22m  <ESC>[1m<ESC>[7m[Trend]<ESC>[27m<ESC>[22m  <ESC>[2mFindings (12)<ESC>[22m
-<ESC>[1mTrend: 20 stored scans of this repository<ESC>[22m
+<ESC>[1mTrend: 20 stored scans of this repository (?)<ESC>[22m
 
 <ESC>[1mLatest scan vs the previous one<ESC>[22m
   2 new, 1 no longer reported, 9 unchanged
@@ -30,41 +30,41 @@ exports[`trend panel snapshots > colour (unicode) 80x24, 20 scans 1`] = `
 exports[`trend panel snapshots > en 40x14 0 scans 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: no earlier scan of this
 repository is stored. Scan again later
 to see a trend.
 
-
-
-
-
-
-
-
-Esc: back  ?: help  Tab: panel"
+Common reasons for an empty trend:
+  1. A code-only scan: results are not
+     stored. Run pgard scan with GitHub
+     approval.
+  2. Only one stored scan: scan again
+     later to compare.
+Esc: back  ?: help  Tab: panel   1-11/13"
 `;
 
 exports[`trend panel snapshots > en 40x14 1 scans 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: only one stored scan
 (2026-10-27 12:00). Scan again later to
 see a trend.
 
-
-
-
-
-
-
-
-Esc: back  ?: help  Tab: panel"
+Common reasons for an empty trend:
+  1. A code-only scan: results are not
+     stored. Run pgard scan with GitHub
+     approval.
+  2. Only one stored scan: scan again
+     later to compare.
+Esc: back  ?: help  Tab: panel   1-11/13"
 `;
 
 exports[`trend panel snapshots > en 40x14 2 scans 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
-Trend: 2 stored scans of this repository
+Trend: 2 stored scans of this rep... (?)
 
 Latest scan vs the previous one
   2 new, 1 no longer reported, 9
@@ -81,7 +81,7 @@ Esc: back  ?: help  Tab: panel   1-11/12"
 exports[`trend panel snapshots > en 40x14 20 scans 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
-Trend: 20 stored scans of this reposi...
+Trend: 20 stored scans of this re... (?)
 
 Latest scan vs the previous one
   2 new, 1 no longer reported, 9
@@ -98,15 +98,15 @@ Esc: back  ?: help  Tab: panel   1-11/30"
 exports[`trend panel snapshots > en 40x14 store disabled 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: storing is off
 (--no-store or PGARD_NO_STORE=1), so
 there is nothing to compare.
 
-
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not
+     stored. Run pgard scan with GitHub
+     approval.
 
 
 Esc: back  ?: help  Tab: panel"
@@ -115,10 +115,10 @@ Esc: back  ?: help  Tab: panel"
 exports[`trend panel snapshots > en 40x14 unreadable store 1`] = `
 "PGARD panels  owner/name @ abcdef1234...
 < Coverage  [Trend]  Findings (12)
+Trend (?)
 History could not be read (reason:
 Permission denied). The scan itself is
 unaffected.
-
 
 
 
@@ -132,15 +132,15 @@ Esc: back  ?: help  Tab: panel"
 exports[`trend panel snapshots > en 60x20 0 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: no earlier scan of this repository is
 stored. Scan again later to see a trend.
 
-
-
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard
+     scan with GitHub approval.
+  2. Only one stored scan: scan again later to compare.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -155,15 +155,15 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 60x20 1 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: only one stored scan (2026-10-27 12:00).
 Scan again later to see a trend.
 
-
-
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard
+     scan with GitHub approval.
+  2. Only one stored scan: scan again later to compare.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -178,7 +178,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 60x20 2 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
-Trend: 2 stored scans of this repository
+Trend: 2 stored scans of this repository (?)
 
 Latest scan vs the previous one
   2 new, 1 no longer reported, 9 unchanged
@@ -201,7 +201,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 60x20 20 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
-Trend: 20 stored scans of this repository
+Trend: 20 stored scans of this repository (?)
 
 Latest scan vs the previous one
   2 new, 1 no longer reported, 9 unchanged
@@ -224,13 +224,13 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll      1-17/28"
 exports[`trend panel snapshots > en 60x20 store disabled 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: storing is off (--no-store or
 PGARD_NO_STORE=1), so there is nothing to compare.
 
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard
+     scan with GitHub approval.
 
 
 
@@ -247,9 +247,9 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 60x20 unreadable store 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some r...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 History could not be read (reason: Permission denied). The
 scan itself is unaffected.
-
 
 
 
@@ -270,15 +270,15 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 80x24 0 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: no earlier scan of this repository is stored. Scan again later
 to see a trend.
 
-
-
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard scan with GitHub
+     approval.
+  2. Only one stored scan: scan again later to compare.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -297,15 +297,15 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 80x24 1 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: only one stored scan (2026-10-27 12:00). Scan again later to
 see a trend.
 
-
-
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard scan with GitHub
+     approval.
+  2. Only one stored scan: scan again later to compare.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -324,7 +324,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 80x24 2 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
-Trend: 2 stored scans of this repository
+Trend: 2 stored scans of this repository (?)
 
 Latest scan vs the previous one
   2 new, 1 no longer reported, 9 unchanged
@@ -351,7 +351,7 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 80x24 20 scans 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
-Trend: 20 stored scans of this repository
+Trend: 20 stored scans of this repository (?)
 
 Latest scan vs the previous one
   2 new, 1 no longer reported, 9 unchanged
@@ -378,13 +378,13 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll                          1-21/28
 exports[`trend panel snapshots > en 80x24 store disabled 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 No history yet: storing is off (--no-store or PGARD_NO_STORE=1), so there is
 nothing to compare.
 
-
-
-
-
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard scan with GitHub
+     approval.
 
 
 
@@ -405,9 +405,9 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > en 80x24 unreadable store 1`] = `
 "PGARD panels  owner/name @ abcdef123456  Partial - some requested areas did n...
 Overview  Charts  Coverage  [Trend]  Findings (12)
+Trend (?)
 History could not be read (reason: Permission denied). The scan itself is
 unaffected.
-
 
 
 
@@ -432,41 +432,41 @@ Esc: back  ?: help  Tab: panel  Up/Down: scroll"
 exports[`trend panel snapshots > ko 40x14 0 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 이 저장소의 이전
 검사가 저장되어 있지 않습니다. 나중에
 다시 검사하면 추이를 볼 수 있습니다.
 
-
-
-
-
-
-
-
-Esc: 뒤로  ?: 도움말  Tab: 패널"
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지
+     않습니다. GitHub 승인으로 pgard
+     scan을 실행하세요.
+  2. 저장된 검사가 1건뿐: 나중에 다시
+     검사해 비교하세요.
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/13"
 `;
 
 exports[`trend panel snapshots > ko 40x14 1 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 저장된 검사가
 1건뿐입니다 (2026-10-27 12:00). 나중에
 다시 검사하면 추이를 볼 수 있습니다.
 
-
-
-
-
-
-
-
-Esc: 뒤로  ?: 도움말  Tab: 패널"
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지
+     않습니다. GitHub 승인으로 pgard
+     scan을 실행하세요.
+  2. 저장된 검사가 1건뿐: 나중에 다시
+     검사해 비교하세요.
+Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/13"
 `;
 
 exports[`trend panel snapshots > ko 40x14 2 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
-추이: 이 저장소의 저장된 검사 2건
+추이: 이 저장소의 저장된 검사 2건 (?)
 
 최근 검사와 직전 검사 비교
   신규 2건, 더 이상 보고되지 않음 1건,
@@ -483,7 +483,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/12"
 exports[`trend panel snapshots > ko 40x14 20 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
-추이: 이 저장소의 저장된 검사 20건
+추이: 이 저장소의 저장된 검사 20건 (?)
 
 최근 검사와 직전 검사 비교
   신규 2건, 더 이상 보고되지 않음 1건,
@@ -500,15 +500,15 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/30"
 exports[`trend panel snapshots > ko 40x14 store disabled 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 저장이 꺼져
 있어(--no-store 또는 PGARD_NO_STORE=1)
 비교할 대상이 없습니다.
 
-
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지
+     않습니다. GitHub 승인으로 pgard
+     scan을 실행하세요.
 
 
 Esc: 뒤로  ?: 도움말  Tab: 패널"
@@ -517,10 +517,10 @@ Esc: 뒤로  ?: 도움말  Tab: 패널"
 exports[`trend panel snapshots > ko 40x14 unreadable store 1`] = `
 "PGARD 패널  owner/name @ abcdef123456...
 < 검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 이력을 읽을 수 없습니다 (원인:
 Permission denied). 검사 결과 자체에는
 영향이 없습니다.
-
 
 
 
@@ -534,15 +534,15 @@ Esc: 뒤로  ?: 도움말  Tab: 패널"
 exports[`trend panel snapshots > ko 60x20 0 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지
 않습니다. 나중에 다시 검사하면 추이를 볼 수 있습니다.
 
-
-
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
+     승인으로 pgard scan을 실행하세요.
+  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
 
 
 
@@ -557,15 +557,15 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 60x20 1 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (2026-10-27
 12:00). 나중에 다시 검사하면 추이를 볼 수 있습니다.
 
-
-
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
+     승인으로 pgard scan을 실행하세요.
+  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
 
 
 
@@ -580,7 +580,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 60x20 2 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
-추이: 이 저장소의 저장된 검사 2건
+추이: 이 저장소의 저장된 검사 2건 (?)
 
 최근 검사와 직전 검사 비교
   신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
@@ -603,7 +603,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 60x20 20 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
-추이: 이 저장소의 저장된 검사 20건
+추이: 이 저장소의 저장된 검사 20건 (?)
 
 최근 검사와 직전 검사 비교
   신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
@@ -626,13 +626,13 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤     1-17/28"
 exports[`trend panel snapshots > ko 60x20 store disabled 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는
 PGARD_NO_STORE=1) 비교할 대상이 없습니다.
 
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
+     승인으로 pgard scan을 실행하세요.
 
 
 
@@ -649,9 +649,9 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 60x20 unreadable store 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 이력을 읽을 수 없습니다 (원인: Permission denied). 검사
 결과 자체에는 영향이 없습니다.
-
 
 
 
@@ -672,15 +672,15 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 80x24 0 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지 않습니다. 나중에
 다시 검사하면 추이를 볼 수 있습니다.
 
-
-
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
+     실행하세요.
+  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
 
 
 
@@ -699,15 +699,15 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 80x24 1 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (2026-10-27 12:00). 나중에 다시
 검사하면 추이를 볼 수 있습니다.
 
-
-
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
+     실행하세요.
+  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
 
 
 
@@ -726,7 +726,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 80x24 2 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
-추이: 이 저장소의 저장된 검사 2건
+추이: 이 저장소의 저장된 검사 2건 (?)
 
 최근 검사와 직전 검사 비교
   신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
@@ -753,7 +753,7 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 80x24 20 scans 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
-추이: 이 저장소의 저장된 검사 20건
+추이: 이 저장소의 저장된 검사 20건 (?)
 
 최근 검사와 직전 검사 비교
   신규 2건, 더 이상 보고되지 않음 1건, 변화 없음 9건
@@ -780,13 +780,13 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤                   
 exports[`trend panel snapshots > ko 80x24 store disabled 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는 PGARD_NO_STORE=1) 비교할
 대상이 없습니다.
 
-
-
-
-
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
+     실행하세요.
 
 
 
@@ -807,9 +807,9 @@ Esc: 뒤로  ?: 도움말  Tab: 패널  위/아래: 스크롤"
 exports[`trend panel snapshots > ko 80x24 unreadable store 1`] = `
 "PGARD 패널  owner/name @ abcdef123456  부분 완료 - 요청한 영역 일부가 끝까지 ...
 개요  차트  검사 범위  [추이]  발견 항목 (12)
+추이 (?)
 이력을 읽을 수 없습니다 (원인: Permission denied). 검사 결과 자체에는 영향이
 없습니다.
-
 
 
 
