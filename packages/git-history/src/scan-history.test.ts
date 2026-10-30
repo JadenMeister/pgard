@@ -716,7 +716,7 @@ describe("scanGitHistory", () => {
     fixture = createGitFixture();
     fixture.commit({
       files: {
-        ".env": `DB_PASSWORD=${FAKE.dbPassword}\n`,
+        ".env": `DB_PASSWORD=${FAKE.dbPassword}\nAWS_KEY=${FAKE.aws}\n`,
         ".env.example": "DB_PASSWORD=changeme\n",
         "src/config.ts": `export const token = "${FAKE.github}";\nexport const aws = "${FAKE.aws}";\n`,
       },
@@ -730,11 +730,15 @@ describe("scanGitHistory", () => {
     const tracked = byRule(result, "PG-SECRET-002");
     expect(tracked.map((finding) => [finding.location.path, finding.location.line])).toEqual(
       expect.arrayContaining([
-        [".env", 1],
+        [".env", 2],
         ["src/config.ts", 1],
         ["src/config.ts", 2],
       ]),
     );
+    // The generic DB_PASSWORD line of the environment file is folded into PG-SECRET-001.
+    expect(
+      tracked.map((finding) => [finding.location.path, finding.location.line]),
+    ).not.toContainEqual([".env", 1]);
     expect(tracked.find((finding) => finding.location.path === "src/config.ts")).toMatchObject({
       status: "confirmed",
       confidence: "high",

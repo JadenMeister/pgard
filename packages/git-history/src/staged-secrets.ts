@@ -49,7 +49,7 @@ function withCodeSource(finding: Finding): Finding {
   return { ...finding, sources: ["code"] };
 }
 
-function envFileFinding(filePath: string): Finding {
+function envFileFinding(filePath: string, folded = 0): Finding {
   return withCodeSource(
     createFinding({
       ruleId: "PG-SECRET-001",
@@ -59,7 +59,7 @@ function envFileFinding(filePath: string): Finding {
       severity: "high",
       status: "confirmed",
       confidence: "high",
-      evidence: "environment file is staged for commit (values not shown)",
+      evidence: `environment file is staged for commit (${folded > 0 ? `${folded} credential value${folded === 1 ? "" : "s"} inside, not shown` : "values not shown"})`,
       cause: "env-file-head",
     }),
   );
@@ -77,7 +77,18 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
   let preexisting = 0;
   for (const file of files) {
     if (isEnvironmentFile(file.path) && file.kind !== "modified") {
-      findings.push(envFileFinding(file.path));
+      // A UTF-16 file is read twice; the larger count is the one that read it right.
+      const folded = Math.max(
+        ...[file.content, file.alternate]
+          .filter((text): text is string => text !== undefined)
+          .map(
+            (text) =>
+              detectSecrets(text, { path: file.path }).filter(
+                (secret) => secret.kind === "generic_credential",
+              ).length,
+          ),
+      );
+      findings.push(envFileFinding(file.path, folded));
     }
     // UTF-16 files are read twice (as UTF-16 and as UTF-8), so a secret in either kind of part is
     // seen; one secret found by both readings is reported once.
@@ -94,7 +105,10 @@ export function scanStagedSecrets(files: readonly StagedFile[]): StagedSecretSca
         previous === null
           ? new Set<string>()
           : new Set(detectSecrets(previous, { path: file.path }).map((found) => found.value));
-      for (const secret of detectSecrets(content, { path: file.path })) {
+      // A new environment file is reported whole (PG-SECRET-001), so its generic per-line
+      // credential matches are left out; provider-specific secrets are still reported.
+      const omitGeneric = isEnvironmentFile(file.path) && file.kind !== "modified";
+      for (const secret of detectSecrets(content, { path: file.path, omitGeneric })) {
         const key = `${secret.kind}\0${secret.value}`;
         // Skip a secret an earlier reading of this file already reported (a preexisting one does not
         // count, so a new copy of it in the other reading is still reported).

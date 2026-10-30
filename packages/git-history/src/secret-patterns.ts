@@ -48,6 +48,12 @@ export interface DetectSecretsOptions {
    * credential value. Without a path, the text is treated like a config file.
    */
   path?: string;
+  /**
+   * Leave out generic credential assignments, keeping the provider-specific patterns. For a file
+   * that is already reported whole as an environment file (PG-SECRET-001), so its lines do not
+   * add one generic finding each.
+   */
+  omitGeneric?: boolean;
 }
 
 interface Pattern {
@@ -140,6 +146,49 @@ const SOURCE_CODE_FILE =
 const PLACEHOLDER =
   /example|sample|changeme|change_me|placeholder|dummy|your[_-]|<[^>]*>|\$\{|\{\{|%\(|process\.env|os\.environ|getenv|xxxx|\*\*\*\*|redacted|todo|fixme|^(true|false|null|none|undefined)$/i;
 
+/**
+ * A value of only dictionary-like words: all lowercase letters, three or more words of 2 to 12
+ * letters joined by `-`, `_` or `.` (`my-secret-key-value`).
+ */
+export function isDictionaryWordsValue(value: string): boolean {
+  return /^[a-z]{2,12}(?:[-_.][a-z]{2,12}){2,}$/.test(value);
+}
+
+/** Words that mark a dictionary-words value as an example (`my-secret-key-value`). */
+const EXAMPLE_WORDS = new Set([
+  "my",
+  "your",
+  "secret",
+  "key",
+  "value",
+  "password",
+  "token",
+  "here",
+  "example",
+]);
+
+/** A dictionary-words value with an example word in it: a placeholder in a template or doc. */
+function isExampleWordsValue(value: string): boolean {
+  return isDictionaryWordsValue(value) && value.split(/[-_.]/).some((w) => EXAMPLE_WORDS.has(w));
+}
+
+/**
+ * A word-shaped value (letters joined by `-`, `_` or `.`, no digits) in which a placeholder word
+ * (`replace`, `random`, `generate`, `insert`, `set-me`, `put-your`) is a whole word, at the start
+ * or after a separator. `Random2024Xk` or `aZ9k/generateQ7` is not word-shaped, so it is kept.
+ */
+function isPlaceholderWordValue(value: string): boolean {
+  return (
+    /^[A-Za-z]+(?:[-_.][A-Za-z]+)*$/.test(value) &&
+    /(?:^|[-_.])(?:replace|random|generate|insert|set[-_]?me|put[-_]?your)(?=$|[-_.])/i.test(value)
+  );
+}
+
+/** Documentation files, where a generic value is usually an example. */
+const DOC_FILE = /\.(?:md|mdx|rst|adoc)$/i;
+/** `.env` templates, where only a real-looking generic value is reported. */
+const ENV_TEMPLATE = /(?:^|\.)env\.(?:example|sample|template|dist)$/i;
+
 export function shannonEntropy(value: string): number {
   const counts = new Map<string, number>();
   for (const char of value) counts.set(char, (counts.get(char) ?? 0) + 1);
@@ -157,6 +206,48 @@ export function shannonEntropy(value: string): number {
  * literal (`/pass(word)?|pwd/i`).
  */
 const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]|]/];
+/**
+ * An unquoted value in source code, outside a string, that is the rest of an expression: it
+ * starts with `=` (`==e.pass`), or a dotted member access runs into `)`, `}`, `]`, `||` or `&&`
+ * (`e.target.value})`, `e.pass)||`). A password with a bracket in a comment (`// password: Xk9)m2`)
+ * has no dotted access before the bracket and is kept.
+ */
+const UNQUOTED_CODE_VALUE = /^=|^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:[)}\]]|\|\||&&)/;
+/**
+ * Text of the line before `index`, read within `window` characters only (a very long line, such
+ * as a minified bundle, is never scanned back to its start). `known` is false when the window
+ * cut the line, so its start is not the line's start.
+ */
+function lineBefore(text: string, index: number, window: number) {
+  const from = Math.max(0, index - window);
+  const relative = text.slice(from, index).lastIndexOf("\n");
+  const start = relative < 0 ? from : from + relative + 1;
+  return { start, known: relative >= 0 || from === 0, before: text.slice(start, index) };
+}
+
+/**
+ * Whether the match sits in a comment: a `//` or `/*` marker (not inside a string, and for `/*`
+ * not already closed), a leading `*` of a block comment, or a `#` that starts the line (in
+ * JavaScript-like files) or follows whitespace (in other source files; `#private` fields are no
+ * comments). Only the 200 characters before the match are read.
+ */
+function isInComment(context: DetectContext, index: number): boolean {
+  const { start, known, before } = lineBefore(context.text, index, CODE_WINDOW);
+  if (known && /^\s*\*/.test(before)) return true;
+  for (const marker of before.matchAll(/\/\/|\/\*|#/g)) {
+    const at = marker.index;
+    if (at > 0 && !/\s/.test(before.charAt(at - 1))) continue;
+    if (at === 0 && !known) continue;
+    if (context.stringStartAt(start + at) !== -1) continue;
+    if (marker[0] === "/*") {
+      if (before.indexOf("*/", at + 2) === -1) return true;
+    } else if (marker[0] === "#") {
+      const startsLine = known && before.slice(0, at).trim() === "";
+      if (startsLine || !context.isJs) return true;
+    } else return true;
+  }
+  return false;
+}
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
@@ -197,6 +288,14 @@ interface DetectContext {
   text: string;
   /** Whether the text is a source code file (string values there must be quoted). */
   isSource: boolean;
+  /** Whether the file is a template (`.env.example`): only a real-looking value is reported. */
+  isTemplate: boolean;
+  /** Whether the file is JavaScript or TypeScript (where `#` starts a private field). */
+  isJs: boolean;
+  /** Whether the file is a Markdown-like documentation file. */
+  isDoc: boolean;
+  /** Number of Markdown code fence lines that start before an index (built lazily, once). */
+  fencesBefore: (index: number) => number;
   /** Start of the string literal around an index, or -1 (built lazily, once per text). */
   stringStartAt: (index: number) => number;
 }
@@ -204,10 +303,39 @@ interface DetectContext {
 function createContext(text: string, options: DetectSecretsOptions): DetectContext {
   const path = options.path;
   const isSource = path !== undefined && SOURCE_CODE_FILE.test(path);
+  const name = path?.split("/").pop() ?? "";
   let lookup: ((index: number) => number) | null = null;
+  let fenceStarts: number[] | null = null;
   return {
     text,
     isSource,
+    isTemplate: ENV_TEMPLATE.test(name),
+    isJs: /\.(?:[cm]?[jt]sx?|vue|svelte)$/i.test(name),
+    isDoc: DOC_FILE.test(name),
+    fencesBefore: (index) => {
+      if (fenceStarts === null) {
+        fenceStarts = [];
+        let lineStart = 0;
+        while (lineStart <= text.length) {
+          const end = text.indexOf("\n", lineStart);
+          const stop = end === -1 ? text.length : end;
+          if (/^[ \t]*(?:```|~~~)/.test(text.slice(lineStart, Math.min(stop, lineStart + 80)))) {
+            fenceStarts.push(lineStart);
+          }
+          if (end === -1) break;
+          lineStart = end + 1;
+        }
+      }
+      // Binary search: fences starting before `index`.
+      let low = 0;
+      let high = fenceStarts.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if ((fenceStarts[middle] as number) < index) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    },
     stringStartAt: (index) => {
       if (path === undefined) return -1;
       lookup ??= createStringLookup(text, path);
@@ -294,6 +422,17 @@ function isLiteralAssignment(
     stringStart = context.stringStartAt(start - 2);
   }
   const inString = stringStart !== -1;
+  // In source code outside a string, a comparison (`password==e.pass`) or a member access that
+  // runs into a bracket or operator (`e.target.value})`) is an expression, not a literal. Inside a
+  // string, in a comment or in a config file the same characters can be part of a password.
+  if (
+    context.isSource &&
+    !inString &&
+    UNQUOTED_CODE_VALUE.test(value) &&
+    !isInComment(context, start)
+  ) {
+    return false;
+  }
   if (CALL_SHAPED_VALUE.test(value) && (value.endsWith(")") || (context.isSource && !inString))) {
     return false;
   }
@@ -323,11 +462,51 @@ function hasPrivateKeyBody(block: string): boolean {
 }
 
 /** Generic values must look random enough and not be a code reference or placeholder. */
-function isLikelySecretValue(value: string): boolean {
+function isLikelySecretValue(value: string, example = false, template = false): boolean {
   if (PLACEHOLDER.test(value)) return false;
+  if (example) return false;
+  // A template file reports only what looks like a real secret (see `hasSecretShape`).
+  if (template && !hasSecretShape(value)) return false;
   if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) return false; // config.db.password
   if (/^[a-z]+$/.test(value) && value.length < 16) return false; // plain words
   return shannonEntropy(value) >= 3.0;
+}
+
+/**
+ * Whether a generic match is a placeholder because of its file and shape: a placeholder word in
+ * a word-shaped value; in a `.env` template a dictionary-words value with an example word; in a
+ * doc the same, but only unquoted or inside a code span or fenced block (a quoted passphrase in
+ * prose is kept).
+ */
+function isExampleValue(context: DetectContext, match: RegExpMatchArray, value: string): boolean {
+  // Only in `.env` templates and docs: in a config file `random-tiger-lamp-orbit` is a passphrase.
+  if (!context.isTemplate && !context.isDoc) return false;
+  if (isPlaceholderWordValue(value)) return true;
+  if (!isExampleWordsValue(value)) return false;
+  if (context.isTemplate) return true;
+  if ((match.groups?.valueQuote ?? "") === "") return true;
+  return isInCodeRegion(context, match.index ?? 0);
+}
+
+/** Whether `index` is inside a backtick code span on its line or a fenced code block. */
+function isInCodeRegion(context: DetectContext, index: number): boolean {
+  const { text } = context;
+  // A line longer than 2000 characters is read only for its last 2000 (keeps a long line linear).
+  const { start, before } = lineBefore(text, index, 2000);
+  if (((before.match(/`/g) ?? []).length & 1) === 1) return true;
+  return context.fencesBefore(start) % 2 === 1;
+}
+
+/**
+ * What a value in an `.env` template must look like to be reported: two or more character
+ * classes (lowercase, uppercase, digit, other), or a single class with 20+ characters and
+ * entropy of 3.5 or more, and entropy of at least 3.0 in any case.
+ */
+function hasSecretShape(value: string): boolean {
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((test) => test.test(value));
+  const entropy = shannonEntropy(value);
+  if (entropy < 3.0) return false;
+  return classes.length >= 2 || (value.length >= 20 && entropy >= 3.5);
 }
 
 /**
@@ -464,7 +643,9 @@ export function detectSecrets(text: string, options: DetectSecretsOptions = {}):
           cut = escapedNewlineTail(value);
           if (cut > 0) value = value.slice(0, value.length - cut);
         }
-        if (!isLikelySecretValue(value)) continue;
+        if (options.omitGeneric === true) continue;
+        if (!isLikelySecretValue(value, isExampleValue(context, match, value), context.isTemplate))
+          continue;
         const assignment = isLiteralAssignment(context, match, cut);
         if (assignment === false) continue;
         codeText = assignment === "code_text";

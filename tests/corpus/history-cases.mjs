@@ -188,6 +188,268 @@ export const HISTORY_CASES = [
       },
     ],
   },
+  // #445: false positives in templates, docs and minified bundles, and real secrets in the same
+  // shapes that must still be reported.
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "env-example-placeholder-words",
+    expect: [],
+    commits: [
+      {
+        files: {
+          ".env.example": [
+            "JWT_SECRET=replace-with-a-long-random-secret",
+            "SESSION_SECRET=generate-a-strong-session-key",
+            "API_KEY=insert-your-api-key-here",
+            "DB_PASSWORD=set_me_to_a_password",
+            "COOKIE_SECRET=put-your-cookie-secret-here",
+            "",
+          ].join("\n"),
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "docs-dictionary-words-example",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "README.md": 'Configure `api_key = "my-secret-key-value"` in your settings.\n',
+          "docs/setup.rst": "client_secret: my-example-secret-word\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "minified-bundle-member-access",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "build/static/js/main.js":
+            "function f(e,t){return a({password:e.target.value}),(e.password==t.password)||g(e.password==e.pass)||h()}\n",
+          "dist/assets/app.js": "x=e.secret===t.secret&&n,y={apiKey:r.config.apikey});\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "dotenv-generic-lines-folded",
+    // One PG-SECRET-001 for the file; its generic lines are not reported one by one.
+    expect: ["PG-SECRET-001"],
+    commits: [
+      { files: { ".env": `DB_PASSWORD=${FAKE.dbPassword}\nSESSION_SECRET=${FAKE.assembled}\n` } },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "env-example-real-looking-aws-key",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { ".env.example": `AWS_ACCESS_KEY_ID=${FAKE.aws}\nPORT=3000\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "env-example-high-entropy-password",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { ".env.example": `DB_PASSWORD=${FAKE.assembled}\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "minified-bundle-real-password",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "build/static/js/main.js": `function f(e){return a({password:e.target.value}),b({user:"admin",password:"${FAKE.assembled}"})}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "docs-quoted-mixed-case-value",
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "README.md": `Set \`api_key = "${FAKE.assembled}"\` first.\n` } }],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "comment-password-with-bracket",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "src/app.js":
+            [
+              `// admin password: ${join("Xk9", ")m2Lq8vBp")}`,
+              `// password=${join("Zq8", "]Lm2x9Kp")}`,
+              `/* api_key=${join("Zq8", "}Lm2x9Kp4")} */`,
+              `// password=${join("Xk9", "&&m2Lq8vB")}`,
+            ].join("\n") + "\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "word-like-prefix-in-url-password",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "config/db.conf": `url = "postgres://app:${join("Random", "2024Xk")}@db.internal:5432/app"\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "word-like-prefix-in-generic-values",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "config/app.conf":
+            [
+              `password=${join("Random", "9xKq2LmP7vT")}`,
+              `secret=${join("Xq7insert", "Key9Lm2")}`,
+              `api_key=${join("aZ9k/generate", "Q7mP2xL")}`,
+            ].join("\n") + "\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "github-token-with-random-word",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "config/ci.conf": `token = ${join("ghp", "_Random", "Zq8aB3cD4eF5gLm4hJ6kL7mN8pPw7qR9sT0u")}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "env-example-single-class-and-short-values",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          ".env.example":
+            [
+              `API_SECRET=${join("qwkzmtrplx", "vbnhgfjdsacxzyuoeiwqp")}`,
+              `DB_PASSWORD=${join("Hunter", "2x")}`,
+              `ADMIN_PASSWORD=${join("qz!kx", "#mw$vt")}`,
+            ].join("\n") + "\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "cloudformation-template-lowercase-password",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "stack.template": `MasterUserPassword: ${join("qwkzmtrplx", "vbnhgf")}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "passphrase-in-txt-and-docs",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "credentials.txt": `password=${join("correct-horse", "-battery-staple")}\n`,
+          "README.md": `The password: "${join("correct-horse", "-battery-staple")}" is set.\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "equals-prefixed-value-in-properties",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "app.properties": `db.password==${join("Xk9", "#q2Lm7vBp")}\n`,
+          "app.ini": `password = =${join("Xk9", "#q2Lm7vBp")}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "comment-password-dotted-or-equals-prefixed",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "src/notes.js": [
+            `// db password: ${join("Prod.Xk9q", ")m2Lq8")}`,
+            `# password=${join("Abc.Zq8", "]Lm2x9Kp")}`,
+            `// password: =${join("Xk9q2", "Lm8vBpZ")}`,
+            `// password==${join("Xk9q2", "Lm8vBpZ")}`,
+          ].join("\n"),
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "minified-markers-inside-strings",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "dist/a.js": 'var s=" #fff";x({password:e.target.value})\n',
+          "dist/b.js": 'var u="see //cdn";if(t.password==e.pass)||y\n',
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "passphrase-with-placeholder-words-in-config",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "config.yml": `secret: ${join("random-tiger", "-lamp-orbit")}\napi_key: ${join("Insert-Coin", "-Gizmo")}\n`,
+        },
+      },
+    ],
+  },
   {
     rule: "PG-SECRET-002",
     kind: "negative",
