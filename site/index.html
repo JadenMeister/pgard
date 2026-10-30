@@ -1001,6 +1001,19 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             </p>
           </details>
           <details>
+            <summary>What if I pick a port that is not my project?</summary>
+            <p>
+              PGARD shows each local service's URL, title and technology and asks "Is this the
+              current project's service? [y/N]"; only an explicit <code>y</code> goes ahead. If you
+              confirm the wrong one, it checks that service instead: anonymous
+              <code>GET</code>/<code>HEAD</code> requests to <code>127.0.0.1</code> only, no POST,
+              delete or form submission, at most 20 pages in 60 seconds, and nothing goes to a
+              remote host. Its findings show up in your result with their URL, so a wrong pick is
+              easy to spot. Scan again and answer <code>N</code>. A badly built app can still change
+              state on a <code>GET</code>, so only confirm a service you recognise.
+            </p>
+          </details>
+          <details>
             <summary>Does it run on Windows?</summary>
             <p>
               Yes. macOS, Linux and Windows are supported and CI runs the full test suite on all
