@@ -16,7 +16,14 @@ jobs:
       matrix:
         n: [1, 2, 3, 4, 5, 6]
         g:
-          - { name: default, paths: "packages/scan-core" }
+          - {
+              name: no-incr,
+              paths: "packages/scan-core --exclude packages/scan-core/src/incremental-equivalence.test.ts --exclude node_modules/**",
+            }
+          - {
+              name: incr-plus,
+              paths: "packages/scan-core/src/incremental-equivalence packages/scan-core/src/project-config packages/scan-core/src/run-scan",
+            }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
