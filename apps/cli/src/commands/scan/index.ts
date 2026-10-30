@@ -53,7 +53,7 @@ import { offerPanels } from "../../flows/panels.js";
 import { loadTrend } from "../../flows/trend.js";
 import type { TrendData } from "../../ui/panels/types.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
-import { runCodeOnlyScanFlow } from "./code-only.js";
+import { codeOnlyRefusalMessage, runCodeOnlyScanFlow } from "./code-only.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
   default: ["code", "history"],
@@ -226,18 +226,32 @@ interface ResultOutput {
   finish: (result: ScanResult) => void;
 }
 
+type RepositoryBlockCode = NonNullable<AuthorizationOutcome["repositoryCode"]>;
+/** The repository check's codes for "no single usable github.com remote". */
+const REMOTE_FAILURES: ReadonlySet<RepositoryBlockCode> = new Set<RepositoryBlockCode>([
+  "no_remote",
+  "remote_not_github",
+  "remote_ambiguous",
+  "remote_unreadable",
+]);
+
 /**
  * Why a failed authorization leaves the result unverified, for `scanBasis.reason` of the
- * code-only scan that may follow: the gate could not run, the folder has no GitHub remote, or
- * an approval check did not pass.
+ * code-only scan that may follow. From fixed codes and check statuses only, never the text:
+ * the folder has no usable GitHub remote or no Git history (the repository check's code), a
+ * check could not be verified (a network error, a timeout, no sign-in: `check_failed`), or a
+ * check did not pass (`no_approval`).
  */
-export function codeOnlyReasonAfter(result: ScanResult): KnownScanBasisReason {
+export function codeOnlyReasonAfter(
+  result: ScanResult,
+  outcome: AuthorizationOutcome | null,
+): KnownScanBasisReason {
   if (result.overallStatus === "failed") return "check_failed";
-  const repository = result.authorization.checks.find((check) => check.id === "repository");
-  if (repository?.status === "failed" && /remote/i.test(repository.reason)) {
-    return "no_github_remote";
-  }
-  return "no_approval";
+  const code = outcome?.repositoryCode ?? null;
+  if (code !== null && REMOTE_FAILURES.has(code)) return "no_github_remote";
+  if (code === "not_a_git_root" || code === "no_commit_history") return "not_a_git_repository";
+  const first = result.authorization.checks.find((check) => check.status !== "passed");
+  return first?.status === "unverifiable" ? "check_failed" : "no_approval";
 }
 
 async function runScanFlow(
@@ -249,7 +263,10 @@ async function runScanFlow(
   const isJson = isMachineFormat(command.format);
   // Fixed screen text in the terminal language; machine-format output is never translated.
   const text = cliText(context.ruleLocale);
-  const runCodeOnly = (reason?: KnownScanBasisReason): Promise<ExitCode> =>
+  const runCodeOnly = (
+    reason?: KnownScanBasisReason,
+    isReportConfirmed = false,
+  ): Promise<ExitCode> =>
     runCodeOnlyScanFlow(
       context,
       {
@@ -257,6 +274,7 @@ async function runScanFlow(
         isMachineFormat: isJson,
         ...(command.panels === true ? { panels: true } : {}),
         ...(reason === undefined ? {} : { reason }),
+        ...(isReportConfirmed ? { isReportConfirmed: true } : {}),
       },
       {
         show: (result) => show(result, null),
@@ -272,24 +290,37 @@ async function runScanFlow(
   // `baseline set --from-current` needs an authorized scan, so it never offers one.
   const offersCodeOnly =
     (command.variant === "default" || command.variant === "code") && command.setBaseline !== true;
-  const askCodeOnly = async (): Promise<boolean> => {
-    if (!offersCodeOnly || !canAskCodeOnly) return false;
-    const prompts = promptContextOf(context, text.codeOnly.promptHelp);
-    if (prompts === null) return false;
+  /**
+   * After the gate did not pass: offer a code-only scan (a terminal), or say how to get one (no
+   * terminal). A folder that can never be code-only scanned (home, too broad, `.git`) is refused
+   * at once instead of offered. `true` when the user answered `y`.
+   */
+  const offerCodeOnly = async (gitRoot: string | null): Promise<boolean> => {
+    // `baseline set --from-current`: the approval guidance above is all it needs.
+    if (command.setBaseline === true) return false;
+    if (!offersCodeOnly) {
+      out(context, context.style.dim(text.codeOnly.blockedHint));
+      return false;
+    }
+    const refusal = await codeOnlyRefusalMessage(context, gitRoot);
+    if (refusal !== null) {
+      err(context, context.errStyle.red(refusal));
+      return false;
+    }
+    const prompts = canAskCodeOnly ? promptContextOf(context, text.codeOnly.promptHelp) : null;
+    if (prompts === null) {
+      out(context, context.style.dim(text.codeOnly.addFlagHint));
+      return false;
+    }
     out(context, "");
     return promptConfirm(prompts, text.codeOnly.prompt);
-  };
-  const hintAfterBlocked = (asked: boolean): void => {
-    if (!offersCodeOnly) out(context, context.style.dim(text.codeOnly.blockedHint));
-    else if (!asked) out(context, context.style.dim(text.codeOnly.addFlagHint));
   };
   let scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
+    // Not a Git repository: the gate cannot pass. Exit 3 unless the user chooses code-only.
     err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
-    const canAsk = offersCodeOnly && canAskCodeOnly;
-    if (await askCodeOnly()) return runCodeOnly("not_a_git_repository");
-    hintAfterBlocked(canAsk);
+    if (await offerCodeOnly(null)) return runCodeOnly("not_a_git_repository");
     return EXIT_CODES.blocked;
   }
 
@@ -459,24 +490,23 @@ async function runScanFlow(
     }
   }
   const { result } = scanned;
-  // D1: authorization failed (blocked, or the gate could not run). With a terminal, `scan` and
-  // `scan code` ask whether to scan the current code only; the answer defaults to no.
+  // D1: the gate did not pass (blocked, or it could not finish: a network error, a timeout).
+  // Every such run exits 3 with nothing stored and no panel view; `scan` and `scan code` first
+  // offer a code-only scan (a terminal) or say how to get one.
   const isUnauthorized =
     result.overallStatus === "blocked" ||
     (result.overallStatus === "failed" && result.scanBasis?.authorization === "not_verified");
-  const canAsk = isUnauthorized && offersCodeOnly && canAskCodeOnly;
-  if (isUnauthorized && (await askCodeOnly())) return runCodeOnly(codeOnlyReasonAfter(result));
-  finish(result);
-  let exitCode = exitCodeForStatus(result.overallStatus);
-  if (isUnauthorized && result.overallStatus === "failed") hintAfterBlocked(canAsk);
-
-  if (result.overallStatus === "blocked") {
-    // D2: history and web checks stay strict; `scan` and `scan code` asked or hint `--code-only`.
-    hintAfterBlocked(canAsk);
+  if (isUnauthorized) {
+    if (await offerCodeOnly(projectRoot)) {
+      return runCodeOnly(codeOnlyReasonAfter(result, scanned.outcome), reportDir !== null);
+    }
+    finish(result);
     if (command.report !== null) out(context, text.notices.noReportBlocked);
     if (command.panels === true) err(context, context.errStyle.dim(text.panels.notOpenedBlocked));
-    return exitCode;
+    return EXIT_CODES.blocked;
   }
+  finish(result);
+  let exitCode = exitCodeForStatus(result.overallStatus);
   await storeScanResult(
     context,
     result,

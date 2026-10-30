@@ -448,6 +448,12 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       "main",
     );
   }
+  if (split.codeOnly && split.full) {
+    throw new UsageError(
+      `Option ${CODE_ONLY_FLAG} cannot be combined with ${FULL_FLAG}: a code-only scan always reads every file.`,
+      "main",
+    );
+  }
   if (split.full && command !== "scan") {
     throw new UsageError(`Option ${FULL_FLAG} is only available for pgard scan.`, "main");
   }

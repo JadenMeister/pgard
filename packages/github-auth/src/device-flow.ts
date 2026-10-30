@@ -1,5 +1,13 @@
 import { GitHubAuthError } from "./errors.js";
-import { asInteger, asRecord, asString, defaultFetch, type FetchLike } from "./fetch.js";
+import {
+  asInteger,
+  asRecord,
+  asString,
+  defaultFetch,
+  fetchWithTimeout,
+  GITHUB_REQUEST_TIMEOUT_MS,
+  type FetchLike,
+} from "./fetch.js";
 import { createGitHubClient, type GitHubClient } from "./github-client.js";
 
 export const GITHUB_OAUTH_BASE_URL = "https://github.com";
@@ -72,17 +80,22 @@ async function postForm(
 ): Promise<Record<string, unknown>> {
   let response;
   try {
-    response = await fetchImpl(url, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "pgard",
+    response = await fetchWithTimeout(
+      fetchImpl,
+      url,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/x-www-form-urlencoded",
+          "User-Agent": "pgard",
+        },
+        body: new URLSearchParams(form).toString(),
+        redirect: "error",
+        ...(signal ? { signal } : {}),
       },
-      body: new URLSearchParams(form).toString(),
-      redirect: "error",
-      ...(signal ? { signal } : {}),
-    });
+      GITHUB_REQUEST_TIMEOUT_MS,
+    );
   } catch {
     if (signal?.aborted) {
       throw new GitHubAuthError("cancelled", "GitHub sign-in was cancelled.");
@@ -298,11 +311,19 @@ export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promi
 export function createSessionFromToken(
   token: string,
   expiresAt: number | null,
-  options: { fetch?: FetchLike; apiBaseUrl?: string; signal?: AbortSignal },
+  options: {
+    fetch?: FetchLike;
+    apiBaseUrl?: string;
+    signal?: AbortSignal;
+    requestTimeoutMs?: number;
+  },
 ): GitHubSession {
   const client = createGitHubClient({
     token,
     fetch: options.fetch ?? defaultFetch,
+    ...(options.requestTimeoutMs === undefined
+      ? {}
+      : { requestTimeoutMs: options.requestTimeoutMs }),
     ...(options.apiBaseUrl ? { baseUrl: options.apiBaseUrl } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   });

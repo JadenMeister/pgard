@@ -3,8 +3,9 @@ import type { HelpTopic } from "./options.js";
 const EXIT_CODE_HELP = `Exit codes:
   0    requested scope completed (findings may exist)
   2    invalid command, option or value
-  3    repository, authorization or contribution check failed (never for a
-       code-only scan: --code-only, or y at the question)
+  3    authorization did not pass, nothing scanned (no approval, a check that
+       could not finish, no GitHub remote, not a Git repository); never for a
+       code-only scan
   4    part of the scan or the report export failed
   5    internal error
   130  cancelled
@@ -94,7 +95,7 @@ Advanced commands:
 
 Advanced options (pgard <command> --help has the details):
   scan:        --all-findings  --fixes  --panels  --full  --no-store  --report-lang en|ko
-               --port N (web, all)  --code-only (none, code)
+               --port N (web, all)  --code-only (pgard scan, pgard scan code)
   report:      --no-open
   sbom:        --format cyclonedx-json  --output-dir DIR
   dashboard:   --target-port N
@@ -173,8 +174,9 @@ Code-only scan (--code-only, or y at the question):
 Options:
   --port N                 local service port 1-65535 (web and all only). You
                            still confirm the service identity with y/N.
-  --code-only              (none or code) skip authorization and scan the
-                           current files code-only, with no network; never 3
+  --code-only              (pgard scan, pgard scan code) skip authorization
+                           and scan the current files code-only, with no
+                           network; never exit 3
 ${REPORT_HELP}
   --all-findings           list every finding in full (evidence, fix,
                            standards, every location). In a terminal the

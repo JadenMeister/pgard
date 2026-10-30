@@ -18,11 +18,31 @@ import {
   testResult,
 } from "../../test-support.js";
 import { codeOnlyFolderRefusal, codeOnlyHome } from "./code-only.js";
-import { runScanCommand } from "./index.js";
+import { codeOnlyReasonAfter, runScanCommand } from "./index.js";
 
 /** `pgard scan code` without approval (#414 phase 2: D1, D2, D4). */
 
 const CODE = { variant: "code", port: null, report: null, codeOnly: true } as const;
+const OWNER_FAILED = {
+  decision: "blocked",
+  checks: [
+    { id: "repository", status: "passed", reason: "GitHub remote owner/name" },
+    { id: "github_identity", status: "passed", reason: "Signed in to GitHub as me." },
+    { id: "owner_approval", status: "failed", reason: "The App is not installed." },
+    { id: "current_access", status: "unverifiable", reason: "Not evaluated." },
+    { id: "contribution", status: "unverifiable", reason: "Not evaluated." },
+  ],
+} as const satisfies ScanResult["authorization"];
+const REPOSITORY_FAILED = {
+  decision: "blocked",
+  checks: [
+    { id: "repository", status: "failed", reason: "Alternates in /home/u/remote-work/.git." },
+    { id: "github_identity", status: "unverifiable", reason: "Not evaluated." },
+    { id: "owner_approval", status: "unverifiable", reason: "Not evaluated." },
+    { id: "current_access", status: "unverifiable", reason: "Not evaluated." },
+    { id: "contribution", status: "unverifiable", reason: "Not evaluated." },
+  ],
+} as const satisfies ScanResult["authorization"];
 const BLOCKED_RESULT = (reasonOverrides: Partial<ScanResult> = {}): ScanResult =>
   testResult({
     overallStatus: "blocked",
@@ -126,6 +146,7 @@ describe("pgard scan code --code-only is a code-only scan (D1)", () => {
       ["scan", "all", "--code-only"],
       ["scan", "web", "--port", "3000", "--code-only"],
       ["project", "verify", "--code-only"],
+      ["scan", "--code-only", "--full"],
       ["scan", "code", "--require-authorization"],
     ]) {
       expect(() => parseCommandLine(argv)).toThrow(UsageError);
@@ -161,7 +182,11 @@ describe("authorization first, then a y/N question (D1)", () => {
     const runCode = vi.fn(async () => codeOnlyTestResult());
     const captured = createTestIo({ isTTY: true });
     const code = await runScanCommand(
-      createTestContext(captured, blockedDeps(runCode), scriptedKeys(["y"])),
+      createTestContext(
+        captured,
+        blockedDeps(runCode, BLOCKED_RESULT({ authorization: OWNER_FAILED })),
+        scriptedKeys(["y"]),
+      ),
       { variant: "default", port: null, report: null },
     );
     expect(code).toBe(EXIT_CODES.ok);
@@ -190,24 +215,111 @@ describe("authorization first, then a y/N question (D1)", () => {
     );
   });
 
-  it("names no_github_remote and check_failed as the reason", async () => {
-    const noRemote = BLOCKED_RESULT({
-      authorization: {
-        decision: "blocked",
-        checks: [
-          {
-            id: "repository",
-            status: "failed",
-            reason: "No GitHub remote: add a github.com remote.",
-          },
-        ],
-      } as never,
+  it("names check_failed when the gate could not finish or a check could not be verified", async () => {
+    const failed = BLOCKED_RESULT({
+      overallStatus: "failed",
+      scanBasis: { mode: "authorized", authorization: "not_verified", reason: "check_failed" },
     });
+    for (const result of [failed, BLOCKED_RESULT()]) {
+      const runCode = vi.fn(async () => codeOnlyTestResult());
+      await runScanCommand(
+        createTestContext(
+          createTestIo({ isTTY: true }),
+          blockedDeps(runCode, result),
+          scriptedKeys(["y"]),
+        ),
+        { variant: "code", port: null, report: null },
+      );
+      expect(runCode).toHaveBeenCalledWith(
+        { projectRoot: "/work/repo", reason: "check_failed" },
+        expect.anything(),
+      );
+    }
+  });
+
+  it("a failed gate (check_failed) exits 3, never 5: N, and no terminal", async () => {
+    const failed = BLOCKED_RESULT({
+      overallStatus: "failed",
+      scanBasis: { mode: "authorized", authorization: "not_verified", reason: "check_failed" },
+    });
+    const declined = createTestIo({ isTTY: true });
+    const strict = {
+      runCodeOnlyScan: unexpected("runCodeOnlyScan") as never,
+      runScan: async () => failed,
+    };
+    expect(
+      await runScanCommand(
+        createTestContext(declined, createTestDeps(strict), scriptedKeys(["n"])),
+        { variant: "code", port: null, report: null, panels: true },
+      ),
+    ).toBe(EXIT_CODES.blocked);
+    expect(declined.stderr()).toContain("blocked");
+    const piped = createTestIo();
+    expect(
+      await runScanCommand(createTestContext(piped, createTestDeps(strict)), {
+        variant: "default",
+        port: null,
+        report: null,
+        format: "json",
+      }),
+    ).toBe(EXIT_CODES.blocked);
+    expect(JSON.parse(piped.stdout()).overallStatus).toBe("failed");
+    expect(piped.stderr()).toContain("For a code-only scan, add --code-only.");
+  });
+
+  it.each(["history", "all"] as const)(
+    "scan %s exits 3 when the gate could not finish (network error)",
+    async (variant) => {
+      const failed = BLOCKED_RESULT({
+        overallStatus: "failed",
+        scanBasis: { mode: "authorized", authorization: "not_verified", reason: "check_failed" },
+      });
+      const captured = createTestIo();
+      const code = await runScanCommand(
+        createTestContext(
+          captured,
+          createTestDeps({
+            runCodeOnlyScan: unexpected("runCodeOnlyScan") as never,
+            verifyProject: async () => ({ summary: BLOCKED, repo: "owner/name", revision: "abc" }),
+            runScan: async () => failed,
+          }),
+        ),
+        { variant, port: variant === "all" ? 3000 : null, report: null, format: "json" },
+      );
+      expect(code).toBe(EXIT_CODES.blocked);
+    },
+  );
+
+  it("maps the reason from fixed codes, never from the text", () => {
+    const blocked = BLOCKED_RESULT({ authorization: REPOSITORY_FAILED });
+    const outcome = (repositoryCode: string | null) =>
+      ({ summary: REPOSITORY_FAILED, repo: null, revision: null, repositoryCode }) as never;
+    expect(codeOnlyReasonAfter(blocked, outcome("no_remote"))).toBe("no_github_remote");
+    expect(codeOnlyReasonAfter(blocked, outcome("remote_not_github"))).toBe("no_github_remote");
+    // The text names a path with "remote" in it; the code says what happened.
+    expect(codeOnlyReasonAfter(blocked, outcome("isolation_failed"))).toBe("no_approval");
+    expect(codeOnlyReasonAfter(blocked, outcome("no_commit_history"))).toBe("not_a_git_repository");
+    expect(codeOnlyReasonAfter(blocked, null)).toBe("no_approval");
+  });
+
+  it("uses the gate's repository code (no remote) as the reason after y", async () => {
     const runCode = vi.fn(async () => codeOnlyTestResult());
+    const result = BLOCKED_RESULT({ authorization: REPOSITORY_FAILED });
     await runScanCommand(
       createTestContext(
         createTestIo({ isTTY: true }),
-        blockedDeps(runCode, noRemote),
+        createTestDeps({
+          runCodeOnlyScan: runCode,
+          runScan: async (_request, deps) => {
+            deps.onAuthorization?.({
+              summary: REPOSITORY_FAILED,
+              repo: null,
+              revision: null,
+              repositoryCode: "no_remote",
+            });
+            return result;
+          },
+        }),
         scriptedKeys(["y"]),
       ),
       { variant: "code", port: null, report: null },
@@ -216,23 +328,61 @@ describe("authorization first, then a y/N question (D1)", () => {
       { projectRoot: "/work/repo", reason: "no_github_remote" },
       expect.anything(),
     );
-    const failed = BLOCKED_RESULT({
-      overallStatus: "failed",
-      scanBasis: { mode: "authorized", authorization: "not_verified", reason: "check_failed" },
-    });
-    const runCodeAfterFailure = vi.fn(async () => codeOnlyTestResult());
-    await runScanCommand(
+  });
+
+  it("refuses the home folder at once instead of asking", async () => {
+    const home = await temp();
+    const runCode = unexpected("runCodeOnlyScan");
+    const captured = createTestIo({ isTTY: true, cwd: home, env: { HOME: home } });
+    const code = await runScanCommand(
       createTestContext(
-        createTestIo({ isTTY: true }),
-        blockedDeps(runCodeAfterFailure, failed),
+        captured,
+        createTestDeps({ findGitRoot: async () => null, runCodeOnlyScan: runCode as never }),
         scriptedKeys(["y"]),
       ),
-      { variant: "code", port: null, report: null },
+      { variant: "default", port: null, report: null },
     );
-    expect(runCodeAfterFailure).toHaveBeenCalledWith(
-      { projectRoot: "/work/repo", reason: "check_failed" },
-      expect.anything(),
+    expect(code).toBe(EXIT_CODES.blocked);
+    expect(captured.stdout()).not.toContain("[y/N]");
+    expect(captured.stderr()).toContain("This is your home folder");
+    expect(captured.stderr()).toContain("pgard scan --code-only inside the project's own folder");
+  });
+
+  it("asks the --report inside-repository question once, not again after y", async () => {
+    const repo = await temp();
+    await mkdir(path.join(repo, "reports"));
+    const runCode = vi.fn(async () => codeOnlyTestResult());
+    const captured = createTestIo({ isTTY: true, cwd: repo, env: { HOME: os.tmpdir() } });
+    await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          findGitRoot: async () => repo,
+          isPathInsideDirectory: async () => true,
+          runCodeOnlyScan: runCode,
+          runScan: async () => BLOCKED_RESULT(),
+        }),
+        scriptedKeys(["y", "y"]),
+      ),
+      {
+        variant: "code",
+        port: null,
+        report: { format: "html", outputDir: path.join(repo, "reports") },
+      } as never,
     );
+    expect(runCode).toHaveBeenCalledTimes(1);
+    const all = captured.stdout() + captured.stderr();
+    expect(all.split("Save the report inside the repository anyway?").length - 1).toBe(1);
+  });
+
+  it("baseline set --from-current, when blocked, shows the approval guidance only", async () => {
+    const captured = createTestIo();
+    const code = await runScanCommand(
+      createTestContext(captured, blockedDeps(unexpected("runCodeOnlyScan"))),
+      { variant: "default", port: null, report: null, setBaseline: true },
+    );
+    expect(code).toBe(EXIT_CODES.blocked);
+    expect(captured.stdout() + captured.stderr()).not.toContain("--code-only");
   });
 
   it("outside a Git repository asks too, and y scans the folder as it is", async () => {

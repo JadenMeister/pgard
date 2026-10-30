@@ -4,6 +4,7 @@ import type {
   AuthorizationSummary,
 } from "@pgard/findings";
 import type { GitRunner } from "@pgard/git-history";
+import type { RepositoryBlockCode } from "./checks.js";
 import type { GitHubSessionProvider } from "@pgard/github-auth";
 
 /** Order in which checks are evaluated and reported. */
@@ -132,6 +133,11 @@ export interface AuthorizationOutcome {
    * whether a later sign-in is the same account the check ran with.
    */
   account?: { login: string; userId: number } | null;
+  /**
+   * Why the `repository` check failed, as a fixed code (for example `no_remote`), so frontends
+   * never parse the reason text. Absent or `null` when that check passed.
+   */
+  repositoryCode?: RepositoryBlockCode | null;
 }
 
 /** Result of `recheckOwnerApproval`: the owner_approval check alone, evaluated again. */

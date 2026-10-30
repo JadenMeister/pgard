@@ -39,6 +39,8 @@ export interface CodeOnlyCommand {
    * `not_a_git_repository`.
    */
   reason?: KnownScanBasisReason;
+  /** The `--report` folder was already checked and confirmed (after `y`): do not ask again. */
+  isReportConfirmed?: boolean;
 }
 
 export interface CodeOnlyOutput {
@@ -132,6 +134,29 @@ export async function isInsideGitDirectory(cwd: string): Promise<boolean> {
   }
 }
 
+/**
+ * Why the current folder can never be code-only scanned (a `.git` folder, no home folder, a
+ * folder too broad to be one project), as the message to show; `null` when it can be. Checked
+ * before a code-only scan and before one is offered.
+ */
+export async function codeOnlyRefusalMessage(
+  context: CommandContext,
+  gitRoot: string | null,
+): Promise<string | null> {
+  const text: CliText = cliText(context.ruleLocale);
+  const projectRoot = gitRoot ?? path.resolve(context.io.cwd);
+  if (gitRoot === null && (await isInsideGitDirectory(context.io.cwd))) {
+    return text.codeOnly.gitDirectory;
+  }
+  const home = codeOnlyHome(context.io.env);
+  if (home === null) return text.codeOnly.noHome;
+  // Also for a repository: a dotfiles repository at the home folder would scan all of it.
+  if ((await codeOnlyFolderRefusal(projectRoot, home)) !== null) {
+    return gitRoot === null ? text.codeOnly.tooBroad : text.codeOnly.tooBroadRepository;
+  }
+  return null;
+}
+
 export async function runCodeOnlyScanFlow(
   context: CommandContext,
   command: CodeOnlyCommand,
@@ -142,19 +167,9 @@ export async function runCodeOnlyScanFlow(
   const gitRoot = await context.deps.findGitRoot(context.io.cwd);
   // D4: a folder without Git is scanned as it is; a Git repository from its top folder.
   const projectRoot = gitRoot ?? path.resolve(context.io.cwd);
-  if (gitRoot === null && (await isInsideGitDirectory(context.io.cwd))) {
-    err(context, context.errStyle.red(text.codeOnly.gitDirectory));
-    return EXIT_CODES.usage;
-  }
-  const home = codeOnlyHome(context.io.env);
-  if (home === null) {
-    err(context, context.errStyle.red(text.codeOnly.noHome));
-    return EXIT_CODES.usage;
-  }
-  // Also for a repository: a dotfiles repository at the home folder would scan all of it.
-  if ((await codeOnlyFolderRefusal(projectRoot, home)) !== null) {
-    const message = gitRoot === null ? text.codeOnly.tooBroad : text.codeOnly.tooBroadRepository;
-    err(context, context.errStyle.red(message));
+  const refusal = await codeOnlyRefusalMessage(context, gitRoot);
+  if (refusal !== null) {
+    err(context, context.errStyle.red(refusal));
     return EXIT_CODES.usage;
   }
 
@@ -166,7 +181,11 @@ export async function runCodeOnlyScanFlow(
       err(context, context.errStyle.red(check.message));
       return EXIT_CODES.usage;
     }
-    if (check.isInsideRepository && !(await confirmInsideRepository(context))) {
+    if (
+      check.isInsideRepository &&
+      command.isReportConfirmed !== true &&
+      !(await confirmInsideRepository(context))
+    ) {
       return EXIT_CODES.usage;
     }
     reportDir = check.outputDir;

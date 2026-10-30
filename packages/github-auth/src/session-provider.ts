@@ -85,6 +85,8 @@ export interface DeviceFlowSessionProviderOptions {
   canSignInInteractively?: boolean;
   fetch?: FetchLike;
   signal?: AbortSignal;
+  /** Time limit per GitHub API request; default `GITHUB_REQUEST_TIMEOUT_MS` (tests shorten it). */
+  requestTimeoutMs?: number;
   /** Test hooks forwarded to the device flow. */
   sleep?: DeviceFlowOptions["sleep"];
   now?: DeviceFlowOptions["now"];
