@@ -150,15 +150,17 @@ describe("createStagedAnalyzer", () => {
     expect(report).toMatchObject({ scanned: 0, deleted: 1 });
   });
 
-  it("counts a file that only looks binary (no known format) as unscanned", async () => {
+  it("names a file that only looks binary (no known format) without making the area partial", async () => {
     const fixture = repo();
     writeFileSync(
       path.join(fixture.root, "noise.dat"),
       Buffer.from(Array.from({ length: 300 }, (_, i) => (i % 3 === 0 ? 0 : (i * 7) % 256))),
     );
     fixture.git("add", "-A");
-    const { output } = await run(fixture);
-    expect(output.coverage[0]?.status).toBe("partial");
+    const { output, report } = await run(fixture);
+    expect(output.coverage[0]?.status).toBe("completed");
+    expect(output.coverage[0]?.note).toContain("1 looks binary with no known format (a warning)");
+    expect(report.skipped).toMatchObject([{ path: "noise.dat", reason: "binary_suspected" }]);
   });
 
   it("reports an unreadable repository as not tested, never as clean", async () => {

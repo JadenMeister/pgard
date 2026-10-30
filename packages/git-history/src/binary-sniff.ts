@@ -38,7 +38,52 @@ const SIGNATURES: readonly string[] = [
   "\x00\x00\x01\x00",
   "SQLite format 3\x00",
   "\x00asm",
+  // Apple: icons, Finder metadata, binary property lists, asset catalogues, nibs.
+  "icns",
+  "\x00\x00\x00\x01Bud1",
+  "bplist0",
+  "BOMStore",
+  "NIBArchive",
+  // Fonts (TrueType collection), images (TIFF, Photoshop), 3D (glTF binary).
+  "ttcf",
+  "II*\x00",
+  "MM\x00*",
+  "8BPS",
+  "glTF",
+  // Audio: MP3 with an ID3 tag, FLAC.
+  "ID3\x02",
+  "ID3\x03",
+  "ID3\x04",
+  "fLaC",
+  // Data: NumPy, HDF5, RAR, Java keystore.
+  "\x93NUMPY",
+  "\x89HDF\r\n\x1a\n",
+  "Rar!\x1a\x07",
+  "\xfe\xed\xfe\xed",
 ];
+
+/** An MPEG audio frame header (an MP3 without an ID3 tag): 11 sync bits and valid fields. */
+function isMpegFrame(body: string): boolean {
+  if (body.charCodeAt(0) !== 0xff || body.length < 3) return false;
+  const second = body.charCodeAt(1);
+  const third = body.charCodeAt(2);
+  // 0xfe is also the UTF-16 little-endian byte order mark: never read it as audio.
+  if ((second & 0xe0) !== 0xe0 || second === 0xfe || second === 0xff) return false;
+  const version = (second >> 3) & 3;
+  const layer = (second >> 1) & 3;
+  return version !== 1 && layer !== 0 && third >> 4 !== 0xf && ((third >> 2) & 3) !== 3;
+}
+
+/**
+ * Compiled Python (`.pyc`): a two-byte magic number followed by `\r\n`. Python 3 numbers are
+ * 0x0d00 to 0x0dff (little-endian, so the second byte is 0x0d); Python 2.7 is 0xf303.
+ */
+function isPythonBytecode(body: string): boolean {
+  if (body.slice(2, 4) !== "\r\n") return false;
+  const first = body.charCodeAt(0);
+  const second = body.charCodeAt(1);
+  return second === 0x0d || (first === 0x03 && second === 0xf3);
+}
 
 /** True when the body starts with a known binary file format's signature. */
 export function hasBinarySignature(body: string): boolean {
@@ -48,6 +93,10 @@ export function hasBinarySignature(body: string): boolean {
   if (body.charCodeAt(0) === 0 && body.charCodeAt(1) === 0 && body.slice(4, 8) === "ftyp")
     return true;
   if (/^BZh[1-9]1AY&SY/.test(body.slice(0, 10))) return true;
+  // AIFF audio (FORM....AIFF / AIFC), ICC colour profiles ("acsp" at byte 36).
+  if (body.startsWith("FORM") && /^AIF[FC]$/.test(body.slice(8, 12))) return true;
+  if (body.length >= 128 && body.slice(36, 40) === "acsp") return true;
+  if (isMpegFrame(body) || isPythonBytecode(body)) return true;
   // A DOS/Windows executable: "MZ" followed by the usual header, not just two letters.
   return body.startsWith("MZ") && body.length > 0x40 && body.includes("This program", 0x40);
 }

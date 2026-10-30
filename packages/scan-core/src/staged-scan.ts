@@ -63,7 +63,7 @@ export interface StagedScanSettings {
 
 const SKIP_TEXT: Record<StagedSkip["reason"], string> = {
   binary: "binary",
-  binary_suspected: "looks binary, not read",
+  binary_suspected: "looks binary with no known format (a warning)",
   symlink: "symbolic link",
   submodule: "submodule",
   too_large: "over the size limit",

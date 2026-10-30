@@ -171,15 +171,32 @@ describe("a NUL byte or a size cannot hide a new secret", () => {
     expect(captured.stdout()).toContain("Commit allowed: nothing found");
   });
 
-  it("does not skip a file that only looks binary by design: a coloured log is not scanned", async () => {
+  it("warns about a file that only looks binary (a coloured log), and does not block the commit", async () => {
     const root = makeRepo();
     write(root, { "build.log": colouredLog(GITHUB_TOKEN) });
     git(root, "add", "build.log");
     const { captured, context } = setup(root);
+    // The default policy blocks on "not scanned"; a binary-looking file is a warning only.
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+    const text = captured.stdout();
+    expect(text).toContain("WARNING: 1 staged file(s) look binary but have no file format");
+    expect(text).toContain("(build.log)");
+    expect(text).toContain("This does not block the commit.");
+    expect(text).not.toContain("Not everything was scanned");
+    expect(text).not.toContain("Not scanned by design");
+  });
+
+  it("still blocks a binary-looking file's commit when something else was not scanned", async () => {
+    const root = makeRepo();
+    write(root, {
+      "build.log": colouredLog(GITHUB_TOKEN),
+      "big.txt": "x".repeat(2 * 1024 * 1024),
+    });
+    git(root, "add", "build.log", "big.txt");
+    const { captured, context } = setup(root);
     expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.partial);
-    expect(captured.stdout()).toContain("Not everything was scanned");
-    expect(captured.stdout()).toContain("build.log: looks binary but has no known file format");
-    expect(captured.stdout()).not.toContain("Not scanned by design");
+    expect(captured.stdout()).toContain("big.txt");
+    expect(captured.stdout()).toContain("build.log");
   });
 
   it("says a large text file was not scanned, and how to let such commits through", async () => {

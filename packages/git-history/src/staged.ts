@@ -22,7 +22,9 @@ export type StagedSkipReason =
   | "binary"
   /**
    * Looks binary by its content only (no known file signature). It may be text, such as a log
-   * with colour codes, so it counts as "not scanned", not as skipped by design.
+   * with colour codes, so it is not called binary. It is not in `INCOMPLETE_SKIP_REASONS`:
+   * many real binary formats have no signature PGARD knows, so blocking a commit on it would
+   * block ordinary commits. The pre-commit check names such files as a warning instead.
    */
   | "binary_suspected"
   /** A symbolic link: the blob holds the link target, not file content. */
@@ -44,7 +46,6 @@ export type StagedSkipReason =
 
 /** Reasons that leave a file unexamined by surprise rather than by design. */
 export const INCOMPLETE_SKIP_REASONS: ReadonlySet<StagedSkipReason> = new Set([
-  "binary_suspected",
   "too_large",
   "file_limit",
   "byte_budget",

@@ -103,7 +103,8 @@ describe("readStagedChanges", () => {
     stage(fixture, "noise.bin");
     const changes = await readStagedChanges(fixture.root);
     expect(changes.skipped).toMatchObject([{ path: "noise.bin", reason: "binary_suspected" }]);
-    expect(INCOMPLETE_SKIP_REASONS.has("binary_suspected")).toBe(true);
+    // A warning in the pre-commit check, never a block (many real formats have no signature).
+    expect(INCOMPLETE_SKIP_REASONS.has("binary_suspected")).toBe(false);
     expect(INCOMPLETE_SKIP_REASONS.has("binary")).toBe(false);
   });
 
