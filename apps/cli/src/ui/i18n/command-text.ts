@@ -107,7 +107,12 @@ export interface CommandText {
     savePrompt: string;
     no: string;
     both: string;
-    outputDirPrompt: string;
+    outputDirPrompt: (shown: string | null) => string;
+    createQuestion: (shown: string) => string;
+    cannotCreate: string;
+    homeOnly: string;
+    typeFolder: string;
+    tildeUser: string;
   };
   /** `pgard report`: a report from the last stored result, without scanning. */
   reportCommand: {
@@ -366,7 +371,13 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     savePrompt: "Save a report?",
     no: "No",
     both: "HTML and PDF",
-    outputDirPrompt: "Output directory (must exist):",
+    outputDirPrompt: (shown) => (shown === null ? "Save to folder:" : `Save to folder [${shown}]:`),
+    createQuestion: (shown) => `"${shown}" doesn't exist. Create it?`,
+    cannotCreate: "The folder could not be created. Enter another one.",
+    homeOnly:
+      "Only folders inside your home folder can be created here. Create it yourself or pick an existing folder.",
+    typeFolder: "Type a folder.",
+    tildeUser: "Use ~/ (e.g. ~/Downloads).",
   },
   reportCommand: {
     menuLabel: "Build report from last scan",
@@ -632,7 +643,12 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     savePrompt: "보고서를 저장할까요?",
     no: "아니요",
     both: "HTML과 PDF",
-    outputDirPrompt: "출력 디렉터리 (이미 있어야 함):",
+    outputDirPrompt: (shown) => (shown === null ? "저장할 폴더:" : `저장할 폴더 [${shown}]:`),
+    createQuestion: (shown) => `"${shown}" 폴더가 없습니다. 만들까요?`,
+    cannotCreate: "폴더를 만들지 못했습니다. 다른 폴더를 입력하세요.",
+    homeOnly: "홈 폴더 안의 폴더만 만들 수 있습니다. 직접 만들거나 이미 있는 폴더를 고르세요.",
+    typeFolder: "폴더를 입력하세요.",
+    tildeUser: "~ 다음에는 / 를 붙이세요 (예: ~/Downloads)",
   },
   reportCommand: {
     menuLabel: "마지막 검사로 보고서 만들기",

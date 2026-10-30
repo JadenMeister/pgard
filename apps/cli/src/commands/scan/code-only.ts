@@ -1,6 +1,6 @@
 import { realpath } from "node:fs";
 import { lstat, stat as statOf } from "node:fs/promises";
-import { homedir, userInfo } from "node:os";
+import { homedir } from "node:os";
 import path from "node:path";
 import type { KnownScanBasisReason, ScanResult } from "@pgard/findings";
 import {
@@ -14,6 +14,7 @@ import {
 } from "@pgard/result-store";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
 import { err, out, suspendKeys, type CommandContext } from "../../context.js";
+import { codeOnlyHome } from "../../home-dir.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
 import {
   checkOutputDir,
@@ -107,26 +108,6 @@ async function fileIdentityOf(target: string): Promise<FileIdentity> {
   try {
     const stat = await statOf(target, { bigint: true });
     return { dev: stat.dev, ino: stat.ino };
-  } catch {
-    return null;
-  }
-}
-
-/**
- * The home folder to refuse: `HOME` (or `USERPROFILE` on Windows) when set and not empty,
- * otherwise the account's own home folder. `null` when neither is known: the scan is refused
- * then, because a folder could not be checked against home.
- */
-export function codeOnlyHome(
-  env: Readonly<Record<string, string | undefined>>,
-  accountHome: () => string = () => userInfo().homedir,
-): string | null {
-  for (const value of [env.HOME, env.USERPROFILE]) {
-    if (value !== undefined && value.trim() !== "") return value;
-  }
-  try {
-    const fromAccount = accountHome();
-    return fromAccount.trim() === "" ? null : fromAccount;
   } catch {
     return null;
   }
@@ -335,3 +316,5 @@ export async function runCodeOnlyScanFlow(
   if (!isReportSaved && exitCode === EXIT_CODES.ok) exitCode = EXIT_CODES.partial;
   return exitCode;
 }
+
+export { codeOnlyHome };
