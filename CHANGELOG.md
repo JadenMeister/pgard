@@ -4,7 +4,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-30
+## [0.1.0] - 2026-10-31
 
 ### Security
 
