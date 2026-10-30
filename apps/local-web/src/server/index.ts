@@ -9,7 +9,7 @@ import {
 import { sanitizeDisplayText } from "@pgard/http-local";
 import { openGitHubUrl } from "@pgard/scan-core";
 import { createDefaultServerDeps, startLocalWebServer, type ServerDeps } from "./create-server.js";
-import { announceLaunch, connectedLine } from "./launch-output.js";
+import { announceLaunch, bindRedirectCleanup, connectedLine, reusedLine } from "./launch-output.js";
 import { LauncherUsageError, parseLauncherArgs, type LauncherOptions } from "./launcher.js";
 import { createFolderDialog } from "./picker/folder-dialog.js";
 import { createInspectorHost } from "./picker/inspector-host.js";
@@ -84,13 +84,20 @@ async function runLauncher(): Promise<number> {
         isStoreDisabled: options.noStore,
       }
     : undefined;
+  // Bound once the redirect file exists; a connection before that has nothing to delete.
+  let cleanup = bindRedirectCleanup(null);
   const server = await startLocalWebServer({
     projectRoot: options.projectRoot,
     presetTargetPort: options.presetTargetPort,
     env: process.env,
     assets,
     ...(deps === undefined ? {} : { deps }),
-    onBrowserConnected: (at) => process.stdout.write(connectedLine(at)),
+    onBrowserConnected: (at) => {
+      process.stdout.write(connectedLine(at));
+      // The redirect file held the link; it is spent now.
+      cleanup.onConnected();
+    },
+    onLinkReused: (at) => process.stdout.write(reusedLine(at)),
     // Like the CLI: open the GitHub sign-in page automatically only for a person at a terminal
     // who did not pass --no-browser. The page is also linked in the dashboard.
     ...(options.noBrowser || process.stdout.isTTY !== true
@@ -100,7 +107,7 @@ async function runLauncher(): Promise<number> {
   // Opens the local page for a person at a terminal (#419). The terminal then shows the link
   // with its one-time token masked; the full link only when the browser was not opened, or with
   // --print-url. The link is never written to a log file.
-  await announceLaunch({
+  const { redirect } = await announceLaunch({
     url: server.url,
     mode: options.picker ? "picker" : "fixed",
     printUrl: options.printUrl,
@@ -112,13 +119,15 @@ async function runLauncher(): Promise<number> {
     },
     write: (text) => process.stdout.write(text),
   });
+  cleanup = bindRedirectCleanup(redirect);
+  process.once("exit", () => cleanup.onExit());
   return new Promise<number>((resolve) => {
     let isStopping = false;
     const stop = (): void => {
       if (isStopping) return;
       isStopping = true;
       process.stdout.write("Stopping dashboard; discarding session state.\n");
-      void server.close().then(() => resolve(0));
+      void Promise.all([cleanup.onStop(), server.close()]).then(() => resolve(0));
     };
     // `on`, not `once`: Ctrl+C can arrive twice (terminal process group + the CLI forwarding
     // it); a second signal must not kill the process before state is discarded.

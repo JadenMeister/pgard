@@ -1,10 +1,25 @@
-import { describe, expect, it, vi } from "vitest";
-import { announceLaunch, connectedLine, launchLines, maskSessionUrl } from "./launch-output.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  announceLaunch,
+  connectedLine,
+  launchLines,
+  maskSessionUrl,
+  reusedLine,
+} from "./launch-output.js";
 import type { OpenerEnvironment } from "./open-local-url.js";
+import { createRedirectFile } from "./redirect-file.js";
 
 /** #419: what the terminal shows. No browser is ever started here (the spawn is a fake). */
 const TOKEN = "abcDEF0123456789_-tokenvalue";
 const URL = `http://127.0.0.1:43123/#token=${TOKEN}`;
+
+const roots: string[] = [];
+afterEach(() => {
+  for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
 
 const env = (overrides: Partial<OpenerEnvironment> = {}): OpenerEnvironment => ({
   platform: "darwin",
@@ -19,17 +34,19 @@ async function run(options: {
   environment?: OpenerEnvironment;
   opens?: boolean;
 }) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "pgard-launch-test-"));
+  roots.push(root);
   let text = "";
-  const spawn = vi.fn(async () => options.opens ?? true);
-  const outcome = await announceLaunch({
+  const spawn = vi.fn(async (_command: string, _args: readonly string[]) => options.opens ?? true);
+  const { open, redirect } = await announceLaunch({
     url: URL,
     mode: "picker",
     printUrl: options.printUrl ?? false,
     environment: options.environment ?? env(),
     write: (chunk) => (text += chunk),
-    spawn,
+    deps: { spawn, createRedirect: (url) => createRedirectFile(url, { tmpRoot: root }) },
   });
-  return { text, spawn, outcome };
+  return { text, spawn, outcome: open, redirect };
 }
 
 describe("maskSessionUrl", () => {
@@ -38,12 +55,13 @@ describe("maskSessionUrl", () => {
   });
 });
 
-describe("announceLaunch", () => {
-  it("opens the browser and shows the link with the token masked", async () => {
-    const { text, spawn } = await run({});
-    expect(spawn).toHaveBeenCalledWith("/usr/bin/open", [URL]);
+describe.skipIf(process.platform === "win32")("announceLaunch", () => {
+  it("opens the redirect file and shows the link with the token masked", async () => {
+    const { text, spawn, redirect } = await run({});
+    expect(spawn).toHaveBeenCalledWith("/usr/bin/open", [redirect?.file]);
+    expect(JSON.stringify(spawn.mock.calls)).not.toContain(TOKEN);
     expect(text).toContain("Opened in your browser: http://127.0.0.1:43123/#token=••••");
-    expect(text).toContain("--print-url");
+    expect(text).toContain("If no browser opened, run again with --print-url.");
     expect(text).not.toContain(TOKEN);
   });
 
@@ -54,24 +72,30 @@ describe("announceLaunch", () => {
   });
 
   it("--no-open opens nothing and prints the full link", async () => {
-    const { text, spawn } = await run({ environment: env({ isDisabled: true }) });
+    const { text, spawn, redirect } = await run({ environment: env({ isDisabled: true }) });
     expect(spawn).not.toHaveBeenCalled();
+    expect(redirect).toBeNull();
     expect(text).toContain("Not opened automatically (--no-open or --no-browser was given).");
     expect(text).toContain(`Open this one-time link in your browser: ${URL}`);
   });
 
-  it("prints the full link when the browser could not be started", async () => {
-    const { text, outcome } = await run({ opens: false });
+  it("prints the full link when the opener failed (for example xdg-open exited non-zero)", async () => {
+    const { text, outcome, redirect } = await run({
+      opens: false,
+      environment: env({ platform: "linux", env: { DISPLAY: ":0" } }),
+    });
     expect(outcome).toEqual({ isOpened: false, reason: "failed" });
+    expect(redirect).toBeNull();
     expect(text).toContain("the browser could not be started");
     expect(text).toContain(URL);
   });
 
-  it("prints the full link without a terminal, in CI and over SSH", async () => {
+  it("prints the full link without a terminal, in CI and over SSH (also on a Mac)", async () => {
     for (const environment of [
       env({ isTerminal: false }),
       env({ env: { CI: "1" } }),
-      env({ platform: "linux", env: { DISPLAY: ":0", SSH_CONNECTION: "a b c d" } }),
+      env({ env: { SSH_CONNECTION: "a b c d" } }),
+      env({ platform: "linux", env: { DISPLAY: ":0", SSH_TTY: "/dev/pts/0" } }),
     ]) {
       const { text, spawn } = await run({ environment });
       expect(spawn).not.toHaveBeenCalled();
@@ -94,10 +118,10 @@ describe("launchLines", () => {
   });
 });
 
-describe("connectedLine", () => {
-  it("prints the local time of the exchange", () => {
-    expect(connectedLine(new Date(2026, 9, 30, 23, 41, 7))).toBe(
-      "Browser connected at 23:41:07.\n",
-    );
+describe("terminal lines on exchange", () => {
+  it("prints the local time of a connection and of a reuse attempt", () => {
+    const at = new Date(2026, 9, 30, 23, 41, 7);
+    expect(connectedLine(at)).toBe("Browser connected at 23:41:07.\n");
+    expect(reusedLine(at)).toContain("Someone tried to reuse the link at 23:41:07.");
   });
 });

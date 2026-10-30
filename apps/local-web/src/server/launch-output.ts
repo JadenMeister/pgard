@@ -1,10 +1,12 @@
 import {
   openLocalUrl,
   type OpenerEnvironment,
+  type OpenLocalDeps,
   type OpenOutcome,
   type OpenSkipReason,
-  type SpawnDetached,
 } from "./open-local-url.js";
+import type { RedirectFile } from "./redirect-file.js";
+import { URL_TOKEN_TTL_MS } from "./session/url-session.js";
 
 /** What the terminal shows instead of the token (#419). */
 export const TOKEN_MASK = "••••";
@@ -48,7 +50,8 @@ export function launchLines(announcement: LaunchAnnouncement): string[] {
   if (open.isOpened) {
     lines.push(`Opened in your browser: ${maskSessionUrl(url)}`);
     if (printUrl) lines.push(`Full one-time link: ${url}`);
-    else lines.push("Run again with --print-url to see the full link.");
+    // The opener starting is not proof that a browser showed the page.
+    else lines.push("If no browser opened, run again with --print-url.");
     lines.push("To open it elsewhere, stop and rerun the command.");
   } else {
     lines.push(`Not opened automatically (${SKIP_TEXT[open.reason]}).`);
@@ -62,10 +65,19 @@ export function launchLines(announcement: LaunchAnnouncement): string[] {
   return lines;
 }
 
+const clock = (at: Date): string => {
+  const pad = (value: number): string => String(value).padStart(2, "0");
+  return `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}`;
+};
+
 /** `Browser connected at 23:41:07.` (local time), printed on every exchange. */
 export function connectedLine(at: Date): string {
-  const pad = (value: number): string => String(value).padStart(2, "0");
-  return `Browser connected at ${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}.\n`;
+  return `Browser connected at ${clock(at)}.\n`;
+}
+
+/** Printed when the spent link is presented again, so a lost race is visible. */
+export function reusedLine(at: Date): string {
+  return `Someone tried to reuse the link at ${clock(at)}. If that was not you, stop the server (Ctrl+C) and run the command again.\n`;
 }
 
 /** Opens the browser (when allowed) and prints the matching lines. */
@@ -75,13 +87,46 @@ export async function announceLaunch(options: {
   printUrl: boolean;
   environment: OpenerEnvironment;
   write: (text: string) => void;
-  spawn?: SpawnDetached;
-}): Promise<OpenOutcome> {
-  const open = await openLocalUrl(options.url, options.environment, options.spawn);
+  deps?: OpenLocalDeps;
+}): Promise<{ open: OpenOutcome; redirect: RedirectFile | null }> {
+  const { outcome, redirect } = await openLocalUrl(options.url, options.environment, options.deps);
   options.write(
-    launchLines({ url: options.url, mode: options.mode, printUrl: options.printUrl, open }).join(
-      "\n",
-    ),
+    launchLines({
+      url: options.url,
+      mode: options.mode,
+      printUrl: options.printUrl,
+      open: outcome,
+    }).join("\n"),
   );
-  return open;
+  return { open: outcome, redirect };
+}
+
+/**
+ * When the redirect file is deleted: right after the exchange (`onConnected`), when the unused
+ * link expires (`URL_TOKEN_TTL_MS`), and when the server stops (`onStop`, also on SIGINT and
+ * SIGTERM; `onExit` is the synchronous last resort for `process.on("exit")`).
+ */
+export function bindRedirectCleanup(
+  redirect: RedirectFile | null,
+  timers: {
+    setTimer: (run: () => void, ms: number) => { unref?: () => unknown };
+    clearTimer: (timer: unknown) => void;
+  } = { setTimer: setTimeout, clearTimer: (timer) => clearTimeout(timer as NodeJS.Timeout) },
+): { onConnected: () => void; onStop: () => Promise<void>; onExit: () => void } {
+  if (redirect === null) {
+    return { onConnected: () => undefined, onStop: async () => undefined, onExit: () => undefined };
+  }
+  const expiry = timers.setTimer(() => void redirect.remove(), URL_TOKEN_TTL_MS);
+  expiry.unref?.();
+  return {
+    onConnected: () => {
+      timers.clearTimer(expiry);
+      void redirect.remove();
+    },
+    onStop: async () => {
+      timers.clearTimer(expiry);
+      await redirect.remove();
+    },
+    onExit: () => redirect.removeSync(),
+  };
 }

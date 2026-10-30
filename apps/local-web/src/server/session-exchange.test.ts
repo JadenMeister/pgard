@@ -7,11 +7,13 @@ import { fakeDeps, json, send, TOKEN, type RawResponse } from "./test-support/we
 let running: LocalWebServer | null = null;
 let clock = { now: 5_000_000 };
 const connected: Date[] = [];
+const reused: Date[] = [];
 
 afterEach(async () => {
   await running?.close();
   running = null;
   connected.length = 0;
+  reused.length = 0;
 });
 
 async function start(): Promise<LocalWebServer> {
@@ -25,6 +27,7 @@ async function start(): Promise<LocalWebServer> {
     token: TOKEN,
     sessionClock: () => clock.now,
     onBrowserConnected: (at) => connected.push(at),
+    onLinkReused: (at) => reused.push(at),
   });
   return running;
 }
@@ -61,6 +64,7 @@ describe("POST /api/session/exchange", () => {
 
     const second = await exchange(server, TOKEN);
     expect(second.status).toBe(409);
+    expect(reused).toHaveLength(1);
     expect(code(second)).toBe("token_used");
     expect(second.body).not.toContain(secret);
     expect(connected).toHaveLength(1);

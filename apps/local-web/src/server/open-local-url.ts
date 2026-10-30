@@ -1,12 +1,16 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { createRedirectFile, isOurRedirectFile, type RedirectFile } from "./redirect-file.js";
 
 /**
- * Opens PGARD's own local session URL in the default browser (#419). Deliberately separate from
- * the GitHub opener (`openGitHubUrl`, which opens only `https://github.com/` pages) and narrower:
- * the only URL it ever accepts is `http://127.0.0.1:<port>/` with an optional `#token=` fragment,
- * checked against `LOCAL_SESSION_URL` on every platform before anything is started. The opener
- * runs with a fixed argument vector and no shell.
+ * Opens PGARD's own local page in the default browser (#419). Deliberately separate from the
+ * GitHub opener (`openGitHubUrl`, which opens only `https://github.com/` pages) and narrower.
+ *
+ * The one-time link is never an opener argument (process arguments are visible to other local
+ * users): it is written into a private redirect file (`redirect-file.ts`), and the opener gets
+ * only that file's path, checked to be exactly our file in our own temp directory. The link
+ * itself must match `LOCAL_SESSION_URL`. The opener runs with a fixed argument vector and no
+ * shell.
  */
 export const LOCAL_SESSION_URL = /^http:\/\/127\.0\.0\.1:\d+\/(#token=[A-Za-z0-9_-]+)?$/;
 
@@ -21,9 +25,9 @@ export type OpenSkipReason =
   | "ssh"
   /** Linux and similar without `DISPLAY` or `WAYLAND_DISPLAY`. */
   | "no_display"
-  /** The URL is not PGARD's own local URL (a bug, never user input). */
+  /** The link or the redirect file path is not ours (a bug, never user input). */
   | "bad_url"
-  /** The opener could not be started. */
+  /** The redirect file could not be written, or the opener failed. */
   | "failed";
 
 export type OpenerPlan =
@@ -48,36 +52,61 @@ export function windowsRundll32Path(env: Readonly<Record<string, string | undefi
   return path.win32.join(isTrusted ? root : "C:\\Windows", "System32", "rundll32.exe");
 }
 
-/** What would be started for `url`, or why nothing is. Pure: the platform and env are passed in. */
-export function planLocalOpen(url: string, environment: OpenerEnvironment): OpenerPlan {
+/** Why the browser must not be opened here, or `null`. Pure: the platform and env are passed in. */
+export function openSkipReason(environment: OpenerEnvironment): OpenSkipReason | null {
   const { platform, env } = environment;
-  if (environment.isDisabled) return { kind: "skip", reason: "disabled" };
-  if (!LOCAL_SESSION_URL.test(url)) return { kind: "skip", reason: "bad_url" };
-  if (!environment.isTerminal) return { kind: "skip", reason: "no_terminal" };
-  if (isSet(env.CI)) return { kind: "skip", reason: "ci" };
+  if (environment.isDisabled) return "disabled";
+  if (!environment.isTerminal) return "no_terminal";
+  if (isSet(env.CI)) return "ci";
+  // On every platform: over SSH (also into a Mac) the browser would open, and spend the link,
+  // on the physical screen of the other machine.
+  if (isSet(env.SSH_CONNECTION) || isSet(env.SSH_TTY)) return "ssh";
+  if (platform !== "darwin" && platform !== "win32") {
+    if (!isSet(env.DISPLAY) && !isSet(env.WAYLAND_DISPLAY)) return "no_display";
+  }
+  return null;
+}
+
+/**
+ * What would be started to open the redirect file `filePath` (which must be our own file in
+ * `redirectDir`), or why nothing is.
+ */
+export function planLocalOpen(
+  filePath: string,
+  redirectDir: string,
+  environment: OpenerEnvironment,
+): OpenerPlan {
+  const reason = openSkipReason(environment);
+  if (reason !== null) return { kind: "skip", reason };
+  const { platform, env } = environment;
+  if (!isOurRedirectFile(filePath, redirectDir, platform)) {
+    return { kind: "skip", reason: "bad_url" };
+  }
   switch (platform) {
     case "darwin":
-      return { kind: "open", command: "/usr/bin/open", args: [url] };
+      return { kind: "open", command: "/usr/bin/open", args: [filePath] };
     case "win32":
-      // `url.dll,FileProtocolHandler` hands the URL to the default browser; the URL was checked
-      // above and holds no character cmd or rundll32 would treat specially.
+      // `url.dll,FileProtocolHandler` opens an .html file in the default browser.
       return {
         kind: "open",
         command: windowsRundll32Path(env),
-        args: ["url.dll,FileProtocolHandler", url],
+        args: ["url.dll,FileProtocolHandler", filePath],
       };
     default:
-      if (isSet(env.SSH_CONNECTION) || isSet(env.SSH_TTY)) return { kind: "skip", reason: "ssh" };
-      if (!isSet(env.DISPLAY) && !isSet(env.WAYLAND_DISPLAY)) {
-        return { kind: "skip", reason: "no_display" };
-      }
-      return { kind: "open", command: "xdg-open", args: [url] };
+      return { kind: "open", command: "xdg-open", args: [filePath] };
   }
 }
 
 export type SpawnDetached = (command: string, args: readonly string[]) => Promise<boolean>;
 
-/** Starts the opener detached, without a shell, ignoring its output. Never rejects. */
+/** How long the opener may take to report a failure (a non-zero exit) before it counts as opened. */
+export const OPENER_GRACE_MS = 1500;
+
+/**
+ * Starts the opener detached, without a shell, ignoring its output. Waits up to
+ * `OPENER_GRACE_MS` for it to exit: a non-zero exit (xdg-open without a browser, `open` without
+ * an app) is a failure; still running, or exit 0, counts as opened. Never rejects.
+ */
 export const spawnDetached: SpawnDetached = (command, args) =>
   new Promise((resolve) => {
     let child;
@@ -87,23 +116,62 @@ export const spawnDetached: SpawnDetached = (command, args) =>
       resolve(false);
       return;
     }
-    child.once("error", () => resolve(false));
+    let timer: NodeJS.Timeout | undefined;
+    child.once("error", () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
+    child.once("exit", (code) => {
+      clearTimeout(timer);
+      resolve(code === 0);
+    });
     child.once("spawn", () => {
       child.unref();
-      resolve(true);
+      timer = setTimeout(() => resolve(true), OPENER_GRACE_MS);
+      timer.unref();
     });
   });
 
 export type OpenOutcome = { isOpened: true } | { isOpened: false; reason: OpenSkipReason };
 
-/** Opens the local URL when `planLocalOpen` allows it. Failing to open is never an error. */
+export interface OpenLocalDeps {
+  spawn?: SpawnDetached;
+  createRedirect?: (url: string) => Promise<RedirectFile>;
+}
+
+/**
+ * Opens the local link when allowed: writes the redirect file, opens it, and returns it so the
+ * caller deletes it (after the exchange, on expiry, on exit). Nothing is written when the
+ * browser is not opened, and the file is deleted again when opening failed. Failing to open is
+ * never an error.
+ */
 export async function openLocalUrl(
   url: string,
   environment: OpenerEnvironment,
-  spawnOpener: SpawnDetached = spawnDetached,
-): Promise<OpenOutcome> {
-  const plan = planLocalOpen(url, environment);
-  if (plan.kind === "skip") return { isOpened: false, reason: plan.reason };
-  const isStarted = await spawnOpener(plan.command, plan.args).catch(() => false);
-  return isStarted ? { isOpened: true } : { isOpened: false, reason: "failed" };
+  deps: OpenLocalDeps = {},
+): Promise<{ outcome: OpenOutcome; redirect: RedirectFile | null }> {
+  const skip = (reason: OpenSkipReason) => ({
+    outcome: { isOpened: false as const, reason },
+    redirect: null,
+  });
+  const reason = openSkipReason(environment);
+  if (reason !== null) return skip(reason);
+  if (!LOCAL_SESSION_URL.test(url) || !url.includes("#token=")) return skip("bad_url");
+  let redirect: RedirectFile;
+  try {
+    redirect = await (deps.createRedirect ?? createRedirectFile)(url);
+  } catch {
+    return skip("failed");
+  }
+  const plan = planLocalOpen(redirect.file, redirect.dir, environment);
+  if (plan.kind === "skip") {
+    await redirect.remove();
+    return skip(plan.reason);
+  }
+  const isStarted = await (deps.spawn ?? spawnDetached)(plan.command, plan.args).catch(() => false);
+  if (!isStarted) {
+    await redirect.remove();
+    return skip("failed");
+  }
+  return { outcome: { isOpened: true }, redirect };
 }

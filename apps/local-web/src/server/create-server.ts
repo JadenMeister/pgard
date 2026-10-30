@@ -68,6 +68,8 @@ export interface LocalWebServerOptions {
   sessionClock?: () => number;
   /** Called on every successful exchange (the launcher prints "Browser connected at ..."). */
   onBrowserConnected?: (at: Date) => void;
+  /** Called when the spent URL token is presented again (`409 token_used`). */
+  onLinkReused?: (at: Date) => void;
   /** Dev preview hook; production always takes a free port. */
   port?: number;
   /**
@@ -217,6 +219,11 @@ export async function startLocalWebServer(options: LocalWebServerOptions): Promi
               return sendJson(response, 200, { session: outcome.secret });
             }
             if (outcome.kind === "token_used") {
+              try {
+                options.onLinkReused?.(new Date());
+              } catch {
+                // The terminal line is informational only.
+              }
               return sendError(
                 response,
                 409,
