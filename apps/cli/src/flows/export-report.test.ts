@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,7 +10,7 @@ import {
   scriptedKeys,
 } from "../test-support.js";
 import { checkOutputDir, runReportExport } from "./export-report.js";
-import { defaultReportDir, expandHome, shownDir } from "./report-dir.js";
+import { defaultReportDir, expandHome, reportHome, shownDir } from "./report-dir.js";
 
 function fakeFiles(dirs: string[], files: Record<string, string> = {}) {
   return {
@@ -35,16 +35,56 @@ describe("defaultReportDir", () => {
     expect(await defaultReportDir({ ...base, ...fakeFiles([]) })).toBe(home);
   });
 
-  it("uses USERPROFILE on Windows", async () => {
-    const base = { platform: "win32" as const, env: { USERPROFILE: "C:\\Users\\u" } };
-    const home = "C:\\Users\\other";
+  it("uses the one Windows home (USERPROFILE first, then HOME)", async () => {
+    const home = "C:\\Users\\u";
+    const base = { platform: "win32" as const, env: {}, home };
+    expect(await defaultReportDir({ ...base, ...fakeFiles(["C:\\Users\\u\\Downloads"]) })).toBe(
+      "C:\\Users\\u\\Downloads",
+    );
+    expect(await defaultReportDir({ ...base, ...fakeFiles(["C:\\Users\\u\\Documents"]) })).toBe(
+      "C:\\Users\\u\\Documents",
+    );
+    expect(await defaultReportDir({ ...base, ...fakeFiles([]) })).toBe(home);
+    expect(reportHome({ USERPROFILE: "C:\\P", HOME: "C:\\H" }, "win32")).toBe("C:\\P");
+    expect(reportHome({ HOME: "C:\\H" }, "win32")).toBe("C:\\H");
+    expect(reportHome({ USERPROFILE: "/p", HOME: "/h" }, "linux")).toBe("/h");
+  });
+
+  it("expands ~\\x against a UNC home", () => {
+    expect(expandHome("~\\x", "\\\\srv\\share\\u", "win32")).toBe("\\\\srv\\share\\u\\x");
+    expect(shownDir("\\\\srv\\share\\u\\Downloads", "\\\\srv\\share\\u", "win32")).toBe(
+      "~\\Downloads",
+    );
+  });
+
+  it("ignores unsafe or odd XDG values: $HOMEevil, /tmp, $HOME/../.., control characters", async () => {
+    const home = "/home/u";
+    const base = { platform: "linux" as const, env: {}, home };
+    for (const value of [
+      "$HOMEevil/Downloads",
+      "/tmp",
+      "$HOME/../..",
+      "$HOME/../other",
+      "$HOME/D\u001b[31mx",
+      "$HOME/D\u0007x",
+    ]) {
+      const files = { "/home/u/.config/user-dirs.dirs": `XDG_DOWNLOAD_DIR="${value}"\n` };
+      const dirs = ["/tmp", "/", "/home", "/home/u/Downloads"];
+      expect(await defaultReportDir({ ...base, ...fakeFiles(dirs, files) })).toBe(
+        "/home/u/Downloads",
+      );
+    }
+  });
+
+  it("lets the last XDG definition win and normalizes it", async () => {
+    const files = {
+      "/home/u/.config/user-dirs.dirs":
+        'XDG_DOWNLOAD_DIR="$HOME/A"\nXDG_DOWNLOAD_DIR="$HOME/x/../B"\n',
+    };
+    const base = { platform: "linux" as const, env: {}, home: "/home/u" };
     expect(
-      await defaultReportDir({ ...base, home, ...fakeFiles(["C:\\Users\\u\\Downloads"]) }),
-    ).toBe("C:\\Users\\u\\Downloads");
-    expect(
-      await defaultReportDir({ ...base, home, ...fakeFiles(["C:\\Users\\u\\Documents"]) }),
-    ).toBe("C:\\Users\\u\\Documents");
-    expect(await defaultReportDir({ ...base, home, ...fakeFiles([]) })).toBe(home);
+      await defaultReportDir({ ...base, ...fakeFiles(["/home/u/A", "/home/u/B"], files) }),
+    ).toBe("/home/u/B");
   });
 
   it("reads XDG_DOWNLOAD_DIR on Linux and falls back to ~/Downloads", async () => {
@@ -173,7 +213,9 @@ describe("report folder prompt", () => {
     const typed = chars(target);
     const s = setup([...FORMAT, ...typed, ...ENTER, "n", "escape"]);
     expect(await run(s)).toBe("cancelled");
-    expect(s.captured.stdout()).toContain("The folder doesn't exist. Create it? [y/N]");
+    expect(s.captured.stdout()).toContain(
+      `"~${path.sep}a${path.sep}b" doesn't exist. Create it? [y/N]`,
+    );
     expect(s.writeReports).not.toHaveBeenCalled();
     expect(() => statSync(target)).toThrow();
 
@@ -193,7 +235,51 @@ describe("report folder prompt", () => {
       const s = setup([...FORMAT, ...chars(target), ...ENTER, "y", "escape"], { home: repo });
       expect(await run(s)).toBe("cancelled");
       expect(() => statSync(target)).toThrow();
-      expect(s.captured.stdout()).toContain("could not be created");
+      expect(s.captured.stdout()).toContain("Only folders inside your home folder");
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("shows the resolved path for a relative name", async () => {
+    const s = setup([...FORMAT, ...chars("rel"), ...ENTER, "n", "escape"]);
+    expect(await run(s)).toBe("cancelled");
+    expect(s.captured.stdout()).toContain(
+      `"~${path.sep}repo${path.sep}rel" doesn't exist. Create it? [y/N]`,
+    );
+  });
+
+  it("refuses ~user and says to use ~/", async () => {
+    const s = setup([...FORMAT, ...chars("~bob/x"), ...ENTER, "escape"]);
+    expect(await run(s)).toBe("cancelled");
+    expect(s.captured.stdout()).toContain("Use ~/ (e.g. ~/Downloads).");
+  });
+
+  it.skipIf(!isPosix)("refuses a symlinked parent and a symlink as the final name", async () => {
+    const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), "pgard-outside-")));
+    try {
+      symlinkSync(outside, path.join(home, "link"));
+      const viaParent = setup([
+        ...FORMAT,
+        ...chars(path.join(home, "link", "new")),
+        ...ENTER,
+        "y",
+        "escape",
+      ]);
+      expect(await run(viaParent)).toBe("cancelled");
+      expect(() => statSync(path.join(outside, "new"))).toThrow();
+      expect(viaParent.captured.stdout()).toContain("Only folders inside your home folder");
+
+      symlinkSync(path.join(outside, "gone"), path.join(home, "dangling"));
+      const finalLink = setup([
+        ...FORMAT,
+        ...chars(path.join(home, "dangling")),
+        ...ENTER,
+        "y",
+        "escape",
+      ]);
+      expect(await run(finalLink)).toBe("cancelled");
+      expect(() => statSync(path.join(outside, "gone"))).toThrow();
     } finally {
       rmSync(outside, { recursive: true, force: true });
     }

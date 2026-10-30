@@ -1,13 +1,19 @@
-import { mkdir, realpath, stat } from "node:fs/promises";
+import { lstat, mkdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
 import { ReportWriteError, type ReportFormat, type WrittenReport } from "@pgard/report";
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
 import { BACK, promptChoice, promptConfirm, promptText } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
-import { codeOnlyHome } from "../home-dir.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { defaultReportDir, expandHome, realFileAccess, shownDir } from "./report-dir.js";
+import {
+  defaultReportDir,
+  expandHome,
+  isInside,
+  realFileAccess,
+  reportHome,
+  shownDir,
+} from "./report-dir.js";
 
 export type OutputDirCheck =
   | { kind: "ok"; outputDir: string; isInsideRepository: boolean }
@@ -22,7 +28,7 @@ export async function checkOutputDir(
   /** `option`: the path came from `--output-dir`; `prompt`: the user typed it in the menu. */
   source: "option" | "prompt" = "option",
 ): Promise<OutputDirCheck> {
-  const home = codeOnlyHome(context.io.env);
+  const home = reportHome(context.io.env, context.deps.platform);
   const absolute = path.resolve(context.io.cwd, expandHome(outputDir, home, context.deps.platform));
   const text = cliText(context.ruleLocale).commands.report;
   const isOption = source === "option";
@@ -44,27 +50,52 @@ export async function checkOutputDir(
   };
 }
 
+/** `~name/...`: a `~` that is not `~`, `~/` or (Windows) `~\\`; it is not expanded. */
+function isTildeUser(typed: string, platform: NodeJS.Platform): boolean {
+  if (!typed.startsWith("~") || typed === "~") return false;
+  const next = typed[1];
+  return !(next === "/" || (platform === "win32" && next === "\\"));
+}
+
+/** Why a folder was not created: `policy` (outside home) or `io` (the file system said no). */
+type CreateOutcome = "created" | "policy" | "io";
+
 /**
- * Creates a folder the user asked for (mode 0700, with missing parents). It is refused unless the
- * closest existing parent is a real folder that lies inside the home folder once links are
- * resolved, so a link cannot send the new folder somewhere else.
+ * Creates a folder the user asked for, one level at a time (mode 0700, no `recursive`). The
+ * closest existing parent must lie inside the home folder once links are resolved, every level
+ * made here must be a real directory (not a link) owned by this user, and the result must still
+ * resolve inside home, so a link cannot send the new folder somewhere else.
  */
-async function createReportDir(target: string, home: string | null): Promise<boolean> {
-  if (home === null) return false;
+async function createReportDir(
+  target: string,
+  home: string | null,
+  platform: NodeJS.Platform,
+): Promise<CreateOutcome> {
+  if (home === null) return "policy";
   try {
+    const realHome = await realpath(home);
     let parent = path.dirname(target);
     for (;;) {
       if ((await stat(parent).catch(() => null))?.isDirectory() === true) break;
       const next = path.dirname(parent);
-      if (next === parent) return false;
+      if (next === parent) return "io";
       parent = next;
     }
-    const relative = path.relative(await realpath(home), await realpath(parent));
-    if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
-    await mkdir(target, { recursive: true, mode: 0o700 });
-    return true;
+    if (!isInside(await realpath(parent), realHome, platform)) return "policy";
+    const owner = platform === "win32" ? undefined : process.getuid?.();
+    let current = parent;
+    for (const name of path.relative(parent, target).split(path.sep)) {
+      current = path.join(current, name);
+      await mkdir(current, { mode: 0o700 }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "EEXIST") throw error;
+      });
+      const info = await lstat(current);
+      if (info.isSymbolicLink() || !info.isDirectory()) return "policy";
+      if (owner !== undefined && info.uid !== owner) return "policy";
+    }
+    return isInside(await realpath(target), realHome, platform) ? "created" : "policy";
   } catch {
-    return false;
+    return "io";
   }
 }
 
@@ -160,31 +191,40 @@ export async function runReportExport(
     { label: text.both, value: "both" },
   ]);
   if (format === BACK || format === "none") return "cancelled";
-  const home = codeOnlyHome(context.io.env);
   const platform = context.deps.platform;
+  const home = reportHome(context.io.env, platform);
   const suggested = await defaultReportDir({
     platform,
     env: context.io.env,
     home,
     ...realFileAccess,
   });
-  const shown = suggested === null ? null : shownDir(suggested, home, platform);
+  const shown = suggested === null ? null : safeText(shownDir(suggested, home, platform), 500);
   for (;;) {
     const typed = await promptText(prompts, text.outputDirPrompt(shown));
     if (typed === BACK) return "cancelled";
     const chosen = typed.trim() === "" ? suggested : typed.trim();
-    if (chosen === null) continue;
+    if (chosen === null) {
+      out(context, context.style.red(text.typeFolder));
+      continue;
+    }
+    if (isTildeUser(chosen, platform)) {
+      out(context, context.style.red(text.tildeUser));
+      continue;
+    }
     let check = await checkOutputDir(context, chosen, projectRoot, "prompt");
     let isConfirmedInside = false;
     if (check.kind === "invalid" && check.missing !== undefined) {
       const missing = check.missing;
-      if (!(await promptConfirm(prompts, text.createQuestion))) continue;
+      const question = text.createQuestion(safeText(shownDir(missing, home, platform), 500));
+      if (!(await promptConfirm(prompts, question))) continue;
       if (await context.deps.isPathInsideDirectory(missing, projectRoot)) {
         if (!(await confirmInsideRepository(context))) continue;
         isConfirmedInside = true;
       }
-      if (!(await createReportDir(missing, home))) {
-        out(context, context.style.red(text.cannotCreate));
+      const created = await createReportDir(missing, home, platform);
+      if (created !== "created") {
+        out(context, context.style.red(created === "policy" ? text.homeOnly : text.cannotCreate));
         continue;
       }
       check = await checkOutputDir(context, missing, projectRoot, "prompt");
