@@ -294,6 +294,27 @@ try {
   check("PDF has no Latin-1 replacement notice", !text.includes(report.PDF_REPLACEMENT_NOTICE));
   check("PDF does not use the Helvetica fallback", !/\/BaseFont \/Helvetica/.test(text));
 
+  // The web-target relatedness hint, from the installed bundle (local files only, no request).
+  const signals = await import(pathToFileURL(join(pkgDir, "dist", "smoke-signals.js")).href);
+  const signalsRoot = mkdtempSync(join(tmpdir(), "pgard smoke signals "));
+  try {
+    writeFileSync(
+      join(signalsRoot, "package.json"),
+      JSON.stringify({ name: "shop", dependencies: { django: "1" } }),
+    );
+    const projectSignals = await signals.readProjectSignals(signalsRoot, null);
+    const judged = signals.relatedness({ title: "Grafana", technologies: [] }, projectSignals);
+    check(
+      "web target relatedness reads the project and warns about an unrelated tool",
+      projectSignals.manifestNames.includes("shop") &&
+        projectSignals.dependencies.includes("django") &&
+        judged.verdict === "unlikely",
+      JSON.stringify({ projectSignals, judged }),
+    );
+  } finally {
+    rmSync(signalsRoot, { recursive: true, force: true });
+  }
+
   // Every tree-sitter grammar from the installed layout: path inside the package, pinned
   // checksum (the runtime's own check and the README's table), and a real parse.
   const grammar = await import(pathToFileURL(join(pkgDir, "dist", "smoke-grammar.js")).href);

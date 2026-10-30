@@ -9,6 +9,9 @@
   "references": [
     {
       "path": "../findings"
+    },
+    {
+      "path": "../git-history"
     }
   ]
 }

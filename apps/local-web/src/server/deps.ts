@@ -2,6 +2,7 @@ import type { PickerDeps } from "./picker/session.js";
 import {
   discoverListeningPorts,
   probeLocalService,
+  readProjectSignals,
   scanLocalWeb,
   type PortDiscoveryResult,
   type ServiceIdentity,
@@ -48,6 +49,8 @@ export interface ServerDeps {
   /** `signal` aborts when sign-out or a new check replaces the authorization it ran under. */
   probeLocalService: (port: number, options: { signal: AbortSignal }) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;
+  /** Local, read-only project facts for the "does this service look like the project" hint. */
+  readProjectSignals: typeof readProjectSignals;
   /** Renders the same HTML or PDF the CLI file export writes; the dashboard never writes files. */
   renderReport: typeof renderReport;
   now: () => number;
@@ -100,6 +103,7 @@ export function createDefaultServerDeps(): ServerDeps {
     webScanner: scanLocalWeb,
     probeLocalService: (port, { signal }) => probeLocalService(port, { signal }),
     discoverListeningPorts: () => discoverListeningPorts(),
+    readProjectSignals,
     renderReport,
     now: Date.now,
     openResultStore: (env) => {

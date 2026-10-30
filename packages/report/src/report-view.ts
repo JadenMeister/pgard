@@ -32,6 +32,7 @@ import {
   type ReportLanguageOptions,
 } from "./format.js";
 import { REPORT_TEXT, type ReportText } from "./report-text.js";
+import { standardReasonText } from "./standards-reason-text.js";
 
 /** What a renderer needs besides the result: the language, its fixed words and the rule catalog. */
 export interface ReportContext {
@@ -272,7 +273,7 @@ function rowOf(entry: StandardCoverageEntry, url: string, ctx: ReportContext): S
         ? ""
         : ctx.t.breadth(entry.breadth.cwesWithRules, entry.breadth.cwesInCategory),
     rules: `${entry.ruleIds.slice(0, MAX_LISTED_RULES).join(", ")}${rest > 0 ? ` +${rest}` : ""}`,
-    reason: entry.reason,
+    reason: standardReasonText(entry.reason, ctx.chrome),
   };
 }
 

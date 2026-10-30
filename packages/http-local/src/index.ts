@@ -47,3 +47,16 @@ export {
   type WebScanOptions,
   type WebScanProgress,
 } from "./scan-local-web.js";
+export {
+  EMPTY_PROJECT_SIGNALS,
+  KNOWN_TOOL_NAMES,
+  nameTokens,
+  relatedness,
+  RELATEDNESS_LABEL_MAX,
+  type ProjectSignals,
+  type Relatedness,
+  type RelatednessReason,
+  type RelatednessVerdict,
+  type ServiceSignals,
+} from "./relatedness.js";
+export { readProjectSignals } from "./project-signals.js";

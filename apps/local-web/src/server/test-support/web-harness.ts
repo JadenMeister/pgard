@@ -1,6 +1,6 @@
 import http from "node:http";
 import { SCHEMA_VERSION, type AuthorizationCheckId, type ScanResult } from "@pgard/findings";
-import type { ServiceIdentity } from "@pgard/http-local";
+import { EMPTY_PROJECT_SIGNALS, type ServiceIdentity } from "@pgard/http-local";
 import { renderReport } from "@pgard/report";
 import {
   AUTHORIZATION_CHECK_ORDER,
@@ -85,6 +85,7 @@ export function fakeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
     credentialStore: createInMemoryCredentialStore(),
     webScanner: async () => ({ findings: [], coverage: [] }),
     probeLocalService: async () => IDENTITY,
+    readProjectSignals: async () => EMPTY_PROJECT_SIGNALS,
     discoverListeningPorts: async () => ({
       ports: [{ port: 3000, processName: "node" }],
       method: "lsof",
