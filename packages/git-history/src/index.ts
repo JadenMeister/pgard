@@ -10,7 +10,7 @@ export {
   type GitRunner,
   type GitSubcommand,
 } from "./run-git.js";
-export { findGitRoot } from "./git-root.js";
+export { findGitRoot, inspectGitRoot, type GitRootInspection } from "./git-root.js";
 export { resolveGitExecutable, trustedPathEntries } from "./git-executable.js";
 export {
   parseGitHubRemoteUrl,

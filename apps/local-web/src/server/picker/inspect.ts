@@ -4,8 +4,8 @@ import type { RepositoryInspection } from "@pgard/policy";
 import {
   enclosingRepositoryRoot,
   isInsideGitDirectory,
+  folderBreadthRefusal,
   safetyProblemOf,
-  tooBroadToScan,
   type EntryKind,
   type ScopeDirent,
   type ScopeFs,
@@ -542,6 +542,25 @@ async function resolveRecent(
   return { status: "candidate", candidate: result };
 }
 
+/**
+ * The shared "too broad" rule, with the identity check (#427): the folder's device and inode are
+ * compared with `/`, home and each of home's ancestors, so a firmlink or alias spelling is
+ * refused too. Same helper as `pgard scan --code-only`.
+ */
+function breadthRefusal(deps: InspectorDeps, target: string, home: string | null) {
+  return folderBreadthRefusal(target, home, {
+    pathApi: path.posix,
+    identityOf: async (entry) => {
+      try {
+        const stat = await deps.fs.lstat(entry);
+        return { dev: stat.dev, ino: stat.ino };
+      } catch {
+        return null;
+      }
+    },
+  });
+}
+
 /** Most folder names from the anchor down to a chosen folder. */
 export const MAX_RESOLVE_SEGMENTS = 24;
 
@@ -583,7 +602,7 @@ async function resolveFolder(
     home = null;
   }
   // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
-  if (tooBroadToScan(target, home, { pathApi: path.posix }) !== null) return refuse("too_broad");
+  if ((await breadthRefusal(deps, target, home)) !== null) return refuse("too_broad");
   const kindOf = async (entry: string): Promise<EntryKind> => {
     try {
       const entryStat = await deps.fs.lstat(entry);
@@ -611,7 +630,7 @@ async function resolveFolder(
       return refuse("unreadable");
     }
     if (stat.isSymbolicLink || !stat.isDirectory) return refuse("unreadable");
-    if (tooBroadToScan(target, home, { pathApi: path.posix }) !== null) {
+    if ((await breadthRefusal(deps, target, home)) !== null) {
       return refuse("too_broad");
     }
   }

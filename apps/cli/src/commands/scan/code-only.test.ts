@@ -1,10 +1,12 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { readScanResult, type ScanResult } from "@pgard/findings";
+import { repositoryRootOf } from "@pgard/result-store";
 import { runCodeOnlyScan } from "@pgard/scan-core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { main } from "../../app.js";
+import { entryKindOf } from "../../deps.js";
 import { EXIT_CODES } from "../../exit-codes.js";
 import { parseCommandLine, UsageError } from "../../options.js";
 import {
@@ -399,7 +401,7 @@ describe("authorization first, then a y/N question (D1)", () => {
     );
     expect(code).toBe(EXIT_CODES.ok);
     expect(runCode).toHaveBeenCalledWith(
-      { projectRoot: path.resolve(folder), reason: "not_a_git_repository" },
+      { projectRoot: await realpath(folder), reason: "not_a_git_repository" },
       expect.anything(),
     );
   });
@@ -503,7 +505,7 @@ describe("any folder (D4)", () => {
       CODE,
     );
     expect(runCode).toHaveBeenCalledWith(
-      { projectRoot: path.resolve(dir), reason: "not_a_git_repository" },
+      { projectRoot: await realpath(dir), reason: "not_a_git_repository" },
       expect.anything(),
     );
   });
@@ -701,5 +703,162 @@ describe("end to end through main() on a real folder without Git", () => {
     expect(result.findings.some((finding) => finding.ruleId === "PG-SECRET-002")).toBe(true);
     expect(captured.stdout()).not.toContain(FAKE_KEY);
     expect(captured.stdout()).not.toContain(dir);
+  });
+});
+
+describe("the repository root is found without Git, and refused like the web (#427)", () => {
+  /** Deps whose root finder is the real `.git` walk (not `createDefaultDeps`). */
+  const walking = (runCode: unknown, uid?: number) =>
+    createTestDeps({
+      findRepositoryRoot: (cwd, stopAt) => repositoryRootOf(cwd, stopAt, entryKindOf),
+      runCodeOnlyScan: runCode as never,
+      ...(uid === undefined ? {} : { currentUid: () => uid }),
+    });
+
+  it("scans the folder that holds .git, not a folder core.worktree points to", async () => {
+    const base = await realpath(await temp());
+    const trap = path.join(base, "trap");
+    const victim = path.join(base, "victim");
+    await mkdir(path.join(trap, ".git"), { recursive: true });
+    await mkdir(victim);
+    await writeFile(path.join(trap, ".git", "config"), `[core]\n\tworktree = ${victim}\n`);
+    await writeFile(path.join(victim, "secret.txt"), "x");
+    const runCode = vi.fn(async () => codeOnlyTestResult());
+    const captured = createTestIo({ cwd: trap, env: { HOME: path.join(base, "home") } });
+    await runScanCommand(createTestContext(captured, walking(runCode)), CODE);
+    expect(runCode).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRoot: trap }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses a .git folder, even one inside another repository", async () => {
+    const base = await realpath(await temp());
+    const victim = path.join(base, "victim");
+    await mkdir(path.join(victim, ".git", "objects"), { recursive: true });
+    await mkdir(path.join(victim, ".git", "refs"));
+    await writeFile(path.join(victim, ".git", "HEAD"), "ref: refs/heads/main\n");
+    await writeFile(path.join(victim, ".git", "config"), "[core]\n");
+    const runCode = unexpected("runCodeOnlyScan");
+    const captured = createTestIo({
+      cwd: path.join(victim, ".git"),
+      env: { HOME: path.join(base, "home") },
+    });
+    const code = await runScanCommand(createTestContext(captured, walking(runCode)), CODE);
+    expect(code).toBe(EXIT_CODES.usage);
+    expect(runCode).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain("Git directory");
+  });
+
+  it("stops at home: a project inside a home dotfiles repository is scanned as its own folder, home is refused", async () => {
+    const base = await realpath(await temp());
+    const home = path.join(base, "home");
+    await mkdir(path.join(home, ".git"), { recursive: true });
+    await mkdir(path.join(home, "proj"));
+    const runCode = vi.fn(async () => codeOnlyTestResult());
+    const inside = createTestIo({ cwd: path.join(home, "proj"), env: { HOME: home } });
+    await runScanCommand(createTestContext(inside, walking(runCode)), CODE);
+    expect(runCode).toHaveBeenCalledWith(
+      { projectRoot: path.join(home, "proj"), reason: "not_a_git_repository" },
+      expect.anything(),
+    );
+    const refusedRun = unexpected("runCodeOnlyScan");
+    const atHome = createTestIo({ cwd: home, env: { HOME: home } });
+    const code = await runScanCommand(createTestContext(atHome, walking(refusedRun)), CODE);
+    expect(code).toBe(EXIT_CODES.usage);
+    expect(refusedRun).not.toHaveBeenCalled();
+    expect(atHome.stderr()).toContain("Git repository at your home folder");
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "refuses a folder writable by group or others, like the web chooser",
+    async () => {
+      const uid = process.getuid?.() as number;
+      const base = await realpath(await temp());
+      const project = path.join(base, "proj");
+      await mkdir(project);
+      await chmod(project, 0o775);
+      const runCode = unexpected("runCodeOnlyScan");
+      const captured = createTestIo({ cwd: project, env: { HOME: path.join(base, "home") } });
+      const code = await runScanCommand(createTestContext(captured, walking(runCode, uid)), CODE);
+      expect(code).toBe(EXIT_CODES.usage);
+      expect(runCode).not.toHaveBeenCalled();
+      expect(captured.stderr()).toContain("writable by its group or by other users");
+      await chmod(project, 0o755);
+      const ok = vi.fn(async () => codeOnlyTestResult());
+      const again = createTestIo({ cwd: project, env: { HOME: path.join(base, "home") } });
+      await runScanCommand(createTestContext(again, walking(ok, uid)), CODE);
+      expect(ok).toHaveBeenCalled();
+    },
+  );
+
+  it.skipIf(process.platform === "win32")("refuses a folder owned by another user", async () => {
+    const uid = process.getuid?.() as number;
+    const base = await realpath(await temp());
+    const project = path.join(base, "proj");
+    await mkdir(project);
+    const runCode = unexpected("runCodeOnlyScan");
+    const captured = createTestIo({ cwd: project, env: { HOME: path.join(base, "home") } });
+    // The folder is ours; claiming to be another user makes it "owned by another user".
+    const code = await runScanCommand(createTestContext(captured, walking(runCode, uid + 1)), CODE);
+    expect(code).toBe(EXIT_CODES.usage);
+    expect(captured.stderr()).toContain("belongs to another user");
+  });
+
+  // POSIX path spellings: the platform's own path rules apply, so they are not run on Windows.
+  it.skipIf(process.platform === "win32")(
+    "refuses virtual file systems and macOS firmlink spellings of home",
+    async () => {
+      expect(await codeOnlyFolderRefusal("/proc/1/cwd", "/home/u", "linux")).toBe("virtual");
+      expect(await codeOnlyFolderRefusal("/sys/kernel", "/home/u", "linux")).toBe("virtual");
+      expect(await codeOnlyFolderRefusal("/dev/shm", "/home/u", "linux")).toBe("virtual");
+      const none = async (): Promise<null> => null;
+      expect(
+        await codeOnlyFolderRefusal("/System/Volumes/Data/Users/me", "/Users/me", "darwin", none),
+      ).toBe("home");
+      expect(
+        await codeOnlyFolderRefusal("/System/Volumes/Data/Users", "/Users/me", "darwin", none),
+      ).toBe("top_level");
+      expect(await codeOnlyFolderRefusal("/System/Volumes/Data", "/Users/me", "darwin", none)).toBe(
+        "root",
+      );
+    },
+  );
+
+  it("refuses an alias of home that only the device and inode reveal", async () => {
+    const base = await realpath(await temp());
+    const home = path.join(base, "home");
+    await mkdir(home);
+    // A different spelling of the same folder (the identity is compared, not the string).
+    const same = { dev: 7, ino: 70 };
+    const identityOf = async (target: string) =>
+      target === path.join(base, "alias") || target === home ? same : { dev: 7, ino: 1 };
+    expect(await codeOnlyFolderRefusal(path.join(base, "alias"), home, "linux", identityOf)).toBe(
+      "home",
+    );
+  });
+});
+
+describe("the authorized scan refuses a redirected work tree (#427)", () => {
+  it("says why instead of 'not a repository', runs no gate and no code scan without a terminal", async () => {
+    const verifyProject = unexpected("verifyProject");
+    const runCode = unexpected("runCodeOnlyScan");
+    const captured = createTestIo({ cwd: "/work/trap" });
+    const code = await runScanCommand(
+      createTestContext(
+        captured,
+        createTestDeps({
+          findGitRoot: async () => null,
+          isGitRootRedirected: async () => true,
+          verifyProject: verifyProject as never,
+          runCodeOnlyScan: runCode as never,
+        }),
+      ),
+      { variant: "default", port: null, report: null },
+    );
+    expect(code).toBe(EXIT_CODES.blocked);
+    expect(captured.stderr()).toContain("core.worktree");
+    expect(verifyProject).not.toHaveBeenCalled();
+    expect(runCode).not.toHaveBeenCalled();
   });
 });
