@@ -205,14 +205,12 @@ export async function scanWorkingTreeSecrets(
     }
     if (rootDev === undefined) rootDev = opened.dev;
     const directory = opened.dir;
-    let isAbandoned = false;
     try {
       for (;;) {
         throwIfAborted();
         const next = await waitFor(directory.read());
         if (next === null) {
           stoppedBy = "time";
-          isAbandoned = true;
           break walk;
         }
         const entry = next.value;
@@ -279,9 +277,8 @@ export async function scanWorkingTreeSecrets(
       if (error instanceof Error && error.message === "aborted") throw error;
       unreadFolders.add(shown);
     } finally {
-      // After a timeout the close may hang as well: not waited for.
-      const closing = directory.close().catch(() => undefined);
-      if (!isAbandoned) await closing;
+      // Never awaited: after a timeout or Cancel the close can queue behind a hung read.
+      void directory.close().catch(() => undefined);
     }
   }
   // A `.env` file is reported by its name even when its content was not read.
