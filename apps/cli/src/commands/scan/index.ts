@@ -6,6 +6,7 @@ import {
   localizeFindings,
   stringifyJsonSafely,
   type ConfirmedWebTarget,
+  type KnownScanBasisReason,
   type ScanResult,
   type ScanScope,
 } from "@pgard/findings";
@@ -17,7 +18,14 @@ import {
   type ScanProgressEvent,
 } from "@pgard/scan-core";
 import { isAuthorizationAllowed } from "@pgard/scan-core";
-import { err, out, suspendKeys, throwIfCancelled, type CommandContext } from "../../context.js";
+import {
+  err,
+  out,
+  promptContextOf,
+  suspendKeys,
+  throwIfCancelled,
+  type CommandContext,
+} from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
 import { createSessionProvider } from "../../flows/authenticate.js";
 import {
@@ -36,7 +44,7 @@ import { applyStoredBaseline, storeBaseline } from "../../flows/baseline.js";
 import { createIncrementalHandle } from "../../flows/incremental.js";
 import { loadPreviousScan, scanDiffOf, storeScanResult } from "../../flows/store-result.js";
 import type { OutputFormat, ReportRequest, ScanVariant } from "../../options.js";
-import { UserCancelledError } from "../../ui/components/prompts.js";
+import { promptConfirm, UserCancelledError } from "../../ui/components/prompts.js";
 import { formatAuthorization, formatScanResult } from "../../ui/formatters/result-view.js";
 import { safeText, terminalWidth } from "../../ui/formatters/style.js";
 import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
@@ -72,10 +80,10 @@ export interface ScanCommand {
   /** `--full`: scan everything again instead of building on the last stored scan. */
   full?: boolean;
   /**
-   * `--require-authorization` (`scan code` only): the authorization gate first, as for every
-   * other scope. Without it `pgard scan code` is a code-only scan (#414, D1).
+   * `--code-only` (`scan` and `scan code`; also the menu's code-only entry): skip authorization
+   * and scan the current files code-only, with no network (#414, D1).
    */
-  requireAuthorization?: boolean;
+  codeOnly?: boolean;
   /** `pgard baseline set --from-current`: after the scan, store it as the baseline. */
   setBaseline?: boolean;
 }
@@ -128,8 +136,11 @@ export async function runScanCommand(
     );
     return EXIT_CODES.usage;
   }
+  // D1: after a failed authorization, `scan` and `scan code` may ask to scan code-only, but only
+  // with a terminal on both ends; a pipe, CI or a machine format sent to a pipe never asks.
+  const canAskCodeOnly = context.keys !== null && context.io.stdout.isTTY === true;
   if (!isJson) {
-    return runScanFlow(context, command, {
+    return runScanFlow(context, command, canAskCodeOnly, {
       show: (result, previous) => showText(context, result, command, previous),
       finish: () => undefined,
     });
@@ -144,7 +155,7 @@ export async function runScanCommand(
     style: context.errStyle,
     canOpenBrowser: false,
   };
-  return runScanFlow(flowContext, command, {
+  return runScanFlow(flowContext, command, canAskCodeOnly, {
     show: () => undefined,
     finish: (result) => {
       if (command.format === "sarif") warnAboutSarif(context, result);
@@ -215,22 +226,37 @@ interface ResultOutput {
   finish: (result: ScanResult) => void;
 }
 
+/**
+ * Why a failed authorization leaves the result unverified, for `scanBasis.reason` of the
+ * code-only scan that may follow: the gate could not run, the folder has no GitHub remote, or
+ * an approval check did not pass.
+ */
+export function codeOnlyReasonAfter(result: ScanResult): KnownScanBasisReason {
+  if (result.overallStatus === "failed") return "check_failed";
+  const repository = result.authorization.checks.find((check) => check.id === "repository");
+  if (repository?.status === "failed" && /remote/i.test(repository.reason)) {
+    return "no_github_remote";
+  }
+  return "no_approval";
+}
+
 async function runScanFlow(
   context: CommandContext,
   command: ScanCommand,
+  canAskCodeOnly: boolean,
   { show, finish }: ResultOutput,
 ): Promise<ExitCode> {
   const isJson = isMachineFormat(command.format);
   // Fixed screen text in the terminal language; machine-format output is never translated.
   const text = cliText(context.ruleLocale);
-  // D1: `pgard scan code` is a code-only scan unless authorization is asked for.
-  if (command.variant === "code" && command.requireAuthorization !== true) {
-    return runCodeOnlyScanFlow(
+  const runCodeOnly = (reason?: KnownScanBasisReason): Promise<ExitCode> =>
+    runCodeOnlyScanFlow(
       context,
       {
         report: command.report,
         isMachineFormat: isJson,
         ...(command.panels === true ? { panels: true } : {}),
+        ...(reason === undefined ? {} : { reason }),
       },
       {
         show: (result) => show(result, null),
@@ -239,11 +265,31 @@ async function runScanFlow(
         progressLine: (event) => formatProgress(event, text),
       },
     );
-  }
+  // D1: `--code-only` (or the menu's code-only entry) skips authorization altogether.
+  if (command.codeOnly === true) return runCodeOnly();
+  // D1: only `scan` and `scan code` offer a code-only scan when authorization fails; history and
+  // web checks always need it (D2). Without a terminal nothing is asked: exit 3 and a hint.
+  // `baseline set --from-current` needs an authorized scan, so it never offers one.
+  const offersCodeOnly =
+    (command.variant === "default" || command.variant === "code") && command.setBaseline !== true;
+  const askCodeOnly = async (): Promise<boolean> => {
+    if (!offersCodeOnly || !canAskCodeOnly) return false;
+    const prompts = promptContextOf(context, text.codeOnly.promptHelp);
+    if (prompts === null) return false;
+    out(context, "");
+    return promptConfirm(prompts, text.codeOnly.prompt);
+  };
+  const hintAfterBlocked = (asked: boolean): void => {
+    if (!offersCodeOnly) out(context, context.style.dim(text.codeOnly.blockedHint));
+    else if (!asked) out(context, context.style.dim(text.codeOnly.addFlagHint));
+  };
   let scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
     err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
+    const canAsk = offersCodeOnly && canAskCodeOnly;
+    if (await askCodeOnly()) return runCodeOnly("not_a_git_repository");
+    hintAfterBlocked(canAsk);
     return EXIT_CODES.blocked;
   }
 
@@ -413,12 +459,20 @@ async function runScanFlow(
     }
   }
   const { result } = scanned;
+  // D1: authorization failed (blocked, or the gate could not run). With a terminal, `scan` and
+  // `scan code` ask whether to scan the current code only; the answer defaults to no.
+  const isUnauthorized =
+    result.overallStatus === "blocked" ||
+    (result.overallStatus === "failed" && result.scanBasis?.authorization === "not_verified");
+  const canAsk = isUnauthorized && offersCodeOnly && canAskCodeOnly;
+  if (isUnauthorized && (await askCodeOnly())) return runCodeOnly(codeOnlyReasonAfter(result));
   finish(result);
   let exitCode = exitCodeForStatus(result.overallStatus);
+  if (isUnauthorized && result.overallStatus === "failed") hintAfterBlocked(canAsk);
 
   if (result.overallStatus === "blocked") {
-    // D2: every scope that needs authorization stays strict; the code-only scan is one step away.
-    out(context, context.style.dim(text.codeOnly.blockedHint));
+    // D2: history and web checks stay strict; `scan` and `scan code` asked or hint `--code-only`.
+    hintAfterBlocked(canAsk);
     if (command.report !== null) out(context, text.notices.noReportBlocked);
     if (command.panels === true) err(context, context.errStyle.dim(text.panels.notOpenedBlocked));
     return exitCode;

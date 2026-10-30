@@ -609,7 +609,6 @@ describe("runScanCommand reports", () => {
   describe("--format sarif", () => {
     const SARIF_SCAN = {
       variant: "code",
-      requireAuthorization: true,
       port: null,
       report: null,
       format: "sarif",
@@ -742,7 +741,6 @@ describe("runScanCommand reports", () => {
   describe("--format json", () => {
     const JSON_SCAN = {
       variant: "code",
-      requireAuthorization: true,
       port: null,
       report: null,
       format: "json",
@@ -921,7 +919,6 @@ describe("runScanCommand reports", () => {
           ),
           {
             variant: "code",
-            requireAuthorization: true,
             port: null,
             report: { format: "html", outputDir: directory },
             format: "json",

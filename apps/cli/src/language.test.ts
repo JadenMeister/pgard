@@ -194,7 +194,6 @@ describe("Korean CLI output", () => {
     };
     await runScanCommand(context, {
       variant: "code",
-      requireAuthorization: true,
       port: null,
       report: null,
     });
@@ -234,7 +233,6 @@ describe("Korean CLI output", () => {
     };
     await runScanCommand(context, {
       variant: "code",
-      requireAuthorization: true,
       port: null,
       report: null,
       format: "json",

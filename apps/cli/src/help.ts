@@ -4,7 +4,7 @@ const EXIT_CODE_HELP = `Exit codes:
   0    requested scope completed (findings may exist)
   2    invalid command, option or value
   3    repository, authorization or contribution check failed (never for a
-       code-only pgard scan code: it runs no check)
+       code-only scan: --code-only, or y at the question)
   4    part of the scan or the report export failed
   5    internal error
   130  cancelled
@@ -42,9 +42,9 @@ Common commands:
   pgard                         interactive menu (arrow keys, Enter, Esc, ?)
   pgard scan                    code and configuration + Git history (the default
                                 scan; see "pgard scan --help" for what it does)
-  pgard scan code               current code and configuration, code-only: no
-                                GitHub sign-in or approval, any folder (also
-                                without Git); authorization not verified
+  pgard scan code               current code and configuration
+  pgard scan --code-only        current code only, no GitHub sign-in or approval,
+                                any folder (also without Git); not verified
   pgard scan history            Git history and tracked files (secrets, risky files)
   pgard report                  build a report from the last stored scan of this
                                 repository (no new scan) and open it
@@ -94,7 +94,7 @@ Advanced commands:
 
 Advanced options (pgard <command> --help has the details):
   scan:        --all-findings  --fixes  --panels  --full  --no-store  --report-lang en|ko
-               --port N (web, all)  --require-authorization (code)
+               --port N (web, all)  --code-only (none, code)
   report:      --no-open
   sbom:        --format cyclonedx-json  --output-dir DIR
   dashboard:   --target-port N
@@ -149,28 +149,32 @@ everything again, --no-store keeps nothing.
 
 Scopes:
   (none)    code + history
-  code      current code and configuration, as a code-only scan (below)
+  code      current code and configuration
   history   Git history and tracked files
   web       a local HTTP service on 127.0.0.1 you confirm
   all       code + history + web (partial if no web target is confirmed)
 
-Code-only scan (pgard scan code):
+Authorization first. Every scan checks authorization first. If it fails for
+pgard scan or pgard scan code and you are in a terminal, PGARD asks:
+  Skip Git history and scan only the current code? (marked as not authorized) [y/N]
+N (the default) stops with exit 3 and says how to get approval; y runs a
+code-only scan. Without a terminal (CI, a pipe) nothing is asked: exit 3 and
+a hint to add --code-only. history, web and all never offer it.
+
+Code-only scan (--code-only, or y at the question):
   Checks the current files without the authorization gate: no GitHub sign-in,
   no owner approval, no network, no Git history. It works in any folder: in a Git
   repository it scans from the top folder, in a folder without Git it scans that
   folder. It refuses /, top-level folders (/Users), your home folder and the
   folders above it (also as a repository's top folder), and .git folders.
-  The result says "Code-only scan:
-  authorization not verified" (JSON and SARIF: scanBasis, schema 1.7) and is never
-  stored. Exit 0 or 4 from the code coverage; never 3. Every other scope (none,
-  history, web, all) still runs the gate first and exits 3 when it is blocked.
+  The result says "Code-only scan: authorization not verified" (JSON and SARIF:
+  scanBasis, schema 1.7) and is never stored. Exit 0 or 4; never 3.
 
 Options:
   --port N                 local service port 1-65535 (web and all only). You
                            still confirm the service identity with y/N.
-  --require-authorization  (code only) run the authorization gate first, as for
-                           the other scopes: an allowed scan is an authorized,
-                           stored scan; a blocked one exits 3 with no analysis
+  --code-only              (none or code) skip authorization and scan the
+                           current files code-only, with no network; never 3
 ${REPORT_HELP}
   --all-findings           list every finding in full (evidence, fix,
                            standards, every location). In a terminal the

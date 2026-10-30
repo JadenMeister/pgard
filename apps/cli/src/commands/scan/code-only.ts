@@ -2,7 +2,7 @@ import { realpath } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
-import type { ScanResult } from "@pgard/findings";
+import type { KnownScanBasisReason, ScanResult } from "@pgard/findings";
 import { tooBroadToScan, type TooBroadReason } from "@pgard/result-store";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
 import { err, out, suspendKeys, type CommandContext } from "../../context.js";
@@ -23,7 +23,7 @@ import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
 import type { TrendData } from "../../ui/panels/types.js";
 
 /**
- * `pgard scan code` without `--require-authorization` (#414, D1 and D4): a code-only scan of the
+ * `pgard scan --code-only`, or `y` after authorization failed (#414, D1 and D4): a code-only scan of the
  * current files. No authorization gate, no sign-in, no network, no Git history; the result says
  * so (JSON 1.7 `scanBasis`, the first line of the text result) and is never stored. It works in
  * any folder: a Git repository (scanned from its top folder, as before) or a folder without Git.
@@ -33,6 +33,12 @@ export interface CodeOnlyCommand {
   panels?: boolean;
   /** `--format json|sarif`: stdout holds one document; no panel view, no menu question. */
   isMachineFormat: boolean;
+  /**
+   * `scanBasis.reason` in a Git repository: why authorization was not verified (`not_checked`
+   * for `--code-only`, or what the failed gate said). Outside one it is always
+   * `not_a_git_repository`.
+   */
+  reason?: KnownScanBasisReason;
 }
 
 export interface CodeOnlyOutput {
@@ -172,7 +178,10 @@ export async function runCodeOnlyScanFlow(
   try {
     result = await context.deps.runCodeOnlyScan(
       // `not_checked`: the user asked for a code-only scan; nothing about GitHub was looked at.
-      { projectRoot, reason: gitRoot === null ? "not_a_git_repository" : "not_checked" },
+      {
+        projectRoot,
+        reason: gitRoot === null ? "not_a_git_repository" : (command.reason ?? "not_checked"),
+      },
       {
         signal: context.signal,
         env: context.io.env,

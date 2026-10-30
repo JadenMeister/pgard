@@ -17,6 +17,7 @@ import {
 } from "@pgard/scan-core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InterruptSource } from "../../apps/cli/src/adapters/cancel.js";
+import { TYPE_AHEAD_DISCARD_MS } from "../../apps/cli/src/adapters/terminal.js";
 import { main, type CliDeps } from "../../apps/cli/src/app.js";
 import {
   INSTALL_POLL_INTERVAL_MS,
@@ -171,6 +172,8 @@ async function run(
     stdoutIsTTY?: boolean;
     env?: Record<string, string>;
     interrupts?: InterruptSource;
+    /** The key typed at "scan only the current code?" when it appears (#414 D1). */
+    codeOnlyAnswer?: string;
   } = {},
 ) {
   // The panel view would wait for keys after a completed scan in a terminal; these tests are about
@@ -183,11 +186,27 @@ async function run(
   // A real terminal has a TTY stdin too; the install page opens after Enter on it.
   captured.stdin.isTTY = true;
   terminalStdin = captured.stdin;
-  const exitCode = await main(argv, captured.io, {
-    deps,
-    interrupts: options.interrupts ?? noInterrupts,
-  });
-  return { exitCode, stdout: captured.stdout(), stderr: captured.stderr() };
+  // After a failed authorization a terminal is asked whether to scan code-only; answer once.
+  const answer = options.codeOnlyAnswer;
+  const watcher =
+    answer === undefined
+      ? null
+      : setInterval(() => {
+          if (captured.stdout().includes("scan only the current code?")) {
+            if (watcher !== null) clearInterval(watcher);
+            // Later than the key reader's type-ahead window, like a person answering.
+            setTimeout(() => captured.stdin.write(answer), TYPE_AHEAD_DISCARD_MS * 3);
+          }
+        }, 5);
+  try {
+    const exitCode = await main(argv, captured.io, {
+      deps,
+      interrupts: options.interrupts ?? noInterrupts,
+    });
+    return { exitCode, stdout: captured.stdout(), stderr: captured.stderr() };
+  } finally {
+    if (watcher !== null) clearInterval(watcher);
+  }
 }
 
 describe("guided install: personal repository owner", () => {
@@ -235,7 +254,7 @@ describe("guided install: personal repository owner", () => {
     const h = harness(state, (count) => {
       if (count === 1) installForOwner(state);
     });
-    const result = await run(["scan", "code", "--require-authorization"], h.deps);
+    const result = await run(["scan", "code"], h.deps);
     expect(result.exitCode).toBe(0);
     expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "completed"]);
     expect(h.scanResults[1]?.authorization.decision).toBe("allowed");
@@ -249,9 +268,12 @@ describe("guided install: personal repository owner", () => {
       installForOwner(state);
       state.repository = null;
     });
-    const result = await run(["scan", "code", "--require-authorization"], h.deps);
+    const result = await run(["scan", "code"], h.deps, { codeOnlyAnswer: "n" });
     expect(result.exitCode).toBe(3);
     expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "blocked"]);
+    expect(result.stdout).toContain(
+      "Skip Git history and scan only the current code? (marked as not authorized) [y/N] N",
+    );
   });
 
   it("scan web: guides before any port is probed, then re-runs the full authorization", async () => {
@@ -280,7 +302,7 @@ describe("guided install: personal repository owner", () => {
   it("prints the link and blocks without waiting when stdout is not a terminal", async () => {
     const { head } = project();
     const h = harness(notInstalled(head));
-    const result = await run(["scan", "code", "--require-authorization"], h.deps, {
+    const result = await run(["scan", "code"], h.deps, {
       stdoutIsTTY: false,
     });
     expect(result.exitCode).toBe(3);
@@ -425,7 +447,7 @@ describe("guided install: organizations and configuration", () => {
     const { head } = project(ORG_REMOTE);
     const state = orgBeforeInstall(head);
     const h = harness(state, () => installOnOrg(state, "member"));
-    const result = await run(["scan", "code", "--require-authorization"], h.deps);
+    const result = await run(["scan", "code"], h.deps, { codeOnlyAnswer: "n" });
     expect(result.exitCode).toBe(3);
     expect(h.openBrowser).toHaveBeenCalledExactlyOnceWith(ORG_INSTALL_URL);
     expect(h.scanResults.map((scan) => scan.overallStatus)).toEqual(["blocked", "blocked"]);

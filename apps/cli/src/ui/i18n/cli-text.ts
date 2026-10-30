@@ -236,8 +236,14 @@ export interface CliText {
     menuLabel: string;
     /** How to get an authorized scan, after a code-only result. */
     upgrade: string;
-    /** After a blocked `scan`, `scan history`, `scan web` or `scan all`. */
+    /** After a blocked `scan history`, `scan web` or `scan all`. */
     blockedHint: string;
+    /** The question after authorization failed for `scan` or `scan code` (a terminal only). */
+    prompt: string;
+    /** `?` at that question. */
+    promptHelp: string;
+    /** Without a terminal, after authorization failed for `scan` or `scan code`. */
+    addFlagHint: string;
     /** `pgard scan code` outside a Git repository, in the home folder, above it, or a top-level folder. */
     tooBroad: string;
     /** `pgard scan code` in a Git repository whose top folder is the home folder or above it. */
@@ -579,8 +585,12 @@ const EN: CliText = {
     short: "! Code-only, not verified",
     menuLabel: "Scan the current files (code only)",
     upgrade:
-      "For an authorized scan with Git history, run `pgard scan` (GitHub sign-in and owner approval), or `pgard scan code --require-authorization`.",
-    blockedHint: "`pgard scan code` checks the current files without approval.",
+      "For an authorized scan with Git history, run `pgard scan` (GitHub sign-in and owner approval).",
+    blockedHint: "`pgard scan code --code-only` checks the current files without approval.",
+    prompt: "Skip Git history and scan only the current code? (marked as not authorized)",
+    promptHelp:
+      "y: scan the current files only, with no Git history and no authorization; the result says so and is not saved. N: stop here.",
+    addFlagHint: "For a code-only scan, add --code-only.",
     tooBroad:
       "This is your home folder, a folder above it, or a top-level folder (such as / or /Users), not a project. Run pgard scan code inside the project's own folder.",
     tooBroadRepository:
@@ -959,8 +969,12 @@ const KO: CliText = {
     short: "! 코드 전용, 권한 미확인",
     menuLabel: "현재 파일 검사(코드 전용)",
     upgrade:
-      "Git 기록까지 포함한 권한 있는 검사는 `pgard scan`(GitHub 로그인과 소유자 승인 필요) 또는 `pgard scan code --require-authorization`으로 실행하세요.",
-    blockedHint: "`pgard scan code`는 승인 없이 현재 파일을 검사합니다.",
+      "Git 기록까지 포함한 권한 있는 검사는 `pgard scan`(GitHub 로그인과 소유자 승인 필요)으로 실행하세요.",
+    blockedHint: "`pgard scan code --code-only`는 승인 없이 현재 파일을 검사합니다.",
+    prompt: "Git 기록은 빼고 현재 코드만 검사할까요? (권한 미확인으로 표시됩니다)",
+    promptHelp:
+      "y: Git 기록과 권한 확인 없이 현재 파일만 검사합니다. 결과에 그렇게 표시되고 저장하지 않습니다. N: 여기서 멈춥니다.",
+    addFlagHint: "코드만 검사하려면 --code-only를 붙이세요.",
     tooBroad:
       "홈 폴더, 그 위의 폴더, 또는 최상위 폴더(/나 /Users 등)이며 프로젝트 폴더가 아닙니다. 프로젝트 자체의 폴더에서 pgard scan code를 실행하세요.",
     tooBroadRepository:
