@@ -1,10 +1,12 @@
 import type { ScopeRoot, WebStorage } from "@pgard/result-store";
 import type {
+  PickerBrowseResponse,
   PickerCandidate,
   PickerRecentEntry,
   PickerSearchStatus,
 } from "../../shared/picker-types.js";
 import type { CandidateRecord } from "./candidates.js";
+import type { FolderDialog } from "./folder-dialog.js";
 import type { InspectorHost, RunningJob } from "./inspector-host.js";
 import type { ChainSegment, GitIdentity } from "./protocol.js";
 
@@ -25,9 +27,17 @@ export interface ProjectRecord {
   repositoryId: number | null;
   /** Picker mode only: the identity the confirm checked, compared again before every run. */
   identity: null | {
+    /**
+     * PROTOTYPE (#414): `folder` is a code-only project (chosen in the OS dialog or pasted, and
+     * not a GitHub repository PGARD can verify): no Git identity, re-checked with the `folder`
+     * inspection, and refused by every route that runs the authorization gate.
+     */
+    kind?: "git" | "folder";
+    /** PROTOTYPE (#414): why a `folder` project is code-only (`PickerCandidate.codeOnly`). */
+    codeOnly?: PickerCandidate["codeOnly"];
     root: ScopeRoot;
     segments: ChainSegment[];
-    gitIdentity: GitIdentity;
+    gitIdentity: GitIdentity | null;
     fingerprint: string;
   };
   /** The candidate this project was confirmed from (idempotent confirm). */
@@ -68,6 +78,11 @@ export interface PickerSession {
     run: RunningJob | null;
     ignored: boolean;
   };
+  /** PROTOTYPE (#414): the OS folder dialog (at most one open). */
+  browse: {
+    response: PickerBrowseResponse;
+    controller: AbortController | null;
+  };
 }
 
 /** What the picker needs from the outside; injectable for tests. */
@@ -80,6 +95,8 @@ export interface PickerDeps {
   platform: string;
   /** For `~`-shortening and tests. */
   now?: () => number;
+  /** PROTOTYPE (#414): the OS folder dialog; absent means none can be opened. */
+  folderDialog?: FolderDialog;
 }
 
 export function createPickerSession(): PickerSession {
@@ -90,6 +107,10 @@ export function createPickerSession(): PickerSession {
     lastSearchAt: null,
     candidates: new Map(),
     recent: { entries: [], validatedAt: null, startedAt: null, run: null, ignored: false },
+    browse: {
+      response: { status: "idle", candidate: null, refusal: null },
+      controller: null,
+    },
   };
 }
 
@@ -101,4 +122,7 @@ export function cancelPickerWork(picker: PickerSession): void {
   }
   picker.recent.run?.cancel();
   picker.recent.run = null;
+  // Closes an open OS folder dialog (its process is killed).
+  picker.browse.controller?.abort();
+  picker.browse.controller = null;
 }

@@ -13,9 +13,11 @@ export function localizeFindingText(
   texts: RuleTextsResponse | null,
   language: Language,
 ): Finding {
-  const entry =
+  const rule =
     texts !== null && Object.hasOwn(texts, finding.ruleId) ? texts[finding.ruleId] : undefined;
-  if (language === "en" || entry === undefined) return finding;
+  if (language === "en" || rule === undefined) return finding;
+  // A finding written with a variant's English texts is translated with that variant.
+  const entry = rule.variants?.find((variant) => variant.title.en === finding.title) ?? rule;
   return {
     ...finding,
     title: finding.title === entry.title.en ? entry.title[language] : finding.title,

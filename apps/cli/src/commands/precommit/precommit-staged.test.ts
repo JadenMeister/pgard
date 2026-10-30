@@ -111,8 +111,17 @@ function setup(root: string, env: Record<string, string> = {}) {
   return { captured, context: createTestContext(captured, deps) };
 }
 
+/** A file in a known binary format (PNG signature): skipped by design. */
 const binaryBytes = (length: number) =>
-  Buffer.from(Array.from({ length }, (_, index) => (index % 3 === 0 ? 0 : (index * 7) % 256)));
+  Buffer.concat([
+    Buffer.from("\x89PNG\r\n\x1a\n", "latin1"),
+    Buffer.from(Array.from({ length }, (_, index) => (index % 3 === 0 ? 0 : (index * 7) % 256))),
+  ]);
+const colouredLog = (token: string) =>
+  Buffer.from(
+    `${"\x1b[31mE\x1b[0m\x1b[1m\x1b[0m ok\n".repeat(600)}\0 token=${token}\n${"\x1b[32mI\x1b[0m\x1b[1m\x1b[0m ok\n".repeat(600)}`,
+    "latin1",
+  );
 
 describe("a NUL byte or a size cannot hide a new secret", () => {
   it("blocks a .env file with a trailing NUL and a config.js with a token and a trailing NUL", async () => {
@@ -160,6 +169,34 @@ describe("a NUL byte or a size cannot hide a new secret", () => {
     expect(captured.stdout()).toContain("Not scanned by design: 1 binary file(s) (photo.png)");
     expect(captured.stdout()).not.toContain("Not everything was scanned");
     expect(captured.stdout()).toContain("Commit allowed: nothing found");
+  });
+
+  it("warns about a file that only looks binary (a coloured log), and does not block the commit", async () => {
+    const root = makeRepo();
+    write(root, { "build.log": colouredLog(GITHUB_TOKEN) });
+    git(root, "add", "build.log");
+    const { captured, context } = setup(root);
+    // The default policy blocks on "not scanned"; a binary-looking file is a warning only.
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+    const text = captured.stdout();
+    expect(text).toContain("WARNING: 1 staged file(s) look binary but have no file format");
+    expect(text).toContain("(build.log)");
+    expect(text).toContain("This does not block the commit.");
+    expect(text).not.toContain("Not everything was scanned");
+    expect(text).not.toContain("Not scanned by design");
+  });
+
+  it("still blocks a binary-looking file's commit when something else was not scanned", async () => {
+    const root = makeRepo();
+    write(root, {
+      "build.log": colouredLog(GITHUB_TOKEN),
+      "big.txt": "x".repeat(2 * 1024 * 1024),
+    });
+    git(root, "add", "build.log", "big.txt");
+    const { captured, context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.partial);
+    expect(captured.stdout()).toContain("big.txt");
+    expect(captured.stdout()).toContain("build.log");
   });
 
   it("says a large text file was not scanned, and how to let such commits through", async () => {

@@ -248,7 +248,7 @@ describe("a NUL byte hides nothing", () => {
     const changes = await readStagedChanges(fixture.root);
     expect(changes.skipped.map((item) => [item.path, item.reason, item.kind])).toEqual(
       [
-        ["prod.env", "binary", "added"],
+        ["prod.env", "binary_suspected", "added"],
         ["big.env", "too_large", "added"],
       ].sort((a, b) => (a[0] as string).localeCompare(b[0] as string)),
     );
@@ -276,6 +276,7 @@ describe("large files", () => {
     fixture.commit({ files: { "README.md": "x\n" } });
     const binary = Buffer.alloc(2 * 1024 * 1024);
     for (let index = 0; index < binary.length; index += 1) binary[index] = index % 251;
+    Buffer.from("\x89PNG\r\n\x1a\n", "latin1").copy(binary);
     writeFileSync(path.join(fixture.root, "photo.png"), binary);
     writeFileSync(
       path.join(fixture.root, "package-lock.json"),
@@ -315,7 +316,7 @@ describe("large files", () => {
     ]);
   });
 
-  it("calls a big file binary by a signature, or by binary content at both ends", async () => {
+  it("calls a big file binary by a signature, and one binary only by content not scanned", async () => {
     const fixture = createGitFixture();
     fixtures.push(fixture);
     fixture.commit({ files: { "README.md": "x\n" } });
@@ -332,7 +333,7 @@ describe("large files", () => {
     const changes = await readStagedChanges(fixture.root);
     expect(changes.skipped.map((item) => [item.path, item.reason])).toEqual([
       ["a.png", "binary"],
-      ["blob.bin", "binary"],
+      ["blob.bin", "binary_suspected"],
     ]);
   });
 });

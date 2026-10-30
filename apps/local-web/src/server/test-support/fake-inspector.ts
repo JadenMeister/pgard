@@ -6,6 +6,7 @@ import type {
   InspectorJob,
   RawCandidate,
   RecentOutcome,
+  ResolveRefusal,
 } from "../picker/protocol.js";
 
 /**
@@ -34,6 +35,17 @@ export interface FakeInspector extends InspectorHost {
   inspectChanged: boolean;
   /** Replaces what `inspect` answers for a candidate (to simulate a changed remote or mode). */
   inspectOverride: ((raw: RawCandidate) => RawCandidate) | null;
+  /**
+   * PROTOTYPE (#414): what a `resolve` job answers per path (default `missing`). A candidate is
+   * also what later `inspect` jobs of its chain find.
+   */
+  resolved: Map<
+    string,
+    | { candidate: RawCandidate; folderBlock: RawCandidate["block"] }
+    | { refused: ResolveRefusal; paths?: string[] }
+  >;
+  /** What a `folder` inspection answers as its block (default `null`). */
+  folderBlock: RawCandidate["block"];
 }
 
 export function createFakeInspector(root: ScopeRoot): FakeInspector {
@@ -47,6 +59,8 @@ export function createFakeInspector(root: ScopeRoot): FakeInspector {
     isBusy: false,
     inspectChanged: false,
     inspectOverride: null,
+    resolved: new Map(),
+    folderBlock: null,
     outstandingCount: () => 0,
     stopAll: () => {
       for (const run of fake.runs)
@@ -106,11 +120,42 @@ function answer(
     });
     matches.forEach((candidate, key) => run.emit({ t: "inspected", key, candidate }));
     run.emit(done);
+  } else if (job.kind === "resolve") {
+    const entry = fake.resolved.get(job.path);
+    if (entry === undefined) run.emit({ t: "refused", reason: "missing", paths: [] });
+    else if ("refused" in entry) {
+      run.emit({ t: "refused", reason: entry.refused, paths: entry.paths ?? [] });
+    } else {
+      run.emit({
+        t: "resolved",
+        root,
+        candidate: { ...entry.candidate, rootIndex: 0 },
+        folderBlock: entry.folderBlock,
+      });
+    }
+    run.emit(done);
   } else if (job.kind === "inspect") {
     const wanted = byKey(job.segments);
-    const known = [...fake.repos.values()].flat().find((c) => byKey(c.segments) === wanted);
+    const known = [
+      ...[...fake.repos.values()].flat(),
+      ...[...fake.resolved.values()].flatMap((entry) =>
+        "candidate" in entry ? [entry.candidate] : [],
+      ),
+    ].find((c) => byKey(c.segments) === wanted);
     if (fake.inspectChanged || known === undefined) run.emit({ t: "changed" });
-    else {
+    else if (job.mode === "folder") {
+      run.emit({
+        t: "inspected",
+        key: 0,
+        candidate: {
+          rootIndex: 0,
+          segments: known.segments,
+          gitIdentity: null,
+          remote: { status: "unreadable" },
+          block: fake.folderBlock,
+        },
+      });
+    } else {
       const raw = fake.inspectOverride?.(known) ?? known;
       run.emit({
         t: "inspected",

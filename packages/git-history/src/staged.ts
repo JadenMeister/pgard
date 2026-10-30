@@ -4,7 +4,7 @@ import {
   BINARY_SNIFF_BYTES,
   hasBinarySignature,
   isBinaryByGitsRule,
-  isClearlyBinary,
+  binaryKind,
   looksBinaryContent,
   utf16WithoutMark,
 } from "./binary-sniff.js";
@@ -18,8 +18,15 @@ import {
 
 /** Why a staged file was not read. The first group is by design; the second means "not scanned". */
 export type StagedSkipReason =
-  /** Contains NUL bytes (and is not UTF-16 text). Binary files are not scanned for text secrets. */
+  /** A known binary file format (PNG, ZIP, ...). Binary files are not scanned for text secrets. */
   | "binary"
+  /**
+   * Looks binary by its content only (no known file signature). It may be text, such as a log
+   * with colour codes, so it is not called binary. It is not in `INCOMPLETE_SKIP_REASONS`:
+   * many real binary formats have no signature PGARD knows, so blocking a commit on it would
+   * block ordinary commits. The pre-commit check names such files as a warning instead.
+   */
+  | "binary_suspected"
   /** A symbolic link: the blob holds the link target, not file content. */
   | "symlink"
   /** A submodule pointer (no file content). */
@@ -230,6 +237,8 @@ function asUtf8(latin1: string): string {
 export function decodeStagedBlobBoth(latin1: string): {
   text: string | null;
   alternate: string | null;
+  /** Set when `text` is `null`: a known file signature, or the content heuristic only. */
+  binary?: "signature" | "content";
 } {
   const bom = latin1.slice(0, 2);
   if (bom === "\xff\xfe" || bom === "\xfe\xff") {
@@ -247,7 +256,8 @@ export function decodeStagedBlobBoth(latin1: string): {
         alternate: asUtf8(latin1),
       };
     }
-    if (isClearlyBinary(latin1)) return { text: null, alternate: null };
+    const binary = binaryKind(latin1);
+    if (binary !== null) return { text: null, alternate: null, binary };
     return { text: asUtf8(latin1), alternate: null };
   }
   return { text: Buffer.from(latin1, "latin1").toString("utf8"), alternate: null };
@@ -288,7 +298,7 @@ async function sniffIsBinary(
   deadline: number,
   now: () => number,
   options: StagedReadOptions,
-): Promise<boolean> {
+): Promise<"signature" | "content" | false> {
   const common = {
     cwd,
     input: `${sha}\n`,
@@ -308,7 +318,7 @@ async function sniffIsBinary(
     const headerEnd = raw.indexOf("\n");
     if (headerEnd === -1) return false;
     const head = raw.slice(headerEnd + 1, headerEnd + 1 + BINARY_SNIFF_BYTES);
-    if (hasBinarySignature(head) && isBinaryByGitsRule(head)) return true;
+    if (hasBinarySignature(head) && isBinaryByGitsRule(head)) return "signature";
     if (!looksBinaryContent(head)) return false;
     if (size > MAX_TAIL_SAMPLED_BYTES || tailReads.used >= MAX_TAIL_SAMPLED_BLOBS) return false;
     tailReads.used += 1;
@@ -319,7 +329,9 @@ async function sniffIsBinary(
     const wholeStart = whole.indexOf("\n") + 1;
     return looksBinaryContent(
       whole.slice(wholeStart + size - BINARY_SNIFF_BYTES, wholeStart + size),
-    );
+    )
+      ? "content"
+      : false;
   } catch (error) {
     if (options.signal?.aborted === true) throw error;
     return false;
@@ -384,8 +396,9 @@ async function readBlobs(
             )
           : false;
       sniffed += 1;
-      if (isBinary) text.set(sha, null);
-      else unread.set(sha, "too_large");
+      // Only a known signature is binary by design; the content heuristic alone is "not scanned".
+      if (isBinary === "signature") text.set(sha, null);
+      else unread.set(sha, isBinary === "content" ? "binary_suspected" : "too_large");
     } else if (size > limits.budget.remaining) unread.set(sha, "byte_budget");
     else {
       limits.budget.remaining -= size;
@@ -430,11 +443,15 @@ async function readBlobs(
       offset = headerEnd + 1 + size + 1;
       bytes += size;
       const decoded = decodeStagedBlobBoth(body);
+      if (decoded.binary === "content") {
+        unread.set(header[1], "binary_suspected");
+        continue;
+      }
       text.set(header[1], decoded.text);
       if (decoded.alternate !== null) alternate.set(header[1], decoded.alternate);
     }
     for (const item of batch) {
-      if (!text.has(item.sha)) unread.set(item.sha, "unreadable");
+      if (!text.has(item.sha) && !unread.has(item.sha)) unread.set(item.sha, "unreadable");
     }
     start = end;
   }

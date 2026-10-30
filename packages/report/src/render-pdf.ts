@@ -34,6 +34,7 @@ import {
   suppressionReasonLine,
   type ReportContext,
 } from "./report-view.js";
+import { codeOnlyLabel } from "./code-only-text.js";
 import { incrementalLine } from "./incremental-text.js";
 
 const MUTED = "#475569";
@@ -381,10 +382,15 @@ export function renderPdfReport(
   const ctx = reportContext(languageOptions);
   const t = ctx.t;
   options.onFontFallback?.(loaded.ok ? null : fontFallbackMessage(loaded.reason));
+  // A code-only result (JSON 1.7) carries its "not authorized" banner on every page.
+  const codeOnly = codeOnlyLabel(input, ctx.chrome);
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
       compress: options.compress ?? true,
+      // The banners are drawn once every page exists, so they never touch the font, size or
+      // colour of the text that flows onto a new page.
+      bufferPages: codeOnly !== null,
       margin: PAGE_MARGIN,
       info: {
         Title: "PGARD Report",
@@ -400,6 +406,27 @@ export function renderPdfReport(
       doc.registerFont(FONT_STYLE.bold, loaded.fonts.bold);
     }
     const chunks: Buffer[] = [];
+    const drawBanners = (): void => {
+      if (codeOnly === null) return;
+      const range = doc.bufferedPageRange();
+      for (let page = range.start; page < range.start + range.count; page += 1) {
+        doc.switchToPage(page);
+        doc
+          .save()
+          .rect(0, 0, doc.page.width, PAGE_MARGIN - 14)
+          .fill("#fef3c7")
+          .restore();
+        doc
+          .font(style.bold)
+          .fontSize(8)
+          .fillColor("#78350f")
+          .text(style.text(codeOnly.banner), PAGE_MARGIN, 14, {
+            width: doc.page.width - PAGE_MARGIN * 2,
+            lineBreak: false,
+            ellipsis: true,
+          });
+      }
+    };
     doc.on("data", (chunk: Buffer) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
@@ -427,6 +454,12 @@ export function renderPdfReport(
     if (!loaded.ok) {
       doc.moveDown(0.3);
       line(doc, style, fontFallbackMessage(loaded.reason), "#b45309");
+    }
+    if (codeOnly !== null) {
+      doc.moveDown(0.5);
+      doc.font(style.bold).fontSize(13).fillColor("#78350f").text(style.text(codeOnly.title));
+      line(doc, style, codeOnly.body, "#78350f");
+      line(doc, style, codeOnly.reason, "#78350f");
     }
     const shown = [result, extraStrings(result, result.findings, ctx)];
     const hasReplacedText = loaded.ok
@@ -548,6 +581,7 @@ export function renderPdfReport(
 
     doc.moveDown(1);
     doc.font(style.regular).fontSize(8).fillColor(MUTED).text(style.text(t.disclaimer));
+    drawBanners();
     doc.end();
   });
 }

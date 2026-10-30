@@ -496,7 +496,7 @@ export async function removeRecent(
 
 async function recordRecent(context: PickerContext, record: CandidateRecord): Promise<void> {
   const deps = requirePicker(context);
-  if (deps.storage === null || record.repo === null) return;
+  if (deps.storage === null || record.repo === null || record.isChosenFolder === true) return;
   const read = await deps.storage.readRecent();
   if (read.status === "ignored") return; // never overwritten
   const existing = read.status === "ok" ? read.value : [];
@@ -538,7 +538,7 @@ async function runInspect(
   return { kind: "ok", candidate };
 }
 
-const CHANGED_MESSAGE = "The folder changed since you looked at it. Search again.";
+const CHANGED_MESSAGE = "The folder changed since you looked at it. Choose it again.";
 
 function assertProjectUnchanged(
   context: PickerContext,
@@ -577,9 +577,41 @@ export async function recheckProjectIdentity(
   context: PickerContext,
   project: ProjectRecord,
   epoch: number,
+  /** PROTOTYPE (#414): only the code-only scan accepts a `folder` project. */
+  allowFolder = false,
 ): Promise<void> {
   const identity = project.identity;
   if (identity === null) return; // fixed mode: the launcher confirmed the root
+  if (identity.kind === "folder") {
+    if (!allowFolder) {
+      throw new ApiError(
+        409,
+        "code_only_project",
+        "This folder can only get a code-only scan: it is not a GitHub repository PGARD can verify.",
+      );
+    }
+    const folder = await runInspect(
+      context,
+      { kind: "inspect", root: identity.root, segments: identity.segments, mode: "folder" },
+      PICKER_LIMITS.recheckBudgetMs,
+    );
+    assertProjectUnchanged(context, project, epoch);
+    if (folder.kind === "unreadable") {
+      throw new ApiError(
+        409,
+        "unreadable",
+        "The project folder could not be read in time. Nothing was started; try again.",
+      );
+    }
+    if (
+      folder.kind === "changed" ||
+      folder.candidate.block !== null ||
+      identityFingerprint(identity.root, folder.candidate.segments, null) !== identity.fingerprint
+    ) {
+      throw new ApiError(409, "candidate_changed", CHANGED_MESSAGE);
+    }
+    return;
+  }
   const result = await runInspect(
     context,
     { kind: "inspect", root: identity.root, segments: identity.segments, mode: "recheck" },
@@ -634,6 +666,9 @@ export async function confirmCandidate(
   if (now < record.createdAt || now - record.createdAt > PICKER_LIMITS.candidateWindowMs) {
     state.picker.candidates.delete(record.id);
     throw new ApiError(409, "candidate_expired", "The confirmation expired. Search again.");
+  }
+  if (record.isFolderOnly === true) {
+    return confirmFolderCandidate(context, record, input.shown, selected);
   }
   if (!record.isSelectable || record.repo === null || record.gitIdentity === null) {
     throw new ApiError(
@@ -697,6 +732,67 @@ export async function confirmCandidate(
   resetProjectBoundState(state);
   cancelRunningSearch(state);
   void recordRecent(context, record).catch(() => undefined);
+  return projectResponse(state, project);
+}
+
+/**
+ * PROTOTYPE (#414): confirms a code-only folder (chosen in the OS dialog or pasted). The folder
+ * chain is walked again and must match what the user saw, with safe ownership and write bits.
+ */
+async function confirmFolderCandidate(
+  context: PickerContext,
+  record: CandidateRecord,
+  shown: string,
+  selected: ProjectRecord | null,
+): Promise<PickerConfirmResponse> {
+  const { state } = context;
+  if (record.shown !== shown) throw new ApiError(409, "candidate_changed", CHANGED_MESSAGE);
+  requireNothingRunning(state);
+  const epochAtStart = state.projectEpoch;
+  const result = await runInspect(
+    context,
+    { kind: "inspect", root: record.root, segments: record.segments, mode: "folder" },
+    PICKER_LIMITS.hardBudgetMs,
+  );
+  assertProjectUnchanged(context, selected, epochAtStart);
+  requireNothingRunning(state);
+  if (result.kind === "unreadable") {
+    throw new ApiError(
+      409,
+      "unreadable",
+      "The folder could not be read in time. Nothing was selected; try again.",
+    );
+  }
+  if (
+    result.kind !== "ok" ||
+    result.candidate.block !== null ||
+    identityFingerprint(record.root, result.candidate.segments, null) !== record.fingerprint
+  ) {
+    throw new ApiError(409, "candidate_changed", CHANGED_MESSAGE);
+  }
+  const project: ProjectRecord = {
+    root: record.path,
+    name: sanitizeDisplayText(
+      record.segments.at(-1)?.name ?? record.root.path.split("/").at(-1) ?? "",
+      PICKER_LIMITS.maxDisplayNameLength,
+    ),
+    repo: null,
+    repositoryId: null,
+    identity: {
+      kind: "folder",
+      ...(record.dto.codeOnly === undefined ? {} : { codeOnly: record.dto.codeOnly }),
+      root: record.root,
+      segments: record.segments,
+      gitIdentity: null,
+      fingerprint: record.fingerprint,
+    },
+    candidateId: record.id,
+  };
+  state.project = project;
+  state.projectEpoch += 1;
+  resetProjectBoundState(state);
+  cancelRunningSearch(state);
+  // No recent entry: the recent list holds GitHub repositories of the search scope only.
   return projectResponse(state, project);
 }
 

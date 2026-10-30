@@ -8,6 +8,7 @@ import {
   type ScanResult,
 } from "@pgard/findings";
 import { escapeHtml } from "./escape-html.js";
+import { codeOnlyLabel } from "./code-only-text.js";
 import { incrementalLine } from "./incremental-text.js";
 import {
   countFindingsBySeverity,
@@ -365,7 +366,46 @@ a { color: #1d4ed8; }
 .bar-label, .bar-value { font: 12px system-ui, sans-serif; fill: var(--fg); }
 .chart { overflow-x: auto; }
 .disclaimer { color: var(--muted); font-size: 12px; margin-top: 32px; }
+.code-only-banner { position: sticky; top: 0; z-index: 1; margin: -32px -16px 16px; padding: 8px 16px; background: #fef3c7; color: #78350f; border-bottom: 1px solid #b7791f; font-weight: 600; }
+.code-only { border: 2px solid #b7791f; border-radius: 6px; padding: 12px 14px; margin: 16px 0; background: #fffbeb; }
+.code-only h2 { margin: 0 0 6px; border: 0; padding: 0; color: #78350f; }
+.code-only p { margin: 4px 0; }
+/* On screen the print frame is invisible; in print its header row repeats on every page and
+   the content flows below it, so the banner never covers anything. */
+.code-only-frame, .code-only-frame > tbody, .code-only-frame > tbody > tr, .code-only-frame > tbody > tr > td { display: contents; }
+.code-only-frame > thead { display: none; }
+@media print {
+  .code-only-banner { position: static; margin: 0 0 12px; }
+  body > .code-only-banner { display: none; }
+  .code-only-frame { display: table; width: 100%; border-collapse: collapse; }
+  .code-only-frame > thead { display: table-header-group; }
+  .code-only-frame > tbody { display: table-row-group; }
+  .code-only-frame > tbody > tr { display: table-row; }
+  .code-only-frame > tbody > tr > td, .code-only-frame > thead td { display: table-cell; padding: 0; border: 0; }
+}
 `;
+
+/** The banner and cover block of a code-only result (JSON 1.7); empty for any other result. */
+function renderCodeOnly(
+  result: ScanResult,
+  lang: ReportContext["lang"],
+): {
+  banner: string;
+  frameStart: string;
+  frameEnd: string;
+  cover: string;
+} {
+  const label = codeOnlyLabel(result, lang);
+  if (label === null) return { banner: "", frameStart: "", frameEnd: "", cover: "" };
+  const banner = `<div class="code-only-banner" role="note">${escapeHtml(label.banner)}</div>`;
+  return {
+    banner: `${banner}\n`,
+    // A table header row repeats on every printed page (thead), above the content, never over it.
+    frameStart: `<table class="code-only-frame" role="presentation"><thead aria-hidden="true"><tr><td>${banner}</td></tr></thead><tbody><tr><td>\n`,
+    frameEnd: `</td></tr></tbody></table>\n`,
+    cover: `<section class="code-only" aria-label="${escapeHtml(label.title)}">\n<h2>${escapeHtml(label.title)}</h2>\n<p>${escapeHtml(label.body)}</p>\n<p>${escapeHtml(label.reason)}</p>\n</section>\n`,
+  };
+}
 
 /** "Incremental: ..." or "Full scan: ..." under the summary; empty without the field. */
 function renderIncremental(result: ScanResult, lang: ReportContext["lang"]): string {
@@ -412,6 +452,7 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
       : `\n<details class="group"${members.some((finding) => finding.severity === "critical") ? " open" : ""}>\n<summary>${escapeHtml(title)} (${members.length})</summary>\n<p class="meta">${escapeHtml(note)}</p>\n${members.map((finding) => renderFinding(finding, ctx)).join("\n")}\n</details>\n`;
   const suppressedHtml = collapsed(t.suppressedTitle, t.suppressedNote, suppressed);
   const baselineHtml = collapsed(t.baselineTitle, t.baselineNote, baseline);
+  const codeOnly = renderCodeOnly(input, lang);
 
   return `<!doctype html>
 <html lang="${lang}">
@@ -424,12 +465,12 @@ export function renderHtmlReport(input: ScanResult, options: ReportLanguageOptio
 <style>${STYLES}</style>
 </head>
 <body>
-<main>
+${codeOnly.banner}${codeOnly.frameStart}<main>
 <h1>${escapeHtml(t.title)}</h1>
 <p class="meta">${escapeHtml(t.repository)}: ${escapeHtml(target.repo ?? t.unknown)} &middot; ${escapeHtml(t.revision)}: ${escapeHtml(target.revision ?? t.unknown)}${target.webOrigin === null ? "" : ` &middot; ${escapeHtml(t.webTarget)}: ${escapeHtml(target.webOrigin)}`}</p>
 <p class="meta">${escapeHtml(t.scan)} ${escapeHtml(result.scanId)} &middot; ${escapeHtml(result.startedAt)} ${escapeHtml(t.to)} ${escapeHtml(result.finishedAt)} &middot; ${escapeHtml(result.tool.name)} ${escapeHtml(result.tool.version)} &middot; ${escapeHtml(t.schema)} ${escapeHtml(result.schemaVersion)}</p>
 <p class="meta">${escapeHtml(t.requestedScopes)}: ${escapeHtml(result.requestedScopes.join(", ") || t.none)}</p>
-<div class="status-banner status-${escapeHtml(result.overallStatus)}"><strong>${escapeHtml(t.overallStatus)}:</strong> ${escapeHtml(word(t.overall, result.overallStatus, t.unknownLabel))}</div>
+${codeOnly.cover}<div class="status-banner status-${escapeHtml(result.overallStatus)}"><strong>${escapeHtml(t.overallStatus)}:</strong> ${escapeHtml(word(t.overall, result.overallStatus, t.unknownLabel))}</div>
 
 ${renderConfigNotices(result.coverage, ctx)}
 ${renderSuppressionNotices(result, ctx)}
@@ -462,7 +503,7 @@ ${renderAuthorization(result, ctx)}
 ${renderLicense(result, ctx)}
 <p class="disclaimer">${escapeHtml(t.disclaimer)}</p>
 </main>
-</body>
+${codeOnly.frameEnd}</body>
 </html>
 `;
 }

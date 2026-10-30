@@ -45,6 +45,8 @@ export interface PrecommitText {
   decisionWarnFindings: string;
   decisionBlockedNotScanned: string;
   decisionWarnNotScanned: string;
+  /** A warning, never a block: staged files that look binary but have no known format. */
+  binarySuspected: (count: number, names: string) => string;
   skipReason: Record<
     | "too_large"
     | "file_limit"
@@ -117,6 +119,8 @@ const EN: PrecommitText = {
   timeoutInvalid: (value, seconds) =>
     `PGARD_PRECOMMIT_TIMEOUT_MS=${value} is not a number from 1000 to 120000; using ${seconds} s.`,
   byDesign: (items) => `Not scanned by design: ${items}.`,
+  binarySuspected: (count, names) =>
+    `WARNING: ${count} staged file(s) look binary but have no file format PGARD knows, so they were not read (${names}). If one could be text, such as a log with colour codes, check it for secrets yourself. This does not block the commit.`,
   byDesignKind: {
     binary: (count, names) => `${count} binary file(s) (${names})`,
     symlink: (count, names) => `${count} symbolic link(s) (${names})`,
@@ -225,6 +229,8 @@ const KO: PrecommitText = {
   timeoutInvalid: (value, seconds) =>
     `PGARD_PRECOMMIT_TIMEOUT_MS=${value}는 1000~120000 사이의 숫자가 아니어서 ${seconds}초를 사용합니다.`,
   byDesign: (items) => `설계상 검사하지 않음: ${items}.`,
+  binarySuspected: (count, names) =>
+    `경고: 스테이징된 파일 ${count}개가 바이너리처럼 보이지만 PGARD가 아는 파일 형식이 아니어서 읽지 않았습니다(${names}). 색상 코드가 든 로그처럼 텍스트일 수 있다면 비밀 정보가 없는지 직접 확인하세요. 이 때문에 커밋이 차단되지는 않습니다.`,
   byDesignKind: {
     binary: (count, names) => `바이너리 파일 ${count}개(${names})`,
     symlink: (count, names) => `심볼릭 링크 ${count}개(${names})`,

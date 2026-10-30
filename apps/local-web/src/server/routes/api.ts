@@ -72,6 +72,8 @@ export { ApiError };
 export interface ApiContext {
   /** `fixed`: `pgard dashboard` (one project, no picker). `picker`: `pgard web`. */
   mode: "fixed" | "picker";
+  /** PROTOTYPE (#414): `simple` enables `POST /api/code-scan`; always `full` in fixed mode. */
+  ui: "full" | "simple";
   presetTargetPort: number | null;
   env: Readonly<Record<string, string | undefined>>;
   state: SessionState;
@@ -144,9 +146,30 @@ function pickerContextOf(context: ApiContext) {
  * Picker mode: repeats the identity chain and ownership checks of the confirmed project before a
  * verify, owner-approval check or scan starts. Fixed mode has nothing to repeat.
  */
-async function recheckProject(context: ApiContext, capture: ProjectCapture): Promise<void> {
+/** `scanBasis.reason` of a code-only scan of `project` (JSON 1.7). */
+function codeOnlyReasonOf(
+  project: ProjectRecord,
+): "not_checked" | "no_github_remote" | "not_a_git_repository" {
+  const identity = project.identity;
+  if (identity?.kind !== "folder") return "not_checked";
+  if (identity.codeOnly === "not_git") return "not_a_git_repository";
+  if (identity.codeOnly === "no_github_remote") return "no_github_remote";
+  return "not_checked";
+}
+
+async function recheckProject(
+  context: ApiContext,
+  capture: ProjectCapture,
+  /** PROTOTYPE (#414): only the code-only scan accepts a code-only folder. */
+  allowFolder = false,
+): Promise<void> {
   if (context.mode !== "picker") return;
-  await recheckProjectIdentity(pickerContextOf(context), capture.project, capture.epoch);
+  await recheckProjectIdentity(
+    pickerContextOf(context),
+    capture.project,
+    capture.epoch,
+    allowFolder,
+  );
   assertProjectUnchanged(context, capture);
 }
 
@@ -258,7 +281,15 @@ function toTargetInfo(state: SessionState): TargetInfo | null {
 function scanStatus(state: SessionState): ScanStatus {
   const { status, scopes, progress, result, message } = state.scan;
   // A scan can start the GitHub sign-in itself; the browser shows this code while it waits.
-  return { status, scopes, progress, result, message, deviceCode: state.deviceCode };
+  return {
+    status,
+    scopes,
+    progress,
+    result,
+    message,
+    deviceCode: state.deviceCode,
+    codeOnly: state.scan.codeOnly === true,
+  };
 }
 
 /** The remedy as the browser may see it; a link is passed only if it is an github.com URL. */
@@ -331,6 +362,7 @@ const getSession: ApiHandler = async (context) => {
   const info: SessionInfo = {
     version: PGARD_VERSION,
     mode: context.mode,
+    ui: context.ui,
     project:
       project === null
         ? null
@@ -808,6 +840,83 @@ const startScan: ApiHandler = async (context, body) => {
 const getScan: ApiHandler = async (context) => scanStatus(context.state);
 
 /**
+ * PROTOTYPE (#414), simple screen only: a code-only scan of the confirmed project's current
+ * files. It runs no authorization gate and makes no GitHub or network call; only the `code`
+ * scope runs, nothing is stored and the result is marked `codeOnly` for the page to label.
+ * Git history, web checks, the trend and export keep the full gate (`POST /api/scan`). The
+ * project identity is re-checked first, exactly like an authorized scan. Polled and cancelled
+ * through `GET /api/scan` and `POST /api/scan/cancel`.
+ */
+const startCodeScan: ApiHandler = async (context, body) => {
+  const { state } = context;
+  if (context.ui !== "simple") throw new ApiError(404, "not_found", "Unknown API route.");
+  const capture = captureProject(context, body);
+  if (state.scan.status === "running")
+    throw new ApiError(409, "scan_running", "A scan is already running.");
+  await recheckProject(context, capture, true);
+  if (isScanRunning(state)) throw new ApiError(409, "scan_running", "A scan is already running.");
+  const controller = new AbortController();
+  const idle = (): SessionState["scan"] => ({
+    status: "idle",
+    scopes: [],
+    progress: [],
+    result: null,
+    message: null,
+    controller: null,
+  });
+  state.scan = {
+    status: "running",
+    scopes: ["code"],
+    progress: [],
+    result: null,
+    message: null,
+    controller,
+    codeOnly: true,
+  };
+  void context.deps
+    .runCodeOnlyScan(
+      { projectRoot: capture.project.root, reason: codeOnlyReasonOf(capture.project) },
+      {
+        signal: controller.signal,
+        env: context.env,
+        advisoryDataDir: context.deps.advisoryDataDir ?? null,
+        onProgress: (event) => {
+          if (state.scan.controller !== controller) return;
+          if (state.scan.progress.length >= MAX_PROGRESS_EVENTS) state.scan.progress.shift();
+          state.scan.progress.push({
+            stage: event.stage,
+            status: event.status,
+            message: sanitizeDisplayText(event.message, 300),
+          });
+        },
+      },
+    )
+    .then((result) => {
+      if (state.scan.controller !== controller) return;
+      state.scan = isProjectUnchanged(context, capture)
+        ? { ...state.scan, status: "done", result, controller: null }
+        : idle();
+    })
+    .catch((error: unknown) => {
+      if (state.scan.controller !== controller) return;
+      if (!isProjectUnchanged(context, capture)) {
+        state.scan = idle();
+        return;
+      }
+      const isCancelled = error instanceof ScanCancelledError;
+      state.scan = {
+        ...state.scan,
+        status: isCancelled ? "cancelled" : "failed",
+        message: isCancelled
+          ? "The scan was cancelled."
+          : "The scan stopped because of an internal error.",
+        controller: null,
+      };
+    });
+  return scanStatus(state);
+};
+
+/**
  * Cancels immediately: the scan is marked cancelled right away (a scan stuck waiting for the
  * GitHub sign-in would otherwise never notice the abort), and a pending device flow is stopped.
  * The late result of the abandoned run is ignored.
@@ -871,6 +980,8 @@ function downloadReport(format: "html" | "pdf"): ApiHandler {
     if (result === null || result.overallStatus === "blocked") {
       throw new ApiError(409, "no_result", "There is no scan result to export.");
     }
+    // D5 (decided 2026-10-29): a code-only result is exported; the report carries the
+    // "not authorized: code-only scan" banner on every page (`scanBasis`, JSON 1.7).
     try {
       const body = await context.deps.renderReport(result, format, undefined, {
         lang,
@@ -905,6 +1016,7 @@ export const API_ROUTES: Readonly<Record<string, ApiHandler>> = {
   "GET /api/scan": getScan,
   "POST /api/scan": startScan,
   "POST /api/scan/cancel": cancelScan,
+  "POST /api/code-scan": startCodeScan,
   "GET /api/rule-texts": getRuleTexts,
   "GET /api/advisory-status": getAdvisoryStatus,
   "GET /api/trend": getTrend,

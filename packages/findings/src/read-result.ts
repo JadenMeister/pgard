@@ -10,6 +10,8 @@ import {
   FINDING_CONTEXTS,
   FINDING_STATUSES,
   INCREMENTAL_FULL_REASONS,
+  SCAN_BASIS_AUTHORIZATIONS,
+  SCAN_BASIS_MODES,
   SUPPRESSION_STATES,
   LOCATION_KINDS,
   OVERALL_STATUSES,
@@ -36,6 +38,7 @@ import {
   type StandardBreadth,
   type StandardCoverageEntry,
   type StandardsCoverage,
+  type ScanBasis,
   type ScanResult,
   type ScanScope,
   type ScanTarget,
@@ -114,6 +117,7 @@ export const READER_KEYS = {
     ruleStats: true,
     standardsCoverage: true,
     incremental: true,
+    scanBasis: true,
   } satisfies Record<keyof ScanResult, true>,
   finding: {
     id: true,
@@ -358,6 +362,73 @@ function nullableCount(value: unknown, path: string): number | null {
 
 function nullableReason(value: unknown, path: string): IncrementalAreaInfo["reason"] {
   return value === null ? null : oneOf(value, INCREMENTAL_FULL_REASONS, path);
+}
+
+const SCAN_BASIS_REASON = /^[a-z][a-z_]{0,63}$/;
+
+function readScanBasis(value: unknown): ScanBasis {
+  const o = object(value, "scanBasis");
+  const mode = oneOf(field(o, "mode"), SCAN_BASIS_MODES, "scanBasis.mode");
+  const authorization = oneOf(
+    field(o, "authorization"),
+    SCAN_BASIS_AUTHORIZATIONS,
+    "scanBasis.authorization",
+  );
+  const reasonValue = field(o, "reason");
+  const reason = reasonValue === null ? null : str(reasonValue, "scanBasis.reason");
+  if (reason !== null && !SCAN_BASIS_REASON.test(reason)) {
+    fail("invalid_shape", "scanBasis.reason must be a lowercase code such as no_approval.");
+  }
+  // A code-only scan never proves authorization.
+  if (mode === "code_only" && authorization !== "not_verified") {
+    fail("invalid_shape", "scanBasis.authorization must be not_verified for a code-only scan.");
+  }
+  if ((authorization === "verified") !== (reason === null)) {
+    fail("invalid_shape", "scanBasis.reason must be null exactly when authorization is verified.");
+  }
+  return { mode, authorization, reason };
+}
+
+/**
+ * `scanBasis` must agree with the rest of the result: "verified" only for a scan the gate
+ * allowed with every check passed, and "code_only" only for a blocked, code-only, unverified
+ * scan. Anything else would let a crafted file claim an authorization it never had.
+ */
+function checkScanBasis(basis: ScanBasis, result: ScanResult): void {
+  const { decision, checks } = result.authorization;
+  if (basis.authorization === "verified") {
+    const passed = new Set(
+      checks.filter((check) => check.status === "passed").map((check) => check.id),
+    );
+    const allPassed = AUTHORIZATION_CHECK_IDS.every((id) => passed.has(id));
+    if (decision !== "allowed" || !allPassed) {
+      fail(
+        "invalid_shape",
+        "scanBasis.authorization is verified only when the gate allowed the scan with every check passed.",
+      );
+    }
+  }
+  // An authorized-mode scan that was not verified never ran the analyzers: the gate blocked it
+  // or failed. Anything else is a code-only result with its label edited away.
+  if (basis.mode === "authorized" && basis.authorization === "not_verified") {
+    const stopped = result.overallStatus === "blocked" || result.overallStatus === "failed";
+    if (!stopped || result.findings.length > 0) {
+      fail(
+        "invalid_shape",
+        "scanBasis authorized and not_verified needs overallStatus blocked or failed and no findings.",
+      );
+    }
+  }
+  if (basis.mode === "code_only") {
+    const codeOnlyScopes =
+      result.requestedScopes.length === 1 && result.requestedScopes[0] === "code";
+    if (decision !== "blocked" || !codeOnlyScopes) {
+      fail(
+        "invalid_shape",
+        'scanBasis.mode code_only needs authorization.decision blocked and requestedScopes ["code"].',
+      );
+    }
+  }
 }
 
 function readIncrementalArea(value: unknown, path: string): IncrementalAreaInfo | null {
@@ -713,6 +784,16 @@ function parse(input: unknown): ReadScanResultOutcome {
   // Added in 1.2: absent in older results.
   const incremental = field(input, "incremental");
   if (incremental !== undefined) result.incremental = readIncrementalInfo(incremental);
+  // Added in 1.7: absent in older results (a reader treats absent as an authorized scan).
+  // Required from 1.7 on, so removing it from a file cannot drop the code-only label.
+  const scanBasis = field(input, "scanBasis");
+  if (scanBasis === undefined && Number(sourceVersion.split(".")[1]) >= 7) {
+    fail("invalid_shape", `scanBasis is required in schemaVersion ${sourceVersion}.`);
+  }
+  if (scanBasis !== undefined) {
+    result.scanBasis = readScanBasis(scanBasis);
+    checkScanBasis(result.scanBasis, result);
+  }
   const seen = new Set<string>();
   for (const [i, finding] of result.findings.entries()) {
     if (seen.has(finding.id)) {
