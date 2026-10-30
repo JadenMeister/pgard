@@ -1,15 +1,18 @@
-import { realpath, stat } from "node:fs/promises";
+import { mkdir, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import type { ScanResult } from "@pgard/findings";
 import { ReportWriteError, type ReportFormat, type WrittenReport } from "@pgard/report";
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
 import { BACK, promptChoice, promptConfirm, promptText } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
+import { codeOnlyHome } from "../home-dir.js";
 import { cliText } from "../ui/i18n/cli-text.js";
+import { defaultReportDir, expandHome, realFileAccess, shownDir } from "./report-dir.js";
 
 export type OutputDirCheck =
   | { kind: "ok"; outputDir: string; isInsideRepository: boolean }
-  | { kind: "invalid"; message: string };
+  /** `missing`: set when the folder does not exist, with its absolute path. */
+  | { kind: "invalid"; message: string; missing?: string };
 
 /** Validates that the output directory exists and whether it lies inside the repository. */
 export async function checkOutputDir(
@@ -19,20 +22,50 @@ export async function checkOutputDir(
   /** `option`: the path came from `--output-dir`; `prompt`: the user typed it in the menu. */
   source: "option" | "prompt" = "option",
 ): Promise<OutputDirCheck> {
-  const absolute = path.resolve(context.io.cwd, outputDir);
+  const home = codeOnlyHome(context.io.env);
+  const absolute = path.resolve(context.io.cwd, expandHome(outputDir, home, context.deps.platform));
   const text = cliText(context.ruleLocale).commands.report;
   const isOption = source === "option";
   try {
     const info = await stat(absolute);
     if (!info.isDirectory()) return { kind: "invalid", message: text.notDirectory(isOption) };
-  } catch {
-    return { kind: "invalid", message: text.missingDirectory(isOption) };
+  } catch (error) {
+    const isMissing = (error as NodeJS.ErrnoException).code === "ENOENT";
+    return {
+      kind: "invalid",
+      message: text.missingDirectory(isOption),
+      ...(isMissing && !isOption ? { missing: absolute } : {}),
+    };
   }
   return {
     kind: "ok",
     outputDir: absolute,
     isInsideRepository: await context.deps.isPathInsideDirectory(absolute, projectRoot),
   };
+}
+
+/**
+ * Creates a folder the user asked for (mode 0700, with missing parents). It is refused unless the
+ * closest existing parent is a real folder that lies inside the home folder once links are
+ * resolved, so a link cannot send the new folder somewhere else.
+ */
+async function createReportDir(target: string, home: string | null): Promise<boolean> {
+  if (home === null) return false;
+  try {
+    let parent = path.dirname(target);
+    for (;;) {
+      if ((await stat(parent).catch(() => null))?.isDirectory() === true) break;
+      const next = path.dirname(parent);
+      if (next === parent) return false;
+      parent = next;
+    }
+    const relative = path.relative(await realpath(home), await realpath(parent));
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
+    await mkdir(target, { recursive: true, mode: 0o700 });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -127,16 +160,46 @@ export async function runReportExport(
     { label: text.both, value: "both" },
   ]);
   if (format === BACK || format === "none") return "cancelled";
+  const home = codeOnlyHome(context.io.env);
+  const platform = context.deps.platform;
+  const suggested = await defaultReportDir({
+    platform,
+    env: context.io.env,
+    home,
+    ...realFileAccess,
+  });
+  const shown = suggested === null ? null : shownDir(suggested, home, platform);
   for (;;) {
-    const typed = await promptText(prompts, text.outputDirPrompt);
+    const typed = await promptText(prompts, text.outputDirPrompt(shown));
     if (typed === BACK) return "cancelled";
-    if (typed.trim() === "") continue;
-    const check = await checkOutputDir(context, typed.trim(), projectRoot, "prompt");
+    const chosen = typed.trim() === "" ? suggested : typed.trim();
+    if (chosen === null) continue;
+    let check = await checkOutputDir(context, chosen, projectRoot, "prompt");
+    let isConfirmedInside = false;
+    if (check.kind === "invalid" && check.missing !== undefined) {
+      const missing = check.missing;
+      if (!(await promptConfirm(prompts, text.createQuestion))) continue;
+      if (await context.deps.isPathInsideDirectory(missing, projectRoot)) {
+        if (!(await confirmInsideRepository(context))) continue;
+        isConfirmedInside = true;
+      }
+      if (!(await createReportDir(missing, home))) {
+        out(context, context.style.red(text.cannotCreate));
+        continue;
+      }
+      check = await checkOutputDir(context, missing, projectRoot, "prompt");
+    }
     if (check.kind === "invalid") {
       out(context, context.style.red(check.message));
       continue;
     }
-    if (check.isInsideRepository && !(await confirmInsideRepository(context))) continue;
+    if (
+      check.isInsideRepository &&
+      !isConfirmedInside &&
+      !(await confirmInsideRepository(context))
+    ) {
+      continue;
+    }
     return (await saveReports(context, result, format, check.outputDir, savedPaths))
       ? "saved"
       : "failed";

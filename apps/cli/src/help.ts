@@ -273,7 +273,8 @@ Options:
                            directory (mode 0700) under the system temporary
                            directory and prints its path. Browsers installed as
                            snap packages on Linux may not be able to read /tmp:
-                           use --output-dir ~/Downloads (or similar) then
+                           use --output-dir ~/Downloads (or similar) then.
+                           A leading ~ is expanded to your home folder
   --no-open                write the file and print its path without opening it.
                            Without a terminal, and when CI, GITHUB_ACTIONS,
                            BUILDKITE, TF_BUILD or JENKINS_URL is set or TERM=dumb,

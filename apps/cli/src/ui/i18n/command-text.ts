@@ -107,7 +107,9 @@ export interface CommandText {
     savePrompt: string;
     no: string;
     both: string;
-    outputDirPrompt: string;
+    outputDirPrompt: (shown: string | null) => string;
+    createQuestion: string;
+    cannotCreate: string;
   };
   /** `pgard report`: a report from the last stored result, without scanning. */
   reportCommand: {
@@ -366,7 +368,9 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     savePrompt: "Save a report?",
     no: "No",
     both: "HTML and PDF",
-    outputDirPrompt: "Output directory (must exist):",
+    outputDirPrompt: (shown) => (shown === null ? "Save to folder:" : `Save to folder [${shown}]:`),
+    createQuestion: "The folder doesn't exist. Create it?",
+    cannotCreate: "The folder could not be created. Enter another one.",
   },
   reportCommand: {
     menuLabel: "Build report from last scan",
@@ -632,7 +636,9 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     savePrompt: "보고서를 저장할까요?",
     no: "아니요",
     both: "HTML과 PDF",
-    outputDirPrompt: "출력 디렉터리 (이미 있어야 함):",
+    outputDirPrompt: (shown) => (shown === null ? "저장할 폴더:" : `저장할 폴더 [${shown}]:`),
+    createQuestion: "폴더가 없습니다. 만들까요?",
+    cannotCreate: "폴더를 만들지 못했습니다. 다른 폴더를 입력하세요.",
   },
   reportCommand: {
     menuLabel: "마지막 검사로 보고서 만들기",
