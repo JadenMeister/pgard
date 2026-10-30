@@ -158,7 +158,8 @@ async function realFolder(folder: string): Promise<string> {
       realpath.native(folder, (error, resolved) => (error ? reject(error) : resolve(resolved))),
     );
   } catch {
-    return path.resolve(folder);
+    // Not on disk (or not readable): an absolute path stays as it is; a relative one is resolved.
+    return path.isAbsolute(folder) ? folder : path.resolve(folder);
   }
 }
 

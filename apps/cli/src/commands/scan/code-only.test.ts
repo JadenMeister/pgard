@@ -805,21 +805,25 @@ describe("the repository root is found without Git, and refused like the web (#4
     expect(captured.stderr()).toContain("belongs to another user");
   });
 
-  it("refuses virtual file systems and macOS firmlink spellings of home", async () => {
-    expect(await codeOnlyFolderRefusal("/proc/1/cwd", "/home/u", "linux")).toBe("virtual");
-    expect(await codeOnlyFolderRefusal("/sys/kernel", "/home/u", "linux")).toBe("virtual");
-    expect(await codeOnlyFolderRefusal("/dev/shm", "/home/u", "linux")).toBe("virtual");
-    const none = async (): Promise<null> => null;
-    expect(
-      await codeOnlyFolderRefusal("/System/Volumes/Data/Users/me", "/Users/me", "darwin", none),
-    ).toBe("home");
-    expect(
-      await codeOnlyFolderRefusal("/System/Volumes/Data/Users", "/Users/me", "darwin", none),
-    ).toBe("top_level");
-    expect(await codeOnlyFolderRefusal("/System/Volumes/Data", "/Users/me", "darwin", none)).toBe(
-      "root",
-    );
-  });
+  // POSIX path spellings: the platform's own path rules apply, so they are not run on Windows.
+  it.skipIf(process.platform === "win32")(
+    "refuses virtual file systems and macOS firmlink spellings of home",
+    async () => {
+      expect(await codeOnlyFolderRefusal("/proc/1/cwd", "/home/u", "linux")).toBe("virtual");
+      expect(await codeOnlyFolderRefusal("/sys/kernel", "/home/u", "linux")).toBe("virtual");
+      expect(await codeOnlyFolderRefusal("/dev/shm", "/home/u", "linux")).toBe("virtual");
+      const none = async (): Promise<null> => null;
+      expect(
+        await codeOnlyFolderRefusal("/System/Volumes/Data/Users/me", "/Users/me", "darwin", none),
+      ).toBe("home");
+      expect(
+        await codeOnlyFolderRefusal("/System/Volumes/Data/Users", "/Users/me", "darwin", none),
+      ).toBe("top_level");
+      expect(await codeOnlyFolderRefusal("/System/Volumes/Data", "/Users/me", "darwin", none)).toBe(
+        "root",
+      );
+    },
+  );
 
   it("refuses an alias of home that only the device and inode reveal", async () => {
     const base = await realpath(await temp());
