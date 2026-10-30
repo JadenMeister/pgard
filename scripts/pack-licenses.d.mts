@@ -20,3 +20,4 @@ export function bundledPackages(
 ): BundledPackage[];
 export function licenseProblems(packages: BundledPackage[], allowed?: string[]): string[];
 export function renderBundledNotice(packages: BundledPackage[]): string;
+export function noticeProblems(packages: BundledPackage[], notice: string): string[];

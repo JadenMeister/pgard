@@ -15,6 +15,7 @@ PGARD는 npm 패키지 `pgard` 하나로 배포됩니다(`npm run pack:pgard`가
 - `packaging/pgard/package.json`의 `dependencies`가 워크스페이스의 버전과 같은 두 외부 패키지와 정확히 일치하지 않음
 - 번들된 패키지에 라이선스 본문(npm tarball의 `LICENSE`, `COPYING`, `NOTICE`)이 없거나, 라이선스를 선언하지 않았거나, `scripts/pack-licenses.mjs`의 허용 목록(MIT, ISC, BSD-2-Clause, BSD-3-Clause, Apache-2.0, 0BSD, BlueOak-1.0.0, CC0-1.0, Python-2.0, 그리고 허용된 라이선스가 선택을 충족하는 SPDX 식)에 없는 라이선스를 선언함. 카피레프트나 알 수 없는 라이선스는 조용히 번들되지 않으며, 소유자가 판단한 뒤 검토된 변경으로 허용 목록을 늘립니다. tarball에 라이선스 필드나 파일이 없는 패키지는 같은 파일의 `LICENSE_OVERRIDES`에 정확한 버전으로 적어 두며, 그 패키지의 새 버전은 다시 검토할 때까지 실패합니다.
 - 번들이 `node:` 내장 모듈도 선언된 의존성도 아닌 것을 import하거나, 검토된 허용 목록(`scripts/pack-lib.mjs`의 `ALLOWED_DYNAMIC_USES`, 항목마다 PGARD에서 실행되지 않는 이유 기재)에 없는 코드에서 계산된 경로로 모듈을 불러옴
+- 번들된 패키지가 자신의 `package.json`에 선언하지 않은 패키지를 import함(이 저장소의 설치 방식 때문에만 해석되는 유령 의존성), 또는 Apache-2.0 패키지가 번들되는데 생성된 notice에 Apache-2.0 전문이 없음. `/*!`와 `@license` 배너(TypeScript의 Apache 헤더)는 `dist/`에 남고, 그 밖의 헤더 주석은 생성된 `NOTICE.md`가 담당합니다.
 - `scripts/pack-pgard.mjs`의 `import.meta.url` 자산 경로 재작성이나 pdfkit, `@vue/compiler-sfc` 패치가 더 이상 정확히 한 번 일치하지 않음(해당 패키지를 올릴 때는 패치를 다시 확인)
 
 발행되는 `NOTICE.md`는 저장소의 `NOTICE.md`에 생성된 "Bundled npm packages" 절을 붙인 것으로, 번들된 모든 패키지의 버전, 라이선스, 라이선스 본문이 들어 있습니다. 실제로 번들에 들어간 파일에서 생성하므로 따로 관리할 필요가 없습니다. 의존성을 올렸다면 `npm run pack:pgard`와 `npm run smoke:pack`을 실행하세요. smoke 테스트는 tarball을 설치해 JavaScript, Vue, Python 프로젝트를 스캔하고 JSON, SARIF, HTML, PDF 출력, `precommit`, 대시보드를 설치된 패키지에서 실행합니다.
@@ -73,7 +74,7 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
 
 ## 배포 후 확인
 
-레지스트리가 보고하는 값만이 아니라 릴리스 실행이 만든 tarball이 맞는지도 확인하려면 `packaging/homebrew/update-formula.sh X.Y.Z`를 쓰세요. formula를 고치기 전에 내려받은 tarball을 출처 증명(provenance)의 subject digest와 대조하고 `gh attestation verify`를 실행합니다. `verify` 작업이 실행 요약에 출력하는 sha256은 `EXPECTED_SHA256=<hex>`로 넘기면 함께 비교합니다.
+레지스트리가 보고하는 값만이 아니라 릴리스 실행이 만든 tarball이 맞는지도 확인하려면 `packaging/homebrew/update-formula.sh X.Y.Z`를 쓰세요(formula를 고치기 전에 실행됩니다). 레지스트리의 integrity 값과 attestation JSON의 주장을 비교하는 것만으로는 충분하지 않습니다. 둘 다 레지스트리가 내려주는 값이기 때문입니다. 그래서 스크립트는 독립적인 확인을 요구하고, 없으면 거부합니다. `gh attestation verify`(서명과 서명 주체를 검증하며 `gh`가 설치되어 있으면 자동 실행) 또는 GitHub 실행 요약에서 복사한 `EXPECTED_SHA256=<hex>`입니다(`verify` 작업은 만든 tarball을, `publish` 작업은 발행하는 바이트를 출력합니다).
 
 ```sh
 npm view pgard@X.Y.Z version dist.tarball dist.integrity

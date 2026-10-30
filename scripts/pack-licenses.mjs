@@ -144,7 +144,11 @@ export function isAllowedExpression(expression, allowed = ALLOWED_LICENSES) {
 export function licenseFilesOf(packageDir) {
   return readdirSync(packageDir, { withFileTypes: true })
     .filter(
-      (entry) => entry.isFile() && /^(licen[sc]e|copying|notice|unlicen[sc]e)/i.test(entry.name),
+      (entry) =>
+        entry.isFile() &&
+        // `notice` anywhere: TypeScript's ThirdPartyNoticeText.txt, tslib's CopyrightNotice.txt.
+        /^(licen[sc]e|copying|unlicen[sc]e)|notice/i.test(entry.name) &&
+        !/\.(?:[cm]?js|ts|json|map|html|png|svg)$/i.test(entry.name),
     )
     .map((entry) => entry.name)
     .sort();
@@ -249,4 +253,22 @@ export function renderBundledNotice(packages) {
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * Checks the rendered NOTICE section: a package under Apache-2.0 (alone or in an expression, like
+ * brotli's header-only text) needs the full Apache-2.0 license text in the file, because the
+ * license requires giving recipients a copy.
+ */
+export function noticeProblems(packages, notice) {
+  const problems = [];
+  const hasApacheText = /Apache License\s+Version 2\.0, January 2004/.test(notice);
+  for (const pkg of packages) {
+    if (pkg.license !== null && /\bApache-2\.0\b/.test(pkg.license) && !hasApacheText) {
+      problems.push(
+        `${pkg.name}@${pkg.version} is Apache-2.0 but the notice has no full Apache-2.0 text`,
+      );
+    }
+  }
+  return problems;
 }

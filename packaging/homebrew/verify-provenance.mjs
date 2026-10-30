@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// CONSISTENCY CHECK ONLY: compares the claims in the registry's attestation JSON with a tarball.
+// The JSON is unsigned for this script: anyone who can alter registry responses can forge a
+// statement that passes. Trust comes only from `gh attestation verify` (signature and identity)
+// or from a sha256 taken from the GitHub run summary; update-formula.sh requires one of them.
 // Checks that a downloaded pgard tarball is the one the release's provenance statement names.
 // Usage: node verify-provenance.mjs <attestations.json> <tarball> <version> [expected-sha256]
 // <attestations.json> is the registry's attestation document for the version (what
@@ -97,5 +101,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     for (const problem of problems) console.error(`provenance: ${problem}`);
     process.exit(1);
   }
-  console.log(`provenance: pgard@${version} matches the release's provenance statement`);
+  console.log(
+    `provenance claims: pgard@${version} is consistent with the registry's attestation document (consistency check only; the signature is not examined here)`,
+  );
 }

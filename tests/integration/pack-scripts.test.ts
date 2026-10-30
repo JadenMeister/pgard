@@ -19,6 +19,7 @@ import {
   isAllowedExpression,
   licenseProblems,
   packageOfInput,
+  noticeProblems,
   renderBundledNotice,
 } from "../../scripts/pack-licenses.mjs";
 
@@ -177,6 +178,36 @@ describe("unverifiable module loading in bundled third-party code", () => {
     ).toHaveLength(1);
   });
 
+  it("mutation: a new computed require in an allowlisted package still fails the pack", () => {
+    for (const owner of [
+      "node_modules/typescript-api/lib/typescript.js",
+      "node_modules/@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+      "node_modules/postcss/lib/previous-map.js",
+      "node_modules/@babel/parser/lib/index.js",
+    ]) {
+      const found = findDynamicCodeUses("a.js", module(owner, "var cfg = __require(configPath);"));
+      expect(found, owner).toEqual([expect.stringContaining("non-literal specifier")]);
+    }
+    expect(
+      findDynamicCodeUses(
+        "a.js",
+        module("node_modules/typescript-api/lib/typescript.js", "require(userPath);"),
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("the allowlist accepts only the exact reviewed expression", () => {
+    const owner = "node_modules/typescript-api/lib/typescript.js";
+    const exact = "          return { module: __require(modulePath), modulePath, error: void 0 };";
+    expect(findDynamicCodeUses("a.js", module(owner, exact))).toEqual([]);
+    expect(
+      findDynamicCodeUses(
+        "a.js",
+        module(owner, "return { module: __require(modulePath), x: __require(other) };"),
+      ),
+    ).not.toEqual([]);
+  });
+
   it("keeps the native and WASM packages external", () => {
     expect(EXTERNAL_PACKAGES).toEqual(["@napi-rs/keyring", "web-tree-sitter"]);
   });
@@ -292,6 +323,34 @@ describe("bundled package licenses", () => {
       expect.stringContaining('copyleft@1.0.0 has license "GPL-3.0"'),
       expect.stringContaining("nofile@1.0.0 has no license file"),
       expect.stringContaining("nolicense@1.0.0 declares no license"),
+    ]);
+  });
+
+  it("picks up notice files by name anywhere, and Apache packages need the full text", () => {
+    const { root, metafile } = fixture({
+      ts: {
+        manifest: { version: "1.0.0", license: "Apache-2.0" },
+        files: {
+          "LICENSE.txt": "Apache License\nVersion 2.0, January 2004\nTERMS",
+          "ThirdPartyNoticeText.txt": "third party notices",
+          "index.d.ts": "not a license",
+        },
+      },
+      tl: {
+        manifest: { version: "1.0.0", license: "0BSD" },
+        files: { "CopyrightNotice.txt": "c" },
+      },
+    });
+    const packages = bundledPackages(metafile, root, {});
+    expect(packages.find((pkg) => pkg.name === "ts")?.files.map((file) => file.name)).toEqual([
+      "LICENSE.txt",
+      "ThirdPartyNoticeText.txt",
+    ]);
+    expect(packages.find((pkg) => pkg.name === "tl")?.files).toHaveLength(1);
+    expect(noticeProblems(packages, renderBundledNotice(packages))).toEqual([]);
+    const brotliLike = [{ ...packages[0]!, name: "brotli", license: "(MIT AND Apache-2.0)" }];
+    expect(noticeProblems(brotliLike, "no full text here")).toEqual([
+      expect.stringContaining("no full Apache-2.0 text"),
     ]);
   });
 

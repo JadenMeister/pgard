@@ -36,7 +36,13 @@ import {
   shippedGrammarsReadme,
   shippedNotice,
 } from "./pack-lib.mjs";
-import { bundledPackages, licenseProblems, renderBundledNotice } from "./pack-licenses.mjs";
+import {
+  bundledPackages,
+  licenseProblems,
+  noticeProblems,
+  packageOfInput,
+  renderBundledNotice,
+} from "./pack-licenses.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packDir = join(root, ".pack");
@@ -237,6 +243,45 @@ const absentOptionalPlugin = {
   },
 };
 
+// Hardening: a bundled third-party module may only import (or require) a package that its own
+// package.json declares (dependencies, optionalDependencies, peerDependencies), a built-in, one of
+// the two externals, or itself. Anything else is a phantom dependency that only resolved because
+// of how this repository happens to be installed, and would resolve differently after an upgrade.
+// It fails the pack with a list instead of bundling it. (The stubs above and the externals are
+// decided before this plugin runs.)
+const undeclaredImports = [];
+const manifestCache = new Map();
+const declaredBy = (dir) => {
+  if (!manifestCache.has(dir)) {
+    const manifest = JSON.parse(readFileSync(join(dir, "package.json"), "utf8"));
+    manifestCache.set(
+      dir,
+      new Set([
+        manifest.name,
+        ...Object.keys(manifest.dependencies ?? {}),
+        ...Object.keys(manifest.optionalDependencies ?? {}),
+        ...Object.keys(manifest.peerDependencies ?? {}),
+      ]),
+    );
+  }
+  return manifestCache.get(dir);
+};
+const declaredDependencyPlugin = {
+  name: "declared-dependencies-only",
+  setup(b) {
+    b.onResolve({ filter: /^[^./#]/ }, (args) => {
+      if (/^[A-Za-z]:[\\/]/.test(args.path) || args.path.startsWith("node:")) return undefined;
+      const importer = packageOfInput(args.importer);
+      if (importer === null || importer.name.startsWith("@pgard/")) return undefined;
+      const name = packageNameOf(args.path);
+      if (builtinModules.includes(name) || declaredBy(importer.dir).has(name)) return undefined;
+      // typescript-api is the npm alias of typescript: its manifest names itself "typescript".
+      undeclaredImports.push(`${importer.name} imports "${args.path}" (${args.kind})`);
+      return undefined;
+    });
+  },
+};
+
 rmSync(packDir, { recursive: true, force: true });
 mkdirSync(join(stage, "dist"), { recursive: true });
 
@@ -261,12 +306,24 @@ const result = await build({
   // Vue's CommonJS entry picks its production or development build at run time; pick one.
   define: { "process.env.NODE_ENV": '"production"' },
   sourcemap: false,
-  legalComments: "none",
+  // Keep the `/*!` and `@license` banners (TypeScript's Apache header, brotli's header) in dist/.
+  legalComments: "eof",
   logLevel: "warning",
   metafile: true,
-  plugins: [rewritePlugin, externalPlugin, pdfkitPlugin, absentOptionalPlugin],
+  plugins: [
+    rewritePlugin,
+    externalPlugin,
+    pdfkitPlugin,
+    absentOptionalPlugin,
+    declaredDependencyPlugin,
+  ],
 });
 for (const rule of rewrites) if (!rule.done) fail(`rewrite for ${rule.file} was never applied`);
+if (undeclaredImports.length > 0) {
+  fail(
+    `bundled code imports packages its own package.json does not declare:\n  ${[...new Set(undeclaredImports)].join("\n  ")}`,
+  );
+}
 
 // Everything the bundle imports from outside itself (static, dynamic, require) must be a node:
 // built-in or a declared dependency; otherwise the installed package would crash at runtime.
@@ -311,9 +368,12 @@ for (const name of readdirSync(join(root, "packages/source-analysis/grammars")))
 }
 for (const name of ["LICENSE", "README.md"]) copy(name, name);
 // NOTICE.md names repository paths; the package layout differs (assets/fonts, assets/grammars).
+const bundledNotice = renderBundledNotice(bundled);
+const noticeIssues = noticeProblems(bundled, bundledNotice);
+if (noticeIssues.length > 0) fail(`NOTICE.md:\n  ${noticeIssues.join("\n  ")}`);
 writeFileSync(
   join(stage, "NOTICE.md"),
-  `${shippedNotice(readFileSync(join(root, "NOTICE.md"), "utf8")).trimEnd()}\n\n${renderBundledNotice(bundled)}`,
+  `${shippedNotice(readFileSync(join(root, "NOTICE.md"), "utf8")).trimEnd()}\n\n${bundledNotice}`,
 );
 writeFileSync(join(stage, "package.json"), `${JSON.stringify(template, null, 2)}\n`);
 

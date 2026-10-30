@@ -80,54 +80,109 @@ export function findExternalViolations(metafile, dependencies, { allowBareBuilti
  * pattern for the exact line, and why it cannot run in PGARD. Anything not listed fails the pack.
  */
 export const ALLOWED_DYNAMIC_USES = [
+  // typescript-api/lib/typescript.js. PGARD only parses in memory (createSourceFile, and
+  // createProgram with noLib/noResolve and an in-memory host), so none of these can run.
   {
     module: "typescript-api/lib/typescript.js",
-    line: /__require\(modulePath\)/,
-    why: "ts.sys.require loads tsserver plugins; PGARD only parses in memory (createSourceFile, createProgram with an in-memory host)",
+    line: /^\s*return \{ module: __require\(modulePath\), modulePath, error: void 0 \};$/,
+    why: "ts.sys.require loads tsserver plugins; the scanner never reads a tsconfig plugin or calls sys.require",
   },
   {
     module: "typescript-api/lib/typescript.js",
-    line: /host\.require\(|= require\(\$\{|_require_/,
-    why: "language-service plugin loading and generated-code text; not reachable from createSourceFile or the in-memory createProgram",
-  },
-  {
-    module: "@vue/compiler-core/dist/",
-    line: /require\(\$\{JSON\.stringify\(runtimeModuleName\)\}\)/,
-    why: "text of generated SSR render code (a string), not a require call of the scanner",
+    line: /^\s*const result = host\.require\(resolvedPath, pluginConfigEntry\.name\);$/,
+    why: "language-service plugin loading; PGARD creates no language service",
   },
   {
     module: "typescript-api/lib/typescript.js",
-    line: /__require\("source-map-support"\)/,
-    why: "optional, in a try block, only behind tsc --enableSourceMaps",
+    line: /^\s*const executingFilePath = __filename\.endsWith\("sys\.js"\) \? _path\.join\(_path\.dirname\(__dirname\), "__fake__\.js"\) : __filename;$/,
+    why: "locates tsc's own lib files; PGARD sets noLib and reads nothing from disk through TypeScript",
   },
   {
     module: "typescript-api/lib/typescript.js",
-    line: /__filename|__dirname|typeof __require/,
-    why: "locates tsc's own lib files and test hooks; PGARD sets noLib and reads nothing from disk through TypeScript",
+    line: /^\s*return !fileExists\(swapCase\(__filename\)\);$/,
+    why: "case-sensitivity probe of the file system for ts.sys, not used by the in-memory host",
   },
   {
     module: "typescript-api/lib/typescript.js",
-    line: /import_meta|import\.meta|import\(|createRequire/,
-    why: "diagnostic message text and code printing about import()/import.meta in the scanned source, not module loading",
+    line: /^\s*(?:This_use_of_import_is_invalid_import_calls_can_be_written_but_they_must_have_parentheses_and_cannot_have_type_arguments|The_import_meta_meta_property_is_only_allowed_when_the_module_option_is_es2020_es2022_esnext_system_node16_node18_node20_or_nodenext|The_import_meta_meta_property_is_not_allowed_in_files_which_will_build_into_CommonJS_output|auto_Colon_Treat_files_with_imports_exports_import_meta_jsx_with_jsx_Colon_react_jsx_or_esm_format_with_module_Colon_node16_as_modules|_0_can_only_be_imported_by_using_import_1_require_2_or_a_default_import|_0_can_only_be_imported_by_using_import_1_require_2_or_by_turning_on_the_esModuleInterop_flag_and_using_a_default_import): diag\(\d+, \d, "/,
+    why: "diagnostic message definitions (text about import(), import.meta and require)",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /^\s*factory2\.createIdentifier\("createRequire"\),$/,
+    why: "an identifier written into generated code, not a call",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /^\s*return `import\(\$\{quote2\}\$\{moduleSpecifier\}\$\{quote2\}\)\.`;$/,
+    why: "type printing text",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /^\s*return \{ replacementSpan, insertText: `import\$\{topLevelTypeOnlyText\}\$\{escapeSnippetText\(name\)\}\$\{tabStop\} = require\(\$\{quotedModuleSpecifier\}\)\$\{suffix\}` \};$/,
+    why: "completion text for the editor, a string",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /^\s*\/\/ falls through \(is `require\(""\)` or `require\(""` or `import\(""\)`\)$/,
+    why: "a comment",
+  },
+  {
+    module: "typescript-api/lib/typescript.js",
+    line: /^\s*parts\.push\(\{ text: "import\(" \}\);$/,
+    why: "type printing text",
+  },
+  // @babel/parser: error message text only.
+  {
+    module: "@babel/parser/lib/index.js",
+    line: /^\s*message: `import\.meta may appear only with 'sourceType: "module"'`,$/,
+    why: "parser error text",
   },
   {
     module: "@babel/parser/lib/index.js",
-    line: /import\(|import\.meta/,
-    why: "parser error text about import() and import.meta",
+    line: /^\s*ImportCallArity: `\\`import\(\)\\` requires exactly one or two arguments\.`,$/,
+    why: "parser error text",
+  },
+  {
+    module: "@babel/parser/lib/index.js",
+    line: /^\s*ImportCallNotNewExpression: "Cannot use new with import\(\.\.\.\)\.",$/,
+    why: "parser error text",
+  },
+  {
+    module: "@babel/parser/lib/index.js",
+    line: /^\s*ImportCallSpreadArgument: "`\.\.\.` is not allowed in `import\(\)`\.",$/,
+    why: "parser error text",
+  },
+  {
+    module: "@babel/parser/lib/index.js",
+    line: /^\s*UnsupportedImport: "`import` can only be used in `import\(\)` or `import\.meta`\.",$/,
+    why: "parser error text",
+  },
+  // @vue/compiler-core and @vue/compiler-sfc.
+  {
+    module: "@vue/compiler-core/dist/",
+    line: /^\s*const VueBinding = ssr \? `require\(\$\{JSON\.stringify\(runtimeModuleName\)\}\)` : runtimeGlobalName;$/,
+    why: "text of generated SSR render code (a string), not a require call of the scanner",
   },
   {
     module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
-    line: /:import\(|import\.meta|__require\.cache|__require\.resolve|load = __require|__dirname|__filename/,
-    why: "CSS ':import()' selector text; CSS preprocessor loading (scss, less, stylus) and postcss source-map handling that parse() never reaches",
+    line: /^\s*delete __require\.cache\[path3\];$/,
+    why: "cache bust of a CSS preprocessor config file; parse() never reaches the style preprocessors",
   },
   {
-    module: "postcss/",
-    line: /__require|__dirname|__filename|import\.meta/,
-    why: "postcss reads previous source maps and plugin config from disk; compiler-sfc's parse() never calls it",
+    module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+    line: /^\s*fileRelativePath = __require\.resolve\(newPath\);$/,
+    why: "resolves a CSS @import in the style preprocessors; parse() never reaches them",
   },
+  {
+    module: "@vue/compiler-sfc/dist/compiler-sfc.cjs.js",
+    line: /^\s*selector: `:import\(\$\{path2\}\)`,$/,
+    why: "CSS modules ':import()' selector text, a string",
+  },
+  // pdfkit.
   {
     module: "pdfkit/js/pdfkit.node.mjs",
-    line: /ICC_PROFILE_PATH/,
+    line: /^\s*var ICC_PROFILE_PATH = new URL\("\.\/data\/sRGB_IEC61966_2_1\.icc", import\.meta\.url\)\.href;$/,
     why: "sRGB profile for PDF/A output only; PGARD does not request a PDF/A subset",
   },
 ];
