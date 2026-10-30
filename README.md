@@ -74,6 +74,7 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 - macOS, Linux or Windows. CI runs the full test suite on all three. Local port discovery uses `lsof` on macOS (falling back to `netstat`), `/proc/net/tcp*` on Linux and `%SystemRoot%\System32\netstat.exe` on Windows. You can always type a port by hand.
 - Windows notes: the sign-in is kept in Windows Credential Manager, the browser opens through `explorer.exe`, and reports cannot be created with mode `0600` because Windows has no such mode. A report there gets the default permissions of the folder you choose, so pick a folder only you can read. Terminal output: `NO_COLOR` turns off colour only. `TERM=dumb` turns off colour and, on non-Windows systems, also gives ASCII text. On Windows, text is ASCII unless the host is Windows Terminal, VS Code or a similar terminal; colour stays on there regardless of the host.
 - A GitHub account (see [GitHub App and sign-in](#github-app-and-sign-in))
+- Language: English or Korean, picked automatically. `--lang en|ko` decides first, then `PGARD_LANG`, then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; on Windows the OS language). Only a Korean locale gives Korean; everything else gives English. To keep English on a Korean system, set `PGARD_LANG=en`.
 
 ## Install and build
 

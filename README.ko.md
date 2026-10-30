@@ -74,6 +74,7 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 - macOS, Linux 또는 Windows. CI가 세 운영체제 모두에서 전체 테스트를 실행합니다. 로컬 포트 탐지는 macOS에서 `lsof`(실패하면 `netstat`으로 대체), Linux에서 `/proc/net/tcp*`, Windows에서 `%SystemRoot%\System32\netstat.exe`를 사용합니다. 포트는 언제든 직접 입력할 수 있습니다.
 - Windows 참고: 로그인은 Windows 자격 증명 관리자에 보관되고, 브라우저는 `explorer.exe`로 열립니다. Windows에는 `0600` 같은 권한 모드가 없어 보고서를 그 모드로 만들 수 없습니다. 보고서는 선택한 폴더의 기본 권한을 따르므로 본인만 읽을 수 있는 폴더를 고르세요. 터미널 출력: `NO_COLOR`는 색상만 끕니다. `TERM=dumb`는 색상을 끄고, Windows가 아닌 시스템에서는 텍스트도 ASCII로 바꿉니다. Windows에서는 호스트가 Windows Terminal, VS Code 또는 비슷한 터미널이 아니면 텍스트가 ASCII이고, 색상은 호스트와 관계없이 켜진 상태로 유지됩니다.
 - GitHub 계정([GitHub App과 로그인](#github-app과-로그인) 참고)
+- 언어: 영어 또는 한국어이며 자동으로 정해집니다. `--lang en|ko`가 가장 먼저이고, 다음은 `PGARD_LANG`, 그다음은 시스템 언어(`LC_ALL`, `LC_MESSAGES`, `LANG`, Windows는 OS 언어)입니다. 한국어 로캘일 때만 한국어가 나오고 그 밖에는 모두 영어입니다. 한국어 시스템에서 영어로 쓰려면 `PGARD_LANG=en`을 설정하세요.
 
 ## 설치와 빌드
 
