@@ -34,6 +34,10 @@ export function createGitFixture(options: { remotes?: Record<string, string> } =
       cwd: root,
       encoding: "utf8",
       ...(input !== undefined ? { input } : {}),
+      // A Git that never returns would block the worker, and vitest's test timeout cannot
+      // interrupt a synchronous call (#418).
+      timeout: 60_000,
+      killSignal: "SIGKILL",
       env: {
         PATH: process.env.PATH ?? "",
         HOME: root,

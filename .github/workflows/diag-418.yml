@@ -16,9 +16,26 @@ jobs:
       matrix:
         n: [1, 2, 3, 4, 5, 6, 7, 8]
         g:
-          - { name: staged-scan, paths: "packages/scan-core/src/staged-scan.test.ts" }
-          - { name: cov, paths: "packages/scan-core/src/standards-coverage.test.ts" }
-          - { name: cov-real, paths: "packages/scan-core/src/standards-coverage-real.test.ts" }
+          - {
+              name: big,
+              paths: "packages/scan-core/src/staged-scan.test.ts -t 'is partial, not clean'",
+            }
+          - {
+              name: unreadable,
+              paths: "packages/scan-core/src/staged-scan.test.ts -t 'unreadable repository'",
+            }
+          - {
+              name: cap,
+              paths: "packages/scan-core/src/staged-scan.test.ts -t 'exhausted time cap'",
+            }
+          - {
+              name: cancel,
+              paths: "packages/scan-core/src/staged-scan.test.ts -t 'rethrows a cancellation'",
+            }
+          - {
+              name: rest,
+              paths: "packages/scan-core/src/staged-scan.test.ts -t 'reports a secret|does not report|reads staged|applies the exclude|does not count'",
+            }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
