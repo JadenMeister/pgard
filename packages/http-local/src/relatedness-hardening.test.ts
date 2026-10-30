@@ -157,3 +157,38 @@ describe("readProjectSignals is bounded on hostile files", () => {
     expect(signals.dependencies).toEqual(["next"]);
   });
 });
+
+describe("Go module paths and over-long pyproject lines", () => {
+  it("matches a tool by a path segment equal to, or starting with, its name", () => {
+    const service = { title: "MinIO Console", technologies: [] };
+    const base = { ...EMPTY_PROJECT_SIGNALS, folderName: "shop" };
+    expect(
+      relatedness(service, { ...base, dependencies: ["github.com/minio/minio-go/v7"] }).verdict,
+    ).toBe("unclear");
+    expect(
+      relatedness(service, { ...base, dependencies: ["github.com/acme/minioish"] }).verdict,
+    ).toBe("unlikely");
+  });
+
+  it("closes a dependency array when a line inside it was too long to read", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "pgard-long-"));
+    try {
+      await writeFile(
+        path.join(root, "pyproject.toml"),
+        [
+          "[project]",
+          'name = "x"',
+          "dependencies = [",
+          '  "requests",',
+          `  "${"a".repeat(2000)}"]`,
+          '"flask>=2",',
+          "",
+        ].join("\n"),
+      );
+      const signals = await readProjectSignals(root, null);
+      expect(signals.dependencies).toEqual(["requests"]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -255,7 +255,9 @@ function isDependencyOn(dependency: string, hint: string): boolean {
     dependency === hint ||
     dependency.startsWith(`@${hint}/`) ||
     dependency.startsWith(`${hint}/`) ||
-    dependency.endsWith(`/${hint}`)
+    dependency.endsWith(`/${hint}`) ||
+    // Go module paths: `github.com/minio/minio-go/v7` is on `minio`.
+    dependency.split("/").some((segment) => segment === hint || segment.startsWith(`${hint}-`))
   );
 }
 

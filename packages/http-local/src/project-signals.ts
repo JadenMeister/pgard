@@ -58,10 +58,16 @@ function keysOf(value: unknown): string[] {
 
 /** The lines worth looking at: a BOM is dropped, long lines and anything past the cap are not. */
 function shortLines(text: string): string[] {
-  const lines: string[] = [];
+  return linesWithGaps(text).filter((line): line is string => line !== null);
+}
+
+/** Like `shortLines`, with `null` where a line was too long to look at. */
+function linesWithGaps(text: string): Array<string | null> {
+  const lines: Array<string | null> = [];
   const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   for (const line of body.split("\n", MAX_LINES)) {
-    if (line.length <= MAX_LINE_LENGTH) lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
+    if (line.length > MAX_LINE_LENGTH) lines.push(null);
+    else lines.push(line.endsWith("\r") ? line.slice(0, -1) : line);
   }
   return lines;
 }
@@ -122,7 +128,12 @@ function readPyproject(text: string): { name: string | null; dependencies: strin
     const match = REQUIREMENT_NAME.exec(value.trim());
     if (match !== null) dependencies.push(normalizePython(match[0]));
   };
-  for (const line of shortLines(text)) {
+  for (const line of linesWithGaps(text)) {
+    if (line === null) {
+      // A line too long to read inside the array: its end may be in it, so the array is closed.
+      isInDependencyArray = false;
+      continue;
+    }
     const header = TOML_TABLE.exec(line);
     if (header !== null && !isInDependencyArray) {
       table = (header[1] ?? "").trim();

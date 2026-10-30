@@ -567,7 +567,7 @@ const EN: CliText = {
   webRelated: {
     unlikely: (service, project) =>
       `This service doesn't look related to this project (service: '${service}', project: '${project}').`,
-    likelyMark: "(name matches this project)",
+    likelyMark: "(may be this project)",
     confirm: "Is this the current project's service?",
   },
   progress: {
@@ -938,7 +938,7 @@ const KO: CliText = {
   webRelated: {
     unlikely: (service, project) =>
       `이 서비스는 현재 프로젝트와 관련 없어 보입니다 (서비스: '${service}', 프로젝트: '${project}').`,
-    likelyMark: "(이름이 프로젝트와 비슷함)",
+    likelyMark: "(이 프로젝트일 수 있음)",
     confirm: "이 프로젝트의 서비스가 맞습니까?",
   },
   progress: {

@@ -156,7 +156,7 @@ describe("several servers", () => {
       async () => PROJECT,
     );
     expect(targets.map((target) => target.port)).toEqual([5173, 3000, 4000]);
-    expect(targets[0]?.label).toContain("(name matches this project)");
+    expect(targets[0]?.label).toContain("(may be this project)");
     expect(targets[1]?.label).not.toContain("looks like this project");
   });
 
@@ -168,7 +168,7 @@ describe("several servers", () => {
       async () => true,
       async () => PROJECT,
     );
-    expect(targets[0]?.label).toContain("(이름이 프로젝트와 비슷함)");
+    expect(targets[0]?.label).toContain("(이 프로젝트일 수 있음)");
   });
 
   it("keeps the discovery order without project signals", async () => {
@@ -232,7 +232,7 @@ describe("several servers", () => {
     await selectLocalPort(t.context, null, PROJECT);
     const text = t.captured.stdout();
     expect(text.indexOf("127.0.0.1:5173")).toBeLessThan(text.indexOf("127.0.0.1:3000"));
-    expect(text).toContain("(name matches this project)");
+    expect(text).toContain("(may be this project)");
   });
 
   it("goes on without a judgement when reading the project fails", async () => {
