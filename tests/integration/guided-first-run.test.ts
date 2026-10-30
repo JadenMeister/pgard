@@ -657,6 +657,52 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     },
   );
 
+  it("the default pgard precommit runs code-only: no fetch, no device code, no credential read", async () => {
+    project();
+    const root = fixture?.root ?? "/";
+    fixture?.writeFile("src/config.ts", `export const token = "${"ghp_"}${"a".repeat(36)}";\n`);
+    fixture?.writeFile("README.md", "notes\n");
+    fixture?.git("add", "src/config.ts", "README.md");
+    const store = createInMemoryCredentialStore();
+    const credentialCalls: string[] = [];
+    const spyStore: CredentialStore = {
+      get: async (key) => {
+        credentialCalls.push(`get ${key.service}`);
+        return store.get(key);
+      },
+      set: async (key, secret) => {
+        credentialCalls.push(`set ${key.service}`);
+        return store.set(key, secret);
+      },
+      delete: async (key) => {
+        credentialCalls.push(`delete ${key.service}`);
+        return store.delete(key);
+      },
+    };
+    const run = noTerminal(spyStore);
+    const verifyProject = vi.fn(realVerify);
+    const runScan = vi.fn(realRunScan);
+    const deps = {
+      ...run.deps,
+      verifyProject,
+      runScan,
+      runCodeOnlyScan: realRunCodeOnlyScan,
+    };
+    const captured = createTestIo({ isTTY: false, cwd: root, env: { PGARD_NO_STORE: "1" } });
+    captured.io.stdin = fs.createReadStream(os.devNull);
+    const exitCode = await main(["precommit"], captured.io, { deps, interrupts: noInterrupts });
+    // The staged secret is found and blocks the commit; nothing about GitHub was touched.
+    expect(exitCode).toBe(1);
+    expect(captured.stdout()).toContain("PG-SECRET-002 src/config.ts:1");
+    expect(captured.stderr()).toContain("code-only, authorization not verified");
+    expect(run.fetchCalls).toEqual([]);
+    expect(run.deviceCodeRequests()).toBe(0);
+    expect(networkCalls).toEqual([]);
+    expect(credentialCalls).toEqual([]);
+    expect(verifyProject).not.toHaveBeenCalled();
+    expect(runScan).not.toHaveBeenCalled();
+  });
+
   it("pgard login refuses without a terminal (usage error, exit 2) and requests nothing", async () => {
     project();
     const run = noTerminal(createInMemoryCredentialStore());

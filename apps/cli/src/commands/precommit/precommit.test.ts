@@ -31,7 +31,7 @@ vi.mock("@pgard/policy", async (importOriginal) => {
   };
 });
 
-const { findGitRoot, runScan } = await import("@pgard/scan-core");
+const { findGitRoot, runCodeOnlyScan, runScan } = await import("@pgard/scan-core");
 const { createTestContext, createTestDeps, createTestIo } = await import("../../test-support.js");
 const { main } = await import("../../app.js");
 const { EXIT_CODES } = await import("../../exit-codes.js");
@@ -140,6 +140,7 @@ function setup(
   const deps = createTestDeps({
     findGitRoot,
     runScan,
+    runCodeOnlyScan,
     createSessionProvider: createSessionProvider as never,
   });
   const context = {
@@ -161,6 +162,51 @@ function stageSecret(root: string): void {
 }
 
 describe("pgard precommit", () => {
+  it("is code-only by default: no gate, no sign-in, one quiet label line (#414 D3)", async () => {
+    authorizeProject.mockResolvedValue(BLOCKED);
+    const root = makeRepo();
+    stageSecret(root);
+    const { captured, context, createSessionProvider } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
+    expect(authorizeProject).not.toHaveBeenCalled();
+    expect(createSessionProvider).not.toHaveBeenCalled();
+    const label = captured
+      .stderr()
+      .split("\n")
+      .filter((line) => line.includes("code-only, authorization not verified"));
+    expect(label).toHaveLength(1);
+    expect(captured.stderr()).not.toContain("checking authorization");
+    expect(captured.stdout()).toContain("PG-SECRET-002");
+  });
+
+  it("says the label in Korean", async () => {
+    const root = makeRepo();
+    const { captured, context } = setup(root, { lang: "ko" });
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+    expect(captured.stderr()).toContain("코드 전용, 권한 미확인");
+  });
+
+  it("runs the gate as before with requireAuthorization in the staged config", async () => {
+    const root = makeRepo({
+      "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+    });
+    stageSecret(root);
+    const { captured, context, createSessionProvider } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.findings);
+    expect(authorizeProject).toHaveBeenCalledTimes(1);
+    expect(createSessionProvider).toHaveBeenCalled();
+    expect(captured.stderr()).toContain("checking authorization");
+    expect(captured.stderr()).not.toContain("code-only");
+  });
+
+  it("uses requireAuthorization only from the staged config, not the working tree", async () => {
+    const root = makeRepo();
+    write(root, { "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}' });
+    const { context } = setup(root);
+    expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
+    expect(authorizeProject).not.toHaveBeenCalled();
+  });
+
   it("blocks a commit with a staged secret in block mode (the default), and never prints the value", async () => {
     const root = makeRepo();
     stageSecret(root);
@@ -251,8 +297,10 @@ describe("pgard precommit", () => {
     expect(captured.stdout()).not.toContain("PG-SECRET-002 ");
   });
 
-  it("does not count findings that are in the baseline", async () => {
-    const root = makeRepo();
+  it("does not count findings that are in the baseline (with requireAuthorization)", async () => {
+    const root = makeRepo({
+      "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+    });
     stageSecret(root);
     // First look at what the staged scan finds, then store exactly that as the baseline.
     const first = setup(root, { env: { PGARD_NO_STORE: "1" } });
@@ -297,7 +345,9 @@ describe("pgard precommit", () => {
   describe("when nothing could be scanned", () => {
     it("blocks in block mode, with the five checks shown", async () => {
       authorizeProject.mockResolvedValue(BLOCKED);
-      const root = makeRepo();
+      const root = makeRepo({
+        "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+      });
       stageSecret(root);
       const { captured, context } = setup(root);
       expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.blocked);
@@ -312,7 +362,7 @@ describe("pgard precommit", () => {
     it("exits 0 in warn mode, but plainly says nothing was scanned", async () => {
       authorizeProject.mockResolvedValue(BLOCKED);
       const root = makeRepo();
-      stageConfig(root, '{"version":1,"precommit":{"mode":"warn"}}');
+      stageConfig(root, '{"version":1,"precommit":{"mode":"warn","requireAuthorization":true}}');
       stageSecret(root);
       const { captured, context } = setup(root);
       expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);
@@ -325,19 +375,27 @@ describe("pgard precommit", () => {
     it("follows whenNotScanned when it is configured explicitly", async () => {
       authorizeProject.mockResolvedValue(BLOCKED);
       const root = makeRepo();
-      stageConfig(root, '{"version":1,"precommit":{"mode":"block","whenNotScanned":"warn"}}');
+      stageConfig(
+        root,
+        '{"version":1,"precommit":{"mode":"block","whenNotScanned":"warn","requireAuthorization":true}}',
+      );
       stageSecret(root);
       const lenient = setup(root);
       expect(await precommit.runPrecommit(lenient.context)).toBe(EXIT_CODES.ok);
       expect(lenient.captured.stdout()).toContain("WARNING");
 
-      stageConfig(root, '{"version":1,"precommit":{"mode":"warn","whenNotScanned":"block"}}');
+      stageConfig(
+        root,
+        '{"version":1,"precommit":{"mode":"warn","whenNotScanned":"block","requireAuthorization":true}}',
+      );
       const strict = setup(root);
       expect(await precommit.runPrecommit(strict.context)).toBe(EXIT_CODES.blocked);
     });
 
-    it("never starts a sign-in from a hook", async () => {
-      const root = makeRepo();
+    it("never starts a sign-in from a hook (with requireAuthorization)", async () => {
+      const root = makeRepo({
+        "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+      });
       const { context, createSessionProvider } = setup(root, { isTTY: true, keys: [] });
       await precommit.runPrecommit(context);
       expect(createSessionProvider).toHaveBeenCalledWith(
@@ -354,7 +412,9 @@ describe("pgard precommit", () => {
             });
           }),
       );
-      const root = makeRepo();
+      const root = makeRepo({
+        "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+      });
       stageSecret(root);
       const { captured, context } = setup(root);
       const code = await precommit.runPrecommit(context, { authTimeoutMs: 50 });
@@ -365,7 +425,9 @@ describe("pgard precommit", () => {
 
     it("treats an authorization error as not scanned", async () => {
       authorizeProject.mockRejectedValue(new Error("boom"));
-      const root = makeRepo();
+      const root = makeRepo({
+        "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+      });
       stageSecret(root);
       const { captured, context } = setup(root);
       expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.partial);
@@ -425,7 +487,9 @@ describe("pgard precommit", () => {
 
   it("speaks Korean with --lang ko / ruleLocale ko", async () => {
     authorizeProject.mockResolvedValue(BLOCKED);
-    const root = makeRepo();
+    const root = makeRepo({
+      "pgard.config.json": '{"version":1,"precommit":{"requireAuthorization":true}}',
+    });
     const { captured, context } = setup(root, { lang: "ko" });
     expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.blocked);
     expect(captured.stderr() + captured.stdout()).toMatch(/검사하지 못했습니다/);
@@ -435,7 +499,7 @@ describe("pgard precommit", () => {
     const root = makeRepo();
     stageSecret(root);
     const captured = createTestIo({ cwd: root, env: { PGARD_NO_STORE: "1", PGARD_LANG: "en" } });
-    const deps = createTestDeps({ findGitRoot, runScan });
+    const deps = createTestDeps({ findGitRoot, runScan, runCodeOnlyScan });
     expect(await main(["precommit"], captured.io, { deps })).toBe(EXIT_CODES.findings);
     expect(captured.stdout()).toContain("PG-SECRET-002");
   });

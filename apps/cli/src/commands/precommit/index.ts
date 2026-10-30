@@ -20,6 +20,7 @@ import {
   resolveHookIndexFile,
   resolveHooksLocation,
   type AuthorizationOutcome,
+  type LocalAnalyzer,
   type ProjectConfigLoad,
   type StagedScanReport,
 } from "@pgard/scan-core";
@@ -33,7 +34,10 @@ import { cliText } from "../../ui/i18n/cli-text.js";
 import { installHook, uninstallHook } from "./hook.js";
 import { precommitText, type PrecommitText } from "./text.js";
 
-/** The authorization check may take this long (GitHub round trips); then nothing was scanned. */
+/**
+ * With `"requireAuthorization": true` only: the authorization check may take this long (GitHub
+ * round trips); then nothing was scanned. The default code-only check has no such cap.
+ */
 export const PRECOMMIT_AUTH_TIMEOUT_MS = 15_000;
 const MIN_TIMEOUT_MS = 1_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -54,6 +58,8 @@ type Policy = "block" | "warn";
 interface PrecommitPolicy {
   mode: Policy;
   whenNotScanned: Policy;
+  /** The staged config opts in to the full authorization gate (#414 D3; default code-only). */
+  requireAuthorization: boolean;
   /** The project config is present but invalid: the strict defaults apply. */
   configProblems: string | null;
 }
@@ -64,13 +70,19 @@ interface PrecommitPolicy {
  */
 export function resolvePrecommitPolicy(load: ProjectConfigLoad): PrecommitPolicy {
   if (load.state === "invalid") {
-    return { mode: "block", whenNotScanned: "block", configProblems: load.problems.join("; ") };
+    return {
+      mode: "block",
+      whenNotScanned: "block",
+      requireAuthorization: false,
+      configProblems: load.problems.join("; "),
+    };
   }
   const config: ProjectConfig | null = load.state === "loaded" ? load.config : null;
   const mode = config?.precommit?.mode ?? "block";
   return {
     mode,
     whenNotScanned: config?.precommit?.whenNotScanned ?? mode,
+    requireAuthorization: config?.precommit?.requireAuthorization === true,
     configProblems: null,
   };
 }
@@ -93,6 +105,7 @@ function authTimeoutOf(
 const STRICT_POLICY: PrecommitPolicy = {
   mode: "block",
   whenNotScanned: "block",
+  requireAuthorization: false,
   configProblems: null,
 };
 
@@ -308,15 +321,144 @@ function failNotScanned(
   return decide(context, t, policy, { findings: [], isNotScanned: true, kind });
 }
 
+type StagedRun =
+  | { kind: "ran"; result: ScanResult; outcome: AuthorizationOutcome | null }
+  | { kind: "done"; exitCode: ExitCode };
+
+/**
+ * The default: a code-only check of the staged changes (`scanBasis` code_only). No gate, no
+ * sign-in, no network and no keychain, so there is no authorization time cap either. One quiet
+ * line says so, because this runs on every commit.
+ */
+async function runCodeOnlyStagedScan(
+  context: CommandContext,
+  t: PrecommitText,
+  policy: PrecommitPolicy,
+  projectRoot: string,
+  analyzer: LocalAnalyzer,
+  budgetMs: number,
+): Promise<StagedRun> {
+  err(context, context.errStyle.dim(t.checkingCodeOnly(Math.round(budgetMs / 1000))));
+  suspendKeys(context);
+  try {
+    const result = await context.deps.runCodeOnlyScan(
+      { projectRoot, reason: "not_checked" },
+      { signal: context.signal, env: context.io.env, analyzers: { code: analyzer } },
+    );
+    return { kind: "ran", result, outcome: null };
+  } catch (error) {
+    if (error instanceof ScanCancelledError && context.signal.aborted) {
+      throw new UserCancelledError();
+    }
+    return { kind: "done", exitCode: failNotScanned(context, t, policy, t.scanFailed, "other") };
+  }
+}
+
+/**
+ * `"requireAuthorization": true` in the staged config: the full authorization gate first, as
+ * before #414, with its time cap (`PGARD_PRECOMMIT_TIMEOUT_MS`). A hook never starts a sign-in.
+ */
+async function runAuthorizedStagedScan(
+  context: CommandContext,
+  t: PrecommitText,
+  policy: PrecommitPolicy,
+  projectRoot: string,
+  analyzer: LocalAnalyzer,
+  budgetMs: number,
+  options: PrecommitRunOptions,
+): Promise<StagedRun> {
+  const authTimeout = authTimeoutOf(context.io.env, options.authTimeoutMs);
+  const authTimeoutMs = authTimeout.timeoutMs;
+  if (authTimeout.invalid !== null) {
+    err(
+      context,
+      context.errStyle.yellow(
+        t.timeoutInvalid(safeText(authTimeout.invalid, 30), Math.round(authTimeoutMs / 1000)),
+      ),
+    );
+  }
+  err(
+    context,
+    context.errStyle.dim(t.checking(Math.round(budgetMs / 1000), Math.round(authTimeoutMs / 1000))),
+  );
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), authTimeoutMs);
+  const signal = AbortSignal.any([context.signal, timeout.signal]);
+  // A hook never starts a device sign-in: a stored sign-in is reused, otherwise the gate blocks.
+  const session = context.deps.createSessionProvider({
+    env: context.io.env,
+    onUserCode: () => undefined,
+    onNotice: () => undefined,
+    canSignInInteractively: false,
+    signal,
+  });
+  let outcome: AuthorizationOutcome | null = null;
+  let result: ScanResult;
+  suspendKeys(context);
+  try {
+    result = await context.deps.runScan(
+      { projectRoot, scopes: ["code"], webTarget: null },
+      {
+        authorization: {
+          getGitHubSession: session,
+          appSlug: resolveGitHubAppClientId(context.io.env).slug,
+          signal,
+        },
+        signal,
+        env: context.io.env,
+        analyzers: { code: analyzer },
+        onAuthorization: (received) => {
+          outcome = received;
+          // The authorization time cap ends here; the analysis has its own cap and messages.
+          clearTimeout(timer);
+        },
+      },
+    );
+  } catch (error) {
+    if (error instanceof ScanCancelledError) {
+      if (context.signal.aborted) throw new UserCancelledError();
+      if (timeout.signal.aborted) {
+        const exitCode = failNotScanned(
+          context,
+          t,
+          policy,
+          t.authorizationTimeout(Math.round(authTimeoutMs / 1000)),
+          "authorization",
+          [context.errStyle.dim(t.authorizationHint)],
+        );
+        return { kind: "done", exitCode };
+      }
+    }
+    // Anything else is an error of the scan itself: nothing was scanned, and it is said so.
+    return { kind: "done", exitCode: failNotScanned(context, t, policy, t.scanFailed, "other") };
+  } finally {
+    clearTimeout(timer);
+  }
+  if (result.overallStatus === "blocked") {
+    const lines = [
+      formatAuthorization(result.authorization, context.errStyle, cliText(context.ruleLocale)),
+    ];
+    const exitCode = failNotScanned(context, t, policy, t.notAuthorized, "authorization", [
+      ...lines,
+      context.errStyle.dim(t.authorizationHint),
+    ]);
+    return { kind: "done", exitCode };
+  }
+  return { kind: "ran", result, outcome };
+}
+
 /**
  * `pgard precommit`: checks the staged changes (read from the index, only the lines the commit
  * adds or changes) for secrets and file-local source rule findings.
  *
- * Authorization is the scan's own gate, unchanged: it goes through `runScan`, so all five checks
- * run on every call and nothing is cached or relaxed. Config can only choose how a result ends
- * (`block` or `warn`); it cannot skip a check. When the gate does not allow, or anything goes
- * wrong, the staged changes were not scanned, which is said plainly and handled by
- * `whenNotScanned` (by default the same as `mode`, so a blocking hook blocks).
+ * By default it is code-only (#414 D3): the staged-only scan runs through `runCodeOnlyScan`, with
+ * no authorization gate, sign-in, network or keychain, and one quiet line says "code-only,
+ * authorization not verified". With `"precommit": { "requireAuthorization": true }` in the staged
+ * config, the scan's own gate runs first, unchanged: it goes through `runScan`, so all five
+ * checks run on every call and nothing is cached or relaxed. Config can only choose how a result
+ * ends (`block` or `warn`) and add the gate; it cannot skip a check. When the gate does not allow,
+ * or anything goes wrong, the staged changes were not scanned, which is said plainly and handled
+ * by `whenNotScanned` (by default the same as `mode`, so a blocking hook blocks).
  */
 export async function runPrecommit(
   context: CommandContext,
@@ -367,93 +509,23 @@ export async function runPrecommit(
   if (staged.workingTree === "untracked") err(context, context.errStyle.yellow(t.configNotStaged));
   if (staged.workingTree === "differs") err(context, context.errStyle.yellow(t.configDiffers));
 
-  const authTimeout = authTimeoutOf(context.io.env, options.authTimeoutMs);
-  const authTimeoutMs = authTimeout.timeoutMs;
-  if (authTimeout.invalid !== null) {
-    err(
-      context,
-      context.errStyle.yellow(
-        t.timeoutInvalid(safeText(authTimeout.invalid, 30), Math.round(authTimeoutMs / 1000)),
-      ),
-    );
-  }
   const budgetMs = options.scanBudgetMs ?? STAGED_SCAN_BUDGET_MS;
-  err(
-    context,
-    context.errStyle.dim(t.checking(Math.round(budgetMs / 1000), Math.round(authTimeoutMs / 1000))),
-  );
-  const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(), authTimeoutMs);
-  const signal = AbortSignal.any([context.signal, timeout.signal]);
-  // A hook never starts a device sign-in: a stored sign-in is reused, otherwise the gate blocks.
-  const session = context.deps.createSessionProvider({
-    env: context.io.env,
-    onUserCode: () => undefined,
-    onNotice: () => undefined,
-    canSignInInteractively: false,
-    signal,
-  });
-  let outcome: AuthorizationOutcome | null = null;
   let report: StagedScanReport | null = null;
-  let result: ScanResult;
-  suspendKeys(context);
-  try {
-    result = await context.deps.runScan(
-      { projectRoot, scopes: ["code"], webTarget: null },
-      {
-        authorization: {
-          getGitHubSession: session,
-          appSlug: resolveGitHubAppClientId(context.io.env).slug,
-          signal,
-        },
-        signal,
-        env: context.io.env,
-        analyzers: {
-          code: createStagedAnalyzer({
-            ...(index.state === "custom" ? { indexFile: index.indexFile } : {}),
-            config: staged.config,
-            budgetMs,
-            onReport: (value) => {
-              report = value;
-            },
-          }),
-        },
-        onAuthorization: (received) => {
-          outcome = received;
-          // The authorization time cap ends here; the analysis has its own cap and messages.
-          clearTimeout(timer);
-        },
-      },
-    );
-  } catch (error) {
-    if (error instanceof ScanCancelledError) {
-      if (context.signal.aborted) throw new UserCancelledError();
-      if (timeout.signal.aborted) {
-        return failNotScanned(
-          context,
-          t,
-          policy,
-          t.authorizationTimeout(Math.round(authTimeoutMs / 1000)),
-          "authorization",
-          [context.errStyle.dim(t.authorizationHint)],
-        );
-      }
-    }
-    // Anything else is an error of the scan itself: nothing was scanned, and it is said so.
-    return failNotScanned(context, t, policy, t.scanFailed, "other");
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (result.overallStatus === "blocked") {
-    const lines = [
-      formatAuthorization(result.authorization, context.errStyle, cliText(context.ruleLocale)),
-    ];
-    return failNotScanned(context, t, policy, t.notAuthorized, "authorization", [
-      ...lines,
-      context.errStyle.dim(t.authorizationHint),
-    ]);
-  }
+  const analyzer = createStagedAnalyzer({
+    ...(index.state === "custom" ? { indexFile: index.indexFile } : {}),
+    config: staged.config,
+    budgetMs,
+    onReport: (value) => {
+      report = value;
+    },
+  });
+  // #414 D3: code-only by default (no gate, no sign-in, no network, no keychain); the staged
+  // config can opt in to the full authorization gate with "requireAuthorization": true.
+  const ran = policy.requireAuthorization
+    ? await runAuthorizedStagedScan(context, t, policy, projectRoot, analyzer, budgetMs, options)
+    : await runCodeOnlyStagedScan(context, t, policy, projectRoot, analyzer, budgetMs);
+  if (ran.kind === "done") return ran.exitCode;
+  const { result, outcome } = ran;
   if (result.overallStatus === "failed") {
     return failNotScanned(context, t, policy, t.scanFailed, "other");
   }
@@ -548,6 +620,7 @@ export async function runPrecommitInstall(context: CommandContext): Promise<Exit
       if (outcome.kind === "replaced") out(context, t.backedUp(show(outcome.backup)));
       out(context, context.style.dim(t.globalHooksPathNote));
       out(context, context.style.dim(t.mergeNote));
+      out(context, context.style.dim(t.codeOnlyNote));
       out(context, context.style.dim(t.nextStep));
       return EXIT_CODES.ok;
     case "already":
@@ -639,5 +712,7 @@ export function runPrecommitSnippet(context: CommandContext): ExitCode {
   out(context, `  #!/bin/sh\n  exec pgard precommit`);
   out(context, "");
   out(context, t.merge);
+  out(context, "");
+  out(context, t.codeOnly);
   return EXIT_CODES.ok;
 }

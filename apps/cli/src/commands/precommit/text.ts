@@ -8,7 +8,10 @@ import type { RuleLocale } from "@pgard/findings";
 export interface PrecommitText {
   notRepository: string;
   /** Printed first, to stderr. */
+  /** With `"requireAuthorization": true`: the gate, then the staged changes. */
   checking: (budgetSeconds: number, timeoutSeconds: number) => string;
+  /** The default: one quiet line, the code-only label included. */
+  checkingCodeOnly: (budgetSeconds: number) => string;
   repositoryUnsafe: (reason: string) => string;
   indexUnsafe: (reason: string) => string;
   /** The authorization gate blocked: nothing was scanned. */
@@ -73,6 +76,8 @@ export interface PrecommitText {
     failed: string;
     nextStep: string;
     mergeNote: string;
+    /** The hook is code-only; how to require the authorization gate instead. */
+    codeOnlyNote: string;
   };
   uninstall: {
     removed: (file: string) => string;
@@ -87,6 +92,7 @@ export interface PrecommitText {
     husky: string;
     plain: string;
     merge: string;
+    codeOnly: string;
   };
 }
 
@@ -95,6 +101,8 @@ const EN: PrecommitText = {
     "The current directory is not inside a Git repository, so no staged changes could be scanned.",
   checking: (budgetSeconds, timeoutSeconds) =>
     `pgard precommit: checking authorization (up to ${timeoutSeconds} s), then the staged changes (up to ${budgetSeconds} s)...`,
+  checkingCodeOnly: (budgetSeconds) =>
+    `pgard precommit: code-only, authorization not verified; checking the staged changes (up to ${budgetSeconds} s)...`,
   repositoryUnsafe: (reason) =>
     `The staged changes were NOT scanned: this repository layout cannot be read safely. ${reason}`,
   indexUnsafe: (reason) =>
@@ -182,6 +190,8 @@ const EN: PrecommitText = {
       'Set "precommit": { "mode": "warn" } in pgard.config.json (and commit it: the staged version counts) to print findings without blocking. Remove the hook with `pgard precommit uninstall`.',
     mergeNote:
       "Git runs pre-commit for ordinary commits and conflicted merges, but a clean merge commit runs pre-merge-commit instead. To check those too, see `pgard precommit snippet`.",
+    codeOnlyNote:
+      'The hook is code-only: it needs no sign-in, network or keychain, and says "code-only, authorization not verified". To run the full authorization gate first (as pgard scan does), set "precommit": { "requireAuthorization": true } in pgard.config.json and commit it.',
   },
   uninstall: {
     removed: (file) => `Removed the PGARD pre-commit hook: ${file}`,
@@ -198,6 +208,8 @@ const EN: PrecommitText = {
     plain: "A plain hook (.git/hooks/pre-commit, executable):",
     merge:
       "A clean merge runs .git/hooks/pre-merge-commit, not pre-commit; put the same `pgard precommit` line there to check merge results. A merge is compared with HEAD (ours), so everything the other branch brings counts as added: it can pass the 500-file limit, which is reported as not scanned.",
+    codeOnly:
+      'pgard precommit is code-only by default: no sign-in, network or keychain, so it works in CI and for every contributor. "precommit": { "requireAuthorization": true } in the committed pgard.config.json makes it run the full authorization gate first.',
   },
 };
 
@@ -205,6 +217,8 @@ const KO: PrecommitText = {
   notRepository: "현재 디렉터리가 Git 저장소 안이 아니어서 스테이징된 변경을 검사하지 못했습니다.",
   checking: (budgetSeconds, timeoutSeconds) =>
     `pgard precommit: 권한을 확인한 뒤(최대 ${timeoutSeconds}초) 스테이징된 변경을 검사합니다(최대 ${budgetSeconds}초)...`,
+  checkingCodeOnly: (budgetSeconds) =>
+    `pgard precommit: 코드 전용, 권한 미확인. 스테이징된 변경을 검사합니다(최대 ${budgetSeconds}초)...`,
   repositoryUnsafe: (reason) =>
     `스테이징된 변경을 검사하지 못했습니다: 이 저장소 구조는 안전하게 읽을 수 없습니다. ${reason}`,
   indexUnsafe: (reason) =>
@@ -292,6 +306,8 @@ const KO: PrecommitText = {
       'pgard.config.json에 "precommit": { "mode": "warn" }을 넣고(스테이징된 버전이 적용되므로 커밋하세요) 차단하지 않고 발견 항목만 출력할 수 있습니다. 훅은 `pgard precommit uninstall`로 제거합니다.',
     mergeNote:
       "Git은 일반 커밋과 충돌이 있던 병합에는 pre-commit을 실행하지만, 충돌 없는 병합 커밋에는 pre-merge-commit을 실행합니다. 그것도 검사하려면 `pgard precommit snippet`을 참고하세요.",
+    codeOnlyNote:
+      '이 훅은 코드 전용입니다. 로그인, 네트워크, 키체인이 필요 없으며 "코드 전용, 권한 미확인"이라고 표시합니다. pgard scan처럼 전체 권한 확인을 먼저 실행하려면 pgard.config.json에 "precommit": { "requireAuthorization": true }를 넣고 커밋하세요.',
   },
   uninstall: {
     removed: (file) => `PGARD pre-commit 훅을 제거했습니다: ${file}`,
@@ -307,6 +323,8 @@ const KO: PrecommitText = {
     plain: "일반 훅(.git/hooks/pre-commit, 실행 권한 필요):",
     merge:
       "충돌 없는 병합은 pre-commit이 아니라 .git/hooks/pre-merge-commit을 실행합니다. 병합 결과도 검사하려면 같은 `pgard precommit` 줄을 거기에 넣으세요. 병합은 HEAD(ours)와 비교하므로 다른 브랜치가 가져오는 모든 내용이 추가된 것으로 취급되어 500개 파일 제한을 넘을 수 있고, 그 경우 검사하지 못한 것으로 보고합니다.",
+    codeOnly:
+      'pgard precommit은 기본적으로 코드 전용입니다. 로그인, 네트워크, 키체인이 필요 없으므로 CI와 모든 기여자 환경에서 동작합니다. 커밋된 pgard.config.json에 "precommit": { "requireAuthorization": true }를 넣으면 전체 권한 확인을 먼저 실행합니다.',
   },
 };
 

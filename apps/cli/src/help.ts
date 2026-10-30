@@ -53,7 +53,8 @@ Common commands:
   pgard project verify          check repository, GitHub identity, owner approval,
                                 current access and merged contribution
   pgard precommit               check the staged changes for secrets and risky
-                                patterns (for a Git pre-commit hook)
+                                patterns (for a Git pre-commit hook; code-only,
+                                no sign-in needed)
   pgard login                   sign in to GitHub once and save it in the OS keychain
   pgard doctor                  diagnose the environment (not an authorization)
 
@@ -431,20 +432,26 @@ run. Text with stray NUL bytes, UTF-16 text (with or without a byte order mark) 
 large file that only starts like a binary are not skipped: they are scanned, or, when over
 1 MiB, reported as not scanned. Rules that need
 the whole project (missing CSRF protection, unprotected routes, dependencies) run in
-pgard scan. Suppressions and the baseline apply. Staged content stays on this computer;
-like a scan it contacts GitHub (github.com, api.github.com) for authorization metadata
-only.
+pgard scan. Suppressions apply. Staged content stays on this computer.
 
-Authorization is the same gate as pgard scan: all five checks, every time, nothing
-cached. It needs a saved sign-in (pgard login) because a hook never starts a sign-in.
-If the gate does not allow, or the check cannot finish, the staged changes were NOT
-scanned and PGARD says so.
+Code-only by default: no authorization gate, no GitHub sign-in, no network and no
+keychain, so it works for every contributor and in CI. One line on stderr says
+"code-only, authorization not verified". The baseline is not applied (it belongs to
+an authorized repository).
+
+With "requireAuthorization": true (below) it runs the same gate as pgard scan first:
+all five checks, every time, nothing cached, and the baseline applies. That needs a
+saved sign-in (pgard login) because a hook never starts a sign-in, and it contacts
+GitHub (github.com, api.github.com) for authorization metadata only. If the gate does
+not allow, or the check cannot finish, the staged changes were NOT scanned and PGARD
+says so.
 
 Mode is set in pgard.config.json, read from the version in the Git index (the one
 being committed; an untracked file is not used, run git add). Suppressions and exclude
 come from the staged copy too, and a note says when the working-tree file differs (only
 testDirectories is read from the working tree):
-  "precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn" }
+  "precommit": { "mode": "block" | "warn", "whenNotScanned": "block" | "warn",
+                 "requireAuthorization": true | false }
   block (default)   findings stop the commit (exit 1)
   warn              findings are printed, the commit goes on (exit 0)
   whenNotScanned    what happens when nothing, or not everything, was scanned
@@ -452,10 +459,13 @@ testDirectories is read from the working tree):
                     more than 500 changed files, 5 s analysis cap). Default: the
                     same as mode, so a blocking hook blocks. An invalid config
                     means block.
-Limits: authorization up to 15 s (PGARD_PRECOMMIT_TIMEOUT_MS=1000..120000 changes
-it), then reading and checking the staged changes up to 5 s (typically well under
-1 s): text files up to 1 MiB, up to 500 changed files, 16 MiB in total. Findings of
-severity info do not block.
+  requireAuthorization  true: run the authorization gate first (default false:
+                    code-only). It can only add the gate, never skip it.
+Limits: reading and checking the staged changes up to 5 s (typically well under 1 s):
+text files up to 1 MiB, up to 500 changed files, 16 MiB in total. With
+requireAuthorization, the authorization check comes first, up to 15 s
+(PGARD_PRECOMMIT_TIMEOUT_MS=1000..120000 changes it). Findings of severity info do
+not block.
 
 A clean merge commit runs pre-merge-commit, not pre-commit (see snippet). A merge is
 compared with HEAD (ours), so what the other branch brings counts as added.
@@ -470,7 +480,8 @@ Exit codes:
        whenNotScanned: warn, which is said on screen)
   1    findings in block mode (a crash of Node itself also exits 1; both block)
   2    invalid command, or install/uninstall refused
-  3    not authorized (nothing scanned) and whenNotScanned blocks
+  3    with requireAuthorization: not authorized (nothing scanned) and
+       whenNotScanned blocks; never in the default code-only mode
   4    other cases where not everything was scanned, and whenNotScanned blocks
   5    internal error
   130  cancelled`,

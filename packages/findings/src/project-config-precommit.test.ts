@@ -22,6 +22,19 @@ describe("parseProjectConfig precommit", () => {
     expect(empty.ok && empty.config.precommit).toEqual({});
   });
 
+  it("accepts requireAuthorization true or false, and nothing else", () => {
+    for (const requireAuthorization of [true, false]) {
+      const result = ok({ version: 1, precommit: { requireAuthorization } });
+      expect(result.ok && result.config.precommit).toEqual({ requireAuthorization });
+    }
+    expect(problems({ version: 1, precommit: { requireAuthorization: "yes" } })).toEqual([
+      "precommit.requireAuthorization: must be true or false",
+    ]);
+    expect(problems({ version: 1, precommit: { requireAuthorization: 1 } })[0]).toContain(
+      "true or false",
+    );
+  });
+
   it("has no precommit field when the key is absent", () => {
     const result = ok({ version: 1 });
     expect(result.ok && "precommit" in result.config).toBe(false);
