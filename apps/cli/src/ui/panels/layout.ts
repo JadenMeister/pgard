@@ -149,28 +149,41 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   const wrap = (line: string): string[] => wrapWidth(line, Math.max(10, size.columns - 1));
   const trend = state.trend;
   const mark = text.helpMark;
-  // An empty state: the reason first, then the three cases in which the trend has no history.
-  const empty = (reason: string, before: string[] = [], after: string[] = []): string[] => [
+  type CaseId = "codeOnly" | "single" | "off";
+  const ALL_CASES: CaseId[] = ["codeOnly", "single", "off"];
+  // An empty state: the reason first, then (when the reasons are the common ones) the list of
+  // common reasons. Other states (unreadable, no store directory) show only their own reason.
+  const empty = (
+    reason: string,
+    cases: CaseId[],
+    before: string[] = [],
+    after: string[] = [],
+  ): string[] => [
     ...before,
     style.bold(truncateWidth(`${text.heading} ${mark}`, size.columns)),
     ...wrap(reason),
-    "",
-    ...wrap(text.cases.intro),
-    ...[text.cases.codeOnly, text.cases.single, text.cases.off].flatMap((line, index) => {
-      const [first = "", ...rest] = wrapWidth(line, Math.max(10, size.columns - 6));
-      return [`  ${index + 1}. ${first}`, ...rest.map((part) => `     ${part}`)];
-    }),
+    ...(cases.length === 0
+      ? []
+      : [
+          "",
+          ...wrap(text.cases.intro),
+          ...cases.flatMap((id, index) => {
+            const [first = "", ...rest] = wrapWidth(text.cases[id], Math.max(10, size.columns - 6));
+            return [`  ${index + 1}. ${first}`, ...rest.map((part) => `     ${part}`)];
+          }),
+        ]),
     ...after,
   ];
-  if (trend.kind === "disabled") return empty(text.noHistory.disabled);
+  // A code-only result stores nothing: this reason wins over every other state.
+  if (isCodeOnlyResult(state.result)) return empty(text.noHistory.codeOnly, ALL_CASES);
+  if (trend.kind === "disabled") return empty(text.noHistory.disabled, ["codeOnly", "single"]);
   if (trend.kind === "unavailable") {
-    if (trend.why === "no-store-dir") return empty(text.noHistory.noStoreDir);
-    if (trend.why === "no-repository") {
-      return empty(
-        isCodeOnlyResult(state.result) ? text.noHistory.codeOnly : text.noHistory.noRepository,
-      );
-    }
-    return empty(text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")));
+    if (trend.why === "no-store-dir") return empty(text.noHistory.noStoreDir, []);
+    if (trend.why === "no-repository") return empty(text.noHistory.noRepository, []);
+    return empty(
+      text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")),
+      [],
+    );
   }
   const notes = [
     ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
@@ -180,11 +193,15 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
   // First on the screen, so it is seen before the history it qualifies.
   const notStored = trend.isCurrentStored ? [] : [...wrap(text.notStored), ""];
   const scans = trend.scans;
-  if (scans.length === 0)
-    return empty(text.noHistory.empty, notStored, skipped.length > 0 ? skipped : []);
+  if (scans.length === 0) return empty(text.noHistory.empty, ALL_CASES, notStored, skipped);
   const newest = scans[scans.length - 1] as TrendScan;
   if (scans.length === 1) {
-    return empty(text.noHistory.single(trendDate(newest.savedAt, true)), notStored, skipped);
+    return empty(
+      text.noHistory.single(trendDate(newest.savedAt, true)),
+      ALL_CASES,
+      notStored,
+      skipped,
+    );
   }
   const isNarrow = size.columns <= NARROW_COLUMNS;
   const lines: string[] = [

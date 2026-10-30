@@ -321,20 +321,20 @@ describe("trend panel empty states and help marker", () => {
   const EXPECT = {
     en: {
       codeOnly: "a code-only scan does not store its result, so no trend builds up",
-      intro: "Trend is empty in one of three cases:",
+      intro: "Common reasons for an empty trend:",
       cases: [
-        "1. A code-only scan: results are not stored. Run `pgard scan` with GitHub approval.",
+        "1. A code-only scan: results are not stored. Run pgard scan with GitHub approval.",
         "2. Only one stored scan: scan again later to compare.",
-        "3. Storing is off: `--no-store` or `PGARD_NO_STORE=1`.",
+        "3. Storing is off: --no-store or PGARD_NO_STORE=1.",
       ],
     },
     ko: {
       codeOnly: "코드 전용 검사는 결과를 저장하지 않아 추이가 쌓이지 않습니다.",
-      intro: "기록이 없는 경우는 셋 중 하나입니다:",
+      intro: "추이가 비는 흔한 이유:",
       cases: [
-        "1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 `pgard scan`을 실행하세요.",
+        "1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을 실행하세요.",
         "2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.",
-        "3. 저장이 꺼져 있음: `--no-store` 또는 `PGARD_NO_STORE=1`.",
+        "3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.",
       ],
     },
   } as const;
@@ -352,6 +352,15 @@ describe("trend panel empty states and help marker", () => {
       for (const line of EXPECT[locale].cases) expect(all).toContain(line);
     });
 
+    it(`${locale}: the real code-only trend (disabled) shows the code-only reason, not "storing is off"`, () => {
+      const size = tall(80);
+      const all = joined(frame(codeOnlyState(locale, size, { kind: "disabled" }), size));
+      expect(all).toContain(EXPECT[locale].codeOnly);
+      expect(all).not.toContain(locale === "en" ? "storing is off (" : "저장이 꺼져 있어");
+      const none = joined(frame(codeOnlyState(locale, size, unavailable("no-store-dir")), size));
+      expect(none).toContain(EXPECT[locale].codeOnly);
+    });
+
     it(`${locale}: other reasons stay first and the cases follow`, () => {
       const size = tall(80);
       const noRepo = joined(frame(stateFor(locale, size, unavailable("no-repository")), size));
@@ -364,16 +373,15 @@ describe("trend panel empty states and help marker", () => {
       expect(unreadable).toContain("Permission denied");
       const disabled = joined(frame(stateFor(locale, size, { kind: "disabled" }), size));
       expect(disabled).toContain("PGARD_NO_STORE=1");
-      for (const all of [
-        noRepo,
-        store,
-        unreadable,
-        disabled,
-        joined(frame(stateFor(locale, size, ready(1)), size)),
-      ]) {
-        expect(all).toContain(EXPECT[locale].intro);
-        for (const line of EXPECT[locale].cases) expect(all).toContain(line);
+      // The list follows only the common states; unreadable and missing-store show their reason alone.
+      for (const all of [noRepo, store, unreadable]) {
+        expect(all).not.toContain(EXPECT[locale].intro);
       }
+      expect(disabled).toContain(EXPECT[locale].intro);
+      expect(disabled).not.toContain(EXPECT[locale].cases[2]);
+      const one = joined(frame(stateFor(locale, size, ready(1)), size));
+      expect(one).toContain(EXPECT[locale].intro);
+      for (const line of EXPECT[locale].cases) expect(one).toContain(line);
     });
 
     for (const columns of [40, 80]) {
@@ -408,6 +416,9 @@ describe("trend panel empty states and help marker", () => {
       const title = locale === "en" ? "Trend panel" : "추이 패널";
       expect(joined(lines)).toContain(title);
       expect(joined(lines)).toContain("pgard scan");
+      expect(joined(lines)).toContain(
+        locale === "en" ? "each approved pgard scan" : "끝까지 실행된",
+      );
       expect(reduce(state, key("?")).overlay).toBe("none");
     });
 

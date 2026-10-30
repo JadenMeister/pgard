@@ -621,15 +621,15 @@ export const en = {
       lines: [
         "Shows this repository's stored scans, newest first, up to 20: the latest compared with the previous one, with severity bars.",
         "It reads only the local, redacted stored results. It never rescans.",
-        "History builds up as you scan: every approved `pgard scan` is stored.",
+        "History builds up as you scan: each approved pgard scan that finishes is stored on this computer, unless storing is off.",
       ],
     },
     cases: {
-      intro: "Trend is empty in one of three cases:",
+      intro: "Common reasons for an empty trend:",
       items: [
-        "A code-only scan: results are not stored. Run `pgard scan` with GitHub approval.",
+        "A scan run in this dashboard, or a code-only scan: not stored. Run pgard scan in a terminal.",
         "Only one stored scan: scan again later to compare.",
-        "Storing is off: `--no-store` or `PGARD_NO_STORE=1`.",
+        "Storing is off: PGARD_NO_STORE=1, or pgard web --no-store.",
       ],
     },
     source:

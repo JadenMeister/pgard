@@ -35,10 +35,10 @@ No history yet: no earlier scan of this
 repository is stored. Scan again later
 to see a trend.
 
-Trend is empty in one of three cases:
+Common reasons for an empty trend:
   1. A code-only scan: results are not
-     stored. Run \`pgard scan\` with
-     GitHub approval.
+     stored. Run pgard scan with GitHub
+     approval.
   2. Only one stored scan: scan again
      later to compare.
 Esc: back  ?: help  Tab: panel   1-11/13"
@@ -52,10 +52,10 @@ No history yet: only one stored scan
 (2026-10-27 12:00). Scan again later to
 see a trend.
 
-Trend is empty in one of three cases:
+Common reasons for an empty trend:
   1. A code-only scan: results are not
-     stored. Run \`pgard scan\` with
-     GitHub approval.
+     stored. Run pgard scan with GitHub
+     approval.
   2. Only one stored scan: scan again
      later to compare.
 Esc: back  ?: help  Tab: panel   1-11/13"
@@ -103,13 +103,13 @@ No history yet: storing is off
 (--no-store or PGARD_NO_STORE=1), so
 there is nothing to compare.
 
-Trend is empty in one of three cases:
+Common reasons for an empty trend:
   1. A code-only scan: results are not
-     stored. Run \`pgard scan\` with
-     GitHub approval.
+     stored. Run pgard scan with GitHub
+     approval.
   2. Only one stored scan: scan again
      later to compare.
-Esc: back  ?: help  Tab: panel   1-11/13"
+Esc: back  ?: help  Tab: panel"
 `;
 
 exports[`trend panel snapshots > en 40x14 unreadable store 1`] = `
@@ -120,13 +120,13 @@ History could not be read (reason:
 Permission denied). The scan itself is
 unaffected.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not
-     stored. Run \`pgard scan\` with
-     GitHub approval.
-  2. Only one stored scan: scan again
-     later to compare.
-Esc: back  ?: help  Tab: panel   1-11/13"
+
+
+
+
+
+
+Esc: back  ?: help  Tab: panel"
 `;
 
 exports[`trend panel snapshots > en 60x20 0 scans 1`] = `
@@ -136,11 +136,11 @@ Trend (?)
 No history yet: no earlier scan of this repository is
 stored. Scan again later to see a trend.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard
-     scan\` with GitHub approval.
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard
+     scan with GitHub approval.
   2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -159,11 +159,11 @@ Trend (?)
 No history yet: only one stored scan (2026-10-27 12:00).
 Scan again later to see a trend.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard
-     scan\` with GitHub approval.
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard
+     scan with GitHub approval.
   2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -228,11 +228,11 @@ Trend (?)
 No history yet: storing is off (--no-store or
 PGARD_NO_STORE=1), so there is nothing to compare.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard
-     scan\` with GitHub approval.
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard
+     scan with GitHub approval.
   2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+
 
 
 
@@ -251,11 +251,11 @@ Trend (?)
 History could not be read (reason: Permission denied). The
 scan itself is unaffected.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard
-     scan\` with GitHub approval.
-  2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+
+
+
+
+
 
 
 
@@ -274,11 +274,11 @@ Trend (?)
 No history yet: no earlier scan of this repository is stored. Scan again later
 to see a trend.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard scan\` with GitHub
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard scan with GitHub
      approval.
   2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -301,11 +301,11 @@ Trend (?)
 No history yet: only one stored scan (2026-10-27 12:00). Scan again later to
 see a trend.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard scan\` with GitHub
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard scan with GitHub
      approval.
   2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+  3. Storing is off: --no-store or PGARD_NO_STORE=1.
 
 
 
@@ -382,11 +382,11 @@ Trend (?)
 No history yet: storing is off (--no-store or PGARD_NO_STORE=1), so there is
 nothing to compare.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard scan\` with GitHub
+Common reasons for an empty trend:
+  1. A code-only scan: results are not stored. Run pgard scan with GitHub
      approval.
   2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+
 
 
 
@@ -409,11 +409,11 @@ Trend (?)
 History could not be read (reason: Permission denied). The scan itself is
 unaffected.
 
-Trend is empty in one of three cases:
-  1. A code-only scan: results are not stored. Run \`pgard scan\` with GitHub
-     approval.
-  2. Only one stored scan: scan again later to compare.
-  3. Storing is off: \`--no-store\` or \`PGARD_NO_STORE=1\`.
+
+
+
+
+
 
 
 
@@ -437,10 +437,10 @@ exports[`trend panel snapshots > ko 40x14 0 scans 1`] = `
 검사가 저장되어 있지 않습니다. 나중에
 다시 검사하면 추이를 볼 수 있습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
+추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지
-     않습니다. GitHub 승인으로 \`pgard
-     scan\`을 실행하세요.
+     않습니다. GitHub 승인으로 pgard
+     scan을 실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시
      검사해 비교하세요.
 Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/13"
@@ -454,10 +454,10 @@ exports[`trend panel snapshots > ko 40x14 1 scans 1`] = `
 1건뿐입니다 (2026-10-27 12:00). 나중에
 다시 검사하면 추이를 볼 수 있습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
+추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지
-     않습니다. GitHub 승인으로 \`pgard
-     scan\`을 실행하세요.
+     않습니다. GitHub 승인으로 pgard
+     scan을 실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시
      검사해 비교하세요.
 Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/13"
@@ -505,13 +505,13 @@ exports[`trend panel snapshots > ko 40x14 store disabled 1`] = `
 있어(--no-store 또는 PGARD_NO_STORE=1)
 비교할 대상이 없습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
+추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지
-     않습니다. GitHub 승인으로 \`pgard
-     scan\`을 실행하세요.
+     않습니다. GitHub 승인으로 pgard
+     scan을 실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시
      검사해 비교하세요.
-Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/13"
+Esc: 뒤로  ?: 도움말  Tab: 패널"
 `;
 
 exports[`trend panel snapshots > ko 40x14 unreadable store 1`] = `
@@ -522,13 +522,13 @@ exports[`trend panel snapshots > ko 40x14 unreadable store 1`] = `
 Permission denied). 검사 결과 자체에는
 영향이 없습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
-  1. 코드 전용 검사: 결과가 저장되지
-     않습니다. GitHub 승인으로 \`pgard
-     scan\`을 실행하세요.
-  2. 저장된 검사가 1건뿐: 나중에 다시
-     검사해 비교하세요.
-Esc: 뒤로  ?: 도움말  Tab: 패널  1-11/13"
+
+
+
+
+
+
+Esc: 뒤로  ?: 도움말  Tab: 패널"
 `;
 
 exports[`trend panel snapshots > ko 60x20 0 scans 1`] = `
@@ -538,12 +538,12 @@ exports[`trend panel snapshots > ko 60x20 0 scans 1`] = `
 아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지
 않습니다. 나중에 다시 검사하면 추이를 볼 수 있습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
+추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
-     승인으로 \`pgard scan\`을 실행하세요.
+     승인으로 pgard scan을 실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는
-     \`PGARD_NO_STORE=1\`.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
+
 
 
 
@@ -561,12 +561,12 @@ exports[`trend panel snapshots > ko 60x20 1 scans 1`] = `
 아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (2026-10-27
 12:00). 나중에 다시 검사하면 추이를 볼 수 있습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
+추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
-     승인으로 \`pgard scan\`을 실행하세요.
+     승인으로 pgard scan을 실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는
-     \`PGARD_NO_STORE=1\`.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
+
 
 
 
@@ -630,12 +630,12 @@ exports[`trend panel snapshots > ko 60x20 store disabled 1`] = `
 아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는
 PGARD_NO_STORE=1) 비교할 대상이 없습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
+추이가 비는 흔한 이유:
   1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
-     승인으로 \`pgard scan\`을 실행하세요.
+     승인으로 pgard scan을 실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는
-     \`PGARD_NO_STORE=1\`.
+
+
 
 
 
@@ -653,12 +653,12 @@ exports[`trend panel snapshots > ko 60x20 unreadable store 1`] = `
 이력을 읽을 수 없습니다 (원인: Permission denied). 검사
 결과 자체에는 영향이 없습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
-  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub
-     승인으로 \`pgard scan\`을 실행하세요.
-  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는
-     \`PGARD_NO_STORE=1\`.
+
+
+
+
+
+
 
 
 
@@ -676,11 +676,11 @@ exports[`trend panel snapshots > ko 80x24 0 scans 1`] = `
 아직 이력이 없습니다: 이 저장소의 이전 검사가 저장되어 있지 않습니다. 나중에
 다시 검사하면 추이를 볼 수 있습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
-  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 \`pgard scan\`을
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
      실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는 \`PGARD_NO_STORE=1\`.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
 
 
 
@@ -703,11 +703,11 @@ exports[`trend panel snapshots > ko 80x24 1 scans 1`] = `
 아직 이력이 없습니다: 저장된 검사가 1건뿐입니다 (2026-10-27 12:00). 나중에 다시
 검사하면 추이를 볼 수 있습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
-  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 \`pgard scan\`을
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
      실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는 \`PGARD_NO_STORE=1\`.
+  3. 저장이 꺼져 있음: --no-store 또는 PGARD_NO_STORE=1.
 
 
 
@@ -784,11 +784,11 @@ exports[`trend panel snapshots > ko 80x24 store disabled 1`] = `
 아직 이력이 없습니다: 저장이 꺼져 있어(--no-store 또는 PGARD_NO_STORE=1) 비교할
 대상이 없습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
-  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 \`pgard scan\`을
+추이가 비는 흔한 이유:
+  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 pgard scan을
      실행하세요.
   2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는 \`PGARD_NO_STORE=1\`.
+
 
 
 
@@ -811,11 +811,11 @@ exports[`trend panel snapshots > ko 80x24 unreadable store 1`] = `
 이력을 읽을 수 없습니다 (원인: Permission denied). 검사 결과 자체에는 영향이
 없습니다.
 
-기록이 없는 경우는 셋 중 하나입니다:
-  1. 코드 전용 검사: 결과가 저장되지 않습니다. GitHub 승인으로 \`pgard scan\`을
-     실행하세요.
-  2. 저장된 검사가 1건뿐: 나중에 다시 검사해 비교하세요.
-  3. 저장이 꺼져 있음: \`--no-store\` 또는 \`PGARD_NO_STORE=1\`.
+
+
+
+
+
 
 
 

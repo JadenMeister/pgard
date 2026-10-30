@@ -10,7 +10,6 @@ import { Section } from "../../components/ui/Section";
 import { useI18n } from "../../i18n/I18nProvider";
 import type { FindingFilters } from "../findings/filter-findings";
 import { hasActiveFilters } from "../findings/filter-url";
-import { HelpPopover } from "./HelpPopover";
 import { ChangeTrendChart, SeverityTrendChart, breakdownText, coverageText } from "./TrendCharts";
 import {
   countIncomplete,
@@ -58,16 +57,12 @@ export function TrendView({
   return (
     <Section
       title={m.trend.title}
-      meta={
-        <HelpPopover label={m.trend.help.label}>
-          {m.trend.help.lines.map((line) => (
-            <span key={line} className="help-popover-line">
-              {line}
-            </span>
-          ))}
-        </HelpPopover>
-      }
+      helpLabel={m.trend.help.label}
+      help={m.trend.help.lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
     >
+      {" "}
       <p className="trend-source">{m.trend.source}</p>
       <TrendBody
         state={state}
@@ -82,13 +77,13 @@ export function TrendView({
 }
 
 /** The three cases in which the trend has no history, under the reason for this one. */
-function EmptyCases() {
+function EmptyCases({ off = true }: { off?: boolean }) {
   const { m } = useI18n();
   return (
     <div className="trend-cases">
       <p>{m.trend.cases.intro}</p>
       <ol>
-        {m.trend.cases.items.map((item) => (
+        {m.trend.cases.items.slice(0, off ? 3 : 2).map((item) => (
           <li key={item}>{item}</li>
         ))}
       </ol>
@@ -120,7 +115,7 @@ function TrendBody(props: TrendViewProps) {
       return (
         <>
           <Notice tone="info">{m.trend.disabled}</Notice>
-          <EmptyCases />
+          <EmptyCases off={false} />
         </>
       );
     case "unavailable":
@@ -133,7 +128,6 @@ function TrendBody(props: TrendViewProps) {
                 ? m.trend.noStoreDir
                 : m.trend.unreadable}
           </Notice>
-          <EmptyCases />
           <Button onClick={onReload}>{m.trend.reload}</Button>
         </>
       );

@@ -1,15 +1,52 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useI18n } from "../../i18n/I18nProvider";
+
+/** Click, Enter and Space (the native summary) toggle; Esc and a press outside close. */
+export type HelpTipEvent = "toggle" | "escape" | "outside";
+
+export function nextHelpTipOpen(open: boolean, event: HelpTipEvent): boolean {
+  return event === "toggle" ? !open : false;
+}
 
 /**
  * Explanatory text behind a small "?" disclosure. A native `<details>`, so it works with the
- * keyboard and without script, and the text stays in the page for find-in-page once opened.
+ * keyboard and without inline script. While open, Esc closes it (focus returns to the "?") and so
+ * does a press outside it; a press inside the text leaves it open.
  */
 export function HelpTip({ children, label }: { children: ReactNode; label?: string }) {
   const { m } = useI18n();
+  const [open, setOpen] = useState(false);
+  const details = useRef<HTMLDetailsElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: PointerEvent): void => {
+      if (event.target instanceof Node && details.current?.contains(event.target)) return;
+      setOpen((value) => nextHelpTipOpen(value, "outside"));
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "Escape") return;
+      setOpen((value) => nextHelpTipOpen(value, "escape"));
+      details.current?.querySelector("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
   return (
-    <details className="help-tip">
-      <summary aria-label={label ?? m.help.label} title={label ?? m.help.label}>
+    <details
+      ref={details}
+      className="help-tip"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary
+        aria-label={label ?? m.help.label}
+        title={label ?? m.help.label}
+        aria-expanded={open}
+      >
         ?
       </summary>
       <div className="help-tip-body">{children}</div>
