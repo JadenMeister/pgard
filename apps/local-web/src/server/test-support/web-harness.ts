@@ -49,6 +49,7 @@ export function outcome(
 export function result(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
     schemaVersion: SCHEMA_VERSION,
+    scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "scan-1",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:01.000Z",
@@ -72,6 +73,9 @@ export function fakeDeps(overrides: Partial<ServerDeps> = {}): ServerDeps {
   return {
     verifyProject: async () => outcome(),
     runScan: async () => result(),
+    runCodeOnlyScan: async () => {
+      throw new Error("unexpected code-only scan");
+    },
     recheckOwnerApproval: async () => {
       throw new Error("unexpected owner approval re-check");
     },
@@ -181,6 +185,7 @@ export async function startHarness(
     fixedRoot?: string;
     deps?: Partial<ServerDeps>;
     picker?: Partial<PickerDeps>;
+    ui?: "full" | "simple";
   } = {},
 ): Promise<Harness> {
   const inspector = createFakeInspector(FAKE_ROOT);
@@ -205,6 +210,7 @@ export async function startHarness(
       ...options.deps,
     }),
     token: TOKEN,
+    ...(options.ui === undefined ? {} : { ui: options.ui }),
   });
   return { server, inspector, clock, close: () => server.close() };
 }

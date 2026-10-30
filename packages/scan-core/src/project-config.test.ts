@@ -481,6 +481,8 @@ describe("history scan and excludes", () => {
       execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t.test", ...args], {
         cwd: root,
         stdio: "ignore",
+        timeout: 60_000,
+        killSignal: "SIGKILL",
       });
     git("init", "-q");
     git("add", "-A");
@@ -490,7 +492,13 @@ describe("history scan and excludes", () => {
 
   it("excludes do not apply to history: the secret in an excluded file is still reported", async () => {
     const root = gitProject();
-    const revision = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root }).toString().trim();
+    const revision = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      timeout: 60_000,
+      killSignal: "SIGKILL",
+    })
+      .toString()
+      .trim();
     const output = await createDefaultAnalyzers().history({
       projectRoot: root,
       revision,

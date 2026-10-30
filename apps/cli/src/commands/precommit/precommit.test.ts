@@ -413,7 +413,10 @@ describe("pgard precommit", () => {
 
   it("skips binary files by design and does not call that unscanned", async () => {
     const root = makeRepo();
-    writeFileSync(path.join(root, "pic.png"), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 1]));
+    writeFileSync(
+      path.join(root, "pic.png"),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 1]),
+    );
     git(root, "add", "pic.png");
     const { captured, context } = setup(root);
     expect(await precommit.runPrecommit(context)).toBe(EXIT_CODES.ok);

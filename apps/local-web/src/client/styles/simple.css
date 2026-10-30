@@ -1,0 +1,233 @@
+/*
+ * PROTOTYPE (#414): the one-screen code-only flow. Built on the dashboard tokens only; a single
+ * column, three numbered cards and a collapsed "More".
+ */
+.simple {
+  max-width: 56rem;
+}
+
+.simple-lead {
+  font-size: var(--text-lg);
+  margin: 0 0 var(--space-4);
+  max-width: 44rem;
+}
+
+.simple-proto {
+  margin-left: var(--space-2);
+  font-size: var(--text-meta);
+}
+
+.simple-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+  list-style: none;
+  margin: 0 0 var(--space-6);
+  padding: 0;
+  color: var(--color-muted);
+}
+
+.simple-steps li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.simple-step-num {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-line-strong);
+  color: var(--color-ink);
+  font-size: var(--text-meta);
+}
+
+.simple-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+  margin-bottom: var(--space-4);
+}
+
+.simple-card > * + * {
+  margin-top: var(--space-3);
+}
+
+.simple-card-off {
+  opacity: 0.6;
+}
+
+.simple-card-title {
+  font-size: var(--text-lg);
+  margin: 0;
+}
+
+.simple-paste {
+  margin-top: var(--space-4);
+}
+
+.simple-paste-label {
+  display: block;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+
+.simple-paste-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.simple-path-input {
+  font-family: var(--font-mono);
+}
+
+.simple-refusal {
+  margin-top: var(--space-3);
+}
+
+.simple-chosen {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.simple-chosen p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.simple-scan-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.simple-scan-row .pick-status {
+  margin: 0;
+}
+
+.simple-scan-button {
+  min-width: 10rem;
+  height: 2.75rem;
+  font-size: var(--text-lg);
+}
+
+.simple-results-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.simple-count {
+  font-size: var(--text-stat);
+  font-weight: 600;
+}
+
+.simple-noauth {
+  border: 1px solid var(--color-line-strong);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  padding: var(--space-3) var(--space-4);
+}
+
+.simple-noauth p {
+  margin: 0;
+}
+
+.simple-noauth p + p {
+  margin-top: var(--space-2);
+}
+
+.simple-noauth-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+}
+
+.simple-noauth-badge {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.simple-more {
+  margin-top: var(--space-6);
+}
+
+.simple-more-toggle {
+  background: none;
+  border: 0;
+  padding: var(--space-2) 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+
+.simple-more-body {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-3);
+}
+
+.simple-more-list {
+  list-style: none;
+  margin: var(--space-3) 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+  gap: var(--space-2);
+}
+
+.simple-more-item {
+  display: block;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--color-ink);
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-3);
+  cursor: pointer;
+}
+
+.simple-more-item[aria-pressed="true"] {
+  border-color: var(--color-ink);
+  font-weight: 600;
+}
+
+.simple-more-item .small {
+  display: block;
+  font-weight: 400;
+}
+
+.simple-more-off {
+  cursor: default;
+  color: var(--color-muted);
+  background: var(--color-fill);
+}
+
+.simple-more-panel {
+  overflow-x: auto;
+}
+
+@media (max-width: 40rem) {
+  .simple-card {
+    padding: var(--space-4);
+  }
+
+  .simple-scan-button,
+  .simple-choose-button {
+    width: 100%;
+  }
+}

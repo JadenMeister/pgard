@@ -514,6 +514,10 @@ export const runGit: GitRunner = async (invocation, options) => {
   ) {
     throw new GitCommandError("git index file is not allowed", null);
   }
+  // Already cancelled: do not even read the driver overrides (that starts a git child too).
+  if (options.signal?.aborted) {
+    throw new GitCommandError("git command was cancelled", null, "cancelled");
+  }
   const overrides = METADATA_ONLY.has(invocation.subcommand)
     ? []
     : await readDriverOverrides(options.cwd);

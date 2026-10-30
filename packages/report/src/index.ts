@@ -38,6 +38,7 @@ export {
 } from "./format.js";
 export { REPORT_TEXT, type NoticeTexts, type ReportText } from "./report-text.js";
 export { standardMark } from "./report-view.js";
+export { codeOnlyLabel, type CodeOnlyLabel } from "./code-only-text.js";
 export { INCREMENTAL_TEXT, incrementalLine, type IncrementalText } from "./incremental-text.js";
 export { isPdfFontCodePoint } from "./pdf-font.js";
 export { renderHtmlReport, renderSeverityBarChartSvg } from "./render-html.js";

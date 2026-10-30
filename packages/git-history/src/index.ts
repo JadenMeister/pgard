@@ -57,6 +57,7 @@ export {
   STAGED_MAX_FILE_BYTES,
   STAGED_MAX_TOTAL_BYTES,
   decodeStagedBlob,
+  decodeStagedBlobBoth,
   readStagedChanges,
   type StagedChanges,
   type StagedFile,
@@ -79,3 +80,10 @@ export {
   type DetectedSecret,
   type DetectedSecretKind,
 } from "./secret-patterns.js";
+export {
+  readSmallRegularFile,
+  readSmallRegularFileBytes,
+  type SafeBytesResult,
+  type SafeReadResult,
+  type UnsafeKind,
+} from "./safe-read.js";

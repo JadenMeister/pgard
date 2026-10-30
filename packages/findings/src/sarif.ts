@@ -1,5 +1,6 @@
 import {
   SEVERITIES,
+  isCodeOnlyResult,
   type Coverage,
   type Finding,
   type ScanResult,
@@ -40,6 +41,10 @@ import type { RuleTextCatalog } from "./rule-text.js";
  *   with one replacement of the flagged line (`deletedRegion` of the whole old line,
  *   `insertedContent` the new line), described as a suggestion to review. It is not applied by
  *   anything in PGARD. Guidance (no diff) adds no `fixes`.
+ * - A code-only result (JSON 1.7 `scanBasis.mode: "code_only"`) carries `scanBasis` in
+ *   `properties.pgard.scanBasis` and one warning notification first ("Code-only scan:
+ *   authorization was not verified ..."); its `automationDetails.id` is `pgard/code-only/`, so an
+ *   upload never closes the alerts of an authorized `pgard/code/` run.
  * - Areas that are `partial` or `not_tested` become warning notifications in
  *   `invocations[0].toolExecutionNotifications`; a `blocked` or `failed` scan, or one with any `partial` or
  *   `not_tested` area, also gets an error notification and `executionSuccessful: false`. `not_selected` areas were not requested and
@@ -319,6 +324,21 @@ function coverageNotifications(coverage: readonly Coverage[]): Array<Record<stri
   return notifications;
 }
 
+export const CODE_ONLY_SARIF_NOTICE =
+  "Code-only scan: authorization was not verified. Only the current files were checked; Git history and web checks did not run.";
+
+function codeOnlyNotifications(result: ScanResult): Array<Record<string, unknown>> {
+  if (!isCodeOnlyResult(result)) return [];
+  return [
+    {
+      level: "warning",
+      descriptor: { id: "pgard/scan/code-only" },
+      message: { text: CODE_ONLY_SARIF_NOTICE },
+      properties: { pgard: { scanBasis: { ...result.scanBasis } } },
+    },
+  ];
+}
+
 /** Builds the SARIF 2.1.0 log of `result`. Findings are redacted again; nothing is mutated. */
 export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifLog {
   const redacted = result.findings.map((f) => redactFinding(f));
@@ -342,7 +362,10 @@ export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifL
   const indexOf = new Map(orderedIds.map((id, index) => [id, index]));
   const hasBaseline = result.baseline !== undefined;
 
-  const notifications = coverageNotifications(result.coverage);
+  const notifications = [
+    ...codeOnlyNotifications(result),
+    ...coverageNotifications(result.coverage),
+  ];
   const executionSuccessful = !sarifScanIncomplete(result);
   if (!executionSuccessful) {
     const what =
@@ -390,7 +413,11 @@ export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifL
         rules: orderedIds.map((id) => buildRule(id, catalog, byRule.get(id) ?? [])),
       },
     },
-    automationDetails: { id: `pgard/${[...result.requestedScopes].sort().join("+")}/` },
+    automationDetails: {
+      id: isCodeOnlyResult(result)
+        ? "pgard/code-only/"
+        : `pgard/${[...result.requestedScopes].sort().join("+")}/`,
+    },
     originalUriBaseIds: {
       [SARIF_SRCROOT]: { description: { text: "Root of the scanned Git repository." } },
     },
@@ -413,6 +440,7 @@ export function buildSarif(result: ScanResult, catalog: RuleTextCatalog): SarifL
         overallStatus: result.overallStatus,
         requestedScopes: [...result.requestedScopes],
         resultSchemaVersion: result.schemaVersion,
+        ...(result.scanBasis === undefined ? {} : { scanBasis: { ...result.scanBasis } }),
         omittedFindings: { total: omitted.length, byRule: omittedByRule },
         ...(result.incremental === undefined
           ? {}

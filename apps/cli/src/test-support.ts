@@ -138,6 +138,7 @@ export function testFinding(overrides: Partial<Finding> = {}): Finding {
 export function testResult(overrides: Partial<ScanResult> = {}): ScanResult {
   return {
     schemaVersion: SCHEMA_VERSION,
+    scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "scan-1234abcd",
     startedAt: "2026-10-24T00:00:00.000Z",
     finishedAt: "2026-10-24T00:00:05.000Z",
