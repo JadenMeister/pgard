@@ -17,7 +17,7 @@ import {
   type AuthorizationOutcome,
   type ScanProgressEvent,
 } from "@pgard/scan-core";
-import { isAuthorizationAllowed } from "@pgard/scan-core";
+import { codeOnlyReasonForGate, gateFailureReason, isAuthorizationAllowed } from "@pgard/scan-core";
 import {
   err,
   out,
@@ -226,32 +226,17 @@ interface ResultOutput {
   finish: (result: ScanResult) => void;
 }
 
-type RepositoryBlockCode = NonNullable<AuthorizationOutcome["repositoryCode"]>;
-/** The repository check's codes for "no single usable github.com remote". */
-const REMOTE_FAILURES: ReadonlySet<RepositoryBlockCode> = new Set<RepositoryBlockCode>([
-  "no_remote",
-  "remote_not_github",
-  "remote_ambiguous",
-  "remote_unreadable",
-]);
-
 /**
  * Why a failed authorization leaves the result unverified, for `scanBasis.reason` of the
- * code-only scan that may follow. From fixed codes and check statuses only, never the text:
- * the folder has no usable GitHub remote or no Git history (the repository check's code), a
- * check could not be verified (a network error, a timeout, no sign-in: `check_failed`), or a
- * check did not pass (`no_approval`).
+ * code-only scan that may follow. The shared rule of `@pgard/scan-core` (`gateFailureReason`),
+ * so the CLI and the web screen name the same reason; the CLI cannot tell "not signed in" apart,
+ * so that is `check_failed`.
  */
 export function codeOnlyReasonAfter(
   result: ScanResult,
   outcome: AuthorizationOutcome | null,
 ): KnownScanBasisReason {
-  if (result.overallStatus === "failed") return "check_failed";
-  const code = outcome?.repositoryCode ?? null;
-  if (code !== null && REMOTE_FAILURES.has(code)) return "no_github_remote";
-  if (code === "not_a_git_root" || code === "no_commit_history") return "not_a_git_repository";
-  const first = result.authorization.checks.find((check) => check.status !== "passed");
-  return first?.status === "unverifiable" ? "check_failed" : "no_approval";
+  return codeOnlyReasonForGate(gateFailureReason(result, outcome));
 }
 
 async function runScanFlow(

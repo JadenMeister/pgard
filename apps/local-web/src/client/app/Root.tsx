@@ -7,8 +7,8 @@ import { App } from "./App";
 /**
  * Remounts the app when the project changes (picker mode), so no scan, authorization or filter
  * state of the old project survives in the page. The legal notice is accepted once per page.
- * PROTOTYPE (#414): when the server serves the simple screen (`ui: "simple"`), that screen is
- * shown first and the full dashboard is one link away.
+ * When the server serves the simple screen (`ui: "simple"`, `pgard web`), that screen is shown
+ * first and the full dashboard is one link away under "More".
  */
 export function Root() {
   const [generation, setGeneration] = useState(0);

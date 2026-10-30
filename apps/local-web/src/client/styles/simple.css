@@ -1,6 +1,6 @@
 /*
- * PROTOTYPE (#414): the one-screen code-only flow. Built on the dashboard tokens only; a single
- * column, three numbered cards and a collapsed "More".
+ * The simple screen of `pgard web` (#414). Built on the dashboard tokens only; a single column,
+ * a folder card, a scan card, the findings and a collapsed "More".
  */
 .simple {
   max-width: 56rem;
@@ -10,38 +10,6 @@
   font-size: var(--text-lg);
   margin: 0 0 var(--space-4);
   max-width: 44rem;
-}
-
-.simple-proto {
-  margin-left: var(--space-2);
-  font-size: var(--text-meta);
-}
-
-.simple-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2) var(--space-6);
-  list-style: none;
-  margin: 0 0 var(--space-6);
-  padding: 0;
-  color: var(--color-muted);
-}
-
-.simple-steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.simple-step-num {
-  display: inline-grid;
-  place-items: center;
-  width: 1.5rem;
-  height: 1.5rem;
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-line-strong);
-  color: var(--color-ink);
-  font-size: var(--text-meta);
 }
 
 .simple-card {
@@ -159,6 +127,47 @@
   font-weight: 600;
 }
 
+.simple-gate {
+  border: 1px solid var(--color-line-strong);
+  border-left: 4px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background: var(--color-fill);
+  padding: var(--space-3) var(--space-4);
+}
+
+.simple-gate > * {
+  margin: 0;
+}
+
+.simple-gate > * + * {
+  margin-top: var(--space-3);
+}
+
+.simple-gate-reason {
+  font-weight: 600;
+}
+
+.simple-gate-help {
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-3);
+}
+
+.simple-gate-help > p {
+  margin: 0;
+}
+
+.simple-gate-help > p + p {
+  margin-top: var(--space-2);
+}
+
+.simple-device {
+  margin: 0;
+}
+
+.simple-authorized {
+  margin: 0;
+}
+
 .simple-more {
   margin-top: var(--space-6);
 }
@@ -211,12 +220,6 @@
   font-weight: 400;
 }
 
-.simple-more-off {
-  cursor: default;
-  color: var(--color-muted);
-  background: var(--color-fill);
-}
-
 .simple-more-panel {
   overflow-x: auto;
 }
@@ -227,7 +230,8 @@
   }
 
   .simple-scan-button,
-  .simple-choose-button {
+  .simple-choose-button,
+  .simple-gate .btn {
     width: 100%;
   }
 }

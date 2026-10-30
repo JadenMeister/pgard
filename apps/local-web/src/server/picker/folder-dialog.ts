@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { access, constants } from "node:fs/promises";
 
 /**
- * PROTOTYPE (#414): the operating system's own folder dialog, opened by the local server for the
+ * #414: the operating system's own folder dialog, opened by the local server for the
  * page's "Choose folder" button. Fixed argv only (no shell); the only text in the arguments is
  * the prompt, which comes from PGARD's own strings, never from the request. One dialog at a time
  * is enforced by the caller; the child is killed on cancel, on shutdown and after `timeoutMs`.

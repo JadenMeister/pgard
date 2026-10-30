@@ -242,6 +242,24 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
     }
   }
 
+  /** Reads a JSON body within the request's time limit. */
+  async function readJson(response: FetchResponseLike): Promise<unknown> {
+    try {
+      return await response.json();
+    } catch (error) {
+      if (options.signal?.aborted) {
+        throw new GitHubAuthError("cancelled", "The GitHub request was cancelled.");
+      }
+      if (error instanceof RequestTimeoutError) {
+        throw new GitHubAuthError(
+          "network_error",
+          `The GitHub API did not answer within ${Math.ceil(error.timeoutMs / 1000)} s.`,
+        );
+      }
+      throw malformed("response body");
+    }
+  }
+
   /** Frees the connection of a response whose body is not read. */
   async function discardBody(response: FetchResponseLike): Promise<void> {
     try {
@@ -326,11 +344,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         response.status,
       );
     }
-    try {
-      return await response.json();
-    } catch {
-      throw malformed("response body");
-    }
+    return readJson(response);
   }
 
   /** Like `getJson`, but tells a rate limit and a permission 403 apart from other failures. */
@@ -367,11 +381,7 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
         response.status,
       );
     }
-    try {
-      return await response.json();
-    } catch {
-      throw malformed("response body");
-    }
+    return readJson(response);
   }
 
   async function getPaged(basePath: string, key: string): Promise<unknown[]> {

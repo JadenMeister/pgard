@@ -15,8 +15,8 @@ export interface SessionInfo {
   /** `fixed`: `pgard dashboard` (one project, no picker). `picker`: `pgard web`. */
   mode: "fixed" | "picker";
   /**
-   * PROTOTYPE (#414): `simple` is the one-screen code-only flow (`PGARD_WEB_PROTOTYPE=code-only`,
-   * picker mode only); `full` is the current dashboard.
+   * `simple` is the one-screen flow of `pgard web` (picker mode): choose a folder, scan, read
+   * the findings. `full` is the dashboard (`pgard dashboard`, and "More" on the simple screen).
    */
   ui: "full" | "simple";
   /**
@@ -185,11 +185,27 @@ export interface ScanStatus {
   /** Set while the GitHub sign-in started by this scan waits for the user. */
   deviceCode: DeviceCodeInfo | null;
   /**
-   * PROTOTYPE (#414): true when this is a code-only scan (current files only, authorization not
-   * checked). The page must label its result "not authorized".
+   * True when this is a code-only scan (current files only, authorization not checked; #414).
+   * The page must label its result "not authorized".
    */
   codeOnly: boolean;
+  /**
+   * Why the authorization gate did not pass for this scan, from fixed codes (never the text):
+   * `null` when it passed or no gate ran. The simple screen then offers a code-only scan, which
+   * only an explicit click starts (`POST /api/code-scan`).
+   */
+  gateReason: GateReason | null;
 }
+
+/**
+ * - `no_approval`: a check did not pass (for example the PGARD GitHub App is not installed).
+ * - `not_signed_in`: there is no GitHub sign-in on this computer (`signIn: false` never starts one).
+ * - `no_github_remote`: the folder has no single github.com remote.
+ * - `not_a_git_repository`: not a Git repository, or one without commits.
+ * - `check_failed`: the check could not finish (a network error, a time limit, unreadable Git data).
+ */
+export type GateReason =
+  "no_approval" | "not_signed_in" | "no_github_remote" | "not_a_git_repository" | "check_failed";
 
 /** One rule's texts in each dashboard language. Same shape as `RuleTexts` in `@pgard/findings`. */
 export interface RuleTextsDto {

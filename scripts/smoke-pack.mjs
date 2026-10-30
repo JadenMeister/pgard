@@ -440,12 +440,13 @@ try {
     });
   });
 
-  // Project picker (`pgard web`): the packed dashboard starts in picker mode, and a search runs
-  // through the packed inspector child process (no project, no sign-in, no network).
+  // `pgard web`: the packed dashboard starts in picker mode with the simple screen, and a pasted
+  // folder is resolved through the packed inspector child process (no project, no sign-in, no
+  // network). Without saved search folders the search picker searches nothing.
   if (process.platform !== "win32") {
     check("packed inspector child exists", existsSync(join(pkgDir, "dist", "inspector.js")));
     const home = mkdtempSync(join(tmpdir(), "pgard smoke home "));
-    mkdirSync(join(home, "code"), { mode: 0o755 });
+    mkdirSync(join(home, "code", "notes"), { recursive: true, mode: 0o755 });
     await new Promise((done) => {
       const child = spawn(
         process.execPath,
@@ -467,12 +468,12 @@ try {
         done();
       };
       const timer = setTimeout(
-        () => finish("picker search works", false, `timeout; output: ${out}`),
+        () => finish("simple screen resolves a pasted folder", false, `timeout; output: ${out}`),
         40_000,
       );
       child.stderr.on("data", (chunk) => (out += chunk));
       child.on("exit", (code) =>
-        finish("picker search works", false, `exited ${code}; output: ${out}`),
+        finish("simple screen resolves a pasted folder", false, `exited ${code}; output: ${out}`),
       );
       child.stdout.on("data", async (chunk) => {
         out += chunk;
@@ -481,30 +482,33 @@ try {
         const [, origin, token] = match;
         const headers = { "x-pgard-token": token, origin, "content-type": "application/json" };
         try {
+          const session = await (await fetch(`${origin}/api/session`, { headers })).json();
           const scope = await (await fetch(`${origin}/api/picker/scope`, { headers })).json();
-          const started = await (
-            await fetch(`${origin}/api/picker/search`, {
+          const pasted = await (
+            await fetch(`${origin}/api/picker/path`, {
               method: "POST",
               headers,
-              body: JSON.stringify({ source: "typed", name: "no-such-folder", epoch: 1 }),
+              body: JSON.stringify({ path: "~/code/notes" }),
             })
           ).json();
-          let search = { status: "running" };
-          for (let attempt = 0; attempt < 100 && search.status === "running"; attempt += 1) {
-            await new Promise((resolve) => setTimeout(resolve, 100));
-            search = await (
-              await fetch(`${origin}/api/picker/search?id=${started.searchId}`, { headers })
-            ).json();
-          }
+          const broad = await (
+            await fetch(`${origin}/api/picker/path`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ path: "~" }),
+            })
+          ).json();
           finish(
-            "picker search works",
-            scope.roots?.length === 1 &&
-              search.status === "done" &&
-              search.candidates?.length === 0,
-            JSON.stringify({ scope, search }),
+            "simple screen resolves a pasted folder",
+            session.ui === "simple" &&
+              scope.roots?.length === 0 &&
+              pasted.candidate?.selectable === true &&
+              pasted.candidate?.codeOnly === "not_git" &&
+              broad.refusal?.code === "too_broad",
+            JSON.stringify({ ui: session.ui, scope, pasted, broad }),
           );
         } catch (error) {
-          finish("picker search works", false, String(error));
+          finish("simple screen resolves a pasted folder", false, String(error));
         }
       });
     });

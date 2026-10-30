@@ -3,7 +3,12 @@ import { lstat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
 import type { KnownScanBasisReason, ScanResult } from "@pgard/findings";
-import { tooBroadToScan, type TooBroadReason } from "@pgard/result-store";
+import {
+  isInsideGitDirectory as isInsideGitDirectoryShared,
+  tooBroadToScan,
+  type EntryKind,
+  type TooBroadReason,
+} from "@pgard/result-store";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
 import { err, out, suspendKeys, type CommandContext } from "../../context.js";
 import { EXIT_CODES, exitCodeForStatus, type ExitCode } from "../../exit-codes.js";
@@ -103,35 +108,23 @@ export function codeOnlyHome(
   }
 }
 
-/** True for a folder that holds a Git directory's own files (`HEAD`, `objects`, `refs`, `config`). */
-async function looksLikeGitDirectory(folder: string): Promise<boolean> {
+/** The kind of a path without following a symbolic link, for the shared Git layout checks. */
+async function entryKind(entry: string): Promise<EntryKind> {
   try {
-    const [head, objects, refs, config] = await Promise.all(
-      ["HEAD", "objects", "refs", "config"].map((name) => lstat(path.join(folder, name))),
-    );
-    return (
-      head?.isFile() === true &&
-      objects?.isDirectory() === true &&
-      refs?.isDirectory() === true &&
-      config?.isFile() === true
-    );
+    const stat = await lstat(entry);
+    return stat.isFile() ? "file" : stat.isDirectory() ? "directory" : "other";
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
  * True when `cwd` is a Git directory (`.git`, a bare repository) or inside one. Its `config` can
  * hold credentials and its objects are not the current files, so it is never code-only scanned.
+ * The rule is shared with the web folder chooser (`@pgard/result-store`).
  */
-export async function isInsideGitDirectory(cwd: string): Promise<boolean> {
-  let folder = path.resolve(cwd);
-  for (;;) {
-    if (path.basename(folder) === ".git" || (await looksLikeGitDirectory(folder))) return true;
-    const parent = path.dirname(folder);
-    if (parent === folder) return false;
-    folder = parent;
-  }
+export function isInsideGitDirectory(cwd: string): Promise<boolean> {
+  return isInsideGitDirectoryShared(cwd, entryKind);
 }
 
 /**

@@ -1,16 +1,14 @@
+import type { GateReason } from "../../../shared/api-types";
 import type { FolderRefusalCode, PickerCandidate } from "../../../shared/picker-types";
 import type { Language } from "../../i18n/types";
 
 /**
- * PROTOTYPE (#414): the texts of the one-screen code-only flow, in English and Korean. Kept apart
- * from the dashboard catalogs until the owner signs off on the wording
+ * The texts of the simple screen of `pgard web` (#414), in English and Korean: short and plain
  * (docs/CODE_ONLY_SCAN_DESIGN.md, section "Web UX").
  */
 export interface SimpleText {
-  prototypeTag: string;
   title: string;
   lead: string;
-  steps: [string, string, string];
   folderTitle: string;
   folderHint: string;
   chooseFolder: string;
@@ -30,13 +28,35 @@ export interface SimpleText {
   useFolder: string;
   using: string;
   back: string;
-  chosenLabel: string;
+  /** The chosen folder was inside a repository: the repository's top folder is scanned. */
+  insideRepository: string;
   change: string;
   scanTitle: string;
   scanWhat: string;
   scanButton: string;
   rescanButton: string;
+  /** The primary button after the gate did not pass. */
+  checkAgainButton: string;
+  /** The primary button after a code-only result: it runs the gate again. */
+  recheckApprovalButton: string;
+  /** Shown with the gate's reason when it replaced an earlier code-only result. */
+  previousHidden: string;
   scanning: (seconds: number) => string;
+  /** While the authorization gate runs (before any file is read). */
+  checkingApproval: (seconds: number) => string;
+  /** A sign-in started with "Sign in and check approval" waits for the user. */
+  deviceCode: (code: string) => string;
+  openSignIn: string;
+  /** Why the gate did not pass: one plain line. */
+  gateReasons: Record<GateReason, string>;
+  codeOnlyButton: string;
+  howToApprove: string;
+  signInLink: string;
+  approveSteps: string;
+  approveNeedsRepo: string;
+  approveInstall: string;
+  approveFull: string;
+  authorizedLabel: string;
   cancel: string;
   cancelled: string;
   failed: string;
@@ -46,33 +66,29 @@ export interface SimpleText {
   extraNote: string;
   partialNote: string;
   badge: string;
+  /** One line: what a code-only result is. */
   badgeTitle: string;
-  badgeBody: string;
   /** Why authorization was not verified (`scanBasis.reason`, JSON 1.7). */
   badgeReason: (reason: string) => string;
   connect: string;
-  connectHint: string;
+  /** This screen's footer. */
+  footer: string;
   moreTitle: string;
   moreLead: string;
   moreCoverage: string;
   moreStandards: string;
   moreRules: string;
-  moreTrend: string;
-  moreTrendNote: string;
   moreExport: string;
   moreExportNote: string;
   moreFull: string;
   moreFullNote: string;
   moreNeedsScan: string;
-  backToSimple: string;
 }
 
 const en: SimpleText = {
-  prototypeTag: "Prototype",
   title: "Scan a project folder",
-  lead: "PGARD checks the files in a folder on this computer for leaked secrets, risky code and known-vulnerable dependencies.",
-  steps: ["Choose a folder", "Press Scan", "Fix what it finds"],
-  folderTitle: "1. Folder",
+  lead: "Find leaked secrets, risky code and vulnerable dependencies in a folder on this computer.",
+  folderTitle: "Folder",
   folderHint: "Choose the project's folder, or paste its path.",
   chooseFolder: "Choose folder",
   dialogOpen: "Waiting for the folder window…",
@@ -118,29 +134,57 @@ const en: SimpleText = {
       reason: "Another user could change this folder or a folder above it.",
       fix: "Remove group and other write access (chmod go-w), or copy the project into your own folder.",
     },
+    git_directory: {
+      reason: "This is Git's own data folder (.git), not the project's files.",
+      fix: "Choose the project's folder, the one that contains .git.",
+    },
   },
   candidateConfirm: "Scan this folder?",
   githubRepo: (repo) => `GitHub repository ${repo}`,
   codeOnlyReason: {
-    not_git: "Not a Git repository: the files are scanned as they are.",
-    no_github_remote: "No GitHub remote: the files are scanned as they are.",
-    git_unsupported: "Git data is not used for this folder: the files are scanned as they are.",
+    not_git: "Not a Git repository: only a code-only scan is possible.",
+    no_github_remote: "No GitHub remote: only a code-only scan is possible.",
+    git_unsupported: "Its Git data cannot be checked: only a code-only scan is possible.",
   },
   useFolder: "Use this folder",
   using: "Opening…",
   back: "Back",
-  chosenLabel: "Folder",
+  insideRepository:
+    "This folder is inside a repository, so the whole repository (above) is checked and scanned.",
   change: "Change",
-  scanTitle: "2. Scan",
+  scanTitle: "Scan",
   scanWhat:
-    "Reads the current files only: secrets, risky code patterns and dependencies. No Git history, nothing leaves this computer and nothing is saved.",
+    "PGARD checks your GitHub approval first, then the current files. Your files never leave this computer.",
   scanButton: "Scan",
   rescanButton: "Scan again",
+  checkAgainButton: "Check again",
+  recheckApprovalButton: "Check approval again",
+  previousHidden: "The earlier code-only findings are hidden. Scan code only to see them again.",
   scanning: (seconds) => `Scanning the files… ${seconds} s`,
+  checkingApproval: (seconds) => `Checking approval, then scanning… ${seconds} s`,
+  deviceCode: (code) => `To sign in, enter ${code} on GitHub.`,
+  openSignIn: "Open GitHub sign-in",
+  gateReasons: {
+    no_approval: "No GitHub App approval for this folder.",
+    not_signed_in: "Not signed in to GitHub, so approval was not checked.",
+    no_github_remote: "This folder has no GitHub remote.",
+    not_a_git_repository: "This folder is not a Git repository.",
+    check_failed: "Approval could not be checked (network or GitHub problem).",
+  },
+  codeOnlyButton: "Scan code only (not authorized)",
+  howToApprove: "How to approve",
+  signInLink: "Sign in and check approval",
+  approveSteps:
+    "The repository owner installs the PGARD GitHub App and includes this repository. Then press Check again.",
+  approveNeedsRepo:
+    "Approval works only for a GitHub repository. Push this folder to GitHub, then install the PGARD GitHub App for it.",
+  approveInstall: "Open the install page on GitHub",
+  approveFull: "Step-by-step help in the full dashboard",
+  authorizedLabel: "Authorized scan",
   cancel: "Cancel",
   cancelled: "The scan was cancelled.",
   failed: "The scan stopped because of an internal error. Try again.",
-  resultsTitle: "3. Findings",
+  resultsTitle: "Findings",
   noFindings: "No findings in the checked files.",
   findingsCount: (count) => (count === 1 ? "1 finding" : `${count} findings`),
   extraNote:
@@ -148,41 +192,32 @@ const en: SimpleText = {
   partialNote:
     "Some areas could not be checked (for example, no vulnerability data has been downloaded yet). See More › What was checked.",
   badge: "Not authorized · code only",
-  badgeTitle: "Authorization was not checked",
-  badgeBody:
-    "This is a code-only scan of the files on this computer. PGARD did not prove that you may scan this code, so Git history, local web checks and saved results are off.",
+  badgeTitle: "Only the code was scanned (no Git history, not saved)",
   badgeReason: (reason) =>
     ({
-      no_github_remote:
-        "This folder has no GitHub remote, so owner approval cannot be checked (it is proven through GitHub only).",
-      not_a_git_repository:
-        "This folder is not a Git repository, so there is no repository to authorize.",
-      no_approval: "The authorization gate did not allow a full scan of this repository.",
+      no_github_remote: "This folder has no GitHub remote.",
+      not_a_git_repository: "This folder is not a Git repository.",
+      no_approval: "There is no GitHub App approval for this folder.",
+      check_failed: "Approval could not be checked.",
     })[reason] ?? "Authorization was not checked for this scan.",
   connect: "Connect GitHub to also scan Git history",
-  connectHint:
-    "Optional. Opens the full dashboard, which asks for GitHub sign-in and owner approval.",
+  footer: "Runs on 127.0.0.1 only · results are not saved and are gone when you close this window.",
   moreTitle: "More",
   moreLead: "Details for the scan above. None of this is needed to fix the findings.",
   moreCoverage: "What was checked",
   moreStandards: "Standards (OWASP, CWE)",
   moreRules: "Rule statistics",
-  moreTrend: "Trend",
-  moreTrendNote: "Needs GitHub approval: code-only results are never saved.",
   moreExport: "Export report",
   moreExportNote: "Every page of the report carries the “not authorized: code-only scan” banner.",
   moreFull: "Full dashboard",
-  moreFullNote: "The current dashboard with GitHub sign-in, Git history and web checks.",
+  moreFullNote: "Git history, local web checks, trend and saved scans (needs approval).",
   moreNeedsScan: "Run a scan first.",
-  backToSimple: "Back to the simple screen",
 };
 
 const ko: SimpleText = {
-  prototypeTag: "프로토타입",
   title: "프로젝트 폴더 검사",
-  lead: "PGARD는 이 컴퓨터에 있는 폴더의 파일에서 유출된 비밀값, 위험한 코드, 알려진 취약 의존성을 찾습니다.",
-  steps: ["폴더 선택", "검사 누르기", "찾은 문제 고치기"],
-  folderTitle: "1. 폴더",
+  lead: "이 컴퓨터의 폴더에서 유출된 비밀값, 위험한 코드, 취약한 의존성을 찾습니다.",
+  folderTitle: "폴더",
   folderHint: "프로젝트 폴더를 선택하거나 경로를 붙여 넣으세요.",
   chooseFolder: "폴더 선택",
   dialogOpen: "폴더 선택 창을 기다리는 중…",
@@ -222,60 +257,82 @@ const ko: SimpleText = {
       reason: "다른 사용자가 이 폴더나 상위 폴더를 바꿀 수 있습니다.",
       fix: "그룹·기타 사용자의 쓰기 권한을 없애거나(chmod go-w) 프로젝트를 내 폴더로 복사하세요.",
     },
+    git_directory: {
+      reason: "Git의 데이터 폴더(.git)이지 프로젝트 파일이 아닙니다.",
+      fix: ".git이 들어 있는 프로젝트 폴더를 고르세요.",
+    },
   },
   candidateConfirm: "이 폴더를 검사할까요?",
   githubRepo: (repo) => `GitHub 저장소 ${repo}`,
   codeOnlyReason: {
-    not_git: "Git 저장소가 아닙니다. 파일을 있는 그대로 검사합니다.",
-    no_github_remote: "GitHub 원격 저장소가 없습니다. 파일을 있는 그대로 검사합니다.",
-    git_unsupported: "이 폴더에서는 Git 데이터를 쓰지 않습니다. 파일을 있는 그대로 검사합니다.",
+    not_git: "Git 저장소가 아닙니다. 코드만 검사할 수 있습니다.",
+    no_github_remote: "GitHub 원격 저장소가 없습니다. 코드만 검사할 수 있습니다.",
+    git_unsupported: "Git 데이터를 확인할 수 없습니다. 코드만 검사할 수 있습니다.",
   },
   useFolder: "이 폴더 사용",
   using: "여는 중…",
   back: "뒤로",
-  chosenLabel: "폴더",
+  insideRepository: "이 폴더는 저장소 안에 있어 위의 저장소 전체를 확인하고 검사합니다.",
   change: "변경",
-  scanTitle: "2. 검사",
+  scanTitle: "검사",
   scanWhat:
-    "현재 파일만 읽습니다: 비밀값, 위험한 코드 패턴, 의존성. Git 기록은 읽지 않고, 이 컴퓨터 밖으로 아무것도 보내지 않으며, 아무것도 저장하지 않습니다.",
+    "GitHub 승인을 먼저 확인한 뒤 현재 파일을 검사합니다. 파일은 이 컴퓨터 밖으로 나가지 않습니다.",
   scanButton: "검사",
   rescanButton: "다시 검사",
+  checkAgainButton: "다시 확인",
+  recheckApprovalButton: "승인 다시 확인",
+  previousHidden: "이전 코드만 검사 결과는 숨겨졌습니다. 코드만 검사를 누르면 다시 볼 수 있습니다.",
   scanning: (seconds) => `파일 검사 중… ${seconds}초`,
+  checkingApproval: (seconds) => `승인 확인 후 검사 중… ${seconds}초`,
+  deviceCode: (code) => `로그인하려면 GitHub에서 ${code}를 입력하세요.`,
+  openSignIn: "GitHub 로그인 열기",
+  gateReasons: {
+    no_approval: "이 폴더에 대한 GitHub App 승인이 없습니다.",
+    not_signed_in: "GitHub에 로그인하지 않아 승인을 확인하지 않았습니다.",
+    no_github_remote: "이 폴더에는 GitHub 원격 저장소가 없습니다.",
+    not_a_git_repository: "이 폴더는 Git 저장소가 아닙니다.",
+    check_failed: "승인을 확인하지 못했습니다(네트워크 또는 GitHub 문제).",
+  },
+  codeOnlyButton: "코드만 검사 (권한 미확인)",
+  howToApprove: "승인 방법 보기",
+  signInLink: "로그인하고 승인 확인",
+  approveSteps:
+    "저장소 소유자가 PGARD GitHub App을 설치하고 이 저장소를 포함하면 됩니다. 그다음 다시 확인을 누르세요.",
+  approveNeedsRepo:
+    "승인은 GitHub 저장소에만 할 수 있습니다. 이 폴더를 GitHub에 올린 뒤 PGARD GitHub App을 설치하세요.",
+  approveInstall: "GitHub 설치 페이지 열기",
+  approveFull: "전체 대시보드에서 단계별 안내 보기",
+  authorizedLabel: "권한 확인된 검사",
   cancel: "취소",
   cancelled: "검사를 취소했습니다.",
   failed: "내부 오류로 검사가 멈췄습니다. 다시 시도하세요.",
-  resultsTitle: "3. 찾은 문제",
+  resultsTitle: "찾은 문제",
   noFindings: "검사한 파일에서 찾은 문제가 없습니다.",
   findingsCount: (count) => `${count}건`,
   extraNote: "테스트·픽스처·벤더 코드의 결과는 더 보기 › 검사 범위에 있습니다.",
   partialNote:
     "일부 영역은 검사하지 못했습니다(예: 취약점 데이터를 아직 내려받지 않음). 더 보기 › 검사 범위를 확인하세요.",
   badge: "권한 미확인 · 코드만",
-  badgeTitle: "권한을 확인하지 않았습니다",
-  badgeBody:
-    "이 결과는 이 컴퓨터에 있는 파일만 검사한 코드 전용 검사입니다. 이 코드를 검사해도 된다는 권한을 PGARD가 확인하지 않았으므로 Git 기록, 로컬 웹 검사, 결과 저장은 꺼져 있습니다.",
+  badgeTitle: "코드만 검사했습니다 (Git 기록·저장 제외)",
   badgeReason: (reason) =>
     ({
-      no_github_remote:
-        "이 폴더에는 GitHub remote가 없어 소유자 승인을 확인할 수 없습니다(승인은 GitHub로만 확인합니다).",
-      not_a_git_repository: "이 폴더는 Git 저장소가 아니어서 권한을 확인할 저장소가 없습니다.",
-      no_approval: "권한 확인에서 이 저장소의 전체 검사가 허용되지 않았습니다.",
+      no_github_remote: "이 폴더에는 GitHub 원격 저장소가 없습니다.",
+      not_a_git_repository: "이 폴더는 Git 저장소가 아닙니다.",
+      no_approval: "이 폴더에 대한 GitHub App 승인이 없습니다.",
+      check_failed: "승인을 확인하지 못했습니다.",
     })[reason] ?? "이 검사에서는 권한을 확인하지 않았습니다.",
   connect: "GitHub 연결하고 Git 기록도 검사",
-  connectHint: "선택 사항입니다. GitHub 로그인과 소유자 승인을 요청하는 전체 대시보드를 엽니다.",
+  footer: "127.0.0.1에서만 실행 · 결과는 저장되지 않고, 창을 닫으면 사라집니다.",
   moreTitle: "더 보기",
   moreLead: "위 검사의 자세한 정보입니다. 문제를 고치는 데 꼭 필요하지는 않습니다.",
   moreCoverage: "검사 범위",
   moreStandards: "표준 (OWASP, CWE)",
   moreRules: "규칙 통계",
-  moreTrend: "추이",
-  moreTrendNote: "GitHub 승인이 필요합니다. 코드 전용 결과는 저장하지 않습니다.",
   moreExport: "보고서 내보내기",
   moreExportNote: "보고서의 모든 페이지에 “권한 미확인: 코드 전용 검사” 배너가 들어갑니다.",
   moreFull: "전체 대시보드",
-  moreFullNote: "GitHub 로그인, Git 기록, 웹 검사가 있는 현재 대시보드입니다.",
+  moreFullNote: "Git 기록, 로컬 웹 검사, 추이, 저장된 검사(승인 필요).",
   moreNeedsScan: "먼저 검사를 실행하세요.",
-  backToSimple: "간단한 화면으로 돌아가기",
 };
 
 export function simpleText(language: Language): SimpleText {

@@ -1,13 +1,8 @@
 import { loadSearchScope, type LoadedScope, type RootRejection } from "@pgard/result-store";
-import { err, out, promptContextOf, type CommandContext } from "../context.js";
+import { err, out, type CommandContext } from "../context.js";
 import { EXIT_CODES, toKnownExitCode, type ExitCode } from "../exit-codes.js";
 import { isStoreDisabled } from "../flows/baseline.js";
-import { promptConfirm } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
-
-const WEB_HELP = `The picker searches only the folders listed here. The browser sends only a folder
-name; you confirm the real path and the GitHub remote there before anything is checked.
-Add or remove search folders with pgard web scope add <folder> or remove <folder>.`;
 
 export const WINDOWS_PICKER_MESSAGE =
   "The project picker is not available on Windows yet. Run `pgard dashboard` in the project folder instead.";
@@ -71,9 +66,10 @@ export function printScope(context: CommandContext, scope: LoadedScope): void {
 }
 
 /**
- * `pgard web`: confirm the search folders in the terminal, then start the separately installed
- * local-web launcher in picker mode with this Node binary (no shell, and no path on the command
- * line). The project itself is chosen and confirmed in the browser.
+ * `pgard web`: start the separately installed local-web launcher in picker mode with this Node
+ * binary (no shell, and no path on the command line). No setup in the terminal: the folder is
+ * chosen in the browser (the OS folder dialog or a pasted path) and checked by the local server.
+ * Saved search folders (`pgard web scope add`) are only used by the search picker under "More".
  */
 export async function runWeb(
   context: CommandContext,
@@ -84,11 +80,6 @@ export async function runWeb(
     err(context, context.errStyle.red(WINDOWS_PICKER_MESSAGE));
     return EXIT_CODES.usage;
   }
-  const prompts = promptContextOf(context, WEB_HELP);
-  if (prompts === null) {
-    err(context, "pgard web needs an interactive terminal to confirm the search folders.");
-    return EXIT_CODES.usage;
-  }
   const entry = context.deps.resolveDashboardEntry();
   if (entry === null) {
     err(
@@ -97,36 +88,9 @@ export async function runWeb(
     );
     return EXIT_CODES.internal;
   }
-  const isStoreOff = isStoreDisabled(context, noStore);
-  const scope = await loadScopeFor(context, isStoreOff);
-  printScope(context, scope);
-  if (scope.roots.length === 0) {
-    err(
-      context,
-      context.errStyle.red("No usable search folder. Add one first: pgard web scope add <folder>"),
-    );
-    return EXIT_CODES.usage;
-  }
-  const isConfirmed = await promptConfirm(prompts, "Search these folders for projects?");
-  if (!isConfirmed) return EXIT_CODES.cancelled;
-  // First run: the confirmed default folders are saved (not with --no-store: the question is
-  // then asked again at the next launch).
-  if (scope.source === "default" && !isStoreOff) {
-    const saved = await context.deps
-      .openWebStorage(context.io.env)
-      ?.writeSettings(scope.roots.map((root) => root.path));
-    if (saved !== undefined && !saved.ok) {
-      err(
-        context,
-        context.errStyle.yellow(
-          "The search folders could not be saved; you will be asked again next time.",
-        ),
-      );
-    }
-  }
   const args = ["--picker"];
   if (noBrowser) args.push("--no-browser");
-  if (isStoreOff) args.push("--no-store");
+  if (isStoreDisabled(context, noStore)) args.push("--no-store");
   context.keys?.close();
   // The dashboard process handles Ctrl+C itself; stop our scan-cancel prompt from printing.
   context.releaseInterrupts();

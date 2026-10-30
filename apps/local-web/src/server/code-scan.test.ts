@@ -13,7 +13,7 @@ import {
   type Harness,
 } from "./test-support/web-harness.js";
 
-/** PROTOTYPE (#414): `POST /api/code-scan`, the code-only scan of the simple screen. */
+/** `POST /api/code-scan`, the code-only scan of the simple screen (#414). */
 
 let harness: Harness | null = null;
 afterEach(async () => {
@@ -43,12 +43,16 @@ async function selectShop(h: Harness): Promise<void> {
   expect(confirmed.status).toBe(200);
 }
 
-describe("POST /api/code-scan (prototype)", () => {
-  it("is a 404 unless the simple screen is on", async () => {
+describe("POST /api/code-scan", () => {
+  it("is on in picker mode without any flag; ui: full keeps the route", async () => {
     harness = await startHarness();
+    expect(json(await apiGet(harness.server, "/api/session")).ui).toBe("simple");
     const response = await apiPost(harness.server, "/api/code-scan", { epoch: 1 });
-    expect(response.status).toBe(404);
+    expect((json(response).error as { code: string }).code).toBe("no_project");
+    await harness.close();
+    harness = await startHarness({ ui: "full" });
     expect(json(await apiGet(harness.server, "/api/session")).ui).toBe("full");
+    expect((await apiPost(harness.server, "/api/code-scan", { epoch: 1 })).status).toBe(409);
   });
 
   it("is never on in fixed mode, even when asked for", async () => {
@@ -58,7 +62,7 @@ describe("POST /api/code-scan (prototype)", () => {
   });
 
   it("keeps the token, Host and Origin checks", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     const port = harness.server.port;
     const noToken = await send(harness.server, "POST", "/api/code-scan", {
       headers: { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" },
@@ -87,7 +91,7 @@ describe("POST /api/code-scan (prototype)", () => {
   });
 
   it("needs a confirmed project", async () => {
-    harness = await startHarness({ ui: "simple" });
+    harness = await startHarness();
     const response = await apiPost(harness.server, "/api/code-scan", { epoch: 1 });
     expect(response.status).toBe(409);
     expect((json(response).error as { code: string }).code).toBe("no_project");
@@ -102,10 +106,7 @@ describe("POST /api/code-scan (prototype)", () => {
     );
     const runScan = vi.fn(async () => result());
     const verifyProject = vi.fn();
-    harness = await startHarness({
-      ui: "simple",
-      deps: { runCodeOnlyScan, runScan, verifyProject },
-    });
+    harness = await startHarness({ deps: { runCodeOnlyScan, runScan, verifyProject } });
     await selectShop(harness);
     const started = await apiPost(harness.server, "/api/code-scan", {
       epoch: harness.server.state.projectEpoch,

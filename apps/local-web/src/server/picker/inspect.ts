@@ -2,8 +2,11 @@ import path from "node:path";
 import type { GitRunner } from "@pgard/git-history";
 import type { RepositoryInspection } from "@pgard/policy";
 import {
+  enclosingRepositoryRoot,
+  isInsideGitDirectory,
   safetyProblemOf,
   tooBroadToScan,
+  type EntryKind,
   type ScopeDirent,
   type ScopeFs,
   type ScopeRoot,
@@ -205,7 +208,7 @@ export async function inspectCandidate(
   const chain = await walkChain(deps, root, segments);
   const base = { rootIndex, segments: chain.segments };
   if (mode === "folder") {
-    // PROTOTYPE (#414), code-only: the chain itself, its ownership and write bits; no Git.
+    // #414, code-only: the chain itself, its ownership and write bits; no Git.
     return {
       ...base,
       gitIdentity: null,
@@ -543,7 +546,7 @@ async function resolveRecent(
 export const MAX_RESOLVE_SEGMENTS = 24;
 
 /**
- * PROTOTYPE (#414): a folder the user chose in the OS dialog or pasted. The path is resolved
+ * #414: a folder the user chose in the OS dialog or pasted. The path is resolved
  * with realpath (a symbolic link anywhere in it is resolved, never trusted as a name), must be a
  * directory, and must not be `/`, a top-level folder, the home folder or one of its parents.
  *
@@ -581,6 +584,37 @@ async function resolveFolder(
   }
   // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
   if (tooBroadToScan(target, home, { pathApi: path.posix }) !== null) return refuse("too_broad");
+  const kindOf = async (entry: string): Promise<EntryKind> => {
+    try {
+      const entryStat = await deps.fs.lstat(entry);
+      if (entryStat.isSymbolicLink) return "other";
+      return entryStat.isFile ? "file" : entryStat.isDirectory ? "directory" : "other";
+    } catch {
+      return null;
+    }
+  };
+  // A Git directory (`.git`, its objects, a bare repository) is never scanned as code, the same
+  // rule as `pgard scan code`.
+  if (await isInsideGitDirectory(target, kindOf, { pathApi: path.posix })) {
+    return refuse("git_directory", [target]);
+  }
+  // A folder inside a repository is checked and scanned as that repository (its top folder).
+  const repositoryRoot = await enclosingRepositoryRoot(target, home, kindOf, {
+    pathApi: path.posix,
+  });
+  const insideRepository = repositoryRoot !== null;
+  if (repositoryRoot !== null) {
+    target = repositoryRoot;
+    try {
+      stat = await deps.fs.lstat(target);
+    } catch {
+      return refuse("unreadable");
+    }
+    if (stat.isSymbolicLink || !stat.isDirectory) return refuse("unreadable");
+    if (tooBroadToScan(target, home, { pathApi: path.posix }) !== null) {
+      return refuse("too_broad");
+    }
+  }
   let anchor: string;
   if (home !== null && target.startsWith(`${home}/`)) {
     anchor = home;
@@ -629,7 +663,13 @@ async function resolveFolder(
   if (candidate === "changed") return refuse("unreadable");
   const folder = await inspectOrBlock(deps, root, 0, candidate.segments, "folder");
   if (folder === "changed") return refuse("unreadable");
-  deps.emit({ t: "resolved", root, candidate, folderBlock: folder.block });
+  deps.emit({
+    t: "resolved",
+    root,
+    candidate,
+    folderBlock: folder.block,
+    ...(insideRepository ? { insideRepository: true } : {}),
+  });
 }
 
 /** Entry point of one inspector job. Always ends with a `done` message. */

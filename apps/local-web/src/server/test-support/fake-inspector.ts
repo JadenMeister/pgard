@@ -36,7 +36,7 @@ export interface FakeInspector extends InspectorHost {
   /** Replaces what `inspect` answers for a candidate (to simulate a changed remote or mode). */
   inspectOverride: ((raw: RawCandidate) => RawCandidate) | null;
   /**
-   * PROTOTYPE (#414): what a `resolve` job answers per path (default `missing`). A candidate is
+   * #414: what a `resolve` job answers per path (default `missing`). A candidate is
    * also what later `inspect` jobs of its chain find.
    */
   resolved: Map<

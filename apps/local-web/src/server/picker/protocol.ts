@@ -77,13 +77,13 @@ export type InspectorJob =
       segments: ChainSegment[];
       /**
        * `full` runs the Git calls, `recheck` only the identity chain and `.git`, `folder`
-       * (PROTOTYPE #414, code-only) only the identity chain and its ownership and write bits.
+       * (#414, code-only) only the identity chain and its ownership and write bits.
        */
       mode: "full" | "recheck" | "folder";
     }
   | { kind: "recent"; roots: ScopeRoot[]; entries: Array<{ entryId: string; path: string }> }
   /**
-   * PROTOTYPE (#414): one folder the user chose in the OS folder dialog or pasted. The child
+   * #414: one folder the user chose in the OS folder dialog or pasted. The child
    * resolves it (realpath), picks the anchor it is checked from (see `resolveFolder`), and
    * inspects it like a search candidate.
    */
@@ -98,6 +98,7 @@ export const RESOLVE_REFUSALS = [
   "unreadable",
   "not_owned_by_you",
   "group_or_world_writable",
+  "git_directory",
 ] as const;
 export type ResolveRefusal = (typeof RESOLVE_REFUSALS)[number];
 
@@ -123,6 +124,11 @@ export type ChildMessage =
       root: ScopeRoot;
       candidate: RawCandidate;
       folderBlock: RawCandidate["block"];
+      /**
+       * The chosen folder was inside a repository: the candidate is that repository's top
+       * folder, which is what gets checked and scanned (#414).
+       */
+      insideRepository?: boolean;
     }
   | { t: "refused"; reason: ResolveRefusal; paths: string[] }
   | {

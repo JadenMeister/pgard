@@ -607,9 +607,11 @@ export const SCAN_BASIS_AUTHORIZATIONS = exhaustive<ScanBasisAuthorization>({
 /**
  * Why authorization is `not_verified`: an open-ended code (a reader shows an unknown one as is).
  * Known codes: `no_approval` (the gate ran and did not allow the scan), `check_failed` (the
- * gate could not finish because of an internal error), `not_checked` (a
- * code-only scan that did not try the gate), `no_github_remote` (a Git repository without a
- * single github.com remote), `not_a_git_repository`, `offline`.
+ * gate could not reach a decision: no GitHub sign-in, a network error or time-out, or an
+ * internal error), `not_checked` (a code-only scan that did not try the gate),
+ * `no_github_remote` (a Git repository without a single github.com remote),
+ * `not_a_git_repository` (also a repository with no commit yet: there is no revision to
+ * authorize), `offline`.
  */
 export const SCAN_BASIS_REASONS = [
   "no_approval",

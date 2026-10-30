@@ -18,9 +18,10 @@ import { loadStaticAssets } from "./static-files.js";
 process.env.NoDefaultCurrentDirectoryInExePath = "1";
 
 /**
- * Picker mode (`pgard web`): the search folders and the recent list. The folders were shown and
- * confirmed in the terminal by `pgard web` before this process started; they are revalidated
- * here (a folder that is no longer safe is dropped and reported), never taken from the browser.
+ * Picker mode (`pgard web`): the folder dialog, the folder checks and the recent list. The simple
+ * screen needs no setup: the folder is chosen in the browser and checked here. Saved search
+ * folders (`pgard web scope add`) are revalidated for the search picker under "More" (a folder
+ * that is no longer safe is dropped and reported), never taken from the browser.
  */
 async function createPickerDeps(
   options: LauncherOptions,
@@ -30,24 +31,19 @@ async function createPickerDeps(
   const storage: WebStorage | null =
     options.noStore || dataDir === null ? null : createWebStorage({ dir: dataDir });
   const scope = await loadSearchScope({ storage, uid: process.getuid?.(), homeDir });
-  for (const dropped of scope.dropped) {
+  for (const dropped of scope.source === "stored" ? scope.dropped : []) {
     process.stdout.write(
       `Search folder skipped (${dropped.reason}): ${sanitizeDisplayText(dropped.path, 500)}\n`,
     );
   }
-  // PROTOTYPE (#414): the simple screen chooses the folder in the OS dialog; no search folders.
-  if (process.env.PGARD_WEB_PROTOTYPE !== "code-only")
-    process.stdout.write(
-      scope.roots.length === 0
-        ? "No search folders are usable. Add one with: pgard web scope add <folder>\n"
-        : `Search folders: ${scope.roots.map((root) => sanitizeDisplayText(root.path, 500)).join(", ")}\n`,
-    );
   return {
     inspector: createInspectorHost(),
-    // PROTOTYPE (#414): only the simple screen's routes open it.
+    // The simple screen's "Choose folder" button (none on Windows: paste the path instead).
     folderDialog: createFolderDialog(),
     storage,
-    roots: scope.roots,
+    // The search picker ("More" > full dashboard) searches only folders saved with
+    // `pgard web scope add`; the default development folders are never searched unconfirmed.
+    roots: scope.source === "stored" ? scope.roots : [],
     homeDir,
     platform: process.platform,
   };
@@ -87,11 +83,8 @@ async function runLauncher(): Promise<number> {
         isStoreDisabled: options.noStore,
       }
     : undefined;
-  // PROTOTYPE (#414): the one-screen code-only flow, opt-in for the owner's review only.
-  const isSimpleUi = options.picker && process.env.PGARD_WEB_PROTOTYPE === "code-only";
   const server = await startLocalWebServer({
     projectRoot: options.projectRoot,
-    ...(isSimpleUi ? { ui: "simple" as const } : {}),
     presetTargetPort: options.presetTargetPort,
     env: process.env,
     assets,
@@ -105,9 +98,7 @@ async function runLauncher(): Promise<number> {
   process.stdout.write(
     [
       options.picker
-        ? isSimpleUi
-          ? "PGARD web (PROTOTYPE: code-only one-screen flow, #414) is running on 127.0.0.1 only."
-          : "PGARD web (project picker) is running on 127.0.0.1 only."
+        ? "PGARD web is running on 127.0.0.1 only. Choose a folder in the browser."
         : "PGARD dashboard is running on 127.0.0.1 only.",
       `Open this private session URL in your browser (valid until you stop the dashboard): ${server.url}`,
       "Do not share this URL. Press Ctrl+C to stop; dashboard results and the session are discarded on exit.",

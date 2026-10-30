@@ -6,6 +6,7 @@ import {
   defaultFetch,
   fetchWithTimeout,
   GITHUB_REQUEST_TIMEOUT_MS,
+  RequestTimeoutError,
   type FetchLike,
 } from "./fetch.js";
 import { createGitHubClient, type GitHubClient } from "./github-client.js";
@@ -30,6 +31,8 @@ export interface DeviceFlowOptions {
   signal?: AbortSignal;
   oauthBaseUrl?: string;
   apiBaseUrl?: string;
+  /** Each request's time limit, headers and body (default `GITHUB_REQUEST_TIMEOUT_MS`). */
+  requestTimeoutMs?: number;
   /** Injectable for tests. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   now?: () => number;
@@ -72,11 +75,16 @@ export function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function postForm(
+/**
+ * One form POST to GitHub's OAuth endpoints. A request (headers or body) that gets no answer in
+ * time rejects with `RequestTimeoutError`, so the poll can try again; `postForm` maps it.
+ */
+async function postFormOnce(
   fetchImpl: FetchLike,
   url: string,
   form: Record<string, string>,
   signal: AbortSignal | undefined,
+  timeoutMs: number,
 ): Promise<Record<string, unknown>> {
   let response;
   try {
@@ -94,18 +102,23 @@ async function postForm(
         redirect: "error",
         ...(signal ? { signal } : {}),
       },
-      GITHUB_REQUEST_TIMEOUT_MS,
+      timeoutMs,
     );
-  } catch {
+  } catch (error) {
     if (signal?.aborted) {
       throw new GitHubAuthError("cancelled", "GitHub sign-in was cancelled.");
     }
+    if (error instanceof RequestTimeoutError) throw error;
     throw new GitHubAuthError("network_error", "Could not reach GitHub for sign-in.");
   }
   let body: Record<string, unknown> | null = null;
   try {
     body = asRecord(await response.json());
-  } catch {
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new GitHubAuthError("cancelled", "GitHub sign-in was cancelled.");
+    }
+    if (error instanceof RequestTimeoutError) throw error;
     body = null;
   }
   if (!body) {
@@ -124,6 +137,34 @@ async function postForm(
   }
   return body;
 }
+
+async function postForm(
+  fetchImpl: FetchLike,
+  url: string,
+  form: Record<string, string>,
+  signal: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): Promise<Record<string, unknown>> {
+  try {
+    return await postFormOnce(fetchImpl, url, form, signal, timeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS);
+  } catch (error) {
+    if (error instanceof RequestTimeoutError) {
+      throw new GitHubAuthError(
+        "network_error",
+        `GitHub did not answer the sign-in within ${Math.ceil(error.timeoutMs / 1000)} s.`,
+      );
+    }
+    throw error;
+  }
+}
+
+/** GitHub's answers for a device code that was already used or is no longer valid. */
+const USED_OR_EXPIRED_CODE: ReadonlySet<string> = new Set([
+  "expired_token",
+  "incorrect_device_code",
+  "bad_verification_code",
+  "token_expired",
+]);
 
 function mapDeviceFlowError(error: string): GitHubAuthError {
   switch (error) {
@@ -156,6 +197,7 @@ async function requestDeviceCode(
     `${base}/login/device/code`,
     { client_id: options.clientId },
     options.signal,
+    options.requestTimeoutMs,
   );
   const error = asString(body.error);
   if (error !== null) {
@@ -213,6 +255,7 @@ export interface RefreshTokenOptions {
   refreshToken: string;
   fetch?: FetchLike;
   signal?: AbortSignal;
+  requestTimeoutMs?: number;
   oauthBaseUrl?: string;
   now?: () => number;
 }
@@ -236,6 +279,7 @@ export async function refreshUserToken(options: RefreshTokenOptions): Promise<Us
       refresh_token: options.refreshToken,
     },
     options.signal,
+    options.requestTimeoutMs,
   );
   const error = asString(body.error);
   if (error === "incorrect_client_credentials") {
@@ -274,18 +318,31 @@ export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promi
 
   const deadline = now() + grant.expiresIn * 1000;
   let intervalSeconds = grant.interval;
+  // A poll that timed out may still have been answered by GitHub (the code redeemed there).
+  let hadTimedOut = false;
   while (now() < deadline) {
     await sleep(intervalSeconds * 1000, options.signal);
-    const body = await postForm(
-      fetchImpl,
-      `${base}/login/oauth/access_token`,
-      {
-        client_id: options.clientId,
-        device_code: grant.deviceCode,
-        grant_type: DEVICE_GRANT_TYPE,
-      },
-      options.signal,
-    );
+    let body: Record<string, unknown>;
+    try {
+      body = await postFormOnce(
+        fetchImpl,
+        `${base}/login/oauth/access_token`,
+        {
+          client_id: options.clientId,
+          device_code: grant.deviceCode,
+          grant_type: DEVICE_GRANT_TYPE,
+        },
+        options.signal,
+        options.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS,
+      );
+    } catch (caught) {
+      // One slow answer does not end the sign-in: poll again until the code expires.
+      if (caught instanceof RequestTimeoutError) {
+        hadTimedOut = true;
+        continue;
+      }
+      throw caught;
+    }
     const error = asString(body.error);
     if (error === "authorization_pending") {
       continue;
@@ -298,6 +355,13 @@ export async function requestDeviceFlowTokens(options: DeviceFlowOptions): Promi
           ? suggested
           : intervalSeconds + SLOW_DOWN_INCREMENT_SECONDS;
       continue;
+    }
+    if (error !== null && hadTimedOut && USED_OR_EXPIRED_CODE.has(error)) {
+      // The answer to the slow poll was lost, and GitHub no longer accepts this code.
+      throw new GitHubAuthError(
+        "expired_token",
+        "The GitHub sign-in was interrupted by a slow network. Sign in again.",
+      );
     }
     if (error !== null) {
       throw mapDeviceFlowError(error);

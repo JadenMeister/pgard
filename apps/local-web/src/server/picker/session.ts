@@ -28,12 +28,12 @@ export interface ProjectRecord {
   /** Picker mode only: the identity the confirm checked, compared again before every run. */
   identity: null | {
     /**
-     * PROTOTYPE (#414): `folder` is a code-only project (chosen in the OS dialog or pasted, and
+     * #414: `folder` is a code-only project (chosen in the OS dialog or pasted, and
      * not a GitHub repository PGARD can verify): no Git identity, re-checked with the `folder`
      * inspection, and refused by every route that runs the authorization gate.
      */
     kind?: "git" | "folder";
-    /** PROTOTYPE (#414): why a `folder` project is code-only (`PickerCandidate.codeOnly`). */
+    /** #414: why a `folder` project is code-only (`PickerCandidate.codeOnly`). */
     codeOnly?: PickerCandidate["codeOnly"];
     root: ScopeRoot;
     segments: ChainSegment[];
@@ -78,10 +78,14 @@ export interface PickerSession {
     run: RunningJob | null;
     ignored: boolean;
   };
-  /** PROTOTYPE (#414): the OS folder dialog (at most one open). */
+  /** #414: the OS folder dialog (at most one open). */
   browse: {
     response: PickerBrowseResponse;
     controller: AbortController | null;
+    /** True until the dialog's process has exited (also after a cancel). */
+    isProcessRunning: boolean;
+    /** No new dialog before this time (ms): a short pause after one was closed. */
+    reopenAfter: number;
   };
 }
 
@@ -95,7 +99,7 @@ export interface PickerDeps {
   platform: string;
   /** For `~`-shortening and tests. */
   now?: () => number;
-  /** PROTOTYPE (#414): the OS folder dialog; absent means none can be opened. */
+  /** #414: the OS folder dialog; absent means none can be opened. */
   folderDialog?: FolderDialog;
 }
 
@@ -110,6 +114,8 @@ export function createPickerSession(): PickerSession {
     browse: {
       response: { status: "idle", candidate: null, refusal: null },
       controller: null,
+      isProcessRunning: false,
+      reopenAfter: 0,
     },
   };
 }
