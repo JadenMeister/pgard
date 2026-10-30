@@ -344,4 +344,20 @@ describe("the title line of a code-only result", () => {
       expect(normal[0]?.includes(label)).toBe(false);
     },
   );
+
+  it.each(["en", "ko"] as const)(
+    "leaves out the repository and commit when there are none (%s)",
+    (locale) => {
+      const size = { columns: 80, rows: 24 };
+      const result = codeOnlyTestResult();
+      const state = createPanelsState(
+        { ...result, target: { ...result.target, repo: null, revision: null } },
+        locale,
+        size,
+      );
+      const title = renderFrame(state, size, plain)[0] ?? "";
+      expect(title).not.toContain(" @ ");
+      expect(title).not.toContain(locale === "en" ? "unknown" : "알 수 없음");
+    },
+  );
 });
