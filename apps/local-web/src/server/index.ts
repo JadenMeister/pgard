@@ -9,6 +9,7 @@ import {
 import { sanitizeDisplayText } from "@pgard/http-local";
 import { openGitHubUrl } from "@pgard/scan-core";
 import { createDefaultServerDeps, startLocalWebServer, type ServerDeps } from "./create-server.js";
+import { announceLaunch, connectedLine } from "./launch-output.js";
 import { LauncherUsageError, parseLauncherArgs, type LauncherOptions } from "./launcher.js";
 import { createFolderDialog } from "./picker/folder-dialog.js";
 import { createInspectorHost } from "./picker/inspector-host.js";
@@ -51,8 +52,8 @@ async function createPickerDeps(
 
 /**
  * Dashboard process entry, started by `pgard dashboard` or `pgard web` with this Node binary.
- * Prints the private session URL (token in the URL fragment, so it is not sent in requests or
- * Referer headers).
+ * Opens the one-time session link in the browser and prints it masked (#419); the token is in
+ * the URL fragment, so it is never sent in requests or Referer headers.
  */
 async function runLauncher(): Promise<number> {
   let options;
@@ -89,22 +90,28 @@ async function runLauncher(): Promise<number> {
     env: process.env,
     assets,
     ...(deps === undefined ? {} : { deps }),
+    onBrowserConnected: (at) => process.stdout.write(connectedLine(at)),
     // Like the CLI: open the GitHub sign-in page automatically only for a person at a terminal
     // who did not pass --no-browser. The page is also linked in the dashboard.
     ...(options.noBrowser || process.stdout.isTTY !== true
       ? {}
       : { openGitHubPage: (url: string) => void openGitHubUrl(url) }),
   });
-  process.stdout.write(
-    [
-      options.picker
-        ? "PGARD web is running on 127.0.0.1 only. Choose a folder in the browser."
-        : "PGARD dashboard is running on 127.0.0.1 only.",
-      `Open this private session URL in your browser (valid until you stop the dashboard): ${server.url}`,
-      "Do not share this URL. Press Ctrl+C to stop; dashboard results and the session are discarded on exit.",
-      "",
-    ].join("\n"),
-  );
+  // Opens the local page for a person at a terminal (#419). The terminal then shows the link
+  // with its one-time token masked; the full link only when the browser was not opened, or with
+  // --print-url. The link is never written to a log file.
+  await announceLaunch({
+    url: server.url,
+    mode: options.picker ? "picker" : "fixed",
+    printUrl: options.printUrl,
+    environment: {
+      platform: process.platform,
+      env: process.env,
+      isTerminal: process.stdout.isTTY === true,
+      isDisabled: options.noOpen || options.noBrowser,
+    },
+    write: (text) => process.stdout.write(text),
+  });
   return new Promise<number>((resolve) => {
     let isStopping = false;
     const stop = (): void => {

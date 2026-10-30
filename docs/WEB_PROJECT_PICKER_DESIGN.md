@@ -47,9 +47,9 @@ Trust boundaries: the terminal where `pgard web` was started (trusted, the user 
 What the current server already does, verified in `apps/local-web/src/server/middleware/security.ts` and `create-server.ts`:
 
 - binds to `127.0.0.1` on a free port; `Host` must equal `127.0.0.1:<port>` exactly (421 otherwise);
-- every `/api/` call needs the `x-pgard-token` header (32 random bytes, compared with `timingSafeEqual`); a foreign `Origin` or a `Sec-Fetch-Site` other than `same-origin`/`none` is refused; state-changing calls must carry our exact `Origin`; the API sends no CORS headers;
+- every `/api/` call needs the `x-pgard-session` header: the per-tab session secret the page got once for the URL token (`POST /api/session/exchange`, #419; both 32 random bytes, held as hashes, compared with `timingSafeEqual`); a foreign `Origin` or a `Sec-Fetch-Site` other than `same-origin`/`none` is refused; state-changing calls must carry our exact `Origin`; the API sends no CORS headers;
 - every response has `Cache-Control: no-store`, a CSP with `default-src 'none'` and `connect-src 'self'`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`;
-- the token travels in the URL fragment, the page removes it from the address bar and keeps it in memory only;
+- the token travels in the URL fragment and works once; the page removes it from the address bar and keeps only the session secret, in that tab's `sessionStorage` ([CODE_ONLY_SCAN_DESIGN.md section 12](CODE_ONLY_SCAN_DESIGN.md#12-session-url-handling-419));
 - request bodies are capped at 16 KiB and must be `application/json`;
 - the server writes no per-request log (the launcher only writes the startup lines and one stop line);
 - the project root is fixed for the server's lifetime (`ApiContext.projectRoot`), and no route accepts a path;
@@ -177,7 +177,7 @@ Block codes (`PickerBlockCode`, all with a fixed reason and fix): `not_a_git_roo
 
 Reuse of the current mechanism, with no new credential:
 
-- One token per server run, printed once in the URL fragment; the page keeps it in memory and sends it in `x-pgard-token`. Nothing in the picker is available without it, including candidate ids, search ids and the recent list.
+- One single-use token per server run, in the URL fragment; the page trades it for a session secret and sends that in `x-pgard-session` (#419). Nothing in the picker is available without it, including candidate ids, search ids and the recent list.
 - Candidate and search ids are random, only meaningful with the token (per-session server state, like `SessionState`), never stored on disk, and gone when the server stops (`clearSessionState`). Entry ids are random too but are stored in the recent file.
 - The new state lives in `SessionState`: the selected project record (identity chain, `owner/name`, name), the current search, the candidate map and the `projectEpoch`. It is cleared by `clearSessionState` on shutdown, and the inspector child's process group is killed then too.
 - Origin and Host rules are unchanged. The picker adds no cookie, no `localStorage` use for names or paths, and no second token.

@@ -47,7 +47,7 @@
 현재 서버가 이미 하는 일(`apps/local-web/src/server/middleware/security.ts`, `create-server.ts`에서 확인):
 
 - 빈 포트의 `127.0.0.1`에만 바인딩합니다. `Host`는 정확히 `127.0.0.1:<port>`여야 합니다(아니면 421).
-- 모든 `/api/` 호출에 `x-pgard-token` 헤더가 필요합니다(무작위 32바이트, `timingSafeEqual`로 비교). 다른 `Origin`이나 `same-origin`/`none`이 아닌 `Sec-Fetch-Site`는 거부합니다. 상태를 바꾸는 호출은 정확한 `Origin`을 보내야 합니다. API는 CORS 헤더를 보내지 않습니다.
+- 모든 `/api/` 호출에 `x-pgard-session` 헤더가 필요합니다. 페이지가 URL 토큰을 한 번 바꿔 받은 탭별 세션 비밀값입니다(`POST /api/session/exchange`, #419. 둘 다 무작위 32바이트, 해시로 보관, `timingSafeEqual`로 비교). 다른 `Origin`이나 `same-origin`/`none`이 아닌 `Sec-Fetch-Site`는 거부합니다. 상태를 바꾸는 호출은 정확한 `Origin`을 보내야 합니다. API는 CORS 헤더를 보내지 않습니다.
 - 모든 응답에 `Cache-Control: no-store`, `default-src 'none'`과 `connect-src 'self'`를 가진 CSP, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy: same-origin`이 붙습니다.
 - 토큰은 URL 조각(fragment)으로 전달되고, 페이지는 주소창에서 지운 뒤 메모리에만 둡니다.
 - 요청 본문은 16 KiB로 제한되고 `application/json`이어야 합니다.
@@ -177,7 +177,7 @@ interface RecentEntry extends Candidate {
 
 새 자격 증명 없이 현재 방식을 재사용합니다.
 
-- 서버 실행마다 토큰 하나를 URL 조각으로 한 번 출력하고, 페이지가 메모리에 두었다가 `x-pgard-token`으로 보냅니다. 후보 id, 검색 id, 최근 목록을 포함해 피커의 어떤 것도 토큰 없이는 쓸 수 없습니다.
+- 서버 실행마다 한 번만 쓰는 토큰 하나를 URL 조각에 담고, 페이지가 이를 세션 비밀값으로 바꿔 `x-pgard-session`으로 보냅니다(#419). 후보 id, 검색 id, 최근 목록을 포함해 피커의 어떤 것도 토큰 없이는 쓸 수 없습니다.
 - 후보 id와 검색 id는 무작위이며 토큰이 있을 때만 의미가 있고(`SessionState`처럼 세션별 서버 상태), 디스크에 저장하지 않으며, 서버가 멈추면 사라집니다(`clearSessionState`). 항목 id도 무작위지만 최근 파일에 저장됩니다.
 - 새 상태는 `SessionState`에 둡니다. 선택된 프로젝트 기록(동일성 체인, `owner/name`, 이름), 현재 검색, 후보 맵, `projectEpoch`. 종료 시 `clearSessionState`로 지우고 점검용 자식 프로세스의 프로세스 그룹도 종료합니다.
 - Origin과 Host 규칙은 그대로입니다. 피커는 쿠키, 이름이나 경로를 위한 `localStorage`, 두 번째 토큰을 추가하지 않습니다.

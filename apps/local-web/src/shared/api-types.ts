@@ -4,7 +4,16 @@
  */
 import type { AuthorizationSummary, RuleDetails, ScanResult, ScanScope } from "@pgard/findings";
 
-export const SESSION_TOKEN_HEADER = "x-pgard-token";
+/**
+ * The session secret's header (#419). The URL token is sent only once, in the body of
+ * `POST /api/session/exchange`; every other API call carries the secret it was exchanged for.
+ */
+export const SESSION_HEADER = "x-pgard-session";
+
+/** `POST /api/session/exchange`. */
+export interface SessionExchangeResponse {
+  session: string;
+}
 
 export interface ApiError {
   error: { code: string; message: string };

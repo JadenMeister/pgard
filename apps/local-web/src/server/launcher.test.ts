@@ -58,6 +58,26 @@ describe("parseLauncherArgs", () => {
     ).rejects.toBeInstanceOf(LauncherUsageError);
   });
 
+  it("accepts --no-open and --print-url once each, in both modes (#419)", async () => {
+    const fixed = await parseLauncherArgs(
+      ["--project-root", root, "--print-url", "--no-open"],
+      async () => root,
+    );
+    expect(fixed).toMatchObject({ noOpen: true, printUrl: true, noBrowser: false });
+    expect(await parseLauncherArgs(["--picker", "--no-open"], async () => root)).toMatchObject({
+      noOpen: true,
+      printUrl: false,
+    });
+    for (const twice of [
+      ["--picker", "--no-open", "--no-open"],
+      ["--picker", "--print-url", "--print-url"],
+    ]) {
+      await expect(parseLauncherArgs(twice, async () => root)).rejects.toBeInstanceOf(
+        LauncherUsageError,
+      );
+    }
+  });
+
   it("rejects invalid target ports", async () => {
     await expect(
       parseLauncherArgs(["--project-root", root, "--target-port", "0"], async () => root),
@@ -72,6 +92,8 @@ describe("parseLauncherArgs", () => {
       projectRoot: null,
       presetTargetPort: null,
       noBrowser: false,
+      noOpen: false,
+      printUrl: false,
       picker: true,
       noStore: false,
     });

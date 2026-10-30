@@ -458,6 +458,7 @@ try {
       );
       let out = "";
       let finished = false;
+      let isConnecting = false;
       const finish = (name, ok, detail) => {
         if (finished) return;
         finished = true;
@@ -478,10 +479,32 @@ try {
       child.stdout.on("data", async (chunk) => {
         out += chunk;
         const match = /(http:\/\/127\.0\.0\.1:\d+)\/#token=([A-Za-z0-9_-]+)/.exec(out);
-        if (match === null || finished) return;
+        if (match === null || finished || isConnecting) return;
+        // Once: stdout goes on (for example "Browser connected at ..."), and the link works once.
+        isConnecting = true;
         const [, origin, token] = match;
-        const headers = { "x-pgard-token": token, origin, "content-type": "application/json" };
         try {
+          // #419: the link's one-time token is traded for a session secret, exactly once.
+          const exchange = () =>
+            fetch(`${origin}/api/session/exchange`, {
+              method: "POST",
+              headers: { origin, "content-type": "application/json" },
+              body: JSON.stringify({ token }),
+            });
+          const traded = await (await exchange()).json();
+          const reused = (await exchange()).status;
+          const raw = (
+            await fetch(`${origin}/api/session`, { headers: { "x-pgard-token": token } })
+          ).status;
+          const headers = {
+            "x-pgard-session": traded.session,
+            origin,
+            "content-type": "application/json",
+          };
+          if (reused !== 409 || raw !== 401) {
+            finish("simple screen resolves a pasted folder", false, `reused ${reused}, raw ${raw}`);
+            return;
+          }
           const session = await (await fetch(`${origin}/api/session`, { headers })).json();
           const scope = await (await fetch(`${origin}/api/picker/scope`, { headers })).json();
           const pasted = await (

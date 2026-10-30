@@ -499,3 +499,11 @@ Applies to `pgard web`, `pgard dashboard` and the one-screen flow alike (phase 5
 ### 12.3 Tests (phase 5)
 
 Exchange once, refuse a second exchange (`409` only for the spent token, `401` for any other) and the raw URL token on every route, the terminal line on exchange, reload with the session secret, the idle timeout, expiry of an unused token, masked terminal output and `--print-url`, opener argv per platform (Linux display and SSH rules, the Windows URL check) and the CI / no-terminal fallback, the "already used" page in English and Korean.
+
+### 12.4 As built (#419)
+
+- `apps/local-web/src/server/session/url-session.ts`: the URL token and the session secret are kept only as SHA-256 hashes and compared with `timingSafeEqual` (equal-length digests). `409 token_used` only for the real spent token, `410 token_expired` for the real unused token after 10 minutes, `401 bad_token` for anything else. Session secret: 32 random bytes, `401 session_expired` after 30 minutes without a call, then `401 bad_session`. Missing header: `401 missing_session`. `x-pgard-token` is gone.
+- `POST /api/session/exchange` runs after the Host and Origin checks (a write: our exact `Origin` is required) and before the session check; every other route needs `x-pgard-session`.
+- The page (`api/client.ts`, `app/Root.tsx`) connects once before rendering (strict mode shares one attempt): the stored secret first (a reload), then the exchange. Any refusal is a whole page in plain English or Korean (`app/ConnectionNotice.tsx`): already used, expired, session ended, no link, not this server, not reachable. A session that ends later (idle timeout) switches to the "session ended" page.
+- The opener (`apps/local-web/src/server/open-local-url.ts`) is separate from the GitHub opener: it accepts only `^http://127\.0\.0\.1:\d+/(#token=[A-Za-z0-9_-]+)?$` on every platform (not only Windows), then `/usr/bin/open`, `xdg-open` (display and no-SSH rules, `SSH_TTY` too) or `%SystemRoot%\System32\rundll32.exe url.dll,FileProtocolHandler`, with `shell: false`. `--no-browser` also keeps the local page from opening (it opens nothing), next to the new `--no-open`.
+- The terminal text is `launch-output.ts`; the CLI passes `--no-open` and `--print-url` through to the launcher.

@@ -1,6 +1,6 @@
-import { timingSafeEqual } from "node:crypto";
 import type http from "node:http";
-import { SESSION_TOKEN_HEADER } from "../../shared/api-types.js";
+import { SESSION_HEADER } from "../../shared/api-types.js";
+import type { UrlSession } from "../session/url-session.js";
 
 export interface RequestCheck {
   isAllowed: boolean;
@@ -54,19 +54,30 @@ export function checkOrigin(
 }
 
 /**
- * Every API call needs the per-session token in a custom header. A custom header cannot be
- * sent cross-origin without a CORS preflight, which this server never approves, so the token
- * also works as CSRF protection.
+ * Every API call except the exchange needs the session secret in a custom header (#419). A
+ * custom header cannot be sent cross-origin without a CORS preflight, which this server never
+ * approves, so the secret also works as CSRF protection. The URL token is not accepted here.
  */
-export function checkSessionToken(request: http.IncomingMessage, token: string): RequestCheck {
-  const provided = single(request.headers[SESSION_TOKEN_HEADER]);
-  if (provided === undefined) return deny(401, "missing_token", "Session token is required.");
-  const expected = Buffer.from(token, "utf8");
-  const actual = Buffer.from(provided, "utf8");
-  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
-    return deny(401, "bad_token", "Session token is invalid.");
+export function checkSession(
+  request: http.IncomingMessage,
+  session: UrlSession,
+  now: number,
+): RequestCheck {
+  const outcome = session.check(single(request.headers[SESSION_HEADER]), now);
+  switch (outcome.kind) {
+    case "ok":
+      return ALLOWED;
+    case "missing":
+      return deny(401, "missing_session", "This page is not connected. Open the link again.");
+    case "expired":
+      return deny(
+        401,
+        "session_expired",
+        "This page was idle for 30 minutes. Run the command again to get a new link.",
+      );
+    case "invalid":
+      return deny(401, "bad_session", "This page is not connected to this server.");
   }
-  return ALLOWED;
 }
 
 /** CSP for the UI: only same-origin scripts/styles, no inline script, no framing. */

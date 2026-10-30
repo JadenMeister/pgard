@@ -499,3 +499,11 @@ PGARD checks the files in a folder on this computer for leaked secrets, risky co
 ### 12.3 테스트 (5단계)
 
 한 번 교환, 두 번째 교환(`409`는 사용된 토큰에만, 그 밖의 토큰은 `401`)과 모든 경로의 원래 URL 토큰 거부, 교환 때의 터미널 줄, 세션 비밀값으로 새로 고침, 유휴 시간 제한, 쓰지 않은 토큰의 만료, 가린 터미널 출력과 `--print-url`, 플랫폼별 열기 도구 argv(Linux 화면·SSH 규칙, Windows URL 확인)와 CI·터미널 없음 대체 동작, 영어와 한국어의 "이미 사용함" 페이지.
+
+### 12.4 구현 내용 (#419)
+
+- `apps/local-web/src/server/session/url-session.ts`: URL 토큰과 세션 비밀값은 SHA-256 해시로만 보관하고 `timingSafeEqual`(길이가 같은 해시)로 비교합니다. `409 token_used`는 실제로 쓴 토큰에만, `410 token_expired`는 10분이 지난 실제 미사용 토큰에, 나머지는 모두 `401 bad_token`입니다. 세션 비밀값은 무작위 32바이트이며, 30분 동안 호출이 없으면 `401 session_expired`, 그 뒤로는 `401 bad_session`입니다. 헤더가 없으면 `401 missing_session`입니다. `x-pgard-token`은 없어졌습니다.
+- `POST /api/session/exchange`는 Host와 Origin 확인 뒤(쓰기이므로 정확한 `Origin` 필요), 세션 확인 전에 처리됩니다. 다른 모든 경로는 `x-pgard-session`이 필요합니다.
+- 페이지(`api/client.ts`, `app/Root.tsx`)는 그리기 전에 한 번 연결합니다(strict 모드도 한 번의 시도를 공유). 저장된 비밀값(새로고침)을 먼저 쓰고, 없으면 교환합니다. 거절되면 쉬운 영어나 한국어로 된 페이지 전체를 보여 줍니다(`app/ConnectionNotice.tsx`). 이미 사용함, 만료, 세션 끝남, 링크 없음, 이 서버의 링크 아님, 연결 불가입니다. 나중에 세션이 끝나면(유휴 시간 초과) "세션이 끝났습니다" 페이지로 바뀝니다.
+- 여는 도구(`apps/local-web/src/server/open-local-url.ts`)는 GitHub용과 따로 있습니다. 모든 플랫폼에서(Windows만이 아니라) `^http://127\.0\.0\.1:\d+/(#token=[A-Za-z0-9_-]+)?$`만 받고, `/usr/bin/open`, `xdg-open`(디스플레이와 SSH 규칙, `SSH_TTY` 포함), `%SystemRoot%\System32\rundll32.exe url.dll,FileProtocolHandler`를 `shell: false`로 실행합니다. 새 `--no-open`과 함께 `--no-browser`도 로컬 페이지를 열지 않습니다(아무것도 열지 않음).
+- 터미널 문구는 `launch-output.ts`에 있고, CLI는 `--no-open`과 `--print-url`을 런처로 넘깁니다.

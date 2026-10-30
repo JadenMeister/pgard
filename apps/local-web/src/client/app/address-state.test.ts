@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasSessionToken } from "../api/client";
+import { hasInviteToken, hasSessionToken } from "../api/client";
 import { EMPTY_FILTERS, toggleFilter } from "../features/findings/filter-findings";
 import { FakeWindow } from "./fake-window";
 import { prepareAddress } from "./startup";
@@ -123,7 +123,9 @@ describe("startup: the token leaves the address, the view and filters stay", () 
 
   it("removes the token, then restores only the allow-listed view and filters", () => {
     const win = startup(`#findings?severity=high&category=xss&token=${TOKEN}`);
-    expect(hasSessionToken()).toBe(true);
+    // Only held for the exchange: no session until the server trades it.
+    expect(hasInviteToken()).toBe(true);
+    expect(hasSessionToken()).toBe(false);
     expect(win.location.hash).toBe("#findings?severity=high&category=xss");
     // First the whole fragment is cleared (no entry ever holds the token afterwards), then restored.
     expect(win.calls.map((call) => call.url)).toEqual([

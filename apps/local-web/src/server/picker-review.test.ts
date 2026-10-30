@@ -19,6 +19,7 @@ import {
   json,
   send,
   startHarness,
+  SESSION,
   TOKEN,
   waitFor,
   type Harness,
@@ -189,7 +190,7 @@ describe("middleware matrix for POST /api/auth/cancel", () => {
     const post = (headers: Record<string, string>, body = "{}") =>
       send(harness!.server, "POST", "/api/auth/cancel", { headers, body });
     const good = {
-      "x-pgard-token": TOKEN,
+      "x-pgard-session": SESSION,
       origin: `http://127.0.0.1:${port}`,
       "content-type": "application/json",
     };
@@ -199,8 +200,8 @@ describe("middleware matrix for POST /api/auth/cancel", () => {
       return copy;
     };
     const cases: Array<[string, Awaited<ReturnType<typeof post>>, number]> = [
-      ["no token", await post(without("x-pgard-token")), 401],
-      ["wrong token", await post({ ...good, "x-pgard-token": "nope" }), 401],
+      ["no token", await post(without("x-pgard-session")), 401],
+      ["wrong token", await post({ ...good, "x-pgard-session": "nope" }), 401],
       ["rebound host", await post({ ...good, host: `evil.example:${port}` }), 421],
       ["foreign origin", await post({ ...good, origin: "http://evil.example" }), 403],
       ["missing origin", await post(without("origin")), 403],

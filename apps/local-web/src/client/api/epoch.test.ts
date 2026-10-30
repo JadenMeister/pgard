@@ -5,16 +5,11 @@ import {
   getProjectEpoch,
   setProjectChangedListener,
   setProjectEpoch,
-  takeTokenFromLocation,
+  setSessionSecret,
 } from "./client";
 
 function useToken(): void {
-  const location = {
-    hash: "#token=abcdefghijklmnopqrstuvwxyz012345",
-    pathname: "/",
-    search: "",
-  } as Location;
-  takeTokenFromLocation(location, { replaceState: () => undefined } as unknown as History);
+  setSessionSecret("abcdefghijklmnopqrstuvwxyz012345");
 }
 
 afterEach(() => {

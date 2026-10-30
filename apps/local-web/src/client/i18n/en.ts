@@ -26,14 +26,32 @@ export const en = {
     title: "Security dashboard",
     lead: "Check authorization, choose what to scan and review the findings. Everything runs on this computer.",
     skipToContent: "Skip to content",
-    footer:
-      "Runs on 127.0.0.1 only. Dashboard scans are not stored: their results and the session are discarded when the dashboard stops.",
-    errorNoToken:
-      "This page needs the private session URL that PGARD printed in your terminal (it ends with #token=…). Open that URL again.",
+    footer: (command: string) =>
+      `Runs on 127.0.0.1 only · results are not saved and are gone when you stop ${command}.`,
     errorSession:
       "This session has ended. Start PGARD again in your terminal and open the new URL it prints.",
     errorRuleTexts:
       "Could not load the Korean rule texts. Rule titles and fix texts stay in English; reload the page to try again.",
+  },
+  connection: {
+    title: "PGARD",
+    connecting: "Connecting to PGARD on this computer…",
+    usedTitle: "This link was already used",
+    used: "Each link opens one tab. Use the tab where PGARD is already open, or run pgard web again (pgard dashboard if you started the dashboard) to get a new link.",
+    usedNotYou: "If you did not open it, stop the server (Ctrl+C) and run the command again.",
+    expiredTitle: "This link expired",
+    expired:
+      "A link works for 10 minutes until it is first opened. Run the command again to get a new one.",
+    endedTitle: "This page's session ended",
+    ended:
+      "It was idle for 30 minutes, or PGARD was stopped. Run the command again to get a new link.",
+    noLinkTitle: "Open PGARD from your terminal",
+    noLink:
+      "Run pgard web (or pgard dashboard) in your terminal. It opens this page for you; with --print-url it prints the link instead.",
+    invalidTitle: "This link is not for this server",
+    invalid: "Run the command again to get a new link.",
+    unreachableTitle: "PGARD is not reachable",
+    unreachable: "Check that the command is still running in your terminal, then reload this page.",
   },
   cards: {
     legal: "Before you start",

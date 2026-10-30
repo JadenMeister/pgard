@@ -76,8 +76,14 @@ export type ParsedCommand =
     }
   | { kind: "history-clear"; repo: string | null }
   | { kind: "baseline"; action: BaselineAction; fromCurrent: boolean }
-  | { kind: "dashboard"; targetPort: number | null; noBrowser: boolean }
-  | { kind: "web"; noBrowser: boolean; noStore: boolean }
+  | {
+      kind: "dashboard";
+      targetPort: number | null;
+      noBrowser: boolean;
+      noOpen: boolean;
+      printUrl: boolean;
+    }
+  | { kind: "web"; noBrowser: boolean; noStore: boolean; noOpen: boolean; printUrl: boolean }
   | { kind: "web-scope"; action: WebScopeAction; folder: string | null }
   | { kind: "rules-list"; language: RuleLanguage | null; lang?: RuleLocale }
   | { kind: "doctor" }
@@ -192,8 +198,13 @@ const VALUE_OPTIONS: readonly OptionName[] = [
 const NO_BROWSER_FLAG = "--no-browser";
 /** Flag (no value), `pgard scan` only: do not keep this scan's result locally. */
 const NO_STORE_FLAG = "--no-store";
-/** Flag (no value), `pgard report` only: write the report and print its path without opening it. */
+/**
+ * Flag (no value): `pgard report` writes the report and prints its path without opening it;
+ * `pgard web` and `pgard dashboard` do not open the local page and print its full link.
+ */
 const NO_OPEN_FLAG = "--no-open";
+/** Flag (no value), `pgard web` and `pgard dashboard`: print the full one-time link too. */
+const PRINT_URL_FLAG = "--print-url";
 /** Flag (no value), `pgard history clear` only: explicit "every repository" (the default). */
 const ALL_FLAG = "--all";
 
@@ -229,6 +240,7 @@ const FLAG_OPTIONS = [
   [CODE_ONLY_FLAG, "codeOnly"],
   [FORCE_FLAG, "force"],
   [NO_OPEN_FLAG, "noOpen"],
+  [PRINT_URL_FLAG, "printUrl"],
   [PANELS_FLAG, "panels"],
   [FROM_CURRENT_FLAG, "fromCurrent"],
 ] as const;
@@ -256,6 +268,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     full: false,
     force: false,
     noOpen: false,
+    printUrl: false,
     panels: false,
     fromCurrent: false,
     codeOnly: false,
@@ -466,8 +479,18 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
   if (split.panels && command !== "scan") {
     throw new UsageError(`Option ${PANELS_FLAG} is only available for pgard scan.`, "main");
   }
-  if (split.noOpen && command !== "report") {
-    throw new UsageError(`Option ${NO_OPEN_FLAG} is only available for pgard report.`, "main");
+  const isLocalPage = command === "dashboard" || (command === "web" && sub !== "scope");
+  if (split.noOpen && command !== "report" && !isLocalPage) {
+    throw new UsageError(
+      `Option ${NO_OPEN_FLAG} is only available for pgard report, pgard web and pgard dashboard.`,
+      "main",
+    );
+  }
+  if (split.printUrl && !isLocalPage) {
+    throw new UsageError(
+      `Option ${PRINT_URL_FLAG} is only available for pgard web and pgard dashboard.`,
+      "main",
+    );
   }
   if (split.all && !(command === "history" && sub === "clear")) {
     throw new UsageError(`Option ${ALL_FLAG} is only available for pgard history clear.`, "main");
@@ -681,6 +704,8 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       return {
         kind: "dashboard",
         noBrowser: split.noBrowser,
+        noOpen: split.noOpen,
+        printUrl: split.printUrl,
         targetPort: value === undefined ? null : parsePortOption("--target-port", value, topic),
       };
     }
@@ -709,7 +734,13 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       if (split.isHelp) return { kind: "help", topic };
       rejectExtraPositionals(sub === undefined ? [] : [sub, ...rest], topic);
       rejectOptions(split, [], topic, "pgard web", true);
-      return { kind: "web", noBrowser: split.noBrowser, noStore: split.noStore };
+      return {
+        kind: "web",
+        noBrowser: split.noBrowser,
+        noStore: split.noStore,
+        noOpen: split.noOpen,
+        printUrl: split.printUrl,
+      };
     }
     case "rules": {
       topic = sub === "list" ? "rules list" : "rules";

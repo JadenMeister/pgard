@@ -65,9 +65,9 @@ async function runCommand(context: CommandContext, command: RunnableCommand): Pr
     case "sbom":
       return runSbom(context, command);
     case "dashboard":
-      return runDashboard(context, command.targetPort, command.noBrowser);
+      return runDashboard(context, command.targetPort, command.noBrowser, command);
     case "web":
-      return runWeb(context, command.noBrowser, command.noStore);
+      return runWeb(context, command.noBrowser, command.noStore, command);
     case "web-scope":
       return runWebScope(context, command.action, command.folder);
     case "rules-list":
@@ -188,7 +188,13 @@ const MENU_CHOICES: ReadonlyArray<{
   {
     label: "Open dashboard",
     hint: "local web app",
-    value: { kind: "dashboard", targetPort: null, noBrowser: false },
+    value: {
+      kind: "dashboard",
+      targetPort: null,
+      noBrowser: false,
+      noOpen: false,
+      printUrl: false,
+    },
   },
   { label: "List rules", hint: "pgard rules list", value: { kind: "rules-list", language: null } },
   { label: "Doctor", hint: "environment diagnosis", value: { kind: "doctor" } },

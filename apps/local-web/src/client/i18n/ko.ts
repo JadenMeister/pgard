@@ -20,14 +20,32 @@ export const ko: Messages = {
     title: "보안 대시보드",
     lead: "권한을 확인하고 검사할 범위를 고른 뒤 결과를 살펴보세요. 모든 작업은 이 컴퓨터에서만 이루어집니다.",
     skipToContent: "본문으로 건너뛰기",
-    footer:
-      "127.0.0.1에서만 실행됩니다. 대시보드 검사는 저장되지 않으며, 대시보드를 종료하면 그 결과와 세션이 버려집니다.",
-    errorNoToken:
-      "이 페이지는 PGARD가 터미널에 출력한 개인 세션 URL(#token=…으로 끝남)이 필요합니다. 그 URL을 다시 여세요.",
+    footer: (command) =>
+      `127.0.0.1에서만 실행 · 결과는 저장되지 않고, ${command}${command.endsWith("web") ? "을" : "를"} 종료하면 사라집니다`,
     errorSession:
       "이 세션은 끝났습니다. 터미널에서 PGARD를 다시 시작하고 새로 출력된 URL을 여세요.",
     errorRuleTexts:
       "한국어 규칙 문구를 불러오지 못했습니다. 규칙 제목과 조치 문구는 영어로 표시됩니다. 페이지를 새로고침하여 다시 시도하세요.",
+  },
+  connection: {
+    title: "PGARD",
+    connecting: "이 컴퓨터의 PGARD에 연결하는 중…",
+    usedTitle: "이미 사용한 링크입니다",
+    used: "링크 하나로 탭 하나만 열립니다. 이미 열려 있는 PGARD 탭을 사용하거나, pgard web(대시보드는 pgard dashboard)을 다시 실행해 새 링크를 받으세요.",
+    usedNotYou: "직접 연 것이 아니라면 서버를 멈추고(Ctrl+C) 명령을 다시 실행하세요.",
+    expiredTitle: "링크가 만료되었습니다",
+    expired:
+      "링크는 처음 열기 전까지 10분 동안만 유효합니다. 명령을 다시 실행해 새 링크를 받으세요.",
+    endedTitle: "이 페이지의 세션이 끝났습니다",
+    ended:
+      "30분 동안 사용하지 않았거나 PGARD가 종료되었습니다. 명령을 다시 실행해 새 링크를 받으세요.",
+    noLinkTitle: "터미널에서 PGARD를 여세요",
+    noLink:
+      "터미널에서 pgard web(또는 pgard dashboard)을 실행하세요. 이 페이지가 자동으로 열립니다. --print-url을 주면 링크를 대신 출력합니다.",
+    invalidTitle: "이 서버의 링크가 아닙니다",
+    invalid: "명령을 다시 실행해 새 링크를 받으세요.",
+    unreachableTitle: "PGARD에 연결할 수 없습니다",
+    unreachable: "터미널에서 명령이 아직 실행 중인지 확인한 뒤 이 페이지를 새로고침하세요.",
   },
   cards: {
     legal: "시작하기 전에",
