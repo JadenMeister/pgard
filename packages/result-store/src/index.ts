@@ -4,3 +4,4 @@ export * from "./safe-file.js";
 export * from "./web-files.js";
 export * from "./web-scope.js";
 export * from "./trend-rules.js";
+export * from "./folder-breadth.js";

@@ -318,7 +318,8 @@ async function sniffIsBinary(
     const headerEnd = raw.indexOf("\n");
     if (headerEnd === -1) return false;
     const head = raw.slice(headerEnd + 1, headerEnd + 1 + BINARY_SNIFF_BYTES);
-    if (hasBinarySignature(head) && isBinaryByGitsRule(head)) return "signature";
+    // The real size lets a weak signature's length field be checked against it.
+    if (hasBinarySignature(head, size) && isBinaryByGitsRule(head)) return "signature";
     if (!looksBinaryContent(head)) return false;
     if (size > MAX_TAIL_SAMPLED_BYTES || tailReads.used >= MAX_TAIL_SAMPLED_BLOBS) return false;
     tailReads.used += 1;

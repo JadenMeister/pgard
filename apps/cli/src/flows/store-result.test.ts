@@ -26,7 +26,12 @@ const ALLOWED_OUTCOME: AuthorizationOutcome = {
   revision: "abc",
   repositoryId: REPO_ID,
 };
-const DEFAULT_SCAN = { variant: "code", port: null, report: null } as const;
+const DEFAULT_SCAN = {
+  variant: "code",
+  requireAuthorization: true,
+  port: null,
+  report: null,
+} as const;
 
 let base: string;
 let store: ResultStore;

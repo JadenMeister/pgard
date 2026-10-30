@@ -1,5 +1,11 @@
 import { formatLocation, standardMark } from "@pgard/report";
-import { noDirectCertFor, pickText, standardsForPath, type Finding } from "@pgard/findings";
+import {
+  isCodeOnlyResult,
+  noDirectCertFor,
+  pickText,
+  standardsForPath,
+  type Finding,
+} from "@pgard/findings";
 import { cliText, type CliText } from "../i18n/cli-text.js";
 import {
   displayWidth,
@@ -599,9 +605,15 @@ function titleLine(state: PanelsState, size: Size, style: Style): string {
   const repo = safeText(target.repo ?? t.unknown, 120);
   const revision = safeText((target.revision ?? t.unknown).slice(0, 12), 20);
   const status = t.report.overall[state.result.overallStatus] ?? t.unknown;
-  return style.bold(
-    truncateWidth(`${t.panels.title}  ${repo} @ ${revision}  ${status}`, size.columns),
+  // A code-only result says so first, so truncation on a narrow screen never hides it.
+  const label = isCodeOnlyResult(state.result) ? `${t.codeOnly.short}  ` : "";
+  const line = truncateWidth(
+    `${label}${t.panels.title}  ${repo} @ ${revision}  ${status}`,
+    size.columns,
   );
+  if (label === "") return style.bold(line);
+  const shown = line.startsWith(label) ? label : line;
+  return style.bold(style.yellow(shown) + line.slice(shown.length));
 }
 
 /**

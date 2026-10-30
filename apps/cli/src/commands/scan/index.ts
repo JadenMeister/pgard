@@ -45,6 +45,7 @@ import { offerPanels } from "../../flows/panels.js";
 import { loadTrend } from "../../flows/trend.js";
 import type { TrendData } from "../../ui/panels/types.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "../project/verify.js";
+import { runCodeOnlyScanFlow } from "./code-only.js";
 
 export const SCOPES_BY_VARIANT: Record<ScanVariant, ScanScope[]> = {
   default: ["code", "history"],
@@ -70,6 +71,11 @@ export interface ScanCommand {
   noStore?: boolean;
   /** `--full`: scan everything again instead of building on the last stored scan. */
   full?: boolean;
+  /**
+   * `--require-authorization` (`scan code` only): the authorization gate first, as for every
+   * other scope. Without it `pgard scan code` is a code-only scan (#414, D1).
+   */
+  requireAuthorization?: boolean;
   /** `pgard baseline set --from-current`: after the scan, store it as the baseline. */
   setBaseline?: boolean;
 }
@@ -217,6 +223,23 @@ async function runScanFlow(
   const isJson = isMachineFormat(command.format);
   // Fixed screen text in the terminal language; machine-format output is never translated.
   const text = cliText(context.ruleLocale);
+  // D1: `pgard scan code` is a code-only scan unless authorization is asked for.
+  if (command.variant === "code" && command.requireAuthorization !== true) {
+    return runCodeOnlyScanFlow(
+      context,
+      {
+        report: command.report,
+        isMachineFormat: isJson,
+        ...(command.panels === true ? { panels: true } : {}),
+      },
+      {
+        show: (result) => show(result, null),
+        finish,
+        localize: (result) => localizeResult(context, result),
+        progressLine: (event) => formatProgress(event, text),
+      },
+    );
+  }
   let scopes = SCOPES_BY_VARIANT[command.variant];
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
@@ -394,6 +417,8 @@ async function runScanFlow(
   let exitCode = exitCodeForStatus(result.overallStatus);
 
   if (result.overallStatus === "blocked") {
+    // D2: every scope that needs authorization stays strict; the code-only scan is one step away.
+    out(context, context.style.dim(text.codeOnly.blockedHint));
     if (command.report !== null) out(context, text.notices.noReportBlocked);
     if (command.panels === true) err(context, context.errStyle.dim(text.panels.notOpenedBlocked));
     return exitCode;

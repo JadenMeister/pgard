@@ -200,6 +200,8 @@ export interface CommandText {
     portsUnavailable: (note: string) => string;
     unknownReason: string;
     allPassed: string;
+    /** The `[info]` row: scans without approval are code-only (#414). */
+    codeOnlyInfo: string;
     needAttention: (count: number) => string;
   };
   rulesList: {
@@ -467,6 +469,8 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     portsUnavailable: (note) => `unavailable (${note})`,
     unknownReason: "unknown reason",
     allPassed: "All required checks passed.",
+    codeOnlyInfo:
+      "Scans without owner approval: pgard scan code runs code-only (current files, not saved).",
     needAttention: (count) => `${count} required check(s) need attention (see [fail] above).`,
   },
   rulesList: {
@@ -733,6 +737,8 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     portsUnavailable: (note) => `사용할 수 없음 (${note})`,
     unknownReason: "알 수 없는 이유",
     allPassed: "필수 점검을 모두 통과했습니다.",
+    codeOnlyInfo:
+      "소유자 승인 없는 검사: pgard scan code는 코드 전용으로 실행됩니다(현재 파일만, 저장하지 않음).",
     needAttention: (count) => `필수 점검 ${count}개에 확인이 필요합니다 (위의 [fail] 참고).`,
   },
   rulesList: {

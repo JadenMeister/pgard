@@ -26,7 +26,7 @@ const OUTCOME: AuthorizationOutcome = {
   revision: "abc",
   repositoryId: REPO_ID,
 };
-const SCAN: ScanCommand = { variant: "code", port: null, report: null };
+const SCAN: ScanCommand = { variant: "code", requireAuthorization: true, port: null, report: null };
 
 let base: string;
 let store: ResultStore;

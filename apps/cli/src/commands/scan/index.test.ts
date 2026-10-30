@@ -607,7 +607,13 @@ describe("runScanCommand reports", () => {
   });
 
   describe("--format sarif", () => {
-    const SARIF_SCAN = { variant: "code", port: null, report: null, format: "sarif" } as const;
+    const SARIF_SCAN = {
+      variant: "code",
+      requireAuthorization: true,
+      port: null,
+      report: null,
+      format: "sarif",
+    } as const;
     const TOKEN = "ghp_" + "a1B2c3D4e5F6g7H8i9J0k1L2m3N4o5P6q7R8";
 
     it("prints only a SARIF 2.1.0 document with the real rule metadata, and the rest on stderr", async () => {
@@ -734,7 +740,13 @@ describe("runScanCommand reports", () => {
   });
 
   describe("--format json", () => {
-    const JSON_SCAN = { variant: "code", port: null, report: null, format: "json" } as const;
+    const JSON_SCAN = {
+      variant: "code",
+      requireAuthorization: true,
+      port: null,
+      report: null,
+      format: "json",
+    } as const;
 
     it("prints only the ScanResult on stdout, which readScanResult accepts, and the rest on stderr", async () => {
       const captured = createTestIo();
@@ -909,6 +921,7 @@ describe("runScanCommand reports", () => {
           ),
           {
             variant: "code",
+            requireAuthorization: true,
             port: null,
             report: { format: "html", outputDir: directory },
             format: "json",

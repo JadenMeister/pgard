@@ -1,6 +1,6 @@
 import type { RuleLocale } from "@pgard/findings";
 import { describe, expect, it } from "vitest";
-import { panelsFixtureResult, testResult } from "../../test-support.js";
+import { codeOnlyTestResult, panelsFixtureResult, testResult } from "../../test-support.js";
 import { createStyle } from "../formatters/style.js";
 import { displayWidth, stripAnsi } from "../i18n/display-width.js";
 import { renderFrame } from "./layout.js";
@@ -319,4 +319,29 @@ describe("the export hint stays out of the overlays' footers", () => {
       expect(lines.at(-1), overlay).not.toContain("e: export");
     }
   });
+});
+
+describe("the title line of a code-only result", () => {
+  it.each([
+    ["en", "! Code-only, not verified"],
+    ["ko", "! 코드 전용, 권한 미확인"],
+  ] as const)(
+    "starts with the not-verified label (%s), even on a narrow screen",
+    (locale, label) => {
+      for (const size of [
+        { columns: 80, rows: 24 },
+        { columns: 40, rows: 14 },
+      ]) {
+        const state = createPanelsState(codeOnlyTestResult(), locale, size);
+        const lines = renderFrame(state, size, plain);
+        expect(lines[0]?.startsWith(label)).toBe(true);
+        const coloured = renderFrame(state, size, colour);
+        expect(stripAnsi(coloured[0] ?? "").startsWith(label)).toBe(true);
+        expect(displayWidth(stripAnsi(coloured[0] ?? ""))).toBeLessThanOrEqual(size.columns);
+      }
+      const size = { columns: 80, rows: 24 };
+      const normal = renderFrame(stateFor(locale, size, "overview"), size, plain);
+      expect(normal[0]?.includes(label)).toBe(false);
+    },
+  );
 });
