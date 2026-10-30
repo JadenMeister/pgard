@@ -11,6 +11,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
+- Trend explains itself (#441). An empty trend names its real reason first (a code-only scan now says its result is not stored, instead of talking about a GitHub repository), then lists common reasons (code-only scan, only one stored scan, storing off) for the states where they apply. The panel view shows `(?)` after the trend heading and `?` on the trend tab opens the help at a trend section; the dashboard has a circled "?" button (keyboard accessible) beside the trend heading with the same text. English and Korean.
 - Package size: the tarball grows from about 3.1 MB to 5.4 MB and the package unpacks to 27.7 MB instead of 13.3 MB, but an install is smaller overall (32 MB in 4 packages instead of 78 MB in 42 on macOS arm64), because the dependency trees that were installed next to it are gone. `pack:pgard` and `smoke:pack` now also run a JavaScript, Vue and Python scan through the CLI, write JSON, SARIF, HTML and PDF output and run `precommit` from the installed package.
 
 ### Fixed

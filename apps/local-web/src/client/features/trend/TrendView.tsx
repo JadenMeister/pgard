@@ -55,7 +55,13 @@ export function TrendView({
 }: TrendViewProps) {
   const { m } = useI18n();
   return (
-    <Section title={m.trend.title}>
+    <Section
+      title={m.trend.title}
+      helpLabel={m.trend.help.label}
+      help={m.trend.help.lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    >
       <p className="trend-source">{m.trend.source}</p>
       <TrendBody
         state={state}
@@ -66,6 +72,21 @@ export function TrendView({
         onOpenFindings={onOpenFindings}
       />
     </Section>
+  );
+}
+
+/** Common reasons for an empty trend, under the reason for this one. */
+function EmptyCases({ off = true }: { off?: boolean }) {
+  const { m } = useI18n();
+  return (
+    <div className="trend-cases">
+      <p>{m.trend.cases.intro}</p>
+      <ol>
+        {m.trend.cases.items.slice(0, off ? 3 : 2).map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ol>
+    </div>
   );
 }
 
@@ -90,7 +111,12 @@ function TrendBody(props: TrendViewProps) {
   const data: TrendResponse = state.data;
   switch (data.kind) {
     case "disabled":
-      return <Notice tone="info">{m.trend.disabled}</Notice>;
+      return (
+        <>
+          <Notice tone="info">{m.trend.disabled}</Notice>
+          <EmptyCases off={false} />
+        </>
+      );
     case "unavailable":
       return (
         <>
@@ -142,6 +168,7 @@ function ReadyTrendView({
     return (
       <>
         <Notice tone="info">{m.trend.tooFew(points.length)}</Notice>
+        <EmptyCases />
         <SkipNotes data={data} />
         {points.length === 1 && <TrendTable points={points} />}
       </>

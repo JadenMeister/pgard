@@ -9,12 +9,22 @@ interface SectionHeaderProps {
   meta?: ReactNode;
   /** Explanatory text, behind a small "?" so it does not crowd the page. */
   help?: ReactNode;
+  /** Accessible name of the "?" (default: a generic one). */
+  helpLabel?: string;
   actions?: ReactNode;
   level?: 2 | 3;
 }
 
 /** A compact heading row: title, optional meta and help, actions on the right. */
-export function SectionHeader({ title, id, meta, help, actions, level = 2 }: SectionHeaderProps) {
+export function SectionHeader({
+  title,
+  id,
+  meta,
+  help,
+  helpLabel,
+  actions,
+  level = 2,
+}: SectionHeaderProps) {
   const Heading = level === 2 ? "h2" : "h3";
   return (
     <div className={`section-header level-${level}`}>
@@ -22,7 +32,7 @@ export function SectionHeader({ title, id, meta, help, actions, level = 2 }: Sec
         {title}
       </Heading>
       {meta === undefined || meta === null ? null : <span className="section-meta">{meta}</span>}
-      {help === undefined || help === null ? null : <HelpTip>{help}</HelpTip>}
+      {help === undefined || help === null ? null : <HelpTip label={helpLabel}>{help}</HelpTip>}
       {actions === undefined || actions === null ? null : (
         <div className="section-actions">{actions}</div>
       )}
