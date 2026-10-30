@@ -16,11 +16,11 @@ describe("placeholder words (#445)", () => {
   it.each([
     "replace-with-a-long-random-secret",
     "REPLACE_WITH_YOUR_SECRET",
-    "random-string-here1",
-    "generate-a-strong-key1",
-    "set_me_to_something1",
-    "insert-your-key-here1",
-    "put_your_secret_here1",
+    "random-string-here",
+    "generate-a-strong-key",
+    "set_me_to_something",
+    "insert-your-key-here",
+    "put_your_secret_here",
   ])("does not report %s", (value) => {
     expect(scan(`SECRET_KEY=${value}\n`, "config/app.conf")).toEqual([]);
     expect(scan(`secret = "${value}"\n`, "src/app.py")).toEqual([]);
@@ -28,6 +28,25 @@ describe("placeholder words (#445)", () => {
 
   it("still reports a real value", () => {
     expect(scan(`SECRET_KEY=${REAL}\n`, "config/app.conf")).toHaveLength(1);
+  });
+
+  it.each([
+    j("Random", "9xKq2", "LmP7vT"),
+    j("Xq7insert", "Key9Lm2"),
+    j("aZ9k/generate", "Q7mP2xL"),
+    j("Random", "XkLmPqWzRtYu"),
+  ])("keeps %s: the word is not a whole word of a word-shaped value", (value) => {
+    expect(scan(`SECRET_KEY=${value}\n`, "config/app.conf")).toHaveLength(1);
+  });
+
+  it("does not let the words hide URL passwords or provider tokens", () => {
+    const url = scan(`u = "postgres://app:${j("Random", "2024Xk")}@db.internal/app"\n`, "a.conf");
+    expect(url.map((secret) => secret.kind)).toEqual(["url_credential"]);
+    const token = scan(
+      `t = ${j("ghp", "_Random", "Zq8aB3cD4eF5gLm4hJ6kL7mN8pPw7qR9sT0u")}\n`,
+      "a.conf",
+    );
+    expect(token.map((secret) => secret.kind)).toEqual(["github_token"]);
   });
 });
 
@@ -42,13 +61,22 @@ describe("dictionary words only", () => {
     expect(isDictionaryWordsValue("my-secretsecretsecret-key")).toBe(false);
   });
 
-  it("skips such a value in docs and templates, not in config or source", () => {
-    const line = `api_key = "my-secret-key-value"\n`;
-    expect(scan(line, "README.md")).toEqual([]);
-    expect(scan(line, "docs/guide.rst")).toEqual([]);
+  it("skips an example value in docs (unquoted or in a code span) and in .env templates", () => {
+    expect(scan('Set `api_key = "my-secret-key-value"` first.\n', "README.md")).toEqual([]);
+    expect(scan("api_key = my-secret-key-value\n", "docs/guide.rst")).toEqual([]);
+    expect(scan('```\napi_key = "my-secret-key-value"\n```\n', "README.md")).toEqual([]);
     expect(scan("API_KEY=my-secret-key-value\n", ".env.example")).toEqual([]);
     expect(scan("API_KEY=my-secret-key-value\n", "config/app.conf")).toHaveLength(1);
-    expect(scan(line, "src/app.py")).toHaveLength(1);
+    expect(scan('api_key = "my-secret-key-value"\n', "src/app.py")).toHaveLength(1);
+  });
+
+  it("keeps a passphrase: no example word, a quoted prose value, or a .txt file", () => {
+    const phrase = "correct-horse-battery-staple";
+    expect(scan(`password=${phrase}\n`, "credentials.txt")).toHaveLength(1);
+    expect(scan(`password=${phrase}\n`, "notes.txt")).toHaveLength(1);
+    expect(scan(`password=${phrase}\n`, "README.md")).toHaveLength(1);
+    expect(scan(`The password: "my-secret-key-value" is set.\n`, "README.md")).toHaveLength(1);
+    expect(scan('x `password = "my-secret-key-value"`\n', "README.md")).toEqual([]);
   });
 
   it("reports a quoted value with digits and mixed case in docs", () => {
@@ -57,13 +85,25 @@ describe("dictionary words only", () => {
 });
 
 describe("template files report only real-looking values", () => {
-  it("drops a lowercase-only or low-entropy value", () => {
+  it("drops a lowercase-only short or low-entropy value", () => {
     expect(scan("DB_PASSWORD=supersecretpassword\n", ".env.example")).toEqual([]);
     expect(scan("DB_PASSWORD=aaaa1111bbbb\n", ".env.template")).toEqual([]);
   });
 
   it("keeps a high-entropy mixed-class value", () => {
     expect(scan(`DB_PASSWORD=${REAL}\n`, ".env.example")).toHaveLength(1);
+    expect(scan("DB_PASSWORD=Hunter2x\n", ".env.sample")).toHaveLength(1);
+    expect(scan("DB_PASSWORD=qz!kx#mw$vt\n", "prod.env.example")).toHaveLength(1);
+  });
+
+  it("keeps a long single-class random value", () => {
+    expect(scan("DB_PASSWORD=qwkzmtrplxvbnhgfjdsacxzyuoeiw\n", ".env.example")).toHaveLength(1);
+    expect(scan("DB_PASSWORD=QWKZMTRPLXVBNHGFJDSACXZYUOEIW\n", ".env.example")).toHaveLength(1);
+  });
+
+  it("applies the strict rule only to .env templates", () => {
+    const text = "MasterUserPassword: qwkzmtrplxvbnhgf\n";
+    expect(scan(text, "stack.template")).toHaveLength(1);
   });
 
   it("keeps provider-specific patterns", () => {
@@ -80,7 +120,6 @@ describe("code-shaped unquoted values (minified code)", () => {
     "o={password:t.password,user:1}",
     "f({secret:e.target.secretvalue})",
     "if(a.apikey===b.apikey&&c){}",
-    "k={password:arr[idx]};",
   ])("does not report %s", (code) => {
     expect(scan(code, "build/static/js/main.js")).toEqual([]);
   });
@@ -89,10 +128,21 @@ describe("code-shaped unquoted values (minified code)", () => {
     expect(scan(`var a={password:"${REAL}"};`, "dist/assets/app.js")).toHaveLength(1);
   });
 
-  it("keeps an unquoted value with brackets in config text and in strings", () => {
+  it.each([
+    j("// admin password: Xk9", ")m2Lq8vBp"),
+    j("# password=Zq8", "]Lm2x9Kp"),
+    j("/* api_key=Zq8", "}Lm2x9Kp4 */"),
+    j("// password=Xk9", "&&m2Lq8vB"),
+  ])("keeps a password with a bracket or operator in a comment: %#", (text) => {
+    expect(scan(`${text}\n`, "src/app.js")).toHaveLength(1);
+  });
+
+  it("keeps brackets in config text and in strings, and a leading = outside source code", () => {
     expect(scan(`password=${j("Xk9v", "]Lp8", "Wz4q")}\n`, "config/app.conf")).toHaveLength(1);
     const text = `const conf = "user=admin\\npassword=${j("Zx8c", ")Vb5n", "Mq2w")}\\n";\n`;
     expect(scan(text, "scripts/conf.js")).toHaveLength(1);
+    expect(scan(`db.password==${j("Xk9", "#q2Lm7vBp")}\n`, "app.properties")).toHaveLength(1);
+    expect(scan(`password = =${j("Xk9", "#q2Lm7vBp")}\n`, "app.ini")).toHaveLength(1);
   });
 });
 
