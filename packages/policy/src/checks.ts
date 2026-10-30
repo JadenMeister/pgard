@@ -34,6 +34,8 @@ export interface RepositoryCheckResult {
   check: CheckResult;
   repo: GitHubRepositoryRef | null;
   revision: string | null;
+  /** Why the check failed, as a fixed code (never the remote's text); `null` when it passed. */
+  code: RepositoryBlockCode | null;
 }
 
 async function resolveRealPath(target: string): Promise<string | null> {
@@ -123,9 +125,15 @@ export async function verifyRepository(
       check: passed(inspection.reason),
       repo: inspection.repo,
       revision: inspection.revision,
+      code: null,
     };
   }
-  return { check: failed(inspection.reason), repo: null, revision: inspection.revision };
+  return {
+    check: failed(inspection.reason),
+    repo: null,
+    revision: inspection.revision,
+    code: inspection.code,
+  };
 }
 
 export function describeIdentityError(error: unknown): CheckResult {

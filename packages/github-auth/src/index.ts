@@ -35,6 +35,7 @@ export {
   type ResolvedGitHubAppClientId,
 } from "./env.js";
 export type { FetchLike, FetchRequestInit, FetchResponseLike } from "./fetch.js";
+export { GITHUB_REQUEST_TIMEOUT_MS } from "./fetch.js";
 export {
   GITHUB_API_BASE_URL,
   createGitHubClient,

@@ -28,7 +28,6 @@ const ALLOWED_OUTCOME: AuthorizationOutcome = {
 };
 const DEFAULT_SCAN = {
   variant: "code",
-  requireAuthorization: true,
   port: null,
   report: null,
 } as const;

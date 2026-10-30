@@ -128,10 +128,12 @@ const MENU_CHOICES: ReadonlyArray<{
   },
   {
     label: "Scan the current files (code only)",
-    hint: "pgard scan code",
+    hint: "pgard scan code --code-only",
     value: {
       kind: "scan",
       variant: "code",
+      // The explicit code-only choice (#414 D1): no authorization, no prompt.
+      codeOnly: true,
       port: null,
       report: null,
       noBrowser: false,

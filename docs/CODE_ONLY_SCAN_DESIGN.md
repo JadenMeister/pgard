@@ -208,7 +208,9 @@ A new optional top-level field, `scanBasis`:
 
 **[Owner decision D1] What `pgard scan` does without approval.**
 
-**Decided 2026-10-29:** code-only by default for the `code` scope, with a clear note. Strict mode is opt-in. This gives "just works" and never implies proof.
+**Revised 2026-10-30 (phase 2b):** authorization first, then a y/N question; without a terminal it blocks; `--code-only` opts in. `pgard scan` and `pgard scan code` run the gate as before. When it fails (no approval, `check_failed`, no GitHub remote, not a Git repository) and stdin and stdout are a terminal, PGARD asks "Skip Git history and scan only the current code? (marked as not authorized) [y/N]". N (the default) exits 3 with the approval guidance; y runs the code-only scan with the gate's reason. Without a terminal (CI, pipes, a machine format sent to a pipe) nothing is asked: exit 3 and "For a code-only scan, add --code-only." `--code-only` skips the gate (no network). `--require-authorization` is removed. The too-broad, home and `.git` refusals apply either way. A folder they refuse is refused at once, never offered. A gate that does not pass exits 3 in every scope, also when it could not finish (`check_failed`; each GitHub request has a 10 s limit); 5 is for unexpected internal errors only.
+
+~~Decided 2026-10-29: code-only by default for the `code` scope, with a clear note. Strict mode is opt-in.~~ Superseded by the revision above; the table below shows the 2026-10-29 proposal.
 
 | Command                                   | Today                               | Proposed                                                                                                                                                                                                                                                                                                          |
 | ----------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -415,7 +417,7 @@ Each phase is its own PR, opened only after the previous one passed review, and 
    - The web label says why authorization is not verified (no GitHub remote, not a Git repository, not checked).
    - `RESULT_SCHEMA.md` for 1.7.
    - The prototype route and screen stay behind `PGARD_WEB_PROTOTYPE=code-only`.
-2. **CLI (D1, D2, D4).** `pgard scan code` code-only by default, `--require-authorization`, the terminal line, `scan all` and `history`/`web` unchanged with the hint, `project verify` and `doctor` rows, any folder (no Git, no remote), README.
+2. **CLI (D1, D2, D4).** `pgard scan code` code-only by default, `--require-authorization` (phase 2b, 2026-10-30: authorization first, a y/N question in a terminal, `--code-only`; `--require-authorization` removed), the terminal line, `scan all` and `history`/`web` unchanged with the hint, `project verify` and `doctor` rows, any folder (no Git, no remote), README.
 3. **Precommit (D3).** `pgard precommit` code-only with no gate and no network; `"precommit": { "requireAuthorization": true }` opts in.
 4. **Web simple screen, production.** The one-screen flow with the OS folder dialog and paste box (section 6.1) becomes the default `pgard web` and `pgard dashboard` main path; the prototype flag and route are removed; the old tabs leave the main path (the full dashboard stays the authorized flow behind the upgrade link); i18n moves into the catalogs.
 5. **Session URL (#419, section 12).** Browser auto-open, the masked token, `--print-url`, the single-use token, for `pgard web`, `pgard dashboard` and the new screen.
@@ -453,7 +455,7 @@ The owner approved the design on 2026-10-29; every decision went as recommended.
 
 | #   | Question                                   | Decision (2026-10-29)                                                                                                     |
 | --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| D1  | `pgard scan code` without approval         | Code-only by default with a clear line; `--require-authorization` restores exit 3.                                        |
+| D1  | `pgard scan code` without approval         | Revised 2026-10-30: authorization first, then a y/N question; non-TTY blocks (exit 3 + hint); `--code-only` opts in.      |
 | D2  | `pgard scan all` without approval          | Unchanged and strict (blocked, exit 3), with a hint to run `scan code`.                                                   |
 | D3  | `pgard precommit`                          | Always code-only, with no gate and no network; a repository opts in with `"precommit": { "requireAuthorization": true }`. |
 | D4  | No GitHub remote / not a Git repository    | Both get a code-only scan.                                                                                                |

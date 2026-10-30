@@ -526,12 +526,12 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
 
   describe.each(stores)("with %s", (_name, makeStore) => {
     const formats: Array<[string, string[]]> = [
-      ["scan (text)", ["scan", "code", "--require-authorization"]],
+      ["scan (text)", ["scan", "code"]],
       ["scan history (text)", ["scan", "history"]],
       ["scan all with a port (text)", ["scan", "all", "--port", "3000"]],
-      ["scan --format json", ["scan", "code", "--require-authorization", "--format", "json"]],
+      ["scan --format json", ["scan", "code", "--format", "json"]],
       ["scan all --format json", ["scan", "all", "--port", "3000", "--format", "json"]],
-      ["scan --format sarif", ["scan", "code", "--require-authorization", "--format", "sarif"]],
+      ["scan --format sarif", ["scan", "code", "--format", "sarif"]],
       ["project verify", ["project", "verify"]],
       ["baseline show", ["baseline", "show"]],
     ];
@@ -588,14 +588,10 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     const captured = createTestIo({ isTTY: true, cwd: fixture?.root ?? "/", env: {} });
     (captured.io.stdout as { isTTY?: boolean }).isTTY = false;
     (captured.io.stderr as { isTTY?: boolean }).isTTY = false;
-    const exitCode = await main(
-      ["scan", "code", "--require-authorization", "--format", "json"],
-      captured.io,
-      {
-        deps: run.deps,
-        interrupts: noInterrupts,
-      },
-    );
+    const exitCode = await main(["scan", "code", "--format", "json"], captured.io, {
+      deps: run.deps,
+      interrupts: noInterrupts,
+    });
     expect(exitCode).toBe(3);
     expect(run.fetchCalls).toEqual([]);
     expect(run.deviceCodeRequests()).toBe(0);
@@ -609,7 +605,7 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     ["json", ["--format", "json"]],
     ["sarif", ["--format", "sarif"]],
   ])(
-    "the default pgard scan code (%s) runs code-only: no fetch, no device code, no credential read",
+    "pgard scan code --code-only (%s): no fetch, no device code, no credential read",
     async (format, extra) => {
       project();
       const store = createInMemoryCredentialStore();
@@ -632,7 +628,7 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
       const verifyProject = vi.fn(realVerify);
       const deps = { ...run.deps, verifyProject, runCodeOnlyScan: realRunCodeOnlyScan };
       const captured = redirected(fixture?.root ?? "/");
-      const exitCode = await main(["scan", "code", ...extra], captured.io, {
+      const exitCode = await main(["scan", "code", "--code-only", ...extra], captured.io, {
         deps,
         interrupts: noInterrupts,
       });
@@ -703,6 +699,26 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     expect(runScan).not.toHaveBeenCalled();
   });
 
+  it.each([["scan"], ["scan", "code"]])(
+    "pgard %s without a terminal stays blocked: exit 3, the --code-only hint, never code-only",
+    async (...argv) => {
+      project();
+      const run = noTerminal(createInMemoryCredentialStore());
+      const runCodeOnlyScan = vi.fn(realRunCodeOnlyScan);
+      const captured = redirected(fixture?.root ?? "/");
+      const exitCode = await main(argv, captured.io, {
+        deps: { ...run.deps, runCodeOnlyScan },
+        interrupts: noInterrupts,
+      });
+      expect(exitCode).toBe(3);
+      expect(runCodeOnlyScan).not.toHaveBeenCalled();
+      expect(captured.stdout() + captured.stderr()).toContain(
+        "For a code-only scan, add --code-only.",
+      );
+      expect(captured.stdout() + captured.stderr()).not.toContain("[y/N]");
+    },
+  );
+
   it("pgard login refuses without a terminal (usage error, exit 2) and requests nothing", async () => {
     project();
     const run = noTerminal(createInMemoryCredentialStore());
@@ -724,14 +740,10 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
     const captured = createTestIo({ isTTY: true, cwd: fixture?.root ?? "/", env: {} });
     // stdout redirected, stdin and stderr are terminals.
     (captured.io.stdout as { isTTY?: boolean }).isTTY = false;
-    const exitCode = await main(
-      ["scan", "code", "--require-authorization", "--format", "json"],
-      captured.io,
-      {
-        deps: run.deps,
-        interrupts: noInterrupts,
-      },
-    );
+    const exitCode = await main(["scan", "code", "--format", "json"], captured.io, {
+      deps: run.deps,
+      interrupts: noInterrupts,
+    });
     expect(exitCode).toBe(3);
     expect(run.deviceCodeRequests()).toBe(1);
     expect(run.fetchCalls[0]).toContain("/login/device/code");

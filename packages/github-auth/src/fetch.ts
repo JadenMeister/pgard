@@ -21,6 +21,51 @@ export type FetchLike = (url: string, init: FetchRequestInit) => Promise<FetchRe
 
 export const defaultFetch: FetchLike = (url, init) => fetch(url, init);
 
+/**
+ * Each GitHub request gets at most this long to answer (headers), so a stalled network ends the
+ * authorization with a clear failure instead of hanging for minutes.
+ */
+export const GITHUB_REQUEST_TIMEOUT_MS = 10_000;
+
+/** A request that got no answer within its time limit. */
+export class RequestTimeoutError extends Error {
+  constructor(readonly timeoutMs: number) {
+    super(`No answer within ${Math.ceil(timeoutMs / 1000)} s.`);
+    this.name = "RequestTimeoutError";
+  }
+}
+
+/**
+ * Calls `fetchImpl` with a signal that aborts after `timeoutMs` (or when `init.signal` aborts),
+ * and rejects with `RequestTimeoutError` at the limit even if `fetchImpl` ignores the signal.
+ */
+export async function fetchWithTimeout(
+  fetchImpl: FetchLike,
+  url: string,
+  init: FetchRequestInit,
+  timeoutMs: number,
+): Promise<FetchResponseLike> {
+  const controller = new AbortController();
+  const outer = init.signal;
+  const onOuterAbort = (): void => controller.abort(outer?.reason);
+  if (outer?.aborted === true) controller.abort(outer.reason);
+  else outer?.addEventListener("abort", onOuterAbort, { once: true });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new RequestTimeoutError(timeoutMs);
+      controller.abort(error);
+      reject(error);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetchImpl(url, { ...init, signal: controller.signal }), timedOut]);
+  } finally {
+    clearTimeout(timer);
+    outer?.removeEventListener("abort", onOuterAbort);
+  }
+}
+
 export function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)

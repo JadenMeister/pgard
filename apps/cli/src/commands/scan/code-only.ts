@@ -2,7 +2,7 @@ import { realpath } from "node:fs";
 import { lstat } from "node:fs/promises";
 import { homedir, userInfo } from "node:os";
 import path from "node:path";
-import type { ScanResult } from "@pgard/findings";
+import type { KnownScanBasisReason, ScanResult } from "@pgard/findings";
 import { tooBroadToScan, type TooBroadReason } from "@pgard/result-store";
 import { ScanCancelledError, ScanRequestError, type ScanProgressEvent } from "@pgard/scan-core";
 import { err, out, suspendKeys, type CommandContext } from "../../context.js";
@@ -23,7 +23,7 @@ import { cliText, type CliText } from "../../ui/i18n/cli-text.js";
 import type { TrendData } from "../../ui/panels/types.js";
 
 /**
- * `pgard scan code` without `--require-authorization` (#414, D1 and D4): a code-only scan of the
+ * `pgard scan --code-only`, or `y` after authorization failed (#414, D1 and D4): a code-only scan of the
  * current files. No authorization gate, no sign-in, no network, no Git history; the result says
  * so (JSON 1.7 `scanBasis`, the first line of the text result) and is never stored. It works in
  * any folder: a Git repository (scanned from its top folder, as before) or a folder without Git.
@@ -33,6 +33,14 @@ export interface CodeOnlyCommand {
   panels?: boolean;
   /** `--format json|sarif`: stdout holds one document; no panel view, no menu question. */
   isMachineFormat: boolean;
+  /**
+   * `scanBasis.reason` in a Git repository: why authorization was not verified (`not_checked`
+   * for `--code-only`, or what the failed gate said). Outside one it is always
+   * `not_a_git_repository`.
+   */
+  reason?: KnownScanBasisReason;
+  /** The `--report` folder was already checked and confirmed (after `y`): do not ask again. */
+  isReportConfirmed?: boolean;
 }
 
 export interface CodeOnlyOutput {
@@ -126,6 +134,29 @@ export async function isInsideGitDirectory(cwd: string): Promise<boolean> {
   }
 }
 
+/**
+ * Why the current folder can never be code-only scanned (a `.git` folder, no home folder, a
+ * folder too broad to be one project), as the message to show; `null` when it can be. Checked
+ * before a code-only scan and before one is offered.
+ */
+export async function codeOnlyRefusalMessage(
+  context: CommandContext,
+  gitRoot: string | null,
+): Promise<string | null> {
+  const text: CliText = cliText(context.ruleLocale);
+  const projectRoot = gitRoot ?? path.resolve(context.io.cwd);
+  if (gitRoot === null && (await isInsideGitDirectory(context.io.cwd))) {
+    return text.codeOnly.gitDirectory;
+  }
+  const home = codeOnlyHome(context.io.env);
+  if (home === null) return text.codeOnly.noHome;
+  // Also for a repository: a dotfiles repository at the home folder would scan all of it.
+  if ((await codeOnlyFolderRefusal(projectRoot, home)) !== null) {
+    return gitRoot === null ? text.codeOnly.tooBroad : text.codeOnly.tooBroadRepository;
+  }
+  return null;
+}
+
 export async function runCodeOnlyScanFlow(
   context: CommandContext,
   command: CodeOnlyCommand,
@@ -136,19 +167,9 @@ export async function runCodeOnlyScanFlow(
   const gitRoot = await context.deps.findGitRoot(context.io.cwd);
   // D4: a folder without Git is scanned as it is; a Git repository from its top folder.
   const projectRoot = gitRoot ?? path.resolve(context.io.cwd);
-  if (gitRoot === null && (await isInsideGitDirectory(context.io.cwd))) {
-    err(context, context.errStyle.red(text.codeOnly.gitDirectory));
-    return EXIT_CODES.usage;
-  }
-  const home = codeOnlyHome(context.io.env);
-  if (home === null) {
-    err(context, context.errStyle.red(text.codeOnly.noHome));
-    return EXIT_CODES.usage;
-  }
-  // Also for a repository: a dotfiles repository at the home folder would scan all of it.
-  if ((await codeOnlyFolderRefusal(projectRoot, home)) !== null) {
-    const message = gitRoot === null ? text.codeOnly.tooBroad : text.codeOnly.tooBroadRepository;
-    err(context, context.errStyle.red(message));
+  const refusal = await codeOnlyRefusalMessage(context, gitRoot);
+  if (refusal !== null) {
+    err(context, context.errStyle.red(refusal));
     return EXIT_CODES.usage;
   }
 
@@ -160,7 +181,11 @@ export async function runCodeOnlyScanFlow(
       err(context, context.errStyle.red(check.message));
       return EXIT_CODES.usage;
     }
-    if (check.isInsideRepository && !(await confirmInsideRepository(context))) {
+    if (
+      check.isInsideRepository &&
+      command.isReportConfirmed !== true &&
+      !(await confirmInsideRepository(context))
+    ) {
       return EXIT_CODES.usage;
     }
     reportDir = check.outputDir;
@@ -172,7 +197,10 @@ export async function runCodeOnlyScanFlow(
   try {
     result = await context.deps.runCodeOnlyScan(
       // `not_checked`: the user asked for a code-only scan; nothing about GitHub was looked at.
-      { projectRoot, reason: gitRoot === null ? "not_a_git_repository" : "not_checked" },
+      {
+        projectRoot,
+        reason: gitRoot === null ? "not_a_git_repository" : (command.reason ?? "not_checked"),
+      },
       {
         signal: context.signal,
         env: context.io.env,

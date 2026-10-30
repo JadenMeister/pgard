@@ -47,10 +47,10 @@ export type ParsedCommand =
       /** `--full`: do not build on an earlier stored scan; scan everything again. */
       full?: boolean;
       /**
-       * `--require-authorization` (`pgard scan code` only): run the authorization gate first, as
-       * the other scopes always do, instead of a code-only scan.
+       * `--code-only` (`pgard scan` and `pgard scan code`): skip authorization and scan the
+       * current files code-only, with no network (#414 D1).
        */
-      requireAuthorization?: boolean;
+      codeOnly?: boolean;
       /** `--panels`: after the text result, open the full-screen panel view (terminals only). */
       panels?: boolean;
       /** `--lang`: language of rule texts in the terminal result. */
@@ -203,8 +203,8 @@ const FROM_CURRENT_FLAG = "--from-current";
 /** Flag (no value), `pgard scan` only: scan everything again instead of building on the last stored scan. */
 const FULL_FLAG = "--full";
 
-/** Flag (no value), `pgard scan code` only: run the authorization gate instead of a code-only scan. */
-const REQUIRE_AUTHORIZATION_FLAG = "--require-authorization";
+/** Flag (no value), `pgard scan` and `pgard scan code`: a code-only scan, no authorization. */
+const CODE_ONLY_FLAG = "--code-only";
 
 /** Flag (no value), `pgard scan` only: open the full-screen panel view over the result. */
 const PANELS_FLAG = "--panels";
@@ -226,7 +226,7 @@ const FLAG_OPTIONS = [
   [ALL_FINDINGS_FLAG, "allFindings"],
   [FIXES_FLAG, "fixes"],
   [FULL_FLAG, "full"],
-  [REQUIRE_AUTHORIZATION_FLAG, "requireAuthorization"],
+  [CODE_ONLY_FLAG, "codeOnly"],
   [FORCE_FLAG, "force"],
   [NO_OPEN_FLAG, "noOpen"],
   [PANELS_FLAG, "panels"],
@@ -258,7 +258,7 @@ function splitArgs(argv: readonly string[], topic: () => HelpTopic): SplitArgs {
     noOpen: false,
     panels: false,
     fromCurrent: false,
-    requireAuthorization: false,
+    codeOnly: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index] ?? "";
@@ -436,9 +436,21 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       "main",
     );
   }
-  if (split.requireAuthorization && !(command === "scan" && sub === "code")) {
+  if (split.codeOnly && !(command === "scan" && (sub === undefined || sub === "code"))) {
     throw new UsageError(
-      `Option ${REQUIRE_AUTHORIZATION_FLAG} is only available for pgard scan code (every other scan always requires authorization).`,
+      `Option ${CODE_ONLY_FLAG} is only available for pgard scan and pgard scan code (Git history and web checks always need authorization).`,
+      "main",
+    );
+  }
+  if (split.codeOnly && split.options.has("--port")) {
+    throw new UsageError(
+      `Option ${CODE_ONLY_FLAG} cannot be combined with --port: web checks need authorization.`,
+      "main",
+    );
+  }
+  if (split.codeOnly && split.full) {
+    throw new UsageError(
+      `Option ${CODE_ONLY_FLAG} cannot be combined with ${FULL_FLAG}: a code-only scan always reads every file.`,
       "main",
     );
   }
@@ -542,7 +554,8 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
       const port = portValue === undefined ? null : parsePortOption("--port", portValue, topic);
       return {
         kind: "scan",
-        variant,
+        // `pgard scan --code-only` scans the current files only, like `pgard scan code --code-only`.
+        variant: split.codeOnly ? "code" : variant,
         port,
         report: parseReport(split),
         noBrowser: split.noBrowser,
@@ -551,7 +564,7 @@ export function parseCommandLine(argv: readonly string[]): ParsedCommand {
         ...(split.fixes ? { fixes: true } : {}),
         ...(split.noStore ? { noStore: true } : {}),
         ...(split.full ? { full: true } : {}),
-        ...(split.requireAuthorization ? { requireAuthorization: true } : {}),
+        ...(split.codeOnly ? { codeOnly: true } : {}),
         ...(split.panels ? { panels: true } : {}),
         ...(lang === undefined ? {} : { lang }),
         ...(reportLang === undefined ? {} : { reportLang }),

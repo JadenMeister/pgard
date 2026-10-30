@@ -17,6 +17,7 @@ import {
   notFoundAllRepositoriesReason,
   verifyRepository,
   type CheckResult,
+  type RepositoryBlockCode,
 } from "./checks.js";
 import {
   AUTHORIZATION_CHECK_ORDER,
@@ -73,6 +74,7 @@ export async function authorizeProject(
   let accessNote: AccessNote | null = null;
   let account: { login: string; userId: number } | null = null;
   let repositoryId: number | null = null;
+  let repositoryCode: RepositoryBlockCode | null = null;
   const build = (repo: string | null, revision: string | null): AuthorizationOutcome => {
     const checks: AuthorizationCheck[] = AUTHORIZATION_CHECK_ORDER.map((id) => ({
       id,
@@ -87,12 +89,14 @@ export async function authorizeProject(
       accessNote,
       account,
       repositoryId,
+      repositoryCode,
     };
   };
 
   const repositoryResult = await verifyRepository(projectRoot, runner);
   results.set("repository", repositoryResult.check);
   const { repo, revision } = repositoryResult;
+  repositoryCode = repositoryResult.code;
   if (repositoryResult.check.status !== "passed" || repo === null) {
     for (const id of AUTHORIZATION_CHECK_ORDER.slice(1)) {
       results.set(id, notEvaluated("repository"));

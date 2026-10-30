@@ -4,6 +4,9 @@ import {
   asRecord,
   asString,
   defaultFetch,
+  fetchWithTimeout,
+  GITHUB_REQUEST_TIMEOUT_MS,
+  RequestTimeoutError,
   type FetchLike,
   type FetchResponseLike,
 } from "./fetch.js";
@@ -130,6 +133,8 @@ export interface GitHubClientOptions {
   fetch?: FetchLike;
   baseUrl?: string;
   signal?: AbortSignal;
+  /** Time limit per request; default `GITHUB_REQUEST_TIMEOUT_MS`. */
+  requestTimeoutMs?: number;
 }
 
 const SEGMENT_PATTERN = /^[A-Za-z0-9._-]{1,100}$/;
@@ -207,20 +212,31 @@ export function createGitHubClient(options: GitHubClientOptions): GitHubClient {
    */
   async function send(url: string): Promise<FetchResponseLike> {
     try {
-      return await fetchImpl(url, {
-        method: "GET",
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: `Bearer ${token}`,
-          "X-GitHub-Api-Version": API_VERSION,
-          "User-Agent": "pgard",
+      return await fetchWithTimeout(
+        fetchImpl,
+        url,
+        {
+          method: "GET",
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${token}`,
+            "X-GitHub-Api-Version": API_VERSION,
+            "User-Agent": "pgard",
+          },
+          redirect: "manual",
+          ...(options.signal ? { signal: options.signal } : {}),
         },
-        redirect: "manual",
-        ...(options.signal ? { signal: options.signal } : {}),
-      });
+        options.requestTimeoutMs ?? GITHUB_REQUEST_TIMEOUT_MS,
+      );
     } catch (error) {
       if (options.signal?.aborted) {
         throw new GitHubAuthError("cancelled", "The GitHub request was cancelled.");
+      }
+      if (error instanceof RequestTimeoutError) {
+        throw new GitHubAuthError(
+          "network_error",
+          `The GitHub API did not answer within ${Math.ceil(error.timeoutMs / 1000)} s.`,
+        );
       }
       throw new GitHubAuthError("network_error", "Could not reach the GitHub API.");
     }
