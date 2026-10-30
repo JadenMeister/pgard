@@ -612,7 +612,7 @@ const EN: CliText = {
         ? `${at} belongs to another user. Files another user can change are not scanned. Run it in a project folder you own.`
         : `${at} is writable by its group or by other users. Files another user can change are not scanned. Remove the write permission (for example chmod go-w).`,
     worktreeRedirected:
-      "This repository's settings (core.worktree) point its work tree somewhere other than the folder that holds .git, so the files that would be read are not the repository that was checked. It is not scanned. Remove core.worktree from .git/config.",
+      "Git reports a different work-tree root than the folder that holds .git (usually the core.worktree setting in .git/config), so the files that would be read are not the repository that was checked. It is not scanned. If core.worktree is set, remove it from .git/config",
   },
   panels: {
     title: "PGARD panels",
@@ -1004,7 +1004,7 @@ const KO: CliText = {
         ? `${at} 폴더가 다른 사용자 소유입니다. 다른 사용자가 바꿀 수 있는 파일은 검사하지 않습니다. 본인 소유의 프로젝트 폴더에서 실행하세요.`
         : `${at} 폴더에 그룹 또는 다른 사용자의 쓰기 권한이 있습니다. 다른 사용자가 바꿀 수 있는 파일은 검사하지 않습니다. 쓰기 권한을 제거하세요(예: chmod go-w).`,
     worktreeRedirected:
-      "이 저장소의 설정(core.worktree)이 작업 폴더를 .git이 있는 폴더가 아닌 다른 곳으로 지정합니다. 확인한 저장소와 읽게 될 파일이 달라지므로 검사하지 않습니다. .git/config에서 core.worktree를 지우세요.",
+      "Git이 알려 준 작업 트리 최상위 폴더가 .git이 있는 폴더와 다릅니다(보통 .git/config의 core.worktree 설정 때문입니다). 확인한 저장소와 읽게 될 파일이 달라지므로 검사하지 않습니다. core.worktree가 설정되어 있다면 .git/config에서 지우세요.",
   },
   panels: {
     title: "PGARD 패널",

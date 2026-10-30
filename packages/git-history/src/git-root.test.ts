@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -40,6 +48,24 @@ describe("inspectGitRoot (core.worktree redirect, #427)", () => {
     const linked = path.join(root, "linked");
     expect((await inspectGitRoot(linked, toplevel(linked))).kind).toBe("root");
   });
+
+  it.skipIf(process.platform === "win32")(
+    "accepts a .git that is a symbolic link to a Git directory or to a gitdir file",
+    async () => {
+      const root = scratch();
+      mkdirSync(path.join(root, "sl-gitdir"));
+      mkdirSync(path.join(root, "sl"));
+      symlinkSync("../sl-gitdir", path.join(root, "sl", ".git"));
+      const sl = path.join(root, "sl");
+      expect((await inspectGitRoot(sl, toplevel(sl))).kind).toBe("root");
+      writeFileSync(path.join(root, "gitfile"), "gitdir: /elsewhere\n");
+      mkdirSync(path.join(root, "sl2"));
+      symlinkSync("../gitfile", path.join(root, "sl2", ".git"));
+      const sl2 = path.join(root, "sl2");
+      expect((await inspectGitRoot(sl2, toplevel(sl2))).kind).toBe("root");
+      renameSync(path.join(root, "sl2"), path.join(root, "sl3"));
+    },
+  );
 
   it("refuses a work tree that Git put elsewhere (core.worktree)", async () => {
     const root = scratch();
