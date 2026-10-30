@@ -1670,3 +1670,8 @@ html:not(.js) .tabpanel + .tabpanel {
   :is(.sec-h, .foot h2, .cmd-label, .meta, .more > summary, .nf h1, .card h3, .faq-more h3) {
   font-family: var(--sans);
 }
+
+.gh-icon {
+  display: block;
+  flex: none;
+}
