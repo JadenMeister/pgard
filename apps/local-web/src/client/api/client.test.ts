@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasSessionToken, takeTokenFromLocation } from "./client";
+import { hasInviteToken, hasSessionToken, takeTokenFromLocation } from "./client";
 
 function fakeHistory(replaced: string[]): History {
   return {
@@ -18,7 +18,9 @@ describe("takeTokenFromLocation", () => {
     expect(takeTokenFromLocation(location, fakeHistory(replaced))).toBe(
       "abcdefghijklmnopqrstuvwxyz012345",
     );
-    expect(hasSessionToken()).toBe(true);
+    expect(hasInviteToken()).toBe(true);
+    // The URL token is never used as the session itself.
+    expect(hasSessionToken()).toBe(false);
     expect(replaced).toEqual(["/"]);
   });
 
@@ -33,6 +35,7 @@ describe("takeTokenFromLocation", () => {
       const location = { hash, pathname: "/", search: "" } as Location;
       expect(takeTokenFromLocation(location, fakeHistory(replaced))).toBeNull();
     }
+    expect(hasInviteToken()).toBe(false);
     expect(hasSessionToken()).toBe(false);
     expect(replaced).toEqual(["/", "/", "/", "/"]);
   });

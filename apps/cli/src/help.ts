@@ -16,6 +16,20 @@ const NO_BROWSER_HELP = `  --no-browser             do not open GitHub pages (de
                            In a terminal, PGARD asks you to press Enter
                            before opening a page`;
 
+const LOCAL_PAGE_HELP = `  --no-open                do not open the page in the browser; the full
+                           one-time link is printed instead
+  --print-url              also print the full one-time link after opening it`;
+
+/** How the local page is opened and why the terminal masks its link (#419). */
+const LOCAL_PAGE_TEXT = `The page opens in your default browser (not in CI, without a terminal, over
+SSH or on Linux without a display). The terminal then shows the link with its
+token masked (http://127.0.0.1:PORT/#token=••••); the full link is printed only
+when the browser was not opened, or with --print-url. The link works once, in
+one tab, within 10 minutes: the page trades it for a session that stays in that
+tab (a reload keeps working) and ends after 30 minutes without use. The same
+link opened again, in another tab or from the history, says it was already
+used; run the command again for a new one.`;
+
 const NO_STORE_HELP = `  --no-store               do not keep this scan's result on this computer
                            (same as PGARD_NO_STORE=1); the baseline is then
                            neither read nor applied`;
@@ -98,8 +112,8 @@ Advanced options (pgard <command> --help has the details):
                --port N (web, all)  --code-only (pgard scan, pgard scan code)
   report:      --no-open
   sbom:        --format cyclonedx-json  --output-dir DIR
-  dashboard:   --target-port N
-  web:         --no-store
+  dashboard:   --target-port N  --no-open  --print-url
+  web:         --no-store  --no-open  --print-url
   rules list:  --language <name>
   history clear:     --all  --repo owner/name
   baseline set:      --from-current
@@ -319,10 +333,10 @@ Exit codes:
   130  cancelled
 `,
   dashboard: `Usage:
-  pgard dashboard [--target-port N] [--no-browser]
+  pgard dashboard [--target-port N] [--no-browser] [--no-open] [--print-url]
 
-Starts the local web dashboard on a free 127.0.0.1 port and prints its private
-URL. --target-port pre-selects the local service to check (you still confirm it
+Starts the local web dashboard on a free 127.0.0.1 port and opens it in your
+browser. --target-port pre-selects the local service to check (you still confirm it
 in the browser). The dashboard reuses the GitHub sign-in saved in the OS
 keychain; the token stays in the dashboard server and never reaches the
 browser. Dashboard scans are not stored: their results and the session end when
@@ -331,12 +345,18 @@ The dashboard opens the GitHub sign-in page when a device code is needed
 (unless --no-browser) and shows an install button when the PGARD GitHub App is
 not installed for this repository.
 
+${LOCAL_PAGE_TEXT}
+
+Options:
+${LOCAL_PAGE_HELP}
+${NO_BROWSER_HELP}; it also keeps the dashboard page from opening
+
 ${EXIT_CODE_HELP}`,
   web: `Usage:
-  pgard web [--no-store] [--no-browser]
+  pgard web [--no-store] [--no-browser] [--no-open] [--print-url]
 
-Starts the local web page on a free 127.0.0.1 port and prints its private URL.
-Nothing is asked in the terminal. In the browser:
+Starts the local web page on a free 127.0.0.1 port and opens it in your
+browser. Nothing is asked in the terminal. In the browser:
 
   1. Choose folder opens your system's folder dialog, or paste the folder's path.
      A home, system or .git folder is refused.
@@ -364,10 +384,13 @@ the settings too.
 pgard dashboard stays fixed to the project of the current directory and refuses
 every picker request. pgard web is not available on Windows yet.
 
+${LOCAL_PAGE_TEXT}
+
 Options:
   --no-store               do not read or write the picker's files (recent list,
                            saved search folders)
-${NO_BROWSER_HELP}
+${LOCAL_PAGE_HELP}
+${NO_BROWSER_HELP}; it also keeps the page from opening
 
 ${EXIT_CODE_HELP}`,
   "web scope": `Usage:

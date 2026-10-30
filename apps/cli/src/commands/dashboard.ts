@@ -4,6 +4,22 @@ import { promptConfirm } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
 import { NOT_A_REPOSITORY_MESSAGE } from "./project/verify.js";
 
+/** `--no-open` and `--print-url` of `pgard web` and `pgard dashboard` (#419). */
+export interface LocalPageFlags {
+  noOpen: boolean;
+  printUrl: boolean;
+}
+
+export const NO_LOCAL_PAGE_FLAGS: LocalPageFlags = { noOpen: false, printUrl: false };
+
+/**
+ * The launcher opens the local page in the browser and prints its link with the one-time token
+ * masked; `--no-open` skips opening (the full link is printed), `--print-url` prints it too.
+ */
+export function localPageArgs(flags: LocalPageFlags): string[] {
+  return [...(flags.noOpen ? ["--no-open"] : []), ...(flags.printUrl ? ["--print-url"] : [])];
+}
+
 const DASHBOARD_HELP = `The dashboard runs on 127.0.0.1 only and checks only the project shown here.
 The browser cannot choose another folder. Results end when you stop it.`;
 
@@ -15,6 +31,7 @@ export async function runDashboard(
   context: CommandContext,
   targetPort: number | null,
   noBrowser = false,
+  launch: LocalPageFlags = NO_LOCAL_PAGE_FLAGS,
 ): Promise<ExitCode> {
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
@@ -41,6 +58,7 @@ export async function runDashboard(
   if (targetPort !== null) args.push("--target-port", String(targetPort));
   // The dashboard opens the GitHub sign-in page itself unless told not to.
   if (noBrowser) args.push("--no-browser");
+  args.push(...localPageArgs(launch));
   context.keys?.close();
   // The dashboard process handles Ctrl+C itself; stop our scan-cancel prompt from printing.
   context.releaseInterrupts();

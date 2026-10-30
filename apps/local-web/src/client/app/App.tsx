@@ -318,7 +318,7 @@ export function App({
         {!isReady && <h1 className="page-title">{m.app.title}</h1>}
         {error && (
           <Notice tone="error">
-            {error === "token" ? m.app.errorNoToken : m.app.errorSession}
+            {error === "token" ? m.connection.noLink : m.app.errorSession}
           </Notice>
         )}
         {ruleTextsFailed && ruleTexts === null && language === "ko" && (
@@ -344,7 +344,9 @@ export function App({
         {hasProject && renderView()}
       </main>
       <footer className="page-footer">
-        <div className="wrap">{m.app.footer}</div>
+        <div className="wrap">
+          {m.app.footer(session?.mode === "picker" ? "pgard web" : "pgard dashboard")}
+        </div>
       </footer>
     </>
   );

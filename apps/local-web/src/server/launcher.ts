@@ -9,6 +9,10 @@ export interface LauncherOptions {
   presetTargetPort: number | null;
   /** `--no-browser`: never open GitHub pages automatically (links are still shown). */
   noBrowser: boolean;
+  /** `--no-open`: do not open the local page in the browser (the full link is printed). */
+  noOpen: boolean;
+  /** `--print-url`: print the full one-time link even after opening it. */
+  printUrl: boolean;
   /** `--picker` (`pgard web`): the project is chosen in the browser, from the search scope. */
   picker: boolean;
   /** `--no-store` (picker only): neither the recent list nor the first-run roots are written. */
@@ -37,10 +41,22 @@ export async function parseLauncherArgs(
   let noBrowser = false;
   let picker = false;
   let noStore = false;
+  let noOpen = false;
+  let printUrl = false;
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
     if (name === "--no-browser" && !noBrowser) {
       noBrowser = true;
+      index -= 1;
+      continue;
+    }
+    if (name === "--no-open" && !noOpen) {
+      noOpen = true;
+      index -= 1;
+      continue;
+    }
+    if (name === "--print-url" && !printUrl) {
+      printUrl = true;
       index -= 1;
       continue;
     }
@@ -70,7 +86,15 @@ export async function parseLauncherArgs(
     if (projectRoot !== null || presetTargetPort !== null) {
       throw new LauncherUsageError("--picker takes no project root and no target port.");
     }
-    return { projectRoot: null, presetTargetPort: null, noBrowser, picker: true, noStore };
+    return {
+      projectRoot: null,
+      presetTargetPort: null,
+      noBrowser,
+      noOpen,
+      printUrl,
+      picker: true,
+      noStore,
+    };
   }
   if (noStore) throw new LauncherUsageError("--no-store is only available with --picker.");
   if (projectRoot === null || !path.isAbsolute(projectRoot)) {
@@ -84,5 +108,13 @@ export async function parseLauncherArgs(
   if (resolvedRoot === null || resolvedGitRoot === null || resolvedRoot !== resolvedGitRoot) {
     throw new LauncherUsageError("--project-root must be the root of a Git repository.");
   }
-  return { projectRoot: resolvedRoot, presetTargetPort, noBrowser, picker: false, noStore: false };
+  return {
+    projectRoot: resolvedRoot,
+    presetTargetPort,
+    noBrowser,
+    noOpen,
+    printUrl,
+    picker: false,
+    noStore: false,
+  };
 }

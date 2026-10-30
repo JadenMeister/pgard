@@ -6,6 +6,7 @@ import {
   json,
   send,
   startHarness,
+  SESSION,
   TOKEN,
   type Harness,
   type RawResponse,
@@ -39,7 +40,7 @@ function headersFor(
   method = "POST",
 ): Record<string, string> {
   const headers: Record<string, string | null> = {
-    "x-pgard-token": TOKEN,
+    "x-pgard-session": SESSION,
     ...(method === "POST"
       ? { origin: `http://127.0.0.1:${port}`, "content-type": "application/json" }
       : {}),
@@ -69,8 +70,8 @@ describe("picker routes reuse the existing request checks (design test 1)", () =
         harness = await startHarness();
         const port = harness.server.port;
         const rejected: Array<[string, RawResponse]> = [
-          ["no token", await request(harness, route, { "x-pgard-token": null })],
-          ["wrong token", await request(harness, route, { "x-pgard-token": "nope" })],
+          ["no token", await request(harness, route, { "x-pgard-session": null })],
+          ["wrong token", await request(harness, route, { "x-pgard-session": "nope" })],
           ["localhost host", await request(harness, route, { host: `localhost:${port}` })],
           ["rebound name", await request(harness, route, { host: `evil.example:${port}` })],
           ["foreign origin", await request(harness, route, { origin: "http://evil.example" })],
@@ -147,7 +148,7 @@ describe("picker routes reuse the existing request checks (design test 1)", () =
           [
             "GET /api/picker/scope HTTP/1.1",
             `Host: 127.0.0.1:${port}`,
-            `x-pgard-token: ${TOKEN}`,
+            `x-pgard-session: ${SESSION}`,
             "Connection: Upgrade",
             "Upgrade: websocket",
             "Sec-WebSocket-Version: 13",
