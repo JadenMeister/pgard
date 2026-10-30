@@ -228,6 +228,11 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
   };
   return {
     findGitRoot: async () => "/work/repo",
+    isGitRootRedirected: async () => false,
+    // By default the code-only walk finds what the test's `findGitRoot` says.
+    findRepositoryRoot: (cwd) => (overrides.findGitRoot ?? (async () => "/work/repo"))(cwd),
+    // No user id: the ownership check is skipped unless a test sets one.
+    currentUid: () => undefined,
     verifyProject: async () => ({ summary: ALLOWED, repo: "owner/name", revision: "abc" }),
     runScan: async () => testResult(),
     runCodeOnlyScan: async () => codeOnlyTestResult(),

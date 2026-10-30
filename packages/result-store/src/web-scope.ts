@@ -91,6 +91,70 @@ export function safetyProblemOf(stat: ScopeStat, uid: number | undefined): Safet
   return null;
 }
 
+/**
+ * The web chooser's ownership and permission rule for one chosen folder, for `pgard scan
+ * --code-only` (#427): every folder from the anchor (the home folder when the folder is inside
+ * it, otherwise the highest folder above it that this user owns) down to `target` must be
+ * owned by this user with no group or other write bit, and the folder above the anchor must not
+ * let another user replace it (writable by others without the sticky bit). A folder that cannot
+ * be read is skipped (nothing there can be scanned either). `null` when nothing is wrong.
+ */
+export async function folderSafetyProblem(
+  target: string,
+  home: string | null,
+  uid: number | undefined,
+  lstatOf: (target: string) => Promise<ScopeStat>,
+): Promise<{ problem: SafetyProblem; path: string } | null> {
+  const api = path.posix;
+  let anchor: string;
+  if (home !== null && home !== "" && target.startsWith(`${home}/`)) {
+    anchor = home;
+  } else {
+    anchor = target;
+    for (;;) {
+      const parent = api.dirname(anchor);
+      if (parent === "/" || parent === anchor) break;
+      try {
+        if (uid === undefined || (await lstatOf(parent)).uid !== uid) break;
+      } catch {
+        break;
+      }
+      anchor = parent;
+    }
+  }
+  const above = api.dirname(anchor);
+  if (above !== anchor) {
+    try {
+      const aboveStat = await lstatOf(above);
+      if ((aboveStat.mode & 0o022) !== 0 && (aboveStat.mode & 0o1000) === 0) {
+        return { problem: "group_or_world_writable", path: above };
+      }
+    } catch {
+      // Not readable: nothing can be scanned there either.
+    }
+  }
+  const names = target === anchor ? [] : target.slice(anchor.length + 1).split("/");
+  let current = anchor;
+  const chain: string[] = [];
+  for (const name of names) {
+    current = api.join(current, name);
+    chain.push(current);
+  }
+  // The target itself is always checked, even when it is the anchor.
+  if (chain.length === 0) chain.push(target);
+  for (const entry of chain) {
+    let stat: ScopeStat;
+    try {
+      stat = await lstatOf(entry);
+    } catch {
+      continue;
+    }
+    const problem = safetyProblemOf(stat, uid);
+    if (problem !== null) return { problem, path: entry };
+  }
+  return null;
+}
+
 export type RootRejection =
   | "not_absolute"
   | "missing"

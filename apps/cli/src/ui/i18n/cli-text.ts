@@ -252,6 +252,12 @@ export interface CliText {
     gitDirectory: string;
     /** `pgard scan code` when no home folder is known (HOME empty, no account home). */
     noHome: string;
+    /** A folder on a virtual file system (`/proc`, `/sys`, `/dev`). */
+    virtualFolder: string;
+    /** The folder, or one above it, belongs to another user or is writable by group or others. */
+    unsafeFolder: (problem: "not_owned_by_you" | "group_or_world_writable", at: string) => string;
+    /** Git puts the work tree of this repository elsewhere (`core.worktree`). */
+    worktreeRedirected: string;
   };
   /** Chrome of the full-screen panel view (`pgard scan --panels`). Scan data is not in here. */
   panels: PanelsText;
@@ -599,6 +605,14 @@ const EN: CliText = {
       "This is a Git directory (.git or a bare repository), not a project's files; its config can hold credentials. Run pgard scan --code-only in the project's working folder.",
     noHome:
       "PGARD could not find your home folder (HOME is empty and the account has none), so it cannot check that this folder is not your home folder. Set HOME and run pgard scan --code-only again.",
+    virtualFolder:
+      "This is a folder on a virtual file system (/proc, /sys or /dev), not a project's files. Run pgard scan --code-only inside the project's own folder.",
+    unsafeFolder: (problem, at) =>
+      problem === "not_owned_by_you"
+        ? `${at} belongs to another user. Files another user can change are not scanned. Run it in a project folder you own.`
+        : `${at} is writable by its group or by other users. Files another user can change are not scanned. Remove the write permission (for example chmod go-w).`,
+    worktreeRedirected:
+      "This repository's settings (core.worktree) point its work tree somewhere other than the folder that holds .git, so the files that would be read are not the repository that was checked. It is not scanned. Remove core.worktree from .git/config.",
   },
   panels: {
     title: "PGARD panels",
@@ -983,6 +997,14 @@ const KO: CliText = {
       "Git 디렉터리(.git 또는 bare 저장소)이며 프로젝트 파일이 아닙니다. 그 config에는 자격 증명이 들어 있을 수 있습니다. 프로젝트의 작업 폴더에서 pgard scan --code-only를 실행하세요.",
     noHome:
       "홈 폴더를 찾지 못해(HOME이 비어 있고 계정에도 홈 폴더가 없음) 이 폴더가 홈 폴더가 아닌지 확인할 수 없습니다. HOME을 설정한 뒤 pgard scan --code-only를 다시 실행하세요.",
+    virtualFolder:
+      "가상 파일 시스템(/proc, /sys, /dev)의 폴더이며 프로젝트 파일이 아닙니다. 프로젝트 자체의 폴더에서 pgard scan --code-only를 실행하세요.",
+    unsafeFolder: (problem, at) =>
+      problem === "not_owned_by_you"
+        ? `${at} 폴더가 다른 사용자 소유입니다. 다른 사용자가 바꿀 수 있는 파일은 검사하지 않습니다. 본인 소유의 프로젝트 폴더에서 실행하세요.`
+        : `${at} 폴더에 그룹 또는 다른 사용자의 쓰기 권한이 있습니다. 다른 사용자가 바꿀 수 있는 파일은 검사하지 않습니다. 쓰기 권한을 제거하세요(예: chmod go-w).`,
+    worktreeRedirected:
+      "이 저장소의 설정(core.worktree)이 작업 폴더를 .git이 있는 폴더가 아닌 다른 곳으로 지정합니다. 확인한 저장소와 읽게 될 파일이 달라지므로 검사하지 않습니다. .git/config에서 core.worktree를 지우세요.",
   },
   panels: {
     title: "PGARD 패널",

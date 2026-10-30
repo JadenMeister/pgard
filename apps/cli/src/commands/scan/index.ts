@@ -280,14 +280,14 @@ async function runScanFlow(
    * terminal). A folder that can never be code-only scanned (home, too broad, `.git`) is refused
    * at once instead of offered. `true` when the user answered `y`.
    */
-  const offerCodeOnly = async (gitRoot: string | null): Promise<boolean> => {
+  const offerCodeOnly = async (): Promise<boolean> => {
     // `baseline set --from-current`: the approval guidance above is all it needs.
     if (command.setBaseline === true) return false;
     if (!offersCodeOnly) {
       out(context, context.style.dim(text.codeOnly.blockedHint));
       return false;
     }
-    const refusal = await codeOnlyRefusalMessage(context, gitRoot);
+    const refusal = await codeOnlyRefusalMessage(context);
     if (refusal !== null) {
       err(context, context.errStyle.red(refusal));
       return false;
@@ -304,8 +304,16 @@ async function runScanFlow(
   const projectRoot = await context.deps.findGitRoot(context.io.cwd);
   if (projectRoot === null) {
     // Not a Git repository: the gate cannot pass. Exit 3 unless the user chooses code-only.
-    err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
-    if (await offerCodeOnly(null)) return runCodeOnly("not_a_git_repository");
+    // A repository that redirects its work tree (`core.worktree`) is refused, not "not a
+    // repository": the files Git would show are not the repository that was checked (#427).
+    const isRedirected = await context.deps.isGitRootRedirected(context.io.cwd);
+    if (isRedirected) {
+      err(context, context.errStyle.red(text.codeOnly.worktreeRedirected));
+    } else {
+      err(context, context.errStyle.red(NOT_A_REPOSITORY_MESSAGE));
+    }
+    if (await offerCodeOnly())
+      return runCodeOnly(isRedirected ? "check_failed" : "not_a_git_repository");
     return EXIT_CODES.blocked;
   }
 
@@ -482,7 +490,7 @@ async function runScanFlow(
     result.overallStatus === "blocked" ||
     (result.overallStatus === "failed" && result.scanBasis?.authorization === "not_verified");
   if (isUnauthorized) {
-    if (await offerCodeOnly(projectRoot)) {
+    if (await offerCodeOnly()) {
       return runCodeOnly(codeOnlyReasonAfter(result, scanned.outcome), reportDir !== null);
     }
     finish(result);

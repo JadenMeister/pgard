@@ -41,6 +41,7 @@ The owner chose this policy:
 ### 2.2 What it never does
 
 - It **reads no Git object**: no commit, no tracked-file blob, no index. It does not need `.git` and never runs `git` on the folder's history.
+- It **runs no Git at all to find the project folder** (#427). The CLI finds the repository root by walking up to the nearest `.git` entry (never above the home folder), the same rule as the web chooser. A `git rev-parse --show-toplevel` would follow the folder's own `core.worktree` and read another folder; the authorized scan, which does run hardened `git rev-parse`, refuses a repository whose reported root is not the folder that holds `.git`.
 - It makes **no network connection**:
   - no GitHub API call, no sign-in, no device flow, no keychain read for the scan itself;
   - nothing to the target, and no local port probing;

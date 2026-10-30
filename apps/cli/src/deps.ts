@@ -1,6 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { lstat, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,14 +18,16 @@ import { isPathInsideDirectory, writeReports } from "@pgard/report";
 import {
   createResultStore,
   createWebStorage,
+  repositoryRootOf,
   resolveStoreDirectory,
+  type EntryKind,
   type ResultStore,
   type WebStorage,
 } from "@pgard/result-store";
 import {
   createDeviceFlowSessionProvider,
   createOsCredentialStore,
-  findGitRoot,
+  inspectGitRoot,
   openGitHubUrl,
   recheckOwnerApproval,
   resolveGitExecutable,
@@ -46,7 +48,17 @@ import {
  * be tested without GitHub, Git or real ports. The defaults are the real implementations.
  */
 export interface CliDeps {
+  /**
+   * The Git root of `cwd` (`git rev-parse`); `null` outside a repository, or when the repository
+   * redirects its work tree (`core.worktree`, #427).
+   */
   findGitRoot: (cwd: string) => Promise<string | null>;
+  /** True when `findGitRoot` is `null` because the repository redirects its work tree. */
+  isGitRootRedirected: (cwd: string) => Promise<boolean>;
+  /** The folder with the nearest `.git` entry at or above `cwd`, found without Git; never above `stopAt`. */
+  findRepositoryRoot: (cwd: string, stopAt: string | null) => Promise<string | null>;
+  /** The current user id, or `undefined` where there is none (Windows). */
+  currentUid: () => number | undefined;
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
   /** `pgard scan code` without approval: no gate, no network, nothing stored (#414). */
@@ -253,11 +265,27 @@ export function makeSbomDirDefault(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "pgard-sbom-"));
 }
 
+/** The kind of a path without following a symbolic link, for the shared Git layout checks. */
+export async function entryKindOf(entry: string): Promise<EntryKind> {
+  try {
+    const stat = await lstat(entry);
+    return stat.isFile() ? "file" : stat.isDirectory() ? "directory" : "other";
+  } catch {
+    return null;
+  }
+}
+
 export function createDefaultDeps(): CliDeps {
   // Lazy: the native keychain binding is loaded on first use, not here.
   const credentialStore = createOsCredentialStore();
   return {
-    findGitRoot,
+    findGitRoot: async (cwd) => {
+      const found = await inspectGitRoot(cwd);
+      return found.kind === "root" ? found.root : null;
+    },
+    isGitRootRedirected: async (cwd) => (await inspectGitRoot(cwd)).kind === "redirected",
+    findRepositoryRoot: (cwd, stopAt) => repositoryRootOf(cwd, stopAt, entryKindOf),
+    currentUid: () => process.getuid?.(),
     verifyProject,
     runScan,
     runCodeOnlyScan,
