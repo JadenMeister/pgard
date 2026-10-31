@@ -7,6 +7,7 @@ import {
   hasStringOutsideFont,
   PDF_FONT_RANGES,
   isPdfFontCodePoint,
+  joinHangulSyllables,
   loadPdfFonts,
   resetPdfFontCache,
   toFontText,
@@ -248,5 +249,35 @@ describe("PDF when the font cannot be loaded", () => {
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
     expect(messages[0]).toContain("does not match its pinned checksum");
     expect(pdf.toString("latin1")).toContain("/Helvetica");
+  });
+});
+
+describe("PDF Korean word wrapping", () => {
+  const WORDS = ["규칙이", "있음", "매개변수화된", "쿼리를", "사용하세요", "끝까지", "실행됨"];
+
+  it("puts a word joiner only between two Hangul syllables", () => {
+    expect(joinHangulSyllables("규칙이 있음")).toBe("규⁠칙⁠이 있⁠음");
+    expect(joinHangulSyllables("a규b R-1 가")).toBe("a규b R-1 가");
+    expect(joinHangulSyllables("")).toBe("");
+  });
+
+  it("never splits a Korean word at the right margin and prints no joiner glyph", async () => {
+    const sentence = Array.from({ length: 60 }, (_, i) => WORDS[i % WORDS.length]).join(" ");
+    const pdf = await renderPdfReport(scanResult({ findings: [finding({ impact: sentence })] }), {
+      compress: false,
+    });
+    const all = extractEmbeddedFontText(pdf);
+    const body = all.filter((line) => WORDS.some((word) => line.includes(word)));
+    // The sentence wraps over several lines, and every line holds whole words only.
+    expect(body.length).toBeGreaterThanOrEqual(3);
+    for (const line of body) {
+      for (const part of line.split(" ")) {
+        if (part === "" || part === "Impact:") continue;
+        expect(WORDS).toContain(part);
+      }
+    }
+    const text = all.join("\n");
+    expect(text).not.toContain("⁠");
+    expect(text).not.toContain("?");
   });
 });

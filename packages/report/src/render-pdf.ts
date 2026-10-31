@@ -16,7 +16,13 @@ import {
   severityColor,
   type ReportLanguageOptions,
 } from "./format.js";
-import { hasStringOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
+import {
+  hasStringOutsideFont,
+  hideWordJoiners,
+  joinHangulSyllables,
+  loadPdfFonts,
+  toFontText,
+} from "./pdf-font.js";
 import {
   cweTop25CountsText,
   cweTop25Rows,
@@ -73,7 +79,12 @@ interface PdfStyle {
 }
 
 const LATIN_STYLE: PdfStyle = { regular: "Helvetica", bold: "Helvetica-Bold", text: toPdfText };
-const FONT_STYLE: PdfStyle = { regular: "PgardSans", bold: "PgardSans-Bold", text: toFontText };
+const FONT_STYLE: PdfStyle = {
+  regular: "PgardSans",
+  bold: "PgardSans-Bold",
+  // Syllables of one Korean word stay on one line (see joinHangulSyllables).
+  text: (value) => joinHangulSyllables(toFontText(value)),
+};
 
 function fontFallbackMessage(reason: string): string {
   return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font, so a Korean report is rendered in English.`;
@@ -404,6 +415,7 @@ export function renderPdfReport(
     if (loaded.ok) {
       doc.registerFont(FONT_STYLE.regular, loaded.fonts.regular);
       doc.registerFont(FONT_STYLE.bold, loaded.fonts.bold);
+      hideWordJoiners(doc, [FONT_STYLE.bold, FONT_STYLE.regular]);
     }
     const chunks: Buffer[] = [];
     const drawBanners = (): void => {

@@ -15,7 +15,9 @@ describe("report table layout", () => {
   it("keeps badges, IDs, ranks and scopes on one line", () => {
     const styles = css(html);
     expect(styles).toMatch(/\.nw[^{]*\.pill[^{]*\{[^}]*white-space: nowrap/);
-    expect(styles).toMatch(/td\.token \{[^}]*overflow-wrap: anywhere/);
+    // The <wbr> after the colon is the only break hint of an area name; no cell breaks anywhere.
+    expect(styles).not.toMatch(/td\.token/);
+    expect(styles.match(/^body \{/gm)?.length).toBe(1);
     expect(html).toMatch(/<th class="nw">ID<\/th>/);
     expect(html).toMatch(/<td class="nw"><a href="[^"]*"[^>]*>CWE-/);
     expect(html).toMatch(/<td class="nw"><span class="pill state-rules_ran">/);
@@ -37,7 +39,7 @@ describe("report table layout", () => {
     expect(css(html)).toMatch(/\.table-scroll \{ overflow-x: auto/);
   });
 
-  it("lets a long area name break only after a colon", () => {
+  it("lets a long area name break right after a colon (a <wbr> hint, no break anywhere)", () => {
     const base = scanResultV11();
     const result = {
       ...base,
@@ -45,6 +47,31 @@ describe("report table layout", () => {
     };
     const out = renderHtmlReport(result, EN);
     expect(out).toContain('<td class="token">source:<wbr>javascript</td>');
+  });
+
+  it("uses a fixed table layout in print so long tokens wrap in their cell", () => {
+    const print = css(html).slice(css(html).indexOf("@media print"));
+    expect(print).toMatch(/\btable \{ table-layout: fixed; \}/);
+    expect(print).toContain(".table-scroll tr { break-inside: avoid; }");
+    expect(print).not.toMatch(/^ {2}tr \{ break-inside/m);
+  });
+
+  it("wraps an 80-character token of the authorization reason instead of overflowing", () => {
+    const base = scanResultV11();
+    const result = {
+      ...base,
+      authorization: {
+        ...base.authorization,
+        checks: [
+          { id: "owner_approval" as const, status: "failed" as const, reason: "A".repeat(80) },
+        ],
+      },
+    };
+    const out = renderHtmlReport(result, KO);
+    expect(out).toContain("A".repeat(80));
+    // td keeps break-word, and print lays the table out fixed, so the cell wraps the token.
+    expect(css(out)).toMatch(/th, td \{[^}]*overflow-wrap: break-word/);
+    expect(css(out)).toMatch(/@media print[\s\S]*table \{ table-layout: fixed; \}/);
   });
 
   it("scales print tables down instead of breaking words", () => {
@@ -67,6 +94,20 @@ describe("report table layout", () => {
 });
 
 describe("Korean standards-map reasons", () => {
+  it("still escapes a translated reason that holds markup", () => {
+    const base = scanResultV11();
+    const owasp = base.standardsCoverage!.owasp.map((entry, index) =>
+      index === 0 ? { ...entry, reason: "partial areas: </td><script>alert(1)</script>" } : entry,
+    );
+    const out = renderHtmlReport(
+      { ...base, standardsCoverage: { ...base.standardsCoverage!, owasp } },
+      KO,
+    );
+    expect(out).toContain("일부만 실행된 영역: &lt;/td&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(out).not.toContain("<script>alert");
+    expect(out).not.toContain("</td><script>");
+  });
+
   it("renders the stored reasons in Korean in a KO report and keeps English as is", () => {
     const ko = renderHtmlReport(scanResultV11(), KO);
     expect(ko).toContain("매핑된 규칙이 끝까지 실행됨");
@@ -104,6 +145,16 @@ describe("Korean standards-map reasons", () => {
     expect(ko("rules not in the rule catalog ran (X-1), so the mapping may be incomplete")).toBe(
       "규칙 목록에 없는 규칙이 실행됨 (X-1), 매핑이 불완전할 수 있음",
     );
+  });
+
+  it("tries the whole sentence before splitting it on a semicolon", () => {
+    // The whole sentence is one known shape: its own "; " is not a sentence break.
+    expect(
+      standardReasonText(
+        "rules not in the rule catalog ran (X; Y), so the mapping may be incomplete",
+        "ko",
+      ),
+    ).toBe("규칙 목록에 없는 규칙이 실행됨 (X; Y), 매핑이 불완전할 수 있음");
   });
 
   it("leaves an unknown sentence and the English language untouched", () => {

@@ -95,6 +95,41 @@ export function isPdfFontCodePoint(codePoint: number): boolean {
   return SUPPORTED_RANGES.some(([from, to]) => codePoint >= from && codePoint <= to);
 }
 
+const WORD_JOINER = "⁠";
+const BETWEEN_HANGUL_SYLLABLES = /(?<=[가-힣])(?=[가-힣])/g;
+
+/**
+ * PDFKit may break a line between any two Hangul syllables, so a word is cut at the right margin
+ * ("규칙이 있/음"). A word joiner (U+2060) between two syllables forbids that break and leaves the
+ * spaces as the only break points. The bundled font has no glyph for U+2060 (it would print as a
+ * box), so `hideWordJoiners` makes the font ignore it when it lays out and encodes text.
+ * Apply this after `toFontText`, which would turn U+2060 into "?".
+ */
+export function joinHangulSyllables(text: string): string {
+  return text.replace(BETWEEN_HANGUL_SYLLABLES, WORD_JOINER);
+}
+
+interface LayoutFont {
+  layout: (text: string, ...rest: unknown[]) => unknown;
+}
+
+/**
+ * Makes the registered fonts drop U+2060 before PDFKit lays text out, so it takes no width and
+ * has no glyph, yet the line breaker (which runs on the original text) still honours it.
+ */
+export function hideWordJoiners(doc: PDFKit.PDFDocument, fontNames: readonly string[]): void {
+  for (const name of fontNames) {
+    doc.font(name);
+    const embedded = (doc as unknown as { _font?: { font?: LayoutFont } })._font;
+    const fontkit = embedded?.font;
+    if (fontkit === undefined || typeof fontkit.layout !== "function") {
+      throw new Error("PDFKit font layout hook is not available");
+    }
+    const original = fontkit.layout.bind(fontkit);
+    fontkit.layout = (text, ...rest) => original(text.split(WORD_JOINER).join(""), ...rest);
+  }
+}
+
 /** Replaces control characters and characters outside the bundled font with "?". */
 export function toFontText(value: string): string {
   let out = "";

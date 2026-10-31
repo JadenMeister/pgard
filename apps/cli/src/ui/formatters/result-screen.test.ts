@@ -530,10 +530,11 @@ describe("summary wording and colour", () => {
     ).toBe("+0 new / -0 no longer reported");
   });
 
-  it("puts the scan's English reasons in parentheses in Korean", () => {
+  it("writes the standards reasons in Korean and keeps other scan text in parentheses", () => {
     const ko = formatScanResult(result, plain, options({ locale: "ko" }));
     const line = ko.split("\n").find((entry) => entry.includes("A02 Security")) ?? "";
-    expect(line).toMatch(/\(no mapped rule ran/);
+    expect(line).toContain("실행된 매핑 규칙이 없음 (PG-CONF-001");
+    expect(line).not.toContain("no mapped rule ran");
     const blocked = testResult({ overallStatus: "blocked", authorization: BLOCKED });
     const text = formatScanResult(blocked, plain, options({ locale: "ko" }));
     expect(text).toContain("권한 확인: 차단됨");
