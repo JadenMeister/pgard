@@ -112,6 +112,21 @@ describe("pgard scan in a terminal", () => {
   }, 15_000);
 });
 
+describe("pgard scan --report with --output-dir ~user", () => {
+  it("is refused with the ~/ hint before any scan (exit 2)", async () => {
+    const captured = terminalIo();
+    const runScan = vi.fn(async () => realRepoResult());
+    const code = await main(
+      ["scan", "--format", "json", "--report", "html", "--output-dir", "~bob"],
+      captured.io,
+      { deps: createTestDeps({ runScan }), interrupts: noInterrupts },
+    );
+    expect(code).toBe(2);
+    expect(runScan).not.toHaveBeenCalled();
+    expect(captured.stderr()).toContain("Use ~/ (e.g. ~/Downloads).");
+  });
+});
+
 describe("pgard scan --format json --report html in a terminal", () => {
   it("never opens the panel view, before or after the report is saved", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "pgard-json-html-"));

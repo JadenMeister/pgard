@@ -220,6 +220,14 @@ describe("runReport", () => {
     expect(readIds).toEqual([]);
   });
 
+  it("rejects --output-dir ~user with the ~/ hint (exit 2)", async () => {
+    await save(REPO_ID);
+    const { captured, code } = await report({ ...HTML, outputDir: "~bob/x" });
+    expect(code).toBe(2);
+    expect(captured.stderr()).toContain("Use ~/ (e.g. ~/Downloads).");
+    expect(readIds).toEqual([]);
+  });
+
   it("with --no-open writes the file, prints its path and opens nothing", async () => {
     await save(REPO_ID);
     const { captured, code } = await report({ ...HTML, noOpen: true });
