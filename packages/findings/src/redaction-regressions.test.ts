@@ -6,9 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "./contract.js";
 import { capText, redactEvidence, redactFinding, redactSecrets } from "./redact.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 const join = (...parts: string[]) => parts.join("");
 const GH = join("ghp", "_", "Rg9", "Q".repeat(15), "x7Z", "k".repeat(15));
@@ -116,7 +114,7 @@ describe("redaction regressions", () => {
       redactEvidence("x_password_".repeat(20_000));
       best = Math.min(best, performance.now() - start);
     }
-    expect(best).toBeLessThan(500 * SLOW);
+    expect(best).toBeLessThan(500 * TIME_FACTOR);
   }, 30_000);
 
   it("#59 absolute paths outside the project are masked", () => {

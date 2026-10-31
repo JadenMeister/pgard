@@ -9,6 +9,7 @@ import {
 } from "../../git-history/src/test-support/git-fixture.js";
 import { authorizeProject } from "./authorize-project.js";
 import { sessionProvider } from "./test-support/mock-github.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 function isAlive(pid: number): boolean {
   try {
@@ -59,7 +60,7 @@ describe.skipIf(process.platform === "win32")("abort during authorization", () =
     const started = Date.now();
     controller.abort();
     await outcome;
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(3000 * TIME_FACTOR);
     expect(await waitFor(() => !isAlive(pid))).toBe(true);
   });
 });

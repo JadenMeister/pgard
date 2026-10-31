@@ -36,6 +36,8 @@ npm run corpus:check
 
 `npm run check` runs typecheck, format check and tests together. When you change the packaging, also run `npm run pack:pgard` and `npm run smoke:pack`.
 
+**Timing in tests.** Do not compare a duration with a bare number. Import `TIME_FACTOR` (or `scaled`, `bestTimeOf`) from [`tests/support/timing.ts`](tests/support/timing.ts) and scale the budget with it: the factor is 1 locally, 3 when `CI` is set, and 3 times more on Windows. Set `PGARD_TEST_TIME_FACTOR` to a positive number to override it, for example `PGARD_TEST_TIME_FACTOR=5 npm test` on a busy machine (invalid values are ignored). For a "stays linear" test, time size n against 4n and assert a ratio, and keep the absolute ceiling generous: it is only a hang guard. The vitest test and hook timeouts scale with the same factor.
+
 ## Commits and pull requests
 
 - Use `type(scope): short summary starting with a verb`, for example `fix(policy): reject unverified owner approval`. The scope is the package or app that owns the change (`cli`, `local-web`, `scan-core`, `policy`, `github-auth`, `git-history`, `source-analysis`, `http-local`, `findings`, `report`, `repo`). Keep the subject within 72 characters, and explain why in the body when it is not obvious.

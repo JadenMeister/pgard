@@ -1,7 +1,8 @@
 import { chmodSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { runScan, verifyProject } from "@pgard/scan-core";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it as vitestIt, vi } from "vitest";
+import { scaled } from "../../../../tests/support/timing.js";
 import {
   createMockGitHub,
   ME,
@@ -29,6 +30,10 @@ import {
  * authorization gate and scan engine, with an in-memory GitHub (no real account, no network).
  */
 const AUTHOR = { name: "Me Person", email: "me@example.com" };
+
+/** `it` with every explicit timeout scaled by the shared time factor (3 on CI), so a loaded runner does not time a test out. */
+const it = (name: string, fn: () => Promise<void>, timeout: number) =>
+  vitestIt(name, fn, scaled(timeout));
 
 let tree: ScopeTree;
 let harness: Harness | null = null;
@@ -132,7 +137,7 @@ describe.skipIf(process.platform === "win32")("pgard web end to end", () => {
       .execFileSync("git", ["rev-parse", "HEAD"], {
         cwd: dir,
         encoding: "utf8",
-        timeout: 60_000,
+        timeout: scaled(60_000),
         killSignal: "SIGKILL",
       })
       .trim();

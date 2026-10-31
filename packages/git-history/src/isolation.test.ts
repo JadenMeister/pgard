@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readRepositoryIsolation } from "./isolation.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 describe("readRepositoryIsolation", () => {
   const fixtures: GitFixture[] = [];
@@ -160,7 +161,7 @@ describe("readRepositoryIsolation", () => {
           writeFileSync(path.join(work, ".git"), `gitdir: ${path.join(repo.root, ".git")}\n`);
           const started = Date.now();
           const result = await readRepositoryIsolation(work);
-          expect(Date.now() - started).toBeLessThan(4000);
+          expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
           expect(result.isIsolated).toBe(false);
           expect(!result.isIsolated && result.reason).toMatch(/alternates/);
         } finally {

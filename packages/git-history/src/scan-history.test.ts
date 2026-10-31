@@ -5,9 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { scanGitHistory } from "./scan-history.js";
 import { detectSecrets, isEnvironmentFile } from "./secret-patterns.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 // Fake, runtime-assembled values (nothing secret-looking is committed to this repo).
 const join = (...parts: string[]) => parts.join("");
@@ -557,7 +555,7 @@ describe("detectSecrets", () => {
       // generous so a loaded machine does not fail it; the absolute bound is loose because CI
       // runners are much slower than local machines.
       expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(15_000);
+      expect(large).toBeLessThan(15_000 * TIME_FACTOR);
     }
   }, 120_000);
 
@@ -586,7 +584,7 @@ describe("detectSecrets", () => {
       const start = performance.now();
       detectSecrets(input, { path });
       // Quadratic scanning takes tens of seconds here; linear takes well under a second.
-      expect(performance.now() - start).toBeLessThan(2_000 * SLOW);
+      expect(performance.now() - start).toBeLessThan(2_000 * TIME_FACTOR);
     }
   }, 120_000);
 
@@ -608,7 +606,7 @@ describe("detectSecrets", () => {
       const large = time(line(1_000_000));
       // 4x the input should take roughly 4x the time (16x if quadratic).
       expect(large / Math.max(small, 1)).toBeLessThan(12);
-      expect(large).toBeLessThan(5_000);
+      expect(large).toBeLessThan(5_000 * TIME_FACTOR);
       expect(detectSecrets(line(1_000_000), { path: "big.ts" })).toHaveLength(1);
     }
   }, 60_000);

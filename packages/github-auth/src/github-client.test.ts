@@ -8,6 +8,7 @@ import {
 } from "./env.js";
 import { GITHUB_REQUEST_TIMEOUT_MS, type FetchLike } from "./fetch.js";
 import { createGitHubClient } from "./github-client.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 function jsonResponse(status: number, body: unknown) {
   return { status, ok: status >= 200 && status < 300, json: async () => body };
@@ -520,7 +521,7 @@ describe("a stalled network", () => {
       code: "network_error",
       message: "The GitHub API did not answer within 1 s.",
     });
-    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(Date.now() - started).toBeLessThan(5_000 * TIME_FACTOR);
     expect(seen?.aborted).toBe(true);
   });
 

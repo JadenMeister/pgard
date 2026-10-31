@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { liveWorkerCount, MAX_WORKER_FAILURES } from "./file-worker.js";
 import { scanSourceCode } from "./scan-source.js";
 import { walkSourceTree } from "./walk.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -215,7 +216,7 @@ const hasWorker = existsSync(fileURLToPath(WORKER));
 if (!hasWorker && process.env.CI) throw new Error("dist/analyze-worker.js is missing; build first");
 
 /** Bounds far above the limits under test and far below SLOW_GO's own run time (tens of seconds). */
-const STOPPED_WITHIN_MS = 15_000;
+const STOPPED_WITHIN_MS = 15_000 * TIME_FACTOR;
 
 async function waitFor(condition: () => boolean, ms = 5_000): Promise<boolean> {
   const until = Date.now() + ms;
@@ -299,7 +300,7 @@ describe.skipIf(!hasWorker)("per-file hard limit (worker)", () => {
     // Exits on its own: the stopped worker is terminated and the idle one does not hold it.
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
-    expect(Date.now() - started).toBeLessThan(45_000);
+    expect(Date.now() - started).toBeLessThan(45_000 * TIME_FACTOR);
     const go = JSON.parse(result.stdout) as { status: string; note: string };
     expect(go.status).toBe("partial");
     expect(go.note).toContain('per-file limit of 0.3 s (stopped; not analyzed: "a/slow.go")');

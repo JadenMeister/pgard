@@ -8,9 +8,7 @@ import {
   globProblem,
   matchesEverything,
 } from "./glob.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 const matches = (pattern: string, filePath: string) => globMatches(compileGlob(pattern), filePath);
 
@@ -170,7 +168,7 @@ describe("glob matching is not exponential", () => {
       result = globMatches(glob, `dir/${name}`);
     });
     expect(result).toBe(false);
-    expect(elapsed).toBeLessThan(1500 * SLOW);
+    expect(elapsed).toBeLessThan(1500 * TIME_FACTOR);
   });
 
   it("survives many ** segments against a deep path", () => {
@@ -182,7 +180,7 @@ describe("glob matching is not exponential", () => {
       result = globMatches(glob, deep);
     });
     expect(result).toBe(false);
-    expect(elapsed).toBeLessThan(1500 * SLOW);
+    expect(elapsed).toBeLessThan(1500 * TIME_FACTOR);
   });
 
   it("does work proportional to the path length for a fixed pattern (counted, not timed)", () => {
@@ -217,7 +215,7 @@ describe("glob matching is not exponential", () => {
     console.info(
       `glob benchmark: 200 star-heavy patterns x 10000 files = ${Math.round(elapsed)} ms`,
     );
-    expect(elapsed).toBeLessThan(20_000);
+    expect(elapsed).toBeLessThan(20_000 * TIME_FACTOR);
   }, 60_000);
 
   it("matches 20 000 files against 200 patterns within a few seconds", () => {
@@ -227,7 +225,7 @@ describe("glob matching is not exponential", () => {
     const elapsed = time(() => {
       for (const file of files) matcher.matches(file);
     });
-    expect(elapsed).toBeLessThan(15_000);
+    expect(elapsed).toBeLessThan(15_000 * TIME_FACTOR);
   });
 });
 
@@ -277,7 +275,7 @@ describe("glob prefilter and work budget", () => {
     const elapsed = performance.now() - start;
     console.info(`glob budget: 200 hostile ?-patterns x 10000 paths = ${Math.round(elapsed)} ms`);
     expect(matcher.exhausted).toBe(true);
-    expect(elapsed).toBeLessThan(15_000);
+    expect(elapsed).toBeLessThan(15_000 * TIME_FACTOR);
   }, 60_000);
 
   it("identical patterns are matched once", () => {

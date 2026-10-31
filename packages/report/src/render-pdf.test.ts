@@ -9,9 +9,7 @@ import {
 } from "./format.js";
 import { finding, scanResult } from "./test-fixtures.js";
 import { extractEmbeddedFontText } from "./test-pdf-text.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 const pdfTextLines = extractEmbeddedFontText;
 
@@ -169,7 +167,7 @@ describe("PDF performance", () => {
       }),
     );
     expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
-    expect(Date.now() - startedAt).toBeLessThan(3000 * SLOW);
+    expect(Date.now() - startedAt).toBeLessThan(3000 * TIME_FACTOR);
   });
 });
 
@@ -183,7 +181,7 @@ describe("PDF performance on long metadata", () => {
         findings: [finding({ references: { cwe: [long], owasp: [], cve: [] } })],
       }),
     );
-    expect(Date.now() - startedAt).toBeLessThan(3000 * SLOW);
+    expect(Date.now() - startedAt).toBeLessThan(3000 * TIME_FACTOR);
   });
 });
 

@@ -5,6 +5,7 @@ import { openDirectoryNoFollow, readSmallRegularFileBytes } from "@pgard/git-his
 import { afterEach, describe, expect, it } from "vitest";
 import { runCodeOnlyScan } from "./index.js";
 import { scanWorkingTreeSecrets, WORKING_TREE_SECRETS_AREA } from "./working-tree-secrets.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 // The AWS documentation key with its last letter changed (EXAMPLE itself reads as a placeholder).
 const FAKE_KEY = `${"AKIA"}IOSFODNN7EXAMPLQ`;
@@ -237,7 +238,7 @@ describe("scanWorkingTreeSecrets hardening (#427)", () => {
         fs: { openDirectory: () => never(), readFile: readSmallRegularFileBytes },
       },
     );
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(3000 * TIME_FACTOR);
     expect(output.coverage[0]).toMatchObject({ status: "partial" });
     expect(output.coverage[0]?.note).toContain("stopped at its limit");
   });
@@ -281,7 +282,7 @@ describe("scanWorkingTreeSecrets hardening (#427)", () => {
     );
     setTimeout(() => controller.abort(), 30);
     await expect(running).rejects.toThrow("aborted");
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(3000 * TIME_FACTOR);
   });
 
   it("does not enter a folder on another device, and says so", async () => {

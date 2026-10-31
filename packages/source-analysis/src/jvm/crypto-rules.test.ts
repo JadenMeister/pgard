@@ -7,6 +7,7 @@ import { scanSourceCode } from "../scan-source.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
 import { weakCipherReason, isPasswordWord, isSecretContextName } from "./crypto-names.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -855,7 +856,7 @@ describe("robustness", () => {
     );
     const started = Date.now();
     const findings = await run(source, "A.java");
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(3000 * TIME_FACTOR);
     expect(best(findings, "PG-CRYPTO-002")).toBe("none");
   });
 
@@ -867,7 +868,7 @@ describe("robustness", () => {
     ).join("\n");
     const started = Date.now();
     const findings = await run(java(methods), "A.java");
-    expect(Date.now() - started).toBeLessThan(4000);
+    expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
     expect(findings).toEqual([]);
   });
 

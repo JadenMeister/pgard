@@ -4,6 +4,7 @@ import type { RawSourceFinding } from "../finding-factory.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
 import { pathGuardedWhenFalse, pathGuardedWhenTrue } from "./guards.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -2397,8 +2398,6 @@ describe("the rules in one file", () => {
 
 // ====================================================================== speed
 
-const SLOW = process.platform === "win32" ? 3 : 1;
-
 describe("performance", () => {
   const method = (i: number): string => `
   @GetMapping("/m${i}")
@@ -2429,7 +2428,7 @@ describe("performance", () => {
     const smallStart = performance.now();
     await run(quarter);
     const small = performance.now() - smallStart;
-    expect(large).toBeLessThan(8000 * SLOW);
+    expect(large).toBeLessThan(8000 * TIME_FACTOR);
     expect(large / Math.max(small, 1)).toBeLessThan(12);
     expect(analysis.capped).toBe(true);
   }, 120_000);
@@ -2443,7 +2442,7 @@ describe("performance", () => {
         `void h(String a0, String a1, String a2, String a3, String a4) throws Exception { Files.delete(Paths.get("/srv")${chain}); }`,
       ),
     );
-    expect(performance.now() - started).toBeLessThan(5000 * SLOW);
+    expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
     expect(of(analysis, PATH)).toHaveLength(1);
     expect(of(analysis, PATH)[0]?.cause).toBe("Files.delete");
   }, 60_000);

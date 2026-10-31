@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { RawSourceFinding } from "../finding-factory.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree, analyzeMybatisXml } from "./analyze-jvm.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -1751,9 +1752,6 @@ describe("robustness", () => {
   });
 });
 
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
-
 /** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
 async function bestTimeOf(runs: number, fn: () => Promise<unknown>): Promise<number> {
   let best = Infinity;
@@ -1792,7 +1790,7 @@ describe("performance", () => {
       analysis = await run(full);
     });
     const small = await bestTimeOf(3, () => run(quarter));
-    expect(large).toBeLessThan(6000 * SLOW);
+    expect(large).toBeLessThan(6000 * TIME_FACTOR);
     // Four times the input: linear is about 4x, quadratic about 16x.
     expect(large / Math.max(small, 1)).toBeLessThan(10);
     expect(analysis.findings.length).toBe(25);
@@ -1810,7 +1808,7 @@ describe("performance", () => {
     );
     const started = performance.now();
     const analysis = await run(source);
-    expect(performance.now() - started).toBeLessThan(5000 * SLOW);
+    expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
     expect(analysis.findings).toHaveLength(1);
   }, 60_000);
 
@@ -1824,7 +1822,7 @@ describe("performance", () => {
         `void f(Statement st) throws Exception { String q = "a"; ${open} q += "b"; st.executeQuery(q); ${close} }`,
       ),
     );
-    expect(performance.now() - started).toBeLessThan(3000 * SLOW);
+    expect(performance.now() - started).toBeLessThan(3000 * TIME_FACTOR);
   });
 });
 
@@ -1898,7 +1896,7 @@ describe("MyBatis mapper XML", () => {
     const started = performance.now();
     const analysis = analyzeMybatisXml(mapper(body), "m.xml");
     expect(analysis.findings).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(2000 * SLOW);
+    expect(performance.now() - started).toBeLessThan(2000 * TIME_FACTOR);
   });
 
   it("reads a closing tag with whitespace, a namespaced tag, CDATA that looks like a comment and a > in an attribute", () => {
@@ -1936,7 +1934,7 @@ describe("MyBatis mapper XML", () => {
     const hostile = `<mapper namespace="a">${"<select ".repeat(100_000)}`;
     const started = performance.now();
     analyzeMybatisXml(hostile, "m.xml");
-    expect(performance.now() - started).toBeLessThan(5000 * SLOW);
+    expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
   });
 
   it("the cap keeps the stronger findings", () => {

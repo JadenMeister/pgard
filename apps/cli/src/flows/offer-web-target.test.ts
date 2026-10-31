@@ -13,6 +13,7 @@ import {
 } from "../test-support.js";
 import { UserCancelledError } from "../ui/components/prompts.js";
 import { offerWebTarget, shouldOfferWebTarget } from "./offer-web-target.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 function discovery(...ports: number[]): PortDiscoveryResult {
   return {
@@ -179,7 +180,7 @@ describe("interactive scan offers a detected local web service", () => {
     });
     const started = Date.now();
     expect(await offerWebTarget(t.context, { budgetMs: 60 })).toBe(3000);
-    expect(Date.now() - started).toBeLessThan(1000);
+    expect(Date.now() - started).toBeLessThan(1000 * TIME_FACTOR);
     expect(t.captured.stdout()).toContain("Good");
   });
 

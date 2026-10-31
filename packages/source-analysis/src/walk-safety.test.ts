@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { readTextFile } from "./walk.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 describe("readTextFile never follows a link or waits on a FIFO (#427)", () => {
   const dirs: string[] = [];
@@ -39,6 +40,6 @@ describe("readTextFile never follows a link or waits on a FIFO (#427)", () => {
     execFileSync("mkfifo", [fifo]);
     const started = Date.now();
     expect(await readTextFile(fifo)).toBeNull();
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(2000 * TIME_FACTOR);
   });
 });

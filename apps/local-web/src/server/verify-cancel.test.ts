@@ -20,6 +20,7 @@ import {
   waitFor,
   type Harness,
 } from "./test-support/web-harness.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 /**
  * #377: `project verify` in the dashboard can be cancelled while Git is blocked. The check gets an
@@ -77,7 +78,7 @@ describe.skipIf(process.platform === "win32")(
       const cancelled = await apiPost(harness.server, "/api/auth/cancel", {});
       expect(cancelled.status).toBe(200);
       expect(json(cancelled).status).toBe("idle");
-      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(Date.now() - started).toBeLessThan(3_000 * TIME_FACTOR);
       await waitFor(
         () => isAlive(pid),
         (alive) => !alive,
@@ -102,7 +103,7 @@ describe.skipIf(process.platform === "win32")(
       const started = Date.now();
       await harness.close();
       harness = null;
-      expect(Date.now() - started).toBeLessThan(3_000);
+      expect(Date.now() - started).toBeLessThan(3_000 * TIME_FACTOR);
       await waitFor(
         () => isAlive(pid),
         (alive) => !alive,

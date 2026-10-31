@@ -48,6 +48,7 @@ import {
   userRepository,
   type MockGitHubState,
 } from "../../packages/policy/src/test-support/mock-github.js";
+import { TIME_FACTOR } from "../support/timing.js";
 
 const INSTALL_URL =
   "https://github.com/apps/pgard-jadenmeister/installations/new/permissions?suggested_target_id=1001&repository_ids%5B%5D=555";
@@ -545,7 +546,7 @@ describe("no terminal: fail fast instead of starting the device flow (#296)", ()
       const captured = redirected(fixture?.root ?? "/");
       const started = Date.now();
       const exitCode = await main(argv, captured.io, { deps: run.deps, interrupts: noInterrupts });
-      expect(Date.now() - started).toBeLessThan(1000);
+      expect(Date.now() - started).toBeLessThan(1000 * TIME_FACTOR);
       expect(exitCode).toBe(3);
       // The device flow was never requested, and GitHub was not contacted at all.
       expect(run.deviceCodeRequests()).toBe(0);

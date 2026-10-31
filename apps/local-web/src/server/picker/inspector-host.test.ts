@@ -12,6 +12,7 @@ import {
   type SpawnInspector,
 } from "./inspector-host.js";
 import type { ChildMessage, InspectorJob } from "./protocol.js";
+import { TIME_FACTOR } from "../../../../../tests/support/timing.js";
 
 const job: InspectorJob = {
   kind: "search",
@@ -312,7 +313,7 @@ process.once("message", () => {
       // The child's threadpool is blocked; the dashboard's own fs work still answers fast.
       const started = Date.now();
       await stat(tmpdir());
-      expect(Date.now() - started).toBeLessThan(1_000);
+      expect(Date.now() - started).toBeLessThan(1_000 * TIME_FACTOR);
       expect(isAlive(childPid)).toBe(true);
       expect(isAlive(grandchildPid)).toBe(true);
       expect(await running?.result).toEqual({ status: "killed", reason: "deadline" });

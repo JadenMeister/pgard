@@ -26,9 +26,7 @@ import {
 } from "./language-track.js";
 import { GRAMMAR_SHA256, grammarPath, TREE_SITTER_LANGUAGES } from "./languages.js";
 import { TreeSitterRuntime } from "./runtime.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const roots: string[] = [];
 function project(files: Record<string, string>): string {
@@ -193,14 +191,14 @@ describe("regular expression cost", () => {
       expect(detectMavenFrameworks(input)).toEqual([]);
       expect(detectComposerFrameworks(input)).toBe("invalid_json");
     }
-    expect(Date.now() - startedAt).toBeLessThan(10_000 * SLOW);
+    expect(Date.now() - startedAt).toBeLessThan(10_000 * TIME_FACTOR);
   }, 60_000);
 
   it("handles repeated groupId openers and blanks quickly", () => {
     const startedAt = Date.now();
     expect(detectMavenFrameworks("<groupId>".repeat(100_000) + " ".repeat(500_000))).toEqual([]);
     expect(detectMavenFrameworks("<groupId> ".repeat(100_000))).toEqual([]);
-    expect(Date.now() - startedAt).toBeLessThan(10_000 * SLOW);
+    expect(Date.now() - startedAt).toBeLessThan(10_000 * TIME_FACTOR);
   }, 60_000);
 });
 

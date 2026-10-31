@@ -1,24 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { analyzeVueSource } from "../vue/analyze-vue.js";
 import { analyzeJsSource } from "./analyze-js.js";
+import { TIME_FACTOR, bestTimeOf } from "../../../../tests/support/timing.js";
 
 const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
 const findingsIn = (code: string, path = "src/app.ts") => analyzeJsSource(code, path).findings;
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
-
-/** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
-const bestTimeOf = (runs: number, fn: () => void) => {
-  let best = Infinity;
-  for (let run = 0; run < runs; run += 1) {
-    const start = performance.now();
-    fn();
-    best = Math.min(best, performance.now() - start);
-  }
-  return best;
-};
 
 describe("PG-SQL-001 pg/mysql2", () => {
   it("flags request input interpolated into pool.query", () => {
@@ -191,7 +178,7 @@ describe("PG-XSS jQuery, escape-html, bundled templates and spread props", () =>
     const code = `import esc from "escape-html"; el.innerHTML = \`${parts}\`;`;
     const start = performance.now();
     expect(xss(code)).toHaveLength(1);
-    expect(performance.now() - start).toBeLessThan(1500);
+    expect(performance.now() - start).toBeLessThan(1500 * TIME_FACTOR);
   });
 
   it("does not treat a jQuery or DOM node result as an HTML string", () => {
@@ -1375,7 +1362,7 @@ describe("per-function facts stay linear (#104)", () => {
     ).join("\n");
     const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
     expect(code.length).toBeGreaterThan(400_000);
-    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000 * SLOW);
+    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000 * TIME_FACTOR);
   }, 60_000);
 
   it("still detects MD5 of passwords via update() in the same function", () => {
@@ -1457,7 +1444,7 @@ describe("linear cost and caps (#87)", () => {
       analysis = analyzeJsSource(code, "big.js");
     });
     const small = bestTimeOf(3, () => analyzeJsSource(quarter, "big.js"));
-    expect(large).toBeLessThan(5000 * SLOW);
+    expect(large).toBeLessThan(5000 * TIME_FACTOR);
     // Four times the input: linear is about 4x, quadratic about 16x.
     expect(large / Math.max(small, 1)).toBeLessThan(10);
     expect(analysis.cappedRules).toContain("PG-XSS-001");

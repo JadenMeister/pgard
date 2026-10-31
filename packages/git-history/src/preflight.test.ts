@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { preflightIsolation } from "./isolation.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 const posixOnly = process.platform === "win32";
 
@@ -252,7 +253,7 @@ describe("preflightIsolation", () => {
       const root = layout === "plain" ? fixture.root : gitfileFor(fixture);
       const started = Date.now();
       const result = await preflightIsolation(root);
-      expect(Date.now() - started).toBeLessThan(3000);
+      expect(Date.now() - started).toBeLessThan(3000 * TIME_FACTOR);
       expect(result?.isIsolated).toBe(false);
       expect(result && !result.isIsolated && result.reason).toMatch(reason);
     });

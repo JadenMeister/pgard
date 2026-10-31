@@ -9,6 +9,7 @@ import {
   type GitFixture,
 } from "../../git-history/src/test-support/git-fixture.js";
 import { verifyRepository } from "./checks.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 describe("verifyRepository isolation order", () => {
   let fixture: GitFixture | null = null;
@@ -46,7 +47,7 @@ describe("verifyRepository isolation order", () => {
       };
       const started = Date.now();
       const result = await verifyRepository(fixture.root, runner);
-      expect(Date.now() - started).toBeLessThan(4000);
+      expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
       expect(result.check.status).toBe("failed");
       expect(result.check.reason).toMatch(/alternates/);
       expect(calls).toEqual([]);
@@ -88,7 +89,7 @@ describe("verifyRepository isolation order", () => {
         try {
           const started = Date.now();
           const result = await verifyRepository(root, runner);
-          expect(Date.now() - started).toBeLessThan(4000);
+          expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
           expect(result.check.status).toBe("failed");
           expect(result.check.reason).toMatch(reason);
           expect(calls).toEqual([]);

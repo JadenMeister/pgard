@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- Tests: wall-clock assertions no longer fail on loaded CI runners (one blocked the v0.1.0 release verify). A shared `tests/support/timing.ts` scales every time budget and the vitest timeouts by a factor (1 locally, 3 on CI, 3 times more on Windows, override with `PGARD_TEST_TIME_FACTOR`). Linearity checks still compare two input sizes, so a quadratic regression still fails. (#453)
+
 ## [0.1.0] - 2026-10-31
 
 ### Security

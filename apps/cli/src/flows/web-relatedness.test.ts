@@ -9,6 +9,7 @@ import {
 } from "../test-support.js";
 import { findWebTargets, WEB_OFFER_BUDGET_MS } from "./offer-web-target.js";
 import { selectLocalPort } from "./select-local-port.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const PROJECT: ProjectSignals = {
   folderName: "shop",
@@ -217,7 +218,7 @@ describe("several servers", () => {
       async () => true,
       () => new Promise<never>(() => undefined),
     );
-    expect(Date.now() - started).toBeLessThan(1000);
+    expect(Date.now() - started).toBeLessThan(1000 * TIME_FACTOR);
     expect(targets.map((target) => target.port)).toEqual([3000, 4000, 5173]);
   });
 

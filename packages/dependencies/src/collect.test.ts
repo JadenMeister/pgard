@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { collectDependencies } from "./collect.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 let root: string;
 beforeEach(async () => {
@@ -234,7 +235,7 @@ describe("collectDependencies hostile-repository limits (L5)", () => {
     expect(duplicates).toHaveLength(150);
     expect(duplicates[0]?.note).toContain("Hard link to ");
     expect(result.dependencies).toHaveLength(1);
-    expect(elapsedMs).toBeLessThan(10_000);
+    expect(elapsedMs).toBeLessThan(10_000 * TIME_FACTOR);
   });
 
   it("reads a hard-linked package.json once as well", async () => {
@@ -436,7 +437,7 @@ describe("collectDependencies: pools, hard links across kinds, go.sum, hostile s
     }
     const started = Date.now();
     const result = await collectDependencies(root);
-    expect(Date.now() - started).toBeLessThan(5000);
+    expect(Date.now() - started).toBeLessThan(5000 * TIME_FACTOR);
     expect(result.dependencies).toEqual([]);
   });
 });
