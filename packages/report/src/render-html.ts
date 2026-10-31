@@ -101,6 +101,11 @@ function areaCell(area: string): string {
   return escapeHtml(area).replace(/:/g, ":<wbr>");
 }
 
+/** A comma separated list (rule ids) that may wrap after each comma. */
+function listCell(value: string): string {
+  return escapeHtml(value).replace(/, /g, ", <wbr>");
+}
+
 function renderCoverageRows(coverage: readonly Coverage[], ctx: ReportContext): string {
   if (coverage.length === 0) {
     return `<tr><td colspan="4">${escapeHtml(ctx.t.noCoverage)}</td></tr>`;
@@ -275,13 +280,13 @@ function renderStandardsCoverage(result: ScanResult, ctx: ReportContext): string
   const owasp = owaspRows(result, ctx)
     .map(
       (row) =>
-        `<tr><td class="nw">${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td class="nw"><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td class="token">${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td class="nw">${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td class="nw"><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td>${escapeHtml(row.breadth)}</td><td class="token">${listCell(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   const cwe = cweTop25Rows(result, ctx)
     .map(
       (row) =>
-        `<tr><td class="nw">${escapeHtml(String(row.rank ?? ""))}</td><td class="nw">${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td class="nw"><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td class="token">${escapeHtml(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
+        `<tr><td class="nw">${escapeHtml(String(row.rank ?? ""))}</td><td class="nw">${row.url === "" ? escapeHtml(row.id) : externalLink(row.url, row.id)}</td><td>${escapeHtml(row.title)}</td><td class="nw"><span class="pill state-${escapeHtml(row.state)}">${escapeHtml(row.stateLabel)}</span></td><td class="token">${listCell(row.rules)}</td><td>${escapeHtml(row.reason)}</td></tr>`,
     )
     .join("\n");
   return `<h2>${escapeHtml(t.standardsTitle)}</h2>
@@ -343,9 +348,8 @@ function renderLicense(result: ScanResult, ctx: ReportContext): string {
 const STYLES = `
 :root { color-scheme: light; --fg:#0f172a; --muted:#475569; --line:#e2e8f0; --bg:#ffffff; --panel:#f8fafc; }
 * { box-sizing: border-box; }
-body { margin: 0; padding: 32px 16px; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; color: var(--fg); background: var(--bg); }
+body { margin: 0; padding: 32px 16px; word-break: keep-all; overflow-wrap: break-word; font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; color: var(--fg); background: var(--bg); }
 main { max-width: 1200px; margin: 0 auto; }
-body { word-break: keep-all; overflow-wrap: break-word; }
 h1 { font-size: 24px; margin: 0 0 4px; }
 h2 { font-size: 18px; margin: 32px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
 h3 { font-size: 15px; margin: 6px 0 0; }
@@ -358,8 +362,10 @@ table { width: 100%; border-collapse: collapse; }
 th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; word-break: keep-all; overflow-wrap: break-word; }
 /* Short cells (IDs, ranks, scopes, states, headers) never break; long tokens may break at a safe point. */
 .nw, th.nw, td.nw, .pill, .sev, .new-badge, .status, .confidence { white-space: nowrap; }
-td.token { overflow-wrap: anywhere; }
 .coverage-table, .standards-map, .rulestat-table, .auth-table { min-width: 640px; }
+/* Only the free-text cells (a note, a reason) break anywhere, so a long note cannot widen the table;
+   token and area cells keep their break hints. */
+.coverage-table td:last-child, .standards-map td:last-child, .auth-table td:last-child { overflow-wrap: anywhere; }
 .coverage-table th:nth-child(1) { width: 24%; }
 .coverage-table th:nth-child(2) { width: 10%; }
 .coverage-table th:nth-child(3) { width: 14%; }
@@ -415,7 +421,11 @@ a { color: #1d4ed8; }
   .coverage-table, .standards-map, .rulestat-table, .auth-table { min-width: 0; }
   .standards-map, .coverage-table, .rulestat-table { font-size: 10px; }
   th, td { padding: 4px 5px; }
-  tr { break-inside: avoid; }
+  /* Fixed layout makes the width hints apply and long note and reason tokens wrap inside their
+     cell instead of squeezing the token columns or running off the page. */
+  table { table-layout: fixed; }
+  h2 { break-after: avoid; }
+  .table-scroll tr { break-inside: avoid; }
   .code-only-banner { position: static; margin: 0 0 12px; }
   body > .code-only-banner { display: none; }
   .code-only-frame { display: table; width: 100%; border-collapse: collapse; }

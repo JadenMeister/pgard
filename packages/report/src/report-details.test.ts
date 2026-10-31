@@ -241,7 +241,7 @@ describe("results written by schema 1.0", () => {
       const html = renderHtmlReport(old, { lang, ruleTexts: DETAIL_RULE_TEXTS });
       expect(html).toContain("<!doctype html>");
       expect(html).not.toContain("rule-stats");
-      expect(html).not.toContain('class="standards-map ');
+      expect(html).not.toMatch(/<table class="[^"]*\bstandards-map\b/);
       expect(html).toContain(lang === "en" ? "were not recorded" : "기록되어 있지 않습니다");
     });
   }

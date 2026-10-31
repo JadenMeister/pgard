@@ -25,7 +25,12 @@ import {
   type SuppressionNotice,
   isCodeOnlyResult,
 } from "@pgard/findings";
-import { formatLocation, standardMark, summarizeStatusSplit } from "@pgard/report";
+import {
+  formatLocation,
+  standardMark,
+  standardReasonText,
+  summarizeStatusSplit,
+} from "@pgard/report";
 import { AUTHORIZATION_CHECK_ORDER, AUTHORIZATION_REASON_MAX_LENGTH } from "@pgard/scan-core";
 import { renderChart } from "./charts.js";
 import { fitLines } from "./fit-lines.js";
@@ -537,16 +542,13 @@ export function formatStandardsCoverage(
         ? ""
         : t.standardsBreadth(entry.breadth.cwesWithRules, entry.breadth.cwesInCategory);
     // Rule ids come before the reason, so a long reason is what gets cut, never the rules.
-    const head = entry.state === "no_rules" ? entry.reason : `${breadth}${rules}`;
-    // In Korean the scan's English reason is parenthesised, so the two languages do not run on.
-    const tail =
-      entry.state === "rules_ran" || entry.state === "no_rules"
-        ? ""
-        : t.locale === "en"
-          ? `; ${entry.reason}`
-          : ` ${t.scanText(entry.reason)}`;
-    const detail =
-      entry.state === "no_rules" && t.locale !== "en" ? t.scanText(head) : `${head}${tail}`;
+    const translated = standardReasonText(entry.reason, t.locale);
+    // A reason the report package does not know stays English, so it is parenthesised in Korean.
+    const reason = translated === entry.reason ? t.scanText(entry.reason) : translated;
+    const head = entry.state === "no_rules" ? reason : `${breadth}${rules}`;
+    // In Korean the reason is translated by the report package (an unknown one stays English).
+    const tail = entry.state === "rules_ran" || entry.state === "no_rules" ? "" : `; ${reason}`;
+    const detail = `${head}${tail}`;
     return `  ${colored} ${safeText(entry.id.replace(":2025", ""), 8)} ${safeText(entry.title, 60)} ${style.dim(`- ${safeText(detail, 240)}`)}`;
   });
   lines.push(`  ${t.cweTop25Line(countStandardStates(standards.cweTop25))}`);
