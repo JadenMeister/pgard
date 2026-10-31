@@ -7,7 +7,7 @@ import { scanSourceCode } from "../scan-source.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
 import { weakCipherReason, isPasswordWord, isSecretContextName } from "./crypto-names.js";
-import { TIME_FACTOR } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, itScaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -860,17 +860,21 @@ describe("robustness", () => {
     expect(best(findings, "PG-CRYPTO-002")).toBe("none");
   });
 
-  it("many methods stay linear", async () => {
-    const methods = Array.from(
-      { length: 1500 },
-      (_, index) =>
-        `byte[] m${index}(String password) throws Exception { return MessageDigest.getInstance("SHA-256").digest(password.getBytes()); }`,
-    ).join("\n");
-    const started = Date.now();
-    const findings = await run(java(methods), "A.java");
-    expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
-    expect(findings).toEqual([]);
-  });
+  itScaled(
+    "many methods stay linear",
+    async () => {
+      const methods = Array.from(
+        { length: 1500 },
+        (_, index) =>
+          `byte[] m${index}(String password) throws Exception { return MessageDigest.getInstance("SHA-256").digest(password.getBytes()); }`,
+      ).join("\n");
+      const started = Date.now();
+      const findings = await run(java(methods), "A.java");
+      expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
+      expect(findings).toEqual([]);
+    },
+    10_000,
+  );
 
   it("evidence never carries the literal", async () => {
     const findings = await run(

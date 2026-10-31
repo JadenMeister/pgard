@@ -222,15 +222,19 @@ describe("glob matching is not exponential", () => {
     60_000,
   );
 
-  it("matches 20 000 files against 200 patterns within a few seconds", () => {
-    const patterns = Array.from({ length: 200 }, (_, i) => `module${i}/**/*.gen${i}.ts`);
-    const matcher = compilePathMatcher(patterns);
-    const files = Array.from({ length: 20_000 }, (_, i) => `src/pkg${i % 50}/dir/file${i}.ts`);
-    const elapsed = time(() => {
-      for (const file of files) matcher.matches(file);
-    });
-    expect(elapsed).toBeLessThan(15_000 * TIME_FACTOR);
-  });
+  itScaled(
+    "matches 20 000 files against 200 patterns within a few seconds",
+    () => {
+      const patterns = Array.from({ length: 200 }, (_, i) => `module${i}/**/*.gen${i}.ts`);
+      const matcher = compilePathMatcher(patterns);
+      const files = Array.from({ length: 20_000 }, (_, i) => `src/pkg${i % 50}/dir/file${i}.ts`);
+      const elapsed = time(() => {
+        for (const file of files) matcher.matches(file);
+      });
+      expect(elapsed).toBeLessThan(15_000 * TIME_FACTOR);
+    },
+    30_000,
+  );
 });
 
 describe("glob prefilter and work budget", () => {

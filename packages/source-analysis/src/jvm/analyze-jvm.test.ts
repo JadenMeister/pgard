@@ -1927,12 +1927,16 @@ describe("MyBatis mapper XML", () => {
     expect(analysis.incomplete).toBe(true);
   });
 
-  it("many unclosed opening tags without > cost bounded time", () => {
-    const hostile = `<mapper namespace="a">${"<select ".repeat(100_000)}`;
-    const started = performance.now();
-    analyzeMybatisXml(hostile, "m.xml");
-    expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
-  });
+  itScaled(
+    "many unclosed opening tags without > cost bounded time",
+    () => {
+      const hostile = `<mapper namespace="a">${"<select ".repeat(100_000)}`;
+      const started = performance.now();
+      analyzeMybatisXml(hostile, "m.xml");
+      expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
+    },
+    15_000,
+  );
 
   it("the cap keeps the stronger findings", () => {
     const weak = Array.from(

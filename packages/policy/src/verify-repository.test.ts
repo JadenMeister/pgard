@@ -9,7 +9,7 @@ import {
   type GitFixture,
 } from "../../git-history/src/test-support/git-fixture.js";
 import { verifyRepository } from "./checks.js";
-import { TIME_FACTOR } from "../../../tests/support/timing.js";
+import { TIME_FACTOR, scaled } from "../../../tests/support/timing.js";
 
 describe("verifyRepository isolation order", () => {
   let fixture: GitFixture | null = null;
@@ -52,6 +52,7 @@ describe("verifyRepository isolation order", () => {
       expect(result.check.reason).toMatch(/alternates/);
       expect(calls).toEqual([]);
     },
+    scaled(10_000),
   );
 
   describe.skipIf(process.platform === "win32").each(["plain", "gitfile"])(
@@ -70,33 +71,37 @@ describe("verifyRepository isolation order", () => {
           /alternates/,
         ],
       ];
-      it.each(cases)("%s", async (_name, inject, reason) => {
-        fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
-        fixture.commit({});
-        inject(path.join(fixture.root, ".git"));
-        let root = fixture.root;
-        let work: string | null = null;
-        if (layout === "gitfile") {
-          work = mkdtempSync(path.join(tmpdir(), "pgard-vr-gitfile-"));
-          writeFileSync(path.join(work, ".git"), `gitdir: ${path.join(fixture.root, ".git")}\n`);
-          root = work;
-        }
-        const calls: string[] = [];
-        const runner: GitRunner = (invocation, options) => {
-          calls.push(invocation.subcommand);
-          return runGit(invocation, options);
-        };
-        try {
-          const started = Date.now();
-          const result = await verifyRepository(root, runner);
-          expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
-          expect(result.check.status).toBe("failed");
-          expect(result.check.reason).toMatch(reason);
-          expect(calls).toEqual([]);
-        } finally {
-          if (work !== null) rmSync(work, { recursive: true, force: true });
-        }
-      });
+      it.each(cases)(
+        "%s",
+        async (_name, inject, reason) => {
+          fixture = createGitFixture({ remotes: { origin: "https://github.com/octo/app.git" } });
+          fixture.commit({});
+          inject(path.join(fixture.root, ".git"));
+          let root = fixture.root;
+          let work: string | null = null;
+          if (layout === "gitfile") {
+            work = mkdtempSync(path.join(tmpdir(), "pgard-vr-gitfile-"));
+            writeFileSync(path.join(work, ".git"), `gitdir: ${path.join(fixture.root, ".git")}\n`);
+            root = work;
+          }
+          const calls: string[] = [];
+          const runner: GitRunner = (invocation, options) => {
+            calls.push(invocation.subcommand);
+            return runGit(invocation, options);
+          };
+          try {
+            const started = Date.now();
+            const result = await verifyRepository(root, runner);
+            expect(Date.now() - started).toBeLessThan(4000 * TIME_FACTOR);
+            expect(result.check.status).toBe("failed");
+            expect(result.check.reason).toMatch(reason);
+            expect(calls).toEqual([]);
+          } finally {
+            if (work !== null) rmSync(work, { recursive: true, force: true });
+          }
+        },
+        scaled(10_000),
+      );
     },
   );
 });

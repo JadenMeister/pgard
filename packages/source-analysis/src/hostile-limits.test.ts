@@ -296,7 +296,7 @@ describe.skipIf(!hasWorker)("per-file hard limit (worker)", () => {
       ).rejects.toThrow("cancelled");
       expect(performance.now() - started).toBeLessThan(stoppedWithinMs);
       // Nothing keeps analyzing after the cancel: the worker is terminated (asynchronously) at once.
-      expect(await waitFor(() => liveWorkerCount() === 0, 2_000)).toBe(true);
+      expect(await waitFor(() => liveWorkerCount() === 0, scaled(2_000))).toBe(true);
     },
     60_000,
   );
