@@ -33,7 +33,7 @@
     "provenance": true
   },
   "dependencies": {
-    "@napi-rs/keyring": "2.1.1",
+    "@napi-rs/keyring": "2.1.2",
     "web-tree-sitter": "0.27.1"
   }
 }
