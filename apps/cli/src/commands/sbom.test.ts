@@ -441,6 +441,16 @@ describe("pgard sbom command line", () => {
     expect(() => parseCommandLine(["sbom", "--report", "html"])).toThrow(UsageError);
   });
 
+  it("rejects --output-dir ~user with the hint in Korean (exit 2)", async () => {
+    const captured = createTestIo({ isTTY: false });
+    const code = await main(["sbom", "--output-dir", "~bob", "--lang", "ko"], captured.io, {
+      deps: deps(),
+      interrupts: noInterrupts,
+    });
+    expect(code).toBe(2);
+    expect(captured.stderr()).toContain("~ 바로 뒤에 /를 붙이세요(예: ~/Downloads).");
+  });
+
   it("runs through main() with --lang ko and prints Korean errors", async () => {
     const captured = createTestIo({ isTTY: false });
     const code = await main(
