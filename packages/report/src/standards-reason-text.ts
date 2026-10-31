@@ -25,7 +25,10 @@ const HINT_EN =
 const HINT_KO = ' (검사 대상이 아닌 파일은 pgard.config.json의 "exclude"로 제외할 수 있음)';
 
 const NO_RULE_RAN =
-  /^no mapped rule ran \((.*?): ((?:\S+ (?:scope not selected|areas could not run)(?:, )?)+)\)$/;
+  /^no mapped rule ran \(([^()]*?): ((?:\S+ (?:scope not selected|areas could not run)(?:, )?)+)\)$/;
+
+/** Text up to the next "; " (the separator of two sentences), so a whole-reason match never spans two. */
+const ONE = "((?:(?!; ).)*)";
 
 function segmentKo(segment: string): string {
   if (segment === "no rules") return "규칙 없음";
@@ -42,13 +45,13 @@ function segmentKo(segment: string): string {
       .join(", ");
     return `실행된 매핑 규칙이 없음 (${match[1]}: ${why})`;
   }
-  match = /^partial areas: (.*)$/.exec(segment);
+  match = new RegExp(`^partial areas: ${ONE}$`).exec(segment);
   if (match !== null) return `일부만 실행된 영역: ${match[1]}`;
   match = /^(\S+) rules not run: (scope not selected|areas could not run)$/.exec(segment);
   if (match !== null) return `${match[1]} 규칙 실행 안 됨: ${whyKo(match[2] ?? "")}`;
-  match = /^examined 0 targets: (.*)$/.exec(segment);
+  match = new RegExp(`^examined 0 targets: ${ONE}$`).exec(segment);
   if (match !== null) return `살펴본 대상이 0개: ${match[1]}`;
-  match = /^no completed mapped rule covers (.*)$/.exec(segment);
+  match = new RegExp(`^no completed mapped rule covers ${ONE}$`).exec(segment);
   if (match !== null) {
     let rest = match[1] ?? "";
     let hint = "";
@@ -58,7 +61,7 @@ function segmentKo(segment: string): string {
     }
     return `끝까지 실행된 매핑 규칙이 다루지 못하는 언어: ${languageListKo(rest)}${hint}`;
   }
-  match = /^rules not in the rule catalog ran \((.*)\), so the mapping may be incomplete$/.exec(
+  match = /^rules not in the rule catalog ran \(([^()]*)\), so the mapping may be incomplete$/.exec(
     segment,
   );
   if (match !== null)
@@ -69,5 +72,26 @@ function segmentKo(segment: string): string {
 /** The reason of a standards-map row in the report language (English is returned unchanged). */
 export function standardReasonText(reason: string, lang: string): string {
   if (lang !== "ko") return reason;
-  return reason.split("; ").map(segmentKo).join("; ");
+  // The whole sentence first, so a sentence that itself holds "; " is not cut in the middle.
+  const whole = segmentKo(reason);
+  if (whole !== reason) return whole;
+  return splitSentences(reason).map(segmentKo).join("; ");
+}
+
+/** Splits on "; " outside parentheses, so a parenthesized group stays one unit. */
+function splitSentences(reason: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < reason.length; i += 1) {
+    const char = reason[i];
+    if (char === "(") depth += 1;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if (char === ";" && depth === 0 && reason[i + 1] === " ") {
+      parts.push(reason.slice(start, i));
+      start = i + 2;
+    }
+  }
+  parts.push(reason.slice(start));
+  return parts;
 }

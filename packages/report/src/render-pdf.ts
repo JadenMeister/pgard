@@ -16,7 +16,13 @@ import {
   severityColor,
   type ReportLanguageOptions,
 } from "./format.js";
-import { hasStringOutsideFont, loadPdfFonts, toFontText } from "./pdf-font.js";
+import {
+  hasStringOutsideFont,
+  hideWordJoiners,
+  joinHangulSyllables,
+  loadPdfFonts,
+  toFontText,
+} from "./pdf-font.js";
 import {
   cweTop25CountsText,
   cweTop25Rows,
@@ -73,7 +79,16 @@ interface PdfStyle {
 }
 
 const LATIN_STYLE: PdfStyle = { regular: "Helvetica", bold: "Helvetica-Bold", text: toPdfText };
-const FONT_STYLE: PdfStyle = { regular: "PgardSans", bold: "PgardSans-Bold", text: toFontText };
+const FONT_STYLE: PdfStyle = {
+  regular: "PgardSans",
+  bold: "PgardSans-Bold",
+  text: toFontText,
+};
+/** Same font, with the word joiners that keep Korean words whole at the right margin. */
+const FONT_STYLE_JOINED: PdfStyle = {
+  ...FONT_STYLE,
+  text: (value) => joinHangulSyllables(toFontText(value)),
+};
 
 function fontFallbackMessage(reason: string): string {
   return `The Korean-capable PDF font could not be loaded (${reason}); this PDF uses a built-in Latin-1 font, so a Korean report is rendered in English.`;
@@ -374,7 +389,7 @@ export function renderPdfReport(
   } = {},
 ): Promise<Buffer> {
   const loaded = loadPdfFonts();
-  const style = loaded.ok ? FONT_STYLE : LATIN_STYLE;
+  let style: PdfStyle = loaded.ok ? FONT_STYLE : LATIN_STYLE;
   // Without the Korean-capable font Korean text would print as "?": fall back to English for the
   // fixed words (`ctx.chrome`) and for the texts taken from the rule catalog alike.
   const languageOptions: ReportLanguageOptions = loaded.ok ? options : { ...options, lang: "en" };
@@ -404,6 +419,8 @@ export function renderPdfReport(
     if (loaded.ok) {
       doc.registerFont(FONT_STYLE.regular, loaded.fonts.regular);
       doc.registerFont(FONT_STYLE.bold, loaded.fonts.bold);
+      // Korean words stay whole at the right margin; without the font hook the PDF is still made.
+      if (hideWordJoiners(doc, [FONT_STYLE.bold, FONT_STYLE.regular])) style = FONT_STYLE_JOINED;
     }
     const chunks: Buffer[] = [];
     const drawBanners = (): void => {
