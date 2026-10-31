@@ -12,7 +12,7 @@
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#요구-사항)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#요구-사항)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#알려진-제한-사항)
+[![npm](https://img.shields.io/npm/v/pgard?logo=npm)](https://www.npmjs.com/package/pgard)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#개인정보와-네트워크-통신)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
 
@@ -22,7 +22,7 @@ PGARD(`pgard`)는 검사 권한이 있는 GitHub 프로젝트를 위한 로컬 �
 
 PGARD는 검사할 때마다 저장소 owner가 PGARD를 승인했는지, 사용자가 지금 저장소에 접근할 수 있는지, 사용자가 저장소의 owner이거나 실제로 기여했는지를 확인합니다. 코드와 결과는 사용자 컴퓨터를 벗어나지 않습니다.
 
-PGARD는 활발히 개발 중인 사전 출시(pre-release) 버전입니다. 첫 릴리스(v0.1.0)를 계획하고 있습니다. PGARD는 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
+PGARD는 활발히 개발 중이며 첫 릴리스는 v0.1.0입니다. PGARD는 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
 
 > **현재 상태:** PGARD에는 PGARD GitHub App의 client id가 내장되어 있어 로그인에 별도 설정이 필요 없습니다. 검사하려면 여전히 저장소를 소유한 계정, 즉 본인의 개인 계정이나 본인이 owner인 조직에 App이 설치되어 있어야 합니다([권한 확인 모델](#권한-확인-모델) 참고).
 
@@ -78,16 +78,14 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 
 ## 설치와 빌드
 
-### npm 또는 Homebrew로 설치(첫 릴리스부터)
-
-첫 릴리스(v0.1.0 예정)는 아직 배포되지 않았습니다. 그때까지 npm 이름 `pgard`는 CLI가 없는 자리 표시용 패키지(0.0.1)가 선점하고 있습니다. `npm install -g pgard`는 이 자리 표시용 패키지만 설치하며 `pgard` 명령은 생기지 않습니다. 릴리스 전에는 아래처럼 소스에서 설치하세요. 첫 릴리스 이후에는 다음과 같이 설치합니다.
+### npm 또는 Homebrew로 설치
 
 ```sh
 npm install -g pgard   # `pgard` 명령 설치
 npx pgard doctor       # 설치 없이 한 번 실행
 ```
 
-Homebrew(macOS, Linux)로는 첫 릴리스 이후 다음과 같이 설치합니다.
+Homebrew(macOS, Linux)로는 다음과 같이 설치합니다.
 
 ```sh
 brew tap jadenmeister/pgard   # 처음 한 번
