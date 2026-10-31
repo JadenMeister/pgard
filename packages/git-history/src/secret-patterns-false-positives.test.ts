@@ -152,6 +152,29 @@ describe("code-shaped unquoted values (minified code)", () => {
     expect(scan(`${text}\n`, "src/app.js")).toHaveLength(1);
   });
 
+  it.each([
+    [`foo();${"x".repeat(300)}// db password: ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.js"],
+    [`/* start\n  db password: ${j("Prod.Xk9q", "}m2Lq8")} */\n`, "src/app.js"],
+    [`foo();// db password: ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.js"],
+    [`x = 1#password=${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.py"],
+    [`x = 1#password=${j("Prod.Xk9q", "&&m2Lq8")}\n`, "src/app.py"],
+    [`// don't commit password: ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.js"],
+    [`// config.password: ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.js"],
+    [`# settings.DB_PASSWORD = ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.py"],
+  ])("keeps a dotted-then-bracket comment password in any comment position: %#", (text, path) => {
+    expect(scan(text, path)).toHaveLength(1);
+  });
+
+  it.each([
+    "f({password:e.target.value})",
+    "f(a,password:e.target.value})",
+    "x(t.password==e.pass)||x",
+    "if(e&&t.password==e.pass)||x",
+    "y=a?t.password:e.target.value}",
+  ])("rejects the same shape right after a code token: %s", (code) => {
+    expect(scan(code, "a.js")).toEqual([]);
+  });
+
   it("stays fast on a large doc of example lines", () => {
     const text = 'Set `api_key = "my-secret-key-value"` here.\n'.repeat(25_000);
     const started = performance.now();
