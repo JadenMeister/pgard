@@ -1,4 +1,10 @@
-import { coverageNote, type Coverage, type Finding, type RuleStat } from "@pgard/findings";
+import {
+  PYTHON_OTHER_CATEGORIES_NOTE,
+  coverageNote,
+  type Coverage,
+  type Finding,
+  type RuleStat,
+} from "@pgard/findings";
 import { createSourceFinding } from "../finding-factory.js";
 import { PYTHON_RULE_IDS } from "../rules.js";
 import {
@@ -33,8 +39,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 const METHOD =
   "tree-sitter syntax trees, intra-procedural source-to-sink tracking for SQL injection (PG-SQL-006) and OS command execution (PG-CMD-004); no cross-file data flow";
 
-export const PYTHON_OTHER_CATEGORIES_NOTE =
-  "Python cross-site scripting (Jinja2 |safe, Markup, mark_safe), SSRF, path traversal, cryptography and settings checks (DEBUG, SECRET_KEY, ALLOWED_HOSTS) are not implemented yet, so a clean Python result says nothing about them.";
+export { PYTHON_OTHER_CATEGORIES_NOTE };
 
 const label = (name: string): string => name.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 

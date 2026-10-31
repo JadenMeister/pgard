@@ -58,10 +58,40 @@ const SAMPLES: Record<string, string> = {
     "octocat's membership in acme is pending, not active; an organization owner with an active membership must run the scan.",
   org_not_owner:
     "octocat is not an owner of acme (role: member); an organization owner must run the scan.",
-  contribution_owner_personal:
-    "octocat owns acme/app (verified by GitHub account id); a separate contribution is not required.",
-  contribution_owner_org:
-    'octocat is an owner of the organization "acme"; a separate contribution is not required.',
+  contribution_owner_personal_linked:
+    "octocat owns acme/app (verified by GitHub account id); a separate contribution is not required. Local HEAD is linked to acme/app by commit 0123456789ab.",
+  contribution_owner_org_linked:
+    'octocat is an owner of the organization "acme"; a separate contribution is not required. Local HEAD is linked to acme/app by commit 0123456789ab.',
+  contribution_unlinked:
+    "None of the last 2 local commits is on acme/app's default branch \"main\"; the local code can't be tied to this repository. Push or pull so local history shares a commit with the default branch.",
+  contribution_unqualified_capped:
+    'No qualifying contribution among the 1 commits examined (of 2 local commits). A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required. To qualify, get a pull request merged into "main", or sign your commits (GitHub shows them as Verified) and push them to "main".',
+  contribution_unqualified:
+    'No qualifying contribution found among 2 local commits. A pull request by the signed-in user merged into the default branch, or a signature-verified commit by them in the default branch, is required; author name/email, unmerged PRs, PRs into other branches and local-only commits do not count. To qualify, get a pull request merged into "main", or sign your commits (GitHub shows them as Verified) and push them to "main".',
+  remote_config_rewrite:
+    "The repository config rewrites remote URLs (url.*.insteadOf or url.*.pushInsteadOf), so its GitHub identity can't be confirmed; remove the rewrite and check again.",
+  remote_config_unreadable:
+    "Could not read the Git remote URLs from the repository config; check that .git/config and any included files are readable regular files, then check again.",
+  remote_name_unsupported: "A Git remote has an unsupported name.",
+  org_remote_mismatch:
+    'The Git remote names the organization "Acme", but GitHub reports the owner as "acme". Update the remote to github.com/acme/app so the organization can be verified.',
+  org_installation_account_mismatch:
+    'The PGARD GitHub App installation for the organization "acme" reports the account "other". Owner approval cannot be verified.',
+  membership_org_mismatch:
+    'GitHub returned a membership for the organization "other" instead of "acme". Owner approval cannot be verified.',
+  membership_user_mismatch:
+    'GitHub returned the acme membership of "other" instead of the signed-in user octocat. Owner approval cannot be verified.',
+  membership_state_unexpected:
+    "GitHub reported an unexpected membership state for octocat in acme; an organization owner with an active membership must run the scan.",
+  membership_forbidden:
+    "GitHub refused to show octocat's membership in acme (403): the PGARD GitHub App needs the organization permission Members: Read-only, approved by an owner of acme.",
+  membership_not_found:
+    "GitHub did not return octocat's membership in acme (404): octocat may not be a member, or the PGARD GitHub App cannot read the organization's members. An owner of acme must run the scan, with the App's Members: Read-only permission approved.",
+  membership_rate_limited:
+    "Could not read octocat's membership in acme: the GitHub API rate limit was reached. Try again later.",
+  membership_unexpected_error:
+    "Could not read octocat's membership in acme due to an unexpected error.",
+  api_unexpected_error: "Could not list GitHub App installations due to an unexpected error.",
   contribution_no_commits:
     'No local commits were found to check for a contribution. To qualify, get a pull request merged into "main", or sign your commits (GitHub shows them as Verified) and push them to "main".',
   contribution_in_default_branch_pr:
@@ -133,6 +163,25 @@ describe("authorization reasons", () => {
     });
   });
 
+  it("translates a check id in a reason only from the fixed list, never from a prototype key", () => {
+    for (const id of ["constructor", "__proto__", "toString", "hasOwnProperty"]) {
+      const reason = `Not evaluated because the ${id} check did not pass.`;
+      expect(authorizationReasonText(reason, "ko")).toEqual({ text: reason, translated: false });
+    }
+    expect(
+      authorizationReasonText("Not evaluated because the owner_approval check did not pass.", "ko"),
+    ).toEqual({ text: "소유자 승인 확인이 통과하지 못해 평가하지 않았습니다.", translated: true });
+  });
+
+  it("uses neutral particles after a name that may end in a consonant or a vowel", () => {
+    for (const reason of [
+      'Git repository with remote "origin" -> github.com/acme/app.',
+      'The PGARD GitHub App is installed by the owner account "acme" and includes acme/app.',
+    ]) {
+      expect(authorizationReasonText(reason, "ko").text).toMatch(/이\(가\)/);
+    }
+  });
+
   it("does not rewrite a reason whose name part is not a plain name (no markup)", () => {
     for (const reason of [
       "Signed in to GitHub as <img src=x onerror=alert(1)>.",
@@ -170,7 +219,8 @@ describe("authorization reasons", () => {
         {
           id: "소유자 승인",
           status: "통과",
-          reason: '소유자 계정 "acme"이 PGARD GitHub App을 설치했고 acme/app가 포함되어 있습니다.',
+          reason:
+            '소유자 계정 "acme"이(가) PGARD GitHub App을 설치했고 acme/app이(가) 포함되어 있습니다.',
         },
         { id: "기여", status: "실패", reason: "Something new." },
       ],

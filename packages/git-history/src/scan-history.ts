@@ -4,6 +4,8 @@ import {
   type AnalyzerOutput,
   type Confidence,
   coverageNote,
+  historyRevisionNotFoundText,
+  isNoteLabel,
   type Coverage,
   type RuleStat,
   type Finding,
@@ -748,11 +750,9 @@ async function runHistoryScan(
     const requested12 = (options.revision ?? "").slice(0, 12);
     const note =
       options.revision && options.revision !== "HEAD"
-        ? /^[A-Za-z0-9][A-Za-z0-9 ._+#()/:-]{0,59}$/.test(requested12)
+        ? isNoteLabel(requested12)
           ? coverageNote("history_revision_not_found", { revision: requested12 })
-          : {
-              note: `The revision to scan (${requested12}) was not found in the repository.`,
-            }
+          : { note: historyRevisionNotFoundText(requested12) }
         : coverageNote("history_no_commit");
     return {
       findings: [],
@@ -903,22 +903,19 @@ async function runHistoryScan(
   }
   const headSkips = skipNotes(headRead, maxBlobBytes, "file");
   headProblems.push(...headSkips.problems);
+  const trackedBase = coverageNote("history_tracked_files", {
+    count: headBlobs.length,
+    revision: revision.slice(0, 12),
+  });
   coverage.push({
     area: "history:tracked-files",
     scope: "history",
     status: headProblems.length > 0 ? "partial" : "completed",
     ruleIds: ["PG-SECRET-001", "PG-SECRET-002", "PG-HYGIENE-001"],
-    note: formatNote(
-      `${headBlobs.length} tracked file(s) in commit ${revision.slice(0, 12)}; Git objects only (untracked/ignored files are not read).`,
-      headProblems,
-      headSkips.info,
-    ),
+    note: formatNote(trackedBase.note, headProblems, headSkips.info),
     // Only the plain case has a code; a note that lists problems stays English.
     ...(headProblems.length + headSkips.info.length === 0
-      ? coverageNote("history_tracked_files", {
-          count: headBlobs.length,
-          revision: revision.slice(0, 12),
-        })
+      ? { noteCode: trackedBase.noteCode, noteParams: trackedBase.noteParams }
       : {}),
   });
 
@@ -1209,21 +1206,18 @@ async function runHistoryScan(
     }
   }
   const processedCommits = listed.processedCommits + reusedCommits;
+  const commitsBase = coverageNote("history_commits", {
+    count: processedCommits,
+    revision: revision.slice(0, 12),
+  });
   coverage.push({
     area: "history:commits",
     scope: "history",
     status: historyProblems.length > 0 ? "partial" : "completed",
     ruleIds: ["PG-SECRET-001", "PG-SECRET-003"],
-    note: formatNote(
-      `${processedCommits} commit(s) reachable from ${revision.slice(0, 12)}; branches not merged into it are not scanned.`,
-      historyProblems,
-      historySkips.info,
-    ),
+    note: formatNote(commitsBase.note, historyProblems, historySkips.info),
     ...(historyProblems.length + historySkips.info.length === 0
-      ? coverageNote("history_commits", {
-          count: processedCommits,
-          revision: revision.slice(0, 12),
-        })
+      ? { noteCode: commitsBase.noteCode, noteParams: commitsBase.noteParams }
       : {}),
   });
 

@@ -1,6 +1,6 @@
 import {
   authorizationReasonText,
-  catalogNoteText,
+  coverageNoteTranslation,
   type AuthorizationCheck,
   type Coverage,
 } from "@pgard/findings";
@@ -17,10 +17,9 @@ export function coverageNoteDisplay(
   entry: Pick<Coverage, "note" | "noteCode" | "noteParams">,
   t: CliText,
 ): string | null {
-  if (entry.note === null) return null;
-  const translated =
-    t.locale === "en" ? null : catalogNoteText(entry.noteCode, entry.noteParams, t.locale);
-  return translated === null ? t.scanText(safeText(entry.note, 300)) : safeText(translated, 300);
+  const shown = coverageNoteTranslation(entry, t.locale);
+  if (shown === null) return null;
+  return shown.translated ? safeText(shown.text, 300) : t.scanText(safeText(shown.text, 300));
 }
 
 /** An authorization reason as the terminal shows it: the Korean sentence when it is a fixed one. */

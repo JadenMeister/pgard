@@ -3,12 +3,12 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  COVERAGE_NOTE_CATALOG,
   COVERAGE_NOTE_CODES,
   WALK_STOPPED_PREFIX,
   catalogNoteText,
   coverageNote,
   coverageNoteText,
+  isNoteLabel,
   prefixWalkStopped,
   type NoteParams,
 } from "./coverage-notes.js";
@@ -115,6 +115,13 @@ describe("coverage note catalog", () => {
   });
 
   it("is used by the producers: every emitted code is in the catalog and every code is emitted", () => {
+    // Codes chosen by a ternary of string literals cannot be seen as `coverageNote("code"`; each
+    // is listed with the one file that picks it, and that file must contain the literal.
+    const CHOSEN_BY_TERNARY: Record<string, string> = {
+      heuristics_ran: "scan-source.ts",
+      heuristics_ran_partial: "scan-source.ts",
+      heuristics_not_run: "scan-source.ts",
+    };
     const emitted = new Set<string>();
     for (const file of sourceFiles(PACKAGES)) {
       if (file.endsWith(path.join("findings", "src", "coverage-notes.ts"))) continue;
@@ -122,8 +129,8 @@ describe("coverage note catalog", () => {
       for (const match of text.matchAll(/coverageNote\(\s*"([a-z_]+)"/g)) {
         emitted.add(match[1] as string);
       }
-      for (const code of COVERAGE_NOTE_CODES) {
-        if (text.includes(`"${code}"`)) emitted.add(code);
+      for (const [code, name] of Object.entries(CHOSEN_BY_TERNARY)) {
+        if (file.endsWith(name) && text.includes(`"${code}"`)) emitted.add(code);
       }
     }
     for (const code of emitted) expect(COVERAGE_NOTE_CODES, code).toContain(code);
@@ -131,6 +138,31 @@ describe("coverage note catalog", () => {
     for (const code of COVERAGE_NOTE_CODES) {
       if (code !== "walk_stopped_early") expect([...emitted], code).toContain(code);
     }
+  });
+
+  it("shows a leading entry and the rest of the stored note (the config budget warning)", () => {
+    const budget = catalogNoteText("config_budget_exceeded", {}, "en") as string;
+    const entry = {
+      note: `${budget} pgard.config.json read (version 1): 0 exclude patterns.`,
+      noteCode: "config_budget_exceeded",
+      noteParams: { rest: 1 },
+    };
+    expect(coverageNoteText(entry, "ko")).toBe(
+      `${catalogNoteText("config_budget_exceeded", {}, "ko")} pgard.config.json read (version 1): 0 exclude patterns.`,
+    );
+    // The stored note must really start with the English text, or it is shown as stored.
+    expect(coverageNoteText({ ...entry, note: "Something else entirely." }, "ko")).toBe(
+      "Something else entirely.",
+    );
+    // `rest` is accepted only by a leading entry, and walkStopped never by the prefix entry.
+    expect(catalogNoteText("large_files_skipped", { count: 1, rest: 1 }, "ko")).toBeNull();
+    expect(catalogNoteText("walk_stopped_early", { walkStopped: 1 }, "ko")).toBeNull();
+  });
+
+  it("exports the label check producers use", () => {
+    expect(isNoteLabel("v1.2.3")).toBe(true);
+    expect(isNoteLabel("<b>")).toBe(false);
+    expect(isNoteLabel("")).toBe(false);
   });
 
   it("falls back to the stored text for an unknown code, and for English", () => {
@@ -211,12 +243,6 @@ describe("coverage note catalog", () => {
     const plain: Pick<Coverage, "note" | "noteCode" | "noteParams"> = { note: "Free text." };
     prefixWalkStopped(plain);
     expect(plain).toEqual({ note: `${WALK_STOPPED_PREFIX} Free text.` });
-  });
-
-  it("has an English template for every code that matches a catalog entry shape", () => {
-    for (const code of COVERAGE_NOTE_CODES) {
-      expect(COVERAGE_NOTE_CATALOG[code]).toBeDefined();
-    }
   });
 });
 

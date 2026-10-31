@@ -66,7 +66,7 @@ describe("Korean report: coverage notes and the authorization section (#449)", (
     expect(html).toContain('<td class="nw">소유자 승인</td>');
     expect(html).toContain('<td class="nw">확인 불가</td><td>A reason nobody translated.</td>');
     expect(html).toContain(
-      "소유자 계정 &quot;acme&quot;이 PGARD GitHub App을 설치했고 acme/app가 포함되어 있습니다.",
+      "소유자 계정 &quot;acme&quot;이(가) PGARD GitHub App을 설치했고 acme/app이(가) 포함되어 있습니다.",
     );
     expect(html).not.toContain(">owner_approval<");
     expect(html).not.toContain(">passed<");

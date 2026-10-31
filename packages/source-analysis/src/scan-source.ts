@@ -2,12 +2,12 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   compileGlob,
+  CONFIG_BUDGET_NOTE,
   WALK_STOPPED_PREFIX,
   compilePathMatcher,
   coverageNote,
   isTestOrFixturePath,
   isVendoredPath,
-  languageMethodText as methodNote,
   matchesEverything,
   prefixWalkStopped,
   redactEvidence,
@@ -721,24 +721,24 @@ export async function scanSourceCode(
       );
     if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
     const isPartial = problems.length > 0;
+    // The catalog's English sentence is the base; the problems and reuse sentences follow it.
+    const base =
+      languageStats.files === 0
+        ? coverageNote("language_no_files", { language: label })
+        : coverageNote("language_files", {
+            count: languageStats.files,
+            language: label,
+            method: methodKey,
+          });
     const entry: Coverage = {
       area: `source:${language}`,
       scope: "code",
       status: isPartial ? "partial" : "completed",
       ruleIds: languageStats.files > 0 ? ruleIds : [],
-      note:
-        languageStats.files === 0
-          ? `No ${label} files found.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}`
-          : `${languageStats.files} ${label} file(s); ${methodNote(methodKey)}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}${reusedByLanguage[language] > 0 && options.reuse ? ` ${reusedByLanguage[language]} file(s) reused from scan ${options.reuse.label} (content unchanged).` : ""}`,
+      note: `${base.note}${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}${languageStats.files > 0 && reusedByLanguage[language] > 0 && options.reuse ? ` ${reusedByLanguage[language]} file(s) reused from scan ${options.reuse.label} (content unchanged).` : ""}`,
       // Only the plain case has a code: a note that lists problems or reused files stays English.
       ...(!isPartial && !(reusedByLanguage[language] > 0 && options.reuse)
-        ? languageStats.files === 0
-          ? coverageNote("language_no_files", { language: label })
-          : coverageNote("language_files", {
-              count: languageStats.files,
-              language: label,
-              method: methodKey,
-            })
+        ? { noteCode: base.noteCode, ...(base.noteParams ? { noteParams: base.noteParams } : {}) }
         : {}),
     };
     coverage.push(entry);
@@ -1100,8 +1100,7 @@ export function describeConfigExcluded(
 const BUDGET_WARNING =
   "pattern matching hit its work limit; later files were NOT excluded or reclassified.";
 /** Merged into the `source:config` note by the scan (one entry per area). */
-export const CONFIG_BUDGET_NOTE =
-  "WARNING: the patterns in pgard.config.json exceeded the matching work limit (too many or too expensive patterns). Files after that point were scanned as if no pattern applied to them; simplify the patterns.";
+export { CONFIG_BUDGET_NOTE };
 
 /** At or above this share of production files (and more than MIN files) the config is suspect. */
 export const CONFIG_TEST_SHARE_WARNING = 0.5;

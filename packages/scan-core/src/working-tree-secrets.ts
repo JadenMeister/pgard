@@ -294,7 +294,8 @@ export async function scanWorkingTreeSecrets(
     unreadable.count > 0 ||
     unreadFolders.count > 0 ||
     mounts.count > 0;
-  const parts = [`${filesRead} file(s) on disk checked for secrets.`];
+  const checked = coverageNote("working_tree_files_checked", { count: filesRead });
+  const parts = [checked.note];
   for (const line of [
     large.describe(`file(s) over ${size(limits.fileBytes)} were not read`),
     suspected.describe("file(s) looked binary without a known file format and were not read"),
@@ -330,7 +331,7 @@ export async function scanWorkingTreeSecrets(
         ruleIds: ["PG-SECRET-001", "PG-SECRET-002"],
         note: parts.join(" "),
         ...(parts.length === 1
-          ? coverageNote("working_tree_files_checked", { count: filesRead })
+          ? { noteCode: checked.noteCode, noteParams: checked.noteParams }
           : {}),
       },
     ],

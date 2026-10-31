@@ -10,7 +10,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
-- Korean reports (HTML and PDF), the Korean CLI coverage view and the panel's coverage tab show coverage notes from the catalog when the entry has a known code with valid params, and the stored English text otherwise (a tampered code or params never injects markup: values are validated, and all output is escaped). The authorization section of a Korean report and of `pgard scan` translates the decision (허용됨/차단됨), the check ids (저장소, GitHub 신원, 소유자 승인, 현재 접근 권한, 기여) and the statuses (통과/실패/확인 불가), and the fixed reasons of the policy; a reason with no Korean text stays English. The dashboard's coverage table and authorization reasons use the same helpers. English output is unchanged.
+- Korean reports (HTML and PDF), the Korean CLI coverage view and the panel's coverage tab show coverage notes from the catalog when the entry has a known code with valid params, and the stored English text otherwise (a tampered code or params never injects markup: values are validated, and all output is escaped). The authorization section of a Korean report and of `pgard scan` translates the decision (허용됨/차단됨), the check ids (저장소, GitHub 신원, 소유자 승인, 현재 접근 권한, 기여) and the statuses (통과/실패/확인 불가), and the fixed reasons of the policy; a reason with no Korean text stays English. The dashboard's coverage table and authorization reasons use the same helpers. The Korean check names now come from one list in `@pgard/findings`, so the CLI changes two labels (`GitHub 계정` becomes `GitHub 신원`, `기여 이력` becomes `기여`) and the dashboard uses the same five names. English output is unchanged.
 
 ### Fixed
 

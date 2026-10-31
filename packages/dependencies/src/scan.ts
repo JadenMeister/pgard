@@ -3,6 +3,7 @@ import {
   redactEvidence,
   redactLocationPath,
   UNSAFE_DISPLAY_CHARACTERS,
+  UPDATE_HINT,
   coverageNote,
   type CoverageNoteCode,
   type Confidence,
@@ -26,7 +27,7 @@ import type {
   LockfileKind,
 } from "./types.js";
 
-export const UPDATE_HINT = "Run `pgard advisories update` to download the OSV data.";
+export { UPDATE_HINT };
 
 export interface ScanDependenciesOptions {
   /** The per-user data directory (advisory data is read from `<dir>/advisories/osv`). */

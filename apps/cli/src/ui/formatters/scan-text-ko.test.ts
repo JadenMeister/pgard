@@ -65,7 +65,7 @@ describe("Korean CLI coverage view and authorization (#449)", () => {
       KO,
     );
     expect(text).toContain(
-      '[통과] 저장소: Git 저장소이며 원격 "origin"이 github.com/acme/app를 가리킵니다.',
+      '[통과] 저장소: Git 저장소입니다. 원격 "origin"이(가) github.com/acme/app을(를) 가리킵니다.',
     );
     expect(text).toContain("[통과] 소유자 승인 (Owner approved)");
     expect(text).toContain("[실패] 기여 (Signed in to GitHub as <b>x</b>.)");

@@ -399,13 +399,12 @@ async function executeScan(
     },
     // Notes can come from any analyzer (including the injected web scanner): redact them
     // exactly like evidence.
-    coverage: fields.coverage.map((entry) => ({
-      ...entry,
-      note:
-        entry.note === null
-          ? null
-          : redactEvidence(entry.note, { projectRoot: request.projectRoot }),
-    })),
+    coverage: fields.coverage.map((entry) => {
+      if (entry.note === null) return entry;
+      const note = redactEvidence(entry.note, { projectRoot: request.projectRoot });
+      // A redacted note no longer matches the catalog's text, so it keeps English only.
+      return note === entry.note ? entry : { ...withoutNoteCode(entry), note };
+    }),
     findings: sortFindings(mergeFindings(fields.findings)),
     advisoryDb: { ...NO_ADVISORY_DB },
     ...(fields.suppressions ? { suppressions: fields.suppressions } : {}),
@@ -641,7 +640,14 @@ async function executeScan(
       configBudgetWarning,
       suppressed.summary,
     );
-    if (configCoverage !== null) coverage[configIndex] = configCoverage;
+    if (configCoverage !== null) {
+      // The budget warning leads the rebuilt note: keep its code, the rest of the note follows it.
+      coverage[configIndex] =
+        configBudgetWarning === CONFIG_BUDGET_NOTE &&
+        configCoverage.note?.startsWith(`${CONFIG_BUDGET_NOTE} `) === true
+          ? { ...configCoverage, noteCode: "config_budget_exceeded", noteParams: { rest: 1 } }
+          : configCoverage;
+    }
   }
 
   const incremental = plan === null ? null : describeIncremental(plan, outputs);

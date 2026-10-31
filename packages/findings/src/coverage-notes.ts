@@ -37,13 +37,25 @@ const MAX_COUNT = 1_000_000_000;
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9 ._+#()/:-]{0,59}$/;
 const HEX = /^[0-9a-f]{1,64}$/;
 
+/** True for a short plain label (a language, library or ecosystem name, a date, a revision). */
+export function isNoteLabel(value: string): boolean {
+  return LABEL.test(value);
+}
+
 /** Set on a note that an early-stopped directory walk prefixed; see `WALK_STOPPED_PREFIX`. */
 const WALK_STOPPED_PARAM = "walkStopped";
+/** Set on a `leading` entry whose stored note continues after the catalog's English text. */
+const REST_PARAM = "rest";
 
 type Values<S extends Record<string, ParamSpec>> = { [K in keyof S]: NoteParamValue };
 
 interface CatalogEntry {
   params: Record<string, ParamSpec>;
+  /**
+   * The English text may be followed by more stored English (a note built around it). The entry
+   * then accepts `rest: 1`, and a frontend shows the catalog text followed by that remainder.
+   */
+  leading?: true;
   en: (p: Record<string, NoteParamValue>) => string;
   ko: (p: Record<string, NoteParamValue>) => string;
 }
@@ -54,6 +66,14 @@ function entry<S extends Record<string, ParamSpec>>(
   ko: (p: Values<S>) => string,
 ): CatalogEntry {
   return { params, en, ko } as unknown as CatalogEntry;
+}
+
+function leading(
+  params: Record<string, ParamSpec>,
+  en: (p: Record<string, NoteParamValue>) => string,
+  ko: (p: Record<string, NoteParamValue>) => string,
+): CatalogEntry {
+  return { ...entry(params, en, ko), leading: true };
 }
 
 const none = {} as const;
@@ -79,8 +99,25 @@ const methodEn = (key: NoteParamValue): string =>
 const methodKo = (key: NoteParamValue): string =>
   LANGUAGE_METHODS_KO[key as keyof typeof LANGUAGE_METHODS_KO];
 
-/** The English update hint of the dependency check (the same text the producer stores). */
-const UPDATE_HINT_EN = "Run `pgard advisories update` to download the OSV data.";
+/**
+ * English texts that producers also use on their own. They live here so each sentence exists in
+ * one place: a producer imports the constant (or builds the note with `coverageNote`).
+ */
+export const UPDATE_HINT = "Run `pgard advisories update` to download the OSV data.";
+export const AUTHENTICATED_NOT_AVAILABLE_NOTE =
+  "authenticated browsing is not available in this MVP";
+export const CONFIG_BUDGET_NOTE =
+  "WARNING: the patterns in pgard.config.json exceeded the matching work limit (too many or too expensive patterns). Files after that point were scanned as if no pattern applied to them; simplify the patterns.";
+export const PYTHON_OTHER_CATEGORIES_NOTE =
+  "Python cross-site scripting (Jinja2 |safe, Markup, mark_safe), SSRF, path traversal, cryptography and settings checks (DEBUG, SECRET_KEY, ALLOWED_HOSTS) are not implemented yet, so a clean Python result says nothing about them.";
+export const WEB_HSTS_NOTE = "HSTS is not applicable to plain-http loopback and was not checked";
+export const WEB_GET_SIDE_EFFECT_NOTE = "GET requests can still change state in some apps";
+/** The lead of the web crawl note; the gaps or the two fixed remarks follow it. */
+/** The note when the revision to scan does not exist (also used for a name that is no label). */
+export const historyRevisionNotFoundText = (revision: NoteParamValue): string =>
+  `The revision to scan (${revision}) was not found in the repository.`;
+export const webPagesCheckedLead = (pages: NoteParamValue): string => `${pages} page(s) checked.`;
+const UPDATE_HINT_EN = UPDATE_HINT;
 const UPDATE_HINT_KO = "`pgard advisories update`를 실행해 OSV 데이터를 내려받으세요.";
 
 /** English line that leads every note of an area the directory walk left incomplete. */
@@ -181,10 +218,9 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
       `${p.count} director${plural(p.count, "y", "ies")} could not be read, so files below ${plural(p.count, "it were", "them were")} not analyzed (set ${p.set}).`,
     (p) => `디렉터리 ${p.count}개를 읽지 못해 그 아래 파일은 분석하지 못했습니다(집합 ${p.set}).`,
   ),
-  config_budget_exceeded: entry(
+  config_budget_exceeded: leading(
     none,
-    () =>
-      "WARNING: the patterns in pgard.config.json exceeded the matching work limit (too many or too expensive patterns). Files after that point were scanned as if no pattern applied to them; simplify the patterns.",
+    () => CONFIG_BUDGET_NOTE,
     () =>
       "경고: pgard.config.json의 패턴이 매칭 작업 한도를 넘었습니다(패턴이 너무 많거나 비쌉니다). 그 뒤의 파일은 패턴이 적용되지 않은 것처럼 검사했으니 패턴을 단순하게 줄이세요.",
   ),
@@ -193,7 +229,7 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
     (p) =>
       `${p.library} detected; raw query analysis for ${p.library} is not supported, so its queries were not evaluated (not a safe result).`,
     (p) =>
-      `${p.library}를 감지했습니다. ${p.library}의 원시 쿼리 분석은 지원하지 않아 쿼리를 평가하지 않았습니다(안전하다는 결과가 아닙니다).`,
+      `${p.library}을(를) 감지했습니다. ${p.library}의 원시 쿼리 분석은 지원하지 않아 쿼리를 평가하지 않았습니다(안전하다는 결과가 아닙니다).`,
   ),
   language_files: entry(
     { count: "count", language: "label", method: METHOD_KEYS },
@@ -238,8 +274,7 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
   ),
   python_other_categories: entry(
     none,
-    () =>
-      "Python cross-site scripting (Jinja2 |safe, Markup, mark_safe), SSRF, path traversal, cryptography and settings checks (DEBUG, SECRET_KEY, ALLOWED_HOSTS) are not implemented yet, so a clean Python result says nothing about them.",
+    () => PYTHON_OTHER_CATEGORIES_NOTE,
     () =>
       "Python의 교차 사이트 스크립팅(Jinja2 |safe, Markup, mark_safe), SSRF, 경로 탐색, 암호화, 설정 검사(DEBUG, SECRET_KEY, ALLOWED_HOSTS)는 아직 구현되지 않았으므로, Python에서 아무것도 나오지 않았다는 결과는 이 항목들에 대해 아무것도 말해 주지 않습니다.",
   ),
@@ -248,14 +283,14 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
     (p) =>
       `${p.library} detected in ${p.count} Python file(s); its raw SQL APIs are not supported, so queries made through them were not evaluated (not a safe result).`,
     (p) =>
-      `Python 파일 ${p.count}개에서 ${p.library}를 감지했습니다. 원시 SQL API는 지원하지 않아 이를 통한 쿼리는 평가하지 않았습니다(안전하다는 결과가 아닙니다).`,
+      `Python 파일 ${p.count}개에서 ${p.library}을(를) 감지했습니다. 원시 SQL API는 지원하지 않아 이를 통한 쿼리는 평가하지 않았습니다(안전하다는 결과가 아닙니다).`,
   ),
   python_process_unsupported: entry(
     { library: "label", count: "count" },
     (p) =>
       `${p.library} detected in ${p.count} Python file(s); its process-running APIs are not supported, so commands run through it were not evaluated (not a safe result).`,
     (p) =>
-      `Python 파일 ${p.count}개에서 ${p.library}를 감지했습니다. 프로세스 실행 API는 지원하지 않아 이를 통해 실행한 명령은 평가하지 않았습니다(안전하다는 결과가 아닙니다).`,
+      `Python 파일 ${p.count}개에서 ${p.library}을(를) 감지했습니다. 프로세스 실행 API는 지원하지 않아 이를 통해 실행한 명령은 평가하지 않았습니다(안전하다는 결과가 아닙니다).`,
   ),
 
   // git-history
@@ -266,7 +301,7 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
   ),
   history_revision_not_found: entry(
     { revision: "label" },
-    (p) => `The revision to scan (${p.revision}) was not found in the repository.`,
+    (p) => historyRevisionNotFoundText(p.revision),
     (p) => `검사할 리비전(${p.revision})을 저장소에서 찾지 못했습니다.`,
   ),
   history_tracked_files: entry(
@@ -287,13 +322,12 @@ export const COVERAGE_NOTE_CATALOG: Readonly<Record<string, CatalogEntry>> = {
   // http-local
   web_authenticated_unavailable: entry(
     none,
-    () => "authenticated browsing is not available in this MVP",
+    () => AUTHENTICATED_NOT_AVAILABLE_NOTE,
     () => "로그인한 상태의 탐색은 이 MVP에서 지원하지 않습니다",
   ),
   web_pages_checked: entry(
     { pages: "count" },
-    (p) =>
-      `${p.pages} page(s) checked. HSTS is not applicable to plain-http loopback and was not checked; GET requests can still change state in some apps.`,
+    (p) => `${webPagesCheckedLead(p.pages)} ${WEB_HSTS_NOTE}; ${WEB_GET_SIDE_EFFECT_NOTE}.`,
     (p) =>
       `페이지 ${p.pages}개를 확인했습니다. HSTS는 평문 http 루프백에는 해당하지 않아 확인하지 않았고, 일부 앱에서는 GET 요청도 상태를 바꿀 수 있습니다.`,
   ),
@@ -368,7 +402,13 @@ function validatedParams(
   const clean: Record<string, NoteParamValue> = {};
   for (const key of Object.keys(given)) {
     if (key === WALK_STOPPED_PARAM) {
-      if (given[key] !== 1) return null;
+      // The prefix entry is the walk-stopped sentence: it cannot be prefixed by itself.
+      if (given[key] !== 1 || spec === COVERAGE_NOTE_CATALOG["walk_stopped_early"]) return null;
+      clean[key] = 1;
+      continue;
+    }
+    if (key === REST_PARAM) {
+      if (given[key] !== 1 || spec.leading !== true) return null;
       clean[key] = 1;
       continue;
     }
@@ -405,19 +445,35 @@ export function catalogNoteText(
   return `${prefix} ${body}`;
 }
 
+type NoteEntry = { note: string | null; noteCode?: string | undefined; noteParams?: unknown };
+
 /**
- * The note of a coverage entry as a frontend should show it. English always shows the stored
- * text (it is what the analyzer wrote). Another language shows the catalog text when the entry
- * carries a known code with valid params, and the stored text otherwise (an old result, an
- * unknown code, tampered params). Returns `null` when the entry has no note.
+ * The note of a coverage entry and whether it came from the catalog. English always shows the
+ * stored text (it is what the analyzer wrote). Another language shows the catalog text when the
+ * entry carries a known code with valid params, and the stored text otherwise (an old result, an
+ * unknown code, tampered params). A `leading` entry (`rest: 1`) shows the catalog text and then
+ * the rest of the stored note, only when the stored note really starts with the catalog's English
+ * text. `null` when the entry has no note.
  */
-export function coverageNoteText(
-  entry: { note: string | null; noteCode?: string | undefined; noteParams?: unknown },
+export function coverageNoteTranslation(
+  entry: NoteEntry,
   language: NoteLanguage,
-): string | null {
+): { text: string; translated: boolean } | null {
   if (entry.note === null) return null;
-  if (language === "en") return entry.note;
-  return catalogNoteText(entry.noteCode, entry.noteParams, language) ?? entry.note;
+  const stored = { text: entry.note, translated: false };
+  if (language === "en") return stored;
+  const text = catalogNoteText(entry.noteCode, entry.noteParams, language);
+  if (text === null) return stored;
+  const params = entry.noteParams as Record<string, unknown> | undefined;
+  if (params?.[REST_PARAM] !== 1) return { text, translated: true };
+  const english = catalogNoteText(entry.noteCode, entry.noteParams, "en");
+  if (english === null || !entry.note.startsWith(`${english} `)) return stored;
+  return { text: `${text} ${entry.note.slice(english.length + 1)}`, translated: true };
+}
+
+/** `coverageNoteTranslation`'s text: what a frontend shows as the note, or `null`. */
+export function coverageNoteText(entry: NoteEntry, language: NoteLanguage): string | null {
+  return coverageNoteTranslation(entry, language)?.text ?? null;
 }
 
 /**
