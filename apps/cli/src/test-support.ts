@@ -233,6 +233,7 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     findRepositoryRoot: (cwd) => (overrides.findGitRoot ?? (async () => "/work/repo"))(cwd),
     // No user id: the ownership check is skipped unless a test sets one.
     currentUid: () => undefined,
+    currentGid: () => undefined,
     verifyProject: async () => ({ summary: ALLOWED, repo: "owner/name", revision: "abc" }),
     runScan: async () => testResult(),
     runCodeOnlyScan: async () => codeOnlyTestResult(),
