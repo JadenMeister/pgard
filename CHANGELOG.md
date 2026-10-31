@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- `PG-SECRET-002` no longer drops a comment password made of a dotted identifier followed by `)`, `}`, `]`, `||` or `&&` (`Prod.Xk9q)m2Lq8`) in four positions (#451): a comment marker more than 200 characters before the key, a `/* */` line without a leading `*`, a `//` with no space before it and a Python `#` with no space before it. The code-shaped rejection no longer searches for a comment marker; it asks what directly precedes the key and rejects only after a code token (`{password:`, `,password:`, `(password:`, `t.password==`, no space), as in minified bundles. The comment-marker search and its window are removed. Known gap: a comment with a comma and a space right before the key (`// don't commit, password: Prod.Xk9q)m2Lq8`) is still missed. The apostrophe is not the cause (the same line without it is missed too): `, ` before the key reads as a call argument, and telling that from prose needs comment detection that cannot be made reliable. `// don't commit password: …` is reported.
+
 ## [0.1.0] - 2026-10-31
 
 ### Security

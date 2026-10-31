@@ -209,8 +209,9 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
 /**
  * An unquoted value in source code, outside a string, that is the rest of an expression: it
  * starts with `=` (`==e.pass`), or a dotted member access runs into `)`, `}`, `]`, `||` or `&&`
- * (`e.target.value})`, `e.pass)||`). A password with a bracket in a comment (`// password: Xk9)m2`)
- * has no dotted access before the bracket and is kept.
+ * (`e.target.value})`, `e.pass)||`). Such a value is rejected only when the key directly follows
+ * a code token (see `followsCodeToken`). Comment prose puts a space or a word before the key
+ * (`// db password: Xk9)m2`), so a password in a comment is kept wherever the comment starts.
  */
 const UNQUOTED_CODE_VALUE = /^=|^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:[)}\]]|\|\||&&)/;
 /**
@@ -226,27 +227,14 @@ function lineBefore(text: string, index: number, window: number) {
 }
 
 /**
- * Whether the match sits in a comment: a `//` or `/*` marker (not inside a string, and for `/*`
- * not already closed), a leading `*` of a block comment, or a `#` that starts the line (in
- * JavaScript-like files) or follows whitespace (in other source files; `#private` fields are no
- * comments). Only the 200 characters before the match are read.
+ * Whether a key sits directly after a code token: `{password:`, `,password:`, `(password:`, or a
+ * member access (`t.password==`, the `.` is part of the key text). Minified code has no space
+ * there; comment prose has a space or a word before the key. Reads one character, never scans back.
  */
-function isInComment(context: DetectContext, index: number): boolean {
-  const { start, known, before } = lineBefore(context.text, index, CODE_WINDOW);
-  if (known && /^\s*\*/.test(before)) return true;
-  for (const marker of before.matchAll(/\/\/|\/\*|#/g)) {
-    const at = marker.index;
-    if (at > 0 && !/\s/.test(before.charAt(at - 1))) continue;
-    if (at === 0 && !known) continue;
-    if (context.stringStartAt(start + at) !== -1) continue;
-    if (marker[0] === "/*") {
-      if (before.indexOf("*/", at + 2) === -1) return true;
-    } else if (marker[0] === "#") {
-      const startsLine = known && before.slice(0, at).trim() === "";
-      if (startsLine || !context.isJs) return true;
-    } else return true;
-  }
-  return false;
+function followsCodeToken(text: string, start: number, matched: string): boolean {
+  if (start > 0 && "{,(.".includes(text.charAt(start - 1))) return true;
+  const key = /^[^:=\]"']*/.exec(matched)?.[0] ?? "";
+  return key.includes(".");
 }
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
@@ -429,7 +417,7 @@ function isLiteralAssignment(
     context.isSource &&
     !inString &&
     UNQUOTED_CODE_VALUE.test(value) &&
-    !isInComment(context, start)
+    followsCodeToken(text, start, match[0])
   ) {
     return false;
   }

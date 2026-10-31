@@ -425,6 +425,24 @@ export const HISTORY_CASES = [
   },
   {
     rule: "PG-SECRET-002",
+    kind: "positive",
+    name: "comment-password-dotted-bracket-any-position",
+    expect: ["PG-SECRET-002"],
+    commits: [
+      {
+        files: {
+          "src/far.js": `foo();${"x".repeat(300)}// db password: ${join("Prod.Xk9q", ")m2Lq8")}\n`,
+          "src/block.js": `/* start\n  db password: ${join("Prod.Xk9q", "}m2Lq8")} */\n`,
+          "src/tight.js": `foo();// db password: ${join("Prod.Xk9q", ")m2Lq8")}\n`,
+          "src/tight.py": `x = 1#password=${join("Prod.Xk9q", ")m2Lq8")}\n`,
+          "src/tight2.py": `x = 1#password=${join("Prod.Xk9q", "&&m2Lq8")}\n`,
+          "src/apostrophe.js": `// don't commit password: ${join("Prod.Xk9q", ")m2Lq8")}\n`,
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
     kind: "negative",
     name: "minified-markers-inside-strings",
     expect: [],
