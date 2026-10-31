@@ -541,7 +541,9 @@ export function formatStandardsCoverage(
         ? ""
         : t.standardsBreadth(entry.breadth.cwesWithRules, entry.breadth.cwesInCategory);
     // Rule ids come before the reason, so a long reason is what gets cut, never the rules.
-    const reason = standardReasonText(entry.reason, t.locale);
+    const translated = standardReasonText(entry.reason, t.locale);
+    // A reason the report package does not know stays English, so it is parenthesised in Korean.
+    const reason = translated === entry.reason ? t.scanText(entry.reason) : translated;
     const head = entry.state === "no_rules" ? reason : `${breadth}${rules}`;
     // In Korean the reason is translated by the report package (an unknown one stays English).
     const tail = entry.state === "rules_ran" || entry.state === "no_rules" ? "" : `; ${reason}`;

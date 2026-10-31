@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import PDFDocument from "pdfkit";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   hasCharactersOutsideFont,
   hasStringOutsideFont,
+  hideWordJoiners,
   PDF_FONT_RANGES,
   isPdfFontCodePoint,
   joinHangulSyllables,
@@ -255,10 +257,42 @@ describe("PDF when the font cannot be loaded", () => {
 describe("PDF Korean word wrapping", () => {
   const WORDS = ["규칙이", "있음", "매개변수화된", "쿼리를", "사용하세요", "끝까지", "실행됨"];
 
-  it("puts a word joiner only between two Hangul syllables", () => {
-    expect(joinHangulSyllables("규칙이 있음")).toBe("규⁠칙⁠이 있⁠음");
-    expect(joinHangulSyllables("a규b R-1 가")).toBe("a규b R-1 가");
+  it("puts a word joiner inside a word, never at a space or between two non-Hangul characters", () => {
+    expect(joinHangulSyllables("규칙이 있음")).toBe("규\u2060칙\u2060이 있\u2060음");
+    expect(joinHangulSyllables("CWE 40개 중")).toBe("CWE 40\u2060개 중");
+    expect(joinHangulSyllables("pgard.config.json의")).toBe("pgard.config.json\u2060의");
+    expect(joinHangulSyllables("API를")).toBe("API\u2060를");
+    expect(joinHangulSyllables("ㅋㅋ 가ㅏ")).toBe("ㅋ\u2060ㅋ 가\u2060ㅏ");
+    expect(joinHangulSyllables("R-1 a b 40 가")).toBe("R-1 a b 40 가");
     expect(joinHangulSyllables("")).toBe("");
+  });
+
+  it("never starts a line with a particle or counter that belongs to the word before it", async () => {
+    // Pad the line so the break falls at every position near the right margin.
+    const tail = "CWE 40개 중 pgard.config.json의 API를 쓰세요";
+    let checked = 0;
+    for (let pad = 60; pad <= 112; pad += 1) {
+      const impact = `${"a".repeat(pad)} ${tail}`;
+      const pdf = await renderPdfReport(scanResult({ findings: [finding({ impact })] }), {
+        compress: false,
+      });
+      for (const line of extractEmbeddedFontText(pdf)) {
+        checked += 1;
+        expect(line, `pad ${pad}`).not.toMatch(/^[개의를]/);
+      }
+    }
+    expect(checked).toBeGreaterThan(100);
+  });
+
+  it("reports whether the PDFKit font hook is there, so a PDFKit change is noticed", () => {
+    const fonts = loadPdfFonts();
+    if (!fonts.ok) throw new Error("bundled font did not load");
+    const doc = new PDFDocument();
+    doc.registerFont("F", fonts.fonts.regular);
+    // Fails when a PDFKit upgrade moves `_font.font.layout` (pgard then still makes the PDF).
+    expect(hideWordJoiners(doc, ["F"])).toBe(true);
+    const stub = { font: () => stub } as unknown as PDFKit.PDFDocument;
+    expect(hideWordJoiners(stub, ["F"])).toBe(false);
   });
 
   it("never splits a Korean word at the right margin and prints no joiner glyph", async () => {
@@ -277,7 +311,7 @@ describe("PDF Korean word wrapping", () => {
       }
     }
     const text = all.join("\n");
-    expect(text).not.toContain("⁠");
+    expect(text).not.toContain("\u2060");
     expect(text).not.toContain("?");
   });
 });

@@ -54,6 +54,16 @@ describe("report table layout", () => {
     expect(print).toMatch(/\btable \{ table-layout: fixed; \}/);
     expect(print).toContain(".table-scroll tr { break-inside: avoid; }");
     expect(print).not.toMatch(/^ {2}tr \{ break-inside/m);
+    expect(print).toContain("h2 { break-after: avoid; }");
+  });
+
+  it("breaks anywhere only in note and reason cells, and after a comma in rule lists", () => {
+    const styles = css(html);
+    expect(styles).toMatch(
+      /\.coverage-table td:last-child, \.standards-map td:last-child, \.auth-table td:last-child \{ overflow-wrap: anywhere; \}/,
+    );
+    expect(styles).not.toMatch(/td\.token|\.token[^{]*\{[^}]*anywhere/);
+    expect(html).toContain("PG-SQL-001, <wbr>PG-XSS-001");
   });
 
   it("wraps an 80-character token of the authorization reason instead of overflowing", () => {
@@ -145,6 +155,15 @@ describe("Korean standards-map reasons", () => {
     expect(ko("rules not in the rule catalog ran (X-1), so the mapping may be incomplete")).toBe(
       "규칙 목록에 없는 규칙이 실행됨 (X-1), 매핑이 불완전할 수 있음",
     );
+  });
+
+  it("splits only outside parentheses", () => {
+    expect(
+      standardReasonText(
+        "rules not in the rule catalog ran (X; Y), so the mapping may be incomplete; no rules",
+        "ko",
+      ),
+    ).toBe("규칙 목록에 없는 규칙이 실행됨 (X; Y), 매핑이 불완전할 수 있음; 규칙 없음");
   });
 
   it("tries the whole sentence before splitting it on a semicolon", () => {

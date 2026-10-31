@@ -82,7 +82,11 @@ const LATIN_STYLE: PdfStyle = { regular: "Helvetica", bold: "Helvetica-Bold", te
 const FONT_STYLE: PdfStyle = {
   regular: "PgardSans",
   bold: "PgardSans-Bold",
-  // Syllables of one Korean word stay on one line (see joinHangulSyllables).
+  text: toFontText,
+};
+/** Same font, with the word joiners that keep Korean words whole at the right margin. */
+const FONT_STYLE_JOINED: PdfStyle = {
+  ...FONT_STYLE,
   text: (value) => joinHangulSyllables(toFontText(value)),
 };
 
@@ -385,7 +389,7 @@ export function renderPdfReport(
   } = {},
 ): Promise<Buffer> {
   const loaded = loadPdfFonts();
-  const style = loaded.ok ? FONT_STYLE : LATIN_STYLE;
+  let style: PdfStyle = loaded.ok ? FONT_STYLE : LATIN_STYLE;
   // Without the Korean-capable font Korean text would print as "?": fall back to English for the
   // fixed words (`ctx.chrome`) and for the texts taken from the rule catalog alike.
   const languageOptions: ReportLanguageOptions = loaded.ok ? options : { ...options, lang: "en" };
@@ -415,7 +419,8 @@ export function renderPdfReport(
     if (loaded.ok) {
       doc.registerFont(FONT_STYLE.regular, loaded.fonts.regular);
       doc.registerFont(FONT_STYLE.bold, loaded.fonts.bold);
-      hideWordJoiners(doc, [FONT_STYLE.bold, FONT_STYLE.regular]);
+      // Korean words stay whole at the right margin; without the font hook the PDF is still made.
+      if (hideWordJoiners(doc, [FONT_STYLE.bold, FONT_STYLE.regular])) style = FONT_STYLE_JOINED;
     }
     const chunks: Buffer[] = [];
     const drawBanners = (): void => {

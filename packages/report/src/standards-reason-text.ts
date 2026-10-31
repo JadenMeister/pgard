@@ -25,7 +25,7 @@ const HINT_EN =
 const HINT_KO = ' (검사 대상이 아닌 파일은 pgard.config.json의 "exclude"로 제외할 수 있음)';
 
 const NO_RULE_RAN =
-  /^no mapped rule ran \((.*?): ((?:\S+ (?:scope not selected|areas could not run)(?:, )?)+)\)$/;
+  /^no mapped rule ran \(([^()]*?): ((?:\S+ (?:scope not selected|areas could not run)(?:, )?)+)\)$/;
 
 /** Text up to the next "; " (the separator of two sentences), so a whole-reason match never spans two. */
 const ONE = "((?:(?!; ).)*)";
@@ -61,7 +61,7 @@ function segmentKo(segment: string): string {
     }
     return `끝까지 실행된 매핑 규칙이 다루지 못하는 언어: ${languageListKo(rest)}${hint}`;
   }
-  match = /^rules not in the rule catalog ran \((.*)\), so the mapping may be incomplete$/.exec(
+  match = /^rules not in the rule catalog ran \(([^()]*)\), so the mapping may be incomplete$/.exec(
     segment,
   );
   if (match !== null)
@@ -75,5 +75,23 @@ export function standardReasonText(reason: string, lang: string): string {
   // The whole sentence first, so a sentence that itself holds "; " is not cut in the middle.
   const whole = segmentKo(reason);
   if (whole !== reason) return whole;
-  return reason.split("; ").map(segmentKo).join("; ");
+  return splitSentences(reason).map(segmentKo).join("; ");
+}
+
+/** Splits on "; " outside parentheses, so a parenthesized group stays one unit. */
+function splitSentences(reason: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < reason.length; i += 1) {
+    const char = reason[i];
+    if (char === "(") depth += 1;
+    else if (char === ")") depth = Math.max(0, depth - 1);
+    else if (char === ";" && depth === 0 && reason[i + 1] === " ") {
+      parts.push(reason.slice(start, i));
+      start = i + 2;
+    }
+  }
+  parts.push(reason.slice(start));
+  return parts;
 }

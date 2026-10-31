@@ -95,18 +95,26 @@ export function isPdfFontCodePoint(codePoint: number): boolean {
   return SUPPORTED_RANGES.some(([from, to]) => codePoint >= from && codePoint <= to);
 }
 
-const WORD_JOINER = "⁠";
-const BETWEEN_HANGUL_SYLLABLES = /(?<=[가-힣])(?=[가-힣])/g;
+const WORD_JOINER = "\u2060";
+// Hangul syllables and compatibility Jamo.
+const HANGUL = "\\u3131-\\u318e\\uac00-\\ud7a3";
+// Between two Hangul characters, and between Hangul and a letter or digit on either side
+// ("40개", "json의", "API를"), where PDFKit would otherwise break a word at the right margin.
+const JOIN_POINTS = new RegExp(
+  `(?<=[${HANGUL}])(?=[${HANGUL}\\p{L}\\p{N}])|(?<=[\\p{L}\\p{N}])(?=[${HANGUL}])`,
+  "gu",
+);
 
 /**
- * PDFKit may break a line between any two Hangul syllables, so a word is cut at the right margin
- * ("규칙이 있/음"). A word joiner (U+2060) between two syllables forbids that break and leaves the
- * spaces as the only break points. The bundled font has no glyph for U+2060 (it would print as a
- * box), so `hideWordJoiners` makes the font ignore it when it lays out and encodes text.
+ * PDFKit may break a line between any two Hangul syllables, and between a digit or Latin letter
+ * and Hangul, so a word is cut at the right margin ("규칙이 있/음", "40/개"). A word joiner
+ * (U+2060) there forbids the break and leaves the spaces as the only break points. The bundled
+ * font has no glyph for U+2060 (it would print as a box), so `hideWordJoiners` makes the font
+ * ignore it when it lays out and encodes text; apply this only when that returned true.
  * Apply this after `toFontText`, which would turn U+2060 into "?".
  */
 export function joinHangulSyllables(text: string): string {
-  return text.replace(BETWEEN_HANGUL_SYLLABLES, WORD_JOINER);
+  return text.replace(JOIN_POINTS, WORD_JOINER);
 }
 
 interface LayoutFont {
@@ -116,18 +124,22 @@ interface LayoutFont {
 /**
  * Makes the registered fonts drop U+2060 before PDFKit lays text out, so it takes no width and
  * has no glyph, yet the line breaker (which runs on the original text) still honours it.
+ *
+ * This reaches into PDFKit's `_font.font.layout`, which is not public API; it was checked against
+ * the pinned `pdfkit` 0.20.2 (packages/report/package.json). Returns false when the hook is not
+ * there (a PDFKit upgrade changed it): the caller then keeps the joiners out of the text, so the
+ * PDF is still made, and a test fails so the change is noticed.
  */
-export function hideWordJoiners(doc: PDFKit.PDFDocument, fontNames: readonly string[]): void {
+export function hideWordJoiners(doc: PDFKit.PDFDocument, fontNames: readonly string[]): boolean {
   for (const name of fontNames) {
     doc.font(name);
     const embedded = (doc as unknown as { _font?: { font?: LayoutFont } })._font;
     const fontkit = embedded?.font;
-    if (fontkit === undefined || typeof fontkit.layout !== "function") {
-      throw new Error("PDFKit font layout hook is not available");
-    }
+    if (fontkit === undefined || typeof fontkit.layout !== "function") return false;
     const original = fontkit.layout.bind(fontkit);
     fontkit.layout = (text, ...rest) => original(text.split(WORD_JOINER).join(""), ...rest);
   }
+  return true;
 }
 
 /** Replaces control characters and characters outside the bundled font with "?". */
