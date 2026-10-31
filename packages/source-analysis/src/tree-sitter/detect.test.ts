@@ -13,7 +13,7 @@ import {
   detectRequirementsFrameworks,
 } from "./detect-frameworks.js";
 import { detectLanguageTrack, languageTrackCoverage } from "./language-track.js";
-import { TIME_FACTOR } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, itScaled } from "../../../../tests/support/timing.js";
 
 const roots: string[] = [];
 function project(files: Record<string, string>): string {
@@ -145,28 +145,32 @@ describe("malicious manifests", () => {
     expect(manifests?.note).toContain("DTD or entities");
   });
 
-  it("skips huge manifests and stays fast on pathological input", async () => {
-    const huge = "<!--".repeat(300_000);
-    const root = project({
-      "composer.json": `{"require":{"laravel/framework":"1"},"pad":"${"x".repeat(2 * 1024 * 1024)}"}`,
-      "pom.xml": huge,
-      "build.gradle": "/*".repeat(400_000),
-      "A.java": "class A {}\n",
-      "a.php": "<?php\n",
-    });
-    const startedAt = Date.now();
-    const detection = await detectLanguageTrack(await walkSourceTree(root));
-    expect(Date.now() - startedAt).toBeLessThan(5000 * TIME_FACTOR);
-    expect(detection.manifestIssues.map((issue) => [issue.path, issue.reason])).toContainEqual([
-      "composer.json",
-      "unreadable_or_too_large",
-    ]);
-    expect(detection.languages.find((entry) => entry.language === "php")?.frameworks).toEqual([]);
-    const note = languageTrackCoverage(detection).find(
-      (entry) => entry.area === "source:manifests",
-    );
-    expect(note?.status).toBe("partial");
-  }, 60_000);
+  itScaled(
+    "skips huge manifests and stays fast on pathological input",
+    async () => {
+      const huge = "<!--".repeat(300_000);
+      const root = project({
+        "composer.json": `{"require":{"laravel/framework":"1"},"pad":"${"x".repeat(2 * 1024 * 1024)}"}`,
+        "pom.xml": huge,
+        "build.gradle": "/*".repeat(400_000),
+        "A.java": "class A {}\n",
+        "a.php": "<?php\n",
+      });
+      const startedAt = Date.now();
+      const detection = await detectLanguageTrack(await walkSourceTree(root));
+      expect(Date.now() - startedAt).toBeLessThan(5000 * TIME_FACTOR);
+      expect(detection.manifestIssues.map((issue) => [issue.path, issue.reason])).toContainEqual([
+        "composer.json",
+        "unreadable_or_too_large",
+      ]);
+      expect(detection.languages.find((entry) => entry.language === "php")?.frameworks).toEqual([]);
+      const note = languageTrackCoverage(detection).find(
+        (entry) => entry.area === "source:manifests",
+      );
+      expect(note?.status).toBe("partial");
+    },
+    60_000,
+  );
 });
 
 describe("fixture layout", () => {

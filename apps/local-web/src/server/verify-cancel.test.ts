@@ -20,7 +20,7 @@ import {
   waitFor,
   type Harness,
 } from "./test-support/web-harness.js";
-import { TIME_FACTOR } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, itScaled } from "../../../../tests/support/timing.js";
 
 /**
  * #377: `project verify` in the dashboard can be cancelled while Git is blocked. The check gets an
@@ -62,54 +62,62 @@ function hostileRepository(): string {
 describe.skipIf(process.platform === "win32")(
   "verify cancellation while Git is blocked (#377)",
   () => {
-    it("POST /api/auth/cancel kills the blocked Git process at once and resets the check", async () => {
-      const root = hostileRepository();
-      harness = await startHarness({ fixedRoot: root, deps: { verifyProject } });
-      expect((await apiPost(harness.server, "/api/auth/verify", {})).status).toBe(200);
-      await waitFor(
-        () => liveGitChildPids().length,
-        (count) => count > 0,
-        300,
-      );
-      const pid = liveGitChildPids()[0] as number;
-      expect(json(await apiGet(harness.server, "/api/auth")).status).toBe("running");
+    itScaled(
+      "POST /api/auth/cancel kills the blocked Git process at once and resets the check",
+      async () => {
+        const root = hostileRepository();
+        harness = await startHarness({ fixedRoot: root, deps: { verifyProject } });
+        expect((await apiPost(harness.server, "/api/auth/verify", {})).status).toBe(200);
+        await waitFor(
+          () => liveGitChildPids().length,
+          (count) => count > 0,
+          300,
+        );
+        const pid = liveGitChildPids()[0] as number;
+        expect(json(await apiGet(harness.server, "/api/auth")).status).toBe("running");
 
-      const started = Date.now();
-      const cancelled = await apiPost(harness.server, "/api/auth/cancel", {});
-      expect(cancelled.status).toBe(200);
-      expect(json(cancelled).status).toBe("idle");
-      expect(Date.now() - started).toBeLessThan(3_000 * TIME_FACTOR);
-      await waitFor(
-        () => isAlive(pid),
-        (alive) => !alive,
-        300,
-      );
-      // The late result of the aborted run never shows up, and a new check can start.
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      expect(json(await apiGet(harness.server, "/api/auth")).status).toBe("idle");
-      expect(harness.server.state.verifyController).toBeNull();
-    }, 20_000);
+        const started = Date.now();
+        const cancelled = await apiPost(harness.server, "/api/auth/cancel", {});
+        expect(cancelled.status).toBe(200);
+        expect(json(cancelled).status).toBe("idle");
+        expect(Date.now() - started).toBeLessThan(3_000 * TIME_FACTOR);
+        await waitFor(
+          () => isAlive(pid),
+          (alive) => !alive,
+          300,
+        );
+        // The late result of the aborted run never shows up, and a new check can start.
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        expect(json(await apiGet(harness.server, "/api/auth")).status).toBe("idle");
+        expect(harness.server.state.verifyController).toBeNull();
+      },
+      20_000,
+    );
 
-    it("stopping the server aborts a check that waits on a blocked Git process", async () => {
-      const root = hostileRepository();
-      harness = await startHarness({ fixedRoot: root, deps: { verifyProject } });
-      await apiPost(harness.server, "/api/auth/verify", {});
-      await waitFor(
-        () => liveGitChildPids().length,
-        (count) => count > 0,
-        300,
-      );
-      const pid = liveGitChildPids()[0] as number;
-      const started = Date.now();
-      await harness.close();
-      harness = null;
-      expect(Date.now() - started).toBeLessThan(3_000 * TIME_FACTOR);
-      await waitFor(
-        () => isAlive(pid),
-        (alive) => !alive,
-        300,
-      );
-    }, 20_000);
+    itScaled(
+      "stopping the server aborts a check that waits on a blocked Git process",
+      async () => {
+        const root = hostileRepository();
+        harness = await startHarness({ fixedRoot: root, deps: { verifyProject } });
+        await apiPost(harness.server, "/api/auth/verify", {});
+        await waitFor(
+          () => liveGitChildPids().length,
+          (count) => count > 0,
+          300,
+        );
+        const pid = liveGitChildPids()[0] as number;
+        const started = Date.now();
+        await harness.close();
+        harness = null;
+        expect(Date.now() - started).toBeLessThan(3_000 * TIME_FACTOR);
+        await waitFor(
+          () => isAlive(pid),
+          (alive) => !alive,
+          300,
+        );
+      },
+      20_000,
+    );
 
     it("gives the check's signal to the gate and aborts it on cancel (fake gate)", async () => {
       let signal: AbortSignal | undefined;

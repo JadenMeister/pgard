@@ -36,7 +36,7 @@ npm run corpus:check
 
 `npm run check` runs typecheck, format check and tests together. When you change the packaging, also run `npm run pack:pgard` and `npm run smoke:pack`.
 
-**Timing in tests.** Do not compare a duration with a bare number. Import `TIME_FACTOR` (or `scaled`, `bestTimeOf`) from [`tests/support/timing.ts`](tests/support/timing.ts) and scale the budget with it: the factor is 1 locally, 3 when `CI` is set, and 3 times more on Windows. Set `PGARD_TEST_TIME_FACTOR` to a positive number to override it, for example `PGARD_TEST_TIME_FACTOR=5 npm test` on a busy machine (invalid values are ignored). For a "stays linear" test, time size n against 4n and assert a ratio, and keep the absolute ceiling generous: it is only a hang guard. The vitest test and hook timeouts scale with the same factor.
+**Timing in tests.** Do not compare a duration with a bare number. Import `TIME_FACTOR`, `scaled`, `itScaled`, `bestTimeOf` or `bestTimeOfAsync` from [`tests/support/timing.ts`](tests/support/timing.ts) and scale absolute budgets and explicit per-test timeouts with it. The factor is 1 locally and 3 when `CI` is set (`CI=false` and `CI=0` do not count), times 3 more on Windows. Set `PGARD_TEST_TIME_FACTOR` to a number from 0.25 to 100 to replace it as is (Windows does not multiply an override); invalid values are ignored, for example `PGARD_TEST_TIME_FACTOR=5 npm test` on a busy machine. The vitest test and hook timeouts scale with the same factor. For a "stays linear" test, time size n against 4n and assert a ratio below the quadratic value, and keep the scaled absolute ceiling only as a hang guard; for a stop or cancel test, compare with how long the unstopped work takes on the same machine.
 
 ## Commits and pull requests
 

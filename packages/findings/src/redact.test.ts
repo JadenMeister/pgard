@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TIME_FACTOR, bestTimeOf } from "../../../tests/support/timing.js";
+import { TIME_FACTOR, bestTimeOf, scaled } from "../../../tests/support/timing.js";
 import type { Finding } from "./contract.js";
 import {
   capText,
@@ -344,7 +344,7 @@ describe("redaction performance (#55)", () => {
       expect(timed(() => redactEvidence(input))).toBeLessThan(250 * TIME_FACTOR);
       expect(timed(() => redactSecrets(input))).toBeLessThan(1500 * TIME_FACTOR);
     },
-    30_000,
+    scaled(30_000),
   );
 
   it("keeps useful evidence from long input without whitespace (#72)", () => {

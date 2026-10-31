@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeGoSource } from "./analyze-go.js";
 import { maskGoSource } from "./lexer.js";
-import { TIME_FACTOR, bestTimeOf } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, bestTimeOf, itScaled } from "../../../../tests/support/timing.js";
 
 const go = (imports: string[], body: string) =>
   `package main\n\nimport (\n${imports.map((name) => `\t"${name}"`).join("\n")}\n)\n\n${body}\n`;
@@ -255,32 +255,36 @@ describe("GORM with request input (#85)", () => {
 });
 
 describe("linear cost and caps (#87)", () => {
-  it("analyzes a large Go file quickly", () => {
-    const build = (count: number) => {
-      const body = Array.from(
-        { length: count },
-        (_, index) =>
-          `\tv${index} := r.FormValue("k${index}")\n\tdb.Query(fmt.Sprintf("SELECT %s", v${index}))`,
-      ).join("\n");
-      return go(
-        ["database/sql", "fmt", "net/http"],
-        `func h(w http.ResponseWriter, r *http.Request) {\n${body}\n}`,
-      );
-    };
-    const source = build(6000);
-    const quarter = build(1500);
-    expect(source.length).toBeGreaterThan(300_000);
-    let analysis = analyzeGoSource(source, "big.go");
-    const large = bestTimeOf(3, () => {
-      analysis = analyzeGoSource(source, "big.go");
-    });
-    const small = bestTimeOf(3, () => analyzeGoSource(quarter, "big.go"));
-    expect(large).toBeLessThan(3000 * TIME_FACTOR);
-    // Four times the input: linear is about 4x, quadratic about 16x.
-    expect(large / Math.max(small, 1)).toBeLessThan(10);
-    expect(analysis.findings.length).toBeLessThanOrEqual(25);
-    expect(analysis.cappedRules).toEqual(["PG-SQL-003"]);
-  }, 60_000);
+  itScaled(
+    "analyzes a large Go file quickly",
+    () => {
+      const build = (count: number) => {
+        const body = Array.from(
+          { length: count },
+          (_, index) =>
+            `\tv${index} := r.FormValue("k${index}")\n\tdb.Query(fmt.Sprintf("SELECT %s", v${index}))`,
+        ).join("\n");
+        return go(
+          ["database/sql", "fmt", "net/http"],
+          `func h(w http.ResponseWriter, r *http.Request) {\n${body}\n}`,
+        );
+      };
+      const source = build(6000);
+      const quarter = build(1500);
+      expect(source.length).toBeGreaterThan(300_000);
+      let analysis = analyzeGoSource(source, "big.go");
+      const large = bestTimeOf(3, () => {
+        analysis = analyzeGoSource(source, "big.go");
+      });
+      const small = bestTimeOf(3, () => analyzeGoSource(quarter, "big.go"));
+      expect(large).toBeLessThan(3000 * TIME_FACTOR);
+      // Four times the input: linear is about 4x, quadratic about 16x.
+      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      expect(analysis.findings.length).toBeLessThanOrEqual(25);
+      expect(analysis.cappedRules).toEqual(["PG-SQL-003"]);
+    },
+    60_000,
+  );
 });
 
 describe("precision (#88)", () => {

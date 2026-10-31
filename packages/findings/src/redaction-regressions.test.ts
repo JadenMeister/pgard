@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import type { Finding } from "./contract.js";
 import { capText, redactEvidence, redactFinding, redactSecrets } from "./redact.js";
-import { TIME_FACTOR } from "../../../tests/support/timing.js";
+import { TIME_FACTOR, itScaled } from "../../../tests/support/timing.js";
 
 const join = (...parts: string[]) => parts.join("");
 const GH = join("ghp", "_", "Rg9", "Q".repeat(15), "x7Z", "k".repeat(15));
@@ -105,17 +105,21 @@ describe("redaction regressions", () => {
     for (const fragment of [GH, "jaden", "hunter2"]) expect(json).not.toContain(fragment);
   });
 
-  it("#55 adversarial input stays fast", () => {
-    // Best of 3 runs: one run is noisy when other test files run in parallel.
-    let best = Infinity;
-    for (let run = 0; run < 3; run += 1) {
-      const start = performance.now();
-      redactEvidence(`${"a".repeat(100_000)}://`);
-      redactEvidence("x_password_".repeat(20_000));
-      best = Math.min(best, performance.now() - start);
-    }
-    expect(best).toBeLessThan(500 * TIME_FACTOR);
-  }, 30_000);
+  itScaled(
+    "#55 adversarial input stays fast",
+    () => {
+      // Best of 3 runs: one run is noisy when other test files run in parallel.
+      let best = Infinity;
+      for (let run = 0; run < 3; run += 1) {
+        const start = performance.now();
+        redactEvidence(`${"a".repeat(100_000)}://`);
+        redactEvidence("x_password_".repeat(20_000));
+        best = Math.min(best, performance.now() - start);
+      }
+      expect(best).toBeLessThan(500 * TIME_FACTOR);
+    },
+    30_000,
+  );
 
   it("#59 absolute paths outside the project are masked", () => {
     for (const input of [

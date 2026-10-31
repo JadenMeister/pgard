@@ -6,7 +6,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Fixed
 
-- Tests: wall-clock assertions no longer fail on loaded CI runners (one blocked the v0.1.0 release verify). A shared `tests/support/timing.ts` scales every time budget and the vitest timeouts by a factor (1 locally, 3 on CI, 3 times more on Windows, override with `PGARD_TEST_TIME_FACTOR`). Linearity checks still compare two input sizes, so a quadratic regression still fails. (#453)
+- Tests: wall-clock assertions no longer fail on loaded CI runners (one blocked the v0.1.0 release verify). A shared `tests/support/timing.ts` provides a time factor that scales every absolute time budget, the explicit per-test timeouts of those tests, and the vitest test and hook timeouts. The factor is 1 locally and 3 when `CI` is set (`CI=false` and `CI=0` do not count), times 3 more on Windows; `PGARD_TEST_TIME_FACTOR` (0.25 to 100) replaces it as is, also on Windows. Linearity checks compare two input sizes as a ratio, which load does not change, so a quadratic regression still fails; their absolute ceilings are only hang guards. (#453)
 
 ## [0.1.0] - 2026-10-31
 

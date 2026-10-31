@@ -521,7 +521,7 @@ describe("a stalled network", () => {
       code: "network_error",
       message: "The GitHub API did not answer within 1 s.",
     });
-    expect(Date.now() - started).toBeLessThan(5_000 * TIME_FACTOR);
+    expect(Date.now() - started).toBeLessThan(Math.min(5_000 * TIME_FACTOR, 8_000));
     expect(seen?.aborted).toBe(true);
   });
 

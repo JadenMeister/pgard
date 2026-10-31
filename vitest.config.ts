@@ -1,6 +1,9 @@
 import { defineConfig } from "vitest/config";
 import { TIME_FACTOR } from "./tests/support/timing.js";
 
+/** setTimeout rejects anything above a signed 32-bit integer of milliseconds. */
+const MAX_TIMER_MS = 2_147_483_647;
+
 export default defineConfig({
   resolve: {
     conditions: ["source"],
@@ -14,12 +17,20 @@ export default defineConfig({
   },
   test: {
     // Windows spawns processes far slower; git-heavy tests need more than the 5 s default there.
-    // Scaled by the shared time factor (3 on CI; override with PGARD_TEST_TIME_FACTOR) so a loaded
-    // runner fails on a real hang, not on a slow spawn. The factor already includes the Windows 3.
-    testTimeout: (process.platform === "win32" ? 10_000 : 5_000) * TIME_FACTOR,
+    // Both timeouts scale with the shared time factor (tests/support/timing.ts) so a loaded runner
+    // fails on a real hang, not on a slow spawn, and never exceed the 32-bit timer limit.
+    // testTimeout: Linux and macOS 5 s locally, 15 s on CI; Windows at least 30 s, 45 s on CI.
+    testTimeout: Math.min(
+      Math.max(5_000 * TIME_FACTOR, process.platform === "win32" ? 30_000 : 0),
+      MAX_TIMER_MS,
+    ),
     // A stuck setup or teardown fails with the name of its test instead of stalling the run.
     // Vitest's own default for both is 10 s.
-    hookTimeout: (process.platform === "win32" ? 20_000 : 30_000) * TIME_FACTOR,
+    // hookTimeout: 30 s locally, 90 s on CI; Windows at least 60 s.
+    hookTimeout: Math.min(
+      Math.max(30_000 * TIME_FACTOR, process.platform === "win32" ? 60_000 : 0),
+      MAX_TIMER_MS,
+    ),
     teardownTimeout: 30_000,
     // In CI every test is logged as it finishes, so a run that stalls names the last test that
     // started, and the hanging-process reporter lists the handles that keep the run open.

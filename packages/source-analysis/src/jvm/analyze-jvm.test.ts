@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import type { RawSourceFinding } from "../finding-factory.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree, analyzeMybatisXml } from "./analyze-jvm.js";
-import { TIME_FACTOR } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, bestTimeOfAsync, itScaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -1752,17 +1752,6 @@ describe("robustness", () => {
   });
 });
 
-/** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
-async function bestTimeOf(runs: number, fn: () => Promise<unknown>): Promise<number> {
-  let best = Infinity;
-  for (let run = 0; run < runs; run += 1) {
-    const start = performance.now();
-    await fn();
-    best = Math.min(best, performance.now() - start);
-  }
-  return best;
-}
-
 describe("performance", () => {
   const method = (i: number): string => `
   @GetMapping("/m${i}")
@@ -1780,37 +1769,45 @@ describe("performance", () => {
       `JdbcTemplate jdbc;${Array.from({ length: count }, (_, i) => method(i)).join("")}`,
     );
 
-  it("analyzes a file near the 1 MiB limit in linear time", async () => {
-    const full = build(2800);
-    const quarter = build(700);
-    expect(Buffer.byteLength(full)).toBeGreaterThan(700_000);
-    expect(Buffer.byteLength(full)).toBeLessThan(1024 * 1024);
-    let analysis = await run(full);
-    const large = await bestTimeOf(3, async () => {
-      analysis = await run(full);
-    });
-    const small = await bestTimeOf(3, () => run(quarter));
-    expect(large).toBeLessThan(6000 * TIME_FACTOR);
-    // Four times the input: linear is about 4x, quadratic about 16x.
-    expect(large / Math.max(small, 1)).toBeLessThan(10);
-    expect(analysis.findings.length).toBe(25);
-    expect(analysis.capped).toBe(true);
-  }, 120_000);
+  itScaled(
+    "analyzes a file near the 1 MiB limit in linear time",
+    async () => {
+      const full = build(2800);
+      const quarter = build(700);
+      expect(Buffer.byteLength(full)).toBeGreaterThan(700_000);
+      expect(Buffer.byteLength(full)).toBeLessThan(1024 * 1024);
+      let analysis = await run(full);
+      const large = await bestTimeOfAsync(3, async () => {
+        analysis = await run(full);
+      });
+      const small = await bestTimeOfAsync(3, () => run(quarter));
+      expect(large).toBeLessThan(6000 * TIME_FACTOR);
+      // Four times the input: linear is about 4x, quadratic about 16x.
+      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      expect(analysis.findings.length).toBe(25);
+      expect(analysis.capped).toBe(true);
+    },
+    120_000,
+  );
 
-  it("a concatenation of 20 000 distinct names stays linear", async () => {
-    const names = Array.from({ length: 20_000 }, (_, i) => `v${i}`);
-    const source = java(
-      JDBC_IMPORTS,
-      `void f(Statement st, ${names
-        .slice(0, 50)
-        .map((n) => `String ${n}`)
-        .join(", ")}) throws Exception { st.executeQuery("x" + ${names.join(" + ")}); }`,
-    );
-    const started = performance.now();
-    const analysis = await run(source);
-    expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
-    expect(analysis.findings).toHaveLength(1);
-  }, 60_000);
+  itScaled(
+    "a concatenation of 20 000 distinct names stays linear",
+    async () => {
+      const names = Array.from({ length: 20_000 }, (_, i) => `v${i}`);
+      const source = java(
+        JDBC_IMPORTS,
+        `void f(Statement st, ${names
+          .slice(0, 50)
+          .map((n) => `String ${n}`)
+          .join(", ")}) throws Exception { st.executeQuery("x" + ${names.join(" + ")}); }`,
+      );
+      const started = performance.now();
+      const analysis = await run(source);
+      expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
+      expect(analysis.findings).toHaveLength(1);
+    },
+    60_000,
+  );
 
   it("deeply nested loops do not multiply the work", async () => {
     const open = "for (int i = 0; i < 3; i++) { ".repeat(40);

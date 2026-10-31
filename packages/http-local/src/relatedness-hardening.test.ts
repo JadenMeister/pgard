@@ -102,7 +102,7 @@ describe("readProjectSignals is bounded on hostile files", () => {
       });
       const started = performance.now();
       await readProjectSignals(root, null);
-      expect(performance.now() - started).toBeLessThan(200 * TIME_FACTOR);
+      expect(performance.now() - started).toBeLessThan(Math.min(200 * TIME_FACTOR, 1000));
     },
   );
 
@@ -115,7 +115,7 @@ describe("readProjectSignals is bounded on hostile files", () => {
     });
     const started = performance.now();
     await readProjectSignals(root, null);
-    expect(performance.now() - started).toBeLessThan(200 * TIME_FACTOR);
+    expect(performance.now() - started).toBeLessThan(Math.min(200 * TIME_FACTOR, 1000));
   });
 
   it("reads only dependency tables of pyproject.toml, not descriptions or other keys", async () => {

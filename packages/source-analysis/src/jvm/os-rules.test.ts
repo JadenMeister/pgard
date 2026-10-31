@@ -4,7 +4,7 @@ import type { RawSourceFinding } from "../finding-factory.js";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree } from "./analyze-jvm.js";
 import { pathGuardedWhenFalse, pathGuardedWhenTrue } from "./guards.js";
-import { TIME_FACTOR } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, itScaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -2417,33 +2417,41 @@ describe("performance", () => {
   const build = (count: number): string =>
     java(SPRING, Array.from({ length: count }, (_, i) => method(i)).join(""));
 
-  it("analyzes a file near the size limit in linear time", async () => {
-    const full = build(1800);
-    const quarter = build(450);
-    expect(Buffer.byteLength(full)).toBeGreaterThan(500_000);
-    expect(Buffer.byteLength(full)).toBeLessThan(1024 * 1024);
-    const started = performance.now();
-    const analysis = await run(full);
-    const large = performance.now() - started;
-    const smallStart = performance.now();
-    await run(quarter);
-    const small = performance.now() - smallStart;
-    expect(large).toBeLessThan(8000 * TIME_FACTOR);
-    expect(large / Math.max(small, 1)).toBeLessThan(12);
-    expect(analysis.capped).toBe(true);
-  }, 120_000);
+  itScaled(
+    "analyzes a file near the size limit in linear time",
+    async () => {
+      const full = build(1800);
+      const quarter = build(450);
+      expect(Buffer.byteLength(full)).toBeGreaterThan(500_000);
+      expect(Buffer.byteLength(full)).toBeLessThan(1024 * 1024);
+      const started = performance.now();
+      const analysis = await run(full);
+      const large = performance.now() - started;
+      const smallStart = performance.now();
+      await run(quarter);
+      const small = performance.now() - smallStart;
+      expect(large).toBeLessThan(8000 * TIME_FACTOR);
+      expect(large / Math.max(small, 1)).toBeLessThan(12);
+      expect(analysis.capped).toBe(true);
+    },
+    120_000,
+  );
 
-  it("a long chain of path operations stays fast", async () => {
-    const chain = Array.from({ length: 3000 }, (_, i) => `.resolve(a${i % 5})`).join("");
-    const started = performance.now();
-    const analysis = await run(
-      java(
-        SPRING,
-        `void h(String a0, String a1, String a2, String a3, String a4) throws Exception { Files.delete(Paths.get("/srv")${chain}); }`,
-      ),
-    );
-    expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
-    expect(of(analysis, PATH)).toHaveLength(1);
-    expect(of(analysis, PATH)[0]?.cause).toBe("Files.delete");
-  }, 60_000);
+  itScaled(
+    "a long chain of path operations stays fast",
+    async () => {
+      const chain = Array.from({ length: 3000 }, (_, i) => `.resolve(a${i % 5})`).join("");
+      const started = performance.now();
+      const analysis = await run(
+        java(
+          SPRING,
+          `void h(String a0, String a1, String a2, String a3, String a4) throws Exception { Files.delete(Paths.get("/srv")${chain}); }`,
+        ),
+      );
+      expect(performance.now() - started).toBeLessThan(5000 * TIME_FACTOR);
+      expect(of(analysis, PATH)).toHaveLength(1);
+      expect(of(analysis, PATH)[0]?.cause).toBe("Files.delete");
+    },
+    60_000,
+  );
 });
