@@ -1,6 +1,8 @@
 import {
   SEVERITIES,
+  authorizationReportRows,
   configTestGroupNote,
+  coverageNoteText,
   projectConfigNotices,
   type Finding,
   type ScanResult,
@@ -517,7 +519,7 @@ export function renderPdfReport(
       line(
         doc,
         style,
-        `${entry.area} (${entry.scope}): ${word(t.coverageStatus, entry.status, t.unknownLabel)}${entry.note === null ? "" : ` - ${entry.note}`}`,
+        `${entry.area} (${entry.scope}): ${word(t.coverageStatus, entry.status, t.unknownLabel)}${entry.note === null ? "" : ` - ${coverageNoteText(entry, ctx.chrome)}`}`,
       );
     }
 
@@ -562,8 +564,9 @@ export function renderPdfReport(
     }
 
     heading(doc, style, t.authorization);
-    line(doc, style, `${t.decision}: ${result.authorization.decision}`);
-    for (const check of result.authorization.checks) {
+    const authorization = authorizationReportRows(result.authorization, ctx.chrome);
+    line(doc, style, `${t.decision}: ${authorization.decision}`);
+    for (const check of authorization.checks) {
       line(doc, style, `${check.id}: ${check.status} - ${check.reason}`);
     }
 

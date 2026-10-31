@@ -2,7 +2,7 @@
 
 > **참고:** 이 문서는 [`RESULT_SCHEMA.md`](RESULT_SCHEMA.md)(영문)의 한국어 번역입니다. 기준 문서는 영문판이며, 내용이 다르면 영문판이 맞습니다. 프로젝트 [README](../README.ko.md)([English](../README.md))도 참고하세요.
 
-검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.7`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
+검사 결과(`packages/findings/src/contract.ts`의 `ScanResult`)에는 `major.minor` 형식의 `schemaVersion`이 들어 있습니다. 현재 버전은 `1.8`입니다. 이 문서는 그 버전이 언제 바뀌는지, 그리고 자신이 쓰지 않은 버전을 읽을 때 읽는 쪽이 무엇을 해야 하는지 설명합니다.
 
 ## 버전 규칙
 
@@ -26,7 +26,7 @@
 
 | 입력 버전                  | 동작                                                                                                                  |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| 같음(`1.7`)                | 받아들입니다.                                                                                                         |
+| 같음(`1.8`)                | 받아들입니다.                                                                                                         |
 | 같은 major의 더 낮은 minor | 받아들입니다. 나중에 추가된 필드는 없지만 형태는 유효합니다.                                                          |
 | 같은 major의 더 높은 minor | 받아들입니다. 모르는 필드는 무시합니다(읽는 쪽이 버립니다). `sourceVersion`은 파일에 있던 버전을 알려 줍니다.         |
 | 다른 major                 | `version_unsupported_major`와 해당 버전을 알리는 메시지로 거부합니다. 읽는 쪽은 변환하거나 추측하려 하지 않습니다.    |
@@ -51,6 +51,8 @@
 `Finding.id`는 규칙, 위치, 원인으로 만든 안정적인 지문입니다. 저장된 결과는 이 id로 이후 검사와 비교되므로, 타입이 `string`일 뿐이어도 계약의 일부입니다. 만드는 방식을 바꾸면 이전 결과의 id가 더 이상 맞지 않으므로, 그런 변경은 **major** 버전 변경입니다. 타입이나 비밀정보를 절대 포함하지 않는다는 규칙도 같은 major 안에서는 바꿀 수 없습니다.
 
 ## 버전 이력
+
+**1.8**(추가만 있는 변경, minor 올림). 커버리지 항목에 선택 필드 `noteCode`와 `noteParams`가 `note` 옆에 추가되었습니다. 안정적인 코드와 그 문구에 필요한 값입니다(`{ "noteCode": "large_files_skipped", "noteParams": { "count": 3 } }`). 영어를 해석하지 않고도 다른 언어의 보고서나 터미널이 note를 보여 줄 수 있습니다. `note`는 분석기가 쓴 영어 문장 그대로입니다(카탈로그의 영어 템플릿으로 만들므로 둘이 어긋나지 않습니다). 읽는 쪽은 코드를 쓸 수 없을 때 이 문장으로 되돌아갑니다. 1.8 이전 결과에는 코드가 없습니다. 매개변수는 작게 제한됩니다. 0 이상의 정수, 짧은 라벨(언어·라이브러리·생태계 이름, 날짜), 16진수 id, 정해진 목록의 단어 하나이며 경로나 자유 문장은 넣지 않습니다. 변하는 목록(파일 이름, 발견된 문제)이 들어가는 note는 영어만 유지하고 코드를 달지 않습니다. 카탈로그는 `packages/findings/src/coverage-notes.ts`의 `COVERAGE_NOTE_CATALOG`입니다. 화면은 코드를 알고 모든 매개변수가 검증을 통과할 때(기대한 키, 타입, 범위, 평범한 라벨)에만 카탈로그의 한국어 문구를 쓰고, 그렇지 않으면 저장된 `note`를 보여 줍니다. 읽는 쪽은 형식이 잘못된 `noteCode`·`noteParams`(타입이 틀렸거나 너무 많거나 긴 경우)를 결과 전체를 거부하는 대신 버립니다. 발견 항목의 식별, 기준선, 검사 비교는 이 필드를 읽지 않으며 비교는 여전히 `note`를 비교합니다. 권한 확인 섹션에는 새 필드가 없습니다. 보고서는 결정, 확인 항목 id, 상태를 고정 카탈로그로 번역하고, 이유는 정책이 쓴 고정 영어 문장을 알아보면 번역합니다(그 밖의 문장은 영어로 남습니다).
 
 **1.7**(추가만 있는 변경, minor 올림). 최상위에 선택 필드 `scanBasis`가 추가되었습니다. 권한 확인을 실행했는지, 통과했는지를 나타냅니다. 형태: `{ mode: "authorized" | "code_only", authorization: "verified" | "not_verified", reason: string | null }`. `mode: "authorized"`는 권한 확인을 실행했다는 뜻입니다(`authorization`에 다섯 가지 확인 결과가 있습니다). `mode: "code_only"`는 권한 확인을 실행하지 않았다는 뜻입니다. 현재 파일만 분석했으며(`code` 범위와 `secrets:working-tree` 영역), Git 이력과 웹 검사는 하지 않았고, 결과는 저장되지 않습니다. `authorization`은 권한 확인을 실행해 검사가 허용되었을 때만 `verified`이며, 코드 전용 결과는 언제나 `not_verified`입니다. `reason`은 `authorization`이 `verified`일 때만 `null`이고, 그 밖에는 열린 코드입니다(`no_approval`: 권한 확인을 실행했고 검사를 허용하지 않음. `check_failed`: 권한 확인이 내부 오류로 끝나지 못함, `overallStatus: "failed"`. `not_checked`, `no_github_remote`, `not_a_git_repository`, `offline`. 모르는 코드는 일반 문구로 보여 줍니다). 닫힌 열거형에 새 값은 없습니다. 코드 전용 결과는 `authorization.decision: "blocked"`(사실 그대로입니다. 권한 확인이 이 검사를 허용하지 않았습니다), 모든 확인 항목 `unverifiable`과 이유 "Not checked: this was a code-only scan of the files on this computer. No authorization was proven.", `requestedScopes: ["code"]`를 유지합니다. `overallStatus`는 코드 검사 범위만으로 정해집니다(`completed`, `partial`, `failed`. `blocked`는 아닙니다). **코드 전용 여부는 `scanBasis`로만 압니다:** `decision: "blocked"`와 `blocked`가 아닌 `overallStatus`가 함께 있다고 해서 코드 전용인 것은 아닙니다(권한 확인이 내부 오류로 실패하면 `reason: "check_failed"`와 함께 `blocked` / `failed`가 됩니다). **필드 사이의 규칙(이 밖의 조합은 읽는 쪽이 거부):** `authorization: "verified"`에는 `decision: "allowed"`와 다섯 확인 모두 `passed`가 필요하고, `mode: "code_only"`에는 `decision: "blocked"`, `requestedScopes: ["code"]`, `authorization: "not_verified"`가 필요하며, `authorization: "not_verified"`인 `mode: "authorized"`에는 `overallStatus` `blocked` 또는 `failed`와 발견 항목 없음이 필요합니다. 1.7부터 `scanBasis`는 **필수**입니다. 이 필드가 없는 1.7 이상 결과는 거부하므로, 필드를 지워 표시를 없앨 수 없습니다. **이전 버전의 읽는 쪽:** `1.6` 이하를 읽는 쪽은 모르는 필드를 버리므로, 코드 전용 결과를 코드 전용 표시 **없이** 권한 확인이 막은 평범한 결과로 보여 줍니다. `decision === "allowed"`를 확인하므로 권한 있는 결과로 취급하지는 않습니다. 표시는 1.7을 읽는 쪽만 보여 줍니다. SARIF는 이 객체를 `runs[0].properties.pgard.scanBasis`에 담고, 경고 알림 하나("Code-only scan: authorization was not verified ...")를 더하며, `automationDetails.id`로 `pgard/code-only/`를 씁니다. `github/codeql-action/upload-sarif`에 준 `category`는 이미 있는 id를 덮어쓰지 않으므로(id가 없는 실행에만 채웁니다), 코드 전용 실행은 별도의 code scanning 카테고리에 남습니다. 코드 전용 결과의 HTML·PDF 보고서는 모든 페이지에 "권한 미확인: 코드 전용 검사" 배너를 넣습니다. 결과 저장소는 `scanBasis.authorization`이 `verified`가 아닌 결과를 거부합니다. `1.6` 이하 결과에는 이 필드가 없고, 읽는 쪽은 이를 `mode: "authorized"`와 권한 확인의 `authorization.decision`으로 취급합니다(이전 PGARD는 검사마다 먼저 권한을 확인했습니다).
 

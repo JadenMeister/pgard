@@ -538,7 +538,8 @@ describe("summary wording and colour", () => {
     const blocked = testResult({ overallStatus: "blocked", authorization: BLOCKED });
     const text = formatScanResult(blocked, plain, options({ locale: "ko" }));
     expect(text).toContain("권한 확인: 차단됨");
-    expect(text).toMatch(/\[확인 불가\] GitHub 계정 \(GitHub sign-in was denied\.\)/);
+    // A fixed reason is shown in Korean (#449); the English one stays in parentheses otherwise.
+    expect(text).toMatch(/\[확인 불가\] GitHub 신원: GitHub 로그인이 거부되었습니다\./);
   });
 });
 

@@ -160,6 +160,8 @@ export const READER_KEYS = {
     status: true,
     ruleIds: true,
     note: true,
+    noteCode: true,
+    noteParams: true,
     walkedDirectories: true,
   } satisfies Record<keyof Coverage, true>,
   target: { repo: true, revision: true, webOrigin: true } satisfies Record<keyof ScanTarget, true>,
@@ -307,6 +309,42 @@ function scopes(value: unknown, path: string): ScanScope[] {
   return list(value, path, READ_LIMITS.list, (item, at) => oneOf(item, SCAN_SCOPES, at));
 }
 
+const MAX_NOTE_CODE_LENGTH = 64;
+const MAX_NOTE_PARAMS = 16;
+const MAX_NOTE_PARAM_LENGTH = 100;
+
+/**
+ * 1.8 `noteCode` and `noteParams` are display hints next to the English `note`. A malformed hint
+ * is dropped (the entry then shows its stored note) instead of refusing the whole result.
+ * Whether a code is known and its params are acceptable is decided when it is shown
+ * (`catalogNoteText`), never here.
+ */
+function readNoteCode(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_NOTE_CODE_LENGTH
+    ? value
+    : undefined;
+}
+
+function readNoteParams(value: unknown): Record<string, string | number> | undefined {
+  if (!isObject(value)) return undefined;
+  const keys = Object.keys(value);
+  if (keys.length > MAX_NOTE_PARAMS) return undefined;
+  const out: Record<string, string | number> = {};
+  for (const key of keys) {
+    const item = field(value, key);
+    if (key.length > MAX_NOTE_CODE_LENGTH || key === "__proto__") return undefined;
+    if (typeof item === "number") {
+      if (!Number.isSafeInteger(item)) return undefined;
+      out[key] = item;
+    } else if (typeof item === "string" && item.length <= MAX_NOTE_PARAM_LENGTH) {
+      out[key] = item;
+    } else {
+      return undefined;
+    }
+  }
+  return out;
+}
+
 function readCoverage(value: unknown, path: string): Coverage {
   const o = object(value, path);
   const entry: Coverage = {
@@ -316,6 +354,12 @@ function readCoverage(value: unknown, path: string): Coverage {
     ruleIds: strings(field(o, "ruleIds"), `${path}.ruleIds`),
     note: nullableStr(field(o, "note"), `${path}.note`),
   };
+  const noteCode = readNoteCode(field(o, "noteCode"));
+  if (noteCode !== undefined) {
+    entry.noteCode = noteCode;
+    const noteParams = readNoteParams(field(o, "noteParams"));
+    if (noteParams !== undefined) entry.noteParams = noteParams;
+  }
   const walked = field(o, "walkedDirectories");
   if (walked !== undefined) {
     const w = object(walked, `${path}.walkedDirectories`);

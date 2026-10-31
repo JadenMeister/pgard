@@ -1,3 +1,4 @@
+import { authorizationReasonText } from "@pgard/findings";
 import type { SessionInfo } from "../../../shared/api-types";
 import { DeviceCodeNotice } from "../../components/github/DeviceCodeNotice";
 import { Badge } from "../../components/ui/Badge";
@@ -97,7 +98,9 @@ export function AuthorizationSection({
                         {statusLabels[check.status] ?? check.status}
                       </Badge>
                     </td>
-                    <td data-label={m.auth.columns.reason}>{check.reason}</td>
+                    <td data-label={m.auth.columns.reason}>
+                      {authorizationReasonText(check.reason, language).text}
+                    </td>
                   </tr>
                 ))}
               </tbody>

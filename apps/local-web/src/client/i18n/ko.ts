@@ -1,3 +1,4 @@
+import { authorizationCheckLabel } from "@pgard/findings";
 import { pickerKo } from "./picker-ko";
 import type { Messages } from "./types";
 
@@ -75,11 +76,11 @@ export const ko: Messages = {
     projectLabel: "프로젝트",
     intro: "PGARD는 매 검사 전에 owner 승인, 현재 접근 권한, merge된 기여를 확인합니다.",
     checks: {
-      repository: "저장소",
-      github_identity: "GitHub 신원",
-      owner_approval: "owner 승인",
-      current_access: "현재 접근 권한",
-      contribution: "merge된 기여",
+      repository: authorizationCheckLabel("repository", "ko"),
+      github_identity: authorizationCheckLabel("github_identity", "ko"),
+      owner_approval: authorizationCheckLabel("owner_approval", "ko"),
+      current_access: authorizationCheckLabel("current_access", "ko"),
+      contribution: authorizationCheckLabel("contribution", "ko"),
     },
     columns: { check: "항목", status: "상태", reason: "이유" },
     checking: "확인하는 중...",

@@ -1,4 +1,10 @@
-import type { IncrementalFullReason, IncrementalInfo, RuleLocale, Severity } from "@pgard/findings";
+import {
+  authorizationCheckLabel,
+  type IncrementalFullReason,
+  type IncrementalInfo,
+  type RuleLocale,
+  type Severity,
+} from "@pgard/findings";
 import { INCREMENTAL_TEXT, REPORT_TEXT, type ReportText } from "@pgard/report";
 import { COMMAND_TEXT_EN, COMMAND_TEXT_KO, type CommandText } from "./command-text.js";
 
@@ -914,11 +920,11 @@ const KO: CliText = {
   authorizationBlocked: "권한 확인: 차단됨 - 분석이 실행되지 않았습니다",
   checkStatus: { passed: "통과", failed: "실패", unverifiable: "확인 불가" },
   checkName: {
-    repository: "저장소",
-    github_identity: "GitHub 계정",
-    owner_approval: "소유자 승인",
-    current_access: "현재 접근 권한",
-    contribution: "기여 이력",
+    repository: authorizationCheckLabel("repository", "ko"),
+    github_identity: authorizationCheckLabel("github_identity", "ko"),
+    owner_approval: authorizationCheckLabel("owner_approval", "ko"),
+    current_access: authorizationCheckLabel("current_access", "ko"),
+    contribution: authorizationCheckLabel("contribution", "ko"),
   },
   configExcluded: (count, rest) => `pgard.config.json으로 제외된 파일 ${count}개${rest}`,
   configNoticePrefix: "pgard.config.json: ",

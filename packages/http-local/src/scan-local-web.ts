@@ -1,10 +1,15 @@
-import type {
-  AnalyzerOutput,
-  ConfirmedWebTarget,
-  Coverage,
-  Finding,
-  RuleStat,
-  RuleTargetCount,
+import {
+  AUTHENTICATED_NOT_AVAILABLE_NOTE,
+  WEB_GET_SIDE_EFFECT_NOTE,
+  WEB_HSTS_NOTE,
+  coverageNote,
+  webPagesCheckedLead,
+  type AnalyzerOutput,
+  type ConfirmedWebTarget,
+  type Coverage,
+  type Finding,
+  type RuleStat,
+  type RuleTargetCount,
 } from "@pgard/findings";
 import { checkCors } from "./checks/cors.js";
 import { CookieFlagCollector } from "./checks/cookies.js";
@@ -62,10 +67,7 @@ export type WebScanner = (
 
 export const WEB_AREA_ANONYMOUS = "web:anonymous";
 export const WEB_AREA_AUTHENTICATED = "web:authenticated";
-export const AUTHENTICATED_NOT_AVAILABLE_NOTE =
-  "authenticated browsing is not available in this MVP";
-const HSTS_NOTE = "HSTS is not applicable to plain-http loopback and was not checked";
-const GET_SIDE_EFFECT_NOTE = "GET requests can still change state in some apps";
+export { AUTHENTICATED_NOT_AVAILABLE_NOTE };
 
 function clampLimits(overrides: Partial<WebScanLimits> | undefined): WebScanLimits {
   return {
@@ -85,7 +87,7 @@ function authenticatedCoverage(): Coverage {
     scope: "web",
     status: "not_selected",
     ruleIds: [],
-    note: AUTHENTICATED_NOT_AVAILABLE_NOTE,
+    ...coverageNote("web_authenticated_unavailable"),
   };
 }
 
@@ -270,7 +272,7 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
   findings.push(...cookies.findings);
 
   const isPartial = gaps.size > 0;
-  const noteParts = [...gaps, HSTS_NOTE, GET_SIDE_EFFECT_NOTE];
+  const noteParts = [...gaps, WEB_HSTS_NOTE, WEB_GET_SIDE_EFFECT_NOTE];
   const deduped = dedupeFindings(findings);
   const status = isPartial ? "partial" : "completed";
   const responses = (examined: number): RuleTargetCount[] => [
@@ -322,7 +324,8 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
         scope: "web",
         status: isPartial ? "partial" : "completed",
         ruleIds: [...WEB_RULE_IDS],
-        note: `${pagesVisited} page(s) checked. ${noteParts.join("; ")}.`,
+        note: `${webPagesCheckedLead(pagesVisited)} ${noteParts.join("; ")}.`,
+        ...(gaps.size === 0 ? coverageNote("web_pages_checked", { pages: pagesVisited }) : {}),
       },
       authenticatedCoverage(),
     ],

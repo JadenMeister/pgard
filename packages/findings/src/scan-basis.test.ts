@@ -49,8 +49,8 @@ const ALL_PASSED = {
 };
 
 describe("scanBasis (JSON 1.7)", () => {
-  it("is version 1.7", () => {
-    expect(SCHEMA_VERSION).toBe("1.7");
+  it("is version 1.8", () => {
+    expect(SCHEMA_VERSION).toBe("1.8");
   });
 
   it("reads a code-only and an authorized basis, and treats absent as authorized", () => {
