@@ -60,6 +60,8 @@ export interface CliDeps {
   findRepositoryRoot: (cwd: string, stopAt: string | null) => Promise<string | null>;
   /** The current user id, or `undefined` where there is none (Windows). */
   currentUid: () => number | undefined;
+  /** The primary group id of the current user, or `undefined` where there is none (Windows). */
+  currentGid: () => number | undefined;
   verifyProject: typeof verifyProject;
   runScan: typeof runScan;
   /** `pgard scan code` without approval: no gate, no network, nothing stored (#414). */
@@ -289,6 +291,7 @@ export function createDefaultDeps(): CliDeps {
     isGitRootRedirected: async (cwd) => (await inspectGitRoot(cwd)).kind === "redirected",
     findRepositoryRoot: (cwd, stopAt) => repositoryRootOf(cwd, stopAt, entryKindOf),
     currentUid: () => process.getuid?.(),
+    currentGid: () => process.getgid?.(),
     verifyProject,
     runScan,
     runCodeOnlyScan,

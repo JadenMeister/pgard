@@ -1217,37 +1217,37 @@ OWASP Top 10 2025 분류별
 
 표준 매핑 현황 (OWASP Top 10 2025)
   [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개
-                   중 7개에 규칙이 있음 (PG-SECRET-003) (partial areas:
-                   history:secrets; code rules not run: areas could not run; no
-                   completed mapped rule covers javascript, typescript (files
-                   that are not yours to scan can be left out with "exclude" in
-                   p…
+                   중 7개에 규칙이 있음 (PG-SECRET-003); 일부만 실행된 영역:
+                   history:secrets; code 규칙 실행 안 됨: 영역을 실행하지 못함;
+                   끝까지 실행된 매핑 규칙이 다루지 못하는 언어: javascript,
+                   typescript (검사 대상이 아닌 파일은 pgard.config.json의
+                   "exclude"로 제외할 수 있음)
   [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개
-               중 3개에 규칙이 있음 (no mapped rule ran (PG-CONF-001,
-               PG-COOKIE-001: code areas could not run))
+               중 3개에 규칙이 있음; 실행된 매핑 규칙이 없음 (PG-CONF-001,
+               PG-COOKIE-001: code 영역을 실행하지 못함)
   [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE
-               6개 중 2개에 규칙이 있음 (no mapped rule ran (PG-DEP-001,
-               PG-HYGIENE-001: history areas could not run, code areas could not
-               run))
+               6개 중 2개에 규칙이 있음; 실행된 매핑 규칙이 없음 (PG-DEP-001,
+               PG-HYGIENE-001: history 영역을 실행하지 못함, code 영역을
+               실행하지 못함)
   [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중
-               4개에 규칙이 있음 (no mapped rule ran (PG-CRYPTO-001,
-               PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
+               4개에 규칙이 있음; 실행된 매핑 규칙이 없음 (PG-CRYPTO-001,
+               PG-CRYPTO-002, PG-CRYPTO-003: code 영역을 실행하지 못함)
   [규칙 일부 실행] A05 Injection - 매핑된 CWE 37개 중 3개에
-                   규칙이 있음 (PG-CMD-001) (no completed mapped rule covers
-                   javascript (files that are not yours to scan can be left out
-                   with "exclude" in pgard.config.json))
+                   규칙이 있음 (PG-CMD-001); 끝까지 실행된 매핑 규칙이 다루지
+                   못하는 언어: javascript (검사 대상이 아닌 파일은
+                   pgard.config.json의 "exclude"로 제외할 수 있음)
   [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에
-               규칙이 있음 (no mapped rule ran (PG-AUTH-001: code areas could
-               not run))
+               규칙이 있음; 실행된 매핑 규칙이 없음 (PG-AUTH-001: code 영역을
+               실행하지 못함)
   [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE
-                   36개 중 2개에 규칙이 있음 (PG-SECRET-003) (partial areas:
-                   history:secrets; code rules not run: areas could not run; no
-                   completed mapped rule covers javascript, typescript (files
-                   that are not yours to scan can be left out with "exclude" in
-                   p…
-  [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
-  [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
-  [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
+                   36개 중 2개에 규칙이 있음 (PG-SECRET-003); 일부만 실행된
+                   영역: history:secrets; code 규칙 실행 안 됨: 영역을 실행하지
+                   못함; 끝까지 실행된 매핑 규칙이 다루지 못하는 언어:
+                   javascript, typescript (검사 대상이 아닌 파일은
+                   pgard.config.json의 "exclude"로 제외할 수 있음)
+  [규칙 없음]      A08 Software or Data Integrity Failures - 규칙 없음
+  [규칙 없음]      A09 Security Logging & Alerting Failures - 규칙 없음
+  [규칙 없음]      A10 Mishandling of Exceptional Conditions - 규칙 없음
   CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 6, 규칙 없음 18
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다.
   프로젝트가 안전하다거나 그 분류를 모두 다뤘다는 뜻이 아닙니다. 분류에 속한 CWE
@@ -1603,26 +1603,28 @@ OWASP Top 10 2025 분류별
   [선택 안 함] dependencies:lockfile (선택 안 함)
 
 표준 매핑 현황 (OWASP Top 10 2025)
-  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 7개에 규칙이 있음 (PG-SECRET-003)
-                   (partial areas: history:secrets; code rules not run: areas could not run; no completed mapped rule
-                   covers javascript, typescript (files that are not yours to scan can be left out with "exclude" in p…
-  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 3개에 규칙이 있음 (no mapped rule ran
-               (PG-CONF-001, PG-COOKIE-001: code areas could not run))
-  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 2개에 규칙이 있음 (no mapped rule
-               ran (PG-DEP-001, PG-HYGIENE-001: history areas could not run, code areas could not run))
-  [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음 (no mapped rule ran
-               (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code areas could not run))
-  [규칙 일부 실행] A05 Injection - 매핑된 CWE 37개 중 3개에 규칙이 있음 (PG-CMD-001) (no completed
-                   mapped rule covers javascript (files that are not yours to scan can be left out with "exclude" in
-                   pgard.config.json))
-  [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에 규칙이 있음 (no mapped rule ran
-               (PG-AUTH-001: code areas could not run))
-  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003)
-                   (partial areas: history:secrets; code rules not run: areas could not run; no completed mapped rule
-                   covers javascript, typescript (files that are not yours to scan can be left out with "exclude" in p…
-  [규칙 없음]      A08 Software or Data Integrity Failures - (no rules)
-  [규칙 없음]      A09 Security Logging & Alerting Failures - (no rules)
-  [규칙 없음]      A10 Mishandling of Exceptional Conditions - (no rules)
+  [규칙 일부 실행] A01 Broken Access Control - 매핑된 CWE 40개 중 7개에 규칙이 있음 (PG-SECRET-003);
+                   일부만 실행된 영역: history:secrets; code 규칙 실행 안 됨: 영역을 실행하지 못함; 끝까지 실행된 매핑
+                   규칙이 다루지 못하는 언어: javascript, typescript (검사 대상이 아닌 파일은 pgard.config.json의
+                   "exclude"로 제외할 수 있음)
+  [실행 안 됨]     A02 Security Misconfiguration - 매핑된 CWE 16개 중 3개에 규칙이 있음; 실행된 매핑 규칙이
+               없음 (PG-CONF-001, PG-COOKIE-001: code 영역을 실행하지 못함)
+  [실행 안 됨]     A03 Software Supply Chain Failures - 매핑된 CWE 6개 중 2개에 규칙이 있음; 실행된 매핑
+               규칙이 없음 (PG-DEP-001, PG-HYGIENE-001: history 영역을 실행하지 못함, code 영역을 실행하지 못함)
+  [실행 안 됨]     A04 Cryptographic Failures - 매핑된 CWE 32개 중 4개에 규칙이 있음; 실행된 매핑 규칙이
+               없음 (PG-CRYPTO-001, PG-CRYPTO-002, PG-CRYPTO-003: code 영역을 실행하지 못함)
+  [규칙 일부 실행] A05 Injection - 매핑된 CWE 37개 중 3개에 규칙이 있음 (PG-CMD-001); 끝까지 실행된
+                   매핑 규칙이 다루지 못하는 언어: javascript (검사 대상이 아닌 파일은 pgard.config.json의 "exclude"로
+                   제외할 수 있음)
+  [실행 안 됨]     A06 Insecure Design - 매핑된 CWE 39개 중 1개에 규칙이 있음; 실행된 매핑 규칙이 없음
+               (PG-AUTH-001: code 영역을 실행하지 못함)
+  [규칙 일부 실행] A07 Authentication Failures - 매핑된 CWE 36개 중 2개에 규칙이 있음 (PG-SECRET-003);
+                   일부만 실행된 영역: history:secrets; code 규칙 실행 안 됨: 영역을 실행하지 못함; 끝까지 실행된 매핑
+                   규칙이 다루지 못하는 언어: javascript, typescript (검사 대상이 아닌 파일은 pgard.config.json의
+                   "exclude"로 제외할 수 있음)
+  [규칙 없음]      A08 Software or Data Integrity Failures - 규칙 없음
+  [규칙 없음]      A09 Security Logging & Alerting Failures - 규칙 없음
+  [규칙 없음]      A10 Mishandling of Exceptional Conditions - 규칙 없음
   CWE Top 25 2025: 규칙 실행됨 0, 규칙 일부 실행 1, 실행 안 됨 6, 규칙 없음 18
   규칙 실행됨은 매핑된 규칙이 이번 검사에서 끝까지 실행되었다는 뜻입니다. 프로젝트가 안전하다거나 그 분류를 모두
   다뤘다는 뜻이 아닙니다. 분류에 속한 CWE 중 규칙이 있는 개수를 확인하세요. 항목별 전체 내용: --format json
