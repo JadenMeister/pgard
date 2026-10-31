@@ -63,44 +63,57 @@ function isTildeUser(typed: string, platform: NodeJS.Platform): boolean {
 
 /**
  * Why a folder was not created: `policy` (outside home), `link` (a link on the path), `owner` (a
- * level owned by another user), `sudo` (this process is not the home folder's owner), `writable`
- * (the closest existing parent can be changed by others) or `io` (the file system said no).
+ * level owned by another user), `home-owner` (this process is not the home folder's owner, for
+ * example `sudo`, or its user id is unknown), `writable` (the closest existing parent can be
+ * changed by others) or `io` (the file system said no). `folder` names the folder a `writable`
+ * refusal is about.
  */
-export type CreateOutcome = "created" | "policy" | "link" | "owner" | "sudo" | "writable" | "io";
+export type CreateOutcome =
+  "created" | "policy" | "link" | "owner" | "home-owner" | "writable" | "io";
+export interface CreateResult {
+  outcome: CreateOutcome;
+  folder?: string;
+}
 
 /**
  * Creates a folder the user asked for, one level at a time (mode 0700, no `recursive`). The
  * process must run as the owner of the home folder (not `sudo -E`), the closest existing parent
- * must lie inside the home folder once links are resolved and must not be writable by group or
- * others (unless sticky and owned by this user), every level made here must be a real directory
- * (not a link) owned by this user and must still resolve inside home right after it is made, so a
- * link cannot send the new folder somewhere else.
+ * must lie inside the home folder once links are resolved and must not be changeable by others
+ * (a group-writable folder is fine when it is yours and its group is your primary group, or when
+ * it is your home folder; an others-writable one only when sticky and yours), every level made
+ * here must be a real directory (not a link) owned by this user and must still resolve inside
+ * home right after it is made, so a link cannot send the new folder somewhere else.
  */
 export async function createReportDir(
   target: string,
   home: string | null,
   platform: NodeJS.Platform,
-  getuid: () => number | undefined = () => process.getuid?.(),
-): Promise<CreateOutcome> {
-  if (home === null) return "policy";
+  ids: { uid: number | undefined; gid: number | undefined },
+): Promise<CreateResult> {
+  if (home === null) return { outcome: "policy" };
   try {
     const realHome = await realpath(home);
     // Windows has no uid; its folders are refused only by the home and link checks.
     const owner = platform === "win32" ? undefined : (await stat(realHome)).uid;
-    if (owner !== undefined && getuid() !== owner) return "sudo";
+    if (platform !== "win32" && ids.uid !== owner) return { outcome: "home-owner" };
     let parent = path.dirname(target);
     for (;;) {
       if ((await stat(parent).catch(() => null))?.isDirectory() === true) break;
       const next = path.dirname(parent);
-      if (next === parent) return "io";
+      if (next === parent) return { outcome: "io" };
       parent = next;
     }
     const realParent = await realpath(parent);
-    if (!isInside(realParent, realHome, platform)) return "policy";
+    if (!isInside(realParent, realHome, platform)) return { outcome: "policy" };
     if (owner !== undefined) {
       const info = await stat(realParent);
+      const isMine = info.uid === owner;
       const isSticky = (info.mode & 0o1000) !== 0;
-      if ((info.mode & 0o022) !== 0 && !(isSticky && info.uid === owner)) return "writable";
+      const isHome = realParent === realHome;
+      const isOwnGroup = ids.gid !== undefined && info.gid === ids.gid;
+      const othersCanWrite = (info.mode & 0o002) !== 0 && !(isSticky && isMine);
+      const groupCanWrite = (info.mode & 0o020) !== 0 && !(isMine && (isOwnGroup || isHome));
+      if (othersCanWrite || groupCanWrite) return { outcome: "writable", folder: realParent };
     }
     let current = parent;
     for (const name of path.relative(parent, target).split(path.sep)) {
@@ -109,13 +122,13 @@ export async function createReportDir(
         if (error.code !== "EEXIST") throw error;
       });
       const info = await lstat(current);
-      if (info.isSymbolicLink() || !info.isDirectory()) return "link";
-      if (owner !== undefined && info.uid !== owner) return "owner";
-      if (!isInside(await realpath(current), realHome, platform)) return "policy";
+      if (info.isSymbolicLink() || !info.isDirectory()) return { outcome: "link" };
+      if (owner !== undefined && info.uid !== owner) return { outcome: "owner" };
+      if (!isInside(await realpath(current), realHome, platform)) return { outcome: "policy" };
     }
-    return isInside(await realpath(target), realHome, platform) ? "created" : "policy";
+    return { outcome: isInside(await realpath(target), realHome, platform) ? "created" : "policy" };
   } catch {
-    return "io";
+    return { outcome: "io" };
   }
 }
 
@@ -242,22 +255,20 @@ export async function runReportExport(
         if (!(await confirmInsideRepository(context))) continue;
         isConfirmedInside = true;
       }
-      const created = await createReportDir(
-        missing,
-        home,
-        platform,
-        context.deps.getuid ?? (() => process.getuid?.()),
-      );
-      if (created !== "created") {
+      const created = await createReportDir(missing, home, platform, {
+        uid: context.deps.currentUid(),
+        gid: context.deps.currentGid(),
+      });
+      if (created.outcome !== "created") {
         const refusals = {
           policy: text.homeOnly,
           link: text.linkRefused,
           owner: text.otherUserRefused,
-          sudo: text.runWithoutSudo,
-          writable: text.parentWritable,
+          "home-owner": text.homeOwnedByOther(safeText(home ?? "", 500)),
+          writable: text.parentWritable(safeText(created.folder ?? "", 500)),
           io: text.cannotCreate,
         };
-        out(context, context.style.red(refusals[created]));
+        out(context, context.style.red(refusals[created.outcome]));
         continue;
       }
       check = await checkOutputDir(context, missing, projectRoot, "prompt");

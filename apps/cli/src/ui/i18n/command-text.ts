@@ -116,9 +116,9 @@ export interface CommandText {
     /** A level of the path belongs to another user. */
     otherUserRefused: string;
     /** The process runs as another user than the home folder's owner (for example sudo). */
-    runWithoutSudo: string;
+    homeOwnedByOther: (home: string) => string;
     /** The closest existing parent can be changed by group or others. */
-    parentWritable: string;
+    parentWritable: (folder: string) => string;
     typeFolder: string;
     tildeUser: string;
   };
@@ -388,11 +388,12 @@ overwritten. Saving inside the Git repository risks committing the report.`,
       "A link is on that path, so the folder was not created. Pick a folder that is not behind a link.",
     otherUserRefused:
       "A folder on that path belongs to another user, so it was not created. Pick a folder of your own.",
-    runWithoutSudo: "Run pgard without sudo to create a folder in your home folder.",
-    parentWritable:
-      "The closest existing folder can be changed by other users, so the folder was not created. Create it yourself or pick another.",
+    homeOwnedByOther: (home) =>
+      `Your home folder (${home}) belongs to another user. Run pgard as yourself (not with sudo).`,
+    parentWritable: (folder) =>
+      `"${folder}" can be changed by other users, so the folder was not created. Run chmod go-w "${folder}", or create the folder yourself.`,
     typeFolder: "Type a folder.",
-    tildeUser: "Use ~/ (e.g. ~/Downloads).",
+    tildeUser: "Use ~/ (e.g. ~/Downloads). (For a folder named ~…, type ./~…)",
   },
   reportCommand: {
     menuLabel: "Build report from last scan",
@@ -666,11 +667,13 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
       "경로에 링크가 있어 폴더를 만들지 않았습니다. 링크 뒤에 있지 않은 폴더를 고르세요.",
     otherUserRefused:
       "경로에 다른 사용자 소유의 폴더가 있어 만들지 않았습니다. 본인 소유의 폴더를 고르세요.",
-    runWithoutSudo: "홈 폴더에 폴더를 만들려면 sudo 없이 pgard를 실행하세요.",
-    parentWritable:
-      "가장 가까운 기존 폴더를 다른 사용자가 바꿀 수 있어 만들지 않았습니다. 직접 만들거나 다른 폴더를 고르세요.",
+    homeOwnedByOther: (home) =>
+      `홈 폴더(${home})가 다른 사용자 소유입니다. sudo 없이 본인 계정으로 실행하세요.`,
+    parentWritable: (folder) =>
+      `"${folder}"를 다른 사용자가 바꿀 수 있어 폴더를 만들지 않았습니다. chmod go-w "${folder}"를 실행하거나 폴더를 직접 만드세요.`,
     typeFolder: "폴더를 입력하세요.",
-    tildeUser: "~ 바로 뒤에 /를 붙이세요(예: ~/Downloads).",
+    tildeUser:
+      "~ 바로 뒤에 /를 붙이세요(예: ~/Downloads). (이름이 ~로 시작하는 폴더는 ./~… 로 입력하세요)",
   },
   reportCommand: {
     menuLabel: "마지막 검사로 보고서 만들기",

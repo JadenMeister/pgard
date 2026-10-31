@@ -162,7 +162,13 @@ describe("report folder prompt", () => {
 
   function setup(
     keys: string[],
-    options: { isTTY?: boolean; inside?: (p: string) => boolean; home?: string } = {},
+    options: {
+      isTTY?: boolean;
+      inside?: (p: string) => boolean;
+      home?: string;
+      uid?: number;
+      gid?: number;
+    } = {},
   ) {
     const captured = createTestIo({
       isTTY: options.isTTY ?? true,
@@ -177,6 +183,8 @@ describe("report folder prompt", () => {
       writeReports,
       isPathInsideDirectory: isPathInsideDirectory as never,
       platform: process.platform,
+      currentUid: () => options.uid ?? process.getuid?.(),
+      currentGid: () => options.gid ?? process.getgid?.(),
     });
     const context = createTestContext(captured, deps, scriptedKeys(keys));
     return { captured, context, writeReports, isPathInsideDirectory };
@@ -267,7 +275,10 @@ describe("report folder prompt", () => {
     const s = setup([]);
     for (const source of ["option", "prompt"] as const) {
       const check = await checkOutputDir(s.context, "~bob/x", repo, source);
-      expect(check).toEqual({ kind: "invalid", message: "Use ~/ (e.g. ~/Downloads)." });
+      expect(check).toEqual({
+        kind: "invalid",
+        message: "Use ~/ (e.g. ~/Downloads). (For a folder named ~…, type ./~…)",
+      });
     }
     mkdirSync(path.join(repo, "~bob"));
     expect((await checkOutputDir(s.context, "~bob", repo)).kind).toBe("invalid");
@@ -280,72 +291,127 @@ describe("report folder prompt", () => {
     const ko = { ...s.context, ruleLocale: "ko" as const };
     expect(await checkOutputDir(ko, "~bob", repo)).toEqual({
       kind: "invalid",
-      message: "~ 바로 뒤에 /를 붙이세요(예: ~/Downloads).",
+      message:
+        "~ 바로 뒤에 /를 붙이세요(예: ~/Downloads). (이름이 ~로 시작하는 폴더는 ./~… 로 입력하세요)",
     });
   });
 
   describe.skipIf(!isPosix)("createReportDir hardening", () => {
-    const uid = () => process.getuid?.();
-    const create = (target: string, getuid: () => number | undefined = uid) =>
-      createReportDir(target, home, "linux", getuid);
+    const uid = process.getuid?.() ?? 0;
+    const gid = process.getgid?.() ?? 0;
+    const create = (target: string, ids = { uid: uid as number | undefined, gid }) =>
+      createReportDir(target, home, "linux", ids);
+    const mk = (name: string, mode: number) => {
+      const dir = path.join(home, name);
+      mkdirSync(dir);
+      chmodSync(dir, mode);
+      return dir;
+    };
 
     it("N2: refuses when the process uid differs from the home owner, creating nothing", async () => {
       const target = path.join(home, "fresh");
-      expect(await create(target, () => (uid() ?? 0) + 1)).toBe("sudo");
+      expect((await create(target, { uid: uid + 1, gid })).outcome).toBe("home-owner");
       expect(() => statSync(target)).toThrow();
-      expect(await create(target)).toBe("created");
+      expect((await create(target)).outcome).toBe("created");
     });
 
-    it("N2: the prompt says to run without sudo (EN and KO)", async () => {
-      const wrongUid = (uid() ?? 0) + 1;
+    it("m1: an unknown uid on POSIX is a refusal, not a skip", async () => {
+      const target = path.join(home, "fresh");
+      expect((await create(target, { uid: undefined, gid })).outcome).toBe("home-owner");
+      expect(() => statSync(target)).toThrow();
+    });
+
+    it("N2/m2: the prompt names the home folder and says to run as yourself (EN and KO)", async () => {
       for (const [locale, expected] of [
-        ["en", "Run pgard without sudo to create a folder in your home folder."],
-        ["ko", "홈 폴더에 폴더를 만들려면 sudo 없이 pgard를 실행하세요."],
+        [
+          "en",
+          `Your home folder (${home}) belongs to another user. Run pgard as yourself (not with sudo).`,
+        ],
+        ["ko", `홈 폴더(${home})가 다른 사용자 소유입니다. sudo 없이 본인 계정으로 실행하세요.`],
       ] as const) {
-        const s = setup([...FORMAT, ...chars(path.join(home, "new")), ...ENTER, "y", "escape"]);
-        const context = {
-          ...s.context,
-          ruleLocale: locale,
-          deps: { ...s.context.deps, getuid: () => wrongUid },
-        };
+        const s = setup([...FORMAT, ...chars(path.join(home, "new")), ...ENTER, "y", "escape"], {
+          uid: uid + 1,
+        });
+        const context = { ...s.context, ruleLocale: locale };
         expect(await runReportExport(context, panelsFixtureResult(), repo)).toBe("cancelled");
         expect(s.captured.stdout()).toContain(expected);
         expect(() => statSync(path.join(home, "new"))).toThrow();
       }
     });
 
-    it("N1: refuses a parent writable by group or others, unless sticky and owned by the user", async () => {
-      for (const mode of [0o775, 0o757, 0o777]) {
-        const parent = path.join(home, `w${mode.toString(8)}`);
-        mkdirSync(parent);
-        chmodSync(parent, mode);
-        expect(await create(path.join(parent, "x"))).toBe("writable");
+    it("N1: refuses a parent writable by others, unless sticky and owned by the user", async () => {
+      for (const mode of [0o757, 0o777, 0o772]) {
+        const parent = mk(`w${mode.toString(8)}`, mode);
+        expect((await create(path.join(parent, "x"))).outcome).toBe("writable");
         expect(() => statSync(path.join(parent, "x"))).toThrow();
       }
-      const sticky = path.join(home, "sticky");
-      mkdirSync(sticky);
-      chmodSync(sticky, 0o1777);
-      expect(await create(path.join(sticky, "x"))).toBe("created");
-      const own = path.join(home, "own");
-      mkdirSync(own);
-      chmodSync(own, 0o755);
-      expect(await create(path.join(own, "x", "y"))).toBe("created");
+      const sticky = mk("sticky", 0o1777);
+      expect((await create(path.join(sticky, "x"))).outcome).toBe("created");
+      const own = mk("own", 0o755);
+      expect((await create(path.join(own, "x", "y"))).outcome).toBe("created");
+    });
+
+    it("M1: group-write is fine for a folder of the user's own group", async () => {
+      const dir = mk("g775", 0o775);
+      expect((await create(path.join(dir, "x"))).outcome).toBe("created");
+    });
+
+    it("M1: group-write with another group is still refused", async () => {
+      const dir = mk("g775other", 0o775);
+      const result = await create(path.join(dir, "x"), { uid, gid: gid + 1 });
+      expect(result).toEqual({ outcome: "writable", folder: dir });
+      expect(() => statSync(path.join(dir, "x"))).toThrow();
+    });
+
+    it("M1: an unknown gid cannot make group-write safe", async () => {
+      const dir = mk("g775nogid", 0o775);
+      const result = await createReportDir(path.join(dir, "x"), home, "linux", {
+        uid,
+        gid: undefined,
+      });
+      expect(result.outcome).toBe("writable");
+    });
+
+    it("M1: a 0775 home owned by the user is fine, even with another group", async () => {
+      chmodSync(home, 0o775);
+      expect((await create(path.join(home, "a"))).outcome).toBe("created");
+      expect((await create(path.join(home, "b"), { uid, gid: gid + 1 })).outcome).toBe("created");
+      chmodSync(home, 0o777);
+      expect((await create(path.join(home, "c"))).outcome).toBe("writable");
+      chmodSync(home, 0o700);
     });
 
     it("N1: the closest existing parent is the one checked, not an earlier one", async () => {
-      const parent = path.join(home, "open");
-      mkdirSync(parent);
-      chmodSync(parent, 0o777);
-      expect(await create(path.join(parent, "a", "b"))).toBe("writable");
+      const parent = mk("open", 0o777);
+      expect((await create(path.join(parent, "a", "b"))).outcome).toBe("writable");
       expect(() => statSync(path.join(parent, "a"))).toThrow();
+    });
+
+    it("n1: the writable refusal names the folder and the fix (EN and KO)", async () => {
+      const dir = mk("open2", 0o777);
+      for (const [locale, expected] of [
+        [
+          "en",
+          `"${dir}" can be changed by other users, so the folder was not created. Run chmod go-w "${dir}", or create the folder yourself.`,
+        ],
+        [
+          "ko",
+          `"${dir}"를 다른 사용자가 바꿀 수 있어 폴더를 만들지 않았습니다. chmod go-w "${dir}"를 실행하거나 폴더를 직접 만드세요.`,
+        ],
+      ] as const) {
+        const s = setup([...FORMAT, ...chars(path.join(dir, "new")), ...ENTER, "y", "escape"]);
+        const context = { ...s.context, ruleLocale: locale };
+        expect(await runReportExport(context, panelsFixtureResult(), repo)).toBe("cancelled");
+        expect(s.captured.stdout()).toContain(expected);
+      }
     });
 
     it("N3: a link gives its own outcome, and a link out of home is a home refusal", async () => {
       const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), "pgard-outside-")));
       try {
         symlinkSync(outside, path.join(home, "dangling-ok"));
-        expect(await create(path.join(home, "dangling-ok"))).toBe("link");
-        expect(await create(path.join(home, "dangling-ok", "x"))).toBe("policy");
+        expect((await create(path.join(home, "dangling-ok"))).outcome).toBe("link");
+        expect((await create(path.join(home, "dangling-ok", "x"))).outcome).toBe("policy");
       } finally {
         rmSync(outside, { recursive: true, force: true });
       }
@@ -359,8 +425,8 @@ describe("report folder prompt", () => {
           t.homeOnly,
           t.linkRefused,
           t.otherUserRefused,
-          t.runWithoutSudo,
-          t.parentWritable,
+          t.homeOwnedByOther("/h"),
+          t.parentWritable("/p"),
         ];
         expect(new Set(all).size).toBe(all.length);
       }
@@ -387,8 +453,17 @@ describe("report folder prompt", () => {
     });
   });
 
-  it("N5: Windows has no uid checks; an unknown home is still refused", async () => {
-    expect(await createReportDir(path.join(home, "w"), null, "win32")).toBe("policy");
+  it("N5/n3: Windows has no uid checks; an unknown home is still refused", async () => {
+    expect(
+      (await createReportDir(path.join(home, "w"), null, "win32", { uid: 1, gid: 1 })).outcome,
+    ).toBe("policy");
+    // A uid that matches nothing, and a folder others can write to: both checks are skipped.
+    if (process.platform !== "win32") chmodSync(home, 0o777);
+    const result = await createReportDir(path.join(home, "w"), home, "win32", {
+      uid: 424242,
+      gid: 424242,
+    });
+    expect(result.outcome).toBe("created");
   });
 
   it.skipIf(!isPosix)("refuses a symlinked parent and a symlink as the final name", async () => {
