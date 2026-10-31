@@ -43,7 +43,7 @@ const FULL: Coverage[] = [
 
 function scan(findings: Finding[], overrides: Partial<ScanResult> = {}): ScanResult {
   return {
-    schemaVersion: "1.7",
+    schemaVersion: "1.8",
     scanBasis: { mode: "authorized", authorization: "verified", reason: null },
     scanId: "s1",
     startedAt: "2026-10-24T00:00:00.000Z",
@@ -169,7 +169,7 @@ describe("applyBaseline", () => {
       SET_AT,
     );
     const read = readScanResult(JSON.parse(JSON.stringify(result)));
-    expect(read).toEqual({ ok: true, result, sourceVersion: "1.7" });
+    expect(read).toEqual({ ok: true, result, sourceVersion: "1.8" });
   });
 });
 

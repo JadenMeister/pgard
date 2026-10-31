@@ -1,4 +1,4 @@
-import type { Coverage, Finding, RuleStat } from "@pgard/findings";
+import { coverageNote, type Coverage, type Finding, type RuleStat } from "@pgard/findings";
 import { createSourceFinding } from "../finding-factory.js";
 import { PYTHON_RULE_IDS } from "../rules.js";
 import {
@@ -157,7 +157,7 @@ export async function scanPython(
       scope: "code",
       status: "not_tested",
       ruleIds: [],
-      note: PYTHON_OTHER_CATEGORIES_NOTE,
+      ...coverageNote("python_other_categories"),
     });
     for (const [library, count] of libraries) {
       out.coverage.push({
@@ -165,7 +165,7 @@ export async function scanPython(
         scope: "code",
         status: "partial",
         ruleIds: ["PG-SQL-006"],
-        note: `${library} detected in ${count} Python file(s); its raw SQL APIs are not supported, so queries made through them were not evaluated (not a safe result).`,
+        ...coverageNote("python_orm_unsupported", { library, count }),
       });
     }
     for (const [library, count] of processLibraries) {
@@ -174,7 +174,7 @@ export async function scanPython(
         scope: "code",
         status: "partial",
         ruleIds: ["PG-CMD-004"],
-        note: `${library} detected in ${count} Python file(s); its process-running APIs are not supported, so commands run through it were not evaluated (not a safe result).`,
+        ...coverageNote("python_process_unsupported", { library, count }),
       });
     }
     return out;

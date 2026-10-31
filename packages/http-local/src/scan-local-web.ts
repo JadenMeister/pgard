@@ -1,10 +1,11 @@
-import type {
-  AnalyzerOutput,
-  ConfirmedWebTarget,
-  Coverage,
-  Finding,
-  RuleStat,
-  RuleTargetCount,
+import {
+  coverageNote,
+  type AnalyzerOutput,
+  type ConfirmedWebTarget,
+  type Coverage,
+  type Finding,
+  type RuleStat,
+  type RuleTargetCount,
 } from "@pgard/findings";
 import { checkCors } from "./checks/cors.js";
 import { CookieFlagCollector } from "./checks/cookies.js";
@@ -85,7 +86,7 @@ function authenticatedCoverage(): Coverage {
     scope: "web",
     status: "not_selected",
     ruleIds: [],
-    note: AUTHENTICATED_NOT_AVAILABLE_NOTE,
+    ...coverageNote("web_authenticated_unavailable"),
   };
 }
 
@@ -323,6 +324,7 @@ export const scanLocalWeb: WebScanner = async (target, opts = {}) => {
         status: isPartial ? "partial" : "completed",
         ruleIds: [...WEB_RULE_IDS],
         note: `${pagesVisited} page(s) checked. ${noteParts.join("; ")}.`,
+        ...(gaps.size === 0 ? coverageNote("web_pages_checked", { pages: pagesVisited }) : {}),
       },
       authenticatedCoverage(),
     ],

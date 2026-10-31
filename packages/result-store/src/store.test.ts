@@ -587,7 +587,7 @@ describe("corrupt, oversized and newer files", () => {
     const first = await store.save(makeResult(), { repositoryId: REPO_ID });
     if (!first.ok) throw new Error("setup");
     const file = path.join(dir, "repos", String(REPO_ID), first.file);
-    const newer = { ...makeResult(), schemaVersion: "1.8", futureField: { keep: "me" } };
+    const newer = { ...makeResult(), schemaVersion: "1.9", futureField: { keep: "me" } };
     const original = JSON.stringify(newer);
     await writeFile(file, original);
     const again = await store.save(makeResult(), { repositoryId: REPO_ID });
@@ -595,7 +595,7 @@ describe("corrupt, oversized and newer files", () => {
     expect(await readFile(file, "utf8")).toBe(original);
     // The newer file is still readable and reports its version.
     const listed = await store.list(REPO_ID);
-    expect(listed.scans[0]?.sourceVersion).toBe("1.8");
+    expect(listed.scans[0]?.sourceVersion).toBe("1.9");
   });
 
   it("overwrites an identical-version file of the same scan (idempotent)", async () => {

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { FINDING_TEXT_VARIANTS, type Coverage, type Finding } from "@pgard/findings";
+import { FINDING_TEXT_VARIANTS, coverageNote, type Coverage, type Finding } from "@pgard/findings";
 import {
   decodeStagedBlobBoth,
   isGitDirectoryName,
@@ -329,6 +329,9 @@ export async function scanWorkingTreeSecrets(
         status: isPartial ? "partial" : "completed",
         ruleIds: ["PG-SECRET-001", "PG-SECRET-002"],
         note: parts.join(" "),
+        ...(parts.length === 1
+          ? coverageNote("working_tree_files_checked", { count: filesRead })
+          : {}),
       },
     ],
   };

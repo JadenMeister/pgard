@@ -3,6 +3,7 @@ import {
   createFindingFingerprint,
   type AnalyzerOutput,
   type Confidence,
+  coverageNote,
   type Coverage,
   type RuleStat,
   type Finding,
@@ -744,10 +745,15 @@ async function runHistoryScan(
   ).trim();
   if (!SHA.test(revision) && plan !== null) return null;
   if (!SHA.test(revision)) {
+    const requested12 = (options.revision ?? "").slice(0, 12);
     const note =
       options.revision && options.revision !== "HEAD"
-        ? `The revision to scan (${options.revision.slice(0, 12)}) was not found in the repository.`
-        : "The repository has no commit to scan.";
+        ? /^[A-Za-z0-9][A-Za-z0-9 ._+#()/:-]{0,59}$/.test(requested12)
+          ? coverageNote("history_revision_not_found", { revision: requested12 })
+          : {
+              note: `The revision to scan (${requested12}) was not found in the repository.`,
+            }
+        : coverageNote("history_no_commit");
     return {
       findings: [],
       coverage: [
@@ -756,9 +762,9 @@ async function runHistoryScan(
           scope: "history",
           status: "not_tested",
           ruleIds: [],
-          note,
+          ...note,
         },
-        { area: "history:commits", scope: "history", status: "not_tested", ruleIds: [], note },
+        { area: "history:commits", scope: "history", status: "not_tested", ruleIds: [], ...note },
       ],
       ruleStats: [],
       history: { mode: "full", commitsScanned: 0, commitsReused: 0 },
@@ -907,6 +913,13 @@ async function runHistoryScan(
       headProblems,
       headSkips.info,
     ),
+    // Only the plain case has a code; a note that lists problems stays English.
+    ...(headProblems.length + headSkips.info.length === 0
+      ? coverageNote("history_tracked_files", {
+          count: headBlobs.length,
+          revision: revision.slice(0, 12),
+        })
+      : {}),
   });
 
   // 2. Recent history (all commits reachable from the scanned revision).
@@ -1206,6 +1219,12 @@ async function runHistoryScan(
       historyProblems,
       historySkips.info,
     ),
+    ...(historyProblems.length + historySkips.info.length === 0
+      ? coverageNote("history_commits", {
+          count: processedCommits,
+          revision: revision.slice(0, 12),
+        })
+      : {}),
   });
 
   // Rule stats. A finding with a commit belongs to the commits area, one without to the tracked

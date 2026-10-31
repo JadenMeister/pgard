@@ -42,7 +42,7 @@ const finding = (id: string, fix?: Finding["fix"]): Finding => ({
 });
 
 const scan = (findings: Finding[]): ScanResult => ({
-  schemaVersion: "1.7",
+  schemaVersion: "1.8",
   scanId: "s",
   startedAt: "2026-01-01T00:00:00.000Z",
   finishedAt: "2026-01-01T00:00:01.000Z",

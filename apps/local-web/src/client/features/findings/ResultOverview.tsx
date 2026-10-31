@@ -1,5 +1,5 @@
 import { useMemo, type MouseEvent, type ReactNode } from "react";
-import type { FindingStatus, ScanResult } from "@pgard/findings";
+import { coverageNoteText, type FindingStatus, type ScanResult } from "@pgard/findings";
 import type { RuleTextsResponse } from "../../../shared/api-types";
 import { SeverityBar } from "../../components/charts/SeverityBar";
 import { Badge } from "../../components/ui/Badge";
@@ -258,8 +258,8 @@ export function ResultOverview({
                   )}
                   <Badge kind={entry.status}>{statusLabels[entry.status] ?? entry.status}</Badge>
                   {entry.note !== null && entry.note !== "" && (
-                    <span className="area-note" title={entry.note}>
-                      {entry.note}
+                    <span className="area-note" title={coverageNoteText(entry, language) ?? ""}>
+                      {coverageNoteText(entry, language)}
                     </span>
                   )}
                 </li>

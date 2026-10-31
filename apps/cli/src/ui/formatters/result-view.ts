@@ -53,6 +53,7 @@ import {
   type RenderContext,
   type ScanDiff,
 } from "./result-summary.js";
+import { authorizationReasonDisplay, coverageNoteDisplay } from "./scan-text.js";
 import { safeText, type Style } from "./style.js";
 
 export type { ScanDiff } from "./result-summary.js";
@@ -280,8 +281,8 @@ export function formatCoverage(
           : entry.status === "not_selected"
             ? style.dim(mark)
             : style.yellow(mark);
-      const note =
-        entry.note === null ? "" : style.dim(` - ${t.scanText(safeText(entry.note, 300))}`);
+      const shown = coverageNoteDisplay(entry, t);
+      const note = shown === null ? "" : style.dim(` - ${shown}`);
       const label = (t.report.coverageStatus as Record<string, string>)[entry.status] ?? "?";
       return `  ${colored} ${safeText(entry.area, 80)} (${label})${note}`;
     })
@@ -566,9 +567,11 @@ export function formatAuthorization(
     const mark = word === undefined ? "[?]" : `[${word}]`;
     const colored = check.status === "passed" ? style.green(mark) : style.red(mark);
     const name = t.checkName[check.id] ?? check.id.replace(/_/g, " ");
-    return t.locale === "en"
-      ? `  ${colored} ${name}: ${safeText(check.reason, AUTHORIZATION_REASON_MAX_LENGTH)}`
-      : `  ${colored} ${name} ${t.scanText(safeText(check.reason, AUTHORIZATION_REASON_MAX_LENGTH))}`;
+    const reason = authorizationReasonDisplay(check, t, AUTHORIZATION_REASON_MAX_LENGTH);
+    if (t.locale === "en") return `  ${colored} ${name}: ${reason.text}`;
+    return reason.translated
+      ? `  ${colored} ${name}: ${reason.text}`
+      : `  ${colored} ${name} ${t.scanText(reason.text)}`;
   });
   const decision =
     summary.decision === "allowed"

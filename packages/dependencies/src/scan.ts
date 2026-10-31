@@ -3,6 +3,8 @@ import {
   redactEvidence,
   redactLocationPath,
   UNSAFE_DISPLAY_CHARACTERS,
+  coverageNote,
+  type CoverageNoteCode,
   type Confidence,
   type Coverage,
   type Finding,
@@ -61,7 +63,7 @@ const day = (iso: string | null): string => (iso === null ? "unknown date" : iso
 function area(
   ecosystem: string,
   status: Coverage["status"],
-  note: string,
+  note: string | (CoverageNoteCode & { note: string }),
   withRules = true,
 ): Coverage {
   return {
@@ -69,7 +71,7 @@ function area(
     scope: "code",
     status,
     ruleIds: withRules ? [...ruleIds] : [],
-    note,
+    ...(typeof note === "string" ? { note } : note),
   };
 }
 
@@ -251,15 +253,11 @@ export async function scanDependencies(
     const packages = dependencies.filter((dependency) => dependency.ecosystem === ecosystem);
     const lockfileCount = ecosystemLines.filter((line) => line.kind !== "package.json").length;
     const status = advisoryStatus?.ecosystems.find((entry) => entry.ecosystem === ecosystem);
-    const where = `${packages.length} package(s) from ${lockfileCount} lockfile(s)`;
+    const counts = { packages: packages.length, lockfiles: lockfileCount };
 
     if (options.appDataDir === null || options.appDataDir === undefined) {
       coverage.push(
-        area(
-          ecosystem,
-          "not_tested",
-          `No per-user data folder is available, so no OSV advisory data can be read; ${where} were not checked.`,
-        ),
+        area(ecosystem, "not_tested", coverageNote("dependencies_no_data_dir", counts)),
       );
       continue;
     }
@@ -268,7 +266,7 @@ export async function scanDependencies(
         area(
           ecosystem,
           "not_tested",
-          `OSV data for ${ecosystem} has not been downloaded, so ${where} were not checked for known vulnerabilities. ${UPDATE_HINT}`,
+          coverageNote("dependencies_data_missing", { ecosystem, ...counts }),
         ),
       );
       continue;
@@ -278,7 +276,7 @@ export async function scanDependencies(
         area(
           ecosystem,
           "not_tested",
-          `The stored OSV data for ${ecosystem} is damaged, so ${where} were not checked. Run \`pgard advisories update\` to replace it.`,
+          coverageNote("dependencies_data_damaged", { ecosystem, ...counts }),
         ),
       );
       continue;
@@ -286,11 +284,7 @@ export async function scanDependencies(
     const meta = await readMeta(osvDataDir(options.appDataDir), ecosystem);
     if (meta === null) {
       coverage.push(
-        area(
-          ecosystem,
-          "not_tested",
-          `The OSV data for ${ecosystem} could not be read. ${UPDATE_HINT}`,
-        ),
+        area(ecosystem, "not_tested", coverageNote("dependencies_data_unreadable", { ecosystem })),
       );
       continue;
     }
@@ -307,7 +301,7 @@ export async function scanDependencies(
         area(
           ecosystem,
           "not_tested",
-          `The stored OSV data for ${ecosystem} could not be verified or read, so ${where} were not checked. Run \`pgard advisories update\` to replace it.`,
+          coverageNote("dependencies_data_unverified", { ecosystem, ...counts }),
         ),
       );
       continue;

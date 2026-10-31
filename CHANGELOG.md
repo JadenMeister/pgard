@@ -4,6 +4,14 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- Result schema 1.8 (#449): a coverage entry may carry `noteCode` and `noteParams` next to its English `note`. The English text is unchanged (it is built from the catalog's English template), so stored results, baselines and comparisons do not change; finding identity and baseline matching never read notes. `COVERAGE_NOTE_CATALOG` in `@pgard/findings` holds 38 codes with English and Korean texts. A result written before 1.8 still reads and shows its stored text. See [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md).
+
+### Changed
+
+- Korean reports (HTML and PDF), the Korean CLI coverage view and the panel's coverage tab show coverage notes from the catalog when the entry has a known code with valid params, and the stored English text otherwise (a tampered code or params never injects markup: values are validated, and all output is escaped). The authorization section of a Korean report and of `pgard scan` translates the decision (허용됨/차단됨), the check ids (저장소, GitHub 신원, 소유자 승인, 현재 접근 권한, 기여) and the statuses (통과/실패/확인 불가), and the fixed reasons of the policy; a reason with no Korean text stays English. The dashboard's coverage table and authorization reasons use the same helpers. English output is unchanged.
+
 ## [0.1.0] - 2026-10-31
 
 ### Security

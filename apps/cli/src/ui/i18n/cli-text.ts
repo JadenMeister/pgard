@@ -915,10 +915,10 @@ const KO: CliText = {
   checkStatus: { passed: "통과", failed: "실패", unverifiable: "확인 불가" },
   checkName: {
     repository: "저장소",
-    github_identity: "GitHub 계정",
+    github_identity: "GitHub 신원",
     owner_approval: "소유자 승인",
     current_access: "현재 접근 권한",
-    contribution: "기여 이력",
+    contribution: "기여",
   },
   configExcluded: (count, rest) => `pgard.config.json으로 제외된 파일 ${count}개${rest}`,
   configNoticePrefix: "pgard.config.json: ",

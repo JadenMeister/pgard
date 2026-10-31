@@ -6,7 +6,7 @@
  * recorded in `coverage`, never as "safe".
  */
 
-export const SCHEMA_VERSION = "1.7" as const;
+export const SCHEMA_VERSION = "1.8" as const;
 
 /**
  * Builds a value list from a `Record<T, true>`: a missing or extra member is a compile error, so
@@ -89,6 +89,15 @@ export interface Coverage {
   status: CoverageStatus;
   ruleIds: string[];
   note: string | null;
+  /**
+   * Added in 1.8: a stable code for `note`, so a frontend can show the note in another language.
+   * Optional and never a replacement: `note` keeps the English text exactly as before and is what
+   * every reader falls back to (a result older than 1.8 has no code). A frontend uses the code
+   * only when it knows it and `noteParams` passes validation (see `coverage-notes.ts`).
+   */
+  noteCode?: string;
+  /** Added in 1.8: the values the code's text needs (counts, short labels), never free text. */
+  noteParams?: Record<string, string | number>;
   /**
    * Only on `source:build-output` (JSON v1.3). The skip-named directories (`build`, `dist`, ...)
    * that the walk entered because they directly contain source files, as redacted

@@ -7,6 +7,7 @@ import {
   applySuppressions,
   compilePathMatcher,
   computeStandardsCoverage,
+  coverageNote,
   deriveOverallStatus,
   mergeFindings,
   redactEvidence,
@@ -106,9 +107,9 @@ export function isValidConfirmedWebTarget(target: ConfirmedWebTarget | null): bo
 function scopeCoverage(
   scope: ScanScope,
   status: Coverage["status"],
-  note: string | null,
+  note: ReturnType<typeof coverageNote> | null,
 ): Coverage {
-  return { area: scope, scope, status, ruleIds: [], note };
+  return { area: scope, scope, status, ruleIds: [], ...(note ?? { note: null }) };
 }
 
 function throwIfCancelled(signal: AbortSignal | undefined): void {
@@ -196,7 +197,7 @@ function normalizeAnalyzerOutput(
     return configured;
   });
   const finalCoverage =
-    coverage.length > 0 ? coverage : [scopeCoverage(scope, "partial", "No coverage reported.")];
+    coverage.length > 0 ? coverage : [scopeCoverage(scope, "partial", coverageNote("no_coverage"))];
   return {
     configTestFindings,
     findings,
@@ -458,7 +459,7 @@ async function executeScan(
         outcome: null,
         coverage: SCAN_SCOPES.map((scope) =>
           requestedScopes.includes(scope)
-            ? scopeCoverage(scope, "not_tested", "Authorization could not be completed.")
+            ? scopeCoverage(scope, "not_tested", coverageNote("authorization_incomplete"))
             : scopeCoverage(scope, "not_selected", null),
         ),
         findings: [],
@@ -484,7 +485,7 @@ async function executeScan(
         outcome,
         coverage: SCAN_SCOPES.map((scope) =>
           requestedScopes.includes(scope)
-            ? scopeCoverage(scope, "not_tested", "Blocked by the authorization gate.")
+            ? scopeCoverage(scope, "not_tested", coverageNote("blocked_by_gate"))
             : scopeCoverage(scope, "not_selected", null),
         ),
         findings: [],
@@ -559,14 +560,12 @@ async function executeScan(
     if (scope === "web") {
       if (!isWebTargetValid || !request.webTarget) {
         emit({ stage: "web", status: "skipped", message: "No confirmed local web target." });
-        coverage.push(
-          scopeCoverage("web", "not_tested", "No confirmed local web target was selected."),
-        );
+        coverage.push(scopeCoverage("web", "not_tested", coverageNote("web_target_missing")));
         continue;
       }
       if (!deps.webScanner) {
         emit({ stage: "web", status: "skipped", message: "Web scanner unavailable." });
-        coverage.push(scopeCoverage("web", "not_tested", "The web scanner is not available."));
+        coverage.push(scopeCoverage("web", "not_tested", coverageNote("web_scanner_unavailable")));
         continue;
       }
     }
@@ -620,13 +619,7 @@ async function executeScan(
         throw new ScanCancelledError();
       }
       emit({ stage: scope, status: "failed", message: `The ${scope} analysis failed.` });
-      coverage.push(
-        scopeCoverage(
-          scope,
-          "not_tested",
-          `The ${scope} analyzer failed; results for this area are missing.`,
-        ),
-      );
+      coverage.push(scopeCoverage(scope, "not_tested", coverageNote("analyzer_failed", { scope })));
     }
   }
 
@@ -691,11 +684,18 @@ function describeReusedHistory(
   return entries.map((entry) =>
     entry.area === "history:commits" && entry.note !== null
       ? {
-          ...entry,
+          // The sentence added below is not in the catalog, so the code is dropped: this note is
+          // shown as stored (English) rather than as a translation that leaves it out.
+          ...withoutNoteCode(entry),
           note: `${entry.note} Only ${history.commitsScanned} new commit(s) were read; findings of ${history.commitsReused} earlier commit(s) were reused from scan ${label}.`,
         }
       : entry,
   );
+}
+
+function withoutNoteCode(entry: Coverage): Coverage {
+  const { noteCode: _code, noteParams: _params, ...rest } = entry;
+  return rest;
 }
 
 function areaInfo(

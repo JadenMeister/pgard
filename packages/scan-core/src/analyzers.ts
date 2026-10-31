@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import { scanDependencies } from "@pgard/dependencies";
-import { compilePathMatcher, type Coverage, type Finding, type RuleStat } from "@pgard/findings";
+import {
+  compilePathMatcher,
+  coverageNote,
+  type Coverage,
+  type Finding,
+  type RuleStat,
+} from "@pgard/findings";
 import { scanGitHistory } from "@pgard/git-history";
 import { scanSourceCode } from "@pgard/source-analysis";
 import type { AnalyzerContext, LocalAnalyzer } from "./types.js";
@@ -65,7 +71,7 @@ async function analyzeDependencies(context: AnalyzerContext): Promise<{
           scope: "code",
           status: "not_tested",
           ruleIds: ["PG-DEP-001"],
-          note: "The dependency check failed unexpectedly; no lockfile was checked for known vulnerable versions.",
+          ...coverageNote("dependency_check_failed"),
         },
       ],
     };
@@ -98,7 +104,7 @@ const analyzeHistory: LocalAnalyzer = async (context) => {
         scope: "history",
         status: "completed",
         ruleIds: [],
-        note: `0 files excluded from history by pgard.config.json: its ${patterns.length} exclude pattern${patterns.length === 1 ? "" : "s"} (set ${setHash}) do not apply to Git history or to tracked files, which are always scanned in full.`,
+        ...coverageNote("history_config_excluded", { patterns: patterns.length, set: setHash }),
       },
     ],
   };
