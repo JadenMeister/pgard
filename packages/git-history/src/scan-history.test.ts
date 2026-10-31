@@ -5,9 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { scanGitHistory } from "./scan-history.js";
 import { detectSecrets, isEnvironmentFile } from "./secret-patterns.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR, itScaled } from "../../../tests/support/timing.js";
 
 // Fake, runtime-assembled values (nothing secret-looking is committed to this repo).
 const join = (...parts: string[]) => parts.join("");
@@ -528,38 +526,42 @@ describe("detectSecrets", () => {
     expect(found?.weak).toBeUndefined();
   });
 
-  it("stays linear on large inputs (#145)", () => {
-    const shapes = [
-      'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
-      "password secret apiKey accessToken ",
-      "password=x(/[",
-      "postgres://user:pa@x ",
-      `${"a".repeat(39)}password_${"b".repeat(39)} `,
-      "password: abc <<~A r#\"`${'",
-    ];
-    // Best of 3 runs per size: a single run is noisy when other test files run in parallel.
-    const time = (text: string) => {
-      let best = Infinity;
-      for (let run = 0; run < 3; run += 1) {
-        const start = performance.now();
-        for (const path of ["big.ts", "big.rb", "config.yml"]) detectSecrets(text, { path });
-        best = Math.min(best, performance.now() - start);
+  itScaled(
+    "stays linear on large inputs (#145)",
+    () => {
+      const shapes = [
+        'const x = { password: passwordFromVault, label: "it\'s" }; // don\'t\nconst re = /"/;\n',
+        "password secret apiKey accessToken ",
+        "password=x(/[",
+        "postgres://user:pa@x ",
+        `${"a".repeat(39)}password_${"b".repeat(39)} `,
+        "password: abc <<~A r#\"`${'",
+      ];
+      // Best of 3 runs per size: a single run is noisy when other test files run in parallel.
+      const time = (text: string) => {
+        let best = Infinity;
+        for (let run = 0; run < 3; run += 1) {
+          const start = performance.now();
+          for (const path of ["big.ts", "big.rb", "config.yml"]) detectSecrets(text, { path });
+          best = Math.min(best, performance.now() - start);
+        }
+        return best;
+      };
+      for (const shape of shapes) {
+        // Starts with an unquoted match so the string tracker runs over the whole text.
+        const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(1_250_000 / shape.length))}`;
+        time(unit.slice(0, 100_000)); // warm up
+        const small = time(unit);
+        const large = time(unit.repeat(8)); // 10 MB
+        // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
+        // generous so a loaded machine does not fail it; the absolute bound is loose because CI
+        // runners are much slower than local machines.
+        expect(large / Math.max(small, 1)).toBeLessThan(40);
+        expect(large).toBeLessThan(15_000 * TIME_FACTOR);
       }
-      return best;
-    };
-    for (const shape of shapes) {
-      // Starts with an unquoted match so the string tracker runs over the whole text.
-      const unit = `x = { password: passwordFromVault };\n${shape.repeat(Math.ceil(1_250_000 / shape.length))}`;
-      time(unit.slice(0, 100_000)); // warm up
-      const small = time(unit);
-      const large = time(unit.repeat(8)); // 10 MB
-      // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
-      // generous so a loaded machine does not fail it; the absolute bound is loose because CI
-      // runners are much slower than local machines.
-      expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(15_000);
-    }
-  }, 120_000);
+    },
+    120_000,
+  );
 
   it("does not read a cut window as the start of the line (#158)", () => {
     // Main read the whole line and took `{` + spaces + key as code; with a 200-character window
@@ -572,46 +574,54 @@ describe("detectSecrets", () => {
     ).toEqual([]);
   });
 
-  it("stays linear on a 1 MB minified line with stray quotes (#158)", () => {
-    const json = '\\"k\\":\\"v\\",'.repeat(1_000_000 / 12);
-    const inputs: [string, string][] = [
-      [
-        `x = { password: passwordFromVault };\nconst a = <p>Don't</p>, j = JSON.parse('{${json}}');\n`,
-        "bundle.js",
-      ],
-      [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nconst z = 1;\n`, "a.ts"],
-      [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nz = 1\n`, "a.py"],
-    ];
-    for (const [input, path] of inputs) {
-      const start = performance.now();
-      detectSecrets(input, { path });
-      // Quadratic scanning takes tens of seconds here; linear takes well under a second.
-      expect(performance.now() - start).toBeLessThan(2_000 * SLOW);
-    }
-  }, 120_000);
-
-  it("stays linear on one very long line with many matches (#158)", () => {
-    // Each match used to slice and test the whole line around it: a 1 MB line took ~19 s.
-    const time = (text: string) => {
-      let best = Infinity;
-      for (let run = 0; run < 3; run += 1) {
+  itScaled(
+    "stays linear on a 1 MB minified line with stray quotes (#158)",
+    () => {
+      const json = '\\"k\\":\\"v\\",'.repeat(1_000_000 / 12);
+      const inputs: [string, string][] = [
+        [
+          `x = { password: passwordFromVault };\nconst a = <p>Don't</p>, j = JSON.parse('{${json}}');\n`,
+          "bundle.js",
+        ],
+        [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nconst z = 1;\n`, "a.ts"],
+        [`x = { password: passwordFromVault };\n"${'\\"'.repeat(500_000)}\nz = 1\n`, "a.py"],
+      ];
+      for (const [input, path] of inputs) {
         const start = performance.now();
-        detectSecrets(text, { path: "big.ts" });
-        best = Math.min(best, performance.now() - start);
+        detectSecrets(input, { path });
+        // Quadratic scanning takes tens of seconds here; linear takes well under a second.
+        expect(performance.now() - start).toBeLessThan(2_000 * TIME_FACTOR);
       }
-      return best;
-    };
-    for (const unit of ["x password: Ab1Cd2Ef3Gh4 }", "x password=Ab1Cd2Ef3Gh4 "]) {
-      const line = (size: number) => unit.repeat(Math.ceil(size / unit.length));
-      time(line(50_000)); // warm up
-      const small = time(line(250_000));
-      const large = time(line(1_000_000));
-      // 4x the input should take roughly 4x the time (16x if quadratic).
-      expect(large / Math.max(small, 1)).toBeLessThan(12);
-      expect(large).toBeLessThan(5_000);
-      expect(detectSecrets(line(1_000_000), { path: "big.ts" })).toHaveLength(1);
-    }
-  }, 60_000);
+    },
+    120_000,
+  );
+
+  itScaled(
+    "stays linear on one very long line with many matches (#158)",
+    () => {
+      // Each match used to slice and test the whole line around it: a 1 MB line took ~19 s.
+      const time = (text: string) => {
+        let best = Infinity;
+        for (let run = 0; run < 3; run += 1) {
+          const start = performance.now();
+          detectSecrets(text, { path: "big.ts" });
+          best = Math.min(best, performance.now() - start);
+        }
+        return best;
+      };
+      for (const unit of ["x password: Ab1Cd2Ef3Gh4 }", "x password=Ab1Cd2Ef3Gh4 "]) {
+        const line = (size: number) => unit.repeat(Math.ceil(size / unit.length));
+        time(line(50_000)); // warm up
+        const small = time(line(250_000));
+        const large = time(line(1_000_000));
+        // 4x the input should take roughly 4x the time (16x if quadratic).
+        expect(large / Math.max(small, 1)).toBeLessThan(12);
+        expect(large).toBeLessThan(5_000 * TIME_FACTOR);
+        expect(detectSecrets(line(1_000_000), { path: "big.ts" })).toHaveLength(1);
+      }
+    },
+    60_000,
+  );
 
   it("ignores bare identifiers only where the line clearly is code", () => {
     expect(detectSecrets("connect(password=userSuppliedValue)", { path: "app/db.py" })).toEqual([]);

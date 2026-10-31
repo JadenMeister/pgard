@@ -1,8 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createStringLookup } from "./string-regions.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR, itScaled } from "../../../tests/support/timing.js";
 
 /** Whether the first occurrence of `marker` in `text` is inside a string literal. */
 function inside(text: string, path: string, marker = "MARK"): boolean {
@@ -255,61 +253,69 @@ describe("createStringLookup (#145)", () => {
     expect(time(800_000) / small).toBeLessThan(40);
   });
 
-  it("stays linear on long lines with many quotes (#158)", () => {
-    const text = (shape: string, prefix: string, suffix: string) =>
-      prefix + shape.repeat(Math.ceil(1_000_000 / shape.length)) + suffix;
-    const inputs: [string, string][] = [
-      // A stray apostrophe in JSX text, then JSON escaped inside a single-quoted string.
-      [
-        text('\\"k\\":\\"v\\",', "const a = <p>Don't</p>, j = JSON.parse('{", "}');\n"),
-        "bundle.js",
-      ],
-      [text('\\"', '"', "\nconst z = 1;\n"), "a.ts"],
-      [text('\\"', '"', "\nz = 1\n"), "a.py"],
-      [text("\\'", "'", "\nlet z = 1;\n"), "a.rs"],
-      [text("'\\", "'", "\nconst z = 1;\n"), "a.ts"],
-      [text("it's ", "x = 1\n", "\n"), "a.ts"],
-    ];
-    for (const [input, path] of inputs) {
-      const start = performance.now();
-      const lookup = createStringLookup(input, path);
-      lookup(input.length - 1);
-      // Quadratic scanning of a 1 MB line takes minutes; linear takes tens of milliseconds.
-      expect(performance.now() - start).toBeLessThan(2_000 * SLOW);
-    }
-  }, 180_000);
-
-  it("stays linear on large and pathological inputs", () => {
-    const shapes = [
-      "const x = { a: `${`${'\"/[",
-      "(/[",
-      'x <<~A <<<B r#"',
-      'a = """ \' " `\n',
-      "/* // ' \" ` */ ",
-    ];
-    // Best of 3 runs per size: a single run is noisy when other test files run in parallel.
-    const time = (text: string) => {
-      let best = Infinity;
-      for (let run = 0; run < 3; run += 1) {
+  itScaled(
+    "stays linear on long lines with many quotes (#158)",
+    () => {
+      const text = (shape: string, prefix: string, suffix: string) =>
+        prefix + shape.repeat(Math.ceil(1_000_000 / shape.length)) + suffix;
+      const inputs: [string, string][] = [
+        // A stray apostrophe in JSX text, then JSON escaped inside a single-quoted string.
+        [
+          text('\\"k\\":\\"v\\",', "const a = <p>Don't</p>, j = JSON.parse('{", "}');\n"),
+          "bundle.js",
+        ],
+        [text('\\"', '"', "\nconst z = 1;\n"), "a.ts"],
+        [text('\\"', '"', "\nz = 1\n"), "a.py"],
+        [text("\\'", "'", "\nlet z = 1;\n"), "a.rs"],
+        [text("'\\", "'", "\nconst z = 1;\n"), "a.ts"],
+        [text("it's ", "x = 1\n", "\n"), "a.ts"],
+      ];
+      for (const [input, path] of inputs) {
         const start = performance.now();
-        const lookup = createStringLookup(text, "big.ts");
-        lookup(text.length - 1);
-        createStringLookup(text, "big.rb")(0);
-        createStringLookup(text, "big.py")(0);
-        best = Math.min(best, performance.now() - start);
+        const lookup = createStringLookup(input, path);
+        lookup(input.length - 1);
+        // Quadratic scanning of a 1 MB line takes minutes; linear takes tens of milliseconds.
+        expect(performance.now() - start).toBeLessThan(2_000 * TIME_FACTOR);
       }
-      return best;
-    };
-    for (const shape of shapes) {
-      const unit = shape.repeat(Math.ceil(5_000_000 / shape.length)).slice(0, 5_000_000);
-      time(unit.slice(0, 100_000)); // warm up
-      const small = time(unit);
-      const large = time(unit.repeat(8)); // 40 MB
-      // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
-      // generous so a loaded machine does not fail it; the absolute bound is loose (a quadratic scan
-      // of 40 MB takes hours) because CI runners are several times slower than local machines.
-      expect(large / Math.max(small, 1)).toBeLessThan(40);
-      expect(large).toBeLessThan(30_000 * SLOW);
-    }
-  }, 600_000);
+    },
+    180_000,
+  );
+
+  itScaled(
+    "stays linear on large and pathological inputs",
+    () => {
+      const shapes = [
+        "const x = { a: `${`${'\"/[",
+        "(/[",
+        'x <<~A <<<B r#"',
+        'a = """ \' " `\n',
+        "/* // ' \" ` */ ",
+      ];
+      // Best of 3 runs per size: a single run is noisy when other test files run in parallel.
+      const time = (text: string) => {
+        let best = Infinity;
+        for (let run = 0; run < 3; run += 1) {
+          const start = performance.now();
+          const lookup = createStringLookup(text, "big.ts");
+          lookup(text.length - 1);
+          createStringLookup(text, "big.rb")(0);
+          createStringLookup(text, "big.py")(0);
+          best = Math.min(best, performance.now() - start);
+        }
+        return best;
+      };
+      for (const shape of shapes) {
+        const unit = shape.repeat(Math.ceil(5_000_000 / shape.length)).slice(0, 5_000_000);
+        time(unit.slice(0, 100_000)); // warm up
+        const small = time(unit);
+        const large = time(unit.repeat(8)); // 40 MB
+        // 8x the input should take roughly 8x the time (64x if quadratic). The ratio limit is
+        // generous so a loaded machine does not fail it; the absolute bound is loose (a quadratic scan
+        // of 40 MB takes hours) because CI runners are several times slower than local machines.
+        expect(large / Math.max(small, 1)).toBeLessThan(40);
+        expect(large).toBeLessThan(30_000 * TIME_FACTOR);
+      }
+    },
+    600_000,
+  );
 });

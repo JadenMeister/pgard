@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { detectSecrets, isDictionaryWordsValue } from "./secret-patterns.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 // Runtime-assembled so no secret-looking literal is committed.
 const j = (...parts: string[]) => parts.join("");
@@ -179,11 +180,11 @@ describe("code-shaped unquoted values (minified code)", () => {
     const text = 'Set `api_key = "my-secret-key-value"` here.\n'.repeat(25_000);
     const started = performance.now();
     expect(scan(text, "README.md")).toEqual([]);
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(1000 * TIME_FACTOR);
     const fenced = ("```\n" + 'api_key = "my-secret-key-value"\n```\n').repeat(25_000);
     const startedFenced = performance.now();
     scan(fenced, "README.md");
-    expect(performance.now() - startedFenced).toBeLessThan(1000);
+    expect(performance.now() - startedFenced).toBeLessThan(1000 * TIME_FACTOR);
   });
 
   it("does not take a marker in a string, a closed comment or #private for a comment", () => {
@@ -200,15 +201,15 @@ describe("code-shaped unquoted values (minified code)", () => {
     const one = readme.repeat(Math.ceil(1_048_576 / readme.length));
     let started = performance.now();
     scan(one, "README.md");
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(1000 * TIME_FACTOR);
     const code = '" #  password: e.target.value})'.repeat(Math.ceil(1_048_576 / 29));
     started = performance.now();
     scan(code, "bundle.js");
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(1000 * TIME_FACTOR);
     const bare = "x({password:e.target.value}) ".repeat(Math.ceil(1_048_576 / 29));
     started = performance.now();
     scan(bare, "bundle.js");
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(1000 * TIME_FACTOR);
   });
 
   it("keeps brackets in config text and in strings, and a leading = outside source code", () => {

@@ -12,6 +12,7 @@ import {
   type SpawnInspector,
 } from "./inspector-host.js";
 import type { ChildMessage, InspectorJob } from "./protocol.js";
+import { TIME_FACTOR, itScaled } from "../../../../../tests/support/timing.js";
 
 const job: InspectorJob = {
   kind: "search",
@@ -286,56 +287,62 @@ process.once("message", () => {
     return script;
   }
 
-  it("keeps the dashboard's own fs work responsive while the child's threadpool is blocked, and kills the whole group at the deadline", async () => {
-    const fifoDir = mkdtempSync(path.join(tmpdir(), "pgard-fifo-"));
-    const fifo = path.join(fifoDir, "pipe");
-    execFileSync("mkfifo", [fifo]);
-    process.env.PGARD_SECRET_TEST = "do-not-leak";
-    try {
-      const script = hangingChildScript(fifo);
-      const host = createInspectorHost({ entry: script });
-      const reported: number[] = [];
-      const running = host.run(job, {
-        hardMs: 2_000,
-        onMessage: (m) => m.t === "visited" && reported.push(m.n),
-      });
-      expect(await waitFor(() => reported.length === 4)).toBe(true);
-      const [childPid, grandchildPid, argCount, leaked] = reported as [
-        number,
-        number,
-        number,
-        number,
-      ];
-      // No path (or anything else) on the command line: node and the script only.
-      expect(argCount).toBe(2);
-      expect(leaked).toBe(0);
-      // The child's threadpool is blocked; the dashboard's own fs work still answers fast.
-      const started = Date.now();
-      await stat(tmpdir());
-      expect(Date.now() - started).toBeLessThan(1_000);
-      expect(isAlive(childPid)).toBe(true);
-      expect(isAlive(grandchildPid)).toBe(true);
-      expect(await running?.result).toEqual({ status: "killed", reason: "deadline" });
-      // The whole group is gone: the child and the grandchild it started.
-      expect(await waitFor(() => !isAlive(childPid) && !isAlive(grandchildPid))).toBe(true);
-      // A new job works after the kill.
-      const next = host.run(job, { hardMs: 500, onMessage: () => undefined });
-      expect(next).not.toBeNull();
-      host.stopAll();
-      await next?.result;
-    } finally {
-      delete process.env.PGARD_SECRET_TEST;
-      rmSync(fifoDir, { recursive: true, force: true });
-    }
-  }, 20_000);
+  itScaled(
+    "keeps the dashboard's own fs work responsive while the child's threadpool is blocked, and kills the whole group at the deadline",
+    async () => {
+      const fifoDir = mkdtempSync(path.join(tmpdir(), "pgard-fifo-"));
+      const fifo = path.join(fifoDir, "pipe");
+      execFileSync("mkfifo", [fifo]);
+      process.env.PGARD_SECRET_TEST = "do-not-leak";
+      try {
+        const script = hangingChildScript(fifo);
+        const host = createInspectorHost({ entry: script });
+        const reported: number[] = [];
+        const running = host.run(job, {
+          hardMs: 2_000,
+          onMessage: (m) => m.t === "visited" && reported.push(m.n),
+        });
+        expect(await waitFor(() => reported.length === 4)).toBe(true);
+        const [childPid, grandchildPid, argCount, leaked] = reported as [
+          number,
+          number,
+          number,
+          number,
+        ];
+        // No path (or anything else) on the command line: node and the script only.
+        expect(argCount).toBe(2);
+        expect(leaked).toBe(0);
+        // The child's threadpool is blocked; the dashboard's own fs work still answers fast.
+        const started = Date.now();
+        await stat(tmpdir());
+        expect(Date.now() - started).toBeLessThan(1_000 * TIME_FACTOR);
+        expect(isAlive(childPid)).toBe(true);
+        expect(isAlive(grandchildPid)).toBe(true);
+        expect(await running?.result).toEqual({ status: "killed", reason: "deadline" });
+        // The whole group is gone: the child and the grandchild it started.
+        expect(await waitFor(() => !isAlive(childPid) && !isAlive(grandchildPid))).toBe(true);
+        // A new job works after the kill.
+        const next = host.run(job, { hardMs: 500, onMessage: () => undefined });
+        expect(next).not.toBeNull();
+        host.stopAll();
+        await next?.result;
+      } finally {
+        delete process.env.PGARD_SECRET_TEST;
+        rmSync(fifoDir, { recursive: true, force: true });
+      }
+    },
+    20_000,
+  );
 
-  it("control: the same blocking inside a worker_threads Worker freezes the dashboard's fs work", async () => {
-    const fifoDir = mkdtempSync(path.join(tmpdir(), "pgard-fifo-"));
-    const fifo = path.join(fifoDir, "pipe");
-    execFileSync("mkfifo", [fifo]);
-    const opened: number[] = [];
-    const worker = new Worker(
-      `const { workerData, parentPort } = require("node:worker_threads");
+  itScaled(
+    "control: the same blocking inside a worker_threads Worker freezes the dashboard's fs work",
+    async () => {
+      const fifoDir = mkdtempSync(path.join(tmpdir(), "pgard-fifo-"));
+      const fifo = path.join(fifoDir, "pipe");
+      execFileSync("mkfifo", [fifo]);
+      const opened: number[] = [];
+      const worker = new Worker(
+        `const { workerData, parentPort } = require("node:worker_threads");
 const fs = require("node:fs");
 for (let i = 0; i < 6; i += 1) {
   fs.open(workerData.fifo, "r", (error, fd) => {
@@ -343,26 +350,28 @@ for (let i = 0; i < 6; i += 1) {
   });
 }
 parentPort.postMessage("started");`,
-      { eval: true, workerData: { fifo } },
-    );
-    worker.on("message", (value) => {
-      if (typeof value === "number") opened.push(value);
-    });
-    try {
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      const result = await Promise.race([
-        stat(tmpdir()).then(() => "stat answered"),
-        new Promise<string>((resolve) => setTimeout(() => resolve("frozen"), 1_000)),
-      ]);
-      // This is why the inspector is a child process: four hung threads freeze every fs call here.
-      expect(result).toBe("frozen");
-    } finally {
-      // Release the blocked threads: a writer on the FIFO lets every pending open finish.
-      const writer = openSync(fifo, "r+");
-      await waitFor(() => opened.length === 6, 5_000);
-      closeSync(writer);
-      await worker.terminate();
-      rmSync(fifoDir, { recursive: true, force: true });
-    }
-  }, 20_000);
+        { eval: true, workerData: { fifo } },
+      );
+      worker.on("message", (value) => {
+        if (typeof value === "number") opened.push(value);
+      });
+      try {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const result = await Promise.race([
+          stat(tmpdir()).then(() => "stat answered"),
+          new Promise<string>((resolve) => setTimeout(() => resolve("frozen"), 1_000)),
+        ]);
+        // This is why the inspector is a child process: four hung threads freeze every fs call here.
+        expect(result).toBe("frozen");
+      } finally {
+        // Release the blocked threads: a writer on the FIFO lets every pending open finish.
+        const writer = openSync(fifo, "r+");
+        await waitFor(() => opened.length === 6, 5_000);
+        closeSync(writer);
+        await worker.terminate();
+        rmSync(fifoDir, { recursive: true, force: true });
+      }
+    },
+    20_000,
+  );
 });

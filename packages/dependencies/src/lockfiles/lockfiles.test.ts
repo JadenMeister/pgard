@@ -3,9 +3,7 @@ import { parseGoMod, parseGoSum } from "./go.js";
 import { parseNpmLock } from "./npm.js";
 import { parsePnpmLock } from "./pnpm.js";
 import { parseYarnLock } from "./yarn.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const names = (parsed: { dependencies: { name: string; version: string }[] }): string[] =>
   parsed.dependencies.map((dependency) => `${dependency.name}@${dependency.version}`).sort();
@@ -414,7 +412,7 @@ golang.org/x/text v0.3.0/go.mod h1:f=
 });
 
 describe("hostile input", () => {
-  const BOUND_MS = 1500 * SLOW;
+  const BOUND_MS = 1500 * TIME_FACTOR;
   const timed = <T>(run: () => T): { result: T; ms: number } => {
     const start = performance.now();
     const result = run();

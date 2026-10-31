@@ -1,9 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { fetchLoopback, LoopbackRequestError, requestLoopbackOnce } from "./request.js";
 import { startFixtureServer, type FixtureServer } from "./test-fixtures.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 const servers: FixtureServer[] = [];
 async function start(...args: Parameters<typeof startFixtureServer>): Promise<FixtureServer> {
@@ -108,7 +106,7 @@ describe("fetchLoopback timeouts", () => {
     await expect(fetchLoopback(server.port, "/", { timeoutMs: 400 })).rejects.toMatchObject({
       code: "timeout",
     });
-    expect(Date.now() - startedAt).toBeLessThan(700 * SLOW);
+    expect(Date.now() - startedAt).toBeLessThan(700 * TIME_FACTOR);
     expect(server.requests.length).toBeLessThanOrEqual(3);
   });
 });

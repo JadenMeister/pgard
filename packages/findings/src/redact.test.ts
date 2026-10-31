@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { TIME_FACTOR, bestTimeOf, scaled } from "../../../tests/support/timing.js";
 import type { Finding } from "./contract.js";
 import {
   capText,
@@ -327,15 +328,7 @@ describe("createSessionSecretLabeler", () => {
 
 describe("redaction performance (#55)", () => {
   // Best of 3 runs: one run is noisy when other test files run in parallel.
-  const timed = (fn: () => void) => {
-    let best = Infinity;
-    for (let run = 0; run < 3; run += 1) {
-      const start = performance.now();
-      fn();
-      best = Math.min(best, performance.now() - start);
-    }
-    return best;
-  };
+  const timed = (fn: () => void) => bestTimeOf(3, fn);
 
   it.each([
     ["long word", "a".repeat(200_000)],
@@ -348,10 +341,10 @@ describe("redaction performance (#55)", () => {
   ])(
     "redacts adversarial input (%s) quickly",
     (_label, input) => {
-      expect(timed(() => redactEvidence(input))).toBeLessThan(250);
-      expect(timed(() => redactSecrets(input))).toBeLessThan(1500);
+      expect(timed(() => redactEvidence(input))).toBeLessThan(250 * TIME_FACTOR);
+      expect(timed(() => redactSecrets(input))).toBeLessThan(1500 * TIME_FACTOR);
     },
-    30_000,
+    scaled(30_000),
   );
 
   it("keeps useful evidence from long input without whitespace (#72)", () => {

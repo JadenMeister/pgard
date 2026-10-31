@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree, importAliasesOf, importsOf } from "./analyze-jvm.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const OLD_IMPORT = /^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)/gm;
 const OLD_ALIAS = /^\s*import\s+([\w.]+)\s+as\s+(\w+)/gm;
@@ -59,7 +60,7 @@ describe("JVM import patterns", () => {
     const started = performance.now();
     importsOf(source);
     importAliasesOf(source);
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(1000 * TIME_FACTOR);
   });
 
   it.each([
@@ -72,7 +73,7 @@ describe("JVM import patterns", () => {
     try {
       const started = performance.now();
       analyzeJvmTree(outcome.tree.rootNode, source, path, language);
-      expect(performance.now() - started).toBeLessThan(1000);
+      expect(performance.now() - started).toBeLessThan(1000 * TIME_FACTOR);
     } finally {
       outcome.dispose();
     }

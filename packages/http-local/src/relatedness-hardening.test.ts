@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { sanitizeDisplayText } from "./display-text.js";
 import { readProjectSignals } from "./project-signals.js";
 import { EMPTY_PROJECT_SIGNALS, relatedness, type ProjectSignals } from "./relatedness.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 function project(overrides: Partial<ProjectSignals> = {}): ProjectSignals {
   return { ...EMPTY_PROJECT_SIGNALS, folderName: "shop", ...overrides };
@@ -101,7 +102,7 @@ describe("readProjectSignals is bounded on hostile files", () => {
       });
       const started = performance.now();
       await readProjectSignals(root, null);
-      expect(performance.now() - started).toBeLessThan(200);
+      expect(performance.now() - started).toBeLessThan(Math.min(200 * TIME_FACTOR, 1000));
     },
   );
 
@@ -114,7 +115,7 @@ describe("readProjectSignals is bounded on hostile files", () => {
     });
     const started = performance.now();
     await readProjectSignals(root, null);
-    expect(performance.now() - started).toBeLessThan(200);
+    expect(performance.now() - started).toBeLessThan(Math.min(200 * TIME_FACTOR, 1000));
   });
 
   it("reads only dependency tables of pyproject.toml, not descriptions or other keys", async () => {

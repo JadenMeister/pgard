@@ -8,6 +8,7 @@ import {
 } from "./env.js";
 import { GITHUB_REQUEST_TIMEOUT_MS, type FetchLike } from "./fetch.js";
 import { createGitHubClient } from "./github-client.js";
+import { TIME_FACTOR, itScaled } from "../../../tests/support/timing.js";
 
 function jsonResponse(status: number, body: unknown) {
   return { status, ok: status >= 200 && status < 300, json: async () => body };
@@ -507,22 +508,26 @@ describe("redirects on authenticated calls", () => {
 });
 
 describe("a stalled network", () => {
-  it("ends a request at its time limit with network_error, even if fetch ignores the signal", async () => {
-    let seen: AbortSignal | undefined;
-    // Never answers and never looks at the signal.
-    const fetch: FetchLike = (_url, init) => {
-      seen = init.signal;
-      return new Promise(() => undefined);
-    };
-    const client = createGitHubClient({ token: "t", fetch, requestTimeoutMs: 20 });
-    const started = Date.now();
-    await expect(client.getAuthenticatedUser()).rejects.toMatchObject({
-      code: "network_error",
-      message: "The GitHub API did not answer within 1 s.",
-    });
-    expect(Date.now() - started).toBeLessThan(5_000);
-    expect(seen?.aborted).toBe(true);
-  });
+  itScaled(
+    "ends a request at its time limit with network_error, even if fetch ignores the signal",
+    async () => {
+      let seen: AbortSignal | undefined;
+      // Never answers and never looks at the signal.
+      const fetch: FetchLike = (_url, init) => {
+        seen = init.signal;
+        return new Promise(() => undefined);
+      };
+      const client = createGitHubClient({ token: "t", fetch, requestTimeoutMs: 20 });
+      const started = Date.now();
+      await expect(client.getAuthenticatedUser()).rejects.toMatchObject({
+        code: "network_error",
+        message: "The GitHub API did not answer within 1 s.",
+      });
+      expect(Date.now() - started).toBeLessThan(Math.min(5_000 * TIME_FACTOR, 8_000));
+      expect(seen?.aborted).toBe(true);
+    },
+    15_000,
+  );
 
   it("covers reading the body with the same limit", async () => {
     let seen: AbortSignal | undefined;

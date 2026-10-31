@@ -11,10 +11,11 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { liveWorkerCount, MAX_WORKER_FAILURES } from "./file-worker.js";
 import { scanSourceCode } from "./scan-source.js";
 import { walkSourceTree } from "./walk.js";
+import { TIME_FACTOR, itScaled, scaled } from "../../../tests/support/timing.js";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -214,8 +215,12 @@ const WORKER = new URL("../dist/analyze-worker.js", import.meta.url);
 const hasWorker = existsSync(fileURLToPath(WORKER));
 if (!hasWorker && process.env.CI) throw new Error("dist/analyze-worker.js is missing; build first");
 
-/** Bounds far above the limits under test and far below SLOW_GO's own run time (tens of seconds). */
-const STOPPED_WITHIN_MS = 15_000;
+/**
+ * A stopped file must return well before SLOW_GO would have finished on its own. That run time is
+ * measured here, on this machine under its current load, so the bound (a third of it) means the
+ * same thing on a fast laptop and on a loaded runner; a fixed number would not.
+ */
+let stoppedWithinMs = Infinity;
 
 async function waitFor(condition: () => boolean, ms = 5_000): Promise<boolean> {
   const until = Date.now() + ms;
@@ -227,84 +232,119 @@ async function waitFor(condition: () => boolean, ms = 5_000): Promise<boolean> {
 }
 
 describe.skipIf(!hasWorker)("per-file hard limit (worker)", () => {
-  it("stops a file at the per-file limit, reports it and analyzes the next file", async () => {
-    const root = project({ "a/slow.go": SLOW_GO, "b/ok.go": GO_VULN });
+  beforeAll(async () => {
     const started = performance.now();
-    const output = await scanSourceCode(root, { analysisWorker: WORKER, perFileTimeLimitMs: 500 });
-    expect(performance.now() - started).toBeLessThan(STOPPED_WITHIN_MS);
-    const go = coverageOf(output, "source:go");
-    expect(go?.status).toBe("partial");
-    expect(go?.note).toContain(
-      '1 file(s) took longer than the per-file limit of 0.5 s (stopped; not analyzed: "a/slow.go")',
-    );
-    expect(output.findings.map((finding) => finding.location.path)).toEqual(["b/ok.go"]);
-    expect(output.fileCache.map((entry) => entry.path)).toEqual(["b/ok.go"]);
-  }, 60_000);
+    await scanSourceCode(project({ "slow.go": SLOW_GO }), { analysisWorker: null });
+    stoppedWithinMs = (performance.now() - started) / 3;
+  }, scaled(120_000));
 
-  it("terminates the stopped worker", async () => {
-    const root = project({ "slow.go": SLOW_GO });
-    await scanSourceCode(root, { analysisWorker: WORKER, perFileTimeLimitMs: 300 });
-    // The only worker ran the slow file and was stopped; nothing may keep running it.
-    expect(await waitFor(() => liveWorkerCount() === 0)).toBe(true);
-  }, 60_000);
+  itScaled(
+    "stops a file at the per-file limit, reports it and analyzes the next file",
+    async () => {
+      const root = project({ "a/slow.go": SLOW_GO, "b/ok.go": GO_VULN });
+      const started = performance.now();
+      const output = await scanSourceCode(root, {
+        analysisWorker: WORKER,
+        perFileTimeLimitMs: 500,
+      });
+      expect(performance.now() - started).toBeLessThan(stoppedWithinMs);
+      const go = coverageOf(output, "source:go");
+      expect(go?.status).toBe("partial");
+      expect(go?.note).toContain(
+        '1 file(s) took longer than the per-file limit of 0.5 s (stopped; not analyzed: "a/slow.go")',
+      );
+      expect(output.findings.map((finding) => finding.location.path)).toEqual(["b/ok.go"]);
+      expect(output.fileCache.map((entry) => entry.path)).toEqual(["b/ok.go"]);
+    },
+    60_000,
+  );
 
-  it("stops a file when the time budget runs out", async () => {
-    const root = project({ "slow.go": SLOW_GO });
-    const started = performance.now();
-    const output = await scanSourceCode(root, { analysisWorker: WORKER, timeBudgetMs: 600 });
-    expect(performance.now() - started).toBeLessThan(STOPPED_WITHIN_MS);
-    expect(coverageOf(output, "source:go")?.note).toContain(
-      '1 file(s) stopped when the time budget ran out (not analyzed: "slow.go")',
-    );
-  }, 60_000);
+  itScaled(
+    "terminates the stopped worker",
+    async () => {
+      const root = project({ "slow.go": SLOW_GO });
+      await scanSourceCode(root, { analysisWorker: WORKER, perFileTimeLimitMs: 300 });
+      // The only worker ran the slow file and was stopped; nothing may keep running it.
+      expect(await waitFor(() => liveWorkerCount() === 0)).toBe(true);
+    },
+    60_000,
+  );
 
-  it("stops at once when the scan is cancelled during a long file", async () => {
-    const root = project({ "slow.go": SLOW_GO });
-    const controller = new AbortController();
-    setTimeout(() => controller.abort(new Error("cancelled")), 300);
-    const started = performance.now();
-    await expect(
-      scanSourceCode(root, { analysisWorker: WORKER, signal: controller.signal }),
-    ).rejects.toThrow("cancelled");
-    expect(performance.now() - started).toBeLessThan(STOPPED_WITHIN_MS);
-  }, 60_000);
+  itScaled(
+    "stops a file when the time budget runs out",
+    async () => {
+      const root = project({ "slow.go": SLOW_GO });
+      const started = performance.now();
+      const output = await scanSourceCode(root, { analysisWorker: WORKER, timeBudgetMs: 600 });
+      expect(performance.now() - started).toBeLessThan(stoppedWithinMs);
+      expect(coverageOf(output, "source:go")?.note).toContain(
+        '1 file(s) stopped when the time budget ran out (not analyzed: "slow.go")',
+      );
+    },
+    60_000,
+  );
 
-  it("gives the same result as the inline analysis", async () => {
-    const root = project({ "db.ts": SQL_VULN, "main.go": GO_VULN, "deep.js": DEEP_JS });
-    const inline = await scanSourceCode(root, { analysisWorker: null });
-    const worker = await scanSourceCode(root, { analysisWorker: WORKER });
-    expect(worker.findings).toEqual(inline.findings);
-    expect(worker.fileCache).toEqual(inline.fileCache);
-  }, 60_000);
+  itScaled(
+    "stops at once when the scan is cancelled during a long file",
+    async () => {
+      const root = project({ "slow.go": SLOW_GO });
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(new Error("cancelled")), 300);
+      const started = performance.now();
+      await expect(
+        scanSourceCode(root, { analysisWorker: WORKER, signal: controller.signal }),
+      ).rejects.toThrow("cancelled");
+      expect(performance.now() - started).toBeLessThan(stoppedWithinMs);
+      // Nothing keeps analyzing after the cancel: the worker is terminated (asynchronously) at once.
+      expect(await waitFor(() => liveWorkerCount() === 0, scaled(2_000))).toBe(true);
+    },
+    60_000,
+  );
 
-  it("works when the process runs with flags a worker refuses, and exits after a stopped file", () => {
-    const script = path.join(project({}), "run.mjs");
-    writeFileSync(
-      script,
-      [
-        "const [index, root] = process.argv.slice(2);",
-        "const { scanSourceCode } = await import(index);",
-        "const out = await scanSourceCode(root, { perFileTimeLimitMs: 300 });",
-        'process.stdout.write(JSON.stringify(out.coverage.find((c) => c.area === "source:go")));',
-      ].join("\n"),
-    );
-    const root = project({ "a/slow.go": SLOW_GO, "b/ok.go": GO_VULN });
-    const index = new URL("../dist/index.js", import.meta.url).href;
-    const started = Date.now();
-    const result = spawnSync(
-      process.execPath,
-      ["--max-old-space-size=512", "--stack-size=900", "--expose-gc", script, index, root],
-      { encoding: "utf8", timeout: 50_000 },
-    );
-    // Exits on its own: the stopped worker is terminated and the idle one does not hold it.
-    expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
-    expect(Date.now() - started).toBeLessThan(45_000);
-    const go = JSON.parse(result.stdout) as { status: string; note: string };
-    expect(go.status).toBe("partial");
-    expect(go.note).toContain('per-file limit of 0.3 s (stopped; not analyzed: "a/slow.go")');
-    expect(go.note).not.toContain("worker failed");
-  }, 60_000);
+  itScaled(
+    "gives the same result as the inline analysis",
+    async () => {
+      const root = project({ "db.ts": SQL_VULN, "main.go": GO_VULN, "deep.js": DEEP_JS });
+      const inline = await scanSourceCode(root, { analysisWorker: null });
+      const worker = await scanSourceCode(root, { analysisWorker: WORKER });
+      expect(worker.findings).toEqual(inline.findings);
+      expect(worker.fileCache).toEqual(inline.fileCache);
+    },
+    60_000,
+  );
+
+  itScaled(
+    "works when the process runs with flags a worker refuses, and exits after a stopped file",
+    () => {
+      const script = path.join(project({}), "run.mjs");
+      writeFileSync(
+        script,
+        [
+          "const [index, root] = process.argv.slice(2);",
+          "const { scanSourceCode } = await import(index);",
+          "const out = await scanSourceCode(root, { perFileTimeLimitMs: 300 });",
+          'process.stdout.write(JSON.stringify(out.coverage.find((c) => c.area === "source:go")));',
+        ].join("\n"),
+      );
+      const root = project({ "a/slow.go": SLOW_GO, "b/ok.go": GO_VULN });
+      const index = new URL("../dist/index.js", import.meta.url).href;
+      const started = Date.now();
+      const result = spawnSync(
+        process.execPath,
+        ["--max-old-space-size=512", "--stack-size=900", "--expose-gc", script, index, root],
+        { encoding: "utf8", timeout: scaled(50_000) },
+      );
+      // Exits on its own: the stopped worker is terminated and the idle one does not hold it.
+      expect(result.error).toBeUndefined();
+      expect(result.status, result.stderr).toBe(0);
+      expect(Date.now() - started).toBeLessThan(45_000 * TIME_FACTOR);
+      const go = JSON.parse(result.stdout) as { status: string; note: string };
+      expect(go.status).toBe("partial");
+      expect(go.note).toContain('per-file limit of 0.3 s (stopped; not analyzed: "a/slow.go")');
+      expect(go.note).not.toContain("worker failed");
+    },
+    60_000,
+  );
 });
 
 describe("analysis worker failures", () => {

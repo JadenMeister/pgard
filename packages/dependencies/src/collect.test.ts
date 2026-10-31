@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { collectDependencies } from "./collect.js";
+import { TIME_FACTOR, itScaled } from "../../../tests/support/timing.js";
 
 let root: string;
 beforeEach(async () => {
@@ -210,32 +211,36 @@ describe("collectDependencies hostile-repository limits (L5)", () => {
   const lock = (name: string, version = "1.0.0"): string =>
     `# yarn lockfile v1\n\n${name}@^1:\n  version "${version}"\n`;
 
-  it("reads many hard links to one big lockfile once, in bounded time and memory", async () => {
-    const big = JSON.stringify({
-      lockfileVersion: 3,
-      packages: { "node_modules/a": { version: "1.0.0" } },
-      pad: "x".repeat(20 * 1024 * 1024),
-    });
-    await put("origin/package-lock.json", big);
-    const source = path.join(root, "origin", "package-lock.json");
-    for (let index = 0; index < 150; index += 1) {
-      const dir = path.join(root, `link${String(index).padStart(3, "0")}`);
-      await mkdir(dir);
-      await link(source, path.join(dir, "package-lock.json"));
-    }
-    const started = Date.now();
-    const result = await collectDependencies(root);
-    const elapsedMs = Date.now() - started;
-    // 151 names for one inode: 20 MiB were read, not 3 GiB.
-    expect(result.bytesRead).toBeLessThan(big.length + 1024);
-    expect(result.bytesRead).toBeGreaterThanOrEqual(big.length);
-    expect(result.coverage.filter((c) => c.status === "parsed")).toHaveLength(1);
-    const duplicates = result.coverage.filter((c) => c.status === "duplicate");
-    expect(duplicates).toHaveLength(150);
-    expect(duplicates[0]?.note).toContain("Hard link to ");
-    expect(result.dependencies).toHaveLength(1);
-    expect(elapsedMs).toBeLessThan(10_000);
-  });
+  itScaled(
+    "reads many hard links to one big lockfile once, in bounded time and memory",
+    async () => {
+      const big = JSON.stringify({
+        lockfileVersion: 3,
+        packages: { "node_modules/a": { version: "1.0.0" } },
+        pad: "x".repeat(20 * 1024 * 1024),
+      });
+      await put("origin/package-lock.json", big);
+      const source = path.join(root, "origin", "package-lock.json");
+      for (let index = 0; index < 150; index += 1) {
+        const dir = path.join(root, `link${String(index).padStart(3, "0")}`);
+        await mkdir(dir);
+        await link(source, path.join(dir, "package-lock.json"));
+      }
+      const started = Date.now();
+      const result = await collectDependencies(root);
+      const elapsedMs = Date.now() - started;
+      // 151 names for one inode: 20 MiB were read, not 3 GiB.
+      expect(result.bytesRead).toBeLessThan(big.length + 1024);
+      expect(result.bytesRead).toBeGreaterThanOrEqual(big.length);
+      expect(result.coverage.filter((c) => c.status === "parsed")).toHaveLength(1);
+      const duplicates = result.coverage.filter((c) => c.status === "duplicate");
+      expect(duplicates).toHaveLength(150);
+      expect(duplicates[0]?.note).toContain("Hard link to ");
+      expect(result.dependencies).toHaveLength(1);
+      expect(elapsedMs).toBeLessThan(10_000 * TIME_FACTOR);
+    },
+    30_000,
+  );
 
   it("reads a hard-linked package.json once as well", async () => {
     await put("a/package.json", '{"dependencies":{"x":"1"}}');
@@ -426,17 +431,21 @@ describe("collectDependencies: pools, hard links across kinds, go.sum, hostile s
     expect(["partial", "failed"]).toContain(line?.status);
   });
 
-  it("skips a FIFO named like a lockfile without waiting for it", async () => {
-    if (process.platform === "win32") return;
-    const { execFileSync } = await import("node:child_process");
-    try {
-      execFileSync("mkfifo", [path.join(root, "package-lock.json")]);
-    } catch {
-      return; // no mkfifo on this system
-    }
-    const started = Date.now();
-    const result = await collectDependencies(root);
-    expect(Date.now() - started).toBeLessThan(5000);
-    expect(result.dependencies).toEqual([]);
-  });
+  itScaled(
+    "skips a FIFO named like a lockfile without waiting for it",
+    async () => {
+      if (process.platform === "win32") return;
+      const { execFileSync } = await import("node:child_process");
+      try {
+        execFileSync("mkfifo", [path.join(root, "package-lock.json")]);
+      } catch {
+        return; // no mkfifo on this system
+      }
+      const started = Date.now();
+      const result = await collectDependencies(root);
+      expect(Date.now() - started).toBeLessThan(5000 * TIME_FACTOR);
+      expect(result.dependencies).toEqual([]);
+    },
+    15_000,
+  );
 });

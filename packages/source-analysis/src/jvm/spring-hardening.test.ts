@@ -8,6 +8,7 @@ import {
   parseProperties,
   parseYaml,
 } from "./spring-config.js";
+import { TIME_FACTOR } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -52,7 +53,7 @@ describe("YAML and properties readers stay linear (no ReDoS)", () => {
       const started = performance.now();
       const yaml = parseYaml(`a: 1\n${line}\nb: 2\n`);
       const props = parseProperties(`a=1\n${line}\nb=2\n`);
-      expect(performance.now() - started).toBeLessThan(200);
+      expect(performance.now() - started).toBeLessThan(Math.min(200 * TIME_FACTOR, 1000));
       expect(yaml.malformedLine).toBe(2);
       expect(props.malformedLine).toBe(2);
       // The lines around it are still read.
@@ -64,7 +65,7 @@ describe("YAML and properties readers stay linear (no ReDoS)", () => {
     const started = performance.now();
     parseProperties(`a=${"\\\\".repeat(BIG / 2)}x\n`);
     parseProperties(`a=${"\\".repeat(MAX_CONFIG_LINE - 10)}\nb=1\n`);
-    expect(performance.now() - started).toBeLessThan(200);
+    expect(performance.now() - started).toBeLessThan(Math.min(200 * TIME_FACTOR, 1000));
   });
 
   it("a hostile literal in Java does not stall the cookie name check", async () => {
@@ -73,7 +74,7 @@ describe("YAML and properties readers stay linear (no ReDoS)", () => {
     await run(
       `import javax.servlet.http.Cookie;\nclass C {\n  void f(HttpServletResponse r) {\n    r.addCookie(new Cookie("${name}", "v"));\n  }\n}\n`,
     );
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(performance.now() - started).toBeLessThan(Math.min(1000 * TIME_FACTOR, 3000));
   });
 });
 
@@ -356,7 +357,7 @@ describe("review round 3", () => {
         "yaml",
       );
     }
-    expect((performance.now() - started) / 40).toBeLessThan(50);
+    expect((performance.now() - started) / 40).toBeLessThan(Math.min(50 * TIME_FACTOR, 200));
   });
 
   it("the 4 KiB line cap is exact in YAML (M43)", () => {

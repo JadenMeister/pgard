@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runCodeOnlyScan, ScanCancelledError } from "./index.js";
+import { TIME_FACTOR } from "../../../tests/support/timing.js";
 
 describe("Cancel of a code-only scan (#427)", () => {
   it("returns at once when an analyzer is stuck in a call that never returns", async () => {
@@ -16,6 +17,6 @@ describe("Cancel of a code-only scan (#427)", () => {
     );
     setTimeout(() => controller.abort(), 30);
     await expect(running).rejects.toBeInstanceOf(ScanCancelledError);
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(3000 * TIME_FACTOR);
   });
 });

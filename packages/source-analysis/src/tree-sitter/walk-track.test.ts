@@ -26,9 +26,7 @@ import {
 } from "./language-track.js";
 import { GRAMMAR_SHA256, grammarPath, TREE_SITTER_LANGUAGES } from "./languages.js";
 import { TreeSitterRuntime } from "./runtime.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR, itScaled } from "../../../../tests/support/timing.js";
 
 const roots: string[] = [];
 function project(files: Record<string, string>): string {
@@ -134,15 +132,19 @@ describe("virtual environments and generated directories", () => {
     expect(note?.note).toContain("third-party or generated code");
   });
 
-  it("marks the track lists as lower bounds when the walk stops at MAX_FILES", async () => {
-    const root = project({ "a.py": "x = 1\n" });
-    for (let i = 0; i <= MAX_FILES; i += 1) writeFileSync(path.join(root, `f${i}.js`), "");
-    const walk = await walkSourceTree(root);
-    expect(walk.isTruncated).toBe(true);
-    expect(walk.trackTruncated).toBe(true);
-    const coverage = languageTrackCoverage(await detectLanguageTrack(walk));
-    expect(coverage[0]?.note).toContain("at least");
-  }, 60_000);
+  itScaled(
+    "marks the track lists as lower bounds when the walk stops at MAX_FILES",
+    async () => {
+      const root = project({ "a.py": "x = 1\n" });
+      for (let i = 0; i <= MAX_FILES; i += 1) writeFileSync(path.join(root, `f${i}.js`), "");
+      const walk = await walkSourceTree(root);
+      expect(walk.isTruncated).toBe(true);
+      expect(walk.trackTruncated).toBe(true);
+      const coverage = languageTrackCoverage(await detectLanguageTrack(walk));
+      expect(coverage[0]?.note).toContain("at least");
+    },
+    60_000,
+  );
 });
 
 describe("more manifests", () => {
@@ -181,27 +183,39 @@ describe("more manifests", () => {
 });
 
 describe("regular expression cost", () => {
-  it("handles a catalog and manifests made of newlines and blanks quickly", async () => {
-    const megabyte = 1024 * 1024;
-    const inputs = ["\n".repeat(megabyte), " \n".repeat(megabyte / 2), "#\n".repeat(megabyte / 2)];
-    const startedAt = Date.now();
-    for (const input of inputs) {
-      expect(detectGradleCatalogFrameworks(input)).toEqual([]);
-      expect(detectGradleFrameworks(input)).toEqual([]);
-      expect(detectPyprojectFrameworks(input)).toEqual([]);
-      expect(detectRequirementsFrameworks(input).frameworks).toEqual([]);
-      expect(detectMavenFrameworks(input)).toEqual([]);
-      expect(detectComposerFrameworks(input)).toBe("invalid_json");
-    }
-    expect(Date.now() - startedAt).toBeLessThan(10_000 * SLOW);
-  }, 60_000);
+  itScaled(
+    "handles a catalog and manifests made of newlines and blanks quickly",
+    async () => {
+      const megabyte = 1024 * 1024;
+      const inputs = [
+        "\n".repeat(megabyte),
+        " \n".repeat(megabyte / 2),
+        "#\n".repeat(megabyte / 2),
+      ];
+      const startedAt = Date.now();
+      for (const input of inputs) {
+        expect(detectGradleCatalogFrameworks(input)).toEqual([]);
+        expect(detectGradleFrameworks(input)).toEqual([]);
+        expect(detectPyprojectFrameworks(input)).toEqual([]);
+        expect(detectRequirementsFrameworks(input).frameworks).toEqual([]);
+        expect(detectMavenFrameworks(input)).toEqual([]);
+        expect(detectComposerFrameworks(input)).toBe("invalid_json");
+      }
+      expect(Date.now() - startedAt).toBeLessThan(10_000 * TIME_FACTOR);
+    },
+    60_000,
+  );
 
-  it("handles repeated groupId openers and blanks quickly", () => {
-    const startedAt = Date.now();
-    expect(detectMavenFrameworks("<groupId>".repeat(100_000) + " ".repeat(500_000))).toEqual([]);
-    expect(detectMavenFrameworks("<groupId> ".repeat(100_000))).toEqual([]);
-    expect(Date.now() - startedAt).toBeLessThan(10_000 * SLOW);
-  }, 60_000);
+  itScaled(
+    "handles repeated groupId openers and blanks quickly",
+    () => {
+      const startedAt = Date.now();
+      expect(detectMavenFrameworks("<groupId>".repeat(100_000) + " ".repeat(500_000))).toEqual([]);
+      expect(detectMavenFrameworks("<groupId> ".repeat(100_000))).toEqual([]);
+      expect(Date.now() - startedAt).toBeLessThan(10_000 * TIME_FACTOR);
+    },
+    60_000,
+  );
 });
 
 describe("scan-wide parse limits", () => {

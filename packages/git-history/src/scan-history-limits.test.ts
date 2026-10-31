@@ -12,9 +12,7 @@ import {
   searchStringFor,
 } from "./scan-history.js";
 import { createGitFixture, type GitFixture } from "./test-support/git-fixture.js";
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
+import { TIME_FACTOR, itScaled } from "../../../tests/support/timing.js";
 
 const join = (...parts: string[]) => parts.join("");
 const TOKEN_A = join("ghp", "_", "AaBbCcDdEeFfGgHhIiJj", "KkLlMmNnOoPpQqRr");
@@ -799,27 +797,31 @@ describe("binary and skipped current files (#136)", () => {
     expectUnknown(result);
   });
 
-  it("stops the search when the remaining time budget runs out", async () => {
-    const repo = fixture();
-    repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
-    repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
-    let grepSignal: AbortSignal | undefined;
-    const runner: GitRunner = (invocation, options) => {
-      if (invocation.subcommand !== "grep") return runGit(invocation, options);
-      grepSignal = options.signal;
-      // A search that never finishes on its own.
-      return new Promise((_resolve, reject) =>
-        options.signal?.addEventListener("abort", () =>
-          reject(new GitCommandError("git command was cancelled", null, "cancelled")),
-        ),
-      );
-    };
-    const started = Date.now();
-    const result = await scanGitHistory(repo.root, { runner, now: () => 0, timeBudgetMs: 300 });
-    expect(Date.now() - started).toBeLessThan(5_000 * SLOW);
-    expect(grepSignal?.aborted).toBe(true);
-    expectUnknown(result);
-  });
+  itScaled(
+    "stops the search when the remaining time budget runs out",
+    async () => {
+      const repo = fixture();
+      repo.commit({ files: { "old.sh": `export GH="${TOKEN_A}"\n`, "a.txt": "x" } });
+      repo.commit({ remove: ["old.sh"], files: { "img.bin": "\u0000\u0001\u0002" } });
+      let grepSignal: AbortSignal | undefined;
+      const runner: GitRunner = (invocation, options) => {
+        if (invocation.subcommand !== "grep") return runGit(invocation, options);
+        grepSignal = options.signal;
+        // A search that never finishes on its own.
+        return new Promise((_resolve, reject) =>
+          options.signal?.addEventListener("abort", () =>
+            reject(new GitCommandError("git command was cancelled", null, "cancelled")),
+          ),
+        );
+      };
+      const started = Date.now();
+      const result = await scanGitHistory(repo.root, { runner, now: () => 0, timeBudgetMs: 300 });
+      expect(Date.now() - started).toBeLessThan(5_000 * TIME_FACTOR);
+      expect(grepSignal?.aborted).toBe(true);
+      expectUnknown(result);
+    },
+    15_000,
+  );
 });
 
 describe("searchStringFor (#144)", () => {

@@ -1,24 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { analyzeVueSource } from "../vue/analyze-vue.js";
 import { analyzeJsSource } from "./analyze-js.js";
+import { TIME_FACTOR, bestTimeOf, itScaled } from "../../../../tests/support/timing.js";
 
 const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
 const findingsIn = (code: string, path = "src/app.ts") => analyzeJsSource(code, path).findings;
-
-/** Slow Windows runners get three times the room; elsewhere the limits stay tight. */
-const SLOW = process.platform === "win32" ? 3 : 1;
-
-/** Fastest of `runs` timings in ms: one run is noisy when other test files run in parallel. */
-const bestTimeOf = (runs: number, fn: () => void) => {
-  let best = Infinity;
-  for (let run = 0; run < runs; run += 1) {
-    const start = performance.now();
-    fn();
-    best = Math.min(best, performance.now() - start);
-  }
-  return best;
-};
 
 describe("PG-SQL-001 pg/mysql2", () => {
   it("flags request input interpolated into pool.query", () => {
@@ -191,7 +178,7 @@ describe("PG-XSS jQuery, escape-html, bundled templates and spread props", () =>
     const code = `import esc from "escape-html"; el.innerHTML = \`${parts}\`;`;
     const start = performance.now();
     expect(xss(code)).toHaveLength(1);
-    expect(performance.now() - start).toBeLessThan(1500);
+    expect(performance.now() - start).toBeLessThan(1500 * TIME_FACTOR);
   });
 
   it("does not treat a jQuery or DOM node result as an HTML string", () => {
@@ -1367,16 +1354,28 @@ describe("facts and robustness", () => {
 });
 
 describe("per-function facts stay linear (#104)", () => {
-  it("analyzes many crypto and persistence call sites in one large function quickly", () => {
-    const body = Array.from(
-      { length: 6000 },
-      (_, index) =>
-        `  crypto.createHash("md5").update(x${index}); await User.create({ password: req.body.p${index} });`,
-    ).join("\n");
-    const code = `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
-    expect(code.length).toBeGreaterThan(400_000);
-    expect(bestTimeOf(3, () => analyzeJsSource(code, "big.js"))).toBeLessThan(5000 * SLOW);
-  }, 60_000);
+  itScaled(
+    "analyzes many crypto and persistence call sites in one large function quickly",
+    () => {
+      const build = (count: number) => {
+        const body = Array.from(
+          { length: count },
+          (_, index) =>
+            `  crypto.createHash("md5").update(x${index}); await User.create({ password: req.body.p${index} });`,
+        ).join("\n");
+        return `import crypto from "crypto";\nasync function big(req) {\n${body}\n}\n`;
+      };
+      const code = build(6000);
+      expect(code.length).toBeGreaterThan(400_000);
+      const small = bestTimeOf(3, () => analyzeJsSource(build(1500), "big.js"));
+      const large = bestTimeOf(3, () => analyzeJsSource(code, "big.js"));
+      // Four times the call sites: linear is about 4x, quadratic about 16x.
+      expect(large / Math.max(small, 20)).toBeLessThan(10);
+      // Only a hang guard: the ratio above is what catches a quadratic blow-up.
+      expect(large).toBeLessThan(5000 * TIME_FACTOR);
+    },
+    60_000,
+  );
 
   it("still detects MD5 of passwords via update() in the same function", () => {
     const rules = analyzeJsSource(
@@ -1442,48 +1441,56 @@ describe("shells via spawn/execFile and promisified exec (#86)", () => {
 });
 
 describe("linear cost and caps (#87)", () => {
-  it("analyzes a large JS file quickly", () => {
-    const build = (count: number) =>
-      Array.from(
-        { length: count },
-        (_, index) =>
-          `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
-      ).join("\n");
-    const code = build(8000);
-    expect(code.length).toBeGreaterThan(500_000);
-    const quarter = build(2000);
-    let analysis = analyzeJsSource(code, "big.js");
-    const large = bestTimeOf(3, () => {
-      analysis = analyzeJsSource(code, "big.js");
-    });
-    const small = bestTimeOf(3, () => analyzeJsSource(quarter, "big.js"));
-    expect(large).toBeLessThan(5000 * SLOW);
-    // Four times the input: linear is about 4x, quadratic about 16x.
-    expect(large / Math.max(small, 1)).toBeLessThan(10);
-    expect(analysis.cappedRules).toContain("PG-XSS-001");
-  }, 60_000);
+  itScaled(
+    "analyzes a large JS file quickly",
+    () => {
+      const build = (count: number) =>
+        Array.from(
+          { length: count },
+          (_, index) =>
+            `function f${index}(req) { const password = req.body.p${index}; el.innerHTML = x${index}; return check(password); }`,
+        ).join("\n");
+      const code = build(8000);
+      expect(code.length).toBeGreaterThan(500_000);
+      const quarter = build(2000);
+      let analysis = analyzeJsSource(code, "big.js");
+      const large = bestTimeOf(3, () => {
+        analysis = analyzeJsSource(code, "big.js");
+      });
+      const small = bestTimeOf(3, () => analyzeJsSource(quarter, "big.js"));
+      expect(large).toBeLessThan(5000 * TIME_FACTOR);
+      // Four times the input: linear is about 4x, quadratic about 16x.
+      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      expect(analysis.cappedRules).toContain("PG-XSS-001");
+    },
+    60_000,
+  );
 
-  it("resolves sanitized variables in linear time when many scopes share a name (#109)", () => {
-    const build = (count: number) =>
-      Array.from(
-        { length: count },
-        (_, index) =>
-          `function f${index}() { const h = DOMPurify.sanitize(a${index}); el.innerHTML = h; }`,
-      ).join("\n");
-    const time = (body: string) => {
-      const code = `import DOMPurify from "dompurify";\n${body}`;
-      expect(analyzeJsSource(code, "big.js").findings).toEqual([]);
-      return bestTimeOf(3, () => analyzeJsSource(code, "big.js"));
-    };
-    time(build(500)); // warm up
-    const small = time(build(4000));
-    const large = time(build(32000));
-    // Quadratic resolution took ~20 s at 8,000 scopes. Linear time grows roughly 8x for 8x the
-    // input (64x if quadratic). Only the ratio is checked, with a generous limit and the best of
-    // 3 runs per size: CI runners are much slower than local machines, so absolute bounds are
-    // flaky.
-    expect(large / Math.max(small, 1)).toBeLessThan(40);
-  }, 120_000);
+  itScaled(
+    "resolves sanitized variables in linear time when many scopes share a name (#109)",
+    () => {
+      const build = (count: number) =>
+        Array.from(
+          { length: count },
+          (_, index) =>
+            `function f${index}() { const h = DOMPurify.sanitize(a${index}); el.innerHTML = h; }`,
+        ).join("\n");
+      const time = (body: string) => {
+        const code = `import DOMPurify from "dompurify";\n${body}`;
+        expect(analyzeJsSource(code, "big.js").findings).toEqual([]);
+        return bestTimeOf(3, () => analyzeJsSource(code, "big.js"));
+      };
+      time(build(500)); // warm up
+      const small = time(build(4000));
+      const large = time(build(32000));
+      // Quadratic resolution took ~20 s at 8,000 scopes. Linear time grows roughly 8x for 8x the
+      // input (64x if quadratic). Only the ratio is checked, with a generous limit and the best of
+      // 3 runs per size: CI runners are much slower than local machines, so absolute bounds are
+      // flaky.
+      expect(large / Math.max(small, 1)).toBeLessThan(40);
+    },
+    120_000,
+  );
 });
 
 describe("precision (#88)", () => {
@@ -1962,26 +1969,30 @@ describe("injection precision and recall (#242)", () => {
     );
   });
 
-  it("stays linear with thousands of guarded sinks in one function", () => {
-    const build = (count: number) => {
-      const lines = Array.from(
-        { length: count },
-        (_, index) =>
-          `const p${index} = path.resolve(ROOT, req.query.a${index}); if (!p${index}.startsWith(ROOT + path.sep)) return res.end(); res.send(fs.readFileSync(p${index}));`,
-      );
-      return `import fs from 'fs'; import path from 'path'; const ROOT = path.resolve('x');
+  itScaled(
+    "stays linear with thousands of guarded sinks in one function",
+    () => {
+      const build = (count: number) => {
+        const lines = Array.from(
+          { length: count },
+          (_, index) =>
+            `const p${index} = path.resolve(ROOT, req.query.a${index}); if (!p${index}.startsWith(ROOT + path.sep)) return res.end(); res.send(fs.readFileSync(p${index}));`,
+        );
+        return `import fs from 'fs'; import path from 'path'; const ROOT = path.resolve('x');
         export const f = (req, res) => {\n${lines.join("\n")}\n};`;
-    };
-    const small = bestTimeOf(3, () => analyzeJsSource(build(500), "a.ts"));
-    const large = bestTimeOf(3, () => analyzeJsSource(build(2500), "a.ts"));
-    // Every sink is guarded: each is kept at low confidence, none is silent.
-    const findings = analyzeJsSource(build(20), "a.ts").findings;
-    expect(findings).toHaveLength(20);
-    expect(findings.every((finding) => finding.confidence === "low")).toBe(true);
-    // 5x the input: linear is about 5, quadratic about 25. The floor keeps a loaded runner from
-    // turning a tiny baseline into a noisy ratio.
-    expect(large / Math.max(small, 20)).toBeLessThan(12);
-  }, 120_000);
+      };
+      const small = bestTimeOf(3, () => analyzeJsSource(build(500), "a.ts"));
+      const large = bestTimeOf(3, () => analyzeJsSource(build(2500), "a.ts"));
+      // Every sink is guarded: each is kept at low confidence, none is silent.
+      const findings = analyzeJsSource(build(20), "a.ts").findings;
+      expect(findings).toHaveLength(20);
+      expect(findings.every((finding) => finding.confidence === "low")).toBe(true);
+      // 5x the input: linear is about 5, quadratic about 25. The floor keeps a loaded runner from
+      // turning a tiny baseline into a noisy ratio.
+      expect(large / Math.max(small, 20)).toBeLessThan(12);
+    },
+    120_000,
+  );
 });
 
 describe("XSS sanitizers are trusted only through an import binding (#272)", () => {
