@@ -4,6 +4,8 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-31
+
 ### Added
 
 - Result schema 1.8 (#449): a coverage entry may carry `noteCode` and `noteParams` next to its English `note`. The English text is unchanged (it is built from the catalog's English template), so stored results, baselines and comparisons do not change; finding identity and baseline matching never read notes. `COVERAGE_NOTE_CATALOG` in `@pgard/findings` holds 38 codes with English and Korean texts. A result written before 1.8 still reads and shows its stored text. See [docs/RESULT_SCHEMA.md](docs/RESULT_SCHEMA.md).
@@ -126,5 +128,6 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 - Dashboard and web checks are loopback-only; reports and results are redacted, and the dashboard gates port discovery on the full authorization outcome.
 - Packaged grammars are checksum-pinned and verified; the package has no install scripts and only exact-pinned direct dependencies.
 
-[Unreleased]: https://github.com/JadenMeister/pgard/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/JadenMeister/pgard/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/JadenMeister/pgard/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/JadenMeister/pgard/releases/tag/v0.1.0
