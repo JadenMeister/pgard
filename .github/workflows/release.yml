@@ -157,7 +157,8 @@ jobs:
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
         run: |
           set -euo pipefail
-          file="tarball/${TARBALL}"
+          # A leading "./" keeps npm from reading "tarball/x.tgz" as a GitHub "owner/repo" spec.
+          file="./tarball/${TARBALL}"
           actual=$(sha256sum "$file" | cut -d' ' -f1)
           [ "$actual" = "$EXPECTED_SHA256" ] || { echo "::error::tarball changed after verify"; exit 1; }
           # The bytes about to be published (compare with the verify job's value and with
