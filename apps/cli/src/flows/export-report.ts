@@ -29,9 +29,13 @@ export async function checkOutputDir(
   source: "option" | "prompt" = "option",
 ): Promise<OutputDirCheck> {
   const home = reportHome(context.io.env, context.deps.platform);
-  const absolute = path.resolve(context.io.cwd, expandHome(outputDir, home, context.deps.platform));
   const text = cliText(context.ruleLocale).commands.report;
   const isOption = source === "option";
+  // `~user` is not expanded (it would be a folder named `~user` under the cwd): same hint as the prompt.
+  if (isTildeUser(outputDir, context.deps.platform)) {
+    return { kind: "invalid", message: text.tildeUser };
+  }
+  const absolute = path.resolve(context.io.cwd, expandHome(outputDir, home, context.deps.platform));
   try {
     const info = await stat(absolute);
     if (!info.isDirectory()) return { kind: "invalid", message: text.notDirectory(isOption) };
@@ -57,23 +61,33 @@ function isTildeUser(typed: string, platform: NodeJS.Platform): boolean {
   return !(next === "/" || (platform === "win32" && next === "\\"));
 }
 
-/** Why a folder was not created: `policy` (outside home) or `io` (the file system said no). */
-type CreateOutcome = "created" | "policy" | "io";
+/**
+ * Why a folder was not created: `policy` (outside home), `link` (a link on the path), `owner` (a
+ * level owned by another user), `sudo` (this process is not the home folder's owner), `writable`
+ * (the closest existing parent can be changed by others) or `io` (the file system said no).
+ */
+export type CreateOutcome = "created" | "policy" | "link" | "owner" | "sudo" | "writable" | "io";
 
 /**
  * Creates a folder the user asked for, one level at a time (mode 0700, no `recursive`). The
- * closest existing parent must lie inside the home folder once links are resolved, every level
- * made here must be a real directory (not a link) owned by this user, and the result must still
- * resolve inside home, so a link cannot send the new folder somewhere else.
+ * process must run as the owner of the home folder (not `sudo -E`), the closest existing parent
+ * must lie inside the home folder once links are resolved and must not be writable by group or
+ * others (unless sticky and owned by this user), every level made here must be a real directory
+ * (not a link) owned by this user and must still resolve inside home right after it is made, so a
+ * link cannot send the new folder somewhere else.
  */
-async function createReportDir(
+export async function createReportDir(
   target: string,
   home: string | null,
   platform: NodeJS.Platform,
+  getuid: () => number | undefined = () => process.getuid?.(),
 ): Promise<CreateOutcome> {
   if (home === null) return "policy";
   try {
     const realHome = await realpath(home);
+    // Windows has no uid; its folders are refused only by the home and link checks.
+    const owner = platform === "win32" ? undefined : (await stat(realHome)).uid;
+    if (owner !== undefined && getuid() !== owner) return "sudo";
     let parent = path.dirname(target);
     for (;;) {
       if ((await stat(parent).catch(() => null))?.isDirectory() === true) break;
@@ -81,8 +95,13 @@ async function createReportDir(
       if (next === parent) return "io";
       parent = next;
     }
-    if (!isInside(await realpath(parent), realHome, platform)) return "policy";
-    const owner = platform === "win32" ? undefined : process.getuid?.();
+    const realParent = await realpath(parent);
+    if (!isInside(realParent, realHome, platform)) return "policy";
+    if (owner !== undefined) {
+      const info = await stat(realParent);
+      const isSticky = (info.mode & 0o1000) !== 0;
+      if ((info.mode & 0o022) !== 0 && !(isSticky && info.uid === owner)) return "writable";
+    }
     let current = parent;
     for (const name of path.relative(parent, target).split(path.sep)) {
       current = path.join(current, name);
@@ -90,8 +109,9 @@ async function createReportDir(
         if (error.code !== "EEXIST") throw error;
       });
       const info = await lstat(current);
-      if (info.isSymbolicLink() || !info.isDirectory()) return "policy";
-      if (owner !== undefined && info.uid !== owner) return "policy";
+      if (info.isSymbolicLink() || !info.isDirectory()) return "link";
+      if (owner !== undefined && info.uid !== owner) return "owner";
+      if (!isInside(await realpath(current), realHome, platform)) return "policy";
     }
     return isInside(await realpath(target), realHome, platform) ? "created" : "policy";
   } catch {
@@ -222,9 +242,22 @@ export async function runReportExport(
         if (!(await confirmInsideRepository(context))) continue;
         isConfirmedInside = true;
       }
-      const created = await createReportDir(missing, home, platform);
+      const created = await createReportDir(
+        missing,
+        home,
+        platform,
+        context.deps.getuid ?? (() => process.getuid?.()),
+      );
       if (created !== "created") {
-        out(context, context.style.red(created === "policy" ? text.homeOnly : text.cannotCreate));
+        const refusals = {
+          policy: text.homeOnly,
+          link: text.linkRefused,
+          owner: text.otherUserRefused,
+          sudo: text.runWithoutSudo,
+          writable: text.parentWritable,
+          io: text.cannotCreate,
+        };
+        out(context, context.style.red(refusals[created]));
         continue;
       }
       check = await checkOutputDir(context, missing, projectRoot, "prompt");

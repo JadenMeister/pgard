@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Security
+
+- Report folder creation hardening (#448, from the #440 review). Creating a missing report folder from the save prompt now needs the process to run as the owner of the home folder (`sudo -E` is refused: "Run pgard without sudo to create a folder in your home folder." / "홈 폴더에 폴더를 만들려면 sudo 없이 pgard를 실행하세요."), refuses a closest existing parent that group or others can write to (unless it is sticky and yours), and re-checks `realpath` against the real home after every level it makes, so a race cannot leave empty folders outside home. A link on the path and a folder of another user now have their own messages (before, both said "home only"). `--output-dir '~user'` is refused in `scan`, `report` and `sbom` with the same hint as the prompt (`~user` was resolved from the current folder), and the Korean hint reads `~ 바로 뒤에 /를 붙이세요(예: ~/Downloads).` Known limit (N5): on Windows a home on a `subst` or mapped drive can be refused because its `realpath` has another form; this fails safe and is documented in the README.
+
 ## [0.1.0] - 2026-10-31
 
 ### Security

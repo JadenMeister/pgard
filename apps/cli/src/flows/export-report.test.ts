@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -9,7 +17,7 @@ import {
   panelsFixtureResult,
   scriptedKeys,
 } from "../test-support.js";
-import { checkOutputDir, runReportExport } from "./export-report.js";
+import { checkOutputDir, createReportDir, runReportExport } from "./export-report.js";
 import { defaultReportDir, expandHome, reportHome, shownDir } from "./report-dir.js";
 
 function fakeFiles(dirs: string[], files: Record<string, string> = {}) {
@@ -253,6 +261,134 @@ describe("report folder prompt", () => {
     const s = setup([...FORMAT, ...chars("~bob/x"), ...ENTER, "escape"]);
     expect(await run(s)).toBe("cancelled");
     expect(s.captured.stdout()).toContain("Use ~/ (e.g. ~/Downloads).");
+  });
+
+  it("refuses --output-dir ~user with the same hint and does not resolve it from the cwd", async () => {
+    const s = setup([]);
+    for (const source of ["option", "prompt"] as const) {
+      const check = await checkOutputDir(s.context, "~bob/x", repo, source);
+      expect(check).toEqual({ kind: "invalid", message: "Use ~/ (e.g. ~/Downloads)." });
+    }
+    mkdirSync(path.join(repo, "~bob"));
+    expect((await checkOutputDir(s.context, "~bob", repo)).kind).toBe("invalid");
+    // `~` and `~/x` still work.
+    expect((await checkOutputDir(s.context, "~", repo)).kind).toBe("ok");
+  });
+
+  it("says the Korean ~user hint", async () => {
+    const s = setup([]);
+    const ko = { ...s.context, ruleLocale: "ko" as const };
+    expect(await checkOutputDir(ko, "~bob", repo)).toEqual({
+      kind: "invalid",
+      message: "~ 바로 뒤에 /를 붙이세요(예: ~/Downloads).",
+    });
+  });
+
+  describe.skipIf(!isPosix)("createReportDir hardening", () => {
+    const uid = () => process.getuid?.();
+    const create = (target: string, getuid: () => number | undefined = uid) =>
+      createReportDir(target, home, "linux", getuid);
+
+    it("N2: refuses when the process uid differs from the home owner, creating nothing", async () => {
+      const target = path.join(home, "fresh");
+      expect(await create(target, () => (uid() ?? 0) + 1)).toBe("sudo");
+      expect(() => statSync(target)).toThrow();
+      expect(await create(target)).toBe("created");
+    });
+
+    it("N2: the prompt says to run without sudo (EN and KO)", async () => {
+      const wrongUid = (uid() ?? 0) + 1;
+      for (const [locale, expected] of [
+        ["en", "Run pgard without sudo to create a folder in your home folder."],
+        ["ko", "홈 폴더에 폴더를 만들려면 sudo 없이 pgard를 실행하세요."],
+      ] as const) {
+        const s = setup([...FORMAT, ...chars(path.join(home, "new")), ...ENTER, "y", "escape"]);
+        const context = {
+          ...s.context,
+          ruleLocale: locale,
+          deps: { ...s.context.deps, getuid: () => wrongUid },
+        };
+        expect(await runReportExport(context, panelsFixtureResult(), repo)).toBe("cancelled");
+        expect(s.captured.stdout()).toContain(expected);
+        expect(() => statSync(path.join(home, "new"))).toThrow();
+      }
+    });
+
+    it("N1: refuses a parent writable by group or others, unless sticky and owned by the user", async () => {
+      for (const mode of [0o775, 0o757, 0o777]) {
+        const parent = path.join(home, `w${mode.toString(8)}`);
+        mkdirSync(parent);
+        chmodSync(parent, mode);
+        expect(await create(path.join(parent, "x"))).toBe("writable");
+        expect(() => statSync(path.join(parent, "x"))).toThrow();
+      }
+      const sticky = path.join(home, "sticky");
+      mkdirSync(sticky);
+      chmodSync(sticky, 0o1777);
+      expect(await create(path.join(sticky, "x"))).toBe("created");
+      const own = path.join(home, "own");
+      mkdirSync(own);
+      chmodSync(own, 0o755);
+      expect(await create(path.join(own, "x", "y"))).toBe("created");
+    });
+
+    it("N1: the closest existing parent is the one checked, not an earlier one", async () => {
+      const parent = path.join(home, "open");
+      mkdirSync(parent);
+      chmodSync(parent, 0o777);
+      expect(await create(path.join(parent, "a", "b"))).toBe("writable");
+      expect(() => statSync(path.join(parent, "a"))).toThrow();
+    });
+
+    it("N3: a link gives its own outcome, and a link out of home is a home refusal", async () => {
+      const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), "pgard-outside-")));
+      try {
+        symlinkSync(outside, path.join(home, "dangling-ok"));
+        expect(await create(path.join(home, "dangling-ok"))).toBe("link");
+        expect(await create(path.join(home, "dangling-ok", "x"))).toBe("policy");
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it("N3: the texts differ per refusal, in EN and KO", async () => {
+      const { cliText } = await import("../ui/i18n/cli-text.js");
+      for (const locale of ["en", "ko"] as const) {
+        const t = cliText(locale).commands.report;
+        const all = [
+          t.homeOnly,
+          t.linkRefused,
+          t.otherUserRefused,
+          t.runWithoutSudo,
+          t.parentWritable,
+        ];
+        expect(new Set(all).size).toBe(all.length);
+      }
+    });
+
+    it("N3: the prompt shows the link text for a link as the final name", async () => {
+      const outside = realpathSync(mkdtempSync(path.join(os.tmpdir(), "pgard-outside-")));
+      try {
+        symlinkSync(path.join(outside, "gone"), path.join(home, "dangling"));
+        const s = setup([
+          ...FORMAT,
+          ...chars(path.join(home, "dangling")),
+          ...ENTER,
+          "y",
+          "escape",
+        ]);
+        expect(await run(s)).toBe("cancelled");
+        expect(s.captured.stdout()).toContain("A link is on that path");
+        expect(s.captured.stdout()).not.toContain("Only folders inside your home folder");
+        expect(() => statSync(path.join(outside, "gone"))).toThrow();
+      } finally {
+        rmSync(outside, { recursive: true, force: true });
+      }
+    });
+  });
+
+  it("N5: Windows has no uid checks; an unknown home is still refused", async () => {
+    expect(await createReportDir(path.join(home, "w"), null, "win32")).toBe("policy");
   });
 
   it.skipIf(!isPosix)("refuses a symlinked parent and a symlink as the final name", async () => {

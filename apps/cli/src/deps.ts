@@ -105,6 +105,8 @@ export interface CliDeps {
   openWebStorage: (env: Readonly<Record<string, string | undefined>>) => WebStorage | null;
   /** The platform, so the Windows refusal of `pgard web` can be tested everywhere. */
   platform: NodeJS.Platform;
+  /** The user id of this process (`process.getuid`); tests inject it. Unset on Windows. */
+  getuid?: () => number | undefined;
   webScanner: WebScanner;
   probeLocalService: (port: number, options?: ProbeOptions) => Promise<ServiceIdentity>;
   discoverListeningPorts: () => Promise<PortDiscoveryResult>;

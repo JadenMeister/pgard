@@ -111,6 +111,14 @@ export interface CommandText {
     createQuestion: (shown: string) => string;
     cannotCreate: string;
     homeOnly: string;
+    /** A link is on the path of the folder to create. */
+    linkRefused: string;
+    /** A level of the path belongs to another user. */
+    otherUserRefused: string;
+    /** The process runs as another user than the home folder's owner (for example sudo). */
+    runWithoutSudo: string;
+    /** The closest existing parent can be changed by group or others. */
+    parentWritable: string;
     typeFolder: string;
     tildeUser: string;
   };
@@ -376,6 +384,13 @@ overwritten. Saving inside the Git repository risks committing the report.`,
     cannotCreate: "The folder could not be created. Enter another one.",
     homeOnly:
       "Only folders inside your home folder can be created here. Create it yourself or pick an existing folder.",
+    linkRefused:
+      "A link is on that path, so the folder was not created. Pick a folder that is not behind a link.",
+    otherUserRefused:
+      "A folder on that path belongs to another user, so it was not created. Pick a folder of your own.",
+    runWithoutSudo: "Run pgard without sudo to create a folder in your home folder.",
+    parentWritable:
+      "The closest existing folder can be changed by other users, so the folder was not created. Create it yourself or pick another.",
     typeFolder: "Type a folder.",
     tildeUser: "Use ~/ (e.g. ~/Downloads).",
   },
@@ -647,8 +662,15 @@ Git 저장소 안에 저장하면 보고서가 커밋될 위험이 있습니다.
     createQuestion: (shown) => `"${shown}" 폴더가 없습니다. 만들까요?`,
     cannotCreate: "폴더를 만들지 못했습니다. 다른 폴더를 입력하세요.",
     homeOnly: "홈 폴더 안의 폴더만 만들 수 있습니다. 직접 만들거나 이미 있는 폴더를 고르세요.",
+    linkRefused:
+      "경로에 링크가 있어 폴더를 만들지 않았습니다. 링크 뒤에 있지 않은 폴더를 고르세요.",
+    otherUserRefused:
+      "경로에 다른 사용자 소유의 폴더가 있어 만들지 않았습니다. 본인 소유의 폴더를 고르세요.",
+    runWithoutSudo: "홈 폴더에 폴더를 만들려면 sudo 없이 pgard를 실행하세요.",
+    parentWritable:
+      "가장 가까운 기존 폴더를 다른 사용자가 바꿀 수 있어 만들지 않았습니다. 직접 만들거나 다른 폴더를 고르세요.",
     typeFolder: "폴더를 입력하세요.",
-    tildeUser: "~ 다음에는 / 를 붙이세요 (예: ~/Downloads)",
+    tildeUser: "~ 바로 뒤에 /를 붙이세요(예: ~/Downloads).",
   },
   reportCommand: {
     menuLabel: "마지막 검사로 보고서 만들기",
