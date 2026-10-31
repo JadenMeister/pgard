@@ -436,6 +436,8 @@ export const HISTORY_CASES = [
           "src/tight.js": `foo();// db password: ${join("Prod.Xk9q", ")m2Lq8")}\n`,
           "src/tight.py": `x = 1#password=${join("Prod.Xk9q", ")m2Lq8")}\n`,
           "src/tight2.py": `x = 1#password=${join("Prod.Xk9q", "&&m2Lq8")}\n`,
+          "src/dotted-key.js": `// config.password: ${join("Prod.Xk9q", ")m2Lq8")}\n`,
+          "src/dotted-key.py": `# settings.DB_PASSWORD = ${join("Prod.Xk9q", ")m2Lq8")}\n`,
           "src/apostrophe.js": `// don't commit password: ${join("Prod.Xk9q", ")m2Lq8")}\n`,
         },
       },

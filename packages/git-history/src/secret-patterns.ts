@@ -234,7 +234,9 @@ function lineBefore(text: string, index: number, window: number) {
 function followsCodeToken(text: string, start: number, matched: string): boolean {
   if (start > 0 && "{,(.".includes(text.charAt(start - 1))) return true;
   const key = /^[^:=\]"']*/.exec(matched)?.[0] ?? "";
-  return key.includes(".");
+  // A dotted key counts as code only when glued to the token before it (`e&&t.password==`,
+  // `a?t.password:`); after whitespace or at a line start it is prose (`// config.password:`).
+  return key.includes(".") && start > 0 && !/\s/.test(text.charAt(start - 1));
 }
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;

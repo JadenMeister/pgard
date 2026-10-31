@@ -159,6 +159,8 @@ describe("code-shaped unquoted values (minified code)", () => {
     [`x = 1#password=${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.py"],
     [`x = 1#password=${j("Prod.Xk9q", "&&m2Lq8")}\n`, "src/app.py"],
     [`// don't commit password: ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.js"],
+    [`// config.password: ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.js"],
+    [`# settings.DB_PASSWORD = ${j("Prod.Xk9q", ")m2Lq8")}\n`, "src/app.py"],
   ])("keeps a dotted-then-bracket comment password in any comment position: %#", (text, path) => {
     expect(scan(text, path)).toHaveLength(1);
   });
@@ -166,7 +168,9 @@ describe("code-shaped unquoted values (minified code)", () => {
   it.each([
     "f({password:e.target.value})",
     "f(a,password:e.target.value})",
-    "t.password==e.pass)||x",
+    "x(t.password==e.pass)||x",
+    "if(e&&t.password==e.pass)||x",
+    "y=a?t.password:e.target.value}",
   ])("rejects the same shape right after a code token: %s", (code) => {
     expect(scan(code, "a.js")).toEqual([]);
   });
