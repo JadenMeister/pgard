@@ -12,7 +12,7 @@
 [![Node.js](https://img.shields.io/badge/node-22.23.4%20%7C%2024.22.1%20%7C%2026.12.1-339933?logo=nodedotjs&logoColor=white)](#requirements)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?logo=apple&logoColor=white)](#requirements)
-[![Status: pre-release](https://img.shields.io/badge/status-pre--release-orange)](#known-limitations)
+[![npm](https://img.shields.io/npm/v/pgard?logo=npm)](https://www.npmjs.com/package/pgard)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#privacy-and-network-traffic)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
 
@@ -22,7 +22,7 @@ PGARD (`pgard`) is a local security scanner for GitHub projects you are authoriz
 
 Before every scan, PGARD checks that the repository owner approved PGARD, that you currently have access to the repository, and that you own it or really contributed to it. Your code and the results stay on your computer.
 
-PGARD is a pre-release under active development. The first release (v0.1.0) is planned. PGARD does not find every vulnerability, and "no findings" never means "secure".
+PGARD is under active development; the first release is v0.1.0. PGARD does not find every vulnerability, and "no findings" never means "secure".
 
 > **Current status:** PGARD ships the client id of the PGARD GitHub App, so signing in needs no setup. A scan still needs the App installed on the account that owns the repository: your personal account, or an organization you own (see [Authorization model](#authorization-model)).
 
@@ -78,16 +78,14 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 
 ## Install and build
 
-### Install from npm or Homebrew (from the first release)
-
-The first release (planned v0.1.0) is not published yet. Until then the npm name `pgard` is reserved by a placeholder package (0.0.1) that has no CLI: `npm install -g pgard` installs only that placeholder, and you get no `pgard` command. Install from source (below) until the release. After the first release:
+### Install from npm or Homebrew
 
 ```sh
 npm install -g pgard   # installs the `pgard` command
 npx pgard doctor       # or run it once without installing
 ```
 
-With Homebrew (macOS and Linux), after the first release:
+With Homebrew (macOS and Linux):
 
 ```sh
 brew tap jadenmeister/pgard   # once
