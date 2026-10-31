@@ -80,7 +80,6 @@ PGARD가 따르는 규칙입니다. 항목마다 정책의 내용을 설명하�
 
 ### npm 또는 Homebrew로 설치
 
-
 ```sh
 npm install -g pgard   # `pgard` 명령 설치
 npx pgard doctor       # 설치 없이 한 번 실행

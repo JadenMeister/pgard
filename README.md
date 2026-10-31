@@ -80,7 +80,6 @@ These are the rules PGARD follows. Each entry says what the policy is and links 
 
 ### Install from npm or Homebrew
 
-
 ```sh
 npm install -g pgard   # installs the `pgard` command
 npx pgard doctor       # or run it once without installing
