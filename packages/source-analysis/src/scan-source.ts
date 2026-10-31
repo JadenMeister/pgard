@@ -2,10 +2,14 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   compileGlob,
+  CONFIG_BUDGET_NOTE,
+  WALK_STOPPED_PREFIX,
   compilePathMatcher,
+  coverageNote,
   isTestOrFixturePath,
   isVendoredPath,
   matchesEverything,
+  prefixWalkStopped,
   redactEvidence,
   redactLocationPath,
   type AnalyzerOutput,
@@ -671,7 +675,11 @@ export async function scanSourceCode(
       });
     }
   };
-  const languageCoverage = (language: SourceLanguage, ruleIds: string[], method: string) => {
+  const languageCoverage = (
+    language: SourceLanguage,
+    ruleIds: string[],
+    methodKey: "js" | "vue" | "go",
+  ) => {
     const languageStats = stats[language];
     const label = LANGUAGE_LABEL[language];
     const problems: string[] = [];
@@ -713,15 +721,25 @@ export async function scanSourceCode(
       );
     if (walk.isTruncated) problems.push(`file limit reached; remaining files were not analyzed`);
     const isPartial = problems.length > 0;
+    // The catalog's English sentence is the base; the problems and reuse sentences follow it.
+    const base =
+      languageStats.files === 0
+        ? coverageNote("language_no_files", { language: label })
+        : coverageNote("language_files", {
+            count: languageStats.files,
+            language: label,
+            method: methodKey,
+          });
     const entry: Coverage = {
       area: `source:${language}`,
       scope: "code",
       status: isPartial ? "partial" : "completed",
       ruleIds: languageStats.files > 0 ? ruleIds : [],
-      note:
-        languageStats.files === 0
-          ? `No ${label} files found.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}`
-          : `${languageStats.files} ${label} file(s); ${method}.${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}${reusedByLanguage[language] > 0 && options.reuse ? ` ${reusedByLanguage[language]} file(s) reused from scan ${options.reuse.label} (content unchanged).` : ""}`,
+      note: `${base.note}${isPartial ? ` ${sentence(problems.join("; "))}.` : ""}${languageStats.files > 0 && reusedByLanguage[language] > 0 && options.reuse ? ` ${reusedByLanguage[language]} file(s) reused from scan ${options.reuse.label} (content unchanged).` : ""}`,
+      // Only the plain case has a code: a note that lists problems or reused files stays English.
+      ...(!isPartial && !(reusedByLanguage[language] > 0 && options.reuse)
+        ? { noteCode: base.noteCode, ...(base.noteParams ? { noteParams: base.noteParams } : {}) }
+        : {}),
     };
     coverage.push(entry);
     addRuleStats(
@@ -730,31 +748,21 @@ export async function scanSourceCode(
       (finding) => languageOfPath.get(finding.location.path ?? "") === language,
     );
   };
-  const jsMethod = "TypeScript compiler AST with intra-file, flow-insensitive taint tracking";
-  languageCoverage("javascript", JS_RULE_IDS, jsMethod);
-  languageCoverage("typescript", JS_RULE_IDS, jsMethod);
+  languageCoverage("javascript", JS_RULE_IDS, "js");
+  languageCoverage("typescript", JS_RULE_IDS, "js");
   const reactEntry: Coverage = {
     area: "source:react",
     scope: "code",
     status: "completed",
     ruleIds: jsxFiles > 0 ? ["PG-XSS-002"] : [],
-    note:
-      jsxFiles > 0
-        ? `${jsxFiles} file(s) with JSX; analyzed with the JavaScript/TypeScript rules.`
-        : "No JSX found.",
+    ...(jsxFiles > 0
+      ? coverageNote("react_jsx_files", { count: jsxFiles })
+      : coverageNote("react_no_jsx")),
   };
   coverage.push(reactEntry);
   addRuleStats(reactEntry, jsxFiles, (finding) => jsxPaths.has(finding.location.path ?? ""));
-  languageCoverage(
-    "vue",
-    [...VUE_RULE_IDS, ...JS_RULE_IDS],
-    "script blocks via TypeScript AST, template v-html via @vue/compiler-sfc",
-  );
-  languageCoverage(
-    "go",
-    GO_RULE_IDS,
-    "syntax-level heuristics (lexer and patterns, no type information or cross-file data flow)",
-  );
+  languageCoverage("vue", [...VUE_RULE_IDS, ...JS_RULE_IDS], "vue");
+  languageCoverage("go", GO_RULE_IDS, "go");
   // Java, Kotlin (and MyBatis mapper XML), Python and PHP have rules; any other language is only
   // detected, and no grammar is loaded for a language without rules. Java and Kotlin go through
   // `parseTrackFiles` inside `scanJvm`, so a grammar that fails its checksum, an oversized file or
@@ -827,7 +835,7 @@ export async function scanSourceCode(
       scope: "code",
       status: "partial",
       ruleIds: [],
-      note: CONFIG_BUDGET_NOTE,
+      ...coverageNote("config_budget_exceeded"),
     });
   }
   if (walk.stoppedEarly !== null) {
@@ -836,10 +844,12 @@ export async function scanSourceCode(
       scope: "code",
       status: "partial",
       ruleIds: [],
-      note:
-        walk.stoppedEarly.reason === "entries"
-          ? `The directory walk stopped after ${walk.stoppedEarly.visited} entries (limit ${options.maxWalkEntries ?? MAX_WALK_ENTRIES}); files beyond that point were not found or analyzed. Exclude generated or junk directories to scan the rest.`
-          : `The directory walk stopped after ${walk.stoppedEarly.visited} entries because the time budget ran out; files beyond that point were not found or analyzed.`,
+      ...(walk.stoppedEarly.reason === "entries"
+        ? coverageNote("walk_stopped_entries", {
+            visited: walk.stoppedEarly.visited,
+            limit: options.maxWalkEntries ?? MAX_WALK_ENTRIES,
+          })
+        : coverageNote("walk_stopped_time", { visited: walk.stoppedEarly.visited })),
     });
   }
   if (walk.skippedLarge > 0) {
@@ -848,7 +858,7 @@ export async function scanSourceCode(
       scope: "code",
       status: "partial",
       ruleIds: [],
-      note: `${walk.skippedLarge} source file(s) over 1 MiB were skipped.`,
+      ...coverageNote("large_files_skipped", { count: walk.skippedLarge }),
     });
   }
   if (walk.skippedMinified.length > 0) {
@@ -923,7 +933,10 @@ export async function scanSourceCode(
       scope: "code",
       status: "completed",
       ruleIds: [],
-      note: `${walk.skippedSymlinks.length} symbolic link(s) were not followed (set ${fingerprintPaths(walk.skippedSymlinks)}).`,
+      ...coverageNote("symlinks_not_followed", {
+        count: walk.skippedSymlinks.length,
+        set: fingerprintPaths(walk.skippedSymlinks),
+      }),
     });
   }
   if (walk.unreadableDirectories.length > 0) {
@@ -932,7 +945,10 @@ export async function scanSourceCode(
       scope: "code",
       status: "partial",
       ruleIds: [],
-      note: `${walk.unreadableDirectories.length} director${walk.unreadableDirectories.length === 1 ? "y" : "ies"} could not be read, so files below ${walk.unreadableDirectories.length === 1 ? "it were" : "them were"} not analyzed (set ${fingerprintPaths(walk.unreadableDirectories)}).`,
+      ...coverageNote("directories_unreadable", {
+        count: walk.unreadableDirectories.length,
+        set: fingerprintPaths(walk.unreadableDirectories),
+      }),
     });
   }
   if (walk.skippedDependencyDirectories.length > 0) {
@@ -951,7 +967,7 @@ export async function scanSourceCode(
         scope: "code",
         status: "partial",
         ruleIds: [],
-        note: `${label} detected; raw query analysis for ${label} is not supported, so its queries were not evaluated (not a safe result).`,
+        ...coverageNote("orm_unsupported", { library: label }),
       });
     }
   }
@@ -962,7 +978,7 @@ export async function scanSourceCode(
         scope: "code",
         status: "partial",
         ruleIds: [],
-        note: `${label} detected; raw query analysis for ${label} is not supported, so its queries were not evaluated (not a safe result).`,
+        ...coverageNote("orm_unsupported", { library: label }),
       });
     }
   }
@@ -979,9 +995,13 @@ export async function scanSourceCode(
     scope: "code",
     status: isJsFamilyPartial ? "partial" : "completed",
     ruleIds: hasHeuristicsInput ? ["PG-CSRF-001", "PG-BRUTE-001"] : [],
-    note: hasHeuristicsInput
-      ? `CSRF and brute-force checks are project-level heuristics (library imports and route names) and report suspected findings with low confidence.${isJsFamilyPartial ? " Partial because a JavaScript, TypeScript or Vue area was partial." : ""}`
-      : "No JavaScript, TypeScript or Vue files were analyzed, so the CSRF and brute-force heuristics did not run.",
+    ...coverageNote(
+      hasHeuristicsInput
+        ? isJsFamilyPartial
+          ? "heuristics_ran_partial"
+          : "heuristics_ran"
+        : "heuristics_not_run",
+    ),
   };
   coverage.push(heuristicsEntry);
   // The heuristics read the facts of every analyzed JavaScript, TypeScript and Vue file.
@@ -999,8 +1019,7 @@ export async function scanSourceCode(
 }
 
 /** Leads every note of an area that a walk stopped early left incomplete. */
-export const WALK_STOPPED_NOTE =
-  "The directory walk stopped early (see source:walk); files beyond that point were not found.";
+export const WALK_STOPPED_NOTE = WALK_STOPPED_PREFIX;
 
 /**
  * Every source area reads what the walk found (files of each language, manifests, configuration,
@@ -1016,7 +1035,7 @@ function markWalkStoppedEarly(coverage: Coverage[], ruleStats: RuleStat[]): void
       entry.status = "partial";
       changed.add(entry.area);
     }
-    entry.note = entry.note === null ? WALK_STOPPED_NOTE : `${WALK_STOPPED_NOTE} ${entry.note}`;
+    prefixWalkStopped(entry);
   }
   for (const stat of ruleStats) {
     if (changed.has(stat.area) && stat.status === "completed") stat.status = "partial";
@@ -1081,8 +1100,7 @@ export function describeConfigExcluded(
 const BUDGET_WARNING =
   "pattern matching hit its work limit; later files were NOT excluded or reclassified.";
 /** Merged into the `source:config` note by the scan (one entry per area). */
-export const CONFIG_BUDGET_NOTE =
-  "WARNING: the patterns in pgard.config.json exceeded the matching work limit (too many or too expensive patterns). Files after that point were scanned as if no pattern applied to them; simplify the patterns.";
+export { CONFIG_BUDGET_NOTE };
 
 /** At or above this share of production files (and more than MIN files) the config is suspect. */
 export const CONFIG_TEST_SHARE_WARNING = 0.5;

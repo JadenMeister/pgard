@@ -73,7 +73,7 @@ describe("runCodeOnlyScan (prototype, #414)", () => {
     expect(stages[0]).toBe("authorization:skipped");
     expect(readScanResult(JSON.parse(JSON.stringify(result))).ok).toBe(true);
     // JSON 1.7: the result says it is code-only and that authorization was not verified.
-    expect(result.schemaVersion).toBe("1.7");
+    expect(result.schemaVersion).toBe("1.8");
     expect(result.scanBasis).toEqual({
       mode: "code_only",
       authorization: "not_verified",

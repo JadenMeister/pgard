@@ -1,5 +1,7 @@
 import {
   SEVERITIES,
+  authorizationReportRows,
+  coverageNoteText,
   pickText,
   configTestGroupNote,
   projectConfigNotices,
@@ -114,7 +116,7 @@ function renderCoverageRows(coverage: readonly Coverage[], ctx: ReportContext): 
   <td class="token">${areaCell(entry.area)}</td>
   <td class="nw">${escapeHtml(entry.scope)}</td>
   <td class="nw"><span class="pill pill-${escapeHtml(entry.status)}">${escapeHtml(word(ctx.t.coverageStatus, entry.status, ctx.t.unknownLabel))}</span></td>
-  <td>${escapeHtml(entry.note ?? "")}</td>
+  <td>${escapeHtml(coverageNoteText(entry, ctx.lang) ?? "")}</td>
 </tr>`,
     )
     .join("\n");
@@ -258,8 +260,8 @@ function renderFinding(finding: Finding, ctx: ReportContext, isNew = false): str
 }
 
 function renderAuthorization(result: ScanResult, ctx: ReportContext): string {
-  const rows = result.authorization.checks
-    .map(
+  const rows = authorizationReportRows(result.authorization, ctx.lang)
+    .checks.map(
       (check) =>
         `<tr><td class="nw">${escapeHtml(check.id)}</td><td class="nw">${escapeHtml(check.status)}</td><td>${escapeHtml(check.reason)}</td></tr>`,
     )
@@ -543,7 +545,7 @@ ${renderRuleStats(result, ctx)}
 ${findingsHtml}
 ${testFindingsHtml}${vendoredFindingsHtml}${suppressedHtml}${baselineHtml}
 <h2>${escapeHtml(t.authorization)}</h2>
-<p>${escapeHtml(t.decision)}: ${escapeHtml(result.authorization.decision)}</p>
+<p>${escapeHtml(t.decision)}: ${escapeHtml(authorizationReportRows(result.authorization, lang).decision)}</p>
 ${renderAuthorization(result, ctx)}
 
 <h2>${escapeHtml(t.analysisBasis)}</h2>

@@ -25,6 +25,7 @@ import {
   severityChartRows,
   type RenderContext,
 } from "../formatters/result-summary.js";
+import { coverageNoteDisplay } from "../formatters/scan-text.js";
 import { createStyle, MIN_CHART_WIDTH, safeText, type Style } from "../formatters/style.js";
 import { hasFilters } from "./filter.js";
 import {
@@ -132,8 +133,8 @@ function coverageLines(state: PanelsState, size: Size, opts: RenderOptions): str
     const label = t.report.coverageStatus[entry.status] ?? "?";
     const head = truncateWidth(`${safeText(entry.area, 80)} (${label})`, size.columns - 4);
     lines.push(`  ${painted} ${head}`);
-    if (entry.note !== null) {
-      const note = t.scanText(safeText(entry.note, 300));
+    const note = coverageNoteDisplay(entry, t);
+    if (note !== null) {
       for (const part of wrapWidth(note, Math.max(10, size.columns - 6))) {
         lines.push(style.dim(`      ${part}`));
       }

@@ -109,6 +109,7 @@ describe("scanLocalWeb", () => {
         status: "not_selected",
         ruleIds: [],
         note: AUTHENTICATED_NOT_AVAILABLE_NOTE,
+        noteCode: "web_authenticated_unavailable",
       },
     ]);
   });
