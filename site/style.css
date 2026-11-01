@@ -1675,3 +1675,53 @@ html:not(.js) .tabpanel + .tabpanel {
   display: block;
   flex: none;
 }
+
+/* ---------- Screenshots ---------- */
+
+.shots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(1rem, 0.5rem + 2vw, 1.75rem);
+}
+
+.shot {
+  min-width: 0;
+  margin: 0;
+}
+
+.shot-lead {
+  grid-column: 1 / -1;
+}
+
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #0b0c0b;
+}
+
+.shot-tall img {
+  aspect-ratio: 16 / 10;
+  object-fit: cover;
+  object-position: top;
+}
+
+.shot figcaption,
+.shots-note {
+  margin: 0.75rem 0 0;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.shots-note {
+  max-width: 60rem;
+  margin-top: 1.5rem;
+}
+
+@media (max-width: 40rem) {
+  .shots {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

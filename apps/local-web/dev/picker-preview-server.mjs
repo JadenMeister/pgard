@@ -6,7 +6,9 @@
 // no scan, no keychain, no device code.
 //
 //   npm run build
-//   node apps/local-web/dev/picker-preview-server.mjs [port]      (default 4318; never 4317)
+//   node apps/local-web/dev/picker-preview-server.mjs [port] [simple]   (default 4318; never 4317)
+//
+// With `simple` the first screen is the simple `pgard web` screen instead of the full picker.
 //   open http://127.0.0.1:<port>/#token=pickerpickerpickerpickerpickerpicker
 //
 // Folder names to try: shop, app (two matches with the same path), locked, orphan, gitlab,
@@ -209,7 +211,7 @@ const assets = await loadStaticAssets(clientDir);
 const server = await startLocalWebServer({
   projectRoot: null,
   // The search picker of the full dashboard (the simple screen is the default of picker mode).
-  ui: "full",
+  ui: process.argv[3] === "simple" ? "simple" : "full",
   presetTargetPort: null,
   env: {},
   assets,

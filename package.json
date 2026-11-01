@@ -21,7 +21,8 @@
     "pack:pgard": "npm run build && node scripts/pack-pgard.mjs",
     "smoke:pack": "node scripts/smoke-pack.mjs",
     "corpus": "node tests/corpus/run.mjs",
-    "corpus:check": "node tests/corpus/run.mjs --check"
+    "corpus:check": "node tests/corpus/run.mjs --check",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.5",
