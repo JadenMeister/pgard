@@ -15,6 +15,7 @@
 [![npm](https://img.shields.io/npm/v/pgard?logo=npm)](https://www.npmjs.com/package/pgard)
 [![Data stays local](https://img.shields.io/badge/data-stays%20local-2ea44f)](#개인정보와-네트워크-통신)
 [![Last commit](https://img.shields.io/github/last-commit/JadenMeister/pgard/main)](https://github.com/JadenMeister/pgard/commits/main)
+[![Visitors](https://hits.sh/github.com/JadenMeister/pgard.svg?label=visitors&color=79c83d)](https://hits.sh/github.com/JadenMeister/pgard/)
 
 [English](README.md) | 한국어
 
