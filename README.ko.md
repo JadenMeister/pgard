@@ -28,6 +28,31 @@ PGARD는 활발히 개발 중입니다. 최신 릴리스는 [npm](https://www.np
 
 PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 
+## 미리 보기
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/panel-en.png" alt="요약과 심각도 막대 차트가 있는 PGARD 터미널 패널 화면" width="860" /><br />
+  <sub>검사 뒤의 터미널 패널 화면: 요약과 심각도별 발견 항목.</sub>
+</p>
+
+화면은 영어로 찍었습니다. 한국어 환경(`--lang ko`)에서는 한국어로 표시됩니다. 가상의 데모 프로젝트(`acme/shop-demo`) 화면입니다. 실제 검사, 코드, 비밀값은 없습니다. 터미널 화면은 fixture로 그렸고, 대시보드와 폴더 화면은 개발용 mock 서버로 띄웠습니다.
+
+<details>
+<summary>더 보기</summary>
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/panel-findings-en.png" alt="PGARD 터미널 발견 항목 목록" width="100%" /><br /><sub>터미널의 발견 항목 목록(심각도순).</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/web-en.png" alt="프로젝트 폴더를 고르는 PGARD 간단 웹 화면" width="100%" /><br /><sub>간단 웹 화면(<code>pgard web</code>): 프로젝트 폴더 선택.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/dashboard-en.png" alt="PGARD 로컬 대시보드 개요" width="100%" /><br /><sub>로컬 대시보드(<code>pgard dashboard</code>)의 개요 탭.</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/report-en.png" alt="요약, 차트, 발견 항목이 있는 PGARD HTML 보고서" width="100%" /><br /><sub>HTML 보고서: 요약, 차트, 처음 발견 항목.</sub></td>
+  </tr>
+</table>
+
+</details>
+
 ## 목차
 
 - [정책](#정책)

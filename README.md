@@ -28,6 +28,31 @@ PGARD is under active development. The current release is on [npm](https://www.n
 
 PGARD is released under the [MIT License](LICENSE).
 
+## Preview
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/panel-en.png" alt="PGARD terminal panel view with the summary and a severity bar chart" width="860" /><br />
+  <sub>The terminal panel view after a scan: summary and findings by severity.</sub>
+</p>
+
+Screens from a made-up demo project (`acme/shop-demo`); no real scan, code or secrets. The terminal view is rendered from a fixture, the dashboard and the folder screen from the dev mock servers.
+
+<details>
+<summary>More screens</summary>
+
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/panel-findings-en.png" alt="PGARD terminal findings list" width="100%" /><br /><sub>The findings list in the terminal, sorted by severity.</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/web-en.png" alt="PGARD simple web screen to choose a project folder" width="100%" /><br /><sub>The simple web screen (<code>pgard web</code>): choose a project folder.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/dashboard-en.png" alt="PGARD local dashboard overview" width="100%" /><br /><sub>The local dashboard (<code>pgard dashboard</code>), overview tab.</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/report-en.png" alt="PGARD HTML report with summary, chart and findings" width="100%" /><br /><sub>The HTML report: summary, chart and the first findings.</sub></td>
+  </tr>
+</table>
+
+</details>
+
 ## Contents
 
 - [Policies](#policies)

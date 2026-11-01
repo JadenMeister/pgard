@@ -7,11 +7,16 @@
 //   node apps/local-web/dev/mock-server.mjs [port]
 //   open http://127.0.0.1:<port>/#token=mockmockmockmockmockmockmockmock
 //
+// `--fixture` (or PGARD_MOCK_FIXTURE=1) answers the "results" scan with the small, curated demo
+// result of scripts/screenshots/fixture.mjs (acme/shop-demo) instead of the generated one; the
+// preview screenshots use it. Port 0 picks a free port (the line printed at start has the URL).
+//
 // Pick a scenario with POST /__mock/scenario?name=<onboarding|blocked|running|results|empty>.
 // The Trend view has its own scenarios, which keep the "results" scan and change only what
 // GET /api/trend answers: trend (20 saved scans, some partial), trend-few (one saved scan),
 // trend-off (the store is switched off), trend-unverified (not verified yet).
 import http from "node:http";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,7 +25,17 @@ import { WEB_RULE_LIST } from "@pgard/http-local";
 import { listSupportedRules } from "@pgard/scan-core";
 import { applySecurityHeaders } from "../dist/server/middleware/security.js";
 
-const port = Number(process.argv[2] ?? 4317);
+const args = process.argv.slice(2);
+const isFixture = args.includes("--fixture") || process.env.PGARD_MOCK_FIXTURE === "1";
+let port = Number(args.find((arg) => !arg.startsWith("--")) ?? 4317);
+const demo = isFixture
+  ? await import(new URL("../../../scripts/screenshots/fixture.mjs", import.meta.url).href)
+  : null;
+const REPO = demo?.DEMO_REPO ?? "acme/shop";
+const LOGIN = demo === null ? "octo-dev" : "demo-user";
+const VERSION = JSON.parse(
+  readFileSync(new URL("../../../packaging/pgard/package.json", import.meta.url), "utf8"),
+).version;
 const clientRoot = fileURLToPath(new URL("../dist/client/", import.meta.url));
 const SCENARIOS = new Set(["onboarding", "blocked", "running", "results", "empty"]);
 const TREND_SCENARIOS = new Set(["trend", "trend-few", "trend-off", "trend-unverified"]);
@@ -36,11 +51,11 @@ const ruleTexts = Object.fromEntries(
 );
 
 const CHECKS_ALLOWED = [
-  ["repository", "passed", "acme/shop is a GitHub repository (origin remote)."],
-  ["github_identity", "passed", "Signed in to GitHub as octo-dev."],
-  ["owner_approval", "passed", "The PGARD GitHub App is installed for acme/shop."],
-  ["current_access", "passed", "octo-dev has write access to acme/shop."],
-  ["contribution", "passed", "octo-dev authored a merged pull request (#42)."],
+  ["repository", "passed", `${REPO} is a GitHub repository (origin remote).`],
+  ["github_identity", "passed", `Signed in to GitHub as ${LOGIN}.`],
+  ["owner_approval", "passed", `The PGARD GitHub App is installed for ${REPO}.`],
+  ["current_access", "passed", `${LOGIN} has write access to ${REPO}.`],
+  ["contribution", "passed", `${LOGIN} authored a merged pull request (#42).`],
 ];
 const CHECKS_BLOCKED = [
   CHECKS_ALLOWED[0],
@@ -48,9 +63,9 @@ const CHECKS_BLOCKED = [
   [
     "owner_approval",
     "failed",
-    "The PGARD GitHub App is not installed for acme/shop, so the owner has not approved scans.",
+    `The PGARD GitHub App is not installed for ${REPO}, so the owner has not approved scans.`,
   ],
-  ["current_access", "passed", "octo-dev has write access to acme/shop."],
+  ["current_access", "passed", `${LOGIN} has write access to ${REPO}.`],
   ["contribution", "unverifiable", "Not checked because owner approval failed."],
 ];
 const summary = (checks, decision) => ({
@@ -77,8 +92,8 @@ function authStatus() {
     return {
       ...base,
       status: "done",
-      repo: "acme/shop",
-      storedSignIn: { status: "stored", login: "octo-dev" },
+      repo: REPO,
+      storedSignIn: { status: "stored", login: LOGIN },
       summary: summary(CHECKS_BLOCKED, "blocked"),
       remedy: {
         kind: "install_app",
@@ -94,8 +109,8 @@ function authStatus() {
   return {
     ...base,
     status: "done",
-    repo: "acme/shop",
-    storedSignIn: { status: "stored", login: "octo-dev" },
+    repo: REPO,
+    storedSignIn: { status: "stored", login: LOGIN },
     summary: summary(CHECKS_ALLOWED, "allowed"),
     expiresAt: Date.now() + 15 * 60 * 1000,
   };
@@ -184,6 +199,7 @@ function makeFindings(count) {
 }
 
 function makeResult(findingCount) {
+  if (demo !== null) return demo.demoResult();
   const coverage = [
     { area: "source:typescript", scope: "code", status: "completed", ruleIds: [], note: null },
     { area: "source:javascript", scope: "code", status: "completed", ruleIds: [], note: null },
@@ -226,10 +242,10 @@ function makeResult(findingCount) {
     scanId: "mock-scan",
     startedAt: "2026-10-28T09:00:00.000Z",
     finishedAt: "2026-10-28T09:01:12.000Z",
-    tool: { name: "pgard", version: "0.1.0" },
+    tool: { name: "pgard", version: VERSION },
     requestedScopes: ["code", "history"],
     overallStatus: "partial",
-    target: { repo: "acme/shop", revision: "4b1e9c0", webOrigin: null },
+    target: { repo: REPO, revision: "4b1e9c0", webOrigin: null },
     authorization: summary(CHECKS_ALLOWED, "allowed"),
     coverage,
     ruleStats,
@@ -325,9 +341,9 @@ function makeTrend() {
 }
 
 const session = {
-  version: "0.1.0",
+  version: VERSION,
   mode: "fixed",
-  project: { name: "acme-shop", repo: null },
+  project: { name: REPO.replace("/", "-"), repo: null },
   projectEpoch: 1,
   presetTargetPort: null,
   githubApp: { clientId: "Iv1.mock", slug: "pgard", source: "default" },
@@ -434,5 +450,6 @@ const server = http.createServer(async (request, response) => {
 });
 
 server.listen(port, "127.0.0.1", () => {
+  port = server.address().port;
   console.log(`mock dashboard on http://127.0.0.1:${port}/#token=mockmockmockmockmockmockmockmock`);
 });
