@@ -31,7 +31,7 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 ## 미리 보기
 
 <p align="center">
-  <img src="docs/assets/screenshots/panel-ko.png" alt="요약과 심각도 막대 차트가 있는 PGARD 터미널 패널 화면" width="860" /><br />
+  <img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/panel-ko.png" alt="요약과 심각도 막대 차트가 있는 PGARD 터미널 패널 화면" width="860" /><br />
   <sub>검사 뒤의 터미널 패널 화면: 요약과 심각도별 발견 항목.</sub>
 </p>
 
@@ -42,12 +42,12 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 
 <table>
   <tr>
-    <td width="50%" valign="top"><img src="docs/assets/screenshots/panel-findings-ko.png" alt="PGARD 터미널 발견 항목 목록" width="100%" /><br /><sub>터미널의 발견 항목 목록(심각도순).</sub></td>
-    <td width="50%" valign="top"><img src="docs/assets/screenshots/web-ko.png" alt="프로젝트 폴더를 고르는 PGARD 간단 웹 화면" width="100%" /><br /><sub>간단 웹 화면(`pgard web`): 프로젝트 폴더 선택.</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/panel-findings-ko.png" alt="PGARD 터미널 발견 항목 목록" width="100%" /><br /><sub>터미널의 발견 항목 목록(심각도순).</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/web-ko.png" alt="프로젝트 폴더를 고르는 PGARD 간단 웹 화면" width="100%" /><br /><sub>간단 웹 화면(<code>pgard web</code>): 프로젝트 폴더 선택.</sub></td>
   </tr>
   <tr>
-    <td width="50%" valign="top"><img src="docs/assets/screenshots/dashboard-ko.png" alt="PGARD 로컬 대시보드 개요" width="100%" /><br /><sub>로컬 대시보드(`pgard dashboard`)의 개요 탭.</sub></td>
-    <td width="50%" valign="top"><img src="docs/assets/screenshots/report-ko.png" alt="요약, 차트, 발견 항목이 있는 PGARD HTML 보고서" width="100%" /><br /><sub>HTML 보고서: 요약, 차트, 처음 발견 항목.</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/dashboard-ko.png" alt="PGARD 로컬 대시보드 개요" width="100%" /><br /><sub>로컬 대시보드(<code>pgard dashboard</code>)의 개요 탭.</sub></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/JadenMeister/pgard/main/docs/assets/screenshots/report-ko.png" alt="요약, 차트, 발견 항목이 있는 PGARD HTML 보고서" width="100%" /><br /><sub>HTML 보고서: 요약, 차트, 처음 발견 항목.</sub></td>
   </tr>
 </table>
 

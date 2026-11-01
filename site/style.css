@@ -1680,17 +1680,24 @@ html:not(.js) .tabpanel + .tabpanel {
 
 .shots {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: start;
   gap: clamp(1rem, 0.5rem + 2vw, 1.75rem);
 }
 
 .shot {
+  grid-column: span 2;
   min-width: 0;
   margin: 0;
 }
 
 .shot-lead {
   grid-column: 1 / -1;
+}
+
+.shot a {
+  position: relative;
+  display: block;
 }
 
 .shot img {
@@ -1702,10 +1709,22 @@ html:not(.js) .tabpanel + .tabpanel {
   background: #0b0c0b;
 }
 
-.shot-tall img {
+/* The small shots share one box, so the captions line up; the tall report is cropped at the top
+   and fades out instead of cutting a line of text. */
+.shot:not(.shot-lead) img {
   aspect-ratio: 16 / 10;
   object-fit: cover;
-  object-position: top;
+  object-position: top left;
+}
+
+.shot-tall a::after {
+  content: "";
+  position: absolute;
+  inset: auto 1px 1px;
+  height: 35%;
+  border-radius: 0 0 15px 15px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
 }
 
 .shot figcaption,
@@ -1720,8 +1739,14 @@ html:not(.js) .tabpanel + .tabpanel {
   margin-top: 1.5rem;
 }
 
+@media (max-width: 60rem) {
+  .shot {
+    grid-column: span 3;
+  }
+}
+
 @media (max-width: 40rem) {
-  .shots {
-    grid-template-columns: minmax(0, 1fr);
+  .shot {
+    grid-column: 1 / -1;
   }
 }

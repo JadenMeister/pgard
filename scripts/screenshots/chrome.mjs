@@ -32,6 +32,11 @@ export async function launchChrome() {
       "--hide-scrollbars",
       "--force-color-profile=srgb",
       "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-sync",
+      "--disable-domain-reliability",
+      "--metrics-recording-only",
+      "--no-pings",
       "about:blank",
     ],
     { stdio: "ignore" },
@@ -46,12 +51,24 @@ export async function launchChrome() {
       // not written yet
     }
   }
-  if (path === undefined) throw new Error("Chrome did not start");
+  const cleanup = () => {
+    child.kill();
+    rmSync(profile, { recursive: true, force: true });
+  };
+  if (path === undefined) {
+    cleanup();
+    throw new Error("Chrome did not start");
+  }
   const socket = new WebSocket(`ws://127.0.0.1:${port}${path}`);
-  await new Promise((resolve, reject) => {
-    socket.onopen = resolve;
-    socket.onerror = reject;
-  });
+  try {
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve;
+      socket.onerror = reject;
+    });
+  } catch (error) {
+    cleanup();
+    throw error;
+  }
   let nextId = 1;
   const pending = new Map();
   socket.onmessage = (event) => {

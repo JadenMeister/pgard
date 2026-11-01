@@ -138,7 +138,7 @@ export function terminalPage(lines, { columns, title, fontSize = 15 }) {
     font-variant-ligatures: none; width: ${columns}ch; white-space: pre; }
   pre i { font-style: normal; display: inline-block; text-align: center; overflow: visible; }
   pre i.w1 { width: 1ch; }
-  pre i.w2 { width: 2ch;
+  pre i.w2 { width: 2ch; font-size: 1.17em; line-height: 1; letter-spacing: 0;
     font-family: "Apple SD Gothic Neo", "Noto Sans CJK KR", "Malgun Gothic", Menlo, monospace; }
 </style></head><body>
 <div class="window"><div class="bar"><b></b><b></b><b></b><span>${escapeHtml(title)}</span></div>
