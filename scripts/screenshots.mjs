@@ -3,7 +3,7 @@
 // (pgard.dev) from synthetic data. Run by hand, never in CI and not part of the package:
 //
 //   npm run build
-//   npm run screenshots [-- panel report dashboard simple]     (default: all four)
+//   npm run screenshots [-- panel report dashboard simple] [--ko]   (default: all four, English)
 //
 // Needs Chrome (set CHROME=/path/to/chrome if it is not in a usual place). Headless only, and
 // only file:// and 127.0.0.1 pages. No scan runs, nothing contacts GitHub, nothing is read from
@@ -25,7 +25,8 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const docsDir = join(root, "docs", "assets", "screenshots");
 const siteDir = join(root, "site", "screenshots");
 let work;
-const LANGS = { en: "en-US", ko: "ko-KR" };
+// English only by default; `--ko` also writes Korean variants (file names with a -ko suffix; the README and the site do not use them).
+const LANGS = process.argv.includes("--ko") ? { en: "en-US", ko: "ko-KR" } : { en: "en-US" };
 const wanted = process.argv.slice(2).filter((arg) => !arg.startsWith("-"));
 const wants = (name) => wanted.length === 0 || wanted.includes(name);
 const children = [];
