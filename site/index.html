@@ -579,67 +579,113 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
         <h2 id="preview-h" class="sec-h">
           See it first. <span class="h-mute">Before you install.</span>
         </h2>
-        <div class="shots">
-          <figure class="shot shot-lead">
-            <a href="/screenshots/panel-en.png"
-              ><img
-                src="/screenshots/panel-en.png"
-                alt="PGARD terminal panel view with the summary and a severity bar chart"
-                width="2171"
-                height="1038"
-                loading="lazy"
-                decoding="async"
-            /></a>
-            <figcaption>The terminal panel view after a scan</figcaption>
-          </figure>
-          <figure class="shot shot-lead">
-            <a href="/screenshots/panel-findings-en.png"
-              ><img
-                src="/screenshots/panel-findings-en.png"
-                alt="PGARD terminal findings list sorted by severity"
-                width="2171"
-                height="1038"
-                loading="lazy"
-                decoding="async"
-            /></a>
-            <figcaption>Findings list in the terminal</figcaption>
-          </figure>
-          <figure class="shot">
-            <a href="/screenshots/web-en.png"
-              ><img
-                src="/screenshots/web-en.png"
-                alt="PGARD simple web screen to choose a project folder"
-                width="2200"
-                height="1360"
-                loading="lazy"
-                decoding="async"
-            /></a>
-            <figcaption>pgard web: choose a project folder</figcaption>
-          </figure>
-          <figure class="shot">
-            <a href="/screenshots/dashboard-en.png"
-              ><img
-                src="/screenshots/dashboard-en.png"
-                alt="PGARD local dashboard overview with summary, coverage and top findings"
-                width="2560"
-                height="1800"
-                loading="lazy"
-                decoding="async"
-            /></a>
-            <figcaption>pgard dashboard: overview</figcaption>
-          </figure>
-          <figure class="shot shot-tall">
-            <a href="/screenshots/report-en.png"
-              ><img
-                src="/screenshots/report-en.png"
-                alt="PGARD HTML report with summary, severity chart and the first findings"
-                width="2000"
-                height="2500"
-                loading="lazy"
-                decoding="async"
-            /></a>
-            <figcaption>HTML report: summary, chart and findings</figcaption>
-          </figure>
+        <div class="slider" data-slider>
+          <div class="slides" tabindex="0" role="region" aria-label="Screenshots" data-slides>
+            <figure class="slide" id="shot-1" aria-roledescription="slide" aria-label="1 / 5">
+              <a href="/screenshots/panel-en.png"
+                ><img
+                  src="/screenshots/panel-en.png"
+                  alt="PGARD terminal panel view with the summary and a severity bar chart"
+                  width="2171"
+                  height="1038"
+                  decoding="async"
+              /></a>
+              <figcaption>The terminal panel view after a scan</figcaption>
+            </figure>
+            <figure class="slide" id="shot-2" aria-roledescription="slide" aria-label="2 / 5">
+              <a href="/screenshots/panel-findings-en.png"
+                ><img
+                  src="/screenshots/panel-findings-en.png"
+                  alt="PGARD terminal findings list sorted by severity"
+                  width="2171"
+                  height="1038"
+                  loading="lazy"
+                  decoding="async"
+              /></a>
+              <figcaption>Findings list in the terminal</figcaption>
+            </figure>
+            <figure class="slide" id="shot-3" aria-roledescription="slide" aria-label="3 / 5">
+              <a href="/screenshots/web-en.png"
+                ><img
+                  src="/screenshots/web-en.png"
+                  alt="PGARD simple web screen to choose a project folder"
+                  width="2200"
+                  height="1360"
+                  loading="lazy"
+                  decoding="async"
+              /></a>
+              <figcaption>pgard web: choose a project folder</figcaption>
+            </figure>
+            <figure class="slide" id="shot-4" aria-roledescription="slide" aria-label="4 / 5">
+              <a href="/screenshots/dashboard-en.png"
+                ><img
+                  src="/screenshots/dashboard-en.png"
+                  alt="PGARD local dashboard overview with summary, coverage and top findings"
+                  width="2560"
+                  height="1800"
+                  loading="lazy"
+                  decoding="async"
+              /></a>
+              <figcaption>pgard dashboard: overview</figcaption>
+            </figure>
+            <figure class="slide" id="shot-5" aria-roledescription="slide" aria-label="5 / 5">
+              <a href="/screenshots/report-en.png"
+                ><img
+                  src="/screenshots/report-en.png"
+                  alt="PGARD HTML report with summary, severity chart and the first findings"
+                  width="2000"
+                  height="2500"
+                  loading="lazy"
+                  decoding="async"
+              /></a>
+              <figcaption>HTML report: summary, chart and findings</figcaption>
+            </figure>
+          </div>
+          <div class="slider-nav" data-slider-nav hidden>
+            <button
+              type="button"
+              class="slider-btn"
+              data-slider-prev
+              aria-label="Previous screenshot"
+            >
+              <span aria-hidden="true">&#8249;</span>
+            </button>
+            <div class="slider-dots">
+              <button
+                type="button"
+                class="slider-dot"
+                data-slider-go="1"
+                aria-label="Show screenshot 1"
+              ></button>
+              <button
+                type="button"
+                class="slider-dot"
+                data-slider-go="2"
+                aria-label="Show screenshot 2"
+              ></button>
+              <button
+                type="button"
+                class="slider-dot"
+                data-slider-go="3"
+                aria-label="Show screenshot 3"
+              ></button>
+              <button
+                type="button"
+                class="slider-dot"
+                data-slider-go="4"
+                aria-label="Show screenshot 4"
+              ></button>
+              <button
+                type="button"
+                class="slider-dot"
+                data-slider-go="5"
+                aria-label="Show screenshot 5"
+              ></button>
+            </div>
+            <button type="button" class="slider-btn" data-slider-next aria-label="Next screenshot">
+              <span aria-hidden="true">&#8250;</span>
+            </button>
+          </div>
         </div>
         <p class="shots-note">
           Screens of a made-up demo project (acme/shop-demo), not a real scan. The terminal view is
