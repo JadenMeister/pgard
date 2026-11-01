@@ -1,4 +1,4 @@
-// PGARD landing page: theme toggle, mobile menu and the GitHub star count.
+// PGARD landing page: theme toggle, mobile menu, the screenshot slider and the GitHub star count.
 // The only network request is the star count from api.github.com (3 s timeout,
 // silent fallback to no number). No analytics, no cookies.
 (function () {
@@ -6,6 +6,67 @@
 
   var REPO_API = "https://api.github.com/repos/JadenMeister/pgard";
   var root = document.documentElement;
+
+  // --- Screenshot slider: arrows and dots on top of the scroll-snap track ---
+  Array.prototype.forEach.call(document.querySelectorAll("[data-slider]"), function (slider) {
+    var track = slider.querySelector("[data-slides]");
+    var nav = slider.querySelector("[data-slider-nav]");
+    if (!track || !nav) return;
+    var slides = track.children;
+    var dots = nav.querySelectorAll("[data-slider-go]");
+    var prev = nav.querySelector("[data-slider-prev]");
+    var next = nav.querySelector("[data-slider-next]");
+    function current() {
+      var w = track.clientWidth || 1;
+      return Math.max(0, Math.min(slides.length - 1, Math.round(track.scrollLeft / w)));
+    }
+    function go(i) {
+      var n = Math.max(0, Math.min(slides.length - 1, i));
+      track.scrollTo({ left: n * track.clientWidth });
+    }
+    function update() {
+      var i = current();
+      for (var d = 0; d < dots.length; d++) {
+        if (d === i) dots[d].setAttribute("aria-current", "true");
+        else dots[d].removeAttribute("aria-current");
+      }
+      if (prev) prev.disabled = i === 0;
+      if (next) next.disabled = i === slides.length - 1;
+    }
+    var pending = false;
+    track.addEventListener("scroll", function () {
+      if (pending) return;
+      pending = true;
+      requestAnimationFrame(function () {
+        pending = false;
+        update();
+      });
+    });
+    if (prev)
+      prev.addEventListener("click", function () {
+        go(current() - 1);
+      });
+    if (next)
+      next.addEventListener("click", function () {
+        go(current() + 1);
+      });
+    Array.prototype.forEach.call(dots, function (dot) {
+      dot.addEventListener("click", function () {
+        go(Number(dot.getAttribute("data-slider-go")) - 1);
+      });
+    });
+    track.addEventListener("keydown", function (e) {
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        go(current() - 1);
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        go(current() + 1);
+      }
+    });
+    nav.hidden = false;
+    update();
+  });
 
   // --- Theme toggle (the system default stays until the visitor chooses) ---
   var themeBtn = document.getElementById("theme-toggle");

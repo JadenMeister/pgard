@@ -1678,75 +1678,151 @@ html:not(.js) .tabpanel + .tabpanel {
 
 /* ---------- Screenshots ---------- */
 
-.shots {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  align-items: start;
-  gap: clamp(1rem, 0.5rem + 2vw, 1.75rem);
-}
-
-.shot {
-  grid-column: span 2;
-  min-width: 0;
-  margin: 0;
-}
-
-.shot-lead {
-  grid-column: 1 / -1;
-}
-
-.shot a {
+/* One screenshot at a time. The track is a scroll-snap row, so swiping and the keyboard work
+   without script; ui.js adds the arrows and dots. Every slide has the same 16:9 frame, so the
+   page does not jump between slides, and each image is shown whole (contain), except the tall
+   report, which starts at the top and fades out. */
+.slider {
   position: relative;
-  display: block;
+  max-width: 60rem;
+  margin-inline: auto;
 }
 
-.shot img {
-  display: block;
-  width: 100%;
-  height: auto;
+.slides {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   border: 1px solid var(--line);
   border-radius: 16px;
   background: #0b0c0b;
 }
 
-/* The small shots share one box, so the captions line up; the tall report is cropped at the top
-   and fades out instead of cutting a line of text. */
-.shot:not(.shot-lead) img {
-  aspect-ratio: 16 / 10;
-  object-fit: cover;
-  object-position: top left;
+.slides::-webkit-scrollbar {
+  display: none;
 }
 
-.shot-tall a::after {
+.slides:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.slide {
+  flex: 0 0 100%;
+  min-width: 0;
+  margin: 0;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+.slide a {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+}
+
+.slide img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.slide img[src$="report-en.png"] {
+  object-fit: cover;
+  object-position: top center;
+}
+
+.slide a:has(img[src$="report-en.png"])::after {
   content: "";
   position: absolute;
-  inset: auto 1px 1px;
-  height: 35%;
-  border-radius: 0 0 15px 15px;
-  background: linear-gradient(to bottom, transparent, var(--bg));
+  inset: auto 0 0;
+  height: 30%;
+  background: linear-gradient(to bottom, transparent, #0b0c0b);
   pointer-events: none;
 }
 
-.shot figcaption,
-.shots-note {
-  margin: 0.75rem 0 0;
+.slide figcaption {
+  padding: 0.75rem 1rem 0.9rem;
+  border-top: 1px solid var(--line);
   font-size: 0.9rem;
-  color: var(--muted);
+  color: #a1a1a6;
+  background: #0b0c0b;
+}
+
+.slider-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.slider-nav[hidden] {
+  display: none;
+}
+
+.slider-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.slider-btn:hover {
+  border-color: var(--muted);
+}
+
+.slider-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.slider-dots {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.slider-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+}
+
+.slider-dot[aria-current="true"] {
+  width: 1.4rem;
+  background: var(--accent);
+}
+
+.slider-btn:focus-visible,
+.slider-dot:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .shots-note {
   max-width: 60rem;
-  margin-top: 1.5rem;
+  margin: 1.25rem auto 0;
+  font-size: 0.9rem;
+  color: var(--muted);
 }
 
-@media (max-width: 60rem) {
-  .shot {
-    grid-column: span 3;
-  }
-}
-
-@media (max-width: 40rem) {
-  .shot {
-    grid-column: 1 / -1;
+@media (prefers-reduced-motion: reduce) {
+  .slides {
+    scroll-behavior: auto;
   }
 }
