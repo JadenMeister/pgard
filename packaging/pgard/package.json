@@ -10,7 +10,8 @@
   },
   "homepage": "https://github.com/JadenMeister/pgard#readme",
   "bugs": {
-    "url": "https://github.com/JadenMeister/pgard/issues"
+    "url": "https://github.com/JadenMeister/pgard/issues",
+    "email": "hello@pgard.dev"
   },
   "bin": {
     "pgard": "./dist/pgard.js"
