@@ -48,6 +48,7 @@ PGARD는 [MIT 라이선스](LICENSE)로 배포됩니다.
 - [정확도](#정확도)
 - [알려진 제한 사항](#알려진-제한-사항)
 - [개발](#개발)
+- [연락처](#연락처)
 - [라이선스](#라이선스)
 
 ## 정책
@@ -1104,6 +1105,12 @@ CI는 pull request와 `main` push마다 `npm ci`, `npm run build`, `npm run form
 현재 동작을 설명하는 문서가 하나 더 있습니다(기준은 영문판입니다). [`RESULT_SCHEMA.ko.md`](docs/RESULT_SCHEMA.ko.md)는 검사 결과 스키마의 버전 규칙과, 다른 버전을 읽을 때의 동작을 정했습니다.
 
 구현하면서 나중에 바뀐 결정이 있어서, 기획 문서와 README가 다르면 README와 코드가 맞습니다.
+
+## 연락처
+
+- 버그, 아이디어, 질문: [GitHub 이슈](https://github.com/JadenMeister/pgard/issues)에 남겨 주세요. 어떤 피드백이든 환영합니다.
+- PGARD 자체의 취약점: [SECURITY.md](SECURITY.md)의 비공개 제보 방법을 쓰거나 [security@pgard.dev](mailto:security@pgard.dev)로 메일을 보내 주세요. 공개 이슈로 올리지 마세요.
+- 그 밖의 문의: [hello@pgard.dev](mailto:hello@pgard.dev)
 
 ## 라이선스
 
