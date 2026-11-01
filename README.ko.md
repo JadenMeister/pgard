@@ -22,7 +22,7 @@ PGARD(`pgard`)는 검사 권한이 있는 GitHub 프로젝트를 위한 로컬 �
 
 PGARD는 검사할 때마다 저장소 owner가 PGARD를 승인했는지, 사용자가 지금 저장소에 접근할 수 있는지, 사용자가 저장소의 owner이거나 실제로 기여했는지를 확인합니다. 코드와 결과는 사용자 컴퓨터를 벗어나지 않습니다.
 
-PGARD는 활발히 개발 중이며 첫 릴리스는 v0.1.0입니다. PGARD는 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
+PGARD는 활발히 개발 중입니다. 최신 릴리스는 [npm](https://www.npmjs.com/package/pgard)에 있습니다(0.x, 변경 내역은 [CHANGELOG.md](CHANGELOG.md) 참고). PGARD는 모든 취약점을 찾지는 못하며, "발견 없음"이 "안전"을 뜻하지 않습니다.
 
 > **현재 상태:** PGARD에는 PGARD GitHub App의 client id가 내장되어 있어 로그인에 별도 설정이 필요 없습니다. 검사하려면 여전히 저장소를 소유한 계정, 즉 본인의 개인 계정이나 본인이 owner인 조직에 App이 설치되어 있어야 합니다([권한 확인 모델](#권한-확인-모델) 참고).
 
@@ -85,7 +85,7 @@ npm install -g pgard   # `pgard` 명령 설치
 npx pgard doctor       # 설치 없이 한 번 실행
 ```
 
-Homebrew(macOS, Linux)로는 다음과 같이 설치합니다.
+Homebrew(macOS, Linux)로는 다음과 같이 설치합니다. tap `jadenmeister/pgard`는 준비 중입니다. Homebrew는 npm에 배포된 지 하루가 지난 버전만 받으므로, tap이 생기기 전까지는 npm으로 설치하세요.
 
 ```sh
 brew tap jadenmeister/pgard   # 처음 한 번

@@ -22,7 +22,7 @@ PGARD (`pgard`) is a local security scanner for GitHub projects you are authoriz
 
 Before every scan, PGARD checks that the repository owner approved PGARD, that you currently have access to the repository, and that you own it or really contributed to it. Your code and the results stay on your computer.
 
-PGARD is under active development; the first release is v0.1.0. PGARD does not find every vulnerability, and "no findings" never means "secure".
+PGARD is under active development. The current release is on [npm](https://www.npmjs.com/package/pgard) (0.x; see [CHANGELOG.md](CHANGELOG.md) for what changed). PGARD does not find every vulnerability, and "no findings" never means "secure".
 
 > **Current status:** PGARD ships the client id of the PGARD GitHub App, so signing in needs no setup. A scan still needs the App installed on the account that owns the repository: your personal account, or an organization you own (see [Authorization model](#authorization-model)).
 
@@ -85,7 +85,7 @@ npm install -g pgard   # installs the `pgard` command
 npx pgard doctor       # or run it once without installing
 ```
 
-With Homebrew (macOS and Linux):
+With Homebrew (macOS and Linux). The tap `jadenmeister/pgard` is being set up: Homebrew accepts an npm version only a day after it is published, so until the tap exists, install with npm.
 
 ```sh
 brew tap jadenmeister/pgard   # once
