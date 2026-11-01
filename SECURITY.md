@@ -10,7 +10,7 @@ Please report vulnerabilities **privately**. Do not open a public issue or pull 
 2. Choose **Report a vulnerability** to use GitHub's private vulnerability reporting.
 3. Describe what you found, the PGARD version (`pgard --version`), your operating system and Node.js version, and the steps to reproduce it. A minimal reproduction helps most.
 
-If the **Report a vulnerability** button is not available to you, open a public issue that says only that you have a security report and asks for a private channel. Do not put technical details in that issue. A maintainer will reply with a way to share the details.
+If you cannot use GitHub's private reporting, email **[security@pgard.dev](mailto:security@pgard.dev)** with the same details. Do not open a public issue with technical details.
 
 We aim to acknowledge a report within a few days and to tell you what we decided. PGARD is maintained by a small team, so these are goals, not guarantees. Please give us a reasonable time to fix the problem before you publish it. We are happy to credit you in the fix if you wish.
 

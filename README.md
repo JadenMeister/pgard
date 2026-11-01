@@ -73,6 +73,7 @@ Screens from a made-up demo project (`acme/shop-demo`); no real scan, code or se
 - [Accuracy](#accuracy)
 - [Known limitations](#known-limitations)
 - [Development](#development)
+- [Contact](#contact)
 - [License](#license)
 
 ## Policies
@@ -1141,6 +1142,12 @@ CI runs `npm ci`, `npm run build`, `npm run format:check`, `npm test` and `npm r
 One further document is written in English and describes current behaviour: [`RESULT_SCHEMA.md`](docs/RESULT_SCHEMA.md) sets how the scan result schema is versioned and how a reader treats another version.
 
 Where the planning documents and this README disagree, this README and the code are correct, because they reflect decisions made later.
+
+## Contact
+
+- Bugs, ideas and questions: [GitHub issues](https://github.com/JadenMeister/pgard/issues). Feedback is welcome.
+- A vulnerability in PGARD itself: report it privately as described in [SECURITY.md](SECURITY.md), or email [security@pgard.dev](mailto:security@pgard.dev). Please do not open a public issue for it.
+- Anything else: [hello@pgard.dev](mailto:hello@pgard.dev).
 
 ## License
 
