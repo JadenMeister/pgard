@@ -117,6 +117,7 @@
       });
     });
   });
+  if (installGroups.length) document.documentElement.classList.add("install-ready");
   if (installGroups.length && installChoice()) pickInstall(installChoice(), null);
 
   // --- Theme toggle (the system default stays until the visitor chooses) ---
