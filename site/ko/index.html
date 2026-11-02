@@ -242,8 +242,39 @@
         <div class="hero-install">
           <div class="state-released">
             <p class="cmd-label">설치</p>
-            <!-- prettier-ignore -->
-            <div class="cmdline"><code id="hero-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="hero-npm" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            <div class="install-switch" data-install>
+              <div class="install-tabs" role="tablist" aria-label="설치 방법">
+                <button
+                  type="button"
+                  role="tab"
+                  id="hero-tab-npm"
+                  aria-controls="hero-p-npm"
+                  aria-selected="true"
+                  data-install-pick="npm"
+                >
+                  npm
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="hero-tab-brew"
+                  aria-controls="hero-p-brew"
+                  aria-selected="false"
+                  tabindex="-1"
+                  data-install-pick="brew"
+                >
+                  Homebrew
+                </button>
+              </div>
+              <div role="tabpanel" id="hero-p-npm" aria-labelledby="hero-tab-npm">
+                <!-- prettier-ignore -->
+                <div class="cmdline"><code id="hero-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="hero-npm" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+              </div>
+              <div role="tabpanel" id="hero-p-brew" aria-labelledby="hero-tab-brew" hidden>
+                <!-- prettier-ignore -->
+                <div class="cmdline cmdblock"><code id="hero-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="hero-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+              </div>
+            </div>
           </div>
           <div class="state-unreleased">
             <p class="cmd-label">첫 릴리스 준비 중 — 지금은 소스에서 빌드하세요</p>
@@ -702,8 +733,11 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
               줄은 pgard를 PATH에 올립니다.
             </p>
             <p class="state-released">
-              Node.js 22.23.4, 24.22.1 또는 26.12.1(또는 더 새로운 패치)과 Git이 필요합니다.
-              Homebrew로도 설치할 수 있습니다.
+              Node.js 22.23.4, 24.22.1 또는 26.12.1(또는 더 새로운 패치)과 Git이 필요합니다. npm
+              또는 Homebrew로 설치하세요.
+              <span class="nojs-only"
+                >Homebrew 설치 방법은 <a href="#install">다른 설치 방법</a>에 있습니다.</span
+              >
             </p>
             <div class="step-cmd state-unreleased">
               <!-- prettier-ignore -->
@@ -712,8 +746,39 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
               <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
             </div>
             <div class="step-cmd state-released">
-              <!-- prettier-ignore -->
-              <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+              <div class="install-switch" data-install>
+                <div class="install-tabs" role="tablist" aria-label="설치 방법">
+                  <button
+                    type="button"
+                    role="tab"
+                    id="s1-tab-npm"
+                    aria-controls="s1-p-npm"
+                    aria-selected="true"
+                    data-install-pick="npm"
+                  >
+                    npm
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="s1-tab-brew"
+                    aria-controls="s1-p-brew"
+                    aria-selected="false"
+                    tabindex="-1"
+                    data-install-pick="brew"
+                  >
+                    Homebrew
+                  </button>
+                </div>
+                <div role="tabpanel" id="s1-p-npm" aria-labelledby="s1-tab-npm">
+                  <!-- prettier-ignore -->
+                  <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+                </div>
+                <div role="tabpanel" id="s1-p-brew" aria-labelledby="s1-tab-brew" hidden>
+                  <!-- prettier-ignore -->
+                  <div class="cmdline cmdblock"><code id="s1-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="s1-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+                </div>
+              </div>
             </div>
           </li>
           <li class="card step">
@@ -741,7 +806,7 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
           </li>
         </ol>
         <details class="more" id="install">
-          <summary>다른 설치 방법: npm, Homebrew</summary>
+          <summary>다른 설치 방법: Homebrew 안내</summary>
           <div class="more-body">
             <p class="state-unreleased">
               npm과 Homebrew는 릴리스된 버전을 설치합니다. 릴리스되기 전에는
@@ -750,12 +815,14 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
             <!-- prettier-ignore -->
             <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code></div>
             <!-- prettier-ignore -->
-            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            <div class="cmdline cmdblock state-released nojs-only"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
             <p>
-              최근 Homebrew는 서드파티 tap의 formula를 신뢰하기 전에는 불러오지 않습니다.
-              <code>--formula</code>는 이 formula 하나만 신뢰합니다. <code>brew link</code>가
-              <code>bin/pgard</code>가 이미 있다고 하면 <code>npm uninstall -g pgard</code>를 실행한
-              뒤 <code>brew link pgard</code>를 실행하세요.
+              최근 Homebrew는 서드파티 tap의 formula를 직접 신뢰하도록 지정하기 전에는 불러오지
+              않습니다. <code>--formula</code>는 이 formula 하나만 신뢰합니다.
+              <code>brew install</code> 중 <code>brew link</code> 단계에서 <code>bin/pgard</code>가
+              이미 있다는 오류가 나면 npm으로 전역 설치한 pgard와 충돌한 것이므로,
+              <code>npm uninstall -g pgard</code>를 실행한 뒤 <code>brew link pgard</code>를
+              실행하세요.
             </p>
             <p>
               <code>pgard doctor</code>는 실행 환경을 진단합니다(권한 확인은 아닙니다).

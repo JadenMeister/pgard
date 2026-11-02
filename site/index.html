@@ -243,8 +243,39 @@
         <div class="hero-install">
           <div class="state-released">
             <p class="cmd-label">Install</p>
-            <!-- prettier-ignore -->
-            <div class="cmdline"><code id="hero-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="hero-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            <div class="install-switch" data-install>
+              <div class="install-tabs" role="tablist" aria-label="Install with">
+                <button
+                  type="button"
+                  role="tab"
+                  id="hero-tab-npm"
+                  aria-controls="hero-p-npm"
+                  aria-selected="true"
+                  data-install-pick="npm"
+                >
+                  npm
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  id="hero-tab-brew"
+                  aria-controls="hero-p-brew"
+                  aria-selected="false"
+                  tabindex="-1"
+                  data-install-pick="brew"
+                >
+                  Homebrew
+                </button>
+              </div>
+              <div role="tabpanel" id="hero-p-npm" aria-labelledby="hero-tab-npm">
+                <!-- prettier-ignore -->
+                <div class="cmdline"><code id="hero-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="hero-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              </div>
+              <div role="tabpanel" id="hero-p-brew" aria-labelledby="hero-tab-brew" hidden>
+                <!-- prettier-ignore -->
+                <div class="cmdline cmdblock"><code id="hero-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="hero-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              </div>
+            </div>
           </div>
           <div class="state-unreleased">
             <p class="cmd-label">First release coming soon — build from source today</p>
@@ -707,8 +738,11 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               puts pgard on your PATH.
             </p>
             <p class="state-released">
-              Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. Homebrew works
-              too.
+              Needs Node.js 22.23.4, 24.22.1 or 26.12.1 (or a newer patch) and Git. Install with npm
+              or Homebrew.
+              <span class="nojs-only"
+                >Homebrew steps are under <a href="#install">Other ways to install</a>.</span
+              >
             </p>
             <div class="step-cmd state-unreleased">
               <!-- prettier-ignore -->
@@ -717,8 +751,39 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
               <div class="cmdline"><code id="s1-link"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm link -w @pgard/cli</span></code><button type="button" class="copy" data-copy-target="s1-link" data-copied="Copied" aria-label="Copy command">Copy</button></div>
             </div>
             <div class="step-cmd state-released">
-              <!-- prettier-ignore -->
-              <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+              <div class="install-switch" data-install>
+                <div class="install-tabs" role="tablist" aria-label="Install with">
+                  <button
+                    type="button"
+                    role="tab"
+                    id="s1-tab-npm"
+                    aria-controls="s1-p-npm"
+                    aria-selected="true"
+                    data-install-pick="npm"
+                  >
+                    npm
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    id="s1-tab-brew"
+                    aria-controls="s1-p-brew"
+                    aria-selected="false"
+                    tabindex="-1"
+                    data-install-pick="brew"
+                  >
+                    Homebrew
+                  </button>
+                </div>
+                <div role="tabpanel" id="s1-p-npm" aria-labelledby="s1-tab-npm">
+                  <!-- prettier-ignore -->
+                  <div class="cmdline"><code id="s1-npm"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></code><button type="button" class="copy" data-copy-target="s1-npm" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+                </div>
+                <div role="tabpanel" id="s1-p-brew" aria-labelledby="s1-tab-brew" hidden>
+                  <!-- prettier-ignore -->
+                  <div class="cmdline cmdblock"><code id="s1-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="s1-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+                </div>
+              </div>
             </div>
           </li>
           <li class="card step">
@@ -746,7 +811,7 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
           </li>
         </ol>
         <details class="more" id="install">
-          <summary>Other ways to install: npm, Homebrew</summary>
+          <summary>Other ways to install: Homebrew notes</summary>
           <div class="more-body">
             <p class="state-unreleased">
               npm and Homebrew install released versions. Until a version is released
@@ -756,12 +821,13 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
             <!-- prettier-ignore -->
             <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code></div>
             <!-- prettier-ignore -->
-            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            <div class="cmdline cmdblock state-released nojs-only"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
             <p>
               Recent Homebrew loads a third-party tap's formula only after you trust it;
-              <code>--formula</code> trusts just this one. If <code>brew link</code> says
-              <code>bin/pgard</code> already exists, run <code>npm uninstall -g pgard</code>, then
-              <code>brew link pgard</code>.
+              <code>--formula</code> trusts just this one. If <code>brew install</code> says the
+              <code>brew link</code> step failed because <code>bin/pgard</code> already exists, a
+              global npm install of pgard is in the way: run <code>npm uninstall -g pgard</code>,
+              then <code>brew link pgard</code>.
             </p>
             <p>
               <code>pgard doctor</code> checks your setup; it is not an authorization.

@@ -120,7 +120,7 @@ brew trust --formula jadenmeister/pgard/pgard      # once
 brew install pgard                                 # later: brew upgrade pgard
 ```
 
-Recent Homebrew loads a third-party tap's formula only after you trust it; `--formula` trusts just this one, not the whole tap. If `brew link` reports that `bin/pgard` already exists, an npm global install is in the way: run `npm uninstall -g pgard`, then `brew link pgard`.
+Recent Homebrew loads a third-party tap's formula only after you trust it; `--formula` trusts just this one, not the whole tap. If `brew install` says the `brew link` step failed because `bin/pgard` already exists, a global npm install of pgard is in the way: run `npm uninstall -g pgard`, then `brew link pgard`.
 
 The package is `pgard` and its command is `pgard`. Versions and the release process are described in [docs/RELEASING.md](docs/RELEASING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
 

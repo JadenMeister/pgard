@@ -6,13 +6,13 @@ The tap [`JadenMeister/homebrew-pgard`](https://github.com/JadenMeister/homebrew
 
 ```sh
 brew tap jadenmeister/pgard   # once
-brew trust --formula jadenmeister/pgard/pgard   # once; trusts only this formula, not the whole tap
+brew trust --formula jadenmeister/pgard/pgard   # once
 brew install pgard
 ```
 
-Recent Homebrew refuses formulae from an untrusted third-party tap until they are trusted. If `brew link` reports that `bin/pgard` already exists, an npm global install is in the way: `npm uninstall -g pgard`, then `brew link pgard`.
+Recent Homebrew refuses formulae from an untrusted third-party tap until they are trusted; `--formula` trusts only this formula, not the whole tap. If `brew install` says the `brew link` step failed because `bin/pgard` already exists, a global npm install of pgard is in the way: `npm uninstall -g pgard`, then `brew link pgard`.
 
-`brew tap jadenmeister/pgard` adds `JadenMeister/homebrew-pgard`. After that the short name works for install and `brew upgrade pgard`. The one-line form `brew install jadenmeister/pgard/pgard` taps automatically but still needs the trust step. A bare `brew install pgard` without the tap only works once the formula is in homebrew-core, which requires Homebrew's notability criteria and is not planned for the first release.
+`brew tap jadenmeister/pgard` adds `JadenMeister/homebrew-pgard`. After that the short name works for install and `brew upgrade pgard`. The one-line form `brew install jadenmeister/pgard/pgard` taps automatically but still needs the trust step. A bare `brew install pgard` without the tap only works once the formula is in homebrew-core, which requires Homebrew's notability criteria and is not planned.
 
 ## Create the tap repository (done once, by the owner; kept for reference)
 
