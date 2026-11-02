@@ -112,14 +112,15 @@ npm install -g pgard   # installs the `pgard` command
 npx pgard doctor       # or run it once without installing
 ```
 
-With Homebrew (macOS and Linux). The tap `jadenmeister/pgard` is being set up: Homebrew accepts an npm version only a day after it is published, so until the tap exists, install with npm.
+With Homebrew (macOS and Linux), through the tap `jadenmeister/pgard`:
 
 ```sh
-brew tap jadenmeister/pgard   # once
-brew install pgard            # later: brew upgrade pgard
+brew tap jadenmeister/pgard                        # once
+brew trust --formula jadenmeister/pgard/pgard      # once
+brew install pgard                                 # later: brew upgrade pgard
 ```
 
-The one-line form `brew install jadenmeister/pgard/pgard` also works; it adds the tap automatically.
+Recent Homebrew loads a third-party tap's formula only after you trust it; `--formula` trusts just this one, not the whole tap. If `brew link` reports that `bin/pgard` already exists, an npm global install is in the way: run `npm uninstall -g pgard`, then `brew link pgard`.
 
 The package is `pgard` and its command is `pgard`. Versions and the release process are described in [docs/RELEASING.md](docs/RELEASING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
 

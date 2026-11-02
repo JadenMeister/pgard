@@ -2,16 +2,19 @@
 
 `pgard.rb` is a template for the Homebrew formula of PGARD. It installs the npm registry tarball of the `pgard` package and depends on Homebrew's `node`. The formula lives in a separate **tap** repository, not in this one. This directory only holds the template and a helper script. Nothing here creates the tap or publishes anything.
 
-Users install it after the first release with:
+The tap [`JadenMeister/homebrew-pgard`](https://github.com/JadenMeister/homebrew-pgard) is live. Users install with:
 
 ```sh
 brew tap jadenmeister/pgard   # once
+brew trust --formula jadenmeister/pgard/pgard   # once; trusts only this formula, not the whole tap
 brew install pgard
 ```
 
-`brew tap jadenmeister/pgard` adds `JadenMeister/homebrew-pgard`. After that the short name works for install and `brew upgrade pgard`. The one-line form `brew install jadenmeister/pgard/pgard` taps automatically. A bare `brew install pgard` without the tap only works once the formula is in homebrew-core, which requires Homebrew's notability criteria and is not planned for the first release.
+Recent Homebrew refuses formulae from an untrusted third-party tap until they are trusted. If `brew link` reports that `bin/pgard` already exists, an npm global install is in the way: `npm uninstall -g pgard`, then `brew link pgard`.
 
-## Create the tap repository (once, by the owner)
+`brew tap jadenmeister/pgard` adds `JadenMeister/homebrew-pgard`. After that the short name works for install and `brew upgrade pgard`. The one-line form `brew install jadenmeister/pgard/pgard` taps automatically but still needs the trust step. A bare `brew install pgard` without the tap only works once the formula is in homebrew-core, which requires Homebrew's notability criteria and is not planned for the first release.
+
+## Create the tap repository (done once, by the owner; kept for reference)
 
 1. On GitHub create a **public** repository named exactly `homebrew-pgard` under `JadenMeister`. Homebrew maps `jadenmeister/pgard` to `JadenMeister/homebrew-pgard`.
 2. Add a `Formula/` directory and copy `pgard.rb` to `Formula/pgard.rb`.

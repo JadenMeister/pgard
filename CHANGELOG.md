@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Changed
+
+- The Homebrew tap `jadenmeister/pgard` is live. README, the website and `packaging/homebrew/README.md` now show the `brew trust --formula jadenmeister/pgard/pgard` step and the fix for an `npm install -g pgard` that blocks `brew link` (#470).
+
 ## [0.2.0] - 2026-10-31
 
 ### Added
