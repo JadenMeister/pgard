@@ -744,14 +744,19 @@ Tab: 패널  위/아래: 스크롤  ?: 도움말  Esc: 뒤로</code></pre>
           <summary>다른 설치 방법: npm, Homebrew</summary>
           <div class="more-body">
             <p class="state-unreleased">
-              npm과 Homebrew는 첫 릴리스와 함께 제공됩니다. 그 전에는
-              <code>npm install -g pgard</code>가 pgard 명령이 없는 자리표시 패키지만 설치하며,
-              Homebrew tap도 아직 없습니다.
+              npm과 Homebrew는 릴리스된 버전을 설치합니다. 릴리스되기 전에는
+              <code>npm install -g pgard</code>가 pgard 명령이 없는 자리표시 패키지만 설치합니다.
             </p>
             <!-- prettier-ignore -->
-            <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install jadenmeister/pgard/pgard</span></span></code></div>
+            <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code></div>
             <!-- prettier-ignore -->
-            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="복사됨" aria-label="명령 복사">복사</button></div>
+            <p>
+              최근 Homebrew는 서드파티 tap의 formula를 신뢰하기 전에는 불러오지 않습니다.
+              <code>--formula</code>는 이 formula 하나만 신뢰합니다. <code>brew link</code>가
+              <code>bin/pgard</code>가 이미 있다고 하면 <code>npm uninstall -g pgard</code>를 실행한
+              뒤 <code>brew link pgard</code>를 실행하세요.
+            </p>
             <p>
               <code>pgard doctor</code>는 실행 환경을 진단합니다(권한 확인은 아닙니다).
               <span class="state-unreleased"

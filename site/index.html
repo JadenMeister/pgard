@@ -749,14 +749,20 @@ Tab: panel  Up/Down: scroll  ?: help  Esc: back</code></pre>
           <summary>Other ways to install: npm, Homebrew</summary>
           <div class="more-body">
             <p class="state-unreleased">
-              npm and Homebrew come with the first release. Until then
+              npm and Homebrew install released versions. Until a version is released
               <code>npm install -g pgard</code> installs only a placeholder package with no pgard
-              command, and the Homebrew tap does not exist yet.
+              command.
             </p>
             <!-- prettier-ignore -->
-            <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install jadenmeister/pgard/pgard</span></span></code></div>
+            <div class="cmdline cmdblock state-unreleased plain"><code><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">npm install -g pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code></div>
             <!-- prettier-ignore -->
-            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            <div class="cmdline cmdblock state-released"><code id="i-brew"><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew tap jadenmeister/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew trust --formula jadenmeister/pgard/pgard</span></span><span class="cmd-line"><span class="prompt" aria-hidden="true">$</span> <span class="cmd-text">brew install pgard</span></span></code><button type="button" class="copy" data-copy-target="i-brew" data-copied="Copied" aria-label="Copy command">Copy</button></div>
+            <p>
+              Recent Homebrew loads a third-party tap's formula only after you trust it;
+              <code>--formula</code> trusts just this one. If <code>brew link</code> says
+              <code>bin/pgard</code> already exists, run <code>npm uninstall -g pgard</code>, then
+              <code>brew link pgard</code>.
+            </p>
             <p>
               <code>pgard doctor</code> checks your setup; it is not an authorization.
               <span class="state-unreleased"
