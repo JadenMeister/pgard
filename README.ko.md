@@ -120,7 +120,7 @@ brew trust --formula jadenmeister/pgard/pgard      # 처음 한 번
 brew install pgard                                 # 업데이트: brew upgrade pgard
 ```
 
-최근 Homebrew는 서드파티 tap의 formula를 신뢰하기 전에는 불러오지 않습니다. `--formula`는 tap 전체가 아니라 이 formula 하나만 신뢰합니다. `brew link`가 `bin/pgard`가 이미 있다고 하면 npm 전역 설치가 걸림돌인 것이니, `npm uninstall -g pgard`를 실행한 뒤 `brew link pgard`를 실행하세요.
+최근 Homebrew는 서드파티 tap의 formula를 직접 신뢰하도록 지정하기 전에는 불러오지 않습니다. `--formula`는 tap 전체가 아니라 이 formula 하나만 신뢰합니다. `brew install` 중 `brew link` 단계에서 `bin/pgard`가 이미 있다는 오류가 나면 npm으로 전역 설치한 pgard와 충돌한 것이므로, `npm uninstall -g pgard`를 실행한 뒤 `brew link pgard`를 실행하세요.
 
 패키지 이름과 명령은 모두 `pgard`입니다. 버전과 릴리스 절차는 [docs/RELEASING.ko.md](docs/RELEASING.ko.md), 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 

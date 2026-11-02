@@ -1,4 +1,4 @@
-// PGARD landing page: theme toggle, mobile menu, the screenshot slider and the GitHub star count.
+// PGARD landing page: theme toggle, mobile menu, the screenshot slider, the install switch and the GitHub star count.
 // The only network request is the star count from api.github.com (3 s timeout,
 // silent fallback to no number). No analytics, no cookies.
 (function () {
@@ -67,6 +67,58 @@
     nav.hidden = false;
     update();
   });
+
+  // --- Install switch (npm / Homebrew): tabs, arrow keys, choice shared and remembered ---
+  var installKey = "pgard-install";
+  var installGroups = document.querySelectorAll("[data-install]");
+  function installChoice() {
+    try {
+      var v = localStorage.getItem(installKey);
+      return v === "brew" || v === "npm" ? v : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function pickInstall(which, focusIn) {
+    Array.prototype.forEach.call(installGroups, function (group) {
+      Array.prototype.forEach.call(group.querySelectorAll("[data-install-pick]"), function (tab) {
+        var on = tab.getAttribute("data-install-pick") === which;
+        tab.setAttribute("aria-selected", on ? "true" : "false");
+        tab.tabIndex = on ? 0 : -1;
+        var panel = document.getElementById(tab.getAttribute("aria-controls"));
+        if (panel) panel.hidden = !on;
+        if (on && focusIn === group) tab.focus();
+      });
+    });
+  }
+  Array.prototype.forEach.call(installGroups, function (group) {
+    var tabs = group.querySelectorAll("[data-install-pick]");
+    Array.prototype.forEach.call(tabs, function (tab, i) {
+      function choose(which, focus) {
+        pickInstall(which, focus ? group : null);
+        try {
+          localStorage.setItem(installKey, which);
+        } catch (e) {
+          /* the choice just is not remembered */
+        }
+      }
+      tab.addEventListener("click", function () {
+        choose(tab.getAttribute("data-install-pick"), false);
+      });
+      tab.addEventListener("keydown", function (e) {
+        var n = null;
+        if (e.key === "ArrowRight") n = (i + 1) % tabs.length;
+        else if (e.key === "ArrowLeft") n = (i - 1 + tabs.length) % tabs.length;
+        else if (e.key === "Home") n = 0;
+        else if (e.key === "End") n = tabs.length - 1;
+        if (n === null) return;
+        e.preventDefault();
+        choose(tabs[n].getAttribute("data-install-pick"), true);
+      });
+    });
+  });
+  if (installGroups.length) document.documentElement.classList.add("install-ready");
+  if (installGroups.length && installChoice()) pickInstall(installChoice(), null);
 
   // --- Theme toggle (the system default stays until the visitor chooses) ---
   var themeBtn = document.getElementById("theme-toggle");

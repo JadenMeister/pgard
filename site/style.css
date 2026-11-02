@@ -672,6 +672,67 @@ html[data-released="true"] .meta .meta-state::before {
   margin-top: 0.5rem;
 }
 
+/* npm / Homebrew switch above the install command. Without script only npm shows. */
+.install-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  margin: 0 0 0.5rem;
+  padding: 0.2rem;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--bg-2);
+}
+
+.install-tabs [role="tab"] {
+  min-height: 2.75rem;
+  padding: 0 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: 500 0.8125rem var(--sans);
+  cursor: pointer;
+}
+
+.install-tabs [role="tab"]:hover,
+.install-tabs [role="tab"][aria-selected="true"] {
+  color: var(--fg);
+}
+
+.install-tabs [role="tab"][aria-selected="true"] {
+  background: var(--bg);
+  box-shadow: 0 0 0 1px var(--rule-strong);
+}
+
+.install-switch .cmdblock code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Wrapped lines hang under the command, not under the prompt ("$ " is 2ch) */
+.install-switch .cmd-line {
+  padding-left: 2ch;
+  text-indent: -2ch;
+}
+
+.install-switch [role="tabpanel"][hidden] {
+  display: none;
+}
+
+/* The switch shows only once ui.js has wired it; otherwise npm shows and the
+   Homebrew block in the install section stays visible. */
+.install-tabs {
+  display: none;
+}
+
+.install-ready .install-tabs {
+  display: inline-flex;
+}
+
+.install-ready .nojs-only {
+  display: none;
+}
+
 /* Release flag: <html data-released="true"> shows the released state */
 html[data-released="true"] .state-unreleased {
   display: none;
