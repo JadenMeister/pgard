@@ -42,15 +42,15 @@ npm run corpus:check
 
 PGARD follows GitHub Flow.
 
-- `main` is protected and always releasable. Every change lands through a pull request with green CI.
-- Work branches are short-lived and named `<type>/<short-kebab-description>`, using the same types as commit messages: `feat/`, `fix/`, `docs/`, `chore/`, `ci/`, `test/`, `refactor/`, `perf/`. The issue number is optional, for example `fix/460-comment-password`.
-- Branches are deleted after merge. The repository deletes merged head branches automatically.
-- Releases are tags `vX.Y.Z` on `main` (see [`docs/RELEASING.md`](docs/RELEASING.md)). A maintenance branch `release/X.Y.x` is cut from the release tag only when an older line needs a fix. The fix lands on `main` first and is cherry-picked.
+- `main` is protected and always releasable. Every change lands through a pull request that must pass the required `check` job and be up to date with `main`.
+- Work branches are short-lived and named `<type>/<short-kebab-description>`, with a commit-message type (see below). The issue number is optional and goes at the end, for example `fix/comment-password-460`.
+- Merged branches in this repository are deleted automatically. Delete your fork's branch yourself.
+- Releases are tags `vX.Y.Z` on `main` (see [`docs/RELEASING.md`](docs/RELEASING.md)). There are no maintenance branches yet: a fix for an older version ships as the next patch release from `main`.
 - `dependabot/*` branches are created by Dependabot. Do not push to them.
 
 ## Commits and pull requests
 
-- Use `type(scope): short summary starting with a verb`, for example `fix(policy): reject unverified owner approval`. The scope is the package or app that owns the change (`cli`, `local-web`, `scan-core`, `policy`, `github-auth`, `git-history`, `source-analysis`, `http-local`, `findings`, `report`, `repo`). Keep the subject within 72 characters, and explain why in the body when it is not obvious.
+- Use `type(scope): short summary starting with a verb`. The type is one of `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `style`, `build`, `ci`, `chore`, `revert`. For example `fix(policy): reject unverified owner approval`. The scope is the package or app that owns the change (`cli`, `local-web`, `scan-core`, `policy`, `github-auth`, `git-history`, `source-analysis`, `http-local`, `findings`, `report`, `repo`). Keep the subject within 72 characters, and explain why in the body when it is not obvious.
 - Keep one logical change per commit and per pull request.
 - Say how you verified the change. Add or update tests for behavior you change.
 - Do not relax the authorization gate or add a way to skip it. Such a change is not merged without an explicit decision by the maintainer.
