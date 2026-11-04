@@ -43,13 +43,21 @@ export interface OpenerEnvironment {
 const isSet = (value: string | undefined): boolean => value !== undefined && value !== "";
 
 /**
- * `%SystemRoot%\System32\rundll32.exe` as an absolute path (a bare name would be searched in the
- * current directory first). `SystemRoot` is trusted only as a plain drive path.
+ * `%SystemRoot%` as a plain drive path (`SystemRoot` is trusted only in that shape, never with
+ * `..`, a UNC or a device prefix), or `C:\Windows`.
  */
-export function windowsRundll32Path(env: Readonly<Record<string, string | undefined>>): string {
+export function windowsSystemRoot(env: Readonly<Record<string, string | undefined>>): string {
   const root = env.SystemRoot ?? env.SYSTEMROOT ?? "";
   const isTrusted = /^[A-Za-z]:\\[A-Za-z0-9 _.\\()-]*$/.test(root) && !root.includes("..");
-  return path.win32.join(isTrusted ? root : "C:\\Windows", "System32", "rundll32.exe");
+  return isTrusted ? root : "C:\\Windows";
+}
+
+/**
+ * `%SystemRoot%\System32\rundll32.exe` as an absolute path (a bare name would be searched in the
+ * current directory first).
+ */
+export function windowsRundll32Path(env: Readonly<Record<string, string | undefined>>): string {
+  return path.win32.join(windowsSystemRoot(env), "System32", "rundll32.exe");
 }
 
 /** Why the browser must not be opened here, or `null`. Pure: the platform and env are passed in. */

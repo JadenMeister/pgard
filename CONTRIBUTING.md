@@ -20,7 +20,7 @@ npm run build          # TypeScript packages and the dashboard UI
 npm link -w @pgard/cli # optional: puts `pgard` on your PATH
 ```
 
-Without `npm link`, run `node apps/cli/dist/bin/pgard.js <command>`. The [Development section of the README](README.md#development) lists the packages. Never run a scan against a repository you are not authorized to scan, and never commit real secrets, tokens or private repository data in tests or fixtures.
+Without `npm link`, run `node apps/cli/bin/pgard.js <command>`. The [Development section of the README](README.md#development) lists the packages. Never run a scan against a repository you are not authorized to scan, and never commit real secrets, tokens or private repository data in tests or fixtures.
 
 ## Checks that must pass
 

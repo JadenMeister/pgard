@@ -1,3 +1,4 @@
+import { isWindowsDrivePath, windowsPathProblem, type FileId } from "@pgard/result-store";
 import {
   ID_PATTERN,
   PICKER_BLOCK_CODES,
@@ -40,6 +41,11 @@ function isInt(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
+/** A device or file id: a safe integer, or the decimal string of a 64-bit id (NTFS file ids). */
+function isFileId(value: unknown): value is FileId {
+  return isInt(value) || (typeof value === "string" && /^[0-9]{1,20}$/.test(value));
+}
+
 function isText(value: unknown, max: number): value is string {
   return typeof value === "string" && value.length <= max && !value.includes("\0");
 }
@@ -56,8 +62,8 @@ function parseSegments(value: unknown, max = MAX_SEGMENTS): ChainSegment[] | nul
       segment.name === "." ||
       segment.name === ".." ||
       segment.name.includes("/") ||
-      !isInt(segment.dev) ||
-      !isInt(segment.ino)
+      !isFileId(segment.dev) ||
+      !isFileId(segment.ino)
     ) {
       return null;
     }
@@ -71,10 +77,10 @@ function parseGitIdentity(value: unknown): GitIdentity | null | undefined {
   const identity = obj(value, ["gitDev", "gitIno", "configDev", "configIno"]);
   if (
     identity === null ||
-    !isInt(identity.gitDev) ||
-    !isInt(identity.gitIno) ||
-    !isInt(identity.configDev) ||
-    !isInt(identity.configIno)
+    !isFileId(identity.gitDev) ||
+    !isFileId(identity.gitIno) ||
+    !isFileId(identity.configDev) ||
+    !isFileId(identity.configIno)
   ) {
     return undefined;
   }
@@ -223,9 +229,12 @@ export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMess
       if (
         root === null ||
         !isText(root.path, MAX_PATH) ||
-        !root.path.startsWith("/") ||
-        !isInt(root.dev) ||
-        !isInt(root.ino)
+        !(
+          root.path.startsWith("/") ||
+          (isWindowsDrivePath(root.path) && windowsPathProblem(root.path) === null)
+        ) ||
+        !isFileId(root.dev) ||
+        !isFileId(root.ino)
       ) {
         return null;
       }

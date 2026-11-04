@@ -2,6 +2,7 @@ import { constants, rmSync } from "node:fs";
 import { chmod, lstat, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { windowsPathProblem } from "@pgard/result-store";
 
 /**
  * The redirect file the browser is opened with (#419 review; the approach of Jupyter's
@@ -126,6 +127,8 @@ export interface RedirectRootContext {
   env: Readonly<Record<string, string | undefined>>;
   homeDir: string;
   uid: number | undefined;
+  /** The OS temp folder (`os.tmpdir()`); injected in tests. */
+  tmpDir?: string;
 }
 
 /** A directory we own, that only we can enter, and that is not a symbolic link. */
@@ -158,7 +161,16 @@ export async function redirectRoot(
   },
 ): Promise<string> {
   const { platform, env, homeDir, uid } = context;
-  if (platform === "darwin" || platform === "win32") return os.tmpdir();
+  if (platform === "darwin") return os.tmpdir();
+  if (platform === "win32") {
+    // #430: the one-time link must never be written to a network share (a UNC `TEMP`).
+    const tmp = context.tmpDir ?? os.tmpdir();
+    const problem = windowsPathProblem(tmp);
+    if (problem === "unc" || problem === "device") {
+      throw new RedirectFileError("The temporary folder is a network or device path.");
+    }
+    return tmp;
+  }
   const runtime = env.XDG_RUNTIME_DIR ?? "";
   if (path.isAbsolute(runtime) && (await isPrivateDirectory(runtime, uid))) return runtime;
   if (!path.isAbsolute(homeDir))

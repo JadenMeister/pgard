@@ -94,7 +94,6 @@ Advanced commands:
   pgard dashboard [--target-port N]
                                 start the local web dashboard for this project
   pgard web [--no-store]        choose a folder in the browser and scan it
-                                (macOS and Linux)
   pgard web scope list | add <folder> | remove <folder>
                                 the folders pgard web searches for projects
   pgard rules list [--language js|ts|react|vue|go|java|kotlin|python|php] [--lang en|ko]

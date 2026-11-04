@@ -17,7 +17,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { npmCommand } from "./pack-lib.mjs";
+import { findOldNodeEntryProblems, npmCommand } from "./pack-lib.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const packDir = join(root, ".pack");
@@ -99,6 +99,13 @@ try {
   }
   const binTarget = join(pkgDir, manifest.bin.pgard);
   const pgard = (args, options) => run(process.execPath, [binTarget, ...args], options);
+  // The bin is the small version guard (must load on old Node.js): no static imports, ES2017 only.
+  const entryProblems = findOldNodeEntryProblems(readFileSync(binTarget, "utf8"));
+  check(
+    "bin entry is a plain old-Node guard",
+    entryProblems.length === 0,
+    entryProblems.join("; "),
+  );
 
   // doctor runs inside this repository checkout (a Git root); it never fails hard.
   const version = pgard(["--version"], { cwd: root });

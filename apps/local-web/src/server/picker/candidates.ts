@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { sanitizeDisplayText } from "@pgard/http-local";
-import type { ScopeRoot } from "@pgard/result-store";
+import { isWindowsDrivePath, pathRulesFor, type ScopeRoot } from "@pgard/result-store";
 import { foldName, hasUnsafeNameCharacter } from "../../shared/folder-name.js";
 import type { PickerCandidate, PickerRemote } from "../../shared/picker-types.js";
 import {
@@ -87,9 +87,15 @@ export const BLOCK_TEXT: Record<PickerBlockCode, { reason: string; fix: string }
   },
 };
 
+/** The path rules a stored path belongs to: a `C:\` spelling is Windows, anything else POSIX. */
+export function rulesOfPath(absolutePath: string) {
+  return pathRulesFor(isWindowsDrivePath(absolutePath) ? "win32" : "posix");
+}
+
 export function shortenHome(absolutePath: string, homeDir: string): string {
-  if (homeDir.length > 1 && absolutePath === homeDir) return "~";
-  if (homeDir.length > 1 && absolutePath.startsWith(`${homeDir}/`)) {
+  const rules = rulesOfPath(homeDir);
+  if (homeDir.length > 1 && rules.fold(absolutePath) === rules.fold(homeDir)) return "~";
+  if (homeDir.length > 1 && rules.isBelow(absolutePath, homeDir)) {
     return `~${absolutePath.slice(homeDir.length)}`;
   }
   return absolutePath;
@@ -158,7 +164,7 @@ export function shownFingerprint(fingerprint: string, repo: string | null): stri
 }
 
 export function absolutePathOf(root: ScopeRoot, segments: readonly ChainSegment[]): string {
-  return [root.path, ...segments.map((segment) => segment.name)].join("/");
+  return [root.path, ...segments.map((segment) => segment.name)].join(rulesOfPath(root.path).sep);
 }
 
 /** The server-held record of a candidate; the browser only sees `dto`. */
@@ -212,7 +218,7 @@ export function buildCandidate(input: BuildInput): CandidateRecord {
   const shown = shownFingerprint(fingerprint, repo === null ? null : `${repo.owner}/${repo.name}`);
 
   const shortPath = shortenHome(path, homeDir);
-  const lastName = raw.segments.at(-1)?.name ?? root.path.split("/").at(-1) ?? "";
+  const lastName = raw.segments.at(-1)?.name ?? rulesOfPath(root.path).lastName(root.path);
   const safePath = sanitizedOrNull(shortPath, PICKER_LIMITS.maxDisplayPathLength);
   const safeName = sanitizedOrNull(lastName, PICKER_LIMITS.maxDisplayNameLength);
   const blockedPaths = (raw.block?.paths ?? []).map((failing) =>
@@ -299,7 +305,7 @@ export function buildOutsideScope(input: {
 }): CandidateRecord {
   const shortPath = shortenHome(input.storedPath, input.homeDir);
   const safePath = sanitizedOrNull(shortPath, PICKER_LIMITS.maxDisplayPathLength);
-  const lastName = input.storedPath.split("/").at(-1) ?? "";
+  const lastName = rulesOfPath(input.storedPath).lastName(input.storedPath);
   const safeName = sanitizedOrNull(lastName, PICKER_LIMITS.maxDisplayNameLength);
   const isUnsafe = safePath === null || safeName === null;
   const code: PickerBlockCode = isUnsafe

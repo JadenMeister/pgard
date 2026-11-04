@@ -1,6 +1,12 @@
 import { lstat, opendir, realpath } from "node:fs/promises";
 import path from "node:path";
 import type { WebStorage } from "./web-files.js";
+import {
+  normalizeWindowsPath,
+  pathRulesFor,
+  windowsPathProblem,
+  windowsSystemFolders,
+} from "./windows-path.js";
 
 /**
  * Search scope of the `pgard web` picker. Roots are decided in the terminal only (`pgard web
@@ -20,6 +26,13 @@ export const DEFAULT_SCOPE_FOLDERS: readonly string[] = [
   "Developer",
 ];
 
+/**
+ * A device or file id. The real file system reports it as a decimal string (read with
+ * `bigint: true`): NTFS file ids use all 64 bits and would lose precision as a JS number, which
+ * would weaken the identity re-checks. Tests may use plain numbers. Only compared and hashed.
+ */
+export type FileId = number | string;
+
 /** What the picker reads about a file system entry: metadata only, never contents. */
 export interface ScopeStat {
   isDirectory: boolean;
@@ -27,8 +40,8 @@ export interface ScopeStat {
   isSymbolicLink: boolean;
   uid: number;
   mode: number;
-  dev: number;
-  ino: number;
+  dev: FileId;
+  ino: FileId;
 }
 
 export interface ScopeFs {
@@ -47,15 +60,15 @@ export interface ScopeDirent {
 /** The real file system, with `lstat` (a symlink is reported, never followed). */
 export const nodeScopeFs: ScopeFs = {
   async lstat(target) {
-    const stat = await lstat(target);
+    const stat = await lstat(target, { bigint: true });
     return {
       isDirectory: stat.isDirectory(),
       isFile: stat.isFile(),
       isSymbolicLink: stat.isSymbolicLink(),
-      uid: stat.uid,
-      mode: stat.mode,
-      dev: stat.dev,
-      ino: stat.ino,
+      uid: Number(stat.uid),
+      mode: Number(stat.mode),
+      dev: stat.dev.toString(),
+      ino: stat.ino.toString(),
     };
   },
   realpath: (target) => realpath(target),
@@ -84,7 +97,14 @@ export type SafetyProblem = "not_owned_by_you" | "group_or_world_writable";
  * T13: the entry must belong to the current user and have no group or other write bit. The
  * strict rule is never loosened for private-group systems.
  */
-export function safetyProblemOf(stat: ScopeStat, uid: number | undefined): SafetyProblem | null {
+export function safetyProblemOf(
+  stat: ScopeStat,
+  uid: number | undefined,
+  platform: string = "posix",
+): SafetyProblem | null {
+  // Windows reports no owner and no meaningful mode bits; its protection is the path shape and
+  // the reparse-point checks (see `windows-path.ts`).
+  if (platform === "win32") return null;
   if (uid === undefined) return "not_owned_by_you";
   if (stat.uid !== uid) return "not_owned_by_you";
   if ((stat.mode & 0o022) !== 0) return "group_or_world_writable";
@@ -164,14 +184,20 @@ export type RootRejection =
   | "not_owned_by_you"
   | "group_or_world_writable"
   | "unreadable"
-  | "unsupported_platform";
+  /** Windows: a network (UNC), device, stream or otherwise rewritten path, or a system folder. */
+  | "unsafe_path";
 
 export type RootValidation =
-  { ok: true; path: string; dev: number; ino: number } | { ok: false; reason: RootRejection };
+  { ok: true; path: string; dev: FileId; ino: FileId } | { ok: false; reason: RootRejection };
 
 /** Path segments below `/` (`/` is 0, `/Users` is 1, `/Users/alice` is 2). */
-export function pathDepth(absolutePath: string): number {
-  return absolutePath.split("/").filter((segment) => segment.length > 0).length;
+export function pathDepth(absolutePath: string, platform: string = "posix"): number {
+  const rules = pathRulesFor(platform);
+  const root = rules.api.parse(absolutePath).root;
+  return absolutePath
+    .slice(root.length)
+    .split(platform === "win32" ? /[\\/]/ : "/")
+    .filter((segment) => segment.length > 0).length;
 }
 
 /**
@@ -185,14 +211,25 @@ export async function validateSearchRoot(
   platform: NodeJS.Platform = process.platform,
   /** A stored root must already be its own realpath: one that became a symlink is dropped. */
   requireCanonical = false,
+  /** Windows only: folders no root may be inside (injected in tests). */
+  systemFolders: readonly string[] = platform === "win32" ? windowsSystemFolders(process.env) : [],
 ): Promise<RootValidation> {
-  if (platform === "win32") return { ok: false, reason: "unsupported_platform" };
-  if (!path.posix.isAbsolute(rawPath) || rawPath.includes("\0")) {
+  const rules = pathRulesFor(platform);
+  let wanted = rawPath;
+  if (platform === "win32") {
+    const problem = windowsPathProblem(rawPath);
+    if (problem === "not_absolute" || problem === "drive_relative") {
+      return { ok: false, reason: "not_absolute" };
+    }
+    const normalized = problem === null ? normalizeWindowsPath(rawPath) : null;
+    if (normalized === null) return { ok: false, reason: "unsafe_path" };
+    wanted = normalized;
+  } else if (!path.posix.isAbsolute(rawPath) || rawPath.includes("\0")) {
     return { ok: false, reason: "not_absolute" };
   }
   let resolved: string;
   try {
-    resolved = await fs.realpath(rawPath);
+    resolved = await fs.realpath(wanted);
   } catch (error) {
     const code = (error as { code?: unknown } | null)?.code;
     return {
@@ -200,8 +237,21 @@ export async function validateSearchRoot(
       reason: code === "ENOENT" || code === "ENOTDIR" ? "missing" : "unreadable",
     };
   }
-  if (requireCanonical && resolved !== rawPath) return { ok: false, reason: "symlink" };
-  if (pathDepth(resolved) < 2) return { ok: false, reason: "too_shallow" };
+  if (platform === "win32") {
+    // A mapped network drive or a junction into a share resolves to a UNC or device path.
+    if (windowsPathProblem(resolved) !== null) return { ok: false, reason: "unsafe_path" };
+    if (
+      systemFolders.some(
+        (folder) => rules.fold(resolved) === rules.fold(folder) || rules.isBelow(resolved, folder),
+      )
+    ) {
+      return { ok: false, reason: "unsafe_path" };
+    }
+  }
+  if (requireCanonical && rules.fold(resolved) !== rules.fold(rawPath)) {
+    return { ok: false, reason: "symlink" };
+  }
+  if (pathDepth(resolved, platform) < 2) return { ok: false, reason: "too_shallow" };
   let stat: ScopeStat;
   try {
     stat = await fs.lstat(resolved);
@@ -210,15 +260,15 @@ export async function validateSearchRoot(
   }
   if (stat.isSymbolicLink) return { ok: false, reason: "symlink" };
   if (!stat.isDirectory) return { ok: false, reason: "not_a_directory" };
-  const problem = safetyProblemOf(stat, uid);
+  const problem = safetyProblemOf(stat, uid, platform);
   if (problem !== null) return { ok: false, reason: problem };
   return { ok: true, path: resolved, dev: stat.dev, ino: stat.ino };
 }
 
 export interface ScopeRoot {
   path: string;
-  dev: number;
-  ino: number;
+  dev: FileId;
+  ino: FileId;
 }
 
 export interface LoadedScope {
@@ -229,6 +279,13 @@ export interface LoadedScope {
   source: "stored" | "default";
   /** Set when `settings.json` existed but was ignored (damaged, unsafe or from a newer PGARD). */
   settingsIgnored: boolean;
+}
+
+function defaultFolders(homeDir: string, platform: string): string[] {
+  const home = platform === "win32" ? normalizeWindowsPath(homeDir) : homeDir;
+  if (home === null || !pathRulesFor(platform).api.isAbsolute(home)) return [];
+  const api = pathRulesFor(platform).api;
+  return DEFAULT_SCOPE_FOLDERS.map((name) => api.join(home, name));
 }
 
 /**
@@ -248,15 +305,14 @@ export async function loadSearchScope(options: {
   const stored = read?.status === "ok";
   const candidates = stored
     ? read.value.roots
-    : path.posix.isAbsolute(options.homeDir)
-      ? DEFAULT_SCOPE_FOLDERS.map((name) => path.posix.join(options.homeDir, name))
-      : [];
+    : defaultFolders(options.homeDir, options.platform ?? process.platform);
   const roots: ScopeRoot[] = [];
   const dropped: LoadedScope["dropped"] = [];
   for (const candidate of candidates) {
     const checked = await validateSearchRoot(candidate, fs, options.uid, options.platform, stored);
     if (checked.ok) {
-      if (!roots.some((root) => root.path === checked.path)) {
+      const fold = pathRulesFor(options.platform ?? process.platform).fold;
+      if (!roots.some((root) => fold(root.path) === fold(checked.path))) {
         roots.push({ path: checked.path, dev: checked.dev, ino: checked.ino });
       }
     } else if (stored || checked.reason !== "missing") {

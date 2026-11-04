@@ -37,8 +37,8 @@ jobs:
       # local: no network and no GitHub sign-in.
       - name: Smoke-test the built CLI
         run: |
-          node apps/cli/dist/bin/pgard.js --help
-          node apps/cli/dist/bin/pgard.js rules list
+          node apps/cli/bin/pgard.js --help
+          node apps/cli/bin/pgard.js rules list
       - run: npm run typecheck:tests
       - run: npm run format:check
       - name: Tests
@@ -56,6 +56,25 @@ jobs:
   # corrupted-grammar refusal, dashboard server). The install prefix contains a space on purpose,
   # so the Windows run covers paths with spaces. Nothing is published. `pgard doctor` needs no
   # sign-in and always exits 0, reporting state instead.
+  node-guard:
+    name: Node.js version guard (Node 18)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 18
+      # The guard exits before importing the CLI, so no install or build is needed.
+      - name: Unsupported Node.js is explained, exit code 2
+        run: |
+          set +e
+          out=$(LANG=C PGARD_LANG=en node apps/cli/bin/pgard.js --version 2>&1)
+          code=$?
+          echo "$out"
+          [ "$code" = 2 ] && echo "$out" | grep -q "cannot run on this Node.js version"
+
   pack-smoke:
     name: pack smoke (${{ matrix.os }})
     timeout-minutes: 30
@@ -101,14 +120,15 @@ jobs:
   # when every OS in the matrix passed (`always()` so a failed matrix cannot leave it skipped).
   check:
     name: check
-    needs: [check-os, pack-smoke, corpus]
+    needs: [check-os, node-guard, pack-smoke, corpus]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     steps:
       - name: Require every OS to pass
         run: |
-          if [ "${{ needs.check-os.result }}" != "success" ] || [ "${{ needs.pack-smoke.result }}" != "success" ] || [ "${{ needs.corpus.result }}" != "success" ]; then
+          if [ "${{ needs.check-os.result }}" != "success" ] || [ "${{ needs.pack-smoke.result }}" != "success" ] || [ "${{ needs.node-guard.result }}" != "success" ] || [ "${{ needs.corpus.result }}" != "success" ]; then
             echo "check-os result: ${{ needs.check-os.result }}"
+            echo "node-guard result: ${{ needs.node-guard.result }}"
             echo "pack-smoke result: ${{ needs.pack-smoke.result }}"
             echo "corpus result: ${{ needs.corpus.result }}"
             exit 1

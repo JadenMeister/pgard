@@ -52,7 +52,7 @@ describe.skipIf(process.platform === "win32")("search roots (T4, T13)", () => {
     symlinkSync(code, link);
     const checked = await validateSearchRoot(link, nodeScopeFs, uid);
     expect(checked).toMatchObject({ ok: true, path: code });
-    expect(checked.ok && checked.ino).toBeGreaterThan(0);
+    expect(checked.ok && BigInt(checked.ino)).toBeGreaterThan(0n);
   });
 
   it("rejects relative paths, missing paths, files, / and /Users-like roots", async () => {
@@ -105,13 +105,6 @@ describe.skipIf(process.platform === "win32")("search roots (T4, T13)", () => {
     expect(await validateSearchRoot(code, nodeScopeFs, uid)).toEqual({
       ok: false,
       reason: "group_or_world_writable",
-    });
-  });
-
-  it("is not available on Windows", async () => {
-    expect(await validateSearchRoot(home, nodeScopeFs, uid, "win32")).toEqual({
-      ok: false,
-      reason: "unsupported_platform",
     });
   });
 

@@ -1,4 +1,4 @@
-import type { ScopeRoot } from "@pgard/result-store";
+import type { FileId, ScopeRoot } from "@pgard/result-store";
 import { PICKER_BLOCK_CODES, type PickerBlockCode } from "../../shared/picker-types.js";
 
 export { PICKER_BLOCK_CODES, type PickerBlockCode };
@@ -42,15 +42,15 @@ export type PickerLimits = { -readonly [K in keyof typeof PICKER_LIMITS]: number
 /** One directory below a scope root: its name from `readdir` and its identity from `lstat`. */
 export interface ChainSegment {
   name: string;
-  dev: number;
-  ino: number;
+  dev: FileId;
+  ino: FileId;
 }
 
 export interface GitIdentity {
-  gitDev: number;
-  gitIno: number;
-  configDev: number;
-  configIno: number;
+  gitDev: FileId;
+  gitIno: FileId;
+  configDev: FileId;
+  configIno: FileId;
 }
 
 export type RemoteInfo =
@@ -87,10 +87,17 @@ export type InspectorJob =
    * resolves it (realpath), picks the anchor it is checked from (see `resolveFolder`), and
    * inspects it like a search candidate.
    */
-  | { kind: "resolve"; path: string; homeDir: string };
+  | {
+      kind: "resolve";
+      path: string;
+      homeDir: string;
+      /** Windows: the operating system and program folders (the child's environment has none). */
+      systemFolders?: string[];
+    };
 
 /** Why a chosen or pasted folder is refused before it becomes a candidate. */
 export const RESOLVE_REFUSALS = [
+  "bad_path",
   "missing",
   "not_a_directory",
   "too_broad",
