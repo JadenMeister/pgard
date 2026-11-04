@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- `pgard` on an unsupported Node.js version now prints a short message (English or Korean) with the current and supported versions and how to update, and exits with code 2, instead of failing with a raw runtime error (#476). The bin is now a small entry file that checks the version before loading the CLI.
+
 ### Changed
 
 - The Homebrew tap `jadenmeister/pgard` is live. README, the website and `packaging/homebrew/README.md` now show the `brew trust --formula jadenmeister/pgard/pgard` step and the fix for an `npm install -g pgard` that blocks `brew link` (#470).
