@@ -37,8 +37,8 @@ jobs:
       # local: no network and no GitHub sign-in.
       - name: Smoke-test the built CLI
         run: |
-          node apps/cli/dist/bin/pgard.js --help
-          node apps/cli/dist/bin/pgard.js rules list
+          node apps/cli/bin/pgard.js --help
+          node apps/cli/bin/pgard.js rules list
       - run: npm run typecheck:tests
       - run: npm run format:check
       - name: Tests

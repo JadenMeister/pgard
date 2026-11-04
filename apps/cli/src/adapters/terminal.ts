@@ -19,7 +19,7 @@ export interface OutputStream extends NodeJS.WritableStream {
   columns?: number;
 }
 
-/** Process boundary for the CLI. Tests pass fakes; `bin/pgard.ts` passes the real process. */
+/** Process boundary for the CLI. Tests pass fakes; `bin/main.ts` passes the real process. */
 export interface CliIo {
   stdin: InputStream;
   stdout: OutputStream;
