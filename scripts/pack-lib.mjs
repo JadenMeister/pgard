@@ -1,5 +1,6 @@
 // Helpers shared by pack-pgard.mjs and smoke-pack.mjs (and unit-tested in
-// tests/integration/pack-scripts.test.ts). Plain Node, no dependencies.
+// tests/integration/pack-scripts.test.ts). Plain Node; only
+// findOldNodeEntryProblems loads esbuild (a dev dependency), and only when it runs.
 import { existsSync } from "node:fs";
 import { builtinModules, createRequire } from "node:module";
 import { dirname, join } from "node:path";

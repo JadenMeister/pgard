@@ -6,7 +6,6 @@
 // apps/cli/src/bin/node-guard.test.ts runs this file against simulated versions.
 // The supported list below must match MIN_NODE_VERSIONS in apps/cli/src/commands/doctor.ts and
 // "engines" in the package.json files (a test keeps them in agreement).
-"use strict";
 
 const MIN_NODE_VERSIONS = [
   [22, 23, 4],
@@ -36,10 +35,12 @@ function pickLanguage(argv, env, platform) {
     else if (String(argv[i]).indexOf("--lang=") === 0) flag = String(argv[i]).slice(7);
   }
   if (flag !== undefined) {
-    const value = String(flag).toLowerCase();
+    const value = String(flag).trim().toLowerCase();
     if (value === "ko" || value === "en") return value;
   }
-  const fromEnv = String(env.PGARD_LANG || "").toLowerCase();
+  const fromEnv = String(env.PGARD_LANG || "")
+    .trim()
+    .toLowerCase();
   if (fromEnv === "ko" || fromEnv === "en") return fromEnv;
   let locale;
   const names = ["LC_ALL", "LC_MESSAGES", "LANG"];
@@ -77,7 +78,16 @@ function message(language, current) {
 }
 
 if (isSupported(process.versions.node)) {
-  import("../dist/bin/main.js");
+  // Keep the process exit behavior of the old direct entry: a main.js that never settles (an
+  // unsettled top-level await) ends Node.js with exit code 13, and a rejected import is reported
+  // by Node.js as an unhandled rejection (exit code 1). Without this the process would exit 0.
+  let loaded = false;
+  import("../dist/bin/main.js").then(function () {
+    loaded = true;
+  });
+  process.on("exit", function (code) {
+    if (!loaded && code === 0) process.exitCode = 13;
+  });
 } else {
   process.stderr.write(
     message(

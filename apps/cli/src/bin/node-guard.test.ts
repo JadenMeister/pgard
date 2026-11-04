@@ -31,6 +31,7 @@ function runGuard(
     argv: ["node", "pgard", ...(options.argv ?? [])],
     env: options.env ?? {},
     platform: options.platform ?? "linux",
+    on() {},
     stderr: {
       write(text: string) {
         result.stderr += text;
@@ -50,6 +51,7 @@ function runGuard(
     process: fakeProcess,
     __loadCli: () => {
       result.loaded = true;
+      return Promise.resolve();
     },
   });
   return result;
@@ -182,28 +184,38 @@ describe("pgard entry: Node.js version guard", () => {
     expect(runGuard("20.0.0", { platform: "darwin" }).stderr).toContain("pgard cannot run");
   });
 
-  it("passes the real arguments and exit code through on a supported version", () => {
-    // Real Node.js, real dynamic import: a copy of the entry next to a stub CLI.
+  /** Real Node.js, real dynamic import: a copy of the entry next to a stub CLI. */
+  function runWithStub(stub: string) {
     const dir = mkdtempSync(path.join(tmpdir(), "pgard guard "));
     cleanup.push(dir);
     mkdirSync(path.join(dir, "bin"));
     mkdirSync(path.join(dir, "dist/bin"), { recursive: true });
     writeFileSync(path.join(dir, "package.json"), '{"type":"module"}\n');
     copyFileSync(guardPath, path.join(dir, "bin/pgard.js"));
-    writeFileSync(
-      path.join(dir, "dist/bin/main.js"),
+    writeFileSync(path.join(dir, "dist/bin/main.js"), stub);
+    return spawnSync(process.execPath, [path.join(dir, "bin/pgard.js"), "scan", "--x", "a b"], {
+      encoding: "utf8",
+    });
+  }
+
+  it("passes the real arguments and exit code through on a supported version", () => {
+    const run = runWithStub(
       "console.log(JSON.stringify(process.argv.slice(2)));\nprocess.exitCode = 7;\n",
-    );
-    const run = spawnSync(
-      process.execPath,
-      [path.join(dir, "bin/pgard.js"), "scan", "--x", "a b"],
-      {
-        encoding: "utf8",
-      },
     );
     expect(run.stderr).toBe("");
     expect(JSON.parse(run.stdout)).toEqual(["scan", "--x", "a b"]);
     expect(run.status).toBe(7);
+  });
+
+  it("keeps exit code 13 when the CLI never settles (unsettled top-level await)", () => {
+    const run = runWithStub("await new Promise(() => {});\n");
+    expect(run.status).toBe(13);
+  });
+
+  it("reports a failing CLI once and exits with 1", () => {
+    const run = runWithStub('throw new Error("boom-from-main");\n');
+    expect(run.status).toBe(1);
+    expect(run.stderr.match(/Error: boom-from-main/g)).toHaveLength(1);
   });
 });
 
