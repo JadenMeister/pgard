@@ -4,6 +4,8 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04
+
 ### Added
 
 - The `release` workflow also publishes each release to GitHub Packages as `@jadenmeister/pgard` (#480): a new `publish-github` job runs after the npmjs.com publish, behind the same `npm-publish` approval, repacks the verified tarball changing only `name`, `publishConfig.registry` and the removal of `publishConfig.provenance`, checks every other file is identical, publishes with `GITHUB_TOKEN` and attaches a build provenance attestation. npmjs.com stays the recommended install; see [docs/RELEASING.md](docs/RELEASING.md).
@@ -16,6 +18,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 ### Changed
 
 - The Homebrew tap `jadenmeister/pgard` is live. README, the website and `packaging/homebrew/README.md` now show the `brew trust --formula jadenmeister/pgard/pgard` step and the fix for an `npm install -g pgard` that blocks `brew link` (#470).
+
+### Security
+
+- Dependency updates (#479, replaces Dependabot #467): `ajv` 8.17.1 to 8.20.0 (fixes GHSA-2g4f-4pwh-qvx6, a ReDoS with the `$data` option; `ajv` is a development dependency only), `@napi-rs/keyring` 2.1.1 to 2.1.2 (signed and notarized macOS binaries, no logic change), `@vue/compiler-sfc` 3.5.43 to 3.5.44 (bundled), `react` and `react-dom` 19.3.0 to 19.3.1 (dashboard UI) and `@types/node` to 26.6.6. The analyzer hash changes with the compiler version, so the first scan after upgrading is a full one.
 
 ## [0.2.0] - 2026-10-31
 
@@ -141,6 +147,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 - Dashboard and web checks are loopback-only; reports and results are redacted, and the dashboard gates port discovery on the full authorization outcome.
 - Packaged grammars are checksum-pinned and verified; the package has no install scripts and only exact-pinned direct dependencies.
 
-[Unreleased]: https://github.com/JadenMeister/pgard/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/JadenMeister/pgard/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/JadenMeister/pgard/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/JadenMeister/pgard/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/JadenMeister/pgard/releases/tag/v0.1.0
