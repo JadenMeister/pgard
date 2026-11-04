@@ -23,7 +23,7 @@ import {
   scriptedKeys,
 } from "../test-support.js";
 import { runHistoryClear } from "./history.js";
-import { runWeb, WINDOWS_PICKER_MESSAGE } from "./web.js";
+import { runWeb } from "./web.js";
 import { runWebScope } from "./web-scope.js";
 
 let base: string;
@@ -64,31 +64,31 @@ function setup(
 }
 
 describe.skipIf(process.platform === "win32")("pgard web", () => {
-  it("refuses on Windows with the usage error and points to pgard dashboard (design test 18)", async () => {
-    const { captured, context, startDashboardProcess } = setup([], { platform: "win32" });
-    expect(await runWeb(context, false, false)).toBe(2);
-    expect(captured.stderr()).toContain(WINDOWS_PICKER_MESSAGE);
-    expect(captured.stderr()).toContain("pgard dashboard");
-    expect(startDashboardProcess).not.toHaveBeenCalled();
-    // The same for the scope commands.
-    expect(await runWebScope(context, "list", null)).toBe(2);
+  it("starts on Windows too: the launcher and the scope commands are no longer refused (#477)", async () => {
+    const { captured, context, startDashboardProcess } = setup([], {
+      platform: "win32",
+      env: { USERPROFILE: "C:\\Users\\tester" },
+    });
+    expect(await runWeb(context, false, false)).toBe(0);
+    expect(startDashboardProcess).toHaveBeenCalledWith("/install/local-web/dist/server/index.js", [
+      "--picker",
+    ]);
+    expect(captured.stderr()).not.toContain("not available on Windows");
+    // The scope list works too (no saved folders and no default ones on this machine).
+    expect(await runWebScope(context, "list", null)).toBe(0);
+    expect(captured.stderr()).not.toContain("not available on Windows");
   });
 
-  it("refuses on Windows when run for real through main (runs on the Windows runner)", async () => {
-    const captured = createTestIo({ isTTY: true, env: { HOME: home } });
-    const startDashboardProcess = vi.fn(async () => 0);
-    const code = await main(["web"], captured.io, {
-      interrupts: noInterrupts,
-      deps: createTestDeps({
-        platform: process.platform,
-        resolveDashboardEntry: () => "/install/local-web/dist/server/index.js",
-        startDashboardProcess,
-      }),
-    });
-    if (process.platform === "win32") {
-      expect(code).toBe(2);
-      expect(captured.stderr()).toContain("pgard dashboard");
-      expect(startDashboardProcess).not.toHaveBeenCalled();
+  it("on Windows refuses a UNC, device or drive-relative search folder in the terminal", async () => {
+    for (const folder of [
+      "\\\\server\\share\\code",
+      "\\\\?\\C:\\Users\\tester\\code",
+      "C:code",
+      "C:\\Users\\tester\\code:stream",
+    ]) {
+      const { captured, context } = setup([], { platform: "win32" });
+      expect(await runWebScope(context, "add", folder)).toBe(2);
+      expect(captured.stderr()).toContain("cannot be a search folder");
     }
   });
 

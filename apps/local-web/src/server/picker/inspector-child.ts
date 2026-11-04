@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { runGit } from "@pgard/git-history";
 import { inspectRepository } from "@pgard/policy";
-import { nodeScopeFs } from "@pgard/result-store";
+import { nodeScopeFs, windowsSystemFolders } from "@pgard/result-store";
 import { runInspectorJob } from "./inspect.js";
 import type { ChildMessage, InspectorJob } from "./protocol.js";
 
@@ -11,7 +11,7 @@ import type { ChildMessage, InspectorJob } from "./protocol.js";
  * stdout or stderr, no token and no path on its command line.
  */
 
-// Windows is not supported by the picker; a stray start there does nothing useful.
+// Started without an IPC channel (by hand): there is nobody to talk to.
 if (process.send === undefined) process.exit(2);
 
 // The server went away (or closed the channel): there is nobody to report to.
@@ -35,6 +35,7 @@ process.once("message", (raw: unknown) => {
       inspectRepository,
       now: () => performance.now(),
       platform: process.platform,
+      ...(process.platform === "win32" ? { systemFolders: windowsSystemFolders(process.env) } : {}),
       emit: (message) => {
         pending.push(send(message));
       },

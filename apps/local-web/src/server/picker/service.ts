@@ -16,6 +16,7 @@ import {
   identityFingerprint,
   markCollisions,
   newId,
+  rulesOfPath,
   shortenHome,
   type CandidateRecord,
 } from "./candidates.js";
@@ -711,7 +712,7 @@ export async function confirmCandidate(
     throw new ApiError(409, "candidate_changed", CHANGED_MESSAGE);
   }
   const name = sanitizeDisplayText(
-    record.segments.at(-1)?.name ?? record.root.path.split("/").at(-1) ?? "",
+    record.segments.at(-1)?.name ?? rulesOfPath(record.root.path).lastName(record.root.path),
     PICKER_LIMITS.maxDisplayNameLength,
   );
   const project: ProjectRecord = {
@@ -773,7 +774,7 @@ async function confirmFolderCandidate(
   const project: ProjectRecord = {
     root: record.path,
     name: sanitizeDisplayText(
-      record.segments.at(-1)?.name ?? record.root.path.split("/").at(-1) ?? "",
+      record.segments.at(-1)?.name ?? rulesOfPath(record.root.path).lastName(record.root.path),
       PICKER_LIMITS.maxDisplayNameLength,
     ),
     repo: null,

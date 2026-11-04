@@ -307,8 +307,13 @@ describe("folder dialog commands", () => {
     const mac = await dialogCommandFor("darwin", 'Pick "x"');
     expect(mac?.file).toBe("/usr/bin/osascript");
     expect(mac?.args.at(-1)).toBe('POSIX path of (choose folder with prompt "Pick \\"x\\"")');
-    // Windows is not supported by the picker (POSIX-only folder checks): no dialog.
-    expect(await dialogCommandFor("win32", "Pick", async () => true)).toBeNull();
+    // Windows: Windows PowerShell from its absolute path, no shell, the prompt only in the env.
+    const windows = await dialogCommandFor("win32", "Pick", async () => true, {
+      SystemRoot: "C:\\Windows",
+    });
+    expect(windows?.file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+    expect(windows?.env).toEqual({ PGARD_DIALOG_PROMPT: "Pick" });
+    expect(windows?.args.join(" ")).not.toContain("Pick");
     const linux = await dialogCommandFor("linux", "Pick", async (file) => file.endsWith("kdialog"));
     expect(linux).toEqual({
       file: "/usr/bin/kdialog",

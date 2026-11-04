@@ -91,6 +91,7 @@ export type InspectorJob =
 
 /** Why a chosen or pasted folder is refused before it becomes a candidate. */
 export const RESOLVE_REFUSALS = [
+  "bad_path",
   "missing",
   "not_a_directory",
   "too_broad",

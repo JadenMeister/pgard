@@ -22,7 +22,7 @@ import {
   type RawCandidate,
   type ResolveRefusal,
 } from "./protocol.js";
-import type { ScopeRoot } from "@pgard/result-store";
+import { normalizeWindowsPath, windowsPathProblem, type ScopeRoot } from "@pgard/result-store";
 
 /**
  * #414: choosing the folder with the OS folder dialog or by pasting its path, for the
@@ -113,11 +113,31 @@ const FOLDER_CHAIN_REFUSALS: ReadonlySet<string> = new Set<FolderRefusalCode>([
   "group_or_world_writable",
 ]);
 
-/** `~` and `~/...` expand to the home folder; `~user` and relative paths are refused. */
-export function expandPastedPath(raw: unknown, homeDir: string): string | null {
+/**
+ * `~` and `~/...` expand to the home folder; `~user` and relative paths are refused. On Windows
+ * (`platform`) `~\...` expands too, the path must be a plain local-drive path (no network share,
+ * device path, drive-relative path, data stream or name Windows would rewrite), and a pair of
+ * double quotes around it (Explorer's "Copy as path") is removed.
+ */
+export function expandPastedPath(
+  raw: unknown,
+  homeDir: string,
+  platform: string = "posix",
+): string | null {
   if (typeof raw !== "string") return null;
-  const text = raw.trim();
+  let text = raw.trim();
+  if (platform === "win32" && text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    text = text.slice(1, -1).trim();
+  }
   if (text.length === 0 || text.length > MAX_PASTED_PATH || text.includes("\0")) return null;
+  if (platform === "win32") {
+    let expanded = text;
+    if (text === "~" || text.startsWith("~/") || text.startsWith("~\\")) {
+      if (windowsPathProblem(homeDir) !== null) return null;
+      expanded = path.win32.join(homeDir, text.slice(1));
+    }
+    return normalizeWindowsPath(expanded);
+  }
   let expanded = text;
   if (text === "~" || text.startsWith("~/")) {
     if (!path.posix.isAbsolute(homeDir)) return null;
@@ -258,7 +278,7 @@ export async function choosePastedPath(
 ): Promise<PickerPathResponse> {
   const picker = context.picker;
   if (picker === undefined) throw new ApiError(500, "internal", "Internal error.");
-  const absolute = expandPastedPath(raw, picker.homeDir);
+  const absolute = expandPastedPath(raw, picker.homeDir, picker.platform);
   if (absolute === null) return refusal("bad_path");
   return resolveFolderPath(context, absolute);
 }
@@ -323,7 +343,7 @@ export function openFolderDialog(context: PickerContext, lang: unknown): PickerB
         browse.response = { status: result.status, candidate: null, refusal: null };
         return;
       }
-      const absolute = expandPastedPath(result.path, picker.homeDir);
+      const absolute = expandPastedPath(result.path, picker.homeDir, picker.platform);
       const response =
         absolute === null ? refusal("bad_path") : await resolveFolderPath(context, absolute);
       if (!isCurrent()) return;

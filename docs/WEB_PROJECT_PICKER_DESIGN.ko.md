@@ -19,7 +19,7 @@
 
 ### 소유자가 이미 정한 사항
 
-- **플랫폼.** 처음에는 macOS와 Linux만 지원합니다. Windows에서 `pgard web`은 사용법 오류(2)로 종료하고, 피커가 아직 지원되지 않는 이유를 설명하며 `pgard dashboard`를 안내합니다(**M8-4 요구사항**, Windows 러너에서 도는 테스트 포함). Windows 고유의 문제(junction, UNC 경로, 8.3 이름, `ino` 부재, Node 기본 기능으로 소유자 확인 불가)는 의도적으로 여기서 설계하지 않으며, Windows에서 피커를 켜기 전에 따로 설계해야 합니다.
+- **플랫폼.** 처음에는 macOS와 Linux만 지원했고, Windows는 #477부터 지원합니다(CHANGELOG 참고). 폴더 선택 창은 Windows PowerShell의 `FolderBrowserDialog`이며, Node에는 Windows의 소유자·모드 비트가 없으므로 폴더 검사는 경로의 모양을 봅니다(로컬 드라이브 경로만, UNC·장치 경로, 드라이브 상대 경로, 데이터 스트림 거부, 드라이브 루트·프로필·Windows·Program Files 폴더는 너무 넓음, 대소문자 무시 비교, 모든 검사 전에 `realpath`). 이 문서의 소유자·쓰기 비트 규칙은 POSIX 전용입니다.
 - **기본 범위.** 흔한 개발 폴더 중 실제로 존재하는 것만 씁니다: `~/code`, `~/projects`, `~/dev`, `~/src`, `~/workspace`, `~/git`, `~/Developer`. 첫 실행 때 터미널에 보여 주고 확인받습니다. 홈 폴더 전체를 추가하는 것은 명시적인 선택입니다(`pgard web scope add ~`, 경고 포함). 이유: macOS에서 홈 폴더를 걸으면 TCC 권한 프롬프트가 뜨고 iCloud가 dataless 파일을 내려받게 됩니다.
 - **검색 루트는 터미널에서만 추가합니다.** 브라우저는 사용자가 복사할 수 있도록 `pgard web scope add <folder>` 명령을 보여 줄 수 있지만, 루트를 추가하거나 바꿀 수는 없습니다.
 - **명령 두 개.** `pgard dashboard`는 프로젝트 하나에 고정되고 피커를 강제로 끕니다. `pgard web`이 피커입니다.

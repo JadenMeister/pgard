@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import os from "node:os";
 import { fileURLToPath } from "node:url";
 import {
   createWebStorage,
@@ -33,11 +34,20 @@ process.env.NoDefaultCurrentDirectoryInExePath = "1";
 async function createPickerDeps(
   options: LauncherOptions,
 ): Promise<NonNullable<ServerDeps["picker"]>> {
-  const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  // Windows: `HOME` may be set by Git Bash to a `/c/Users/...` spelling; the profile is the home.
+  const homeDir =
+    process.platform === "win32"
+      ? (process.env.USERPROFILE ?? os.homedir())
+      : (process.env.HOME ?? process.env.USERPROFILE ?? "");
   const dataDir = resolveStoreDirectory({ env: process.env, homeDir });
   const storage: WebStorage | null =
     options.noStore || dataDir === null ? null : createWebStorage({ dir: dataDir });
-  const scope = await loadSearchScope({ storage, uid: process.getuid?.(), homeDir });
+  const scope = await loadSearchScope({
+    storage,
+    uid: process.getuid?.(),
+    homeDir,
+    platform: process.platform,
+  });
   for (const dropped of scope.source === "stored" ? scope.dropped : []) {
     process.stdout.write(
       `Search folder skipped (${dropped.reason}): ${sanitizeDisplayText(dropped.path, 500)}\n`,
@@ -45,7 +55,7 @@ async function createPickerDeps(
   }
   return {
     inspector: createInspectorHost(),
-    // The simple screen's "Choose folder" button (none on Windows: paste the path instead).
+    // The simple screen's "Choose folder" button (Windows PowerShell on Windows).
     folderDialog: createFolderDialog(),
     storage,
     // The search picker ("More" > full dashboard) searches only folders saved with
@@ -68,12 +78,6 @@ async function runLauncher(): Promise<number> {
   } catch (error) {
     process.stderr.write(
       `${error instanceof LauncherUsageError ? error.message : "Invalid arguments."}\n`,
-    );
-    return 2;
-  }
-  if (options.picker && process.platform === "win32") {
-    process.stderr.write(
-      "The project picker is not available on Windows yet. Use `pgard dashboard` in the project folder.\n",
     );
     return 2;
   }

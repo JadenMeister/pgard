@@ -108,13 +108,6 @@ describe.skipIf(process.platform === "win32")("search roots (T4, T13)", () => {
     });
   });
 
-  it("is not available on Windows", async () => {
-    expect(await validateSearchRoot(home, nodeScopeFs, uid, "win32")).toEqual({
-      ok: false,
-      reason: "unsupported_platform",
-    });
-  });
-
   it("applies the strict rule to ownership: no uid means no trust", () => {
     const stat = {
       isDirectory: true,

@@ -9,6 +9,7 @@ import {
   writeFileAtomically,
   type SafeFileEnvironment,
 } from "./safe-file.js";
+import { isWindowsDrivePath, windowsPathProblem } from "./windows-path.js";
 
 /**
  * The two files of the `pgard web` project picker, kept next to the result store but in their
@@ -98,7 +99,9 @@ function isAbsolutePathText(value: unknown): value is string {
     value.length > 0 &&
     value.length <= MAX_PATH_LENGTH &&
     !value.includes("\0") &&
-    path.posix.isAbsolute(value)
+    // A Windows folder is stored as `C:\...`; a network or device path never is (#477).
+    (path.posix.isAbsolute(value) ||
+      (isWindowsDrivePath(value) && windowsPathProblem(value) === null))
   );
 }
 

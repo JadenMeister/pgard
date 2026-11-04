@@ -183,7 +183,10 @@ export async function isInsideGitDirectory(
   const api = options.pathApi ?? path;
   let current = api.resolve(folder);
   for (;;) {
-    if (api.basename(current) === ".git" || (await looksLikeGitDirectory(current, kindOf, api))) {
+    if (
+      api.basename(current).toLowerCase() === ".git" ||
+      (await looksLikeGitDirectory(current, kindOf, api))
+    ) {
       return true;
     }
     const parent = api.dirname(current);
@@ -207,7 +210,9 @@ export async function enclosingRepositoryRoot(
   const stop = stopAt === null ? null : api.resolve(stopAt);
   let current = api.dirname(api.resolve(folder));
   for (;;) {
-    if (current === stop) return null;
+    if (current === stop || (api === path.win32 && current.toLowerCase() === stop?.toLowerCase())) {
+      return null;
+    }
     const git = await kindOf(api.join(current, ".git"));
     if (git === "directory" || git === "file") return current;
     const parent = api.dirname(current);

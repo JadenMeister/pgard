@@ -1,5 +1,7 @@
 import { execFile } from "node:child_process";
 import { access, constants } from "node:fs/promises";
+import path from "node:path";
+import { windowsSystemRoot } from "../open-local-url.js";
 
 /**
  * #414: the operating system's own folder dialog, opened by the local server for the
@@ -27,6 +29,64 @@ export interface DialogCommand {
   args: string[];
   /** Exit codes that mean "the user closed the dialog". */
   cancelCodes: number[];
+  /** Added to the child's environment (the Windows prompt text; never part of the arguments). */
+  env?: Record<string, string>;
+  /** `base64`: stdout is the chosen path as base64 of its UTF-8 bytes (Windows). */
+  output?: "text" | "base64";
+}
+
+/** The environment variable that carries the Windows dialog's prompt into the fixed script. */
+export const WINDOWS_PROMPT_VARIABLE = "PGARD_DIALOG_PROMPT";
+
+/** Exit code of the Windows script when the user closed the dialog. */
+export const WINDOWS_CANCEL_CODE = 3;
+
+/**
+ * The fixed Windows script (#477): no text of ours or the user's is ever put into it. The prompt
+ * comes from the `PGARD_DIALOG_PROMPT` environment variable; the chosen path leaves as base64 of
+ * its UTF-8 bytes, so no console code page can garble a Korean folder name. A failure (blocked
+ * assembly, policy, no desktop) exits 1, which the caller reports as "no folder window".
+ */
+export const WINDOWS_DIALOG_SCRIPT = [
+  "$ErrorActionPreference = 'Stop'",
+  "$ProgressPreference = 'SilentlyContinue'",
+  "Add-Type -AssemblyName System.Windows.Forms",
+  "[System.Windows.Forms.Application]::EnableVisualStyles()",
+  "$owner = New-Object System.Windows.Forms.Form",
+  "$owner.TopMost = $true",
+  "$dialog = New-Object System.Windows.Forms.FolderBrowserDialog",
+  "$dialog.Description = $env:" + WINDOWS_PROMPT_VARIABLE,
+  "$dialog.ShowNewFolderButton = $true",
+  "$result = $dialog.ShowDialog($owner)",
+  "if ($result -ne [System.Windows.Forms.DialogResult]::OK) { exit " + WINDOWS_CANCEL_CODE + " }",
+  "[Console]::Out.Write([Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($dialog.SelectedPath)))",
+  "exit 0",
+].join("\r\n");
+
+/** `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`, absolute (never searched for). */
+export function windowsPowerShellPath(env: Readonly<Record<string, string | undefined>>): string {
+  return path.win32.join(
+    windowsSystemRoot(env),
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+}
+
+/** Decodes the Windows script's output; `null` when it is not what the script writes. */
+export function decodeWindowsDialogOutput(stdout: string): string | null {
+  const text = stdout.trim();
+  if (text.length === 0) return "";
+  if (text.length > 16 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(text)) {
+    return null;
+  }
+  const bytes = Buffer.from(text, "base64");
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return null;
+  }
 }
 
 /** AppleScript string literal: backslash and quote escaped (the prompt is our own text). */
@@ -35,15 +95,15 @@ function appleScriptString(text: string): string {
 }
 
 /**
- * The fixed dialog command per platform, or `null` when there is none. Windows has none: the
- * folder checks (realpath, `lstat` chain, ownership and write bits) and the pasted-path rules are
- * POSIX-only, so the picker is not supported there: the page shows the "no folder window" state
- * and a pasted `C:\` path is refused as `bad_path` (design doc, section 6.1).
+ * The fixed dialog command per platform, or `null` when there is none. Windows runs Windows
+ * PowerShell from its absolute path under `%SystemRoot%` with a fixed encoded script; the prompt
+ * travels in an environment variable only.
  */
 export async function dialogCommandFor(
   platform: string,
   prompt: string,
   isExecutable: (file: string) => Promise<boolean> = defaultIsExecutable,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<DialogCommand | null> {
   if (platform === "darwin") {
     return {
@@ -58,7 +118,25 @@ export async function dialogCommandFor(
       cancelCodes: [1],
     };
   }
-  if (platform === "win32") return null;
+  if (platform === "win32") {
+    const file = windowsPowerShellPath(env);
+    if (!(await isExecutable(file))) return null;
+    return {
+      file,
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-STA",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-EncodedCommand",
+        Buffer.from(WINDOWS_DIALOG_SCRIPT, "utf16le").toString("base64"),
+      ],
+      cancelCodes: [WINDOWS_CANCEL_CODE],
+      env: { [WINDOWS_PROMPT_VARIABLE]: prompt },
+      output: "base64",
+    };
+  }
   for (const directory of ["/usr/bin", "/usr/local/bin", "/bin"]) {
     const zenity = `${directory}/zenity`;
     if (await isExecutable(zenity)) {
@@ -113,7 +191,11 @@ const defaultRunDialog: RunDialog = (command, { signal, timeoutMs }) =>
         maxBuffer: MAX_OUTPUT_BYTES,
         encoding: "utf8",
         windowsHide: false,
-        env: { ...process.env, LC_ALL: process.env.LC_ALL ?? "en_US.UTF-8" },
+        env: {
+          ...process.env,
+          LC_ALL: process.env.LC_ALL ?? "en_US.UTF-8",
+          ...command.env,
+        },
       },
       (error, stdout) => {
         if (error === null) return resolve({ code: 0, stdout, timedOut: false });
@@ -133,6 +215,7 @@ export function createFolderDialog(
     platform?: string;
     run?: RunDialog;
     isExecutable?: (file: string) => Promise<boolean>;
+    env?: Readonly<Record<string, string | undefined>>;
     timeoutMs?: number;
   } = {},
 ): FolderDialog {
@@ -140,7 +223,12 @@ export function createFolderDialog(
   const run = options.run ?? defaultRunDialog;
   const timeoutMs = options.timeoutMs ?? FOLDER_DIALOG_TIMEOUT_MS;
   return async ({ prompt, signal }) => {
-    const command = await dialogCommandFor(platform, prompt, options.isExecutable);
+    const command = await dialogCommandFor(
+      platform,
+      prompt,
+      options.isExecutable,
+      options.env ?? process.env,
+    );
     if (command === null) return { status: "unavailable" };
     if (signal.aborted) return { status: "cancelled" };
     let outcome;
@@ -157,7 +245,11 @@ export function createFolderDialog(
         ? { status: "cancelled" }
         : { status: "unavailable" };
     }
-    const chosen = outcome.stdout.replace(/\r?\n$/, "");
+    const chosen =
+      command.output === "base64"
+        ? decodeWindowsDialogOutput(outcome.stdout)
+        : outcome.stdout.replace(/\r?\n$/, "");
+    if (chosen === null) return { status: "unavailable" };
     if (chosen.length === 0) return { status: "cancelled" };
     return { status: "chosen", path: chosen };
   };

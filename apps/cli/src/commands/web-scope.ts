@@ -1,18 +1,17 @@
 import path from "node:path";
-import { MAX_SEARCH_ROOTS, nodeScopeFs, validateSearchRoot } from "@pgard/result-store";
+import {
+  MAX_SEARCH_ROOTS,
+  nodeScopeFs,
+  pathRulesFor,
+  validateSearchRoot,
+} from "@pgard/result-store";
 import { err, out, promptContextOf, type CommandContext } from "../context.js";
 import { EXIT_CODES, type ExitCode } from "../exit-codes.js";
 import { isStoreDisabled } from "../flows/baseline.js";
 import { promptConfirm } from "../ui/components/prompts.js";
 import { safeText } from "../ui/formatters/style.js";
 import type { WebScopeAction } from "../options.js";
-import {
-  homeDirOf,
-  loadScopeFor,
-  printScope,
-  ROOT_REJECTION_TEXT,
-  WINDOWS_PICKER_MESSAGE,
-} from "./web.js";
+import { homeDirOf, loadScopeFor, printScope, ROOT_REJECTION_TEXT } from "./web.js";
 
 const SCOPE_HELP = `Search folders are changed here, in the terminal, never in the browser.
 Each one must be yours, not writable by group or others, and at least two levels deep.`;
@@ -23,6 +22,16 @@ const HOME_WARNING =
 /** `~` and `~/x` are expanded here (a quoted `~` reaches us unexpanded); relative paths use the cwd. */
 function expandFolder(context: CommandContext, raw: string): string {
   const home = homeDirOf(context);
+  if (context.deps.platform === "win32") {
+    if (home !== "" && (raw === "~" || raw.startsWith("~/") || raw.startsWith("~\\"))) {
+      return path.win32.join(home, raw.slice(1));
+    }
+    // A UNC or device path, a drive-relative path (`C:foo`) and a rooted one (`\foo`) are passed
+    // on as written: resolving them against the current folder would hide what they are, and
+    // `validateSearchRoot` refuses them.
+    if (/^[A-Za-z]:/.test(raw) || /^[\\/]/.test(raw)) return raw;
+    return path.win32.resolve(context.io.cwd, raw);
+  }
   if (home !== "" && (raw === "~" || raw.startsWith("~/")))
     return path.posix.join(home, raw.slice(1));
   return path.posix.resolve(context.io.cwd, raw);
@@ -34,10 +43,6 @@ export async function runWebScope(
   action: WebScopeAction,
   folder: string | null,
 ): Promise<ExitCode> {
-  if (context.deps.platform === "win32") {
-    err(context, context.errStyle.red(WINDOWS_PICKER_MESSAGE));
-    return EXIT_CODES.usage;
-  }
   const storage = context.deps.openWebStorage(context.io.env);
   if (storage === null) {
     err(context, context.errStyle.red("No app-data directory could be determined."));
@@ -70,6 +75,10 @@ export async function runWebScope(
   const target = expandFolder(context, folder ?? "");
   // The saved list as it is (also entries that are no longer usable, so they can be removed); the
   // default folders that exist when nothing was saved yet.
+  const rules = pathRulesFor(context.deps.platform);
+  const same = (a: string, b: string): boolean => rules.fold(a) === rules.fold(b);
+  const has = (list: readonly string[], entry: string): boolean =>
+    list.some((item) => same(item, entry));
   const saved = await storage.readSettings();
   const current = saved.status === "ok" ? saved.value.roots : scope.roots.map((root) => root.path);
 
@@ -82,12 +91,12 @@ export async function runWebScope(
     );
     // A folder that no longer exists or is no longer safe can still be removed by its saved path.
     const wanted = checked.ok ? checked.path : target;
-    if (!current.includes(wanted) && !current.includes(target)) {
+    if (!has(current, wanted) && !has(current, target)) {
       err(context, context.errStyle.red(`${safeText(target, 500)} is not a search folder.`));
       return EXIT_CODES.usage;
     }
     const written = await storage.writeSettings(
-      current.filter((entry) => entry !== wanted && entry !== target),
+      current.filter((entry) => !same(entry, wanted) && !same(entry, target)),
     );
     if (!written.ok) return reportWriteFailure(context);
     out(context, `Removed ${safeText(wanted, 500)} from the search folders.`);
@@ -115,7 +124,7 @@ export async function runWebScope(
     return EXIT_CODES.usage;
   }
   out(context, `Real path: ${safeText(checked.path, 500)}`);
-  if (!current.includes(checked.path) && current.length >= MAX_SEARCH_ROOTS) {
+  if (!has(current, checked.path) && current.length >= MAX_SEARCH_ROOTS) {
     err(
       context,
       context.errStyle.red(
@@ -124,12 +133,12 @@ export async function runWebScope(
     );
     return EXIT_CODES.usage;
   }
-  if (current.includes(checked.path)) {
+  if (has(current, checked.path)) {
     out(context, "It is already a search folder.");
     return EXIT_CODES.ok;
   }
   const home = homeDirOf(context);
-  if (home !== "" && checked.path === home) {
+  if (home !== "" && same(checked.path, home)) {
     out(context, context.errStyle.yellow(HOME_WARNING));
   }
   if (!(await promptConfirm(prompts, "Add it to the folders pgard web searches?"))) {

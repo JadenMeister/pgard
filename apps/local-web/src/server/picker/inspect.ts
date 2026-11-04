@@ -1,12 +1,16 @@
-import path from "node:path";
 import type { GitRunner } from "@pgard/git-history";
 import type { RepositoryInspection } from "@pgard/policy";
 import {
   enclosingRepositoryRoot,
   isInsideGitDirectory,
   folderBreadthRefusal,
+  normalizeWindowsPath,
+  pathRulesFor,
   safetyProblemOf,
+  windowsNameProblem,
+  windowsPathProblem,
   type EntryKind,
+  type PathRules,
   type ScopeDirent,
   type ScopeFs,
   type ScopeRoot,
@@ -46,6 +50,8 @@ export interface InspectorDeps {
   /** Milliseconds since an arbitrary start; injected so tests control the deadline. */
   now: () => number;
   platform: string;
+  /** Windows: the operating system and program folders no chosen folder may be inside. */
+  systemFolders?: readonly string[];
   emit: (message: ChildMessage) => void;
   limits?: Partial<PickerLimits>;
 }
@@ -68,15 +74,22 @@ function isSkippedName(name: string, platform: string): boolean {
   );
 }
 
-function isSafeSegmentName(name: string): boolean {
-  return (
-    name.length > 0 &&
-    name.length <= 255 &&
-    name !== "." &&
-    name !== ".." &&
-    !name.includes("/") &&
-    !name.includes("\0")
-  );
+const rulesOf = (deps: { platform: string }): PathRules => pathRulesFor(deps.platform);
+
+function isSafeSegmentName(name: string, platform: string): boolean {
+  if (
+    name.length === 0 ||
+    name.length > 255 ||
+    name === "." ||
+    name === ".." ||
+    name.includes("/") ||
+    name.includes("\0")
+  ) {
+    return false;
+  }
+  // Windows: a backslash is a separator, and a colon, a trailing dot or space or a reserved
+  // device name would name something other than the folder `readdir` listed.
+  return platform !== "win32" || (!name.includes("\\") && windowsNameProblem(name) === null);
 }
 
 function errnoOf(error: unknown): string | undefined {
@@ -131,8 +144,8 @@ async function walkChain(
   const walked: ChainSegment[] = [];
   let current = root.path;
   for (const segment of segments) {
-    if (!isSafeSegmentName(segment.name)) throw new ChainChanged();
-    current = path.posix.join(current, segment.name);
+    if (!isSafeSegmentName(segment.name, deps.platform)) throw new ChainChanged();
+    current = rulesOf(deps).api.join(current, segment.name);
     const stat = await lstatOrThrow(deps.fs, current);
     if (stat.isSymbolicLink || !stat.isDirectory || stat.dev !== root.dev) throw new ChainChanged();
     if (
@@ -158,7 +171,7 @@ function collectSafety(
 ): SafetyReport {
   const report: SafetyReport = { notOwned: [], writable: [] };
   for (const entry of entries) {
-    const problem = safetyProblemOf(entry.stat, deps.uid);
+    const problem = safetyProblemOf(entry.stat, deps.uid, deps.platform);
     if (problem === "not_owned_by_you") report.notOwned.push(entry.path);
     else if (problem === "group_or_world_writable") report.writable.push(entry.path);
   }
@@ -222,7 +235,7 @@ export async function inspectCandidate(
     remote: RawCandidate["remote"] = { status: "unreadable" },
   ): RawCandidate => ({ ...base, gitIdentity, remote, block });
 
-  const gitPath = path.posix.join(chain.candidatePath, ".git");
+  const gitPath = rulesOf(deps).api.join(chain.candidatePath, ".git");
   let gitStat: ScopeStat;
   try {
     gitStat = await deps.fs.lstat(gitPath);
@@ -233,7 +246,7 @@ export async function inspectCandidate(
   if (gitStat.isSymbolicLink) return blocked({ code: "git_dir_unsupported", paths: [] });
   if (gitStat.isFile) return blocked({ code: "gitfile_unsupported", paths: [] });
   if (!gitStat.isDirectory) return blocked({ code: "git_dir_unsupported", paths: [] });
-  const configPath = path.posix.join(gitPath, "config");
+  const configPath = rulesOf(deps).api.join(gitPath, "config");
   let configStat: ScopeStat;
   try {
     configStat = await deps.fs.lstat(configPath);
@@ -282,10 +295,10 @@ export async function inspectCandidate(
       )
     ).trim();
     const [commonDir, ownDir] = await Promise.all([
-      deps.fs.realpath(path.posix.resolve(chain.candidatePath, output)),
+      deps.fs.realpath(rulesOf(deps).api.resolve(chain.candidatePath, output)),
       deps.fs.realpath(gitPath),
     ]);
-    if (output.length === 0 || commonDir !== ownDir) {
+    if (output.length === 0 || rulesOf(deps).fold(commonDir) !== rulesOf(deps).fold(ownDir)) {
       return blocked({ code: "git_dir_unsupported", paths: [] }, gitIdentity);
     }
   } catch {
@@ -376,7 +389,7 @@ async function runSearch(
       continue;
     }
     const queue: QueueItem[] = [
-      { path: root.path, name: path.posix.basename(root.path), segments: [] },
+      { path: root.path, name: rulesOf(job).api.basename(root.path), segments: [] },
     ];
     while (queue.length > 0) {
       if (elapsed() >= limits.softBudgetMs) {
@@ -427,12 +440,12 @@ async function runSearch(
           continue;
         }
         if (!entry.isDirectory) continue;
-        if (!isSafeSegmentName(entry.name)) continue;
+        if (!isSafeSegmentName(entry.name, job.platform)) continue;
         if (isSkippedName(entry.name, job.platform)) {
           skip("skipped_folder");
           continue;
         }
-        const childPath = path.posix.join(item.path, entry.name);
+        const childPath = rulesOf(job).api.join(item.path, entry.name);
         let stat: ScopeStat;
         try {
           stat = await deps.fs.lstat(childPath);
@@ -498,7 +511,7 @@ async function runSearch(
 
 async function hasGitEntry(deps: InspectorDeps, directory: string): Promise<boolean> {
   try {
-    await deps.fs.lstat(path.posix.join(directory, ".git"));
+    await deps.fs.lstat(rulesOf(deps).api.join(directory, ".git"));
     return true;
   } catch {
     return false;
@@ -511,21 +524,23 @@ async function resolveRecent(
   roots: readonly ScopeRoot[],
   target: string,
 ): Promise<RecentOutcome> {
-  if (!path.posix.isAbsolute(target) || path.posix.normalize(target) !== target) {
+  const rules = rulesOf(deps);
+  if (!rules.api.isAbsolute(target) || rules.api.normalize(target) !== target) {
     return { status: "outside_scope" };
   }
+  if (rules.windows && windowsPathProblem(target) !== null) return { status: "outside_scope" };
   // The string prefix only chooses which root to walk from; containment is the walk itself.
-  const rootIndex = roots.findIndex((root) => target.startsWith(`${root.path}/`));
+  const rootIndex = roots.findIndex((root) => rules.isBelow(target, root.path));
   const root = roots[rootIndex];
   if (root === undefined) return { status: "outside_scope" };
-  const names = target.slice(root.path.length + 1).split("/");
+  const names = target.slice(root.path.length + 1).split(rules.windows ? "\\" : "/");
   // The same rules as the walk: depth, no skipped or dot folder on the way, no repository above.
   if (names.length - 1 > limitsOf(deps).depth) return { status: "outside_scope" };
   if (names.some((name) => isSkippedName(name, deps.platform))) return { status: "outside_scope" };
   let ancestor = root.path;
   for (const name of names.slice(0, -1).map((n) => n)) {
     if (await hasGitEntry(deps, ancestor)) return { status: "outside_scope" };
-    ancestor = path.posix.join(ancestor, name);
+    ancestor = rules.api.join(ancestor, name);
   }
   if (await hasGitEntry(deps, ancestor)) {
     // `ancestor` is the parent of the candidate: a repository there makes this one nested.
@@ -548,8 +563,11 @@ async function resolveRecent(
  * refused too. Same helper as `pgard scan --code-only`.
  */
 function breadthRefusal(deps: InspectorDeps, target: string, home: string | null) {
+  const rules = rulesOf(deps);
   return folderBreadthRefusal(target, home, {
-    pathApi: path.posix,
+    pathApi: rules.api,
+    ignoreCase: rules.windows,
+    windows: rules.windows,
     identityOf: async (entry) => {
       try {
         const stat = await deps.fs.lstat(entry);
@@ -559,6 +577,13 @@ function breadthRefusal(deps: InspectorDeps, target: string, home: string | null
       }
     },
   });
+}
+
+function isInsideSystemFolder(deps: InspectorDeps, target: string): boolean {
+  const rules = rulesOf(deps);
+  return (deps.systemFolders ?? []).some(
+    (folder) => rules.fold(folder) === rules.fold(target) || rules.isBelow(target, folder),
+  );
 }
 
 /** Most folder names from the anchor down to a chosen folder. */
@@ -581,13 +606,25 @@ async function resolveFolder(
 ): Promise<void> {
   const refuse = (reason: ResolveRefusal, paths: string[] = []): void =>
     deps.emit({ t: "refused", reason, paths });
-  if (!path.posix.isAbsolute(job.path) || job.path.includes("\0")) return refuse("missing");
+  const rules = rulesOf(deps);
+  if (job.path.includes("\0")) return refuse("missing");
+  if (rules.windows) {
+    // Only a plain local-drive path, as written: no network share, device namespace,
+    // drive-relative path, data stream or name Windows would rewrite (`windows-path.ts`).
+    if (windowsPathProblem(job.path) !== null || normalizeWindowsPath(job.path) !== job.path) {
+      return refuse("bad_path");
+    }
+  } else if (!rules.api.isAbsolute(job.path)) {
+    return refuse("missing");
+  }
   let target: string;
   try {
     target = await deps.fs.realpath(job.path);
   } catch (error) {
     return refuse(isGoneError(error) ? "missing" : "unreadable");
   }
+  // The real path again: a junction, a symbolic link or a mapped drive may lead to a share.
+  if (rules.windows && windowsPathProblem(target) !== null) return refuse("bad_path");
   let stat: ScopeStat;
   try {
     stat = await deps.fs.lstat(target);
@@ -597,12 +634,13 @@ async function resolveFolder(
   if (stat.isSymbolicLink || !stat.isDirectory) return refuse("not_a_directory");
   let home: string | null = null;
   try {
-    home = path.posix.isAbsolute(job.homeDir) ? await deps.fs.realpath(job.homeDir) : null;
+    home = rules.api.isAbsolute(job.homeDir) ? await deps.fs.realpath(job.homeDir) : null;
   } catch {
     home = null;
   }
   // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
   if ((await breadthRefusal(deps, target, home)) !== null) return refuse("too_broad");
+  if (rules.windows && isInsideSystemFolder(deps, target)) return refuse("too_broad");
   const kindOf = async (entry: string): Promise<EntryKind> => {
     try {
       const entryStat = await deps.fs.lstat(entry);
@@ -614,12 +652,12 @@ async function resolveFolder(
   };
   // A Git directory (`.git`, its objects, a bare repository) is never scanned as code, the same
   // rule as `pgard scan code`.
-  if (await isInsideGitDirectory(target, kindOf, { pathApi: path.posix })) {
+  if (await isInsideGitDirectory(target, kindOf, { pathApi: rules.api })) {
     return refuse("git_directory", [target]);
   }
   // A folder inside a repository is checked and scanned as that repository (its top folder).
   const repositoryRoot = await enclosingRepositoryRoot(target, home, kindOf, {
-    pathApi: path.posix,
+    pathApi: rules.api,
   });
   const insideRepository = repositoryRoot !== null;
   if (repositoryRoot !== null) {
@@ -633,30 +671,32 @@ async function resolveFolder(
     if ((await breadthRefusal(deps, target, home)) !== null) {
       return refuse("too_broad");
     }
+    if (rules.windows && isInsideSystemFolder(deps, target)) return refuse("too_broad");
   }
   let anchor: string;
-  if (home !== null && target.startsWith(`${home}/`)) {
+  if (home !== null && rules.isBelow(target, home)) {
     anchor = home;
   } else {
-    if (safetyProblemOf(stat, deps.uid) === "not_owned_by_you") {
+    if (safetyProblemOf(stat, deps.uid, deps.platform) === "not_owned_by_you") {
       return refuse("not_owned_by_you", [target]);
     }
     anchor = target;
     for (;;) {
-      const parent = path.posix.dirname(anchor);
-      if (parent === "/" || parent === anchor) break;
+      const parent = rules.api.dirname(anchor);
+      if (parent === anchor || parent === rules.api.parse(parent).root) break;
       let parentStat: ScopeStat;
       try {
         parentStat = await deps.fs.lstat(parent);
       } catch {
         return refuse("unreadable");
       }
-      if (deps.uid === undefined || parentStat.uid !== deps.uid) break;
+      // Windows has no owner to compare: the chain starts at the chosen folder itself.
+      if (rules.windows || deps.uid === undefined || parentStat.uid !== deps.uid) break;
       anchor = parent;
     }
   }
-  const above = path.posix.dirname(anchor);
-  if (above !== anchor) {
+  const above = rules.api.dirname(anchor);
+  if (above !== anchor && !rules.windows) {
     let aboveStat: ScopeStat;
     try {
       aboveStat = await deps.fs.lstat(above);
@@ -667,7 +707,7 @@ async function resolveFolder(
     const isSticky = (aboveStat.mode & 0o1000) !== 0;
     if (isWritableByOthers && !isSticky) return refuse("group_or_world_writable", [above]);
   }
-  const names = target === anchor ? [] : target.slice(anchor.length + 1).split("/");
+  const names = target === anchor ? [] : target.slice(anchor.length + 1).split(rules.sep);
   if (names.length > MAX_RESOLVE_SEGMENTS) return refuse("too_deep");
   let anchorStat: ScopeStat;
   try {

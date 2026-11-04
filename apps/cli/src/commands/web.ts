@@ -5,24 +5,27 @@ import { isStoreDisabled } from "../flows/baseline.js";
 import { safeText } from "../ui/formatters/style.js";
 import { localPageArgs, NO_LOCAL_PAGE_FLAGS, type LocalPageFlags } from "./dashboard.js";
 
-export const WINDOWS_PICKER_MESSAGE =
-  "The project picker is not available on Windows yet. Run `pgard dashboard` in the project folder instead.";
-
 /** Fixed English reasons a search folder is not used (shown in the terminal, the trusted channel). */
 export const ROOT_REJECTION_TEXT: Record<RootRejection, string> = {
   not_absolute: "is not an absolute path",
   missing: "does not exist",
   not_a_directory: "is not a folder",
   symlink: "is a symbolic link",
-  too_shallow: "is too high up (it must be at least two levels deep, so not / or /Users)",
+  too_shallow:
+    "is too high up (it must be at least two levels deep, so not / or /Users, nor C:\\ or C:\\Users)",
   not_owned_by_you: "belongs to another user",
   group_or_world_writable:
     "can be changed by other users (remove their write access with chmod go-w)",
   unreadable: "could not be read",
-  unsupported_platform: "is not supported on this platform",
+  unsafe_path:
+    "is not a plain local folder (a network share, a device path, a system folder or a name Windows rewrites)",
 };
 
 export function homeDirOf(context: CommandContext): string {
+  // Windows: `HOME` may be a Git Bash `/c/Users/...` spelling; the profile folder is the home.
+  if (context.deps.platform === "win32") {
+    return context.io.env.USERPROFILE ?? context.io.env.HOME ?? "";
+  }
   return context.io.env.HOME ?? context.io.env.USERPROFILE ?? "";
 }
 
@@ -78,10 +81,6 @@ export async function runWeb(
   noStore: boolean,
   launch: LocalPageFlags = NO_LOCAL_PAGE_FLAGS,
 ): Promise<ExitCode> {
-  if (context.deps.platform === "win32") {
-    err(context, context.errStyle.red(WINDOWS_PICKER_MESSAGE));
-    return EXIT_CODES.usage;
-  }
   const entry = context.deps.resolveDashboardEntry();
   if (entry === null) {
     err(

@@ -1,3 +1,4 @@
+import { isWindowsDrivePath, windowsPathProblem } from "@pgard/result-store";
 import {
   ID_PATTERN,
   PICKER_BLOCK_CODES,
@@ -223,7 +224,10 @@ export function validateChildMessage(raw: unknown, job: InspectorJob): ChildMess
       if (
         root === null ||
         !isText(root.path, MAX_PATH) ||
-        !root.path.startsWith("/") ||
+        !(
+          root.path.startsWith("/") ||
+          (isWindowsDrivePath(root.path) && windowsPathProblem(root.path) === null)
+        ) ||
         !isInt(root.dev) ||
         !isInt(root.ino)
       ) {

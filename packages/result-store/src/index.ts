@@ -5,3 +5,4 @@ export * from "./web-files.js";
 export * from "./web-scope.js";
 export * from "./trend-rules.js";
 export * from "./folder-breadth.js";
+export * from "./windows-path.js";
