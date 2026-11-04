@@ -55,4 +55,18 @@ describe("release workflow", () => {
       expect(m[1]).toMatch(/@[0-9a-f]{40}$/);
     }
   });
+
+  it("publishes the GitHub Packages copy only after npm, behind the same approval, with its own permissions", () => {
+    const job = workflow.slice(workflow.indexOf("\n  publish-github:"));
+    expect(job).toMatch(/needs: \[verify, publish\]/);
+    expect(job).toMatch(/environment: npm-publish/);
+    expect(job).toMatch(/packages: write/);
+    expect(job).toMatch(/attestations: write/);
+    expect(job).toMatch(/registry-url: https:\/\/npm\.pkg\.github\.com/);
+    expect(job).toMatch(/actions\/attest-build-provenance@[0-9a-f]{40}/);
+    // `packages: write` must not leak into the other jobs.
+    expect(workflow.slice(0, workflow.indexOf("\n  publish-github:"))).not.toMatch(
+      /packages: write/,
+    );
+  });
 });

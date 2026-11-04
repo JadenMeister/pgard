@@ -112,6 +112,8 @@ npm install -g pgard   # installs the `pgard` command
 npx pgard doctor       # or run it once without installing
 ```
 
+Releases are also published to GitHub Packages as `@jadenmeister/pgard`; installing from there needs `@jadenmeister:registry=https://npm.pkg.github.com` in your `.npmrc` and a GitHub token with `read:packages` ([details](docs/RELEASING.md)). The npm package above is the recommended install.
+
 With Homebrew (macOS and Linux), through the tap `jadenmeister/pgard`:
 
 ```sh

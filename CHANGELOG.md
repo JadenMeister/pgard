@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Added
+
+- The `release` workflow also publishes each release to GitHub Packages as `@jadenmeister/pgard` (#480): a new `publish-github` job runs after the npmjs.com publish, behind the same `npm-publish` approval, repacks the verified tarball changing only `name` and `publishConfig.registry`, checks every other file is identical, publishes with `GITHUB_TOKEN` and attaches a build provenance attestation. npmjs.com stays the recommended install; see [docs/RELEASING.md](docs/RELEASING.md).
+
 ### Changed
 
 - The Homebrew tap `jadenmeister/pgard` is live. README, the website and `packaging/homebrew/README.md` now show the `brew trust --formula jadenmeister/pgard/pgard` step and the fix for an `npm install -g pgard` that blocks `brew link` (#470).

@@ -2,7 +2,7 @@
 
 > [English](RELEASING.md)가 기준 문서이며 이 문서는 그 번역입니다.
 
-PGARD는 npm 패키지 `pgard` 하나로 배포됩니다(`npm run pack:pgard`가 `packaging/pgard/package.json`으로 빌드). 릴리스는 버전 태그입니다. [`release` 워크플로](../.github/workflows/release.yml)가 검증하고, 사람의 승인을 기다린 뒤, 검증된 tarball을 provenance와 함께 npm에 배포합니다. Homebrew는 배포된 tarball을 바탕으로 갱신합니다.
+PGARD는 npm 패키지 `pgard` 하나로 배포됩니다(`npm run pack:pgard`가 `packaging/pgard/package.json`으로 빌드). 릴리스는 버전 태그입니다. [`release` 워크플로](../.github/workflows/release.yml)가 검증하고, 사람의 승인을 기다린 뒤, 검증된 tarball을 provenance와 함께 npm에 배포한 뒤, 같은 tarball을 `@jadenmeister/pgard`라는 이름으로 GitHub Packages에도 배포합니다. Homebrew는 배포된 tarball을 바탕으로 갱신합니다.
 
 ## 패키지에 들어가는 것(의존성과 라이선스)
 
@@ -68,9 +68,34 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
 6. **드라이런(권장).** Actions, `release`, Run workflow에서 `main`을 고르고 버전을 입력하고 `dry_run`을 켭니다. 모든 검증과 `npm publish --dry-run`을 실행하며 아무것도 배포되지 않습니다. 드라이런도 `publish` 작업을 거치므로 **`npm-publish` 승인을 기다리고 OIDC 토큰도 요청합니다.** 브랜치에서의 수동 실행은 드라이런만 가능하며 실제 배포에는 태그가 필요합니다.
 7. **태그.** `main`의 머지된 커밋에서 `git tag -a vX.Y.Z -m "pgard X.Y.Z"`, `git push origin vX.Y.Z`. 태그는 `v` + 정확한 버전(`v0.1.0`, `v0.2.0-rc.1`)이며, 패키지 버전과 다르면 워크플로가 거부합니다.
 8. **승인.** `verify` 작업이 빌드, 검사를 실행하고 tarball을 올립니다. 이어서 `publish` 작업이 `npm-publish` 환경에서 대기합니다. 필수 검토자가 실행 화면에서 태그, 커밋, verify 결과가 의도한 것인지 확인하고 승인합니다. 배포 작업은 tarball 체크섬을 verify 작업의 값과 대조한 뒤 `npm publish <tarball> --provenance --access public`을 실행합니다.
+   이어서 `publish-github` 작업이 시작됩니다(아래 "GitHub Packages 사본"). 같은 `npm-publish` 환경을 쓰므로 승인을 다시 요청할 수 있습니다.
 9. **배포 후 확인**(아래).
 10. **GitHub 릴리스.** 태그에 대한 GitHub 릴리스를 변경 기록 해당 절을 노트로 직접 만듭니다.
 11. **Homebrew.** tap을 갱신합니다([packaging/homebrew/README.md](../packaging/homebrew/README.md)).
+
+## GitHub Packages 사본
+
+npm 배포가 성공하면 `publish-github` 작업이 같은 릴리스를 GitHub Packages(`https://npm.pkg.github.com`)에도 배포해 저장소의 Packages 영역에 표시되게 합니다. GitHub Packages는 npm 패키지에 소유자 스코프를 요구하므로 사본의 이름은 `@jadenmeister/pgard`입니다. **설치는 계속 npmjs.com을 권장합니다.**
+
+이 작업은 npm 배포 작업을 `needs`로 기다리고 같은 `npm-publish` 환경을 쓰며, 작업 수준 권한은 `contents: read`, `packages: write`, `id-token: write`, `attestations: write`뿐입니다(워크플로 기본값은 비어 있는 그대로). 새 시크릿 없이 `GITHUB_TOKEN`을 씁니다. 순서는 다음과 같습니다.
+
+1. `verify` 작업이 만든 아티팩트를 내려받아 sha256을 `verify`의 출력과 대조합니다(integrity 값은 실행 요약에 출력됩니다).
+2. 압축을 풀고 `package.json`의 `name`만 `@jadenmeister/pgard`로 바꾸고 `publishConfig.registry`(`https://npm.pkg.github.com`)를 추가한 뒤 다시 묶습니다.
+3. 다시 묶은 tarball의 파일 목록과 모드가 같고 `package.json`을 뺀 모든 파일이 검증된 tarball과 바이트 단위로 같은지, `package.json`이 그 두 필드 외에는 같은지 확인합니다. 하나라도 다르면 아무것도 배포하기 전에 작업이 실패합니다.
+4. `@jadenmeister/pgard@X.Y.Z`가 이미 GitHub Packages에 있으면 배포 전에 분명한 메시지와 함께 실패합니다(배포된 버전은 바꿀 수 없으므로 새 버전을 릴리스합니다).
+5. 프리릴리스는 `--tag next`, 그 외는 `latest`로 `npm publish`를 실행하고(드라이런은 `npm publish --dry-run`만), 다시 묶은 tarball의 빌드 provenance 증명을 `actions/attest-build-provenance`로 만듭니다(드라이런 제외). npm 자체의 `--provenance`는 npmjs.com용이라 이 사본에서는 끕니다.
+
+이 작업만 실패했다면 Actions 화면에서 이 작업만 다시 실행해도 안전합니다. 버전이 이미 있으면 4단계에서 멈추고, npm 배포는 반복되지 않습니다.
+
+GitHub Packages에서 설치하려면 `.npmrc` 설정과 `read:packages` 권한의 GitHub 토큰이 필요합니다(공개 패키지도 인증을 요구합니다).
+
+```sh
+echo "@jadenmeister:registry=https://npm.pkg.github.com" >> ~/.npmrc
+echo "//npm.pkg.github.com/:_authToken=<read:packages 권한 토큰>" >> ~/.npmrc
+npm install -g @jadenmeister/pgard
+```
+
+명령 이름은 그대로 `pgard`입니다. 사본은 `gh attestation verify <tarball> --repo JadenMeister/pgard`로 검증합니다.
 
 ## 배포 후 확인
 
