@@ -50,7 +50,7 @@ apps/
   cli/
     package.json
     src/
-      bin/pgard.ts              # process entry point
+      bin/main.ts               # process entry point (loaded by apps/cli/bin/pgard.js, the Node.js version guard)
       app.ts                    # command parsing and TUI launch wiring
       options.ts                # option validation and help
       commands/

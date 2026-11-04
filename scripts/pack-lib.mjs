@@ -1,7 +1,8 @@
 // Helpers shared by pack-pgard.mjs and smoke-pack.mjs (and unit-tested in
-// tests/integration/pack-scripts.test.ts). Plain Node, no dependencies.
+// tests/integration/pack-scripts.test.ts). Plain Node; only
+// findOldNodeEntryProblems loads esbuild (a dev dependency), and only when it runs.
 import { existsSync } from "node:fs";
-import { builtinModules } from "node:module";
+import { builtinModules, createRequire } from "node:module";
 import { dirname, join } from "node:path";
 
 /**
@@ -287,4 +288,28 @@ export function shippedNotice(text) {
     }
   }
   return out;
+}
+
+/**
+ * Checks the `pgard` entry file (the Node.js version guard) so it still loads on old Node.js:
+ * no static import or export, no top-level await, no syntax that esbuild would have to lower for an
+ * ES2017 target (`??`, `?.`, optional catch binding, object spread, ...). Returns problems as text.
+ * esbuild is a dev dependency of this repository, so it is loaded only when this runs.
+ */
+export function findOldNodeEntryProblems(code) {
+  const problems = [];
+  if (/^\s*(?:import|export)\b(?!\s*\()/m.test(code)) {
+    problems.push("the entry file must not use static import or export");
+  }
+  const { transformSync } = createRequire(import.meta.url)("esbuild");
+  try {
+    const modern = transformSync(code, { target: "esnext", format: "esm" }).code;
+    const old = transformSync(code, { target: "es2017", format: "esm" }).code;
+    if (modern !== old) problems.push("the entry file uses syntax newer than ES2017");
+  } catch (error) {
+    problems.push(
+      `the entry file does not parse as ES2017: ${String(error.message).split("\n")[0]}`,
+    );
+  }
+  return problems;
 }

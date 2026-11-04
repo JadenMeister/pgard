@@ -30,6 +30,7 @@ import {
   REQUIRE_BANNER,
   findDynamicCodeUses,
   findExternalViolations,
+  findOldNodeEntryProblems,
   EXTERNAL_PACKAGES,
   npmCommand,
   packageNameOf,
@@ -56,7 +57,8 @@ function fail(message) {
 
 // --- Preconditions: built output exists, versions agree, dependencies match the workspaces. ---
 for (const file of [
-  "apps/cli/dist/bin/pgard.js",
+  "apps/cli/bin/pgard.js",
+  "apps/cli/dist/bin/main.js",
   "apps/local-web/dist/server/index.js",
   "apps/local-web/dist/server/picker/inspector-child.js",
   "apps/local-web/dist/client/index.html",
@@ -287,7 +289,8 @@ mkdirSync(join(stage, "dist"), { recursive: true });
 
 const result = await build({
   entryPoints: {
-    pgard: join(root, "apps/cli/dist/bin/pgard.js"),
+    // The real CLI; dist/pgard.js (the bin) is the small version-guard entry written below.
+    main: join(root, "apps/cli/dist/bin/main.js"),
     dashboard: join(root, "apps/local-web/dist/server/index.js"),
     inspector: join(root, "apps/local-web/dist/server/picker/inspector-child.js"),
     "smoke-report": join(root, "packaging/smoke-report-entry.js"),
@@ -341,6 +344,18 @@ const violations = findExternalViolations(result.metafile, template.dependencies
 });
 if (violations.length > 0)
   fail(`undeclared externals in the bundle:\n  ${violations.join("\n  ")}`);
+
+// The bin entry is not bundled: it must parse and run on old Node.js to explain an unsupported
+// version (apps/cli/bin/pgard.js). It only gets its import of the real CLI pointed at ./main.js.
+{
+  const guardSource = readFileSync(join(root, "apps/cli/bin/pgard.js"), "utf8");
+  const from = 'import("../dist/bin/main.js")';
+  if (guardSource.split(from).length !== 2) fail(`expected exactly one ${from} in the entry file`);
+  const guard = guardSource.replace(from, () => 'import("./main.js")');
+  const guardIssues = findOldNodeEntryProblems(guard);
+  if (guardIssues.length > 0) fail(`entry file:\n  ${guardIssues.join("\n  ")}`);
+  writeFileSync(join(stage, "dist/pgard.js"), guard, { mode: 0o755 });
+}
 
 // Every bundled third-party package needs a permissive license and a license text (#358).
 const bundled = bundledPackages(result.metafile, root);
