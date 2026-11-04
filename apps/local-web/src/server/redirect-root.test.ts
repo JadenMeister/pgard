@@ -31,6 +31,18 @@ describe("redirectRoot", () => {
   });
 });
 
+describe("redirectRoot on Windows (#430)", () => {
+  it("refuses a UNC or device temp folder, accepts a local one", async () => {
+    const root = (tmpDir: string) =>
+      redirectRoot({ platform: "win32", env: {}, homeDir: "C:\\Users\\u", uid: undefined, tmpDir });
+    await expect(root("\\\\server\\share\\tmp")).rejects.toThrow("network or device");
+    await expect(root("\\\\?\\C:\\Temp")).rejects.toThrow("network or device");
+    expect(await root("C:\\Users\\김철수\\AppData\\Local\\Temp")).toBe(
+      "C:\\Users\\김철수\\AppData\\Local\\Temp",
+    );
+  });
+});
+
 describe.skipIf(process.platform === "win32")("redirectRoot on Linux", () => {
   it("uses XDG_RUNTIME_DIR when it is ours and private (0700)", async () => {
     const runtime = path.join(scratch(), "run");

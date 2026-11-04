@@ -58,6 +58,20 @@ function fakeHost(options: { killed?: number[] } = {}) {
 const done: ChildMessage = { t: "done", stoppedBy: null, elapsedMs: 5, visited: 3, skipped: [] };
 
 describe("inspector host with a fake child", () => {
+  it("never kills by pid a child that has already exited (the pid may be reused)", async () => {
+    const killed: number[] = [];
+    const { host, children } = fakeHost({ killed });
+    const exited = host.run(job, { hardMs: 5_000, onMessage: () => undefined });
+    (children[0] as FakeChild).exitCode = 0;
+    exited?.cancel();
+    expect((await exited?.result)?.status).toBe("killed");
+    expect(killed).toEqual([]);
+    const live = host.run(job, { hardMs: 5_000, onMessage: () => undefined });
+    live?.cancel();
+    await live?.result;
+    expect(killed).toEqual([4242]);
+  });
+
   it("sends the job over IPC and finishes on a valid done message", async () => {
     const { host, children } = fakeHost();
     const received: ChildMessage[] = [];
@@ -218,15 +232,18 @@ describe("inspector host with a fake child", () => {
   });
 
   it("gives the child only an allowlisted environment (no token, no PGARD variable)", () => {
-    const env = inspectorEnvironment({
-      PATH: "/usr/bin",
-      HOME: "/home/u",
-      LANG: "en_US.UTF-8",
-      PGARD_SESSION_TOKEN: "secret",
-      GITHUB_TOKEN: "ghp_x",
-      PGARD_GITHUB_APP_CLIENT_ID: "id",
-      SSH_AUTH_SOCK: "/tmp/agent",
-    });
+    const env = inspectorEnvironment(
+      {
+        PATH: "/usr/bin",
+        HOME: "/home/u",
+        LANG: "en_US.UTF-8",
+        PGARD_SESSION_TOKEN: "secret",
+        GITHUB_TOKEN: "ghp_x",
+        PGARD_GITHUB_APP_CLIENT_ID: "id",
+        SSH_AUTH_SOCK: "/tmp/agent",
+      },
+      "linux",
+    );
     expect(Object.keys(env).sort()).toEqual([
       "HOME",
       "LANG",

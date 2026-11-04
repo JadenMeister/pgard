@@ -9,7 +9,13 @@ import path from "node:path";
 import { performance } from "node:perf_hooks";
 import { runGit } from "@pgard/git-history";
 import { inspectRepository } from "@pgard/policy";
-import { nodeScopeFs, type ScopeFs, type ScopeRoot, type ScopeStat } from "@pgard/result-store";
+import {
+  nodeScopeFs,
+  type FileId,
+  type ScopeFs,
+  type ScopeRoot,
+  type ScopeStat,
+} from "@pgard/result-store";
 import type { InspectorDeps } from "../inspect.js";
 import type { ChildMessage } from "../protocol.js";
 
@@ -33,8 +39,9 @@ export function createScopeTree(): ScopeTree {
 }
 
 export function rootOf(rootPath: string): ScopeRoot {
-  const stat = lstatSync(rootPath);
-  return { path: rootPath, dev: stat.dev, ino: stat.ino };
+  // Same form as the real file system object (decimal strings).
+  const stat = lstatSync(rootPath, { bigint: true });
+  return { path: rootPath, dev: stat.dev.toString(), ino: stat.ino.toString() };
 }
 
 const GIT_ENV = {
@@ -89,7 +96,7 @@ export const GITHUB_REMOTES = { origin: "https://github.com/acme/shop.git" };
 export interface StatOverride {
   uid?: number;
   mode?: number;
-  dev?: number;
+  dev?: FileId;
 }
 
 /** The real file system with per-path overrides of owner, mode and device (an injected fs). */

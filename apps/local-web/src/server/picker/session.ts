@@ -97,6 +97,8 @@ export interface PickerDeps {
   roots: ScopeRoot[];
   homeDir: string;
   platform: string;
+  /** Windows: the operating system and program folders (sent to the inspector with each job). */
+  systemFolders?: string[];
   /** For `~`-shortening and tests. */
   now?: () => number;
   /** #414: the OS folder dialog; absent means none can be opened. */

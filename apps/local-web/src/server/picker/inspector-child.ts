@@ -11,7 +11,7 @@ import type { ChildMessage, InspectorJob } from "./protocol.js";
  * stdout or stderr, no token and no path on its command line.
  */
 
-// Windows is not supported by the picker; a stray start there does nothing useful.
+// Started without an IPC channel (by hand): there is nobody to talk to.
 if (process.send === undefined) process.exit(2);
 
 // The server went away (or closed the channel): there is nobody to report to.
