@@ -80,10 +80,10 @@ After the npmjs.com publish succeeds, the `publish-github` job publishes the sam
 The job `needs` the npm publish job, uses the same `npm-publish` environment, and has only `contents: read`, `packages: write`, `id-token: write` and `attestations: write` (job level; the workflow default stays empty). It uses `GITHUB_TOKEN`, no new secret. It:
 
 1. downloads the artifact the `verify` job built and checks its sha256 against the `verify` output (the integrity value is printed in the run summary);
-2. unpacks it, changes only `name` (to `@jadenmeister/pgard`) and adds `publishConfig.registry` (`https://npm.pkg.github.com`) in `package.json`, and repacks it;
-3. checks that the repacked tarball has the same file list and modes and that every file except `package.json` is byte-identical to the verified tarball, and that `package.json` differs in nothing but those two fields. Any difference fails the job before anything is published;
+2. unpacks it, changes only `name` (to `@jadenmeister/pgard`), adds `publishConfig.registry` (`https://npm.pkg.github.com`) and removes `publishConfig.provenance` in `package.json` (npm provenance is npmjs.com-only), and repacks it;
+3. checks that the repacked tarball has the same file list and modes and that every file except `package.json` is byte-identical to the verified tarball, and that `package.json` differs in nothing but those edits. Any difference fails the job before anything is published;
 4. fails with a clear message, before publishing, if `@jadenmeister/pgard@X.Y.Z` already exists on GitHub Packages (a published version cannot be replaced; release a new version);
-5. runs `npm publish` with `--tag next` for a pre-release and `latest` otherwise (a dry run runs `npm publish --dry-run` only), then creates a build provenance attestation for the repacked tarball with `actions/attest-build-provenance` (not on a dry run). npm's own `--provenance` is for npmjs.com and is switched off for this copy.
+5. runs `npm publish` with `--tag next` for a pre-release and `latest` otherwise (a dry run runs `npm publish --dry-run` only), then creates a build provenance attestation for the repacked tarball with `actions/attest-build-provenance` (not on a dry run). npm's own `--provenance` is for npmjs.com and is switched off for this copy; the attestation is this copy's provenance.
 
 Re-running after a failure in this job is safe: if the version is already on GitHub Packages the job stops at step 4. If only this job failed, re-run just it from the Actions UI; the npmjs.com publish is not repeated.
 

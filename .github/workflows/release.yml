@@ -180,8 +180,8 @@ jobs:
 
   # Publishes the same verified tarball to GitHub Packages as `@jadenmeister/pgard` (GitHub
   # Packages npm packages must be scoped to the owner). It runs only after the npmjs.com publish
-  # succeeded and behind the same `npm-publish` approval. Only `name` and `publishConfig.registry`
-  # of package.json change; every other file is checked to be identical to the verified tarball.
+  # succeeded and behind the same `npm-publish` approval. Only `name` and `publishConfig` (registry
+  # added, provenance dropped) of package.json change; every other file is checked to be identical to the verified tarball.
   publish-github:
     name: publish to GitHub Packages
     needs: [verify, publish]
@@ -221,14 +221,17 @@ jobs:
           mkdir -p "$work/orig" "$work/new" "$work/out" "$work/check"
           tar -xzf "$orig" -C "$work/orig"
           cp -R "$work/orig/package" "$work/new/package"
-          # The only edits: the package name and the registry (publishConfig keeps its other keys).
+          # The only edits: the package name, the registry, and dropping publishConfig.provenance (npm
+          # provenance is npmjs.com-only and publishConfig would override the CLI flag). The GitHub copy's
+          # provenance is the attestation below.
           node -e '
             const fs = require("fs");
             const p = process.argv[1];
             const m = JSON.parse(fs.readFileSync(p, "utf8"));
             if (m.name !== "pgard") throw new Error("unexpected package name " + m.name);
             m.name = "@jadenmeister/pgard";
-            m.publishConfig = { ...m.publishConfig, registry: "https://npm.pkg.github.com" };
+            const { provenance, ...rest } = m.publishConfig ?? {};
+            m.publishConfig = { ...rest, registry: "https://npm.pkg.github.com" };
             fs.writeFileSync(p, JSON.stringify(m, null, 2) + "\n");
           ' "$work/new/package/package.json"
           (cd "$work/out" && npm pack "$work/new/package" --ignore-scripts --silent >/dev/null)
@@ -236,6 +239,7 @@ jobs:
           [ "${#out[@]}" -eq 1 ] || { echo "::error::expected exactly one repacked tarball"; exit 1; }
           tar -xzf "${out[0]}" -C "$work/check"
           # Same file list, same modes, same bytes everywhere except package.json.
+          # This job runs on ubuntu-latest (Linux): GNU find supports -printf.
           list() { (cd "$1" && find . -printf '%y %m %p\n' | sort); }
           diff <(list "$work/orig") <(list "$work/check") || { echo "::error::repacked file list differs from the verified tarball"; exit 1; }
           diff -r -x package.json "$work/orig/package" "$work/check/package" || { echo "::error::repacked files differ from the verified tarball"; exit 1; }
@@ -247,8 +251,9 @@ jobs:
             const a = read(process.argv[1]);
             const b = read(process.argv[2]);
             a.name = "@jadenmeister/pgard";
-            a.publishConfig = { ...a.publishConfig, registry: "https://npm.pkg.github.com" };
-            if (!isDeepStrictEqual(a, b)) throw new Error("package.json differs in more than name and publishConfig.registry");
+            const { provenance, ...rest } = a.publishConfig ?? {};
+            a.publishConfig = { ...rest, registry: "https://npm.pkg.github.com" };
+            if (!isDeepStrictEqual(a, b)) throw new Error("package.json differs in more than name, publishConfig.registry and publishConfig.provenance");
           ' "$work/orig" "$work/check"
           mkdir release-github
           cp "${out[0]}" release-github/

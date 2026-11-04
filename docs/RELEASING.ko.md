@@ -80,10 +80,10 @@ npm 배포가 성공하면 `publish-github` 작업이 같은 릴리스를 GitHub
 이 작업은 npm 배포 작업을 `needs`로 기다리고 같은 `npm-publish` 환경을 쓰며, 작업 수준 권한은 `contents: read`, `packages: write`, `id-token: write`, `attestations: write`뿐입니다(워크플로 기본값은 비어 있는 그대로). 새 시크릿 없이 `GITHUB_TOKEN`을 씁니다. 순서는 다음과 같습니다.
 
 1. `verify` 작업이 만든 아티팩트를 내려받아 sha256을 `verify`의 출력과 대조합니다(integrity 값은 실행 요약에 출력됩니다).
-2. 압축을 풀고 `package.json`의 `name`만 `@jadenmeister/pgard`로 바꾸고 `publishConfig.registry`(`https://npm.pkg.github.com`)를 추가한 뒤 다시 묶습니다.
-3. 다시 묶은 tarball의 파일 목록과 모드가 같고 `package.json`을 뺀 모든 파일이 검증된 tarball과 바이트 단위로 같은지, `package.json`이 그 두 필드 외에는 같은지 확인합니다. 하나라도 다르면 아무것도 배포하기 전에 작업이 실패합니다.
+2. 압축을 풀고 `package.json`의 `name`을 `@jadenmeister/pgard`로 바꾸고 `publishConfig.registry`(`https://npm.pkg.github.com`)를 추가하며 `publishConfig.provenance`를 제거한 뒤(npm provenance는 npmjs.com 전용) 다시 묶습니다.
+3. 다시 묶은 tarball의 파일 목록과 모드가 같고 `package.json`을 뺀 모든 파일이 검증된 tarball과 바이트 단위로 같은지, `package.json`이 그 수정 외에는 같은지 확인합니다. 하나라도 다르면 아무것도 배포하기 전에 작업이 실패합니다.
 4. `@jadenmeister/pgard@X.Y.Z`가 이미 GitHub Packages에 있으면 배포 전에 분명한 메시지와 함께 실패합니다(배포된 버전은 바꿀 수 없으므로 새 버전을 릴리스합니다).
-5. 프리릴리스는 `--tag next`, 그 외는 `latest`로 `npm publish`를 실행하고(드라이런은 `npm publish --dry-run`만), 다시 묶은 tarball의 빌드 provenance 증명을 `actions/attest-build-provenance`로 만듭니다(드라이런 제외). npm 자체의 `--provenance`는 npmjs.com용이라 이 사본에서는 끕니다.
+5. 프리릴리스는 `--tag next`, 그 외는 `latest`로 `npm publish`를 실행하고(드라이런은 `npm publish --dry-run`만), 다시 묶은 tarball의 빌드 provenance 증명을 `actions/attest-build-provenance`로 만듭니다(드라이런 제외). npm 자체의 `--provenance`는 npmjs.com용이라 이 사본에서는 끕니다. 이 사본의 provenance는 증명(attestation)입니다.
 
 이 작업만 실패했다면 Actions 화면에서 이 작업만 다시 실행해도 안전합니다. 버전이 이미 있으면 4단계에서 멈추고, npm 배포는 반복되지 않습니다.
 
