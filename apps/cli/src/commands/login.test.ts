@@ -4,6 +4,7 @@ import {
   createUnavailableCredentialStore,
   DEFAULT_GITHUB_APP_CLIENT_ID,
   GitHubAuthError,
+  OS_KEYCHAIN_NOT_LOADED_MESSAGE,
   signInAndStore,
   type CredentialStore,
 } from "@pgard/scan-core";
@@ -135,6 +136,49 @@ describe("pgard login", () => {
     expect(captured.stderr()).toContain(
       "No OS keychain is available: no keychain service is running. Nothing was saved",
     );
+  });
+
+  it.each([
+    ["linux", "no keychain service is running", "gnome-keyring"],
+    ["darwin", "the keychain is locked", "unlock or repair the OS keychain"],
+    ["win32", "the keychain is locked", "unlock or repair the OS keychain"],
+  ] as const)(
+    "tells what to do when the keychain is unavailable on %s",
+    async (platform, reason, fix) => {
+      const captured = terminalIo({ env: ENV });
+      const deps = createTestDeps({
+        platform,
+        credentialStore: createUnavailableCredentialStore(reason),
+      });
+      expect(await runLogin(createTestContext(captured, deps))).toBe(4);
+      const text = captured.stderr();
+      expect(text).toContain(fix);
+      expect(text).toContain("pgard scan code --code-only");
+      expect(text).toContain("device code");
+      if (platform !== "linux") expect(text).not.toContain("gnome-keyring");
+    },
+  );
+
+  it("gives only the way around when the keychain module is missing", async () => {
+    const captured = terminalIo({ env: ENV });
+    const deps = createTestDeps({
+      credentialStore: createUnavailableCredentialStore(OS_KEYCHAIN_NOT_LOADED_MESSAGE),
+    });
+    expect(await runLogin(createTestContext(captured, deps))).toBe(4);
+    expect(captured.stderr()).toContain("pgard scan code --code-only");
+    expect(captured.stderr()).not.toContain("gnome-keyring");
+  });
+
+  it("writes the keychain guidance in Korean", async () => {
+    const captured = terminalIo({ env: ENV });
+    const deps = createTestDeps({
+      credentialStore: createUnavailableCredentialStore("no keychain service is running"),
+    });
+    const context = { ...createTestContext(captured, deps), ruleLocale: "ko" as const };
+    expect(await runLogin(context)).toBe(4);
+    expect(captured.stderr()).toContain("gnome-keyring");
+    expect(captured.stderr()).toContain("pgard scan code --code-only");
+    expect(captured.stderr()).toMatch(/[\uAC00-\uD7A3]/);
   });
 
   it("reports a failed sign-in with exit 3", async () => {

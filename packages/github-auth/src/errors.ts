@@ -50,3 +50,7 @@ export function isGitHubAuthError(error: unknown): error is GitHubAuthError {
 /** The reason and the fix in one fixed sentence; the same text is in JSON/SARIF and the README. */
 export const NOT_SIGNED_IN_NO_TERMINAL_MESSAGE =
   "Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.";
+
+/** The same block when the OS keychain is unusable: `pgard login` could not save a sign-in either. */
+export const NOT_SIGNED_IN_NO_TERMINAL_NO_KEYCHAIN_MESSAGE =
+  "Not signed in to GitHub, and there is no terminal to sign in with. The OS keychain is not available here, so `pgard login` cannot save a sign-in either; run `pgard scan code --code-only` (no sign-in needed) or sign in from a terminal.";

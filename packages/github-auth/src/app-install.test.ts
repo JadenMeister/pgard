@@ -147,11 +147,19 @@ describe("openGitHubUrl", () => {
 
   it("passes the URL as one argument and reports a failed start as false", async () => {
     const spawn = vi.fn(async () => true);
-    expect(await openGitHubUrl(url, { platform: "linux", spawn })).toBe(true);
+    expect(
+      await openGitHubUrl(url, { platform: "linux", spawn, readText: async () => "6.8.0-generic" }),
+    ).toBe(true);
     expect(spawn).toHaveBeenCalledWith("xdg-open", [url]);
     const failing = vi.fn(async () => {
       throw new Error("ENOENT");
     });
-    expect(await openGitHubUrl(url, { platform: "linux", spawn: failing })).toBe(false);
+    expect(
+      await openGitHubUrl(url, {
+        platform: "linux",
+        spawn: failing,
+        readText: async () => "6.8.0-generic",
+      }),
+    ).toBe(false);
   });
 });

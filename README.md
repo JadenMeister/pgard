@@ -521,7 +521,7 @@ When sign-in is needed, PGARD shows the URL `https://github.com/login/device` an
 
 #### Without a terminal (CI, pipes)
 
-A sign-in needs a person who types a code on github.com, so PGARD starts the device flow only when **stdin and stderr are terminals**. When one of them is not (a pipe, `< /dev/null`, a CI runner) and there is no usable saved sign-in (the OS keychain is missing, locked, empty or unusable), no command requests a device code or waits. `scan` (every form and format), `baseline` and `project verify` finish immediately with a blocked result, exit code **3**, and this reason on the GitHub identity check: ``Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.`` With `--format json` or `--format sarif`, stdout holds the usual valid blocked document (do not upload a SARIF of a scan that did not run). A usable saved sign-in is still reused without a terminal. `pgard login` itself refuses to run without a terminal (usage error, exit code 2). The dashboard is unaffected: its sign-in is answered in the browser.
+A sign-in needs a person who types a code on github.com, so PGARD starts the device flow only when **stdin and stderr are terminals**. When one of them is not (a pipe, `< /dev/null`, a CI runner) and there is no usable saved sign-in (the OS keychain is missing, locked, empty or unusable), no command requests a device code or waits. `scan` (every form and format), `baseline` and `project verify` finish immediately with a blocked result, exit code **3**, and this reason on the GitHub identity check: ``Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.`` When the OS keychain is unusable, the reason instead says that `pgard login` cannot save a sign-in either and points to `pgard scan code --code-only` (see [Headless Linux, WSL and Docker](#headless-linux-wsl-and-docker)). With `--format json` or `--format sarif`, stdout holds the usual valid blocked document (do not upload a SARIF of a scan that did not run). A usable saved sign-in is still reused without a terminal. `pgard login` itself refuses to run without a terminal (usage error, exit code 2). The dashboard is unaffected: its sign-in is answered in the browser.
 
 #### Saved sign-in (OS keychain)
 
@@ -536,6 +536,16 @@ After a device-flow sign-in (from `pgard login`, a scan, `project verify` or the
 - On macOS the keychain item trusts the `node` binary, so any other Node.js script run by the same user can read it without a prompt.
 
 GitHub App owners can turn token expiry on or off under the App's settings (**Optional features → User-to-server token expiration**). PGARD works either way: with expiry it refreshes, without it the saved token is used until it is revoked.
+
+### Headless Linux, WSL and Docker
+
+`pgard login` saves the sign-in in the OS keychain. A headless Linux box, WSL or a Docker container usually has no Secret Service, so `pgard login` stops with exit code 4 and `pgard doctor` shows the keychain as `[warn]`. Nothing is broken, and you have three options:
+
+- **Code-only scans need no sign-in.** `pgard scan code --code-only` runs the analyzers on the files in your folder and never contacts GitHub.
+- **Other scans sign in per run.** Without a keychain the sign-in stays in memory for that run: in a terminal, a device code is requested every time. Without a terminal (a pipe, CI), the scan is blocked with exit code 3 and a message that points to `--code-only`.
+- **Save the sign-in.** Install and start a Secret Service (gnome-keyring, or KeePassXC with its Secret Service integration) inside a D-Bus session (for example `dbus-run-session -- sh`), then run `pgard login` again.
+
+On WSL, PGARD opens the device page with `wslview` (from the `wslu` package, found only at `/usr/bin/wslview` or `/usr/local/bin/wslview`). Without it, or when the opener exits with an error, PGARD prints "Could not open a browser; open the link above yourself." The link is always printed; open it in a browser on Windows and type the code there.
 
 ## Scan scopes and coverage
 
