@@ -1,6 +1,8 @@
-import { spawn, type ChildProcess } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { windowsSystemRoot } from "../open-local-url.js";
 import { PICKER_LIMITS, type ChildMessage, type InspectorJob } from "./protocol.js";
 import { validateChildMessage } from "./validate-message.js";
 
@@ -48,11 +50,23 @@ export interface InspectorHost {
 /** The only variables the child receives. Never a token, never a `PGARD_*` variable. */
 export function inspectorEnvironment(
   source: Readonly<Record<string, string | undefined>>,
+  platform: string = process.platform,
 ): Record<string, string> {
   const env: Record<string, string> = {};
   for (const key of ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "TZ"]) {
     const value = source[key];
     if (value !== undefined) env[key] = value;
+  }
+  if (platform === "win32") {
+    // The Git calls and Node need the system folder and a temp folder to start. `SystemRoot` is
+    // passed only as a plain drive path (never a UNC or `..`); `windir` is the same folder.
+    const root = windowsSystemRoot(source);
+    env.SystemRoot = root;
+    env.windir = root;
+    for (const key of ["TEMP", "TMP", "USERPROFILE"]) {
+      const value = source[key];
+      if (value !== undefined) env[key] = value;
+    }
   }
   env.NoDefaultCurrentDirectoryInExePath = "1";
   return env;
@@ -64,6 +78,7 @@ const defaultSpawn: SpawnInspector = (entry, env) =>
   spawn(process.execPath, [entry], {
     detached: true,
     shell: false,
+    windowsHide: true,
     // IPC is the only channel: nothing the child prints can leak.
     stdio: ["ignore", "ignore", "ignore", "ipc"],
     env,
@@ -89,7 +104,26 @@ export interface InspectorHostOptions {
   maxLiveChildren?: number;
 }
 
+/** `%SystemRoot%\System32\taskkill.exe`, absolute (never searched for). */
+export function taskkillPath(env: Readonly<Record<string, string | undefined>>): string {
+  return path.win32.join(windowsSystemRoot(env), "System32", "taskkill.exe");
+}
+
+/**
+ * Ends the child and everything it started. POSIX: `SIGKILL` to the process group. Windows has
+ * no process groups: `taskkill /T /F` ends the whole tree (the Git grandchildren). It runs before
+ * the child itself is killed, because the tree is found through the parent.
+ */
 function killProcessGroup(pid: number): void {
+  if (process.platform === "win32") {
+    const result = spawnSync(taskkillPath(process.env), ["/T", "/F", "/PID", String(pid)], {
+      shell: false,
+      stdio: "ignore",
+      windowsHide: true,
+      timeout: 5_000,
+    });
+    if (result.error === undefined && result.status === 0) return;
+  }
   try {
     process.kill(-pid, "SIGKILL");
   } catch {

@@ -30,7 +30,7 @@ export type WindowsPathProblem =
   | "invalid_char";
 
 const RESERVED_NAME =
-  /^(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])(?:\..*)?$/i;
+  /^(?:con|prn|aux|nul|conin\$|conout\$|clock\$|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3])$/i;
 
 /** Why one path segment is not a name Windows would keep as written, or `null`. */
 export function windowsNameProblem(name: string): WindowsPathProblem | null {
@@ -39,7 +39,8 @@ export function windowsNameProblem(name: string): WindowsPathProblem | null {
   if (/[<>"|?*\u0000-\u001f]/.test(name)) return "invalid_char";
   if (name.includes(":")) return "stream";
   if (/[. ]$/.test(name)) return "trailing";
-  if (RESERVED_NAME.test(name.trimEnd())) return "reserved";
+  // Windows ignores spaces before the extension and the extension itself: `nul .txt` is `nul`.
+  if (RESERVED_NAME.test((name.split(".")[0] ?? "").trimEnd())) return "reserved";
   return null;
 }
 
@@ -131,7 +132,7 @@ export function pathRulesFor(platform: string): PathRules {
 export function windowsSystemFolders(env: Readonly<Record<string, string | undefined>>): string[] {
   const folders = new Set<string>();
   const add = (value: string | undefined): void => {
-    if (value === undefined) return;
+    if (value === undefined || value.includes("..")) return;
     const normalized = normalizeWindowsPath(value);
     if (normalized !== null) folders.add(normalized);
   };

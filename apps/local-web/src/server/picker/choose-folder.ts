@@ -39,7 +39,7 @@ export const MAX_PASTED_PATH = 4096;
 export const FOLDER_REFUSAL_TEXT: Record<FolderRefusalCode, { reason: string; fix: string }> = {
   bad_path: {
     reason: "This is not a folder path.",
-    fix: "Paste the full path, for example ~/code/my-app or /Users/you/code/my-app.",
+    fix: "Paste the full path, for example ~/code/my-app, /Users/you/code/my-app or C:\\Users\\you\\code\\my-app. Network shares and device paths are not supported: copy the project to a local drive.",
   },
   missing: {
     reason: "This folder does not exist.",
@@ -217,7 +217,12 @@ export async function resolveFolderPath(
     refused: { reason: ResolveRefusal; paths: string[] } | null;
   } = { resolved: null, refused: null };
   const running = picker.inspector.run(
-    { kind: "resolve", path: absolutePath, homeDir: picker.homeDir },
+    {
+      kind: "resolve",
+      path: absolutePath,
+      homeDir: picker.homeDir,
+      ...(picker.systemFolders === undefined ? {} : { systemFolders: picker.systemFolders }),
+    },
     {
       hardMs: PICKER_LIMITS.hardBudgetMs,
       onMessage: (message) => {

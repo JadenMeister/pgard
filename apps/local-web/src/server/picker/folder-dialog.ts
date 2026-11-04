@@ -78,7 +78,7 @@ export function windowsPowerShellPath(env: Readonly<Record<string, string | unde
 export function decodeWindowsDialogOutput(stdout: string): string | null {
   const text = stdout.trim();
   if (text.length === 0) return "";
-  if (text.length > 16 * 1024 || !/^[A-Za-z0-9+/]+={0,2}$/.test(text)) {
+  if (text.length > 16 * 1024 || text.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(text)) {
     return null;
   }
   const bytes = Buffer.from(text, "base64");
@@ -127,8 +127,6 @@ export async function dialogCommandFor(
         "-NoProfile",
         "-NonInteractive",
         "-STA",
-        "-ExecutionPolicy",
-        "Bypass",
         "-EncodedCommand",
         Buffer.from(WINDOWS_DIALOG_SCRIPT, "utf16le").toString("base64"),
       ],

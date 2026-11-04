@@ -263,3 +263,28 @@ describe("validateSearchRoot on Windows (injected platform)", () => {
     expect(none.roots).toEqual([]);
   });
 });
+
+describe("more Windows names", () => {
+  it.each([
+    "C:\\a\\CONIN$",
+    "C:\\a\\conout$",
+    "C:\\a\\CLOCK$",
+    "C:\\a\\nul .txt",
+    "C:\\a\\NUL.tar.gz",
+    "C:\\a\\com1 ",
+  ])("%s is refused", (value) => {
+    expect(windowsPathProblem(value)).not.toBeNull();
+  });
+
+  it("allows names that only start like a reserved one", () => {
+    expect(windowsPathProblem("C:\\a\\console")).toBeNull();
+    expect(windowsPathProblem("C:\\a\\null-app")).toBeNull();
+  });
+
+  it("windowsSystemFolders ignores an environment value with ..", () => {
+    expect(windowsSystemFolders({ SystemRoot: "C:\\a\\..\\Windows" })).not.toContain(
+      "C:\\Windows\\",
+    );
+    expect(windowsSystemFolders({ ProgramFiles: "D:\\x\\..\\y" })).not.toContain("D:\\y");
+  });
+});

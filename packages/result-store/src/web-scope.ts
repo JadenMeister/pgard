@@ -26,6 +26,13 @@ export const DEFAULT_SCOPE_FOLDERS: readonly string[] = [
   "Developer",
 ];
 
+/**
+ * A device or file id. The real file system reports it as a decimal string (read with
+ * `bigint: true`): NTFS file ids use all 64 bits and would lose precision as a JS number, which
+ * would weaken the identity re-checks. Tests may use plain numbers. Only compared and hashed.
+ */
+export type FileId = number | string;
+
 /** What the picker reads about a file system entry: metadata only, never contents. */
 export interface ScopeStat {
   isDirectory: boolean;
@@ -33,8 +40,8 @@ export interface ScopeStat {
   isSymbolicLink: boolean;
   uid: number;
   mode: number;
-  dev: number;
-  ino: number;
+  dev: FileId;
+  ino: FileId;
 }
 
 export interface ScopeFs {
@@ -53,15 +60,15 @@ export interface ScopeDirent {
 /** The real file system, with `lstat` (a symlink is reported, never followed). */
 export const nodeScopeFs: ScopeFs = {
   async lstat(target) {
-    const stat = await lstat(target);
+    const stat = await lstat(target, { bigint: true });
     return {
       isDirectory: stat.isDirectory(),
       isFile: stat.isFile(),
       isSymbolicLink: stat.isSymbolicLink(),
-      uid: stat.uid,
-      mode: stat.mode,
-      dev: stat.dev,
-      ino: stat.ino,
+      uid: Number(stat.uid),
+      mode: Number(stat.mode),
+      dev: stat.dev.toString(),
+      ino: stat.ino.toString(),
     };
   },
   realpath: (target) => realpath(target),
@@ -181,7 +188,7 @@ export type RootRejection =
   | "unsafe_path";
 
 export type RootValidation =
-  { ok: true; path: string; dev: number; ino: number } | { ok: false; reason: RootRejection };
+  { ok: true; path: string; dev: FileId; ino: FileId } | { ok: false; reason: RootRejection };
 
 /** Path segments below `/` (`/` is 0, `/Users` is 1, `/Users/alice` is 2). */
 export function pathDepth(absolutePath: string, platform: string = "posix"): number {
@@ -233,7 +240,11 @@ export async function validateSearchRoot(
   if (platform === "win32") {
     // A mapped network drive or a junction into a share resolves to a UNC or device path.
     if (windowsPathProblem(resolved) !== null) return { ok: false, reason: "unsafe_path" };
-    if (systemFolders.some((folder) => resolved === folder || rules.isBelow(resolved, folder))) {
+    if (
+      systemFolders.some(
+        (folder) => rules.fold(resolved) === rules.fold(folder) || rules.isBelow(resolved, folder),
+      )
+    ) {
       return { ok: false, reason: "unsafe_path" };
     }
   }
@@ -256,8 +267,8 @@ export async function validateSearchRoot(
 
 export interface ScopeRoot {
   path: string;
-  dev: number;
-  ino: number;
+  dev: FileId;
+  ino: FileId;
 }
 
 export interface LoadedScope {

@@ -217,7 +217,9 @@ posixDescribe("directory walk (T3, T4, T5)", () => {
     repoAt("mounted", "shop");
     const mounted = path.join(tree.root, "mounted");
     const outcome = await search("shop", {
-      deps: { fs: overridingFs(new Map([[mounted, { dev: tree.rootStat.dev + 1 }]])) },
+      deps: {
+        fs: overridingFs(new Map([[mounted, { dev: String(BigInt(tree.rootStat.dev) + 1n) }]])),
+      },
     });
     expect(outcome.found).toEqual([]);
     expect(outcome.done.skipped.some((entry) => entry.reason === "other_file_system")).toBe(true);
@@ -638,7 +640,7 @@ posixDescribe("inspectCandidate chain checks", () => {
     tree = createScopeTree();
     repoAt("shop");
     const { deps } = createInspectorDeps();
-    const wrongRoot = { ...rootOf(tree.root), ino: tree.rootStat.ino + 1 };
+    const wrongRoot = { ...rootOf(tree.root), ino: String(BigInt(tree.rootStat.ino) + 1n) };
     await expect(
       inspectCandidate(deps, wrongRoot, 0, [{ name: "shop" }], "full"),
     ).rejects.toThrow();

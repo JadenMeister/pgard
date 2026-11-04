@@ -101,7 +101,7 @@ export function tooBroadToScan(
 }
 
 /** The identity of a file-system object; `null` when it cannot be read. */
-export type FileIdentity = { dev: number | bigint; ino: number | bigint } | null;
+export type FileIdentity = { dev: number | bigint | string; ino: number | bigint | string } | null;
 
 export interface FolderBreadthCheckOptions extends FolderBreadthOptions {
   /** `stat` of a path (following links): its device and inode. Injected in tests. */

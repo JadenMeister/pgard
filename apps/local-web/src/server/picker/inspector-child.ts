@@ -1,7 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { runGit } from "@pgard/git-history";
 import { inspectRepository } from "@pgard/policy";
-import { nodeScopeFs, windowsSystemFolders } from "@pgard/result-store";
+import { nodeScopeFs } from "@pgard/result-store";
 import { runInspectorJob } from "./inspect.js";
 import type { ChildMessage, InspectorJob } from "./protocol.js";
 
@@ -35,7 +35,6 @@ process.once("message", (raw: unknown) => {
       inspectRepository,
       now: () => performance.now(),
       platform: process.platform,
-      ...(process.platform === "win32" ? { systemFolders: windowsSystemFolders(process.env) } : {}),
       emit: (message) => {
         pending.push(send(message));
       },

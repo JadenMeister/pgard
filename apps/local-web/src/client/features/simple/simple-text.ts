@@ -102,7 +102,7 @@ const en: SimpleText = {
   refusals: {
     bad_path: {
       reason: "This is not a folder path.",
-      fix: "Paste the full path, for example ~/code/my-app or /Users/you/code/my-app.",
+      fix: "Paste the full path, for example ~/code/my-app, /Users/you/code/my-app or C:\\Users\\you\\code\\my-app. Network shares and device paths are not supported: copy the project to a local drive.",
     },
     missing: {
       reason: "This folder does not exist.",
@@ -230,7 +230,7 @@ const ko: SimpleText = {
   refusals: {
     bad_path: {
       reason: "폴더 경로가 아닙니다.",
-      fix: "전체 경로를 붙여 넣으세요. 예: ~/code/my-app 또는 /Users/you/code/my-app",
+      fix: "전체 경로를 붙여 넣으세요. 예: ~/code/my-app, /Users/you/code/my-app 또는 C:\\Users\\you\\code\\my-app. 네트워크 공유와 장치 경로는 지원하지 않습니다. 프로젝트를 로컬 드라이브로 복사하세요.",
     },
     missing: { reason: "이 폴더가 없습니다.", fix: "경로를 확인하거나 폴더 선택을 사용하세요." },
     not_a_directory: { reason: "폴더가 아니라 파일입니다.", fix: "프로젝트 폴더를 선택하세요." },

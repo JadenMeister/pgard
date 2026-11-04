@@ -10,6 +10,7 @@ import {
   windowsNameProblem,
   windowsPathProblem,
   type EntryKind,
+  type FileId,
   type PathRules,
   type ScopeDirent,
   type ScopeFs,
@@ -50,8 +51,6 @@ export interface InspectorDeps {
   /** Milliseconds since an arbitrary start; injected so tests control the deadline. */
   now: () => number;
   platform: string;
-  /** Windows: the operating system and program folders no chosen folder may be inside. */
-  systemFolders?: readonly string[];
   emit: (message: ChildMessage) => void;
   limits?: Partial<PickerLimits>;
 }
@@ -129,7 +128,7 @@ async function lstatOrThrow(fs: ScopeFs, target: string): Promise<ScopeStat> {
 async function walkChain(
   deps: InspectorDeps,
   root: ScopeRoot,
-  segments: ReadonlyArray<{ name: string; dev?: number; ino?: number }>,
+  segments: ReadonlyArray<{ name: string; dev?: FileId; ino?: FileId }>,
 ): Promise<ChainWalk> {
   const rootStat = await lstatOrThrow(deps.fs, root.path);
   if (
@@ -214,7 +213,7 @@ export async function inspectCandidate(
   deps: InspectorDeps,
   root: ScopeRoot,
   rootIndex: number,
-  segments: ReadonlyArray<{ name: string; dev?: number; ino?: number }>,
+  segments: ReadonlyArray<{ name: string; dev?: FileId; ino?: FileId }>,
   mode: "full" | "recheck" | "folder",
 ): Promise<RawCandidate> {
   const limits = limitsOf(deps);
@@ -318,7 +317,7 @@ async function inspectOrBlock(
   deps: InspectorDeps,
   root: ScopeRoot,
   rootIndex: number,
-  segments: ReadonlyArray<{ name: string; dev?: number; ino?: number }>,
+  segments: ReadonlyArray<{ name: string; dev?: FileId; ino?: FileId }>,
   mode: "full" | "recheck" | "folder",
 ): Promise<RawCandidate | "changed"> {
   try {
@@ -579,11 +578,16 @@ function breadthRefusal(deps: InspectorDeps, target: string, home: string | null
   });
 }
 
-function isInsideSystemFolder(deps: InspectorDeps, target: string): boolean {
+function isInsideSystemFolder(
+  deps: InspectorDeps,
+  systemFolders: readonly string[],
+  target: string,
+): boolean {
   const rules = rulesOf(deps);
-  return (deps.systemFolders ?? []).some(
-    (folder) => rules.fold(folder) === rules.fold(target) || rules.isBelow(target, folder),
-  );
+  // The list comes in the job message: only plain, normalized drive paths count.
+  return systemFolders
+    .filter((folder) => normalizeWindowsPath(folder) === folder)
+    .some((folder) => rules.fold(folder) === rules.fold(target) || rules.isBelow(target, folder));
 }
 
 /** Most folder names from the anchor down to a chosen folder. */
@@ -640,7 +644,10 @@ async function resolveFolder(
   }
   // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
   if ((await breadthRefusal(deps, target, home)) !== null) return refuse("too_broad");
-  if (rules.windows && isInsideSystemFolder(deps, target)) return refuse("too_broad");
+  const systemFolders = job.systemFolders ?? [];
+  if (rules.windows && isInsideSystemFolder(deps, systemFolders, target)) {
+    return refuse("too_broad");
+  }
   const kindOf = async (entry: string): Promise<EntryKind> => {
     try {
       const entryStat = await deps.fs.lstat(entry);
@@ -671,7 +678,9 @@ async function resolveFolder(
     if ((await breadthRefusal(deps, target, home)) !== null) {
       return refuse("too_broad");
     }
-    if (rules.windows && isInsideSystemFolder(deps, target)) return refuse("too_broad");
+    if (rules.windows && isInsideSystemFolder(deps, systemFolders, target)) {
+      return refuse("too_broad");
+    }
   }
   let anchor: string;
   if (home !== null && rules.isBelow(target, home)) {

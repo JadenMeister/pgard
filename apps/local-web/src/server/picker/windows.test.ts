@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -17,7 +26,8 @@ import {
   WINDOWS_DIALOG_SCRIPT,
   windowsPowerShellPath,
 } from "./folder-dialog.js";
-import { runInspectorJob } from "./inspect.js";
+import { inspectCandidate, runInspectorJob } from "./inspect.js";
+import { createInspectorHost, inspectorEnvironment, taskkillPath } from "./inspector-host.js";
 import type { ChildMessage, InspectorJob } from "./protocol.js";
 import { createInspectorDeps } from "./test-support/fixtures.js";
 import { validateChildMessage } from "./validate-message.js";
@@ -89,9 +99,13 @@ async function resolveOnWindows(
     platform: "win32",
     uid: undefined,
     fs: virtualWindowsFs(FOLDERS, aliases),
-    systemFolders: SYSTEM,
   });
-  const job: InspectorJob = { kind: "resolve", path: target, homeDir: HOME };
+  const job: InspectorJob = {
+    kind: "resolve",
+    path: target,
+    homeDir: HOME,
+    systemFolders: SYSTEM,
+  };
   await runInspectorJob(deps, job);
   for (const message of messages) {
     expect(validateChildMessage(message, job)).not.toBeNull();
@@ -193,12 +207,12 @@ describe("resolve job with a Windows platform (virtual volume)", () => {
         platform: "win32",
         uid: undefined,
         fs: virtualWindowsFs(virtual, aliases),
-        systemFolders: SYSTEM,
       });
       await runInspectorJob(deps, {
         kind: "resolve",
         path: `${HOME}\\code\\${name}`,
         homeDir: HOME,
+        systemFolders: SYSTEM,
       });
       return refusalOf(messages);
     };
@@ -282,16 +296,14 @@ describe("the Windows folder dialog command", () => {
   it("runs Windows PowerShell by absolute path with the fixed flags and script", async () => {
     const command = await dialogCommandFor("win32", prompt, async () => true, env);
     expect(command?.file).toBe("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
-    expect(command?.args.slice(0, 6)).toEqual([
+    expect(command?.args.slice(0, 4)).toEqual([
       "-NoProfile",
       "-NonInteractive",
       "-STA",
-      "-ExecutionPolicy",
-      "Bypass",
       "-EncodedCommand",
     ]);
-    expect(command?.args).toHaveLength(7);
-    const script = Buffer.from(command?.args[6] ?? "", "base64").toString("utf16le");
+    expect(command?.args).toHaveLength(5);
+    const script = Buffer.from(command?.args[4] ?? "", "base64").toString("utf16le");
     expect(script).toBe(WINDOWS_DIALOG_SCRIPT);
     expect(command?.cancelCodes).toEqual([3]);
   });
@@ -402,9 +414,13 @@ describe.skipIf(process.platform !== "win32")("resolve job on a real Windows vol
       platform: "win32",
       uid: undefined,
       fs: nodeScopeFs,
+    });
+    await runInspectorJob(deps, {
+      kind: "resolve",
+      path: target,
+      homeDir: realHome(),
       systemFolders: windowsSystemFolders(process.env),
     });
-    await runInspectorJob(deps, { kind: "resolve", path: target, homeDir: realHome() });
     return messages;
   }
 
@@ -438,8 +454,185 @@ describe.skipIf(process.platform !== "win32")("resolve job on a real Windows vol
     expect(swapped?.t).toBe("resolved");
   });
 
+  it("refuses a link to an administrative share and a short (8.3) name in a system folder", async () => {
+    base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-win-")));
+    const link = path.join(base, "to-share");
+    let isLinked = true;
+    try {
+      symlinkSync("\\\\localhost\\C$\\Windows", link, "dir");
+    } catch {
+      isLinked = false; // creating links needs a privilege the runner has and a developer may not
+    }
+    if (isLinked) expect(refusalOf(await resolveReal(link))).toBe("bad_path");
+    const short = "C:\\PROGRA~1\\Common Files";
+    if (existsSync(short)) expect(refusalOf(await resolveReal(short))).toBe("too_broad");
+  });
+
   it("refuses the Windows folder itself", async () => {
     const windir = process.env.SystemRoot ?? "C:\\Windows";
     expect(refusalOf(await resolveReal(path.join(windir, "System32")))).toBe("too_broad");
   });
+});
+
+describe("ids beyond 2^53 (NTFS file ids)", () => {
+  const BIG = "18446744073709551615";
+
+  it("the child message validation accepts decimal strings and refuses an unsafe number", () => {
+    const job: InspectorJob = { kind: "resolve", path: `${HOME}\\code`, homeDir: HOME };
+    const message = (ino: unknown) => ({
+      t: "resolved",
+      root: { path: HOME, dev: "7", ino },
+      candidate: {
+        rootIndex: 0,
+        segments: [{ name: "code", dev: "7", ino: BIG }],
+        gitIdentity: null,
+        remote: { status: "unreadable" },
+        block: { code: "not_a_git_root", paths: [] },
+      },
+      folderBlock: null,
+    });
+    expect(validateChildMessage(message(BIG), job)).not.toBeNull();
+    expect(validateChildMessage(message(2 ** 53 + 2), job)).toBeNull();
+    expect(validateChildMessage(message("1e5"), job)).toBeNull();
+    expect(validateChildMessage(message("1".repeat(21)), job)).toBeNull();
+    expect(validateChildMessage(message("-1"), job)).toBeNull();
+  });
+
+  it("two ids that differ only beyond 2^53 are different folders", async () => {
+    const fs: ScopeFs = {
+      async lstat() {
+        return { ...directory(0), dev: "7", ino: "9007199254740993" };
+      },
+      async realpath(target) {
+        return target;
+      },
+      async readdir() {
+        return [];
+      },
+    };
+    const { deps } = createInspectorDeps({ platform: "win32", uid: undefined, fs });
+    const same = { path: HOME, dev: "7", ino: "9007199254740993" };
+    const other = { path: HOME, dev: "7", ino: "9007199254740992" };
+    await expect(inspectCandidate(deps, same, 0, [], "recheck")).resolves.toBeDefined();
+    await expect(inspectCandidate(deps, other, 0, [], "recheck")).rejects.toThrow();
+  });
+});
+
+describe("the inspector child environment and process tree", () => {
+  it("passes a validated SystemRoot on Windows, never the whole environment", () => {
+    const env = inspectorEnvironment(
+      {
+        SystemRoot: "D:\\WINNT",
+        PATH: "D:\\bin",
+        TEMP: "D:\\tmp",
+        GITHUB_TOKEN: "secret",
+        PGARD_X: "1",
+        ProgramFiles: "D:\\Programs",
+      },
+      "win32",
+    );
+    expect(env.SystemRoot).toBe("D:\\WINNT");
+    expect(env.windir).toBe("D:\\WINNT");
+    expect(env.TEMP).toBe("D:\\tmp");
+    expect(Object.keys(env).sort()).toEqual(
+      ["NoDefaultCurrentDirectoryInExePath", "PATH", "SystemRoot", "TEMP", "windir"].sort(),
+    );
+    expect(inspectorEnvironment({ SystemRoot: "\\\\evil\\share" }, "win32").SystemRoot).toBe(
+      "C:\\Windows",
+    );
+    expect(inspectorEnvironment({ SystemRoot: "C:\\a\\..\\b" }, "win32").SystemRoot).toBe(
+      "C:\\Windows",
+    );
+    expect(inspectorEnvironment({ SystemRoot: "D:\\WINNT" }, "linux").SystemRoot).toBeUndefined();
+  });
+
+  it("starts taskkill from the absolute system folder", () => {
+    expect(taskkillPath({ SystemRoot: "D:\\WINNT" })).toBe("D:\\WINNT\\System32\\taskkill.exe");
+    expect(taskkillPath({ SystemRoot: "\\\\evil\\x" })).toBe("C:\\Windows\\System32\\taskkill.exe");
+  });
+
+  /** A child that starts a long-lived grandchild and writes its pid where the job says. */
+  function grandchildScript(directory: string): string {
+    const script = path.join(directory, "child.mjs");
+    writeFileSync(
+      script,
+      [
+        'import { spawn } from "node:child_process";',
+        'import { writeFileSync } from "node:fs";',
+        'process.once("message", (job) => {',
+        '  const gc = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });',
+        "  writeFileSync(job.path, String(gc.pid));",
+        "});",
+        "setInterval(() => {}, 1000);",
+      ].join("\n"),
+    );
+    return script;
+  }
+
+  const isAlive = (pid: number): boolean => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("kills the child's whole process tree on cancel", async () => {
+    base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-tree-")));
+    const pidFile = path.join(base, "grandchild.pid");
+    const host = createInspectorHost({
+      entry: grandchildScript(base),
+      env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot },
+    });
+    const running = host.run(
+      { kind: "resolve", path: pidFile, homeDir: base },
+      { hardMs: 60_000, onMessage: () => undefined },
+    );
+    expect(running).not.toBeNull();
+    const deadline = Date.now() + 20_000;
+    while (!existsSync(pidFile) || readFileSync(pidFile, "utf8") === "") {
+      if (Date.now() > deadline) throw new Error("the grandchild did not start");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    const grandchild = Number(readFileSync(pidFile, "utf8"));
+    expect(isAlive(grandchild)).toBe(true);
+    running?.cancel();
+    await running?.result;
+    const gone = Date.now() + 20_000;
+    while (isAlive(grandchild) && Date.now() < gone) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(isAlive(grandchild)).toBe(false);
+    host.stopAll();
+  }, 60_000);
+});
+
+/** The real inspector child, end to end, on Windows (needs the built `dist`, as CI has). */
+describe.skipIf(process.platform !== "win32")("the real inspector child on Windows", () => {
+  it("resolves a folder and refuses a share path through the host", async () => {
+    base = realpathSync.native(mkdtempSync(path.join(tmpdir(), "pgard-host-")));
+    const project = path.join(base, "project");
+    mkdirSync(project);
+    const host = createInspectorHost();
+    const run = async (target: string): Promise<ChildMessage[]> => {
+      const messages: ChildMessage[] = [];
+      const running = host.run(
+        {
+          kind: "resolve",
+          path: target,
+          homeDir: realpathSync.native(process.env.USERPROFILE ?? homedir()),
+          systemFolders: windowsSystemFolders(process.env),
+        },
+        { hardMs: 30_000, onMessage: (message) => messages.push(message) },
+      );
+      expect(running).not.toBeNull();
+      expect((await running?.result)?.status).toBe("finished");
+      return messages;
+    };
+    const resolved = (await run(project)).find((message) => message.t === "resolved");
+    expect(resolved?.t === "resolved" && resolved.candidate.segments.at(-1)?.name).toBe("project");
+    expect(refusalOf(await run("\\\\localhost\\C$\\Windows"))).toBe("bad_path");
+    host.stopAll();
+  }, 60_000);
 });

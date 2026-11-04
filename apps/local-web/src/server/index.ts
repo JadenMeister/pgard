@@ -5,6 +5,7 @@ import {
   createWebStorage,
   loadSearchScope,
   resolveStoreDirectory,
+  windowsSystemFolders,
   type WebStorage,
 } from "@pgard/result-store";
 import { sanitizeDisplayText } from "@pgard/http-local";
@@ -63,6 +64,7 @@ async function createPickerDeps(
     roots: scope.source === "stored" ? scope.roots : [],
     homeDir,
     platform: process.platform,
+    ...(process.platform === "win32" ? { systemFolders: windowsSystemFolders(process.env) } : {}),
   };
 }
 

@@ -52,7 +52,7 @@ describe.skipIf(process.platform === "win32")("search roots (T4, T13)", () => {
     symlinkSync(code, link);
     const checked = await validateSearchRoot(link, nodeScopeFs, uid);
     expect(checked).toMatchObject({ ok: true, path: code });
-    expect(checked.ok && checked.ino).toBeGreaterThan(0);
+    expect(checked.ok && BigInt(checked.ino)).toBeGreaterThan(0n);
   });
 
   it("rejects relative paths, missing paths, files, / and /Users-like roots", async () => {
