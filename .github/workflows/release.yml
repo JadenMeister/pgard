@@ -238,12 +238,14 @@ jobs:
           out=("$work"/out/*.tgz)
           [ "${#out[@]}" -eq 1 ] || { echo "::error::expected exactly one repacked tarball"; exit 1; }
           tar -xzf "${out[0]}" -C "$work/check"
-          # Same file list, same modes, same bytes everywhere except package.json.
-          # This job runs on ubuntu-latest (Linux): GNU find supports -printf.
-          list() { (cd "$1" && find . -printf '%y %m %p\n' | sort); }
-          diff <(list "$work/orig") <(list "$work/check") || { echo "::error::repacked file list differs from the verified tarball"; exit 1; }
-          diff -r -x package.json "$work/orig/package" "$work/check/package" || { echo "::error::repacked files differ from the verified tarball"; exit 1; }
-          # package.json differs from the verified one in exactly the name and the registry.
+          # Same entries and modes (from the tar headers), and the same sha256 for every file except
+          # package/package.json. This job runs on ubuntu-latest (Linux): GNU tar and find.
+          headers() { tar -tvzf "$1" | awk '{ n = $6; for (i = 7; i <= NF; i++) n = n " " $i; print $1, n }' | sort; }
+          sums() { (cd "$1" && find . -type f ! -path ./package/package.json -exec sha256sum {} + | sort -k2); }
+          diff <(headers "$orig") <(headers "${out[0]}") || { echo "::error::repacked file list or modes differ from the verified tarball"; exit 1; }
+          diff <(sums "$work/orig") <(sums "$work/check") || { echo "::error::repacked files differ from the verified tarball"; exit 1; }
+          # package.json differs from the verified one in exactly the name, the registry and the removed
+          # publishConfig.provenance.
           node -e '
             const fs = require("fs");
             const { isDeepStrictEqual } = require("util");
@@ -259,18 +261,30 @@ jobs:
           cp "${out[0]}" release-github/
           file="release-github/$(basename "${out[0]}")"
           echo "file=${file}" >> "$GITHUB_OUTPUT"
+          # sha512 integrity of the repacked tarball (npm pack is deterministic for the same input).
+          echo "integrity=sha512-$(openssl dgst -sha512 -binary "$file" | base64 -w0)" >> "$GITHUB_OUTPUT"
           echo "Repacked tarball \`$(basename "$file")\` sha256: \`$(sha256sum "$file" | cut -d' ' -f1)\` (only package.json differs from the verified tarball)" >> "$GITHUB_STEP_SUMMARY"
-      - name: The version must not exist on GitHub Packages yet
+      # A re-run after a failure at the end of this job must be able to finish: if the version is
+      # already on GitHub Packages with exactly the repacked tarball's integrity, skip the publish
+      # and still attest. A different integrity fails closed; a version is never replaced.
+      - name: Check whether the version is already on GitHub Packages
+        id: exists
         env:
           # setup-node wrote an .npmrc that reads this variable.
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ needs.verify.outputs.version }}
+          INTEGRITY: ${{ steps.repack.outputs.integrity }}
         run: |
           set -euo pipefail
           status=0
-          out=$(npm view "@jadenmeister/pgard@${VERSION}" version --registry https://npm.pkg.github.com 2>&1) || status=$?
+          out=$(npm view "@jadenmeister/pgard@${VERSION}" dist.integrity --registry https://npm.pkg.github.com 2>&1) || status=$?
           if [ "$status" -eq 0 ] && [ -n "$out" ]; then
-            echo "::error::@jadenmeister/pgard@${VERSION} already exists on GitHub Packages; nothing is published. A published version cannot be replaced: release a new version."
+            if [ "$out" = "$INTEGRITY" ]; then
+              echo "@jadenmeister/pgard@${VERSION} is already on GitHub Packages with the same integrity; skipping the publish."
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::@jadenmeister/pgard@${VERSION} exists on GitHub Packages with a different integrity ($out, expected $INTEGRITY); nothing is published. A published version cannot be replaced: release a new version."
             exit 1
           fi
           if ! printf '%s' "$out" | grep -q 'E404'; then
@@ -278,7 +292,9 @@ jobs:
             exit 1
           fi
           echo "@jadenmeister/pgard@${VERSION} is not on GitHub Packages yet."
+          echo "published=false" >> "$GITHUB_OUTPUT"
       - name: Publish to GitHub Packages
+        if: ${{ steps.exists.outputs.published != 'true' }}
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FILE: ${{ steps.repack.outputs.file }}
@@ -292,9 +308,9 @@ jobs:
           # The attestation below is the provenance of this copy; npm's own is for npmjs.com.
           if [ "$DRY_RUN" = "true" ]; then
             echo "Dry run: nothing is published."
-            npm publish "./$FILE" --tag "$tag" --provenance=false --dry-run
+            npm publish "./$FILE" --tag "$tag" --provenance=false --ignore-scripts --dry-run
           else
-            npm publish "./$FILE" --tag "$tag" --provenance=false
+            npm publish "./$FILE" --tag "$tag" --provenance=false --ignore-scripts
           fi
       - name: Attest build provenance of the GitHub Packages tarball
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}

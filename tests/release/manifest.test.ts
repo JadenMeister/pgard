@@ -64,6 +64,14 @@ describe("release workflow", () => {
     expect(job).toMatch(/attestations: write/);
     expect(job).toMatch(/registry-url: https:\/\/npm\.pkg\.github\.com/);
     expect(job).toMatch(/actions\/attest-build-provenance@[0-9a-f]{40}/);
+    // No attestation on a dry run, and no secret other than GITHUB_TOKEN.
+    expect(job).toMatch(
+      /Attest build provenance[^\n]*\n\s+if: \$\{\{ !\(github\.event_name == 'workflow_dispatch' && inputs\.dry_run\) \}\}/,
+    );
+    expect(job).not.toMatch(/NPM_TOKEN/);
+    for (const m of job.matchAll(/secrets\.(\w+)/g)) {
+      expect(m[1]).toBe("GITHUB_TOKEN");
+    }
     // `packages: write` must not leak into the other jobs.
     expect(workflow.slice(0, workflow.indexOf("\n  publish-github:"))).not.toMatch(
       /packages: write/,

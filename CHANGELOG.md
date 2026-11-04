@@ -6,7 +6,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Added
 
-- The `release` workflow also publishes each release to GitHub Packages as `@jadenmeister/pgard` (#480): a new `publish-github` job runs after the npmjs.com publish, behind the same `npm-publish` approval, repacks the verified tarball changing only `name` and `publishConfig.registry`, checks every other file is identical, publishes with `GITHUB_TOKEN` and attaches a build provenance attestation. npmjs.com stays the recommended install; see [docs/RELEASING.md](docs/RELEASING.md).
+- The `release` workflow also publishes each release to GitHub Packages as `@jadenmeister/pgard` (#480): a new `publish-github` job runs after the npmjs.com publish, behind the same `npm-publish` approval, repacks the verified tarball changing only `name`, `publishConfig.registry` and the removal of `publishConfig.provenance`, checks every other file is identical, publishes with `GITHUB_TOKEN` and attaches a build provenance attestation. npmjs.com stays the recommended install; see [docs/RELEASING.md](docs/RELEASING.md).
 
 ### Changed
 

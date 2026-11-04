@@ -65,10 +65,10 @@ The workflow is safe to merge before any of this exists (see "What happens when 
    - `packages/scan-core/src/version.ts` (`PGARD_VERSION`)
 4. **Update `CHANGELOG.md`.** Rename `## [Unreleased]` content to `## [X.Y.Z] - YYYY-MM-DD`, start a fresh empty `## [Unreleased]`, and update the compare links at the bottom. Group entries under Added, Changed, Fixed, Security (and Removed, Deprecated if needed). Mark breaking changes **BREAKING**.
 5. **Open a PR** `chore(release): vX.Y.Z` with only these changes, review it, and merge it. Run locally before: `npm run check`, `npm run corpus:check`, `npm run pack:pgard`, `npm run smoke:pack`. If dependencies changed since the last release, read the license count `pack:pgard` prints and the new entries of the "Bundled npm packages" section in the packed `NOTICE.md`.
-6. **Dry run (recommended).** Actions, `release`, Run workflow on `main` with the version and `dry_run` ticked. It verifies everything and runs `npm publish --dry-run`; nothing is published. The dry run still uses the `publish` job, so it **also waits for the `npm-publish` approval and requests an OIDC token**. A dispatch on a branch can only be a dry run; a real publish needs a tag.
+6. **Dry run (recommended).** Actions, `release`, Run workflow on `main` with the version and `dry_run` ticked. It verifies everything and runs `npm publish --dry-run`; nothing is published. The dry run still uses the `publish` job, so it **also waits for the `npm-publish` approval and requests an OIDC token**; the `publish-github` job (which also runs `npm publish --dry-run`) asks for a second approval. A dispatch on a branch can only be a dry run; a real publish needs a tag.
 7. **Tag.** On the merged commit of `main`: `git tag -a vX.Y.Z -m "pgard X.Y.Z"` and `git push origin vX.Y.Z`. Tags are `v` plus the exact version (`v0.1.0`, `v0.2.0-rc.1`); the workflow refuses a tag that does not equal `v` + the package version.
 8. **Approve.** The `verify` job builds, runs the gates and uploads the tarball. The `publish` job then waits at the `npm-publish` environment. A required reviewer opens the run, checks that the tag, the commit and the verify results are the intended ones, and approves. The publish job checks the tarball's checksum against the verify job, then runs `npm publish <tarball> --provenance --access public`.
-   The `publish-github` job then starts (see "GitHub Packages copy" below); it uses the same `npm-publish` environment, so it may ask for the approval again.
+   The `publish-github` job then starts (see "GitHub Packages copy" below); it uses the same `npm-publish` environment, so it asks for a second `npm-publish` approval on every release. If that approval is never given, npm has the version but GitHub Packages does not: approve (or re-run the `publish-github` job from the Actions UI) to finish.
 9. **Post-publish checks** (below).
 10. **GitHub release.** Create the GitHub release for the tag by hand with the changelog section as its notes.
 11. **Homebrew.** Update the tap ([packaging/homebrew/README.md](../packaging/homebrew/README.md)).
@@ -82,10 +82,10 @@ The job `needs` the npm publish job, uses the same `npm-publish` environment, an
 1. downloads the artifact the `verify` job built and checks its sha256 against the `verify` output (the integrity value is printed in the run summary);
 2. unpacks it, changes only `name` (to `@jadenmeister/pgard`), adds `publishConfig.registry` (`https://npm.pkg.github.com`) and removes `publishConfig.provenance` in `package.json` (npm provenance is npmjs.com-only), and repacks it;
 3. checks that the repacked tarball has the same file list and modes and that every file except `package.json` is byte-identical to the verified tarball, and that `package.json` differs in nothing but those edits. Any difference fails the job before anything is published;
-4. fails with a clear message, before publishing, if `@jadenmeister/pgard@X.Y.Z` already exists on GitHub Packages (a published version cannot be replaced; release a new version);
+4. looks up `@jadenmeister/pgard@X.Y.Z` on GitHub Packages. Not found: it publishes. Found with the same sha512 integrity as the repacked tarball (the repack is deterministic): it skips the publish and still attests, so a re-run can finish an earlier run. Found with a different integrity, or any other lookup error: it fails before publishing (a published version cannot be replaced);
 5. runs `npm publish` with `--tag next` for a pre-release and `latest` otherwise (a dry run runs `npm publish --dry-run` only), then creates a build provenance attestation for the repacked tarball with `actions/attest-build-provenance` (not on a dry run). npm's own `--provenance` is for npmjs.com and is switched off for this copy; the attestation is this copy's provenance.
 
-Re-running after a failure in this job is safe: if the version is already on GitHub Packages the job stops at step 4. If only this job failed, re-run just it from the Actions UI; the npmjs.com publish is not repeated.
+Re-running is safe: if only this job failed (or its publish succeeded but the attestation did not), re-run just it from the Actions UI. A version already on GitHub Packages with the same integrity is not published again and is attested; one with a different integrity fails. The npmjs.com publish is not repeated.
 
 To install from GitHub Packages, a user needs an `.npmrc` entry and a GitHub token with `read:packages` (GitHub Packages requires authentication even for public packages):
 
@@ -95,7 +95,13 @@ echo "//npm.pkg.github.com/:_authToken=<token with read:packages>" >> ~/.npmrc
 npm install -g @jadenmeister/pgard
 ```
 
-The command is still `pgard`. Verify the copy with `gh attestation verify <tarball> --repo JadenMeister/pgard`.
+The command is still `pgard`. Fetch and verify the copy:
+
+```sh
+npm pack @jadenmeister/pgard@X.Y.Z --registry https://npm.pkg.github.com
+gh attestation verify jadenmeister-pgard-X.Y.Z.tgz --repo JadenMeister/pgard \
+  --signer-workflow JadenMeister/pgard/.github/workflows/release.yml
+```
 
 ## Post-publish checks
 
@@ -116,6 +122,7 @@ npm view pgard dist-tags              # latest must be X.Y.Z (next for a pre-rel
   ```
 
 - Check that `npx pgard@X.Y.Z --version` works from a clean directory.
+- After the first GitHub Packages publish, open the package's settings (Packages, `pgard`) and confirm its visibility is **Public** and it is linked to the `JadenMeister/pgard` repository; fix both there if not.
 - Check that `@jadenmeister/pgard` X.Y.Z is listed under the repository's Packages (`npm view @jadenmeister/pgard@X.Y.Z version --registry https://npm.pkg.github.com` with a `read:packages` token).
 - Check that the tarball is the one the release run built, not only the one the registry reports: `packaging/homebrew/update-formula.sh X.Y.Z` does this before it touches the formula (see [packaging/homebrew/README.md](../packaging/homebrew/README.md)). Comparing the registry's integrity value and the claims in its attestation JSON is not enough, because the registry serves both. The script therefore requires an independent check and refuses without one: `gh attestation verify` (signature and signing identity, runs when `gh` is installed) or `EXPECTED_SHA256=<hex>` copied from the GitHub run summary (the `verify` job prints the tarball it built, the `publish` job the bytes it published).
 
