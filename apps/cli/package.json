@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "pgard": "./dist/bin/pgard.js"
+    "pgard": "./bin/pgard.js"
   },
   "exports": {
     ".": {
@@ -15,6 +15,7 @@
     }
   },
   "files": [
+    "bin",
     "dist"
   ],
   "dependencies": {

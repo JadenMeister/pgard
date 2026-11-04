@@ -22,3 +22,4 @@ export function findDynamicCodeUses(
 ): string[];
 export function shippedGrammarsReadme(text: string): string;
 export function shippedNotice(text: string): string;
+export function findOldNodeEntryProblems(code: string): string[];

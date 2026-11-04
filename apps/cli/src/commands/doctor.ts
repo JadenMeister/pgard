@@ -18,12 +18,12 @@ import { localizeKeychainReason } from "../ui/i18n/command-text.js";
  * release of 2026-10-21 (CVE-2026-111497 Brotli RCE and others). Odd and
  * end-of-life lines get no fixes; lines newer than the last entry include them.
  */
-const MIN_NODE_VERSIONS = [
+export const MIN_NODE_VERSIONS = [
   [22, 23, 4],
   [24, 22, 1],
   [26, 12, 1],
 ] as const;
-const NEWEST_NODE_LINE = 26;
+export const NEWEST_NODE_LINE = 26;
 const MIN_NODE_VERSION_TEXT = MIN_NODE_VERSIONS.map((v) => v.join(".")).join(", ");
 
 export function isSupportedNodeVersion(version: string): boolean {

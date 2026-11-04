@@ -50,7 +50,7 @@ apps/
   cli/
     package.json
     src/
-      bin/pgard.ts              # 프로세스 진입점
+      bin/main.ts               # 프로세스 진입점 (apps/cli/bin/pgard.js, Node.js 버전 검사 진입 파일이 불러옴)
       app.ts                    # 명령 해석·TUI 실행 연결
       options.ts                # 옵션 검증·도움말
       commands/
