@@ -218,15 +218,18 @@ describe("inspector host with a fake child", () => {
   });
 
   it("gives the child only an allowlisted environment (no token, no PGARD variable)", () => {
-    const env = inspectorEnvironment({
-      PATH: "/usr/bin",
-      HOME: "/home/u",
-      LANG: "en_US.UTF-8",
-      PGARD_SESSION_TOKEN: "secret",
-      GITHUB_TOKEN: "ghp_x",
-      PGARD_GITHUB_APP_CLIENT_ID: "id",
-      SSH_AUTH_SOCK: "/tmp/agent",
-    });
+    const env = inspectorEnvironment(
+      {
+        PATH: "/usr/bin",
+        HOME: "/home/u",
+        LANG: "en_US.UTF-8",
+        PGARD_SESSION_TOKEN: "secret",
+        GITHUB_TOKEN: "ghp_x",
+        PGARD_GITHUB_APP_CLIENT_ID: "id",
+        SSH_AUTH_SOCK: "/tmp/agent",
+      },
+      "linux",
+    );
     expect(Object.keys(env).sort()).toEqual([
       "HOME",
       "LANG",
