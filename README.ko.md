@@ -514,7 +514,7 @@ export PGARD_GITHUB_APP_SLUG=<직접 등록한 GitHub App의 slug>
 
 #### 터미널이 없을 때(CI, 파이프)
 
-로그인은 사람이 github.com에 코드를 입력해야 하므로, PGARD는 **stdin과 stderr가 모두 터미널일 때만** device 로그인을 시작합니다. 둘 중 하나라도 터미널이 아니고(파이프, `< /dev/null`, CI 러너) 사용할 수 있는 저장된 로그인이 없으면(OS 키체인이 없거나, 잠겨 있거나, 비어 있거나, 쓸 수 없음) 어떤 명령도 기기 코드를 요청하거나 기다리지 않습니다. `scan`(모든 형태와 형식), `baseline`, `project verify`는 즉시 blocked 결과와 종료 코드 **3**으로 끝나며, GitHub 신원 확인의 이유는 ``Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.`` 입니다. `--format json`/`--format sarif`에서는 stdout에 평소와 같은 올바른 blocked 문서가 나옵니다(실행되지 않은 검사의 SARIF는 업로드하지 마세요). 사용할 수 있는 저장된 로그인이 있으면 터미널이 없어도 그대로 재사용합니다. `pgard login` 자체는 터미널이 없으면 실행을 거부합니다(사용법 오류, 종료 코드 2). 대시보드는 영향이 없습니다. 대시보드의 로그인은 브라우저에서 처리합니다.
+로그인은 사람이 github.com에 코드를 입력해야 하므로, PGARD는 **stdin과 stderr가 모두 터미널일 때만** device 로그인을 시작합니다. 둘 중 하나라도 터미널이 아니고(파이프, `< /dev/null`, CI 러너) 사용할 수 있는 저장된 로그인이 없으면(OS 키체인이 없거나, 잠겨 있거나, 비어 있거나, 쓸 수 없음) 어떤 명령도 기기 코드를 요청하거나 기다리지 않습니다. `scan`(모든 형태와 형식), `baseline`, `project verify`는 즉시 blocked 결과와 종료 코드 **3**으로 끝나며, GitHub 신원 확인의 이유는 ``Not signed in to GitHub, and there is no terminal to sign in with. Run `pgard login` in a terminal first.`` 입니다. OS 키체인을 쓸 수 없을 때는 `pgard login`으로도 로그인을 저장할 수 없다고 알리며 `pgard scan code --code-only`를 안내합니다([헤드리스 Linux, WSL, Docker](#헤드리스-linux-wsl-docker) 참고). `--format json`/`--format sarif`에서는 stdout에 평소와 같은 올바른 blocked 문서가 나옵니다(실행되지 않은 검사의 SARIF는 업로드하지 마세요). 사용할 수 있는 저장된 로그인이 있으면 터미널이 없어도 그대로 재사용합니다. `pgard login` 자체는 터미널이 없으면 실행을 거부합니다(사용법 오류, 종료 코드 2). 대시보드는 영향이 없습니다. 대시보드의 로그인은 브라우저에서 처리합니다.
 
 #### 저장된 로그인(OS 키체인)
 
@@ -529,6 +529,16 @@ device flow 로그인(`pgard login`, 검사, `project verify`, 대시보드 어�
 - macOS에서는 키체인 항목이 `node` 실행 파일을 신뢰하므로, 같은 사용자가 실행하는 다른 Node.js 스크립트도 확인 창 없이 이 항목을 읽을 수 있습니다.
 
 GitHub App 소유자는 App 설정(**Optional features → User-to-server token expiration**)에서 토큰 만료를 켜거나 끌 수 있습니다. PGARD는 어느 쪽이든 동작합니다. 만료가 켜져 있으면 갱신하고, 꺼져 있으면 취소될 때까지 저장된 토큰을 사용합니다.
+
+### 헤드리스 Linux, WSL, Docker
+
+`pgard login`은 로그인을 OS 키체인에 저장합니다. 헤드리스 Linux, WSL, Docker 컨테이너에는 보통 Secret Service가 없어서 `pgard login`이 종료 코드 4로 멈추고 `pgard doctor`는 키체인을 `[warn]`으로 표시합니다. 고장난 것이 아니며 선택지가 세 가지 있습니다.
+
+- **코드 전용 검사는 로그인이 필요 없습니다.** `pgard scan code --code-only`는 폴더의 파일만 분석하며 GitHub에 접속하지 않습니다.
+- **다른 검사는 실행할 때마다 로그인합니다.** 키체인이 없으면 로그인은 그 실행 동안만 메모리에 있습니다. 터미널에서는 매번 기기 코드를 요청합니다. 터미널이 없으면(파이프, CI) 검사는 종료 코드 3으로 blocked 되며, 메시지가 `--code-only`를 안내합니다.
+- **로그인을 저장합니다.** D-Bus 세션(예: `dbus-run-session -- sh`) 안에 Secret Service(gnome-keyring, 또는 Secret Service 연동을 켠 KeePassXC)를 설치해 실행한 뒤 `pgard login`을 다시 실행하세요.
+
+WSL에서는 PGARD가 `wslview`(`wslu` 패키지; `/usr/bin/wslview` 또는 `/usr/local/bin/wslview`에서만 찾습니다)로 기기 페이지를 엽니다. 없거나 열기 명령이 오류로 끝나면 "Could not open a browser; open the link above yourself."라고 알립니다. 링크는 항상 출력되니 Windows의 브라우저에서 열어 코드를 입력하세요.
 
 ## 검사 범위와 coverage
 

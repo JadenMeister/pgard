@@ -16,7 +16,7 @@ import {
 import { stopBrowserOffers } from "../flows/browser.js";
 import { safeText } from "../ui/formatters/style.js";
 import { cliText } from "../ui/i18n/cli-text.js";
-import { localizeKeychainReason } from "../ui/i18n/command-text.js";
+import { keychainGuidance, localizeKeychainReason } from "../ui/i18n/command-text.js";
 
 /**
  * `pgard login`: runs the device flow and saves the sign-in in the OS keychain so later scans
@@ -45,7 +45,10 @@ export async function runLogin(context: CommandContext): Promise<ExitCode> {
     err(
       context,
       errStyle.yellow(
-        text.keychainUnavailableOnLogin(localizeKeychainReason(safeText(status.reason, 200), text)),
+        text.keychainUnavailableOnLogin(
+          localizeKeychainReason(safeText(status.reason, 200), text),
+          keychainGuidance(status.reason, deps.platform, text, true),
+        ),
       ),
     );
     return EXIT_CODES.partial;

@@ -9,7 +9,7 @@ import {
 import { err, type CommandContext } from "../context.js";
 import { offerBrowserOpen, stopBrowserOffers } from "./browser.js";
 import { cliText, type CliText } from "../ui/i18n/cli-text.js";
-import { localizeKeychainReason } from "../ui/i18n/command-text.js";
+import { keychainGuidance, localizeKeychainReason } from "../ui/i18n/command-text.js";
 import { safeText } from "../ui/formatters/style.js";
 
 /**
@@ -26,7 +26,11 @@ export function formatDeviceCode(code: DeviceUserCode, t: CliText = cliText("en"
 }
 
 /** One line per sign-in event for stderr. Never contains a token. */
-export function formatSignInNotice(notice: SignInNotice, t: CliText = cliText("en")): string {
+export function formatSignInNotice(
+  notice: SignInNotice,
+  t: CliText = cliText("en"),
+  platform: NodeJS.Platform = process.platform,
+): string {
   const text = t.commands.signIn;
   switch (notice.kind) {
     case "reused":
@@ -36,7 +40,10 @@ export function formatSignInNotice(notice: SignInNotice, t: CliText = cliText("e
     case "removed":
       return text.removedNotice(text.removedReason[notice.reason]);
     case "memory_only":
-      return text.memoryOnly(localizeKeychainReason(safeText(notice.reason, 200), text));
+      return text.memoryOnly(
+        localizeKeychainReason(safeText(notice.reason, 200), text),
+        keychainGuidance(notice.reason, platform, text, false),
+      );
   }
 }
 
@@ -82,7 +89,7 @@ export function createSessionProvider(context: CommandContext): GitHubSessionPro
     env: context.io.env,
     onUserCode: (code) => showDeviceCode(context, code),
     onNotice: (notice) => {
-      const text = formatSignInNotice(notice, cliText(context.ruleLocale));
+      const text = formatSignInNotice(notice, cliText(context.ruleLocale), context.deps.platform);
       err(
         context,
         notice.kind === "reused" ? context.errStyle.dim(text) : context.errStyle.yellow(text),

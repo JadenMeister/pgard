@@ -4,6 +4,11 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Fixed
+
+- `pgard login` and the memory-only sign-in notice now say what to do when the OS keychain is unusable (headless Linux, WSL, Docker) (#487): on Linux, install and start a Secret Service (gnome-keyring, or KeePassXC with its Secret Service integration) in a D-Bus session; on macOS and Windows, unlock or repair the keychain; and always that `pgard scan code --code-only` works without signing in (for `login`, also that other scans sign in per run with a device code). When the keychain module itself is missing, only the way around is given. English and Korean. The no-terminal "not signed in" block points to `--code-only` instead of `pgard login` when the keychain is unavailable.
+- On WSL the device page is opened with `wslview` (only from `/usr/bin/wslview` or `/usr/local/bin/wslview`, no shell or PATH lookup) instead of `xdg-open`, and otherwise the "open the link above yourself" note is printed. An opener that exits with an error within a short grace period now produces the same note instead of counting as opened. New README section "Headless Linux, WSL and Docker".
+
 ## [0.3.0] - 2026-11-04
 
 ### Added

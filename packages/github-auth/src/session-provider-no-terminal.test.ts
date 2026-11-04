@@ -4,7 +4,11 @@ import {
   createUnavailableCredentialStore,
   type CredentialStore,
 } from "./credential-store.js";
-import { isGitHubAuthError, NOT_SIGNED_IN_NO_TERMINAL_MESSAGE } from "./errors.js";
+import {
+  isGitHubAuthError,
+  NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+  NOT_SIGNED_IN_NO_TERMINAL_NO_KEYCHAIN_MESSAGE,
+} from "./errors.js";
 import type { FetchLike } from "./fetch.js";
 import { createDeviceFlowSessionProvider } from "./session-provider.js";
 import { signInKey } from "./stored-sign-in.js";
@@ -42,9 +46,27 @@ function provider(store: CredentialStore | null, fetch: FetchLike, canSignInInte
 describe("session provider without a terminal", () => {
   const stores: Array<[string, () => CredentialStore | null]> = [
     ["an empty keychain", () => createInMemoryCredentialStore()],
-    ["an unavailable keychain", () => createUnavailableCredentialStore("locked")],
     ["no keychain at all", () => null],
   ];
+
+  it("points to --code-only when the keychain is unavailable", async () => {
+    const github = recordingFetch();
+    const { instance, userCodes } = provider(
+      createUnavailableCredentialStore("locked"),
+      github.fetch,
+    );
+    const failure = await instance().then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toMatchObject({
+      code: "not_signed_in",
+      message: NOT_SIGNED_IN_NO_TERMINAL_NO_KEYCHAIN_MESSAGE,
+    });
+    expect(NOT_SIGNED_IN_NO_TERMINAL_NO_KEYCHAIN_MESSAGE).toContain("pgard scan code --code-only");
+    expect(github.urls).toEqual([]);
+    expect(userCodes).toEqual([]);
+  });
 
   it.each(stores)(
     "fails with not_signed_in and never requests a device code (%s)",

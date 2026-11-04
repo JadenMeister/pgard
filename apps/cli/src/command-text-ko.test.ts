@@ -66,6 +66,21 @@ describe("sign-in text in Korean", () => {
     expect(formatGitHubAppOverride("Iv23liX", KO)).toMatch(HANGUL);
   });
 
+  it("memory-only notice names the Linux fix, and only --code-only elsewhere or without a module", () => {
+    const notice: SignInNotice = { kind: "memory_only", reason: "no keychain service" };
+    const noModule: SignInNotice = {
+      kind: "memory_only",
+      reason: "the OS keychain module is not available on this platform",
+    };
+    for (const t of [undefined, KO]) {
+      expect(formatSignInNotice(notice, t, "linux")).toContain("gnome-keyring");
+      expect(formatSignInNotice(notice, t, "linux")).toContain("pgard scan code --code-only");
+      expect(formatSignInNotice(notice, t, "darwin")).not.toContain("gnome-keyring");
+      expect(formatSignInNotice(noModule, t, "linux")).not.toContain("gnome-keyring");
+      expect(formatSignInNotice(noModule, t, "linux")).toContain("pgard scan code --code-only");
+    }
+  });
+
   it("logout says so in Korean when nothing is saved, and when the keychain is gone", async () => {
     const captured = createTestIo();
     const code = await runLogout(

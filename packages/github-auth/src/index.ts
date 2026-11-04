@@ -5,7 +5,10 @@ export {
   type AppInstallUrlInput,
 } from "./app-install.js";
 export {
+  OPENER_GRACE_MS,
   OPENER_URL_CHARACTERS,
+  WSLVIEW_PATHS,
+  isWsl,
   openGitHubUrl,
   openerCommandFor,
   spawnOpener,
@@ -15,6 +18,7 @@ export {
 export {
   GitHubAuthError,
   NOT_SIGNED_IN_NO_TERMINAL_MESSAGE,
+  NOT_SIGNED_IN_NO_TERMINAL_NO_KEYCHAIN_MESSAGE,
   isGitHubAuthError,
   type GitHubAuthErrorCode,
 } from "./errors.js";

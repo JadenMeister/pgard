@@ -21,10 +21,29 @@ export function localizeKeychainReason(reason: string, text: CommandText["signIn
     .replace("the OS keychain could not be used", text.keychainUnusableShort);
 }
 
+/**
+ * What to do when the OS keychain is unusable, for `platform`: the platform's fix (none when the
+ * keychain module is missing, because no setting helps), then the way around it. `raw` is the
+ * English reason from `@pgard/github-auth`. `canSignInPerRun` adds that scans sign in per run.
+ */
+export function keychainGuidance(
+  raw: string,
+  platform: NodeJS.Platform,
+  text: CommandText["signIn"],
+  canSignInPerRun: boolean,
+): string {
+  const parts: string[] = [];
+  if (!raw.includes(OS_KEYCHAIN_NOT_LOADED_MESSAGE)) {
+    parts.push(platform === "linux" ? text.keychainFixLinux : text.keychainFixOther);
+  }
+  parts.push(canSignInPerRun ? text.keychainWorkaroundLogin : text.keychainWorkaround);
+  return parts.join(" ");
+}
+
 export interface CommandText {
   signIn: {
     revokeHint: (url: string) => string;
-    keychainUnavailableOnLogin: (reason: string) => string;
+    keychainUnavailableOnLogin: (reason: string, guidance: string) => string;
     failed: (reason: string) => string;
     unexpectedError: string;
     signedInNotSaved: (login: string, error: string) => string;
@@ -39,12 +58,17 @@ export interface CommandText {
     reused: (login: string, isRefreshed: boolean) => string;
     saved: (login: string) => string;
     removedNotice: (reason: string) => string;
-    memoryOnly: (reason: string) => string;
+    memoryOnly: (reason: string, guidance: string) => string;
     appOverride: (clientId: string, envName: string) => string;
     /** Fixed keychain reasons from `@pgard/github-auth`, translated by exact match. */
     keychainUnusable: string;
     keychainUnusableShort: string;
     keychainNotLoaded: string;
+    /** What to do without a usable keychain (see `keychainGuidance`). */
+    keychainFixLinux: string;
+    keychainFixOther: string;
+    keychainWorkaround: string;
+    keychainWorkaroundLogin: string;
     /** `pgard login` without a terminal (usage error). */
     loginNeedsTerminal: string;
   };
@@ -253,8 +277,8 @@ export const COMMAND_TEXT_EN: CommandText = {
   signIn: {
     revokeHint: (url) =>
       `PGARD cannot revoke the token at GitHub (that needs the App's client secret, which PGARD does not have). It stays valid until it expires; to revoke it now, open ${url} and revoke the PGARD app.`,
-    keychainUnavailableOnLogin: (reason) =>
-      `No OS keychain is available: ${reason}. Nothing was saved; scans and the dashboard ask for a device code on each run.`,
+    keychainUnavailableOnLogin: (reason, guidance) =>
+      `No OS keychain is available: ${reason}. Nothing was saved; scans and the dashboard ask for a device code on each run. ${guidance}`,
     failed: (reason) => `GitHub sign-in failed: ${reason}`,
     unexpectedError: "unexpected error",
     signedInNotSaved: (login, error) =>
@@ -287,12 +311,19 @@ export const COMMAND_TEXT_EN: CommandText = {
       `Saved the GitHub sign-in for ${login} in the OS keychain; later runs reuse it. \`pgard logout\` removes it.`,
     removedNotice: (reason) =>
       `The saved GitHub sign-in ${reason} and was removed from the OS keychain. Sign in again below.`,
-    memoryOnly: (reason) => `The GitHub sign-in is kept in memory for this run only: ${reason}.`,
+    memoryOnly: (reason, guidance) =>
+      `The GitHub sign-in is kept in memory for this run only: ${reason}. ${guidance}`,
     appOverride: (clientId, envName) => `Using GitHub App ${clientId} from ${envName} (override).`,
     keychainUnusable:
       "the OS keychain could not be used (it may be locked, or no keychain service is running)",
     keychainUnusableShort: "the OS keychain could not be used",
     keychainNotLoaded: "the OS keychain module is not available on this platform",
+    keychainFixLinux:
+      "To save sign-ins on Linux, install and start a Secret Service (gnome-keyring, or KeePassXC with its Secret Service integration) in a D-Bus session.",
+    keychainFixOther: "To save sign-ins, unlock or repair the OS keychain.",
+    keychainWorkaround: "`pgard scan code --code-only` works without signing in.",
+    keychainWorkaroundLogin:
+      "`pgard scan code --code-only` works without signing in; other scans can still sign in per run with a device code.",
     loginNeedsTerminal:
       "`pgard login` needs a terminal: it shows a code to type on github.com and waits for you. Run it in an interactive terminal (stdin and stderr must be a terminal).",
   },
@@ -531,8 +562,8 @@ export const COMMAND_TEXT_KO: CommandText = {
   signIn: {
     revokeHint: (url) =>
       `PGARD는 GitHub에서 토큰을 직접 폐기할 수 없습니다(App의 client secret이 필요한데 PGARD에는 없습니다). 토큰은 만료될 때까지 유효합니다. 지금 폐기하려면 ${url} 에서 PGARD 앱의 승인을 취소(Revoke)하세요.`,
-    keychainUnavailableOnLogin: (reason) =>
-      `사용할 수 있는 OS 키체인이 없습니다: ${reason}. 아무것도 저장하지 않았습니다. 검사와 대시보드는 실행할 때마다 기기 코드를 요청합니다.`,
+    keychainUnavailableOnLogin: (reason, guidance) =>
+      `사용할 수 있는 OS 키체인이 없습니다: ${reason}. 아무것도 저장하지 않았습니다. 검사와 대시보드는 실행할 때마다 기기 코드를 요청합니다. ${guidance}`,
     failed: (reason) => `GitHub 로그인에 실패했습니다: ${reason}`,
     unexpectedError: "예기치 않은 오류",
     signedInNotSaved: (login, error) =>
@@ -565,13 +596,20 @@ export const COMMAND_TEXT_KO: CommandText = {
       `${login} 계정의 GitHub 로그인을 OS 키체인에 저장했습니다. 이후 실행에서 다시 사용합니다. \`pgard logout\`으로 삭제할 수 있습니다.`,
     removedNotice: (reason) =>
       `저장된 GitHub 로그인이 사용할 수 없는 상태입니다(${reason}). OS 키체인에서 삭제했으니 아래에서 다시 로그인하세요.`,
-    memoryOnly: (reason) => `GitHub 로그인은 이번 실행 동안만 메모리에 보관됩니다: ${reason}.`,
+    memoryOnly: (reason, guidance) =>
+      `GitHub 로그인은 이번 실행 동안만 메모리에 보관됩니다: ${reason}. ${guidance}`,
     appOverride: (clientId, envName) =>
       `${envName}에서 재정의한 GitHub App을 사용합니다: ${clientId}`,
     keychainUnusable:
       "OS 키체인을 사용할 수 없습니다 (잠겨 있거나 키체인 서비스가 실행 중이지 않을 수 있습니다)",
     keychainUnusableShort: "OS 키체인을 사용할 수 없습니다",
     keychainNotLoaded: "이 플랫폼에서는 OS 키체인 모듈을 사용할 수 없습니다",
+    keychainFixLinux:
+      "Linux에서 로그인을 저장하려면 D-Bus 세션에서 Secret Service(gnome-keyring, 또는 Secret Service 연동을 켠 KeePassXC)를 설치하고 실행하세요.",
+    keychainFixOther: "로그인을 저장하려면 OS 키체인의 잠금을 풀거나 복구하세요.",
+    keychainWorkaround: "`pgard scan code --code-only`는 로그인 없이 동작합니다.",
+    keychainWorkaroundLogin:
+      "`pgard scan code --code-only`는 로그인 없이 동작하며, 다른 검사도 실행할 때마다 기기 코드로 로그인할 수 있습니다.",
     loginNeedsTerminal:
       "`pgard login`은 터미널이 필요합니다. github.com에 입력할 코드를 보여 주고 사용자를 기다립니다. 대화형 터미널(stdin과 stderr가 터미널)에서 실행하세요.",
   },
