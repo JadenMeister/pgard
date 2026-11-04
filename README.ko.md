@@ -112,6 +112,8 @@ npm install -g pgard   # `pgard` 명령 설치
 npx pgard doctor       # 설치 없이 한 번 실행
 ```
 
+릴리스는 GitHub Packages에도 `@jadenmeister/pgard`로 올라갑니다. 거기서 설치하려면 `.npmrc`에 `@jadenmeister:registry=https://npm.pkg.github.com`와 `read:packages` 권한의 GitHub 토큰이 필요합니다([자세히](docs/RELEASING.ko.md)). 위의 npm 패키지를 권장합니다.
+
 Homebrew(macOS, Linux)로는 tap `jadenmeister/pgard`를 통해 설치합니다.
 
 ```sh
