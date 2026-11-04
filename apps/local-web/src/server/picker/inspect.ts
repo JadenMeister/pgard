@@ -9,6 +9,7 @@ import {
   safetyProblemOf,
   windowsNameProblem,
   windowsPathProblem,
+  windowsSystemFolders,
   type EntryKind,
   type FileId,
   type PathRules,
@@ -644,7 +645,8 @@ async function resolveFolder(
   }
   // The same rule as `pgard scan code`: not the root, a top-level folder, home or above it.
   if ((await breadthRefusal(deps, target, home)) !== null) return refuse("too_broad");
-  const systemFolders = job.systemFolders ?? [];
+  // The defaults stay as a floor when the server sent no list.
+  const systemFolders = job.systemFolders ?? windowsSystemFolders({});
   if (rules.windows && isInsideSystemFolder(deps, systemFolders, target)) {
     return refuse("too_broad");
   }

@@ -1,4 +1,4 @@
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -112,18 +112,32 @@ export function taskkillPath(env: Readonly<Record<string, string | undefined>>):
 /**
  * Ends the child and everything it started. POSIX: `SIGKILL` to the process group. Windows has
  * no process groups: `taskkill /T /F` ends the whole tree (the Git grandchildren). It runs before
- * the child itself is killed, because the tree is found through the parent.
+ * the child itself is killed, because the tree is found through the parent. It runs
+ * asynchronously (the event loop is never blocked) and, when several children are stopped at
+ * once (shutdown), in parallel; the plain kill is the fallback if `taskkill` fails.
  */
 function killProcessGroup(pid: number): void {
   if (process.platform === "win32") {
-    const result = spawnSync(taskkillPath(process.env), ["/T", "/F", "/PID", String(pid)], {
-      shell: false,
-      stdio: "ignore",
-      windowsHide: true,
-      timeout: 5_000,
-    });
-    if (result.error === undefined && result.status === 0) return;
+    try {
+      const killer = spawn(taskkillPath(process.env), ["/T", "/F", "/PID", String(pid)], {
+        shell: false,
+        stdio: "ignore",
+        windowsHide: true,
+        timeout: 5_000,
+      });
+      killer.once("error", () => killPlain(pid));
+      killer.once("exit", (code) => {
+        if (code !== 0) killPlain(pid);
+      });
+      return;
+    } catch {
+      // Fall through to the plain kill.
+    }
   }
+  killPlain(pid);
+}
+
+function killPlain(pid: number): void {
   try {
     process.kill(-pid, "SIGKILL");
   } catch {
@@ -177,7 +191,9 @@ export function createInspectorHost(options: InspectorHostOptions = {}): Inspect
         clearTimeout(timer);
         live.delete(handle);
         if (outcome.status !== "finished") {
-          if (typeof child.pid === "number") killGroup(child.pid);
+          // A child that has already exited is never killed by pid: the number may be reused.
+          const hasExited = child.exitCode !== null || child.signalCode !== null;
+          if (typeof child.pid === "number" && !hasExited) killGroup(child.pid);
           // Counted until it really exits: a child stuck in the kernel survives `SIGKILL`.
           if (child.exitCode === null && child.signalCode === null) {
             outstanding.add(child);

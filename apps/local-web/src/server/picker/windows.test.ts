@@ -186,6 +186,20 @@ describe("resolve job with a Windows platform (virtual volume)", () => {
     }
   });
 
+  it("keeps the default system folders as a floor when the job carries no list", async () => {
+    const { deps, messages } = createInspectorDeps({
+      platform: "win32",
+      uid: undefined,
+      fs: virtualWindowsFs(FOLDERS),
+    });
+    await runInspectorJob(deps, {
+      kind: "resolve",
+      path: "C:\\Windows\\System32",
+      homeDir: HOME,
+    });
+    expect(refusalOf(messages)).toBe("too_broad");
+  });
+
   it("resolves junctions and links before any check: a link to a share, a drive root or the system is refused", async () => {
     const aliases = {
       [`${HOME}\\code\\to-share`]: "\\\\server\\share\\app",
