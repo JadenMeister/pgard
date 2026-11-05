@@ -93,6 +93,32 @@ describe("incremental state reader", () => {
     ],
   };
 
+  it("drops entries whose import specifiers are not module-name-shaped (#374)", () => {
+    const entry = state.code[0] as (typeof state.code)[number];
+    const fake = ["ghp", "_", "FaKeFaKeFaKeFaKe0123", "456789AbCdEfGhIjK"].join("");
+    const withImports = (path: string, goImports: string[], imports: string[] | null) => ({
+      ...entry,
+      path,
+      goImports,
+      facts: imports === null ? null : { imports },
+    });
+    const read = readIncrementalState({
+      ...state,
+      code: [
+        withImports("ok.ts", ["github.com/gin-gonic/gin"], null),
+        withImports("scoped.ts", [], ["@fastify/csrf-protection"]),
+        withImports("secret.ts", [], [fake]),
+        withImports("bidi.ts", [], ["pkg\u202egnp"]),
+        withImports("alias.ts", [], ["@/app/lib/x", "~/c/x", "#imports", "$lib/x", "./[id]/page"]),
+        withImports("abs.ts", [], ["/home/me/x"]),
+        withImports("unc.ts", [], ["\\\\server\\share"]),
+        withImports("file.ts", [], ["file:///etc/x"]),
+        withImports("go.go", [`example.com/${fake}`], null),
+      ],
+    });
+    expect(read?.code?.map((file) => file.path)).toEqual(["ok.ts", "scoped.ts", "alias.ts"]);
+  });
+
   it("accepts a state it wrote", () => {
     expect(readIncrementalState(JSON.parse(JSON.stringify(state)))).toEqual(state);
   });
