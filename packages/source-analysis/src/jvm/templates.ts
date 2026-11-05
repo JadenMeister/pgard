@@ -147,7 +147,8 @@ function javaTerm(term: string, vars: ReadonlyMap<string, Class>): Judgement {
     return {
       cls: "escaped",
       direct: false,
-      detail: `escaped with ${name.replace(/\s*\($/, "()")}`,
+      // `name` ends with `(`; `/\s*\($/` would restart at every space of a long whitespace run.
+      detail: `escaped with ${name.slice(0, -1).trimEnd()}()`,
     };
   }
   if (JAVA_SOURCE.test(text)) {
@@ -557,7 +558,9 @@ function thymeleafJudge(
   const globalEscape = new RegExp(THYMELEAF_ESCAPE.source);
   if (globalEscape.test(body)) {
     const name =
-      /([#\w.]+)\s*\(/.exec(body.slice(body.search(THYMELEAF_ESCAPE)))?.[1] ?? "an escaping helper";
+      // The lookbehind keeps a start from restarting inside a word (`a.a.a...`): linear.
+      /(?<![#\w.])([#\w.]+)\s*\(/.exec(body.slice(body.search(THYMELEAF_ESCAPE)))?.[1] ??
+      "an escaping helper";
     // The escaped part is inferred safe; request input left outside the helper is still reported.
     const inner = thymeleafJudge(stripCalls(body, THYMELEAF_ESCAPE).rest, model, view);
     if (inner.cls === "tainted") return inner;

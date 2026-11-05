@@ -35,6 +35,17 @@ const NON_INIT = new Set([
 ]);
 
 /** A bare Kotlin `return` is a non-local return from the enclosing function (label "<fun>"). `return`, `return@label` or `throw` at the start of a Kotlin jump expression; `break` and `continue` are not jumps out of a block. */
+/**
+ * Drops the type arguments of a type name: everything from the first `<` to the last `>`. Same
+ * result as `replace(/<.*>/s, "")`, which restarts at every `<` and so is quadratic on a long
+ * name with many `<` and no `>`.
+ */
+export function withoutTypeArguments(name: string): string {
+  const open = name.indexOf("<");
+  const close = name.lastIndexOf(">");
+  return open === -1 || close < open ? name : name.slice(0, open) + name.slice(close + 1);
+}
+
 function jumpOf(source: string): { kind: "return" | "throw"; label: string | null } | null {
   const match = /^(return|throw)(?:@([A-Za-z_][A-Za-z0-9_]*))?(?![A-Za-z0-9_@])/.exec(source);
   return match === null
@@ -830,7 +841,7 @@ export function convertKotlin(ast: AstResult): Unit {
       if (specifiers.type !== "delegation_specifiers") continue;
       for (const specifier of specifiers.children) {
         const type = specifier.children.find((child) => child.type === "user_type");
-        if (type !== undefined) info.supers.push(simple(text(type).replace(/<.*>/s, "")));
+        if (type !== undefined) info.supers.push(simple(withoutTypeArguments(text(type))));
       }
     }
     const constructor = ofType(node, "primary_constructor");

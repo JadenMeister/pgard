@@ -40,6 +40,11 @@ import {
   languageTrackCoverage,
 } from "./tree-sitter/language-track.js";
 import {
+  createInlineTrackExecutor,
+  createWorkerTrackExecutor,
+  trackWorkerFor,
+} from "./tree-sitter/track-jobs.js";
+import {
   MAX_BUILD_DIRECTORY_PROBES,
   MAX_WALK_ENTRIES,
   readTextFile,
@@ -768,27 +773,41 @@ export async function scanSourceCode(
   // `parseTrackFiles` inside `scanJvm`, so a grammar that fails its checksum, an oversized file or
   // a timeout shows up as a partial or not_tested area, never as a safe result.
   const detection = await detectLanguageTrack(walk);
-  const jvm = await scanJvm(walk, detection, {
+  // Every tree-sitter file (parse and rule analysis) and every mapper, template and Spring
+  // configuration file runs under the same hard per-file limit as the JS/Go path: in a worker
+  // thread, or in this thread when there is no worker (tests running from source).
+  const trackWorkerUrl = trackWorkerFor(workerUrl);
+  const trackExecutor =
+    trackWorkerUrl === null
+      ? createInlineTrackExecutor()
+      : createWorkerTrackExecutor(trackWorkerUrl);
+  const trackOptions = () => ({
     ...(options.signal === undefined ? {} : { signal: options.signal }),
     deadline: createTrackDeadline(Math.min(MAX_TRACK_PARSE_MS, timeBudgetMs)),
-    ...(excludeMatcher === null
-      ? {}
-      : { isExcluded: (relativePath: string) => excludeMatcher.matches(relativePath) }),
+    executor: trackExecutor,
+    perFileLimitMs,
   });
+  let jvm: Awaited<ReturnType<typeof scanJvm>>;
+  let php: Awaited<ReturnType<typeof scanPhp>>;
+  let python: Awaited<ReturnType<typeof scanPython>>;
+  try {
+    jvm = await scanJvm(walk, detection, {
+      ...trackOptions(),
+      ...(excludeMatcher === null
+        ? {}
+        : { isExcluded: (relativePath: string) => excludeMatcher.matches(relativePath) }),
+    });
+    php = await scanPhp(walk, detection, trackOptions());
+    python = await scanPython(walk, detection, trackOptions());
+  } finally {
+    trackExecutor.release();
+  }
   findings.push(...jvm.findings);
   coverage.push(...jvm.coverage);
   ruleStats.push(...jvm.ruleStats);
-  const php = await scanPhp(walk, detection, {
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
-    deadline: createTrackDeadline(Math.min(MAX_TRACK_PARSE_MS, timeBudgetMs)),
-  });
   findings.push(...php.findings);
   coverage.push(...php.coverage);
   ruleStats.push(...php.ruleStats);
-  const python = await scanPython(walk, detection, {
-    ...(options.signal === undefined ? {} : { signal: options.signal }),
-    deadline: createTrackDeadline(Math.min(MAX_TRACK_PARSE_MS, timeBudgetMs)),
-  });
   findings.push(...python.findings);
   coverage.push(...python.coverage);
   ruleStats.push(...python.ruleStats);

@@ -1,5 +1,7 @@
 import type { Coverage } from "@pgard/findings";
+import { DEFAULT_PER_FILE_LIMIT_MS, MIN_FILE_LIMIT_MS } from "../file-worker.js";
 import { readTextFile, type TrackedFile, type WalkResult } from "../walk.js";
+import type { TrackExecutor, TreeAnalysis } from "./track-jobs.js";
 import {
   detectFrameworks,
   FRAMEWORK_LANGUAGES,
@@ -154,6 +156,10 @@ export interface ParseStats {
   parsed: number;
   tooLarge: string[];
   timedOut: string[];
+  /** Files stopped at the hard per-file limit (parse and analysis; the work was terminated). */
+  limited: string[];
+  /** Files whose worker ran out of memory, crashed or answered with something malformed. */
+  workerFailed: string[];
   unreadable: string[];
   failed: string[];
   /** Why the grammar could not be used (checksum mismatch, unreadable); no file was parsed. */
@@ -173,6 +179,8 @@ export function emptyParseStats(): ParseStats {
     parsed: 0,
     tooLarge: [],
     timedOut: [],
+    limited: [],
+    workerFailed: [],
     unreadable: [],
     failed: [],
     grammarUnavailable: null,
@@ -181,37 +189,50 @@ export function emptyParseStats(): ParseStats {
   };
 }
 
-/**
- * Reads and parses the files of one language with the size and time limits, calling `visit` for
- * each parsed tree (the tree is freed afterwards). The grammar loads on the first file, so
- * calling this with an empty list loads nothing. Oversized files are rejected from the `lstat`
- * size without being read.
- */
-export async function parseTrackFiles(
-  runtime: TreeSitterRuntime,
-  language: TreeSitterLanguage,
+/** What a track loop needs from the outcome of parsing (and, in a worker, analyzing) one file. */
+interface ParsedBase {
+  status: "parsed";
+  errorCount: number;
+  missingCount: number;
+  /** Frees what the outcome holds (a tree); called once after `visit`. */
+  dispose: () => void;
+}
+
+type StepOutcome<T extends ParsedBase> =
+  | T
+  | { status: "too_large" }
+  | { status: "timeout" }
+  /** The hard per-file limit (or the remaining scan budget) ran out and the work was stopped. */
+  | { status: "limit" }
+  /** The worker ran out of memory, crashed or answered with something malformed. */
+  | { status: "worker_failed" }
+  | { status: "unavailable"; reason: string }
+  | { status: "failed" };
+
+interface LoopOptions {
+  maxBytes: number;
+  maxTimeouts: number;
+  deadline: TrackDeadline | undefined;
+}
+
+/** The shared loop: limits, deadline, the timeout cap and the per-file bookkeeping. */
+async function trackLoop<T extends ParsedBase>(
   files: readonly TrackedFile[],
-  options: ParseOptions & {
-    /** Scan-wide deadline shared across languages. Omit for no total limit. */
-    deadline?: TrackDeadline;
-    maxTimeouts?: number;
-  } = {},
-  visit?: (
-    file: TrackedFile,
-    outcome: Extract<ParseOutcome, { status: "parsed" }>,
-    source: string,
-  ) => void,
+  options: LoopOptions,
+  step: (file: TrackedFile, source: string, remainingMs: number) => Promise<StepOutcome<T>>,
+  visit?: (file: TrackedFile, outcome: T, source: string) => void,
 ): Promise<ParseStats> {
-  const maxBytes = options.maxBytes ?? DEFAULT_PARSE_LIMITS.maxBytes;
-  const maxTimeouts = options.maxTimeouts ?? MAX_PARSE_TIMEOUTS_PER_LANGUAGE;
-  const deadline = options.deadline;
+  const { maxBytes, maxTimeouts, deadline } = options;
   const stats = emptyParseStats();
   stats.maxTimeouts = maxTimeouts;
   if (deadline) stats.totalBudgetMs = deadline.totalMs;
   for (const [index, file] of files.entries()) {
     if (stats.stoppedBy === null && deadline && deadline.now() >= deadline.endsAt) {
       stats.stoppedBy = "deadline";
-    } else if (stats.stoppedBy === null && stats.timedOut.length >= maxTimeouts) {
+    } else if (
+      stats.stoppedBy === null &&
+      stats.timedOut.length + stats.limited.length >= maxTimeouts
+    ) {
       stats.stoppedBy = "timeouts";
     }
     if (stats.stoppedBy !== null) {
@@ -229,18 +250,21 @@ export async function parseTrackFiles(
       stats.unreadable.push(file.relativePath);
       continue;
     }
-    // A single parse never runs past the scan-wide deadline either.
+    // A single file never runs past the scan-wide deadline either.
     const remaining = deadline ? Math.max(1, deadline.endsAt - deadline.now()) : Infinity;
-    const outcome = await runtime.parse(language, source, {
-      ...options,
-      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_PARSE_LIMITS.timeoutMs, remaining),
-    });
+    const outcome = await step(file, source, remaining);
     switch (outcome.status) {
       case "too_large":
         stats.tooLarge.push(file.relativePath);
         break;
       case "timeout":
         stats.timedOut.push(file.relativePath);
+        break;
+      case "limit":
+        stats.limited.push(file.relativePath);
+        break;
+      case "worker_failed":
+        stats.workerFailed.push(file.relativePath);
         break;
       case "failed":
         stats.failed.push(file.relativePath);
@@ -266,6 +290,117 @@ export async function parseTrackFiles(
     }
   }
   return stats;
+}
+
+/**
+ * Reads and parses the files of one language with the size and time limits, calling `visit` for
+ * each parsed tree (the tree is freed afterwards). The grammar loads on the first file, so
+ * calling this with an empty list loads nothing. Oversized files are rejected from the `lstat`
+ * size without being read. The analysis in `visit` runs in the calling thread; the scans use
+ * `analyzeTrackFiles` instead, which keeps parse and analysis under the hard per-file limit.
+ */
+export async function parseTrackFiles(
+  runtime: TreeSitterRuntime,
+  language: TreeSitterLanguage,
+  files: readonly TrackedFile[],
+  options: ParseOptions & {
+    /** Scan-wide deadline shared across languages. Omit for no total limit. */
+    deadline?: TrackDeadline;
+    maxTimeouts?: number;
+  } = {},
+  visit?: (
+    file: TrackedFile,
+    outcome: Extract<ParseOutcome, { status: "parsed" }>,
+    source: string,
+  ) => void,
+): Promise<ParseStats> {
+  return trackLoop(
+    files,
+    {
+      maxBytes: options.maxBytes ?? DEFAULT_PARSE_LIMITS.maxBytes,
+      maxTimeouts: options.maxTimeouts ?? MAX_PARSE_TIMEOUTS_PER_LANGUAGE,
+      deadline: options.deadline,
+    },
+    (_file, source, remaining) =>
+      runtime.parse(language, source, {
+        ...options,
+        timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_PARSE_LIMITS.timeoutMs, remaining),
+      }),
+    visit,
+  );
+}
+
+/** A file that was parsed and analyzed (in the executor's thread). */
+export interface AnalyzedTree {
+  errorCount: number;
+  missingCount: number;
+  /** Null when the rule analysis threw: the file counts as parsed, not analyzed. */
+  analysis: TreeAnalysis | null;
+  namespaceFrameworks: Framework[];
+}
+
+export interface AnalyzeTrackOptions {
+  executor: TrackExecutor;
+  signal?: AbortSignal | undefined;
+  /** Scan-wide deadline shared across languages. */
+  deadline: TrackDeadline;
+  /** Hard limit for one file's parse and analysis; the remaining deadline may shorten it. */
+  perFileLimitMs?: number;
+  maxBytes?: number;
+  /** Parse timeout of one file. */
+  timeoutMs?: number;
+  maxTimeouts?: number;
+  /** Python: the project's manifests name Django. */
+  django?: boolean;
+}
+
+/**
+ * Like `parseTrackFiles`, but each file's parse AND rule analysis run as one job under the
+ * executor's hard limit (a worker thread in a built scan), so a pathological file cannot hold the
+ * scan past its budget and Ctrl+C does not wait on it. A file that hits the limit, or whose worker
+ * fails or runs out of memory, is listed in the stats and makes the area partial; it is never
+ * reported as safe. `visit` gets the plain-data result (the tree stays in the executor's thread).
+ */
+export async function analyzeTrackFiles(
+  language: TreeSitterLanguage,
+  files: readonly TrackedFile[],
+  options: AnalyzeTrackOptions,
+  visit: (file: TrackedFile, parsed: AnalyzedTree, source: string) => void,
+): Promise<ParseStats> {
+  const maxBytes = options.maxBytes ?? DEFAULT_PARSE_LIMITS.maxBytes;
+  const perFileLimitMs = options.perFileLimitMs ?? DEFAULT_PER_FILE_LIMIT_MS;
+  return trackLoop<ParsedBase & AnalyzedTree>(
+    files,
+    {
+      maxBytes,
+      maxTimeouts: options.maxTimeouts ?? MAX_PARSE_TIMEOUTS_PER_LANGUAGE,
+      deadline: options.deadline,
+    },
+    async (file, source, remaining) => {
+      const limitMs = Math.max(MIN_FILE_LIMIT_MS, Math.min(perFileLimitMs, remaining));
+      const outcome = await options.executor.run(
+        {
+          kind: "tree",
+          language,
+          source,
+          relativePath: file.relativePath,
+          timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_PARSE_LIMITS.timeoutMs, remaining),
+          maxBytes,
+          django: options.django === true,
+        },
+        limitMs,
+        options.signal,
+      );
+      if (outcome.kind === "timeout") return { status: "limit" };
+      if (outcome.kind !== "done" || outcome.value.kind !== "tree") {
+        return { status: "worker_failed" };
+      }
+      const tree = outcome.value.outcome;
+      if (tree.status !== "parsed") return tree;
+      return { ...tree, dispose: () => {} };
+    },
+    visit,
+  );
 }
 
 /**
@@ -301,6 +436,16 @@ export function parseCoverage(
   if (stats.timedOut.length > 0) {
     problems.push(
       `${stats.timedOut.length} file(s) hit the parse budget (${timeoutMs} ms per file) or the scan deadline (${listQuoted(stats.timedOut)})`,
+    );
+  }
+  if (stats.limited.length > 0) {
+    problems.push(
+      `${stats.limited.length} file(s) took longer than the per-file limit or ran out of the scan time budget (stopped; not analyzed: ${listQuoted(stats.limited)})`,
+    );
+  }
+  if (stats.workerFailed.length > 0) {
+    problems.push(
+      `${stats.workerFailed.length} file(s) not analyzed: the analysis worker failed or ran out of memory (${listQuoted(stats.workerFailed)})`,
     );
   }
   if (stats.unreadable.length > 0) {
