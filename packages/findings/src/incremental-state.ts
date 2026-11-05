@@ -1,5 +1,6 @@
 import type { Finding } from "./contract.js";
 import { readFindingList } from "./read-result.js";
+import { redactSecrets } from "./redact.js";
 
 /**
  * What an incremental scan needs from the scan it is based on, beyond the result itself. It is
@@ -52,6 +53,42 @@ export interface IncrementalState {
   code: CachedSourceFile[] | null;
 }
 
+/** Printable ASCII except whitespace, quotes (" ' `) and backslash: 1 to 214 characters. */
+const MODULE_SPECIFIER = /^[\x21\x23-\x26\x28-\x5b\x5d-\x5f\x61-\x7e]{1,214}$/;
+/** An absolute path (POSIX, drive, UNC) or a file: URL is never a module name worth keeping. */
+const ABSOLUTE_SPECIFIER = /^(?:\/|[A-Za-z]:[\\/]|\\\\|file:)/i;
+
+/**
+ * True for an import specifier that is safe to keep in the cache: printable ASCII only (so no
+ * control, bidi, invisible or non-ASCII character, which also allows alias forms such as `@/x`,
+ * `~/x`, `#imports`, `$lib/x`, `./[id]/page`), not an absolute path, and unchanged by secret
+ * redaction. The secret check recognizes known secret shapes only; it cannot catch an arbitrary
+ * secret that looks like a module name. A file with any other specifier is not cached and is
+ * analyzed again, so reused and fresh entries always agree.
+ */
+export function isCacheableImportSpecifier(value: unknown): boolean {
+  return (
+    typeof value === "string" &&
+    MODULE_SPECIFIER.test(value) &&
+    !ABSOLUTE_SPECIFIER.test(value) &&
+    redactSecrets(value) === value
+  );
+}
+
+/** True when every import specifier an entry holds may be kept (see `isCacheableImportSpecifier`). */
+export function hasCacheableImports(entry: {
+  facts: Record<string, unknown> | null;
+  goImports: readonly string[];
+}): boolean {
+  const imports = entry.facts?.imports;
+  if (imports !== undefined && !Array.isArray(imports)) return false;
+  if (!Array.isArray(entry.goImports)) return false;
+  return (
+    entry.goImports.every(isCacheableImportSpecifier) &&
+    (imports ?? []).every(isCacheableImportSpecifier)
+  );
+}
+
 type Obj = Record<string, unknown>;
 
 function isObject(value: unknown): value is Obj {
@@ -68,7 +105,7 @@ function stringList(value: unknown): string[] | null {
   return out;
 }
 
-function readCachedFile(value: unknown): CachedSourceFile | null {
+function readCachedFile(value: unknown): CachedSourceFile | "skip" | null {
   if (!isObject(value)) return null;
   const { path, language, hash, findings, facts, goImports, hasJsx, hasParseErrors, capped } =
     value;
@@ -80,12 +117,16 @@ function readCachedFile(value: unknown): CachedSourceFile | null {
   const imports = stringList(goImports);
   const readFindings = readFindingList(findings);
   if (imports === null || readFindings === null) return null;
+  const cachedFacts = facts === null ? null : (JSON.parse(JSON.stringify(facts)) as Obj);
+  // A specifier that could hold a raw value (older or edited store): drop the entry, so the file
+  // is analyzed again.
+  if (!hasCacheableImports({ facts: cachedFacts, goImports: imports })) return "skip";
   return {
     path,
     language: language as CachedSourceLanguage,
     hash,
     findings: readFindings,
-    facts: facts === null ? null : (JSON.parse(JSON.stringify(facts)) as Obj),
+    facts: cachedFacts,
     goImports: imports,
     hasJsx,
     hasParseErrors,
@@ -110,7 +151,7 @@ export function readIncrementalState(input: unknown): IncrementalState | null {
       for (const entry of input.code) {
         const file = readCachedFile(entry);
         if (file === null) return null;
-        code.push(file);
+        if (file !== "skip") code.push(file);
       }
     }
     return {

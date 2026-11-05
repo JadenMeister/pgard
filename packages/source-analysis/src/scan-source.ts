@@ -10,6 +10,7 @@ import {
   isVendoredPath,
   matchesEverything,
   prefixWalkStopped,
+  hasCacheableImports,
   redactEvidence,
   redactLocationPath,
   type AnalyzerOutput,
@@ -403,6 +404,7 @@ const isNumberList = (value: unknown): boolean =>
  * this is analyzed again instead of being trusted.
  */
 function hasUsableFacts(entry: CachedSourceFile): boolean {
+  if (!hasCacheableImports(entry)) return false;
   if (entry.language === "go") return entry.facts === null;
   const facts = entry.facts;
   if (facts === null) return entry.language === "vue";
@@ -539,7 +541,14 @@ export async function scanSourceCode(
       }
       // The cache is stored as is: a path that redaction would change (a secret-shaped or
       // control-character file name) is not kept there, and the file is analyzed again next time.
-      if (redactLocationPath(file.relativePath) === file.relativePath) fileCache.push(entry);
+      // The same for a file with an import specifier that is not module-name-shaped or that
+      // redaction would change (#374).
+      if (
+        redactLocationPath(file.relativePath) === file.relativePath &&
+        hasCacheableImports(entry)
+      ) {
+        fileCache.push(entry);
+      }
       findings.push(...entry.findings);
       if (entry.language === "go") {
         for (const name of entry.goImports) goImports.add(name);
