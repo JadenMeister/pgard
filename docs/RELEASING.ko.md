@@ -60,9 +60,10 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
 
 1. **초록색 `main`에서 시작합니다.** 릴리스에 들어갈 PR이 모두 머지되고 CI가 통과한 상태여야 합니다.
 2. 위 규칙으로 **버전을 정합니다.**
-3. 두 곳의 **버전을 올립니다.** 둘은 일치해야 합니다(다르면 pack 단계와 워크플로가 실패합니다).
+3. 세 곳의 **버전을 올립니다.** 처음 두 곳은 일치해야 하고(다르면 pack 단계와 워크플로가 실패합니다), 세 번째는 `npm run site-version:check`가 검사합니다.
    - `packaging/pgard/package.json`(`version`)
    - `packages/scan-core/src/version.ts`(`PGARD_VERSION`)
+   - `site/index.html`과 `site/ko/index.html`의 랜딩 페이지 표기(히어로의 `vX.Y.Z`와 `rules list` 샘플 헤더 `pgard X.Y.Z - detection criteria …`). 패키지 버전이나 `RULE_CRITERIA_VERSION`과 다르면 `npm run site-version:check`가 실패합니다. CI와 `npm test`에서 실행되므로 릴리스 워크플로의 verify 작업도 실패해, 사이트가 낡았으면 릴리스와 드라이런이 막힙니다. 사이트는 `main`에서 배포되므로 릴리스 PR을 머지하면 배포 전에 새 버전이 사이트에 먼저 보입니다. 머지 직후 바로 배포하세요.
 4. **`CHANGELOG.md`를 갱신합니다.** `## [Unreleased]` 내용을 `## [X.Y.Z] - YYYY-MM-DD`로 옮기고 비어 있는 `## [Unreleased]`를 새로 두며 하단 비교 링크를 갱신합니다. 항목은 Added, Changed, Fixed, Security(필요하면 Removed, Deprecated)로 묶고, 호환성을 깨는 변경에는 **BREAKING**을 붙입니다.
 5. `chore(release): vX.Y.Z` **PR**을 이 변경만으로 열고 리뷰한 뒤 머지합니다. 그 전에 로컬에서 `npm run check`, `npm run corpus:check`, `npm run pack:pgard`, `npm run smoke:pack`을 실행합니다.
 6. **드라이런(권장).** Actions, `release`, Run workflow에서 `main`을 고르고 버전을 입력하고 `dry_run`을 켭니다. 모든 검증과 `npm publish --dry-run`을 실행하며 아무것도 배포되지 않습니다. 드라이런도 `publish` 작업을 거치므로 **`npm-publish` 승인을 기다리고 OIDC 토큰도 요청합니다.** `publish-github` 작업(역시 `npm publish --dry-run`만 실행)은 승인을 한 번 더 요청합니다. 브랜치에서의 수동 실행은 드라이런만 가능하며 실제 배포에는 태그가 필요합니다.
