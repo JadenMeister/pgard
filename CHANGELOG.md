@@ -4,6 +4,10 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ## [Unreleased]
 
+### Security
+
+- The incremental cache no longer stores raw import specifiers (#374). A file whose JavaScript, TypeScript, Vue or Go import is not module-name-shaped (`^[@\w./:-]{1,214}$`, so no control, bidi or invisible characters) or that evidence redaction would change is not cached and is analyzed again next scan, so project-wide checks (CSRF and rate-limit library detection, unsupported ORM detection) give the same answer for reused and fresh files. A stored entry that fails the same check is dropped when the state is read, and its file is analyzed again.
+
 ## [0.3.0] - 2026-11-04
 
 ### Added

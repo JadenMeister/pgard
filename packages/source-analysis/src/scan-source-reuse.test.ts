@@ -92,3 +92,62 @@ describe("stored route facts", () => {
     expect(second.findings.some((f) => f.ruleId === "PG-BRUTE-001")).toBe(true);
   });
 });
+
+describe("cached import specifiers (#374)", () => {
+  const fakeSecret = ["ghp", "_", "FaKeFaKeFaKeFaKe0123", "456789AbCdEfGhIjK"].join("");
+
+  it("keeps a normal scoped package and a Go import in the cache", async () => {
+    const root = project({
+      "a.js": "import csrf from '@fastify/csrf-protection';\nexport default csrf;\n",
+      "main.go": 'package main\nimport "github.com/gin-gonic/gin"\nfunc main() {}\n',
+    });
+    const first = await scanSourceCode(root);
+    expect(first.fileCache.map((entry) => entry.path).sort()).toEqual(["a.js", "main.go"]);
+    const second = await scanSourceCode(root, { reuse: reuseOf(first.fileCache) });
+    expect(second.reuse).toEqual({ rescanned: 0, reused: 2 });
+  });
+
+  it("does not cache a file with a secret-shaped or bidi-character import", async () => {
+    const root = project({
+      "secret.js": `import x from '${fakeSecret}';\nexport default x;\n`,
+      "bidi.js": "import y from 'pkg\u202egnp';\nexport default y;\n",
+      "go.go": `package main\nimport "example.com/${fakeSecret}"\nfunc main() {}\n`,
+      "ok.js": "export const ok = 1;\n",
+    });
+    const first = await scanSourceCode(root);
+    expect(first.fileCache.map((entry) => entry.path)).toEqual(["ok.js"]);
+    const stored = JSON.stringify(first.fileCache);
+    expect(stored).not.toContain(fakeSecret);
+    expect(stored).not.toContain("\u202e");
+  });
+
+  it("analyzes again an entry whose stored specifier is not module-name-shaped", async () => {
+    const root = project({ "a.js": SQL("a") });
+    const first = await scanSourceCode(root);
+    const tampered = first.fileCache.map((entry) => ({
+      ...entry,
+      facts: { ...entry.facts, imports: ["pg", `${fakeSecret}`] },
+    }));
+    const second = await scanSourceCode(root, { reuse: reuseOf(tampered) });
+    expect(second.reuse).toEqual({ rescanned: 1, reused: 0 });
+  });
+
+  it("gives the same project-wide answer on a cache hit as on a fresh scan", async () => {
+    const server =
+      "import express from 'express';\nconst app = express();\napp.post('/login', login);\n";
+    const guard = "import csrf from '@fastify/csrf-protection';\nexport default csrf;\n";
+    const root = project({
+      "server.js": server,
+      "guard.js": guard,
+      "orm.js": "import { Entity } from 'typeorm';\nexport default Entity;\n",
+    });
+    const first = await scanSourceCode(root);
+    const second = await scanSourceCode(root, { reuse: reuseOf(first.fileCache) });
+    expect(second.reuse).toEqual({ rescanned: 0, reused: 3 });
+    expect(second.findings).toEqual(first.findings);
+    const ormNotes = (coverage: typeof first.coverage) =>
+      coverage.filter((c) => c.noteCode === "orm_unsupported").map((c) => [c.area, c.noteParams]);
+    expect(ormNotes(first.coverage)).not.toEqual([]);
+    expect(ormNotes(second.coverage)).toEqual(ormNotes(first.coverage));
+  });
+});
