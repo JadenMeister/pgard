@@ -141,7 +141,7 @@ function javaTerm(term: string, vars: ReadonlyMap<string, Class>): Judgement {
   }
   if (JAVA_ESCAPE.test(text) || /\.encodeFor\w+\s*\(/.test(text)) {
     const name =
-      /(?:escape\w*|htmlEscape\w*|forHtml\w*|forXml\w*|forJava\w*|encodeFor\w+|sanitize\w*|cleanHtml|javaScriptEscape)\s*\(/.exec(
+      /(?<!\w)(?:escape\w*|htmlEscape\w*|forHtml\w*|forXml\w*|forJava\w*|encodeFor\w+|sanitize\w*|cleanHtml|javaScriptEscape)\s*\(/.exec(
         text,
       )?.[0] ?? "an escaping helper(";
     return {
@@ -532,7 +532,7 @@ export function looksLikeThymeleaf(text: string): boolean {
 }
 
 const THYMELEAF_ESCAPE =
-  /#strings\.(?:escapeXml|escapeJava|escapeJavaScript|escapeSql)\s*\(|htmlEscape\w*\s*\(|escapeHtml\d?\s*\(|forHtml\w*\s*\(|#\w*\.?sanitize\w*\s*\(/;
+  /#strings\.(?:escapeXml|escapeJava|escapeJavaScript|escapeSql)\s*\(|(?<!\w)htmlEscape\w*\s*\(|(?<!\w)escapeHtml\d?\s*\(|(?<!\w)forHtml\w*\s*\(|#\w*\.?sanitize\w*\s*\(/;
 const THYMELEAF_SOURCE =
   /\$\{\s*(?:#?(?:request|httpServletRequest)\s*\.\s*(?:getParameter|getHeader|queryString|getQueryString|requestURI|getRequestURI|getRequestURL|parameterMap|getCookies)|param\s*[.[]|#vars\.param|#request\.getParameter)|(?<![\w.])param\s*[.[]\s*['"\w]/;
 

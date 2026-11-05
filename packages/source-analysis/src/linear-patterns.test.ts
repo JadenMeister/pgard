@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
-import { analyzeJsp, analyzeThymeleaf } from "./jvm/templates.js";
+import { analyzeJsp, analyzeThymeleaf, looksLikeThymeleaf } from "./jvm/templates.js";
 import { withoutTrailingQuotes } from "./python/analyze-python.js";
 
 /**
@@ -87,5 +87,48 @@ describe("template escaping helpers", () => {
     const text = `<%@ taglib prefix="fn" uri="http://java.sun.com/jsp/jstl/functions" %>\n<p>\${fn:escapeXml${" ".repeat(SIZE)}(param.a)}</p>`;
     const { ms } = timed(() => analyzeJsp(text, "web/a.jsp"));
     expect(ms).toBeLessThan(LIMIT_MS * 4);
+  });
+});
+
+describe("escaping-helper patterns (#371 review)", () => {
+  const jsp = (expression: string) => `<%@ page language="java" %>\n<p><%= ${expression} %></p>\n`;
+  const thymeleaf = (expression: string) => `<p th:utext="\${${expression}}">x</p>`;
+
+  it("keeps the helper judgement on small inputs", () => {
+    const escaped = analyzeJsp(
+      jsp('StringEscapeUtils.escapeHtml4(request.getParameter("a"))'),
+      "a.jsp",
+    );
+    expect(escaped.findings.map((finding) => finding.evidence).join("\n")).toContain(
+      "escaped with",
+    );
+    const thy = analyzeThymeleaf(
+      thymeleaf("#strings.escapeXml(q) + htmlEscape(q)"),
+      "templates/a.html",
+      new Map(),
+    );
+    expect(thy.findings.map((finding) => finding.evidence).join("\n")).toContain("escaped with");
+  });
+
+  it("is linear on a repeated helper-name prefix in a Java expression", () => {
+    const text = jsp(`${"escape".repeat(SIZE / 12)}.encodeForHTML(x)`);
+    const { ms } = timed(() => analyzeJsp(text, "a.jsp"));
+    expect(ms).toBeLessThan(LIMIT_MS);
+  });
+
+  it("is linear on a repeated htmlEscape prefix in a Thymeleaf expression", () => {
+    const text = `<div th:utext="\${q} + \${'${"htmlEscape".repeat(SIZE / 10)}'}">x</div>`;
+    const { ms } = timed(() => analyzeThymeleaf(text, "templates/a.html", new Map()));
+    expect(ms).toBeLessThan(LIMIT_MS);
+  });
+
+  it.each([
+    ["th:".repeat(SIZE / 6)],
+    [`xmlns:th${" ".repeat(SIZE)}x`],
+    ["[( ".repeat(SIZE / 6)],
+    [`th:${"a".repeat(SIZE)}`],
+  ])("looksLikeThymeleaf is linear on a crafted input", (input) => {
+    const { ms } = timed(() => looksLikeThymeleaf(input));
+    expect(ms).toBeLessThan(LIMIT_MS);
   });
 });

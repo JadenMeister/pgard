@@ -158,8 +158,12 @@ export interface ParseStats {
   timedOut: string[];
   /** Files stopped at the hard per-file limit (parse and analysis; the work was terminated). */
   limited: string[];
-  /** Files whose worker ran out of memory, crashed or answered with something malformed. */
+  /** Files whose worker crashed, exited or answered with something malformed. */
   workerFailed: string[];
+  /** Files whose worker ran out of memory. */
+  memoryLimited: string[];
+  /** Files whose parse or analysis threw (deep nesting past the stack limit, or any error). */
+  analysisFailed: string[];
   unreadable: string[];
   failed: string[];
   /** Why the grammar could not be used (checksum mismatch, unreadable); no file was parsed. */
@@ -181,6 +185,8 @@ export function emptyParseStats(): ParseStats {
     timedOut: [],
     limited: [],
     workerFailed: [],
+    memoryLimited: [],
+    analysisFailed: [],
     unreadable: [],
     failed: [],
     grammarUnavailable: null,
@@ -204,8 +210,11 @@ type StepOutcome<T extends ParsedBase> =
   | { status: "timeout" }
   /** The hard per-file limit (or the remaining scan budget) ran out and the work was stopped. */
   | { status: "limit" }
-  /** The worker ran out of memory, crashed or answered with something malformed. */
+  /** The worker crashed, exited or answered with something malformed. */
   | { status: "worker_failed" }
+  | { status: "memory" }
+  /** The parse or analysis threw an exception (deep nesting, or any other error). */
+  | { status: "analysis_failed" }
   | { status: "unavailable"; reason: string }
   | { status: "failed" };
 
@@ -265,6 +274,12 @@ async function trackLoop<T extends ParsedBase>(
         break;
       case "worker_failed":
         stats.workerFailed.push(file.relativePath);
+        break;
+      case "memory":
+        stats.memoryLimited.push(file.relativePath);
+        break;
+      case "analysis_failed":
+        stats.analysisFailed.push(file.relativePath);
         break;
       case "failed":
         stats.failed.push(file.relativePath);
@@ -392,6 +407,10 @@ export async function analyzeTrackFiles(
         options.signal,
       );
       if (outcome.kind === "timeout") return { status: "limit" };
+      if (outcome.kind === "memory") return { status: "memory" };
+      if (outcome.kind === "stack" || outcome.kind === "error") {
+        return { status: "analysis_failed" };
+      }
       if (outcome.kind !== "done" || outcome.value.kind !== "tree") {
         return { status: "worker_failed" };
       }
@@ -445,7 +464,17 @@ export function parseCoverage(
   }
   if (stats.workerFailed.length > 0) {
     problems.push(
-      `${stats.workerFailed.length} file(s) not analyzed: the analysis worker failed or ran out of memory (${listQuoted(stats.workerFailed)})`,
+      `${stats.workerFailed.length} file(s) not analyzed: the analysis worker failed (${listQuoted(stats.workerFailed)})`,
+    );
+  }
+  if (stats.memoryLimited.length > 0) {
+    problems.push(
+      `${stats.memoryLimited.length} file(s) needed more memory than the analysis may use (stopped; not analyzed: ${listQuoted(stats.memoryLimited)})`,
+    );
+  }
+  if (stats.analysisFailed.length > 0) {
+    problems.push(
+      `${stats.analysisFailed.length} file(s) could not be analyzed: the parser or analysis failed, for example on nesting that is too deep (${listQuoted(stats.analysisFailed)})`,
     );
   }
   if (stats.unreadable.length > 0) {

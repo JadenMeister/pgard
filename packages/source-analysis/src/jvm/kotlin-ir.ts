@@ -34,7 +34,6 @@ const NON_INIT = new Set([
   "label",
 ]);
 
-/** A bare Kotlin `return` is a non-local return from the enclosing function (label "<fun>"). `return`, `return@label` or `throw` at the start of a Kotlin jump expression; `break` and `continue` are not jumps out of a block. */
 /**
  * Drops the type arguments of a type name: everything from the first `<` to the last `>`. Same
  * result as `replace(/<.*>/s, "")`, which restarts at every `<` and so is quadratic on a long
@@ -46,6 +45,7 @@ export function withoutTypeArguments(name: string): string {
   return open === -1 || close < open ? name : name.slice(0, open) + name.slice(close + 1);
 }
 
+/** A bare Kotlin `return` is a non-local return from the enclosing function (label "<fun>"). `return`, `return@label` or `throw` at the start of a Kotlin jump expression; `break` and `continue` are not jumps out of a block. */
 function jumpOf(source: string): { kind: "return" | "throw"; label: string | null } | null {
   const match = /^(return|throw)(?:@([A-Za-z_][A-Za-z0-9_]*))?(?![A-Za-z0-9_@])/.exec(source);
   return match === null

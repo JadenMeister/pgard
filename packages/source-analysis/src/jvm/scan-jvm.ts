@@ -4,6 +4,7 @@ import { JVM_RULE_IDS, MYBATIS_RULE_IDS, type SourceRuleId } from "../rules.js";
 import { DEFAULT_PER_FILE_LIMIT_MS, MIN_FILE_LIMIT_MS } from "../file-worker.js";
 import {
   analyzeTrackFiles,
+  MAX_PARSE_TIMEOUTS_PER_LANGUAGE,
   parseCoverage,
   type LanguageTrackDetection,
   type TrackDeadline,
@@ -22,7 +23,7 @@ import {
   MAX_SPRING_CONFIG_BYTES,
   type SpringConfigAnalysis,
 } from "./spring-config.js";
-import type { ModelSource, TemplateAnalysis } from "./templates.js";
+import { looksLikeThymeleaf, type ModelSource, type TemplateAnalysis } from "./templates.js";
 import { TEMPLATE_ENGINES } from "./web-names.js";
 
 export const JVM_LANGUAGES: readonly TreeSitterLanguage[] = ["java", "kotlin"];
@@ -122,10 +123,22 @@ export async function scanJvm(
         options.deadline.endsAt - options.deadline.now(),
       ),
     );
+  /** Text jobs (mapper, template, configuration) stopped or failed so far, over all three loops. */
+  let textStops = 0;
+  /**
+   * The text loops stop starting jobs once the scan deadline has passed or
+   * MAX_PARSE_TIMEOUTS_PER_LANGUAGE jobs were stopped (as `trackLoop` does for trees); the files
+   * left are counted as not reached and make their area partial.
+   */
+  const textHalted = (): boolean =>
+    textStops >= MAX_PARSE_TIMEOUTS_PER_LANGUAGE ||
+    options.deadline.now() >= options.deadline.endsAt;
   /** Runs a text job; null when it was stopped or failed (the caller counts the file). */
   const runText = async (job: TrackJob): Promise<TrackResult | null> => {
     const outcome = await executor.run(job, textLimitMs(), options.signal);
-    return outcome.kind === "done" ? outcome.value : null;
+    if (outcome.kind === "done") return outcome.value;
+    textStops += 1;
+    return null;
   };
   try {
     for (const language of JVM_LANGUAGES) {
@@ -287,10 +300,15 @@ export async function scanJvm(
     let capped = 0;
     let unclosed = 0;
     let mapperStopped = 0;
+    let mapperNotReached = 0;
     const mapperFindings: Finding[] = [];
     // Any .xml file may be a mapper; only the ones that declare <mapper> are analyzed.
     for (const file of walk.xmlFiles) {
       throwIfAborted(options.signal);
+      if (textHalted()) {
+        mapperNotReached += 1;
+        continue;
+      }
       if (file.size > 1024 * 1024) {
         tooLarge += 1;
         continue;
@@ -330,6 +348,11 @@ export async function scanJvm(
           `${mapperStopped} XML file(s) were stopped at the per-file limit or the scan time budget, or the analysis failed (not analyzed)`,
         );
       }
+      if (mapperNotReached > 0) {
+        problems.push(
+          `${mapperNotReached} XML file(s) were not read because the scan time budget ran out or too many files were stopped`,
+        );
+      }
       if (unreadable > 0) problems.push(`${unreadable} XML file(s) were binary or unreadable`);
       if (tooLarge > 0) problems.push(`${tooLarge} XML file(s) over 1 MiB were not read`);
       if (walk.trackTruncated) problems.push("the file list reached its cap");
@@ -358,13 +381,29 @@ export async function scanJvm(
           findings: mapperFindings.filter((finding) => finding.ruleId === ruleId).length,
         });
       }
-    } else if (unreadable + tooLarge + mapperStopped > 0 && isJvmProject) {
+    } else if (
+      (unreadable + tooLarge > 0 && isJvmProject) ||
+      mapperStopped + mapperNotReached > 0
+    ) {
+      const reasons = [
+        ...(unreadable + tooLarge > 0 && isJvmProject
+          ? [`${unreadable + tooLarge} XML file(s) were binary, unreadable or over 1 MiB`]
+          : []),
+        ...(mapperStopped > 0
+          ? [`${mapperStopped} XML file(s) were stopped at the per-file limit or failed`]
+          : []),
+        ...(mapperNotReached > 0
+          ? [
+              `${mapperNotReached} XML file(s) were not read because the scan time budget ran out or too many files were stopped`,
+            ]
+          : []),
+      ];
       coverage.push({
         area: "source:mybatis",
         scope: "code",
         status: "partial",
         ruleIds: [],
-        note: `${unreadable + tooLarge + mapperStopped} XML file(s) were binary, unreadable or over 1 MiB${mapperStopped > 0 ? " or stopped at the per-file limit" : ""}, so MyBatis mapper XML in them was not checked.`,
+        note: `${reasons.join("; ")}, so MyBatis mapper XML in them was not checked.`,
       });
     }
     // Templates: JSP and Thymeleaf are read; other engines are reported as not analyzed.
@@ -375,6 +414,7 @@ export async function scanJvm(
     let templateTooLarge = 0;
     let templateUnread = 0;
     let templateStopped = 0;
+    let templateNotReached = 0;
     const engineFiles = new Map<string, number>();
     const jvmProject = isJvmProject;
     for (const file of walk.templateFiles) {
@@ -392,6 +432,10 @@ export async function scanJvm(
         continue;
       }
       const isJsp = JSP_EXTENSIONS.has(extension);
+      if (textHalted()) {
+        templateNotReached += 1;
+        continue;
+      }
       // Any `.html` file may be a Thymeleaf template; big ones are generated pages and are not read.
       if (file.size > 1024 * 1024) {
         if (isJsp) templateTooLarge += 1;
@@ -402,6 +446,9 @@ export async function scanJvm(
         if (isJsp) templateUnreadable += 1;
         continue;
       }
+      // Decided here (a linear test, see linear-patterns.test.ts), so a template that is then
+      // stopped in the worker is still known to be one and is reported, never dropped.
+      if (!isJsp && !looksLikeThymeleaf(text)) continue;
       // The model attributes found in the Java and Kotlin files travel with the job.
       const result = await runText({
         kind: "template",
@@ -411,7 +458,7 @@ export async function scanJvm(
         model: isJsp ? [] : [...modelSources],
       });
       if (result === null) {
-        if (isJsp) templateStopped += 1;
+        templateStopped += 1;
         continue;
       }
       const analysis: TemplateAnalysis | null = result.kind === "template" ? result.analysis : null;
@@ -427,7 +474,10 @@ export async function scanJvm(
       if (analysis.unread === true) templateUnread += 1;
     }
     findings.push(...templateFindings);
-    if (templatesRead > 0 || templateUnreadable + templateTooLarge + templateStopped > 0) {
+    if (
+      templatesRead > 0 ||
+      templateUnreadable + templateTooLarge + templateStopped + templateNotReached > 0
+    ) {
       const problems: string[] = [];
       if (templateCapped > 0) {
         problems.push(
@@ -436,7 +486,12 @@ export async function scanJvm(
       }
       if (templateStopped > 0) {
         problems.push(
-          `${templateStopped} JSP file(s) were stopped at the per-file limit or the scan time budget, or the analysis failed (not analyzed)`,
+          `${templateStopped} JSP or Thymeleaf template(s) were stopped at the per-file limit or the scan time budget, or the analysis failed (not analyzed)`,
+        );
+      }
+      if (templateNotReached > 0) {
+        problems.push(
+          `${templateNotReached} template file(s) were not read because the scan time budget ran out or too many files were stopped`,
         );
       }
       if (templateUnreadable > 0)
@@ -488,7 +543,7 @@ export async function scanJvm(
           continue;
         }
         // The scan-wide deadline: files left unread are reported, never treated as clean.
-        if (options.deadline.now() > options.deadline.endsAt) {
+        if (textHalted()) {
           configNotReached += 1;
           continue;
         }
@@ -516,6 +571,7 @@ export async function scanJvm(
           continue;
         }
         if (configOutcome.kind !== "done" || configOutcome.value.kind !== "spring-config") {
+          textStops += 1;
           configStopped += 1;
           continue;
         }

@@ -254,6 +254,58 @@ describe("hard per-file limit for the tree-sitter tracks", () => {
     expect(entry?.note).toContain("stopped at the per-file limit");
   });
 
+  it("reports a stopped Thymeleaf template as partial, never drops it", async () => {
+    const output = await scanSourceCode(
+      project({
+        "pom.xml": "<project/>",
+        "A.java": "class A {}\n",
+        "src/main/resources/templates/page.html": `<html xmlns:th="http://www.thymeleaf.org"><p th:utext="\${q}">SLOW</p></html>`,
+      }),
+      { analysisWorker: fakeWorkers(), perFileTimeLimitMs: 400 },
+    );
+    const entry = coverageOf(output, "source:jvm-templates");
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain("1 JSP or Thymeleaf template(s) were stopped");
+  });
+
+  it("stops reading mapper XML after repeated stops and reports the files left", async () => {
+    const mapper = (name: string) => [
+      `${name}.xml`,
+      `<mapper namespace="x"><!-- SLOW --></mapper>`,
+    ];
+    const output = await scanSourceCode(
+      project({
+        "pom.xml": "<project/>",
+        "A.java": "class A {}\n",
+        ...Object.fromEntries(["a", "b", "c", "d", "e"].map(mapper)),
+      }),
+      { analysisWorker: fakeWorkers(), perFileTimeLimitMs: 300 },
+    );
+    const entry = coverageOf(output, "source:mybatis");
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain("3 XML file(s) were stopped");
+    expect(entry?.note).toContain("2 XML file(s) were not read");
+  });
+
+  it("does not start template or mapper jobs once the scan time budget has run out", async () => {
+    const output = await scanSourceCode(
+      project({
+        "pom.xml": "<project/>",
+        "A.java": "class A {}\n",
+        "a.xml": `<mapper namespace="x"><!-- SLOW --></mapper>`,
+        "b.xml": `<mapper namespace="x"></mapper>`,
+        "src/main/resources/templates/p.html": `<html xmlns:th="http://www.thymeleaf.org"><p th:utext="\${q}">x</p></html>`,
+      }),
+      { analysisWorker: fakeWorkers(), timeBudgetMs: 700 },
+    );
+    expect(coverageOf(output, "source:mybatis")?.note).toContain(
+      "were not read because the scan time budget ran out",
+    );
+    expect(coverageOf(output, "source:jvm-templates")?.note).toContain(
+      "template file(s) were not read because the scan time budget ran out",
+    );
+  });
+
   it("stops at once when the scan is cancelled during a long file", async () => {
     const controller = new AbortController();
     setTimeout(() => controller.abort(new Error("cancelled")), 300);
