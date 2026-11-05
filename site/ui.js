@@ -1,11 +1,60 @@
 // PGARD landing page: theme toggle, mobile menu, the screenshot slider, the install switch and the GitHub star count.
-// The only network request is the star count from api.github.com (3 s timeout,
-// silent fallback to no number). No analytics, no cookies.
+// The only network requests go to api.github.com: the star count and the latest release tag
+// (3 s timeout, silent fallback to the version written in the HTML). No analytics, no cookies.
 (function () {
   "use strict";
 
   var REPO_API = "https://api.github.com/repos/JadenMeister/pgard";
   var root = document.documentElement;
+
+  // --- Version label: latest GitHub release tag (published together with npm) ---
+  (function () {
+    var nodes = document.querySelectorAll("[data-pgard-version]");
+    if (!nodes.length) return;
+    function apply(v) {
+      Array.prototype.forEach.call(nodes, function (n) {
+        n.textContent = (n.getAttribute("data-pgard-version") || "") + v;
+      });
+    }
+    var valid = /^\d+\.\d+\.\d+$/;
+    try {
+      var cached = sessionStorage.getItem("pgard-version");
+      if (cached && valid.test(cached)) {
+        apply(cached);
+        return;
+      }
+    } catch (e) {
+      /* no cache */
+    }
+    if (typeof fetch !== "function") return;
+    var ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = setTimeout(function () {
+      if (ctrl) ctrl.abort();
+    }, 3000);
+    fetch(REPO_API + "/releases/latest", {
+      headers: { Accept: "application/vnd.github+json" },
+      signal: ctrl ? ctrl.signal : undefined,
+      credentials: "omit",
+      referrerPolicy: "no-referrer",
+    })
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        clearTimeout(timer);
+        var v = j && typeof j.tag_name === "string" ? j.tag_name.replace(/^v/, "") : "";
+        if (!valid.test(v)) return;
+        apply(v);
+        try {
+          sessionStorage.setItem("pgard-version", v);
+        } catch (e) {
+          /* not cached */
+        }
+      })
+      .catch(function () {
+        clearTimeout(timer); /* silent fallback: keep the HTML value */
+      });
+  })();
 
   // --- Screenshot slider: arrows and dots on top of the scroll-snap track ---
   Array.prototype.forEach.call(document.querySelectorAll("[data-slider]"), function (slider) {
