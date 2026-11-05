@@ -141,13 +141,14 @@ function javaTerm(term: string, vars: ReadonlyMap<string, Class>): Judgement {
   }
   if (JAVA_ESCAPE.test(text) || /\.encodeFor\w+\s*\(/.test(text)) {
     const name =
-      /(?:escape\w*|htmlEscape\w*|forHtml\w*|forXml\w*|forJava\w*|encodeFor\w+|sanitize\w*|cleanHtml|javaScriptEscape)\s*\(/.exec(
+      /(?<!\w)(?:escape\w*|htmlEscape\w*|forHtml\w*|forXml\w*|forJava\w*|encodeFor\w+|sanitize\w*|cleanHtml|javaScriptEscape)\s*\(/.exec(
         text,
       )?.[0] ?? "an escaping helper(";
     return {
       cls: "escaped",
       direct: false,
-      detail: `escaped with ${name.replace(/\s*\($/, "()")}`,
+      // `name` ends with `(`; `/\s*\($/` would restart at every space of a long whitespace run.
+      detail: `escaped with ${name.slice(0, -1).trimEnd()}()`,
     };
   }
   if (JAVA_SOURCE.test(text)) {
@@ -531,7 +532,7 @@ export function looksLikeThymeleaf(text: string): boolean {
 }
 
 const THYMELEAF_ESCAPE =
-  /#strings\.(?:escapeXml|escapeJava|escapeJavaScript|escapeSql)\s*\(|htmlEscape\w*\s*\(|escapeHtml\d?\s*\(|forHtml\w*\s*\(|#\w*\.?sanitize\w*\s*\(/;
+  /#strings\.(?:escapeXml|escapeJava|escapeJavaScript|escapeSql)\s*\(|(?<!\w)htmlEscape\w*\s*\(|(?<!\w)escapeHtml\d?\s*\(|(?<!\w)forHtml\w*\s*\(|#\w*\.?sanitize\w*\s*\(/;
 const THYMELEAF_SOURCE =
   /\$\{\s*(?:#?(?:request|httpServletRequest)\s*\.\s*(?:getParameter|getHeader|queryString|getQueryString|requestURI|getRequestURI|getRequestURL|parameterMap|getCookies)|param\s*[.[]|#vars\.param|#request\.getParameter)|(?<![\w.])param\s*[.[]\s*['"\w]/;
 
@@ -557,7 +558,9 @@ function thymeleafJudge(
   const globalEscape = new RegExp(THYMELEAF_ESCAPE.source);
   if (globalEscape.test(body)) {
     const name =
-      /([#\w.]+)\s*\(/.exec(body.slice(body.search(THYMELEAF_ESCAPE)))?.[1] ?? "an escaping helper";
+      // The lookbehind keeps a start from restarting inside a word (`a.a.a...`): linear.
+      /(?<![#\w.])([#\w.]+)\s*\(/.exec(body.slice(body.search(THYMELEAF_ESCAPE)))?.[1] ??
+      "an escaping helper";
     // The escaped part is inferred safe; request input left outside the helper is still reported.
     const inner = thymeleafJudge(stripCalls(body, THYMELEAF_ESCAPE).rest, model, view);
     if (inner.cls === "tainted") return inner;

@@ -447,6 +447,22 @@ try {
     JSON.stringify(goCoverage),
   );
 
+  // Java, Kotlin, Python and PHP parse and analyze in the tree-sitter worker (dist/track-worker.js,
+  // next to source-worker.js); its grammar is checksum-verified there like in the main thread.
+  const javaProject = mkdtempSync(join(prefix, "java project "));
+  writeFileSync(
+    join(javaProject, "A.java"),
+    'import java.sql.Statement;\nimport javax.servlet.http.HttpServletRequest;\nclass A {\n  void q(Statement st, HttpServletRequest req) throws Exception {\n    st.executeQuery("SELECT * FROM t WHERE id = " + req.getParameter("id"));\n  }\n}\n',
+  );
+  const javaScan = await grammar.scanSourceCode(javaProject);
+  const javaCoverage = javaScan.coverage.find((entry) => entry.area === "source:java");
+  check(
+    "installed package analyzes Java in the track worker",
+    javaScan.findings.some((item) => item.ruleId === "PG-SQL-005") &&
+      javaCoverage?.status === "completed",
+    JSON.stringify(javaCoverage),
+  );
+
   // A PHP project scanned from the installed layout, offline: the scanner only reads files, and
   // nothing is stored (PGARD_NO_STORE) or sent anywhere. The PHP grammar must load from assets/.
   process.env.PGARD_NO_STORE = "1";

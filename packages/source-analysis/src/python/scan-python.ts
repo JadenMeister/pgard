@@ -8,18 +8,22 @@ import {
 import { createSourceFinding } from "../finding-factory.js";
 import { PYTHON_RULE_IDS } from "../rules.js";
 import {
+  analyzeTrackFiles,
   parseCoverage,
-  parseTrackFiles,
   type LanguageTrackDetection,
   type TrackDeadline,
 } from "../tree-sitter/language-track.js";
-import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
+import { createInlineTrackExecutor, type TrackExecutor } from "../tree-sitter/track-jobs.js";
 import type { TrackedFile, WalkResult } from "../walk.js";
-import { analyzePythonTree } from "./analyze-python.js";
+import type { PythonAnalysis } from "./analyze-python.js";
 
 export interface PythonScanOptions {
   signal?: AbortSignal;
   deadline: TrackDeadline;
+  /** Where files are parsed and analyzed (a worker under the hard limit); inline when omitted. */
+  executor?: TrackExecutor;
+  /** Hard limit for one file; see `analyzeTrackFiles`. */
+  perFileLimitMs?: number;
 }
 
 export interface PythonScanOutput {
@@ -57,7 +61,7 @@ export async function scanPython(
   const files: readonly TrackedFile[] = walk.trackFiles.python;
   const out: PythonScanOutput = { findings: [], coverage: [], ruleStats: [], analyzedPaths: [] };
   if (files.length === 0) return out;
-  const runtime = new TreeSitterRuntime();
+  const executor = options.executor ?? createInlineTrackExecutor();
   try {
     throwIfAborted(options.signal);
     const manifestFrameworks =
@@ -70,17 +74,21 @@ export async function scanPython(
     const processLibraries = new Map<string, number>();
     const imported = new Set<string>();
     let crashed = 0;
-    const stats = await parseTrackFiles(
-      runtime,
+    const stats = await analyzeTrackFiles(
       "python",
       files,
-      { deadline: options.deadline },
-      (file, outcome, source) => {
+      {
+        executor,
+        signal: options.signal,
+        deadline: options.deadline,
+        ...(options.perFileLimitMs === undefined ? {} : { perFileLimitMs: options.perFileLimitMs }),
+        django: manifestFrameworks.includes("Django"),
+      },
+      (file, outcome) => {
         throwIfAborted(options.signal);
         try {
-          const analysis = analyzePythonTree(outcome.tree.rootNode, source, file.relativePath, {
-            django: manifestFrameworks.includes("Django"),
-          });
+          const analysis = outcome.analysis as PythonAnalysis | null;
+          if (analysis === null) throw new Error("analysis failed");
           out.analyzedPaths.push(file.relativePath);
           if (outcome.errorCount > 0 || outcome.missingCount > 0)
             errorFiles.push(file.relativePath);
@@ -184,6 +192,6 @@ export async function scanPython(
     }
     return out;
   } finally {
-    runtime.dispose();
+    if (options.executor === undefined) executor.release();
   }
 }
