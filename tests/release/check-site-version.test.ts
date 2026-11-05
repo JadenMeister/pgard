@@ -51,10 +51,17 @@ describe("site version labels (#493)", () => {
     ]);
   });
 
+  it("fails when the hero label appears twice", () => {
+    expect(checkSitePage("a.html", good + good, expected)).toEqual([
+      expect.stringContaining("found 2"),
+    ]);
+  });
+
   it("reads RULE_CRITERIA_VERSION and fails when it is missing", () => {
     expect(readCriteriaVersion('export const RULE_CRITERIA_VERSION = "2026.10-mvp.6";')).toBe(
       "2026.10-mvp.6",
     );
+    expect(readCriteriaVersion("export const RULE_CRITERIA_VERSION: string = 'x.1';")).toBe("x.1");
     expect(() => readCriteriaVersion("const x = 1;")).toThrow(/RULE_CRITERIA_VERSION/);
   });
 });

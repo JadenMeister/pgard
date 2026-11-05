@@ -33,7 +33,7 @@ jobs:
       - name: Analyzer hash is committed
         run: node scripts/analyzer-hash.mjs --check
       - name: Site version labels match the package
-        run: node scripts/check-site-version.mjs
+        run: npm run site-version:check
       - run: npm run build
       # Integration tests resolve sources, so only this runs the built dist. Both commands are
       # local: no network and no GitHub sign-in.

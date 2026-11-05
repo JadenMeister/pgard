@@ -18,6 +18,7 @@ export const UNSUPPORTED_AREAS = UNSUPPORTED_AREAS_EN;
  * Version of the detection criteria shown to users. Bump when rule ids, conditions or severities
  * change.
  */
+// Also shown in site/index.html and site/ko/index.html; checked by scripts/check-site-version.mjs.
 export const RULE_CRITERIA_VERSION = "2026.10-mvp.6";
 
 /**

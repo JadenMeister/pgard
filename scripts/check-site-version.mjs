@@ -6,7 +6,7 @@
 // `display: none` once <html data-released="true">) is deliberately not checked: it describes a
 // state before the first release, not the current version. A label that cannot be found is an
 // error, so a markup change cannot silently disable the check. Plain Node, no dependencies.
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +21,9 @@ const SAMPLE_HEADER = new RegExp(
 
 /** Reads `RULE_CRITERIA_VERSION` from the rules list source. */
 export function readCriteriaVersion(source) {
-  const match = /export const RULE_CRITERIA_VERSION = "([^"]+)"/.exec(source);
+  const match = /export const RULE_CRITERIA_VERSION(?:\s*:\s*string)?\s*=\s*["']([^"']+)["']/.exec(
+    source,
+  );
   if (!match)
     throw new Error("RULE_CRITERIA_VERSION not found in apps/cli/src/commands/rules/list.ts");
   return match[1];
@@ -68,14 +70,22 @@ export function checkSite(repoRoot = root) {
   return SITE_FILES.flatMap((file) => checkSitePage(file, read(file), { version, criteria }));
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const problems = checkSite();
-  if (problems.length > 0) {
-    for (const problem of problems) console.error(problem);
-    console.error(
-      "Update the site labels to match packaging/pgard/package.json and RULE_CRITERIA_VERSION.",
-    );
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))
+) {
+  try {
+    const problems = checkSite();
+    if (problems.length > 0) {
+      for (const problem of problems) console.error(problem);
+      console.error(
+        "Update the site labels to match packaging/pgard/package.json and RULE_CRITERIA_VERSION.",
+      );
+      process.exit(1);
+    }
+    console.log("Site version labels match the package version and the rule criteria version.");
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
     process.exit(1);
   }
-  console.log("Site version labels match the package version and the rule criteria version.");
 }
