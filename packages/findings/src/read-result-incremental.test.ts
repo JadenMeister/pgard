@@ -109,10 +109,14 @@ describe("incremental state reader", () => {
         withImports("scoped.ts", [], ["@fastify/csrf-protection"]),
         withImports("secret.ts", [], [fake]),
         withImports("bidi.ts", [], ["pkg\u202egnp"]),
+        withImports("alias.ts", [], ["@/app/lib/x", "~/c/x", "#imports", "$lib/x", "./[id]/page"]),
+        withImports("abs.ts", [], ["/home/me/x"]),
+        withImports("unc.ts", [], ["\\\\server\\share"]),
+        withImports("file.ts", [], ["file:///etc/x"]),
         withImports("go.go", [`example.com/${fake}`], null),
       ],
     });
-    expect(read?.code?.map((file) => file.path)).toEqual(["ok.ts", "scoped.ts"]);
+    expect(read?.code?.map((file) => file.path)).toEqual(["ok.ts", "scoped.ts", "alias.ts"]);
   });
 
   it("accepts a state it wrote", () => {

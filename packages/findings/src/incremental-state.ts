@@ -1,6 +1,6 @@
 import type { Finding } from "./contract.js";
 import { readFindingList } from "./read-result.js";
-import { redactEvidence } from "./redact.js";
+import { redactSecrets } from "./redact.js";
 
 /**
  * What an incremental scan needs from the scan it is based on, beyond the result itself. It is
@@ -53,18 +53,25 @@ export interface IncrementalState {
   code: CachedSourceFile[] | null;
 }
 
-const MODULE_SPECIFIER = /^[@\w./:-]{1,214}$/;
+/** Printable ASCII except whitespace, quotes (" ' `) and backslash: 1 to 214 characters. */
+const MODULE_SPECIFIER = /^[\x21\x23-\x26\x28-\x5b\x5d-\x5f\x61-\x7e]{1,214}$/;
+/** An absolute path (POSIX, drive, UNC) or a file: URL is never a module name worth keeping. */
+const ABSOLUTE_SPECIFIER = /^(?:\/|[A-Za-z]:[\\/]|\\\\|file:)/i;
 
 /**
- * True for an import specifier that is safe to keep in the cache: module-name-shaped (no control,
- * bidi or invisible characters) and unchanged by evidence redaction. A file with any other
- * specifier is not cached and is analyzed again, so reused and fresh entries always agree.
+ * True for an import specifier that is safe to keep in the cache: printable ASCII only (so no
+ * control, bidi, invisible or non-ASCII character, which also allows alias forms such as `@/x`,
+ * `~/x`, `#imports`, `$lib/x`, `./[id]/page`), not an absolute path, and unchanged by secret
+ * redaction. The secret check recognizes known secret shapes only; it cannot catch an arbitrary
+ * secret that looks like a module name. A file with any other specifier is not cached and is
+ * analyzed again, so reused and fresh entries always agree.
  */
 export function isCacheableImportSpecifier(value: unknown): boolean {
   return (
     typeof value === "string" &&
     MODULE_SPECIFIER.test(value) &&
-    redactEvidence(value, { maxLength: 300 }) === value
+    !ABSOLUTE_SPECIFIER.test(value) &&
+    redactSecrets(value) === value
   );
 }
 
@@ -75,6 +82,7 @@ export function hasCacheableImports(entry: {
 }): boolean {
   const imports = entry.facts?.imports;
   if (imports !== undefined && !Array.isArray(imports)) return false;
+  if (!Array.isArray(entry.goImports)) return false;
   return (
     entry.goImports.every(isCacheableImportSpecifier) &&
     (imports ?? []).every(isCacheableImportSpecifier)

@@ -99,12 +99,18 @@ describe("cached import specifiers (#374)", () => {
   it("keeps a normal scoped package and a Go import in the cache", async () => {
     const root = project({
       "a.js": "import csrf from '@fastify/csrf-protection';\nexport default csrf;\n",
+      "alias.js":
+        "import a from '@/app/lib/x';\nimport b from '~/composables/x';\nimport c from '#imports';\nimport d from './a.css?inline';\nimport e from './[id]/page';\nexport default [a, b, c, d, e];\n",
       "main.go": 'package main\nimport "github.com/gin-gonic/gin"\nfunc main() {}\n',
     });
     const first = await scanSourceCode(root);
-    expect(first.fileCache.map((entry) => entry.path).sort()).toEqual(["a.js", "main.go"]);
+    expect(first.fileCache.map((entry) => entry.path).sort()).toEqual([
+      "a.js",
+      "alias.js",
+      "main.go",
+    ]);
     const second = await scanSourceCode(root, { reuse: reuseOf(first.fileCache) });
-    expect(second.reuse).toEqual({ rescanned: 0, reused: 2 });
+    expect(second.reuse).toEqual({ rescanned: 0, reused: 3 });
   });
 
   it("does not cache a file with a secret-shaped or bidi-character import", async () => {
@@ -112,6 +118,8 @@ describe("cached import specifiers (#374)", () => {
       "secret.js": `import x from '${fakeSecret}';\nexport default x;\n`,
       "bidi.js": "import y from 'pkg\u202egnp';\nexport default y;\n",
       "go.go": `package main\nimport "example.com/${fakeSecret}"\nfunc main() {}\n`,
+      "abs.js": "import z from '/home/me/project/x';\nexport default z;\n",
+      "win.js": "import z from 'C:/Users/me/x';\nexport default z;\n",
       "ok.js": "export const ok = 1;\n",
     });
     const first = await scanSourceCode(root);
