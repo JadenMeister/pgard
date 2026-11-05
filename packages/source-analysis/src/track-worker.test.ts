@@ -16,8 +16,15 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import { itScaled, scaled } from "../../../tests/support/timing.js";
 import { liveWorkerCount } from "./file-worker.js";
+import { scanJvm } from "./jvm/scan-jvm.js";
 import { scanSourceCode } from "./scan-source.js";
-import { createWorkerTrackExecutor, type TrackJob } from "./tree-sitter/track-jobs.js";
+import { detectLanguageTrack } from "./tree-sitter/language-track.js";
+import {
+  createWorkerTrackExecutor,
+  type TrackExecutor,
+  type TrackJob,
+} from "./tree-sitter/track-jobs.js";
+import { walkSourceTree } from "./walk.js";
 
 // The worker is the built `dist/track-worker.js` (tests run from source, where a worker cannot
 // load the TypeScript modules). CI builds before testing; a local run without a build skips these.
@@ -249,7 +256,7 @@ describe("hard per-file limit for the tree-sitter tracks", () => {
       }),
       { analysisWorker: fakeWorkers(), perFileTimeLimitMs: 400 },
     );
-    const entry = coverageOf(output, "source:mybatis");
+    const entry = output.coverage.find((entry) => entry.area === "source:mybatis");
     expect(entry?.status).toBe("partial");
     expect(entry?.note).toContain("stopped at the per-file limit");
   });
@@ -263,7 +270,7 @@ describe("hard per-file limit for the tree-sitter tracks", () => {
       }),
       { analysisWorker: fakeWorkers(), perFileTimeLimitMs: 400 },
     );
-    const entry = coverageOf(output, "source:jvm-templates");
+    const entry = output.coverage.find((entry) => entry.area === "source:jvm-templates");
     expect(entry?.status).toBe("partial");
     expect(entry?.note).toContain("1 JSP or Thymeleaf template(s) were stopped");
   });
@@ -281,28 +288,42 @@ describe("hard per-file limit for the tree-sitter tracks", () => {
       }),
       { analysisWorker: fakeWorkers(), perFileTimeLimitMs: 300 },
     );
-    const entry = coverageOf(output, "source:mybatis");
+    const entry = output.coverage.find((entry) => entry.area === "source:mybatis");
     expect(entry?.status).toBe("partial");
     expect(entry?.note).toContain("3 XML file(s) were stopped");
     expect(entry?.note).toContain("2 XML file(s) were not read");
   });
 
-  it("does not start template or mapper jobs once the scan time budget has run out", async () => {
-    const output = await scanSourceCode(
-      project({
-        "pom.xml": "<project/>",
-        "A.java": "class A {}\n",
-        "a.xml": `<mapper namespace="x"><!-- SLOW --></mapper>`,
-        "b.xml": `<mapper namespace="x"></mapper>`,
-        "src/main/resources/templates/p.html": `<html xmlns:th="http://www.thymeleaf.org"><p th:utext="\${q}">x</p></html>`,
-      }),
-      { analysisWorker: fakeWorkers(), timeBudgetMs: 700 },
-    );
-    expect(coverageOf(output, "source:mybatis")?.note).toContain(
+  it("starts no mapper, template or configuration job once the scan deadline has passed", async () => {
+    const root = project({
+      "pom.xml": "<project/>",
+      "A.java": "class A {}\n",
+      "a.xml": `<mapper namespace="x"></mapper>`,
+      "src/main/resources/templates/p.html": `<html xmlns:th="http://www.thymeleaf.org"><p th:utext="\${q}">x</p></html>`,
+      "application.properties": "server.servlet.session.cookie.secure=false\n",
+    });
+    const walk = await walkSourceTree(root);
+    const detection = await detectLanguageTrack(walk);
+    const jobs: string[] = [];
+    const executor: TrackExecutor = {
+      run: async (job) => {
+        if (job.kind !== "tree") jobs.push(job.kind);
+        return { kind: "timeout" };
+      },
+      release: () => {},
+    };
+    // An injected clock that is already past the deadline: nothing depends on real time.
+    const expired = { endsAt: 0, totalMs: 1, now: () => 1 };
+    const output = await scanJvm(walk, detection, { deadline: expired, executor });
+    expect(jobs).toEqual([]);
+    expect(output.coverage.find((entry) => entry.area === "source:mybatis")?.note).toContain(
       "were not read because the scan time budget ran out",
     );
-    expect(coverageOf(output, "source:jvm-templates")?.note).toContain(
+    expect(output.coverage.find((entry) => entry.area === "source:jvm-templates")?.note).toContain(
       "template file(s) were not read because the scan time budget ran out",
+    );
+    expect(output.coverage.find((entry) => entry.area === "source:jvm-config")?.note).toContain(
+      "were not read because the scan time budget ran out",
     );
   });
 
