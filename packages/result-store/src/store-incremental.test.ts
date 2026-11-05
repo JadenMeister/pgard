@@ -96,11 +96,11 @@ describe("incremental state in the result store", () => {
     const withPath: IncrementalState = {
       ...STATE,
       code:
-        STATE.code?.map((file) => ({ ...file, goImports: ["/home/me/secret-project"] })) ?? null,
+        STATE.code?.map((file) => ({ ...file, goImports: ["example.com/secret-project"] })) ?? null,
     };
     const saved = await store.save(makeResult("s3"), {
       repositoryId: REPO_ID,
-      forbidSubstrings: ["/home/me/secret-project"],
+      forbidSubstrings: ["example.com/secret-project"],
       incrementalState: withPath,
     });
     expect(saved.ok).toBe(true);
@@ -152,11 +152,11 @@ describe("why a state was left out", () => {
     const rejected: IncrementalState = {
       ...STATE,
       code:
-        STATE.code?.map((file) => ({ ...file, goImports: ["/home/me/secret-project"] })) ?? null,
+        STATE.code?.map((file) => ({ ...file, goImports: ["example.com/secret-project"] })) ?? null,
     };
     await store.save(makeResult("o1"), {
       repositoryId: REPO_ID,
-      forbidSubstrings: ["/home/me/secret-project"],
+      forbidSubstrings: ["example.com/secret-project"],
       incrementalState: rejected,
     });
     expect((await store.findNewest(REPO_ID, () => null)).scan?.incrementalStateOmitted).toBe(
