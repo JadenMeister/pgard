@@ -1,20 +1,24 @@
 import type { Coverage, Finding, RuleStat } from "@pgard/findings";
 import { createSourceFinding } from "../finding-factory.js";
 import { PHP_RULE_IDS } from "../rules.js";
-import { detectPhpNamespaceFrameworks, type Framework } from "../tree-sitter/detect-frameworks.js";
+import type { Framework } from "../tree-sitter/detect-frameworks.js";
 import {
+  analyzeTrackFiles,
   parseCoverage,
-  parseTrackFiles,
   type LanguageTrackDetection,
   type TrackDeadline,
 } from "../tree-sitter/language-track.js";
-import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
+import { createInlineTrackExecutor, type TrackExecutor } from "../tree-sitter/track-jobs.js";
 import type { WalkResult } from "../walk.js";
-import { analyzePhpTree } from "./analyze-php.js";
+import type { PhpFileAnalysis } from "./analyze-php.js";
 
 export interface PhpScanOptions {
   signal?: AbortSignal;
   deadline: TrackDeadline;
+  /** Where files are parsed and analyzed (a worker under the hard limit); inline when omitted. */
+  executor?: TrackExecutor;
+  /** Hard limit for one file; see `analyzeTrackFiles`. */
+  perFileLimitMs?: number;
 }
 
 export interface PhpScanOutput {
@@ -54,7 +58,7 @@ export async function scanPhp(
   const output: PhpScanOutput = { findings: [], coverage: [], ruleStats: [], analyzedPaths: [] };
   if (files.length === 0) return output;
   throwIfAborted(options.signal);
-  const runtime = new TreeSitterRuntime();
+  const executor = options.executor ?? createInlineTrackExecutor();
   try {
     const own: Finding[] = [];
     const cappedFiles: string[] = [];
@@ -67,15 +71,20 @@ export async function scanPhp(
     >();
     const namespaceFrameworks = new Set<Framework>();
     let crashed = 0;
-    const stats = await parseTrackFiles(
-      runtime,
+    const stats = await analyzeTrackFiles(
       "php",
       files,
-      { deadline: options.deadline },
-      (file, outcome, source) => {
+      {
+        executor,
+        signal: options.signal,
+        deadline: options.deadline,
+        ...(options.perFileLimitMs === undefined ? {} : { perFileLimitMs: options.perFileLimitMs }),
+      },
+      (file, outcome) => {
         throwIfAborted(options.signal);
         try {
-          const analysis = analyzePhpTree(outcome.tree.rootNode, source, file.relativePath);
+          const analysis = outcome.analysis as PhpFileAnalysis | null;
+          if (analysis === null) throw new Error("analysis failed");
           output.analyzedPaths.push(file.relativePath);
           if (outcome.errorCount > 0) errorFiles.push(file.relativePath);
           own.push(...analysis.findings.map(createSourceFinding));
@@ -90,7 +99,7 @@ export async function scanPhp(
               ...(library.detail === undefined ? {} : { detail: library.detail }),
             });
           }
-          for (const framework of detectPhpNamespaceFrameworks(source)) {
+          for (const framework of outcome.namespaceFrameworks) {
             namespaceFrameworks.add(framework);
           }
         } catch {
@@ -187,6 +196,6 @@ export async function scanPhp(
     }
     return output;
   } finally {
-    runtime.dispose();
+    if (options.executor === undefined) executor.release();
   }
 }

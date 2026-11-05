@@ -297,6 +297,8 @@ const result = await build({
     "smoke-grammar": join(root, "packaging/smoke-grammar-entry.js"),
     "smoke-signals": join(root, "packaging/smoke-signals-entry.js"),
     "source-worker": join(root, "packages/source-analysis/dist/analyze-worker.js"),
+    // The tree-sitter tracks' worker (found next to source-worker.js by trackWorkerFor).
+    "track-worker": join(root, "packages/source-analysis/dist/track-worker.js"),
   },
   absWorkingDir: root,
   outdir: join(stage, "dist"),

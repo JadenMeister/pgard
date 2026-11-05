@@ -142,6 +142,16 @@ export function analyzePythonTree(
   return analyzeAst(ast, path, options);
 }
 
+/**
+ * Drops the quotes at the end of a string prefix (`rb"""`). Same result as
+ * `replace(/["']+$/, "")`, which restarts at every quote of a long run that is not at the end.
+ */
+export function withoutTrailingQuotes(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '"' || text[end - 1] === "'")) end -= 1;
+  return text.slice(0, end);
+}
+
 function analyzeAst(ast: AstResult, path: string, options: PythonOptions): PythonAnalysis {
   const text = (n: N): string => ast.source.slice(n.start, n.end);
   const kid = (n: N, field: string): N | undefined => n.children.find((c) => c.field === field);
@@ -693,11 +703,7 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
 
   function evalString(n: N, env: Env, depth: number): V {
     const start = n.children.find((c) => c.type === "string_start");
-    const prefix = start
-      ? text(start)
-          .replace(/["']+$/, "")
-          .toLowerCase()
-      : "";
+    const prefix = start ? withoutTrailingQuotes(text(start)).toLowerCase() : "";
     const template = prefix.includes("t");
     const parts: V[] = [];
     let interpolated = false;
