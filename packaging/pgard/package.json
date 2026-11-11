@@ -35,6 +35,6 @@
   },
   "dependencies": {
     "@napi-rs/keyring": "2.1.2",
-    "web-tree-sitter": "0.27.1"
+    "web-tree-sitter": "0.27.2"
   }
 }
