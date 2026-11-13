@@ -30,10 +30,11 @@ Checked against pgard 0.3.0 (`README.md`). Run `pgard --version` first; if it di
 
 1. Confirm which local repository to scan. Change into its root. Do not pick another path yourself.
 2. Run `pgard doctor` if the setup is unknown. Report failing rows; do not fix sign-in problems yourself.
-3. Run the scan with stdin closed and stdout sent to a file, so no prompt or device sign-in can start. Closing stdin alone is not enough: if stdout is still a terminal, the GitHub App install guide can appear and wait up to 10 minutes. Put the file in a temporary location, never inside the repository, and read the result from it:
+3. Run the scan with stdin closed and stdout sent to a file, so no prompt or device sign-in can start. Closing stdin alone is not enough: if stdout is still a terminal, the GitHub App install guide can appear and wait up to 10 minutes. Make the file with `mktemp` (a private temporary file, never inside the repository; do not use a fixed name in a shared folder) and read the result from it:
 
    ```sh
-   pgard scan code --format json --no-browser </dev/null >"$TMPDIR/pgard-result.json"
+   out="$(mktemp)"
+   pgard scan code --format json --no-browser </dev/null >"$out"
    ```
 
    Use `pgard scan` instead only if the user also wants Git history (secrets in history). `--format json` writes only the redacted result to stdout (the file); progress goes to stderr. Stdout stays empty after a usage error (exit 2), a cancellation, a directory that is not a repository (exit 3) and an internal error.
@@ -58,14 +59,14 @@ Checked against pgard 0.3.0 (`README.md`). Run `pgard --version` first; if it di
 
 ## Code-only scan (only when the user asks)
 
-`pgard scan code --code-only --format json --no-browser </dev/null >"$TMPDIR/pgard-result.json"` skips authorization, sign-in and the network, and checks the current files of the folder only (no Git history, no web checks, nothing stored). It is for the user's own code on their computer. In text output the first line is "Code-only scan: authorization not verified"; in JSON the same fact is `scanBasis` (`mode: "code_only"`, `authorization: "not_verified"`). Repeat that label in your summary. Exit codes are 0, 4 or 2, never 3. A folder that is too broad (a home folder, a top-level folder) is refused with exit 2.
+`pgard scan code --code-only --format json --no-browser </dev/null >"$out"` skips authorization, sign-in and the network, and checks the current files of the folder only (no Git history, no web checks, nothing stored). It is for the user's own code on their computer. In text output the first line is "Code-only scan: authorization not verified"; in JSON the same fact is `scanBasis` (`mode: "code_only"`, `authorization: "not_verified"`). Repeat that label in your summary. Exit codes are 0, 4 or 2, never 3. A folder that is too broad (a home folder, a top-level folder) is refused with exit 2.
 
 ## Example
 
 User: "Scan my project at ~/work/shop."
 
 1. `cd ~/work/shop && pgard doctor`
-2. `pgard scan code --format json --no-browser </dev/null >"$TMPDIR/pgard-result.json"` exits 3: "Not signed in to GitHub..."
+2. `pgard scan code --format json --no-browser </dev/null >"$out"` exits 3: "Not signed in to GitHub..."
 3. Reply: "The scan was blocked (exit 3) and nothing was scanned. Please run `pgard login` in your terminal, then tell me to rerun. A code-only scan also exists; its result would be labelled 'authorization not verified'. It is your choice, and I have not run it."
 
 User: "Scan anyway." Ask whether they want a code-only scan and explain its label before running it. User: "Scan https://example.com": refuse; pgard scans only the local repository the user named. User: "Run scan all" or "scan web on localhost:3000": do not run it; tell the user to run it in their own terminal, where they confirm the service.
