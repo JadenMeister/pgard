@@ -9,8 +9,8 @@
   "plugins": [
     {
       "name": "pgard",
-      "description": "Run a pgard scan, explain its findings and handle the pre-commit check. Needs the pgard CLI (npm install -g pgard).",
-      "source": "./",
+      "description": "Skills that teach an assistant to run the installed pgard CLI: scan a repository, explain the findings and handle the pre-commit check.",
+      "source": "./skills",
       "category": "security"
     }
   ]

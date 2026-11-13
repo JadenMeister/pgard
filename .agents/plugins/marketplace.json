@@ -7,9 +7,8 @@
     {
       "name": "pgard",
       "source": {
-        "source": "url",
-        "url": "https://github.com/JadenMeister/pgard.git",
-        "ref": "main"
+        "source": "local",
+        "path": "./skills"
       },
       "policy": {
         "installation": "AVAILABLE",

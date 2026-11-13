@@ -9,7 +9,7 @@
   "repository": "https://github.com/JadenMeister/pgard",
   "license": "MIT",
   "keywords": ["security", "scanner", "sast", "pre-commit"],
-  "skills": "./skills/",
+  "skills": "./",
   "interface": {
     "displayName": "PGARD",
     "shortDescription": "Scan code with the pgard CLI",

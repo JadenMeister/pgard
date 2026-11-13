@@ -1,4 +1,4 @@
-# Claude Code skills for pgard
+# Claude Code and Codex skills for pgard
 
 Three skills that teach an assistant to use the installed `pgard` CLI safely:
 
@@ -24,7 +24,7 @@ codex plugin marketplace add JadenMeister/pgard
 codex plugin add pgard@pgard
 ```
 
-Or copy the skill folders from a checkout of this repository (the npm package does not contain them):
+Or, for Claude Code only, copy the skill folders from a checkout of this repository (the npm package does not contain them; for Codex use the plugin above):
 
 ```sh
 # for one project

@@ -8,5 +8,6 @@
   "homepage": "https://github.com/JadenMeister/pgard",
   "repository": "https://github.com/JadenMeister/pgard",
   "license": "MIT",
-  "keywords": ["security", "scanner", "sast", "pre-commit"]
+  "keywords": ["security", "scanner", "sast", "pre-commit"],
+  "skills": "./"
 }
