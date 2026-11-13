@@ -1,0 +1,21 @@
+{
+  "name": "pgard",
+  "interface": {
+    "displayName": "PGARD"
+  },
+  "plugins": [
+    {
+      "name": "pgard",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/JadenMeister/pgard.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Security"
+    }
+  ]
+}

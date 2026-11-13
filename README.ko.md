@@ -126,6 +126,26 @@ brew install pgard                                 # 업데이트: brew upgrade 
 
 패키지 이름과 명령은 모두 `pgard`입니다. 버전과 릴리스 절차는 [docs/RELEASING.ko.md](docs/RELEASING.ko.md), 변경 내역은 [CHANGELOG.md](CHANGELOG.md)에 있습니다.
 
+### Claude Code와 Codex용 스킬
+
+이 저장소에는 설치된 `pgard`를 안전하게 쓰도록 어시스턴트를 안내하는 스킬 세 개(검사, 결과 설명, 커밋 전 검사)도 들어 있습니다. 어시스턴트에게 주는 지침일 뿐 검사기의 일부가 아니며 npm 패키지에는 포함되지 않습니다. 먼저 `pgard`를 설치(`npm install -g pgard`)한 다음 플러그인을 추가하세요.
+
+Claude Code:
+
+```
+/plugin marketplace add JadenMeister/pgard
+/plugin install pgard@pgard
+```
+
+Codex:
+
+```sh
+codex plugin marketplace add JadenMeister/pgard
+codex plugin add pgard@pgard
+```
+
+스킬 폴더를 직접 복사하려면 [skills/README.md](skills/README.md)를 보세요.
+
 ### 소스에서 빌드
 
 소스에서 빌드합니다.

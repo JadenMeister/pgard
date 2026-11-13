@@ -126,6 +126,26 @@ Recent Homebrew loads a third-party tap's formula only after you trust it; `--fo
 
 The package is `pgard` and its command is `pgard`. Versions and the release process are described in [docs/RELEASING.md](docs/RELEASING.md); changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
+### Skills for Claude Code and Codex
+
+The repository also ships three skills that teach an assistant to run the installed `pgard` safely (scan, explain a result, pre-commit check). They are instructions for the assistant, not part of the scanner, and the npm package does not contain them. Install `pgard` first (`npm install -g pgard`), then add the plugin.
+
+In Claude Code:
+
+```
+/plugin marketplace add JadenMeister/pgard
+/plugin install pgard@pgard
+```
+
+In Codex:
+
+```sh
+codex plugin marketplace add JadenMeister/pgard
+codex plugin add pgard@pgard
+```
+
+To copy the skill folders by hand instead, see [skills/README.md](skills/README.md).
+
 ### Build from source
 
 Build it from source:

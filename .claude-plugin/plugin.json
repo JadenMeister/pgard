@@ -1,0 +1,12 @@
+{
+  "name": "pgard",
+  "description": "Skills that teach an assistant to run the installed pgard CLI: scan a repository, explain the findings and handle the pre-commit check.",
+  "author": {
+    "name": "JadenMeister",
+    "url": "https://github.com/JadenMeister"
+  },
+  "homepage": "https://github.com/JadenMeister/pgard",
+  "repository": "https://github.com/JadenMeister/pgard",
+  "license": "MIT",
+  "keywords": ["security", "scanner", "sast", "pre-commit"]
+}
