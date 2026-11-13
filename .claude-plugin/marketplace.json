@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "pgard",
+  "description": "Skills that let an assistant run the pgard security scanner CLI safely.",
+  "owner": {
+    "name": "JadenMeister",
+    "url": "https://github.com/JadenMeister"
+  },
+  "plugins": [
+    {
+      "name": "pgard",
+      "description": "Skills that teach an assistant to run the installed pgard CLI: scan a repository, explain the findings and handle the pre-commit check.",
+      "source": "./skills",
+      "category": "security"
+    }
+  ]
+}
