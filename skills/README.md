@@ -6,11 +6,11 @@ Three skills that teach an assistant to use the installed `pgard` CLI safely:
 - `pgard-explain`: read a scan result and suggest fixes.
 - `pgard-precommit`: run the pre-commit check and explain a block.
 
-They were checked against pgard 0.3.0 and the commands in the repository `README.md`. They are not part of the published npm package.
+They were checked against pgard 0.3.0 and the commands in the repository `README.md`. Each skill asks the assistant to run `pgard --version` and re-check the commands if the version differs. They are not part of the published npm package.
 
 ## Install
 
-Copy the skill folders you want:
+Copy the skill folders from a checkout of this repository (the npm package does not contain them):
 
 ```sh
 # for one project
