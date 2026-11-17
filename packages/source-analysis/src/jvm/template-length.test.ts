@@ -123,6 +123,112 @@ describe("hostile files with many openers stay fast and are not silent (#508)", 
   });
 });
 
+describe("long unquoted values, attribute names and tags (#508 review)", () => {
+  const roots: string[] = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+  });
+  const LENGTHS = [1999, 2000, 2001, 100_000];
+
+  it.each(LENGTHS)("an unquoted attribute value of %i characters before the EL", (length) => {
+    const analysis = analyzeJsp(
+      `<input type="text" value=${"x".repeat(length)}\${param.q}>`,
+      "a.jsp",
+    );
+    expect(analysis.findings).toHaveLength(1);
+    expect(analysis.findings[0]).toMatchObject({ severity: "high" });
+  });
+
+  it.each(LENGTHS)("an unquoted c:out value of %i characters before the EL", (length) => {
+    const analysis = analyzeJsp(
+      `<c:out value=${"x".repeat(length)}\${param.q} escapeXml=false />`,
+      "a.jsp",
+    );
+    expect(analysis.findings).toHaveLength(1);
+    expect(analysis.findings[0]).toMatchObject({ severity: "high" });
+  });
+
+  it.each([199, 200, 201, 5000])(
+    "an attribute name of %i characters does not hide the next attribute",
+    (length) => {
+      const analysis = analyzeJsp(`<input ${"n".repeat(length)}=1 value="\${param.q}">`, "a.jsp");
+      expect(analysis.findings).toHaveLength(1);
+      const cOut = analyzeJsp(
+        `<c:out ${"n".repeat(length)}=1 value="\${param.q}" escapeXml="false"/>`,
+        "a.jsp",
+      );
+      expect(cOut.findings).toHaveLength(1);
+    },
+  );
+
+  it("still reports c:out when 20000 spaces come between the value and escapeXml", () => {
+    const analysis = analyzeJsp(
+      `<c:out value="\${param.q}"${" ".repeat(20_000)} escapeXml="false"/>`,
+      "a.jsp",
+    );
+    expect(analysis.findings).toHaveLength(1);
+    expect(analysis.findings[0]).toMatchObject({ severity: "high" });
+    expect(analysis.findings[0]?.cause).toContain("jsp-c-out");
+  });
+
+  it("scans a long unquoted value through the whole scan", async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), "pgard-tpl-bare-")));
+    roots.push(root);
+    mkdirSync(path.join(root, "web"), { recursive: true });
+    writeFileSync(path.join(root, "pom.xml"), "<project/>\n");
+    writeFileSync(
+      path.join(root, "web", "a.jsp"),
+      `<input type="text" value=${"x".repeat(2000)}\${param.q}>\n`,
+    );
+    const output = await scanSourceCode(root);
+    expect(output.findings.filter((item) => item.ruleId === "PG-XSS-004")).toHaveLength(1);
+  });
+});
+
+describe("unclosed openers do not starve the budget (#508 review)", () => {
+  it("still reports the finding after a few unclosed ${ in a 400 KB file", () => {
+    const text = `<!-- \${\${\${\${\${\${\${\${\${\${ -->${"<p>hello</p>\n".repeat(30_000)}<p>\${param.q}</p><script>}</script>`;
+    const analysis = analyzeJsp(text, "a.jsp");
+    // The last opener of the comment now reaches the stray `}` in the script and is judged too.
+    const lastLine = 30_001;
+    expect(analysis.findings.some((f) => f.line === lastLine && f.severity === "high")).toBe(true);
+    expect(analysis.notJudged ?? 0).toBe(0);
+  });
+});
+
+describe("a Thymeleaf inline stops at the tag (#508 review)", () => {
+  it("does not read an array index in a script as an inline expression", () => {
+    const text = `<script>var a = arr[(i + 1) % n];</script>\n<span th:text="\${param.q}">x</span>\n${"<p>row</p>\n".repeat(60)}<script>var b = list[indexOf(x)];</script>`;
+    expect(analyzeThymeleaf(text, "templates/a.html", new Map()).findings).toHaveLength(0);
+  });
+
+  it("does not let an inline body cross a tag outside a script", () => {
+    const text = `<p>[(\${param.q}</p><p>)]</p>`;
+    expect(analyzeThymeleaf(text, "templates/a.html", new Map()).findings).toHaveLength(0);
+  });
+
+  it("still reads an inline in a script and a padded one in text", () => {
+    const script = analyzeThymeleaf(
+      `<script>var x = [(\${param.q}<b)];</script>`,
+      "templates/a.html",
+      new Map(),
+    );
+    expect(script.findings).toHaveLength(1);
+    const padded = analyzeThymeleaf(
+      `<p>[(\${param.q}${" ".repeat(100_000)})]</p>`,
+      "templates/a.html",
+      new Map(),
+    );
+    expect(padded.findings).toHaveLength(1);
+  });
+
+  it("stays linear with many openers that cross a tag", () => {
+    const text = `<p>${"[(".repeat(200_000)}<b>x</b>)]</p>`;
+    const { ms } = timed(() => analyzeThymeleaf(text, "templates/a.html", new Map()));
+    expect(ms).toBeLessThan(LIMIT_MS);
+  });
+});
+
 describe("the scan says when a template was not fully judged (#508)", () => {
   const roots: string[] = [];
   afterEach(() => {

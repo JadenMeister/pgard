@@ -511,7 +511,7 @@ export async function scanJvm(
       }
       if (templateNotJudged > 0) {
         problems.push(
-          `${templateNotJudged} expression(s) in ${templateNotJudgedFiles} template file(s) were not judged because the file's work limit was reached (many expressions that never close), so findings there may be missing`,
+          `${templateNotJudged} JSP expression(s) in ${templateNotJudgedFiles} template file(s) were not judged because the per-file work limit of the expression reader was reached, so findings there may be missing`,
         );
       }
       if (walk.templatesTruncated) problems.push("the template file list reached its cap");

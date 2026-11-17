@@ -226,8 +226,12 @@ interface ElBudget {
   lastClose: number;
 }
 
+// Enough for a few dozen scans that run to the end of a 1 MiB file (an opener that never closes
+// does), about 100 ms of work; a file that needs more is reported, not skipped.
+const EL_BUDGET_FLOOR = 32 * 1024 * 1024;
+
 const elBudgetFor = (text: string): ElBudget => ({
-  left: 4 * text.length + 262_144,
+  left: 4 * text.length + EL_BUDGET_FLOOR,
   skipped: 0,
   text,
   lastClose: text.lastIndexOf("}"),
@@ -393,6 +397,9 @@ interface Tag {
   end: number;
 }
 
+const ATTRIBUTE_NAME = /[^\s=>/]+/y;
+const BARE_VALUE = /[^\s>]+/y;
+
 /** Reads the tag that starts at `at` (a `<` followed by a name); `end` is just after its `>`. */
 function readTag(text: string, at: number): Tag | null {
   const name = /^<([A-Za-z][\w:.-]*)/.exec(text.slice(at, at + 80))?.[1];
@@ -410,7 +417,9 @@ function readTag(text: string, at: number): Tag | null {
       i += 1;
       continue;
     }
-    const nameMatch = /^[^\s=>/]+/.exec(text.slice(i, i + 200));
+    // Sticky patterns read from `i` with no slice and no length limit (#508).
+    ATTRIBUTE_NAME.lastIndex = i;
+    const nameMatch = ATTRIBUTE_NAME.exec(text);
     if (nameMatch === null) {
       i += 1;
       continue;
@@ -431,7 +440,8 @@ function readTag(text: string, at: number): Tag | null {
       attributes.push({ name: attrName, value: text.slice(i + 1, stop), valueAt: i + 1 });
       i = stop + 1;
     } else {
-      const bare = /^[^\s>]+/.exec(text.slice(i, i + 2000))?.[0] ?? "";
+      BARE_VALUE.lastIndex = i;
+      const bare = BARE_VALUE.exec(text)?.[0] ?? "";
       attributes.push({ name: attrName, value: bare, valueAt: i });
       i += Math.max(bare.length, 1);
     }
@@ -717,12 +727,49 @@ export function analyzeThymeleaf(
       "Thymeleaf th:utext -> unescaped HTML output",
     );
   }
-  // `[( ... )]` of any length is read in full (#508). Each opener looks for the first `)]` after it
-  // with one `indexOf`; when there is none, no later opener has one either, so the loop ends. That
-  // keeps the cost linear however many openers a file holds, with no length cap to hide behind.
+  // `[( ... )]` of any length is read in full (#508). Inlining works on one text node, so the body
+  // cannot cross a tag: outside <script> and <style> it stops at the next tag start, inside them at
+  // the closing tag. Each opener looks for the first `)]` with one `indexOf`; when there is none, no
+  // later opener has one either, so the loop ends. An opener whose body would cross its boundary
+  // is skipped and the next one is looked for after the boundary. The cost stays linear, with no
+  // length cap to hide behind.
+  const rawRanges: Array<[number, number]> = [];
+  const rawOpen = /<(?:script|style)\b/gi;
+  for (let m = rawOpen.exec(text); m !== null; m = rawOpen.exec(text)) {
+    const gt = text.indexOf(">", m.index);
+    if (gt === -1) break;
+    const name = /^<(\w+)/.exec(m[0])?.[1] ?? "script";
+    const closer = new RegExp(`</${name}`, "gi");
+    closer.lastIndex = gt + 1;
+    const stop = closer.exec(text)?.index ?? text.length;
+    rawRanges.push([gt + 1, stop]);
+    rawOpen.lastIndex = stop;
+  }
+  const tagStart = /<[A-Za-z/!]/g;
+  let range = 0;
+  let cachedClose = 0;
+  let cachedTag = 0;
   for (let at = text.indexOf("[("); at !== -1;) {
-    const close = text.indexOf(")]", at + 3);
+    while (range < rawRanges.length && (rawRanges[range] as [number, number])[1] <= at) range += 1;
+    const inRaw = range < rawRanges.length && (rawRanges[range] as [number, number])[0] <= at;
+    let limitAt: number;
+    if (inRaw) limitAt = (rawRanges[range] as [number, number])[1];
+    else {
+      if (cachedTag < at + 2) {
+        tagStart.lastIndex = at + 2;
+        cachedTag = tagStart.exec(text)?.index ?? text.length;
+      }
+      limitAt = cachedTag;
+    }
+    // The first `)]` at or after at + 3; one found for an earlier opener still holds when it is
+    // not behind this one, so skipped openers do not each scan to the same far closer.
+    if (cachedClose < at + 3) cachedClose = text.indexOf(")]", at + 3);
+    const close = cachedClose;
     if (close === -1) break;
+    if (limitAt < close + 2) {
+      at = text.indexOf("[(", Math.max(limitAt, at + 2));
+      continue;
+    }
     add(
       at,
       text.slice(at + 2, close),
