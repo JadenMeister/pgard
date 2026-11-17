@@ -246,7 +246,7 @@ A new optional top-level field, `scanBasis`:
   - The staged content is the committer's own change. Authorization adds no protection for it, because the same bytes are on disk and any hook can grep them.
   - The gate costs up to 15 s per commit (`PGARD_PRECOMMIT_TIMEOUT_MS`) and fails offline. A security hook that blocks commits for lack of a GitHub sign-in is the kind of App dependence the owner objected to.
   - Reading the index is the precommit check's own input, not "Git history" in the gated sense: no commit other than HEAD's blob for comparison is read.
-- **Labelling.** The summary line says `code-only: authorization not verified`. Exit 3 (not authorized) appears only with `"precommit": { "requireAuthorization": true }`, when the gate does not pass. Outside a Git repository nothing is staged, so `pgard precommit` prints a note and exits 0 (a repository whose work tree Git redirects with `core.worktree` is still refused with exit 3). Other exit codes are unchanged.
+- **Labelling.** The summary line says `code-only: authorization not verified`. Exit 3 (not authorized) appears with `"precommit": { "requireAuthorization": true }`, when the gate does not pass, and in the default mode only for the `core.worktree` case below. Outside a Git repository nothing is staged, so `pgard precommit` prints a note and exits 0 (a repository whose work tree Git redirects with `core.worktree` is still refused with exit 3). Other exit codes are unchanged.
 - **Alternatives.**
   - (b) Gate only when a saved sign-in exists, and fall back to code-only otherwise: slower, same protection.
   - (c) Unchanged, strict.
