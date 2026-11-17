@@ -43,15 +43,15 @@ Set in `pgard.config.json`. The staged copy is the one read, so `git add pgard.c
 
 ## Exit codes (`pgard precommit`)
 
-| Code | Meaning                                                                                                                                                                                                                          |
-| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | Nothing blocks the commit (clean, warn mode, or nothing scanned with `whenNotScanned: warn`, which is said on screen).                                                                                                           |
-| 1    | Findings in block mode (a crash of Node itself also exits 1; both block).                                                                                                                                                        |
-| 2    | Invalid command, or `install` / `uninstall` refused.                                                                                                                                                                             |
-| 3    | With `requireAuthorization`: not authorized (nothing scanned) and `whenNotScanned` blocks. Never in the default code-only mode, except a repository whose work tree Git redirects with `core.worktree`, which is refused with 3. |
-| 4    | Other cases where not everything was scanned, and `whenNotScanned` blocks.                                                                                                                                                       |
-| 5    | Internal error.                                                                                                                                                                                                                  |
-| 130  | Cancelled.                                                                                                                                                                                                                       |
+| Code | Meaning                                                                                                                                                                                                          |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | Nothing blocks the commit (clean, warn mode, or nothing scanned with `whenNotScanned: warn`, which is said on screen).                                                                                           |
+| 1    | Findings in block mode (a crash of Node itself also exits 1; both block).                                                                                                                                        |
+| 2    | Invalid command, or `install` / `uninstall` refused.                                                                                                                                                             |
+| 3    | With `requireAuthorization`: not authorized (nothing scanned) and `whenNotScanned` blocks. In the default code-only mode only a repository whose work tree Git redirects with `core.worktree` exits 3 (refused). |
+| 4    | Other cases where not everything was scanned, and `whenNotScanned` blocks.                                                                                                                                       |
+| 5    | Internal error.                                                                                                                                                                                                  |
+| 130  | Cancelled.                                                                                                                                                                                                       |
 
 `install` and `uninstall` outside a Git repository exit 3.
 

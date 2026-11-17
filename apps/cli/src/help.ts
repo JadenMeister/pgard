@@ -514,8 +514,9 @@ compared with HEAD (ours), so what the other branch brings counts as added.
 
 install writes only into this repository's own .git/hooks (with core.hooksPath and
 symbolic links checked), never overwrites a hook PGARD did not write unless you confirm
-in a terminal (the old hook is kept as pre-commit.pgard-backup), and refuses without a
-terminal. Skip a hook once with git commit --no-verify.
+in a terminal (the old hook is kept as pre-commit.pgard-backup); without a terminal it
+refuses only in that case (exit 2), and installs normally when there is no hook or a
+PGARD hook is already there. Skip a hook once with git commit --no-verify.
 
 Exit codes:
   0    nothing blocks the commit (clean, warn mode, or nothing scanned with
@@ -523,7 +524,9 @@ Exit codes:
   1    findings in block mode (a crash of Node itself also exits 1; both block)
   2    invalid command, or install/uninstall refused
   3    with requireAuthorization: not authorized (nothing scanned) and
-       whenNotScanned blocks; never in the default code-only mode
+       whenNotScanned blocks. In the default code-only mode only a repository whose
+       work tree Git redirects (core.worktree) exits 3, and so do install and
+       uninstall outside a Git repository
   4    other cases where not everything was scanned, and whenNotScanned blocks
   5    internal error
   130  cancelled`,

@@ -32,7 +32,8 @@ vi.mock("@pgard/policy", async (importOriginal) => {
 });
 
 const { findGitRoot, runCodeOnlyScan, runScan } = await import("@pgard/scan-core");
-const { createTestContext, createTestDeps, createTestIo } = await import("../../test-support.js");
+const { createTestContext, createTestDeps, createTestIo, noInterrupts } =
+  await import("../../test-support.js");
 const { main } = await import("../../app.js");
 const { EXIT_CODES } = await import("../../exit-codes.js");
 const { HOOK_SCRIPT } = await import("./hook.js");
@@ -533,6 +534,21 @@ describe("pgard precommit install / uninstall", () => {
     const again = setup(root);
     expect(await precommit.runPrecommitInstall(again.context)).toBe(EXIT_CODES.ok);
     expect(again.captured.stdout()).toContain("already installed");
+  });
+
+  it("describes exit 3 and the terminal rule of install as the code does (#499)", async () => {
+    const captured = createTestIo({});
+    expect(
+      await main(["precommit", "--help"], captured.io, {
+        deps: createTestDeps(),
+        interrupts: noInterrupts,
+      }),
+    ).toBe(0);
+    const help = captured.stdout().replace(/\s+/g, " ");
+    expect(help).not.toContain("never in the default code-only mode");
+    expect(help).toContain("core.worktree");
+    expect(help).toContain("install and uninstall outside a Git repository");
+    expect(help).toContain("installs normally when there is no hook");
   });
 
   it("refuses to replace a hook PGARD did not write without a terminal", async () => {
