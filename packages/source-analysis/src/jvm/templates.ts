@@ -24,6 +24,8 @@ export interface TemplateAnalysis {
   kind: "jsp" | "thymeleaf" | null;
   /** The file has code forms that are not read (`<jsp:scriptlet>`, `<jsp:expression>`). */
   unread?: boolean;
+  /** Expressions that were not judged because the file's work limit was reached (#508). */
+  notJudged?: number;
 }
 
 type Class = "tainted" | "escaped" | "unknown" | "fixed";
@@ -205,12 +207,47 @@ function noteAssignments(code: string, vars: Map<string, Class>): void {
 
 // ------------------------------------------------------------------ JSP expression language
 
-/** The `${...}` that starts at `at`: its end offset (after `}`), or -1. */
-function elEnd(text: string, at: number): number {
+/** What `elEnd` returns when the file's scan budget ran out before it could tell. */
+const EL_NOT_JUDGED = -2;
+
+/**
+ * The work one file may spend looking for the end of `${...}` expressions, in characters. An
+ * expression of any length is read in full (#508), so a padded expression cannot hide a finding. A
+ * hostile file with many openers that never close would make every opener scan to the end of the
+ * file; the budget (a few times the file length, so no real template comes near it) keeps that
+ * linear. When it runs out, the openers that are left are counted, not judged and not silent.
+ */
+interface ElBudget {
+  left: number;
+  /** Expressions that were not judged because the budget ran out. */
+  skipped: number;
+  /** The file text and where its last `}` is, found once (short attribute values skip this). */
+  text: string;
+  lastClose: number;
+}
+
+const elBudgetFor = (text: string): ElBudget => ({
+  left: 4 * text.length + 262_144,
+  skipped: 0,
+  text,
+  lastClose: text.lastIndexOf("}"),
+});
+
+/**
+ * The `${...}` that starts at `at`: its end offset (after `}`), -1 when it never closes (a broken
+ * expression, nothing to judge), or `EL_NOT_JUDGED` when the file's budget ran out first.
+ */
+function elEnd(text: string, at: number, budget: ElBudget): number {
+  // Nothing closes after the last `}`, and no later opener can either: stop without scanning.
+  if (text === budget.text && budget.lastClose <= at) return -1;
   let depth = 0;
   let quote = "";
-  const limit = Math.min(text.length, at + 4000);
-  for (let i = at + 1; i < limit; i += 1) {
+  for (let i = at + 1; i < text.length; i += 1) {
+    if (budget.left <= 0) {
+      budget.skipped += 1;
+      return EL_NOT_JUDGED;
+    }
+    budget.left -= 1;
     const char = text[i] as string;
     if (quote !== "") {
       if (char === "\\") i += 1;
@@ -362,7 +399,10 @@ function readTag(text: string, at: number): Tag | null {
   if (name === undefined) return null;
   const attributes: Tag["attributes"] = [];
   let i = at + 1 + name.length;
-  const limitAt = Math.min(text.length, at + 20_000);
+  // No length limit (#508): a tag padded past any size would otherwise hide what it holds. A tag
+  // that never closes ends at the end of the file, and the scan continues from there, so the
+  // cost stays linear.
+  const limitAt = text.length;
   while (i < limitAt) {
     const char = text[i] as string;
     if (char === ">") return { name, attributes, end: i + 1 };
@@ -412,6 +452,7 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
   const elIgnored = /<%@\s*page\b[^%]*isELIgnored\s*=\s*["']true["']/.test(text);
   const findings: RawSourceFinding[] = [];
   const vars = new Map<string, Class>();
+  const budget = elBudgetFor(text);
 
   // Scriptlets, declarations and expressions, in order.
   let blanked = text;
@@ -465,15 +506,25 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
       const found = make(path, lineAt(start), judged, label, what);
       if (found !== null) findings.push(found);
     };
+    // The first `${` at or after `from`. A tag with very many attributes asks for it once per
+    // attribute, so the answer is remembered: it holds for every `from` up to the position found.
+    let openFrom = 0;
+    let openAt = text.indexOf("${");
+    const nextOpen = (from: number): number => {
+      if (from < openFrom) {
+        openFrom = from;
+        openAt = text.indexOf("${", from);
+      } else if (openAt !== -1 && openAt < from) {
+        openFrom = from;
+        openAt = text.indexOf("${", from);
+      }
+      return openAt;
+    };
     const scanEl = (from: number, to: number, what: string): void => {
-      for (
-        let at = text.indexOf("${", from);
-        at !== -1 && at < to;
-        at = text.indexOf("${", at + 2)
-      ) {
+      for (let at = nextOpen(from); at !== -1 && at < to; at = nextOpen(at + 2)) {
         if (text[at - 1] === "\\") continue;
-        const end = elEnd(text, at);
-        if (end === -1) continue;
+        const end = elEnd(text, at, budget);
+        if (end < 0) continue;
         handleEl(at, end, "jsp-el", what);
       }
     };
@@ -497,8 +548,8 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
             const value = tag.attributes.find((attr) => attr.name === "value");
             if (value !== undefined) {
               const at = value.value.indexOf("${");
-              const end = at === -1 ? -1 : elEnd(value.value, at);
-              if (at !== -1 && end !== -1) {
+              const end = at === -1 ? -1 : elEnd(value.value, at, budget);
+              if (at !== -1 && end > 0) {
                 const judged = elJudge(value.value.slice(at + 2, end - 1), vars);
                 const found = make(
                   path,
@@ -516,9 +567,14 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
           const value = tag.attributes.find((attr) => attr.name === "value")?.value;
           if (name !== undefined && value !== undefined) {
             const at = value.indexOf("${");
-            const end = at === -1 ? -1 : elEnd(value, at);
+            const end = at === -1 ? -1 : elEnd(value, at, budget);
+            // An expression that was not judged is not known to be fixed.
             const cls =
-              at === -1 || end === -1 ? "fixed" : elJudge(value.slice(at + 2, end - 1), vars).cls;
+              end === EL_NOT_JUDGED
+                ? "unknown"
+                : at === -1 || end === -1
+                  ? "fixed"
+                  : elJudge(value.slice(at + 2, end - 1), vars).cls;
             vars.set(name, cls);
           }
         }
@@ -540,7 +596,7 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
     }
   }
   const limited = limit(findings);
-  return { ...limited, kind: "jsp", unread };
+  return { ...limited, kind: "jsp", unread, notJudged: budget.skipped };
 }
 
 // ------------------------------------------------------------------ Thymeleaf
@@ -661,13 +717,19 @@ export function analyzeThymeleaf(
       "Thymeleaf th:utext -> unescaped HTML output",
     );
   }
-  for (const match of text.matchAll(/\[\(([\s\S]{1,500}?)\)\]/g)) {
+  // `[( ... )]` of any length is read in full (#508). Each opener looks for the first `)]` after it
+  // with one `indexOf`; when there is none, no later opener has one either, so the loop ends. That
+  // keeps the cost linear however many openers a file holds, with no length cap to hide behind.
+  for (let at = text.indexOf("[("); at !== -1;) {
+    const close = text.indexOf(")]", at + 3);
+    if (close === -1) break;
     add(
-      match.index,
-      match[1] ?? "",
+      at,
+      text.slice(at + 2, close),
       "th-inline",
       "Thymeleaf [( )] inline -> unescaped HTML output",
     );
+    at = text.indexOf("[(", close + 2);
   }
   const limited = limit(findings);
   return { ...limited, kind: "thymeleaf" };

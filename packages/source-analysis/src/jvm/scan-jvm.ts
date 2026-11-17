@@ -413,6 +413,8 @@ export async function scanJvm(
     let templateUnreadable = 0;
     let templateTooLarge = 0;
     let templateUnread = 0;
+    let templateNotJudgedFiles = 0;
+    let templateNotJudged = 0;
     let templateStopped = 0;
     let templateNotReached = 0;
     const engineFiles = new Map<string, number>();
@@ -472,6 +474,10 @@ export async function scanJvm(
       templateFindings.push(...analysis.findings.map(createSourceFinding));
       if (analysis.capped) templateCapped += 1;
       if (analysis.unread === true) templateUnread += 1;
+      if ((analysis.notJudged ?? 0) > 0) {
+        templateNotJudgedFiles += 1;
+        templateNotJudged += analysis.notJudged ?? 0;
+      }
     }
     findings.push(...templateFindings);
     if (
@@ -501,6 +507,11 @@ export async function scanJvm(
       if (templateUnread > 0) {
         problems.push(
           `${templateUnread} JSP file(s) use <jsp:scriptlet>, <jsp:expression> or <jsp:declaration>, which are not read`,
+        );
+      }
+      if (templateNotJudged > 0) {
+        problems.push(
+          `${templateNotJudged} expression(s) in ${templateNotJudgedFiles} template file(s) were not judged because the file's work limit was reached (many expressions that never close), so findings there may be missing`,
         );
       }
       if (walk.templatesTruncated) problems.push("the template file list reached its cap");
