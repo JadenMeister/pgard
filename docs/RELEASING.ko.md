@@ -72,7 +72,7 @@ PGARD는 [유의적 버전(SemVer)](https://semver.org/lang/ko/)을 따릅니다
    이어서 `publish-github` 작업이 시작됩니다(아래 "GitHub Packages 사본"). 같은 `npm-publish` 환경을 쓰므로 릴리스마다 `npm-publish` 승인을 한 번 더 요청합니다. 그 승인을 하지 않으면 npm에는 버전이 있지만 GitHub Packages에는 없는 상태가 됩니다. 승인하거나 Actions 화면에서 `publish-github` 작업을 다시 실행해 마무리하세요.
 9. **배포 후 확인**(아래).
 10. **GitHub 릴리스.** 태그에 대한 GitHub 릴리스를 변경 기록 해당 절을 노트로 직접 만듭니다.
-11. **Homebrew.** tap을 갱신합니다([packaging/homebrew/README.md](../packaging/homebrew/README.md)).
+11. **Homebrew.** tap의 `update-formula` 워크플로가 새 버전의 PR을 스스로 올립니다(배포 후 하루가 지난 뒤부터이며, Homebrew는 더 어린 버전을 거부합니다). PR의 검증 출력과 macOS 결과 댓글을 확인한 뒤 병합하세요. 병합이 사람의 관문입니다. 바로 실행하려면 tap의 Actions 탭에서 워크플로를 수동으로 시작합니다. 자세한 내용과 수동 절차는 [packaging/homebrew/README.md](../packaging/homebrew/README.md)를 보세요.
 
 ## GitHub Packages 사본
 

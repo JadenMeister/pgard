@@ -1,6 +1,6 @@
 # Homebrew formula
 
-`pgard.rb` is a template for the Homebrew formula of PGARD. It installs the npm registry tarball of the `pgard` package and depends on Homebrew's `node`. The formula lives in a separate **tap** repository, not in this one. This directory only holds the template and a helper script. Nothing here creates the tap or publishes anything.
+`pgard.rb` is a template for the Homebrew formula of PGARD. It installs the npm registry tarball of the `pgard` package and depends on Homebrew's `node`. The formula lives in a separate **tap** repository, not in this one. This directory holds the template, a helper script and the source of the tap's update workflow (`tap-workflow/`). Nothing here creates the tap or publishes anything.
 
 The tap [`JadenMeister/homebrew-pgard`](https://github.com/JadenMeister/homebrew-pgard) is live. Users install with:
 
@@ -21,9 +21,38 @@ Recent Homebrew refuses formulae from an untrusted third-party tap until they ar
 3. Wait until the first version is on npm (see [docs/RELEASING.md](../../docs/RELEASING.md)), then run the update script below so that `url` and `sha256` are real. A formula with the placeholder checksum does not install.
 4. Commit and push to the tap's default branch.
 
-## Update the formula for each release
+## Automatic update PRs (tap workflow)
 
-After `npm publish` has finished and `npm view pgard@<version>` shows the version:
+The tap repository opens the update PR for each new npm version by itself. The workflow's source is [`tap-workflow/update-formula.yml`](tap-workflow/update-formula.yml) in this repository; it runs in the tap, not here. Nothing is merged automatically.
+
+How it works:
+
+1. A few times a day (and on demand) the workflow reads the formula's version and `npm view pgard dist-tags.latest`. It does nothing when `latest` is not newer, when the version is a pre-release, when the version was published less than 24 hours ago (Homebrew refuses it), or when a branch or PR (open, merged or closed) named `update-pgard-<version>` already exists. The decision is made by [`tap-workflow/next-version.mjs`](tap-workflow/next-version.mjs), which is unit-tested.
+2. It runs `update-formula.sh <version> Formula/pgard.rb` from a checkout of this repository at a pinned commit. `gh` is preinstalled on the runner, so `gh attestation verify` runs. If verification fails, the job fails and the formula is not changed, committed or pushed.
+3. It pushes the branch `update-pgard-<version>`, commits `pgard <version>` as `github-actions[bot]` and opens a PR whose body holds the verification output and a checklist.
+4. A second job on macOS taps the PR branch and runs `brew audit --strict --online`, `brew install --build-from-source` and `brew test`, then comments the result on the PR. A failing job is red but does not remove the PR.
+5. **A person reviews and merges the PR.** That is the gate: check that the diff changes only `url` and `sha256`, that the output says `gh attestation verify` passed and that the macOS comment is green.
+
+The workflow uses only the built-in `GITHUB_TOKEN` (no new secrets), starts with `permissions: {}`, and every action and the scripts checkout are pinned to full commit SHAs.
+
+### One-time setup in the tap
+
+1. In the tap repository, Settings, Actions, General, Workflow permissions: tick **Allow GitHub Actions to create and approve pull requests** (the owner has turned this on).
+2. Merge the change that contains `tap-workflow/` into `main` of this repository and note the full 40-character commit SHA of a merged commit.
+3. Copy `packaging/homebrew/tap-workflow/update-formula.yml` to `.github/workflows/update-formula.yml` in the tap. Replace the single token `PGARD_SCRIPTS_SHA_PLACEHOLDER` with that SHA (`grep PGARD_SCRIPTS_SHA_PLACEHOLDER` finds it; the file in this repository must keep the placeholder). The workflow checks out `update-formula.sh`, `verify-provenance.mjs` and `next-version.mjs` at exactly that commit, so bump the SHA by hand when those scripts change.
+4. Commit it to the tap's default branch. Scheduled workflows only run from the default branch.
+
+### Run it manually
+
+In the tap, Actions, `update-formula`, Run workflow. Leave `version` empty for npm's latest, or give `x.y.z` for a specific version. The same checks apply (newer than the formula, at least a day old, no existing branch or PR). A version whose PR was closed without merging counts as handled: reopen that PR, or update the formula by hand (below).
+
+### When verification fails
+
+The run is red and the formula is untouched. Read the failing step: a mismatch between the tarball and the registry's integrity or attestation, a failing `gh attestation verify`, or a version without provenance. Do not bypass it: do not set `PGARD_I_ACCEPT_UNVERIFIED_PROVENANCE` in the workflow. Check the release run of that version in this repository first; if the release itself is wrong, deprecate the version and release a fix (see [docs/RELEASING.md](../../docs/RELEASING.md)). If the script or the registry's format changed, fix `update-formula.sh` here, merge it and bump the SHA in the tap's workflow.
+
+## Update the formula by hand (fallback)
+
+The workflow replaces this for normal releases. Use it when the workflow is not installed or has to be bypassed. After `npm publish` has finished and `npm view pgard@<version>` shows the version:
 
 ```sh
 packaging/homebrew/update-formula.sh <version> /path/to/homebrew-pgard/Formula/pgard.rb
