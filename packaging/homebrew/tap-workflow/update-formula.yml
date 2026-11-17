@@ -37,12 +37,16 @@ jobs:
     outputs:
       created: ${{ steps.pr.outputs.created }}
       version: ${{ steps.next.outputs.version }}
-      branch: ${{ steps.pr.outputs.branch }}
+      sha: ${{ steps.pr.outputs.sha }}
+      pr: ${{ steps.pr.outputs.pr }}
     steps:
       # persist-credentials is off on purpose: the token must not sit in .git/config while the
       # update script and npm run. The push step passes the token for that one command only.
+      # The default branch, not whatever ref started the run: the formula is read from it and the PR
+      # targets it.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.repository.default_branch }}
           persist-credentials: false
 
       # The scripts come from a pinned commit, never from a branch or tag, so a change in
@@ -68,7 +72,12 @@ jobs:
           current="$(sed -nE 's#^  url "https://registry\.npmjs\.org/pgard/-/pgard-([0-9]+\.[0-9]+\.[0-9]+)\.tgz".*#\1#p' Formula/pgard.rb)"
           [[ "$current" =~ $semver ]] || { echo "cannot read the formula version" >&2; exit 2; }
           latest="$(npm view --registry=https://registry.npmjs.org/ pgard dist-tags.latest)"
-          [[ "$latest" =~ $semver ]] || { echo "npm latest is not x.y.z (a pre-release is ignored): $latest" >&2; echo "version=" >> "$GITHUB_OUTPUT"; exit 0; }
+          # A pre-release `latest` ends the run quietly, but never swallows an explicit version input.
+          if [ -z "$INPUT_VERSION" ] && ! [[ "$latest" =~ $semver ]]; then
+            echo "npm latest is not x.y.z (a pre-release is ignored): $latest" >&2
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           npm view --registry=https://registry.npmjs.org/ pgard time --json > "$RUNNER_TEMP/time.json"
           node pgard-scripts/packaging/homebrew/tap-workflow/next-version.mjs \
             --current "$current" --latest "$latest" --requested "$INPUT_VERSION" \
@@ -76,7 +85,7 @@ jobs:
           grep -E '^(version|reason)=' "$RUNNER_TEMP/next.txt" >> "$GITHUB_OUTPUT"
           echo "current=$current" >> "$GITHUB_OUTPUT"
 
-      - name: Skip when a branch or PR for this version exists
+      - name: Skip when an open or merged PR for this version exists
         id: exists
         if: steps.next.outputs.version != ''
         env:
@@ -87,11 +96,14 @@ jobs:
           set -euo pipefail
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
           branch="update-pgard-$VERSION"
-          found=false
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then found=true; fi
-          if [ -n "$(gh pr list --state all --head "$branch" --json number --jq '.[].number')" ]; then found=true; fi
-          echo "found=$found" >> "$GITHUB_OUTPUT"
-          if [ "$found" = true ]; then echo "a branch or PR for $branch already exists; nothing to do"; fi
+          branch_exists=false
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then branch_exists=true; fi
+          gh pr list --state all --head "$branch" --json state > "$RUNNER_TEMP/prs.json"
+          # Fails the run (red, nothing pushed) when the branch exists without an open or merged PR;
+          # delete the branch to retry.
+          node pgard-scripts/packaging/homebrew/tap-workflow/existing-pr.mjs \
+            --branch-exists "$branch_exists" --prs-file "$RUNNER_TEMP/prs.json" | tee "$RUNNER_TEMP/exists.txt"
+          cat "$RUNNER_TEMP/exists.txt" >> "$GITHUB_OUTPUT"
 
       # If verification fails here the script exits non-zero before it writes the formula, so
       # this step fails the job and nothing is committed or pushed.
@@ -114,10 +126,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.next.outputs.version }}
           CURRENT: ${{ steps.next.outputs.current }}
+          BASE: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           semver='^[0-9]+\.[0-9]+\.[0-9]+$'
           [[ "$VERSION" =~ $semver && "$CURRENT" =~ $semver ]] || exit 2
+          [[ "$BASE" =~ ^[A-Za-z0-9._/-]+$ ]] || exit 2
           branch="update-pgard-$VERSION"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -143,12 +157,15 @@ jobs:
             echo
             echo "- [ ] The diff changes only \`url\` and \`sha256\`."
             echo "- [ ] The verification output above says \`gh attestation verify\` ran and passed."
-            echo "- [ ] The macOS job result comment shows audit, install and test passed."
+            echo "- [ ] The macOS result comment names the commit of this PR and shows audit, install and test passed."
             echo "- [ ] $VERSION is on npm with provenance and was published at least a day ago."
           } > "$RUNNER_TEMP/pr-body.md"
-          gh pr create --base "${GITHUB_REF_NAME}" --head "$branch" --title "pgard $VERSION" --body-file "$RUNNER_TEMP/pr-body.md"
+          url="$(gh pr create --base "$BASE" --head "$branch" --title "pgard $VERSION" --body-file "$RUNNER_TEMP/pr-body.md")"
+          number="${url##*/}"
+          [[ "$number" =~ ^[0-9]+$ ]] || { echo "unexpected gh pr create output: $url" >&2; exit 1; }
           echo "created=true" >> "$GITHUB_OUTPUT"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "pr=$number" >> "$GITHUB_OUTPUT"
 
   test:
     name: audit, build and test on macOS
@@ -156,17 +173,17 @@ jobs:
     if: needs.update.outputs.created == 'true'
     runs-on: macos-latest
     timeout-minutes: 45
+    # This job runs the package's install code, so it can only read.
     permissions:
-      contents: read # check out the PR branch
-      pull-requests: write # comment the result on the PR
+      contents: read
     env:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       HOMEBREW_NO_ANALYTICS: "1"
     steps:
-      # The token is not needed after the checkout, so it is not kept.
+      # The exact commit the update job pushed, not the branch name. The token is not kept.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ needs.update.outputs.branch }}
+          ref: ${{ needs.update.outputs.sha }}
           persist-credentials: false
 
       - name: Tap the checked-out repository
@@ -175,8 +192,9 @@ jobs:
           brew tap jadenmeister/pgard "$GITHUB_WORKSPACE"
           brew trust --formula jadenmeister/pgard/pgard
 
+      # No online audit: it has not been run against this formula. Run it by hand if wanted.
       - name: brew audit
-        run: brew audit --strict --online jadenmeister/pgard/pgard
+        run: brew audit --strict jadenmeister/pgard/pgard
 
       - name: brew install --build-from-source
         run: brew install --build-from-source jadenmeister/pgard/pgard
@@ -184,24 +202,33 @@ jobs:
       - name: brew test
         run: brew test jadenmeister/pgard/pgard
 
-      # Runs even when a step above failed, so the PR shows the result. The job itself stays red
-      # on failure; the PR from the update job is not affected.
-      - name: Report on the PR
-        if: always()
+  # Comments the macOS result on the PR. A separate job so the macOS job needs no write access.
+  report:
+    name: report on the PR
+    needs: [update, test]
+    if: always() && needs.update.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # comment on the PR
+    steps:
+      - name: Comment the result
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          BRANCH: ${{ needs.update.outputs.branch }}
+          PR: ${{ needs.update.outputs.pr }}
+          SHA: ${{ needs.update.outputs.sha }}
           VERSION: ${{ needs.update.outputs.version }}
-          RESULT: ${{ job.status }}
+          RESULT: ${{ needs.test.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
-          [ "$BRANCH" = "update-pgard-$VERSION" ] || exit 2
+          [[ "$PR" =~ ^[0-9]+$ ]] || exit 2
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
           if [ "$RESULT" = success ]; then
-            message="macOS check for pgard $VERSION: audit, build from source and test PASSED. Run: $RUN_URL"
+            message="macOS check for pgard $VERSION at $SHA: audit, build from source and test PASSED. Run: $RUN_URL"
           else
-            message="macOS check for pgard $VERSION: $RESULT. Do not merge until this is fixed. Run: $RUN_URL"
+            message="macOS check for pgard $VERSION at $SHA: $RESULT. Do not merge until this is fixed. Run: $RUN_URL"
           fi
-          gh pr comment "$BRANCH" --body "$message"
+          gh pr comment "$PR" --body "$message"

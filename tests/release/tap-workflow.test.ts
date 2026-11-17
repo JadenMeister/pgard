@@ -2,12 +2,13 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
   compareVersions,
   decideUpdate,
   MIN_AGE_MS,
 } from "../../packaging/homebrew/tap-workflow/next-version.mjs";
+import { decideExisting } from "../../packaging/homebrew/tap-workflow/existing-pr.mjs";
 
 // The workflow source lives here and runs in the tap repository. No YAML parser is a dependency
 // of this repo, so the checks below read the file as text, line by line.
@@ -53,15 +54,23 @@ describe("tap workflow source", () => {
     );
   });
 
-  it("grants write access only to the job that pushes and opens the PR", () => {
+  it("grants write access only to the update job (push, PR) and the report job (comment)", () => {
     const writes = lines.filter((line) => /: write\b/.test(line));
     expect(writes.map((line) => line.trim().split(" ")[0])).toEqual([
       "contents:",
       "pull-requests:",
       "pull-requests:",
     ]);
-    const testJob = workflow.slice(workflow.indexOf("\n  test:"));
-    expect(testJob).not.toMatch(/contents: write/);
+    const testJob = workflow.slice(
+      workflow.indexOf("\n  test:"),
+      workflow.indexOf("\n  # Comments the macOS"),
+    );
+    expect(testJob).toMatch(/permissions:\n {6}contents: read\n/);
+    expect(testJob).not.toContain("write");
+    const reportJob = workflow.slice(workflow.indexOf("\n  report:"));
+    expect(reportJob).toMatch(/permissions:\n {6}pull-requests: write[^\n]*\n {4}steps:/);
+    expect(reportJob).toContain("needs: [update, test]");
+    expect(reportJob).toContain("needs.test.result");
   });
 
   it("pins every action to a 40-hex commit SHA with a version comment", () => {
@@ -121,7 +130,7 @@ describe("tap workflow source", () => {
     expect(workflow).toMatch(/needs: update/);
     expect(workflow).toMatch(/runs-on: macos-latest/);
     for (const command of [
-      "brew audit --strict --online",
+      "brew audit --strict",
       "brew install --build-from-source",
       "brew test",
     ]) {
@@ -136,8 +145,19 @@ describe("tap workflow source", () => {
     const index = lines.findIndex((line) => line.includes(token));
     expect(lines[index]?.trim()).toBe(`ref: ${token}`);
     expect(lines[index - 1]?.trim()).toBe("repository: JadenMeister/pgard");
-    // The only other `ref:` is the PR branch of the test job, never a mutable pgard ref.
-    expect(lines.filter((line) => /^\s*ref:/.test(line))).toHaveLength(2);
+    // The other `ref:`s are the tap's default branch and the pushed commit of the test job.
+    expect(lines.filter((line) => /^\s*ref:/.test(line)).map((line) => line.trim())).toEqual([
+      "ref: ${{ github.event.repository.default_branch }}",
+      `ref: ${token}`,
+      "ref: ${{ needs.update.outputs.sha }}",
+    ]);
+    expect(workflow).not.toContain("GITHUB_REF_NAME");
+  });
+
+  it("audits without --online and tests the pushed commit", () => {
+    expect(workflow).toContain("brew audit --strict jadenmeister/pgard/pgard");
+    expect(workflow).not.toContain("--online");
+    expect(workflow).toContain('echo "sha=$(git rev-parse HEAD)"');
   });
 
   it("calls next-version.mjs and update-formula.sh from the pinned checkout", () => {
@@ -152,7 +172,82 @@ const now = Date.parse("2026-11-17T12:00:00Z");
 const old = new Date(now - 2 * day).toISOString();
 const fresh = new Date(now - day / 2).toISOString();
 
+describe("formula version extraction (the sed from the workflow)", () => {
+  const match = /sed -nE '([^']+)' Formula\/pgard\.rb/.exec(workflow);
+  const tmp = mkdtempSync(path.join(tmpdir(), "formula-sed-"));
+  function versionOf(formula: string): string {
+    const file = path.join(tmp, "pgard.rb");
+    writeFileSync(file, formula);
+    return spawnSync("sed", ["-nE", match?.[1] ?? "", file], { encoding: "utf8" }).stdout.trim();
+  }
+  afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+
+  it("is found in the workflow", () => {
+    expect(match).not.toBeNull();
+  });
+
+  it("reads the version of the template formula", () => {
+    const template = readFileSync(path.join(dir, "../pgard.rb"), "utf8");
+    expect(versionOf(template)).toBe("0.1.0");
+  });
+
+  it("reads the version of a 0.2.0-style tap formula", () => {
+    const formula = [
+      "class Pgard < Formula",
+      '  homepage "https://github.com/JadenMeister/pgard"',
+      '  url "https://registry.npmjs.org/pgard/-/pgard-0.2.0.tgz"',
+      `  sha256 "${"ab".repeat(32)}"`,
+      '  license "MIT"',
+      "end",
+    ].join("\n");
+    expect(versionOf(formula)).toBe("0.2.0");
+  });
+
+  it("reads nothing from a url that is not the registry tarball", () => {
+    expect(versionOf('  url "https://example.com/pgard-0.9.0.tgz"\n')).toBe("");
+  });
+});
+
+describe("existing-pr decideExisting", () => {
+  it("proceeds when there is no branch and no PR", () => {
+    expect(decideExisting({ branchExists: false, prs: [] })).toEqual({ found: false });
+  });
+
+  it("skips for an open or merged PR", () => {
+    for (const state of ["OPEN", "MERGED"]) {
+      expect(decideExisting({ branchExists: true, prs: [{ state }] })).toEqual({ found: true });
+    }
+  });
+
+  it("fails closed for a branch without an open or merged PR", () => {
+    expect(() => decideExisting({ branchExists: true, prs: [] })).toThrow(/delete the branch/);
+    expect(() => decideExisting({ branchExists: true, prs: [{ state: "CLOSED" }] })).toThrow();
+  });
+
+  it("proceeds when only a closed PR is left and the branch is gone", () => {
+    expect(decideExisting({ branchExists: false, prs: [{ state: "CLOSED" }] })).toEqual({
+      found: false,
+    });
+  });
+
+  it("rejects a malformed PR list", () => {
+    expect(() => decideExisting({ branchExists: false, prs: null })).toThrow();
+  });
+});
+
 describe("next-version decideUpdate", () => {
+  it("honours an explicit version when npm latest is a pre-release", () => {
+    expect(
+      decideUpdate({
+        current: "0.2.0",
+        latest: "0.4.0-rc.1",
+        requested: "0.3.0",
+        time: { "0.3.0": old },
+        now,
+      }).version,
+    ).toBe("0.3.0");
+  });
+
   it("proposes a newer version that is old enough", () => {
     expect(
       decideUpdate({ current: "0.2.0", latest: "0.3.0", time: { "0.3.0": old }, now }),

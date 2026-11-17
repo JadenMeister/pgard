@@ -27,10 +27,10 @@ The tap repository opens the update PR for each new npm version by itself. The w
 
 How it works:
 
-1. A few times a day (and on demand) the workflow reads the formula's version and `npm view pgard dist-tags.latest`. It does nothing when `latest` is not newer, when the version is a pre-release, when the version was published less than 24 hours ago (Homebrew refuses it), or when a branch or PR (open, merged or closed) named `update-pgard-<version>` already exists. The decision is made by [`tap-workflow/next-version.mjs`](tap-workflow/next-version.mjs), which is unit-tested.
+1. A few times a day (and on demand) the workflow reads the formula's version from the default branch and `npm view pgard dist-tags.latest`. It does nothing when `latest` is not newer, when the version is a pre-release (an explicit `version` input is still honoured), when the version was published less than 24 hours ago (Homebrew refuses it), or when an open or merged PR for `update-pgard-<version>` already exists. If the branch exists but has no open or merged PR (the PR was never created, or it was closed), the run fails loudly and changes nothing: delete the branch to retry. The decisions are made by [`tap-workflow/next-version.mjs`](tap-workflow/next-version.mjs) and [`tap-workflow/existing-pr.mjs`](tap-workflow/existing-pr.mjs), which are unit-tested.
 2. It runs `update-formula.sh <version> Formula/pgard.rb` from a checkout of this repository at a pinned commit. `gh` is preinstalled on the runner, so `gh attestation verify` runs. If verification fails, the job fails and the formula is not changed, committed or pushed.
-3. It pushes the branch `update-pgard-<version>`, commits `pgard <version>` as `github-actions[bot]` and opens a PR whose body holds the verification output and a checklist.
-4. A second job on macOS taps the PR branch and runs `brew audit --strict --online`, `brew install --build-from-source` and `brew test`, then comments the result on the PR. A failing job is red but does not remove the PR.
+3. It commits `pgard <version>` as `github-actions[bot]` on the branch `update-pgard-<version>`, pushes it and opens a PR against the default branch whose body holds the verification output and a checklist.
+4. A second job on macOS (read-only token) checks out the exact commit that was pushed, taps it and runs `brew audit --strict`, `brew install --build-from-source` and `brew test`. A third job comments the result, with the commit SHA, on the PR. A failing job is red but does not remove the PR. `--online` is left out of the audit because it has not been run against this formula; run `brew audit --strict --online jadenmeister/pgard/pgard` by hand if you want it.
 5. **A person reviews and merges the PR.** That is the gate: check that the diff changes only `url` and `sha256`, that the output says `gh attestation verify` passed and that the macOS comment is green.
 
 The workflow uses only the built-in `GITHUB_TOKEN` (no new secrets), starts with `permissions: {}`, and every action and the scripts checkout are pinned to full commit SHAs.
@@ -44,7 +44,7 @@ The workflow uses only the built-in `GITHUB_TOKEN` (no new secrets), starts with
 
 ### Run it manually
 
-In the tap, Actions, `update-formula`, Run workflow. Leave `version` empty for npm's latest, or give `x.y.z` for a specific version. The same checks apply (newer than the formula, at least a day old, no existing branch or PR). A version whose PR was closed without merging counts as handled: reopen that PR, or update the formula by hand (below).
+In the tap, Actions, `update-formula`, Run workflow. Leave `version` empty for npm's latest, or give `x.y.z` for a specific version. The same checks apply (newer than the formula, at least a day old, no open or merged PR). To retry a version whose PR was closed or never created, delete the `update-pgard-<version>` branch and start the workflow again. A queued manual run can be replaced by a later scheduled run (the concurrency group keeps only one pending run); if that happens, simply start it again.
 
 ### When verification fails
 
