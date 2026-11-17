@@ -547,8 +547,10 @@ describe("pgard precommit install / uninstall", () => {
     const help = captured.stdout().replace(/\s+/g, " ");
     expect(help).not.toContain("never in the default code-only mode");
     expect(help).toContain("core.worktree");
-    expect(help).toContain("install and uninstall outside a Git repository");
-    expect(help).toContain("installs normally when there is no hook");
+    expect(help).toContain("install and uninstall also exit 3 outside a Git repository");
+    expect(help).toContain("works normally when there is no hook");
+    expect(help).toContain("authorization check timed out");
+    expect(help).toContain("also install/uninstall when they fail");
   });
 
   it("refuses to replace a hook PGARD did not write without a terminal", async () => {
