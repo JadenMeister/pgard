@@ -1,0 +1,243 @@
+# Source of the workflow that runs in the TAP repository (JadenMeister/homebrew-pgard), not here.
+# Copy it to .github/workflows/update-formula.yml in the tap and replace the one placeholder below
+# with a full commit SHA of JadenMeister/pgard (a merged commit that contains
+# packaging/homebrew/update-formula.sh, verify-provenance.mjs and the whole
+# packaging/homebrew/tap-workflow/ directory: next-version.mjs and existing-pr.mjs).
+# See packaging/homebrew/README.md.
+#
+# What it does: when npm's `latest` of pgard is newer than the formula, it runs the verifying
+# update script, pushes the branch update-pgard-<version> and opens a PR. Then a macOS job audits,
+# builds and tests the formula and comments the result on the PR. It never merges: a person does.
+name: update-formula
+
+on:
+  schedule:
+    - cron: "17 3,9,15,21 * * *"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to propose (x.y.z). Empty means npm's latest."
+        required: false
+        type: string
+
+# Nothing by default; each job asks for exactly what it needs.
+permissions: {}
+
+# Two runs (schedule and manual) must not race on the same branch.
+concurrency:
+  group: update-formula
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: open update PR
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the update-pgard-<version> branch
+      pull-requests: write # open the PR
+    outputs:
+      created: ${{ steps.pr.outputs.created }}
+      version: ${{ steps.next.outputs.version }}
+      sha: ${{ steps.pr.outputs.sha }}
+      pr: ${{ steps.pr.outputs.pr }}
+    steps:
+      # persist-credentials is off on purpose: the token must not sit in .git/config while the
+      # update script and npm run. The push step passes the token for that one command only.
+      # The default branch, not whatever ref started the run: the formula is read from it and the PR
+      # targets it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      # The scripts come from a pinned commit, never from a branch or tag, so a change in
+      # JadenMeister/pgard cannot alter what this workflow runs until the SHA is bumped by hand.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: JadenMeister/pgard
+          ref: PGARD_SCRIPTS_SHA_PLACEHOLDER
+          path: pgard-scripts
+          persist-credentials: false
+
+      - name: Decide which version to propose
+        id: next
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          semver='^[0-9]+\.[0-9]+\.[0-9]+$'
+          if [ -n "$INPUT_VERSION" ] && ! [[ "$INPUT_VERSION" =~ $semver ]]; then
+            echo "the version input is not x.y.z" >&2
+            exit 2
+          fi
+          current="$(sed -nE 's#^  url "https://registry\.npmjs\.org/pgard/-/pgard-([0-9]+\.[0-9]+\.[0-9]+)\.tgz".*#\1#p' Formula/pgard.rb)"
+          [[ "$current" =~ $semver ]] || { echo "cannot read the formula version" >&2; exit 2; }
+          latest="$(npm view --registry=https://registry.npmjs.org/ pgard dist-tags.latest)"
+          # A pre-release `latest` ends the run quietly, but never swallows an explicit version input.
+          if [ -z "$INPUT_VERSION" ] && ! [[ "$latest" =~ $semver ]]; then
+            echo "npm latest is not x.y.z (a pre-release is ignored): $latest" >&2
+            echo "version=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          npm view --registry=https://registry.npmjs.org/ pgard time --json > "$RUNNER_TEMP/time.json"
+          node pgard-scripts/packaging/homebrew/tap-workflow/next-version.mjs \
+            --current "$current" --latest "$latest" --requested "$INPUT_VERSION" \
+            --time-file "$RUNNER_TEMP/time.json" | tee "$RUNNER_TEMP/next.txt"
+          grep -E '^(version|reason)=' "$RUNNER_TEMP/next.txt" >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+
+      - name: Skip when an open or merged PR for this version exists
+        id: exists
+        if: steps.next.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
+          branch="update-pgard-$VERSION"
+          branch_exists=false
+          # --exit-code: 0 = the branch exists, 2 = it does not, anything else is an error (fail loudly).
+          rc=0
+          git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || rc=$?
+          case "$rc" in
+            0) branch_exists=true ;;
+            2) ;;
+            *) echo "git ls-remote failed with exit code $rc" >&2; exit 1 ;;
+          esac
+          gh pr list --state all --head "$branch" --json state > "$RUNNER_TEMP/prs.json"
+          # Fails the run (red, nothing pushed) when the branch exists without an open or merged PR;
+          # delete the branch to retry.
+          node pgard-scripts/packaging/homebrew/tap-workflow/existing-pr.mjs \
+            --branch-exists "$branch_exists" --prs-file "$RUNNER_TEMP/prs.json" | tee "$RUNNER_TEMP/exists.txt"
+          cat "$RUNNER_TEMP/exists.txt" >> "$GITHUB_OUTPUT"
+
+      # If verification fails here the script exits non-zero before it writes the formula, so
+      # this step fails the job and nothing is committed or pushed.
+      - name: Update and verify the formula
+        id: update
+        if: steps.next.outputs.version != '' && steps.exists.outputs.found == 'false'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
+          bash pgard-scripts/packaging/homebrew/update-formula.sh "$VERSION" Formula/pgard.rb 2>&1 | tee "$RUNNER_TEMP/update.log"
+          if git diff --quiet -- Formula/pgard.rb; then echo "the formula did not change" >&2; exit 1; fi
+
+      - name: Commit, push and open the PR
+        id: pr
+        if: steps.next.outputs.version != '' && steps.exists.outputs.found == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ steps.next.outputs.version }}
+          CURRENT: ${{ steps.next.outputs.current }}
+          BASE: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          semver='^[0-9]+\.[0-9]+\.[0-9]+$'
+          [[ "$VERSION" =~ $semver && "$CURRENT" =~ $semver ]] || exit 2
+          [[ "$BASE" =~ ^[A-Za-z0-9._/-]+$ ]] || exit 2
+          branch="update-pgard-$VERSION"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add Formula/pgard.rb
+          git commit -m "pgard $VERSION"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push origin "$branch"
+
+          summary="$(grep -E '^(registry integrity|gh attestation verify|release run sha256|verified by|url:|sha256:)' "$RUNNER_TEMP/update.log" || true)"
+          {
+            echo "Updates the pgard formula from $CURRENT to $VERSION (url and sha256 only)."
+            echo
+            echo "Opened by the update-formula workflow after \`update-formula.sh\` verified the tarball: the sha512 integrity, the provenance claims and the Sigstore signature (\`gh attestation verify\`). The formula is not changed when verification fails."
+            echo
+            echo "Verification output:"
+            echo
+            echo '```'
+            echo "$summary"
+            echo '```'
+            echo
+            echo "Checklist for the reviewer (this PR is never merged automatically):"
+            echo
+            echo "- [ ] The diff changes only \`url\` and \`sha256\`."
+            echo "- [ ] The verification output above says \`gh attestation verify\` ran and passed."
+            echo "- [ ] The macOS result comment names the commit of this PR and shows audit, install and test passed."
+            echo "- [ ] $VERSION is on npm with provenance and was published at least a day ago."
+          } > "$RUNNER_TEMP/pr-body.md"
+          url="$(gh pr create --base "$BASE" --head "$branch" --title "pgard $VERSION" --body-file "$RUNNER_TEMP/pr-body.md")"
+          number="${url##*/}"
+          [[ "$number" =~ ^[0-9]+$ ]] || { echo "unexpected gh pr create output: $url" >&2; exit 1; }
+          echo "created=true" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "pr=$number" >> "$GITHUB_OUTPUT"
+
+  test:
+    name: audit, build and test on macOS
+    needs: update
+    if: needs.update.outputs.created == 'true'
+    runs-on: macos-latest
+    timeout-minutes: 45
+    # This job runs the package's install code, so it can only read.
+    permissions:
+      contents: read
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_ANALYTICS: "1"
+    steps:
+      # The exact commit the update job pushed, not the branch name. The token is not kept.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.update.outputs.sha }}
+          persist-credentials: false
+
+      - name: Tap the checked-out repository
+        run: |
+          set -euo pipefail
+          brew tap jadenmeister/pgard "$GITHUB_WORKSPACE"
+          brew trust --formula jadenmeister/pgard/pgard
+
+      # No online audit: it has not been run against this formula. Run it by hand if wanted.
+      - name: brew audit
+        run: brew audit --strict jadenmeister/pgard/pgard
+
+      - name: brew install --build-from-source
+        run: brew install --build-from-source jadenmeister/pgard/pgard
+
+      - name: brew test
+        run: brew test jadenmeister/pgard/pgard
+
+  # Comments the macOS result on the PR. A separate job so the macOS job needs no write access.
+  report:
+    name: report on the PR
+    needs: [update, test]
+    if: always() && needs.update.outputs.created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write # comment on the PR
+    steps:
+      - name: Comment the result
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ needs.update.outputs.pr }}
+          SHA: ${{ needs.update.outputs.sha }}
+          VERSION: ${{ needs.update.outputs.version }}
+          RESULT: ${{ needs.test.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
+          [[ "$PR" =~ ^[0-9]+$ ]] || exit 2
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
+          if [ "$RESULT" = success ]; then
+            message="macOS check for pgard $VERSION at $SHA: audit, build from source and test PASSED. Run: $RUN_URL"
+          else
+            message="macOS check for pgard $VERSION at $SHA: $RESULT. Do not merge until this is fixed. Run: $RUN_URL"
+          fi
+          gh pr comment "$PR" --body "$message"

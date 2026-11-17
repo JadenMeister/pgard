@@ -72,7 +72,7 @@ The workflow is safe to merge before any of this exists (see "What happens when 
    The `publish-github` job then starts (see "GitHub Packages copy" below); it uses the same `npm-publish` environment, so it asks for a second `npm-publish` approval on every release. If that approval is never given, npm has the version but GitHub Packages does not: approve (or re-run the `publish-github` job from the Actions UI) to finish.
 9. **Post-publish checks** (below).
 10. **GitHub release.** Create the GitHub release for the tag by hand with the changelog section as its notes.
-11. **Homebrew.** Update the tap ([packaging/homebrew/README.md](../packaging/homebrew/README.md)).
+11. **Homebrew.** The tap's `update-formula` workflow opens a PR for the new version by itself, at the earliest a day after the publish (Homebrew refuses a younger version). Check the PR's verification output and the macOS result comment, then merge it; merging is the human gate. To run it right away, start the workflow by hand from the tap's Actions tab. Details and the manual fallback: [packaging/homebrew/README.md](../packaging/homebrew/README.md).
 
 ## GitHub Packages copy
 
