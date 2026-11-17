@@ -39,12 +39,14 @@ The workflow uses only the built-in `GITHUB_TOKEN` (no new secrets), starts with
 
 1. In the tap repository, Settings, Actions, General, Workflow permissions: tick **Allow GitHub Actions to create and approve pull requests** (the owner has turned this on).
 2. Merge the change that contains `tap-workflow/` into `main` of this repository and note the full 40-character commit SHA of a merged commit.
-3. Copy `packaging/homebrew/tap-workflow/update-formula.yml` to `.github/workflows/update-formula.yml` in the tap. Replace the single token `PGARD_SCRIPTS_SHA_PLACEHOLDER` with that SHA (`grep PGARD_SCRIPTS_SHA_PLACEHOLDER` finds it; the file in this repository must keep the placeholder). The workflow checks out `update-formula.sh`, `verify-provenance.mjs` and `next-version.mjs` at exactly that commit, so bump the SHA by hand when those scripts change.
+3. Copy `packaging/homebrew/tap-workflow/update-formula.yml` to `.github/workflows/update-formula.yml` in the tap. Replace the single token `PGARD_SCRIPTS_SHA_PLACEHOLDER` with that SHA (`grep PGARD_SCRIPTS_SHA_PLACEHOLDER` finds it; the file in this repository must keep the placeholder). The workflow checks out `update-formula.sh`, `verify-provenance.mjs` and `next-version.mjs` at exactly that commit, so bump the SHA by hand when those scripts change. The pinned commit must contain the whole `packaging/homebrew/tap-workflow/` directory (`next-version.mjs`, `existing-pr.mjs`) as well as `update-formula.sh` and `verify-provenance.mjs`; a commit from before this directory existed makes the workflow fail.
 4. Commit it to the tap's default branch. Scheduled workflows only run from the default branch.
 
 ### Run it manually
 
 In the tap, Actions, `update-formula`, Run workflow. Leave `version` empty for npm's latest, or give `x.y.z` for a specific version. The same checks apply (newer than the formula, at least a day old, no open or merged PR). To retry a version whose PR was closed or never created, delete the `update-pgard-<version>` branch and start the workflow again. A queued manual run can be replaced by a later scheduled run (the concurrency group keeps only one pending run); if that happens, simply start it again.
+
+To reject a version on purpose, closing its PR is not enough: the branch stays and every run goes red until the branch is deleted. To stop for good, disable the workflow in the tap or wait for a newer release. The branch name is the only key, so a fork PR from a branch with the same name `update-pgard-<version>` can also block that version; delete or rename it.
 
 ### When verification fails
 

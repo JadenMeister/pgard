@@ -1,7 +1,9 @@
 # Source of the workflow that runs in the TAP repository (JadenMeister/homebrew-pgard), not here.
 # Copy it to .github/workflows/update-formula.yml in the tap and replace the one placeholder below
 # with a full commit SHA of JadenMeister/pgard (a merged commit that contains
-# packaging/homebrew/update-formula.sh). See packaging/homebrew/README.md.
+# packaging/homebrew/update-formula.sh, verify-provenance.mjs and the whole
+# packaging/homebrew/tap-workflow/ directory: next-version.mjs and existing-pr.mjs).
+# See packaging/homebrew/README.md.
 #
 # What it does: when npm's `latest` of pgard is newer than the formula, it runs the verifying
 # update script, pushes the branch update-pgard-<version> and opens a PR. Then a macOS job audits,
@@ -97,7 +99,14 @@ jobs:
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 2
           branch="update-pgard-$VERSION"
           branch_exists=false
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then branch_exists=true; fi
+          # --exit-code: 0 = the branch exists, 2 = it does not, anything else is an error (fail loudly).
+          rc=0
+          git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || rc=$?
+          case "$rc" in
+            0) branch_exists=true ;;
+            2) ;;
+            *) echo "git ls-remote failed with exit code $rc" >&2; exit 1 ;;
+          esac
           gh pr list --state all --head "$branch" --json state > "$RUNNER_TEMP/prs.json"
           # Fails the run (red, nothing pushed) when the branch exists without an open or merged PR;
           # delete the branch to retry.

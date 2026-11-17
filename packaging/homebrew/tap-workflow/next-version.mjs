@@ -34,6 +34,12 @@ export function compareVersions(a, b) {
 export function decideUpdate({ current, latest, requested, time, now }) {
   if (!isPlain(current)) throw new Error(`the formula version is not x.y.z: ${String(current)}`);
   if (typeof now !== "number" || Number.isNaN(now)) throw new Error("now must be a number");
+  // Nothing outside this alphabet may reach `reason=`: a newline would inject an output line.
+  for (const value of [latest, requested]) {
+    if (value !== undefined && !/^[0-9A-Za-z.-]+$/.test(String(value))) {
+      throw new Error("a version contains characters outside [0-9A-Za-z.-]");
+    }
+  }
   const wanted = requested ? requested : latest;
   if (typeof wanted === "string" && wanted.includes("-")) {
     return { version: null, reason: `${wanted} is a pre-release; ignored` };

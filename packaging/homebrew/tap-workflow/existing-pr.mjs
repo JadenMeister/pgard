@@ -14,7 +14,12 @@ import { pathToFileURL } from "node:url";
  */
 export function decideExisting({ branchExists, prs }) {
   if (!Array.isArray(prs)) throw new Error("the PR list is not an array");
-  const states = prs.map((pr) => (pr && typeof pr === "object" ? pr.state : undefined));
+  for (const pr of prs) {
+    if (!pr || typeof pr !== "object" || typeof pr.state !== "string") {
+      throw new Error("the PR list has an entry without a string state");
+    }
+  }
+  const states = prs.map((pr) => pr.state);
   if (states.some((state) => state === "OPEN" || state === "MERGED")) return { found: true };
   if (branchExists) {
     throw new Error(

@@ -154,6 +154,13 @@ describe("tap workflow source", () => {
     expect(workflow).not.toContain("GITHUB_REF_NAME");
   });
 
+  it("checks the ls-remote exit code instead of failing open", () => {
+    expect(workflow).toContain(
+      'git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1 || rc=$?',
+    );
+    expect(workflow).toMatch(/2\) ;;\n\s+\*\) echo "git ls-remote failed[^\n]*exit 1 ;;/);
+  });
+
   it("audits without --online and tests the pushed commit", () => {
     expect(workflow).toContain("brew audit --strict jadenmeister/pgard/pgard");
     expect(workflow).not.toContain("--online");
@@ -230,12 +237,26 @@ describe("existing-pr decideExisting", () => {
     });
   });
 
+  it("rejects entries without a string state", () => {
+    for (const prs of [[null], [1], [{}], [{ state: 1 }], ["OPEN"]]) {
+      expect(() => decideExisting({ branchExists: false, prs })).toThrow(/string state/);
+    }
+  });
+
   it("rejects a malformed PR list", () => {
     expect(() => decideExisting({ branchExists: false, prs: null })).toThrow();
   });
 });
 
 describe("next-version decideUpdate", () => {
+  it("rejects input that could inject an output line", () => {
+    const evil = "1.0.0-x\nversion=9.9.9";
+    expect(() => decideUpdate({ current: "0.2.0", latest: evil, time: {}, now })).toThrow();
+    expect(() =>
+      decideUpdate({ current: "0.2.0", latest: "0.3.0", requested: evil, time: {}, now }),
+    ).toThrow(/characters/);
+  });
+
   it("honours an explicit version when npm latest is a pre-release", () => {
     expect(
       decideUpdate({
@@ -394,6 +415,6 @@ describe("next-version CLI", () => {
     );
     expect(result.status).toBe(2);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("not a version");
+    expect(result.stderr).toMatch(/version/);
   });
 });
