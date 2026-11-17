@@ -1,4 +1,12 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, truncateSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  truncateSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -38,10 +46,10 @@ describe("a big .html file is not skipped silently (#510)", () => {
     return root;
   }
 
-  async function scanHtml(source: string | Buffer) {
+  async function scanHtml(source: string | Buffer, options?: Parameters<typeof scanSourceCode>[1]) {
     const root = project();
     writeFileSync(path.join(root, "templates", "a.html"), source);
-    const output = await scanSourceCode(root);
+    const output = await scanSourceCode(root, options);
     return {
       entry: output.coverage.find((item) => item.area === "source:jvm-templates"),
       found: output.findings.filter((finding) => finding.location.path?.endsWith("a.html")),
@@ -59,56 +67,120 @@ describe("a big .html file is not skipped silently (#510)", () => {
   );
 
   it.each([MAX_FILE_BYTES + 1, 3 * MAX_FILE_BYTES])(
-    "reports a Thymeleaf template of %i bytes as not analyzed, with a count only",
+    "reports a template of %i bytes as not analyzed, with a count only",
     async (size) => {
       const { entry, found } = await scanHtml(htmlOfSize(THYMELEAF_HEAD, size));
       expect(found).toHaveLength(0);
       expect(entry?.status).toBe("partial");
-      expect(entry?.note).toContain("1 HTML file(s) over 1 MiB");
+      expect(entry?.note).toContain("1 HTML file(s) over 1 MiB were not analyzed");
       expect(entry?.note).not.toContain("a.html");
     },
   );
 
-  it("finds a Thymeleaf marker that comes after more than one chunk of padding", async () => {
-    const padding = "x".repeat(2 * MAX_FILE_BYTES + 5);
-    const { entry } = await scanHtml(
-      `<html><!--${padding}--><p th:utext="\${param.q}"></p></html>`,
-    );
+  it.each([
+    [
+      "spaces inside the attribute marker",
+      (pad: string) => `<html><p th:utext${pad}="\${param.q}"></p></html>`,
+    ],
+    [
+      "newlines inside the attribute marker",
+      (pad: string) => `<html><p th:utext${pad}="\${param.q}"></p></html>`,
+    ],
+    [
+      "spaces inside an inline marker",
+      (pad: string) => `<html><p>[(${pad}\${param.q})]</p></html>`,
+    ],
+  ])("does not let %s hide a big template", async (label, build) => {
+    const pad = (label.startsWith("newlines") ? "\n" : " ").repeat(2 * MAX_FILE_BYTES);
+    const { entry, found } = await scanHtml(build(pad));
+    expect(found).toHaveLength(0);
     expect(entry?.status).toBe("partial");
-    expect(entry?.note).toContain("1 HTML file(s) over 1 MiB");
+    expect(entry?.note).toContain("1 HTML file(s) over 1 MiB were not analyzed");
   });
 
-  it("finds a marker that straddles a chunk boundary", async () => {
-    // `xmlns:th` starts a few bytes before the 1 MiB boundary and ends after it.
-    const before = "<html><!--";
-    const text = `${before}${"x".repeat(MAX_FILE_BYTES - before.length - 8)}--> xmlns:th="x"></html>${"y".repeat(MAX_FILE_BYTES)}`;
-    const at = text.indexOf("xmlns:th");
-    expect(at).toBeLessThan(MAX_FILE_BYTES);
-    expect(at + 8).toBeGreaterThan(MAX_FILE_BYTES);
-    const { entry } = await scanHtml(text);
-    expect(entry?.note).toContain("1 HTML file(s) over 1 MiB");
-  });
-
-  it("does not count a big plain HTML page", async () => {
+  it("counts a big plain HTML page too", async () => {
     const { entry } = await scanHtml(`<html><body>${"<p>row</p>\n".repeat(200_000)}</body></html>`);
-    expect(entry?.note ?? "").not.toContain("over 1 MiB");
-    expect(entry?.status ?? "completed").toBe("completed");
-  });
-
-  it("does not count a big binary file with an .html name", async () => {
-    const { entry } = await scanHtml(Buffer.alloc(MAX_FILE_BYTES + 10, 0));
-    expect(entry?.note ?? "").not.toContain("over 1 MiB");
-  });
-
-  it("counts a file too large to test as not analyzed, not as clean", async () => {
-    const root = project();
-    const file = path.join(root, "templates", "huge.html");
-    writeFileSync(file, "");
-    truncateSync(file, 40 * 1024 * 1024); // sparse: no real disk use
-    const output = await scanSourceCode(root);
-    const entry = output.coverage.find((item) => item.area === "source:jvm-templates");
     expect(entry?.status).toBe("partial");
-    expect(entry?.note).toContain("1 HTML file(s) over 1 MiB");
+    expect(entry?.note).toContain("1 HTML file(s) over 1 MiB were not analyzed");
+  });
+
+  it("counts a big file with NUL bytes as not analyzed", async () => {
+    const { entry } = await scanHtml(Buffer.alloc(MAX_FILE_BYTES + 10, 0));
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain("1 HTML file(s) over 1 MiB were not analyzed");
+  });
+
+  it("does not count a big file that the user excluded", async () => {
+    const { entry } = await scanHtml(htmlOfSize(THYMELEAF_HEAD, 2 * MAX_FILE_BYTES), {
+      projectConfig: {
+        version: 1,
+        exclude: ["templates/**"],
+        testDirectories: [],
+        suppressions: [],
+      },
+    });
+    expect(entry?.note ?? "").not.toContain("over 1 MiB");
+  });
+
+  it("reads a small template that holds a NUL byte (Thymeleaf reads it as a character)", async () => {
+    const { entry, found } = await scanHtml(`<html>\u0000<p th:utext="\${param.q}"></p></html>`);
+    expect(found).toHaveLength(1);
+    expect(entry?.status).toBe("completed");
+  });
+
+  it("finds a template with a NUL byte padded to just below the limit", async () => {
+    const { found } = await scanHtml(htmlOfSize(`\u0000${THYMELEAF_HEAD}`, MAX_FILE_BYTES));
+    expect(found).toHaveLength(1);
+  });
+
+  it("matches the th: attribute name without case, as Thymeleaf does in HTML mode", async () => {
+    const { found } = await scanHtml('<html><p TH:UTEXT="${param.q}"></p></html>');
+    expect(found).toHaveLength(1);
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "counts an HTML file that cannot be read",
+    async () => {
+      const root = project();
+      const file = path.join(root, "templates", "a.html");
+      writeFileSync(file, THYMELEAF_HEAD);
+      chmodSync(file, 0o000);
+      const output = await scanSourceCode(root);
+      const entry = output.coverage.find((item) => item.area === "source:jvm-templates");
+      expect(entry?.status).toBe("partial");
+      expect(entry?.note).toContain("1 HTML file(s) could not be read");
+    },
+  );
+});
+
+describe("c:out runtime escapeXml and default (#511 review)", () => {
+  it("judges a value whose escapeXml is a runtime expression", () => {
+    const analysis = analyzeJsp('<c:out value="${param.q}" escapeXml="${false}"/>', "a.jsp");
+    expect(analysis.findings).toHaveLength(1);
+    expect(analysis.findings[0]).toMatchObject({ severity: "high" });
+  });
+
+  it("does not report escapeXml that is the constant true expression", () => {
+    const analysis = analyzeJsp('<c:out value="${param.q}" escapeXml="${true}"/>', "a.jsp");
+    expect(analysis.findings).toHaveLength(0);
+  });
+
+  it("judges the default attribute when escapeXml is false", () => {
+    const analysis = analyzeJsp(
+      '<c:out value="${null}" default="${param.q}" escapeXml="false"/>',
+      "a.jsp",
+    );
+    expect(analysis.findings).toHaveLength(1);
+  });
+
+  it("does not report a constant default or an escaped value", () => {
+    expect(
+      analyzeJsp('<c:out value="${null}" default="${\'none\'}" escapeXml="false"/>', "a.jsp")
+        .findings,
+    ).toHaveLength(0);
+    expect(
+      analyzeJsp('<c:out value="${param.q}" default="${param.r}"/>', "a.jsp").findings,
+    ).toHaveLength(0);
   });
 });
 

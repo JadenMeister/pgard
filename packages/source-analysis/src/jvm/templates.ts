@@ -573,13 +573,20 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
       if (tag.name.includes(":")) {
         if (lower === "c:out") {
           const off = tag.attributes.find((attr) => attr.name === "escapeXml");
-          if (off !== undefined && /^\s*false\s*$/i.test(off.value)) {
-            const value = tag.attributes.find((attr) => attr.name === "value");
-            if (value !== undefined) {
+          // `escapeXml="${...}"` is a runtime value: unless it is the constant true it may be false,
+          // so the output is judged as raw (#511 review).
+          const rawOutput =
+            off !== undefined &&
+            (/^\s*false\s*$/i.test(off.value) ||
+              (off.value.includes("${") && !/^\s*\$\{\s*true\s*\}\s*$/i.test(off.value)));
+          if (rawOutput) {
+            // `default` is printed when `value` is null, so it is judged like `value`.
+            for (const attr of tag.attributes) {
+              if (attr.name !== "value" && attr.name !== "default") continue;
               // Every expression of the value is judged (#511), not only the first.
               for (const { at, end } of expressionsIn(
-                value.valueAt,
-                value.valueAt + value.value.length,
+                attr.valueAt,
+                attr.valueAt + attr.value.length,
               )) {
                 if (end <= 0) continue;
                 const judged = elJudge(text.slice(at + 2, end - 1), vars);
@@ -646,7 +653,8 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
 // ------------------------------------------------------------------ Thymeleaf
 
 export function looksLikeThymeleaf(text: string): boolean {
-  return /\bxmlns:th\s*=|\b(?:data-)?th[:-][a-z]+\s*=|\[\(\s*[$#*@{]/.test(text);
+  // Case-insensitive: Thymeleaf matches attribute names without case in an HTML template.
+  return /\bxmlns:th\s*=|\b(?:data-)?th[:-][a-z]+\s*=|\[\(\s*[$#*@{]/i.test(text);
 }
 
 // The sanitize forms are `#xsanitizeY(` and `#x.sanitizeY(`. Splitting them, and stopping the first at
@@ -752,7 +760,7 @@ export function analyzeThymeleaf(
     );
   };
   for (const match of text.matchAll(
-    /\b(?:th:utext|data-th-utext)\s*=\s*(?:"([^"]*)"|'([^']*)')/g,
+    /\b(?:th:utext|data-th-utext)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi,
   )) {
     add(
       match.index,

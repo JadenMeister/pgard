@@ -16,14 +16,7 @@ import {
   type TrackJob,
   type TrackResult,
 } from "../tree-sitter/track-jobs.js";
-import {
-  MAX_FILE_BYTES,
-  readTextFile,
-  scanFileChunks,
-  type ChunkScan,
-  type TrackedFile,
-  type WalkResult,
-} from "../walk.js";
+import { MAX_FILE_BYTES, readTextFile, type TrackedFile, type WalkResult } from "../walk.js";
 import type { JvmAnalysis } from "./analyze-jvm.js";
 import {
   actuatorFinding,
@@ -420,9 +413,7 @@ export async function scanJvm(
     let templateUnreadable = 0;
     let templateTooLarge = 0;
     let templateTooLargeHtml = 0;
-    // The most bytes read in chunks to test big `.html` files in one scan; past it a big file is
-    // counted as too large without being read.
-    let chunkBudgetLeft = 128 * 1024 * 1024;
+    let templateHtmlUnreadable = 0;
     let templateUnread = 0;
     let templateNotJudgedFiles = 0;
     let templateNotJudged = 0;
@@ -455,25 +446,21 @@ export async function scanJvm(
           templateTooLarge += 1;
           continue;
         }
-        // A big `.html` file is tested in chunks: one that looks like Thymeleaf, or that is too
-        // big to test, is counted, never taken as safe (#510). Padding cannot hide a template.
-        let scan: ChunkScan = "too-big";
-        if (chunkBudgetLeft >= file.size) {
-          chunkBudgetLeft -= file.size;
-          scan = await scanFileChunks(file.absolutePath, looksLikeThymeleaf);
-        }
-        if (scan === "match" || scan === "too-big") {
-          if (options.isExcluded?.(file.relativePath) === true) {
-            excludedMapperPaths.push(file.relativePath);
-          } else {
-            templateTooLargeHtml += 1;
-          }
+        // Any `.html` file may be a Thymeleaf template and a marker can sit anywhere in it, behind
+        // any amount of padding, so a big one is counted as not analyzed, never taken as safe (#510).
+        if (options.isExcluded?.(file.relativePath) === true) {
+          excludedMapperPaths.push(file.relativePath);
+        } else {
+          templateTooLargeHtml += 1;
         }
         continue;
       }
-      const text = await readTextFile(file.absolutePath);
+      const text = await readTextFile(file.absolutePath, MAX_FILE_BYTES, !isJsp);
       if (text === null) {
         if (isJsp) templateUnreadable += 1;
+        else if (options.isExcluded?.(file.relativePath) === true) {
+          excludedMapperPaths.push(file.relativePath);
+        } else templateHtmlUnreadable += 1;
         continue;
       }
       // Decided here (a linear test, see linear-patterns.test.ts), so a template that is then
@@ -513,6 +500,7 @@ export async function scanJvm(
       templateUnreadable +
         templateTooLarge +
         templateTooLargeHtml +
+        templateHtmlUnreadable +
         templateStopped +
         templateNotReached >
         0
@@ -539,7 +527,12 @@ export async function scanJvm(
         problems.push(`${templateTooLarge} JSP file(s) over 1 MiB were not read`);
       if (templateTooLargeHtml > 0) {
         problems.push(
-          `${templateTooLargeHtml} HTML file(s) over 1 MiB look like Thymeleaf templates or are too large to check and were not analyzed`,
+          `${templateTooLargeHtml} HTML file(s) over 1 MiB were not analyzed (any HTML file may be a Thymeleaf template)`,
+        );
+      }
+      if (templateHtmlUnreadable > 0) {
+        problems.push(
+          `${templateHtmlUnreadable} HTML file(s) could not be read and were not analyzed`,
         );
       }
       if (templateUnread > 0) {
