@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
-import { analyzeJsp, analyzeThymeleaf, looksLikeThymeleaf } from "./jvm/templates.js";
+import {
+  analyzeJsp,
+  analyzeThymeleaf,
+  looksLikeThymeleaf,
+  THYMELEAF_ESCAPE,
+} from "./jvm/templates.js";
 import { withoutTrailingQuotes } from "./python/analyze-python.js";
 
 /**
@@ -129,6 +134,62 @@ describe("escaping-helper patterns (#371 review)", () => {
     [`th:${"a".repeat(SIZE)}`],
   ])("looksLikeThymeleaf is linear on a crafted input", (input) => {
     const { ms } = timed(() => looksLikeThymeleaf(input));
+    expect(ms).toBeLessThan(LIMIT_MS);
+  });
+});
+
+describe("Thymeleaf sanitize helper pattern (#494)", () => {
+  const page = (expression: string) => `<p th:utext="\${${expression}}">x</p>`;
+  const evidence = (expression: string) =>
+    analyzeThymeleaf(page(expression), "templates/a.html", new Map())
+      .findings.map((finding) => finding.evidence)
+      .join("\n");
+
+  it.each([
+    ["#strings.sanitize(x)", "escaped with #strings.sanitize();"],
+    ["#sanitizer.sanitize (x)", "escaped with #sanitizer.sanitize();"],
+    ["#sanitizeHtml(x)", "escaped with #sanitizeHtml();"],
+    ["#xsanitize(x)", "escaped with #xsanitize();"],
+  ])("still reads %s as an escaping helper", (expression, expected) => {
+    expect(evidence(expression)).toContain(expected);
+  });
+
+  it("does not treat a name that only mentions sanitize as a helper", () => {
+    expect(evidence("#strings.sanitize + q")).not.toContain("escaped with");
+    expect(evidence("sanitize(x)")).not.toContain("escaped with");
+  });
+
+  it("matches the same text as the former branch on every short string", () => {
+    // The shipped pattern against the same pattern with the former sanitize branch put back.
+    const shippedBranch = String.raw`#(?:(?!sanitize)\w)*sanitize\w*\s*\(|#\w*\.sanitize\w*\s*\(`;
+    expect(THYMELEAF_ESCAPE.source).toContain(shippedBranch);
+    const former = new RegExp(
+      THYMELEAF_ESCAPE.source.replace(shippedBranch, String.raw`#\w*\.?sanitize\w*\s*\(`),
+    );
+    const current = new RegExp(THYMELEAF_ESCAPE.source);
+    const alphabet = ["#", ".", "sanitize", "SANITIZE", "san", "x", "_", "1", " ", "\n", "\t", "("];
+    const seen: string[] = [];
+    const walk = (text: string, depth: number): void => {
+      seen.push(text);
+      if (depth > 0) for (const part of alphabet) walk(text + part, depth - 1);
+    };
+    walk("", 4);
+    let mismatches = 0;
+    for (const text of seen) {
+      const a = former.exec(text);
+      const b = current.exec(text);
+      if (a?.index !== b?.index || a?.[0] !== b?.[0]) mismatches += 1;
+    }
+    expect(seen.length).toBeGreaterThan(20_000);
+    expect(mismatches).toBe(0);
+  });
+
+  it.each([
+    ["a repeated sanitize word", `#${"sanitize".repeat(SIZE / 8)}`],
+    ["a repeated sanitize word after a dot", `#a.${"sanitize".repeat(SIZE / 8)}`],
+    ["a long space run before the parenthesis", `#sanitize${" ".repeat(SIZE)}`],
+  ])("is linear on %s", (_name, expression) => {
+    const { ms } = timed(() => analyzeThymeleaf(page(expression), "templates/a.html", new Map()));
     expect(ms).toBeLessThan(LIMIT_MS);
   });
 });

@@ -531,8 +531,10 @@ export function looksLikeThymeleaf(text: string): boolean {
   return /\bxmlns:th\s*=|\b(?:data-)?th[:-][a-z]+\s*=|\[\(\s*[$#*@{]/.test(text);
 }
 
-const THYMELEAF_ESCAPE =
-  /#strings\.(?:escapeXml|escapeJava|escapeJavaScript|escapeSql)\s*\(|(?<!\w)htmlEscape\w*\s*\(|(?<!\w)escapeHtml\d?\s*\(|(?<!\w)forHtml\w*\s*\(|#\w*\.?sanitize\w*\s*\(/;
+// The sanitize forms are `#xsanitizeY(` and `#x.sanitizeY(`. Splitting them, and stopping the first at
+// the first `sanitize` in the word, keeps a run like `#sanitizesanitize...` linear (#494).
+export const THYMELEAF_ESCAPE =
+  /#strings\.(?:escapeXml|escapeJava|escapeJavaScript|escapeSql)\s*\(|(?<!\w)htmlEscape\w*\s*\(|(?<!\w)escapeHtml\d?\s*\(|(?<!\w)forHtml\w*\s*\(|#(?:(?!sanitize)\w)*sanitize\w*\s*\(|#\w*\.sanitize\w*\s*\(/;
 const THYMELEAF_SOURCE =
   /\$\{\s*(?:#?(?:request|httpServletRequest)\s*\.\s*(?:getParameter|getHeader|queryString|getQueryString|requestURI|getRequestURI|getRequestURL|parameterMap|getCookies)|param\s*[.[]|#vars\.param|#request\.getParameter)|(?<![\w.])param\s*[.[]\s*['"\w]/;
 
