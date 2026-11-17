@@ -227,7 +227,7 @@ function* exhaustive(tokens: readonly string[], depth: number): Generator<string
   yield* walk("", depth);
 }
 
-describe("thymeleafJudge and elJudge keep the verdict of the former recursive code (#506)", () => {
+describe("thymeleafJudge and elJudge keep the verdict of the former recursive code (#506), except for one malformed shape", () => {
   it("agrees on every short token sequence (Thymeleaf)", () => {
     const tokens = [
       "htmlEscape(",
@@ -321,4 +321,17 @@ describe("thymeleafJudge and elJudge keep the verdict of the former recursive co
       expect(mismatches).toEqual([]);
     },
   );
+
+  it("judges a malformed expression with more than 20 escape calls on the fully stripped body", () => {
+    // The former code stripped 20 calls, then ran the `#{...}` literal test on the partly stripped
+    // body. Here that body still holds the unclosed last call, which swallows the closing `}`, so
+    // the old code called it a literal and reported only "escaped; inferred". The new code strips
+    // all 21 calls first (the unclosed one eats the `}`), so it sees the request input. It is only
+    // ever stricter than before.
+    const body = `#{${"htmlEscape(${a})".repeat(20)} param.q htmlEscape(a}`;
+    expect(thymeleafJudgeOld(body, MODEL, VIEW).cls).toBe("escaped");
+    const next = thymeleafJudge(body, MODEL, VIEW);
+    expect(next.cls).toBe("tainted");
+    expect(next.direct).toBe(true);
+  });
 });
