@@ -29,6 +29,7 @@ export interface TemplateAnalysis {
 }
 
 type Class = "tainted" | "escaped" | "unknown" | "fixed";
+const CLASS_RANK: Record<Class, number> = { tainted: 3, unknown: 2, escaped: 1, fixed: 0 };
 interface Judgement {
   cls: Class;
   /** Request input is read in the expression itself, not through a variable or model attribute. */
@@ -540,6 +541,22 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
         handleEl(at, end, "jsp-el", what);
       }
     };
+    // The `${...}` expressions that start in `from..to`, each with its end (`elEnd`); the end may
+    // lie past `to` (a single-quoted value that holds `'` inside its expression).
+    const expressionsIn = (from: number, to: number): Array<{ at: number; end: number }> => {
+      const found: Array<{ at: number; end: number }> = [];
+      let at = nextOpen(from);
+      while (at !== -1 && at < to) {
+        if (text[at - 1] === "\\") {
+          at = nextOpen(at + 2);
+          continue;
+        }
+        const end = elEnd(text, at, budget);
+        found.push({ at, end });
+        at = nextOpen(end > 0 ? Math.max(end, at + 2) : at + 2);
+      }
+      return found;
+    };
     let pos = 0;
     while (pos < text.length) {
       const lt = text.indexOf("<", pos);
@@ -559,13 +576,16 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
           if (off !== undefined && /^\s*false\s*$/i.test(off.value)) {
             const value = tag.attributes.find((attr) => attr.name === "value");
             if (value !== undefined) {
-              const at = value.value.indexOf("${");
-              const end = at === -1 ? -1 : elEnd(value.value, at, budget);
-              if (at !== -1 && end > 0) {
-                const judged = elJudge(value.value.slice(at + 2, end - 1), vars);
+              // Every expression of the value is judged (#511), not only the first.
+              for (const { at, end } of expressionsIn(
+                value.valueAt,
+                value.valueAt + value.value.length,
+              )) {
+                if (end <= 0) continue;
+                const judged = elJudge(text.slice(at + 2, end - 1), vars);
                 const found = make(
                   path,
-                  lineAt(value.valueAt),
+                  lineAt(at),
                   judged,
                   "jsp-c-out",
                   'c:out escapeXml="false" -> HTML output',
@@ -576,29 +596,41 @@ export function analyzeJsp(source: string, path: string): TemplateAnalysis {
           }
         } else if (lower === "c:set") {
           const name = tag.attributes.find((attr) => attr.name === "var")?.value;
-          const value = tag.attributes.find((attr) => attr.name === "value")?.value;
+          const value = tag.attributes.find((attr) => attr.name === "value");
           if (name !== undefined && value !== undefined) {
-            const at = value.indexOf("${");
-            const end = at === -1 ? -1 : elEnd(value, at, budget);
-            // An expression that was not judged is not known to be fixed.
-            const cls =
-              end === EL_NOT_JUDGED
-                ? "unknown"
-                : at === -1 || end === -1
-                  ? "fixed"
-                  : elJudge(value.slice(at + 2, end - 1), vars).cls;
+            // The worst of all its expressions; one that was not judged is not known to be fixed.
+            let cls: Class = "fixed";
+            for (const { at, end } of expressionsIn(
+              value.valueAt,
+              value.valueAt + value.value.length,
+            )) {
+              if (end === -1) continue;
+              const one: Class =
+                end === EL_NOT_JUDGED ? "unknown" : elJudge(text.slice(at + 2, end - 1), vars).cls;
+              if (CLASS_RANK[one] > CLASS_RANK[cls]) cls = one;
+            }
             vars.set(name, cls);
           }
         }
         continue;
       }
+      // The whole tag is template text to the container: EL between the attributes (`<div
+      // ${param.q}>`) is evaluated like EL in a value (#511).
+      let covered = lt;
       for (const attr of tag.attributes) {
+        scanEl(
+          covered,
+          attr.valueAt,
+          "EL ${...} in a tag outside an attribute value -> HTML output",
+        );
         scanEl(
           attr.valueAt,
           attr.valueAt + attr.value.length,
           `EL \${...} in the ${attr.name} attribute -> HTML output`,
         );
+        covered = Math.max(covered, attr.valueAt + attr.value.length);
       }
+      scanEl(covered, tag.end, "EL ${...} in a tag outside an attribute value -> HTML output");
       if (lower === "script" || lower === "style") {
         const close = text.toLowerCase().indexOf(`</${lower}`, pos);
         const to = close === -1 ? text.length : close;

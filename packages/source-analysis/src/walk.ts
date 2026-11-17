@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { Dirent } from "node:fs";
-import { lstat, readdir } from "node:fs/promises";
+import { constants, type Dirent } from "node:fs";
+import { lstat, open, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
   isGitDirectoryName,
@@ -558,4 +558,50 @@ export async function readTextFile(
   const read = await readSmallRegularFileBytes(absolutePath, maxBytes);
   if (read.state !== "ok" || read.bytes.includes(0)) return null;
   return read.bytes.toString("utf8");
+}
+
+/** What `scanFileChunks` found in a file that is too large to be read whole. */
+export type ChunkScan = "match" | "no-match" | "unreadable" | "too-big";
+
+const CHUNK_BYTES = 1024 * 1024;
+const CHUNK_OVERLAP_BYTES = 64 * 1024;
+/** The most one file is read through in chunks; a larger one is "too-big", never "no-match". */
+export const CHUNK_SCAN_FILE_LIMIT = 32 * 1024 * 1024;
+
+/**
+ * Tests a file too large for `readTextFile` in chunks of 1 MiB (64 KiB overlap, so a marker on a
+ * boundary is not cut), never holding more than one chunk, with the same no-follow and
+ * non-blocking open as `readTextFile`. A file with NUL bytes is binary (`no-match`). A file past
+ * `CHUNK_SCAN_FILE_LIMIT` is `too-big`: the caller must report it, not take it as clean (#510).
+ */
+export async function scanFileChunks(
+  absolutePath: string,
+  test: (chunk: string) => boolean,
+): Promise<ChunkScan> {
+  let handle;
+  try {
+    handle = await open(
+      absolutePath,
+      constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0),
+    );
+    const stats = await handle.stat();
+    if (!stats.isFile()) return "unreadable";
+    if (stats.size > CHUNK_SCAN_FILE_LIMIT) return "too-big";
+    const buffer = Buffer.alloc(CHUNK_BYTES);
+    let position = 0;
+    while (position < stats.size) {
+      const { bytesRead } = await handle.read(buffer, 0, CHUNK_BYTES, position);
+      if (bytesRead === 0) break;
+      const bytes = buffer.subarray(0, bytesRead);
+      if (bytes.includes(0)) return "no-match";
+      if (test(bytes.toString("utf8"))) return "match";
+      if (position + bytesRead >= stats.size) break;
+      position += bytesRead - CHUNK_OVERLAP_BYTES;
+    }
+    return "no-match";
+  } catch {
+    return "unreadable";
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
 }
