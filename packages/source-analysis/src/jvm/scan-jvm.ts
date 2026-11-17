@@ -16,7 +16,7 @@ import {
   type TrackJob,
   type TrackResult,
 } from "../tree-sitter/track-jobs.js";
-import { readTextFile, type TrackedFile, type WalkResult } from "../walk.js";
+import { MAX_FILE_BYTES, readTextFile, type TrackedFile, type WalkResult } from "../walk.js";
 import type { JvmAnalysis } from "./analyze-jvm.js";
 import {
   actuatorFinding,
@@ -412,6 +412,8 @@ export async function scanJvm(
     let templateCapped = 0;
     let templateUnreadable = 0;
     let templateTooLarge = 0;
+    let templateTooLargeHtml = 0;
+    let templateHtmlUnreadable = 0;
     let templateUnread = 0;
     let templateNotJudgedFiles = 0;
     let templateNotJudged = 0;
@@ -439,13 +441,26 @@ export async function scanJvm(
         continue;
       }
       // Any `.html` file may be a Thymeleaf template; big ones are generated pages and are not read.
-      if (file.size > 1024 * 1024) {
-        if (isJsp) templateTooLarge += 1;
+      if (file.size > MAX_FILE_BYTES) {
+        if (isJsp) {
+          templateTooLarge += 1;
+          continue;
+        }
+        // Any `.html` file may be a Thymeleaf template and a marker can sit anywhere in it, behind
+        // any amount of padding, so a big one is counted as not analyzed, never taken as safe (#510).
+        if (options.isExcluded?.(file.relativePath) === true) {
+          excludedMapperPaths.push(file.relativePath);
+        } else {
+          templateTooLargeHtml += 1;
+        }
         continue;
       }
-      const text = await readTextFile(file.absolutePath);
+      const text = await readTextFile(file.absolutePath, MAX_FILE_BYTES, !isJsp);
       if (text === null) {
         if (isJsp) templateUnreadable += 1;
+        else if (options.isExcluded?.(file.relativePath) === true) {
+          excludedMapperPaths.push(file.relativePath);
+        } else templateHtmlUnreadable += 1;
         continue;
       }
       // Decided here (a linear test, see linear-patterns.test.ts), so a template that is then
@@ -482,7 +497,13 @@ export async function scanJvm(
     findings.push(...templateFindings);
     if (
       templatesRead > 0 ||
-      templateUnreadable + templateTooLarge + templateStopped + templateNotReached > 0
+      templateUnreadable +
+        templateTooLarge +
+        templateTooLargeHtml +
+        templateHtmlUnreadable +
+        templateStopped +
+        templateNotReached >
+        0
     ) {
       const problems: string[] = [];
       if (templateCapped > 0) {
@@ -504,6 +525,16 @@ export async function scanJvm(
         problems.push(`${templateUnreadable} JSP file(s) were binary or unreadable`);
       if (templateTooLarge > 0)
         problems.push(`${templateTooLarge} JSP file(s) over 1 MiB were not read`);
+      if (templateTooLargeHtml > 0) {
+        problems.push(
+          `${templateTooLargeHtml} HTML file(s) over 1 MiB were not analyzed (any HTML file may be a Thymeleaf template)`,
+        );
+      }
+      if (templateHtmlUnreadable > 0) {
+        problems.push(
+          `${templateHtmlUnreadable} HTML file(s) could not be read and were not analyzed`,
+        );
+      }
       if (templateUnread > 0) {
         problems.push(
           `${templateUnread} JSP file(s) use <jsp:scriptlet>, <jsp:expression> or <jsp:declaration>, which are not read`,

@@ -554,8 +554,11 @@ function finishTrack(result: WalkResult): void {
 export async function readTextFile(
   absolutePath: string,
   maxBytes = MAX_FILE_BYTES,
+  allowNul = false,
 ): Promise<string | null> {
   const read = await readSmallRegularFileBytes(absolutePath, maxBytes);
-  if (read.state !== "ok" || read.bytes.includes(0)) return null;
+  // `allowNul`: a Thymeleaf template reads a NUL byte as an ordinary character, so a `.html` file
+  // is not dropped for holding one (#510 review).
+  if (read.state !== "ok" || (!allowNul && read.bytes.includes(0))) return null;
   return read.bytes.toString("utf8");
 }
