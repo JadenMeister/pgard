@@ -3,6 +3,7 @@ import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
 import {
   analyzeJsp,
   analyzeThymeleaf,
+  elJudge,
   looksLikeThymeleaf,
   THYMELEAF_ESCAPE,
 } from "./jvm/templates.js";
@@ -192,4 +193,63 @@ describe("Thymeleaf sanitize helper pattern (#494)", () => {
     const { ms } = timed(() => analyzeThymeleaf(page(expression), "templates/a.html", new Map()));
     expect(ms).toBeLessThan(LIMIT_MS);
   });
+});
+
+describe("escape-call stripping is linear in the number of calls (#506)", () => {
+  // MAX_FILE_BYTES is 1 MiB; this is a template of about that size. The former code copied the body
+  // once per 20 calls and ran out of memory (or stack) here, which made the file `partial`.
+  const MAX_BODY = 1_048_000;
+  const page = (expression: string) => `<p th:utext="\${${expression}}">x</p>`;
+  const found = (expression: string) =>
+    analyzeThymeleaf(page(expression), "templates/a.html", new Map()).findings;
+
+  it.each([["htmlEscape(x)+"], ["#sanitize(x)+"], ["#strings.escapeXml(x)+"], ["forHtml(x) + "]])(
+    "reports param.q after about 1 MiB of %s",
+    (unit) => {
+      const expression = `${unit.repeat(Math.floor(MAX_BODY / unit.length))}param.q`;
+      const { value, ms } = timed(() => found(expression));
+      expect(ms).toBeLessThan(LIMIT_MS);
+      expect(value).toHaveLength(1);
+      expect(value[0]?.evidence).toContain("param / request");
+    },
+  );
+
+  it("reports param.q after about 1 MiB of nested calls", () => {
+    const depth = Math.floor(MAX_BODY / 12);
+    const expression = `${"htmlEscape(".repeat(depth)}x${")".repeat(depth)}+param.q`;
+    const { value, ms } = timed(() => found(expression));
+    expect(ms).toBeLessThan(LIMIT_MS);
+    expect(value).toHaveLength(1);
+  });
+
+  it("reports param.q after about 1 MiB of unclosed calls", () => {
+    // The first call never closes, so it takes the rest of the body: the request input is inside it
+    // and the expression is still judged, never skipped.
+    const expression = `param.q+${"htmlEscape(x+".repeat(Math.floor(MAX_BODY / 13))}`;
+    const { value, ms } = timed(() => found(expression));
+    expect(ms).toBeLessThan(LIMIT_MS);
+    expect(value).toHaveLength(1);
+  });
+
+  it("still calls a fully escaped body escaped, and a body with request input outside tainted", () => {
+    const call = "htmlEscape(x)+";
+    const escaped = found(`${call.repeat(50_000)}'a'`);
+    expect(escaped.map((finding) => finding.evidence).join("\n")).toContain(
+      "escaped with htmlEscape()",
+    );
+    expect(found(`${call.repeat(50_000)}param.q`)[0]?.evidence).toContain("param / request");
+  });
+
+  it.each([["fn:escapeXml(x)+"], ["fn : escapeXml(x) + "]])(
+    "judges about 1 MiB of %s by the request input left outside the calls",
+    (unit) => {
+      const body = unit.repeat(Math.floor(MAX_BODY / unit.length));
+      const tainted = timed(() => elJudge(`${body}param.q`, new Map()));
+      expect(tainted.ms).toBeLessThan(LIMIT_MS);
+      expect(tainted.value.cls).toBe("tainted");
+      const rest = timed(() => elJudge(`${body}'a'`, new Map()));
+      expect(rest.ms).toBeLessThan(LIMIT_MS);
+      expect(rest.value.cls).not.toBe("tainted");
+    },
+  );
 });

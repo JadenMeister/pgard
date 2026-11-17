@@ -225,30 +225,48 @@ function elEnd(text: string, at: number): number {
   return -1;
 }
 
-/** Replaces every call that `names` matches (with its balanced arguments) by a literal. */
-function stripCalls(body: string, names: RegExp): { rest: string; removed: boolean } {
-  let rest = body;
-  let removed = false;
-  for (let hops = 0; hops < 20; hops += 1) {
-    const match = new RegExp(names.source).exec(rest);
+/**
+ * Replaces every call that `names` matches (with its balanced arguments) by a literal, in one
+ * left-to-right pass over the body and with one join at the end, so the cost is linear in the body
+ * length however many calls it holds (#506). A call whose parenthesis never closes takes the rest
+ * of the body with it. No match can start inside a replaced span or straddle it, because the
+ * replacement is a quoted literal and no escape pattern contains a quote.
+ */
+function stripCalls(body: string, names: RegExp): string {
+  const scan = new RegExp(names.source, "g");
+  const parts: string[] = [];
+  let from = 0;
+  for (;;) {
+    scan.lastIndex = from;
+    const match = scan.exec(body);
     if (match === null) break;
-    const open = match.index + match[0].length - 1;
-    const close = closingParen(rest, open);
-    rest = `${rest.slice(0, match.index)}'x'${close === -1 ? "" : rest.slice(close + 1)}`;
-    removed = true;
+    const close = closingParen(body, match.index + match[0].length - 1);
+    parts.push(body.slice(from, match.index), "'x'");
+    if (close === -1) return parts.join("");
+    from = close + 1;
   }
-  return { rest, removed };
+  parts.push(body.slice(from));
+  return parts.join("");
 }
 
 const EL_ESCAPE = /(?<!\w)fn\s*:\s*escapeXml\s*\(/;
 
-function elJudge(body: string, vars: ReadonlyMap<string, Class>): Judgement {
-  if (EL_ESCAPE.test(body)) {
-    // Only the escaped part is safe: what stays in the expression is judged on its own.
-    const { rest } = stripCalls(body, EL_ESCAPE);
-    const inner = elJudge(rest, vars);
-    return inner.cls === "fixed" ? { cls: "fixed", direct: false, detail: "" } : inner;
+/** Exported for the differential test (#506). */
+export function elJudge(input: string, vars: ReadonlyMap<string, Class>): Judgement {
+  let body = input;
+  let escaped = false;
+  // Every pass removes the calls it finds and leaves a shorter body, so this ends.
+  while (EL_ESCAPE.test(body)) {
+    escaped = true;
+    body = stripCalls(body, EL_ESCAPE);
   }
+  // Only the escaped part is safe: what stays in the expression is judged on its own.
+  const judged = elLeaf(body, vars);
+  return escaped && judged.cls === "fixed" ? { cls: "fixed", direct: false, detail: "" } : judged;
+}
+
+/** The judgement of a body with no escape call left; exported for the differential test (#506). */
+export function elLeaf(body: string, vars: ReadonlyMap<string, Class>): Judgement {
   if (EL_SOURCE.test(body)) {
     const source =
       /(param|paramValues|header|headerValues|cookie)\s*(?:\.|\[)/.exec(body)?.[1] ?? "request";
@@ -548,26 +566,43 @@ function viewOf(path: string): string {
 const normalizeView = (view: string): string =>
   (view.split("::")[0] ?? view).trim().replace(/^\//, "");
 
-function thymeleafJudge(
+/** Exported for the differential test (#506). */
+export function thymeleafJudge(
   expression: string,
   model: ReadonlyMap<string, ModelSource[]>,
   view: string,
 ): Judgement {
-  const body = expression.trim();
-  if (/^#\{[^${}]*\}$/.test(body) || /^'[^']*'$/.test(body) || /^\|[^|$#]*\|$/.test(body)) {
-    return { cls: "fixed", direct: false, detail: "" };
+  let body = expression.trim();
+  let name: string | null = null;
+  // Each pass removes every escape call it finds and leaves a shorter body, so this ends.
+  for (;;) {
+    if (/^#\{[^${}]*\}$/.test(body) || /^'[^']*'$/.test(body) || /^\|[^|$#]*\|$/.test(body)) {
+      return name === null ? { cls: "fixed", direct: false, detail: "" } : escapedWith(name);
+    }
+    const at = body.search(THYMELEAF_ESCAPE);
+    if (at === -1) break;
+    // The lookbehind keeps a start from restarting inside a word (`a.a.a...`): linear.
+    name ??= /(?<![#\w.])([#\w.]+)\s*\(/.exec(body.slice(at))?.[1] ?? "an escaping helper";
+    body = stripCalls(body, THYMELEAF_ESCAPE).trim();
   }
-  const globalEscape = new RegExp(THYMELEAF_ESCAPE.source);
-  if (globalEscape.test(body)) {
-    const name =
-      // The lookbehind keeps a start from restarting inside a word (`a.a.a...`): linear.
-      /(?<![#\w.])([#\w.]+)\s*\(/.exec(body.slice(body.search(THYMELEAF_ESCAPE)))?.[1] ??
-      "an escaping helper";
-    // The escaped part is inferred safe; request input left outside the helper is still reported.
-    const inner = thymeleafJudge(stripCalls(body, THYMELEAF_ESCAPE).rest, model, view);
-    if (inner.cls === "tainted") return inner;
-    return { cls: "escaped", direct: false, detail: `escaped with ${name}()` };
-  }
+  // The escaped part is inferred safe; request input left outside the helper is still reported.
+  const inner = thymeleafLeaf(body, model, view);
+  if (name === null || inner.cls === "tainted") return inner;
+  return escapedWith(name);
+}
+
+const escapedWith = (name: string): Judgement => ({
+  cls: "escaped",
+  direct: false,
+  detail: `escaped with ${name}()`,
+});
+
+/** As `elLeaf`, for Thymeleaf. */
+export function thymeleafLeaf(
+  body: string,
+  model: ReadonlyMap<string, ModelSource[]>,
+  view: string,
+): Judgement {
   if (THYMELEAF_SOURCE.test(body)) {
     return { cls: "tainted", direct: true, detail: "param / request in the expression" };
   }
