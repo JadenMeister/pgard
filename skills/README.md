@@ -1,4 +1,4 @@
-# Claude Code skills for pgard
+# Claude Code and Codex skills for pgard
 
 Three skills that teach an assistant to use the installed `pgard` CLI safely:
 
@@ -10,7 +10,21 @@ They were checked against pgard 0.3.0 and the commands in the repository `README
 
 ## Install
 
-Copy the skill folders from a checkout of this repository (the npm package does not contain them):
+As a plugin, in Claude Code:
+
+```
+/plugin marketplace add JadenMeister/pgard
+/plugin install pgard@pgard
+```
+
+or in Codex:
+
+```sh
+codex plugin marketplace add JadenMeister/pgard
+codex plugin add pgard@pgard
+```
+
+Or, for Claude Code only, copy the skill folders from a checkout of this repository (the npm package does not contain them; for Codex use the plugin above):
 
 ```sh
 # for one project
@@ -20,4 +34,4 @@ mkdir -p .claude/skills && cp -R skills/pgard-* .claude/skills/
 mkdir -p ~/.claude/skills && cp -R skills/pgard-* ~/.claude/skills/
 ```
 
-You also need `pgard` itself: `npm install -g pgard`, then `pgard doctor`.
+You also need `pgard` itself: `npm install -g pgard`, then `pgard doctor`. The plugin only adds instructions for an assistant; it does not install or run the scanner.
