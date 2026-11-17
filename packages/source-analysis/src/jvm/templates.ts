@@ -227,7 +227,9 @@ interface ElBudget {
 }
 
 // Enough for a few dozen scans that run to the end of a 1 MiB file (an opener that never closes
-// does), about 100 ms of work; a file that needs more is reported, not skipped.
+// does), at most about 150 ms of scanning (measured worst case 143 ms: 36 nested openers, 1 MiB
+// of text, 36 closers). Judging the bodies that were found is outside the budget. A file that
+// needs more is reported, not skipped.
 const EL_BUDGET_FLOOR = 32 * 1024 * 1024;
 
 const elBudgetFor = (text: string): ElBudget => ({

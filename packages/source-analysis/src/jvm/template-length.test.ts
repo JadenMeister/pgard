@@ -161,6 +161,16 @@ describe("long unquoted values, attribute names and tags (#508 review)", () => {
     },
   );
 
+  it("reads a 200-character run glued to escapeXml as one attribute name", () => {
+    // Intended: the attribute is named "nnn...escapeXml", not escapeXml, so escaping is not off.
+    // The old 200-character name limit split it and exposed a false escapeXml="false".
+    const analysis = analyzeJsp(
+      `<c:out value="\${param.q}" ${"n".repeat(200)}escapeXml="false"/>`,
+      "a.jsp",
+    );
+    expect(analysis.findings).toHaveLength(0);
+  });
+
   it("still reports c:out when 20000 spaces come between the value and escapeXml", () => {
     const analysis = analyzeJsp(
       `<c:out value="\${param.q}"${" ".repeat(20_000)} escapeXml="false"/>`,
