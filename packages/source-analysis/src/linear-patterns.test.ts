@@ -568,3 +568,69 @@ describe("view and mapping patterns (#338)", () => {
     expect(modelAttributeName(annotation, "String")).toBe("string");
   });
 });
+
+describe("model-to-view links stay linear (#338 review)", () => {
+  const HEAD =
+    "import org.springframework.stereotype.Controller;\nimport org.springframework.web.bind.annotation.*;\nimport org.springframework.web.servlet.mvc.support.RedirectAttributes;\n@Controller\nclass C {\n";
+  const parse = async (source: string) => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(outcome.status);
+      try {
+        return timed(() => analyzeJvmTree(outcome.tree.rootNode, source, "C.java", "java"));
+      } finally {
+        outcome.dispose();
+      }
+    } finally {
+      runtime.dispose();
+    }
+  };
+  const controller = (handlers: number, models: number): string => {
+    let source = HEAD;
+    for (let i = 0; i < handlers; i += 1) {
+      source += `@GetMapping("/h${i}") String h${i}() { return "v${i}"; }\n`;
+    }
+    for (let i = 0; i < models; i += 1) {
+      source += `@ModelAttribute("b") String b${i}(@RequestParam String b) { return b; }\n`;
+    }
+    return `${source}}\n`;
+  };
+
+  it("many @ModelAttribute methods of one name are one source, not one per method", async () => {
+    const few = await parse(controller(400, 20));
+    const many = await parse(controller(400, 2000));
+    expect(few.value.modelAttributes).toHaveLength(1);
+    expect(many.value.modelAttributes).toHaveLength(1);
+    // 100x more methods must be far from 100x the time (with a floor for slow runners).
+    expect(many.ms).toBeLessThan(Math.max(LIMIT_MS, few.ms * 40));
+  });
+
+  it("many flash attributes that lead to the same views are few sources", async () => {
+    let source = HEAD;
+    for (let i = 0; i < 300; i += 1) {
+      source += `@GetMapping("/x/{a}/t${i % 3}") String g${i}() { return "v${i}"; }\n`;
+    }
+    for (let i = 0; i < 2000; i += 1) {
+      source += `@PostMapping("/p${i}") String p${i}(@RequestParam String q, RedirectAttributes ra) { ra.addFlashAttribute("f", q); return "redirect:/x/1/t${i % 3}"; }\n`;
+    }
+    const { value, ms } = await parse(`${source}}\n`);
+    expect(value.modelAttributes.length).toBeLessThanOrEqual(3);
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+  });
+
+  it("a template that reads one attribute many times scans the sources once", () => {
+    const views = Array.from({ length: 100 }, (_, i) => `v${i}`);
+    const sources = Array.from({ length: 3000 }, (_, i) => ({
+      path: "C.java",
+      line: i,
+      views,
+      partial: true,
+    }));
+    const model = new Map([["b", sources]]);
+    const page = '<p th:utext="${b}"></p>\n'.repeat(5000);
+    const { value, ms } = timed(() => analyzeThymeleaf(page, "templates/other.html", model));
+    expect(value.findings.length).toBeGreaterThan(0);
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+  });
+});

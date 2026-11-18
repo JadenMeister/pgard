@@ -295,6 +295,8 @@ export function createWebSinks(host: WebHost) {
   /** Content type set on the response so far in this method. */
   let contentType: ContentType = "unset";
   let methodStart = 0;
+  /** Index in `modelAttributes` where the class being read starts. */
+  let classStart = 0;
   let views: string[] = [];
   /** The method also returns views that were not resolved (a variable, a call, a forward). */
   let viewsPartial = false;
@@ -1091,6 +1093,8 @@ export function createWebSinks(host: WebHost) {
   function endClass(): void {
     const list = summaries;
     summaries = [];
+    const start = classStart;
+    classStart = modelAttributes.length;
     const wanted = list.some((summary) =>
       summary.attributes.some((attribute) => summary.classWide || flashAttributes.has(attribute)),
     );
@@ -1106,6 +1110,8 @@ export function createWebSinks(host: WebHost) {
       classViews = all.size > MAX_CLASS_VIEWS ? [] : [...all];
       return classViews;
     };
+    // Exact mappings of every handler (a literal path wins over a templated one, whatever the
+    // verb); only the ones that answer a GET are a redirect target.
     const exact = new Map<string, MethodSummary[]>();
     const templated: Array<{ path: string; summary: MethodSummary }> = [];
     let indexed = false;
@@ -1113,22 +1119,40 @@ export function createWebSinks(host: WebHost) {
       if (indexed) return;
       indexed = true;
       for (const summary of list) {
-        if (!summary.handler || !summary.get) continue;
+        if (!summary.handler) continue;
         for (const path of summary.paths) {
           if (isTemplatedPath(path)) {
-            if (templated.length < MAX_TEMPLATED_MAPPINGS) templated.push({ path, summary });
+            if (summary.get && templated.length < MAX_TEMPLATED_MAPPINGS) {
+              templated.push({ path, summary });
+            }
           } else {
-            exact.set(path, [...(exact.get(path) ?? []), summary]);
+            const known = exact.get(path);
+            if (known === undefined) exact.set(path, [summary]);
+            else known.push(summary);
           }
         }
       }
     };
+    const cache = new Map<string, MethodSummary[]>();
     const targets = (redirect: string): MethodSummary[] => {
+      const known = cache.get(redirect);
+      if (known !== undefined) return known;
       index();
-      const path = normalizePath(redirect);
-      const hits = new Set<MethodSummary>(exact.get(path) ?? []);
-      for (const entry of templated) if (matchesTemplate(entry.path, path)) hits.add(entry.summary);
-      return [...hits];
+      let result: MethodSummary[] = [];
+      // A relative target resolves against the request path: not followed.
+      if (redirect.startsWith("/")) {
+        const path = normalizePath(redirect);
+        const literal = exact.get(path);
+        if (literal !== undefined) {
+          result = literal.filter((summary) => summary.get);
+        } else {
+          result = templated
+            .filter((entry) => matchesTemplate(entry.path, path))
+            .map((entry) => entry.summary);
+        }
+      }
+      cache.set(redirect, result);
+      return result;
     };
     for (const summary of list) {
       for (const attribute of summary.attributes) {
@@ -1147,10 +1171,41 @@ export function createWebSinks(host: WebHost) {
               if (hit.partial || hit.views.length === 0) partial = true;
             }
           }
-          attribute.views = [...found];
+          if (found.size > MAX_CLASS_VIEWS) {
+            attribute.views = [];
+            partial = true;
+          } else {
+            attribute.views = [...found];
+          }
           if (partial) attribute.partial = true;
         }
       }
+    }
+    // One source per (name, taint, views): 2000 `@ModelAttribute("b")` methods or flash attributes
+    // that lead to the same views are one link, not 2000 copies for every template to test.
+    const joined = new Map<string[], string>();
+    const seen = new Set<string>();
+    const drop = new Set<ModelAttribute>();
+    for (const summary of list) {
+      for (const attribute of summary.attributes) {
+        let views = joined.get(attribute.views);
+        if (views === undefined) {
+          views = [...attribute.views].sort().join("\u0001");
+          joined.set(attribute.views, views);
+        }
+        const key = `${attribute.name}\u0000${attribute.tainted}\u0000${attribute.partial === true}\u0000${views}`;
+        if (seen.has(key)) drop.add(attribute);
+        else seen.add(key);
+      }
+    }
+    if (drop.size > 0) {
+      let write = start;
+      for (let read = start; read < modelAttributes.length; read += 1) {
+        const attribute = modelAttributes[read] as ModelAttribute;
+        if (!drop.has(attribute)) modelAttributes[write++] = attribute;
+      }
+      modelAttributes.length = write;
+      classStart = write;
     }
   }
 

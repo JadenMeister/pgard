@@ -23,7 +23,13 @@ import {
   MAX_SPRING_CONFIG_BYTES,
   type SpringConfigAnalysis,
 } from "./spring-config.js";
-import { looksLikeThymeleaf, type ModelSource, type TemplateAnalysis } from "./templates.js";
+import {
+  looksLikeThymeleaf,
+  modelForTemplate,
+  viewOf,
+  type ModelSource,
+  type TemplateAnalysis,
+} from "./templates.js";
 import { TEMPLATE_ENGINES } from "./web-names.js";
 
 export const JVM_LANGUAGES: readonly TreeSitterLanguage[] = ["java", "kotlin"];
@@ -297,6 +303,18 @@ export async function scanJvm(
     // `.html`, `.mustache` or `.vm` files has none of this rule's concern. The same test decides
     // whether unreadable XML is worth a note (Kotlin-only projects have mappers too).
     const isJvmProject = isJvmWalk(walk);
+    /**
+     * The model attributes that travel with a template job: only the names the template mentions
+     * (a name is read after `${`, so any other is never looked up), so the job does not carry every
+     * attribute of a large project to every template.
+     */
+    const modelFor = (text: string, relativePath: string): Array<[string, ModelSource[]]> =>
+      modelForTemplate(
+        modelSources,
+        new Set(text.match(/[A-Za-z_]\w*/g) ?? []),
+        viewOf(relativePath),
+      );
+
     // MyBatis mapper XML: any .xml file that declares <mapper>. Read here, analyzed as text.
     const excludedMapperPaths: string[] = [];
     let mapperFiles = 0;
@@ -477,7 +495,7 @@ export async function scanJvm(
         isJsp,
         text,
         relativePath: file.relativePath,
-        model: isJsp ? [] : [...modelSources],
+        model: isJsp ? [] : modelFor(text, file.relativePath),
       });
       if (result === null) {
         templateStopped += 1;

@@ -174,6 +174,45 @@ describe("flash attributes on a redirect (#338)", () => {
   });
 });
 
+describe("redirect target resolution (#338 review)", () => {
+  const save = (target: string, extra: string): string =>
+    controller(
+      `@PostMapping("/save") String save(@RequestParam String msg, RedirectAttributes ra) {\nra.addFlashAttribute("msg", msg);\nreturn "redirect:${target}";\n}\n${extra}`,
+      '@Controller\n@RequestMapping("/shop")',
+    );
+  const both =
+    '@GetMapping("/item/list") String list() { return "list"; }\n@GetMapping("/item/{id}") String detail(@PathVariable String id) { return "detail"; }';
+  it("a literal mapping wins over a templated one", async () => {
+    const found = await attributeOf(save("/shop/item/list", both), "msg");
+    expect(found?.views).toEqual(["list"]);
+  });
+  it("a templated mapping is used when no literal one matches", async () => {
+    const found = await attributeOf(save("/shop/item/7", both), "msg");
+    expect(found?.views).toEqual(["detail"]);
+  });
+  it("a relative redirect is not resolved", async () => {
+    const found = await attributeOf(
+      save("list", '@GetMapping("/list") String other() { return "unrelated"; }'),
+      "msg",
+    );
+    expect(found?.views).toEqual([]);
+    expect(found?.partial).toBe(true);
+  });
+  it("a literal mapping that is not a GET stops the templated one from being used", async () => {
+    const extra =
+      '@PostMapping("/item/list") String p() { return "post-view"; }\n@GetMapping("/item/{id}") String detail(@PathVariable String id) { return "detail"; }';
+    const found = await attributeOf(save("/shop/item/list", extra), "msg");
+    expect(found?.views).toEqual([]);
+    expect(found?.partial).toBe(true);
+  });
+  it("attributes of one name that lead to the same views are one source", async () => {
+    const source = controller(
+      '@PostMapping("/a") String a(@RequestParam String m, RedirectAttributes ra) { ra.addFlashAttribute("m", m); return "redirect:/t"; }\n@PostMapping("/b") String b(@RequestParam String m, RedirectAttributes ra) { ra.addFlashAttribute("m", m); return "redirect:/t"; }\n@GetMapping("/t") String t() { return "t"; }',
+    );
+    expect((await run(source)).modelAttributes.filter((a) => a.name === "m")).toHaveLength(1);
+  });
+});
+
 describe("@ModelAttribute methods (#338)", () => {
   const handlers =
     '@GetMapping("/a") String a() { return "first"; }\n@GetMapping("/b") String b() { return "second"; }';
@@ -199,7 +238,10 @@ describe("@ModelAttribute methods (#338)", () => {
     const source = controller(
       `@ModelAttribute void common(Model model, @RequestParam String theme) { model.addAttribute("theme", theme); }\n${handlers}`,
     );
-    expect(await attributeOf(source, "theme")).toMatchObject({ views: ["first", "second"] });
+    expect(await attributeOf(source, "theme")).toMatchObject({
+      views: ["first", "second"],
+      partial: true,
+    });
   });
   it("a value that is not request input is not tainted", async () => {
     const source = controller(
