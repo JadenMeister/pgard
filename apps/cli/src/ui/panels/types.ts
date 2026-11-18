@@ -39,7 +39,13 @@ export type TrendUnavailable = "no-store-dir" | "no-repository" | "unreadable";
  */
 export type TrendData =
   | { readonly kind: "disabled" }
-  | { readonly kind: "unavailable"; readonly why: TrendUnavailable; readonly reason: string }
+  | {
+      readonly kind: "unavailable";
+      readonly why: TrendUnavailable;
+      readonly reason: string;
+      /** As in the ready state: files the read never opened (optional, 0 when absent). */
+      readonly unread?: number;
+    }
   | {
       readonly kind: "ready";
       /** Oldest first, at most 20. */
@@ -50,6 +56,8 @@ export type TrendData =
       readonly skipped: number;
       /** Stored scans from a newer PGARD schema, left out like the previous-scan lookup does. */
       readonly newerSkipped: number;
+      /** Older stored files the read never opened; only set when fewer than 20 scans were found. */
+      readonly unread: number;
       /** False when the scan this view opened for is not among the stored ones. */
       readonly isCurrentStored: boolean;
       /** Epoch ms of the read, for the relative labels. */
@@ -63,6 +71,7 @@ export const NO_TREND: TrendData = {
   diff: null,
   skipped: 0,
   newerSkipped: 0,
+  unread: 0,
   isCurrentStored: true,
   now: 0,
 };

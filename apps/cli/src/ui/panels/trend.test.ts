@@ -46,6 +46,7 @@ function ready(count: number): TrendData {
     diff: count >= 2 ? { newCount: 2, fixedCount: 1, unchangedCount: 9 } : null,
     skipped: 0,
     newerSkipped: 0,
+    unread: 0,
     isCurrentStored: true,
     now: NOW,
   };
@@ -167,6 +168,29 @@ describe("trend panel content", () => {
     expect(body).toContain("2 scans from a newer PGARD version were skipped.");
     const ko = frame(stateFor("ko", wide, trend), wide).join("\n");
     expect(ko).toContain("이 검사는 저장되지 않았습니다.");
+  });
+
+  it("says older files were not opened, in English and Korean, and stays quiet at 0", () => {
+    const base = ready(3) as Extract<TrendData, { kind: "ready" }>;
+    const en = frame(stateFor("en", wide, { ...base, unread: 4 }), wide).join("\n");
+    expect(en).toContain("4 older stored files were not opened");
+    expect(en).toContain("incomplete");
+    const ko = frame(stateFor("ko", wide, { ...base, unread: 4 }), wide).join("\n");
+    expect(ko).toContain("오래된 저장 파일 4개는 열어 보지 않았습니다");
+    expect(frame(stateFor("en", wide, base), wide).join("\n")).not.toContain("not opened");
+    const empty = { ...(ready(0) as Extract<TrendData, { kind: "ready" }>), unread: 1 };
+    expect(frame(stateFor("en", wide, empty), wide).join("\n")).toContain(
+      "1 older stored file was",
+    );
+    const unavailable: TrendData = {
+      kind: "unavailable",
+      why: "unreadable",
+      reason: "x",
+      unread: 2,
+    };
+    expect(frame(stateFor("en", wide, unavailable), wide).join("\n")).toContain(
+      "2 older stored files were not opened",
+    );
   });
 
   it("puts the not-stored note and a stored-scans heading on the first screen (80x24, 20 scans)", () => {

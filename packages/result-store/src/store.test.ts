@@ -110,6 +110,22 @@ describe("save and list", () => {
     expect(all.unread).toBe(0);
   });
 
+  it("stops opening files after 5 times the limit, so unusable files cannot make it read on", async () => {
+    store = createResultStore({ dir, now: () => clock, maxScansPerRepo: 50 });
+    for (let i = 0; i < 12; i += 1) {
+      clock += 1000;
+      await store.save(makeResult({ scanId: `s${i}` }), { repositoryId: REPO_ID });
+    }
+    // Only the oldest scan is usable; the 11 newer ones are turned down.
+    const listed = await store.list(REPO_ID, {
+      limit: 1,
+      isUsable: (scan) => scan.result.scanId === "s0",
+    });
+    expect(listed.scans).toEqual([]);
+    expect(listed.rejected).toBe(5);
+    expect(listed.unread).toBe(7);
+  });
+
   it("round-trips a result through the reader", async () => {
     const saved = await store.save(makeResult(), { repositoryId: REPO_ID });
     expect(saved.ok).toBe(true);

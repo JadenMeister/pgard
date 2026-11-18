@@ -61,11 +61,15 @@ export async function loadTrend(
       limit: RETENTION_MAX_SCANS_PER_REPO,
       isUsable: (scan) => !isNewerMinor(scan.sourceVersion),
     });
+    // The read stops after a limited number of files; with fewer than 20 usable scans found the
+    // history may be incomplete, and the panel says so.
+    const unread = listed.scans.length < RETENTION_MAX_SCANS_PER_REPO ? listed.unread : 0;
     if (listed.scans.length === 0 && listed.warnings.length > 0) {
       return {
         kind: "unavailable",
         why: "unreadable",
         reason: safeText(listed.warnings[0] ?? "", 100),
+        unread,
       };
     }
     // Deliberate difference from the dashboard Trend view: here a future-dated file (see
@@ -87,6 +91,7 @@ export async function loadTrend(
       diff: latest !== undefined && previous !== undefined ? diffOf(previous, latest) : null,
       skipped: listed.warnings.length,
       newerSkipped: listed.rejected,
+      unread,
       isCurrentStored: currentScanId === null || anchor >= 0,
       now: now(),
     };
