@@ -157,6 +157,45 @@ export const SQL_FACADE_METHODS = new Set([
 ]);
 /** Doctrine methods whose name alone says the argument is a query (any receiver). */
 export const SQL_DISTINCT_METHODS = new Set(["createquery", "createnativequery"]);
+/** Doctrine QueryBuilder methods whose first argument is a SQL condition (only on a provable builder). */
+export const DOCTRINE_CLAUSE_METHODS = new Set([
+  "where",
+  "andwhere",
+  "orwhere",
+  "having",
+  "andhaving",
+  "orhaving",
+]);
+/** Doctrine QueryBuilder methods that return the builder. */
+export const DOCTRINE_FLUENT_METHODS = new Set([
+  "select",
+  "addselect",
+  "distinct",
+  "from",
+  "join",
+  "innerjoin",
+  "leftjoin",
+  "rightjoin",
+  "where",
+  "andwhere",
+  "orwhere",
+  "groupby",
+  "addgroupby",
+  "having",
+  "andhaving",
+  "orhaving",
+  "orderby",
+  "addorderby",
+  "setparameter",
+  "setparameters",
+  "setmaxresults",
+  "setfirstresult",
+  "set",
+  "update",
+  "delete",
+  "setvalue",
+  "values",
+]);
 /** Laravel query builder methods that take a raw SQL fragment first. */
 export const SQL_RAW_METHODS = new Set([
   "whereraw",
@@ -442,6 +481,8 @@ export const UNSUPPORTED_LIBRARIES: ReadonlyArray<{
     label: "Doctrine QueryBuilder",
     kind: "sql",
     pattern: /Doctrine\\(?:ORM|DBAL)\\(?:Query\\)?QueryBuilder|->createQueryBuilder\(/,
+    detail:
+      "->where, ->andWhere, ->orWhere, ->having, ->andHaving and ->orHaving are evaluated on a builder made by createQueryBuilder() or typed as Doctrine's QueryBuilder; the other builder methods (select, orderBy, groupBy, join) and builders that cannot be traced to one of these were not evaluated (not a safe result)",
   },
   {
     label: "RedBeanPHP",
