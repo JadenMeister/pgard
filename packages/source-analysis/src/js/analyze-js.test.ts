@@ -766,6 +766,8 @@ describe("PG-CRYPTO rules", () => {
     // Unpinned or unreadable algorithm: not silent, low.
     expect(sev(`const K = '${pub}'; jwt.verify(t, K);`)).toEqual(["PG-CRYPTO-002:low"]);
     expect(sev(`const K = '${pub}'; jwt.verify(t, K, opts);`)).toEqual(["PG-CRYPTO-002:low"]);
+    // Exactly one block: two public blocks in one string are not exempt.
+    expect(sev(`jwt.verify(t, '${pub}\\n${pub}', ${RS});`)).toEqual(["PG-CRYPTO-002:high"]);
     // Not a well-formed public PEM: private block, trailing secret text, other text around it.
     expect(sev(`jwt.verify(t, '${pub}\\n${priv}', ${RS});`)).toEqual(["PG-CRYPTO-002:high"]);
     expect(sev(`jwt.verify(t, '${pem("CERTIFICATE")} hunter2-secret', ${RS});`)).toEqual([
@@ -846,7 +848,17 @@ describe("PG-CRYPTO rules", () => {
     expect(jwt("const cfg = { secret: 'hard-coded-value' };")).toEqual(["PG-CRYPTO-002"]);
   });
 
-  it("cuts a very deep expression out, keeps the other findings and reports the file partial (#271 review)", () => {
+  it("keeps a finding of a long concatenation even when the stack is small (#271 review)", () => {
+    // The scan worker has a larger stack than this process; in full or after a cut, the sink stays.
+    const operands = Array.from({ length: 2700 }, (_, i) => `'a${i}'`).join(" + ");
+    const sql = analyzeJsSource(
+      `import { Pool } from 'pg'; const pool = new Pool();\nexport const q = (req) => pool.query("SELECT " + ${operands} + req.query.id);\n`,
+      "src/a.ts",
+    );
+    expect(sql.findings.map((f) => f.ruleId)).toEqual(["PG-SQL-001"]);
+  });
+
+  it("cuts a very deep expression out after an overflow, keeps the other findings and reports the file partial (#271 review)", () => {
     const chain = Array.from({ length: 39_000 }, (_, i) => `p${i}`).join(".");
     const analysis = analyzeJsSource(
       `import jwt from 'jsonwebtoken';\njwt.sign({}, 'a-hard-coded-secret-value');\nconst y = jwt.verify(t, cfg.${chain});\n`,

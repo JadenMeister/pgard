@@ -1111,8 +1111,9 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   // A package-level `const`/`var` bound once, to a literal, and never written, taken by address or
   // indexed: `var signingKey = []byte("...")`. A `var` can still be overwritten from another file
   // of the package (an init() reading the environment), so it is reported at medium confidence.
-  // A package `var` with an empty initializer that this file assigns elsewhere (`init()` reading the
-  // environment) cannot be proven constant, so it is reported low. An empty var that is never
+  // A package `var` that this file assigns only literals stays a fixed key (high). One with an empty
+  // initializer that this file assigns from another source (`init()` reading the environment)
+  // cannot be proven constant, so it is reported low. An empty var that is never
   // assigned (in this file; another file of the package cannot be seen), an empty literal and an
   // empty constant used as the key stay high findings.
   type PackageKey = "const" | "var" | "assigned-empty-var" | null;
@@ -1128,7 +1129,12 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       "g",
     );
     const matches = [...code.matchAll(declaration)];
-    const only = matches.length === 1 ? matches[0] : undefined;
+    // A plain `key = []byte("x")` line in a function body matches the pattern too: the declaration
+    // is the one line that has the `var` or `const` keyword (a keyword-less line in a `var (` block
+    // is only recognised when it is the sole match).
+    const keyworded = matches.filter((candidate) => candidate[1] !== undefined);
+    const only =
+      matches.length === 1 ? matches[0] : keyworded.length === 1 ? keyworded[0] : undefined;
     if (only) {
       const at = (only.index ?? 0) + (only[0].startsWith("\n") ? 1 : 0);
       let depth = 0;
@@ -1141,24 +1147,51 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         only[1] ?? [...code.slice(0, at).matchAll(/(?:^|\n)(var|const)[ \t]*\(/g)].pop()?.[1];
       // Every write or re-declaration of the name anywhere makes it untrusted.
       let writes = 0;
+      const written: { value: string; declares: boolean }[] = [];
       for (const assignment of code.matchAll(ASSIGNED_NAMES)) {
         const before = code[(assignment.index ?? 0) - 1];
         if (before === "." || before === "]") continue;
-        if ((assignment[1] ?? "").split(",").some((part) => part.trim() === name)) writes += 1;
+        if ((assignment[1] ?? "").split(",").some((part) => part.trim() === name)) {
+          writes += 1;
+          const from = (assignment.index ?? 0) + assignment[0].length;
+          let to = code.indexOf("\n", from);
+          if (to === -1) to = code.length;
+          written.push({
+            value: code.slice(from, to).replace(/[;}\s]+$/, ""),
+            declares: assignment[0].includes(":="),
+          });
+        }
       }
       const redeclared = new RegExp(`\\bvar[ \\t]+(?:\\([^)]*)?(?<![\\w.])${escaped}\\b`, "g");
       const inSignature = new RegExp(`\\bfunc\\b[^\\n{]*(?<![\\w.])${escaped}\\b`);
       const mutated = new RegExp(`&${escaped}\\b|(?<![\\w.])${escaped}\\[|\\bcopy\\(${escaped}\\b`);
+      // Written more than once in this file: every write a literal (`init() { key = []byte("x") }`,
+      // empty or not) is still a fixed key; any other source (the environment) is not provable.
+      const isLiteralWrite = (value: string) =>
+        /^(?:\[\]byte\(\s*"#\d+"\s*\)|"#\d+")$/.test(value.trim());
+      let allLiteral = true;
+      let shadowed = false;
+      if (writes > 1)
+        for (const write of written) {
+          if (write.declares) shadowed = true;
+          if (!isLiteralWrite(write.value)) allLiteral = false;
+        }
       const emptyVar =
         keyword !== "const" && literals[Number(only[2] ?? only[3])] === "" && writes > 1;
+      const literalWrites = keyword !== "const" && writes > 1 && allLiteral && !shadowed;
       if (
         depth === 0 &&
-        (writes === 1 || emptyVar) &&
+        (writes === 1 || literalWrites || emptyVar) &&
         [...code.matchAll(redeclared)].length <= 1 &&
         !inSignature.test(code) &&
         !mutated.test(code)
       )
-        result = emptyVar ? "assigned-empty-var" : keyword === "const" ? "const" : "var";
+        result =
+          writes === 1 || literalWrites
+            ? keyword === "const"
+              ? "const"
+              : "var"
+            : "assigned-empty-var";
     }
     packageKeyCache.set(name, result);
     return result;

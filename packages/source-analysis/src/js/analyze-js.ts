@@ -191,23 +191,28 @@ function scriptKindFor(path: string): ts.ScriptKind {
   return ts.ScriptKind.JSX; // .js/.mjs/.cjs may contain JSX in React projects.
 }
 
-/** Deeper than this is cut out of the analysis (the walkers recurse once per level). */
-const MAX_NESTING_DEPTH = 2500;
+/**
+ * Nesting limits tried, in order, only after the whole file overflowed the stack: an expression
+ * deeper than the limit is cut out and the rest of the file is analyzed again.
+ */
+const FALLBACK_NESTING_DEPTHS = [2500, 1000, 250];
 
 /**
- * The first expression (in source order) that sits deeper than MAX_NESTING_DEPTH, as the range of
+ * The first expression (in source order) that sits deeper than `maxDepth`, as the range of
  * the shallowest enclosing expression at that depth, or null. Walks with an explicit stack, so a
  * chain of any length is measured without recursion.
  */
-function findDeepExpression(sourceFile: ts.SourceFile): { start: number; end: number } | null {
+function findDeepExpression(
+  sourceFile: ts.SourceFile,
+  maxDepth: number,
+): { start: number; end: number } | null {
   const stack: { node: ts.Node; depth: number }[] = [{ node: sourceFile, depth: 0 }];
   while (stack.length > 0) {
     const { node, depth } = stack.pop() as { node: ts.Node; depth: number };
-    if (depth > MAX_NESTING_DEPTH) {
+    if (depth > maxDepth) {
       // Cut at half the limit, so what remains is well inside it whatever the shape of the chain.
       let target: ts.Node | undefined = node;
-      for (let up = depth - MAX_NESTING_DEPTH / 2; up > 0 && target; up -= 1)
-        target = target.parent;
+      for (let up = depth - maxDepth / 2; up > 0 && target; up -= 1) target = target.parent;
       while (
         target &&
         !(
@@ -244,6 +249,29 @@ export function analyzeJsSource(
   path: string,
   options: JsAnalysisOptions = {},
 ): JsAnalysis {
+  try {
+    return analyzeJsSourceWith(code, path, options, null);
+  } catch (error) {
+    if (!(error instanceof RangeError) || !/call stack/i.test(error.message)) throw error;
+    // Too deep for the whole file: cut the deepest expressions out (the file is then reported as
+    // partially analyzed) and keep the findings of the rest, instead of dropping the file.
+    for (const maxDepth of FALLBACK_NESTING_DEPTHS) {
+      try {
+        return analyzeJsSourceWith(code, path, options, maxDepth);
+      } catch (retry) {
+        if (!(retry instanceof RangeError) || !/call stack/i.test(retry.message)) throw retry;
+      }
+    }
+    throw error;
+  }
+}
+
+function analyzeJsSourceWith(
+  code: string,
+  path: string,
+  options: JsAnalysisOptions,
+  maxDepth: number | null,
+): JsAnalysis {
   const scriptKind = options.scriptKind ?? scriptKindFor(path);
   // Parsed under a fixed name (findings use `path`) so the sanitizer check can build a one-file
   // program from it whatever the real extension is (`.vue`, `.mjs`, ...).
@@ -256,12 +284,12 @@ export function analyzeJsSource(
       scriptKind,
     );
   let sourceFile = parse(code);
-  // An expression nested deeper than the walkers can follow (a chain of tens of thousands of
-  // properties or operands) is cut out (replaced by a blank `0`, same length and lines) so the rest
-  // of the file is still analyzed; the file is then reported as partially analyzed.
+  // Retry only: an expression nested deeper than the walkers can follow (a chain of tens of
+  // thousands of properties or operands) is cut out (replaced by a blank `0`, same length and
+  // lines) so the rest of the file is still analyzed; the file is then reported as partial.
   let cutDeep = false;
-  for (let round = 0; round < 50; round += 1) {
-    const cut = findDeepExpression(sourceFile);
+  for (let round = 0; maxDepth !== null && round < 50; round += 1) {
+    const cut = findDeepExpression(sourceFile, maxDepth);
     if (cut === null) break;
     const text = sourceFile.text;
     const replaced = text.slice(cut.start, cut.end).replace(/[^\n]/g, " ");
@@ -1580,7 +1608,7 @@ export function analyzeJsSource(
    * kind, a base64 body between, no PRIVATE block and no other text before, between or after.
    */
   const PUBLIC_PEM =
-    /^\s*(?:-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY|EC PUBLIC KEY|CERTIFICATE)-----[A-Za-z0-9+/=\s\\]*-----END \1-----\s*)+$/;
+    /^\s*-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY|EC PUBLIC KEY|CERTIFICATE)-----[A-Za-z0-9+/=\s\\]*-----END \1-----\s*$/;
   /** A string constant holding only a public PEM; a Buffer or Uint8Array of it is a raw key, not this. */
   const isPublicPem = (expression: ts.Expression | undefined, depth = 0): boolean => {
     if (!expression || depth > 4) return false;

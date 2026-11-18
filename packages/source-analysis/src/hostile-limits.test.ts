@@ -34,6 +34,9 @@ function project(files: Record<string, string>, directories: string[] = []): str
   return root;
 }
 
+const WORKER_FOR_DEPTH = new URL("../dist/analyze-worker.js", import.meta.url);
+const hasWorkerForDepth = existsSync(fileURLToPath(WORKER_FOR_DEPTH));
+
 const SQL_VULN =
   'import { Pool } from "pg";\nconst pool = new Pool();\nexport const q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n';
 const GO_VULN =
@@ -88,6 +91,33 @@ describe("stack limit on a deep route receiver chain (#302)", () => {
     const output = await scanSourceCode(root, { analysisWorker: null });
     expect(output.findings.some((finding) => finding.ruleId === "PG-SQL-001")).toBe(true);
     expect(coverageOf(output, "source:javascript")?.status).toBe("partial");
+  });
+});
+
+describe.skipIf(!hasWorkerForDepth)("deep but analyzable files are not cut (#271 review)", () => {
+  const operands = Array.from({ length: 2700 }, (_, i) => `'a${i}'`).join(" + ");
+  const cases: [string, string, string][] = [
+    [
+      "a 2,700-operand concatenation into a query",
+      `import { Pool } from 'pg'; const pool = new Pool();\nexport const q = (req) => pool.query("SELECT " + ${operands} + req.query.id);\n`,
+      "PG-SQL-001",
+    ],
+    [
+      "a hard-coded secret followed by a long chain",
+      `import jwt from 'jsonwebtoken'; const t = jwt.sign({}, 'hardcoded-secret-value') + ${operands};\n`,
+      "PG-CRYPTO-002",
+    ],
+    [
+      "500 nested immediately-invoked functions around a secret",
+      `import jwt from 'jsonwebtoken'; const K = 'hardcoded-secret-value'; ${"(function () { ".repeat(500)}jwt.sign({}, K);${" })();".repeat(500)}\n`,
+      "PG-CRYPTO-002",
+    ],
+  ];
+  it.each(cases)("%s is analyzed in full", async (_name, content, rule) => {
+    const root = project({ "deep.js": content });
+    const output = await scanSourceCode(root, { analysisWorker: WORKER_FOR_DEPTH });
+    expect(output.findings.some((finding) => finding.ruleId === rule)).toBe(true);
+    expect(coverageOf(output, "source:javascript")?.status).toBe("completed");
   });
 });
 
