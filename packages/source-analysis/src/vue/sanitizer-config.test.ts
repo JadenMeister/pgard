@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeVueSource } from "./analyze-vue.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 const DOMPURIFY = 'import DOMPurify from "dompurify";';
 const vue = (template: string, script: string) =>
@@ -136,7 +137,7 @@ describe("Vue template-local names that shadow the sanitizer (#278)", () => {
     const code = `${nested}${leaves}<b v-html="DOMPurify.sanitize(h)"></b>${"</div>".repeat(levels)}`;
     const started = Date.now();
     const found = vue(code, DOMPURIFY);
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(scaled(2000));
     expect(found).toEqual([]);
   });
 

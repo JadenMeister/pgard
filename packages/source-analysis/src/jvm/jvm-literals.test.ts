@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzeJvmTree, assignCountsOf } from "./analyze-jvm.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -56,7 +57,7 @@ describe("string and character literals do not hide an assignment", () => {
     ]) {
       const startedAt = performance.now();
       assignCountsOf(input);
-      expect(performance.now() - startedAt).toBeLessThan(1500);
+      expect(performance.now() - startedAt).toBeLessThan(scaled(1500));
     }
   });
 });

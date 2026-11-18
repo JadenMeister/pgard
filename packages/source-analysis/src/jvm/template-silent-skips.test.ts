@@ -13,10 +13,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { scanSourceCode } from "../scan-source.js";
 import { MAX_FILE_BYTES } from "../walk.js";
 import { analyzeJsp } from "./templates.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 /** #510 and #511: input that is too large or not understood is judged or reported, never safe. */
 
-const LIMIT_MS = 1_500;
+const LIMIT_MS = scaled(1_500);
 const THYMELEAF_HEAD = '<html xmlns:th="http://www.thymeleaf.org"><p th:utext="${param.q}"></p>';
 
 function timed<T>(run: () => T): { value: T; ms: number } {

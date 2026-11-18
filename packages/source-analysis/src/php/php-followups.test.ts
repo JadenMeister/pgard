@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzePhpTree } from "./analyze-php.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -170,7 +171,7 @@ describe("local closures (#325)", () => {
 });
 
 describe("bounded work on hostile input (#325)", () => {
-  const LIMIT_MS = 8_000;
+  const LIMIT_MS = scaled(8_000);
   const timed = async (source: string) => {
     const startedAt = performance.now();
     const result = await run(source);

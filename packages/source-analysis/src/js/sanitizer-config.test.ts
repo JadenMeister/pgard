@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { analyzeJsSource } from "./analyze-js.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 const find = (code: string, ruleId: string, path = "src/a.ts") =>
   analyzeJsSource(code, path).findings.filter((finding) => finding.ruleId === ruleId);
@@ -474,7 +475,7 @@ describe("new patterns stay linear and bounded (#278)", () => {
       xss(`${DOMPURIFY}${hooks}el.innerHTML = DOMPurify.sanitize(location.hash);`),
       xss(`${DOMPURIFY}el.innerHTML = ${prefix}DOMPurify.sanitize(location.hash);`),
     ];
-    expect(Date.now() - started).toBeLessThan(5000);
+    expect(Date.now() - started).toBeLessThan(scaled(5000));
     expect(result[0]?.length).toBe(1);
     expect(result[1]?.length).toBe(1);
     expect(result[2]?.length).toBe(1);

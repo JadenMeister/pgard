@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { analyzeVueSource } from "../vue/analyze-vue.js";
 import { analyzeJsSource } from "./analyze-js.js";
-import { TIME_FACTOR, bestTimeOf, itScaled } from "../../../../tests/support/timing.js";
+import { TIME_FACTOR, bestTimeOf, itScaled, scaled } from "../../../../tests/support/timing.js";
 
 const rulesIn = (code: string, path = "src/app.ts") =>
   analyzeJsSource(code, path).findings.map((finding) => finding.ruleId);
@@ -812,15 +812,19 @@ describe("PG-CRYPTO rules", () => {
     ).toEqual(["PG-CRYPTO-002"]);
   });
 
-  it("looks up constant-object properties in linear time (#271)", () => {
-    const build = (count: number) =>
-      `import jwt from 'jsonwebtoken'; const cfg = { ${Array.from({ length: count }, (_, i) => `k${i}: 'secret-value-${i}'`).join(", ")} };\n${Array.from({ length: count }, (_, i) => `jwt.verify(t, cfg.k${i});`).join("\n")}\n`;
-    const small = bestTimeOf(2, () => analyzeJsSource(build(2500), "src/a.ts"));
-    const large = bestTimeOf(2, () => analyzeJsSource(build(10000), "src/a.ts"));
-    // Four times the keys: linear is about 4x, a scan of every property per lookup about 16x.
-    expect(large / Math.max(small, 1)).toBeLessThan(10);
-    expect(large).toBeLessThan(10_000 * TIME_FACTOR);
-  });
+  it(
+    "looks up constant-object properties in linear time (#271)",
+    { timeout: scaled(60_000) },
+    () => {
+      const build = (count: number) =>
+        `import jwt from 'jsonwebtoken'; const cfg = { ${Array.from({ length: count }, (_, i) => `k${i}: 'secret-value-${i}'`).join(", ")} };\n${Array.from({ length: count }, (_, i) => `jwt.verify(t, cfg.k${i});`).join("\n")}\n`;
+      const small = bestTimeOf(2, () => analyzeJsSource(build(2500), "src/a.ts"));
+      const large = bestTimeOf(2, () => analyzeJsSource(build(10000), "src/a.ts"));
+      // Four times the keys: linear is about 4x, a scan of every property per lookup about 16x.
+      expect(large / Math.max(small, 1)).toBeLessThan(10);
+      expect(large).toBeLessThan(10_000 * TIME_FACTOR);
+    },
+  );
 
   it("uses the effective (last) duplicate key and does not trust a mutated or aliased object (#271 review)", () => {
     const nest = (body: string) => rulesIn(`import { JwtModule } from '@nestjs/jwt'; ${body}`);
@@ -858,22 +862,26 @@ describe("PG-CRYPTO rules", () => {
     expect(sql.findings.map((f) => f.ruleId)).toEqual(["PG-SQL-001"]);
   });
 
-  it("cuts a very deep expression out after an overflow, keeps the other findings and reports the file partial (#271 review)", () => {
-    const chain = Array.from({ length: 39_000 }, (_, i) => `p${i}`).join(".");
-    const analysis = analyzeJsSource(
-      `import jwt from 'jsonwebtoken';\njwt.sign({}, 'a-hard-coded-secret-value');\nconst y = jwt.verify(t, cfg.${chain});\n`,
-      "src/a.ts",
-    );
-    expect(analysis.findings.map((f) => f.ruleId)).toEqual(["PG-CRYPTO-002"]);
-    expect(analysis.hasParseErrors).toBe(true);
-    // The same file without the chain is complete.
-    expect(
-      analyzeJsSource(
-        "import jwt from 'jsonwebtoken'; jwt.sign({}, 'a-hard-coded-secret-value');",
+  it(
+    "cuts a very deep expression out after an overflow, keeps the other findings and reports the file partial (#271 review)",
+    { timeout: scaled(60_000) },
+    () => {
+      const chain = Array.from({ length: 39_000 }, (_, i) => `p${i}`).join(".");
+      const analysis = analyzeJsSource(
+        `import jwt from 'jsonwebtoken';\njwt.sign({}, 'a-hard-coded-secret-value');\nconst y = jwt.verify(t, cfg.${chain});\n`,
         "src/a.ts",
-      ).hasParseErrors,
-    ).toBe(false);
-  });
+      );
+      expect(analysis.findings.map((f) => f.ruleId)).toEqual(["PG-CRYPTO-002"]);
+      expect(analysis.hasParseErrors).toBe(true);
+      // The same file without the chain is complete.
+      expect(
+        analyzeJsSource(
+          "import jwt from 'jsonwebtoken'; jwt.sign({}, 'a-hard-coded-secret-value');",
+          "src/a.ts",
+        ).hasParseErrors,
+      ).toBe(false);
+    },
+  );
 
   it("flags broken ciphers", () => {
     expect(

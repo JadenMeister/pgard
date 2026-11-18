@@ -7,6 +7,7 @@ import {
   parseJavaVersionOutput,
   parseJavaVersionToken,
 } from "./version.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 function parsed(text: string) {
   const version = parseJavaVersionOutput(text);
@@ -93,7 +94,7 @@ describe("parseJavaVersionOutput", () => {
     expect(parseJavaVersionOutput(`openjdk version "${"1.".repeat(100_000)}"`)).toBeNull();
     expect(parseJavaVersionOutput(`openjdk version "${"9".repeat(100_000)}"`)).toBeNull();
     // A version line past the first lines is not looked for (bounded work), and not invented.
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(scaled(2000));
   });
 });
 

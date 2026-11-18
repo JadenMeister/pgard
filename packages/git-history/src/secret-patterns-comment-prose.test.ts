@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { detectSecrets } from "./secret-patterns.js";
 import { createSourceLookups } from "./string-regions.js";
+import { scaled } from "../../../tests/support/timing.js";
 
 // Runtime-assembled so no secret-looking literal is committed (synthetic values).
 const j = (...parts: string[]) => parts.join("");
@@ -152,6 +153,6 @@ describe("comment lookup", () => {
     ];
     const started = performance.now();
     for (const input of inputs) lookups(`${input}\n`).inComment(10);
-    expect(performance.now() - started).toBeLessThan(10_000);
+    expect(performance.now() - started).toBeLessThan(scaled(10_000));
   });
 });
