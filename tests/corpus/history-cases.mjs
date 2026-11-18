@@ -476,6 +476,31 @@ export const HISTORY_CASES = [
   {
     rule: "PG-SECRET-002",
     kind: "negative",
+    name: "commented-out-code-with-password-key",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "src/a.js": [
+            "// onChange={e => setForm({password: e.target.value})}",
+            "// {password: this.state.password}",
+            "/** @example new Client({host,password:opts.password}) */",
+            "// (password: DB_PASSWORD)",
+            "// f(a,password:e.target.value})",
+            "// if (e.password==t.password) return",
+            "// user,password=req.body.password)",
+            "//{password:CONFIG.PASSWORD}",
+            "/* return a({password:e.target.value}),(e.password==t.password) */",
+            "",
+          ].join("\n"),
+          "src/b.py": "# conn = connect(host, user, password=settings.DB_PASSWORD)\n",
+        },
+      },
+    ],
+  },
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
     name: "minified-markers-inside-strings",
     expect: [],
     commits: [

@@ -522,7 +522,10 @@ function regionStart(regions: readonly number[], index: number): number {
  * comment is only recognised where the scanner is sure: the openers inside strings, regex
  * literals and heredocs are not comments, and an unterminated block comment counts as a string
  * (confusion is reported, never taken as code). The whole file is judged, so strings and block
- * comments that started on an earlier line count.
+ * comments that started on an earlier line count. Known limit: a `.vue` or `.svelte` file is read
+ * as one script, so a bare `//` in its HTML text starts a "comment" to the end of the line; that
+ * only lifts the before-key code checks on that line (a value that is all code is still
+ * rejected), it never hides a finding.
  */
 export function createSourceLookups(
   text: string,

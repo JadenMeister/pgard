@@ -228,26 +228,30 @@ function lineBefore(text: string, index: number, window: number) {
 }
 
 /**
- * Whether a key sits directly after a code token: `{password:`, `,password:`, `(password:`, a
- * ternary (`a?password:`), an `|` or an index (`o[password]=`), or a member access (`t.password==`, the `.` is part of the key text). Minified code has no space
- * there; comment prose has a space or a word before the key. Reads one character, never scans back.
+ * Whether a key sits directly after a code token: `{password:`, `,password:`, `(password:`, or a
+ * member access (`t.password==`, the `.` is part of the key text). Minified code has no space
+ * there; comment prose has a space or a word before the key. Two rare minified shapes count too,
+ * each narrowly so a real password stays reported: an index key (`o[password]=`, the key is closed
+ * by `]`) and a ternary (`a?password:e.target.value}`, a `:` with no space after it).
+ * `?password=x` and `&password=x` (URL queries) and `x|password: y` are never code tokens.
+ * Reads one character, never scans back.
  */
-function followsCodeToken(
-  text: string,
-  start: number,
-  matched: string,
-  separator: string,
-): boolean {
+function followsCodeToken(text: string, start: number, matched: string): boolean {
   const before = start > 0 ? text.charAt(start - 1) : "";
-  if (before !== "" && "{,(.|[".includes(before)) return true;
-  // `a?password:x` is a ternary, but `?password=x` is a URL query (a real password): only the `:`
-  // separator makes a `?` before the key a code token. `&` is never one (`&password=x`).
-  if (before === "?" && separator === ":") return true;
+  if (before !== "" && "{,(.".includes(before)) return true;
   const key = /^[^:=\]"']*/.exec(matched)?.[0] ?? "";
+  if (before === "[" && matched.charAt(key.length) === "]") return true;
+  if (before === "?" && /^[^:=\]"']*:\S/.test(matched)) return true;
   // A dotted key counts as code only when glued to the token before it (`e&&t.password==`,
   // `a?t.password:`); after whitespace or at a line start it is prose (`// config.password:`).
   return key.includes(".") && start > 0 && !/\s/.test(text.charAt(start - 1));
 }
+/**
+ * A value inside a comment that is entirely code: it is a dotted member path (`e.target.value}`) or an all-caps constant (`DB_PASSWORD)`) followed
+ * only by closers. A password that goes on after a `)` (`Prod.Xk9q)m2Lq8`) does not match. Linear.
+ */
+const COMMENT_CODE_VALUE =
+  /^=?(?:[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+|[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+)[)}\],;]*$/;
 /** `ACCESS_TOKEN`: an all-caps constant name used as the value. */
 const CONSTANT_NAME = /^[A-Z]+(?:_[A-Z]+)+$/;
 const BARE_IDENTIFIER = /^[A-Za-z_$]+$/;
@@ -442,7 +446,7 @@ function isLiteralAssignment(
     !inString &&
     !inComment &&
     UNQUOTED_CODE_VALUE.test(value) &&
-    followsCodeToken(text, start, match[0], separator)
+    followsCodeToken(text, start, match[0])
   ) {
     return false;
   }
@@ -460,7 +464,9 @@ function isLiteralAssignment(
       (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value));
     return isCode ? "code_text" : true;
   }
-  if (inComment) return true;
+  // In a comment the text before the key says nothing, but a value that is all code is still
+  // commented-out code (`// f(a,password:e.target.value})`), not a credential.
+  if (inComment) return !COMMENT_CODE_VALUE.test(value);
   if (!looksLikeCode(text, keyStart, start + match[0].length - cut, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&

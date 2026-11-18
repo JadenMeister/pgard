@@ -52,18 +52,50 @@ describe("a password in comment prose is reported wherever the comment starts (#
   });
 });
 
-describe("rare minified shapes stay quiet (#460 R2)", () => {
-  it.each([
-    "a?password:e.target.value}",
-    "o[password]=e.target.value}",
-    "a|password:e.target.x||y",
-  ])("ignores %s", (line) => {
+describe("commented-out code stays quiet (#460 review)", () => {
+  const code = [
+    "// onChange={e => setForm({password: e.target.value})}",
+    "// {password: this.state.password}",
+    "/** @example new Client({host,password:opts.password}) */",
+    "// (password: DB_PASSWORD)",
+    "// f(a,password:e.target.value})",
+    "// if (e.password==t.password) return",
+    "// user,password=req.body.password)",
+    "//{password:CONFIG.PASSWORD}",
+    "/* return a({password:e.target.value}),(e.password==t.password) */",
+  ];
+  it.each(code)("ignores %s", (line) => {
+    for (const path of ["src/a.js", "src/A.java"]) expect(scan(`${line}\n`, path)).toHaveLength(0);
+  });
+
+  it("ignores commented-out code in Python", () => {
+    const line = "# conn = connect(host, user, password=settings.DB_PASSWORD)\n";
+    expect(scan(line, "tool.py")).toHaveLength(0);
+  });
+
+  it("keeps a plain or code-shaped password in a comment", () => {
+    for (const value of [CODE_SHAPED, "Xk9vLp8Wz4qRt2mN7", j("Zq8Lm2x9Kp", ")")]) {
+      expect(scan(`// user,password: ${value}\n`, "src/a.js")).toHaveLength(1);
+    }
+  });
+});
+
+describe("rare minified shapes stay quiet, narrowly (#460 R2)", () => {
+  it.each(["a?password:e.target.value}", "o[password]=e.target.value}"])("ignores %s", (line) => {
     expect(scan(`${line}\n`, "dist/a.js")).toHaveLength(0);
   });
 
-  it("keeps a URL query password: `?` before `=` and `&` are not code tokens", () => {
-    const text = `see(?password=${CODE_SHAPED}\nsee&password=${CODE_SHAPED}\n`;
-    expect(scan(text, "tool.py").length).toBeGreaterThanOrEqual(1);
+  it.each([
+    `see https://x/?password=${CODE_SHAPED}`,
+    `see&password=${CODE_SHAPED}`,
+    `x|password: ${CODE_SHAPED}`,
+    `a |password=${CODE_SHAPED}`,
+    `|password: ${CODE_SHAPED}|`,
+    `?password: ${CODE_SHAPED}`,
+  ])("keeps a real password in %s", (line) => {
+    for (const path of ["tool.py", "src/a.js"]) {
+      expect(scan(`${line}\n`, path), `${path}: ${line}`).toHaveLength(1);
+    }
   });
 });
 
