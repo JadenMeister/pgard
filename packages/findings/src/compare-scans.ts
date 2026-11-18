@@ -254,8 +254,17 @@ const idsOf = (finding: Finding): Set<string> =>
  * Pairs the dependency findings of one group (same rule, lockfile, ecosystem, name and version):
  * first the same advisory id, then any two whose `{advisoryId} + aliases` sets intersect. Two
  * unrelated advisories on one package never pair.
+ *
+ * A previous finding left over after that, whose ids are all among the ids of a current finding
+ * that is already paired, was merged into it by a data update (GHSA-y became an alias of GHSA-x):
+ * the version is still affected, so it is neither a fix nor a new finding and is returned in
+ * `merged`. The group is one package version in one lockfile, so a package or version that is no
+ * longer affected never gets here and stays "no longer reported".
  */
-function pairDependencies(previous: Finding[], current: Finding[]): [number, number][] {
+function pairDependencies(
+  previous: Finding[],
+  current: Finding[],
+): { pairs: [number, number][]; merged: Set<number> } {
   const pairs: [number, number][] = [];
   const usedPrevious = new Set<number>();
   const usedCurrent = new Set<number>();
@@ -277,7 +286,17 @@ function pairDependencies(previous: Finding[], current: Finding[]): [number, num
       pairs.push([p, c]);
     });
   }
-  return pairs;
+  const merged = new Set<number>();
+  const pairedCurrent = pairs.map(([, c]) => c).sort((a, b) => a - b);
+  previous.forEach((_, p) => {
+    if (usedPrevious.has(p)) return;
+    const ids = [...(previousIds[p] as Set<string>)].filter((id) => id !== "");
+    if (ids.length === 0) return;
+    if (pairedCurrent.some((c) => ids.every((id) => (currentIds[c] as Set<string>).has(id)))) {
+      merged.add(p);
+    }
+  });
+  return { pairs, merged };
 }
 
 function groupByIdentity(findings: readonly Finding[]): Map<string, Finding[]> {
@@ -478,10 +497,11 @@ export function compareScans(previous: ScanResult, current: ScanResult): ScanCom
   for (const identity of new Set([...before.keys(), ...after.keys()])) {
     const oldGroup = before.get(identity) ?? [];
     const newGroup = after.get(identity) ?? [];
-    const pairs =
-      oldGroup[0]?.dependency !== undefined || newGroup[0]?.dependency !== undefined
-        ? pairDependencies(oldGroup, newGroup)
-        : pairGroup(oldGroup, newGroup);
+    const isDependencyGroup =
+      oldGroup[0]?.dependency !== undefined || newGroup[0]?.dependency !== undefined;
+    const dependencyPairing = isDependencyGroup ? pairDependencies(oldGroup, newGroup) : null;
+    const pairs = dependencyPairing?.pairs ?? pairGroup(oldGroup, newGroup);
+    const mergedOld = dependencyPairing?.merged ?? new Set<number>();
     const pairedOld = new Set(pairs.map(([p]) => p));
     const pairedNew = new Set(pairs.map(([, c]) => c));
     for (const [p, c] of pairs) {
@@ -500,7 +520,7 @@ export function compareScans(previous: ScanResult, current: ScanResult): ScanCom
       (wasLine === nowLine ? comparison.unchanged : comparison.moved).push(pair);
     }
     oldGroup.forEach((finding, index) => {
-      if (pairedOld.has(index)) return;
+      if (pairedOld.has(index) || mergedOld.has(index)) return;
       const blocking = blockingAreas(finding, ctx);
       if (blocking === null || blocking.length > 0 || toolVersionChanged) {
         comparison.notComparable.push(finding);
