@@ -60,8 +60,8 @@ const HISTORY_RULE_DEFINITIONS = [
       ko: "이후 커밋에서 값을 지우거나 바꿔도 이력에서는 사라지지 않습니다. 모든 복제본(clone)과 포크에서 `git log -p`나 이전 커밋 해시로 계속 읽을 수 있으므로, 교체(rotate)하기 전까지는 자격 증명이 노출된 것으로 봐야 합니다.",
     },
     remediation: {
-      en: "Treat the value as compromised, even if the repository is private. Revoke or rotate it at the provider first, because it stays in history and in every clone. Also check the current files, and remove the value there if it is still present or could not be checked. If the repository is shared, rewrite the history (for example with `git filter-repo`) and ask collaborators to re-clone. Rotation matters more than removal.",
-      ko: "저장소가 비공개여도 해당 값이 유출된 것으로 간주하세요. 이력과 모든 복제본(clone)에 남아 있으므로 먼저 발급처에서 폐기하거나 교체(rotate)하세요. 현재 파일도 함께 확인하고, 값이 남아 있거나 확인하지 못했다면 파일에서도 제거하세요. 저장소를 공유한다면 `git filter-repo` 같은 도구로 이력을 재작성하고 협업자에게 다시 복제(clone)하도록 안내하세요. 제거보다 교체가 더 중요합니다.",
+      en: "Treat the value as compromised, even if the repository is private. Revoke or rotate it at the provider first, because it stays in history and in every clone. Also check the current files: if the value is still present or could not be checked, remove it there and load it from the environment or a secret manager instead. If the repository is shared, rewrite the history (for example with `git filter-repo`) and ask collaborators to re-clone. Rotation matters more than removal.",
+      ko: "저장소가 비공개여도 해당 값이 유출된 것으로 간주하세요. 이력과 모든 복제본(clone)에 남아 있으므로 먼저 발급처에서 폐기하거나 교체(rotate)하세요. 현재 파일도 함께 확인하고, 값이 남아 있거나 확인하지 못했다면 파일에서 제거한 뒤 환경 변수나 비밀 관리 도구에서 불러오도록 바꾸세요. 저장소를 공유한다면 `git filter-repo` 같은 도구로 이력을 재작성하고 협업자에게 다시 복제(clone)하도록 안내하세요. 제거보다 교체가 더 중요합니다.",
     },
   },
   {
