@@ -738,7 +738,7 @@ export async function scanSourceCode(
     const problems: string[] = [];
     if (languageStats.unparsable > 0)
       problems.push(
-        `${languageStats.unparsable} file(s) had syntax errors and may be partially analyzed`,
+        `${languageStats.unparsable} file(s) had syntax errors, or an expression nested too deeply to follow (cut out), and may be partially analyzed`,
       );
     if (languageStats.unreadable > 0)
       problems.push(`${languageStats.unreadable} file(s) were binary or unreadable`);

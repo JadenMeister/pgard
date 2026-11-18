@@ -192,6 +192,55 @@ function scriptKindFor(path: string): ts.ScriptKind {
 }
 
 /**
+ * Nesting limits tried, in order, only after the whole file overflowed the stack: an expression
+ * deeper than the limit is cut out and the rest of the file is analyzed again.
+ */
+const FALLBACK_NESTING_DEPTHS = [2500, 1000, 250];
+
+/**
+ * The first expression (in source order) that sits deeper than `maxDepth`, as the range of
+ * the shallowest enclosing expression at that depth, or null. Walks with an explicit stack, so a
+ * chain of any length is measured without recursion.
+ */
+function findDeepExpression(
+  sourceFile: ts.SourceFile,
+  maxDepth: number,
+): { start: number; end: number } | null {
+  const stack: { node: ts.Node; depth: number }[] = [{ node: sourceFile, depth: 0 }];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop() as { node: ts.Node; depth: number };
+    if (depth > maxDepth) {
+      // Cut at half the limit, so what remains is well inside it whatever the shape of the chain.
+      let target: ts.Node | undefined = node;
+      for (let up = depth - maxDepth / 2; up > 0 && target; up -= 1) target = target.parent;
+      while (
+        target &&
+        !(
+          ts.isPropertyAccessExpression(target) ||
+          ts.isElementAccessExpression(target) ||
+          ts.isCallExpression(target) ||
+          ts.isBinaryExpression(target) ||
+          ts.isParenthesizedExpression(target) ||
+          ts.isNonNullExpression(target) ||
+          ts.isAsExpression(target) ||
+          ts.isConditionalExpression(target)
+        )
+      )
+        target = target.parent;
+      if (!target || target.getEnd() - target.getStart(sourceFile) < 2) return null;
+      return { start: target.getStart(sourceFile), end: target.getEnd() };
+    }
+    const children: ts.Node[] = [];
+    ts.forEachChild(node, (child) => {
+      children.push(child);
+    });
+    for (let index = children.length - 1; index >= 0; index -= 1)
+      stack.push({ node: children[index] as ts.Node, depth: depth + 1 });
+  }
+  return null;
+}
+
+/**
  * Analyzes one JavaScript/TypeScript source with the TypeScript compiler AST. Never executes
  * or imports the analyzed code.
  */
@@ -200,19 +249,57 @@ export function analyzeJsSource(
   path: string,
   options: JsAnalysisOptions = {},
 ): JsAnalysis {
+  try {
+    return analyzeJsSourceWith(code, path, options, null);
+  } catch (error) {
+    if (!(error instanceof RangeError) || !/call stack/i.test(error.message)) throw error;
+    // Too deep for the whole file: cut the deepest expressions out (the file is then reported as
+    // partially analyzed) and keep the findings of the rest, instead of dropping the file.
+    for (const maxDepth of FALLBACK_NESTING_DEPTHS) {
+      try {
+        return analyzeJsSourceWith(code, path, options, maxDepth);
+      } catch (retry) {
+        if (!(retry instanceof RangeError) || !/call stack/i.test(retry.message)) throw retry;
+      }
+    }
+    throw error;
+  }
+}
+
+function analyzeJsSourceWith(
+  code: string,
+  path: string,
+  options: JsAnalysisOptions,
+  maxDepth: number | null,
+): JsAnalysis {
   const scriptKind = options.scriptKind ?? scriptKindFor(path);
   // Parsed under a fixed name (findings use `path`) so the sanitizer check can build a one-file
   // program from it whatever the real extension is (`.vue`, `.mjs`, ...).
-  const sourceFile = ts.createSourceFile(
-    syntheticFileName(scriptKind),
-    code,
-    ts.ScriptTarget.Latest,
-    true,
-    scriptKind,
-  );
+  const parse = (text: string) =>
+    ts.createSourceFile(
+      syntheticFileName(scriptKind),
+      text,
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKind,
+    );
+  let sourceFile = parse(code);
+  // Retry only: an expression nested deeper than the walkers can follow (a chain of tens of
+  // thousands of properties or operands) is cut out (replaced by a blank `0`, same length and
+  // lines) so the rest of the file is still analyzed; the file is then reported as partial.
+  let cutDeep = false;
+  for (let round = 0; maxDepth !== null && round < 50; round += 1) {
+    const cut = findDeepExpression(sourceFile, maxDepth);
+    if (cut === null) break;
+    const text = sourceFile.text;
+    const replaced = text.slice(cut.start, cut.end).replace(/[^\n]/g, " ");
+    sourceFile = parse(`${text.slice(0, cut.start)}0${replaced.slice(1)}${text.slice(cut.end)}`);
+    cutDeep = true;
+  }
   const parseDiagnostics = (sourceFile as unknown as { parseDiagnostics?: unknown[] })
     .parseDiagnostics;
-  const hasParseErrors = Array.isArray(parseDiagnostics) && parseDiagnostics.length > 0;
+  const hasParseErrors =
+    cutDeep || (Array.isArray(parseDiagnostics) && parseDiagnostics.length > 0);
   const lineOffset = options.lineOffset ?? 0;
   const findings: RawSourceFinding[] = [];
   const cappedRules = new Set<string>();
@@ -1398,8 +1485,9 @@ export function analyzeJsSource(
     if (
       ts.isCallExpression(node) &&
       accessPath(node.expression) === "Buffer.from" &&
+      bindingCount.get("Buffer") === undefined &&
       node.arguments[0] &&
-      ts.isStringLiteralLike(unwrap(node.arguments[0]))
+      fixedString(node.arguments[0]) !== null
     )
       return "literal";
     if (
@@ -1410,7 +1498,7 @@ export function analyzeJsSource(
       calleeName(unwrap(node.expression.expression) as ts.NewExpression) === "TextEncoder" &&
       bindingCount.get("TextEncoder") === undefined &&
       node.arguments[0] &&
-      ts.isStringLiteralLike(unwrap(node.arguments[0]))
+      fixedString(node.arguments[0]) !== null
     )
       return "literal";
     if (
@@ -1444,25 +1532,159 @@ export function analyzeJsSource(
       const resolved = init ? fixedString(init, depth + 1) : null;
       return resolved ? { text: resolved.text, via: resolved.via ?? node.text } : null;
     }
+    // `cfg.secret` where `cfg` is a same-file constant object literal (never written through).
+    const property = constObjectProperty(node);
+    if (property) {
+      const resolved = fixedString(property.value, depth + 1);
+      return resolved ? { text: resolved.text, via: resolved.via ?? property.path } : null;
+    }
     return null;
   };
-  /** `literalValue`, also following a sole-binding constant: `jwt.sign(p, SECRET)`. */
+  /**
+   * `cfg.secret` / `cfg["secret"]` resolved to the initializer of that property of a sole-binding
+   * constant object literal in this file. A spread, a duplicate key or a computed key makes the
+   * lookup ambiguous (null). Objects from another file are out of reach.
+   */
+  /**
+   * Property initializers by key, built once per object literal. Null when a key cannot be
+   * resolved statically (spread, computed or method members); a duplicated key maps to nothing.
+   */
+  const objectKeyCache = new WeakMap<
+    ts.ObjectLiteralExpression,
+    Map<string, ts.Expression> | null
+  >();
+  const objectKeysOf = (object: ts.ObjectLiteralExpression): Map<string, ts.Expression> | null => {
+    if (objectKeyCache.has(object)) return objectKeyCache.get(object) ?? null;
+    const keys = new Map<string, ts.Expression>();
+    const duplicated = new Set<string>();
+    let usable = true;
+    for (const property of object.properties) {
+      const name = property.name;
+      if (ts.isSpreadAssignment(property) || !name || ts.isComputedPropertyName(name)) {
+        usable = false;
+        break;
+      }
+      const text = ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : null;
+      if (text === null) continue;
+      // The effective value of a duplicated key is the last one; a member that is not a plain
+      // value (method, accessor) makes the key unknown.
+      if (ts.isPropertyAssignment(property)) {
+        keys.set(text, property.initializer);
+        duplicated.delete(text);
+      } else if (ts.isShorthandPropertyAssignment(property)) {
+        keys.set(text, property.name);
+        duplicated.delete(text);
+      } else duplicated.add(text);
+    }
+    for (const text of duplicated) keys.delete(text);
+    const result = usable ? keys : null;
+    objectKeyCache.set(object, result);
+    return result;
+  };
+  const constObjectProperty = (
+    node: ts.Expression,
+  ): { value: ts.Expression; path: string } | null => {
+    let key: string | null = null;
+    let target: ts.Expression;
+    if (ts.isPropertyAccessExpression(node)) {
+      key = node.name.text;
+      target = unwrap(node.expression);
+    } else if (
+      ts.isElementAccessExpression(node) &&
+      ts.isStringLiteralLike(node.argumentExpression)
+    ) {
+      key = node.argumentExpression.text;
+      target = unwrap(node.expression);
+    } else return null;
+    if (!ts.isIdentifier(target)) return null;
+    const object = soleConstObject(target);
+    // Aliased, passed to a function or otherwise written elsewhere: the literal may not be the value.
+    if (!object || escapesAsSubject(target.text)) return null;
+    const found = objectKeysOf(unwrap(object) as ts.ObjectLiteralExpression)?.get(key) ?? null;
+    return found ? { value: found, path: `${target.text}.${key}` } : null;
+  };
+  /**
+   * A well-formed PEM public key or certificate and nothing else: start and end markers of the same
+   * kind, a base64 body between, no PRIVATE block and no other text before, between or after.
+   */
+  const PUBLIC_PEM =
+    /^\s*-----BEGIN (PUBLIC KEY|RSA PUBLIC KEY|EC PUBLIC KEY|CERTIFICATE)-----[A-Za-z0-9+/=\s\\]*-----END \1-----\s*$/;
+  /** A string constant holding only a public PEM; a Buffer or Uint8Array of it is a raw key, not this. */
+  const isPublicPem = (expression: ts.Expression | undefined, depth = 0): boolean => {
+    if (!expression || depth > 4) return false;
+    let node = unwrap(expression);
+    if (
+      ts.isBinaryExpression(node) &&
+      (node.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+        node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken)
+    )
+      node = unwrap(node.right);
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      return init ? isPublicPem(init, depth + 1) : false;
+    }
+    const property = constObjectProperty(node);
+    if (property) return isPublicPem(property.value, depth + 1);
+    const text = fixedString(node);
+    return text !== null && PUBLIC_PEM.test(text.text);
+  };
+  /** What the `algorithms` option of a verifying call allows. */
+  const algorithmsOf = (options: ts.Expression | undefined): "asymmetric" | "hmac" | "unknown" => {
+    const list = optionOf(options, "algorithms");
+    const array = list ? unwrap(list) : null;
+    if (!array || !ts.isArrayLiteralExpression(array) || array.elements.length === 0)
+      return "unknown";
+    const names = array.elements.map((element) =>
+      ts.isStringLiteralLike(unwrap(element))
+        ? (unwrap(element) as ts.StringLiteralLike).text
+        : null,
+    );
+    if (names.some((name) => name === null)) return "unknown";
+    if (names.some((name) => /^(HS\d+|none)$/i.test(name as string))) return "hmac";
+    return names.every((name) => /^((RS|ES|PS)\d+|EdDSA)$/.test(name as string))
+      ? "asymmetric"
+      : "unknown";
+  };
+  /**
+   * `literalValue`, also following a sole-binding constant (`jwt.sign(p, SECRET)`) and a property
+   * of a same-file constant object (`cfg.secret`). For a verifying call, a PEM public key or
+   * certificate is public material, not a secret, but only when the call clearly uses an
+   * asymmetric algorithm: with HS* allowed it is the HMAC secret of an algorithm-confusion attack
+   * (reported as before), and with the algorithm unpinned or unreadable it is reported low.
+   */
   const fixedKey = (
+    expression: ts.Expression | undefined,
+    verifying: { options: ts.Expression | undefined } | false = false,
+  ): { kind: "literal" | "fallback" | "public-unpinned"; via: string | null } | null => {
+    const found = fixedKeyOf(expression);
+    if (!found || !verifying || !isPublicPem(expression)) return found;
+    const algorithms = algorithmsOf(verifying.options);
+    if (algorithms === "asymmetric") return null;
+    return algorithms === "hmac" ? found : { kind: "public-unpinned", via: found.via };
+  };
+  const fixedKeyOf = (
     expression: ts.Expression | undefined,
   ): { kind: "literal" | "fallback"; via: string | null } | null => {
     const direct = literalValue(expression);
     if (direct) return { kind: direct, via: null };
     if (!expression) return null;
     const node = unwrap(expression);
-    if (!ts.isIdentifier(node)) return null;
-    const init = soleConst(node.text, node);
-    const kind = init ? literalValue(init) : null;
-    return kind ? { kind, via: node.text } : null;
+    if (ts.isIdentifier(node)) {
+      const init = soleConst(node.text, node);
+      const kind = init ? literalValue(init) : null;
+      return kind ? { kind, via: node.text } : null;
+    }
+    const property = constObjectProperty(node);
+    if (property) {
+      const inner = fixedKeyOf(property.value);
+      return inner ? { kind: inner.kind, via: inner.via ?? property.path } : null;
+    }
+    return null;
   };
 
   const reportHardcodedKey = (
     node: ts.Node,
-    key: { kind: "literal" | "fallback"; via: string | null },
+    key: { kind: "literal" | "fallback" | "public-unpinned"; via: string | null },
     where: string,
   ) => {
     const { kind } = key;
@@ -1470,19 +1692,26 @@ export function analyzeJsSource(
     report(
       "PG-CRYPTO-002",
       node,
-      kind === "literal"
+      kind === "public-unpinned"
         ? {
-            severity: "high",
-            status: "confirmed",
-            confidence: "high",
-            flow: `string literal (value redacted)${held} used as ${where}`,
-          }
-        : {
-            severity: "medium",
+            severity: "low",
             status: "suspected",
-            confidence: "medium",
-            flow: `hardcoded fallback literal (value redacted)${held} used as ${where} when the environment value is missing`,
-          },
+            confidence: "low",
+            flow: `PEM public key (value redacted)${held} used as ${where} without a pinned asymmetric algorithm: with an HS* algorithm it is a forgeable HMAC secret (set algorithms: ["RS256"] or similar)`,
+          }
+        : kind === "literal"
+          ? {
+              severity: "high",
+              status: "confirmed",
+              confidence: "high",
+              flow: `string literal (value redacted)${held} used as ${where}`,
+            }
+          : {
+              severity: "medium",
+              status: "suspected",
+              confidence: "medium",
+              flow: `hardcoded fallback literal (value redacted)${held} used as ${where} when the environment value is missing`,
+            },
       where,
     );
   };
@@ -1576,7 +1805,10 @@ export function analyzeJsSource(
       (resolved !== null && resolved.module === "jsonwebtoken") ||
       (receiverPath !== null && /^(jwt|jsonwebtoken)$/.test(receiverPath));
     if (isJwt && (member === "sign" || member === "verify")) {
-      const kind = fixedKey(call.arguments[1]);
+      const kind = fixedKey(
+        call.arguments[1],
+        member === "verify" && { options: call.arguments[2] },
+      );
       if (kind) reportHardcodedKey(call, kind, `JWT ${member} secret`);
     }
     // jose: `new SignJWT(claims)....sign(key)` and `jwtVerify(token, key)`.
@@ -1595,6 +1827,105 @@ export function analyzeJsSource(
       const kind = fixedKey(call.arguments[1]);
       if (kind) reportHardcodedKey(call, kind, "JWT verify secret");
     }
+  };
+
+  /** The value of `key` in an options object literal (a shorthand `{ secret }` names the variable). */
+  const optionOf = (options: ts.Expression | undefined, key: string): ts.Expression | undefined => {
+    let object = options ? unwrap(options) : null;
+    if (object && ts.isIdentifier(object)) {
+      const named = soleConstObject(object);
+      object = named ? unwrap(named) : null;
+    }
+    if (!object || !ts.isObjectLiteralExpression(object)) return undefined;
+    // A later duplicate key replaces an earlier one; a spread may replace it too (unknown).
+    let found: ts.Expression | undefined;
+    for (const property of object.properties) {
+      if (ts.isSpreadAssignment(property)) found = undefined;
+      else if (ts.isPropertyAssignment(property)) {
+        const name = property.name;
+        if ((ts.isIdentifier(name) || ts.isStringLiteralLike(name)) && name.text === key)
+          found = property.initializer;
+      } else if (ts.isShorthandPropertyAssignment(property) && property.name.text === key) {
+        found = property.name;
+      }
+    }
+    return found;
+  };
+  /** Whether `expression` is passport-jwt's `Strategy`: named, namespaced or `require(...).Strategy`. */
+  const isPassportJwtStrategy = (expression: ts.Expression): boolean => {
+    const node = unwrap(expression);
+    if (ts.isIdentifier(node)) {
+      if (namedImports.get(node.text) === "passport-jwt:Strategy") return true;
+      const init = bindingCount.get(node.text) === 1 ? soleConst(node.text, node) : null;
+      const inner = init ? unwrap(init) : null;
+      if (inner && ts.isPropertyAccessExpression(inner) && inner.name.text === "Strategy") {
+        const required = unwrap(inner.expression);
+        return (
+          ts.isCallExpression(required) &&
+          ts.isIdentifier(required.expression) &&
+          required.expression.text === "require" &&
+          required.arguments[0] !== undefined &&
+          ts.isStringLiteralLike(required.arguments[0]) &&
+          required.arguments[0].text === "passport-jwt"
+        );
+      }
+      return false;
+    }
+    if (ts.isPropertyAccessExpression(node) && node.name.text === "Strategy") {
+      const root = accessPath(node.expression);
+      return root !== null && namespaceImports.get(root) === "passport-jwt";
+    }
+    return false;
+  };
+  /**
+   * JWT key options that are not a call to a signing function: NestJS `JwtModule.register({ secret })`
+   * (signs and verifies) and passport-jwt `new Strategy({ secretOrKey })` / `super({ secretOrKey })`
+   * in a `PassportStrategy(Strategy)` class (verifies, so a PEM public key is not reported).
+   */
+  const checkJwtOptions = (node: ts.CallExpression | ts.NewExpression) => {
+    if (ts.isNewExpression(node)) {
+      if (!isPassportJwtStrategy(node.expression)) return;
+      const kind = fixedKey(optionOf(node.arguments?.[0], "secretOrKey"), {
+        options: node.arguments?.[0],
+      });
+      if (kind) reportHardcodedKey(node, kind, "passport-jwt secretOrKey");
+      return;
+    }
+    const callee = unwrap(node.expression);
+    if (callee.kind === ts.SyntaxKind.SuperKeyword) {
+      let owner: ts.Node | undefined = node.parent;
+      while (owner && !ts.isClassLike(owner)) owner = owner.parent;
+      const heritage =
+        owner && ts.isClassLike(owner)
+          ? owner.heritageClauses
+              ?.flatMap((clause) => [...clause.types])
+              .map((type) => unwrap(type.expression))
+              .find(
+                (expression): expression is ts.CallExpression =>
+                  ts.isCallExpression(expression) &&
+                  ts.isIdentifier(expression.expression) &&
+                  expression.expression.text === "PassportStrategy" &&
+                  namedImports.get("PassportStrategy") === "@nestjs/passport:PassportStrategy",
+              )
+          : undefined;
+      const base = heritage?.arguments[0];
+      if (!base || !isPassportJwtStrategy(base)) return;
+      const kind = fixedKey(optionOf(node.arguments[0], "secretOrKey"), {
+        options: node.arguments[0],
+      });
+      if (kind) reportHardcodedKey(node, kind, "passport-jwt secretOrKey");
+      return;
+    }
+    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "register") return;
+    const receiver = unwrap(callee.expression);
+    const isJwtModule =
+      (ts.isIdentifier(receiver) && namedImports.get(receiver.text) === "@nestjs/jwt:JwtModule") ||
+      (ts.isPropertyAccessExpression(receiver) &&
+        receiver.name.text === "JwtModule" &&
+        namespaceImports.get(accessPath(receiver.expression) ?? "") === "@nestjs/jwt");
+    if (!isJwtModule) return;
+    const kind = fixedKey(optionOf(node.arguments[0], "secret"));
+    if (kind) reportHardcodedKey(node, kind, "NestJS JwtModule secret");
   };
 
   // `const` bindings with an initializer, by name (a name declared twice is ambiguous and ignored).
@@ -3671,6 +4002,7 @@ export function analyzeJsSource(
   // Pass 2: rules.
   const visit = (node: ts.Node): void => {
     if (ts.isBinaryExpression(node)) checkPasswordAssignment(node);
+    if (ts.isNewExpression(node) || ts.isCallExpression(node)) checkJwtOptions(node);
     if (ts.isCallExpression(node)) {
       const name = calleeName(node);
       if (name) {

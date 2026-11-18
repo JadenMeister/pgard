@@ -468,3 +468,458 @@ func run() { exec.Command("sh", "-c", hookCmd).Run() }`);
     });
   });
 });
+
+describe("empty key placeholders (#271)", () => {
+  const sign = (decls: string, body = "return t.SignedString(jwtKey)") =>
+    analyzeGoSource(
+      go(["github.com/golang-jwt/jwt/v5"], `${decls}\nfunc f() (string, error) {\n\t${body}\n}`),
+      "main.go",
+    ).findings;
+
+  it("reports an empty package var as before (high, medium confidence) when nothing assigns it", () => {
+    const [empty] = sign('var jwtKey = []byte("")');
+    expect(empty).toMatchObject({
+      ruleId: "PG-CRYPTO-002",
+      severity: "high",
+      confidence: "medium",
+      status: "suspected",
+    });
+    expect(sign('var (\n\tjwtKey = []byte("")\n)')[0]).toMatchObject({ severity: "high" });
+  });
+
+  it("reports an empty package var that this file assigns elsewhere only as low", () => {
+    const [assigned] = sign('var jwtKey = []byte("")\nfunc init() { jwtKey = load() }');
+    expect(assigned).toMatchObject({ severity: "low", confidence: "low", status: "suspected" });
+    expect(assigned?.evidence).toContain("assigned elsewhere in this file");
+    // A non-empty var assigned elsewhere is not a constant: still no finding.
+    expect(sign('var jwtKey = []byte("x")\nfunc init() { jwtKey = load() }')).toEqual([]);
+  });
+
+  it("reports a package var assigned only literals elsewhere in the file as high, other sources low", () => {
+    for (const literal of ['[]byte("")', '[]byte("supersecret123")']) {
+      expect(sign(`var jwtKey = []byte("")\nfunc init() { jwtKey = ${literal} }`)[0]).toMatchObject(
+        {
+          severity: "high",
+        },
+      );
+    }
+    // The same with the assignment on its own lines in a function body.
+    expect(
+      sign('var jwtKey = []byte("")\nfunc init() {\n\tjwtKey = []byte("supersecret123")\n}')[0],
+    ).toMatchObject({ severity: "high" });
+    expect(
+      sign('var jwtKey = []byte("")\nfunc init() {\n\tjwtKey = []byte(os.Getenv("K"))\n}')[0],
+    ).toMatchObject({ severity: "low" });
+    // An environment read is not provable: low (empty initializer) or nothing (non-empty).
+    expect(
+      sign('var jwtKey = []byte("")\nfunc init() { jwtKey = []byte(os.Getenv("K")) }')[0],
+    ).toMatchObject({ severity: "low" });
+    expect(
+      sign('var jwtKey = []byte("x")\nfunc init() { jwtKey = []byte(os.Getenv("K")) }'),
+    ).toEqual([]);
+    // A literal and then an environment read: not all literal.
+    expect(
+      sign(
+        'var jwtKey = []byte("")\nfunc init() { jwtKey = []byte("a") }\nfunc g() { jwtKey = []byte(os.Getenv("K")) }',
+      )[0],
+    ).toMatchObject({ severity: "low" });
+  });
+
+  it("keeps an empty literal or constant used as the key a high finding", () => {
+    expect(sign("", 'return t.SignedString([]byte(""))')[0]).toMatchObject({
+      severity: "high",
+      confidence: "high",
+    });
+    expect(sign('const jwtKey = ""', "return t.SignedString([]byte(jwtKey))")[0]).toMatchObject({
+      severity: "high",
+      confidence: "high",
+    });
+    expect(sign('var jwtKey = []byte("not-empty-secret")')[0]).toMatchObject({
+      severity: "high",
+      confidence: "medium",
+    });
+  });
+});
+
+describe("PG-PATH-001 taint is scoped per function (#298)", () => {
+  const imports = ["net/http", "os", "github.com/gin-gonic/gin"];
+  const paths = (body: string) =>
+    analyzeGoSource(go(imports, body), "main.go")
+      .findings.filter((f) => f.ruleId === "PG-PATH-001")
+      .map((f) => f.line);
+
+  it("does not flag a safe handler that reuses a variable name of a vulnerable one", () => {
+    const body = `func vulnerable(c *gin.Context) {
+	name := c.Query("name")
+	os.ReadFile(name)
+}
+
+func safe(c *gin.Context) {
+	name := "report.txt"
+	os.ReadFile(name)
+}`;
+    const lines = paths(body);
+    const text = go(imports, body).split("\n");
+    // Only the vulnerable handler, which comes first.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBeLessThan(text.findIndex((line) => line.startsWith("func safe")));
+  });
+
+  it("does not flag a closure that declares its own variable of that name", () => {
+    expect(
+      paths(`func a(c *gin.Context) {
+	name := c.Query("name")
+	_ = name
+}
+func b() {
+	h := func() {
+		name := "fixed.txt"
+		os.ReadFile(name)
+	}
+	h()
+}`),
+    ).toEqual([]);
+  });
+
+  it("still flags a package variable that flows into a handler", () => {
+    expect(
+      paths(`var target string
+
+func set(c *gin.Context) {
+	target = c.Query("p")
+}
+
+func read(c *gin.Context) {
+	os.ReadFile(target)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("still flags a variable captured by a closure", () => {
+    expect(
+      paths(`func h(c *gin.Context) {
+	file := c.Query("f")
+	func() {
+		os.ReadFile(file)
+	}()
+}`),
+    ).toHaveLength(1);
+    // Assigned inside the closure, read after it in the outer function.
+    expect(
+      paths(`func h(c *gin.Context) {
+	var file string
+	func() {
+		file = c.Query("f")
+	}()
+	os.ReadFile(file)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("still flags a tainted variable passed as a parameter", () => {
+    expect(
+      paths(`func h(c *gin.Context) {
+	p := c.Query("p")
+	serve(p)
+}
+
+func serve(target string) {
+	os.ReadFile(target)
+}`),
+    ).toHaveLength(1);
+    // A different argument position does not taint the parameter.
+    expect(
+      paths(`func h(c *gin.Context) {
+	serve("fixed.txt", c.Query("p"))
+}
+
+func serve(target string, other string) {
+	os.ReadFile(target)
+}`),
+    ).toEqual([]);
+    // Method with a receiver and parameters sharing a type.
+    expect(
+      paths(`func (s *S) h(c *gin.Context) {
+	s.serve("a", c.Query("p"))
+}
+
+func (s *S) serve(a, target string) {
+	os.ReadFile(target)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("still flags a struct field that carries request input", () => {
+    expect(
+      paths(`type req struct{ Path string }
+
+func h(c *gin.Context) {
+	r := req{Path: c.Query("p")}
+	os.ReadFile(r.Path)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("scopes SQL taint the same way", () => {
+    const sql = analyzeGoSource(
+      go(
+        ["database/sql", "github.com/gin-gonic/gin"],
+        `func a(c *gin.Context, db *sql.DB) {
+	id := c.Query("id")
+	db.Query("SELECT * FROM t WHERE id = " + id)
+}
+func b(db *sql.DB) {
+	id := "7"
+	db.Query("SELECT * FROM t WHERE id = " + id)
+}`,
+      ),
+      "main.go",
+    ).findings.filter((f) => f.ruleId === "PG-SQL-003");
+    // `a` carries request input; `b` only builds a string (no request input reaches it).
+    expect(sql.map((f) => f.severity)).toEqual(["high", "medium"]);
+    expect(sql[0]?.evidence).toContain("request input");
+    expect(sql[1]?.evidence).toContain("no input source identified");
+  });
+});
+
+describe("many top-level constants stay linear (#375)", () => {
+  const generated = (count: number) =>
+    `package main\n\nimport "os"\n\n${Array.from({ length: count }, (_, index) => `const C${index} = "v${index}"`).join("\n")}\n\nfunc f() { os.Open("x") }\n`;
+
+  itScaled(
+    "analyzes 20000 constants without a quadratic scope scan",
+    () => {
+      const large = generated(20_000);
+      const quarter = generated(5_000);
+      const big = bestTimeOf(5, () => analyzeGoSource(large, "gen.go"));
+      const small = bestTimeOf(5, () => analyzeGoSource(quarter, "gen.go"));
+      // Four times the input: linear is about 4x, the old per-constant scan about 16x. The ratio
+      // does not depend on the machine; the absolute ceiling is only a hang guard (it took 9 s).
+      expect(big / Math.max(small, 1)).toBeLessThan(12);
+      expect(big).toBeLessThan(5000 * TIME_FACTOR);
+    },
+    60_000,
+  );
+
+  it("keeps block-local constants trusted only inside their block", () => {
+    const sql = (body: string) =>
+      analyzeGoSource(go(["database/sql", "fmt"], body), "main.go").findings.map((f) => f.severity);
+    expect(
+      sql(`func f(db *sql.DB) {
+	const t = "users"
+	db.Query("SELECT * FROM " + t)
+}`),
+    ).toEqual(["medium"]);
+    // The same name used outside the block may be a package variable of another file.
+    expect(
+      sql(`func f(db *sql.DB) {
+	const t = "users"
+	db.Query("SELECT * FROM " + t)
+}
+func g(db *sql.DB) {
+	db.Query("SELECT * FROM " + t)
+}`),
+    ).toEqual(["medium", "medium"]);
+  });
+});
+
+describe("Go taint across same-file functions (#298 review)", () => {
+  const imports = ["net/http", "os", "database/sql", "github.com/gin-gonic/gin"];
+  const rules = (body: string, rule: string) =>
+    analyzeGoSource(go(imports, body), "main.go").findings.filter((f) => f.ruleId === rule);
+
+  it("follows a helper that returns request input into a caller that reuses the name", () => {
+    const body = `func getFilename(r *http.Request) string {
+	filename := r.URL.Query().Get("file")
+	return filename
+}
+
+func download(w http.ResponseWriter, r *http.Request) {
+	filename := getFilename(r)
+	http.ServeFile(w, r, "/data/"+filename)
+}`;
+    expect(rules(body, "PG-PATH-001")).toHaveLength(1);
+    // A helper that returns a constant does not taint its caller.
+    expect(rules(body.replace('r.URL.Query().Get("file")', '"report.txt"'), "PG-PATH-001")).toEqual(
+      [],
+    );
+  });
+
+  it("follows a named result and a returned call", () => {
+    const sql = rules(
+      `func readSort(r *http.Request) (sort string) {
+	sort = r.URL.Query().Get("sort")
+	return
+}
+
+func list(db *sql.DB, r *http.Request) {
+	sort := readSort(r)
+	db.Query("SELECT * FROM t ORDER BY " + sort)
+}`,
+      "PG-SQL-003",
+    );
+    expect(sql.map((f) => [f.severity, f.confidence])).toEqual([["high", "high"]]);
+    expect(
+      rules(
+        `func inner(r *http.Request) string { return r.URL.Query().Get("f") }
+func outer(r *http.Request) string { return inner(r) }
+func h(w http.ResponseWriter, r *http.Request) {
+	f := outer(r)
+	os.ReadFile(f)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("settles a long call chain declared in reverse order", () => {
+    const hops = 8;
+    const chain = Array.from({ length: hops }, (_, i) =>
+      i === hops - 1
+        ? `func hop${i}(p string) { os.ReadFile(p) }`
+        : `func hop${i}(p string) { hop${i + 1}(p) }`,
+    ).reverse();
+    const body = `${chain.join("\n")}\nfunc h(c *gin.Context) {\n\tv := c.Query("x")\n\thop0(v)\n}`;
+    expect(rules(body, "PG-PATH-001")).toHaveLength(1);
+    // The same chain with a constant at the entry stays quiet.
+    expect(rules(body.replace('c.Query("x")', '"fixed"'), "PG-PATH-001")).toEqual([]);
+  });
+
+  it("falls back to name-only taint for a method value, a function literal and a package literal", () => {
+    expect(
+      rules(
+        `type S struct{}
+func (s *S) Read(name string) { os.ReadFile(name) }
+func h(c *gin.Context, s *S) {
+	name := c.Query("n")
+	f := s.Read
+	f(name)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+    expect(
+      rules(
+        `var read = func(name string) { os.ReadFile(name) }
+func h(c *gin.Context) {
+	name := c.Query("n")
+	read(name)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+    expect(
+      rules(
+        `func h(c *gin.Context) {
+	name := c.Query("n")
+	read := func(name string) { os.ReadFile(name) }
+	read(name)
+}`,
+        "PG-PATH-001",
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("does bounded work for many same-named methods and calls", () => {
+    const build = (count: number) =>
+      `package main\nimport "os"\n${Array.from({ length: count }, (_, i) => `func (t T${i}) Get(a string) { os.ReadFile(a) }\n`).join("")}func h(r *http.Request) {\n${Array.from({ length: count }, (_, i) => `\tT${i}{}.Get(r.FormValue("k${i}"))\n`).join("")}}\n`;
+    const small = bestTimeOf(2, () => analyzeGoSource(build(1500), "m.go"));
+    const large = bestTimeOf(2, () => analyzeGoSource(build(6000), "m.go"));
+    // Four times the methods and calls: linear is about 4x, every call against every method 16x.
+    expect(large / Math.max(small, 1)).toBeLessThan(10);
+    expect(large).toBeLessThan(10_000 * TIME_FACTOR);
+  });
+});
+
+describe("Go taint through struct fields and receivers (#298 review)", () => {
+  const imports = ["net/http", "os", "database/sql", "github.com/gin-gonic/gin"];
+  const rules = (body: string, rule = "PG-PATH-001") =>
+    analyzeGoSource(go(imports, body), "main.go").findings.filter((f) => f.ruleId === rule);
+
+  it("follows a struct built from request input into a method that reads the field", () => {
+    const body = `type Store struct{ file string }
+
+func (s Store) read() { os.ReadFile(s.file) }
+
+func h(r *http.Request) {
+	s := Store{file: r.FormValue("file")}
+	s.read()
+}`;
+    expect(rules(body)).toHaveLength(1);
+    // Constant field: quiet.
+    expect(rules(body.replace('r.FormValue("file")', '"a.txt"'))).toEqual([]);
+    // A literal receiver and a pointer receiver.
+    expect(
+      rules(`type Store struct{ file string }
+func (s *Store) read() { os.ReadFile(s.file) }
+func h(r *http.Request) {
+	(&Store{file: r.FormValue("file")}).read()
+}`),
+    ).toHaveLength(1);
+    // A field set after construction.
+    expect(
+      rules(`type Store struct{ file string }
+func (s *Store) read() { os.ReadFile(s.file) }
+func h(r *http.Request) {
+	s := &Store{}
+	s.file = r.FormValue("file")
+	s.read()
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("does not taint another type's method of the same name when the receiver type is known", () => {
+    const body = `type A struct{ file string }
+type B struct{ file string }
+
+func (a A) read() { os.ReadFile(a.file) }
+func (b B) read() { os.ReadFile(b.file) }
+
+func h(r *http.Request) {
+	b := B{file: r.FormValue("file")}
+	b.read()
+}`;
+    const found = rules(body);
+    expect(found).toHaveLength(1);
+    // Only B.read: the finding is on the line of `os.ReadFile(b.file)`.
+    const text = go(imports, body).split("\n");
+    expect(text[(found[0]?.line ?? 1) - 1]).toContain("b.file");
+  });
+
+  it("follows a receiver through a named return and an aliased method value", () => {
+    expect(
+      rules(`type Store struct{ file string }
+func (s Store) path() (p string) { p = s.file; return }
+func h(r *http.Request) {
+	s := Store{file: r.FormValue("file")}
+	os.ReadFile(s.path())
+}`),
+    ).toHaveLength(1);
+    expect(
+      rules(`type Store struct{ file string }
+func (s Store) read() { os.ReadFile(s.file) }
+func h(r *http.Request) {
+	s := Store{file: r.FormValue("file")}
+	f := s.read
+	f()
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("keeps a package variable tainted when a function also declares an inner variable of that name", () => {
+    const body = `var file string
+
+func set(c *gin.Context) {
+	file = c.Query("f")
+	{
+		file := "unrelated.txt"
+		_ = file
+	}
+}
+
+func read(c *gin.Context) {
+	os.ReadFile(file)
+}`;
+    expect(rules(body)).toHaveLength(1);
+  });
+});

@@ -429,8 +429,8 @@ try {
   );
   writeFileSync(
     join(jsProject, "slow.go"),
-    // Quadratic in the Go analyzer's per-constant scope check: far longer than the limit.
-    `package main\n${Array.from({ length: 40000 }, (_, i) => `const c${i} = 1\n`).join("")}`,
+    // Quadratic in the Go analyzer's package-key lookup (one scan per key): far longer than the limit.
+    `package main\nimport "github.com/golang-jwt/jwt/v5"\n${Array.from({ length: 8000 }, (_, i) => `var k${i} = []byte("x")\n`).join("")}func f() {\n${Array.from({ length: 8000 }, (_, i) => `\tt.SignedString(k${i})\n`).join("")}}\n`,
   );
   const jsScan = await grammar.scanSourceCode(jsProject, { perFileTimeLimitMs: 1000 });
   const jsCoverage = jsScan.coverage.find((entry) => entry.area === "source:javascript");

@@ -34,15 +34,20 @@ function project(files: Record<string, string>, directories: string[] = []): str
   return root;
 }
 
+const WORKER_FOR_DEPTH = new URL("../dist/analyze-worker.js", import.meta.url);
+const hasWorkerForDepth = existsSync(fileURLToPath(WORKER_FOR_DEPTH));
+
 const SQL_VULN =
   'import { Pool } from "pg";\nconst pool = new Pool();\nexport const q = (req) => pool.query(`SELECT * FROM t WHERE id = ${req.query.id}`);\n';
 const GO_VULN =
   'package main\nimport ("database/sql"; "net/http")\nfunc h(db *sql.DB, r *http.Request) { db.Query("SELECT * FROM t WHERE id=" + r.URL.Query().Get("id")) }\n';
 /**
- * Quadratic in the Go analyzer's per-constant scope check: tens of seconds, far over the limits
- * under test (the limit, not a fix of this shape, is what the tests are about).
+ * Quadratic in the Go analyzer's package-key lookup (one whole-file scan per key passed to a
+ * signing call): tens of seconds, far over the limits under test (the limit, not a fix of this
+ * shape, is what the tests are about). The per-constant scope check this used to rely on is linear
+ * since #375, so many constants no longer make a file slow.
  */
-const SLOW_GO = `package main\n${Array.from({ length: 40_000 }, (_, index) => `const c${index} = 1\n`).join("")}`;
+const SLOW_GO = `package main\nimport "github.com/golang-jwt/jwt/v5"\n${Array.from({ length: 8_000 }, (_, index) => `var k${index} = []byte("x")\n`).join("")}func f() {\n${Array.from({ length: 8_000 }, (_, index) => `\tt.SignedString(k${index})\n`).join("")}}\n`;
 /** Nesting that overflows the TypeScript parser's stack. */
 const DEEP_JS = `${"function f(a){ ".repeat(20_000)}x(a);${" }".repeat(20_000)}\n`;
 
@@ -69,16 +74,50 @@ describe("stack limit (M3)", () => {
 });
 
 describe("stack limit on a deep route receiver chain (#302)", () => {
-  it("reports the file as not analyzed (partial), never as a clean result", async () => {
+  it("cuts the chain out, analyzes the rest of the file and reports it partial, never clean", async () => {
     const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
     const root = project({ "routes.js": chain, "ok.js": SQL_VULN });
     const output = await scanSourceCode(root, { analysisWorker: null });
     const entry = coverageOf(output, "source:javascript");
     expect(entry?.status).toBe("partial");
-    expect(entry?.note).toContain(
-      'nested too deeply to analyze (stack limit reached; not analyzed: "routes.js")',
-    );
+    expect(entry?.note).toContain("nested too deeply to follow (cut out)");
     expect(output.findings.some((finding) => finding.location.path === "ok.js")).toBe(true);
+  });
+
+  it("keeps a separate finding of a file whose expression chain is cut out", async () => {
+    const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
+    const file = `${SQL_VULN}const x = ${chain}`;
+    const root = project({ "mixed.js": file });
+    const output = await scanSourceCode(root, { analysisWorker: null });
+    expect(output.findings.some((finding) => finding.ruleId === "PG-SQL-001")).toBe(true);
+    expect(coverageOf(output, "source:javascript")?.status).toBe("partial");
+  });
+});
+
+describe.skipIf(!hasWorkerForDepth)("deep but analyzable files are not cut (#271 review)", () => {
+  const operands = Array.from({ length: 2700 }, (_, i) => `'a${i}'`).join(" + ");
+  const cases: [string, string, string][] = [
+    [
+      "a 2,700-operand concatenation into a query",
+      `import { Pool } from 'pg'; const pool = new Pool();\nexport const q = (req) => pool.query("SELECT " + ${operands} + req.query.id);\n`,
+      "PG-SQL-001",
+    ],
+    [
+      "a hard-coded secret followed by a long chain",
+      `import jwt from 'jsonwebtoken'; const t = jwt.sign({}, 'hardcoded-secret-value') + ${operands};\n`,
+      "PG-CRYPTO-002",
+    ],
+    [
+      "500 nested immediately-invoked functions around a secret",
+      `import jwt from 'jsonwebtoken'; const K = 'hardcoded-secret-value'; ${"(function () { ".repeat(500)}jwt.sign({}, K);${" })();".repeat(500)}\n`,
+      "PG-CRYPTO-002",
+    ],
+  ];
+  it.each(cases)("%s is analyzed in full", async (_name, content, rule) => {
+    const root = project({ "deep.js": content });
+    const output = await scanSourceCode(root, { analysisWorker: WORKER_FOR_DEPTH });
+    expect(output.findings.some((finding) => finding.ruleId === rule)).toBe(true);
+    expect(coverageOf(output, "source:javascript")?.status).toBe("completed");
   });
 });
 
