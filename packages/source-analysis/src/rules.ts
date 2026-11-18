@@ -703,8 +703,8 @@ export const SOURCE_RULES = [
       },
     },
     rationale: {
-      en: "Ciphers such as DES, 3DES and RC4, and modes such as ECB, are broken or leak the structure of the plaintext. An attacker who captures the ciphertext may recover data, and without authentication (a GCM tag or a MAC) can also modify it without detection. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token lets an attacker guess it. In Java and Kotlin the rule also reads bare `AES` (ECB), a fixed IV and such random values.",
-      ko: "DES, 3DES, RC4 같은 암호나 ECB 같은 모드는 깨졌거나 평문의 구조를 드러냅니다. 암호문을 가로챈 공격자는 데이터를 복구할 수 있고, 인증(GCM 태그나 MAC)이 없으면 탐지되지 않게 변조할 수도 있습니다. 키·IV·salt·토큰에 쓰는 예측 가능한 난수(`java.util.Random`, `Math.random()`)는 공격자가 추측할 수 있습니다. Java와 Kotlin에서는 모드 없는 `AES`(ECB), 고정 IV, 이런 난수 값도 읽습니다.",
+      en: "DES, 3DES, RC4 and ECB are broken or leak the structure of the plaintext, so a captured ciphertext may be recovered or, without a GCM tag or MAC, modified undetected. A predictable random source (`java.util.Random`, `Math.random()`) for a key, IV, salt or token can be guessed. Java and Kotlin also read bare `AES` (ECB), RSA with no padding (deterministic and malleable), MD5 or SHA-1 `Signature` algorithms such as `MD5withRSA`, a fixed IV and such random values.",
+      ko: "DES, 3DES, RC4, ECB는 깨졌거나 평문의 구조를 드러내므로, 가로챈 암호문을 복구하거나 GCM 태그나 MAC이 없으면 들키지 않게 변조할 수 있습니다. 키·IV·salt·토큰에 쓰는 예측 가능한 난수(`java.util.Random`, `Math.random()`)는 추측당할 수 있습니다. Java와 Kotlin은 모드 없는 `AES`(ECB), 패딩 없는 RSA(같은 입력에 같은 결과, 변조도 쉬움), `MD5withRSA` 같은 MD5·SHA-1 `Signature` 알고리즘, 고정 IV, 이런 난수 값도 읽습니다.",
     },
     remediation: {
       en: "Use an AEAD cipher: AES-256-GCM through `crypto.createCipheriv('aes-256-gcm', key, iv)`, with a new random 12-byte IV for every message. Store the tag from `getAuthTag()` after encrypting. When decrypting, create the decipher with `{ authTagLength: 16 }` (or check the stored tag is 16 bytes) and call `setAuthTag()` before `final()`, so a truncated tag is rejected. Never reuse an IV with the same key. In Java use `AES/GCM/NoPadding` and `SecureRandom`.",
