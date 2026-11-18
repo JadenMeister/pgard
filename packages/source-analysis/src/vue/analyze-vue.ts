@@ -33,7 +33,6 @@ interface TemplateProp {
 const NODE_ELEMENT = 1;
 const PROP_ATTRIBUTE = 6;
 const PROP_DIRECTIVE = 7;
-const MAX_TEMPLATE_DEPTH = 500;
 const BROWSER_INPUT =
   /\$route\b|\broute\.(query|params|hash)|\blocation\.|\bquery\b|\bparams\b|searchParams/;
 const SANITIZED = /\b(sanitize|sanitizeHtml|purify|DOMPurify|escapeHtml|xss)\b/i;
@@ -53,6 +52,8 @@ interface ScriptSanitizers {
   roots: Map<string, SanitizerRoot>;
   /** Why a DOMPurify hook or `setConfig` in the script makes every sanitize call unsafe, or null. */
   hookRisk: string | null;
+  /** Object literals bound once by `const` in the script (`const options = { ... }`), by name. */
+  constObjects: Map<string, ts.Expression>;
 }
 
 const OBJECT_WRITERS = new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]);
@@ -113,6 +114,7 @@ function scriptSanitizers(
   const imported = new Map<string, string>();
   const importedName = new Map<string, string>();
   const importCount = new Map<string, number>();
+  const objects = new Map<string, ts.Expression>();
   const count = (name: string) => importCount.set(name, (importCount.get(name) ?? 0) + 1);
   const collect = (node: ts.Node): void => {
     if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
@@ -141,6 +143,15 @@ function scriptSanitizers(
     )
       count(node.left.text);
     if (ts.isFunctionDeclaration(node) && node.name) count(node.name.text);
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer &&
+      ts.isObjectLiteralExpression(node.initializer) &&
+      ts.isVariableDeclarationList(node.parent) &&
+      (node.parent.flags & ts.NodeFlags.Const) !== 0
+    )
+      objects.set(node.name.text, node.initializer);
     // `X.sanitize = ...`, `X["sanitize"] = ...`, `Object.assign(X, ...)` change what X does.
     const written = memberWriteRoot(node);
     if (written) count(written);
@@ -221,10 +232,16 @@ function scriptSanitizers(
       if (SANITIZER_MODULES.has(module) && !importCount.has(name) && !optionNames.has(name))
         roots.set(name, { module, named: importedName.get(name) ?? null });
   const hasDomPurify = [...imported.values()].some(isDomPurifyFamily);
+  // A const object counts only when it is the name's sole binding and is never written through.
+  const constObjects = new Map<string, ts.Expression>();
+  for (const [name, init] of objects) if (importCount.get(name) === 1) constObjects.set(name, init);
+  const resolveConst = (e: ts.Expression): ts.Expression | null =>
+    ts.isIdentifier(e) ? (constObjects.get(e.text) ?? null) : null;
   return {
     computeds: found,
     roots,
-    hookRisk: hasDomPurify ? domPurifyFileRisk(source, null) : null,
+    hookRisk: hasDomPurify ? domPurifyFileRisk(source, resolveConst) : null,
+    constObjects,
   };
 }
 
@@ -294,6 +311,7 @@ function sanitizerRootOf(
   expression: string,
   roots: Map<string, SanitizerRoot>,
   hookRisk: string | null,
+  constObjects: Map<string, ts.Expression>,
 ): { module: string; proven: boolean; risk: string | null } | null {
   if (roots.size === 0) return null;
   const source = ts.createSourceFile(
@@ -330,8 +348,9 @@ function sanitizerRootOf(
   );
   // The template cannot resolve a named options object, so it is read as not visible (risky).
   const risk =
-    unsafeSanitizerOptions(root.module, node.arguments[1], null) ??
-    (isDomPurifyFamily(root.module) ? hookRisk : null);
+    unsafeSanitizerOptions(root.module, node.arguments[1], (e) =>
+      ts.isIdentifier(e) ? (constObjects.get(e.text) ?? null) : null,
+    ) ?? (isDomPurifyFamily(root.module) ? hookRisk : null);
   return {
     module: root.module,
     proven: isEntryPoint && risk === null,
@@ -374,7 +393,12 @@ function localTemplateNames(node: TemplateNode): Set<string> {
 /** Classifies a `v-html` expression without evaluating it. */
 function classifyVHtml(
   expression: string,
-  scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map(), hookRisk: null },
+  scripts: ScriptSanitizers = {
+    computeds: new Map(),
+    roots: new Map(),
+    hookRisk: null,
+    constObjects: new Map(),
+  },
   shadowed: ReadonlySet<string> = new Set(),
 ): Classification | null {
   const trimmed = expression.trim();
@@ -395,7 +419,7 @@ function classifyVHtml(
     shadowed.size === 0
       ? scripts.roots
       : new Map([...scripts.roots].filter(([name]) => !shadowed.has(name)));
-  const root = sanitizerRootOf(trimmed, roots, scripts.hookRisk);
+  const root = sanitizerRootOf(trimmed, roots, scripts.hookRisk, scripts.constObjects);
   if (root?.proven) return null;
   const rootModule = root?.module ?? null;
   const finding = classifyUnsanitized(trimmed);
@@ -446,7 +470,12 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
   let facts: JsFileFacts | null = null;
   let hasParseErrors = errors.length > 0;
   const cappedRules = new Set<string>();
-  const scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map(), hookRisk: null };
+  const scripts: ScriptSanitizers = {
+    computeds: new Map(),
+    roots: new Map(),
+    hookRisk: null,
+    constObjects: new Map(),
+  };
 
   for (const block of [descriptor.script, descriptor.scriptSetup]) {
     if (!block) continue;
@@ -459,6 +488,7 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
     for (const [name, module] of found.computeds) scripts.computeds.set(name, module);
     for (const [name, root] of found.roots) scripts.roots.set(name, root);
     scripts.hookRisk ??= found.hookRisk;
+    for (const [name, init] of found.constObjects) scripts.constObjects.set(name, init);
     const analysis = analyzeJsSource(block.content, path, {
       lineOffset: block.loc.start.line - 1,
       scriptKind: isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
@@ -493,35 +523,45 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
       : analysis.facts;
   }
 
-  const visit = (node: TemplateNode, outer: ReadonlySet<string>, depth: number): void => {
-    // Too deep to follow: stop, and say so (the walk below never recurses further).
-    if (depth > MAX_TEMPLATE_DEPTH) {
-      hasParseErrors = true;
-      return;
-    }
-    let shadowed = outer;
-    if (node.type === NODE_ELEMENT) {
-      const local = localTemplateNames(node);
-      if (local.size > 0) shadowed = new Set([...outer, ...local]);
-      for (const prop of node.props ?? []) {
-        if (prop.type === PROP_DIRECTIVE && prop.name === "html" && prop.exp) {
-          const classification = classifyVHtml(prop.exp.content, scripts, shadowed);
-          if (classification) {
-            findings.push({
-              ruleId: "PG-XSS-003",
-              path,
-              line: prop.loc.start.line,
-              cause: "v-html",
-              ...classification,
-            });
+  // Iterative walk (no recursion, so a deeply nested template cannot overflow the stack here).
+  // `shadowed` holds only names that are sanitizer imports, so it stays small however many
+  // aliases a template declares.
+  const walk = (root: TemplateNode): void => {
+    const stack: { node: TemplateNode; outer: ReadonlySet<string> }[] = [
+      { node: root, outer: new Set() },
+    ];
+    for (let entry = stack.pop(); entry !== undefined; entry = stack.pop()) {
+      const { node, outer } = entry;
+      let shadowed = outer;
+      if (node.type === NODE_ELEMENT) {
+        if (scripts.roots.size > 0) {
+          const hidden = [...localTemplateNames(node)].filter((name) => scripts.roots.has(name));
+          if (hidden.length > 0) shadowed = new Set([...outer, ...hidden]);
+        }
+        for (const prop of node.props ?? []) {
+          if (prop.type === PROP_DIRECTIVE && prop.name === "html" && prop.exp) {
+            const classification = classifyVHtml(prop.exp.content, scripts, shadowed);
+            if (classification) {
+              findings.push({
+                ruleId: "PG-XSS-003",
+                path,
+                line: prop.loc.start.line,
+                cause: "v-html",
+                ...classification,
+              });
+            }
           }
         }
       }
+      const children = node.children ?? [];
+      for (let i = children.length - 1; i >= 0; i -= 1) {
+        const child = children[i];
+        if (child) stack.push({ node: child, outer: shadowed });
+      }
     }
-    for (const child of node.children ?? []) visit(child, shadowed, depth + 1);
   };
   const ast = descriptor.template?.ast as TemplateNode | undefined | null;
-  if (ast) visit(ast, new Set(), 0);
+  if (ast) walk(ast);
 
   return { findings, facts, hasParseErrors, cappedRules: [...cappedRules] };
 }

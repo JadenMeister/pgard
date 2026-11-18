@@ -118,12 +118,61 @@ describe("Vue template-local names that shadow the sanitizer (#278)", () => {
     ).toEqual([]);
   });
 
-  it("stays bounded on a deep template and many aliases", () => {
-    const deep = `${"<div>".repeat(300)}<span v-html="html"></span>${"</div>".repeat(300)}`;
-    expect(vue(deep, DOMPURIFY).length).toBe(1);
-    const aliases = Array.from({ length: 300 }, (_, i) => `a${i}`).join(", ");
+  it("walks a deep template without a depth cap, so a deep v-html finding is kept", () => {
+    // The walk is iterative: depth never drops a finding (beyond what the parser itself allows).
+    for (const depth of [300, 501, 1500]) {
+      const deep = `${"<div>".repeat(depth)}<span v-html="$route.query.x"></span>${"</div>".repeat(depth)}`;
+      const found = vue(deep, DOMPURIFY);
+      expect(found.length).toBe(1);
+      expect(found[0]).toMatchObject({ severity: "high" });
+    }
+  });
+
+  it("keeps the shadowing set small: many nested v-for aliases stay fast", () => {
+    const aliases = Array.from({ length: 100 }, (_, i) => `a${i}`).join(", ");
+    const levels = 300;
+    const nested = `<div v-for="(${aliases}) in list" :key="1">`.repeat(levels);
+    const leaves = '<i v-for="(x, y) in list" :key="y"></i>'.repeat(1000);
+    const code = `${nested}${leaves}<b v-html="DOMPurify.sanitize(h)"></b>${"</div>".repeat(levels)}`;
     const started = Date.now();
-    vue(`<div v-for="(${aliases}) in list" :key="1"><i v-html="html"></i></div>`, DOMPURIFY);
+    const found = vue(code, DOMPURIFY);
     expect(Date.now() - started).toBeLessThan(2000);
+    expect(found).toEqual([]);
+  });
+
+  it("proves nothing when a nested v-for shadows the import, however deep", () => {
+    const code = `${'<div v-for="DOMPurify in list" :key="1">'.repeat(50)}<b v-html="DOMPurify.sanitize(h)"></b>${"</div>".repeat(50)}`;
+    expect(vue(code, DOMPURIFY).length).toBe(1);
+  });
+});
+
+describe("Vue script-setup options (#278 review)", () => {
+  const withOptions = (declaration: string, call = "DOMPurify.sanitize(html, opts)") =>
+    vue(`<div v-html="${call}"></div>`, `${DOMPURIFY}\n${declaration}`);
+
+  it("reads a const options object of the script like the JS analysis does", () => {
+    expect(withOptions("const opts = { ADD_ATTR: ['target'] };")).toEqual([]);
+    expect(withOptions("const opts = { ADD_TAGS: ['script'] };")[0]?.confidence).toBe("low");
+    expect(
+      withOptions("const opts = { ADD_ATTR: ['target'] };\nopts.ADD_TAGS = ['script'];")[0]
+        ?.confidence,
+    ).toBe("low");
+    expect(withOptions("let opts = { ADD_ATTR: ['target'] };\nopts = {};")[0]?.confidence).toBe(
+      "low",
+    );
+    expect(withOptions("")[0]?.confidence).toBe("low");
+  });
+
+  it("does not flag a benign hook in the script but flags a dangerous one", () => {
+    const plain = '<div v-html="DOMPurify.sanitize(html)"></div>';
+    expect(
+      vue(
+        plain,
+        `${DOMPURIFY}\nDOMPurify.addHook('afterSanitizeAttributes', (n) => n.setAttribute('target', '_blank'));`,
+      ),
+    ).toEqual([]);
+    expect(
+      vue(plain, `${DOMPURIFY}\nDOMPurify.addHook('x', (n) => { track(n); });`)[0]?.confidence,
+    ).toBe("low");
   });
 });

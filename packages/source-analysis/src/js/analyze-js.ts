@@ -83,6 +83,8 @@ export interface JsAnalysisOptions {
   scriptKind?: ts.ScriptKind;
 }
 
+/** Modules whose default export turns a name into a safe file name: their result is a clean path part. */
+const FILENAME_SANITIZER_MODULES = new Set(["sanitize-filename", "filenamify"]);
 const SQL_ESCAPE_MODULES = new Set(["sqlstring", "mysql", "mysql2", "mysql2/promise", "pg-escape"]);
 const SQL_DRIVER_MODULES = new Set(["pg", "pg-pool", "mysql", "mysql2", "mysql2/promise"]);
 // Bounded and newline-tolerant so multi-line SQL templates match without backtracking blowups.
@@ -355,8 +357,10 @@ export function analyzeJsSource(
   const sqlEscapeModules = new Set<string>();
   for (const [local, module] of namespaceImports)
     if (SQL_ESCAPE_MODULES.has(module)) sqlEscapeModules.add(local);
+    else if (FILENAME_SANITIZER_MODULES.has(module)) sqlEscapeFunctions.add(local);
   for (const [local, bound] of namedImports) {
     const at = bound.lastIndexOf(":");
+    if (bound === "filenamify:filenamify") sqlEscapeFunctions.add(local);
     if (
       SQL_ESCAPE_MODULES.has(bound.slice(0, at)) &&
       /^(escape|escapeId)$/.test(bound.slice(at + 1))
@@ -521,6 +525,7 @@ export function analyzeJsSource(
   };
   /** A sole-binding `const x = { ... }` an options argument names. */
   const soleConstObject = (identifier: ts.Identifier): ts.Expression | null => {
+    if (memberWrittenRoots.has(identifier.text)) return null;
     const init = soleConst(identifier.text, identifier);
     return init && ts.isObjectLiteralExpression(unwrap(init)) ? init : null;
   };
@@ -1034,42 +1039,49 @@ export function analyzeJsSource(
     const fn = ts.isIdentifier(callee) ? localFunction(callee.text) : null;
     return fn ? returnedObjects(fn) : [];
   };
-  const resolveObjects = (expression: ts.Expression): ts.ObjectLiteralExpression[] => {
+  const HELPER_NOTE =
+    " (via a helper's return value; its parameters are not linked to the call arguments)";
+  const resolveObjects = (
+    expression: ts.Expression,
+  ): { object: ts.ObjectLiteralExpression; via: string }[] => {
     const node = unwrap(expression);
-    if (ts.isObjectLiteralExpression(node)) return [node];
+    const viaHelper = (call: ts.CallExpression) =>
+      helperObjects(call).map((object) => ({ object, via: HELPER_NOTE }));
+    if (ts.isObjectLiteralExpression(node)) return [{ object: node, via: "" }];
     if (ts.isIdentifier(node)) {
       const init = soleConst(node.text, node);
       const inner = init ? unwrap(init) : null;
-      if (inner && ts.isObjectLiteralExpression(inner)) return [inner];
-      return inner && ts.isCallExpression(inner) ? helperObjects(inner) : [];
+      if (inner && ts.isObjectLiteralExpression(inner)) return [{ object: inner, via: "" }];
+      return inner && ts.isCallExpression(inner) ? viaHelper(inner) : [];
     }
-    return ts.isCallExpression(node) ? helperObjects(node) : [];
+    return ts.isCallExpression(node) ? viaHelper(node) : [];
   };
-  const checkDangerousValue = (node: ts.Node, value: ts.Expression) => {
+  const checkDangerousValue = (node: ts.Node, value: ts.Expression, via = "") => {
     const object = unwrap(value);
     if (ts.isObjectLiteralExpression(object)) {
       const html = object.properties.find(
         (property): property is ts.PropertyAssignment =>
           ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === "__html",
       );
-      if (html) checkHtmlSink("PG-XSS-002", node, html.initializer, "dangerouslySetInnerHTML");
+      if (html)
+        checkHtmlSink("PG-XSS-002", node, html.initializer, `dangerouslySetInnerHTML${via}`);
     } else {
-      checkHtmlSink("PG-XSS-002", node, object, "dangerouslySetInnerHTML");
+      checkHtmlSink("PG-XSS-002", node, object, `dangerouslySetInnerHTML${via}`);
     }
   };
   const checkDangerousProps = (node: ts.Node, props: ts.Expression) => {
-    for (const object of resolveObjects(props))
+    for (const { object, via } of resolveObjects(props))
       for (const property of object.properties) {
         if (
           ts.isPropertyAssignment(property) &&
           property.name.getText(sourceFile) === "dangerouslySetInnerHTML"
         )
-          checkDangerousValue(node, property.initializer);
+          checkDangerousValue(node, property.initializer, via);
         else if (
           ts.isShorthandPropertyAssignment(property) &&
           property.name.text === "dangerouslySetInnerHTML"
         )
-          checkDangerousValue(node, property.name);
+          checkDangerousValue(node, property.name, via);
       }
   };
 

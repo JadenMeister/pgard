@@ -8,9 +8,14 @@ import ts from "typescript-api";
  */
 
 const DANGEROUS_TAG = /^(script|iframe|object|embed)$/i;
-const EVENT_HANDLER_ATTR = /^on[a-z]/i;
+// A URL pattern that starts with dot-star, such as a bare catch-all or a caret-anchored one.
+const PERMISSIVE_REGEXP = /^\/\^?(?:\(\?:|\()*\.\*/;
+const EVENT_HANDLER_ATTR = /^on[a-z*]/i;
 const MAX_DEPTH = 3;
+const MAX_LIST_DEPTH = 8;
 const MAX_ENTRIES = 200;
+/** Nodes one options object may spend on reading its lists (a hostile object cannot blow up). */
+const MAX_LIST_NODES = 2000;
 
 export function isDomPurifyFamily(module: string): boolean {
   return module === "dompurify" || module === "isomorphic-dompurify";
@@ -50,21 +55,59 @@ function isOff(node: ts.Expression): boolean {
   );
 }
 
-/** Strings of an array literal (nested one level for `allowedAttributes`); `null` if not visible. */
+/** `sanitizeHtml.defaults.allowedTags` and the like: the library's own safe base lists. */
+function isDefaultsList(node: ts.Expression): boolean {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    /^allowed/.test(node.name.text) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === "defaults"
+  );
+}
+
+interface Budget {
+  left: number;
+}
+
+/**
+ * Strings of a list, an object of lists (`allowedAttributes`) or a `{ name, values }` attribute
+ * entry; `null` if not visible. The library's `defaults` lists, spread or `concat`ed, are the safe
+ * base and contribute nothing: only the names added to them are judged.
+ */
 function stringsOf(
   expression: ts.Expression,
   resolve: ExpressionResolver | null,
+  budget: Budget = { left: MAX_LIST_NODES },
   depth = 0,
 ): string[] | null {
+  budget.left -= 1;
+  if (budget.left < 0) return null;
   const node = resolved(expression, resolve);
   if (ts.isStringLiteralLike(node)) return [node.text];
-  if (depth >= MAX_DEPTH) return null;
+  if (isDefaultsList(node)) return [];
+  if (depth >= MAX_LIST_DEPTH) return null;
   if (ts.isArrayLiteralExpression(node)) {
     if (node.elements.length > MAX_ENTRIES) return null;
     const out: string[] = [];
     for (const element of node.elements) {
-      if (ts.isSpreadElement(element)) return null;
-      const inner = stringsOf(element, resolve, depth + 1);
+      if (ts.isSpreadElement(element)) {
+        if (isDefaultsList(skipWrappers(element.expression))) continue;
+        return null;
+      }
+      const inner = stringsOf(element, resolve, budget, depth + 1);
+      if (inner === null) return null;
+      out.push(...inner);
+    }
+    return out;
+  }
+  if (ts.isCallExpression(node)) {
+    const callee = skipWrappers(node.expression);
+    if (!ts.isPropertyAccessExpression(callee) || callee.name.text !== "concat") return null;
+    const out = stringsOf(callee.expression, resolve, budget, depth + 1);
+    if (out === null) return null;
+    for (const argument of node.arguments) {
+      if (ts.isSpreadElement(argument)) return null;
+      const inner = stringsOf(argument, resolve, budget, depth + 1);
       if (inner === null) return null;
       out.push(...inner);
     }
@@ -72,10 +115,22 @@ function stringsOf(
   }
   if (ts.isObjectLiteralExpression(node)) {
     if (node.properties.length > MAX_ENTRIES) return null;
+    // `{ name: 'target', values: [...] }`: the attribute is the name.
+    const named = node.properties.find(
+      (property): property is ts.PropertyAssignment =>
+        ts.isPropertyAssignment(property) &&
+        keyOf(property.name) === "name" &&
+        ts.isStringLiteralLike(property.initializer),
+    );
+    if (named && ts.isStringLiteralLike(named.initializer)) return [named.initializer.text];
     const out: string[] = [];
     for (const property of node.properties) {
+      if (ts.isSpreadAssignment(property)) {
+        if (isDefaultsList(skipWrappers(property.expression))) continue;
+        return null;
+      }
       if (!ts.isPropertyAssignment(property)) return null;
-      const inner = stringsOf(property.initializer, resolve, depth + 1);
+      const inner = stringsOf(property.initializer, resolve, budget, depth + 1);
       if (inner === null) return null;
       out.push(...inner);
     }
@@ -165,6 +220,10 @@ function unsafeOption(
       return node.kind === ts.SyntaxKind.FalseKeyword ? "SANITIZE_DOM is off" : null;
     if (key === "SAFE_FOR_XML")
       return node.kind === ts.SyntaxKind.FalseKeyword ? "SAFE_FOR_XML is off" : null;
+    if (key === "ALLOWED_URI_REGEXP")
+      return ts.isRegularExpressionLiteral(node) && PERMISSIVE_REGEXP.test(node.text)
+        ? "ALLOWED_URI_REGEXP accepts any URL"
+        : null;
     return null;
   }
   if (key === "allowedTags") {
@@ -180,13 +239,13 @@ function unsafeOption(
       return "allowedAttributes: false allows every attribute";
     const attributes = stringsOf(node, resolve);
     if (attributes === null) return "allowedAttributes is not an inline list";
-    return attributes.some((attribute) => EVENT_HANDLER_ATTR.test(attribute))
-      ? "allowedAttributes allows an event-handler attribute"
+    return attributes.some((attribute) => EVENT_HANDLER_ATTR.test(attribute) || attribute === "*")
+      ? "allowedAttributes allows an event-handler attribute or every attribute"
       : null;
   }
   if (key === "allowVulnerableTags")
     return isOff(node) ? null : "allowVulnerableTags: true keeps script and style content";
-  if (key === "allowedSchemes") {
+  if (key === "allowedSchemes" || key === "allowedSchemesByTag") {
     const schemes = stringsOf(node, resolve);
     if (schemes === null) return "allowedSchemes is not an inline list";
     return schemes.some((scheme) => /^(javascript|vbscript)$/i.test(scheme))
@@ -214,8 +273,10 @@ export function domPurifyFileRisk(
         : ts.isIdentifier(callee)
           ? callee.text
           : null;
-      if (name === "addHook") risk = "the file registers a DOMPurify hook with addHook()";
-      else if (name === "setConfig") {
+      if (name === "addHook") {
+        if (!isBenignHook(node.arguments[1]))
+          risk = "the file registers a DOMPurify hook with addHook()";
+      } else if (name === "setConfig") {
         const reason = unsafeSanitizerOptions("dompurify", node.arguments[0], resolve);
         if (reason !== null) risk = `the file calls DOMPurify.setConfig() and ${reason}`;
       }
@@ -224,4 +285,74 @@ export function domPurifyFileRisk(
   };
   visit(sourceFile);
   return risk;
+}
+
+const ATTRIBUTE_WRITERS = /^(setAttribute|removeAttribute)$/;
+const ATTRIBUTE_READERS = /^(getAttribute|hasAttribute)$/;
+const MAX_HOOK_NODES = 200;
+const MAX_HOOK_DEPTH = 6;
+
+/**
+ * A hook whose whole body only sets, removes or reads attributes with constant names and values
+ * (`node.setAttribute('target', '_blank')`, guarded by simple conditions): it cannot add script.
+ * Anything else (a call to another function, an assignment, a non-constant value, an event
+ * handler or `srcdoc` name, a `javascript:` value) is not benign, and neither is a callback that
+ * is not written inline.
+ */
+function isBenignHook(callback: ts.Expression | undefined): boolean {
+  if (!callback) return false;
+  const fn = skipWrappers(callback);
+  if (!ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return false;
+  const budget: Budget = { left: MAX_HOOK_NODES };
+  const isConstant = (node: ts.Expression | undefined): node is ts.StringLiteralLike =>
+    node !== undefined && ts.isStringLiteralLike(skipWrappers(node));
+  const textOf = (node: ts.Expression) => (skipWrappers(node) as ts.StringLiteralLike).text;
+  const isSafeName = (name: string) => !/^(on|srcdoc$)/i.test(name);
+  const isCondition = (node: ts.Expression, depth: number): boolean => {
+    budget.left -= 1;
+    if (budget.left < 0 || depth > MAX_HOOK_DEPTH) return false;
+    const e = skipWrappers(node);
+    if (ts.isIdentifier(e) || ts.isStringLiteralLike(e) || ts.isNumericLiteral(e)) return true;
+    if (ts.isPropertyAccessExpression(e)) return isCondition(e.expression, depth + 1);
+    if (ts.isPrefixUnaryExpression(e)) return isCondition(e.operand, depth + 1);
+    if (ts.isBinaryExpression(e))
+      return isCondition(e.left, depth + 1) && isCondition(e.right, depth + 1);
+    if (ts.isCallExpression(e)) {
+      const callee = skipWrappers(e.expression);
+      return (
+        ts.isPropertyAccessExpression(callee) &&
+        ATTRIBUTE_READERS.test(callee.name.text) &&
+        e.arguments.length === 1 &&
+        isConstant(e.arguments[0])
+      );
+    }
+    return false;
+  };
+  const isWrite = (node: ts.Expression): boolean => {
+    const e = skipWrappers(node);
+    if (!ts.isCallExpression(e)) return false;
+    const callee = skipWrappers(e.expression);
+    if (!ts.isPropertyAccessExpression(callee) || !ATTRIBUTE_WRITERS.test(callee.name.text))
+      return false;
+    const [name, value, ...rest] = e.arguments;
+    if (rest.length > 0 || !isConstant(name) || !isSafeName(textOf(name))) return false;
+    if (callee.name.text === "removeAttribute") return value === undefined;
+    return isConstant(value) && !/^\s*(javascript|vbscript|data):/i.test(textOf(value));
+  };
+  const isStatement = (node: ts.Node, depth: number): boolean => {
+    budget.left -= 1;
+    if (budget.left < 0 || depth > MAX_HOOK_DEPTH) return false;
+    if (ts.isBlock(node)) return node.statements.every((child) => isStatement(child, depth + 1));
+    if (ts.isExpressionStatement(node)) return isWrite(node.expression);
+    if (ts.isEmptyStatement(node)) return true;
+    if (ts.isReturnStatement(node)) return node.expression === undefined;
+    if (ts.isIfStatement(node))
+      return (
+        isCondition(node.expression, 0) &&
+        isStatement(node.thenStatement, depth + 1) &&
+        (node.elseStatement === undefined || isStatement(node.elseStatement, depth + 1))
+      );
+    return false;
+  };
+  return ts.isBlock(fn.body) ? isStatement(fn.body, 0) : isWrite(fn.body);
 }

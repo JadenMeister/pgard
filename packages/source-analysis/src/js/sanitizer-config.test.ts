@@ -224,6 +224,7 @@ describe("XSS recall gaps (#274)", () => {
       "src/a.tsx",
     );
     expect(found.length).toBe(1);
+    expect(found[0]?.evidence).toContain("parameters are not linked");
     const viaConst = find(
       `const arrow = (html) => ({ dangerouslySetInnerHTML: { __html: html } });\nexport const A = ({ html }) => { const p = arrow(html); return <div {...p} />; };`,
       "PG-XSS-002",
@@ -254,6 +255,139 @@ describe("XSS recall gaps (#274)", () => {
         "src/a.tsx",
       ),
     ).toEqual([]);
+  });
+});
+
+describe("benign configuration is not noise (#278 review)", () => {
+  const hash = "el.innerHTML = DOMPurify.sanitize(location.hash);";
+  const html = (options: string) =>
+    `${SANITIZE_HTML}el.innerHTML = sanitizeHtml(location.hash, ${options});`;
+
+  it.each([
+    [
+      "a hook that sets target and rel",
+      "DOMPurify.addHook('afterSanitizeAttributes', (n) => { n.setAttribute('target', '_blank'); n.setAttribute('rel', 'noopener'); });",
+    ],
+    [
+      "a guarded hook",
+      "DOMPurify.addHook('afterSanitizeAttributes', function (node) { if ('target' in node && node.tagName === 'A') { node.setAttribute('target', '_blank'); } else if (node.hasAttribute('x')) node.removeAttribute('x'); });",
+    ],
+    [
+      "an arrow hook with an expression body",
+      "DOMPurify.addHook('afterSanitizeAttributes', (n) => n.setAttribute('target', '_blank'));",
+    ],
+  ])("does not flag %s", (_label, hook) => {
+    expect(xss(`${DOMPURIFY}${hook}\n${hash}`)).toEqual([]);
+  });
+
+  it.each([
+    ["an event-handler attribute", "(n) => n.setAttribute('onclick', 'x()')"],
+    ["a javascript: value", "(n) => n.setAttribute('href', 'javascript:x()')"],
+    ["a non-constant value", "(n) => n.setAttribute('href', n.dataset.u)"],
+    ["another function call", "(n) => { track(n); }"],
+    ["an assignment", "(n) => { n.innerHTML = n.dataset.h; }"],
+    ["a callback that is not inline", "someHook"],
+    ["srcdoc", "(n) => n.setAttribute('srcdoc', '<b>')"],
+  ])("still flags a hook with %s", (_label, callback) => {
+    const [finding] = xss(`${DOMPURIFY}DOMPurify.addHook('x', ${callback});\n${hash}`);
+    expect(finding?.confidence).toBe("low");
+  });
+
+  it.each([
+    [
+      "defaults spread",
+      "{ allowedTags: [...sanitizeHtml.defaults.allowedTags, 'img'], allowedAttributes: { ...sanitizeHtml.defaults.allowedAttributes, img: ['src'] } }",
+    ],
+    ["defaults concat", "{ allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']) }"],
+    [
+      "name and values entries",
+      "{ allowedAttributes: { a: ['href', { name: 'target', values: ['_blank'] }] } }",
+    ],
+  ])("does not flag sanitize-html with %s", (_label, options) => {
+    expect(xss(html(options))).toEqual([]);
+  });
+
+  it.each([
+    [
+      "a script added to the defaults",
+      "{ allowedTags: [...sanitizeHtml.defaults.allowedTags, 'script'] }",
+    ],
+    [
+      "a script added by concat",
+      "{ allowedTags: sanitizeHtml.defaults.allowedTags.concat(['iframe']) }",
+    ],
+    ["a spread of something else", "{ allowedTags: [...others, 'img'] }"],
+    [
+      "an event name in a name entry",
+      "{ allowedAttributes: { a: [{ name: 'onclick', values: ['x'] }] } }",
+    ],
+    ["an on* glob", "{ allowedAttributes: { '*': ['on*'] } }"],
+    ["every attribute", "{ allowedAttributes: { a: ['*'] } }"],
+    ["a script scheme by tag", "{ allowedSchemesByTag: { a: ['javascript'] } }"],
+  ])("still flags sanitize-html with %s", (_label, options) => {
+    const [finding] = xss(html(options));
+    expect(finding?.confidence).toBe("low");
+  });
+
+  it("flags a catch-all ALLOWED_URI_REGEXP and a config object written through a member", () => {
+    const [uri] = xss(
+      `${DOMPURIFY}el.innerHTML = DOMPurify.sanitize(location.hash, { ALLOWED_URI_REGEXP: /.*/ });`,
+    );
+    expect(uri?.confidence).toBe("low");
+    expect(
+      xss(
+        `${DOMPURIFY}el.innerHTML = DOMPurify.sanitize(location.hash, { ALLOWED_URI_REGEXP: /^(https?|mailto):/i });`,
+      ),
+    ).toEqual([]);
+    const [mutated] = xss(
+      `${DOMPURIFY}const cfg = { ADD_ATTR: ['target'] };\ncfg.ADD_TAGS = ['script'];\nel.innerHTML = DOMPurify.sanitize(location.hash, cfg);`,
+    );
+    expect(mutated?.confidence).toBe("low");
+  });
+});
+
+describe("file-name sanitizers clean a path (#278 review)", () => {
+  const path = (code: string) => find(code, "PG-PATH-001");
+  const send = (name: string) =>
+    `app.get('/f/:name', (req, res) => { res.sendFile(require('path').join(__dirname, 'uploads', ${name})); });`;
+
+  it.each([
+    [
+      "sanitize-filename default import",
+      "import sanitize from 'sanitize-filename';\n",
+      "sanitize(req.params.name)",
+    ],
+    [
+      "a renamed sanitize-filename",
+      "import clean from 'sanitize-filename';\n",
+      "clean(req.params.name)",
+    ],
+    [
+      "a sanitize-filename require",
+      "const clean = require('sanitize-filename');\n",
+      "clean(req.params.name)",
+    ],
+    [
+      "a filenamify named import",
+      "import { filenamify } from 'filenamify';\n",
+      "filenamify(req.params.name)",
+    ],
+    [
+      "a filenamify default import",
+      "import filenamify from 'filenamify';\n",
+      "filenamify(req.params.name)",
+    ],
+  ])("keeps %s clean", (_label, imports, call) => {
+    expect(path(`${imports}${send(call)}`)).toEqual([]);
+  });
+
+  it("still reports a local sanitize() and an unrelated sanitize import", () => {
+    expect(
+      path(`function sanitize(s) { return s; }\n${send("sanitize(req.params.name)")}`).length,
+    ).toBeGreaterThan(0);
+    expect(
+      path(`import sanitize from 'some-html-lib';\n${send("sanitize(req.params.name)")}`).length,
+    ).toBeGreaterThan(0);
   });
 });
 
