@@ -63,6 +63,11 @@ describe("commented-out code stays quiet (#460 review)", () => {
     "// user,password=req.body.password)",
     "//{password:CONFIG.PASSWORD}",
     "/* return a({password:e.target.value}),(e.password==t.password) */",
+    "// password = getPassword()",
+    '// password=config.get("db.password")',
+    "// password: vault.read(path)",
+    "// {password: form.password.trim()}",
+    "// const body = {username, password: form.password.trim()}",
   ];
   it.each(code)("ignores %s", (line) => {
     for (const path of ["src/a.js", "src/A.java"]) expect(scan(`${line}\n`, path)).toHaveLength(0);
@@ -71,6 +76,8 @@ describe("commented-out code stays quiet (#460 review)", () => {
   it("ignores commented-out code in Python", () => {
     const line = "# conn = connect(host, user, password=settings.DB_PASSWORD)\n";
     expect(scan(line, "tool.py")).toHaveLength(0);
+    expect(scan("# password=settings.get_password()\n", "tool.py")).toHaveLength(0);
+    expect(scan(`// password: ${CODE_SHAPED}\n`, "src/a.js")).toHaveLength(1);
   });
 
   it("never goes quiet for a password that the comment-blind judgment reports (monotone)", () => {

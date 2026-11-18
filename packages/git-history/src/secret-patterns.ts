@@ -442,8 +442,11 @@ function isLiteralAssignment(
   // Monotone: whatever the judgment without comment knowledge (`legacy`) reported stays reported;
   // the comment path only adds reports, and only for values that are not all code.
   if (inComment) {
+    // A call (`form.password.trim()`) is code too: the old judgment rejected it, so the new path
+    // keeps rejecting it.
     return (
-      isLiteralAssignment(context, match, cut, true) !== false || !COMMENT_CODE_VALUE.test(value)
+      isLiteralAssignment(context, match, cut, true) !== false ||
+      !(COMMENT_CODE_VALUE.test(value) || CALL_SHAPED_VALUE.test(value))
     );
   }
   // In source code outside a string, a comparison (`password==e.pass`) or a member access that
