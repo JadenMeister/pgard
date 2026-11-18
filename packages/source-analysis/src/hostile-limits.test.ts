@@ -68,6 +68,20 @@ describe("stack limit (M3)", () => {
   });
 });
 
+describe("stack limit on a deep route receiver chain (#302)", () => {
+  it("reports the file as not analyzed (partial), never as a clean result", async () => {
+    const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
+    const root = project({ "routes.js": chain, "ok.js": SQL_VULN });
+    const output = await scanSourceCode(root, { analysisWorker: null });
+    const entry = coverageOf(output, "source:javascript");
+    expect(entry?.status).toBe("partial");
+    expect(entry?.note).toContain(
+      'nested too deeply to analyze (stack limit reached; not analyzed: "routes.js")',
+    );
+    expect(output.findings.some((finding) => finding.location.path === "ok.js")).toBe(true);
+  });
+});
+
 describe("paths in coverage notes", () => {
   it("are marked like finding paths, so two names cannot look the same", async () => {
     const root = project({ "a‮gnp.js": DEEP_JS, "agnp.js": DEEP_JS });

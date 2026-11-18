@@ -286,9 +286,11 @@ describe("JVM configuration key patterns (#350)", () => {
 
 describe("JavaScript route and protection detection (#302)", () => {
   it("stays bounded on many route registrations and a long middleware chain", () => {
+    // The receiver chain is 500 segments deep: the analyzer recurses once per segment, and a deeper
+    // chain overflows a small stack (see hostile-limits.test.ts for what a scan does then).
     const routes = Array.from({ length: 5_000 }, (_, i) => `x${i}.post('/p${i}', (a, b) => a);`);
     const chain = `app.post('/login', ${Array.from({ length: 5_000 }, () => "limiter").join(", ")}, h);`;
-    const code = `import rateLimit from 'express-rate-limit';\nconst limiter = rateLimit();\n${routes.join("\n")}\n${"a.b.".repeat(2_000)}c.post('/x', () => 1);\n${chain}\n`;
+    const code = `import rateLimit from 'express-rate-limit';\nconst limiter = rateLimit();\n${routes.join("\n")}\n${"a.b.".repeat(250)}c.post('/x', () => 1);\n${chain}\n`;
     const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
     expect(ms).toBeLessThan(LIMIT_MS * 4);
     expect(value.facts.unrecognizedRoutes).toBe(5_001);
