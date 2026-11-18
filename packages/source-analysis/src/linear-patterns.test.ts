@@ -311,4 +311,23 @@ describe("JavaScript route and protection detection (#302)", () => {
     expect(ms).toBeLessThan(LIMIT_MS * 4);
     expect(ms / Math.max(quarter, 1)).toBeLessThan(12);
   });
+
+  it("stays linear on references nested deep inside one handler", () => {
+    const head =
+      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nconst app = express();\nconst limiter = rateLimit();\n";
+    const build = (depth: number, width: number) => {
+      let inner = "limiter,".repeat(width);
+      for (let i = 1; i < depth; i += 1) inner = `${"limiter,".repeat(width)}[${inner}]`;
+      return `${head}app.post('/login', () => [${inner}]);\n`;
+    };
+    const small = build(75, 300);
+    const large = build(300, 300);
+    analyzeJsSource(small, "a.js");
+    const quarter = timed(() => analyzeJsSource(small, "a.js")).ms;
+    const { value, ms } = timed(() => analyzeJsSource(large, "a.js"));
+    expect(value.facts.authRoutes).toEqual([{ line: 5, routePath: "/login", limited: true }]);
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    // Four times the input: linear is about 4x, a walk up from every reference about 16x.
+    expect(ms / Math.max(quarter, 1)).toBeLessThan(10);
+  });
 });

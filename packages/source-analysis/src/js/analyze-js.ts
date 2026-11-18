@@ -3258,10 +3258,15 @@ export function analyzeJsSource(
     const callee = calleeName(parent);
     return callee !== null && ROUTE_REGISTRATIONS.has(callee);
   };
-  const markFunctions = (start: ts.Node, into: Set<ts.Node>) => {
+  // Every node a climb passed is remembered per kind, so a later climb stops there: the work is
+  // linear in the file however deep or crowded the references are.
+  const visitedForLimiter = new Set<ts.Node>();
+  const visitedForCsrf = new Set<ts.Node>();
+  const markFunctions = (start: ts.Node, into: Set<ts.Node>, visited: Set<ts.Node>) => {
     for (let node: ts.Node | undefined = start.parent; node; node = node.parent) {
+      if (visited.has(node)) return;
+      visited.add(node);
       if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
-        if (into.has(node)) return;
         into.add(node);
         if (isHandlerOfCall(node)) return;
       }
@@ -3269,8 +3274,9 @@ export function analyzeJsSource(
   };
   const collectUsage = (node: ts.Node): void => {
     if (ts.isIdentifier(node)) {
-      if (limiterNames.has(node.text)) markFunctions(node, functionsUsingLimiter);
-      if (csrfNames.has(node.text)) markFunctions(node, functionsUsingCsrf);
+      if (limiterNames.has(node.text))
+        markFunctions(node, functionsUsingLimiter, visitedForLimiter);
+      if (csrfNames.has(node.text)) markFunctions(node, functionsUsingCsrf, visitedForCsrf);
     } else if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
       functionParams.add(node.name.text);
     }

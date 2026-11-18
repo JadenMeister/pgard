@@ -18,7 +18,7 @@ All notable changes to PGARD are recorded here. The format follows [Keep a Chang
 
 ### Changed
 
-- A rate-limit or CSRF library imported anywhere in the project no longer silences `PG-BRUTE-001` and `PG-CSRF-001` on every route (#302). A route with the protection visibly applied (a middleware argument, an earlier `use` on its app or router, or an inline handler that calls the limiter) stays silent; any other route is reported at low severity and low confidence, with evidence saying the library is in the project but not visibly applied in that file. Demoted brute-force findings are merged into one finding per project with a count. Some findings that were silenced before therefore now appear as low.
+- A rate-limit or CSRF library imported anywhere in the project no longer silences `PG-BRUTE-001` and `PG-CSRF-001` on every route (#302). A route with the protection visibly applied (a middleware argument, an earlier `use` on its app or router, or an inline handler that calls the limiter) stays silent; any other route is reported at low severity and low confidence, with evidence saying the library is in the project but not visibly applied in that file. Demoted brute-force findings are merged into one finding per project (anchored at the root `package.json`, so its id stays stable) that lists up to five `path:line` routes and a count. Some findings that were silenced before therefore now appear as low.
 
 ### Fixed
 

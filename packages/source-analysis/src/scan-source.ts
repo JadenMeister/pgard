@@ -673,25 +673,31 @@ export async function scanSourceCode(
     // are demoted, and merged into ONE finding for the project (like CSRF), so a well protected
     // multi-file app, whose limiter sits in another file than its routers, does not get a finding
     // per route. The count is in the evidence; the finding is never dropped.
-    let first: { path: string; line: number; routePath: string } | null = null;
+    const where: string[] = [];
     let count = 0;
+    let firstPath: string | null = null;
     for (const entry of jsFacts) {
       for (const route of entry.facts.authRoutes) {
         if (route.limited) continue;
         count += 1;
-        first ??= { path: entry.path, line: route.line, routePath: route.routePath };
+        firstPath ??= entry.path;
+        if (where.length < 5) where.push(`${entry.path}:${route.line}`);
       }
     }
-    if (first) {
+    if (firstPath !== null) {
+      // Anchored at the root package.json (a fixed location) with a constant cause, so the id does
+      // not move when another unprotected route appears; the routes are listed in the evidence.
+      // Without a root manifest it falls back to the first route's file (the id can then move).
+      const anchor = walk.packageJsonPaths.includes("package.json") ? "package.json" : firstPath;
       projectFindings.push({
         ruleId: "PG-BRUTE-001",
-        path: first.path,
-        line: first.line,
+        path: anchor,
+        line: 1,
         severity: "low",
         status: "suspected",
         confidence: "low",
-        evidence: `POST ${first.routePath.slice(0, 80)}${count > 1 ? ` and ${count - 1} more authentication route(s)` : ""}: a rate-limiting library is in the project, but no limiter is visibly applied to ${count > 1 ? "these routes or their routers" : "this route or its router"} in the same file (it may be applied in another file)`,
-        cause: "brute-project-unapplied",
+        evidence: `${count} authentication route(s) with no limiter visibly applied in their file, although a rate-limiting library is in the project (it may be applied in another file): ${where.join(", ")}${count > where.length ? ` and ${count - where.length} more` : ""}`,
+        cause: "brute-unprotected-routes",
       });
     }
   }

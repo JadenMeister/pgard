@@ -240,21 +240,24 @@ describe("scanSourceCode", () => {
       const { brute } = await scan(
         "const authRouter = express.Router();\nauthRouter.post('/login', login);\nauthRouter.use(limiter);\nauthRouter.post('/reset-password', reset);\napp.use(authRouter);\n",
       );
-      expect(brute.map((f) => f.location.line)).toEqual([10]);
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toMatch(/^1 authentication route\(s\).*server\.js:10$/);
     });
 
     it("does not let a path-scoped use(limiter) cover other paths", async () => {
       const { brute } = await scan(
         "app.use('/api/v2', limiter);\napp.post('/login', login);\napp.post('/api/v2/login', login2);\n",
       );
-      expect(brute.map((f) => f.location.line)).toEqual([10]);
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toMatch(/^1 authentication route\(s\).*server\.js:10$/);
     });
 
     it("does not let use('/log', limiter) cover /login, but covers /log and /log/x", async () => {
       const { brute } = await scan(
         "app.use('/log', limiter);\napp.post('/login', login);\napp.post('/log/auth', login2);\n",
       );
-      expect(brute.map((f) => f.location.line)).toEqual([10]);
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toMatch(/^1 authentication route\(s\).*server\.js:10$/);
     });
 
     it("merges the demoted brute-force findings of a multi-file app into one", async () => {
@@ -265,7 +268,39 @@ describe("scanSourceCode", () => {
       });
       expect(brute).toHaveLength(1);
       expect(brute[0]).toMatchObject({ severity: "low", confidence: "low" });
-      expect(brute[0]?.evidence).toContain("4 more");
+      expect(brute[0]?.evidence).toContain("5 authentication route(s)");
+      expect(brute[0]?.evidence).toContain("routes/a.js:2");
+      expect(brute[0]?.evidence).not.toContain("more");
+    });
+
+    it("keeps the merged brute-force finding's id when another unprotected route appears", async () => {
+      const manifest = { "package.json": '{"name":"x"}' };
+      const router = (n: number) =>
+        `const r = require('express').Router();\nr.post('/login${n}', login);\n`;
+      const before = await scan("app.use('/auth', limiter, authRouter);\n", {
+        ...manifest,
+        "routes/b.js": router(1),
+      });
+      const after = await scan("app.use('/auth', limiter, authRouter);\n", {
+        ...manifest,
+        "routes/a.js": router(2),
+        "routes/b.js": router(1),
+      });
+      expect(before.brute).toHaveLength(1);
+      expect(after.brute).toHaveLength(1);
+      expect(after.brute[0]?.id).toBe(before.brute[0]?.id);
+      expect(before.brute[0]?.evidence).toContain("1 authentication route(s)");
+      expect(after.brute[0]?.evidence).toContain("2 authentication route(s)");
+      expect(after.brute[0]?.evidence).toContain("routes/a.js:2");
+    });
+
+    it("still reports when one auth route is protected and another is not", async () => {
+      const { brute } = await scan(
+        "app.post('/login', limiter, login);\napp.post('/signin', login);\n",
+      );
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toContain("server.js:10");
+      expect(brute[0]?.evidence).not.toContain("server.js:9");
     });
 
     it("counts a controller reference on an imported receiver, not HTTP clients", async () => {
