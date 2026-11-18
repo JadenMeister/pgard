@@ -1162,17 +1162,30 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     if (lower === "createquerybuilder") return { ...unknown("createQueryBuilder()"), qb: true };
     if (recv.qb) {
       // Doctrine's builder: a clause built from request input or from text parts is SQL.
-      // A bare helper result (`$qb->expr()->eq(...)`) is the builder's own safe API.
+      // A helper result (`$qb->expr()->eq(...)`) is the builder's own API: reported (low) only
+      // when request input went into it. An array of bound values is not a condition text.
       if (
         DOCTRINE_CLAUSE_METHODS.has(lower) &&
         arg0 !== undefined &&
-        (arg0.composed || sourcesOf(arg0.leaves).length > 0)
+        !arg0.arr &&
+        (arg0.composed || sourcesOf(arg0.leaves).length > 0 || arg0.opaque !== "")
       ) {
         reportSql(arg0, line, label);
       }
       return DOCTRINE_FLUENT_METHODS.has(lower)
         ? { ...unknown(`${name}()`), qb: true }
         : helperResult(name, args, recv);
+    }
+    if (
+      DOCTRINE_CLAUSE_METHODS.has(lower) &&
+      arg0 !== undefined &&
+      !arg0.arr &&
+      arg0.composed &&
+      sourcesOf(arg0.leaves).length > 0
+    ) {
+      // A condition built from request input on a receiver that is neither a Doctrine builder
+      // nor known to be Laravel's: not judged, so the area says so.
+      unsupported.add("query builder conditions on an untyped receiver");
     }
     if (SQL_RAW_METHODS.has(lower)) {
       reportSql(arg0, line, `->${name}`);
@@ -1860,6 +1873,56 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     return [];
   }
 
+  /** An assignment or increment somewhere inside `node` (it would run before the check applies). */
+  function hasAssignment(node: AstNode): boolean {
+    const stack: AstNode[] = [node];
+    let seen = 0;
+    while (stack.length > 0) {
+      const current = stack.pop() as AstNode;
+      seen += 1;
+      if (seen > 2000) return true;
+      if (
+        current.type === "assignment_expression" ||
+        current.type === "augmented_assignment_expression" ||
+        current.type === "update_expression" ||
+        current.type === "reference_assignment_expression"
+      ) {
+        return true;
+      }
+      for (const child of current.children) stack.push(child);
+    }
+    return false;
+  }
+
+  /**
+   * The checked variable also sits inside an array literal or in a later argument of a call of
+   * the condition (`in_array($x, [$x])`): the list it is compared with can contain the value itself.
+   */
+  function checkedValueInList(condition: AstNode, key: string): boolean {
+    const base = key.split(/[[\-]/, 1)[0] ?? key;
+    let seen = 0;
+    const walk = (node: AstNode, listed: boolean, depth: number): boolean => {
+      seen += 1;
+      if (seen > 2000 || depth > 60) return true;
+      if (node.type === "variable_name") return listed && text(node) === base;
+      const here = listed || node.type === "array_creation_expression";
+      if (node.type === "function_call_expression") {
+        const callee = field(node, "function");
+        if (callee !== undefined && walk(callee, listed, depth + 1)) return true;
+        const list = field(node, "arguments");
+        let index = 0;
+        for (const argument of list?.children ?? []) {
+          if (argument.type !== "argument") continue;
+          if (walk(argument, listed || index > 0, depth + 1)) return true;
+          index += 1;
+        }
+        return false;
+      }
+      return node.children.some((child) => walk(child, here, depth + 1));
+    };
+    return walk(condition, false, 0);
+  }
+
   function applyGuards(env: Env, keys: readonly string[]): void {
     for (const key of keys) {
       const known = env.get(key);
@@ -2040,10 +2103,16 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
         // ends it when the check failed. Afterwards the checked value passed.
         if (inner !== undefined && inner.type === "function_call_expression") {
           const callName = calleeName(field(inner, "function"));
-          if (callName === "abort_unless" || callName === "abort_if") {
-            const condition = callArgs(inner)[0];
-            if (condition !== undefined) {
-              applyGuards(env, guardKeys(condition, callName === "abort_unless"));
+          if (
+            (callName === "abort_unless" || callName === "abort_if") &&
+            !functionNames.has(callName)
+          ) {
+            const [condition] = callArgs(inner);
+            if (condition !== undefined && !hasAssignment(inner)) {
+              const keys = guardKeys(condition, callName === "abort_unless").filter(
+                (key) => !checkedValueInList(condition, key),
+              );
+              applyGuards(env, keys);
             }
           }
         }
@@ -2278,7 +2347,9 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       env.set(key, outer.get(key) ?? unknown(key));
     }
     const params = field(node, "parameters");
+    let position = -1;
     for (const parameter of params?.children ?? []) {
+      if (parameter.type.endsWith("_parameter")) position += 1;
       if (
         parameter.type !== "simple_parameter" &&
         parameter.type !== "variadic_parameter" &&
@@ -2292,9 +2363,6 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       const type = typeText(parameter);
       const bare = type.replace(/^\\/, "");
       let value: PV;
-      const position = (params?.children ?? [])
-        .filter((p) => p.type.endsWith("_parameter"))
-        .indexOf(parameter);
       const passed = given === undefined ? undefined : given[position];
       if (passed !== undefined && !/^(?:int|float|bool|integer)$/i.test(type)) {
         value = stored(passed);
@@ -2332,9 +2400,61 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
    * the arguments, so a sink inside sees them. Null when it cannot be followed (the caller then
    * treats it as an unknown call).
    */
+  const writesOutside = new Map<AstNode, boolean>();
+  /**
+   * A closure that may change something outside its own variables (a `use (&$x)` or `&$param`
+   * reference, `global`, `static`, a property or `$GLOBALS` write): evaluating it on a copy would
+   * lose the write, so a call of it is not followed (and stays an unsupported dynamic call).
+   */
+  function closureWritesOutside(node: AstNode): boolean {
+    const known = writesOutside.get(node);
+    if (known !== undefined) return known;
+    let found = false;
+    let seen = 0;
+    const stack: AstNode[] = [node];
+    while (stack.length > 0 && !found) {
+      const current = stack.pop() as AstNode;
+      seen += 1;
+      if (seen > 5000) {
+        found = true;
+        break;
+      }
+      switch (current.type) {
+        case "by_ref":
+        case "reference_modifier":
+        case "global_declaration":
+        case "static_variable_declaration":
+        case "reference_assignment_expression":
+          found = true;
+          break;
+        case "assignment_expression":
+        case "augmented_assignment_expression": {
+          const left = field(current, "left");
+          const target = left === undefined ? undefined : unwrap(left);
+          if (
+            target !== undefined &&
+            (target.type === "member_access_expression" ||
+              target.type === "nullsafe_member_access_expression" ||
+              target.type === "scoped_property_access_expression" ||
+              text(target).startsWith("$GLOBALS"))
+          ) {
+            found = true;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+      for (const child of current.children) stack.push(child);
+    }
+    writesOutside.set(node, found);
+    return found;
+  }
+
   function callClosure(fn: Closure, args: readonly Arg[], depth: number): PV | null {
     const calls = closureCalls.get(fn.node) ?? 0;
     if (
+      closureWritesOutside(fn.node) ||
       closureBusy.has(fn.node) ||
       calls >= MAX_CLOSURE_CALLS ||
       depth > MAX_DEPTH - 50 ||

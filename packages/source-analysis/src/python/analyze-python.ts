@@ -93,6 +93,8 @@ interface Tags {
   db?: true;
   /** Made by `text()`: the SQL was already judged where the text was made. */
   wrapped?: true;
+  /** An instance of a class of this file that has no base class (never a Django queryset). */
+  plain?: true;
   /** A lambda of this file held in a variable: its code and the scope it was made in. */
   lam?: { node: N; env: Env };
 }
@@ -103,9 +105,7 @@ type SourceLeaf = Extract<Leaf, { k: "source" }>;
 
 const MAX_DEPTH = 300;
 const MAX_LAMBDA_CALLS = 4;
-/** A receiver that reads as a Django manager or queryset (`Model.objects`, `qs`, `.filter(...)`). */
-const QUERYSET_RECEIVER =
-  /\bobjects\b|_default_manager|queryset|(?:^|[._])qs\b|\.(?:filter|exclude|all|annotate|order_by|select_related|prefetch_related|distinct|values|using)\(/i;
+const MAX_GUARD_DEPTH = 120;
 const SPREAD = "*spread";
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 const NUMERIC_CONVERSIONS = "diouxXeEfFgGc";
@@ -180,6 +180,8 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
   const globalNames = new Set<string>();
   /** Attribute names assigned anywhere (`self.x = ...`): never constants. */
   const attrAssigned = new Set<string>();
+  /** Classes of this file with no base class. */
+  const plainClasses = new Set<string>();
   {
     const stack: N[] = [ast.root];
     while (stack.length > 0) {
@@ -228,6 +230,12 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         case "global_statement":
           for (const child of named(node)) globalNames.add(text(child));
           break;
+        case "class_definition": {
+          const className = kid(node, "name");
+          if (className && kid(node, "superclasses") === undefined)
+            plainClasses.add(text(className));
+          break;
+        }
         case "assignment":
         case "augmented_assignment": {
           const left = kid(node, "left");
@@ -452,9 +460,17 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
   };
 
   /** A fixed collection of literals: the right side of a membership test that proves a value allowed. */
-  function isAllowlist(n: N, env: Env): boolean {
+  function isAllowlist(n: N, env: Env, depth = 0): boolean {
+    if (depth > MAX_GUARD_DEPTH) {
+      incomplete = true;
+      return false;
+    }
     const node = unwrapParen(n);
-    if (["list", "tuple", "set", "dictionary"].includes(node.type)) return true;
+    if (node.type === "dictionary") return true;
+    if (["list", "tuple", "set"].includes(node.type)) {
+      // Every element a literal: a list that holds the checked value itself is no allowlist.
+      return named(node).every((item) => isLiteral(item, env));
+    }
     if (node.type === "identifier") {
       const found = env.scope.lookup(text(node));
       if (found !== null) {
@@ -473,11 +489,11 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         const method = kid(fn, "attribute");
         const obj = kid(fn, "object");
         if (method && obj && ["keys", "values"].includes(text(method)))
-          return isAllowlist(obj, env);
+          return isAllowlist(obj, env, depth + 1);
       }
       if (fn?.type === "identifier" && ["set", "frozenset", "tuple", "list"].includes(text(fn))) {
         const arg = named(kid(node, "arguments") ?? node)[0];
-        return arg !== undefined && isAllowlist(arg, env);
+        return arg !== undefined && isAllowlist(arg, env, depth + 1);
       }
     }
     return false;
@@ -507,7 +523,7 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
 
   /**
    * The variable a shape test is applied to: `host`, or `host.replace('.', '').lower()` where
-   * only characters that cannot matter ('.', '-', '_') are removed or the case is changed (never `strip()`: it would let a leading newline through).
+   * only characters that cannot matter ('.', '_') are removed or the case is changed (never `strip()`: it would let a leading newline through).
    */
   function shapeSubject(node: N, depth: number): string | null {
     const direct = varName(node);
@@ -528,19 +544,23 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         !n.children.some((c) => c.type === "interpolation")
           ? text(n).replace(/^[a-zA-Z]*["']+|["']+$/g, "")
           : null;
-      if (plain(to) === "" && ["-", ".", "_"].includes(plain(from) ?? "x"))
+      if (plain(to) === "" && [".", "_"].includes(plain(from) ?? "x"))
         return shapeSubject(obj, depth + 1);
     }
     return null;
   }
 
   /** Names that passed an allowlist or validation check whenever `cond` is true. */
-  function guardsTrue(cond: N, env: Env): Set<string> {
-    const node = unwrapParen(cond);
+  function guardsTrue(cond: N, env: Env, depth = 0): Set<string> {
     const out = new Set<string>();
+    if (depth > MAX_GUARD_DEPTH) {
+      incomplete = true;
+      return out;
+    }
+    const node = unwrapParen(cond);
     if (node.type === "not_operator") {
       const arg = kid(node, "argument");
-      return arg ? guardsFalse(arg, env) : out;
+      return arg ? guardsFalse(arg, env, depth + 1) : out;
     }
     if (node.type === "boolean_operator") {
       const left = kid(node, "left");
@@ -548,8 +568,8 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       if (!left || !right) return out;
       const op = operatorBetween(left, right);
       return op === "or"
-        ? intersect(guardsTrue(left, env), guardsTrue(right, env))
-        : union(guardsTrue(left, env), guardsTrue(right, env));
+        ? intersect(guardsTrue(left, env, depth + 1), guardsTrue(right, env, depth + 1))
+        : union(guardsTrue(left, env, depth + 1), guardsTrue(right, env, depth + 1));
     }
     if (node.type === "comparison_operator") {
       const operands = named(node);
@@ -602,12 +622,16 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
   }
 
   /** Names that passed a check whenever `cond` is false. */
-  function guardsFalse(cond: N, env: Env): Set<string> {
-    const node = unwrapParen(cond);
+  function guardsFalse(cond: N, env: Env, depth = 0): Set<string> {
     const out = new Set<string>();
+    if (depth > MAX_GUARD_DEPTH) {
+      incomplete = true;
+      return out;
+    }
+    const node = unwrapParen(cond);
     if (node.type === "not_operator") {
       const arg = kid(node, "argument");
-      return arg ? guardsTrue(arg, env) : out;
+      return arg ? guardsTrue(arg, env, depth + 1) : out;
     }
     if (node.type === "boolean_operator") {
       const left = kid(node, "left");
@@ -615,8 +639,8 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       if (!left || !right) return out;
       const op = operatorBetween(left, right);
       return op === "or"
-        ? union(guardsFalse(left, env), guardsFalse(right, env))
-        : intersect(guardsFalse(left, env), guardsFalse(right, env));
+        ? union(guardsFalse(left, env, depth + 1), guardsFalse(right, env, depth + 1))
+        : intersect(guardsFalse(left, env, depth + 1), guardsFalse(right, env, depth + 1));
     }
     if (node.type === "comparison_operator") {
       const operands = named(node);
@@ -1335,6 +1359,16 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       };
       const params = kid(lam.node, "parameters");
       if (params) {
+        // Only a plain signature (names, with or without defaults) maps arguments safely; `/`,
+        // `*`, `*args`, `**kw` or too many arguments fall back to the unfollowed call.
+        const shape = named(params);
+        if (
+          shape.some((p) => p.type !== "identifier" && p.type !== "default_parameter") ||
+          pos.length > shape.length ||
+          pos.some((v) => isSpread(v))
+        ) {
+          return null;
+        }
         bindParams(params, inner, null, false, new Set());
         named(params).forEach((p, index) => {
           const name =
@@ -1364,6 +1398,11 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
     const arg0 = pos[0];
     const q = qual ?? "";
     const allArgs = [...pos, ...kw.values(), ...info.splats];
+    if (info.recvNode === null && plainClasses.has(name)) {
+      const made: V = unknown(`${name}()`);
+      made.plain = true;
+      return made;
+    }
 
     // Connections, cursors and sessions.
     if (
@@ -1593,6 +1632,7 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       const parts = [
         ...pos.slice(0, 1),
         ...["select", "where", "order_by", "tables"].map((k) => kw.get(k)),
+        ...info.splats,
       ].filter((v): v is V => v !== undefined);
       if (parts.length === 0) return;
       argument = join("extra()", ...parts);
@@ -1649,15 +1689,13 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
     if (argument === undefined || isSpread(argument)) return;
     if (kind === "dbapi" && argument.wrapped === true) return;
     const sqlText = PY_SQL_TEXT.test(literalText(argument.leaves));
-    // `.extra()` of a queryset or manager, or with SQL-looking text; any other receiver is only
-    // a possible Django queryset (kept low in a Django project, not reported elsewhere).
+    // `.extra()` on an instance of a class of this file that has no base class cannot be a
+    // queryset: low in a Django project, not reported elsewhere. Any other receiver might be one
+    // (a variable, `self.model.objects.all()`, a queryset from another file) and is judged fully.
     let unprovenExtra = false;
-    if (kind === "extra") {
-      const queryset = recvNode !== null && QUERYSET_RECEIVER.test(text(recvNode));
-      if (!(queryset || sqlText)) {
-        if (!hasDjango) return;
-        unprovenExtra = true;
-      }
+    if (kind === "extra" && recvVal?.plain === true && !sqlText) {
+      if (!hasDjango) return;
+      unprovenExtra = true;
     }
     if (kind === "dbapi") {
       const generic = GENERIC_DBAPI.has(name);
@@ -2285,14 +2323,28 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
             (c.type === "except_clause" || c.type === "except_group_clause") &&
             !exits(named(c).find((part) => part.type === "block")),
         );
+        // Checks made in the body hold afterwards and in `else`, but not inside a handler or
+        // `finally`: those run when the body stopped early, possibly before the check.
+        let bodyGuards: Array<[Binding, boolean]> = [];
+        const guardsOff = (): void => {
+          for (const [b] of bodyGuards) b.guarded = false;
+        };
+        const guardsOn = (): void => {
+          for (const [b] of bodyGuards) b.guarded = true;
+        };
         for (const c of named(n)) {
           if (c.field === "body" || c.type === "block") {
             if (handles) swallowing += 1;
+            const frame: Array<[Binding, boolean]> = [];
+            guardFrames.push(frame);
             try {
               execBlock(c, env, depth);
             } finally {
+              guardFrames.pop();
               if (handles) swallowing -= 1;
             }
+            bodyGuards = frame.filter(([, was]) => !was);
+            guardsOff();
           } else if (c.type === "except_clause" || c.type === "except_group_clause") {
             for (const part of named(c)) {
               if (part.type === "as_pattern") {
@@ -2303,9 +2355,13 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
               if (part.type === "block") runConditional(part, env, depth);
             }
           } else if (c.type === "else_clause" || c.type === "finally_clause") {
+            if (c.type === "else_clause") guardsOn();
             runConditional(kid(c, "body") ?? named(c).find((x) => x.type === "block"), env, depth);
+            if (c.type === "else_clause") guardsOff();
           }
         }
+        guardsOn();
+        for (const entry of bodyGuards) guardFrames[guardFrames.length - 1]?.push(entry);
         break;
       }
       case "with_statement": {
