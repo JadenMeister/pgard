@@ -197,9 +197,157 @@ describe("scanSourceCode", () => {
         "server.js": `import csrf from 'csurf';\nimport rateLimit from 'express-rate-limit';\n${server}`,
       }),
     );
-    const protectedRules = protectedResult.findings.map((finding) => finding.ruleId);
-    expect(protectedRules).not.toContain("PG-CSRF-001");
-    expect(protectedRules).not.toContain("PG-BRUTE-001");
+    // The libraries are imported but not applied to these routes: demoted to low, not dropped.
+    const demoted = protectedResult.findings.filter((f) =>
+      ["PG-CSRF-001", "PG-BRUTE-001"].includes(f.ruleId),
+    );
+    expect(demoted.map((f) => f.ruleId).sort()).toEqual(["PG-BRUTE-001", "PG-CSRF-001"]);
+    for (const finding of demoted) expect(finding).toMatchObject({ severity: "low" });
+  });
+
+  describe("route receivers and visibly applied protection (#302)", () => {
+    const head =
+      "import express from 'express';\nimport session from 'express-session';\nimport rateLimit from 'express-rate-limit';\nimport csrf from 'csurf';\nconst app = express();\napp.use(session({ secret: process.env.S, cookie: { secure: true, sameSite: 'lax' } }));\nconst limiter = rateLimit({ windowMs: 1000, max: 5 });\nconst csrfProtection = csrf();\n";
+    const scan = async (body: string, extra: Record<string, string> = {}) => {
+      const result = await scanSourceCode(project({ "server.js": head + body, ...extra }));
+      return {
+        result,
+        brute: result.findings.filter((f) => f.ruleId === "PG-BRUTE-001"),
+        csrf: result.findings.filter((f) => f.ruleId === "PG-CSRF-001"),
+      };
+    };
+
+    it("keeps a route silent when the limiter and CSRF middleware are visibly applied", async () => {
+      const { brute, csrf } = await scan("app.post('/login', limiter, csrfProtection, login);\n");
+      expect(brute).toHaveLength(0);
+      expect(csrf).toHaveLength(0);
+      const globalUse = await scan(
+        "app.use(limiter);\napp.use(csrfProtection);\napp.post('/login', login);\n",
+      );
+      expect(globalUse.brute).toHaveLength(0);
+      expect(globalUse.csrf).toHaveLength(0);
+    });
+
+    it("demotes an unprotected route in a project that imports the limiter", async () => {
+      const { brute, csrf } = await scan("app.post('/login', login);\n");
+      expect(brute).toHaveLength(1);
+      expect(brute[0]).toMatchObject({ severity: "low", confidence: "low", status: "suspected" });
+      expect(csrf).toHaveLength(1);
+      expect(csrf[0]).toMatchObject({ severity: "low", confidence: "low" });
+    });
+
+    it("lets router-level use(limiter) cover later routes only", async () => {
+      const { brute } = await scan(
+        "const authRouter = express.Router();\nauthRouter.post('/login', login);\nauthRouter.use(limiter);\nauthRouter.post('/reset-password', reset);\napp.use(authRouter);\n",
+      );
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toMatch(/^server\.js:10: 1 authentication route\(s\)/);
+    });
+
+    it("does not let a path-scoped use(limiter) cover other paths", async () => {
+      const { brute } = await scan(
+        "app.use('/api/v2', limiter);\napp.post('/login', login);\napp.post('/api/v2/login', login2);\n",
+      );
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toMatch(/^server\.js:10: 1 authentication route\(s\)/);
+    });
+
+    it("does not let use('/log', limiter) cover /login, but covers /log and /log/x", async () => {
+      const { brute } = await scan(
+        "app.use('/log', limiter);\napp.post('/login', login);\napp.post('/log/auth', login2);\n",
+      );
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toMatch(/^server\.js:10: 1 authentication route\(s\)/);
+    });
+
+    it("merges the demoted brute-force findings of a multi-file app into one", async () => {
+      const route = (n: number) => `r.post('/login${n}', login);\n`;
+      const { brute } = await scan("app.use('/auth', limiter, authRouter);\n", {
+        "routes/a.js": `const r = require('express').Router();\n${route(1)}${route(2)}${route(3)}`,
+        "routes/b.js": `const r = require('express').Router();\n${route(4)}${route(5)}`,
+      });
+      expect(brute).toHaveLength(1);
+      expect(brute[0]).toMatchObject({ severity: "low", confidence: "low" });
+      expect(brute[0]?.evidence).toContain(": 5 authentication route(s)");
+      expect(brute[0]?.evidence).toContain("routes/a.js:2");
+      expect(brute[0]?.evidence).not.toContain("more");
+    });
+
+    it("keeps the merged brute-force finding's id when another unprotected route appears", async () => {
+      const manifest = { "package.json": '{"name":"x"}' };
+      const router = (n: number) =>
+        `const r = require('express').Router();\nr.post('/login${n}', login);\n`;
+      const before = await scan("app.use('/auth', limiter, authRouter);\n", {
+        ...manifest,
+        "routes/b.js": router(1),
+      });
+      const after = await scan("app.use('/auth', limiter, authRouter);\n", {
+        ...manifest,
+        "routes/a.js": router(2),
+        "routes/b.js": router(1),
+      });
+      expect(before.brute).toHaveLength(1);
+      expect(after.brute).toHaveLength(1);
+      expect(after.brute[0]?.id).toBe(before.brute[0]?.id);
+      expect(before.brute[0]?.evidence).toContain(": 1 authentication route(s)");
+      expect(after.brute[0]?.evidence).toContain(": 2 authentication route(s)");
+      // A cut at 160 characters (the pre-commit output) still names the first route.
+      expect(after.brute[0]?.evidence.slice(0, 160)).toContain("routes/a.js:2");
+      expect(after.brute[0]?.evidence).toContain("routes/a.js:2");
+    });
+
+    it("still reports when one auth route is protected and another is not", async () => {
+      const { brute } = await scan(
+        "app.post('/login', limiter, login);\napp.post('/signin', login);\n",
+      );
+      expect(brute).toHaveLength(1);
+      expect(brute[0]?.evidence).toContain("server.js:10");
+      expect(brute[0]?.evidence).not.toContain("server.js:9");
+    });
+
+    it("counts a controller reference on an imported receiver, not HTTP clients", async () => {
+      const entry = async (code: string) =>
+        (await scanSourceCode(project({ "a.js": code }))).coverage.find(
+          (c) => c.area === "source:heuristics",
+        );
+      expect(
+        await entry(
+          "import { authRouter } from './routes';\nauthRouter.post('/login', c.login);\nauthRouter.put('/x', handler);\n",
+        ),
+      ).toMatchObject({ status: "partial", noteParams: { count: 2 } });
+      expect(
+        await entry(
+          "import axios from 'axios';\nimport { rest } from 'msw';\nimport apiClient from './c';\naxios.post('/api/x', payload);\nrest.post('/api/y', (req, res) => res);\napiClient.post('/z', body);\n$axios.post('/w', (r) => r);\n",
+        ),
+      ).toMatchObject({ status: "completed" });
+    });
+
+    it("sees receivers bound to express.Router(), express() and new Router()", async () => {
+      const files = {
+        "a.js":
+          "const express = require('express');\nconst cookieParser = require('cookie-parser');\nconst authRouter = express.Router();\nconst Router = require('koa-router');\nconst k = new Router();\nauthRouter.post('/login', login);\nk.post('/signin', login);\nconst server2 = express();\nserver2.post('/token', t);\n",
+      };
+      const result = await scanSourceCode(project(files));
+      const brute = result.findings.filter((f) => f.ruleId === "PG-BRUTE-001");
+      expect(brute.map((f) => f.location.line)).toEqual([6, 7, 9]);
+      expect(result.findings.some((f) => f.ruleId === "PG-CSRF-001")).toBe(true);
+    });
+
+    it("reports partial coverage, counts only, for routes on unknown receivers", async () => {
+      const result = await scanSourceCode(
+        project({
+          "a.js":
+            "import { authRoutes } from './routes';\nauthRoutes.post('/login', (req, res) => res.end());\nweird.put('/x', (req, res) => res.end());\naxios.post('/api/x', (r) => r);\n",
+        }),
+      );
+      const entry = result.coverage.find((c) => c.area === "source:heuristics");
+      expect(entry).toMatchObject({
+        status: "partial",
+        noteCode: "heuristics_routes_unrecognized",
+        noteParams: { count: 2 },
+      });
+      expect(result.findings.some((f) => f.ruleId === "PG-BRUTE-001")).toBe(false);
+    });
   });
 
   it("treats PUT/DELETE as CSRF-able only with credentialed permissive CORS, and a cookie-set alone is no session", async () => {

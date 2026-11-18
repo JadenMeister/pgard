@@ -227,16 +227,18 @@ describe("incremental scan equals a full scan", () => {
     );
     await step("commit the rename", () => commitAll(repo, "rename"));
 
-    // A project-wide rule: a new file anywhere removes the CSRF finding of an unchanged file.
+    // A project-wide rule: a new file anywhere demotes the CSRF finding of an unchanged file.
     const protectedStep = await step("add a CSRF library import elsewhere", () =>
       write(repo, "src/protect.js", "import csrf from 'csurf';\nexport default csrf;\n"),
     );
-    expect(protectedStep.result.findings.map((f) => f.ruleId)).not.toContain("PG-CSRF-001");
+    expect(protectedStep.result.findings.find((f) => f.ruleId === "PG-CSRF-001")?.severity).toBe(
+      "low",
+    );
     expect(protectedStep.result.incremental?.filesRescanned).toBe(1);
     await step("remove it again", () => rmSync(path.join(repo.root, "src/protect.js")));
     expect(base.result.findings.map((f) => f.ruleId)).toContain("PG-CSRF-001");
 
-    // A manifest: declaring a rate limiter removes the brute-force finding without touching code.
+    // A manifest: declaring a rate limiter demotes the brute-force finding without touching code.
     const limited = await step("declare a rate limiter in package.json", () =>
       write(
         repo,
@@ -244,7 +246,7 @@ describe("incremental scan equals a full scan", () => {
         PACKAGE_JSON({ express: "^4.0.0", pg: "^8.0.0", "express-rate-limit": "^7.0.0" }),
       ),
     );
-    expect(limited.result.findings.map((f) => f.ruleId)).not.toContain("PG-BRUTE-001");
+    expect(limited.result.findings.find((f) => f.ruleId === "PG-BRUTE-001")?.severity).toBe("low");
     await step("drop it again", () =>
       write(repo, "package.json", PACKAGE_JSON({ express: "^4.0.0", pg: "^8.0.0" })),
     );

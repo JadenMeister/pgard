@@ -42,6 +42,7 @@ const SAMPLES: Record<string, NoteParams> = {
   react_no_jsx: {},
   heuristics_ran: {},
   heuristics_ran_partial: {},
+  heuristics_routes_unrecognized: { count: 3 },
   heuristics_not_run: {},
   python_other_categories: {},
   python_orm_unsupported: { library: "SQLAlchemy", count: 3 },
@@ -120,6 +121,7 @@ describe("coverage note catalog", () => {
     const CHOSEN_BY_TERNARY: Record<string, string> = {
       heuristics_ran: "scan-source.ts",
       heuristics_ran_partial: "scan-source.ts",
+      heuristics_routes_unrecognized: "scan-source.ts",
       heuristics_not_run: "scan-source.ts",
     };
     const emitted = new Set<string>();

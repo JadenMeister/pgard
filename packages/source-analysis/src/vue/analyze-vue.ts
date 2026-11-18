@@ -357,6 +357,12 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
               : (facts.preflightExposure ?? analysis.facts.preflightExposure),
           strictSession: facts.strictSession || analysis.facts.strictSession,
           authRoutes: [...facts.authRoutes, ...analysis.facts.authRoutes],
+          csrfUncoveredPost: [...facts.csrfUncoveredPost, ...analysis.facts.csrfUncoveredPost],
+          csrfUncoveredPreflight: [
+            ...facts.csrfUncoveredPreflight,
+            ...analysis.facts.csrfUncoveredPreflight,
+          ],
+          unrecognizedRoutes: facts.unrecognizedRoutes + analysis.facts.unrecognizedRoutes,
           usesCookieSession: facts.usesCookieSession || analysis.facts.usesCookieSession,
           hasJsx: facts.hasJsx || analysis.facts.hasJsx,
         }

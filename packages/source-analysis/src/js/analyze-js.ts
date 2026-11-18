@@ -17,6 +17,7 @@ import {
   SANITIZER_NAME,
   TRUSTED_SANITIZER_MODULES,
 } from "./sanitizer-modules.js";
+import { CSRF_MODULES, isModuleOf, RATE_LIMIT_MODULES } from "./protection-modules.js";
 import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-binding.js";
 
 /** Project-level facts used by cross-file heuristics (CSRF, brute force, ORM detection). */
@@ -42,7 +43,19 @@ export interface JsFileFacts {
   /** An express-session/cookie-session configured with `sameSite: "strict"`. */
   strictSession: boolean;
   /** Authentication-like POST routes. */
-  authRoutes: { line: number; routePath: string }[];
+  authRoutes: { line: number; routePath: string; limited: boolean }[];
+  /**
+   * Lines of POST and of PUT/PATCH/DELETE routes with no CSRF middleware visibly applied to the
+   * route (a middleware argument) or to its router/app (an earlier `use`/`register`/`addHook`).
+   * Only read when a CSRF library is imported somewhere: those routes are then demoted, not hidden.
+   */
+  csrfUncoveredPost: number[];
+  csrfUncoveredPreflight: number[];
+  /**
+   * State-changing-looking registrations (`x.post("/path", handler)`) on a receiver that is not
+   * a known router. They are not checked, so they are counted for a partial coverage note.
+   */
+  unrecognizedRoutes: number;
   usesCookieSession: boolean;
   hasJsx: boolean;
 }
@@ -117,6 +130,13 @@ const PERSIST_METHODS = new Set([
   "findOneAndUpdate",
 ]);
 const ROUTE_RECEIVERS = /^(app|router|server|api|routes?|fastify|r)$/;
+/** Calls whose result is an Express/Fastify-style router or app (`const x = express.Router()`). */
+const ROUTER_FACTORIES = new Set(["express", "express.Router", "Router", "fastify", "Fastify"]);
+/** Receivers that are HTTP clients, not routers: `axios.post("/x", () => ...)` is no route. */
+const HTTP_CLIENT_RECEIVER =
+  /^(\$?axios|http|https|got|ky|superagent|request|fetch|\$|jQuery|\$http|\$fetch|ofetch|agent|supertest|session|page|cy|rest|msw|nock|wretch|fetchMock|mock\w{0,20}|\w{0,20}client)$/i;
+/** Calls whose handler argument may hold a route; a limiter use inside one is that route's own. */
+const ROUTE_REGISTRATIONS = new Set(["get", "post", "put", "patch", "delete", "all", "use"]);
 const AUTH_ROUTE =
   /login|log-in|signin|sign-in|sign_in|auth|session|reset|forgot|password|otp|token|verify/i;
 /** A cookie value that is a session or token (used when the cookie name does not say so). */
@@ -196,6 +216,9 @@ export function analyzeJsSource(
     preflightExposure: null,
     strictSession: false,
     authRoutes: [],
+    csrfUncoveredPost: [],
+    csrfUncoveredPreflight: [],
+    unrecognizedRoutes: 0,
     usesCookieSession: false,
     hasJsx: false,
   };
@@ -3149,18 +3172,233 @@ export function analyzeJsSource(
     );
   };
 
-  const checkRoute = (call: ts.CallExpression, name: string) => {
+  // Local bindings used by the route checks, collected before the rule pass: receivers bound to a
+  // router/app factory (same file only) and names bound to a rate-limit or CSRF library.
+  const boundRouters = new Set<string>();
+  const limiterNames = new Set<string>();
+  const csrfNames = new Set<string>();
+  const moduleOfBinding = (bound: string): string => {
+    const separator = bound.lastIndexOf(":");
+    return separator > 0 ? bound.slice(0, separator) : bound;
+  };
+  for (const [local, module] of namespaceImports) {
+    if (isModuleOf(module, RATE_LIMIT_MODULES)) limiterNames.add(local);
+    if (isModuleOf(module, CSRF_MODULES)) csrfNames.add(local);
+  }
+  for (const [local, bound] of namedImports) {
+    const module = moduleOfBinding(bound);
+    if (isModuleOf(module, RATE_LIMIT_MODULES)) limiterNames.add(local);
+    if (isModuleOf(module, CSRF_MODULES)) csrfNames.add(local);
+  }
+  /** Identifier at the root of `a.b(c).d` style expressions, or null. */
+  const chainRoot = (node: ts.Expression): string | null => {
+    let current = unwrap(node);
+    for (let depth = 0; depth < 20; depth += 1) {
+      if (ts.isIdentifier(current)) return current.text;
+      if (ts.isCallExpression(current) || ts.isNewExpression(current))
+        current = unwrap(current.expression);
+      else if (ts.isPropertyAccessExpression(current)) current = unwrap(current.expression);
+      else if (ts.isElementAccessExpression(current)) current = unwrap(current.expression);
+      else return null;
+    }
+    return null;
+  };
+  const bindNames = (name: ts.BindingName, into: Set<string>) => {
+    if (ts.isIdentifier(name)) into.add(name.text);
+    else if (ts.isObjectBindingPattern(name))
+      for (const element of name.elements) bindNames(element.name, into);
+  };
+  const collectRouteBindings = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const init = unwrap(node.initializer);
+      if (ts.isIdentifier(node.name) && (ts.isCallExpression(init) || ts.isNewExpression(init))) {
+        const callee = accessPath(init.expression);
+        if (callee && ROUTER_FACTORIES.has(callee)) boundRouters.add(node.name.text);
+      }
+      const root = chainRoot(init);
+      if (
+        root &&
+        (ts.isCallExpression(init) ||
+          ts.isNewExpression(init) ||
+          ts.isPropertyAccessExpression(init))
+      ) {
+        if (limiterNames.has(root)) bindNames(node.name, limiterNames);
+        if (csrfNames.has(root)) bindNames(node.name, csrfNames);
+      }
+    }
+    ts.forEachChild(node, collectRouteBindings);
+  };
+  collectRouteBindings(sourceFile);
+
+  /** True when the expression is (or is built from) a name bound to a library of this kind. */
+  const isProtection = (node: ts.Node, names: Set<string>, depth = 0): boolean => {
+    if (depth > 3 || !ts.isExpression(node)) return false;
+    const expression = unwrap(node);
+    if (ts.isArrayLiteralExpression(expression))
+      return expression.elements.some((element) => isProtection(element, names, depth + 1));
+    if (ts.isObjectLiteralExpression(expression))
+      return expression.properties.some(
+        (property) =>
+          ts.isPropertyAssignment(property) && isProtection(property.initializer, names, depth + 1),
+      );
+    const root = chainRoot(expression);
+    return root !== null && names.has(root);
+  };
+  // One pass over the file: which function nodes use a limiter / CSRF name. The marking climbs
+  // from each reference to its enclosing functions and stops at one already marked or at a
+  // function that is itself a route or `use` handler, so nested routes do not mark the outer one
+  // and the whole pass stays linear.
+  const functionsUsingLimiter = new Set<ts.Node>();
+  const functionsUsingCsrf = new Set<ts.Node>();
+  const functionParams = new Set<string>();
+  const isHandlerOfCall = (fn: ts.Node): boolean => {
+    const parent = fn.parent;
+    if (!parent || !ts.isCallExpression(parent) || !parent.arguments.includes(fn as ts.Expression))
+      return false;
+    const callee = calleeName(parent);
+    return callee !== null && ROUTE_REGISTRATIONS.has(callee);
+  };
+  // Every node a climb passed is remembered per kind, so a later climb stops there: the work is
+  // linear in the file however deep or crowded the references are.
+  const visitedForLimiter = new Set<ts.Node>();
+  const visitedForCsrf = new Set<ts.Node>();
+  const markFunctions = (start: ts.Node, into: Set<ts.Node>, visited: Set<ts.Node>) => {
+    for (let node: ts.Node | undefined = start.parent; node; node = node.parent) {
+      if (visited.has(node)) return;
+      visited.add(node);
+      if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) {
+        into.add(node);
+        if (isHandlerOfCall(node)) return;
+      }
+    }
+  };
+  const collectUsage = (node: ts.Node): void => {
+    if (ts.isIdentifier(node)) {
+      if (limiterNames.has(node.text))
+        markFunctions(node, functionsUsingLimiter, visitedForLimiter);
+      if (csrfNames.has(node.text)) markFunctions(node, functionsUsingCsrf, visitedForCsrf);
+    } else if (ts.isParameter(node) && ts.isIdentifier(node.name)) {
+      functionParams.add(node.name.text);
+    }
+    ts.forEachChild(node, collectUsage);
+  };
+  collectUsage(sourceFile);
+  /** True when an inline handler's body uses a name bound to a library (`limiter.consume(...)`). */
+  const handlerUses = (handler: ts.Expression | undefined, used: Set<ts.Node>): boolean => {
+    if (!handler) return false;
+    const fn = unwrap(handler);
+    return (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn)) && used.has(fn);
+  };
+  // Receivers (app, router, ...) that already had a limiter / CSRF middleware applied; routes
+  // registered after that on the same receiver are covered. Routes are visited in source order.
+  // Each maps a receiver to the path prefixes covered ("" = every route on it): `app.use("/x",
+  // limiter)` only covers routes under /x.
+  const limitedReceivers = new Map<string, string[]>();
+  const csrfReceivers = new Map<string, string[]>();
+  const cover = (map: Map<string, string[]>, receiver: string, prefix: string) => {
+    const prefixes = map.get(receiver) ?? [];
+    if (prefixes.length < 20) prefixes.push(prefix);
+    map.set(receiver, prefixes);
+  };
+  const isCovered = (map: Map<string, string[]>, receiver: string, routePath: string) =>
+    (map.get(receiver) ?? []).some(
+      (prefix) =>
+        prefix === "" ||
+        routePath === prefix ||
+        routePath.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`),
+    );
+  const checkProtectionUse = (call: ts.CallExpression, name: string) => {
+    if (name !== "use" && name !== "register" && name !== "addHook") return;
     const receiver = calleeReceiver(call);
     const receiverPath = receiver ? accessPath(receiver) : null;
-    if (!receiverPath || !ROUTE_RECEIVERS.test(receiverPath)) return;
+    if (!receiverPath) return;
+    const args = call.arguments;
+    const first = args[0] ? unwrap(args[0]) : undefined;
+    const prefix =
+      first && ts.isStringLiteralLike(first) && first.text !== "/" && name === "use"
+        ? first.text
+        : "";
+    const apply = (names: Set<string>, covered: Map<string, string[]>) => {
+      const index = args.findIndex((argument) => isProtection(argument, names));
+      if (index === -1) {
+        return;
+      }
+      cover(covered, receiverPath, prefix);
+      // `app.use("/auth", limiter, authRouter)` covers the router mounted behind the middleware.
+      for (const argument of args.slice(index + 1)) {
+        const mounted = unwrap(argument);
+        if (ts.isIdentifier(mounted) && boundRouters.has(mounted.text))
+          cover(covered, mounted.text, "");
+      }
+    };
+    apply(limiterNames, limitedReceivers);
+    apply(csrfNames, csrfReceivers);
+    // A router mounted on an app that is already covered is covered too.
+    if (name === "use") {
+      for (const argument of args) {
+        const mounted = unwrap(argument);
+        if (!ts.isIdentifier(mounted) || !boundRouters.has(mounted.text)) continue;
+        if (isCovered(limitedReceivers, receiverPath, ""))
+          cover(limitedReceivers, mounted.text, "");
+        if (isCovered(csrfReceivers, receiverPath, "")) cover(csrfReceivers, mounted.text, "");
+      }
+    }
+  };
+
+  const checkRoute = (call: ts.CallExpression, name: string) => {
+    checkProtectionUse(call, name);
     if (!["post", "put", "patch", "delete"].includes(name)) return;
+    const receiver = calleeReceiver(call);
+    const receiverPath = receiver ? accessPath(receiver) : null;
+    if (!receiverPath) return;
     const route = call.arguments[0];
     if (!route || !ts.isStringLiteralLike(unwrap(route)) || call.arguments.length < 2) return;
+    const known = ROUTE_RECEIVERS.test(receiverPath) || boundRouters.has(receiverPath);
+    if (!known) {
+      // A route-looking registration on a receiver that is not a known router: not checked, so
+      // count it (the scan reports partial coverage). HTTP clients and plain data calls are not.
+      const last = unwrap(call.arguments[call.arguments.length - 1] as ts.Expression);
+      const segments = receiverPath.split(".");
+      const rootSegment = segments[0] ?? "";
+      const inline = ts.isArrowFunction(last) || ts.isFunctionExpression(last);
+      // A controller reference (`login`, `c.login`) counts when the receiver comes from an import,
+      // a function parameter or `this`; an unknown local value is not guessed at.
+      const reference =
+        (ts.isIdentifier(last) || ts.isPropertyAccessExpression(last)) &&
+        (namespaceImports.has(rootSegment) ||
+          namedImports.has(rootSegment) ||
+          functionParams.has(rootSegment) ||
+          rootSegment === "this");
+      if (
+        (unwrap(route) as ts.StringLiteral).text.startsWith("/") &&
+        (inline || reference) &&
+        !segments.some((segment) => HTTP_CLIENT_RECEIVER.test(segment))
+      )
+        facts.unrecognizedRoutes += 1;
+      return;
+    }
     const line = lineOf(call);
+    const routePath = (unwrap(route) as ts.StringLiteral).text;
     if (name === "post") facts.stateChangingRoutes.push(line);
     else facts.preflightRoutes.push(line);
-    const routePath = (unwrap(route) as ts.StringLiteral).text;
-    if (name === "post" && AUTH_ROUTE.test(routePath)) facts.authRoutes.push({ line, routePath });
+    const middleware = call.arguments.slice(1, -1);
+    const options = call.arguments.slice(1);
+    const csrfCovered =
+      isCovered(csrfReceivers, receiverPath, routePath) ||
+      options.some((argument) => isProtection(argument, csrfNames)) ||
+      handlerUses(call.arguments[call.arguments.length - 1], functionsUsingCsrf);
+    if (!csrfCovered) {
+      if (name === "post") facts.csrfUncoveredPost.push(line);
+      else facts.csrfUncoveredPreflight.push(line);
+    }
+    if (name === "post" && AUTH_ROUTE.test(routePath)) {
+      const limited =
+        isCovered(limitedReceivers, receiverPath, routePath) ||
+        middleware.some((argument) => isProtection(argument, limiterNames)) ||
+        isProtection(call.arguments[call.arguments.length - 1] as ts.Node, limiterNames) ||
+        handlerUses(call.arguments[call.arguments.length - 1], functionsUsingLimiter);
+      facts.authRoutes.push({ line, routePath, limited });
+    }
   };
 
   const checkPlaintextPassword = (object: ts.ObjectLiteralExpression) => {

@@ -6,6 +6,7 @@ import {
   NOT_A_CRYPTO_KEY_CONTEXT,
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
+import { analyzeJsSource } from "./js/analyze-js.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
 import {
   analyzeJsp,
@@ -281,4 +282,56 @@ describe("JVM configuration key patterns (#350)", () => {
       expect(ms).toBeLessThan(LIMIT_MS);
     });
   }
+});
+
+describe("JavaScript route and protection detection (#302)", () => {
+  it("stays bounded on many route registrations and a long middleware chain", () => {
+    // The receiver chain is 500 segments deep: the analyzer recurses once per segment, and a deeper
+    // chain overflows a small stack (see hostile-limits.test.ts for what a scan does then).
+    const routes = Array.from({ length: 5_000 }, (_, i) => `x${i}.post('/p${i}', (a, b) => a);`);
+    const chain = `app.post('/login', ${Array.from({ length: 5_000 }, () => "limiter").join(", ")}, h);`;
+    const code = `import rateLimit from 'express-rate-limit';\nconst limiter = rateLimit();\n${routes.join("\n")}\n${"a.b.".repeat(250)}c.post('/x', () => 1);\n${chain}\n`;
+    const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(value.facts.unrecognizedRoutes).toBe(5_001);
+    expect(value.facts.authRoutes).toEqual([{ line: 5_004, routePath: "/login", limited: true }]);
+  });
+
+  it("stays linear on nested routes that use a limiter and a CSRF name", () => {
+    const head =
+      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nimport csrf from 'csurf';\nconst app = express();\nconst limiter = rateLimit();\nconst cp = csrf();\n";
+    const chain = (depth: number) =>
+      "app.post('/login', (q, r) => {".repeat(depth) + "limiter(); cp();" + "});".repeat(depth);
+    const code = head + Array.from({ length: 100 }, () => chain(100)).join("\n");
+    const small = head + Array.from({ length: 25 }, () => chain(100)).join("\n");
+    analyzeJsSource(small, "a.js");
+    const quarter = timed(() => analyzeJsSource(small, "a.js")).ms;
+    const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
+    expect(value.facts.authRoutes).toHaveLength(10_000);
+    // Only the innermost handler of each chain uses the names; four times the input stays far
+    // from the sixteen times a repeated subtree scan would cost.
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(ms / Math.max(quarter, 1)).toBeLessThan(12);
+  });
+
+  it("stays linear on references nested deep inside one handler", () => {
+    const head =
+      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nconst app = express();\nconst limiter = rateLimit();\n";
+    // 300 levels of 300 identifiers (about 700 KiB). The control has the same shape with a name
+    // that is not a limiter, so only the cost of the usage climb differs between the two.
+    const build = (name: string) => {
+      let inner = `${name},`.repeat(300);
+      for (let i = 1; i < 300; i += 1) inner = `${`${name},`.repeat(300)}[${inner}]`;
+      return `${head}app.post('/login', () => [${inner}]);\n`;
+    };
+    const withLimiter = build("limiter");
+    const control = build("other");
+    analyzeJsSource(control, "a.js");
+    const baseline = Math.max(timed(() => analyzeJsSource(control, "a.js")).ms, 1);
+    const { value, ms } = timed(() => analyzeJsSource(withLimiter, "a.js"));
+    expect(value.facts.authRoutes).toEqual([{ line: 5, routePath: "/login", limited: true }]);
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    // A walk up from every reference (no memo) costs about four times the control here.
+    expect(ms / baseline).toBeLessThan(2.5);
+  });
 });

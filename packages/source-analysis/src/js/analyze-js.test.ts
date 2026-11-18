@@ -283,6 +283,9 @@ describe("PG-XSS-001/002 HTML sinks", () => {
     ).toEqual([]);
   });
 
+  // A browser-global `DOMPurify` with no import is deliberately not trusted (#302): the name
+  // alone does not show that the real library is loaded, so the finding stays. Documented in the
+  // README ("Known limits").
   it.each([
     ["const clean = DOMPurify.sanitize(req.body.html);\nel.innerHTML = clean;"],
     ["export {};\nlet html;\nhtml = DOMPurify.sanitize(input);\nel.innerHTML = html;"],
@@ -1328,6 +1331,18 @@ describe("PG-COOKIE-001", () => {
   });
 });
 
+describe("limiter use in nested routes (#302)", () => {
+  it("does not credit an outer route with a limiter used only inside a nested route handler", () => {
+    const code =
+      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nconst app = express();\nconst limiter = rateLimit();\napp.post('/login', (req, res) => {\n  app.post('/login2', (a, b) => {\n    limiter(a, b);\n  });\n});\n";
+    const { facts } = analyzeJsSource(code, "a.js");
+    expect(facts.authRoutes).toEqual([
+      { line: 5, routePath: "/login", limited: false },
+      { line: 6, routePath: "/login2", limited: true },
+    ]);
+  });
+});
+
 describe("facts and robustness", () => {
   it("collects routes, imports and cookie usage for project heuristics", () => {
     const { facts } = analyzeJsSource(
@@ -1335,7 +1350,7 @@ describe("facts and robustness", () => {
       "src/server.js",
     );
     expect(facts.imports).toContain("express");
-    expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login" }]);
+    expect(facts.authRoutes).toEqual([{ line: 1, routePath: "/login", limited: false }]);
     expect(facts.stateChangingRoutes).toHaveLength(1);
     expect(facts.preflightRoutes).toHaveLength(1);
     // A session-like cookie set by hand counts as a cookie session; other cookies do not.
