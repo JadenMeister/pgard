@@ -32,23 +32,32 @@ const BROWSER_PATTERNS = [
   /^(this\.)?\$route\.(query|params|hash|fullPath)/,
   /^route\.(query|params|hash|fullPath)/,
 ];
-/** Calls whose result is considered free of injection-relevant input. */
-const SANITIZERS = new Set([
+/** Calls whose result is free of injection-relevant input for every rule (numeric, a file name). */
+const ALWAYS_CLEAN = new Set([
   "parseInt",
   "parseFloat",
   "Number",
   "Boolean",
   "basename",
+  "escapeId",
+  "isValid",
+  "uuid",
+]);
+/**
+ * Calls named like an HTML sanitizer or escaper. They are clean for the XSS rule only: HTML
+ * escaping does nothing about `; | $` in a shell command, `../` in a path, a quote in SQL, or a
+ * URL. The rules for those read the strict tracker, where these names do not clean.
+ */
+const HTML_ESCAPERS = new Set([
   "sanitize",
   "sanitizeHtml",
   "escape",
   "escapeHtml",
-  "escapeId",
   "encode",
-  "isValid",
-  "uuid",
   "xss",
 ]);
+/** A database handle: `pool.escape(x)`, `connection.escape(x)`, `SqlString.escape(x)`. */
+const SQL_ESCAPE_RECEIVER = /(^|\.)(pool|conn|connection|db|mysql|client|sqlstring)$/i;
 const MAX_ASSIGNMENTS = 8;
 const BROWSER_SOURCE_CALLS = new Set(["useSearchParams", "useParams", "useRoute", "useLocation"]);
 
@@ -121,13 +130,30 @@ function requestPathKind(path: string): TaintKind | null {
   return null;
 }
 
+export interface TaintOptions {
+  /** HTML sanitizers and escapers (`escapeHtml`, `sanitize`...) clean the value: the XSS view. */
+  htmlEscapersClean?: boolean;
+  /** Local names of `escape`/`escapeId` imported from a SQL-escaping module: `escape(x)` cleans. */
+  sqlEscapeFunctions?: ReadonlySet<string>;
+  /** Local names bound to a SQL-escaping module (`sqlstring`, `mysql`): `mysql.escape(x)` cleans. */
+  sqlEscapeModules?: ReadonlySet<string>;
+}
+
 export class TaintTracker {
+  /** Sanitizer calls known not to clean here (an attribute context after HTML sanitizing). */
+  readonly uncleanCalls = new Set<ts.Node>();
+  private readonly htmlEscapersClean: boolean;
+  private readonly sqlEscapeFunctions: ReadonlySet<string>;
+  private readonly sqlEscapeModules: ReadonlySet<string>;
   private readonly taintedVariables = new Map<string, TaintKind>();
   private readonly dynamicStringVariables = new Set<string>();
   /** Expressions assigned to each identifier (bounded), used to judge identifier arguments. */
   private readonly assignedExpressions = new Map<string, ts.Expression[]>();
 
-  constructor(sourceFile: ts.SourceFile) {
+  constructor(sourceFile: ts.SourceFile, options: TaintOptions = {}) {
+    this.htmlEscapersClean = options.htmlEscapersClean ?? false;
+    this.sqlEscapeFunctions = options.sqlEscapeFunctions ?? new Set();
+    this.sqlEscapeModules = options.sqlEscapeModules ?? new Set();
     // Two passes so `const a = req.body; const b = a.x;` propagates regardless of order.
     for (let pass = 0; pass < 2; pass += 1) {
       const visit = (node: ts.Node): void => {
@@ -230,7 +256,7 @@ export class TaintTracker {
     }
     if (ts.isCallExpression(expression)) {
       const name = calleeName(expression);
-      if (name && SANITIZERS.has(name)) {
+      if (name && this.cleans(expression, name)) {
         return null;
       }
       if (name && BROWSER_SOURCE_CALLS.has(name)) {
@@ -271,6 +297,22 @@ export class TaintTracker {
       }
     }
     return null;
+  }
+
+  /** Whether the named call yields a value free of injection-relevant input. */
+  private cleans(call: ts.CallExpression, name: string): boolean {
+    if (ALWAYS_CLEAN.has(name)) return true;
+    if (name === "escape") {
+      // A SQL escaper: a database handle's method, or a name bound to a SQL-escaping module.
+      const receiver = calleeReceiver(call);
+      const path = receiver ? accessPath(receiver) : null;
+      if (path !== null && SQL_ESCAPE_RECEIVER.test(path)) return true;
+      const root = path?.split(".")[0];
+      if (root && this.sqlEscapeModules.has(root)) return true;
+    }
+    const callee = unwrap(call.expression);
+    if (ts.isIdentifier(callee) && this.sqlEscapeFunctions.has(callee.text)) return true;
+    return this.htmlEscapersClean && HTML_ESCAPERS.has(name) && !this.uncleanCalls.has(call);
   }
 
   /** True when the expression contains request input *directly* (not via a variable). */

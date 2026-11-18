@@ -2,6 +2,11 @@ import { parse } from "@vue/compiler-sfc";
 import ts from "typescript-api";
 import type { RawSourceFinding } from "../finding-factory.js";
 import { isTrustedSanitizerCall, TRUSTED_SANITIZER_MODULES } from "../js/sanitizer-modules.js";
+import {
+  domPurifyFileRisk,
+  isDomPurifyFamily,
+  unsafeSanitizerOptions,
+} from "../js/sanitizer-config.js";
 import { analyzeJsSource, type JsFileFacts } from "../js/analyze-js.js";
 
 export interface VueAnalysis {
@@ -20,12 +25,15 @@ interface TemplateNode {
 interface TemplateProp {
   type: number;
   name: string;
+  value?: { content: string };
   exp?: { content: string; loc: { start: { line: number } } };
   loc: { start: { line: number } };
 }
 
 const NODE_ELEMENT = 1;
+const PROP_ATTRIBUTE = 6;
 const PROP_DIRECTIVE = 7;
+const MAX_TEMPLATE_DEPTH = 500;
 const BROWSER_INPUT =
   /\$route\b|\broute\.(query|params|hash)|\blocation\.|\bquery\b|\bparams\b|searchParams/;
 const SANITIZED = /\b(sanitize|sanitizeHtml|purify|DOMPurify|escapeHtml|xss)\b/i;
@@ -43,6 +51,8 @@ interface ScriptSanitizers {
   computeds: Map<string, string>;
   /** Sole, never-reassigned import bindings of a sanitizer module: local name -> module. */
   roots: Map<string, SanitizerRoot>;
+  /** Why a DOMPurify hook or `setConfig` in the script makes every sanitize call unsafe, or null. */
+  hookRisk: string | null;
 }
 
 const OBJECT_WRITERS = new Set(["assign", "defineProperty", "defineProperties", "setPrototypeOf"]);
@@ -117,7 +127,10 @@ function scriptSanitizers(
           importedName.set(element.name.text, (element.propertyName ?? element.name).text);
         }
     }
-    if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && ts.isIdentifier(node.name))
+    if (
+      (ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) &&
+      ts.isIdentifier(node.name)
+    )
       count(node.name.text);
     // A reassigned import, or a function declared under the same name, is not the module's export.
     if (
@@ -198,13 +211,78 @@ function scriptSanitizers(
     ts.forEachChild(node, visit);
   };
   visit(source);
+  // Names the component also declares for the template (`data`, `props`, `methods`, `computed`,
+  // `inject`, `defineProps`): a template name can then mean either, so the import is unproven.
+  const optionNames = componentOptionNames(source, returned);
   const roots = new Map<string, SanitizerRoot>();
   // Only `<script setup>` bindings are visible to the template; imports of a plain `<script>` are not.
   if (exposesImports)
     for (const [name, module] of imported)
-      if (SANITIZER_MODULES.has(module) && !importCount.has(name))
+      if (SANITIZER_MODULES.has(module) && !importCount.has(name) && !optionNames.has(name))
         roots.set(name, { module, named: importedName.get(name) ?? null });
-  return { computeds: found, roots };
+  const hasDomPurify = [...imported.values()].some(isDomPurifyFamily);
+  return {
+    computeds: found,
+    roots,
+    hookRisk: hasDomPurify ? domPurifyFileRisk(source, null) : null,
+  };
+}
+
+const MAX_OPTION_NAMES = 500;
+
+/** Names declared by the options API (`props`, `data`, ...) and `defineProps`, bounded. */
+function componentOptionNames(
+  source: ts.SourceFile,
+  returned: (fn: ts.Node) => ts.Expression | undefined,
+): Set<string> {
+  const names = new Set<string>();
+  const add = (name: string) => {
+    if (names.size < MAX_OPTION_NAMES) names.add(name);
+  };
+  const keyText = (name: ts.PropertyName): string | null =>
+    ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : null;
+  const addKeysOf = (expression: ts.Expression | undefined) => {
+    if (!expression) return;
+    let node = expression;
+    while (ts.isParenthesizedExpression(node) || ts.isAsExpression(node)) node = node.expression;
+    if (ts.isArrayLiteralExpression(node)) {
+      for (const element of node.elements) if (ts.isStringLiteralLike(element)) add(element.text);
+    } else if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (ts.isSpreadAssignment(property)) continue;
+        const key = property.name ? keyText(property.name) : null;
+        if (key !== null) add(key);
+      }
+    }
+  };
+  const visit = (node: ts.Node): void => {
+    if (
+      (ts.isPropertyAssignment(node) || ts.isMethodDeclaration(node)) &&
+      (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name))
+    ) {
+      const key = node.name.text;
+      const value = ts.isPropertyAssignment(node) ? node.initializer : undefined;
+      if (key === "props" || key === "inject" || key === "methods" || key === "computed")
+        addKeysOf(value);
+      else if (key === "data")
+        addKeysOf(returned(ts.isMethodDeclaration(node) ? node : (value as ts.Node)));
+    } else if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      (node.expression.text === "defineProps" || node.expression.text === "defineModel")
+    ) {
+      addKeysOf(node.arguments[0]);
+      const type = node.typeArguments?.[0];
+      if (type && ts.isTypeLiteralNode(type))
+        for (const member of type.members) {
+          const key = member.name ? keyText(member.name) : null;
+          if (key !== null) add(key);
+        }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  return names;
 }
 
 /**
@@ -215,7 +293,8 @@ function scriptSanitizers(
 function sanitizerRootOf(
   expression: string,
   roots: Map<string, SanitizerRoot>,
-): { module: string; proven: boolean } | null {
+  hookRisk: string | null,
+): { module: string; proven: boolean; risk: string | null } | null {
   if (roots.size === 0) return null;
   const source = ts.createSourceFile(
     "pgard-vue-expression.ts",
@@ -243,23 +322,60 @@ function sanitizerRootOf(
   const name = direct
     ? (root.named ?? receiver.text)
     : (callee as ts.PropertyAccessExpression).name.text;
+  const isEntryPoint = isTrustedSanitizerCall(
+    root.module,
+    root.named === null ? "default" : "named",
+    direct ? "direct" : "member",
+    name,
+  );
+  // The template cannot resolve a named options object, so it is read as not visible (risky).
+  const risk =
+    unsafeSanitizerOptions(root.module, node.arguments[1], null) ??
+    (isDomPurifyFamily(root.module) ? hookRisk : null);
   return {
     module: root.module,
-    proven: isTrustedSanitizerCall(
-      root.module,
-      root.named === null ? "default" : "named",
-      direct ? "direct" : "member",
-      name,
-    ),
+    proven: isEntryPoint && risk === null,
+    risk: isEntryPoint ? risk : null,
   };
 }
 
 type Classification = Omit<RawSourceFinding, "ruleId" | "path" | "line" | "cause">;
 
+const IDENTIFIER = /[A-Za-z_$][\w$]*/g;
+const FOR_SEPARATOR = /\s(?:in|of)\s/;
+const MAX_LOCAL_NAMES = 100;
+
+/**
+ * Names an element introduces for itself and its subtree: `v-for="DOMPurify in items"` aliases
+ * and `v-slot` / `#name` / `slot-scope` parameters. Over-inclusive (every identifier of the
+ * alias or parameter text, defaults included): a name wrongly taken as local only keeps a finding.
+ */
+function localTemplateNames(node: TemplateNode): Set<string> {
+  const names = new Set<string>();
+  const addFrom = (text: string) => {
+    for (const match of text.matchAll(IDENTIFIER)) {
+      if (names.size >= MAX_LOCAL_NAMES) return;
+      names.add(match[0]);
+    }
+  };
+  for (const prop of node.props ?? []) {
+    if (prop.type === PROP_DIRECTIVE && prop.name === "for" && prop.exp) {
+      const separator = FOR_SEPARATOR.exec(prop.exp.content);
+      addFrom(separator ? prop.exp.content.slice(0, separator.index) : prop.exp.content);
+    } else if (prop.type === PROP_DIRECTIVE && prop.name === "slot" && prop.exp) {
+      addFrom(prop.exp.content);
+    } else if (prop.type === PROP_ATTRIBUTE && prop.name === "slot-scope" && prop.value) {
+      addFrom(prop.value.content);
+    }
+  }
+  return names;
+}
+
 /** Classifies a `v-html` expression without evaluating it. */
 function classifyVHtml(
   expression: string,
-  scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map() },
+  scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map(), hookRisk: null },
+  shadowed: ReadonlySet<string> = new Set(),
 ): Classification | null {
   const trimmed = expression.trim();
   const viaComputed = /^[A-Za-z_$][\w$]*$/.test(trimmed)
@@ -274,7 +390,12 @@ function classifyVHtml(
     };
   }
   if (/^(['"`])[^'"`$]*\1$/.test(trimmed)) return null;
-  const root = sanitizerRootOf(trimmed, scripts.roots);
+  // A `v-for` alias or slot prop with the sanitizer's name hides the import inside its subtree.
+  const roots =
+    shadowed.size === 0
+      ? scripts.roots
+      : new Map([...scripts.roots].filter(([name]) => !shadowed.has(name)));
+  const root = sanitizerRootOf(trimmed, roots, scripts.hookRisk);
   if (root?.proven) return null;
   const rootModule = root?.module ?? null;
   const finding = classifyUnsanitized(trimmed);
@@ -283,9 +404,11 @@ function classifyVHtml(
   // The name looks like a sanitizer but is not a proven import (a Vue method, a local function,
   // a global) or is escape-html, which does not cover every context: keep the finding, inferred.
   const note =
-    rootModule === "escape-html"
-      ? `escape-html only escapes & < > " ' and is not sufficient in an attribute, URL or script context; inferred`
-      : `sanitizer \`${named[1] ?? "sanitizer"}\` is not a known sanitizer import; inferred`;
+    root?.risk != null
+      ? `sanitizer \`${named[1] ?? "sanitizer"}\` is configured so script or event handlers can get through (${root.risk}); verify the configuration`
+      : rootModule === "escape-html"
+        ? `escape-html only escapes & < > " ' and is not sufficient in an attribute, URL or script context; inferred`
+        : `sanitizer \`${named[1] ?? "sanitizer"}\` is not a known sanitizer import; inferred`;
   return {
     severity:
       finding.severity === "high" || finding.severity === "critical" ? "medium" : finding.severity,
@@ -323,7 +446,7 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
   let facts: JsFileFacts | null = null;
   let hasParseErrors = errors.length > 0;
   const cappedRules = new Set<string>();
-  const scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map() };
+  const scripts: ScriptSanitizers = { computeds: new Map(), roots: new Map(), hookRisk: null };
 
   for (const block of [descriptor.script, descriptor.scriptSetup]) {
     if (!block) continue;
@@ -335,6 +458,7 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
     );
     for (const [name, module] of found.computeds) scripts.computeds.set(name, module);
     for (const [name, root] of found.roots) scripts.roots.set(name, root);
+    scripts.hookRisk ??= found.hookRisk;
     const analysis = analyzeJsSource(block.content, path, {
       lineOffset: block.loc.start.line - 1,
       scriptKind: isTs ? ts.ScriptKind.TSX : ts.ScriptKind.JSX,
@@ -369,11 +493,19 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
       : analysis.facts;
   }
 
-  const visit = (node: TemplateNode): void => {
+  const visit = (node: TemplateNode, outer: ReadonlySet<string>, depth: number): void => {
+    // Too deep to follow: stop, and say so (the walk below never recurses further).
+    if (depth > MAX_TEMPLATE_DEPTH) {
+      hasParseErrors = true;
+      return;
+    }
+    let shadowed = outer;
     if (node.type === NODE_ELEMENT) {
+      const local = localTemplateNames(node);
+      if (local.size > 0) shadowed = new Set([...outer, ...local]);
       for (const prop of node.props ?? []) {
         if (prop.type === PROP_DIRECTIVE && prop.name === "html" && prop.exp) {
-          const classification = classifyVHtml(prop.exp.content, scripts);
+          const classification = classifyVHtml(prop.exp.content, scripts, shadowed);
           if (classification) {
             findings.push({
               ruleId: "PG-XSS-003",
@@ -386,10 +518,10 @@ export function analyzeVueSource(code: string, path: string): VueAnalysis {
         }
       }
     }
-    for (const child of node.children ?? []) visit(child);
+    for (const child of node.children ?? []) visit(child, shadowed, depth + 1);
   };
   const ast = descriptor.template?.ast as TemplateNode | undefined | null;
-  if (ast) visit(ast);
+  if (ast) visit(ast, new Set(), 0);
 
   return { findings, facts, hasParseErrors, cappedRules: [...cappedRules] };
 }

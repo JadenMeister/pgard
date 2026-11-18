@@ -335,3 +335,25 @@ describe("JavaScript route and protection detection (#302)", () => {
     expect(ms / baseline).toBeLessThan(2.5);
   });
 });
+
+describe("sanitizer configuration and attribute-context patterns (#278)", () => {
+  const head = "import DOMPurify from 'dompurify';\n";
+
+  it("stays linear on a long run of attribute-like text before a sanitizer call", () => {
+    const run = (n: number) =>
+      `${head}el.innerHTML = '<a ${"b=".repeat(n)}' + DOMPurify.sanitize(location.hash);\n`;
+    analyzeJsSource(run(10), "a.js");
+    const { value, ms } = timed(() => analyzeJsSource(run(100_000), "a.js"));
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(value.findings.length).toBeGreaterThan(0);
+  });
+
+  it("stays linear on a long options list and a hook-heavy file", () => {
+    const tags = Array.from({ length: 20_000 }, (_, i) => `'t${i}'`).join(",");
+    const hooks = "DOMPurify.addHook('x', f);\n".repeat(20_000);
+    const code = `${head}${hooks}el.innerHTML = DOMPurify.sanitize(location.hash, { ADD_TAGS: [${tags}] });\n`;
+    const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(value.findings.length).toBe(1);
+  });
+});
