@@ -259,6 +259,8 @@ const declaredBy = (dir) => {
     manifestCache.set(
       dir,
       new Set([
+        // A package may import itself. typescript-api is the npm alias of typescript: its
+        // manifest names itself "typescript", and that is the name its own code imports.
         manifest.name,
         ...Object.keys(manifest.dependencies ?? {}),
         ...Object.keys(manifest.optionalDependencies ?? {}),
@@ -277,7 +279,7 @@ const declaredDependencyPlugin = {
       if (importer === null || importer.name.startsWith("@pgard/")) return undefined;
       const name = packageNameOf(args.path);
       if (builtinModules.includes(name) || declaredBy(importer.dir).has(name)) return undefined;
-      // typescript-api is the npm alias of typescript: its manifest names itself "typescript".
+      // Only collected here; the build fails after bundling with the whole list.
       undeclaredImports.push(`${importer.name} imports "${args.path}" (${args.kind})`);
       return undefined;
     });

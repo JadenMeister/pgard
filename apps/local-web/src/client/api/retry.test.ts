@@ -67,4 +67,50 @@ describe("loadWithRetry", () => {
     await Promise.resolve();
     expect(onSuccess).not.toHaveBeenCalled();
   });
+
+  it("waits exactly 1 s and then 2 s: a try never starts one millisecond early", async () => {
+    vi.useFakeTimers();
+    const load = vi.fn(async () => {
+      throw new Error("down");
+    });
+    loadWithRetry(load, vi.fn(), vi.fn());
+    await vi.advanceTimersByTimeAsync(0);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(load).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(load).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(load).toHaveBeenCalledTimes(3);
+  });
+
+  it("ignores a failure that arrives after cancel: no further try, no give-up", async () => {
+    vi.useFakeTimers();
+    let reject: (error: Error) => void = () => undefined;
+    const load = vi.fn(() => new Promise<string>((_, r) => (reject = r)));
+    const onGiveUp = vi.fn();
+    const cancel = loadWithRetry(load, vi.fn(), onGiveUp);
+    cancel();
+    reject(new Error("late"));
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(onGiveUp).not.toHaveBeenCalled();
+  });
+
+  it("ignores a last failure that arrives after cancel", async () => {
+    vi.useFakeTimers();
+    let reject: (error: Error) => void = () => undefined;
+    const onGiveUp = vi.fn();
+    const cancel = loadWithRetry(
+      () => new Promise<string>((_, r) => (reject = r)),
+      vi.fn(),
+      onGiveUp,
+      1,
+    );
+    cancel();
+    reject(new Error("late"));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(onGiveUp).not.toHaveBeenCalled();
+  });
 });

@@ -82,8 +82,6 @@ try {
     process.platform === "win32" ? "pgard.cmd" : "pgard",
   );
   check("bin shim exists", existsSync(shim), shim);
-  // The shim is a .cmd file on Windows and needs a shell; run the bin target with this Node
-  // instead, which is what the shim does.
   if (process.platform === "win32") {
     // The real shim once, through cmd.exe with the quoting cmd expects (the path has a space).
     const viaShim = run(
@@ -97,6 +95,8 @@ try {
       viaShim.stdout + viaShim.stderr,
     );
   }
+  // The shim is a .cmd file on Windows and needs a shell; run the bin target with this Node
+  // instead, which is what the shim does.
   const binTarget = join(pkgDir, manifest.bin.pgard);
   const pgard = (args, options) => run(process.execPath, [binTarget, ...args], options);
   // The bin is the small version guard (must load on old Node.js): no static imports, ES2017 only.
