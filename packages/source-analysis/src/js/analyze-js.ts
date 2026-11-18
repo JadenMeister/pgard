@@ -17,6 +17,11 @@ import {
   SANITIZER_NAME,
   TRUSTED_SANITIZER_MODULES,
 } from "./sanitizer-modules.js";
+import {
+  domPurifyFileRisk,
+  isDomPurifyFamily,
+  unsafeSanitizerOptions,
+} from "./sanitizer-config.js";
 import { CSRF_MODULES, isModuleOf, RATE_LIMIT_MODULES } from "./protection-modules.js";
 import { createSanitizedBindingCheck, syntheticFileName } from "./sanitized-binding.js";
 
@@ -78,6 +83,9 @@ export interface JsAnalysisOptions {
   scriptKind?: ts.ScriptKind;
 }
 
+/** Modules whose default export turns a name into a safe file name: their result is a clean path part. */
+const FILENAME_SANITIZER_MODULES = new Set(["sanitize-filename", "filenamify"]);
+const SQL_ESCAPE_MODULES = new Set(["sqlstring", "mysql", "mysql2", "mysql2/promise", "pg-escape"]);
 const SQL_DRIVER_MODULES = new Set(["pg", "pg-pool", "mysql", "mysql2", "mysql2/promise"]);
 // Bounded and newline-tolerant so multi-line SQL templates match without backtracking blowups.
 const SQL_TEXT_PATTERN =
@@ -206,7 +214,6 @@ export function analyzeJsSource(
     .parseDiagnostics;
   const hasParseErrors = Array.isArray(parseDiagnostics) && parseDiagnostics.length > 0;
   const lineOffset = options.lineOffset ?? 0;
-  const taint = new TaintTracker(sourceFile);
   const findings: RawSourceFinding[] = [];
   const cappedRules = new Set<string>();
   const facts: JsFileFacts = {
@@ -344,6 +351,35 @@ export function analyzeJsSource(
   };
   collectPromisified(sourceFile);
   const importSet = new Set(facts.imports);
+  // SQL-escaping modules: their `escape`/`escapeId` clean a value for the SQL, command and path
+  // rules. HTML escapers and sanitizer-named calls clean only for the XSS view (`htmlTaint`).
+  const sqlEscapeFunctions = new Set<string>();
+  const pathCleanFunctions = new Set<string>();
+  const sqlEscapeModules = new Set<string>();
+  for (const [local, module] of namespaceImports)
+    if (SQL_ESCAPE_MODULES.has(module)) sqlEscapeModules.add(local);
+    else if (FILENAME_SANITIZER_MODULES.has(module)) pathCleanFunctions.add(local);
+  for (const [local, bound] of namedImports) {
+    const at = bound.lastIndexOf(":");
+    if (bound === "filenamify:filenamify") pathCleanFunctions.add(local);
+    if (
+      SQL_ESCAPE_MODULES.has(bound.slice(0, at)) &&
+      /^(escape|escapeId)$/.test(bound.slice(at + 1))
+    )
+      sqlEscapeFunctions.add(local);
+  }
+  const taint = new TaintTracker(sourceFile, { sqlEscapeFunctions, sqlEscapeModules });
+  // The path rule alone also trusts a file-name sanitizer; command, SQL, SSRF and XSS do not.
+  const pathTaint = new TaintTracker(sourceFile, {
+    sqlEscapeFunctions,
+    sqlEscapeModules,
+    pathCleanFunctions,
+  });
+  const htmlTaint = new TaintTracker(sourceFile, {
+    htmlEscapersClean: true,
+    sqlEscapeFunctions,
+    sqlEscapeModules,
+  });
   const hasSqlDriver = [...importSet].some((name) => SQL_DRIVER_MODULES.has(name));
 
   /** Module a call resolves to: `exec()` imported from child_process, or `cp.exec()`. */
@@ -381,12 +417,13 @@ export function analyzeJsSource(
     strong: Omit<Evidence, "flow">,
     weak: Omit<Evidence, "flow"> | null,
     sinkLabel: string,
+    tracker: TaintTracker = taint,
   ): Evidence | null => {
-    const kind: TaintKind | null = taint.taintOf(expression);
+    const kind: TaintKind | null = tracker.taintOf(expression);
     const isTainted = kind === "request" || (acceptBrowser && kind === "browser");
     const source = kind === "browser" ? "browser input" : "request input";
     if (isTainted) {
-      const isDirect = taint.hasDirectSource(expression);
+      const isDirect = tracker.hasDirectSource(expression);
       return {
         ...strong,
         status: isDirect && strong.status === "confirmed" ? "confirmed" : "suspected",
@@ -465,22 +502,64 @@ export function analyzeJsSource(
    * reassigned, modified or re-declared bindings, local functions, re-exports and methods that
    * are not the module's sanitizing entry point do not qualify.
    */
-  const isProvenSanitizerCall = (expression: ts.Expression): boolean => {
+  /** The trusted module a call goes through, by import alone (the configuration is not judged). */
+  const sanitizerModuleOf = (expression: ts.Expression): string | null => {
     const parts = sanitizerCallee(expression);
-    if (!parts) return false;
+    if (!parts) return null;
     const { root, direct, name } = parts;
     const named = direct ? namedImports.get(root.text) : undefined;
     if (named !== undefined) {
-      if (!isSoleBinding(root.text)) return false;
+      if (!isSoleBinding(root.text)) return null;
       const at = named.lastIndexOf(":");
-      return isTrustedSanitizerCall(named.slice(0, at), "named", "direct", named.slice(at + 1));
+      const module = named.slice(0, at);
+      return isTrustedSanitizerCall(module, "named", "direct", named.slice(at + 1)) ? module : null;
     }
     const module = trustedModuleOf(root);
-    return (
-      module !== null &&
+    return module !== null &&
       isTrustedSanitizerCall(module, "default", direct ? "direct" : "member", name)
-    );
+      ? module
+      : null;
   };
+
+  /** A DOMPurify hook or `setConfig` anywhere in the file changes every sanitize call. */
+  let fileHookRisk: string | null | undefined;
+  const hookRisk = (): string | null => {
+    if (fileHookRisk === undefined)
+      fileHookRisk = domPurifyFileRisk(sourceFile, (identifier) =>
+        ts.isIdentifier(identifier) ? soleConstObject(identifier) : null,
+      );
+    return fileHookRisk;
+  };
+  /** A sole-binding `const x = { ... }` an options argument names. */
+  const soleConstObject = (identifier: ts.Identifier): ts.Expression | null => {
+    // Written through a member, `Object.assign`, or a mutating call such as `cfg.ADD_TAGS.push(...)`.
+    if (memberWrittenRoots.has(identifier.text) || mutatedRoots.has(identifier.text)) return null;
+    const init = soleConst(identifier.text, identifier);
+    return init && ts.isObjectLiteralExpression(unwrap(init)) ? init : null;
+  };
+
+  /**
+   * Why a call through a proven import is configured so that script can get through (a hook, an
+   * options object with `ADD_TAGS: ["script"]`, `allowedTags: false`), or null.
+   */
+  const sanitizerConfigRisk = (expression: ts.Expression): string | null => {
+    const module = sanitizerModuleOf(expression);
+    if (module === null) return null;
+    const node = unwrap(expression) as ts.CallExpression;
+    const callee = unwrap(node.expression);
+    const alias = ts.isIdentifier(callee) ? callee.text : null;
+    const own = unsafeSanitizerOptions(
+      module,
+      node.arguments[1],
+      (identifier) => (ts.isIdentifier(identifier) ? soleConstObject(identifier) : null),
+      alias,
+    );
+    if (own !== null) return own;
+    return isDomPurifyFamily(module) ? hookRisk() : null;
+  };
+
+  const isProvenSanitizerCall = (expression: ts.Expression): boolean =>
+    sanitizerModuleOf(expression) !== null && sanitizerConfigRisk(expression) === null;
 
   /** A call whose name looks like a sanitizer but is not a proven import: inferred only. */
   const nameOnlySanitizerCall = (expression: ts.Expression): string | null => {
@@ -695,11 +774,48 @@ export function analyzeJsSource(
       : null;
   };
 
+  /**
+   * Inside an attribute or URL the sanitizer's HTML output is not enough (`javascript:`, an
+   * unquoted value): `"<a href='" + DOMPurify.sanitize(u) + "'>"`. Such calls stop counting as
+   * clean while the sink is judged, so request input in them keeps its full rating.
+   */
+  const IN_ATTRIBUTE_VALUE = /<[a-z][^<>]*=\s*(?:"[^"]*|'[^']*|[^\s"'<>]*)$/i;
   const checkHtmlSink = (
     ruleId: SourceRuleId,
     node: ts.Node,
     value: ts.Expression,
     sink: string,
+  ) => {
+    const marked: ts.Node[] = [];
+    let before = "";
+    for (const part of htmlParts(value)) {
+      if (typeof part === "string") {
+        before = (before + part).slice(-200);
+        continue;
+      }
+      const call = unwrap(part);
+      if (
+        ts.isCallExpression(call) &&
+        IN_ATTRIBUTE_VALUE.test(before) &&
+        (isProvenSanitizerCall(call) || nameOnlySanitizerCall(call) !== null)
+      ) {
+        htmlTaint.uncleanCalls.add(call);
+        marked.push(call);
+      }
+      before = (before + "\u0001").slice(-200);
+    }
+    try {
+      judgeHtmlSink(ruleId, node, value, sink, marked.length > 0);
+    } finally {
+      for (const call of marked) htmlTaint.uncleanCalls.delete(call);
+    }
+  };
+  const judgeHtmlSink = (
+    ruleId: SourceRuleId,
+    node: ts.Node,
+    value: ts.Expression,
+    sink: string,
+    hasAttributeSanitizer: boolean,
   ) => {
     if (
       isStaticString(value) ||
@@ -720,6 +836,7 @@ export function analyzeJsSource(
             { severity: "high", status: "suspected", confidence: "medium" },
             { severity: "low", status: "suspected", confidence: "low" },
             sink,
+            htmlTaint,
           )) ||
         ({
           severity: "low",
@@ -727,10 +844,16 @@ export function analyzeJsSource(
           confidence: "low",
           flow: `${inferred}() result -> ${sink} (no input source identified)`,
         } satisfies Evidence);
+      const risk = sanitizerConfigRisk(value);
       report(
         ruleId,
         node,
-        demote(base, `sanitizer \`${inferred}\` is not a known sanitizer import; inferred`),
+        demote(
+          base,
+          risk !== null
+            ? `sanitizer \`${inferred}\` is configured so script or event handlers can get through (${risk}); verify the configuration`
+            : `sanitizer \`${inferred}\` is not a known sanitizer import; inferred`,
+        ),
         sink,
       );
       return;
@@ -744,8 +867,12 @@ export function analyzeJsSource(
         ? { severity: "medium", status: "suspected", confidence: "low" }
         : { severity: "low", status: "suspected", confidence: "low" },
       sink,
+      htmlTaint,
     );
     if (!evidence) return;
+    if (hasAttributeSanitizer && verdict === null)
+      evidence.flow +=
+        " (sanitized value placed in an attribute or URL context, where HTML sanitizing is not enough)";
     const template = namespaceImports.size > 0 ? bundledTemplate(value) : null;
     if (verdict !== null) {
       report(
@@ -793,11 +920,27 @@ export function analyzeJsSource(
       const callee = unwrap(node.expression);
       if (ts.isIdentifier(callee))
         return /^(\$|jQuery)$/.test(callee.text) && isJQueryFactory(callee.text);
+      // Backbone: `this.$("li")` is the view's scoped jQuery.
+      if (
+        ts.isPropertyAccessExpression(callee) &&
+        callee.name.text === "$" &&
+        callee.expression.kind === ts.SyntaxKind.ThisKeyword
+      )
+        return true;
       return ts.isPropertyAccessExpression(callee) && isJQueryObject(callee.expression, depth + 1);
     }
+    // Backbone `this.$el`.
+    if (
+      ts.isPropertyAccessExpression(node) &&
+      node.name.text === "$el" &&
+      node.expression.kind === ts.SyntaxKind.ThisKeyword
+    )
+      return true;
     if (ts.isIdentifier(node)) {
       const init = soleConst(node.text, node);
-      return init !== null && isJQueryObject(init, depth + 1);
+      if (init !== null) return isJQueryObject(init, depth + 1);
+      // A parameter named `$el` (`function paint($el, html)`) holds a jQuery object by convention.
+      return node.text === "$el" && !namespaceImports.has("$el") && !namedImports.has("$el");
     }
     return false;
   };
@@ -812,7 +955,7 @@ export function analyzeJsSource(
   const looksLikeHtml = (expression: ts.Expression): boolean => {
     const node = unwrap(expression);
     if (ts.isFunctionLike(node) || isStaticString(node) || returnsNode(node)) return false;
-    const kind = taint.taintOf(node);
+    const kind = htmlTaint.taintOf(node);
     if (kind === "request" || kind === "browser") return true;
     const target = ts.isIdentifier(node) ? (soleConst(node.text, node) ?? node) : node;
     return htmlParts(target).some((part) => typeof part === "string" && part.includes("<"));
@@ -861,43 +1004,98 @@ export function analyzeJsSource(
   };
 
   /** `dangerouslySetInnerHTML` given as an object property, reached by spread or createElement. */
-  const resolveObject = (expression: ts.Expression): ts.ObjectLiteralExpression | null => {
+  /** Functions declared once in the file by name: `function f() {}` and `const f = () => ...`. */
+  let functionsByName: Map<string, ts.FunctionLikeDeclaration> | null = null;
+  const localFunction = (name: string): ts.FunctionLikeDeclaration | null => {
+    if (!functionsByName) {
+      const found = new Map<string, ts.FunctionLikeDeclaration>();
+      const visitFunctions = (node: ts.Node): void => {
+        if (ts.isFunctionDeclaration(node) && node.name && node.body)
+          found.set(node.name.text, node);
+        else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+          const init = unwrap(node.initializer);
+          if (ts.isArrowFunction(init) || ts.isFunctionExpression(init))
+            found.set(node.name.text, init);
+        }
+        ts.forEachChild(node, visitFunctions);
+      };
+      visitFunctions(sourceFile);
+      functionsByName = found;
+    }
+    return bindingCount.get(name) === 1 && !reassigned.has(name)
+      ? (functionsByName.get(name) ?? null)
+      : null;
+  };
+  /** Object literals a helper returns (`function props(h) { return { dangerouslySetInnerHTML: ... } }`), at most 4. */
+  const returnedObjects = (fn: ts.FunctionLikeDeclaration): ts.ObjectLiteralExpression[] => {
+    const out: ts.ObjectLiteralExpression[] = [];
+    const take = (expression: ts.Expression | undefined) => {
+      const inner = expression ? unwrap(expression) : null;
+      if (inner && ts.isObjectLiteralExpression(inner) && out.length < 4) out.push(inner);
+    };
+    const body = fn.body;
+    if (!body) return out;
+    if (!ts.isBlock(body)) {
+      take(body);
+      return out;
+    }
+    const walk = (node: ts.Node): void => {
+      if (ts.isReturnStatement(node)) take(node.expression);
+      if (!ts.isFunctionLike(node) || node === fn) ts.forEachChild(node, walk);
+    };
+    walk(body);
+    return out;
+  };
+  /** Objects returned by a call to a function declared in this file (one level, not followed on). */
+  const helperObjects = (call: ts.CallExpression): ts.ObjectLiteralExpression[] => {
+    const callee = unwrap(call.expression);
+    const fn = ts.isIdentifier(callee) ? localFunction(callee.text) : null;
+    return fn ? returnedObjects(fn) : [];
+  };
+  const HELPER_NOTE =
+    " (via a helper's return value; its parameters are not linked to the call arguments)";
+  const resolveObjects = (
+    expression: ts.Expression,
+  ): { object: ts.ObjectLiteralExpression; via: string }[] => {
     const node = unwrap(expression);
-    if (ts.isObjectLiteralExpression(node)) return node;
+    const viaHelper = (call: ts.CallExpression) =>
+      helperObjects(call).map((object) => ({ object, via: HELPER_NOTE }));
+    if (ts.isObjectLiteralExpression(node)) return [{ object: node, via: "" }];
     if (ts.isIdentifier(node)) {
       const init = soleConst(node.text, node);
       const inner = init ? unwrap(init) : null;
-      return inner && ts.isObjectLiteralExpression(inner) ? inner : null;
+      if (inner && ts.isObjectLiteralExpression(inner)) return [{ object: inner, via: "" }];
+      return inner && ts.isCallExpression(inner) ? viaHelper(inner) : [];
     }
-    return null;
+    return ts.isCallExpression(node) ? viaHelper(node) : [];
   };
-  const checkDangerousValue = (node: ts.Node, value: ts.Expression) => {
+  const checkDangerousValue = (node: ts.Node, value: ts.Expression, via = "") => {
     const object = unwrap(value);
     if (ts.isObjectLiteralExpression(object)) {
       const html = object.properties.find(
         (property): property is ts.PropertyAssignment =>
           ts.isPropertyAssignment(property) && property.name.getText(sourceFile) === "__html",
       );
-      if (html) checkHtmlSink("PG-XSS-002", node, html.initializer, "dangerouslySetInnerHTML");
+      if (html)
+        checkHtmlSink("PG-XSS-002", node, html.initializer, `dangerouslySetInnerHTML${via}`);
     } else {
-      checkHtmlSink("PG-XSS-002", node, object, "dangerouslySetInnerHTML");
+      checkHtmlSink("PG-XSS-002", node, object, `dangerouslySetInnerHTML${via}`);
     }
   };
   const checkDangerousProps = (node: ts.Node, props: ts.Expression) => {
-    const object = resolveObject(props);
-    if (!object) return;
-    for (const property of object.properties) {
-      if (
-        ts.isPropertyAssignment(property) &&
-        property.name.getText(sourceFile) === "dangerouslySetInnerHTML"
-      )
-        checkDangerousValue(node, property.initializer);
-      else if (
-        ts.isShorthandPropertyAssignment(property) &&
-        property.name.text === "dangerouslySetInnerHTML"
-      )
-        checkDangerousValue(node, property.name);
-    }
+    for (const { object, via } of resolveObjects(props))
+      for (const property of object.properties) {
+        if (
+          ts.isPropertyAssignment(property) &&
+          property.name.getText(sourceFile) === "dangerouslySetInnerHTML"
+        )
+          checkDangerousValue(node, property.initializer, via);
+        else if (
+          ts.isShorthandPropertyAssignment(property) &&
+          property.name.text === "dangerouslySetInnerHTML"
+        )
+          checkDangerousValue(node, property.name, via);
+      }
   };
 
   const checkCommand = (call: ts.CallExpression) => {
@@ -1125,7 +1323,7 @@ export function analyzeJsSource(
       ["sendFile", "download", "sendfile"].includes(name);
     if (!isFsRead && !isResponseFile) return;
     const first = call.arguments[0];
-    if (!first || taint.taintOf(first) !== "request") return;
+    if (!first || pathTaint.taintOf(first) !== "request") return;
     if (isResponseFile) {
       const options = call.arguments[1];
       if (
@@ -1157,6 +1355,7 @@ export function analyzeJsSource(
       { severity: "high", status: "suspected", confidence: "high" },
       null,
       `${isResponseFile ? "res" : "fs"}.${name}`,
+      pathTaint,
     );
     if (evidence)
       report(
@@ -3501,7 +3700,8 @@ export function analyzeJsSource(
       }
     } else if (
       ts.isBinaryExpression(node) &&
-      node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      (node.operatorToken.kind === ts.SyntaxKind.EqualsToken ||
+        node.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken) &&
       ts.isPropertyAccessExpression(node.left) &&
       (node.left.name.text === "innerHTML" || node.left.name.text === "outerHTML")
     ) {

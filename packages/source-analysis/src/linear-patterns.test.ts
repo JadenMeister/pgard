@@ -7,6 +7,7 @@ import {
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
 import { analyzeJsSource } from "./js/analyze-js.js";
+import { analyzeVueSource } from "./vue/analyze-vue.js";
 import { withoutTypeArguments } from "./jvm/kotlin-ir.js";
 import {
   analyzeJsp,
@@ -333,5 +334,48 @@ describe("JavaScript route and protection detection (#302)", () => {
     expect(ms).toBeLessThan(LIMIT_MS * 4);
     // A walk up from every reference (no memo) costs about four times the control here.
     expect(ms / baseline).toBeLessThan(2.5);
+  });
+});
+
+describe("sanitizer configuration and attribute-context patterns (#278)", () => {
+  const head = "import DOMPurify from 'dompurify';\n";
+
+  it("stays linear on a long run of attribute-like text before a sanitizer call", () => {
+    const run = (n: number) =>
+      `${head}el.innerHTML = '<a ${"b=".repeat(n)}' + DOMPurify.sanitize(location.hash);\n`;
+    analyzeJsSource(run(10), "a.js");
+    const { value, ms } = timed(() => analyzeJsSource(run(100_000), "a.js"));
+    expect(ms).toBeLessThan(LIMIT_MS * 4);
+    expect(value.findings.length).toBeGreaterThan(0);
+  });
+
+  it("stays linear on a long options list and a hook-heavy file", () => {
+    const run = (n: number) => {
+      const tags = Array.from({ length: n }, (_, i) => `'t${i}'`).join(",");
+      const hooks = "DOMPurify.addHook('x', f);\n".repeat(n);
+      const code = `${head}${hooks}el.innerHTML = DOMPurify.sanitize(location.hash, { ADD_TAGS: [${tags}] });\n`;
+      return timed(() => analyzeJsSource(code, "a.js"));
+    };
+    run(100);
+    const small = run(2_500);
+    const large = run(10_000);
+    expect(large.value.findings.length).toBe(1);
+    // Four times the input: linear is about 4, quadratic about 16. The floor and the generous
+    // absolute bound keep a slow (Windows) runner from failing it.
+    expect(large.ms / Math.max(small.ms, 25)).toBeLessThan(12);
+    expect(large.ms).toBeLessThan(LIMIT_MS * 8);
+  });
+});
+
+describe("Vue template scopes stay linear (#278 review)", () => {
+  it("does not copy every outer alias at each nesting level", () => {
+    const aliases = Array.from({ length: 100 }, (_, i) => `a${i}`).join(", ");
+    const nested = `<div v-for="(${aliases}) in list" :key="1">`.repeat(300);
+    const leaves = '<i v-for="(x, y) in list" :key="y"></i>'.repeat(800);
+    const code = `<template>${nested}${leaves}<b v-html="DOMPurify.sanitize(h)"></b><u v-html="$route.query.x"></u>${"</div>".repeat(300)}</template>\n<script setup>\nimport DOMPurify from "dompurify";\n</script>\n`;
+    const { value, ms } = timed(() => analyzeVueSource(code, "a.vue"));
+    expect(value.findings).toHaveLength(1);
+    // Copying every outer alias at each level took about 14 s here; linear takes well under 1 s.
+    expect(ms).toBeLessThan(LIMIT_MS * 8);
   });
 });
