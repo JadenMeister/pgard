@@ -50,6 +50,8 @@ import {
   type WebScanner,
 } from "@pgard/scan-core";
 
+import { readJavaVersionOutput, type JavaProbe } from "./java-runtime/probe.js";
+
 /** One host `pgard doctor` tried: reachable, or the whitelisted reason it was not (`null`: unknown). */
 export interface HostProbe {
   host: string;
@@ -148,6 +150,8 @@ export interface CliDeps {
   /** Starts the dashboard process (no shell) and resolves with its exit code. */
   startDashboardProcess: (entry: string, args: readonly string[]) => Promise<number>;
   readGitVersion: () => Promise<string | null>;
+  /** `pgard doctor`: runs `java -version` locally (no shell, 5 s limit, bounded output). */
+  readJavaVersion: () => Promise<JavaProbe>;
   /** `pgard doctor`: can github.com, api.github.com and the OSV host be reached? */
   probeHosts: () => Promise<HostProbe[]>;
   nodeVersion: string;
@@ -350,6 +354,7 @@ export function createDefaultDeps(): CliDeps {
     resolveDashboardEntry: resolveDashboardEntryDefault,
     startDashboardProcess: startDashboardProcessDefault,
     readGitVersion: readGitVersionDefault,
+    readJavaVersion: () => readJavaVersionOutput({ env: process.env }),
     probeHosts: probeHostsDefault,
     nodeVersion: process.versions.node,
     appDataDir: resolveDataDirectory(process.env),

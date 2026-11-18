@@ -276,6 +276,8 @@ export function createTestDeps(overrides: Partial<CliDeps> = {}): CliDeps {
     resolveDashboardEntry: () => null,
     startDashboardProcess: unexpected("startDashboardProcess") as never,
     readGitVersion: async () => "git version 2.50.0",
+    // No Java by default; a test that needs one overrides this (never a real `java`).
+    readJavaVersion: async () => ({ status: "missing" }),
     probeHosts: async () =>
       ["github.com", "api.github.com", "osv-vulnerabilities.storage.googleapis.com"].map(
         (host) => ({ host, isReachable: true, causeCode: null }),
