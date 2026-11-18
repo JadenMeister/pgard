@@ -443,6 +443,36 @@ export const HISTORY_CASES = [
       },
     ],
   },
+  // #460: a password in comment prose after a comma or a parenthesis, with a code-shaped value.
+  ...[
+    ["user-comma-space", (v) => `// user, password: ${v}`],
+    ["user-comma", (v) => `// user,password: ${v}`],
+    ["creds-paren", (v) => `// creds (password: ${v})`],
+    ["object-brace", (v) => `// {user: a, password: ${v}}`],
+    ["block-brace", (v) => `/* {password:${v}} */`],
+    ["call-paren-equals", (v) => `// login(password=${v}`],
+    ["do-not-commit", (v) => `// do not commit, password: ${v}`],
+  ].map(([name, line]) => ({
+    rule: "PG-SECRET-002",
+    kind: "positive",
+    name: `comment-password-code-shaped-${name}`,
+    expect: ["PG-SECRET-002"],
+    commits: [{ files: { "src/a.js": `${line(join("Prod.Xk9q", ")m2Lq8"))}\n` } }],
+  })),
+  {
+    rule: "PG-SECRET-002",
+    kind: "negative",
+    name: "minified-ternary-and-index-key",
+    expect: [],
+    commits: [
+      {
+        files: {
+          "dist/a.js": "a?password:e.target.value}\no[password]=e.target.value}\n",
+          "dist/b.js": 'var s="a//b";f(a,password:e.target.value})\n',
+        },
+      },
+    ],
+  },
   {
     rule: "PG-SECRET-002",
     kind: "negative",

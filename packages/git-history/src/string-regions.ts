@@ -137,6 +137,8 @@ const IDENTIFIER_CHAR = /[\w$]/;
 class Scanner {
   /** Flat, sorted `[start, end)` pairs of string regions. */
   readonly regions: number[] = [];
+  /** Flat, sorted `[start, end)` pairs of comments seen in code (depth 0 only). */
+  readonly comments: number[] = [];
   private readonly text: string;
   private readonly syntax: Syntax;
   /** Heredoc terminators waiting for the end of the current line. */
@@ -192,7 +194,9 @@ class Scanner {
       }
       if (syntax.lineComments.some((opener) => text.startsWith(opener, index))) {
         const end = text.indexOf("\n", index);
-        index = end === -1 ? text.length : end;
+        const stop = end === -1 ? text.length : end;
+        if (record) this.comments.push(index, stop);
+        index = stop;
         continue;
       }
       if (syntax.blockComments && text.startsWith("/*", index)) {
@@ -201,6 +205,7 @@ class Scanner {
           this.add(index, text.length, record); // unterminated: confused, report
           return text.length;
         }
+        if (record) this.comments.push(index, end + 2);
         index = end + 2;
         continue;
       }
@@ -498,25 +503,45 @@ class Scanner {
   }
 }
 
+/** Last `[start, end)` pair of a flat sorted list whose start is <= index; its start or -1. */
+function regionStart(regions: readonly number[], index: number): number {
+  let low = 0;
+  let high = regions.length / 2;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((regions[middle * 2] as number) <= index) low = middle + 1;
+    else high = middle;
+  }
+  if (low === 0 || index >= (regions[(low - 1) * 2 + 1] as number)) return -1;
+  return regions[(low - 1) * 2] as number;
+}
+
+/**
+ * One linear pass over a source file giving two lookups: the start of the string literal that an
+ * index lies inside (or -1), and whether it lies inside a comment the scanner read in code. A
+ * comment is only recognised where the scanner is sure: the openers inside strings, regex
+ * literals and heredocs are not comments, and an unterminated block comment counts as a string
+ * (confusion is reported, never taken as code). The whole file is judged, so strings and block
+ * comments that started on an earlier line count.
+ */
+export function createSourceLookups(
+  text: string,
+  path: string,
+): { stringStart: (index: number) => number; inComment: (index: number) => boolean } {
+  const scanner = new Scanner(text, syntaxFor(path));
+  scanner.scanCode(0, false, 0);
+  const { regions, comments } = scanner;
+  return {
+    stringStart: (index) => regionStart(regions, index),
+    inComment: (index) => regionStart(comments, index) !== -1,
+  };
+}
+
 /**
  * Returns a lookup giving the start of the string literal that `index` lies inside in the source
  * file at `path`, or -1 when it is not inside one. The whole file is judged, so strings that
  * started on an earlier line count.
  */
 export function createStringLookup(text: string, path: string): (index: number) => number {
-  const scanner = new Scanner(text, syntaxFor(path));
-  scanner.scanCode(0, false, 0);
-  const { regions } = scanner;
-  return (index) => {
-    // Last region whose start is <= index.
-    let low = 0;
-    let high = regions.length / 2;
-    while (low < high) {
-      const middle = (low + high) >> 1;
-      if ((regions[middle * 2] as number) <= index) low = middle + 1;
-      else high = middle;
-    }
-    if (low === 0 || index >= (regions[(low - 1) * 2 + 1] as number)) return -1;
-    return regions[(low - 1) * 2] as number;
-  };
+  return createSourceLookups(text, path).stringStart;
 }

@@ -53,14 +53,14 @@ medium and high confidence findings, on every sample.
 
 ## History rules (scanGitHistory on generated git repositories)
 
-76 samples.
+84 samples.
 
 | Rule | TP | FP | FN | TN | Precision | Recall | Precision (medium+) |
 | --- | --: | --: | --: | --: | --: | --: | --: |
-| PG-SECRET-001 | 6 | 0 | 0 | 70 | 100.0% | 100.0% | 100.0% |
-| PG-SECRET-002 | 38 | 0 | 0 | 38 | 100.0% | 100.0% | 100.0% |
-| PG-SECRET-003 | 4 | 0 | 0 | 72 | 100.0% | 100.0% | 100.0% |
-| PG-HYGIENE-001 | 4 | 0 | 0 | 72 | 100.0% | 100.0% | n/a |
+| PG-SECRET-001 | 6 | 0 | 0 | 78 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-002 | 45 | 0 | 0 | 39 | 100.0% | 100.0% | 100.0% |
+| PG-SECRET-003 | 4 | 0 | 0 | 80 | 100.0% | 100.0% | 100.0% |
+| PG-HYGIENE-001 | 4 | 0 | 0 | 80 | 100.0% | 100.0% | n/a |
 
 ## Dependency rules (scanDependencies on lockfile projects with a fixture OSV dataset)
 

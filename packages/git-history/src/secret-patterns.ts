@@ -2,7 +2,7 @@
  * Secret detection for file contents read from Git objects. Matches carry the value only so the
  * caller can compare occurrences in memory; values must never be written to findings.
  */
-import { createStringLookup } from "./string-regions.js";
+import { createSourceLookups } from "./string-regions.js";
 
 export type DetectedSecretKind =
   | "private_key"
@@ -210,8 +210,9 @@ const CODE_SHAPED_VALUE = [/^[A-Za-z_$][\w$.]*[)<>[\]]/, /[:(]$/, /^\/.*[\\()[\]
  * An unquoted value in source code, outside a string, that is the rest of an expression: it
  * starts with `=` (`==e.pass`), or a dotted member access runs into `)`, `}`, `]`, `||` or `&&`
  * (`e.target.value})`, `e.pass)||`). Such a value is rejected only when the key directly follows
- * a code token (see `followsCodeToken`). Comment prose puts a space or a word before the key
- * (`// db password: Xk9)m2`), so a password in a comment is kept wherever the comment starts.
+ * a code token (see `followsCodeToken`). A password inside a comment (`// user,password: Xk9)m2`) is never
+ * rejected here: the comment is found by the string scanner, not guessed from the characters
+ * before the key.
  */
 const UNQUOTED_CODE_VALUE = /^=|^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+(?:[)}\]]|\|\||&&)/;
 /**
@@ -227,12 +228,21 @@ function lineBefore(text: string, index: number, window: number) {
 }
 
 /**
- * Whether a key sits directly after a code token: `{password:`, `,password:`, `(password:`, or a
- * member access (`t.password==`, the `.` is part of the key text). Minified code has no space
+ * Whether a key sits directly after a code token: `{password:`, `,password:`, `(password:`, a
+ * ternary (`a?password:`), an `|` or an index (`o[password]=`), or a member access (`t.password==`, the `.` is part of the key text). Minified code has no space
  * there; comment prose has a space or a word before the key. Reads one character, never scans back.
  */
-function followsCodeToken(text: string, start: number, matched: string): boolean {
-  if (start > 0 && "{,(.".includes(text.charAt(start - 1))) return true;
+function followsCodeToken(
+  text: string,
+  start: number,
+  matched: string,
+  separator: string,
+): boolean {
+  const before = start > 0 ? text.charAt(start - 1) : "";
+  if (before !== "" && "{,(.|[".includes(before)) return true;
+  // `a?password:x` is a ternary, but `?password=x` is a URL query (a real password): only the `:`
+  // separator makes a `?` before the key a code token. `&` is never one (`&password=x`).
+  if (before === "?" && separator === ":") return true;
   const key = /^[^:=\]"']*/.exec(matched)?.[0] ?? "";
   // A dotted key counts as code only when glued to the token before it (`e&&t.password==`,
   // `a?t.password:`); after whitespace or at a line start it is prose (`// config.password:`).
@@ -288,13 +298,15 @@ interface DetectContext {
   fencesBefore: (index: number) => number;
   /** Start of the string literal around an index, or -1 (built lazily, once per text). */
   stringStartAt: (index: number) => number;
+  /** Whether an index lies inside a comment of a source file (same lazy, once-per-text scan). */
+  inComment: (index: number) => boolean;
 }
 
 function createContext(text: string, options: DetectSecretsOptions): DetectContext {
   const path = options.path;
   const isSource = path !== undefined && SOURCE_CODE_FILE.test(path);
   const name = path?.split("/").pop() ?? "";
-  let lookup: ((index: number) => number) | null = null;
+  let lookups: ReturnType<typeof createSourceLookups> | null = null;
   let fenceStarts: number[] | null = null;
   return {
     text,
@@ -328,8 +340,13 @@ function createContext(text: string, options: DetectSecretsOptions): DetectConte
     },
     stringStartAt: (index) => {
       if (path === undefined) return -1;
-      lookup ??= createStringLookup(text, path);
-      return lookup(index);
+      lookups ??= createSourceLookups(text, path);
+      return lookups.stringStart(index);
+    },
+    inComment: (index) => {
+      if (path === undefined) return false;
+      lookups ??= createSourceLookups(text, path);
+      return lookups.inComment(index);
     },
   };
 }
@@ -412,14 +429,20 @@ function isLiteralAssignment(
     stringStart = context.stringStartAt(start - 2);
   }
   const inString = stringStart !== -1;
+  // A password written in a comment is prose, not code, wherever the comment starts and whatever
+  // precedes the key (`// user,password: …`, `/* {password:…} */`): the scanner reads comments
+  // in one bounded linear pass, so the text before the key no longer decides it. Only the code
+  // shape of the value is still judged, and a comment never counts as code.
+  const inComment = context.isSource && !inString && context.inComment(start);
   // In source code outside a string, a comparison (`password==e.pass`) or a member access that
   // runs into a bracket or operator (`e.target.value})`) is an expression, not a literal. Inside a
   // string, in a comment or in a config file the same characters can be part of a password.
   if (
     context.isSource &&
     !inString &&
+    !inComment &&
     UNQUOTED_CODE_VALUE.test(value) &&
-    followsCodeToken(text, start, match[0])
+    followsCodeToken(text, start, match[0], separator)
   ) {
     return false;
   }
@@ -437,6 +460,7 @@ function isLiteralAssignment(
       (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value));
     return isCode ? "code_text" : true;
   }
+  if (inComment) return true;
   if (!looksLikeCode(text, keyStart, start + match[0].length - cut, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&
