@@ -236,12 +236,12 @@ function lineBefore(text: string, index: number, window: number) {
  * `?password=x` and `&password=x` (URL queries) and `x|password: y` are never code tokens.
  * Reads one character, never scans back.
  */
-function followsCodeToken(text: string, start: number, matched: string): boolean {
+function followsCodeToken(text: string, start: number, matched: string, legacy = false): boolean {
   const before = start > 0 ? text.charAt(start - 1) : "";
   if (before !== "" && "{,(.".includes(before)) return true;
   const key = /^[^:=\]"']*/.exec(matched)?.[0] ?? "";
-  if (before === "[" && matched.charAt(key.length) === "]") return true;
-  if (before === "?" && /^[^:=\]"']*:\S/.test(matched)) return true;
+  if (!legacy && before === "[" && matched.charAt(key.length) === "]") return true;
+  if (!legacy && before === "?" && /^[^:=\]"']*:\S/.test(matched)) return true;
   // A dotted key counts as code only when glued to the token before it (`e&&t.password==`,
   // `a?t.password:`); after whitespace or at a line start it is prose (`// config.password:`).
   return key.includes(".") && start > 0 && !/\s/.test(text.charAt(start - 1));
@@ -408,6 +408,7 @@ function isLiteralAssignment(
   context: DetectContext,
   match: RegExpMatchArray,
   cut = 0,
+  legacy = false,
 ): boolean | "code_text" {
   const groups = match.groups ?? {};
   const keyQuote = groups.keyQuote ?? "";
@@ -437,7 +438,14 @@ function isLiteralAssignment(
   // precedes the key (`// user,password: …`, `/* {password:…} */`): the scanner reads comments
   // in one bounded linear pass, so the text before the key no longer decides it. Only the code
   // shape of the value is still judged, and a comment never counts as code.
-  const inComment = context.isSource && !inString && context.inComment(start);
+  const inComment = !legacy && context.isSource && !inString && context.inComment(start);
+  // Monotone: whatever the judgment without comment knowledge (`legacy`) reported stays reported;
+  // the comment path only adds reports, and only for values that are not all code.
+  if (inComment) {
+    return (
+      isLiteralAssignment(context, match, cut, true) !== false || !COMMENT_CODE_VALUE.test(value)
+    );
+  }
   // In source code outside a string, a comparison (`password==e.pass`) or a member access that
   // runs into a bracket or operator (`e.target.value})`) is an expression, not a literal. Inside a
   // string, in a comment or in a config file the same characters can be part of a password.
@@ -446,7 +454,7 @@ function isLiteralAssignment(
     !inString &&
     !inComment &&
     UNQUOTED_CODE_VALUE.test(value) &&
-    followsCodeToken(text, start, match[0])
+    followsCodeToken(text, start, match[0], legacy)
   ) {
     return false;
   }
@@ -464,9 +472,6 @@ function isLiteralAssignment(
       (CODE_SHAPED_VALUE.some((shape) => shape.test(value)) || CONSTANT_NAME.test(value));
     return isCode ? "code_text" : true;
   }
-  // In a comment the text before the key says nothing, but a value that is all code is still
-  // commented-out code (`// f(a,password:e.target.value})`), not a credential.
-  if (inComment) return !COMMENT_CODE_VALUE.test(value);
   if (!looksLikeCode(text, keyStart, start + match[0].length - cut, separator)) return true;
   return (
     !CODE_SHAPED_VALUE.some((shape) => shape.test(value)) &&

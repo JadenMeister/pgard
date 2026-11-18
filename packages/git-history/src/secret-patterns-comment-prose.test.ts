@@ -73,6 +73,16 @@ describe("commented-out code stays quiet (#460 review)", () => {
     expect(scan(line, "tool.py")).toHaveLength(0);
   });
 
+  it("never goes quiet for a password that the comment-blind judgment reports (monotone)", () => {
+    for (const value of ["Winter.Is.Coming}", "Hunter.Two}", "Prod.Server)", "Qx.Zp9Lm4}"]) {
+      for (const line of [`// password: ${value}`, `/* password=${value} */`, `// pwd: ${value}`]) {
+        for (const path of ["src/a.js", "src/A.java", "src/a.kt", "src/main.go"]) {
+          expect(scan(`${line}\n`, path), `${path}: ${line}`).toHaveLength(1);
+        }
+      }
+    }
+  });
+
   it("keeps a plain or code-shaped password in a comment", () => {
     for (const value of [CODE_SHAPED, "Xk9vLp8Wz4qRt2mN7", j("Zq8Lm2x9Kp", ")")]) {
       expect(scan(`// user,password: ${value}\n`, "src/a.js")).toHaveLength(1);
@@ -92,6 +102,8 @@ describe("rare minified shapes stay quiet, narrowly (#460 R2)", () => {
     `a |password=${CODE_SHAPED}`,
     `|password: ${CODE_SHAPED}|`,
     `?password: ${CODE_SHAPED}`,
+    // `[` is a code token only for `o[password]=`: here the key is not closed by `]`.
+    `[password: ${j("Prod.Xk9q", "}m2Lq8")}`,
   ])("keeps a real password in %s", (line) => {
     for (const path of ["tool.py", "src/a.js"]) {
       expect(scan(`${line}\n`, path), `${path}: ${line}`).toHaveLength(1);
