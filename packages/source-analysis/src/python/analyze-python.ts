@@ -93,6 +93,8 @@ interface Tags {
   db?: true;
   /** Made by `text()`: the SQL was already judged where the text was made. */
   wrapped?: true;
+  /** A lambda of this file held in a variable: its code and the scope it was made in. */
+  lam?: { node: N; env: Env };
 }
 type V = Value & Tags;
 
@@ -100,6 +102,10 @@ type N = AstNode;
 type SourceLeaf = Extract<Leaf, { k: "source" }>;
 
 const MAX_DEPTH = 300;
+const MAX_LAMBDA_CALLS = 4;
+/** A receiver that reads as a Django manager or queryset (`Model.objects`, `qs`, `.filter(...)`). */
+const QUERYSET_RECEIVER =
+  /\bobjects\b|_default_manager|queryset|(?:^|[._])qs\b|\.(?:filter|exclude|all|annotate|order_by|select_related|prefetch_related|distinct|values|using)\(/i;
 const SPREAD = "*spread";
 const SEVERITY_RANK: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
 const NUMERIC_CONVERSIONS = "diouxXeEfFgGc";
@@ -413,6 +419,7 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         table: old.table && incoming.table,
         elems: null,
         db: old.db === true || incoming.db === true ? true : undefined,
+        lam: undefined,
       } as V;
     } else {
       existing.value = incoming;
@@ -498,6 +505,35 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
   const intersect = (a: Set<string>, b: Set<string>): Set<string> =>
     new Set([...a].filter((x) => b.has(x)));
 
+  /**
+   * The variable a shape test is applied to: `host`, or `host.replace('.', '').lower()` where
+   * only characters that cannot matter ('.', '-', '_') are removed or the case is changed (never `strip()`: it would let a leading newline through).
+   */
+  function shapeSubject(node: N, depth: number): string | null {
+    const direct = varName(node);
+    if (direct !== null || depth > 4 || node.type !== "call") return direct;
+    const fn = kid(node, "function");
+    if (fn?.type !== "attribute") return null;
+    const method = text(kid(fn, "attribute") as N);
+    const obj = kid(fn, "object");
+    if (obj === undefined) return null;
+    const args = named(kid(node, "arguments") ?? node);
+    if ((method === "lower" || method === "upper") && args.length === 0)
+      return shapeSubject(obj, depth + 1);
+    if (method === "replace" && args.length === 2) {
+      const [from, to] = args as [N, N];
+      const plain = (n: N): string | null =>
+        n.type === "string" &&
+        n.end - n.start <= 8 &&
+        !n.children.some((c) => c.type === "interpolation")
+          ? text(n).replace(/^[a-zA-Z]*["']+|["']+$/g, "")
+          : null;
+      if (plain(to) === "" && ["-", ".", "_"].includes(plain(from) ?? "x"))
+        return shapeSubject(obj, depth + 1);
+    }
+    return null;
+  }
+
   /** Names that passed an allowlist or validation check whenever `cond` is true. */
   function guardsTrue(cond: N, env: Env): Set<string> {
     const node = unwrapParen(cond);
@@ -537,7 +573,7 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       if (fn?.type === "attribute") {
         const method = text(kid(fn, "attribute") as N);
         const obj = kid(fn, "object") as N;
-        const objVar = varName(obj);
+        const objVar = shapeSubject(obj, 0);
         if (SHAPE_TESTS.has(method) && objVar !== null)
           mark(out, objVar, `value checked with str.${method}() (shape check)`);
         // `re.match(p, x)`, `pattern.fullmatch(x)`
@@ -678,6 +714,39 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       default:
         return false;
     }
+  }
+
+  /**
+   * `for ok in ALLOWED: if x == ok: break` / `else: raise`: reaching the code after the loop means
+   * `x` was found in the allowlist. Only this exact shape counts: the body is that one `if`, whose
+   * block is just `break`, and the `else` leaves.
+   */
+  function forElseGuards(loop: N, target: N, iter: N, env: Env): Set<string> {
+    const out = new Set<string>();
+    const alternative = kid(loop, "alternative");
+    if (target.type !== "identifier" || alternative === undefined) return out;
+    if (!exits(kid(alternative, "body")) || !isAllowlist(iter, env)) return out;
+    const body = named(kid(loop, "body") ?? loop).filter((c) => c.type !== "comment");
+    const only = body[0];
+    if (body.length !== 1 || only?.type !== "if_statement") return out;
+    if (kidsOf(only, "alternative").length > 0) return out;
+    const consequence = named(kid(only, "consequence") ?? only).filter((c) => c.type !== "comment");
+    if (consequence.length !== 1 || consequence[0]?.type !== "break_statement") return out;
+    const cond = kid(only, "condition");
+    const test = cond === undefined ? undefined : unwrapParen(cond);
+    if (test?.type !== "comparison_operator") return out;
+    const operands = named(test);
+    if (operands.length !== 2) return out;
+    const [left, right] = operands as [N, N];
+    if (operatorBetween(left, right) !== "==") return out;
+    const loopVar = text(target);
+    const leftVar = varName(left);
+    const rightVar = varName(right);
+    if (leftVar === loopVar && rightVar !== null && rightVar !== loopVar)
+      mark(out, rightVar, GUARD_WHY);
+    else if (rightVar === loopVar && leftVar !== null && leftVar !== loopVar)
+      mark(out, leftVar, GUARD_WHY);
+    return out;
   }
 
   /** The block gives `name` a fixed value (`if x not in ALLOWED: x = "id"`). */
@@ -1090,7 +1159,9 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         const params = kid(n, "parameters");
         if (params) bindParams(params, inner, null, false, new Set());
         if (body) ev(body, inner, depth + 1);
-        return value();
+        const made: V = value();
+        made.lam = { node: n, env };
+        return made;
       }
       case "named_expression": {
         const name = kid(n, "name");
@@ -1223,7 +1294,64 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       sqlCheck(info, env);
       commandCheck(info);
     }
+    if (env.report && fnNode.type === "identifier") {
+      const held = evalName(fnNode, env);
+      if (held.lam !== undefined) {
+        const result = callLambda(held.lam, pos, kw, env, depth);
+        if (result !== null) return result;
+      }
+    }
     return callResult(info, env);
+  }
+
+  const lambdaBusy = new Set<N>();
+  const lambdaCalls = new Map<N, number>();
+
+  /**
+   * A call through a variable that holds a lambda of this file (`run = lambda c: ...; run(x)`):
+   * the body is evaluated again with the arguments, so a sink inside sees them. Null when it is
+   * not followed (too many calls, recursion, unpackable arguments).
+   */
+  function callLambda(
+    lam: { node: N; env: Env },
+    pos: readonly V[],
+    kw: ReadonlyMap<string, V>,
+    env: Env,
+    depth: number,
+  ): V | null {
+    const calls = lambdaCalls.get(lam.node) ?? 0;
+    if (lambdaBusy.has(lam.node) || calls >= MAX_LAMBDA_CALLS || depth > MAX_DEPTH - 50)
+      return null;
+    const body = kid(lam.node, "body");
+    if (!body) return null;
+    lambdaCalls.set(lam.node, calls + 1);
+    lambdaBusy.add(lam.node);
+    try {
+      const inner: Env = {
+        ...lam.env,
+        scope: new Scope(lam.env.scope, true),
+        inFn: true,
+        report: env.report,
+      };
+      const params = kid(lam.node, "parameters");
+      if (params) {
+        bindParams(params, inner, null, false, new Set());
+        named(params).forEach((p, index) => {
+          const name =
+            p.type === "identifier"
+              ? text(p)
+              : p.type === "default_parameter"
+                ? text(kid(p, "name") as N)
+                : null;
+          if (name === null) return;
+          const given = pos[index] ?? kw.get(name);
+          if (given !== undefined && !isSpread(given)) assignParam(inner, name, given);
+        });
+      }
+      return ev(body, inner, depth + 1);
+    } finally {
+      lambdaBusy.delete(lam.node);
+    }
   }
 
   const dynamicOf = (v: V | undefined): boolean => v !== undefined && nonConst(v.leaves).length > 0;
@@ -1479,14 +1607,58 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         kw.get("operation") ??
         kw.get("text");
     }
-    if (argument === undefined || isSpread(argument)) return;
-    if (kind === "dbapi" && argument.wrapped === true) return;
-    const sqlText = PY_SQL_TEXT.test(literalText(argument.leaves));
     const receiverName = lastSegment(recvNode);
     const sqlReceiver =
       recvVal?.db === true ||
       SQL_RECEIVER_NAME.test(receiverName) ||
       (kind === "batch" && pos[0]?.db === true);
+    const labelOf = (): string =>
+      kind === "text" || kind === "rawsql" || kind === "pandas" || kind === "batch"
+        ? kind === "rawsql"
+          ? "RawSQL"
+          : (qual ?? name)
+              .split(".")
+              .filter((_, i, all) => i === 0 || i === all.length - 1)
+              .join(".")
+        : `${receiverName || "call"}.${name}`;
+    if (argument === undefined && info.kwSplat && (kind === "dbapi" || kind === "text")) {
+      // `conn.execute(**kw)`, `text(**kw)`: the SQL is somewhere inside the mapping.
+      const eligible =
+        kind === "text" ||
+        (GENERIC_DBAPI.has(name) ? hasSqlLibrary && sqlReceiver : hasSqlLibrary || sqlReceiver);
+      if (!eligible || !info.splats.some((v) => dynamicOf(v))) return;
+      const src = sourcesOf(info.splats.flatMap((v) => v.leaves))[0] as SourceLeaf | undefined;
+      if (src === undefined) {
+        unsupported.add("SQL passed inside a **mapping");
+        return;
+      }
+      record(
+        {
+          ruleId: "PG-SQL-006",
+          line: info.line,
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          evidence: `request input (${src.label}) in a **mapping -> ${labelOf()}; the SQL is inside the mapping, not followed; inferred`,
+          cause: labelOf(),
+        },
+        2,
+      );
+      return;
+    }
+    if (argument === undefined || isSpread(argument)) return;
+    if (kind === "dbapi" && argument.wrapped === true) return;
+    const sqlText = PY_SQL_TEXT.test(literalText(argument.leaves));
+    // `.extra()` of a queryset or manager, or with SQL-looking text; any other receiver is only
+    // a possible Django queryset (kept low in a Django project, not reported elsewhere).
+    let unprovenExtra = false;
+    if (kind === "extra") {
+      const queryset = recvNode !== null && QUERYSET_RECEIVER.test(text(recvNode));
+      if (!(queryset || sqlText)) {
+        if (!hasDjango) return;
+        unprovenExtra = true;
+      }
+    }
     if (kind === "dbapi") {
       const generic = GENERIC_DBAPI.has(name);
       const eligible = generic
@@ -1514,16 +1686,21 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       !(sqlReceiver || sqlText || kind !== "dbapi")
     )
       return;
-    const label =
-      kind === "text" || kind === "rawsql" || kind === "pandas" || kind === "batch"
-        ? kind === "rawsql"
-          ? "RawSQL"
-          : (qual ?? name)
-              .split(".")
-              .filter((_, i, all) => i === 0 || i === all.length - 1)
-              .join(".")
-        : `${receiverName || "call"}.${name}`;
+    const label = labelOf();
     const { finding, rank } = sqlFinding(judged, info.line, label);
+    if (unprovenExtra && finding.confidence !== "low") {
+      record(
+        {
+          ...finding,
+          severity: "medium",
+          status: "suspected",
+          confidence: "low",
+          evidence: `${finding.evidence}; the receiver is not shown to be a Django queryset; inferred`,
+        },
+        1,
+      );
+      return;
+    }
     record(finding, rank);
     void env;
   }
@@ -2092,6 +2269,7 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         execLoop(n, env, depth, () => {
           if (target) bindTarget(target, elementOf(iterValue), env);
         });
+        if (iter && target) guardPermanently(forElseGuards(n, target, iter, env), env);
         break;
       }
       case "while_statement": {
@@ -2101,8 +2279,11 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
         break;
       }
       case "try_statement": {
+        // A raise in the body may be swallowed, unless every handler leaves too (`except E: raise`).
         const handles = named(n).some(
-          (c) => c.type === "except_clause" || c.type === "except_group_clause",
+          (c) =>
+            (c.type === "except_clause" || c.type === "except_group_clause") &&
+            !exits(named(c).find((part) => part.type === "block")),
         );
         for (const c of named(n)) {
           if (c.field === "body" || c.type === "block") {
