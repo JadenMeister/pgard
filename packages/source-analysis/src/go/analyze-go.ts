@@ -81,6 +81,75 @@ function readImports(code: string, literals: string[]): string[] {
   return imports;
 }
 
+/** `a, b string, c int` -> positions [a, b, c]; unnamed types (`int, error`) -> nulls. */
+function parseParameterList(list: string): (string | null)[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let current = "";
+  for (const char of list) {
+    if (char === "(" || char === "[" || char === "{") depth += 1;
+    else if (char === ")" || char === "]" || char === "}") depth -= 1;
+    if (char === "," && depth === 0) {
+      parts.push(current);
+      current = "";
+    } else current += char;
+  }
+  parts.push(current);
+  const tokens = parts.map((part) => part.trim().split(/\s+/).filter(Boolean));
+  const named = tokens.some((words) => words.length >= 2);
+  return tokens.map((words) => {
+    const first = words[0];
+    return named && first !== undefined && IDENTIFIER.test(first) ? first : null;
+  });
+}
+
+/**
+ * What a function signature (the text between `func` and `{`) declares: `(s *S) Name[T any](a, b
+ * string) (res int, err error)`, `Name(...)` or a function literal `(c *gin.Context)`.
+ */
+function parseSignature(signature: string): {
+  declares: string[];
+  params: (string | null)[];
+  funcName: string | null;
+  nameOffset: number;
+} {
+  const groups: string[] = [];
+  let depth = 0;
+  let bracket = 0;
+  let from = 0;
+  for (let index = 0; index < signature.length; index += 1) {
+    const char = signature[index];
+    if (char === "[" && depth === 0) bracket += 1;
+    else if (char === "]" && depth === 0) bracket -= 1;
+    else if (char === "(" && bracket === 0) {
+      if (depth === 0) from = index + 1;
+      depth += 1;
+    } else if (char === ")" && bracket === 0) {
+      depth -= 1;
+      if (depth === 0) groups.push(signature.slice(from, index));
+      if (depth < 0) break;
+    }
+  }
+  const method = /^(\s*\([^)]*\)\s*)([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?\(/.exec(signature);
+  const plain = /^(\s*)([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?\(/.exec(signature);
+  const named = method ?? plain;
+  const paramsIndex = method ? 1 : 0;
+  const declares: string[] = [];
+  const collect = (list: string | undefined) => {
+    for (const name of parseParameterList(list ?? ""))
+      if (name !== null && name !== "_") declares.push(name);
+  };
+  if (method) collect(groups[0]);
+  collect(groups[paramsIndex]);
+  collect(groups[paramsIndex + 1]);
+  return {
+    declares,
+    params: named ? parseParameterList(groups[paramsIndex] ?? "") : [],
+    funcName: named?.[2] ?? null,
+    nameOffset: named ? (named[1] ?? "").length : 0,
+  };
+}
+
 export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const { code, literals } = maskGoSource(source);
   const imports = readImports(code, literals);
@@ -94,20 +163,36 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   const perRuleCount = new Map<string, number>();
   const lineOf = createLineLookup(code);
 
-  // Flow-insensitive, file-level variable facts. Identifiers are looked up in a Set (one pass
-  // over the expression), so cost stays linear in the file size.
-  const tainted = new Set<string>();
+  // Flow-insensitive variable facts. Identifiers are looked up in a Set (one pass over the
+  // expression), so cost stays linear in the file size. Taint is scoped per function: a name is
+  // tainted in the function (or closure) that declares it and in the closures nested in it, so a
+  // safe handler that reuses a variable name of another handler is not flagged. A name with no
+  // declaration in an enclosing function (a package variable, possibly of another file) is
+  // tainted everywhere.
   const dynamic = new Set<string>();
-  const referencesAny = (expression: string, names: Set<string>) => {
-    if (names.size === 0) return false;
+  /** name -> ids of the scopes (function spans; -1 is the package) where the name is tainted. */
+  const taintedIn = new Map<string, Set<number>>();
+  let scopeAt = (_offset: number): number => -1;
+  let scopeParent = (_scope: number): number => -1;
+  const isTaintedName = (name: string, at: number | undefined): boolean => {
+    const scopes = taintedIn.get(name);
+    if (scopes === undefined) return false;
+    if (at === undefined || scopes.has(-1)) return true;
+    for (let scope = scopeAt(at); scope !== -1; scope = scopeParent(scope))
+      if (scopes.has(scope)) return true;
+    return false;
+  };
+  const referencesTainted = (expression: string, at: number | undefined) => {
+    if (taintedIn.size === 0) return false;
     for (const match of expression.matchAll(IDENTIFIER_TOKENS)) {
-      if (names.has(match[0])) return true;
+      if (isTaintedName(match[0], at)) return true;
     }
     return false;
   };
-  const isTaintedExpr = (expression: string): boolean =>
+  /** `at`: the offset of the use, to apply function scope; without it any scope counts. */
+  const isTaintedExpr = (expression: string, at?: number): boolean =>
     !SANITIZER_PATTERN.test(expression) &&
-    (SOURCE_PATTERN.test(expression) || referencesAny(expression, tainted));
+    (SOURCE_PATTERN.test(expression) || referencesTainted(expression, at));
   // Names whose value is fixed: `const`s, and numbers parsed with strconv. A name counts only when
   // it is bound exactly once in the whole file: a parameter, `:=`, `var`, assignment or second
   // declaration of the same name anywhere (any function) makes it untrusted.
@@ -115,8 +200,17 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     signature: string;
     start: number;
     end: number;
+    /** Names the signature declares (receiver, parameters, named results). */
+    declares: string[];
+    /** Parameters by position (null: unnamed); empty for a function literal. */
+    params: (string | null)[];
+    /** Name of a declared function or method; null for a function literal. */
+    funcName: string | null;
+    /** Offset of that name in the code. */
+    nameOffset: number;
   }
   const functionSpans: FunctionSpan[] = [];
+  const varDeclarations: { name: string; offset: number }[] = [];
   const bound = new Map<string, number>();
   const constDeclarations = new Map<string, number>();
   const constPositions = new Map<string, number>();
@@ -190,13 +284,22 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       const signature = withoutConsts.slice(at + 4, index);
       bumpTokens(signature);
       if (withoutConsts[index] === "{") {
+        const parsed = parseSignature(signature);
         let braces = 0;
         let close = index;
         for (; close < withoutConsts.length; close += 1) {
           if (withoutConsts[close] === "{") braces += 1;
           else if (withoutConsts[close] === "}" && (braces -= 1) === 0) break;
         }
-        functionSpans.push({ signature, start: index, end: close });
+        functionSpans.push({
+          signature,
+          start: index,
+          end: close,
+          declares: parsed.declares,
+          params: parsed.params,
+          funcName: parsed.funcName,
+          nameOffset: at + 4 + parsed.nameOffset,
+        });
       }
     }
     for (const match of withoutConsts.matchAll(ASSIGNED_NAMES)) {
@@ -217,44 +320,67 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         }
         for (const line of tail.slice(first + 1, index).split("\n")) {
           const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(line)?.[1];
-          if (names) for (const name of names.split(",")) bump(bound, name.trim());
+          if (names)
+            for (const name of names.split(",")) {
+              bump(bound, name.trim());
+              varDeclarations.push({ name: name.trim(), offset: match.index ?? 0 });
+            }
         }
       } else {
         const names = /^[ \t]*([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)/.exec(tail)?.[1];
-        if (names) for (const name of names.split(",")) bump(bound, name.trim());
+        if (names)
+          for (const name of names.split(",")) {
+            bump(bound, name.trim());
+            varDeclarations.push({ name: name.trim(), offset: match.index ?? 0 });
+          }
       }
     }
-    for (const [name, count] of constDeclarations) {
-      if (count !== 1 || bound.has(name)) continue;
-      // A const declared inside a block is trusted only when every use of the name is inside that
-      // same innermost `{...}`: elsewhere the name may mean a package variable of another file.
-      const at = constPositions.get(name) ?? 0;
-      let open = -1;
+    // A const declared inside a block is trusted only when every use of the name is inside that
+    // same innermost `{...}`: elsewhere the name may mean a package variable of another file.
+    // The block of each candidate and the uses of the block-local names are read in one pass over
+    // the file each (not once per constant), so a file of many constants stays linear.
+    const candidates: { name: string; at: number }[] = [];
+    for (const [name, count] of constDeclarations)
+      if (count === 1 && !bound.has(name))
+        candidates.push({ name, at: constPositions.get(name) ?? 0 });
+    candidates.sort((a, b) => a.at - b.at);
+    const blockClose = new Map<number, number>();
+    const openOf = new Map<string, number>();
+    {
       const stack: number[] = [];
-      for (let index = 0; index < at; index += 1) {
-        if (code[index] === "{") stack.push(index);
-        else if (code[index] === "}") stack.pop();
-      }
-      open = stack[stack.length - 1] ?? -1;
-      if (open === -1) {
-        inertNames.add(name);
-        continue;
-      }
-      let depth = 0;
-      let close = open;
-      for (; close < code.length; close += 1) {
-        if (code[close] === "{") depth += 1;
-        else if (code[close] === "}" && (depth -= 1) === 0) break;
-      }
-      let outside = false;
-      for (const use of code.matchAll(new RegExp(`(?<![\\w.])${name}\\b`, "g"))) {
-        const index = use.index ?? 0;
-        if (index < open || index > close) {
-          outside = true;
-          break;
+      let next = 0;
+      for (let index = 0; index <= code.length; index += 1) {
+        while (next < candidates.length && (candidates[next] as { at: number }).at === index) {
+          openOf.set((candidates[next] as { name: string }).name, stack[stack.length - 1] ?? -1);
+          next += 1;
+        }
+        // Candidates sit on a `const` keyword, so none is skipped; guard anyway.
+        const char = code[index];
+        if (char === "{") stack.push(index);
+        else if (char === "}") {
+          const open = stack.pop();
+          if (open !== undefined) blockClose.set(open, index);
         }
       }
-      if (!outside) inferredNames.add(name);
+    }
+    const localNames = new Set<string>();
+    for (const { name } of candidates) {
+      const open = openOf.get(name) ?? -1;
+      if (open === -1) inertNames.add(name);
+      else localNames.add(name);
+    }
+    if (localNames.size > 0) {
+      const escapedLocals = new Set<string>();
+      for (const token of code.matchAll(IDENTIFIER_TOKENS)) {
+        const name = token[0];
+        if (!localNames.has(name) || escapedLocals.has(name)) continue;
+        const open = openOf.get(name) as number;
+        // An unclosed block ends where the file ends (the file is not valid Go then anyway).
+        const close = blockClose.get(open) ?? code.length;
+        const index = token.index ?? 0;
+        if (index < open || index > close) escapedLocals.add(name);
+      }
+      for (const name of localNames) if (!escapedLocals.has(name)) inferredNames.add(name);
     }
     // `n, err := strconv.Atoi(...)`: a number, trusted only when this is the name's only binding.
     for (const match of withoutConsts.matchAll(PARSED_NUMBER_NAMES)) {
@@ -323,7 +449,92 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     return IDENTIFIER.test(trimmed) && dynamic.has(trimmed);
   };
   const assignments = readLineAssignments(code);
-  for (let pass = 0; pass < 2; pass += 1) {
+
+  // Function scopes: spans are in source order and properly nested, so each span's parent is the
+  // nearest earlier span still open at its start, and a position's scope is found by binary
+  // search plus the parent chain.
+  const parents: number[] = [];
+  {
+    const open: number[] = [];
+    functionSpans.forEach((span, index) => {
+      while (
+        open.length > 0 &&
+        (functionSpans[open[open.length - 1] as number] as FunctionSpan).end < span.start
+      )
+        open.pop();
+      parents.push(open[open.length - 1] ?? -1);
+      open.push(index);
+    });
+  }
+  scopeParent = (scope) => parents[scope] ?? -1;
+  scopeAt = (offset) => {
+    let low = 0;
+    let high = functionSpans.length - 1;
+    let found = -1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if ((functionSpans[middle] as FunctionSpan).start <= offset) {
+        found = middle;
+        low = middle + 1;
+      } else high = middle - 1;
+    }
+    while (found !== -1 && (functionSpans[found] as FunctionSpan).end < offset)
+      found = parents[found] ?? -1;
+    return found;
+  };
+  const declaredIn = new Map<number, Set<string>>();
+  const declare = (name: string, scope: number) => {
+    let names = declaredIn.get(scope);
+    if (names === undefined) declaredIn.set(scope, (names = new Set()));
+    names.add(name);
+  };
+  functionSpans.forEach((span, index) => {
+    for (const name of span.declares) declare(name, index);
+  });
+  for (const { name, offset } of varDeclarations) declare(name, scopeAt(offset));
+  for (const assignment of assignments) {
+    if (assignment.op !== ":=") continue;
+    for (const raw of assignment.names.split(",")) {
+      const name = raw.trim();
+      if (IDENTIFIER.test(name)) declare(name, scopeAt(assignment.offset));
+    }
+  }
+  /** The nearest enclosing scope declaring `name` (the package when none does). */
+  const declaringScope = (name: string, offset: number): number => {
+    for (let scope = scopeAt(offset); scope !== -1; scope = scopeParent(scope))
+      if (declaredIn.get(scope)?.has(name)) return scope;
+    return -1;
+  };
+  const markTainted = (name: string, scope: number) => {
+    let scopes = taintedIn.get(name);
+    if (scopes === undefined) taintedIn.set(name, (scopes = new Set()));
+    scopes.add(scope);
+  };
+  // A call of a function declared in this file taints the parameter that receives a tainted
+  // argument (inside that function only). Function literals have no name and are not followed.
+  const spansByName = new Map<string, number[]>();
+  functionSpans.forEach((span, index) => {
+    if (span.funcName === null) return;
+    const list = spansByName.get(span.funcName) ?? [];
+    list.push(index);
+    spansByName.set(span.funcName, list);
+  });
+  const declarationNames = new Set(functionSpans.map((span) => span.nameOffset));
+  const callSites: { offset: number; targets: number[]; args: string[] }[] = [];
+  if (spansByName.size > 0) {
+    for (const match of code.matchAll(/(?<![\w])([A-Za-z_]\w*)[ \t]*\(/g)) {
+      const targets = spansByName.get(match[1] ?? "");
+      const offset = match.index ?? 0;
+      if (targets === undefined || declarationNames.has(offset)) continue;
+      const open = offset + match[0].length - 1;
+      callSites.push({
+        offset,
+        targets,
+        args: readCallArguments(code, open, MAX_CALL_ARGUMENT_CHARS).args,
+      });
+    }
+  }
+  for (let pass = 0; pass < 3; pass += 1) {
     for (const assignment of assignments) {
       const names = assignment.names
         .split(",")
@@ -331,7 +542,8 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         .filter((name) => IDENTIFIER.test(name) && name !== "_" && name !== "err");
       const value = assignment.value;
       for (const name of names) {
-        if (isTaintedExpr(value)) tainted.add(name);
+        if (isTaintedExpr(value, assignment.offset))
+          markTainted(name, declaringScope(name, assignment.offset));
         // A constant `q += " AND x"` keeps the string static.
         if (
           (assignment.op === "+=" && !LITERAL_PATTERN.test(value.trim())) ||
@@ -340,6 +552,15 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
           dynamic.add(name);
         }
       }
+    }
+    for (const site of callSites) {
+      site.args.forEach((argument, position) => {
+        if (!isTaintedExpr(argument, site.offset)) return;
+        for (const target of site.targets) {
+          const parameter = (functionSpans[target] as FunctionSpan).params[position];
+          if (parameter && parameter !== "_") markTainted(parameter, target);
+        }
+      });
     }
   }
 
@@ -396,18 +617,18 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     confidence: "low",
     flow: `${evidence.flow} (${note})`,
   });
-  const sqlEvidence = (expression: string, sink: string): Evidence | null => {
-    const evidence = sqlEvidenceRaw(expression, sink);
+  const sqlEvidence = (expression: string, sink: string, at: number): Evidence | null => {
+    const evidence = sqlEvidenceRaw(expression, sink, at);
     return evidence && isInertExpr(expression) === "inferred"
       ? demote(evidence, INFERRED_NOTE)
       : evidence;
   };
-  const sqlEvidenceRaw = (expression: string, sink: string): Evidence | null => {
+  const sqlEvidenceRaw = (expression: string, sink: string, at: number): Evidence | null => {
     if (LITERAL_PATTERN.test(expression.trim())) return null;
     if (isInertExpr(expression) === "strict") return null;
     if (!isDynamicExpr(expression)) {
       // Request input passed straight in as SQL (e.g. db.Order(c.Query("sort"))).
-      if (!isTaintedExpr(expression)) return null;
+      if (!isTaintedExpr(expression, at)) return null;
       const isDirect = SOURCE_PATTERN.test(expression);
       return {
         severity: "high",
@@ -416,7 +637,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         flow: `request input ${isDirect ? "" : "(via variable) "}used directly as SQL -> ${sink}`,
       };
     }
-    if (isTaintedExpr(expression)) {
+    if (isTaintedExpr(expression, at)) {
       const isDirect = SOURCE_PATTERN.test(expression);
       return {
         severity: "high",
@@ -446,7 +667,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         if (name === "Get" || name === "Select") sqlIndex += 1;
         const expression = args[sqlIndex];
         if (!expression) return;
-        const evidence = sqlEvidence(expression, `${name}()`);
+        const evidence = sqlEvidence(expression, `${name}()`, offset);
         if (evidence) report("PG-SQL-003", offset, evidence, name);
       },
     );
@@ -459,7 +680,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       (args, offset, name) => {
         const expression = args[0];
         if (!expression) return;
-        const evidence = sqlEvidence(expression, `gorm ${name}()`);
+        const evidence = sqlEvidence(expression, `gorm ${name}()`, offset);
         if (evidence) report("PG-SQL-004", offset, evidence, name);
       },
     );
@@ -547,7 +768,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       );
       return;
     }
-    const isTainted = dynamicItems.some((item) => isTaintedExpr(item));
+    const isTainted = dynamicItems.some((item) => isTaintedExpr(item, offset));
     report(
       "PG-CMD-002",
       offset,
@@ -595,7 +816,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         const script = rest[2];
         if (!script || LITERAL_PATTERN.test(script.trim()) || isInertExpr(script) === "strict")
           return;
-        const isTainted = isTaintedExpr(script);
+        const isTainted = isTaintedExpr(script, offset);
         const scriptEvidence: Evidence = isTainted
           ? {
               severity: "critical",
@@ -619,7 +840,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         );
         return;
       }
-      if (programLiteral === null && isTaintedExpr(program)) {
+      if (programLiteral === null && isTaintedExpr(program, offset)) {
         report(
           "PG-CMD-002",
           offset,
@@ -642,7 +863,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
       (args, offset, name) => {
         const index = name === "NewRequest" ? 1 : name === "NewRequestWithContext" ? 2 : 0;
         const target = args[index];
-        if (target && isTaintedExpr(target)) {
+        if (target && isTaintedExpr(target, offset)) {
           report(
             "PG-SSRF-001",
             offset,
@@ -664,7 +885,7 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
     /\b(?:os|ioutil|http|c)\.(Open|ReadFile|OpenFile|ServeFile|File|FileAttachment|SendFile)\s*\(/g,
     (args, offset, name) => {
       const target = name === "ServeFile" ? args[2] : args[0];
-      if (target && isTaintedExpr(target)) {
+      if (target && isTaintedExpr(target, offset)) {
         report(
           "PG-PATH-001",
           offset,
@@ -707,15 +928,19 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
   // A package-level `const`/`var` bound once, to a literal, and never written, taken by address or
   // indexed: `var signingKey = []byte("...")`. A `var` can still be overwritten from another file
   // of the package (an init() reading the environment), so it is reported at medium confidence.
-  const packageKeyCache = new Map<string, "const" | "var" | null>();
-  const packageKey = (name: string): "const" | "var" | null => {
+  // A package `var` with an empty initializer is a placeholder another file of the package normally
+  // fills in at start-up (`jwtKey = []byte(os.Getenv(...))`); it cannot be proven constant, so it is
+  // reported low. An empty literal or constant used directly as the key stays a high finding.
+  type PackageKey = "const" | "var" | "empty-var" | null;
+  const packageKeyCache = new Map<string, PackageKey>();
+  const packageKey = (name: string): PackageKey => {
     if (!IDENTIFIER.test(name)) return null;
     const cached = packageKeyCache.get(name);
     if (cached !== undefined) return cached;
-    let result: "const" | "var" | null = null;
+    let result: PackageKey = null;
     const escaped = name.replace(/[$]/g, "\\$");
     const declaration = new RegExp(
-      `(?:^|\\n)[ \\t]*(?:(var|const)[ \\t]+)?${escaped}(?:[ \\t]+[\\w.*[\\]]{1,60})?[ \\t]*=[ \\t]*(?:\\[\\]byte\\([ \\t]*"#\\d+"[ \\t]*\\)|"#\\d+")[ \\t]*(?=\\n|$)`,
+      `(?:^|\\n)[ \\t]*(?:(var|const)[ \\t]+)?${escaped}(?:[ \\t]+[\\w.*[\\]]{1,60})?[ \\t]*=[ \\t]*(?:\\[\\]byte\\([ \\t]*"#(\\d+)"[ \\t]*\\)|"#(\\d+)")[ \\t]*(?=\\n|$)`,
       "g",
     );
     const matches = [...code.matchAll(declaration)];
@@ -747,7 +972,12 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         !inSignature.test(code) &&
         !mutated.test(code)
       )
-        result = keyword === "const" ? "const" : "var";
+        result =
+          keyword === "const"
+            ? "const"
+            : literals[Number(only[2] ?? only[3])] === ""
+              ? "empty-var"
+              : "var";
     }
     packageKeyCache.set(name, result);
     return result;
@@ -777,19 +1007,26 @@ export function analyzeGoSource(source: string, path: string): GoAnalysis {
         report(
           "PG-CRYPTO-002",
           offset,
-          kind === "const"
+          kind === "empty-var"
             ? {
-                severity: "high",
-                status: "confirmed",
-                confidence: "high",
-                flow: `string literal (value redacted) held in package constant ${held} used as ${name} key`,
-              }
-            : {
-                severity: "high",
+                severity: "low",
                 status: "suspected",
-                confidence: "medium",
-                flow: `string literal (value redacted) held in package variable ${held} used as ${name} key (verify no other file of the package overwrites it from the environment)`,
-              },
+                confidence: "low",
+                flow: `empty package variable ${held} used as ${name} key; it is normally set from another file at start-up (verify it is: an empty key signs with no secret)`,
+              }
+            : kind === "const"
+              ? {
+                  severity: "high",
+                  status: "confirmed",
+                  confidence: "high",
+                  flow: `string literal (value redacted) held in package constant ${held} used as ${name} key`,
+                }
+              : {
+                  severity: "high",
+                  status: "suspected",
+                  confidence: "medium",
+                  flow: `string literal (value redacted) held in package variable ${held} used as ${name} key (verify no other file of the package overwrites it from the environment)`,
+                },
           name,
         );
         return;

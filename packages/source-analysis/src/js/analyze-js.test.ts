@@ -611,6 +611,181 @@ describe("PG-CRYPTO rules", () => {
     ).toEqual([]);
   });
 
+  it("only follows SignJWT and jwtVerify that come from jose, and the real TextEncoder (#271)", () => {
+    const secret = "new TextEncoder().encode('hardcoded-secret-value')";
+    // Same shapes from another module: no finding.
+    expect(
+      rulesIn(
+        `import { SignJWT } from './local-jwt'; const k = ${secret}; new SignJWT({}).setProtectedHeader({}).sign(k);`,
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(`import { jwtVerify } from './local-jwt'; const k = ${secret}; jwtVerify(token, k);`),
+    ).toEqual([]);
+    // With the jose import they are found.
+    expect(
+      rulesIn(
+        `import { SignJWT } from 'jose'; const k = ${secret}; new SignJWT({}).setProtectedHeader({}).sign(k);`,
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    // A local TextEncoder is not the platform class: its argument says nothing about the key.
+    expect(
+      rulesIn(
+        `import { jwtVerify } from 'jose'; class TextEncoder { encode(s) { return load(s); } } const k = ${secret}; jwtVerify(token, k);`,
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        `import { jwtVerify } from 'jose'; import { TextEncoder } from 'util-polyfill'; const k = ${secret}; jwtVerify(token, k);`,
+      ),
+    ).toEqual([]);
+  });
+
+  it("resolves Buffer.from and TextEncoder arguments held in constants, and config properties (#271)", () => {
+    const flagged = (decl: string, call: string) =>
+      rulesIn(`import jwt from 'jsonwebtoken'; import { jwtVerify } from 'jose'; ${decl} ${call}`);
+    expect(flagged("const S = 'my-signing-value';", "jwt.sign(p, Buffer.from(S));")).toEqual([
+      "PG-CRYPTO-002",
+    ]);
+    expect(
+      flagged("const S = 'my-signing-value';", "jwtVerify(t, new TextEncoder().encode(S));"),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      flagged("const cfg = { secret: 'my-signing-value' };", "jwt.sign(p, cfg.secret);"),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      flagged("const cfg = { secret: 'my-signing-value' };", "jwt.sign(p, cfg['secret']);"),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      flagged(
+        "const cfg = { auth: 1 }; const S = 'my-signing-value'; const key = Buffer.from(S);",
+        "jwt.sign(p, key);",
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    // Not fixed: environment, a spread or computed key, a property written elsewhere, other file.
+    expect(flagged("const S = process.env.S;", "jwt.sign(p, Buffer.from(S));")).toEqual([]);
+    expect(flagged("const cfg = { secret: process.env.S };", "jwt.sign(p, cfg.secret);")).toEqual(
+      [],
+    );
+    expect(
+      flagged("const cfg = { ...base, secret: 'my-signing-value' };", "jwt.sign(p, cfg.secret);"),
+    ).toEqual([]);
+    expect(
+      flagged(
+        "const cfg = { secret: 'my-signing-value' }; cfg.secret = load();",
+        "jwt.sign(p, cfg.secret);",
+      ),
+    ).toEqual([]);
+    expect(flagged("import { cfg } from './config';", "jwt.sign(p, cfg.secret);")).toEqual([]);
+    expect(flagged("function f(cfg) {", "return jwt.sign(p, cfg.secret); }")).toEqual([]);
+  });
+
+  it("flags NestJS JwtModule and passport-jwt keys held in the file (#271)", () => {
+    const nest = (body: string) =>
+      findingsIn(
+        `import { JwtModule } from '@nestjs/jwt'; import { PassportStrategy } from '@nestjs/passport'; import { Strategy, ExtractJwt } from 'passport-jwt'; ${body}`,
+      );
+    const secretLiteral = "const S = 'nest-signing-value';";
+    expect(
+      nest(`${secretLiteral} JwtModule.register({ secret: S });`).map((f) => f.ruleId),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(
+      nest(`${secretLiteral} JwtModule.register({ secret: S, signOptions: {} });`),
+    ).toHaveLength(1);
+    // Shorthand `{ secret }`.
+    expect(
+      nest("const secret = 'nest-signing-value'; JwtModule.register({ secret });"),
+    ).toHaveLength(1);
+    expect(nest("JwtModule.register({ secret: 'nest-signing-value' });")).toHaveLength(1);
+    expect(nest("JwtModule.register({ secret: process.env.JWT_SECRET });")).toEqual([]);
+    expect(
+      nest("JwtModule.register({ secret: process.env.JWT_SECRET || 'dev' });")[0],
+    ).toMatchObject({
+      severity: "medium",
+    });
+    expect(
+      findingsIn("import { JwtModule } from './mine'; JwtModule.register({ secret: 'x-value' });"),
+    ).toEqual([]);
+    // passport-jwt: `new Strategy({ secretOrKey })` and `super({ secretOrKey })`.
+    expect(
+      nest(
+        `${secretLiteral} new Strategy({ jwtFromRequest: ExtractJwt.fromHeader('a'), secretOrKey: S }, cb);`,
+      ),
+    ).toHaveLength(1);
+    expect(
+      nest(
+        `${secretLiteral} class J extends PassportStrategy(Strategy) { constructor() { super({ secretOrKey: S }); } }`,
+      ),
+    ).toHaveLength(1);
+    expect(
+      nest(
+        "class J extends PassportStrategy(Strategy) { constructor() { super({ secretOrKey: process.env.S }); } }",
+      ),
+    ).toEqual([]);
+    // `super({ secretOrKey })` in a class that does not extend the passport-jwt strategy.
+    expect(
+      nest(
+        "class J extends Base { constructor() { super({ secretOrKey: 'nest-signing-value' }); } }",
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        "const JwtStrategy = require('passport-jwt').Strategy; new JwtStrategy({ secretOrKey: 'nest-signing-value' }, cb);",
+      ),
+    ).toEqual(["PG-CRYPTO-002"]);
+    const evidence = JSON.stringify(nest(`${secretLiteral} JwtModule.register({ secret: S });`));
+    expect(evidence).not.toContain("nest-signing-value");
+  });
+
+  it("does not report a PEM public key or certificate that is only verified, but still a private key (#271)", () => {
+    const pem = (kind: string) =>
+      `-----BEGIN ${kind}-----\\nMIIBIjANBgkqhkiG\\n-----END ${kind}-----`;
+    const verify = (kind: string) =>
+      rulesIn(
+        `import jwt from 'jsonwebtoken'; const KEY = '${pem(kind)}'; jwt.verify(token, KEY, { algorithms: ['RS256'] });`,
+      );
+    expect(verify("PUBLIC KEY")).toEqual([]);
+    expect(verify("RSA PUBLIC KEY")).toEqual([]);
+    expect(verify("CERTIFICATE")).toEqual([]);
+    expect(verify("PRIVATE KEY")).toEqual(["PG-CRYPTO-002"]);
+    expect(verify("RSA PRIVATE KEY")).toEqual(["PG-CRYPTO-002"]);
+    // A direct literal, a Buffer and a jose key follow the same rule.
+    expect(
+      rulesIn(`import jwt from 'jsonwebtoken'; jwt.verify(t, '${pem("PUBLIC KEY")}');`),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        `import jwt from 'jsonwebtoken'; jwt.verify(t, Buffer.from('${pem("PUBLIC KEY")}'));`,
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(
+        `import { jwtVerify } from 'jose'; const k = new TextEncoder().encode('${pem("CERTIFICATE")}'); jwtVerify(t, k);`,
+      ),
+    ).toEqual([]);
+    expect(
+      rulesIn(`import jwt from 'jsonwebtoken'; jwt.verify(t, '${pem("PRIVATE KEY")}');`),
+    ).toEqual(["PG-CRYPTO-002"]);
+    // passport-jwt only verifies: a public key there is fine, a private one is not.
+    const passport = (kind: string) =>
+      rulesIn(
+        `import { Strategy } from 'passport-jwt'; new Strategy({ secretOrKey: '${pem(kind)}' }, cb);`,
+      );
+    expect(passport("PUBLIC KEY")).toEqual([]);
+    expect(passport("PRIVATE KEY")).toEqual(["PG-CRYPTO-002"]);
+    // Signing with a PEM literal is still a hard-coded key; so is an HMAC key that is a public key.
+    expect(
+      rulesIn(`import jwt from 'jsonwebtoken'; jwt.sign(p, '${pem("PRIVATE KEY")}');`),
+    ).toEqual(["PG-CRYPTO-002"]);
+    expect(rulesIn(`import jwt from 'jsonwebtoken'; jwt.sign(p, '${pem("PUBLIC KEY")}');`)).toEqual(
+      ["PG-CRYPTO-002"],
+    );
+    // An ordinary literal secret to verify is still reported.
+    expect(
+      rulesIn("import jwt from 'jsonwebtoken'; jwt.verify(t, 'plain-hard-coded-secret');"),
+    ).toEqual(["PG-CRYPTO-002"]);
+  });
+
   it("flags broken ciphers", () => {
     expect(
       rulesIn(

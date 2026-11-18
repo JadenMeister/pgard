@@ -468,3 +468,223 @@ func run() { exec.Command("sh", "-c", hookCmd).Run() }`);
     });
   });
 });
+
+describe("empty key placeholders (#271)", () => {
+  const sign = (decls: string, body = "return t.SignedString(jwtKey)") =>
+    analyzeGoSource(
+      go(["github.com/golang-jwt/jwt/v5"], `${decls}\nfunc f() (string, error) {\n\t${body}\n}`),
+      "main.go",
+    ).findings;
+
+  it("reports a package var with an empty initializer only as low (it is filled in elsewhere)", () => {
+    const [placeholder] = sign('var jwtKey = []byte("")');
+    expect(placeholder).toMatchObject({
+      ruleId: "PG-CRYPTO-002",
+      severity: "low",
+      confidence: "low",
+      status: "suspected",
+    });
+    expect(placeholder?.evidence).toContain("empty package variable jwtKey");
+    expect(sign('var (\n\tjwtKey = []byte("")\n)')[0]).toMatchObject({ severity: "low" });
+  });
+
+  it("keeps an empty literal or constant used as the key a high finding", () => {
+    expect(sign("", 'return t.SignedString([]byte(""))')[0]).toMatchObject({
+      severity: "high",
+      confidence: "high",
+    });
+    expect(sign('const jwtKey = ""', "return t.SignedString([]byte(jwtKey))")[0]).toMatchObject({
+      severity: "high",
+      confidence: "high",
+    });
+    // A non-empty package var is unchanged: high at medium confidence.
+    expect(sign('var jwtKey = []byte("not-empty-secret")')[0]).toMatchObject({
+      severity: "high",
+      confidence: "medium",
+    });
+    // Assigned in the same file: not a placeholder this file can judge, still no finding.
+    expect(sign('var jwtKey = []byte("")\nfunc init() { jwtKey = load() }')).toEqual([]);
+  });
+});
+
+describe("PG-PATH-001 taint is scoped per function (#298)", () => {
+  const imports = ["net/http", "os", "github.com/gin-gonic/gin"];
+  const paths = (body: string) =>
+    analyzeGoSource(go(imports, body), "main.go")
+      .findings.filter((f) => f.ruleId === "PG-PATH-001")
+      .map((f) => f.line);
+
+  it("does not flag a safe handler that reuses a variable name of a vulnerable one", () => {
+    const body = `func vulnerable(c *gin.Context) {
+	name := c.Query("name")
+	os.ReadFile(name)
+}
+
+func safe(c *gin.Context) {
+	name := "report.txt"
+	os.ReadFile(name)
+}`;
+    const lines = paths(body);
+    const text = go(imports, body).split("\n");
+    // Only the vulnerable handler, which comes first.
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toBeLessThan(text.findIndex((line) => line.startsWith("func safe")));
+  });
+
+  it("does not flag a closure that declares its own variable of that name", () => {
+    expect(
+      paths(`func a(c *gin.Context) {
+	name := c.Query("name")
+	_ = name
+}
+func b() {
+	h := func() {
+		name := "fixed.txt"
+		os.ReadFile(name)
+	}
+	h()
+}`),
+    ).toEqual([]);
+  });
+
+  it("still flags a package variable that flows into a handler", () => {
+    expect(
+      paths(`var target string
+
+func set(c *gin.Context) {
+	target = c.Query("p")
+}
+
+func read(c *gin.Context) {
+	os.ReadFile(target)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("still flags a variable captured by a closure", () => {
+    expect(
+      paths(`func h(c *gin.Context) {
+	file := c.Query("f")
+	func() {
+		os.ReadFile(file)
+	}()
+}`),
+    ).toHaveLength(1);
+    // Assigned inside the closure, read after it in the outer function.
+    expect(
+      paths(`func h(c *gin.Context) {
+	var file string
+	func() {
+		file = c.Query("f")
+	}()
+	os.ReadFile(file)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("still flags a tainted variable passed as a parameter", () => {
+    expect(
+      paths(`func h(c *gin.Context) {
+	p := c.Query("p")
+	serve(p)
+}
+
+func serve(target string) {
+	os.ReadFile(target)
+}`),
+    ).toHaveLength(1);
+    // A different argument position does not taint the parameter.
+    expect(
+      paths(`func h(c *gin.Context) {
+	serve("fixed.txt", c.Query("p"))
+}
+
+func serve(target string, other string) {
+	os.ReadFile(target)
+}`),
+    ).toEqual([]);
+    // Method with a receiver and parameters sharing a type.
+    expect(
+      paths(`func (s *S) h(c *gin.Context) {
+	s.serve("a", c.Query("p"))
+}
+
+func (s *S) serve(a, target string) {
+	os.ReadFile(target)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("still flags a struct field that carries request input", () => {
+    expect(
+      paths(`type req struct{ Path string }
+
+func h(c *gin.Context) {
+	r := req{Path: c.Query("p")}
+	os.ReadFile(r.Path)
+}`),
+    ).toHaveLength(1);
+  });
+
+  it("scopes SQL taint the same way", () => {
+    const sql = analyzeGoSource(
+      go(
+        ["database/sql", "github.com/gin-gonic/gin"],
+        `func a(c *gin.Context, db *sql.DB) {
+	id := c.Query("id")
+	db.Query("SELECT * FROM t WHERE id = " + id)
+}
+func b(db *sql.DB) {
+	id := "7"
+	db.Query("SELECT * FROM t WHERE id = " + id)
+}`,
+      ),
+      "main.go",
+    ).findings.filter((f) => f.ruleId === "PG-SQL-003");
+    // `a` carries request input; `b` only builds a string (no request input reaches it).
+    expect(sql.map((f) => f.severity)).toEqual(["high", "medium"]);
+    expect(sql[0]?.evidence).toContain("request input");
+    expect(sql[1]?.evidence).toContain("no input source identified");
+  });
+});
+
+describe("many top-level constants stay linear (#375)", () => {
+  const generated = (count: number) =>
+    `package main\n\nimport "os"\n\n${Array.from({ length: count }, (_, index) => `const C${index} = "v${index}"`).join("\n")}\n\nfunc f() { os.Open("x") }\n`;
+
+  itScaled(
+    "analyzes 20000 constants without a quadratic scope scan",
+    () => {
+      const large = generated(20_000);
+      const quarter = generated(5_000);
+      const big = bestTimeOf(3, () => analyzeGoSource(large, "gen.go"));
+      const small = bestTimeOf(3, () => analyzeGoSource(quarter, "gen.go"));
+      // Four times the input: linear is about 4x, the old per-constant scan about 16x. The ratio
+      // does not depend on the machine; the absolute ceiling is only a hang guard (it took 9 s).
+      expect(big / Math.max(small, 1)).toBeLessThan(9);
+      expect(big).toBeLessThan(5000 * TIME_FACTOR);
+    },
+    60_000,
+  );
+
+  it("keeps block-local constants trusted only inside their block", () => {
+    const sql = (body: string) =>
+      analyzeGoSource(go(["database/sql", "fmt"], body), "main.go").findings.map((f) => f.severity);
+    expect(
+      sql(`func f(db *sql.DB) {
+	const t = "users"
+	db.Query("SELECT * FROM " + t)
+}`),
+    ).toEqual(["medium"]);
+    // The same name used outside the block may be a package variable of another file.
+    expect(
+      sql(`func f(db *sql.DB) {
+	const t = "users"
+	db.Query("SELECT * FROM " + t)
+}
+func g(db *sql.DB) {
+	db.Query("SELECT * FROM " + t)
+}`),
+    ).toEqual(["medium", "medium"]);
+  });
+});

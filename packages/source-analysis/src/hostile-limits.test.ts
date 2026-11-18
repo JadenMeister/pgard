@@ -39,10 +39,12 @@ const SQL_VULN =
 const GO_VULN =
   'package main\nimport ("database/sql"; "net/http")\nfunc h(db *sql.DB, r *http.Request) { db.Query("SELECT * FROM t WHERE id=" + r.URL.Query().Get("id")) }\n';
 /**
- * Quadratic in the Go analyzer's per-constant scope check: tens of seconds, far over the limits
- * under test (the limit, not a fix of this shape, is what the tests are about).
+ * Quadratic in the Go analyzer's package-key lookup (one whole-file scan per key passed to a
+ * signing call): tens of seconds, far over the limits under test (the limit, not a fix of this
+ * shape, is what the tests are about). The per-constant scope check this used to rely on is linear
+ * since #375, so many constants no longer make a file slow.
  */
-const SLOW_GO = `package main\n${Array.from({ length: 40_000 }, (_, index) => `const c${index} = 1\n`).join("")}`;
+const SLOW_GO = `package main\nimport "github.com/golang-jwt/jwt/v5"\n${Array.from({ length: 8_000 }, (_, index) => `var k${index} = []byte("x")\n`).join("")}func f() {\n${Array.from({ length: 8_000 }, (_, index) => `\tt.SignedString(k${index})\n`).join("")}}\n`;
 /** Nesting that overflows the TypeScript parser's stack. */
 const DEEP_JS = `${"function f(a){ ".repeat(20_000)}x(a);${" }".repeat(20_000)}\n`;
 

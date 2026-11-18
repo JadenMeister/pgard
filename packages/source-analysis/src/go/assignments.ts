@@ -22,6 +22,8 @@ export interface LineAssignment {
   names: string;
   op: ":=" | "=" | "+=";
   value: string;
+  /** Offset of the line start in the scanned code. */
+  offset: number;
 }
 
 const SPACE = 32;
@@ -62,14 +64,14 @@ export function readLineAssignments(code: string): LineAssignment[] {
     // The operator always contains "=", so a line without one cannot match.
     if (nextEquals >= start && nextEquals < end) {
       const found = matchLine(code.slice(start, end));
-      if (found !== null) out.push(found);
+      if (found !== null) out.push({ ...found, offset: start });
     }
     start = end + 1;
   }
   return out;
 }
 
-function matchLine(line: string): LineAssignment | null {
+function matchLine(line: string): Omit<LineAssignment, "offset"> | null {
   const n = line.length;
   // blankEnd[i]: first index >= i that is not a blank; typeEnd[i]: same for type characters;
   // nameEnd[i]: same for name characters.
@@ -115,7 +117,7 @@ function matchLine(line: string): LineAssignment | null {
     return operatorTail(at);
   };
   /** The lazy `([\w, ]{1,200}?)` from `from`, then the tail. */
-  const names = (from: number): LineAssignment | null => {
+  const names = (from: number): Omit<LineAssignment, "offset"> | null => {
     const last = Math.min(from + 200, nameEnd[from] as number);
     for (let end = from + 1; end <= last; end += 1) {
       const found = tail(end);

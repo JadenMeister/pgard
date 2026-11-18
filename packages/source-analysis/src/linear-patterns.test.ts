@@ -6,6 +6,7 @@ import {
   NOT_A_CRYPTO_KEY_CONTEXT,
   PASSWORD_PROPERTY,
 } from "./jvm/crypto-rules.js";
+import { analyzeGoSource } from "./go/analyze-go.js";
 import { analyzeJsSource } from "./js/analyze-js.js";
 import { analyzeJvmTree, assignCountsOf } from "./jvm/analyze-jvm.js";
 import { elementTypeOf } from "./jvm/flow-values.js";
@@ -632,5 +633,30 @@ describe("model-to-view links stay linear (#338 review)", () => {
     const { value, ms } = timed(() => analyzeThymeleaf(page, "templates/other.html", model));
     expect(value.findings.length).toBeGreaterThan(0);
     expect(ms).toBeLessThan(LIMIT_MS * 4);
+  });
+});
+
+describe("JWT key and Go scope patterns stay linear (#271, #298, #375)", () => {
+  it("reads a PEM check on a literal that is one long blank run", () => {
+    const code = `import jwt from 'jsonwebtoken'; const KEY = '${" ".repeat(SIZE)}x'; jwt.verify(t, KEY);`;
+    const { value, ms } = timed(() => analyzeJsSource(code, "src/a.ts").findings.length);
+    expect(value).toBe(1);
+    expect(ms).toBeLessThan(LIMIT_MS);
+  });
+
+  it("reads Go call sites and signatures built from long runs", () => {
+    const longName = "a".repeat(SIZE);
+    const blanks = " ".repeat(SIZE);
+    const params = Array.from({ length: 20_000 }, (_, index) => `p${index}`).join(", ");
+    const sources = [
+      `package main\nfunc f() {\n\t${longName}\n}`,
+      `package main\nfunc f() {\n\tf${blanks}\n}`,
+      `package main\nfunc f(${params} string) {\n\tf(${params})\n}`,
+      `package main\nfunc (${blanks}) f${blanks}(${blanks}) {\n}`,
+    ];
+    for (const source of sources) {
+      const { ms } = timed(() => analyzeGoSource(source, "a.go"));
+      expect(ms).toBeLessThan(LIMIT_MS);
+    }
   });
 });
