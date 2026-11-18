@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzePythonTree, type PythonAnalysis, type PythonOptions } from "./analyze-python.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -276,7 +277,7 @@ describe("surviving mutants F2 and F7, more behaviours", () => {
 });
 
 describe("bounded work on hostile input (#326)", () => {
-  const LIMIT_MS = 8_000;
+  const LIMIT_MS = scaled(8_000);
   const timed = async (source: string): Promise<{ ms: number; result: PythonAnalysis }> => {
     const startedAt = performance.now();
     const result = await analyze(source);

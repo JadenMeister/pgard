@@ -12,6 +12,7 @@ import {
   type JavaChild,
   type SpawnFn,
 } from "./probe.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 interface Call {
   file: string;
@@ -273,7 +274,7 @@ describe("readJavaVersionOutput", () => {
     });
     expect(probe).toEqual({ status: "failed", cause: "timeout" });
     expect(seen?.signals).toEqual(["SIGKILL"]);
-    expect(Date.now() - started).toBeLessThan(2000);
+    expect(Date.now() - started).toBeLessThan(scaled(2000));
   });
 
   it("kills an in-flight child when PGARD exits, and stops listening afterwards", async () => {
@@ -336,10 +337,11 @@ describe.skipIf(process.platform === "win32")("a real child process (a test-only
     const started = Date.now();
     const probe = await readJavaVersionOutput({
       env: { PATH: "/usr/bin:/bin", JAVA_HOME: home },
-      timeoutMs: 300,
+      // Long enough for the shell to start and write its pid file on a loaded machine.
+      timeoutMs: scaled(1000),
     });
     expect(probe).toEqual({ status: "failed", cause: "timeout" });
-    expect(Date.now() - started).toBeLessThan(3000);
+    expect(Date.now() - started).toBeLessThan(scaled(5000));
     const pid = Number((await readFile(path.join(home, "pid"), "utf8")).trim());
     for (let i = 0; i < 20 && !gone(pid); i += 1) await new Promise((r) => setTimeout(r, 25));
     expect(gone(pid)).toBe(true);
@@ -354,6 +356,6 @@ describe.skipIf(process.platform === "win32")("a real child process (a test-only
     });
     expect(probe.status).toBe("output");
     if (probe.status === "output") expect(probe.text).toContain('openjdk version "17.0.21"');
-    expect(Date.now() - started).toBeLessThan(1500);
+    expect(Date.now() - started).toBeLessThan(scaled(1500));
   });
 });

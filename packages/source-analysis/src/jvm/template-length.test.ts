@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { scanSourceCode } from "../scan-source.js";
 import { analyzeJsp, analyzeThymeleaf } from "./templates.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 /**
  * #508: a long expression is judged like a short one. Padding an expression past a length cap used
@@ -12,7 +13,7 @@ import { analyzeJsp, analyzeThymeleaf } from "./templates.js";
  */
 const JSP_LENGTHS = [10, 3990, 3999, 4000, 4001, 5000, 100_000];
 const THYMELEAF_LENGTHS = [10, 400, 499, 500, 501, 600, 100_000];
-const LIMIT_MS = 1_500;
+const LIMIT_MS = scaled(1_500);
 
 function timed<T>(run: () => T): { value: T; ms: number } {
   const startedAt = performance.now();

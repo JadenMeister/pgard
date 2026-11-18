@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { TreeSitterRuntime } from "../tree-sitter/runtime.js";
 import { analyzePhpTree } from "./analyze-php.js";
+import { scaled } from "../../../../tests/support/timing.js";
 
 const runtime = new TreeSitterRuntime();
 afterAll(() => runtime.dispose());
@@ -103,7 +104,7 @@ describe("bounded work: many parameters", () => {
     const params = Array.from({ length: 12_000 }, (_, i) => `$p${i}`).join(", ");
     const startedAt = performance.now();
     const result = await run(`<?php\nfunction f(${params}) { return $p0; }\n`);
-    expect(performance.now() - startedAt).toBeLessThan(5_000);
+    expect(performance.now() - startedAt).toBeLessThan(scaled(5_000));
     expect(result.findings).toHaveLength(0);
     const closure = await run(
       `<?php\nfunction g() { $f = function (${params}) { return $p0; }; $f(1); }\n`,

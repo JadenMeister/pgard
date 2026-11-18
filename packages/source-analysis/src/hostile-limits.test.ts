@@ -84,14 +84,18 @@ describe("stack limit on a deep route receiver chain (#302)", () => {
     expect(output.findings.some((finding) => finding.location.path === "ok.js")).toBe(true);
   });
 
-  it("keeps a separate finding of a file whose expression chain is cut out", async () => {
-    const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
-    const file = `${SQL_VULN}const x = ${chain}`;
-    const root = project({ "mixed.js": file });
-    const output = await scanSourceCode(root, { analysisWorker: null });
-    expect(output.findings.some((finding) => finding.ruleId === "PG-SQL-001")).toBe(true);
-    expect(coverageOf(output, "source:javascript")?.status).toBe("partial");
-  });
+  it(
+    "keeps a separate finding of a file whose expression chain is cut out",
+    { timeout: scaled(60_000) },
+    async () => {
+      const chain = `${"a.b.".repeat(20_000)}c.post('/login', (req, res) => res);\n`;
+      const file = `${SQL_VULN}const x = ${chain}`;
+      const root = project({ "mixed.js": file });
+      const output = await scanSourceCode(root, { analysisWorker: null });
+      expect(output.findings.some((finding) => finding.ruleId === "PG-SQL-001")).toBe(true);
+      expect(coverageOf(output, "source:javascript")?.status).toBe("partial");
+    },
+  );
 });
 
 describe.skipIf(!hasWorkerForDepth)("deep but analyzable files are not cut (#271 review)", () => {

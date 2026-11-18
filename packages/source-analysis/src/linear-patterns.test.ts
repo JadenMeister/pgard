@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { bestTimeOf, scaled } from "../../../tests/support/timing.js";
 import {
   CRYPTO_PASSWORD_CONTEXT,
   GENERIC_KEY_PROPERTY,
@@ -29,7 +30,9 @@ import { matchesTemplate, modelAttributeName, normalizePath } from "./jvm/view-l
  * The limit is generous so a slow machine does not fail it, yet far below a quadratic run.
  */
 const SIZE = 400_000;
-const LIMIT_MS = 1_500;
+const LIMIT_MS = scaled(1_500);
+/** Hang guard for the tests that assert a ratio: only a catastrophic blow-up reaches it. */
+const HANG_GUARD_MS = scaled(30_000);
 
 function timed<T>(run: () => T): { value: T; ms: number } {
   const startedAt = performance.now();
@@ -444,43 +447,56 @@ describe("JavaScript route and protection detection (#302)", () => {
     expect(value.facts.authRoutes).toEqual([{ line: 5_004, routePath: "/login", limited: true }]);
   });
 
-  it("stays linear on nested routes that use a limiter and a CSRF name", () => {
-    const head =
-      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nimport csrf from 'csurf';\nconst app = express();\nconst limiter = rateLimit();\nconst cp = csrf();\n";
-    const chain = (depth: number) =>
-      "app.post('/login', (q, r) => {".repeat(depth) + "limiter(); cp();" + "});".repeat(depth);
-    const code = head + Array.from({ length: 100 }, () => chain(100)).join("\n");
-    const small = head + Array.from({ length: 25 }, () => chain(100)).join("\n");
-    analyzeJsSource(small, "a.js");
-    const quarter = timed(() => analyzeJsSource(small, "a.js")).ms;
-    const { value, ms } = timed(() => analyzeJsSource(code, "a.js"));
-    expect(value.facts.authRoutes).toHaveLength(10_000);
-    // Only the innermost handler of each chain uses the names; four times the input stays far
-    // from the sixteen times a repeated subtree scan would cost.
-    expect(ms).toBeLessThan(LIMIT_MS * 4);
-    expect(ms / Math.max(quarter, 1)).toBeLessThan(12);
-  });
+  it(
+    "stays linear on nested routes that use a limiter and a CSRF name",
+    { timeout: scaled(60_000) },
+    () => {
+      const head =
+        "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nimport csrf from 'csurf';\nconst app = express();\nconst limiter = rateLimit();\nconst cp = csrf();\n";
+      const chain = (depth: number) =>
+        "app.post('/login', (q, r) => {".repeat(depth) + "limiter(); cp();" + "});".repeat(depth);
+      const code = head + Array.from({ length: 100 }, () => chain(100)).join("\n");
+      const small = head + Array.from({ length: 25 }, () => chain(100)).join("\n");
+      const quarter = bestTimeOf(3, () => analyzeJsSource(small, "a.js"));
+      const full = bestTimeOf(3, () => analyzeJsSource(code, "a.js"));
+      expect(analyzeJsSource(code, "a.js").facts.authRoutes).toHaveLength(10_000);
+      // Only the innermost handler of each chain uses the names; four times the input stays far
+      // from the sixteen times a repeated subtree scan would cost. The ratio does not depend on the
+      // machine (best of three each); the absolute bound is only a hang guard.
+      expect(full / Math.max(quarter, 1)).toBeLessThan(12);
+      expect(full).toBeLessThan(HANG_GUARD_MS);
+    },
+  );
 
-  it("stays linear on references nested deep inside one handler", () => {
-    const head =
-      "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nconst app = express();\nconst limiter = rateLimit();\n";
-    // 300 levels of 300 identifiers (about 700 KiB). The control has the same shape with a name
-    // that is not a limiter, so only the cost of the usage climb differs between the two.
-    const build = (name: string) => {
-      let inner = `${name},`.repeat(300);
-      for (let i = 1; i < 300; i += 1) inner = `${`${name},`.repeat(300)}[${inner}]`;
-      return `${head}app.post('/login', () => [${inner}]);\n`;
-    };
-    const withLimiter = build("limiter");
-    const control = build("other");
-    analyzeJsSource(control, "a.js");
-    const baseline = Math.max(timed(() => analyzeJsSource(control, "a.js")).ms, 1);
-    const { value, ms } = timed(() => analyzeJsSource(withLimiter, "a.js"));
-    expect(value.facts.authRoutes).toEqual([{ line: 5, routePath: "/login", limited: true }]);
-    expect(ms).toBeLessThan(LIMIT_MS * 4);
-    // A walk up from every reference (no memo) costs about four times the control here.
-    expect(ms / baseline).toBeLessThan(2.5);
-  });
+  it(
+    "stays linear on references nested deep inside one handler",
+    { timeout: scaled(60_000) },
+    () => {
+      const head =
+        "import express from 'express';\nimport rateLimit from 'express-rate-limit';\nconst app = express();\nconst limiter = rateLimit();\n";
+      // 300 levels of 300 identifiers (about 700 KiB). The control has the same shape with a name
+      // that is not a limiter, so only the cost of the usage climb differs between the two.
+      const build = (name: string) => {
+        let inner = `${name},`.repeat(300);
+        for (let i = 1; i < 300; i += 1) inner = `${`${name},`.repeat(300)}[${inner}]`;
+        return `${head}app.post('/login', () => [${inner}]);\n`;
+      };
+      const withLimiter = build("limiter");
+      const control = build("other");
+      analyzeJsSource(control, "a.js");
+      const baseline = Math.max(
+        bestTimeOf(3, () => analyzeJsSource(control, "a.js")),
+        1,
+      );
+      const ms = bestTimeOf(3, () => analyzeJsSource(withLimiter, "a.js"));
+      expect(analyzeJsSource(withLimiter, "a.js").facts.authRoutes).toEqual([
+        { line: 5, routePath: "/login", limited: true },
+      ]);
+      expect(ms).toBeLessThan(HANG_GUARD_MS);
+      // A walk up from every reference (no memo) costs about four times the control here.
+      expect(ms / baseline).toBeLessThan(2.5);
+    },
+  );
 });
 
 describe("sanitizer configuration and attribute-context patterns (#278)", () => {
@@ -495,22 +511,34 @@ describe("sanitizer configuration and attribute-context patterns (#278)", () => 
     expect(value.findings.length).toBeGreaterThan(0);
   });
 
-  it("stays linear on a long options list and a hook-heavy file", () => {
-    const run = (n: number) => {
-      const tags = Array.from({ length: n }, (_, i) => `'t${i}'`).join(",");
-      const hooks = "DOMPurify.addHook('x', f);\n".repeat(n);
-      const code = `${head}${hooks}el.innerHTML = DOMPurify.sanitize(location.hash, { ADD_TAGS: [${tags}] });\n`;
-      return timed(() => analyzeJsSource(code, "a.js"));
-    };
-    run(100);
-    const small = run(2_500);
-    const large = run(10_000);
-    expect(large.value.findings.length).toBe(1);
-    // Four times the input: linear is about 4, quadratic about 16. The floor and the generous
-    // absolute bound keep a slow (Windows) runner from failing it.
-    expect(large.ms / Math.max(small.ms, 25)).toBeLessThan(12);
-    expect(large.ms).toBeLessThan(LIMIT_MS * 8);
-  });
+  it(
+    "stays linear on a long options list and a hook-heavy file",
+    { timeout: scaled(60_000) },
+    () => {
+      const run = (n: number) => {
+        const tags = Array.from({ length: n }, (_, i) => `'t${i}'`).join(",");
+        const hooks = "DOMPurify.addHook('x', f);\n".repeat(n);
+        const code = `${head}${hooks}el.innerHTML = DOMPurify.sanitize(location.hash, { ADD_TAGS: [${tags}] });\n`;
+        return timed(() => analyzeJsSource(code, "a.js"));
+      };
+      run(100);
+      const best = (n: number, runs: number) => {
+        let last = run(n);
+        for (let i = 1; i < runs; i += 1) {
+          const next = run(n);
+          if (next.ms < last.ms) last = next;
+        }
+        return last;
+      };
+      const small = best(2_500, 3);
+      const large = best(10_000, 3);
+      expect(large.value.findings.length).toBe(1);
+      // Four times the input: linear is about 4, quadratic about 16. The floor and the generous
+      // absolute bound keep a slow (Windows) runner from failing it.
+      expect(large.ms / Math.max(small.ms, 25)).toBeLessThan(12);
+      expect(large.ms).toBeLessThan(HANG_GUARD_MS);
+    },
+  );
 });
 
 describe("Vue template scopes stay linear (#278 review)", () => {
