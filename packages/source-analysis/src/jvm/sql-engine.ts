@@ -198,11 +198,15 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     "Document",
     "JsonAutoDetect",
   ]);
+  const annotatedClasses = new Map<ClassInfo, boolean>();
   const assignedByAnnotation = (cls: ClassInfo): boolean => {
-    for (let current: ClassInfo | null = cls; current !== null; current = current.parent) {
-      if ((current.annotations ?? []).some((a) => ASSIGNING_ANNOTATIONS.has(a.name))) return true;
-    }
-    return false;
+    const known = annotatedClasses.get(cls);
+    if (known !== undefined) return known;
+    const result =
+      (cls.annotations ?? []).some((a) => ASSIGNING_ANNOTATIONS.has(a.name)) ||
+      (cls.parent !== null && assignedByAnnotation(cls.parent));
+    annotatedClasses.set(cls, result);
+    return result;
   };
   /** An array, or a list/set/map made to be changed: what a getter gives out can be written to. */
   const WRITABLE_FACTORY =
@@ -406,7 +410,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
       // The declaration is one `name =`; any other (a setter, an anonymous or local class, a
       // constructor, a string or comment that looks like one) keeps the finding.
       unit.assignCounts !== undefined &&
-      (unit.assignCounts.get(field.name) ?? 0) <= 1;
+      (unit.assignCounts.get(field.name) ?? 0) === 1;
     const mutableField = field.isMutable && !neverAssigned;
     let result: Value = unknown(
       mutableField || mutableType ? `mutable field ${field.name}` : field.name,
@@ -1212,10 +1216,16 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
    * that condition where it is tested (`if (!ok) throw ...;`), as long as neither the variable nor
    * anything it reads has been assigned since. Quoted text is left alone; one level only.
    */
+  // Conditions are expanded within a budget for the whole file: a file with thousands of tests
+  // that name conditions would otherwise pay for each of them. Past it nothing is expanded and
+  // the findings stay as they are.
+  const EXPANSION_BUDGET = 60_000;
+  let expansionLeft = EXPANSION_BUDGET;
+  let conditionsKept = 0;
   const MAX_EXPANDED = 1000;
   const MAX_EXPANDED_NAMES = 8;
   function expandConditions(text: string, ctx: Context): string {
-    if (text.length > 600) return text;
+    if (text.length > 600 || conditionsKept === 0 || expansionLeft <= 0) return text;
     // The result is capped (a test that names many conditions of 300 characters each would grow
     // to tens of kilobytes): past the cap nothing is expanded and the finding stays as it is.
     let grown = text.length;
@@ -1242,7 +1252,12 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
         return `(${binding.boolText})`;
       },
     );
-    return over ? text : result;
+    if (over) {
+      expansionLeft -= MAX_EXPANDED;
+      return text;
+    }
+    expansionLeft -= grown - text.length;
+    return result;
   }
 
   /** A short condition kept in a local (`val ok = ...`): its text and the variables it reads, as they are now. */
@@ -1258,6 +1273,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
     }
     binding.boolText = text;
     binding.boolDeps = deps;
+    conditionsKept += 1;
   }
 
   /** A path made by a constructor that is never used is reported once the analysis ends: a check demotes it. */
@@ -1386,7 +1402,7 @@ export function analyzeSql(unit: Unit): SqlAnalysis {
   function ruledOutElement(collectionType: string | null): string | null {
     const element = elementTypeOf(collectionType);
     if (element === null) return null;
-    const simple = element.slice(element.lastIndexOf(".") + 1);
+    const simple = realName(element.slice(element.lastIndexOf(".") + 1));
     if (/^[A-Z][A-Z0-9]?$/.test(simple)) return null;
     const seen = new Set<string>();
     const stack = [simple];

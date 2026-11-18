@@ -160,6 +160,34 @@ describe("assignCountsOf (#286 review)", () => {
   });
 });
 
+describe("condition expansion has a budget for the whole file (re-review)", () => {
+  it("does not pay for thousands of tests that name conditions, and keeps the finding", async () => {
+    const runtime = new TreeSitterRuntime();
+    try {
+      const decl = Array.from(
+        { length: 7 },
+        (_, i) => `boolean a${i} = q.startsWith("x") && q.contains("y");`,
+      ).join("\n");
+      const names = Array.from({ length: 7 }, (_, i) => `a${i}`).join("&&");
+      const tests = Array.from(
+        { length: 6000 },
+        () => `if (!(${names})) throw new IllegalStateException();`,
+      ).join("\n");
+      const source = `import org.springframework.web.bind.annotation.*;\nimport org.springframework.jdbc.core.JdbcTemplate;\nclass A { JdbcTemplate jdbc;\n@GetMapping("/x") void h(@RequestParam String q) {\n${decl}\n${tests}\njdbc.queryForList("select " + q);\n}\n}\n`;
+      const outcome = await runtime.parse("java", source);
+      if (outcome.status !== "parsed") throw new Error(`not parsed: ${outcome.status}`);
+      const { value, ms } = timed(() =>
+        analyzeJvmTree(outcome.tree.rootNode, source, "A.java", "java"),
+      );
+      outcome.dispose();
+      expect(ms).toBeLessThan(LIMIT_MS);
+      expect(value.findings.some((f) => f.ruleId === "PG-SQL-005")).toBe(true);
+    } finally {
+      runtime.dispose();
+    }
+  });
+});
+
 describe("condition expansion is capped (#295 review)", () => {
   it("does not grow a test that names many long conditions, and keeps the finding", async () => {
     const runtime = new TreeSitterRuntime();

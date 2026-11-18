@@ -83,19 +83,104 @@ export function importAliasesOf(source: string): Map<string, string> {
   return out;
 }
 
-/** The imports of a file, as written (`java.sql.Statement`, `org.springframework.jdbc.core.*`). */
-/** `name =`, `name +=`, `a.name =`: every identifier followed by an assignment operator (not `==`, `<=`, `!=`, `=>`). */
+/**
+ * The text with comments replaced by a space and the inside of string and character literals
+ * dropped, in one pass (so an assignment split by a comment or a newline reads as one, and one
+ * inside a string does not count). A `/*` that never closes ends the text.
+ */
+export function withoutCommentsAndStrings(source: string): string {
+  const out: string[] = [];
+  let i = 0;
+  let from = 0;
+  const flush = (to: number): void => {
+    if (to > from) out.push(source.slice(from, to));
+  };
+  while (i < source.length) {
+    const char = source[i] as string;
+    const next = source[i + 1];
+    if (char === "/" && next === "/") {
+      flush(i);
+      const end = source.indexOf("\n", i);
+      i = end < 0 ? source.length : end;
+      from = i;
+      out.push(" ");
+    } else if (char === "/" && next === "*") {
+      flush(i);
+      const end = source.indexOf("*/", i + 2);
+      i = end < 0 ? source.length : end + 2;
+      from = i;
+      out.push(" ");
+    } else if (char === '"' || char === "'") {
+      flush(i);
+      if (source.startsWith('"""', i)) {
+        const end = source.indexOf('"""', i + 3);
+        i = end < 0 ? source.length : end + 3;
+      } else {
+        i += 1;
+        while (i < source.length && source[i] !== char && source[i] !== "\n") {
+          i += source[i] === "\\" ? 2 : 1;
+        }
+        i += 1;
+      }
+      from = i;
+      out.push('""');
+    } else {
+      i += 1;
+    }
+  }
+  flush(Math.min(i, source.length));
+  return out.join("");
+}
+
+/**
+ * `name =`, `name +=`, `a.name =`, `this@K.name =`, Kotlin `name: Type =` and a declaration split
+ * across lines: every identifier that comes before an assignment operator (not `==`, `<=`, `>=`,
+ * `!=`, `=>`). A field's own declaration counts once. Found from each `=` looking backwards a
+ * bounded distance, so the cost is linear in the text.
+ */
 export function assignCountsOf(source: string): Map<string, number> {
   const counts = new Map<string, number>();
-  for (const match of source.matchAll(
-    /(?<![\w$])([A-Za-z_$][\w$]*)[^\S\n]*(?:<<|>>>?|[-+*/%&|^])?=(?![=>])/g,
-  )) {
-    const name = match[1] as string;
+  const text = withoutCommentsAndStrings(source);
+  const isWord = (char: string | undefined): boolean => char !== undefined && /[\w$]/.test(char);
+  const count = (end: number): void => {
+    let at = end;
+    while (at >= 0 && /\s/.test(text[at] as string)) at -= 1;
+    let start = at;
+    while (start >= 0 && isWord(text[start]) && at - start < 128) start -= 1;
+    if (start === at || at - start >= 128) return;
+    const name = text.slice(start + 1, at + 1);
+    if (/^\d/.test(name)) return;
     counts.set(name, (counts.get(name) ?? 0) + 1);
+  };
+  for (let eq = text.indexOf("="); eq >= 0; eq = text.indexOf("=", eq + 1)) {
+    const next = text[eq + 1];
+    const prev = text[eq - 1];
+    if (next === "=" || next === ">" || prev === "=" || prev === "!") continue;
+    let end = eq - 1;
+    if (prev === "<" || prev === ">") {
+      // `<<=`, `>>=`, `>>>=`; a lone `<=` or `>=` is a comparison.
+      if (text[eq - 2] !== prev) continue;
+      while (end >= 0 && text[end] === prev) end -= 1;
+    } else if (prev !== undefined && "+-*/%&|^".includes(prev)) {
+      end -= 1;
+    }
+    count(end);
+    // Kotlin `name: Type =`: the name before the last colon within a short distance.
+    let colon = -1;
+    for (let at = end, steps = 0; at >= 0 && steps < 80; at -= 1, steps += 1) {
+      const char = text[at] as string;
+      if (";(){}\n=".includes(char)) break;
+      if (char === ":" && text[at - 1] !== ":" && text[at + 1] !== ":") {
+        colon = at;
+        break;
+      }
+    }
+    if (colon > 0) count(colon - 1);
   }
   return counts;
 }
 
+/** The imports of a file, as written (`java.sql.Statement`, `org.springframework.jdbc.core.*`). */
 export function importsOf(source: string): string[] {
   const out: string[] = [];
   for (const match of source.matchAll(IMPORT)) out.push(match[1] as string);

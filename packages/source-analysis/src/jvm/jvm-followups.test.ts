@@ -449,3 +449,62 @@ describe("review follow-ups (#286, #295)", () => {
     expect(of(other, PATH).every((f) => f.confidence === "low")).toBe(true);
   });
 });
+
+describe("raw-text assignments of private fields (re-review)", () => {
+  const JDBC =
+    "import org.springframework.jdbc.core.JdbcTemplate;\nimport java.util.*;\nimport org.springframework.web.bind.annotation.*;\n";
+  const java = (members: string): string =>
+    `${JDBC}class A {\nprivate JdbcTemplate jdbc;\n${members}\nObject q(@RequestParam String id) { return jdbc.queryForList("select * from " + table + " where id = ?", id); }\n}\n`;
+  const kt = (members: string): string =>
+    `import org.springframework.jdbc.core.JdbcTemplate\nclass K(private val jdbc: JdbcTemplate) {\n  private var table: String = "users"\n${members}\n  fun q() = jdbc.queryForList("select * from " + table + " where id = ?", "1")\n}\n`;
+  const n = async (source: string, path = "A.java"): Promise<number> =>
+    of(await run(source, path), SQL).length;
+
+  it.each([
+    ["a declaration split over lines", 'private String table\n = "users";'],
+    ["a comment before the equals sign", 'private String table /* c */ = "users"; // done'],
+    ["a typed declaration", 'private String table = "users";\nprivate String other = "x";'],
+  ])("still treats %s as one declaration, nothing else assigns it", async (_name, members) => {
+    expect(await n(java(members))).toBe(0);
+  });
+
+  it.each([
+    [
+      "an assignment split over lines",
+      'private String table = "users"; void s(String t) { table\n = t; }',
+    ],
+    [
+      "a comment before the equals sign",
+      'private String table = "users"; void s(String t) { table /* c */ = t; }',
+    ],
+    [
+      "a split declaration and another assignment",
+      'private String table\n = "users"; void s(String t) { this.table = t; }',
+    ],
+  ])("keeps the finding for %s", async (_name, members) => {
+    expect(await n(java(members))).toBeGreaterThan(0);
+  });
+
+  it("does not count an equals sign inside a string or a comment", async () => {
+    expect(
+      await n(java('private String table = "users"; String doc = "table = x"; // table = y')),
+    ).toBe(0);
+  });
+
+  it("keeps the finding for Kotlin assignments to a typed private var", async () => {
+    expect(await n(kt(""), "K.kt")).toBe(0);
+    for (const members of [
+      '  fun a() = object : Runnable { override fun run() { table = System.getenv("T") } }',
+      '  fun a() { fun local() { table = "x" }; local() }',
+      "  fun a(t: String) { table += t }",
+      '  fun a() = object : Runnable { override fun run() { this@K.table = System.getenv("T") } }',
+    ]) {
+      expect(await n(kt(members), "K.kt"), members).toBeGreaterThan(0);
+    }
+  });
+
+  it("reads an import alias of an archive entry as that type, not as a type parameter", async () => {
+    const source = `import java.io.File\nimport java.util.zip.ZipEntry as ZE\nfun b(entries: List<ZE>, dest: File) { for (entry in entries) { File(dest, entry.name).mkdirs() } }\n`;
+    expect(of(await run(source, "K.kt"), PATH).map((f) => f.confidence)).toEqual(["high"]);
+  });
+});
