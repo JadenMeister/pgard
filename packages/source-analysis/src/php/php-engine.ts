@@ -2453,8 +2453,12 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
 
   function callClosure(fn: Closure, args: readonly Arg[], depth: number): PV | null {
     const calls = closureCalls.get(fn.node) ?? 0;
+    if (closureWritesOutside(fn.node)) {
+      // The write cannot be followed, whatever the arguments are.
+      unsupported.add("dynamic calls");
+      return null;
+    }
     if (
-      closureWritesOutside(fn.node) ||
       closureBusy.has(fn.node) ||
       calls >= MAX_CLOSURE_CALLS ||
       depth > MAX_DEPTH - 50 ||

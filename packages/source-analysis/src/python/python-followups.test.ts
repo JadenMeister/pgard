@@ -56,7 +56,7 @@ describe(".extra() receivers (#326)", () => {
   });
 
   it("drops a custom object's .extra() outside Django and keeps it low inside", async () => {
-    const source = `class Ctx:\n    pass\n\ndef view(request):\n    Ctx().extra(where=["a = " + request.GET["x"]])\n`;
+    const source = `class Ctx:\n    def extra(self, where=()):\n        return where\n\ndef view(request):\n    Ctx().extra(where=["a = " + request.GET["x"]])\n`;
     expect(await summarize(source)).toEqual([]);
     expect(await summarize(source, { django: true })).toEqual(["PG-SQL-006 low/medium"]);
     const imported = `import django\n${source}`;

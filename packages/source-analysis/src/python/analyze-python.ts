@@ -182,6 +182,31 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
   const attrAssigned = new Set<string>();
   /** Classes of this file with no base class. */
   const plainClasses = new Set<string>();
+  const classDefs = new Map<string, number>();
+  const assignedNames = new Set<string>();
+  const definesPlainExtra = (cls: N): boolean => {
+    const body = kid(cls, "body");
+    if (!body) return false;
+    let hasExtra = false;
+    for (const member of named(body)) {
+      const def = member.type === "decorated_definition" ? kid(member, "definition") : member;
+      if (def?.type === "function_definition") {
+        const name = text(kid(def, "name") as N);
+        if (["__getattr__", "__getattribute__", "__new__"].includes(name)) return false;
+        if (name === "extra") hasExtra = true;
+      } else if (def?.type === "expression_statement") {
+        const assign = named(def)[0];
+        const left = assign?.type === "assignment" ? kid(assign, "left") : undefined;
+        if (left !== undefined && left.type !== "identifier") return false;
+        if (left !== undefined && text(left) === "extra") return false;
+        if (assign !== undefined && assign.type !== "assignment" && assign.type !== "string")
+          continue;
+      } else if (def?.type === "class_definition") {
+        continue;
+      }
+    }
+    return hasExtra;
+  };
   {
     const stack: N[] = [ast.root];
     while (stack.length > 0) {
@@ -232,13 +257,18 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
           break;
         case "class_definition": {
           const className = kid(node, "name");
-          if (className && kid(node, "superclasses") === undefined)
-            plainClasses.add(text(className));
+          if (className) {
+            const id = text(className);
+            classDefs.set(id, (classDefs.get(id) ?? 0) + 1);
+            if (kid(node, "superclasses") === undefined && definesPlainExtra(node))
+              plainClasses.add(id);
+          }
           break;
         }
         case "assignment":
         case "augmented_assignment": {
           const left = kid(node, "left");
+          if (left?.type === "identifier") assignedNames.add(text(left));
           if (left?.type === "attribute") {
             const attr = kid(left, "attribute");
             if (attr) attrAssigned.add(text(attr));
@@ -250,6 +280,12 @@ function analyzeAst(ast: AstResult, path: string, options: PythonOptions): Pytho
       }
       for (let i = node.children.length - 1; i >= 0; i -= 1) stack.push(node.children[i] as N);
     }
+  }
+  // A class counts only when its own body defines `extra`, nothing can hand out another object
+  // (`__getattr__`, `__new__`, a class-level `extra = ...`), and its name is never rebound.
+  for (const id of [...plainClasses]) {
+    if ((classDefs.get(id) ?? 0) !== 1 || assignedNames.has(id) || aliases.has(id))
+      plainClasses.delete(id);
   }
   const hasSqlLibrary = [...importedModules].some((name) => SQL_MODULES.has(name));
   const hasDjango = importedModules.has("django") || options.django === true;
