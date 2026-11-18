@@ -184,11 +184,14 @@ function trendLines(state: PanelsState, size: Size, opts: RenderOptions): string
     return empty(
       text.noHistory.unreadable(safeText(trend.reason, 100).replace(/[.\s]+$/u, "")),
       [],
+      [],
+      (trend.unread ?? 0) > 0 ? ["", ...wrap(text.unread(trend.unread ?? 0))] : [],
     );
   }
   const notes = [
     ...(trend.skipped > 0 ? [text.skipped(trend.skipped)] : []),
     ...(trend.newerSkipped > 0 ? [text.newerSkipped(trend.newerSkipped)] : []),
+    ...(trend.unread > 0 ? [text.unread(trend.unread)] : []),
   ];
   const skipped = notes.length > 0 ? ["", ...notes.flatMap(wrap)] : [];
   // First on the screen, so it is seen before the history it qualifies.

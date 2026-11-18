@@ -673,9 +673,9 @@ const CMD: Case[] = [
     rule: "PG-CMD-005",
   },
   {
-    name: "an array command that was changed after it was made is reported low",
+    name: "request input appended to an array command keeps its source (argument injection)",
     body: `$cmd = ['ls'];\n$cmd[] = $_GET['d'];\nproc_open($cmd, $d, $pipes);`,
-    expected: "untraced",
+    expected: "suspected",
     rule: "PG-CMD-005",
   },
   {

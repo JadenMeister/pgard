@@ -14,6 +14,8 @@ import {
   DB_CLASSES,
   DB_HANDLE_NAME,
   DB_TYPE,
+  DOCTRINE_CLAUSE_METHODS,
+  DOCTRINE_FLUENT_METHODS,
   ENCODER_FUNCTIONS,
   ESCAPE_FUNCTIONS,
   ESCAPE_METHODS,
@@ -86,6 +88,17 @@ interface PV {
   db: boolean;
   /** An array literal of constants: an allowlist table. */
   table: boolean;
+  /** A Doctrine QueryBuilder (made by `createQueryBuilder()` or typed as one). */
+  qb: boolean;
+  /** A closure or arrow function of this file held in a variable. */
+  fn: Closure | null;
+}
+
+/** A local closure: its code and the scope it was made in (a copy). */
+interface Closure {
+  node: AstNode;
+  env: Env;
+  ctx: Ctx;
 }
 
 const pv = (leaves: Leaf[] = [], extra: Partial<PV> = {}): PV => ({
@@ -99,6 +112,8 @@ const pv = (leaves: Leaf[] = [], extra: Partial<PV> = {}): PV => ({
   raw: false,
   db: false,
   table: false,
+  qb: false,
+  fn: null,
   ...extra,
 });
 const constant = (text: string): PV => pv([{ k: "const", text }]);
@@ -138,6 +153,7 @@ function union(a: PV, b: PV): PV {
     raw: a.raw && b.raw,
     db: a.db || b.db,
     table: a.table && b.table,
+    qb: a.qb && b.qb,
   });
 }
 
@@ -171,6 +187,9 @@ interface Ctx {
 const MAX_DEPTH = 300;
 const MAX_STEPS = 4_000_000;
 const MAX_LOOP_NESTING = 3;
+const MAX_ARRAY_ELEMS = 256;
+const MAX_CLOSURE_COPIES = 200;
+const MAX_CLOSURE_CALLS = 4;
 
 const isExpressionWrapper = new Set([
   "parenthesized_expression",
@@ -235,6 +254,15 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
   const constBusy = new Set<AstNode>();
   const functionNames = new Set<string>();
   let loopDepth = 0;
+  /** While a local closure is evaluated for one call: the values it returns. */
+  let returns: PV[] | null = null;
+  const closureBusy = new Set<AstNode>();
+  const closureCalls = new Map<AstNode, number>();
+  let closureCopies = 0;
+  /** Doctrine's QueryBuilder is named in this file, so a parameter typed `QueryBuilder` is one. */
+  const doctrineBuilderTypes = /\buse\s+Doctrine\\(?:ORM|DBAL)\\(?:Query\\)?QueryBuilder\s*;/.test(
+    ast.source,
+  );
 
   // ---------------------------------------------------------------- tree helpers
 
@@ -709,6 +737,22 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     const elems = value.elems;
     if (elems === null && hasDynamic(value)) {
       // An array that was changed after it was made: the program position is not known.
+      const origin = sourcesOf(value.leaves).find((leaf) => leaf.k === "source");
+      if (origin !== undefined && origin.k === "source") {
+        record(
+          {
+            ruleId: "PG-CMD-005",
+            line,
+            severity: "medium",
+            status: "suspected",
+            confidence: "medium",
+            evidence: `request input (${origin.label})${origin.direct ? "" : " via variable"} -> command array -> ${sink}; array changed after it was made, so the position is not known (argument injection or a program from data)`,
+            cause: `${sink}:argument`,
+          },
+          3,
+        );
+        return;
+      }
       reportCommand(
         pv([{ k: "unknown", name: "array element" }], { composed: true, shape: "command array" }),
         line,
@@ -892,6 +936,8 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       args = argsOf(node, env, ctx, depth);
       name = callee !== undefined && callee.type === "variable_name" ? literalCallee(target) : null;
       if (name === null) {
+        const closure = target.fn === null ? null : callClosure(target.fn, args, depth);
+        if (closure !== null) return closure;
         dynamicCall(args);
         return helperResult("call", args);
       }
@@ -981,7 +1027,15 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       const target = args[0]?.node;
       if (target !== undefined && target.type === "variable_name") {
         const base = env.get(text(target)) ?? pv();
-        env.set(text(target), union(base, stored(unionAll(args.slice(1).map((arg) => arg.value)))));
+        const merged = union(base, stored(unionAll(args.slice(1).map((arg) => arg.value))));
+        const pushed =
+          name === "array_push" &&
+          base.elems !== null &&
+          base.elems.length + args.length < MAX_ARRAY_ELEMS &&
+          !args.slice(1).some((arg) => arg.spread)
+            ? [...base.elems, ...args.slice(1).map((arg) => stored(arg.value))]
+            : null;
+        env.set(text(target), { ...merged, elems: pushed, arr: true });
       }
       return constant("0");
     }
@@ -994,6 +1048,20 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     }
     if (name === "call_user_func" || name === "call_user_func_array") {
       const target = args[0]?.value;
+      if (target?.fn !== undefined && target.fn !== null && resolved === undefined) {
+        const rest = args.slice(1);
+        const forwarded =
+          name === "call_user_func_array" && rest[0] !== undefined
+            ? (rest[0].value.elems ?? [rest[0].value]).map((value): Arg => ({
+                node: rest[0]!.node,
+                value,
+                name: null,
+                spread: false,
+              }))
+            : rest;
+        const result = callClosure(target.fn, forwarded, depth);
+        if (result !== null) return result;
+      }
       const callee = target !== undefined && !hasDynamic(target) ? literalCallee(target) : null;
       if (callee !== null && resolved === undefined) {
         const rest = args.slice(1);
@@ -1022,7 +1090,14 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
           return functionCall(node, env, ctx, depth, { name: target, args: data });
         }
       } else if (callable !== undefined) {
-        dynamicCall(args.filter((_, index) => index !== callableAt));
+        const data = args.filter((_, index) => index !== callableAt && index < 2);
+        const result =
+          callable.fn === null ? null : callClosure(callable.fn, data.slice(0, 1), depth);
+        if (result !== null) {
+          if (name === "array_map") return { ...result, elems: null, arr: true, shape: "array" };
+        } else {
+          dynamicCall(args.filter((_, index) => index !== callableAt));
+        }
       }
     }
     if (name === "define") return constant("0");
@@ -1083,6 +1158,34 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     }
     if (lower === "escape" && arg0 !== undefined && looksLikeDb(object, recv)) {
       return inferred("escaped with escape()");
+    }
+    if (lower === "createquerybuilder") return { ...unknown("createQueryBuilder()"), qb: true };
+    if (recv.qb) {
+      // Doctrine's builder: a clause built from request input or from text parts is SQL.
+      // A helper result (`$qb->expr()->eq(...)`) is the builder's own API: reported (low) only
+      // when request input went into it. An array of bound values is not a condition text.
+      if (
+        DOCTRINE_CLAUSE_METHODS.has(lower) &&
+        arg0 !== undefined &&
+        !arg0.arr &&
+        (arg0.composed || sourcesOf(arg0.leaves).length > 0 || arg0.opaque !== "")
+      ) {
+        reportSql(arg0, line, label);
+      }
+      return DOCTRINE_FLUENT_METHODS.has(lower)
+        ? { ...unknown(`${name}()`), qb: true }
+        : helperResult(name, args, recv);
+    }
+    if (
+      DOCTRINE_CLAUSE_METHODS.has(lower) &&
+      arg0 !== undefined &&
+      !arg0.arr &&
+      arg0.composed &&
+      sourcesOf(arg0.leaves).length > 0
+    ) {
+      // A condition built from request input on a receiver that is neither a Doctrine builder
+      // nor known to be Laravel's: not judged, so the area says so.
+      unsupported.add("query builder conditions on an untyped receiver");
     }
     if (SQL_RAW_METHODS.has(lower)) {
       reportSql(arg0, line, `->${name}`);
@@ -1465,7 +1568,10 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       case "anonymous_function":
       case "arrow_function": {
         analyzeFunction(node, env, ctx, depth + 1, node.type === "arrow_function");
-        return pv();
+        // Kept (with a copy of the scope) so a call through the variable can be followed.
+        if (closureCopies >= MAX_CLOSURE_COPIES) return pv();
+        closureCopies += 1;
+        return pv([], { fn: { node, env: new Map(env), ctx } });
       }
       case "sequence_expression": {
         let last = pv();
@@ -1589,7 +1695,12 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
         const old = env.get(base) ?? pv();
         const leaves = [...old.leaves];
         addLeaves(leaves, stored(value).leaves);
-        env.set(base, { ...old, leaves, table: false, elems: null });
+        // `$args[] = $x` on an array whose elements are known keeps them in order.
+        const appended =
+          index === undefined && old.elems !== null && old.elems.length < MAX_ARRAY_ELEMS
+            ? [...old.elems, stored(value)]
+            : null;
+        env.set(base, { ...old, leaves, table: false, elems: appended });
       }
       if (key !== null && index !== undefined) env.set(key, stored(value));
       return;
@@ -1760,6 +1871,56 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       }
     }
     return [];
+  }
+
+  /** An assignment or increment somewhere inside `node` (it would run before the check applies). */
+  function hasAssignment(node: AstNode): boolean {
+    const stack: AstNode[] = [node];
+    let seen = 0;
+    while (stack.length > 0) {
+      const current = stack.pop() as AstNode;
+      seen += 1;
+      if (seen > 2000) return true;
+      if (
+        current.type === "assignment_expression" ||
+        current.type === "augmented_assignment_expression" ||
+        current.type === "update_expression" ||
+        current.type === "reference_assignment_expression"
+      ) {
+        return true;
+      }
+      for (const child of current.children) stack.push(child);
+    }
+    return false;
+  }
+
+  /**
+   * The checked variable also sits inside an array literal or in a later argument of a call of
+   * the condition (`in_array($x, [$x])`): the list it is compared with can contain the value itself.
+   */
+  function checkedValueInList(condition: AstNode, key: string): boolean {
+    const base = key.split(/[[\-]/, 1)[0] ?? key;
+    let seen = 0;
+    const walk = (node: AstNode, listed: boolean, depth: number): boolean => {
+      seen += 1;
+      if (seen > 2000 || depth > 60) return true;
+      if (node.type === "variable_name") return listed && text(node) === base;
+      const here = listed || node.type === "array_creation_expression";
+      if (node.type === "function_call_expression") {
+        const callee = field(node, "function");
+        if (callee !== undefined && walk(callee, listed, depth + 1)) return true;
+        const list = field(node, "arguments");
+        let index = 0;
+        for (const argument of list?.children ?? []) {
+          if (argument.type !== "argument") continue;
+          if (walk(argument, listed || index > 0, depth + 1)) return true;
+          index += 1;
+        }
+        return false;
+      }
+      return node.children.some((child) => walk(child, here, depth + 1));
+    };
+    return walk(condition, false, 0);
   }
 
   function applyGuards(env: Env, keys: readonly string[]): void {
@@ -1938,12 +2099,30 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
             if (exits) applyGuards(env, guardKeys(left, true));
           }
         }
+        // `abort_unless($ok, 403)` ends the request unless the check held; `abort_if($bad, 403)`
+        // ends it when the check failed. Afterwards the checked value passed.
+        if (inner !== undefined && inner.type === "function_call_expression") {
+          const callName = calleeName(field(inner, "function"));
+          if (
+            (callName === "abort_unless" || callName === "abort_if") &&
+            !functionNames.has(callName)
+          ) {
+            const [condition] = callArgs(inner);
+            if (condition !== undefined && !hasAssignment(inner)) {
+              const keys = guardKeys(condition, callName === "abort_unless").filter(
+                (key) => !checkedValueInList(condition, key),
+              );
+              applyGuards(env, keys);
+            }
+          }
+        }
         return isExitStatement(node);
       }
       case "return_statement":
       case "exit_statement":
       case "echo_statement": {
-        for (const child of named(node)) evaluate(child, env, ctx, depth + 1);
+        const values = named(node).map((child) => evaluate(child, env, ctx, depth + 1));
+        if (node.type === "return_statement" && returns !== null) returns.push(unionAll(values));
         return isExitStatement(node);
       }
       case "break_statement":
@@ -2156,7 +2335,9 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
     ctx: Ctx,
     depth: number,
     isArrow: boolean,
-  ): void {
+    /** A call of a local closure: the arguments its parameters take. */
+    given?: readonly PV[],
+  ): PV {
     const env: Env = new Map();
     if (isArrow) for (const [key, value] of outer) env.set(key, value);
     const use = node.children.find((child) => child.type === "anonymous_function_use_clause");
@@ -2166,7 +2347,9 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       env.set(key, outer.get(key) ?? unknown(key));
     }
     const params = field(node, "parameters");
+    let position = -1;
     for (const parameter of params?.children ?? []) {
+      if (parameter.type.endsWith("_parameter")) position += 1;
       if (
         parameter.type !== "simple_parameter" &&
         parameter.type !== "variadic_parameter" &&
@@ -2180,10 +2363,18 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       const type = typeText(parameter);
       const bare = type.replace(/^\\/, "");
       let value: PV;
-      if (REQUEST_TYPE.test(bare) || (type === "" && REQUEST_NAME.test(key))) {
+      const passed = given === undefined ? undefined : given[position];
+      if (passed !== undefined && !/^(?:int|float|bool|integer)$/i.test(type)) {
+        value = stored(passed);
+      } else if (REQUEST_TYPE.test(bare) || (type === "" && REQUEST_NAME.test(key))) {
         value = pv([], { req: true });
       } else if (/^(?:int|float|bool|integer)$/i.test(type)) {
         value = inferred(`numeric type ${type.toLowerCase()}`);
+      } else if (
+        /^Doctrine\\(?:ORM|DBAL)\\(?:Query\\)?QueryBuilder$/.test(bare) ||
+        (bare === "QueryBuilder" && doctrineBuilderTypes)
+      ) {
+        value = { ...unknown(key), qb: true };
       } else if (DB_TYPE.test(type)) {
         value = pv([], { db: true });
       } else {
@@ -2192,9 +2383,103 @@ export function analyzePhp(ast: AstResult): PhpAnalysis {
       env.set(key, value);
     }
     const body = field(node, "body");
-    if (body === undefined) return;
-    if (isArrow) evaluate(body, env, ctx, depth + 1);
-    else block(body, env, ctx, depth + 1);
+    if (body === undefined) return pv();
+    const saved = returns;
+    returns = given === undefined ? null : [];
+    try {
+      if (isArrow) return evaluate(body, env, ctx, depth + 1);
+      block(body, env, ctx, depth + 1);
+      return returns === null ? pv() : unionAll(returns);
+    } finally {
+      returns = saved;
+    }
+  }
+
+  /**
+   * A call through a variable that holds a closure of this file: the body is evaluated again with
+   * the arguments, so a sink inside sees them. Null when it cannot be followed (the caller then
+   * treats it as an unknown call).
+   */
+  const writesOutside = new Map<AstNode, boolean>();
+  /**
+   * A closure that may change something outside its own variables (a `use (&$x)` or `&$param`
+   * reference, `global`, `static`, a property or `$GLOBALS` write): evaluating it on a copy would
+   * lose the write, so a call of it is not followed (and stays an unsupported dynamic call).
+   */
+  function closureWritesOutside(node: AstNode): boolean {
+    const known = writesOutside.get(node);
+    if (known !== undefined) return known;
+    let found = false;
+    let seen = 0;
+    const stack: AstNode[] = [node];
+    while (stack.length > 0 && !found) {
+      const current = stack.pop() as AstNode;
+      seen += 1;
+      if (seen > 5000) {
+        found = true;
+        break;
+      }
+      switch (current.type) {
+        case "by_ref":
+        case "reference_modifier":
+        case "global_declaration":
+        case "static_variable_declaration":
+        case "reference_assignment_expression":
+          found = true;
+          break;
+        case "assignment_expression":
+        case "augmented_assignment_expression": {
+          const left = field(current, "left");
+          const target = left === undefined ? undefined : unwrap(left);
+          if (
+            target !== undefined &&
+            (target.type === "member_access_expression" ||
+              target.type === "nullsafe_member_access_expression" ||
+              target.type === "scoped_property_access_expression" ||
+              text(target).startsWith("$GLOBALS"))
+          ) {
+            found = true;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+      for (const child of current.children) stack.push(child);
+    }
+    writesOutside.set(node, found);
+    return found;
+  }
+
+  function callClosure(fn: Closure, args: readonly Arg[], depth: number): PV | null {
+    const calls = closureCalls.get(fn.node) ?? 0;
+    if (closureWritesOutside(fn.node)) {
+      // The write cannot be followed, whatever the arguments are.
+      unsupported.add("dynamic calls");
+      return null;
+    }
+    if (
+      closureBusy.has(fn.node) ||
+      calls >= MAX_CLOSURE_CALLS ||
+      depth > MAX_DEPTH - 50 ||
+      args.some((arg) => arg.spread || arg.name !== null)
+    ) {
+      return null;
+    }
+    closureCalls.set(fn.node, calls + 1);
+    closureBusy.add(fn.node);
+    try {
+      return analyzeFunction(
+        fn.node,
+        fn.env,
+        fn.ctx,
+        depth + 1,
+        fn.node.type === "arrow_function",
+        args.map((arg) => arg.value),
+      );
+    } finally {
+      closureBusy.delete(fn.node);
+    }
   }
 
   function analyzeClass(node: AstNode, depth: number): void {
